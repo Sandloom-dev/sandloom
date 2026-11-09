@@ -27,9 +27,30 @@
 
 ``create`` and ``invite`` act at once outside production; with
 ``ENVIRONMENT=prod`` they need ``--apply --confirm-production --reason``. No
-password is a flag or a file. They call identity's ``identity.security.v1``
-contract (local, or through ``SERVICE_BINDINGS`` with an ``RPC_ALLOWED_CALLS``
-grant), so they also work when identity is its own service.
+password is a flag or a file.
+
+Who answers (:mod:`sandloom.core.cli.operator_owner`): two owners, each
+read from the composition root's claim map and confirmed by describe before
+the first side effect (local, or through ``SERVICE_BINDINGS`` with an
+``RPC_ALLOWED_CALLS`` grant, so a CLI process without them works too):
+
+* the ``issuer`` (``<issuer>.security.v1``): the account by address
+  (``account_by_email``), the accounts of a listing (``accounts_by_id``), the
+  password policy (``password_problem``) and the set-password link
+  (``set_password_token``, ``set_password_with_token``,
+  ``reissue_set_password``);
+* the authority of ``roles`` (``<owner>.security.v1``): whether a user is a
+  platform administrator (``is_platform_admin``) and who is
+  (``platform_admin_ids``, ``record_admin_listing`` in production).
+
+``create`` makes the account and its role in one unit of work
+(``create_platform_admin``, ``take_over_platform_admin``), and ``invite``
+mints a link the issuer gives only to an administrator it knows: both need
+one module that is the issuer and the roles owner. With two owners they are
+refused (SANDLOOM-B039) before anything is read or written, never half done:
+create the account at the issuer, then ``sandloom security grant-admin``.
+``list`` joins the roles owner's holders with the issuer's addresses, any
+two owners. A missing method, binding or grant refuses the same way.
 """
 
 from __future__ import annotations
@@ -39,7 +60,7 @@ import asyncio
 import getpass
 import sys
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -49,19 +70,23 @@ from urllib.parse import quote
 from pydantic import TypeAdapter
 
 import sandloom.core.cli.generation_input as _generation_input
+import sandloom.core.cli.operator_owner as _operator_owner
 import sandloom.core.cli.ui as _ui
 import sandloom.core.config.module_settings as _module_settings
 from sandloom.core.cli._operator import _login_name, add_operator_arguments
 from sandloom.core.cli.dev import commands as _dev_commands
 from sandloom.core.cli.dev import errors as _dev_errors
 from sandloom.core.cli.dev.identity import app_name, project_root
+from sandloom.core.cli.operator_owner import (
+    OperatorCapabilityUnavailable,
+    OperatorOwner,
+    OperatorOwnerSubstitution,
+)
 from sandloom.core.composition import load_composition_core
 from sandloom.core.config.settings import settings
 from sandloom.core.module_api._errors import ContractCallError
-from sandloom.core.module_api._service_registry import ServiceNotFound
+from sandloom.core.rpc.errors import RemoteServiceUnavailable
 
-#: The token issuer's operator contract (provided by ``sandloom_identity``).
-SECURITY_CONTRACT = "identity.security.v1"
 #: Where the link points outside production when FRONTEND_URL is not set and
 #: neither a live ``dev run`` nor ``dev up``'s app port says otherwise.
 DEV_BASE_URL = "http://127.0.0.1:8000"
@@ -181,34 +206,135 @@ def _check_link_target() -> None:
     link_for("")
 
 
-def _service(core: Any) -> Any:
-    try:
-        return core.get_service(SECURITY_CONTRACT)
-    except ServiceNotFound as exc:
-        raise _Refused(
-            f"the identity module is not installed here: {SECURITY_CONTRACT} is "
-            "neither local nor bound in SERVICE_BINDINGS"
-        ) from exc
+@dataclass(frozen=True, slots=True)
+class _Side:
+    """One confirmed owner: who it is and the contract to call."""
+
+    owner: OperatorOwner
+    contract: Any
+
+    async def call(self, core: Any, method: str, *args: Any) -> Any:
+        """One call of a confirmed method; the provider's 403 of a caller its
+        ``RPC_ALLOWED_CALLS`` does not list is named as the missing grant."""
+        try:
+            return await getattr(self.contract, method)(*args)
+        except (ContractCallError, RemoteServiceUnavailable) as exc:
+            if (
+                isinstance(exc, RemoteServiceUnavailable)
+                and getattr(exc, "code", None) == "rpc_caller_forbidden"
+            ):
+                raise _operator_owner.forbidden_refusal(
+                    core, self.owner, method
+                ) from exc
+            raise
 
 
-async def _call(service: Any, method: str, *args: Any) -> Any:
-    """One contract call; an identity service without ``method`` is named."""
-    try:
-        bound = getattr(service, method)
-    except AttributeError as exc:
-        raise _Refused(
-            f"the identity service has no {SECURITY_CONTRACT}.{method}: upgrade "
-            "sandloom-identity (and grant it in RPC_ALLOWED_CALLS)"
-        ) from exc
-    try:
-        return await bound(*args)
-    except ContractCallError as exc:
-        if exc.status_code == 404:
-            raise _Refused(
-                f"the identity service has no {SECURITY_CONTRACT}.{method}: "
-                "upgrade sandloom-identity (and grant it in RPC_ALLOWED_CALLS)"
-            ) from exc
-        raise
+@dataclass(frozen=True, slots=True)
+class AdminOwners:
+    """The two owners of a ``sandloom admin`` / ``grant-admin`` command,
+    each confirmed: the ``issuer`` (accounts, credentials, the lookup by
+    address) and the authority of ``roles`` (the platform ``admin`` role).
+    One module may be both."""
+
+    issuer: _Side
+    roles: _Side
+
+    @property
+    def one_module(self) -> bool:
+        """The issuer and the roles owner are the same module."""
+        return self.issuer.owner.path == self.roles.owner.path
+
+
+def _two_owners(command: str, issuer: OperatorOwner, roles: OperatorOwner) -> str:
+    what = (
+        "mints a set-password link the issuer gives only to an administrator it knows"
+        if command == "admin invite"
+        else "creates the account and its platform role in one unit of work"
+    )
+    then = (
+        "reset the administrator's password at the issuer"
+        if command == "admin invite"
+        else "create the account at the issuer (its sign-up, or the external "
+        "provider), then: uv run sandloom security grant-admin --email "
+        '<address> --apply --reason "<why>"'
+    )
+    return (
+        f"{command}: {issuer.label()} and {roles.label()} are different "
+        f"modules; {command} {what}, which needs one module that is both, so "
+        f"nothing was done: {then}"
+    )
+
+
+async def admin_owners(
+    core: Any,
+    command: str,
+    *,
+    issuer: Sequence[str],
+    roles: Sequence[str],
+    together: Sequence[str] = (),
+) -> AdminOwners:
+    """The issuer and the roles owner of ``core``'s composition, each
+    confirmed to provide its methods (``issuer`` / ``roles``), or a refusal
+    (SANDLOOM-B039 / B040, exit 1) before anything is read or written.
+
+    ``together``: methods that act on the account and the role in one unit
+    of work; they need one module that is both owners (two owners: refused
+    first, before any describe), and are confirmed on it.
+    """
+    issuer_owner = _operator_owner.operator_owner(core, "user_lookup", command=command)
+    roles_owner = _operator_owner.operator_owner(
+        core, "platform_admin", command=command
+    )
+    if together and issuer_owner.path != roles_owner.path:
+        raise OperatorCapabilityUnavailable(
+            _two_owners(command, issuer_owner, roles_owner)
+        )
+    issued = await _operator_owner.confirm_operator_capability(
+        core, issuer_owner, [*issuer, *together]
+    )
+    held = await _operator_owner.confirm_operator_capability(core, roles_owner, roles)
+    return AdminOwners(
+        issuer=_Side(issuer_owner, issued), roles=_Side(roles_owner, held)
+    )
+
+
+def _field(answer: Any, name: str) -> Any:
+    """A field of a DTO answer (a model, or a mapping off the wire)."""
+    if isinstance(answer, Mapping):
+        return answer.get(name)
+    return getattr(answer, name, None)
+
+
+@dataclass(frozen=True, slots=True)
+class Standing:
+    """An account as an admin command sees it: the issuer's account joined
+    with the roles owner's answer."""
+
+    user_id: Any
+    email_verified: bool
+    is_active: bool
+    is_platform_admin: bool
+
+
+async def account_standing(
+    core: Any, owners: AdminOwners, email: str, *, with_role: bool = True
+) -> Standing | None:
+    """The issuer's account with this address and, with ``with_role``,
+    whether the roles owner says it is a platform administrator; ``None``
+    without an account."""
+    account = await owners.issuer.call(core, "account_by_email", email)
+    if account is None:
+        return None
+    user_id = _field(account, "user_id")
+    active = _field(account, "is_active")
+    return Standing(
+        user_id=user_id,
+        email_verified=bool(_field(account, "email_verified")),
+        is_active=True if active is None else bool(active),
+        is_platform_admin=bool(
+            with_role and await owners.roles.call(core, "is_platform_admin", user_id)
+        ),
+    )
 
 
 def _key(command: str) -> str:
@@ -254,12 +380,20 @@ def _mode(args: argparse.Namespace) -> str:
     )
 
 
+#: The issuer's methods a mode needs besides the lookup and the link.
+_PASSWORD_METHODS = ("password_problem", "set_password_with_token")
+
+
 async def _read_password(
-    service: Any, email: str, mode: str, ask: Callable[[str], str]
+    core: Any,
+    issuer: _Side,
+    email: str,
+    mode: str,
+    ask: Callable[[str], str],
 ) -> str | None:
     """The password to set, or ``None`` for an invite.
 
-    The provider's ``password_problem`` answer over ``identity.security.v1`` is
+    The issuer's ``password_problem`` answer over ``<issuer>.security.v1`` is
     the only check: the kernel holds no password policy of its own (ADR-0012
     decision 6), so the prompt states no length either.
     """
@@ -267,7 +401,7 @@ async def _read_password(
         return None
     if mode == "stdin":
         password = sys.stdin.readline().rstrip("\r\n")
-        problem = await _call(service, "password_problem", email, password)
+        problem = await issuer.call(core, "password_problem", email, password)
         if problem:
             raise SystemExit(f"error: {problem}")
         return password
@@ -275,7 +409,7 @@ async def _read_password(
     prompt = f"Password for {email} (console administrator of {app}): "
     for _ in range(PROMPT_ATTEMPTS):
         password = ask(prompt)
-        problem = await _call(service, "password_problem", email, password)
+        problem = await issuer.call(core, "password_problem", email, password)
         if problem:
             print(f"{problem}. Try again.", file=sys.stderr)
             continue
@@ -325,13 +459,17 @@ def _check_existing(email: str, standing: Any, args: argparse.Namespace) -> bool
 
 
 async def _new_admin(
-    service: Any, email: str, args: argparse.Namespace, intent: _Intent
+    core: Any,
+    owners: AdminOwners,
+    email: str,
+    args: argparse.Namespace,
+    intent: _Intent,
 ) -> Any:
     """The new administrator's id, or ``None`` when another run made it first
     and ``--if-missing`` allows that."""
     try:
-        return await _call(
-            service,
+        return await owners.issuer.call(
+            core,
             "create_platform_admin",
             email,
             args.name or "",
@@ -343,7 +481,7 @@ async def _new_admin(
         if exc.status_code != 409:
             raise
         # Another run created it first (one user per address).
-        raced = await _call(service, "account_standing", email)
+        raced = await account_standing(core, owners, email)
         if raced is not None and raced.is_platform_admin and args.if_missing:
             print(f"{email} is already an administrator; nothing changed.")
             return None
@@ -364,6 +502,18 @@ def _mode_unless_missing(args: argparse.Namespace) -> str | None:
         return None
 
 
+def _create_methods(args: argparse.Namespace, mode: str | None) -> list[str]:
+    """Everything ``admin create`` may call on the account side, confirmed
+    before the first read: the account and its role are made in one unit
+    (one module that is the issuer and the roles owner)."""
+    methods = ["create_platform_admin", "set_password_token"]
+    if args.take_over:
+        methods.append("take_over_platform_admin")
+    if mode in ("stdin", "prompt"):
+        methods.extend(_PASSWORD_METHODS)
+    return methods
+
+
 async def create_admin(
     core: Any, args: argparse.Namespace, *, ask: Callable[[str], str]
 ) -> int:
@@ -373,15 +523,21 @@ async def create_admin(
     intent = _intent(args, "first administrator")
     if mode == "invite":
         _check_link_target()
-    service = _service(core)
-    standing = await _call(service, "account_standing", email)
+    owners = await admin_owners(
+        core,
+        "admin create",
+        issuer=["account_by_email"],
+        roles=["is_platform_admin"],
+        together=_create_methods(args, mode),
+    )
+    standing = await account_standing(core, owners, email)
     if _check_existing(email, standing, args):
         return 0
     mode = mode or _mode(args)
-    password = await _read_password(service, email, mode, ask)
+    password = await _read_password(core, owners.issuer, email, mode, ask)
     if standing is not None:
-        await _call(
-            service,
+        await owners.issuer.call(
+            core,
             "take_over_platform_admin",
             standing.user_id,
             intent.reason,
@@ -391,19 +547,21 @@ async def create_admin(
         user_id = standing.user_id
         done = f"{email} is now an administrator; its old password no longer works."
     else:
-        user_id = await _new_admin(service, email, args, intent)
+        user_id = await _new_admin(core, owners, email, args, intent)
         if user_id is None:
             return 0
         done = f"Administrator {email} created."
-    token = await _call(service, "set_password_token", user_id)
+    token = await owners.issuer.call(core, "set_password_token", user_id)
     if not token:
-        raise _Refused(f"identity issued no set-password link for {email}")
+        raise _Refused(
+            f"{owners.issuer.owner.module} issued no set-password link for {email}"
+        )
     if password is None:
         _print_link(email, token, created=done)
         return 0
     try:
-        await _call(
-            service, "set_password_with_token", token, password, _key("password")
+        await owners.issuer.call(
+            core, "set_password_with_token", token, password, _key("password")
         )
     except ContractCallError as exc:
         # No link here: the user did not ask for one (--invite), and a
@@ -459,36 +617,57 @@ def _utc(moment: datetime) -> str:
     return moment.strftime("%Y-%m-%d %H:%M UTC")
 
 
+def _listing_row(account: Any, *, show: bool) -> tuple[str, str, str]:
+    """One line of ``admin list`` from the issuer's account: an issuer that
+    keeps no passwords (an external provider) says neither set nor not set,
+    and one without a last sign-in says ``never``."""
+    email = str(_field(account, "email") or "")
+    password_set = _field(account, "password_set")
+    active = _field(account, "is_active")
+    password = (
+        "at the provider"
+        if password_set is None
+        else ("set" if password_set else "not set")
+    ) + ("" if active is None or active else " (deactivated)")
+    last = _field(account, "last_login_at")
+    if isinstance(last, str):
+        last = datetime.fromisoformat(last)
+    return (
+        email if show else mask_email(email),
+        password,
+        _utc(last) if last else "never",
+    )
+
+
 async def list_admins(core: Any, args: argparse.Namespace) -> int:
     """``sandloom admin list``; returns the exit status."""
     intent = _listing_intent(args)
-    service = _service(core)
+    owners = await admin_owners(
+        core,
+        "admin list",
+        issuer=["accounts_by_id"],
+        roles=["platform_admin_ids"]
+        + ([] if intent is None else ["record_admin_listing"]),
+    )
     show = intent is None or bool(args.show_emails)
     if intent is not None:
-        await _call(
-            service,
+        await owners.roles.call(
+            core,
             "record_admin_listing",
             intent.reason,
             intent.operator,
             bool(args.show_emails),
             _key("list"),
         )
-    admins = await _call(service, "list_platform_admins")
+    ids = list(await owners.roles.call(core, "platform_admin_ids"))
+    admins = await owners.issuer.call(core, "accounts_by_id", ids) if ids else []
     if not admins:
         print(
             "No administrator yet. Create one: uv run sandloom admin create "
             "--email you@example.com"
         )
         return 0
-    rows = [
-        (
-            admin.email if show else mask_email(admin.email),
-            ("set" if admin.password_set else "not set")
-            + ("" if admin.is_active else " (deactivated)"),
-            _utc(admin.last_login_at) if admin.last_login_at else "never",
-        )
-        for admin in admins
-    ]
+    rows = [_listing_row(admin, show=show) for admin in admins]
     widths = [
         max(len(r[i]) for r in [("email", "password", "last sign-in"), *rows])
         for i in range(3)
@@ -507,8 +686,14 @@ async def invite_admin(core: Any, args: argparse.Namespace) -> int:
     email = args.email.strip()
     intent = _intent(args, "new set-password link")
     _check_link_target()
-    service = _service(core)
-    standing = await _call(service, "account_standing", email)
+    owners = await admin_owners(
+        core,
+        "admin invite",
+        issuer=["account_by_email"],
+        roles=["is_platform_admin"],
+        together=["reissue_set_password", "set_password_token"],
+    )
+    standing = await account_standing(core, owners, email)
     if standing is None:
         raise _Refused(
             f"no account {email}: create it with "
@@ -520,8 +705,8 @@ async def invite_admin(core: Any, args: argparse.Namespace) -> int:
             f'grant-admin --email {email} --apply --reason "<why>"'
         )
     try:
-        await _call(
-            service,
+        await owners.issuer.call(
+            core,
             "reissue_set_password",
             standing.user_id,
             intent.reason,
@@ -530,9 +715,11 @@ async def invite_admin(core: Any, args: argparse.Namespace) -> int:
         )
     except ContractCallError as exc:
         raise _Refused(f"{email}: {exc.detail}") from exc
-    token = await _call(service, "set_password_token", standing.user_id)
+    token = await owners.issuer.call(core, "set_password_token", standing.user_id)
     if not token:
-        raise _Refused(f"identity issued no set-password link for {email}")
+        raise _Refused(
+            f"{owners.issuer.owner.module} issued no set-password link for {email}"
+        )
     _print_link(email, token, created=f"A new link for {email}; its sessions ended.")
     return 0
 
@@ -656,8 +843,12 @@ def main(argv: list[str] | None = None) -> int:
     except _Refused as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    except (OperatorCapabilityUnavailable, OperatorOwnerSubstitution) as exc:
+        # Refused before anything was done (exit 1, like sandloom security).
+        print(exc.code, file=sys.stderr)
+        return 1
     except ContractCallError as exc:
-        print(f"error: identity refused: {exc.detail}", file=sys.stderr)
+        print(f"error: the owner refused: {exc.detail}", file=sys.stderr)
         return 1
     except SystemExit as exc:
         if isinstance(exc.code, str):
@@ -672,7 +863,10 @@ def main(argv: list[str] | None = None) -> int:
 
 
 __all__ = [
-    "SECURITY_CONTRACT",
+    "AdminOwners",
+    "Standing",
+    "account_standing",
+    "admin_owners",
     "create_admin",
     "invite_admin",
     "link_for",

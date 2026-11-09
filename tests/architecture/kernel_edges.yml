@@ -428,10 +428,10 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: disputed
-    current_status: open
-    target: deferred
+    current_status: fixed
+    target: fixed
     adr: ADR-0012
-    prs: [KB-60]
+    prs: [KB-60, kb-proto-operator-b]
     anchors:
       - {path: sandloom/core/cli/admin.py, literal: identity.security.v1}
       - {path: sandloom/core/cli/security.py, literal: identity.security.v1}

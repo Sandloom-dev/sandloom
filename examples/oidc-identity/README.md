@@ -166,11 +166,14 @@ processes (bindings, allowlist, RPC keys, the EdDSA JWT key); the guides
 
 ## Current limits
 
-- `sandloom admin ...` and `sandloom security grant-admin` still assume
-  `sandloom_identity`; they move to the claim-authority model with task
-  `kb-proto-operator-b` (wave W7). The session commands already work here (see
-  above). A revocation is not a block: use the block route above to refuse the
-  next sign-in.
+- `sandloom security grant-admin` works here: acme_idp finds the account and
+  holds the `admin` role. The role set is the provider's groups, read again at
+  every sign-in, so a grant lasts until the account's next sign-in unless the
+  provider's group carries it too. `sandloom admin list` shows the
+  administrators (password: "at the provider"). `sandloom admin create` and
+  `invite` are refused before anything is done: acme_idp creates no account and
+  keeps no password (people sign in at the provider). A revocation is not a
+  block: use the block route above to refuse the next sign-in.
 - The **admin console** still signs in through identity's `/auth` paths. Login
   through the issuer named in the map is task `kb-proto-console-login`.
 - `acme_idp` is an example, not a hardened product: no refresh tokens, no account

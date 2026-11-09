@@ -416,7 +416,19 @@ BATTERY_CONTRACTS = [
 
 #: acme_idp's operator contract, and what the operator CLI may call on it.
 OPERATOR_CONTRACT = "acme_idp.security.v1"
-OPERATOR_METHODS = ["end_sessions", "list_user_ids", "require_password_reset"]
+OPERATOR_METHODS = [
+    "account_by_email",
+    "accounts_by_id",
+    "appoint_platform_admin",
+    "create_platform_admin",
+    "end_sessions",
+    "list_user_ids",
+    "password_problem",
+    "platform_admin_ids",
+    "require_password_reset",
+    "set_password_token",
+    "set_password_with_token",
+]
 
 
 def split(infra: Infra) -> Topology:
@@ -793,10 +805,12 @@ def _assert_revocation(
     assert refused.status == 401, refused
 
 
-def _security(topo: Topology, *args: str) -> subprocess.CompletedProcess[str]:
-    """``sandloom security ...`` in the batteries' process environment: in
-    split that is P2, which does not load acme_idp and binds its operator
-    contract to P1."""
+def _security(
+    topo: Topology, *args: str, cli: str = "security", stdin: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    """``sandloom security ...`` (or ``sandloom admin ...``) in the batteries'
+    process environment: in split that is P2, which does not load acme_idp
+    and binds its operator contract to P1."""
     proc = topo.batteries
     env = {
         **proc.env,
@@ -811,12 +825,13 @@ def _security(topo: Topology, *args: str) -> subprocess.CompletedProcess[str]:
         [
             sys.executable,
             "-c",
-            "import sys; from sandloom.core.cli.security import main; "
+            f"import sys; from sandloom.core.cli.{cli} import main; "
             "sys.exit(main(sys.argv[1:]))",
             *args,
         ],
         cwd=HERE,
         env=env,
+        input=stdin,
         capture_output=True,
         text=True,
         timeout=120,
@@ -885,6 +900,54 @@ def _assert_operator_security(topo: Topology, infra: Infra) -> None:
     assert call(topo.issuer, "GET", me, again.token).status == 200  # no mark
 
 
+def _count(infra: Infra, statement: str, **params: Any) -> int:
+    return int(asyncio.run(_sql(infra.database_url, statement, **params)))
+
+
+def _assert_operator_admin(topo: Topology, infra: Infra) -> None:
+    """``grant-admin`` and ``admin`` with acme_idp as issuer and roles owner:
+    the grant works (lookup and role both acme_idp's); ``admin create``
+    with a password is refused before anything (no password methods)."""
+    dave = Person("dave")
+    signed_in = sign_in(topo, infra.idp, dave)
+    assert "admin" not in signed_in.claims.get("roles", [])
+    apply = ["--apply", "--reason", "on-call admin OPS-3", "--operator", "al"]
+    dry = _security(topo, "grant-admin", "--email", dave.email)
+    assert dry.returncode == 0, dry.stdout + dry.stderr[-3000:]
+    assert "dry-run grant-admin" in dry.stdout
+    granted = _security(topo, "grant-admin", "--email", dave.email, *apply)
+    assert granted.returncode == 0, granted.stdout + granted.stderr[-3000:]
+    assert "is a platform administrator" in granted.stdout
+    grant_audit = (
+        "SELECT count(*) FROM audit_log WHERE action = "
+        "'acme_idp.account.platform_admin_granted' AND resource_id = :u"
+    )
+    assert _count(infra, grant_audit, u=signed_in.user_id) == 1
+    listed = _security(topo, "list", cli="admin")
+    assert listed.returncode == 0, listed.stdout + listed.stderr[-3000:]
+    assert dave.email in listed.stdout and "at the provider" in listed.stdout
+
+    audits = "SELECT count(*) FROM audit_log WHERE action LIKE 'acme_idp.%'"
+    before = _count(infra, audits)
+    newcomer = f"newcomer-{uuid.uuid4().hex[:8]}@example.com"
+    refused = _security(
+        topo,
+        "create",
+        "--email",
+        newcomer,
+        "--password-stdin",
+        cli="admin",
+        stdin="Long-Enough-Passw0rd!\n",
+    )
+    assert refused.returncode == 1, refused.stdout + refused.stderr[-3000:]
+    assert "SANDLOOM-B039" in refused.stderr, refused.stderr[-3000:]
+    assert "acme_idp.security.v1 has no create_platform_admin" in refused.stderr
+    assert "password_problem" in refused.stderr
+    assert _count(infra, audits) == before  # no audit row
+    accounts = "SELECT count(*) FROM acme_idp_accounts WHERE email = :e"
+    assert _count(infra, accounts, e=newcomer) == 0  # no account
+
+
 def test_identity_replaced_by_an_external_oidc_issuer(
     topology: Topology, infra: Infra
 ) -> None:
@@ -898,3 +961,4 @@ def test_identity_replaced_by_an_external_oidc_issuer(
     )
     _assert_revocation(topology, infra, owner, org, member, outsider)
     _assert_operator_security(topology, infra)
+    _assert_operator_admin(topology, infra)

@@ -7399,6 +7399,10 @@ capabilities:
   tests:
   - src/sandloom_identity/tests/api/test_security_recovery_ops.py::test_appointing_the_first_admin_grants_verifies_and_audits
   - src/sandloom_identity/tests/api/test_security_recovery_ops.py::test_appointing_twice_keeps_one_assignment
+  - src/sandloom/core/tests/test_admin_operator.py::test_grant_admin_reads_the_issuer_and_writes_the_roles_owner
+  - src/sandloom/core/tests/test_admin_operator.py::test_a_grant_dry_run_confirms_both_owners_and_writes_nothing
+  - src/sandloom/core/tests/test_admin_operator.py::test_create_and_invite_with_two_owners_are_refused_first
+  - src/sandloom/core/tests/test_admin_operator.py::test_mono_and_split_give_the_same_output
 - id: C-CONSOLE-05
   statement: 'The admin console serves in front of the composition''s assigned token issuer, not a module
     named identity: sandloom generate writes the issuer and the login entry that issuer declared on its

@@ -1582,6 +1582,7 @@
         "src/sandloom/core/tests/test_absent_claim_policy.py",
         "src/sandloom/core/tests/test_admin_create/test_admin_create_cli.py",
         "src/sandloom/core/tests/test_admin_create/test_admin_notifier_links.py",
+        "src/sandloom/core/tests/test_admin_operator.py",
         "src/sandloom/core/tests/test_aggregate_list.py",
         "src/sandloom/core/tests/test_api_docs_brand.py",
         "src/sandloom/core/tests/test_api_robustness.py",

@@ -1621,6 +1621,15 @@ cannot be described. The refusal names the command, the claim-map key, the
 owner module and its import path, the contract, the missing method and the
 fix.
 
+sandloom admin create and admin invite act on the account and its
+administrator role in one unit (create_platform_admin,
+take_over_platform_admin, a set-password link the issuer mints only for an
+administrator it knows), so the issuer and the owner of roles must be one
+module. With two owners they are refused before anything is read or
+written, never half done: create the account at the issuer, then run
+sandloom security grant-admin, which reads the issuer and writes the roles
+owner and works across two modules.
+
 **Fix:** assign the owner in the composition root's claim_authorities (Authority('&lt;name>', module='&lt;import path>')), run the command where the owner is loaded or bind &lt;owner>.security.v1 in SERVICE_BINDINGS, add the method to the owner's &lt;owner>.security.v1 (or do it at the external provider), or grant the method in RPC_ALLOWED_CALLS
 
 **More:** `docs/operate/operator-reference.md`
