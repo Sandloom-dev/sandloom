@@ -13,17 +13,12 @@ from httpx import ASGITransport, AsyncClient
 
 import sandloom.core.http.tenant_scope as _tenant_scope
 from sandloom.core import di
-from sandloom.core.auth.claims_view import TEST_AUTHORITY, TEST_CPV
-from sandloom.core.auth.tokens import create_access_token
 from sandloom.core.config.settings import settings
 from sandloom.core.http.error_handlers import register_error_handlers
 from sandloom.core.route_policy import resolve_route_policy
 from sandloom.core.tenant_context import MissingTenantError
+from sandloom.core.testing.auth import mint_test_token
 from sandloom.shared.guards.service import current_service
-
-#: The kernel test authority vouches for these raw tokens' claims
-#: (a test composition only; ADR-0014 trusted view).
-_KIT = {"cpv": TEST_CPV, "claims_sources": [TEST_AUTHORITY]}
 
 pytestmark = pytest.mark.asyncio
 
@@ -100,11 +95,10 @@ async def test_a_token_granting_several_tenants_needs_the_selector(
 
     monkeypatch.setattr(_tenant_scope, "ensure_token_not_revoked", _not_revoked)
     one, two = uuid.uuid4(), uuid.uuid4()
-    token = create_access_token(
+    token = mint_test_token(
         {
             "sub": str(uuid.uuid4()),
             "token_type": "access",
-            **_KIT,
             "tenant_ids": [str(one), str(two)],
         }
     )

@@ -147,7 +147,7 @@ async def test_identity_alone_collects_remote_claims(
     )
     issuer_session = object()
     user = uuid4()
-    claims = await core.collect_claims(user, issuer_session, issuer="identity")
+    claims = await core.collect_claims(user, issuer_session, issuer=identity_claims)
 
     assert claims["tenant_ids"] == [org]
     assert claims["roles"] == ["member"]

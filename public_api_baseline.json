@@ -685,7 +685,11 @@
     },
     "create_access_token": {
       "kind": "function",
-      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None, claims_read_at:KEYWORD_ONLY|datetime | None=None) -> str"
+      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None, claims_read_at:KEYWORD_ONLY|datetime | None=None, claims:KEYWORD_ONLY|SealedClaims | None=None) -> str"
+    },
+    "create_service_token": {
+      "kind": "function",
+      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None) -> str"
     },
     "current_tenant_id": {
       "kind": "function",
@@ -2317,6 +2321,10 @@
       "kind": "function",
       "signature": "(module:POSITIONAL_OR_KEYWORD|str, core:KEYWORD_ONLY|Any=None) -> list[str]"
     },
+    "mint_test_token": {
+      "kind": "function",
+      "signature": "(data:POSITIONAL_OR_KEYWORD|Mapping[str, Any], expires_delta:POSITIONAL_OR_KEYWORD|int | None=None, claims_read_at:KEYWORD_ONLY|datetime | None=None) -> str"
+    },
     "model_tables": {
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any=None) -> dict[str, MigrationChain]"
@@ -2364,6 +2372,10 @@
     "run_sql": {
       "kind": "function",
       "signature": "(url:POSITIONAL_OR_KEYWORD|str, sql:POSITIONAL_OR_KEYWORD|str, params:POSITIONAL_OR_KEYWORD|Any=None) -> list[Any]"
+    },
+    "sealed_claims": {
+      "kind": "function",
+      "signature": "(claims:POSITIONAL_OR_KEYWORD|Mapping[str, Any]) -> SealedClaims"
     },
     "set_environment": {
       "kind": "function",
@@ -5360,7 +5372,11 @@
     },
     "create_access_token": {
       "kind": "function",
-      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None, claims_read_at:KEYWORD_ONLY|datetime | None=None) -> str"
+      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None, claims_read_at:KEYWORD_ONLY|datetime | None=None, claims:KEYWORD_ONLY|SealedClaims | None=None) -> str"
+    },
+    "create_service_token": {
+      "kind": "function",
+      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None) -> str"
     },
     "decode_token": {
       "kind": "function",
@@ -5838,6 +5854,10 @@
       "kind": "function",
       "signature": "(module:POSITIONAL_OR_KEYWORD|str, core:KEYWORD_ONLY|Any=None) -> list[str]"
     },
+    "mint_test_token": {
+      "kind": "function",
+      "signature": "(data:POSITIONAL_OR_KEYWORD|Mapping[str, Any], expires_delta:POSITIONAL_OR_KEYWORD|int | None=None, claims_read_at:KEYWORD_ONLY|datetime | None=None) -> str"
+    },
     "model_tables": {
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any=None) -> dict[str, MigrationChain]"
@@ -5925,6 +5945,10 @@
     "run_sql": {
       "kind": "function",
       "signature": "(url:POSITIONAL_OR_KEYWORD|str, sql:POSITIONAL_OR_KEYWORD|str, params:POSITIONAL_OR_KEYWORD|Any=None) -> list[Any]"
+    },
+    "sealed_claims": {
+      "kind": "function",
+      "signature": "(claims:POSITIONAL_OR_KEYWORD|Mapping[str, Any]) -> SealedClaims"
     },
     "served_rpc": {
       "kind": "function",

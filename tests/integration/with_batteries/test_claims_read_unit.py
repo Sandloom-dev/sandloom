@@ -18,6 +18,7 @@ from uuid import uuid4
 import pytest
 
 from sandloom.core.app_factory.claim_authorities import build_claim_authorities
+from sandloom.core.claims import UnsealedClaimsError
 from sandloom.core.descriptors import CapabilityRequirement, ModuleDescriptor
 from sandloom.core.facade import ClaimsUnavailable, CoreFacade
 from sandloom.core.module_api import contract_read_scope, contract_session
@@ -40,6 +41,12 @@ def _core() -> tuple[CoreFacade, Any]:
     core, log = _kernel_core()
     core._assign_claim_authorities(STANDARD)
     return core, log
+
+
+def _issuer(core: CoreFacade) -> Any:
+    """Identity as the issuer, identified by its first registered contributor
+    (``collect_claims`` resolves the issuer from its registration)."""
+    return core._contributors_of("identity")[0]
 
 
 def _register(
@@ -218,7 +225,7 @@ async def test_issuer_runs_concurrently_with_the_shared_lane() -> None:
 
     _register(core, "sandloom_identity", identity, critical=True)
     _register(core, "sandloom_tenancy", tenancy, critical=True)
-    claims = await core.collect_claims(uuid4(), object(), issuer="identity")
+    claims = await core.collect_claims(uuid4(), object(), issuer=_issuer(core))
     assert claims["roles"] == ["member"]
     assert claims["claims_sources"] == ["identity", "tenancy"]
 
@@ -290,7 +297,7 @@ async def test_precomputed_issuer_contributor_is_not_called_but_stamped() -> Non
     _register(core, "sandloom_tenancy", tenancy, critical=True)
 
     claims = await core.collect_claims(
-        uuid4(), object(), issuer="identity", precomputed={roles: {"roles": ["cas"]}}
+        uuid4(), object(), issuer=_issuer(core), precomputed={roles: {"roles": ["cas"]}}
     )
 
     assert claims["roles"] == ["cas"] and claims["extra"] is True
@@ -305,16 +312,31 @@ async def test_precomputed_never_stands_in_for_another_owner() -> None:
     async def tenancy(user_id: Any) -> dict[str, Any]:
         return {"tenant_ids": ["real"]}
 
+    async def identity(user_id: Any) -> dict[str, Any]:
+        return {"roles": []}
+
     _register(core, "sandloom_tenancy", tenancy, critical=True)
-    # No issuer session: ignored; and tenancy is not the issuer anyway.
-    claims = await core.collect_claims(
-        uuid4(), precomputed={tenancy: {"tenant_ids": ["forged"]}}
-    )
-    assert claims["tenant_ids"] == ["real"]
-    claims = await core.collect_claims(
-        uuid4(),
-        object(),
-        issuer="identity",
-        precomputed={tenancy: {"tenant_ids": ["forged"]}},
-    )
+    _register(core, "sandloom_identity", identity, critical=True)
+    # No issuer session: refused (precomputed is the verified issuer's own).
+    with pytest.raises(UnsealedClaimsError, match="only with issuer"):
+        await core.collect_claims(
+            uuid4(), precomputed={tenancy: {"tenant_ids": ["forged"]}}
+        )
+    # Tenancy is not the issuer: refused, never stood in for it.
+    with pytest.raises(UnsealedClaimsError, match="not a claims contributor of"):
+        await core.collect_claims(
+            uuid4(),
+            object(),
+            issuer=_issuer(core),
+            precomputed={tenancy: {"tenant_ids": ["forged"]}},
+        )
+    # Nor may the issuer's own carry tenancy's key.
+    with pytest.raises(UnsealedClaimsError, match="does not assign"):
+        await core.collect_claims(
+            uuid4(),
+            object(),
+            issuer=_issuer(core),
+            precomputed={identity: {"tenant_ids": ["forged"]}},
+        )
+    claims = await core.collect_claims(uuid4(), object(), issuer=_issuer(core))
     assert claims["tenant_ids"] == ["real"]

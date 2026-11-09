@@ -43,6 +43,7 @@ import inspect
 import sys
 import types
 import typing
+import weakref
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
@@ -51,8 +52,13 @@ from uuid import UUID
 
 import orjson
 from pydantic import BaseModel, TypeAdapter
+from pydantic.errors import PydanticInvalidForJsonSchema
 
-from sandloom.core.descriptors.contract_refs import dto_copies
+from sandloom.core.descriptors.contract_refs import (
+    contract_copies,
+    copy_origin,
+    dto_copies,
+)
 
 WIRE_TAG = "$sandloom_type"
 WIRE_VALUE = "value"
@@ -773,8 +779,73 @@ def _resolve_ref(ref: str) -> Any:
     return obj
 
 
-def annotation_from_descriptor(desc: dict[str, Any]) -> Any:  # noqa: C901
+#: Descriptor keys that name a class, not its wire shape.
+_NOMINAL_KEYS = frozenset({"ref", "schema_hash"})
+
+
+def _shape(desc: Any) -> bytes:
+    """The wire shape of a model / Enum descriptor: everything but the names
+    of the classes (``ref``) and the schema hash (titles, docstrings)."""
+
+    def strip(node: Any) -> Any:
+        if isinstance(node, dict):
+            return {k: strip(v) for k, v in node.items() if k not in _NOMINAL_KEYS}
+        if isinstance(node, (list, tuple)):
+            return [strip(v) for v in node]
+        return node
+
+    return orjson.dumps(strip(desc), option=orjson.OPT_SORT_KEYS)
+
+
+_copy_shapes: weakref.WeakKeyDictionary[type, bytes | None] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _copy_shape(copy: type) -> bytes | None:
+    try:
+        return _copy_shapes[copy]
+    except KeyError:
+        pass
+    try:
+        shape: bytes | None = _shape(type_descriptor(copy))
+    except (ContractTypeError, PydanticInvalidForJsonSchema):
+        # a copy with no wire descriptor matches nothing
+        shape = None
+    _copy_shapes[copy] = shape
+    return shape
+
+
+def _copy_by_shape(contract: str, desc: dict[str, Any]) -> Any:
+    """The consumer's generated copy of ``contract`` whose wire shape equals
+    ``desc``: how a replacement provider's own class (another module path
+    than any copy's origin) decodes into the copy. Never a guess: more than
+    one copy of the shape from different origins is resolved by the class
+    name, else none (the result stays plain data)."""
+    kind = desc.get("k")
+    want = _shape(desc)
+    found = [
+        copy
+        for copy in contract_copies(contract)
+        if _copy_shape(copy) == want
+        and ((kind == "enum") == (inspect.isclass(copy) and issubclass(copy, Enum)))
+    ]
+    if len({copy_origin(copy) for copy in found}) > 1:
+        name = str(desc.get("ref", "")).rpartition(":")[2]
+        found = [copy for copy in found if copy.__name__ == name]
+        if len({copy_origin(copy) for copy in found}) != 1:
+            return None
+    return found[0] if found else None
+
+
+def annotation_from_descriptor(  # noqa: C901
+    desc: dict[str, Any], contract: str | None = None
+) -> Any:
     """Rebuild an annotation from :func:`type_descriptor` output.
+
+    ``contract`` is the contract the descriptor belongs to: a model / Enum
+    whose class matches no loaded copy by origin (a replacement provider's own
+    DTO) resolves to the copy of that contract with the same wire shape.
 
     A pydantic model / Enum resolves to the caller's class when its module is
     already imported in the caller process (the DTO lives in a package both
@@ -790,12 +861,16 @@ def annotation_from_descriptor(desc: dict[str, Any]) -> Any:  # noqa: C901
         return _SCALAR_BY_NAME.get(str(desc.get("t")), Any)
     if kind == "enum":
         resolved = _resolve_ref(str(desc.get("ref", "")))
+        if resolved is None and contract:
+            resolved = _copy_by_shape(contract, desc)
         if inspect.isclass(resolved) and issubclass(resolved, Enum):
             return resolved
         values = tuple(decode_untyped(v) for v in desc.get("values") or ())
         return Literal[values] if values else Any
     if kind == "model":
         resolved = _resolve_ref(str(desc.get("ref", "")))
+        if resolved is None and contract:
+            resolved = _copy_by_shape(contract, desc)
         if inspect.isclass(resolved) and issubclass(resolved, BaseModel):
             return resolved
         return dict[str, Any]
@@ -803,21 +878,26 @@ def annotation_from_descriptor(desc: dict[str, Any]) -> Any:  # noqa: C901
         values = tuple(desc.get("values") or ())
         return Literal[values] if values else Any
     if kind in ("list", "set", "frozenset"):
-        item = annotation_from_descriptor(desc.get("item") or {"k": "any"})
+        item = annotation_from_descriptor(desc.get("item") or {"k": "any"}, contract)
         container = {"list": list, "set": set, "frozenset": frozenset}[str(kind)]
         return container[item]  # type: ignore[index]
     if kind == "tuple":
         if desc.get("variadic"):
-            return tuple[annotation_from_descriptor(desc.get("item") or {}), ...]  # type: ignore[misc]
-        items = tuple(annotation_from_descriptor(d) for d in desc.get("items") or ())
+            element = annotation_from_descriptor(desc.get("item") or {}, contract)
+            return tuple[element, ...]  # type: ignore[valid-type]
+        items = tuple(
+            annotation_from_descriptor(d, contract) for d in desc.get("items") or ()
+        )
         return tuple[items] if items else tuple[()]  # type: ignore[valid-type]
     if kind == "dict":
         return dict[  # type: ignore[misc]
-            annotation_from_descriptor(desc.get("key") or {}),
-            annotation_from_descriptor(desc.get("value") or {}),
+            annotation_from_descriptor(desc.get("key") or {}, contract),
+            annotation_from_descriptor(desc.get("value") or {}, contract),
         ]
     if kind == "union":
-        members = tuple(annotation_from_descriptor(d) for d in desc.get("of") or ())
+        members = tuple(
+            annotation_from_descriptor(d, contract) for d in desc.get("of") or ()
+        )
         return Union[members] if members else Any  # noqa: UP007
     return Any
 

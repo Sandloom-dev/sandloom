@@ -129,11 +129,11 @@ class TokenService:
         # accept) trust ``email`` only when the user proved ownership of the
         # address, so neither is written after the check. Without a core
         # there is no check, so neither is minted.
-        extra_claims = (
+        sealed = (
             await core.collect_claims(
                 user.id,
                 db,
-                issuer="identity",
+                issuer=contribute_identity_claims,
                 precomputed=(
                     {contribute_identity_claims: identity_claims}
                     if identity_claims is not None
@@ -145,18 +145,18 @@ class TokenService:
                 },
             )
             if core
-            else {}
+            else None
         )
 
         # Create access token (token_type lets guards reject non-access JWTs).
-        claims: dict[str, Any] = {
-            **extra_claims,
-            "sub": str(user.id),
-            "token_type": "access",
-        }
+        # The envelope is identity's; every claim of the token is the sealed
+        # collect_claims result (the kernel refuses them anywhere else).
+        envelope: dict[str, Any] = {"sub": str(user.id), "token_type": "access"}
         if auth_time is not None:
-            claims["auth_time"] = int(auth_time.timestamp())
-        access_token = create_access_token(data=claims, claims_read_at=claims_read_at)
+            envelope["auth_time"] = int(auth_time.timestamp())
+        access_token = create_access_token(
+            data=envelope, claims=sealed, claims_read_at=claims_read_at
+        )
 
         # Create refresh token
         refresh_token_value = secrets.token_urlsafe(32)
