@@ -22,6 +22,9 @@ Rules:
   Don't read `design/kernel-boundary/requirements.md` or `migration-plan.md`
   whole; `grep -n` them. `design/kernel-boundary/_archive/` is finished
   research: skip it unless the prompt names it.
+- Before opening a registry, CI config or kernel entry point, read the matching
+  section of `.claude/agent-reference.md` (registry formats, CI by path,
+  `file:line` kernel map, plan index).
 - One simple command per call. In a worktree, no `for` / `source` / `&&` /
   heredoc around `git`.
 - Run only the tests that prove or refute a finding, never `sandloom test --full`
