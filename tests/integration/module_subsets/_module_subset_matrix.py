@@ -5,7 +5,13 @@ interpreter: ``create_app`` (through the profile's composition root), the
 lifespan, ``/health``, ``/ready`` and ``sandloom --help``. The infrastructure
 probes are replaced by passing ones (no database, cache or broker runs): what
 is checked is that the subset composes and that the probes answer, not the
-services behind them.
+services behind them. That is the **stubbed** matrix (``expected``): it proves
+composition, not infrastructure. A stub hides a missing driver or an
+unreachable service, so the lanes below (``expected_unstubbed``, KB-IC-4, the
+owner decision on module infrastructure dependencies) replace only what is not
+under test and leave the rest real: Celery and Redis installed with real
+services, a Python driver missing (no stub for the cache or taskqueue check),
+a taskqueue driver that does not advertise ``periodic``, an unreachable broker.
 
 An outcome is one of:
 
@@ -16,6 +22,10 @@ An outcome is one of:
   does: billing needs only ``periodic`` (the worker and beat run it) and
   identity's queue is optional, so the web process reports ``unused`` and a
   missing driver is a startup refusal instead (B037, KB-IC-1);
+- **not ready, cache**: boots, ``/health`` and ``/ready`` answer 503 with the
+  ``cache`` check failing because the redis package is not installed (the
+  kernel's own cache, revocation and security state; the unstubbed lanes show
+  it, a stub hides it);
 - **refused**: startup stops before serving, only for a reason in
   :data:`PREDEFINED_REFUSALS`, with its code and a message naming what is
   missing (owner answer #4). On today's declarations no bundled module
@@ -77,6 +87,14 @@ PREDEFINED_REFUSALS: dict[str, str] = {
 #: taskqueue with ``periodic`` (Celery). Their subsets refuse with B037 there.
 NEEDS_DRIVER_EXTRAS = frozenset({"identity", "billing"})
 
+#: What a B037 refusal names, per module (owner decision, answer #8): the
+#: module, the capability and, for ``periodic``, the feature and the driver
+#: package: the guarantee that is missing, not only a package.
+REFUSAL_NAMES: dict[str, tuple[str, ...]] = {
+    "identity": ("sandloom_identity", "cache", "redis"),
+    "billing": ("sandloom_billing", "taskqueue", "periodic", "celery"),
+}
+
 #: The environment every probe runs with: placeholders only, nothing listens.
 PROBE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:1/db",
@@ -97,7 +115,8 @@ _KEPT = ("PATH", "HOME", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT", "LANG", "LC_ALL"
 class Outcome:
     """What one subset is expected to do, or did."""
 
-    kind: str  # "ready" | "not_ready_taskqueue" | "refused"
+    #: "ready" | "not_ready_taskqueue" | "not_ready_cache" | "refused"
+    kind: str
     taskqueue: str | None = None  # /ready's taskqueue_status
     refusal: str | None = None  # a PREDEFINED_REFUSALS key
 
@@ -111,14 +130,45 @@ def expected(subset: Sequence[str], *, celery: bool) -> Outcome:
     return Outcome("ready", taskqueue="unused")
 
 
+def expected_unstubbed(
+    subset: Sequence[str],
+    *,
+    redis: bool = True,
+    celery: bool = True,
+    periodic: bool = True,
+) -> Outcome:
+    """The expected outcome with real health probes (KB-IC-4, I-19).
+
+    ``redis`` / ``celery``: the package is installed. ``periodic``: the
+    selected taskqueue driver advertises it. A module whose required
+    capability has no installed driver with its features is refused (B037);
+    identity requires the cache, billing the taskqueue with ``periodic``.
+    Without redis-py the kernel's own cache still fails its check, so every
+    other subset boots but is not ready. Everything present: ready.
+    """
+    if (not redis and "identity" in subset) or (
+        not (celery and periodic) and "billing" in subset
+    ):
+        return Outcome("refused", refusal="SANDLOOM-B037")
+    if not redis:
+        return Outcome("not_ready_cache")
+    return Outcome("ready", taskqueue="unused")
+
+
 #: Run in a fresh interpreter of the profile's environment. argv[1] is the
 #: composition root (``kernel``: the kernel factory with no default modules,
-#: the empty subset where modules are installed). The last stdout line is the
-#: JSON result.
+#: the empty subset where modules are installed). argv[2], optional, is a JSON
+#: object: ``stub`` (``"all"``, the default, or the names of the health checks
+#: to replace by passing ones; the others stay real) and ``block`` (top-level
+#: packages made unimportable, which ``find_spec`` also reports missing). The
+#: last stdout line is the JSON result.
 BOOT_PROBE = r"""
 import asyncio, importlib, importlib.util, json, re, sys, time, traceback
 
 root = sys.argv[1]
+config = json.loads(sys.argv[2]) if len(sys.argv) > 2 else {}
+for blocked in config.get("block", ()):
+    sys.modules[blocked] = None
 result = {"celery_installed": importlib.util.find_spec("celery") is not None}
 started = time.perf_counter()
 try:
@@ -159,8 +209,10 @@ else:
 
     async def probe():
         async with app.router.lifespan_context(app):
+            stub = config.get("stub", "all")
             for name in list(core.health_checks):
-                core.register_health_check(name, ok)
+                if stub == "all" or name in stub:
+                    core.register_health_check(name, ok)
             transport = httpx.ASGITransport(app=app)
             headers = {"X-Internal-Token": "module-subset-matrix-internal-token"}
             async with httpx.AsyncClient(
@@ -170,6 +222,7 @@ else:
 
     responses = asyncio.run(probe())
     ready = responses["/ready"].json()
+    health_checks = responses["/health"].json().get("checks", {})
     result.update(
         outcome="booted",
         loaded=sorted(core.loaded_modules),
@@ -177,7 +230,8 @@ else:
         ready=responses["/ready"].status_code,
         taskqueue=ready.get("taskqueue_status"),
         ready_body=ready,
-        celery_imported="celery" in sys.modules,
+        health_checks=health_checks,
+        celery_imported=sys.modules.get("celery") is not None,
     )
 print(json.dumps(result))
 """
@@ -208,6 +262,13 @@ class SubsetRun:
             and probe["taskqueue"] == "fail"
         ):
             return Outcome("not_ready_taskqueue", taskqueue="fail")
+        cache = (probe.get("health_checks") or {}).get("cache", {})
+        if (
+            probe["health"] == 503
+            and probe["ready"] == 503
+            and cache.get("status") == "fail"
+        ):
+            return Outcome("not_ready_cache")
         return Outcome(f"health {probe['health']}, ready {probe['ready']}")
 
 
@@ -224,11 +285,22 @@ def run_subset(
     root: str,
     cwd: Path,
     env: Mapping[str, str],
+    probe_config: Mapping[str, Any] | None = None,
 ) -> SubsetRun:
-    """Boot ``subset`` with ``python`` and run ``sandloom --help``, both fresh."""
+    """Boot ``subset`` with ``python`` and run ``sandloom --help``, both fresh.
+
+    ``probe_config`` is :data:`BOOT_PROBE`'s argv[2]: which health checks to
+    stub (all, by default) and which packages to make unimportable.
+    """
     started = time.perf_counter()
     done = subprocess.run(
-        [str(python), "-c", BOOT_PROBE, root],
+        [
+            str(python),
+            "-c",
+            BOOT_PROBE,
+            root,
+            *([json.dumps(dict(probe_config))] if probe_config else []),
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -271,8 +343,19 @@ def run_matrix(
         return dict(zip(subsets, pool.map(run, subsets), strict=True))
 
 
-def check_run(run: SubsetRun, want: Outcome, *, celery: bool) -> None:
-    """Assert the run's outcome is ``want``, with everything I-19 asks of it."""
+def check_run(
+    run: SubsetRun,
+    want: Outcome,
+    *,
+    celery: bool,
+    names: Mapping[str, Sequence[str]] | None = None,
+) -> None:
+    """Assert the run's outcome is ``want``, with everything I-19 asks of it.
+
+    A B037 refusal names, for each module of the subset in ``names`` (default
+    :data:`REFUSAL_NAMES`), the module, the capability and the missing feature
+    or package: the guarantee that is missing, not only a package.
+    """
     probe = run.probe
     context = json.dumps(
         {k: v for k, v in probe.items() if k != "traceback"}, indent=1, default=str
@@ -287,6 +370,12 @@ def check_run(run: SubsetRun, want: Outcome, *, celery: bool) -> None:
             f"{run.subset} refused for a reason that is not predefined: {context}"
         )
         assert probe.get("message"), f"{run.subset}: a refusal names what is missing"
+        if got.refusal == "SANDLOOM-B037":
+            for module in run.subset:
+                for token in (names or REFUSAL_NAMES).get(module, ()):
+                    assert token in probe["message"], (
+                        f"{run.subset}: the refusal does not name {token!r}\n{context}"
+                    )
     assert got == want, f"{run.subset}: expected {want}, got {got}\n{context}"
     if got.kind != "refused":
         assert probe["loaded"] == sorted(MODULES[m][0] for m in run.subset), (
