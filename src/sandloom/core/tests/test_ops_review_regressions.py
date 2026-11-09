@@ -270,6 +270,7 @@ async def test_token_signing_refusal_happens_before_startup_network_work(
     from unittest.mock import AsyncMock
 
     from sandloom.core import app_factory
+    from sandloom.core.tests._root_support import create_root_app
 
     startup = AsyncMock()
     monkeypatch.setattr(app_factory.lifecycle, "run_startup", startup)
@@ -278,7 +279,7 @@ async def test_token_signing_refusal_happens_before_startup_network_work(
         "sandloom.core.auth.tokens.token_signing_problem",
         lambda **_: "bad signing role",
     )
-    app = app_factory.create_app()
+    app = create_root_app()
     with pytest.raises(RuntimeError, match="bad signing role"):
         async with app.router.lifespan_context(app):
             pass

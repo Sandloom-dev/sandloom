@@ -19,6 +19,7 @@ from sandloom.core import app_factory
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.drivers.linger_pool import LingeringQueuePool
+from sandloom.core.tests._root_support import create_root_app
 
 #: What a first run printed before the password prompt and under the spinner.
 CHATTER = re.compile(
@@ -33,7 +34,7 @@ async def test_a_boot_logs_no_startup_chatter_at_info(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with caplog.at_level(logging.INFO):
-        app = app_factory.create_app()
+        app = create_root_app()
         async with app.router.lifespan_context(app):
             pass
     loud = [
@@ -46,7 +47,7 @@ async def test_a_boot_logs_no_startup_chatter_at_info(
     monkeypatch.setattr(settings, "log_level", "DEBUG")
     with caplog.at_level(logging.DEBUG):
         caplog.clear()
-        app_factory.create_app()
+        create_root_app()
     assert any("[plugin_loader]" in r.getMessage() for r in caplog.records)
 
 
