@@ -350,3 +350,26 @@ async def test_one_broker_connection_per_ttl_however_many_ready_hits(
     for _ in range(25):
         assert (await _get(background, "/ready")).status_code == 200
     assert opened == [2.0]
+
+
+async def test_the_health_infra_check_never_probes_a_taskqueue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``/health``'s check of the named instances skips the taskqueue: no
+    broker connection per TTL, and a named instance on a broker that is down
+    does not fail ``/health`` (readiness owns the taskqueue)."""
+    pytest.importorskip("celery")
+    from sandloom.core.app_factory.lifecycle import _register_health_checks
+    from sandloom.core.infra.config import InstanceConfig
+
+    opened = _count_broker_connections(monkeypatch)
+    _, core = _ops_app(monkeypatch, [_ENQUEUES], broker=_DOWN_BROKER)
+    core.infra.configure_instance(
+        InstanceConfig("taskqueue", "jobs", "celery", {"broker": _DOWN_BROKER})
+    )
+    _register_health_checks(core, core.infra)
+
+    result = await core.health_checks["infra"]()
+
+    assert result.status == "ok", result.details
+    assert opened == []
