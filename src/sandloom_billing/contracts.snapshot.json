@@ -123,7 +123,7 @@
       }
     },
     "billing.entitlements.v1": {
-      "hash": "606e102e41efe84e231b3e2d72baca07",
+      "hash": "06b3bd8fb80cfd0994a1f0afa174d174",
       "methods": {
         "check_subscription_active": {
           "access_check": {
@@ -137,6 +137,7 @@
             },
             "category": "payment_required",
             "claim": {
+              "absent_claim": "deny",
               "category": "payment_required",
               "claim_key": "subscription_status",
               "claim_keys": [

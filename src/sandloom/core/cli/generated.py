@@ -469,6 +469,9 @@ def _render_claim(
         "statuses": list(spec["statuses"]),
         "tier": 1,
         "category": spec["category"],
+        # The owner's declaration for its primary claim proven absent; a
+        # spec without one (an older owner) declares "unknown".
+        "absent_claim": spec.get("absent_claim") or "unknown",
     }
     if spec.get("describe"):
         literal["describe"] = spec["describe"]

@@ -165,6 +165,10 @@ SUBSCRIPTION_ACTIVE_FACT = AccessFact(
     atom_statuses=CLAIM_STATUSES,
     atom_claim_keys=("subscription_status",),
     atom_describe="active subscription",
+    # Billing's contract: ``subscription_claims()`` writes no
+    # ``subscription_status`` for a user with no billing customer, so billing's
+    # own claim proven absent is "no subscription", the 402 above (KB-33h).
+    absent_claim="deny",
 )
 
 ORG_SUBSCRIPTION_ACTIVE_FACT = AccessFact(

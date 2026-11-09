@@ -256,6 +256,26 @@ website renders this same changelog.
   An absent status on a token without provenance or `cpv` answers 501
   instead of 402. A user with no billing customer gets 402 from
   `Subscribed(statuses=...)` instead of 501.
+- **An absent claim is a deny only where its fact owner declares it**
+  (KB-33h, G-AUTH-12, G-AUTHZ-12). Provenance proves which authority ran at
+  the mint, not that a claim it did not write means "no". KB-33g read the
+  primary claim of any owner's `AccessFact(atom=...)`, proven absent, as that
+  owner's deny, so a third-party contributor that had not yet computed a
+  claim let `~Atom(of=Account.user())` allow. `AccessFact` gains
+  `absent_claim="unknown" | "deny"`, default `"unknown"`: a proven absence
+  is 501 `access_unknown`, and `Not` over it never allows. With `"deny"` it
+  is the fact's definite deny with the fact's own `deny_category`, only for
+  its primary claim, and only when every KB-33g provenance condition holds.
+  The field travels in the generated atom's literal, the contract's describe
+  document and the `<owner>.facts.v1` descriptor. A literal or descriptor
+  without it means `"unknown"`. A provider that withdraws `"deny"` fails the
+  contract compatibility check. Billing's `subscription.active` declares
+  `"deny"`, so `Subscribed` is unchanged. Upgrade: a module whose
+  `AccessFact(atom=...)` relied on the 402 / 403 for a user its contributor
+  wrote no claim for sets `absent_claim="deny"` if absence really means "no",
+  then runs `sandloom generate`. Consumers run `sandloom generate` to pick up
+  billing's declaration; until then a stub without the field answers 501
+  for a user with no billing customer.
 - **The mint issuer binding; claim atoms honour the trusted view** (kb-rf-trust,
   ADR-0014 amendment "W2+W3 review fixes"). `collect_claims(precomputed=...)`
   and `collect_claims(issuer_claims=...)` are accepted only when the `issuer=`
