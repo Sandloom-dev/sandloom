@@ -423,7 +423,12 @@ def _with_policy_contracts(
 def _merge_consumes(
     explicit: Sequence[Any], derived: Sequence[ContractRequirement]
 ) -> list[Any]:
-    """Explicit requirements plus derived ones, never weaker than either."""
+    """Explicit requirements plus derived ones, never weaker than either.
+
+    Methods: the union when both list them; the explicit list when the
+    derived entry has none (a call the derivation cannot resolve, which
+    ``consumes=`` states, ADR-0013 decision 2); none when the explicit
+    entry lists none."""
     out: list[Any] = [
         ContractRequirement(c) if isinstance(c, str) else c for c in explicit
     ]
@@ -436,7 +441,7 @@ def _merge_consumes(
             continue
         current = out[index]
         methods: tuple[str, ...] = ()
-        if current.methods and req.methods:
+        if current.methods:
             methods = tuple(sorted(set(current.methods) | set(req.methods)))
         out[index] = ContractRequirement(
             current.name,
