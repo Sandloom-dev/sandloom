@@ -2572,6 +2572,7 @@ standard = [
     { name = "redis" },
     { name = "sandloom-billing" },
     { name = "sandloom-identity" },
+    { name = "sandloom-standard" },
     { name = "sandloom-tenancy" },
 ]
 
@@ -2610,6 +2611,7 @@ requires-dist = [
     { name = "sandloom-billing", marker = "extra == 'standard'", specifier = ">=0.7.0a11,<0.8" },
     { name = "sandloom-identity", marker = "extra == 'admin'", specifier = ">=0.7.0a11,<0.8" },
     { name = "sandloom-identity", marker = "extra == 'standard'", specifier = ">=0.7.0a11,<0.8" },
+    { name = "sandloom-standard", marker = "extra == 'standard'", specifier = ">=0.7.0a11,<0.8" },
     { name = "sandloom-tenancy", marker = "extra == 'standard'", specifier = ">=0.7.0a11,<0.8" },
     { name = "sentry-sdk", marker = "extra == 'sentry'", specifier = ">=2.72.0,<3" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.1.4,<2.2" },
@@ -2642,6 +2644,7 @@ dependencies = [
     { name = "sandloom", extra = ["fast", "standard"] },
     { name = "sandloom-billing" },
     { name = "sandloom-identity" },
+    { name = "sandloom-standard" },
     { name = "sandloom-tenancy" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "starlette" },
@@ -2669,6 +2672,7 @@ requires-dist = [
     { name = "sandloom", extras = ["fast", "standard"], editable = "../packages/sandloom" },
     { name = "sandloom-billing", editable = "../packages/sandloom-billing" },
     { name = "sandloom-identity", editable = "../packages/sandloom-identity" },
+    { name = "sandloom-standard", editable = "../packages/sandloom-standard" },
     { name = "sandloom-tenancy", editable = "../packages/sandloom-tenancy" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = "==2.1.5" },
     { name = "starlette", specifier = "==1.6.0" },
@@ -2692,6 +2696,7 @@ name = "sandloom-identity"
 version = "0.7.0a11"
 source = { editable = "../packages/sandloom-identity" }
 dependencies = [
+    { name = "argon2-cffi" },
     { name = "authlib" },
     { name = "email-validator" },
     { name = "itsdangerous" },
@@ -2703,6 +2708,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "argon2-cffi", specifier = ">=25.1.0,<26" },
     { name = "authlib", specifier = ">=1.9.1,<2" },
     { name = "email-validator", specifier = ">=2.3.0,<3" },
     { name = "itsdangerous", specifier = ">=2.2.0,<3" },
@@ -2711,6 +2717,17 @@ requires-dist = [
     { name = "qrcode", specifier = ">=8.2,<9" },
     { name = "sandloom", specifier = ">=0.7.0a11,<0.8" },
 ]
+
+[[package]]
+name = "sandloom-standard"
+version = "0.7.0a11"
+source = { editable = "../packages/sandloom-standard" }
+dependencies = [
+    { name = "sandloom" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "sandloom", specifier = ">=0.7.0a11,<0.8" }]
 
 [[package]]
 name = "sandloom-tenancy"

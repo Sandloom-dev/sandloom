@@ -166,7 +166,7 @@ async def _mint(core: Any) -> str:
 
     claims = await core.collect_claims(USER)
     return tokens.create_access_token(
-        {"sub": str(USER), "token_type": "access", **claims}
+        {"sub": str(USER), "token_type": "access"}, claims=claims
     )
 
 

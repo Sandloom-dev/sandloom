@@ -51,7 +51,11 @@ from sandloom.core.di import (
     record_audit,
 )
 from sandloom.core.planner import ExecutionContext
-from sandloom.core.testing import make_user_headers, register_event_schemas
+from sandloom.core.testing import (
+    make_user_headers,
+    mint_test_token,
+    register_event_schemas,
+)
 from sandloom.core.testing.infra import override_instance
 from sandloom.core.unit_of_work.dispatch import drain_post_commit
 from benchsuite import common
@@ -710,7 +714,10 @@ def merged_tx(kinds: list[str]) -> list[str]:
 # --------------------------------------------------------------------------- #
 # 6. Auth / gates: 401 / 402 / 403 — and the database is never touched
 # --------------------------------------------------------------------------- #
-def _token(**over: Any) -> str:
+def _raw_token(**over: Any) -> str:
+    """A bare HS256 JWT: no ``cpv``, no provenance. Only for the cases that
+    pin an envelope rejection (a token with no ``iat``); a trusted token is
+    :func:`_token`."""
     now = datetime.now(UTC)
     claims: dict[str, Any] = {
         "sub": str(uuid.uuid4()),
@@ -725,6 +732,24 @@ def _token(**over: Any) -> str:
     claims.update(over)
     claims = {k: v for k, v in claims.items() if v is not None}
     return jwt.encode(claims, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def _token(**over: Any) -> str:
+    """A token the kernel test authority vouches for (``mint_test_token``:
+    the sealed mint, never a bare JWT); ``exp`` becomes the mint's lifetime."""
+    now = datetime.now(UTC)
+    claims: dict[str, Any] = {
+        "sub": str(uuid.uuid4()),
+        "token_type": "access",
+        "tenant_id": str(A),
+        "tenant_ids": [str(A)],
+        "subscription_status": "active",
+    }
+    exp = over.pop("exp", None)
+    claims.update(over)
+    claims = {k: v for k, v in claims.items() if v is not None}
+    minutes = None if exp is None else int((exp - now).total_seconds() // 60)
+    return mint_test_token(claims, minutes)
 
 
 @pytest.mark.parametrize(
@@ -770,7 +795,7 @@ async def test_auth_and_gates(s5: S5, case: str, status: int) -> None:
     elif case == "refresh_token":
         h["Authorization"] = "Bearer " + _token(token_type="refresh")
     elif case == "no_iat":
-        h["Authorization"] = "Bearer " + _token(iat=None)
+        h["Authorization"] = "Bearer " + _raw_token(iat=None)
     elif case == "no_subscription":
         h["Authorization"] = "Bearer " + _token(subscription_status=None)
     elif case == "canceled_subscription":

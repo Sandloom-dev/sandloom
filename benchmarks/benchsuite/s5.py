@@ -27,13 +27,8 @@ import os
 import shlex
 import subprocess
 import sys
-import time
-import uuid
-from typing import Any
 
-import jwt
-
-from benchsuite import common
+from benchsuite import claims_mint, common
 
 VARIANTS = tuple(common.S5_ROUTES)
 
@@ -85,20 +80,11 @@ def mint(
     subscription: str | None = "active",
     hours: int = 6,
 ) -> str:
-    now = int(time.time())
-    claims: dict[str, Any] = {
-        "sub": str(uuid.uuid4()),
-        "token_type": "access",
-        "iat": now,
-        "nbf": now,
-        "exp": now + hours * 3600,
-        "jti": uuid.uuid4().hex,
-        "tenant_id": tenant,
-        "tenant_ids": [tenant],
-    }
-    if subscription is not None:
-        claims["subscription_status"] = subscription
-    return jwt.encode(claims, common.jwt_secret(), algorithm="HS256")
+    """An access token for ``tenant`` through the real mint
+    (``benchsuite.claims_mint``: ``collect_claims`` with the ``bench`` module's
+    authority, ``create_access_token(claims=sealed)``). ``subscription=None``
+    leaves the subscription claim out (the 402 case)."""
+    return claims_mint.mint_bench(tenant, subscription=subscription, hours=hours)
 
 
 async def _smoke(variant: str) -> None:

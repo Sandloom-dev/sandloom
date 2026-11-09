@@ -820,14 +820,23 @@ K = 50, 2026-11-09), to show the stand runs; `WLc` K = 20:
 | `Pme` | 2,982,154 |
 | `WLc` | 9,382,989 |
 
-**Not yet running on this architecture: the S5 / `benchsuite` rungs that mint
-their token by hand** (`L6S5*`, `HW7`, `HSbud`, the `mix` / `server_bench`
-loads, which sign a bare HS256 JWT carrying `subscription_status`,
-`tenant_ids`). The sealed mint (ADR-0014 decision 5) keeps a protected claim
-only from the authority of the composition's map and the stand's only module is
-`benchsuite.bench`, which assigns none: `Subscribed` answers 402. They need a
-stand whose claims come from a real authority (a root with its own
-`claim_authorities` and a contributor in the bench module, tokens through
-`collect_claims` + `create_access_token`); the claims-tier rungs (`K*`,
-`ladder/claims_rungs.py`, PR #118) are that kind of stand and cover the
-request-path authorization and the mint without a database.
+**Tokens of the `benchsuite` stands (kb-cg-stand-b).** The sealed mint
+(ADR-0014 decision 5) keeps a protected claim only from the authority of the
+composition's map, and a bare HS256 JWT carries no `cpv` or provenance, so a
+hand-signed token is refused (401 `token_policy_outdated`, 402 on `Subscribed`).
+Every stand now mints through the real path, in its own process
+(`benchsuite/claims_mint.py`; no sealed-mint bypass):
+
+| stand | authority | token |
+|---|---|---|
+| S5 family (`L6S5*`, `HSbud`, `HW7`, the S5 / write servers; `SANDLOOM_MODULES=["benchsuite.bench"]`) | the `bench` module owns `tenant_ids` and `subscription_status`: `benchsuite.bench.claims.CLAIM_AUTHORITIES`, assigned by the stand's root `benchsuite/apps/sandloom_app.py` (`create_app(claim_authorities=...)`) | `s5.mint(tenant, subscription=, hours=)`: a kernel core with that map and the bench contributor, `collect_claims` + `create_access_token(claims=sealed)`; no database, no network |
+| platform and mix (`Pme`, `HTr`, `mix`, `server_bench`, `api10 orggate`, the example apps) | the standard map (identity, tenancy, billing) | `platform.mint()` / `mix.mint(hours, full=)`: the standard app of the stand's env is built and `collect_claims` reads the seeded user's roles, tenancy grant and subscription from its database; seed first (`python -m benchsuite.platform seed`, `mix seed|seed-full`) |
+
+The tenant is the token's `tenant_ids` grant (a single grant is the bound
+tenant); the mint refuses a `tenant_id` selector. `mix seed-full` also seeds
+the organization's active subscription (the helpdesk export gate is live), and
+`api10 orggate` seeds the user's and the organization's subscriptions itself.
+`mix.database_url()` is idempotent, so a process that already applied
+`server_env()` mints for the same database. The claims-tier rungs (`K*`,
+`ladder/claims_rungs.py`) cover the request-path authorization and the mint
+without a database.
