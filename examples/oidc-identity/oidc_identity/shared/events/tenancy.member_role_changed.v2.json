@@ -1,0 +1,66 @@
+{
+  "description": "A member's role changed (v2).\n\nThe organization is ``tenant_id`` (a consumer binds it; a projection's\n``tenant_from``). ``version`` is required and per ``(organization_id,\nuser_id)``: order and dedupe by it (a projection's ``version_field``).\nPublished with the v1 channel in one unit.",
+  "properties": {
+    "actor_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Who made the change.",
+      "title": "Actor Id",
+      "x-sandloom-default": true
+    },
+    "organization_id": {
+      "description": "The organization (= tenant_id).",
+      "format": "uuid",
+      "title": "Organization Id",
+      "type": "string"
+    },
+    "role": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "member, admin or owner; absent on member_removed.",
+      "title": "Role",
+      "x-sandloom-default": true
+    },
+    "tenant_id": {
+      "description": "The organization (the event's tenant).",
+      "format": "uuid",
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "user_id": {
+      "description": "The member.",
+      "format": "uuid",
+      "title": "User Id",
+      "type": "string"
+    },
+    "version": {
+      "description": "Per (organization_id, user_id), monotonic over the membership's whole lifecycle: order and dedupe by it.",
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "tenant_id",
+    "organization_id",
+    "user_id",
+    "version"
+  ],
+  "title": "MemberRoleChangedV2",
+  "type": "object"
+}

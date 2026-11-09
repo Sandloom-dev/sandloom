@@ -1,0 +1,22 @@
+.sandloom/cache/
+# `sandloom dev`: state, locks and run files (.sandloom/agent-files.json stays)
+.sandloom/dev.json
+.sandloom/dev.env
+.sandloom/docker-compose.dev.yml
+.sandloom/*.lock
+.sandloom/run/
+.env.test.local
+__pycache__/
+*.py[cod]
+.venv/
+.env
+# `sandloom keys dev-env --out deploy/.env.microservices`: development keys
+.env.microservices
+data/
+test_data/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.observed_effects.json
+.observed_effects.json.lock

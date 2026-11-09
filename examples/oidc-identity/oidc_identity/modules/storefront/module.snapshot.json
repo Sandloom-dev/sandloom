@@ -1,0 +1,27 @@
+{
+  "capabilities": [],
+  "consumers": [],
+  "consumes": [
+    {
+      "methods": [],
+      "name": "billing.entitlements.v1",
+      "required": false
+    },
+    {
+      "methods": [],
+      "name": "billing.facts.v1",
+      "required": false
+    },
+    {
+      "methods": [],
+      "name": "tenancy.membership.v1",
+      "required": false
+    }
+  ],
+  "contracts": [],
+  "events": {},
+  "format": 1,
+  "module": "oidc_identity.modules.storefront",
+  "projections": [],
+  "sagas": []
+}

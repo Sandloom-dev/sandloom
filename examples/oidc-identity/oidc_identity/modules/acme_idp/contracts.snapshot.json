@@ -1,0 +1,35 @@
+{
+  "contracts": {
+    "acme_idp.claims.v1": {
+      "hash": "a46bbd40b36396d1533c8ce1430be0f7",
+      "methods": {
+        "contribute": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "user_id",
+              "required": true,
+              "type": {
+                "k": "any"
+              }
+            }
+          ],
+          "returns": {
+            "k": "dict",
+            "key": {
+              "k": "scalar",
+              "t": "str"
+            },
+            "value": {
+              "k": "any"
+            }
+          }
+        }
+      }
+    }
+  },
+  "format": 1,
+  "module": "oidc_identity.modules.acme_idp"
+}
