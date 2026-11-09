@@ -42,9 +42,13 @@ def _import_root(
     parent_name, _, child = root.rpartition(".")
     parent = importlib.import_module(parent_name)
     monkeypatch.setattr(parent, child, getattr(parent, child, None), raising=False)
-    monkeypatch.delitem(sys.modules, root, raising=False)
+    # setitem records what sys.modules held (or that it held nothing) and
+    # undoes to exactly that: a delitem of an absent root records nothing and
+    # a later delitem of the imported one would put this test's stub back.
+    monkeypatch.setitem(sys.modules, root, ModuleType(root))
+    del sys.modules[root]  # imported fresh
     module: ModuleType = importlib.import_module(root)
-    monkeypatch.delitem(sys.modules, root)  # the next import builds it again
+    del sys.modules[root]  # the next import builds it again
     (call,) = calls
     assert module.app is not None
     return module, list(call["default_modules"])

@@ -78,7 +78,12 @@ def test_each_worker_gets_its_own_file_beside_the_named_one() -> None:
     ) == ("postgresql+asyncpg://u:p@h/app_test_gw1")
 
 
-def test_a_sqlite_file_is_claimed_by_its_marker(tmp_path: Path) -> None:
+def test_a_sqlite_file_is_claimed_by_its_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # the refusal is what is asserted: a takeover exported by the run (the
+    # wave check's steps) would re-stamp the file instead
+    monkeypatch.delenv(ownership.TAKEOVER_ENV, raising=False)
     file = tmp_path / "claim_test.db"
     url = f"sqlite+aiosqlite:///{file}"
     workers.ensure_database(url)  # the directory; the file is claimed below

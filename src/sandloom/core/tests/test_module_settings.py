@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Annotated, Any, ClassVar
 
 import pytest
@@ -441,22 +442,29 @@ def test_known_modules_are_the_installed_entry_points_and_the_composition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from sandloom.core.descriptors import module_names
+    from sandloom.core.tests._entry_points_support import installed_entry_points
 
-    assert ms.MODULES_ENTRY_POINT_GROUP == module_names.ENTRY_POINT_GROUP
-    installed = {m.name for m in module_names.installed_modules()}
-    kernel = Settings.model_construct(
-        environment=Environment.prod,
-        sandloom_modules=["app.modules.shop_eu", "sandloom_identity"],
-        sandloom_accepted_risks=[],
-    )
-    # an import path is the module's name where an entry point provides it
-    # (sandloom_identity is identity), else its last segment (app.modules.shop_eu)
-    assert ms.known_module_names(kernel) == installed | {"shop_eu"}
-    assert "sandloom_identity" not in ms.known_module_names(kernel)
-    # the default reads them: shop_eu, named by the composition, is absent here
-    records = _records(("shop", ShopEuNeighbour))
-    foreign = _snapshot(SHOP_EU_REGIONS="eu-west")
-    assert ms.post_load_check(records, kernel, foreign).problems == []
+    # the standard modules' entry points, installed or not (the
+    # kernel-without-batteries venv has none)
+    with installed_entry_points() as eps:
+        # known_module_names reads importlib.metadata itself: same entry points
+        group = SimpleNamespace(select=lambda group: list(eps))
+        monkeypatch.setattr(ms, "metadata", SimpleNamespace(entry_points=lambda: group))
+        assert ms.MODULES_ENTRY_POINT_GROUP == module_names.ENTRY_POINT_GROUP
+        installed = {m.name for m in module_names.installed_modules()}
+        kernel = Settings.model_construct(
+            environment=Environment.prod,
+            sandloom_modules=["app.modules.shop_eu", "sandloom_identity"],
+            sandloom_accepted_risks=[],
+        )
+        # an import path is the module's name where an entry point provides it
+        # (sandloom_identity is identity), else its last segment (app.modules.shop_eu)
+        assert ms.known_module_names(kernel) == installed | {"shop_eu"}
+        assert "sandloom_identity" not in ms.known_module_names(kernel)
+        # the default reads them: shop_eu, named by the composition, is absent here
+        records = _records(("shop", ShopEuNeighbour))
+        foreign = _snapshot(SHOP_EU_REGIONS="eu-west")
+        assert ms.post_load_check(records, kernel, foreign).problems == []
 
 
 def test_semantic_override_is_reported_unless_its_risk_is_accepted() -> None:

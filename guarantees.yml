@@ -7790,7 +7790,7 @@ capabilities:
   tests:
   - src/sandloom/core/tests/test_settings_gate.py::test_the_semantic_ratchet_helper
   - src/sandloom/core/tests/test_settings_gate.py::test_a_semantic_name_that_is_no_field_is_flagged
-  - src/sandloom/core/tests/test_config_tiers.py::test_billing_keeps_its_own_semantic_ratchet
+  - tests/integration/with_batteries/test_billing_semantic_ratchet.py::test_billing_keeps_its_own_semantic_ratchet
 - id: C-TENANT-10
   statement: The TenantScoped mixin declares no plain tenant_id index on a table whose primary key, unique constraint
     or unique index leads with tenant_id (that key serves the lookups), and keeps it otherwise.
@@ -7860,9 +7860,9 @@ capabilities:
   sources:
   - tests/fixtures/specs/public-api-1.0-spec.md#2.5 Zero kernel reads
   tests:
-  - tests/sdk/test_sdk_docs_wire.py::test_a_contract_prints_each_method_with_its_semantics
-  - tests/sdk/test_sdk_docs_wire.py::test_an_event_prints_its_fields_and_the_producers_notes
-  - tests/sdk/test_sdk_docs_wire.py::test_the_listings_name_every_stub_and_schema
+  - tests/integration/with_batteries/test_sdk_docs_wire_bundled_modules.py::test_a_contract_prints_each_method_with_its_semantics
+  - tests/integration/with_batteries/test_sdk_docs_wire_bundled_modules.py::test_an_event_prints_its_fields_and_the_producers_notes
+  - tests/integration/with_batteries/test_sdk_docs_wire_bundled_modules.py::test_the_listings_name_every_stub_and_schema
   - tests/sdk/test_sdk_docs_wire.py::test_an_app_shared_package_is_read_too
   - tests/sdk/test_sdk_docs_wire.py::test_every_bundled_contract_method_states_its_semantics
 - id: C-SDK-05
