@@ -122,6 +122,20 @@ website renders this same changelog.
 
 ### Security
 
+- **SANDLOOM-C034 sees every spelling of a hand-written contract client**
+  (kb-rev56-c034, W5+W6 review M1). A ContractRef reached through a module
+  alias, a lowercase or star re-export, a local alias or a hand-written
+  `ContractRef(...)`, and a client built inline, under an annotation, in a
+  function or a class, through an aliased `Contract`, `OptionalContract.client()`,
+  a bound method, a constant `getattr` or a helper function (of the file or
+  imported from the package) are now compared with the declaration. The
+  `__sandloom_atom__` literal exempts a class only in a `_generated/` package.
+  A class defined after an import of the same name now shadows it, so a
+  hand-written `OrgRole` no longer counts as the generated admin gate
+  (SANDLOOM-C022). Upgrade: a hand-written Requirement that `sandloom check` now
+  reports states the declared `tier`, `category` and `risks()`, or uses the
+  generated atom.
+
 - **An unknown feature or limit is never a deny that `Not` turns into an
   allow** (KB-33c, C-B5, G-AUTHZ-12). Billing has no per-plan features or
   limits catalogue yet, and its `billing.entitlements.v1.has_feature` /

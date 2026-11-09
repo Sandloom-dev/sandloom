@@ -781,9 +781,15 @@ Contract(REF) is a second declaration the others do not see: a lower tier
 skips the live check where a claim decides, another category answers with
 another status, a missing risks() hides an administrative gate from the route
 policy. sandloom check compares the class with the literal and refuses a
-difference. Not seen: a call through getattr, an atom built at run time, an
-authority decided in a function body. Those are not proven statically; every
-route is classified independently at startup and the runtime checks apply.
+difference, however the client is spelled: Contract or OptionalContract
+(aliased or not), built anywhere in the file or imported from the package,
+its ContractRef reached through a module alias, a re-export, a star import, a
+local alias or written by hand; a call through a bound method, a constant
+getattr or a helper function counts as the class's own. Only a class that
+sandloom generate wrote into a _generated/ package is exempt. Not seen: a name
+computed at run time (getattr with a variable, importlib), an authority
+decided outside the package. Those are not proven statically; every route is
+classified independently at startup and the runtime checks apply.
 """,
         docs="docs/adr/0014-claims-trust-and-authorization-portability.md",
     ),
