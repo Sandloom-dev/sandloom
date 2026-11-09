@@ -276,7 +276,11 @@ class Settings(
     @model_validator(mode="after")
     def _known_accepted_risks(self) -> Settings:
         if _risks.unknown_ids(self.sandloom_accepted_risks):
-            raise ValueError(_risks.unknown_ids_message(self.sandloom_accepted_risks))
+            # A flat id that is no kernel id: where its module is installed the
+            # message names the namespaced replacement (error path only).
+            raise ValueError(
+                _module_settings.flat_risk_refusal(self.sandloom_accepted_risks)
+            )
         return self
 
     @model_validator(mode="before")

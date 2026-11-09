@@ -32,7 +32,7 @@ Counts: **15 semantic** (ratcheted: may only go down; a new one needs an ADR), *
 
 ## Accepted risks (`SANDLOOM_ACCEPTED_RISKS`)
 
-The one list of weaker guarantees a deployment accepts, e.g. `SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]` (JSON list or comma-separated). An unknown id fails startup. Each accepted risk is logged as a WARNING at every start, exported as `sandloom_accepted_risk_active{risk}`, and listed by `/diagnostics/core` (`configuration.accepted_risks`) and `sandloom doctor`.
+The one list of weaker guarantees a deployment accepts, e.g. `SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]` (JSON list or comma-separated). An unknown id fails startup. The ids below are the kernel's. A module declares its own, named `<module>.<name>` (for example `billing.fake_psp_in_prod`): the id of a loaded module is checked against what that module declares, the id of a module installed or listed in `SANDLOOM_MODULES` but not loaded in this process is inert, listed as not applicable here, and any other module name fails startup, so a typo never passes silently. A module risk has no flat spelling and no alias. Each accepted risk is logged as a WARNING at every start, exported as `sandloom_accepted_risk_active{risk}`, and listed by `/diagnostics/core` (`configuration.accepted_risks`) and `sandloom doctor`.
 
 | Risk id | Weakens | Consulted by |
 | --- | --- | --- |

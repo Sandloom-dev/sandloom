@@ -127,6 +127,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-T012`](#sandloom-t012) | `redundant-index` | test | a plain index duplicates the leading column(s) of a unique key | active |
 | [`SANDLOOM-T013`](#sandloom-t013) | `tenant-natural-key` | test | a TenantScoped table has a key without tenant_id (warning) | active |
 | [`SANDLOOM-T014`](#sandloom-t014) | `split-profile` | test | the microservices profile breaks a split invariant | active |
+| [`SANDLOOM-T019`](#sandloom-t019) | `settings-gate` | test | the settings a module declares, or a service's environment, break the static settings gate | active |
 
 ## Static checks (`sandloom check`)
 
@@ -2092,6 +2093,36 @@ distinct prefixes).
 **Fix:** `sandloom add deploy --refresh` re-derives the generated blocks (services, bindings, RPC_ALLOWED_CALLS, databases, gateway routes) from what the modules provide and consume; a problem outside them (a shared setting set per service, an issuer-only key elsewhere) is fixed by hand in x-common-env / the service's anchor
 
 **More:** `docs/operate/split-into-services.md`
+
+### SANDLOOM-T019
+
+**the settings a module declares, or a service's environment, break the static settings gate**
+
+Slug: `settings-gate` · kind: test · status: active
+
+**What happened and why it matters**
+
+`sandloom check` and the schema & deploy step of `sandloom test` import every
+module of the application (importing reads no environment and does no I/O) and
+read the settings each declares with `define_module(settings=Model)`, without
+running a process (ADR-0015 decision 7; SANDLOOM-B036 is the collision it also
+reports). They refuse:
+- a new setting whose name lacks the module's prefix (`INVENTORY_` for
+  `inventory`); a name that `module.snapshot.json` records as `legacy` is
+  grandfathered, a module without a snapshot grandfathers nothing;
+- a module whose snapshot does not record its settings, or records a tier
+  other than the one the code declares: `sandloom generate` writes the record,
+  and a semantic setting that appears there is a reviewed change;
+- in a deploy profile, a `SANDLOOM_MODULES` entry that is neither an installed
+  module nor an importable package, a variable set for a module the service does
+  not load, and a literal value the module's declaration refuses. A profile
+  carries `${VAR:?...}` placeholders and no production secrets, so only names
+  and literal values are checked; values are validated where the process starts.
+A secret literal is never printed.
+
+**Fix:** rename a new setting with its module's prefix (INVENTORY_ for inventory); run `sandloom generate` and review the settings record of module.snapshot.json; correct the module name, remove the variable or fix the literal value in the deploy profile's service
+
+**More:** `docs/adr/0015-module-settings.md`
 
 ## Related reading
 

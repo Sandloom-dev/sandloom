@@ -243,6 +243,40 @@ website renders this same changelog.
   or `JWT_SECRET`), once per name. **Upgrade:** on a case-sensitive file
   system, rename a secret file whose name mixes cases (`Jwt_Secret`) to the
   lower- or upper-case name; nothing else changes.
+- **Accepted risks of a module are namespaced** (ADR-0015 decision 4, KB-51).
+  Kernel ids stay flat (`relay_disabled`); a module's id is
+  `<module>.<name>`, declared in its settings model (`Risk`) and accepted in
+  `SANDLOOM_ACCEPTED_RISKS` by that name (`kb_inventory.oversell_in_prod`).
+  After the modules load: the id of a loaded module is checked against what
+  it declares, and one it does not declare refuses the boot; the id of a
+  module installed, loaded or listed in `SANDLOOM_MODULES` but not loaded in
+  this process is inert and listed as "not applicable here" (so one
+  `SANDLOOM_ACCEPTED_RISKS` serves every service of a split with one image);
+  any other module name refuses, so a typo in a module or risk name never
+  passes silently. A flat id that is no kernel id is refused as before, and
+  names the namespaced replacement when the module that declares it is
+  installed. The accepted module risks are logged, counted in
+  `sandloom_accepted_risk_active{risk}` and reported by `tiers.diagnostics`.
+  There is no alias. **Upgrade:** none yet for the bundled modules: billing's
+  `fake_psp_in_prod` becomes `billing.fake_psp_in_prod` in one step with the
+  port of billing's settings (KB-52), whose notes carry the rename; a module
+  of your own that declares risks is accepted by `<module>.<name>`.
+- **`sandloom check` and `sandloom test` check the declared settings**
+  (ADR-0015 decision 7, KB-56; `SANDLOOM-B036`, new `SANDLOOM-T019`).
+  They import every module of the application and flag a name declared by
+  two modules (or a module and the kernel) whether or not they load
+  together, a new setting without the module's prefix (`INVENTORY_` for
+  `inventory`), a tier that `module.snapshot.json` does not record, and, per
+  service of the deploy profiles, a wrong module name in `SANDLOOM_MODULES`,
+  a variable set for a module the service does not load and a literal value
+  the declaration refuses. `sandloom generate` writes the new `settings`
+  record of `module.snapshot.json` (each name and its tier); names an existing
+  module already had when it first declared settings are recorded as
+  `legacy` and keep passing, a new module's unprefixed names are not
+  grandfathered. `sandloom.core.testing.settings_gate.semantic_ratchet_problems`
+  is a module's own semantic ratchet for its tests. **Upgrade:** a module
+  that declares settings runs `sandloom generate` once and commits the
+  snapshot; a new setting is named `<MODULE>_...`.
 
 ### Changed
 

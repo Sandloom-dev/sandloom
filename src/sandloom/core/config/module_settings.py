@@ -42,6 +42,7 @@ Where the instances live and how a module reads its own
 from __future__ import annotations
 
 import contextvars
+import importlib
 import json
 import os
 import types
@@ -54,12 +55,13 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any, TypeVar
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, DotEnvSettingsSource, NoDecode
 
+from sandloom.core.config import accepted_risks as _risks
 from sandloom.core.config import tiers as _tiers
-from sandloom.core.config.accepted_risks import Risk
+from sandloom.core.config.accepted_risks import ModuleRiskReport, Risk
 from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
 from sandloom.core.config.tiers import NO_OPINION, RemovedSetting, SemanticSetting
 
@@ -268,6 +270,9 @@ class ModuleSettingsRegistry:
     def __init__(self) -> None:
         self._records: dict[str, ModuleSettingsRecord] = {}
         self._by_model: dict[type[BaseModel], BaseModel] = {}
+        #: the module-namespaced accepted-risk ids as the post-load check
+        #: classified them (active, inert here); read by diagnostics and doctor.
+        self.risk_report: ModuleRiskReport = ModuleRiskReport()
 
     def add(self, record: ModuleSettingsRecord) -> None:
         self._records[record.package] = record
@@ -383,6 +388,38 @@ def _accepts_risk(
     return accepts_risk
 
 
+def literal_value_problems(
+    model: type[BaseModel], environ: Mapping[str, str]
+) -> list[tuple[str, str]]:
+    """``[(ENV_NAME, message)]`` for each declared name set in ``environ`` whose
+    value its field refuses (type and constraints of the field only).
+
+    The static gate's check of a deploy profile's literal values: a
+    production check (a model validator) needs the whole environment and the
+    kernel and is not run here. The message never carries the value.
+    """
+    data, _origins = _raw_values(model, SourceSnapshot(environ=environ, env_file=None))
+    names = env_names(model)
+    out: list[tuple[str, str]] = []
+    for alias, value in data.items():
+        info = model.model_fields[names[alias]]
+        annotation: Any = info.annotation
+        adapter: TypeAdapter[Any] = TypeAdapter(
+            typing.Annotated[(annotation, *info.metadata)]
+            if info.metadata
+            else annotation
+        )
+        try:
+            adapter.validate_python(value)
+        except ValidationError as exc:
+            reason = "; ".join(
+                str(e.get("msg", "invalid")).removeprefix("Value error, ")
+                for e in exc.errors(include_input=False, include_url=False)
+            )
+            out.append((alias, reason))
+    return out
+
+
 def validate_module_settings(
     model: type[M],
     *,
@@ -430,8 +467,11 @@ class PostLoadOutcome:
     problems: list[str] = field(default_factory=list)
     #: a removed setting at its inert value: logged, the boot goes on.
     warnings: list[str] = field(default_factory=list)
-    #: the modules' semantic settings weaker than their profile value.
+    #: the modules' semantic settings weaker than their profile value, and the
+    #: accepted risks a loaded module declares.
     overrides: list[_tiers.Override] = field(default_factory=list)
+    #: the module-namespaced ids of ``SANDLOOM_ACCEPTED_RISKS``, classified.
+    risks: ModuleRiskReport = field(default_factory=ModuleRiskReport)
 
 
 def _collisions(
@@ -590,35 +630,113 @@ def module_overrides(
     return out
 
 
+def installed_risk_declarations() -> dict[str, tuple[Risk, ...]]:
+    """``{module name: its declared risks}`` of the installed modules.
+
+    Imports each ``sandloom.modules`` entry point's package (importing a
+    module reads no environment and does no I/O) and reads the settings model
+    its ``define_module(settings=)`` recorded. Used only on the error path of
+    a flat risk id, to name the namespaced replacement; a package that does
+    not import is skipped.
+    """
+    out: dict[str, tuple[Risk, ...]] = {}
+    for ep in metadata.entry_points().select(group=MODULES_ENTRY_POINT_GROUP):
+        declared = _declared_risks_of(str(ep.value).split(":", 1)[0])
+        if declared is not None:
+            out[str(ep.name)] = declared
+    return out
+
+
+def _declared_risks_of(package: str) -> tuple[Risk, ...] | None:
+    """The risks ``package``'s ``define_module(settings=)`` declares; ``None``
+    when it declares no settings or does not import."""
+    try:
+        register = getattr(importlib.import_module(package), "register", None)
+    except (ImportError, AttributeError, RuntimeError, SystemExit):
+        return None  # a package that does not import cannot name a replacement
+    model = getattr(register, "__dict__", {}).get("sandloom_settings")
+    return declared_risks(model) if model is not None else None
+
+
+def flat_risk_refusal(ids: Iterable[str]) -> str:
+    """The ``SANDLOOM_ACCEPTED_RISKS`` refusal for unknown ``ids``, naming the
+    namespaced replacement of a flat id where its module is installed."""
+    given = list(ids)
+    flat = [i for i in _risks.unknown_ids(given) if "." not in i]
+    moved = _risks.replacement_ids(flat, installed_risk_declarations()) if flat else {}
+    return _risks.unknown_ids_message(given, moved)
+
+
+def _risk_report(
+    records: Sequence[ModuleSettingsRecord],
+    kernel: Any,
+    loaded_modules: Iterable[str],
+    known: Callable[[], Iterable[str]],
+) -> ModuleRiskReport:
+    accepted = getattr(kernel, "sandloom_accepted_risks", None) or ()
+    if not any(_risks.is_module_id(i) for i in accepted):
+        return ModuleRiskReport()
+    declared: dict[str, tuple[Risk, ...]] = dict.fromkeys(loaded_modules, ())
+    for record in records:
+        declared[record.module] = declared_risks(record.model)
+    return _risks.classify_module_risks(accepted, loaded=declared, known=known)
+
+
+def _risk_overrides(report: ModuleRiskReport, kernel: Any) -> list[_tiers.Override]:
+    """Active module risks as ``accepted_risk`` overrides (as the kernel's)."""
+    profile = _tiers.profile_of(kernel)
+    prod = environment_of(kernel) == "prod"
+    return [
+        _tiers.Override(
+            f"SANDLOOM_ACCEPTED_RISKS[{risk_id}]",
+            "accepted_risk",
+            risk_id,
+            profile,
+            (),
+            risk=item,
+        )
+        for risk_id, item in report.active
+        if prod or item.outside_prod
+    ]
+
+
 def post_load_check(
     records: Sequence[ModuleSettingsRecord],
     kernel: Any,
     snapshot: SourceSnapshot | None = None,
     *,
     known_modules: Iterable[str] | None = None,
+    loaded_modules: Iterable[str] = (),
 ) -> PostLoadOutcome:
     """ADR-0015 decision 3: the one check after the load pass.
 
     ``known_modules``: the modules known in the deployment (default
     :func:`known_module_names`); the prod typo check leaves alone a variable
-    under the prefix of one this process does not load. Returns what it
-    found; the caller raises :class:`ModuleSettingsError` with every problem
-    (:func:`refusal`) and logs the rest.
+    under the prefix of one this process does not load, and a risk id of one
+    is inert. ``loaded_modules``: every loaded module's name, whether or not
+    it declares settings (the namespaces of ``SANDLOOM_ACCEPTED_RISKS``).
+    Returns what it found; the caller raises :class:`ModuleSettingsError` with
+    every problem (:func:`refusal`) and logs the rest.
     """
     snap = snapshot if snapshot is not None else process_snapshot()
     ordered = sorted(records, key=lambda r: r.package)
     owners, problems = _collisions(ordered, kernel_env_names(type(kernel)))
     removed_problems, warnings = _removed(ordered, snap)
     problems += removed_problems
+
+    def known() -> Iterable[str]:
+        if known_modules is not None:
+            return known_modules
+        return known_module_names(kernel)
+
+    risks = _risk_report(
+        ordered, kernel, [*loaded_modules, *(r.module for r in ordered)], known
+    )
+    problems += risks.problems
     if environment_of(kernel) == "prod":
-
-        def known() -> Iterable[str]:
-            if known_modules is not None:
-                return known_modules
-            return known_module_names(kernel)
-
         problems += _typos(owners, ordered, snap, known)
-    return PostLoadOutcome(problems, warnings, module_overrides(ordered, kernel))
+    overrides = module_overrides(ordered, kernel) + _risk_overrides(risks, kernel)
+    return PostLoadOutcome(problems, warnings, overrides, risks)
 
 
 def refusal(problems: Sequence[str]) -> ModuleSettingsError:
@@ -646,8 +764,11 @@ __all__ = [
     "declared_semantic",
     "env_names",
     "environment_of",
+    "flat_risk_refusal",
+    "installed_risk_declarations",
     "kernel_env_names",
     "known_module_names",
+    "literal_value_problems",
     "module_overrides",
     "post_load_check",
     "process_snapshot",

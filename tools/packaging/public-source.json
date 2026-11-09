@@ -1556,6 +1556,7 @@
         "src/sandloom/core/testing/server_errors.py",
         "src/sandloom/core/testing/services.py",
         "src/sandloom/core/testing/session_checks.py",
+        "src/sandloom/core/testing/settings_gate.py",
         "src/sandloom/core/testing/shuffle.py",
         "src/sandloom/core/testing/skip_ledger.py",
         "src/sandloom/core/testing/slots.py",
@@ -2530,6 +2531,8 @@
         "tests/integration/test_route_runtime.py",
         "tests/integration/test_rpc_caller_parity.py",
         "tests/integration/test_sensitive_risk.py",
+        "tests/integration/test_settings_gate_fixture.py",
+        "tests/integration/test_settings_risk_namespaces.py",
         "tests/integration/test_shared_authz_review.py",
         "tests/integration/test_standard_composition_root.py",
         "tests/integration/test_standard_root_modules.py",
@@ -2871,6 +2874,8 @@
         "src/sandloom/core/cli/inspection/viewer.html",
         "src/sandloom/core/cli/templates/skills/sandloom-module-context/SKILL.md",
         "src/sandloom/core/tests/test_inspection_tools.py",
+        "src/sandloom/core/tests/test_risk_namespaces.py",
+        "src/sandloom/core/tests/test_settings_gate.py",
         "tools/packaging/inspection_smoke.py"
       ]
     },

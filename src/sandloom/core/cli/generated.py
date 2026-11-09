@@ -70,6 +70,7 @@ import sandloom.core.cli.inspection.generation as _inspection_generation
 import sandloom.core.cli.route_weakening as _route_weakening
 import sandloom.core.contract_compat as _contract_compat
 import sandloom.core.route_snapshots as _route_snapshots
+import sandloom.core.testing.settings_gate as _settings_gate
 from sandloom.core.archcheck.manifest import load_rules
 from sandloom.core.composition import load_composition_app
 from sandloom.core.contracts.schema_compatibility import (
@@ -406,6 +407,26 @@ def is_l1(module: str) -> bool:
     return bool(getattr(register, "sandloom_l1", False))
 
 
+def _record_settings(
+    doc: dict[str, Any], module: str, path: Path, records: Iterable[Any]
+) -> None:
+    """Add the module's declared settings to its snapshot ``doc`` (ADR-0015
+    decision 5-6): each env name with its tier, and which unprefixed names the
+    snapshot grandfathers (``settings_gate.settings_section``). ``records``:
+    the composed application's validated module settings. A module that
+    declares none gets no ``settings`` key."""
+    model = next((r.model for r in records if r.package == module), None)
+    if model is None:
+        return
+    try:
+        previous = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        previous = None
+    doc[_settings_gate.SNAPSHOT_KEY] = _settings_gate.settings_section(
+        model, module_name(module), previous
+    )
+
+
 def module_surface(entry: Any) -> dict[str, Any]:
     """The ``module.snapshot.json`` document of one module manifest entry.
 
@@ -660,6 +681,12 @@ def plan(
             continue
         owned = _owned(directory, source_root)
         doc = module_surface(entry)
+        _record_settings(
+            doc,
+            entry.name,
+            directory / MODULE_SNAPSHOT,
+            facade.module_settings.records(),
+        )
         snapshot = Generated(directory / MODULE_SNAPSHOT, _dump(doc), "SANDLOOM-T005")
         old_doc = json.loads(snapshot.current) if snapshot.current else {}
         for channel, schema in doc["events"].items():

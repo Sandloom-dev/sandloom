@@ -736,10 +736,13 @@ class Override:
     profile: str
     profile_value: object = None
     explicit: bool = True
+    #: the declaration of an accepted module risk (a kernel risk is looked up
+    #: in :data:`accepted_risks.RISKS`).
+    risk: accepted_risks.Risk | None = None
 
     def message(self) -> str:
         if self.kind == "accepted_risk":
-            item = accepted_risks.risk(str(self.value))
+            item = self.risk or accepted_risks.risk(str(self.value))
             return (
                 f"ACCEPTED RISK: {item.id} — {item.weakens} "
                 f"Consulted by: {item.consulted_by}."
@@ -864,13 +867,18 @@ def log_overrides(
     return found
 
 
-def diagnostics(cfg: Any) -> dict[str, object]:
-    """``/diagnostics/core`` block: profile, tier counts, overrides, accepted risks."""
+def diagnostics(
+    cfg: Any, module_risks: accepted_risks.ModuleRiskReport | None = None
+) -> dict[str, object]:
+    """``/diagnostics/core`` block: profile, tier counts, overrides, accepted risks.
+
+    ``module_risks``: the module-namespaced accepted risks as the loader
+    classified them (``accepted_risks.diagnostics``)."""
     return {
         "profile": profile_of(cfg),
         "tiers": tier_counts(),
         "overrides": [o.to_dict() for o in active_overrides(cfg)],
-        "accepted_risks": accepted_risks.diagnostics(cfg),
+        "accepted_risks": accepted_risks.diagnostics(cfg, module_risks),
     }
 
 
@@ -933,7 +941,14 @@ def render_markdown() -> str:
         "",
         "The one list of weaker guarantees a deployment accepts, e.g. "
         '`SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]` (JSON list or comma-'
-        "separated). An unknown id fails startup. Each accepted risk is logged "
+        "separated). An unknown id fails startup. The ids below are the "
+        "kernel's. A module declares its own, named `<module>.<name>` "
+        "(for example `billing.fake_psp_in_prod`): the id of a loaded module "
+        "is checked against what that module declares, the id of a module "
+        "installed or listed in `SANDLOOM_MODULES` but not loaded in this "
+        "process is inert, listed as not applicable here, and any other "
+        "module name fails startup, so a typo never passes silently. A module "
+        "risk has no flat spelling and no alias. Each accepted risk is logged "
         "as a WARNING at every start, exported as "
         "`sandloom_accepted_risk_active{risk}`, and listed by `/diagnostics/core` "
         "(`configuration.accepted_risks`) and `sandloom doctor`.",
