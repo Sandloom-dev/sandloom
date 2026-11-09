@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
 
+from sandloom.sdk.testing import override_settings
 from sandloom.shared.authz import AccessFact, Account
 from sandloom.shared.authz.atoms_claims import Subscribed
 from sandloom.shared.authz.context import AuthzContext
 from sandloom.shared.authz.facts import ClaimRule, FactUnavailable, resolve_fact
 from sandloom.shared.subject import UserContext
+from sandloom_billing.config import BillingSettings
 
 pytestmark = pytest.mark.asyncio
 
@@ -118,6 +122,18 @@ async def test_legacy_token_keeps_listed_owner_behaviour() -> None:
 # -- Subscribed(of=Account.user()) agrees with the live check (X3) ------------------------------
 
 
+@pytest.fixture
+def billing_config() -> Iterator[Callable[..., None]]:
+    """``billing_config(billing_deny_on_past_due=True)``: billing's declared
+    settings (ADR-0015) for the rest of the test; calls nest."""
+    with ExitStack() as stack:
+
+        def _set(**values: Any) -> None:
+            stack.enter_context(override_settings(BillingSettings, **values))
+
+        yield _set
+
+
 @pytest.mark.parametrize(
     ("status", "deny_past_due", "expected"),
     [
@@ -130,15 +146,14 @@ async def test_legacy_token_keeps_listed_owner_behaviour() -> None:
     ],
 )
 async def test_subscribed_honours_past_due_grace(
-    monkeypatch: pytest.MonkeyPatch,
+    billing_config: Callable[..., None],
     status: str | None,
     deny_past_due: bool,
     expected: bool,
 ) -> None:
-    from sandloom.core.di import settings
     from sandloom_billing.access import SUBSCRIPTION_ACTIVE_FACT
 
-    monkeypatch.setattr(settings, "billing_deny_on_past_due", deny_past_due)
+    billing_config(billing_deny_on_past_due=deny_past_due)
     claims = {"subscription_status": status} if status else {}
     # The grace rule is billing's (the registered fact), not shared's.
     core = _Core(facts={"subscription.active": SUBSCRIPTION_ACTIVE_FACT})
@@ -209,11 +224,9 @@ async def test_subscribed_uses_registered_fact_interpretation() -> None:
 
 
 async def test_subscribed_explicit_statuses_are_verbatim(
-    monkeypatch: pytest.MonkeyPatch,
+    billing_config: Callable[..., None],
 ) -> None:
-    from sandloom.core.di import settings
-
-    monkeypatch.setattr(settings, "billing_deny_on_past_due", False)
+    billing_config(billing_deny_on_past_due=False)
     ctx = AuthzContext(_subject(subscription_status="past_due"), core=_Core())
     assert (
         await Subscribed(frozenset({"active"}), of=Account.user()).evaluate(ctx)

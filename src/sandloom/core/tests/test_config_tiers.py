@@ -62,13 +62,12 @@ SEMANTIC_BASELINE = frozenset(
         "CONTRACT_COMPAT_CHECK",
         "INTERNAL_ENDPOINTS_OPEN_IN_DEV",
         "DOCS_ENABLED",
-        "BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS",
         "SMTP_USE_TLS",
     }
 )
-SEMANTIC_BASELINE_COUNT = 13
+SEMANTIC_BASELINE_COUNT = 12
 #: Total semantic settings (baseline + ADR-argued). Only goes down.
-SEMANTIC_COUNT_CEILING = 15
+SEMANTIC_COUNT_CEILING = 14
 
 
 @pytest.fixture(autouse=True)
@@ -104,6 +103,29 @@ def test_every_setting_is_in_exactly_one_tier() -> None:
     assert len(names) == len(set(names))
     for name in names:
         assert tiers.tier_of(name) == "semantic"
+
+
+def test_billing_keeps_its_own_semantic_ratchet() -> None:
+    """ADR-0015 decision 5 (P8): the one semantic setting billing classifies
+    left the kernel's ratchet (13 -> 12, 15 -> 14) and is ratcheted by billing's
+    own baseline; its tier is recorded in billing's ``module.snapshot.json``."""
+    from sandloom.core.testing import settings_gate
+    from sandloom_billing.config import BillingSettings
+
+    name = "BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS"
+    assert name not in {s.name for s in tiers.SEMANTIC}
+    assert name not in tiers.OPS
+    assert (
+        settings_gate.semantic_ratchet_problems(
+            BillingSettings, baseline=[name], ceiling=1
+        )
+        == []
+    )
+    # a second semantic setting without an ADR, or the first dropped from
+    # the baseline, is refused
+    assert settings_gate.semantic_ratchet_problems(
+        BillingSettings, baseline=[], ceiling=1
+    )
 
 
 def test_semantic_tier_is_ratcheted() -> None:
@@ -261,16 +283,16 @@ def test_every_risk_is_documented() -> None:
 
 @pytest.mark.parametrize(
     "raw",
-    ['["fake_psp_in_prod", "relay_disabled"]', "fake_psp_in_prod, relay_disabled"],
+    ['["weak_password_hash", "relay_disabled"]', "weak_password_hash, relay_disabled"],
 )
 def test_accepted_risks_parse_json_or_comma_list(
     raw: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("SANDLOOM_ACCEPTED_RISKS", raw)
     cfg = _settings(ENVIRONMENT="prod")
-    assert cfg.sandloom_accepted_risks == ["fake_psp_in_prod", "relay_disabled"]
+    assert cfg.sandloom_accepted_risks == ["weak_password_hash", "relay_disabled"]
     assert cfg.accepts_risk("relay_disabled")
-    assert not cfg.accepts_risk("weak_password_hash")
+    assert not cfg.accepts_risk("local_storage_in_prod")
     with pytest.raises(KeyError):
         cfg.accepts_risk("no_such_risk")
 

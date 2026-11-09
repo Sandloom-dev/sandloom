@@ -953,7 +953,7 @@ keys), scrub credential-shaped values from messages, and Sentry events pass the
 same redaction. Production fails fast on a weak or placeholder `JWT_SECRET` /
 `JWT_PREVIOUS_SECRETS` / `TWOFA_ENCRYPTION_KEY` / `INTERNAL_API_TOKEN` /
 `METRICS_TOKEN`, on `BILLING_PROVIDER=stripe` without its keys, and on
-`BILLING_PROVIDER=fake` unless `SANDLOOM_ACCEPTED_RISKS` lists `fake_psp_in_prod`
+`BILLING_PROVIDER=fake` unless `SANDLOOM_ACCEPTED_RISKS` lists `billing.fake_psp_in_prod`
 (every accepted risk is logged at each start and exported as
 `sandloom_accepted_risk_active{risk}`). See the
 [Secrets management](../operate/operator-reference.md#secrets-management) for secret-manager

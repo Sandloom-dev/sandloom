@@ -100,10 +100,13 @@ MODULE_ENV: dict[str, tuple[str, ...]] = {
     "sandloom_billing": (
         "# billing refuses the fake PSP in prod: the operator must choose.",
         "BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or "
-        "fake with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod "
-        "for demos)}",
+        "fake with SANDLOOM_ACCEPTED_RISKS="
+        "local_storage_in_prod,billing.fake_psp_in_prod for demos)}",
         "STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}",
         "STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}",
+        "# Past-due policy: billing's setting (other services read it through the",
+        "# access fact billing describes, never from their own environment).",
+        "BILLING_DENY_ON_PAST_DUE: ${BILLING_DENY_ON_PAST_DUE:-false}",
     ),
 }
 

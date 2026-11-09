@@ -39,14 +39,9 @@ pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture
-def intentless(monkeypatch: pytest.MonkeyPatch) -> Any:
-    from sandloom.sdk.infra import settings
-
+def intentless(billing_config: Any) -> Any:
     def _set(allow: bool) -> None:
-        if "billing_grant_intentless_subscriptions" in type(settings).model_fields:
-            monkeypatch.setattr(
-                settings, "billing_grant_intentless_subscriptions", allow
-            )
+        billing_config(billing_grant_intentless_subscriptions=allow)
 
     return _set
 

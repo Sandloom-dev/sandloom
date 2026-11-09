@@ -250,7 +250,7 @@ are logged at startup and listed by `/diagnostics/core` and `sandloom doctor`.
 
 **Every production weakening is an accepted risk, never a new boolean**
 ([ADR-0006](../adr/0006-accepted-risks.md)): `SANDLOOM_ACCEPTED_RISKS` (JSON or
-comma list) names stable ids (`fake_psp_in_prod`, `log_notifier_in_prod`,
+comma list) names stable ids (`log_notifier_in_prod`,
 `local_storage_in_prod`, `volatile_event_bus`, `unversioned_ddl_repair`,
 `weak_password_hash`, `shared_hs_secret_split`, `relay_disabled`,
 `command_dedupe_below_retry_horizon`, `saga_horizon_beyond_command_dedupe`).
@@ -366,8 +366,9 @@ is raw env).
   `LOG_LEVEL`, `SENTRY_DSN` (+ `SENTRY_TRACES_SAMPLE_RATE`; no-op when
   unset), `TRACING_URL` (OTLP endpoint).
 - **Billing and notifications.** `BILLING_PROVIDER=stripe` fails fast at
-  startup unless `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` are set; prod
-  refuses `fake` unless the risk `fake_psp_in_prod` is accepted.
+  startup unless `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` are set. Prod
+  refuses `fake` unless the module risk `billing.fake_psp_in_prod` is accepted.
+  Both are billing's own settings check: a process without billing skips them.
   `NOTIFIER_BACKEND` (log/smtp; default log) + `SMTP_*`
   (host/port/username/password/from/use_tls for the email driver).
 - **Secrets.** In prod, secrets and tokens must be at least 32 characters and

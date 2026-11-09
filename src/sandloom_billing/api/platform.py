@@ -4,13 +4,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
-from sandloom.sdk.infra import settings
 from sandloom.sdk.web import (
     DbSession,
     at_commit,
     current_user_id,
     require_platform_admin,
 )
+from sandloom_billing.config import billing_settings
 from sandloom_billing.schemas.platform import (
     CreditAdjustment,
     CreditAdjustmentResult,
@@ -322,13 +322,11 @@ async def payment_states(
     response_model=ProviderInfo,
 )
 async def provider_info() -> ProviderInfo:
-    cfg = settings
+    cfg = billing_settings()
     if cfg.billing_provider == "fake":
         return ProviderInfo(provider="fake", mode="demo", dashboard_url=None)
-    live = bool(
-        cfg.stripe_secret_key
-        and cfg.stripe_secret_key.startswith(("sk_live_", "rk_live_"))
-    )
+    key = cfg.stripe_secret_key.get_secret_value() if cfg.stripe_secret_key else ""
+    live = key.startswith(("sk_live_", "rk_live_"))
     return ProviderInfo(
         provider="stripe",
         mode="live" if live else "test",
