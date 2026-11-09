@@ -6,7 +6,7 @@ Billing declares both as claim atoms of its access checks
 billing provider over the real test database, in-process (mono) and over the
 real internal RPC (split: a consumer core with no module and no database
 binds the contracts to the standard app). The kernel atoms they were once
-compared to are gone (KB-34): their decisions and calls are pinned here.
+compared to leave the kernel (KB-34): the decisions and calls are pinned.
 
 Billing as shipped keeps no features or limits catalogue: its checks raise
 ``AccessUnknown``, so for an organization account every policy over them,

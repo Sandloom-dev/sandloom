@@ -5,7 +5,7 @@ policy shape of the stand is decided on the real tenancy and billing
 providers over the real test database with the atoms ``sandloom generate``
 writes beside the consumer's stubs (``tenancy.membership.v1``'s committed
 copy, ``billing.entitlements.v1`` rendered here as generate renders it). The
-kernel atoms they were once compared to are gone (KB-34); what that
+kernel atoms they were once compared to leave the kernel (KB-34); what that
 comparison established is pinned here instead. For each case, steady state
 (the second evaluation):
 
