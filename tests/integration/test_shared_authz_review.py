@@ -397,8 +397,12 @@ def _app(core: object, atoms: SimpleNamespace) -> tuple[FastAPI, list[str]]:
 
     @app.get("/enforce")
     async def _enforce() -> dict[str, str]:
+        # A present status billing's rule rejects: a definite 402 on every
+        # path (an absent status on a token without provenance is 501, KB-33g).
         await enforce(
-            atoms.Subscribed(of=Account.user()), subject=_subject(), core=core
+            atoms.Subscribed(of=Account.user()),
+            subject=_subject(subscription_status="canceled"),
+            core=core,
         )
         return {"ok": "enforce"}
 
