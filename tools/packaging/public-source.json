@@ -2575,6 +2575,7 @@
         "tests/integration/with_batteries/test_module_extraction.py",
         "tests/integration/with_batteries/test_module_names_installed_standard_modules.py",
         "tests/integration/with_batteries/test_module_subset_bundled_modules.py",
+        "tests/integration/with_batteries/test_org_role_atom.py",
         "tests/integration/with_batteries/test_plan_atoms.py",
         "tests/integration/with_batteries/test_redis_cache_bounded_identity.py",
         "tests/integration/with_batteries/test_route_index_platform_app.py",
