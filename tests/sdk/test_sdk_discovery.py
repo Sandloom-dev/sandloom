@@ -303,7 +303,14 @@ def test_route_policies_add_the_contracts_their_atoms_call(make_module: Any) -> 
                 @router.get(
                     "/b",
                     dependencies=[
-                        Depends(require(Entitled("organization.subscription.active")))
+                        Depends(
+                            require(
+                                Entitled(
+                                    "organization.subscription.active",
+                                    owner="billing",
+                                )
+                            )
+                        )
                     ],
                 )
                 async def b() -> None: ...

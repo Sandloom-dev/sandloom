@@ -1041,8 +1041,10 @@ An access check whose declaration binds an account (its generated class takes a
 required of=, and the atom's __sandloom_atom__ literal binds account_type /
 account_id or names a claim fact) cannot guess the account: a default could
 check another account than the one the route means (owner decision 1, spec
-§7.2). Subscribed, SubscriptionActive, Credits, Feature and WithinLimit are such
-checks today.
+§7.2). Billing's generated Subscribed, SubscriptionActive, Credits, Feature and
+WithinLimit are such checks today. The generated signature makes of= keyword-only
+and required: leaving it out is Python's TypeError naming of= (a type checker
+flags it first); a value that is not an Account raises this code.
 
 **Fix:** state the account: of=Account.user(), of=Account.org(param=...) (a route under /orgs/{...}) or of=Account.bound_tenant()
 

@@ -128,8 +128,8 @@ with no replacement name:
 | Removed | Instead |
 | --- | --- |
 | `ACTIVE_SUBSCRIPTION_STATUSES` | billing's `AccessFact` declaration; `Subscribed(statuses=...)` names the statuses |
-| `WELL_KNOWN_FACT_OWNERS` | the module that registers an `AccessFact` is its owner (`owner_module`); the kernel keeps no table |
-| `register_live_adapter`, `EntitlementsAdapter`, `MembershipAdapter` | `access_check` on the provider, `access_providers` / `SERVICE_BINDINGS` on the deployment ([ADR-0014](../adr/0014-claims-trust-and-authorization-portability.md)) |
+| `WELL_KNOWN_FACT_OWNERS` | the module that registers an `AccessFact` is its owner (`owner_module`); the kernel keeps no table. A fact whose name does not start with its owner is named with `Entitled(name, owner=...)`, e.g. `Entitled("subscription.active", owner="billing")` |
+| `register_live_adapter`, `EntitlementsAdapter`, `MembershipAdapter`, `ENTITLEMENTS`, `MEMBERSHIP` | `access_check` on the provider, `access_providers` / `SERVICE_BINDINGS` on the deployment ([ADR-0014](../adr/0014-claims-trust-and-authorization-portability.md)) |
 | the billing branch of `fake_access_fact` | `fake_contract(REF, Fake())` for the provider's contract; `fake_access_fact` keeps stubbing a fact by name |
 | `Roles`, `Permissions` | `sandloom_identity.rbac` in identity's own code; any other module writes the code string, e.g. `Perm("perm.users.read")` |
 

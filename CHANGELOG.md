@@ -15,6 +15,22 @@ website renders this same changelog.
 
 ### Breaking changes
 
+- **The kernel ships no domain atoms** (KB-34g, ADR-0014 decisions 8, 14,
+  15). `OrgRole`, `SubscriptionActive`, `Credits`, `Subscribed`, `Feature`,
+  `WithinLimit`, `ACTIVE_SUBSCRIPTION_STATUSES`, `register_live_adapter`,
+  `EntitlementsAdapter`, `MembershipAdapter`, `ENTITLEMENTS`, `MEMBERSHIP`,
+  `Roles` and `Permissions` leave `sandloom.sdk`, `sandloom.sdk.authz` and
+  `sandloom.shared.authz` with no alias; the atoms come from the consumer's
+  generated stub (`<app>.shared.contracts.billing_entitlements_v1`,
+  `..._tenancy_membership_v1`). The `sandloom.sdk` beginner tier is 20 names
+  (26 with the testing helpers and `client`). `WELL_KNOWN_FACT_OWNERS` is
+  gone: `Entitled(name, owner="billing")` names a fact whose name does not
+  start with its owner (only that module's fact is accepted), and
+  `fake_access_fact(..., owner=)` fakes it; `fake_access_fact` no longer
+  stands in for the entitlements contract (`fake_contract`). The archcheck
+  atom table is gone too: a class is an atom only by its generated literal,
+  and C034 follows a re-exported `ContractRef`. Upgrade:
+  `docs/operate/upgrade-1.0.md`.
 - **Tenant kind from the assigned tenant authority** (KB-31, KB-37, ADR-0014
   decision 13, owner #7). `tenant_kind` (and so `Account.bound_tenant()`)
   calls a tenant `organization` only when the membership witness of the

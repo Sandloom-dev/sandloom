@@ -7,8 +7,10 @@ description: "Reference of sandloom.sdk.authz: every public name with its signat
 
 # `sandloom.sdk.authz`
 
-Authorization: policies and atoms, access facts, the billing-account subject
-(`Account`).
+Authorization: policies and atoms, access facts, the account subject
+(`Account`). A provider's domain atoms (billing's `Subscribed`, tenancy's
+`OrgRole`, ...) are generated into the consumer's contract stub from the
+provider's `access_check` declarations; they are not in this module.
 
 Public API 1.0 (spec §2.2, Appendix C).
 
@@ -19,12 +21,8 @@ Public API 1.0 (spec §2.2, Appendix C).
 | Name | Kind | Summary |
 | --- | --- | --- |
 | [`authorize_resource`](#authorize_resource) | function | Load a resource by path id, authorize, and return it to the endpoint. |
-| [`Credits`](#credits) | class | Subject's live credit balance is at least `minimum`. |
-| [`OrgRole`](#orgrole) | class | Subject holds at least `minimum` role in the request's organization. |
 | [`Owner`](#owner) | class | Subject owns the request resource. |
 | [`require`](#require) | function | Return a dependency enforcing `policy` (no request resource). |
-| [`Subscribed`](#subscribed) | class | Subject's subscription grants access (coarse, claim-based). |
-| [`SubscriptionActive`](#subscriptionactive) | class | Subject's subscription is active right now (live, authoritative). |
 
 ## Advanced
 
@@ -36,7 +34,6 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`AccessFact`](#accessfact) | class | Declarative binding of a fact name to its three resolution paths. |
 | [`AccessUnknown`](#accessunknown) | exception | An access check's provider has no source for the answer (501). |
 | [`Account`](#account) | class | The billing account an atom checks (`of=`); build it with `user`, `org` or `bound_tenant`. |
-| [`ACTIVE_SUBSCRIPTION_STATUSES`](#active_subscription_statuses) | constant |  |
 | [`And`](#and) | class | Conjunction: all operands must hold. Short-circuits on first non-allow. |
 | [`authorize`](#authorize) | async function | Inline check over an already-loaded `resource`; raises on failure. |
 | [`AuthzContext`](#authzcontext) | class | Inputs available to a `Requirement` during evaluation. |
@@ -49,17 +46,12 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`current_context`](#current_context) | async function | Authenticated subject from the Bearer access token (cached per request). |
 | [`enforce`](#enforce) | async function | Evaluate `policy` for `subject`; raise `AccessDenied` on deny. |
 | [`Entitled`](#entitled) | class | Subject satisfies the registered access fact `fact_name`. |
-| [`ENTITLEMENTS`](#entitlements) | constant |  |
-| [`EntitlementsAdapter`](#entitlementsadapter) | class | Answers subscription / credit questions (`SubscriptionActive`/`Credits`). |
 | [`FactDenied`](#factdenied) | exception | A resolver's *definite* denial for a reason other than "the fact is False". |
 | [`FactOwnerUnreachable`](#factownerunreachable) | exception | The fact's owner is bound but could not describe its facts (503). |
 | [`FactUnavailable`](#factunavailable) | exception | A fact could not be resolved in any acceptable mode (a misconfiguration). |
-| [`Feature`](#feature) | class | The account's plan enables the feature flag `key` (`of=`, §7.2). |
 | [`From`](#from) | class | Where an access check's argument comes from (the kernel's sources). |
 | [`lookup_access_fact`](#lookup_access_fact) | async function | The fact `name`: the local registration, else the owner's public one. |
 | [`make_rebuild_gate`](#make_rebuild_gate) | function | A startup task that rebuilds an authz projection from its sources. |
-| [`MEMBERSHIP`](#membership) | constant |  |
-| [`MembershipAdapter`](#membershipadapter) | class | Answers organization-role questions for `OrgRole`. |
 | [`MODE_AUTO`](#mode_auto) | constant |  |
 | [`MODE_CLAIM`](#mode_claim) | constant |  |
 | [`MODE_LIVE`](#mode_live) | constant |  |
@@ -67,14 +59,11 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`Not`](#not) | class | Negation of a single requirement. |
 | [`Or`](#or) | class | Disjunction: any operand may hold. Short-circuits on first allow. |
 | [`Perm`](#perm) | class | Subject holds the fine-grained permission `perm`. |
-| [`Permissions`](#permissions) | class | Predefined fine-grained permission codes. |
 | [`PolicyIndeterminate`](#policyindeterminate) | exception | Raised by an atom's `evaluate` when it cannot answer at all. |
 | [`register_authz_projection`](#register_authz_projection) | function | Register an authorization projection, its consumers and rebuilder. |
-| [`register_live_adapter`](#register_live_adapter) | function | Bind the adapter the live atoms use for `kind` — CONSUMER-side config. |
 | [`Requirement`](#requirement) | class | An authorization predicate, composable with `& \| ~`. |
 | [`resolve_fact`](#resolve_fact) | async function | Resolve `fact` to a boolean, caching the result on `ctx`. |
 | [`Role`](#role) | class | Subject holds the global role `role`. |
-| [`Roles`](#roles) | class | Predefined global role codes. |
 | [`service_subject`](#service_subject) | function | A subject representing another service calling across a module boundary. |
 | [`SOURCE_HTTP`](#source_http) | constant |  |
 | [`SOURCE_INTERNAL`](#source_internal) | constant |  |
@@ -84,7 +73,6 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`TIER_CLAIM`](#tier_claim) | constant |  |
 | [`TIER_LIVE`](#tier_live) | constant |  |
 | [`TIER_RESOURCE`](#tier_resource) | constant |  |
-| [`WithinLimit`](#withinlimit) | class | `used` is strictly below the account's plan limit for `key`. |
 
 ## Beginner names
 
@@ -116,123 +104,6 @@ Load a resource by path id, authorize, and return it to the endpoint.
 The resource is fetched **once**: claim atoms evaluate first, so a failing
 cheap check raises without ever loading; otherwise the entity loaded for
 the ownership check is the same one returned to the endpoint.
-
-### `Credits`
-
-```python
-class Credits(_TenantScopedLiveAtom)(
-    minimum: int,
-    *,
-    of: Account = <object object>,
-    adapter: Any = None,
-) -> None
-```
-
-Subject's live credit balance is at least `minimum`.
-
-Reads the real-time balance via the entitlements contract (never a stale
-token claim — this guards money). `of=` names the billing account.
-
-#### `Credits.evaluate`
-
-```python
-async def evaluate(self, ctx: AuthzContext) -> bool
-```
-
-Return True iff the subject satisfies this requirement.
-
-Raise `PolicyIndeterminate` (never return `False`) when the
-requirement cannot be evaluated at all.
-
-#### `Credits.describe`
-
-```python
-def describe(self) -> str
-```
-
-Human-readable label used in 403 detail messages.
-
-### `OrgRole`
-
-```python
-class OrgRole(Requirement)(
-    minimum: str,
-    *,
-    org_param: str = 'org_id',
-    adapter: Any = None,
-) -> None
-```
-
-Subject holds at least `minimum` role in the request's organization.
-
-Relationship (ReBAC) authorization: org membership/role is per-organization
-and not carried in the global JWT, so it is resolved live through the
-membership contract (local call in a monolith, an RPC when tenancy is a
-separate service; 501 when neither). The organization id is read from the
-request path parameter `org_param`, else `X-Tenant-Id`, else the bound
-tenant; a missing organization is indeterminate (denies even under `Not`).
-
-For a hot path, a module may instead maintain an authorization projection of
-memberships and gate on a projection-backed `Entitled` fact.
-
-#### `OrgRole.org_params`
-
-```python
-def org_params(self) -> frozenset[str]
-```
-
-Path parameters this requirement may read an organisation from.
-
-Non-empty for an atom that resolves an organisation (path parameter,
-`X-Tenant-Id`, else the bound tenant): `create_app` then refuses a
-route that solves the gate before its `TenantScope()` (SANDLOOM-B007).
-
-#### `OrgRole.risks`
-
-```python
-def risks(self) -> frozenset[str]
-```
-
-The framework risks a gate enforcing this requirement carries
-(ADR-0009 item 6): `{"admin"}` for an admin role, else none. An
-`Or` carries its branches' risks; a `Not` grants no authority.
-
-#### `OrgRole.contracts`
-
-```python
-def contracts(self) -> frozenset[str]
-```
-
-Sync contracts evaluating this requirement may call (wiring time).
-
-A module's derived `consumes` includes them (optional), so the
-startup preflight reports an unbound one and `sandloom add deploy`
-binds it in a split deployment. Default: none (a claims-only atom).
-
-#### `OrgRole.adapter`
-
-```python
-def adapter(self) -> Any
-```
-
-#### `OrgRole.evaluate`
-
-```python
-async def evaluate(self, ctx: AuthzContext) -> bool
-```
-
-Return True iff the subject satisfies this requirement.
-
-Raise `PolicyIndeterminate` (never return `False`) when the
-requirement cannot be evaluated at all.
-
-#### `OrgRole.describe`
-
-```python
-def describe(self) -> str
-```
-
-Human-readable label used in 403 detail messages.
 
 ### `Owner`
 
@@ -291,129 +162,6 @@ provider runs in its own unit.
 Raises `ValueError` at wiring time if `policy` contains a resource-scoped
 atom (e.g. `Owner`): `require` has no request resource, so such a policy
 belongs in `authorize_resource` / `authorize`.
-
-### `Subscribed`
-
-```python
-class Subscribed(Requirement)(
-    statuses: frozenset[str] | None = None,
-    *,
-    of: Account = <object object>,
-    claim_key: str = 'subscription_status',
-) -> None
-```
-
-Subject's subscription grants access (coarse, claim-based).
-
-`of=Account.user()`: reads the token's
-`subscription_status` claim with ZERO I/O, interpreted by the
-`subscription.active` access fact — billing's declarative rule, the same
-predicate as the live check (`active`/`trialing` pass; `past_due`
-passes during the grace period unless `BILLING_DENY_ON_PAST_DUE`). The
-fact is the local registration or, in a process without billing, the one
-billing publishes over `billing.facts.v1` (described once, cached).
-
-Provenance is honoured: when the token's authoritative provenance shows
-billing did NOT contribute (it failed at mint, or the issuer could not
-reach it) the claim proves nothing, so the atom escalates to billing's LIVE
-answer instead of denying 402 for the token's whole lifetime (503
-indeterminate when no live path exists). With no subscription owner in
-the deployment at all, only `active`/`trialing` pass. May be up to the
-token TTL stale; for real-time / money-sensitive checks use
-`sandloom.shared.authz.atoms_live.SubscriptionActive` / `Credits`.
-
-`of=Account.org(...)`: the token carries NO per-organization
-subscription claim (claims are personal-only), so this atom resolves LIVE
-— it delegates to `SubscriptionActive(of=...)` and is a tier-3 atom.
-`of=Account.bound_tenant()` resolves the bound tenant's kind first
-(personal → the claim, organization → live).
-
-Passing explicit `statuses` pins the accepted set verbatim (no grace
-interpretation).
-
-#### `Subscribed.tenant_type`
-
-```python
-tenant_type  (property)
-```
-
-#### `Subscribed.org_params`
-
-```python
-def org_params(self) -> frozenset[str]
-```
-
-Path parameters this requirement may read an organisation from.
-
-Non-empty for an atom that resolves an organisation (path parameter,
-`X-Tenant-Id`, else the bound tenant): `create_app` then refuses a
-route that solves the gate before its `TenantScope()` (SANDLOOM-B007).
-
-#### `Subscribed.contracts`
-
-```python
-def contracts(self) -> frozenset[str]
-```
-
-Sync contracts evaluating this requirement may call (wiring time).
-
-A module's derived `consumes` includes them (optional), so the
-startup preflight reports an unbound one and `sandloom add deploy`
-binds it in a split deployment. Default: none (a claims-only atom).
-
-#### `Subscribed.evaluate`
-
-```python
-async def evaluate(self, ctx: AuthzContext) -> bool
-```
-
-Return True iff the subject satisfies this requirement.
-
-Raise `PolicyIndeterminate` (never return `False`) when the
-requirement cannot be evaluated at all.
-
-#### `Subscribed.describe`
-
-```python
-def describe(self) -> str
-```
-
-Human-readable label used in 403 detail messages.
-
-### `SubscriptionActive`
-
-```python
-class SubscriptionActive(_TenantScopedLiveAtom)(
-    *,
-    of: Account = <object object>,
-    adapter: Any = None,
-) -> None
-```
-
-Subject's subscription is active right now (live, authoritative).
-
-Live counterpart to the claim-based `sandloom.shared.authz.atoms_claims.Subscribed`. Use this when staleness is unacceptable (e.g. gating immediately
-after a purchase); use `Subscribed` for the cheap, zero-I/O common path.
-`of=` names the billing account (spec §7).
-
-#### `SubscriptionActive.evaluate`
-
-```python
-async def evaluate(self, ctx: AuthzContext) -> bool
-```
-
-Return True iff the subject satisfies this requirement.
-
-Raise `PolicyIndeterminate` (never return `False`) when the
-requirement cannot be evaluated at all.
-
-#### `SubscriptionActive.describe`
-
-```python
-def describe(self) -> str
-```
-
-Human-readable label used in 403 detail messages.
 
 ## Advanced names
 
@@ -703,14 +451,6 @@ organization; canonical / unknown are indeterminate).
 ```python
 def describe(self) -> str
 ```
-
-### `ACTIVE_SUBSCRIPTION_STATUSES`
-
-```python
-ACTIVE_SUBSCRIPTION_STATUSES: frozenset = frozenset({'active', 'trialing'})
-```
-
-*(no docstring)*
 
 ### `And`
 
@@ -1297,6 +1037,7 @@ class Entitled(Requirement)(
     category: str | None = None,
     code: str | None = None,
     mode: str | None = None,
+    owner: str | None = None,
 ) -> None
 ```
 
@@ -1307,6 +1048,7 @@ Subject satisfies the registered access fact `fact_name`.
 - `fact_name`: name of an `AccessFact` registered via `core.register_access_fact(...)`.
 - `category`: denial category when the fact is False. Defaults to the fact's own `deny_category` (billing's subscription facts declare `Category.PAYMENT_REQUIRED` → 402), else `forbidden` (403). A resolver raising `FactDenied` picks its own category.
 - `mode`: force a resolution mode, overriding the `ACCESS` setting (for tests / special endpoints). Normally left `None`.
+- `owner`: the module that owns the fact (its `owner_module`). Stated, only that module's fact is accepted (local, or described by its `<owner>.facts.v1`) and the policy names that contract; omitted, the owner is the fact's first dotted segment for the contract the policy names, and the lookup accepts the fact from whichever bound owner describes it. The kernel keeps no table of fact owners: `Entitled("subscription.active", owner="billing")`.
 
 #### `Entitled.contracts`
 
@@ -1346,48 +1088,6 @@ def describe(self) -> str
 ```
 
 Human-readable label used in 403 detail messages.
-
-### `ENTITLEMENTS`
-
-```python
-ENTITLEMENTS: str = 'entitlements'
-```
-
-*(no docstring)*
-
-### `EntitlementsAdapter`
-
-```python
-class EntitlementsAdapter(Protocol)
-```
-
-Answers subscription / credit questions (`SubscriptionActive`/`Credits`).
-
-#### `EntitlementsAdapter.subscription_active`
-
-```python
-async def subscription_active(
-    self,
-    service: Any,
-    *,
-    tenant_type: str,
-    tenant_id: UUID,
-    ctx: AuthzContext,
-) -> bool
-```
-
-#### `EntitlementsAdapter.credit_balance`
-
-```python
-async def credit_balance(
-    self,
-    service: Any,
-    *,
-    tenant_type: str,
-    tenant_id: UUID,
-    ctx: AuthzContext,
-) -> int
-```
 
 ### `FactDenied`
 
@@ -1431,27 +1131,6 @@ A fact could not be resolved in any acceptable mode (a misconfiguration).
 Raised when an explicitly-requested mode cannot be honored (live service not
 bound, no projection reader) or `auto` exhausts every option. The atom
 maps this to a `policy_misconfigured` decision — never a silent allow.
-
-### `Feature`
-
-```python
-class Feature(_AccountClaimAtom)(
-    key: str,
-    *,
-    of: Account = <object object>,
-    claim_key: str = 'features',
-) -> None
-```
-
-The account's plan enables the feature flag `key` (`of=`, §7.2).
-
-#### `Feature.describe`
-
-```python
-def describe(self) -> str
-```
-
-Human-readable label used in 403 detail messages.
 
 ### `From`
 
@@ -1541,36 +1220,6 @@ fail-closed-denies all callers. The rebuilder must be idempotent (the
 protocol guarantees it), so re-running on boot is safe; for large
 projections prefer `sandloom projection rebuild <name>` in the one-shot migrate
 step with `rebuild_on_startup=False`.
-
-### `MEMBERSHIP`
-
-```python
-MEMBERSHIP: str = 'membership'
-```
-
-*(no docstring)*
-
-### `MembershipAdapter`
-
-```python
-class MembershipAdapter(Protocol)
-```
-
-Answers organization-role questions for `OrgRole`.
-
-#### `MembershipAdapter.has_role_at_least`
-
-```python
-async def has_role_at_least(
-    self,
-    service: Any,
-    *,
-    org_id: UUID,
-    user_id: UUID,
-    minimum: str,
-    ctx: AuthzContext,
-) -> bool
-```
 
 ### `MODE_AUTO`
 
@@ -1829,14 +1478,6 @@ def describe(self) -> str
 
 Human-readable label used in 403 detail messages.
 
-### `Permissions`
-
-```python
-class Permissions
-```
-
-Predefined fine-grained permission codes.
-
 ### `PolicyIndeterminate`
 
 ```python
@@ -1872,25 +1513,6 @@ Register an authorization projection, its consumers and rebuilder.
 `ProjectionConsumerDescriptor` (one per source channel); `rebuilder` a
 `ProjectionRebuilder`. When `rebuild_on_startup` is True a rebuild gate
 is installed (`critical` controls whether its failure aborts startup).
-
-### `register_live_adapter`
-
-```python
-def register_live_adapter(kind: str, adapter: Any) -> None
-```
-
-Bind the adapter the live atoms use for `kind` — CONSUMER-side config.
-
-`kind` is `ENTITLEMENTS` or `MEMBERSHIP`; `adapter` must
-satisfy `EntitlementsAdapter` / `MembershipAdapter`.
-
-The table is per PROCESS and is read where the atom is EVALUATED — the
-consumer. Register an adapter from the consumer's composition root or the
-consuming module's `register(core)`, in every process that evaluates
-`Credits` / `SubscriptionActive` / `OrgRole`. A provider module that
-registers an adapter for its OWN contract only affects processes that
-load it: in a split deployment the consumer process silently keeps the
-default — so that is logged as a warning.
 
 ### `Requirement`
 
@@ -2050,14 +1672,6 @@ def describe(self) -> str
 
 Human-readable label used in 403 detail messages.
 
-### `Roles`
-
-```python
-class Roles
-```
-
-Predefined global role codes.
-
 ### `service_subject`
 
 ```python
@@ -2129,34 +1743,6 @@ TIER_RESOURCE: int = 2
 ```
 
 *(no docstring)*
-
-### `WithinLimit`
-
-```python
-class WithinLimit(_AccountClaimAtom)(
-    key: str,
-    used: int,
-    *,
-    of: Account = <object object>,
-    claim_key: str = 'limits',
-) -> None
-```
-
-`used` is strictly below the account's plan limit for `key`.
-
-For `Account.user()` the limit comes from the token claim; `used` is
-the current count the caller already knows (e.g. number of seats). Absent
-/ non-integer limit ⇒ treated as 0 (i.e. denied), so a missing entitlement
-fails closed; a `limits` claim absent because its authority failed at
-the mint is indeterminate (503).
-
-#### `WithinLimit.describe`
-
-```python
-def describe(self) -> str
-```
-
-Human-readable label used in 403 detail messages.
 
 ## Examples and related guides
 

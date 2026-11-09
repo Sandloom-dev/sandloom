@@ -2782,8 +2782,8 @@ guarantees:
   - tests/integration/test_access_facts_split.py::test_unbound_fact_is_501_not_500
 - id: G-AUTHZ-05
   statement: 'Who answers a live entitlement or membership check is the consumer''s configuration: a third-party
-    provider''s access checks (the SubscriptionActive, Credits and OrgRole shapes) decide what the kernel atoms
-    decide on the same inputs (allow, deny, indeterminate 400 / 403 / 501, a provider down 503), in-process
+    provider''s access checks (the SubscriptionActive, Credits and OrgRole shapes) decide what the standard
+    contracts'' generated atoms (billing.entitlements.v1, tenancy.membership.v1) decide on the same inputs (allow, deny, indeterminate 400 / 403 / 501, a provider down 503), in-process
     under the access_providers assignment and over internal RPC through SERVICE_BINDINGS pinned to its service_id;
     the root''s assignment chooses among candidate providers and refuses every other (SANDLOOM-B034).'
   sources:
@@ -2822,9 +2822,11 @@ guarantees:
   tests:
   - tests/integration/test_access_subsystem.py::test_enforce_denies_and_records_metric
 - id: G-AUTHZ-09
-  statement: Subscribed, SubscriptionActive, Credits, Feature and WithinLimit require of=; a missing or non-Account
-    value raises AuthzSubjectMissingError (a TypeError, SANDLOOM-B017) naming the three choices (Account.user(),
-    Account.org(param=), Account.bound_tenant()).
+  statement: Billing's generated Subscribed, SubscriptionActive, Credits, Feature and WithinLimit require of=
+    (the kernel ships none of them since KB-34); their generated signature makes of= keyword-only and required, so
+    a missing one is a TypeError naming of= at the declaration (a type checker flags it before the run), and a
+    non-Account value raises AuthzSubjectMissingError (a TypeError, SANDLOOM-B017) naming the three choices
+    (Account.user(), Account.org(param=), Account.bound_tenant()).
   sources:
   - docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects
   - tests/fixtures/specs/public-api-1.0-spec.md#7.2 `of=` (required, no default)
@@ -2854,9 +2856,8 @@ guarantees:
   - tests/integration/test_tenant_witness.py::test_a_bound_tenant_policy_consumes_the_witness_contract
   - src/sandloom/core/tests/test_contract_check.py::test_a_breaking_access_check_change_is_incompatible
 - id: G-AUTHZ-12
-  statement: Feature / WithinLimit with an organization account read the owner's organization.features / organization.limits
-    facts live (501 without a registered fact); with Account.user() they read the claims as before. Billing's
-    generated Feature / WithinLimit (claim atoms of billing.entitlements.v1's has_feature / is_within_limit)
+  statement: The kernel ships no Feature / WithinLimit (KB-34); the atoms are billing's generated Feature
+    / WithinLimit (claim atoms of billing.entitlements.v1's has_feature / is_within_limit)
     read the claims with zero I/O, and for an organization account ask billing's live check once with their
     parameters, in-process and over internal RPC alike (501 without a provider, never an allow). A provider
     with no source for the answer (billing has no per-plan features / limits catalogue yet) raises AccessUnknown,
@@ -5840,8 +5841,8 @@ guarantees:
   - tests/sdk/test_sdk_l1_registration.py::test_example_modules_register_identically_through_l1
 - id: G-SDK-04
   statement: 'Generated code (sandloom new, every sandloom add generator) and every example file that imports
-    sandloom.sdk use only the 30 beginner names; an advanced name needs `# sandloom: advanced <reason>` on its
-    import (SANDLOOM-T009).'
+    sandloom.sdk use only the 26 beginner names (30 before KB-34 moved the domain atoms to generated stubs); an
+    advanced name needs `# sandloom: advanced <reason>` on its import (SANDLOOM-T009).'
   sources:
   - tests/fixtures/specs/public-api-1.0-spec.md#2.2 Modules
   tests:

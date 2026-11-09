@@ -362,14 +362,14 @@ edges:
     scope: runtime
     owner: [billing, tenancy]
     baseline_verdict: disputed
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
-    prs: [KB-13, KB-30, KB-34]
+    prs: [KB-13, KB-30, KB-34, KB-34g]
     anchors:
-      - {path: sandloom/shared/authz/live_contracts.py, symbol: register_live_adapter}
-      - {path: sandloom/sdk/authz.py, symbol: EntitlementsAdapter}
-      - {path: sandloom/sdk/authz.py, symbol: MembershipAdapter}
+      - {path: sandloom/shared/authz/live_contracts.py, literal: register_live_adapter}
+      - {path: sandloom/sdk/authz.py, literal: EntitlementsAdapter}
+      - {path: sandloom/sdk/authz.py, literal: MembershipAdapter}
     note: "Started by KB-13: the contract a live adapter names, or a key of create_app(access_providers=...), is registered in-process only by its first-segment module or the assigned one, by import path (SANDLOOM-B034); read generically from the adapter table, no contract literal in the kernel. Fixed after KB-30 and KB-34."
   - id: B-I1
     class: b
@@ -390,13 +390,13 @@ edges:
     scope: runtime
     owner: [billing, tenancy]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
-    prs: [KB-30, KB-34]
+    prs: [KB-30, KB-34, KB-34g]
     anchors:
-      - {path: sandloom/shared/authz/live_contracts.py, literal: billing.entitlements.v1}
-      - {path: sandloom/shared/authz/live_contracts.py, literal: tenancy.membership.v1}
+      - {path: sandloom/shared/authz/live_contracts.py, literal: '"billing.entitlements.v1"'}
+      - {path: sandloom/shared/authz/live_contracts.py, literal: '"tenancy.membership.v1"'}
   - id: B-R2
     class: b
     type: runtime_call
@@ -415,12 +415,12 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
-    prs: [KB-30, KB-34]
+    prs: [KB-30, KB-34, KB-34g]
     anchors:
-      - {path: sandloom/shared/authz/facts.py, symbol: WELL_KNOWN_FACT_OWNERS}
+      - {path: sandloom/shared/authz/facts.py, literal: WELL_KNOWN_FACT_OWNERS}
   - id: B-R4
     class: b
     type: runtime_call
@@ -452,13 +452,13 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
-    prs: [KB-34]
+    prs: [KB-34, KB-34g]
     anchors:
-      - {path: sandloom/core/testing/authz.py, symbol: LIVE_SUBSCRIPTION_FACTS}
-      - {path: sandloom/core/testing/authz.py, literal: billing.entitlements.v1}
+      - {path: sandloom/core/testing/authz.py, literal: LIVE_SUBSCRIPTION_FACTS}
+      - {path: sandloom/core/testing/authz.py, literal: '"billing.entitlements.v1"'}
   - id: B-S1
     class: b
     type: security_authority
@@ -792,39 +792,39 @@ edges:
     scope: runtime
     owner: tenancy
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
-    prs: [KB-30, KB-34]
+    prs: [KB-30, KB-34, KB-34g]
     anchors:
-      - {path: sandloom/shared/authz/atoms_live.py, symbol: OrgRole}
+      - {path: sandloom/shared/authz/atoms_live.py, literal: '"OrgRole"'}
   - id: B-N14
     class: b
     type: naming
     scope: runtime
     owner: [billing, tenancy]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
-    prs: [KB-34]
+    prs: [KB-34, KB-34g]
     anchors:
       - {path: sandloom/sdk/authz.py, literal: "\"OrgRole\""}
       - {path: sandloom/sdk/authz.py, literal: "\"SubscriptionActive\""}
-      - {path: sandloom/sdk/__init__.py, literal: Credits}
+      - {path: sandloom/sdk/__init__.py, literal: '"Credits"'}
   - id: B-N15
     class: b
     type: naming
     scope: runtime
     owner: identity
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
-    prs: [KB-34]
+    prs: [KB-34, KB-34g]
     anchors:
-      - {path: sandloom/shared/authz/constants.py, symbol: Permissions}
-      - {path: sandloom/shared/authz/constants.py, symbol: Roles}
+      - {path: sandloom/shared/authz/constants.py, literal: '"Permissions"'}
+      - {path: sandloom/shared/authz/constants.py, literal: '"Roles"'}
   - id: B-N16
     class: b
     type: naming

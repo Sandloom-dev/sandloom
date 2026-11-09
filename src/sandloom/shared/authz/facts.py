@@ -550,22 +550,15 @@ async def _describe_owner(core: Any, owner: str) -> dict[str, AccessFact]:
     return found
 
 
-#: Facts whose owner is not their first dotted segment (the framework's
-#: subscription facts belong to billing).
-WELL_KNOWN_FACT_OWNERS = {
-    "subscription.active": "billing",
-    "organization.subscription.active": "billing",
-}
-
-
-def fact_owner_contract(name: str) -> str:
+def fact_owner_contract(name: str, owner: str | None = None) -> str:
     """The ``<owner>.facts.v1`` contract that publishes fact ``name``.
 
-    The owner is the fact's first dotted segment (the lookup order of
-    :func:`lookup_access_fact`), except for :data:`WELL_KNOWN_FACT_OWNERS`.
+    The owner is the one the caller states (a generated atom's literal, an
+    ``Entitled(..., owner=)``, a registered fact's ``owner_module``), else
+    the fact's first dotted segment (the lookup order of
+    :func:`lookup_access_fact`). The kernel keeps no table of owners (B-R3).
     """
-    owner = WELL_KNOWN_FACT_OWNERS.get(name) or name.split(".", 1)[0]
-    return facts_contract_name(owner)
+    return facts_contract_name(owner or name.split(".", 1)[0])
 
 
 def fact_owner_present(ctx: AuthzContext, name: str, owner: str) -> bool:

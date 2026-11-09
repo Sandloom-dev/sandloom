@@ -6,6 +6,7 @@ pending-until-unplanned gate, the tree-wide view check).
 
 from __future__ import annotations
 
+import ast
 import json
 import textwrap
 from collections.abc import Iterator
@@ -329,12 +330,6 @@ def test_c027_organization_routes_and_the_personal_account(
     assert "team_id" in hits[1] and "/teams" in hits[1]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="KB-34: atom_metadata.binds_account reads a claim-read atom's top-level "
-    "binds, but the generated Feature / WithinLimit carry them under 'otherwise'; "
-    "the piece that deletes the kernel table fixes it and drops this marker",
-)
 def test_c027_a_generated_claim_read_atom_is_checked_too(
     atoms_on_path: Path,
 ) -> None:
@@ -353,10 +348,16 @@ def test_c027_a_generated_claim_read_atom_is_checked_too(
         from billing_entitlements_v1 import Feature, WithinLimit
 
         @router.get(
+            "/orgs/{org_id}/teams",
+            dependencies=[Depends(require(Feature("x", of=Account.user())))],
+        )
+        async def teams(org_id: UUID): ...
+
+        @router.get(
             "/teams/{team_id}",
             dependencies=[Depends(require(Feature("x", of=Account.user())))],
         )
-        async def teams(team_id: UUID): ...
+        async def team(team_id: UUID): ...
 
         @router.get(
             "/orgs/{org_id}/n",
@@ -602,6 +603,78 @@ def test_a_name_alone_is_not_an_atom(atoms_on_path: Path) -> None:
     )
     assert mr.find_guard_order_problems([api]) == []
     assert len(a10.find_untagged_sensitive(api)) == 1
+
+
+def test_a_renamed_or_reexported_name_borrows_no_metadata(atoms_on_path: Path) -> None:
+    """KB-34: the kernel table of atoms is gone. A literal-less class at the
+    old kernel path, under a former atom's name, re-exported or renamed, is no
+    atom (no admin gate that would hide a hand-rolled authority, no account
+    bind); a renamed generated atom keeps its own literal, not another's."""
+    from sandloom.core.archcheck import module_rules as mr
+
+    kernel = atoms_on_path / "sandloom" / "shared" / "authz"
+    kernel.mkdir(parents=True)
+    (kernel / "atoms_live.py").write_text("class OrgRole:\n    pass\n")
+    _write(atoms_on_path, "orgs_stub.py", _ORG_ROLE_STUB)
+    _write(
+        atoms_on_path,
+        "reexp.py",
+        """
+        from sandloom.shared.authz.atoms_live import OrgRole as ProjectRole
+        from orgs_stub import OrgRole as Gate
+        """,
+    )
+    api = _write(
+        atoms_on_path,
+        "api.py",
+        """
+        from sandloom.shared.authz.atoms_live import OrgRole
+        from reexp import ProjectRole, Gate
+
+        @router.post("/a", dependencies=[Depends(require(OrgRole("admin")))])
+        async def a():
+            raise HTTPException(status_code=403)
+
+        @router.post("/b", dependencies=[Depends(require(ProjectRole("admin")))])
+        async def b():
+            raise HTTPException(status_code=403)
+
+        @router.post("/c", dependencies=[Depends(require(Gate("member")))])
+        async def c():
+            raise HTTPException(status_code=403)
+
+        @router.post("/d", dependencies=[Depends(require(Gate("admin")))])
+        async def d():
+            raise HTTPException(status_code=403)
+        """,
+    )
+    hits = a10.find_untagged_sensitive(api)
+    assert len(hits) == 3, hits  # /a, /b (no atom) and /c (member gate)
+    assert not any("POST /d" in h for h in hits)
+    assert mr.find_guard_order_problems([api]) == []
+    assert a10.find_account_route_mismatches(api) == []
+    found = atom_metadata.atom_literals(ast.parse(api.read_text()), api)
+    assert set(found) == {"Gate"}, found
+
+
+def test_c034_follows_a_reexported_contract_ref(atoms_on_path: Path) -> None:
+    """A hand-written check calling the declared method through a ContractRef
+    re-exported (and renamed) by a package is still compared with the
+    declaration: a re-export is no way around SANDLOOM-C034."""
+    api = _z8_consumer(atoms_on_path)
+    contracts = atoms_on_path / "z8app" / "shared" / "contracts"
+    (contracts / "__init__.py").write_text(
+        "from .projects_roles_v1 import PROJECTS_ROLES_V1 as ROLES\n"
+    )
+    source = api.read_text(encoding="utf-8").replace(
+        "roles = Contract(PROJECTS_ROLES_V1)",
+        "from z8app.shared.contracts import ROLES\n\nroles = Contract(ROLES)",
+    )
+    other = _write(atoms_on_path, "other_api.py", "")
+    other.write_text(source, encoding="utf-8")
+    hits = a10.find_handwritten_access_checks(other)
+    assert len(hits) == 2, hits
+    assert all("CheapLead" in h for h in hits)
 
 
 def test_no_atom_name_list_remains() -> None:

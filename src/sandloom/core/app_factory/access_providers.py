@@ -14,14 +14,11 @@ Which names are access-bearing is read from the consumer's side of this
 composition, never from a list of known contracts in the kernel:
 
 * (a) the keys of ``access_providers``;
-* (b) the ``service`` of each adapter bound in the live-adapter table
-  (:func:`sandloom.shared.authz.live_contracts.live_adapter_contracts`), read
-  generically: a custom adapter for ``acme.seats.v1`` makes that name
-  access-bearing with no kernel edit;
-* (c) the contract of each generated access check a consumer's generated
+* (b) the contract of each generated access check a consumer's generated
   copy carries and the process imported
   (:func:`sandloom.shared.authz.contract_check.generated_access_contracts`):
-  the literal names it, never a list in the kernel.
+  the literal names it, never a list in the kernel, so a third party's
+  ``acme.seats.v1`` is access-bearing with no kernel edit.
 
 A provider cannot declassify its own contract by omitting a declaration. The
 provider is checked by its real identity: its loaded import path, not only
@@ -30,9 +27,10 @@ its short name (:func:`sandloom.core.facade._services.access_provider_problem`).
 :func:`install_access_providers` binds the assignment before any module loads
 (a registration by anyone else raises ``ForeignOwnerRegistration``, which
 refuses that module's load) and :func:`enforce_access_providers` sweeps every
-registration again after the load, since a later module may bind an adapter
-naming a contract registered earlier, and once more as a critical startup
-task before the app serves (an adapter the root binds after ``create_app``).
+registration again after the load, since a later module may import a
+generated copy naming a contract registered earlier, and once more as a
+critical startup task before the app serves (a copy imported after
+``create_app``).
 All refuse with SANDLOOM-B034, B034's family widened; all run at boot only,
 never on a request.
 """
@@ -44,7 +42,6 @@ from collections.abc import Mapping
 from typing import Any
 
 import sandloom.shared.authz.contract_check as _contract_check
-import sandloom.shared.authz.live_contracts as _live_contracts
 from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
 from sandloom.core.descriptors.module_names import (
     AmbiguousModuleError,
@@ -145,11 +142,7 @@ def install_access_providers(
     keys = frozenset(assigned)
 
     def access_bearing() -> frozenset[str]:
-        return (
-            keys
-            | _live_contracts.live_adapter_contracts()
-            | _contract_check.generated_access_contracts()
-        )
+        return keys | _contract_check.generated_access_contracts()
 
     core_facade._assign_access_providers(assigned, access_bearing)
     return assigned
@@ -160,8 +153,8 @@ def enforce_access_providers(core_facade: Any, *, log: logging.Logger) -> None:
     is not its provider (SANDLOOM-B034), after every module has loaded.
 
     The same sweep runs again as a critical startup task, before the app
-    serves: an adapter the composition root binds after ``create_app``
-    returned classifies its contract too.
+    serves: a generated copy imported after ``create_app`` returned
+    classifies its contract too.
     """
     problems = core_facade.access_provider_problems()
     if problems:

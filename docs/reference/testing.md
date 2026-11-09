@@ -27,7 +27,7 @@ The six beginner names. Everything else in `sandloom.sdk.testing` is advanced.
 | `published(E)` | the `E` events the code under test published with `E(...).publish()`, in order |
 | `await deliver(event, payload=None, *, times=1, event_id=None, session=None, core=None)` | runs every consumer of the event's channel through the real consumer runtime; returns how many consumers ran |
 | `fake_contract(REF, impl)` | serves contract `REF` from `impl` for a `with` block |
-| `fake_access_fact(name, value=True, *, deny_category=None, core=None)` | answers an access fact by name (`Entitled(name)`) without loading its owner; a generated atom is faked with `fake_contract` |
+| `fake_access_fact(name, value=True, *, deny_category=None, core=None, owner=None)` | answers an access fact by name (`Entitled(name)`) without loading its owner (`owner=` for `Entitled(name, owner=...)`, which accepts only that module's fact); a generated atom is faked with `fake_contract` |
 
 ## Activate the plugin
 

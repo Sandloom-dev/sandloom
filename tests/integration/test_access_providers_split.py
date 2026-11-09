@@ -4,10 +4,10 @@ Two third-party modules, no battery involved, over one ledger:
 
 - ``acme_billing`` serves ``acmebill.plans.v1``, whose boolean reads declare
   the access checks ``SubscriptionActive`` and ``Credits`` (the shape of the
-  kernel atoms of those names), and ``billing.entitlements.v1`` (the contract
-  the kernel atoms ask today);
+  standard billing atoms of those names), and ``billing.entitlements.v1`` (the
+  standard contract, whose generated atoms a consumer imports);
 - ``acme_orgs`` serves ``acmeorgs.roles.v1``, declaring ``OrgRole``, and
-  ``tenancy.membership.v1`` (the contract the kernel ``OrgRole`` asks today).
+  ``tenancy.membership.v1`` (the standard contract of ``OrgRole``).
 
 The consumer's atoms are the ones ``sandloom generate`` renders beside the
 stubs, imported as a consumer imports them. Two in-process apps wired like a
@@ -23,7 +23,8 @@ contract runtime, ASGI transport):
   keys behind the same URL never decides access.
 
 G-AUTHZ-05 (decision 14): the third party's generated atoms decide what
-today's kernel atoms decide on the same inputs, in the provider process
+the standard contracts' generated atoms decide on the same inputs (the kernel
+atoms they replaced are gone since KB-34), in the provider process
 (in-process call) and in the consumer (RPC): allow, deny, every indeterminate
 (400, 403, 501), and a provider that is down is 503 both ways.
 """
@@ -43,7 +44,6 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-import sandloom.shared.authz as kernel
 from sandloom.core import rpc
 from sandloom.core.app_factory import access_providers as _access
 from sandloom.core.cli.generated import render_stub
@@ -207,6 +207,13 @@ class _AcmeEntitlements:
     async def get_credit_balance(cls, tenant_type: str, tenant_id: UUID) -> int:
         return BALANCE.get((tenant_type, tenant_id), 0)
 
+    @classmethod
+    @contract_method
+    async def has_credits_at_least(
+        cls, tenant_type: str, tenant_id: UUID, minimum: int
+    ) -> bool:
+        return BALANCE.get((tenant_type, tenant_id), 0) >= minimum
+
 
 class _AcmePlans:
     """``acme_billing``'s implementation of its own declared contract."""
@@ -232,13 +239,13 @@ MODULES: dict[str, dict[str, Any]] = {
 
 
 # --------------------------------------------------------------------------- #
-# The two atom kits: the kernel's and the generated ones
+# The two atom kits: the standard contracts' and the third party's
 # --------------------------------------------------------------------------- #
-KERNEL = SimpleNamespace(
-    SubscriptionActive=kernel.SubscriptionActive,
-    Credits=kernel.Credits,
-    OrgRole=kernel.OrgRole,
-)
+@pytest.fixture
+def std(generated_atoms: SimpleNamespace) -> SimpleNamespace:
+    """The consumer's generated atoms of ``billing.entitlements.v1`` and
+    ``tenancy.membership.v1`` (what replaced the kernel atoms, KB-34)."""
+    return generated_atoms
 
 
 def _import_stub(tmp_path: Path, name: str, provider: type) -> ModuleType:
@@ -530,8 +537,12 @@ CASES: dict[str, tuple[Policy, Any, tuple[UUID, ...], tuple[bool, int, bool]]] =
 # --------------------------------------------------------------------------- #
 # G-CONTRACT-24: the provider assignment, both sides of a split
 # --------------------------------------------------------------------------- #
-async def test_the_provider_process_refuses_an_unassigned_third_party() -> None:
-    """Split boot: the ``acme`` process loads ``acme_orgs`` with no assignment."""
+async def test_the_provider_process_refuses_an_unassigned_third_party(
+    gen: SimpleNamespace,
+) -> None:
+    """Split boot: the ``acme`` process loads ``acme_orgs`` with no assignment
+    while a generated copy of its contract is imported there (the literal
+    makes the contract access-bearing; the kernel lists none since KB-34)."""
     with pytest.raises(ForeignOwnerRegistration, match="SANDLOOM-B034"):
         _provider(None, ("acme_orgs",))
 
@@ -575,7 +586,7 @@ async def test_an_assigned_provider_decides_the_same_mono_and_split(
 
 
 async def test_only_the_pinned_service_id_answers_remotely(
-    monkeypatch: pytest.MonkeyPatch, gen: SimpleNamespace
+    monkeypatch: pytest.MonkeyPatch, gen: SimpleNamespace, std: SimpleNamespace
 ) -> None:
     """The binding pins ``acme``; a process keyed ``impostor`` behind the same
     URL serves an assigned provider, yet its answer is never taken: the call
@@ -583,7 +594,7 @@ async def test_only_the_pinned_service_id_answers_remotely(
     never an allow."""
     _serve(monkeypatch, "impostor")
     consumer = _consumer("acme", ("acme", "impostor"))
-    for kit in (KERNEL, gen):
+    for kit in (std, gen):
         for policy in (
             kit.OrgRole("member"),
             ~kit.OrgRole("member"),
@@ -596,20 +607,20 @@ async def test_only_the_pinned_service_id_answers_remotely(
 
 
 # --------------------------------------------------------------------------- #
-# G-AUTHZ-05: a third-party provider decides as today's kernel atoms
+# G-AUTHZ-05: a third-party provider decides as the standard contracts' atoms
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("case", list(CASES))
 async def test_a_third_party_provider_decides_as_the_kernel_atoms_mono_and_split(
-    split: dict[str, CoreFacade], gen: SimpleNamespace, case: str
+    split: dict[str, CoreFacade], gen: SimpleNamespace, std: SimpleNamespace, case: str
 ) -> None:
     """Entitlement (``SubscriptionActive`` / ``Credits``) and membership
     (``OrgRole``) checks answered by ``acme_billing`` / ``acme_orgs``: the
-    generated atoms over the third party's declared contracts and the kernel
-    atoms over today's contracts decide the same, in-process and over RPC."""
+    generated atoms over the third party's declared contracts and those over
+    the standard contracts decide the same, in-process and over RPC."""
     policy, org, granted, (allowed, status, indeterminate) = CASES[case]
     decisions = {
         (kit_name, side): await _outcome(policy(kit), _ctx(core, org, granted))
-        for kit_name, kit in (("kernel", KERNEL), ("generated", gen))
+        for kit_name, kit in (("standard", std), ("generated", gen))
         for side, core in split.items()
     }
     assert len(set(decisions.values())) == 1, decisions
@@ -620,6 +631,7 @@ async def test_a_third_party_provider_decides_as_the_kernel_atoms_mono_and_split
 
 async def test_the_root_chooses_the_provider_by_configuration(
     gen: SimpleNamespace,
+    std: SimpleNamespace,
 ) -> None:
     """``access_providers`` decides which third party answers: the assigned
     module registers, any other candidate of the contract is refused (B034),
@@ -633,7 +645,7 @@ async def test_the_root_chooses_the_provider_by_configuration(
             _provider(assignment, (other,))
         _app, core = _provider(assignment, (chosen,))
         assert core.contract_owner(ROLES_CONTRACT) == chosen
-        for kit in (KERNEL, gen):
+        for kit in (std, gen):
             decision = await kit.OrgRole("admin").decide(_ctx(core, ORG))
             assert decision.allowed is admin
             assert (await kit.OrgRole("member").decide(_ctx(core, ORG))).allowed
@@ -641,6 +653,7 @@ async def test_the_root_chooses_the_provider_by_configuration(
 
 async def test_without_a_provider_both_are_501_even_negated(
     gen: SimpleNamespace,
+    std: SimpleNamespace,
 ) -> None:
     """No local provider and no binding: indeterminate 501
     ``service_unavailable``, the same for both kits, ``~`` included."""
@@ -651,19 +664,20 @@ async def test_without_a_provider_both_are_501_even_negated(
         lambda k: ~k.OrgRole("member"),
     )
     for build in builds:
-        kernel_decision = await build(KERNEL).decide(_ctx(consumer, ORG))
+        standard = await build(std).decide(_ctx(consumer, ORG))
         generated = await build(gen).decide(_ctx(consumer, ORG))
-        assert _key(generated) == _key(kernel_decision)
+        assert _key(generated) == _key(standard)
         assert generated.indeterminate and generated.http_status == 501
         assert generated.code == "service_unavailable"
 
 
 async def test_a_provider_down_is_503_both_ways(
-    monkeypatch: pytest.MonkeyPatch, gen: SimpleNamespace
+    monkeypatch: pytest.MonkeyPatch, gen: SimpleNamespace, std: SimpleNamespace
 ) -> None:
     """The bound provider unreachable: the caller is answered 503 either way.
-    The kernel atom raises it; the generated atom is indeterminate 503
-    ``owner_unavailable`` inside the algebra (K5), so ``~`` never allows."""
+    A generated atom, the standard contracts' as the third party's, is
+    indeterminate 503 ``owner_unavailable`` inside the algebra (K5), so ``~``
+    never allows."""
 
     def refuse(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused", request=request)
@@ -680,10 +694,7 @@ async def test_a_provider_down_is_503_both_ways(
         lambda k: k.OrgRole("member"),
     )
     for build in builds:
-        with pytest.raises(RemoteServiceUnavailable) as exc:
-            await build(KERNEL).decide(_ctx(consumer, ORG))
-        assert exc.value.status_code == 503
-        for policy in (build(gen), ~build(gen)):
+        for policy in (build(std), ~build(std), build(gen), ~build(gen)):
             decision = await policy.decide(_ctx(consumer, ORG))
             assert not decision.allowed and decision.indeterminate
             assert decision.http_status == 503

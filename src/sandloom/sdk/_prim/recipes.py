@@ -18,12 +18,15 @@ import re
 _RECIPES: dict[str, tuple[str, str]] = {
     "org-gate": (
         "an organization route for paid admins, and its test",
-        """The gate runs before the handler. In tests, fake the membership
-contract and the subscription fact; no tenancy or billing data is needed.
+        """The gate runs before the handler. The atoms come from the
+providers' generated stubs (`sandloom generate`). In tests, fake the
+membership and entitlements contracts; no tenancy or billing data is needed.
 
     from fastapi import Depends
-    from sandloom.sdk import CurrentUser, OrgRole, SubscriptionActive, require
+    from sandloom.sdk import CurrentUser, require
     from sandloom.sdk.authz import Account  # sandloom: advanced billing account
+    from <app>.shared.contracts.billing_entitlements_v1 import SubscriptionActive
+    from <app>.shared.contracts.tenancy_membership_v1 import OrgRole
 
     ORG = Account.org(param="org_id")
     PAID_ADMIN = require(OrgRole("admin") & SubscriptionActive(of=ORG))
@@ -40,7 +43,8 @@ is meant.
 
 Test (200 for an admin of a paid org, 403 for a member, 402 when unpaid):
 
-    from sandloom.sdk.testing import as_user, fake_access_fact, fake_contract
+    from sandloom.sdk.testing import as_user, fake_contract
+    from <app>.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
     from <app>.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
 
     RANK = {"member": 1, "admin": 2, "owner": 3}
@@ -51,6 +55,11 @@ Test (200 for an admin of a paid org, 403 for a member, 402 when unpaid):
             role = self.roles.get((organization_id, user_id))
             return role is not None and RANK[role] >= RANK[minimum]
 
+    class Plan:  # the entitlements contract: only the method the gate asks
+        def __init__(self, active): self.active = active
+        async def check_subscription_active(self, tenant_type, tenant_id):
+            return self.active
+
     async def test_report(client):
         org = uuid4()
         admin, admin_h = as_user(tenant_id=org)
@@ -58,14 +67,14 @@ Test (200 for an admin of a paid org, 403 for a member, 402 when unpaid):
         url = f"/api/v1/<module>/orgs/{org}/report"
         roles = Roles({(org, admin): "admin", (org, member): "member"})
         with fake_contract(TENANCY_MEMBERSHIP_V1, roles):
-            with fake_access_fact("organization.subscription.active", True):
+            with fake_contract(BILLING_ENTITLEMENTS_V1, Plan(True)):
                 assert (await client.get(url, headers=admin_h)).status_code == 200
                 assert (await client.get(url, headers=member_h)).status_code == 403
-            with fake_access_fact("organization.subscription.active", False):
+            with fake_contract(BILLING_ENTITLEMENTS_V1, Plan(False)):
                 assert (await client.get(url, headers=admin_h)).status_code == 402
 
-A personal gate is `Subscribed(of=Account.user())`, faked with
-`fake_access_fact("subscription.active", ...)`.""",
+A personal gate is `Subscribed(of=Account.user())` (same stub): it reads the
+token's `subscription_status` claim with zero I/O.""",
     ),
     "retries": (
         "what a retried write returns, and how to test it",

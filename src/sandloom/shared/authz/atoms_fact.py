@@ -1,7 +1,7 @@
 """Fact-backed atom: ``Entitled`` resolves a registered :class:`AccessFact`.
 
-Unlike the fixed-tier atoms (``Subscribed`` is always claim, ``Credits`` is
-always live), ``Entitled("subscription.active")`` defers *how* the fact is
+Unlike a generated atom (its tier is the provider's declaration),
+``Entitled("subscription.active", owner="billing")`` defers *how* the fact is
 answered to configuration — claim / projection / live / auto — so the same
 policy travels from monolith to a split deployment without an edit: in a
 process without the owner the fact is looked up through the owner's bound
@@ -41,6 +41,13 @@ class Entitled(Requirement):
             A resolver raising ``FactDenied`` picks its own category.
         mode: force a resolution mode, overriding the ``ACCESS`` setting (for
             tests / special endpoints). Normally left ``None``.
+        owner: the module that owns the fact (its ``owner_module``). Stated,
+            only that module's fact is accepted (local, or described by its
+            ``<owner>.facts.v1``) and the policy names that contract;
+            omitted, the owner is the fact's first dotted segment for the
+            contract the policy names, and the lookup accepts the fact from
+            whichever bound owner describes it. The kernel keeps no table of
+            fact owners: ``Entitled("subscription.active", owner="billing")``.
     """
 
     tier = TIER_LIVE
@@ -52,6 +59,7 @@ class Entitled(Requirement):
         category: str | None = None,
         code: str | None = None,
         mode: str | None = None,
+        owner: str | None = None,
     ) -> None:
         self.fact_name = fact_name
         # Explicit override; None defers to the fact's deny_category.
@@ -59,9 +67,10 @@ class Entitled(Requirement):
         self.category = category or Category.FORBIDDEN
         self.code = code
         self._mode = mode
+        self.owner = owner
 
     def contracts(self) -> frozenset[str]:
-        return frozenset({fact_owner_contract(self.fact_name)})
+        return frozenset({fact_owner_contract(self.fact_name, self.owner)})
 
     async def evaluate(self, ctx: AuthzContext) -> bool:
         # Raises PolicyIndeterminate on misconfiguration — never a bare False
@@ -71,7 +80,7 @@ class Entitled(Requirement):
     async def decide(self, ctx: AuthzContext) -> AccessDecision:
         try:
             # Local registration, else the owner's public <owner>.facts.v1.
-            fact = await lookup_access_fact(ctx, self.fact_name)
+            fact = await lookup_access_fact(ctx, self.fact_name, owner=self.owner)
         except FactOwnerUnreachable as exc:
             return AccessDecision.error(
                 code="fact_owner_unavailable",
