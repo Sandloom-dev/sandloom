@@ -696,13 +696,16 @@ I/O beyond the owner's declarative rule:
 * a status present that the owner vouched for decides: the default read
   by the owner's rule (e.g. a grace period), the verbatim read by the
   chosen statuses; outside them a definite deny (the declared 402);
-* the owner's own claim proven absent is the owner's definite deny too:
-  the key is the fact's claim, assigned to the owner and verified, the
-  owner ran at the mint (in `claims_sources`, not failed) under the
-  token's intact claim policy (its `cpv` entry is the one the
-  verifier accepts for the owner), and the view removed nothing. An
-  absent key never equals any status (`statuses={"none"}` does not
-  match it);
+* the owner's own claim proven absent is the owner's definite deny only
+  where its fact declares `absent_claim="deny"` (the literal's
+  `absent_claim`; missing means `"unknown"`, KB-33h): the key is
+  the fact's claim, assigned to the owner and verified, the owner ran
+  at the mint (in `claims_sources`, not failed) under the token's
+  intact claim policy (its `cpv` entry is the one the verifier
+  accepts for the owner), and the view removed nothing. Declared
+  `"unknown"` (the default), the same proven absence is 501
+  `access_unknown`. An absent key never equals any status
+  (`statuses={"none"}` does not match it);
 * the claim removed by the view for a reason a refresh or a retry may
   change: its 401 `token_policy_outdated` / 503
   `claims_policy_mismatch`;
