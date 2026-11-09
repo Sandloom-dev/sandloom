@@ -934,6 +934,7 @@
     "CoreFacade": {
       "kind": "class",
       "members": [
+        "access_provider_problems",
         "add_claims_contributor",
         "add_shutdown_task",
         "add_startup_task",
@@ -4531,6 +4532,7 @@
     "CoreFacade": {
       "kind": "class",
       "members": [
+        "access_provider_problems",
         "add_claims_contributor",
         "add_shutdown_task",
         "add_startup_task",
