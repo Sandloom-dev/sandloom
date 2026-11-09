@@ -97,7 +97,12 @@ startup.
 | `WORKER_MAX_MEMORY_PER_CHILD` | default 200000 KiB | same | recycle a child above this RSS after its task |
 | `SANDLOOM_IMAGE` | default `sandloom:local` | same | the one image every process runs (built once) |
 | `GATEWAY_PORT`, `SANDLOOM_SUBNET`, `SANDLOOM_GATEWAY_IP`, `SANDLOOM_IP_RANGE` / `APP_PORT` | `APP_PORT` 2222 | 8080 / `172.28.0.0/24` / `172.28.0.10` / `172.28.0.128/25` | change them (plus `-p <project>`) to run two stacks on one host; `SANDLOOM_GATEWAY_IP` must lie in `SANDLOOM_SUBNET` but outside `SANDLOOM_IP_RANGE` (the dynamic-address pool), so change all three together |
-| `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_PREVIOUS_SECRETS` (monolith only), `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS`, `BILLING_DENY_ON_PAST_DUE`, `NOTIFIER_BACKEND`, `SMTP_*`, `FRONTEND_URL` | optional | optional | in the **common** env of both profiles: identical in every process |
+| `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_PREVIOUS_SECRETS` (monolith only), `ACCESS_TOKEN_EXPIRE_MINUTES`, `BILLING_DENY_ON_PAST_DUE`, `NOTIFIER_BACKEND`, `SMTP_*`, `FRONTEND_URL` | optional | optional | in the **common** env of both profiles: identical in every process |
+
+`REFRESH_TOKEN_EXPIRE_DAYS` is identity's setting (it sets the issuer's refresh
+sessions): the monolith passes it in the common env, the microservices profile
+only to the identity service (a service that does not load identity refuses it,
+SANDLOOM-T019).
 
 `BILLING_*` / `STRIPE_*` are passed to **every** process that loads billing
 (migrate, app, worker, beat): each one boots the same composition root, and
@@ -107,7 +112,7 @@ billing validates its PSP when the module loads.
 
 Every security/auth-relevant setting lives in the shared env anchor
 (`x-common-env` / `x-app-env`), never in a per-service block: a token minted by
-identity is verified by every service, so `JWT_*` / token lifetimes must match
+identity is verified by every service, so `JWT_*` / the access-token lifetime must match
 (the exceptions are the issuer-only `JWT_PRIVATE_KEY` / `JWT_SECRET` of the
 microservices profile, which only identity processes receive —
 `test_only_the_issuer_holds_signing_material`);

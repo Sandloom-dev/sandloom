@@ -52,6 +52,7 @@ EXPECTED_DESCRIPTOR = ModuleDescriptor(
         ),
     ],
     issues_tokens=True,
+    login_entry="/auth/login",
 )
 
 

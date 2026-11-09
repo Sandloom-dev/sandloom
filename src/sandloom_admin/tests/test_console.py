@@ -26,6 +26,8 @@ def config(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         environment=SimpleNamespace(value="dev"),
     )
     monkeypatch.setattr(api, "settings", values)
+    # the console's own declared settings (ADR-0015) read from the same stand-in
+    monkeypatch.setattr(api, "admin_settings", lambda: values)
     return values
 
 

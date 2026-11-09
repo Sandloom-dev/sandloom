@@ -9,13 +9,12 @@ advanced: ClaimsUnavailable, SERVICE_PRINCIPAL_ID, apply_pending_revocation,
     ensure_token_not_revoked, ensure_user_not_blocked, generate_private_key,
     generate_x25519_key, has_internal_access, is_user_blocked, password_hasher,
     private_pem, public_pem, rehash_password_if_needed, revoke_user_tokens,
-    revoke_user_tokens_on_commit, run_password_hashing, subject_commit_check,
-    unblock_user, x25519_private_pem, x25519_public_pem
+    revoke_user_tokens_on_commit, run_password_hashing, secret_problem,
+    subject_commit_check, unblock_user, x25519_private_pem, x25519_public_pem
 docs: docs/reference/sdk/security.md; signatures: sandloom docs <name>
 .. end sandloom-reference
 """
 
-from sandloom.core.config.common import secret_problem
 from sandloom.core.di import (
     SERVICE_PRINCIPAL_ID,
     ClaimsUnavailable,
@@ -36,6 +35,7 @@ from sandloom.core.di import (
     subject_commit_check,
     unblock_user,
 )
+from sandloom.core.module_api import secret_problem
 from sandloom.core.signing_keys import (
     generate_private_key,
     generate_x25519_key,

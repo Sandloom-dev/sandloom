@@ -89,6 +89,8 @@ async def test_runtime_views_describe_this_process(
     ).json()
     keys = {item["key"] for item in settings_view["settings"]}
     assert "environment" in keys and "jwt_secret" not in keys
+    # identity's declared refresh lifetime stays on the view (edge row B-C9, KB-55)
+    assert "refresh_token_expire_days" in keys
     assert settings_view["feature_flags"] == "not_configured"
     assert all(i["status"] for i in settings_view["infrastructure"])
     consumers = (await real_uow_client.get(f"{base}/consumers", headers=headers)).json()

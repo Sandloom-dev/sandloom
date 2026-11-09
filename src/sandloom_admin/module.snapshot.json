@@ -1,4 +1,5 @@
 {
+  "capabilities": [],
   "consumers": [],
   "consumes": [
     {
@@ -14,5 +15,15 @@
   "format": 1,
   "module": "sandloom_admin",
   "projections": [],
-  "sagas": []
+  "sagas": [],
+  "settings": {
+    "ADMIN_CONSOLE_DIST": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "ADMIN_CONSOLE_ENABLED": {
+      "legacy": true,
+      "tier": "ops"
+    }
+  }
 }

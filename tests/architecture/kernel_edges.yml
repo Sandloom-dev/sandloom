@@ -588,7 +588,6 @@ edges:
       - {path: sandloom/core/testing/deploy_profile.py, literal: BILLING_DENY_ON_PAST_DUE}
       - {path: sandloom/core/testing/deploy_profile.py, literal: TWOFA_ENCRYPTION_KEY}
       - {path: sandloom/core/testing/deploy_profile.py, literal: BILLING_PROVIDER}
-      - {path: sandloom/core/testing/deploy_profile.py, literal: REFRESH_TOKEN_EXPIRE_DAYS}
   - id: B-C8
     class: b
     type: configuration

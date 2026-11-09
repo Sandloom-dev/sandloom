@@ -15,7 +15,9 @@ always win because we only set a default when the variable is absent.
 
 from __future__ import annotations
 
+import importlib.util
 import os
+from pathlib import Path
 
 # Seed the mandatory settings with build-only placeholders so importing the
 # framework during the docs build does not require a real deployment config.
@@ -34,6 +36,22 @@ from pydantic_core import PydanticUndefined  # noqa: E402
 
 from sandloom.core.config import tiers  # noqa: E402
 from sandloom.core.config.settings import Settings  # noqa: E402
+from sandloom_identity.config import IdentitySettings  # noqa: E402
+from sandloom_tenancy.config import TenancySettings  # noqa: E402
+
+
+def _admin_settings() -> type:
+    """The console's settings model, loaded from its file: sandloom-admin is
+    importable only in its own tests, never installed with the framework."""
+    path = Path(__file__).resolve().parents[2] / "src/sandloom_admin/config.py"
+    spec = importlib.util.spec_from_file_location("_sandloom_admin_config", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.AdminSettings  # type: ignore[no-any-return]
+
+
+_MODULE_SETTINGS = (IdentitySettings, TenancySettings, _admin_settings())
 
 # Curated grouping: alias -> category. Aliases not listed fall into "Other".
 _CATEGORIES: dict[str, str] = {
@@ -176,6 +194,7 @@ def _type_label(annotation: object) -> str:
     """Best-effort, human-readable type label for a model field."""
     text = str(annotation)
     text = text.replace("typing.", "").replace("sandloom.core.config.settings.", "")
+    text = text.replace("pydantic.types.", "")
     # Collapse the common Optional spelling.
     text = text.replace(" | None", " | None")
     if text.startswith("<class '") and text.endswith("'>"):
@@ -219,7 +238,13 @@ def render_pages() -> dict[str, str]:
         alias = field.alias or name.upper()
         category = _CATEGORIES.get(alias, "Other")
         buckets.setdefault(category, []).append((alias, field))
-
+    # The settings the bundled modules declare (ADR-0015) are read from their
+    # models, not from ``Settings``; KB-55 reads every loaded module's.
+    for model in _MODULE_SETTINGS:
+        for name, field in model.model_fields.items():
+            alias = field.alias or name.upper()
+            category = _CATEGORIES.get(alias, "Other")
+            buckets.setdefault(category, []).append((alias, field))
 
     lines: list[str] = []
     lines.append("---")
@@ -230,8 +255,9 @@ def render_pages() -> dict[str, str]:
     lines.append("")
     lines.append(
         "Every runtime setting Sandloom reads from the environment, generated directly "
-        "from `sandloom.core.config.settings.Settings` so this table can never drift from the "
-        "code. Settings may be supplied as environment variables, in a `.env` file, "
+        "from `sandloom.core.config.settings.Settings` and the settings the bundled "
+        "modules declare, so this table can never drift from the code. "
+        "Settings may be supplied as environment variables, in a `.env` file, "
         "or — when `SECRETS_DIR` is set — as files named after each field "
         "(Docker/Kubernetes secrets)."
     )

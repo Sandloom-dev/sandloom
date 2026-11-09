@@ -20,7 +20,7 @@ EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the s
         "router[GET /api/v1/platform/tenancy/organizations, GET "
         "/api/v1/platform/tenancy/organizations/{record_id}, GET "
         "/api/v1/platform/tenancy/members]",
-    )
+    ),
 ] + [
     (
         "include_router",

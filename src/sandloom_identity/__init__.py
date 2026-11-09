@@ -104,6 +104,9 @@ register = define_module(
     # identity mints the access tokens: with an asymmetric JWT_ALGORITHM its
     # process holds JWT_PRIVATE_KEY, every other service only public keys.
     issues_tokens=True,
+    # The route the admin console signs an operator in through (the console
+    # reads it from the composition's assigned issuer, ADR-0012 decision 4).
+    login_entry="/auth/login",
     setup=_setup,
     settings=IdentitySettings,
 )
