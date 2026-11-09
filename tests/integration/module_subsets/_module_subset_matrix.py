@@ -66,8 +66,14 @@ TASK_MODULES = frozenset({"identity", "billing"})
 #: for its own settings (I-18, answer #29).
 PREDEFINED_REFUSALS: dict[str, str] = {
     "SANDLOOM-B005": "a required consumed contract has no provider and no binding",
+    "SANDLOOM-B037": "a required capability has no installed driver with its features",
     "configuration": "a selected module refuses its configuration",
 }
+
+#: Modules whose required capabilities need a driver extra plain ``sandloom``
+#: lacks (KB-IC-1): identity requires the cache (redis-py), billing the
+#: taskqueue with ``periodic`` (Celery). Their subsets refuse with B037 there.
+NEEDS_DRIVER_EXTRAS = frozenset({"identity", "billing"})
 
 #: The environment every probe runs with: placeholders only, nothing listens.
 PROBE_ENV = {
@@ -96,6 +102,8 @@ class Outcome:
 
 def expected(subset: Sequence[str], *, celery: bool) -> Outcome:
     """The expected outcome of ``subset`` (I-19's table) with or without Celery."""
+    if not celery and NEEDS_DRIVER_EXTRAS.intersection(subset):
+        return Outcome("refused", refusal="SANDLOOM-B037")
     tasks = bool(TASK_MODULES.intersection(subset))
     if not tasks:
         return Outcome("ready", taskqueue="unused")
@@ -135,7 +143,7 @@ except BaseException as exc:
     from sandloom.core.error_codes import code_for_exception
     code = code_for_exception(exc)
     result.update(
-        outcome="refused" if code == "SANDLOOM-B005" else "error",
+        outcome="refused" if code in ("SANDLOOM-B005", "SANDLOOM-B037") else "error",
         code=code,
         message=f"{type(exc).__name__}: {exc}",
         traceback=traceback.format_exc()[-3000:],
