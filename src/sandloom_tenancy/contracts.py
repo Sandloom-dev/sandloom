@@ -23,6 +23,7 @@ from uuid import UUID
 from sqlalchemy import and_, select
 
 from sandloom.sdk import contract, db
+from sandloom.sdk.authz import Category, From, access_check
 from sandloom.sdk.contracts import contract_reads
 from sandloom_tenancy.config import tenancy_settings
 from sandloom_tenancy.models import (
@@ -76,12 +77,28 @@ class MembershipReadContract:
         return await _role(organization_id, user_id) is not None
 
     @contract.read(planned=True)
+    @access_check(
+        "OrgRole",
+        bind={
+            # Membership itself is the authority (the token's tenant allowlist
+            # may lag a fresh join): the organization is not checked against
+            # the token.
+            "organization_id": From.org(param="org_id", validate_against_token=False),
+            "user_id": From.subject_id(),
+        },
+        category=Category.FORBIDDEN,
+        values={"minimum": ["member", "admin", "owner"]},
+        risk={"admin": {"minimum": ["admin", "owner"]}},
+        describe="organization role '{minimum}'",
+    )
     async def has_role_at_least(
         self, organization_id: UUID, user_id: UUID, minimum: str
     ) -> bool:
         """True when the user's role ranks at least ``minimum`` (``member`` <
         ``admin`` < ``owner``). Live: a removal is seen at once, unlike the
-        token's ``tenant_ids`` claim."""
+        token's ``tenant_ids`` claim. Its access check ``OrgRole(minimum)``
+        reads the organization from the request (``org_param=``, else
+        ``X-Tenant-Id``, else the bound tenant) and the caller's user id."""
         role = await _role(organization_id, user_id)
         return role is not None and role_at_least(role, minimum)
 

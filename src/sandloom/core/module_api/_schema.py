@@ -45,6 +45,9 @@ class ContractMethodRuntime:
     idempotency_key: str | None = None
     idempotency_scope: tuple[str, ...] = ()
     risk: str | None = None
+    #: The method's ``access_check`` declaration (ADR-0014 decision 8), a
+    #: JSON value table published in the describe document and the snapshot.
+    access_check: dict[str, Any] | None = None
 
     def describe(self) -> dict[str, Any]:
         """JSON-able schema published by the RPC describe endpoint."""
@@ -66,6 +69,8 @@ class ContractMethodRuntime:
             description["idempotency_scope"] = list(self.idempotency_scope)
         if self.risk is not None:
             description["risk"] = self.risk
+        if self.access_check is not None:
+            description["access_check"] = self.access_check
         return description
 
     @functools.cached_property
@@ -266,6 +271,9 @@ def _method_runtime(
     if problem is not None:
         problems.append(f"{name}(return): {problem}")
         ok = False
+    access = _access_check(attr)
+    if access is not None:
+        ok = _access_check_problems(name, kind, access, params, returns, problems) and ok
     if not ok:
         return None
     return ContractMethodRuntime(
@@ -277,4 +285,53 @@ def _method_runtime(
         idempotency_key=spec.idempotency_key,
         idempotency_scope=spec.idempotency_scope,
         risk=spec.risk,
+        access_check=access,
     )
+
+
+#: Set by ``sandloom.shared.authz.contract_check.access_check`` (read by name:
+#: the contract runtime does not import the authorization package).
+_ACCESS_CHECK_ATTR = "__sandloom_access_check__"
+
+
+def _access_check(attr: Any) -> dict[str, Any] | None:
+    func = getattr(attr, "__func__", attr)
+    for candidate in (func, getattr(func, "__wrapped__", None)):
+        spec = getattr(candidate, _ACCESS_CHECK_ATTR, None)
+        if isinstance(spec, dict):
+            return spec
+    return None
+
+
+def _access_check_problems(
+    name: str,
+    kind: str,
+    access: Mapping[str, Any],
+    params: Sequence[inspect.Parameter],
+    returns: Any,
+    problems: list[str],
+) -> bool:
+    """An access check is a boolean read whose binds, values and risk name
+    its own parameters; every unbound parameter is the atom's own."""
+    where = f"{name}: access_check {access.get('name')!r}"
+    found = len(problems)
+    names = {p.name for p in params}
+    binds = set(access.get("bind") or {})
+    if kind != "read":
+        problems.append(f"{where} is declared on a command (a check is a read)")
+    if returns is not bool:
+        problems.append(f"{where} returns {returns!r}, not bool")
+    for arg in sorted(binds - names):
+        problems.append(f"{where} binds {arg!r}, which is not a parameter")
+    own = names - binds
+    for arg in sorted(set(access.get("values") or {}) - own):
+        problems.append(f"{where}: values names {arg!r}, not an unbound parameter")
+    for risk, conditions in (access.get("risk") or {}).items():
+        for arg in sorted(set(conditions) - own):
+            problems.append(
+                f"{where}: risk {risk!r} names {arg!r}, not an unbound parameter"
+            )
+    for param in params:
+        if param.name not in binds and param.kind is param.POSITIONAL_ONLY:
+            problems.append(f"{where}: {param.name!r} is positional-only")
+    return len(problems) == found

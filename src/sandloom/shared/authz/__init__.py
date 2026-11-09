@@ -47,6 +47,12 @@ from sandloom.shared.authz.atoms_live import Credits, OrgRole, SubscriptionActiv
 from sandloom.shared.authz.atoms_resource import Owner
 from sandloom.shared.authz.constants import Permissions, Roles
 from sandloom.shared.authz.context import AuthzContext
+from sandloom.shared.authz.contract_check import (
+    ClaimFactCheck,
+    ContractCheck,
+    From,
+    access_check,
+)
 from sandloom.shared.authz.deps import (
     authorize,
     authorize_resource,
@@ -146,6 +152,11 @@ __all__ = [
     "MembershipAdapter",
     "ENTITLEMENTS",
     "MEMBERSHIP",
+    # contract-anchored access checks (ADR-0014 decision 8)
+    "access_check",
+    "From",
+    "ContractCheck",
+    "ClaimFactCheck",
     # authorization projections
     "register_authz_projection",
     "make_rebuild_gate",

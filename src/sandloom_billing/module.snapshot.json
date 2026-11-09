@@ -42,6 +42,7 @@
       "methods": [
         "check_subscription_active",
         "get_credit_balance",
+        "has_credits_at_least",
         "subscription_claims"
       ],
       "name": "billing.entitlements.v1"
