@@ -1,0 +1,38 @@
+# C034 controls (kb-rev56-c034): data, not importable.
+#
+# A module of ``c034app`` (``c034app/controls.py``) that SANDLOOM-C034 must
+# not report: a class stating the declared metadata, a class that only calls
+# another Requirement's ``evaluate()``, a client of a contract that declares
+# no access check, and a service function outside any class.
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import TIER_LIVE, Category, Requirement
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+from c034app.plain_stub import PLAIN_V1
+
+roles = Contract(PROJECTS_ROLES_V1)
+plain = Contract(PLAIN_V1)
+
+
+class Honest(Requirement):
+    tier = TIER_LIVE
+    category = Category.FORBIDDEN
+
+    async def evaluate(self, ctx):
+        return await roles.has_project_role(ctx.tenant, ctx.user, "lead")
+
+    def risks(self):
+        return frozenset({"admin"})
+
+
+class Delegates(Requirement):
+    async def evaluate(self, ctx):
+        return await Honest().evaluate(ctx)
+
+
+class UsesPlain(Requirement):
+    async def evaluate(self, ctx):
+        return await plain.has_project_role(ctx.tenant, ctx.user, "lead")
+
+
+async def service(ctx):
+    return await roles.has_project_role(ctx.tenant, ctx.user, "lead")
