@@ -251,7 +251,7 @@ feature of the `database` capability; there is no namespace per database.
 
 - **Decided by:** the owner, 2026-11-08, on module infrastructure dependencies
   (`design/kernel-boundary/owner-decision-infra-deps.md`; basis:
-  `design/kernel-boundary/research-infra-deps.md`)
+  `design/kernel-boundary/_archive/research-infra-deps.md`)
 - **Implemented by:** KB-IC-1 (availability), KB-IC-2 (declarations and
   `periodic`), KB-IC-3 (readiness), KB-IC-4 (install-matrix lanes)
 
