@@ -113,7 +113,7 @@ def _build() -> tuple[Any, Any, Any]:
     """App core + a runtime with the rung definitions + the counted engines."""
     from pydantic import BaseModel
 
-    from sandloom.core.app_factory import create_app
+    from sandloom_standard.main import create_app
     from sandloom.core.module_api import Saga, SagaContext, contract_method, local_step, step
     from sandloom.core.sagas import SagaRuntime
     from sandloom.core.sagas.registry import NUDGE_SCHEMA, build_registry
