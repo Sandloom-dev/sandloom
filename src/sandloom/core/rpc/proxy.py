@@ -8,9 +8,11 @@ import asyncio
 import logging
 import time
 import weakref
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import cached_property
 from time import perf_counter as _perf_counter
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -59,6 +61,7 @@ from sandloom.core.rpc.wire import (
     _CTX_HEADER,
     _NONCE_HEADER,
     PROVIDER_DESCRIBE_KEY,
+    REFRESH_SESSIONS_DESCRIBE_KEY,
     _pack,
     _parse_codec,
     _unpack,
@@ -739,13 +742,18 @@ class ProviderDescription:
     ``status``: the HTTP status of the authenticated answer (200: described);
     ``methods``: the contract's methods; ``provider``: the import path of
     the module that registered the contract (``None``: not stated);
-    ``code``: the refusal code of a non-200 answer.
+    ``code``: the refusal code of a non-200 answer; ``schemas``: each
+    method's described schema (params, returns), compared by the operator
+    check with the shape it calls; ``refresh_sessions``: that module's
+    ``refresh_sessions`` declaration (``None``: not stated).
     """
 
     status: int
     methods: frozenset[str] = frozenset()
     provider: str | None = None
     code: str | None = None
+    schemas: Mapping[str, Any] = field(default_factory=dict)
+    refresh_sessions: bool | None = None
 
 
 async def describe_provider(proxy: RemoteServiceProxy) -> ProviderDescription:
@@ -783,10 +791,15 @@ async def describe_provider(proxy: RemoteServiceProxy) -> ProviderDescription:
     if not isinstance(contract, dict) or not isinstance(contract.get("methods"), dict):
         raise RemoteServiceBadResponse(service, reason="malformed describe")
     provider = contract.get(PROVIDER_DESCRIBE_KEY)
+    holds = contract.get(REFRESH_SESSIONS_DESCRIBE_KEY)
     return ProviderDescription(
         status=response.status_code,
         methods=frozenset(str(name) for name in contract["methods"]),
         provider=provider if isinstance(provider, str) else None,
+        schemas=MappingProxyType(
+            {str(name): spec for name, spec in contract["methods"].items()}
+        ),
+        refresh_sessions=holds if isinstance(holds, bool) else None,
     )
 
 

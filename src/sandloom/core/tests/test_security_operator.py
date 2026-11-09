@@ -17,10 +17,11 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from fastapi import FastAPI
+from pydantic import BaseModel
 
 import sandloom.core.cli.security as security_cli
 import sandloom.core.rpc.proxy as rpc_proxy
@@ -83,10 +84,38 @@ class _AcmeSecurity:
     @contract_method
     async def end_sessions(
         cls, user_ids: list[uuid.UUID], reason: str, operator: str, operation_key: str
-    ) -> dict[str, Any]:
-        """Its sessions are the access tokens it minted."""
+    ) -> SessionsEnded:
+        """Its sessions are the access tokens it minted (the kernel revokes
+        those itself)."""
         CALLS.append(("end_sessions", [str(u) for u in user_ids]))
-        return {"affected": len(user_ids), "ended": ["access_tokens"]}
+        return SessionsEnded(affected=len(user_ids), ended=["access_tokens"])
+
+
+class SessionsEnded(BaseModel):
+    """The issuer's ``end_sessions`` answer (the shape the kernel reads)."""
+
+    affected: int
+    ended: list[Literal["access_tokens", "refresh_sessions", "provider_sessions"]]
+
+
+class _AccessOnly(BaseModel):
+    """An ``end_sessions`` answer that can never report refresh sessions."""
+
+    affected: int
+    ended: list[Literal["access_tokens"]]
+
+
+class _NoRefreshSecurity:
+    """An issuer whose ``end_sessions`` cannot say refresh sessions ended."""
+
+    @classmethod
+    @contract_method
+    async def end_sessions(
+        cls, user_ids: list[uuid.UUID], reason: str, operator: str, operation_key: str
+    ) -> _AccessOnly:
+        """Never reached: refused before the first side effect."""
+        CALLS.append(("end_sessions", [str(u) for u in user_ids]))
+        return _AccessOnly(affected=len(user_ids), ended=["access_tokens"])
 
 
 class _OrgsSecurity:
@@ -258,6 +287,99 @@ async def test_a_refresh_holding_issuer_must_report_its_refresh_sessions() -> No
         )
     assert "declares refresh_sessions=True" in str(exc.value.code)
     assert "--operation-id op-4" in str(exc.value.code)
+    assert revoked.batches == [USERS]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("intent", [DRY, APPLY], ids=["dry-run", "apply"])
+async def test_an_issuer_that_cannot_report_refresh_sessions_is_refused_first(
+    intent: OperatorIntent,
+) -> None:
+    """Declared ``refresh_sessions=True``, but its ``end_sessions`` answer
+    type cannot say they ended: refused before anything, a dry run too."""
+    revoked = _Revoked()
+    with pytest.raises(OperatorCapabilityUnavailable) as exc:
+        await run_bulk(
+            _mono((IDP, CONTRACT, _NoRefreshSecurity), stateless=False),
+            "revoke-sessions",
+            Targets(users=tuple(USERS)),
+            intent,
+            operation_id="op-4b",
+            revoke=revoked,
+        )
+    assert "cannot report 'refresh_sessions'" in str(exc.value)
+    assert CALLS == []
+    assert revoked.batches == []
+
+
+class _DtoResetSecurity(_AcmeSecurity):
+    """An issuer whose ``require_password_reset`` answers a DTO, not a count."""
+
+    @classmethod
+    @contract_method
+    async def require_password_reset(
+        cls, user_ids: list[uuid.UUID], reason: str, operator: str, operation_key: str
+    ) -> SessionsEnded:
+        """Never reached: refused before the first side effect."""
+        CALLS.append(("require_password_reset", [str(u) for u in user_ids]))
+        return SessionsEnded(affected=0, ended=[])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("split", [False, True], ids=["mono", "split"])
+@pytest.mark.parametrize("intent", [DRY, APPLY], ids=["dry-run", "apply"])
+async def test_an_incompatible_method_is_refused_before_anything(
+    intent: OperatorIntent, split: bool, keyed: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The schema of ``require_password_reset`` (local, or the live describe
+    in a split) is not the shape the kernel calls: B039, expected against
+    got, before any call, a dry run too."""
+    allowed = {SVC: {CONTRACT: ["end_sessions", "require_password_reset"]}}
+    for name, value in rpc_settings(SVC, allowed_calls=allowed).items():
+        monkeypatch.setattr(settings, name, value)
+    provider = _mono((IDP, CONTRACT, _DtoResetSecurity), stateless=False)
+    revoked = _Revoked()
+    async with in_process_rpc_client(provider) as client:
+        core = _cli_without_issuer(monkeypatch, client, provider) if split else provider
+        with pytest.raises(OperatorCapabilityUnavailable) as exc:
+            await run_bulk(
+                core,
+                "force-password-reset",
+                Targets(users=tuple(USERS)),
+                intent,
+                operation_id="op-9",
+                revoke=revoked,
+            )
+    text = str(exc.value)
+    assert "SANDLOOM-B039" in text
+    assert "incompatible require_password_reset: expected (" in text
+    assert ") -> int, got (" in text
+    assert "Nothing was done" in text
+    assert CALLS == []
+    assert revoked.batches == []
+
+
+@pytest.mark.asyncio
+async def test_split_holds_the_issuer_to_its_refresh_sessions_declaration(
+    keyed: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A CLI process without the issuer reads ``refresh_sessions=True`` from
+    the issuer's describe (it has no descriptor of it): the batch's access
+    tokens are revoked, and the missing refresh-session end is a failure,
+    as in one process."""
+    provider = _mono((IDP, CONTRACT, _AcmeSecurity), stateless=False)
+    revoked = _Revoked()
+    async with in_process_rpc_client(provider) as client:
+        with pytest.raises(SystemExit) as exc:
+            await run_bulk(
+                _cli_without_issuer(monkeypatch, client, provider),
+                "revoke-sessions",
+                Targets(users=tuple(USERS)),
+                APPLY,
+                operation_id="op-4c",
+                revoke=revoked,
+            )
+    assert "declares refresh_sessions=True" in str(exc.value.code)
     assert revoked.batches == [USERS]
 
 

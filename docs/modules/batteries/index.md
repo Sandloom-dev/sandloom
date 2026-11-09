@@ -27,7 +27,7 @@ To change how they behave, see [Customize a standard module](customize.md).
 | Module | Startup-critical | Provides | Publishes | Consumes |
 | --- | --- | --- | --- | --- |
 | [Identity](identity.md) | ✅ | `identity.claims.v1` (roles/permissions, critical), auth guards, token issuance | 15 `identity.*` events | every registered `<module>.claims.v1` at token mint |
-| [Tenancy](tenancy.md) | ❌ | `tenancy.membership.v1` (read-only), `tenancy.claims.v1` (`tenant_ids`, critical) | 9 `tenancy.*` events | — |
+| [Tenancy](tenancy.md) | ❌ | `tenancy.membership.v1` (read-only), `tenancy.claims.v1` (`tenant_ids`, critical), `tenancy.security.v1` (operator: `list_member_user_ids` for `sandloom security ... --tenant`) | 9 `tenancy.*` events | — |
 | [Billing](billing.md) | ❌ | `billing.entitlements.v1`, `billing.credits.v1`, `billing.claims.v1`; access facts `subscription.active`, `organization.subscription.active` | 5 `billing.*` events | `tenancy.membership.v1` |
 
 `<module>.claims.v1` contracts are registered automatically by

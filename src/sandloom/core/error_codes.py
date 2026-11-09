@@ -1486,7 +1486,15 @@ from its authority, the module loaded from the assigned import path or its
   registers it critical=False: the issuer fields have no other writer and no
   fallback (decision 7);
 - an issues_tokens module that is not the map's issuer, or the map's issuer
-  loaded without issues_tokens=True.
+  loaded without issues_tokens=True;
+- an Authority(name, module=path) whose name is not the module's public
+  name: the map keeps name as the name the authority is verified, bound and
+  asked under, so it must be the entry-point name path is installed under
+  (Authority('acme', module='sandloom_identity') when it is installed as
+  identity is refused: write Authority('identity', module='sandloom_identity')),
+  a name that is not an identifier, or two entries naming one module
+  differently. A path that is not installed keeps the declared name: its last
+  import segment is not its name.
 
 A root's default map (sandloom_standard.main) keeps only the entries whose
 module is composed. When it leaves its issuer out (not loaded here) and
@@ -1575,12 +1583,14 @@ indeterminate, so a negation never turns them into an allow.
         "an operator command's owner cannot be confirmed to provide what the "
         "command needs: no owner is assigned, its public name is unknown, its "
         "<owner>.security.v1 is neither local nor bound, the contract lacks a "
-        "method, or this service may not call it",
+        "method or has it with another shape, this service may not call it, "
+        "or the owner answered with another shape",
         "assign the owner in the composition root's claim_authorities "
         "(Authority('<name>', module='<import path>')), run the command where "
         "the owner is loaded or bind <owner>.security.v1 in SERVICE_BINDINGS, "
-        "add the method to the owner's <owner>.security.v1 (or do it at the "
-        "external provider), or grant the method in RPC_ALLOWED_CALLS",
+        "add the method to the owner's <owner>.security.v1 with the shape the "
+        "refusal names (or do it at the external provider), or grant the "
+        "method in RPC_ALLOWED_CALLS",
         """
 An operator command (sandloom security ..., sandloom admin ...) acts on what a
 module owns: sessions, accounts, credentials and the email-to-user lookup
@@ -1607,6 +1617,19 @@ not grant the method, or the provider answers 403; or when the provider
 cannot be described. The refusal names the command, the claim-map key, the
 owner module and its import path, the contract, the missing method and the
 fix.
+
+A method that is there must also have the shape the kernel calls it with
+(sandloom.core.cli.operator_owner.OPERATOR_METHOD_SHAPES): the parameters it
+sends, in order (an extra parameter must be optional), and an answer whose
+every value the command can read (a narrower answer is fine). The refusal
+names both, "incompatible end_sessions: expected (list[uuid], str, str, str)
+-> {affected: int, ended: list[...]}, got ... -> int": type the owner's
+method with DTOs, not dict[str, Any]. The command also checks each answer
+where it reads it, before its next step; an answer of another shape stops it
+with this code, the batch and the --operation-id named. The owner stores its
+answer for that operation, so a resume with the same --operation-id stops at
+the same place: fix the owner's method, then run with a new --operation-id
+(what is already done is done again, harmlessly).
 
 sandloom admin create and admin invite act on the account and its
 administrator role in one unit (create_platform_admin,

@@ -88,7 +88,7 @@ from sandloom.core.cli._operator import (
 from sandloom.core.cli.operator_owner import OperatorOwner
 from sandloom.core.composition import load_composition_core
 from sandloom.core.module_api._errors import ContractCallError
-from sandloom.core.rpc.errors import RemoteServiceUnavailable
+from sandloom.core.rpc.errors import RemoteServiceBadResponse, RemoteServiceUnavailable
 from sandloom.core.unit_of_work import db_session
 from sandloom.core.unit_of_work.effects import record_audit
 from sandloom.core.unit_of_work.scope import _audit_store
@@ -133,8 +133,9 @@ class SessionPlan:
     ``end_sessions``; ``credentials``: with ``require_password_reset``
     (``force-password-reset`` only); ``pager``: the target enumeration of
     ``--all`` / ``--tenant``; ``refresh_declared``: the issuer's
-    ``refresh_sessions`` declaration when it is loaded here (``None``: it
-    runs elsewhere, its answer is the report).
+    ``refresh_sessions`` declaration, read where it runs (its descriptor
+    here, its describe in a split): when ``True`` its ``end_sessions`` must
+    report ``refresh_sessions`` ended.
     """
 
     command: str
@@ -143,7 +144,7 @@ class SessionPlan:
     credentials: Any = None
     pager: Pager | None = None
     pager_owner: OperatorOwner | None = None
-    refresh_declared: bool | None = None
+    refresh_declared: bool = True
 
 
 @dataclass(slots=True)
@@ -231,26 +232,53 @@ def _build_core() -> Any:
     return load_composition_core()
 
 
-def _refresh_declared(core: Any, owner: OperatorOwner) -> bool | None:
-    for descriptor in getattr(core, "module_descriptors", ()) or ():
-        if getattr(descriptor, "name", None) == owner.path:
-            return bool(getattr(descriptor, "refresh_sessions", True))
-    return None
+def _reports_refresh(schema: Any) -> bool | None:
+    """Whether ``end_sessions``'s described answer can report
+    ``refresh_sessions`` (``None``: no schema to read)."""
+    if not isinstance(schema, Mapping):
+        return None
+    fields = (schema.get("returns") or {}).get("fields")
+    ended = (fields or {}).get("ended") if isinstance(fields, Mapping) else None
+    kinds = ((ended or {}).get("type") or {}).get("item") or {}
+    if kinds.get("k") != "literal":
+        return None
+    return "refresh_sessions" in (kinds.get("values") or ())
 
 
 async def plan_session_command(
     core: Any, command: str, targets: Targets
 ) -> SessionPlan:
     """Confirm every capability ``command`` needs for ``targets``, or refuse
-    (SANDLOOM-B039 / B040, exit 1) before anything is done, a dry run too."""
+    (SANDLOOM-B039 / B040, exit 1) before anything is done, a dry run too.
+
+    The issuer's ``refresh_sessions`` declaration is read where it runs (its
+    descriptor here, its describe in a split; not stated: ``True``, the
+    ``define_module`` default). An issuer that declares refresh sessions but
+    whose ``end_sessions`` cannot report them ended is refused here."""
     credentials = None
     if command == _RESET_COMMAND:
         _, credentials = await _operator_owner.operator_contract(
             core, "credentials", ["require_password_reset"], command=command
         )
-    issuer, sessions = await _operator_owner.operator_contract(
-        core, "sessions", ["end_sessions"], command=command
+    issuer = _operator_owner.operator_owner(core, "sessions", command=command)
+    confirmed = await _operator_owner.confirm_operator_contract(
+        core, issuer, ["end_sessions"]
     )
+    sessions = confirmed.contract
+    refresh_declared = (
+        True if confirmed.refresh_sessions is None else confirmed.refresh_sessions
+    )
+    if (
+        refresh_declared
+        and _reports_refresh(confirmed.schemas.get("end_sessions")) is False
+    ):
+        raise _operator_owner.OperatorCapabilityUnavailable(
+            f"{command}: {issuer.label()} declares refresh_sessions=True, but "
+            f"{issuer.contract}.end_sessions cannot report 'refresh_sessions' "
+            "ended: nothing was done. Make it end the issuer's refresh sessions "
+            f"and report them, or declare define_module(..., refresh_sessions="
+            f"False) in {issuer.module} if it holds none"
+        )
     pager: Pager | None = None
     pager_owner: OperatorOwner | None = None
     if targets.all_users:
@@ -277,7 +305,7 @@ async def plan_session_command(
         credentials=credentials,
         pager=pager,
         pager_owner=pager_owner,
-        refresh_declared=_refresh_declared(core, issuer),
+        refresh_declared=refresh_declared,
     )
 
 
@@ -311,8 +339,30 @@ async def _call(
         ) from exc
 
 
+def _check_answer(
+    owner: OperatorOwner, method: str, answer: Any, *, where: str, then: str
+) -> None:
+    """Refuse (SANDLOOM-B039, exit 1, no traceback) an answer that is not
+    what ``method`` returns to the kernel, before the next side effect.
+    ``where``: the batch it answered; ``then``: what is done and how to go
+    on (an answer the owner stored for its operation key replays on a
+    resume: the same refusal, never a crash)."""
+    problem = _operator_owner.answer_problem(method, answer)
+    if problem is None:
+        return
+    raise _operator_owner.OperatorCapabilityUnavailable(
+        f"{owner.command}: {where}: {owner.label()}; {owner.contract}.{method} "
+        f"answered incompatibly ({problem}). {then}"
+    )
+
+
 async def iter_target_batches(
-    core: Any, plan: SessionPlan, targets: Targets, *, batch: int
+    core: Any,
+    plan: SessionPlan,
+    targets: Targets,
+    *,
+    batch: int,
+    operation_id: str = "",
 ) -> AsyncIterator[list[uuid.UUID]]:
     """The target user ids in batches of at most ``batch``."""
     if targets.users:
@@ -324,6 +374,7 @@ async def iter_target_batches(
         raise ValueError("targets without users need a confirmed pager")
     method = "list_user_ids" if targets.all_users else "list_member_user_ids"
     after: uuid.UUID | None = None
+    pages = 0
     while True:
         raw = await _call(
             core,
@@ -331,6 +382,18 @@ async def iter_target_batches(
             method,
             plan.pager(after, batch),
             resume="re-run with the same --operation-id to resume",
+        )
+        pages += 1
+        _check_answer(
+            plan.pager_owner,
+            method,
+            raw,
+            where=f"page {pages} of the targets",
+            then=(
+                f"Batches before it are done: fix {plan.pager_owner.module}'s "
+                f"{method}, then re-run with --operation-id {operation_id} "
+                "(finished batches replay)"
+            ),
         )
         page = [uuid.UUID(str(u)) for u in raw]
         if not page:
@@ -416,9 +479,25 @@ async def _apply_batch(
         f"batches before {result.batches} are done; re-run with --operation-id "
         f"{operation_id} to resume (finished batches replay)"
     )
+    where = f"batch {result.batches} ({len(ids)} user(s))"
+
+    # A stored answer replays on a resume with the same operation id: it is
+    # refused again, never a crash, so the way on is a fixed owner and a
+    # new operation id (an applied reset or session end is applied again,
+    # which changes nothing it has not already changed).
+    def replay(method: str) -> str:
+        return (
+            f"{plan.issuer.module} may have applied {method} already; the "
+            f"access tokens of {where} are NOT revoked yet. This answer is "
+            "stored for the batch's operation key, so re-running with "
+            f"--operation-id {operation_id} replays it and stops here again: "
+            f"fix {plan.issuer.module}'s {method}, then re-run with a new "
+            "--operation-id (batches already done are applied again, harmlessly)"
+        )
+
     reset: int | None = None
     if plan.credentials is not None:
-        reset = await _call(
+        answered = await _call(
             core,
             plan.issuer,
             "require_password_reset",
@@ -427,6 +506,14 @@ async def _apply_batch(
             ),
             resume=resume,
         )
+        _check_answer(
+            plan.issuer,
+            "require_password_reset",
+            answered,
+            where=where,
+            then=replay("require_password_reset"),
+        )
+        reset = int(answered)
     sessions_key = (
         key
         if plan.credentials is None
@@ -439,11 +526,18 @@ async def _apply_batch(
         plan.sessions.end_sessions(ids, intent.reason, intent.operator, sessions_key),
         resume=resume,
     )
-    sessions_affected = int(_answer_field(answer, "affected") or 0)
+    _check_answer(
+        plan.issuer,
+        "end_sessions",
+        answer,
+        where=where,
+        then=replay("end_sessions"),
+    )
+    sessions_affected = int(_answer_field(answer, "affected"))
     # A reset reports whose password it now requires; a revocation, whose
     # sessions the issuer ended.
-    affected = sessions_affected if reset is None else int(reset)
-    ended = {str(k) for k in (_answer_field(answer, "ended") or ())}
+    affected = sessions_affected if reset is None else reset
+    ended = {str(k) for k in _answer_field(answer, "ended")}
     try:
         await revoke(ids, command=command, intent=intent, key=key)
     except RevocationUnavailableError as exc:
@@ -500,7 +594,9 @@ async def run_bulk(
         operation_id=operation_id,
         issuer=plan.issuer.module,
     )
-    async for ids in iter_target_batches(core, plan, targets, batch=batch):
+    async for ids in iter_target_batches(
+        core, plan, targets, batch=batch, operation_id=operation_id
+    ):
         result.batches += 1
         result.users += len(ids)
         if not intent.apply:
@@ -742,6 +838,25 @@ async def grant_admin(core: Any, email: str, intent: OperatorIntent) -> str:
             f"error: grant-admin: {owners.roles.owner.contract} refused: "
             f"{getattr(exc, 'detail', exc)}"
         ) from exc
+    except (RemoteServiceUnavailable, RemoteServiceBadResponse) as exc:
+        # No answer (a timeout, a dropped connection, an unreadable reply):
+        # the grant may or may not have been written.
+        raise SystemExit(
+            f"error: grant-admin: {owners.roles.owner.contract}."
+            "appoint_platform_admin gave no answer "
+            f"({type(exc).__name__}: {getattr(exc, 'detail', exc)}), so the "
+            f"outcome is unknown: {email} may or may not be a platform "
+            "administrator now. Check with `uv run sandloom admin list`, and "
+            "re-run this command if it is not listed"
+        ) from exc
+    problem = _operator_owner.answer_problem("appoint_platform_admin", exists)
+    if problem is not None:
+        raise SystemExit(
+            f"error: grant-admin: {owners.roles.owner.label()}; "
+            f"{owners.roles.owner.contract}.appoint_platform_admin answered "
+            f"incompatibly ({problem}), so the outcome is unknown: check with "
+            f"`uv run sandloom admin list` whether {email} is listed"
+        )
     if exists is False:
         raise SystemExit(
             f"error: grant-admin: {owners.roles.owner.label()} does not know user "
@@ -779,7 +894,11 @@ def main(argv: list[str] | None = None) -> int:
         "--since", required=True, help="ISO 8601 (inclusive; UTC if naive)"
     )
     exp.add_argument("--until", default=None, help="ISO 8601 (exclusive)")
-    exp.add_argument("--action-prefix", default=None, help="e.g. auth. or identity.")
+    exp.add_argument(
+        "--action-prefix",
+        default=None,
+        help="only actions that start with it, e.g. core.security. or <module>.",
+    )
     exp.add_argument(
         "--database", action="append", default=[], help="instance (default: all)"
     )

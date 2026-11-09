@@ -34,6 +34,7 @@ from sandloom.core.rpc.wire import (
     _ACCEPT_CODEC_HEADER,
     ACCESS_LIFETIME_DESCRIBE_KEY,
     PROVIDER_DESCRIBE_KEY,
+    REFRESH_SESSIONS_DESCRIBE_KEY,
     RpcRequest,
     _unpack,
 )
@@ -205,6 +206,12 @@ class _RpcEndpoints:
         provider = owner(service_name) if callable(owner) else None
         if isinstance(provider, str):
             describe[PROVIDER_DESCRIBE_KEY] = provider
+            # Additive: that module's refresh_sessions declaration, read
+            # from the loaded descriptors (data only, no I/O), so an
+            # operator command in another service holds the issuer to it.
+            holds = _refresh_sessions(active_core, provider)
+            if holds is not None:
+                describe[REFRESH_SESSIONS_DESCRIBE_KEY] = holds
         return _ok_response(
             {
                 "ok": True,
@@ -216,6 +223,15 @@ class _RpcEndpoints:
             },
             contract_hash=schema.hash,
         )
+
+
+def _refresh_sessions(core: Any, provider: str) -> bool | None:
+    """``provider``'s ``refresh_sessions`` declaration (``define_module``,
+    default ``True``), or ``None`` when no loaded module has that path."""
+    for descriptor in getattr(core, "module_descriptors", None) or ():
+        if getattr(descriptor, "name", None) == provider:
+            return bool(getattr(descriptor, "refresh_sessions", True))
+    return None
 
 
 def _hidden_not_found() -> Response:

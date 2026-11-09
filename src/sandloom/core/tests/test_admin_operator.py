@@ -18,11 +18,13 @@ from __future__ import annotations
 import argparse
 import uuid
 from collections.abc import Iterator
+from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi import FastAPI
+from pydantic import BaseModel
 
 import sandloom.core.cli.admin as admin_cli
 import sandloom.core.cli.security as security_cli
@@ -44,6 +46,7 @@ from sandloom.core.contract_testing import (
 from sandloom.core.error_codes import code_for_exception
 from sandloom.core.facade import CoreFacade
 from sandloom.core.module_api import contract_method
+from sandloom.core.rpc.errors import RemoteServiceBadResponse, RemoteServiceUnavailable
 
 IDENTITY = "corp.modules.identity"
 RBAC = "corp.modules.acme_rbac"
@@ -68,34 +71,45 @@ CALLS: list[tuple[str, str]] = []
 HOLDERS: list[uuid.UUID] = []
 
 
+class OperatorAccount(BaseModel):
+    """The issuer's account answer (the shape the kernel reads)."""
+
+    user_id: uuid.UUID
+    email: str
+    email_verified: bool
+    is_active: bool | None = None
+    password_set: bool | None = None
+    last_login_at: datetime | None = None
+
+
 class _IdentitySecurity:
     """The issuer, which also has a roles side (identity's own): it must
     get no roles call while acme_rbac holds the roles."""
 
     @classmethod
     @contract_method
-    async def account_by_email(cls, email: str) -> dict[str, Any] | None:
+    async def account_by_email(cls, email: str) -> OperatorAccount | None:
         """The account with this address."""
         CALLS.append(("identity", "account_by_email"))
         if email != EMAIL:
             return None
-        return {"user_id": str(OWNER), "email": EMAIL, "email_verified": True}
+        return OperatorAccount(user_id=OWNER, email=EMAIL, email_verified=True)
 
     @classmethod
     @contract_method
-    async def accounts_by_id(cls, user_ids: list[uuid.UUID]) -> list[dict[str, Any]]:
+    async def accounts_by_id(cls, user_ids: list[uuid.UUID]) -> list[OperatorAccount]:
         """The accounts among the ids, by address."""
         CALLS.append(("identity", "accounts_by_id"))
         known = {OWNER: EMAIL, OTHER: "second@example.com"}
         return [
-            {
-                "user_id": str(u),
-                "email": known[u],
-                "email_verified": True,
-                "is_active": True,
-                "password_set": u == OWNER,
-                "last_login_at": None,
-            }
+            OperatorAccount(
+                user_id=u,
+                email=known[u],
+                email_verified=True,
+                is_active=True,
+                password_set=u == OWNER,
+                last_login_at=None,
+            )
             for u in sorted(user_ids, key=lambda u: known.get(u, ""))
             if u in known
         ]
@@ -271,6 +285,39 @@ async def test_grant_admin_reads_the_issuer_and_writes_the_roles_owner() -> None
         ("acme_rbac", "appoint_platform_admin"),
     ]
     assert HOLDERS == [OWNER]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    [
+        RemoteServiceUnavailable("acme_rbac.security.v1", reason="timed out"),
+        RemoteServiceBadResponse("acme_rbac.security.v1", reason="garbled"),
+        None,  # an answer that is not a bool
+    ],
+    ids=["timeout", "unreadable", "not-a-bool"],
+)
+async def test_a_grant_without_an_answer_says_the_outcome_is_unknown(
+    failure: Exception | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No answer from the roles owner (a timeout, an unreadable reply) or an
+    incompatible one: no traceback, the outcome is unknown and the way to
+    check it is named."""
+    real_call = admin_cli._Side.call
+
+    async def call(self: Any, core: Any, method: str, *args: Any) -> Any:
+        if method != "appoint_platform_admin":
+            return await real_call(self, core, method, *args)
+        if failure is not None:
+            raise failure
+        return {"granted": True}
+
+    monkeypatch.setattr(admin_cli._Side, "call", call)
+    with pytest.raises(SystemExit) as exc:
+        await grant_admin(_mono(), EMAIL, APPLY)
+    text = str(exc.value.code)
+    assert "outcome is unknown" in text
+    assert "sandloom admin list" in text
 
 
 @pytest.mark.asyncio

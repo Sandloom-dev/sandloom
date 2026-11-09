@@ -62,14 +62,12 @@
       "database": null,
       "methods": [
         "account_by_email",
-        "account_standing",
         "accounts_by_id",
         "appoint_platform_admin",
         "create_platform_admin",
         "end_sessions",
         "find_user_id",
         "is_platform_admin",
-        "list_platform_admins",
         "list_user_ids",
         "password_problem",
         "platform_admin_exists",
@@ -77,7 +75,6 @@
         "record_admin_listing",
         "reissue_set_password",
         "require_password_reset",
-        "revoke_sessions",
         "set_password_token",
         "set_password_with_token",
         "take_over_platform_admin"

@@ -7151,6 +7151,10 @@ capabilities:
   - src/sandloom/core/tests/test_security_operator.py::test_tenant_members_come_from_the_tenant_ids_owner
   - src/sandloom/core/tests/test_security_operator.py::test_mono_and_split_give_the_same_report
   - src/sandloom/core/tests/test_security_operator.py::test_split_call_refused_by_the_provider_names_the_missing_grant
+  - src/sandloom/core/tests/test_security_operator.py::test_an_incompatible_method_is_refused_before_anything
+  - src/sandloom/core/tests/test_security_operator.py::test_split_holds_the_issuer_to_its_refresh_sessions_declaration
+  - src/sandloom/core/tests/test_security_cli.py::test_a_reset_answering_a_dto_stops_before_the_next_side_effect
+  - src/sandloom/core/tests/test_security_cli.py::test_end_sessions_answering_an_int_is_not_read_as_not_applicable
   - tests/integration/test_security_revocation_split.py::test_the_kernel_part_is_one_durable_unit_every_service_applies
   - tests/integration/test_security_revocation_split.py::test_a_cli_process_without_the_issuer_revokes_durably
   - tests/integration/test_security_revocation_split.py::test_a_reset_the_issuer_cannot_do_leaves_no_trace

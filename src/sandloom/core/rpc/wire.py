@@ -91,3 +91,8 @@ ACCESS_LIFETIME_DESCRIBE_KEY = "access_token_expire_minutes"
 #: command confirms that the bound service answers for the owner its claim
 #: map names, never a module of the same short name (ADR-0012 decision 1).
 PROVIDER_DESCRIBE_KEY = "provider"
+#: Describe-document key carrying that module's ``refresh_sessions``
+#: declaration (additive, not part of the hash): ``sandloom security`` holds
+#: a token issuer that runs in another service to ending its refresh
+#: sessions, as it does one loaded in its own process (ADR-0012 decision 5).
+REFRESH_SESSIONS_DESCRIBE_KEY = "refresh_sessions"

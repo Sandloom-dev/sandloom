@@ -219,13 +219,13 @@ async def test_operator_revocation_reports_admin_risk_on_execution_and_replay(
                 "auth_time": int(time.time()) - 3600,
             }
             with bind_request_scope(scope):
-                count = await proxy.revoke_sessions(
+                ended = await proxy.end_sessions(
                     user_ids=[target],
                     reason="C022 regression",
                     operator="test",
                     operation_key=key,
                 )
-            assert count == 1
+            assert ended.affected == 1
             assert scope.risk is not None
             assert scope.risk.risks == {
                 "admin": {"sandloom_identity.contracts._end_sessions"}
