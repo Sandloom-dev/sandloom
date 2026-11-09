@@ -37,11 +37,16 @@ required one, a method it no longer serves, a result that is not a boolean)
 is indeterminate 501 ``contract_mismatch`` inside the algebra, so ``Or`` may
 still allow on another branch and ``Not`` never allows (decision 12). A
 request value that does not bind (an invalid organization id) is refused
-before any call, as by the kernel atoms.
+before any call, as by the kernel atoms. A bound provider that is down
+(unreachable, a provider error, a timeout) is indeterminate 503
+``owner_unavailable`` inside the algebra, logged and counted per branch
+(K5, owner answer #19); an RPC authentication or allowlist refusal stays an
+error.
 """
 
 from __future__ import annotations
 
+import logging
 import weakref
 from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -62,6 +67,7 @@ from sandloom.shared.authz.account import (
     resolve_account,
 )
 from sandloom.shared.authz.algebra import TIER_CLAIM, TIER_LIVE, Requirement
+from sandloom.shared.authz.metrics import increment
 from sandloom.shared.authz.results import AccessDecision, Category, PolicyIndeterminate
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -82,6 +88,15 @@ _CATEGORIES = frozenset(
 #: Provider answers that mean "the call does not fit the method": the
 #: arguments do not bind, or the method is not served (local and remote).
 _MISMATCH_CODES = frozenset({"contract_argument_invalid", "method_not_found"})
+#: The decision code of a provider that is down (K5).
+OWNER_UNAVAILABLE = "owner_unavailable"
+#: RPC failures (503) that mean "the provider is down": unreachable, a
+#: provider error, a timeout. Never an authentication or allowlist refusal
+#: (``rpc_caller_forbidden``, ``rpc_auth_*``, ``rpc_identity_*``, ...): a
+#: broken security invariant stays an error, not an indeterminate.
+_DOWN_CODES = frozenset({"remote_service_unavailable", "rpc_timeout"})
+
+logger = logging.getLogger("sandloom.access")
 
 
 class From:
@@ -282,6 +297,40 @@ def _mismatch(contract: str, method: str, detail: str, requirement: str) -> Exce
     )
 
 
+def _owner_unavailable(
+    ctx: AuthzContext, contract: str, code: str, requirement: str
+) -> Exception:
+    """The provider is down (K5, owner answer #19): an indeterminate 503
+    inside the algebra, so ``A | B`` still allows on a branch that reliably
+    allowed and ``~`` never allows. Reported per branch, a sibling's allow
+    included: a warning in the deny log and ``access_indeterminate_branch_total``."""
+    logger.warning(
+        "access check indeterminate: %s (%s, %s)",
+        OWNER_UNAVAILABLE,
+        requirement,
+        contract,
+        extra={
+            "access_code": OWNER_UNAVAILABLE,
+            "access_category": Category.POLICY_MISCONFIGURED,
+            "failed_requirement": requirement,
+            "access_indeterminate": True,
+            "access_http_status": 503,
+            "service": contract,
+            "rpc_code": code,
+            "source": ctx.source,
+            "actor_id": str(ctx.subject.user_id),
+        },
+    )
+    increment(ctx.core(), "access_indeterminate_branch_total")
+    return _indeterminate(
+        OWNER_UNAVAILABLE,
+        f"contract {contract!r} is unavailable; try again later",
+        503,
+        requirement,
+        {"service": contract, "error": code},
+    )
+
+
 class ContractCheck(Requirement):
     """The generic evaluator of a generated, contract-anchored atom.
 
@@ -359,6 +408,11 @@ class ContractCheck(Requirement):
     def contracts(self) -> frozenset[str]:
         return frozenset({self._contract})
 
+    def needs_request_session(self) -> bool:
+        # The provider runs the call in its own unit (local or remote), never
+        # in the caller's session: require() opens none for it (K6).
+        return False
+
     def risks(self) -> frozenset[str]:
         out: set[str] = set()
         for risk, conditions in (self.__sandloom_atom__.get("risk") or {}).items():
@@ -418,9 +472,14 @@ class ContractCheck(Requirement):
         try:
             result = await method(*args)
         except Exception as exc:
-            if getattr(exc, "code", None) in _MISMATCH_CODES:
+            code = getattr(exc, "code", None)
+            if code in _MISMATCH_CODES:
                 raise _mismatch(
                     self._contract, self._method, str(exc), requirement
+                ) from exc
+            if code in _DOWN_CODES and getattr(exc, "status_code", None) == 503:
+                raise _owner_unavailable(
+                    ctx, self._contract, str(code), requirement
                 ) from exc
             raise
         if type(result) is not bool:
@@ -598,6 +657,7 @@ __all__ = [
     "ACCESS_CHECK_ATTR",
     "ATOM_ATTR",
     "CONTRACT_MISMATCH",
+    "OWNER_UNAVAILABLE",
     "ClaimFactCheck",
     "ContractCheck",
     "From",

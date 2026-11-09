@@ -2731,6 +2731,9 @@ guarantees:
   - tests/integration/test_shared_authz_review.py::test_or_with_erroring_branch_does_not_allow
   - tests/integration/test_shared_authz_review.py::test_double_negation_of_error_still_denies
   - tests/integration/test_access_facts_split.py::test_unreachable_owner_is_503
+  - src/sandloom/core/tests/test_contract_check_outage.py::test_or_allows_only_on_the_branch_that_reliably_allowed
+  - src/sandloom/core/tests/test_contract_check_outage.py::test_a_negated_down_provider_never_allows
+  - src/sandloom/core/tests/test_contract_check_outage.py::test_an_authentication_or_allowlist_refusal_stays_an_error
 - id: G-AUTHZ-02
   statement: require(...) evaluates the cheapest tier first (claims -> resource -> live) and short-circuits;
     a claims-only policy such as require(Subscribed(of=Account.user())) opens no DB session and does no I/O.
@@ -2742,6 +2745,7 @@ guarantees:
   - tests/integration/test_shared_authz_review.py::test_http_claims_only_policy_opens_no_db_session
   - tests/integration/test_authz_algebra.py::test_cheap_claim_short_circuits_before_resource_load
   - tests/integration/test_access_subsystem.py::test_and_returns_first_failing_cheapest_first
+  - src/sandloom/core/tests/test_contract_check_outage.py::test_a_contract_check_opens_no_request_session
 - id: G-AUTHZ-03
   statement: SubscriptionActive(of=...) and Credits(n, of=...) (of= required) are live and authoritative, resolved
     through the owner's contract (local, or the SERVICE_BINDINGS RPC proxy when remote).

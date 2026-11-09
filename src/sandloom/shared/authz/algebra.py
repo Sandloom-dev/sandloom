@@ -119,6 +119,18 @@ class Requirement(abc.ABC):
         """
         return frozenset()
 
+    def needs_request_session(self) -> bool:
+        """True when evaluating this requirement may use the request's
+        database session (``ctx.db``): a resource loader, a fact read from a
+        local projection, a live adapter.
+
+        ``require()`` opens a session (``get_db``) only for a policy that
+        answers True (ADR-0014 K6). Default: any tier above claims. A
+        contract-anchored check says False: its provider runs the call in its
+        own unit, never in the caller's session.
+        """
+        return self.tier > TIER_CLAIM
+
     def risks(self) -> frozenset[str]:
         """The framework risks a gate enforcing this requirement carries
         (ADR-0009 item 6): ``{"admin"}`` for an admin role, else none. An
@@ -180,6 +192,9 @@ class And(Requirement):
     def mentions_resource(self) -> bool:
         return any(p.mentions_resource() for p in self.parts)
 
+    def needs_request_session(self) -> bool:
+        return any(p.needs_request_session() for p in self.parts)
+
     def org_params(self) -> frozenset[str]:
         return frozenset().union(*(p.org_params() for p in self.parts))
 
@@ -240,6 +255,9 @@ class Or(Requirement):
     def mentions_resource(self) -> bool:
         return any(p.mentions_resource() for p in self.parts)
 
+    def needs_request_session(self) -> bool:
+        return any(p.needs_request_session() for p in self.parts)
+
     def org_params(self) -> frozenset[str]:
         return frozenset().union(*(p.org_params() for p in self.parts))
 
@@ -283,6 +301,9 @@ class Not(Requirement):
 
     def mentions_resource(self) -> bool:
         return self.inner.mentions_resource()
+
+    def needs_request_session(self) -> bool:
+        return self.inner.needs_request_session()
 
     def org_params(self) -> frozenset[str]:
         return self.inner.org_params()
