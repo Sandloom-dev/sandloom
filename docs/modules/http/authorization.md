@@ -72,7 +72,7 @@ guide](../../operate/upgrade-1.0.md#billing-and-tenancy-atoms-leave-the-kernel).
 | `Feature(key, *, of, claim_key="features")`, `WithinLimit(key, used, *, of, claim_key="limits")` | claim with `Account.user()`; live with an organization | the `features` / `limits` claims, or billing's `has_feature` / `is_within_limit` checks (three-valued, see below) |
 | `Owner(get_owner)` | resource | the loaded resource's owner id |
 | `OrgRole(minimum, *, org_param="org_id")` | live | tenancy's membership contract (`has_role_at_least`) |
-| `Entitled(fact_name)` | by the fact's mode | a registered access fact |
+| `Entitled(fact_name, *, owner)` | by the fact's mode | the access fact `owner` registers |
 
 Live atoms resolve their contract through the service registry (a local
 provider, else the RPC binding) and never pass the request's session. The
@@ -188,9 +188,17 @@ The same rule applies where billing chooses an account:
 
 ## Access facts and resolution modes
 
-`Entitled(fact_name)` resolves a named `AccessFact`, published by its owner as
-part of its public contract (`<owner>.facts.v1`; a process without the owner
-binds it in `SERVICE_BINDINGS` and gets the same decision). The mode is set
+`Entitled(fact_name, owner="billing")` resolves the `AccessFact` that module
+`owner` registers. The owner publishes it in its contract `<owner>.facts.v1`.
+A process without the owner binds that contract in `SERVICE_BINDINGS` and gets
+the same decision.
+
+A fact is identified by its owner and its name, so `owner=` is required
+(`SANDLOOM-B038`). Another module's fact of the same name never satisfies the
+policy. An owner that is neither loaded nor bound answers `501`. An owner
+bound but unreachable answers `503`, with no fallback.
+
+The mode is set
 per fact with the `ACCESS` setting: `claim` (from the token), `projection` (a
 local read model), `live` (an authoritative call) or `auto`. A configured mode
 never weakens the fact's `min_freshness` floor. A claim is trusted only when
@@ -198,14 +206,15 @@ its owning module is in the token's `claims_sources` and not in
 `claims_sources_failed`; otherwise claim mode escalates to live. Claim
 interpretation is declared with `AccessFact(claim_rule=ClaimRule.one_of(...))`
 and travels over RPC. A false fact denies with the fact's `deny_category`,
-else `403`; `Entitled(fact, category=Category.PAYMENT_REQUIRED)` overrides it
+else `403`; `Entitled(fact, owner=..., category=Category.PAYMENT_REQUIRED)`
+overrides it
 with `402`.
 
 Billing registers `subscription.active` (default `auto`) and
 `organization.subscription.active` (live only, membership-checked); a false
 fact denies `402`, a non-member is refused `403`. In tests,
-`fake_access_fact(name, value)` answers a fact by name without loading its
-owner. It does not stand in for a provider's contract: to answer the live
+`fake_access_fact(name, value, owner="billing")` answers that owner's fact
+without loading the owner. It does not stand in for a provider's contract: to answer the live
 `SubscriptionActive` / `Credits` / `OrgRole` atoms, serve the contract with
 `fake_contract(REF, Fake())` ([Testing](../../reference/testing.md#calling-another-modules-contract)).
 
@@ -213,7 +222,7 @@ A route's gate names the contracts it calls, and they join the module's
 derived `consumes` as optional requirements. A generated atom adds its
 provider's contract: `SubscriptionActive` / `Credits` add
 `billing.entitlements.v1` and `OrgRole` adds `tenancy.membership.v1`.
-`Entitled(fact)` adds the fact owner's `<owner>.facts.v1`. A generated claim
+`Entitled(fact, owner=o)` adds `<o>.facts.v1`. A generated claim
 atom adds its fact owner's too: billing's `Subscribed` adds `billing.facts.v1`,
 and for an organization account also the live check's contract. The startup
 preflight warns when one is unbound. `sandloom add deploy` binds them in the
