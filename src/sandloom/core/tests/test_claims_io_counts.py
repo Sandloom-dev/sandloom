@@ -42,6 +42,7 @@ mem_cache = _matrix.mem_cache
 issuers = _matrix.issuers
 _fresh_verification_cache = _matrix._fresh_verification_cache
 _close_shared_client = _matrix._close_shared_client
+_standard_entry_points = _matrix._standard_entry_points
 
 GATES = ("/role", "/perm", "/tenant")
 

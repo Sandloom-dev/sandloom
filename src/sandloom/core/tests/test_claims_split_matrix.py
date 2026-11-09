@@ -51,6 +51,7 @@ from sandloom.core.rpc import RemoteServiceProxy
 from sandloom.core.runtime import use_active_core
 from sandloom.core.tests import test_auth_rotation_revocation as _revocation
 from sandloom.core.tests import test_rpc_keyed_binding as _keyed
+from sandloom.core.tests._entry_points_support import installed_entry_points
 from sandloom.shared.authz import Perm, Role, require
 from sandloom.shared.guards.platform import require_platform_admin
 
@@ -66,6 +67,15 @@ SHORT = {ID: "identity", ACME: "acme_identity", APP_IDENTITY: "identity"}
 TENANT = str(uuid4())
 BINDINGS = {CONTRACT: {"base_url": "http://grants", "service_id": "tenancy"}}
 LIFETIME = settings.access_token_expire_minutes * 60
+
+
+@pytest.fixture(autouse=True)
+def _standard_entry_points() -> Iterator[None]:
+    """``sandloom_identity`` / ``sandloom_tenancy`` are the modules
+    ``identity`` / ``tenancy`` by their entry points, installed or not."""
+    with installed_entry_points():
+        yield
+
 
 GATES = ("/role", "/perm", "/admin", "/operator", "/tenant")
 OK = dict.fromkeys(GATES, 200)

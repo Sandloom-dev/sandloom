@@ -28,6 +28,7 @@ from sandloom.core.facade._services import ForeignOwnerRegistration
 from sandloom.core.lifecycle import CriticalStartupError, run_startup
 from sandloom.core.module_api import contract_method
 from sandloom.core.module_api._registration import ModuleRegistrationConflict
+from sandloom.core.tests._entry_points_support import installed_entry_points
 from sandloom.shared.authz import live_contracts as _live
 
 LOG = logging.getLogger("test.access_providers")
@@ -68,6 +69,14 @@ class _SeatsAdapter:
         self, service: Any, *, tenant_type: str, tenant_id: UUID, ctx: Any
     ) -> int:
         return 0
+
+
+@pytest.fixture(autouse=True)
+def _standard_entry_points() -> Iterator[None]:
+    """``tenancy`` is the module ``sandloom_tenancy`` of the distribution
+    ``sandloom-tenancy`` by its entry point, installed or not."""
+    with installed_entry_points():
+        yield
 
 
 @pytest.fixture(autouse=True)
