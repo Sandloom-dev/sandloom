@@ -28,6 +28,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from sandloom.core.auth.bearer import bearer_claims
+from sandloom.core.auth.claims_view import platform_admission, untrusted_reasons
 from sandloom.core.auth.verification import (
     assert_token_valid_now,
     ensure_token_not_revoked,
@@ -61,15 +62,10 @@ async def platform_operator(request: Request) -> None:
     except ValueError as exc:
         raise HTTPException(401, "Invalid token subject") from exc
     await ensure_token_not_revoked(request, claims)
-    sources, roles = claims.get("claims_sources"), claims.get("roles")
-    if (
-        not isinstance(sources, list)
-        or "identity" not in sources
-        or not isinstance(roles, list)
-        or "admin" not in roles
-        or "identity" in (claims.get("claims_sources_failed") or [])
-    ):
-        raise HTTPException(403, "Platform administrator role required")
+    # The one platform admission (ADR-0014 decision 3), shared with
+    # ``require_platform_admin``: ``roles`` counts only when it is in the
+    # token's trusted view; no module name is trusted.
+    platform_admission(claims.get("roles"), untrusted_reasons(claims))
 
 
 # ADR-0009 item 6: the platform console's operator gate carries the admin risk.
