@@ -13,13 +13,16 @@ This module is the shared, common library for the Sandloom project. It contains 
 ## Contents
 
 - `shared/authz/`: the unified, claims-first authorization subsystem — the
-  composable algebra (`Perm`, `Role`, `Subscribed`, `Feature`, `WithinLimit`,
-  `Credits`, `SubscriptionActive`, `OrgRole`, `Owner`, `Entitled`, combined
+  composable algebra (`Perm`, `Role`, `Owner`, `Entitled`, and the access
+  checks a provider declares with `access_check` / `claim_atom`, combined
   with `& | ~`), the FastAPI entry points (`current_context`, `require`,
   `authorize`, `authorize_resource`), the `enforce` chokepoint for use-cases and
   workers, structured `AccessDecision` / `AccessDenied` results, configurable
   access facts (`AccessFact`, claim / projection / live / auto) and the
-  pluggable live-contract adapters (`register_live_adapter`).
+  generated-check bases (`ContractCheck`, `ClaimFactCheck`, `ClaimReadCheck`).
+  The kernel names no billing or tenancy atom: `Subscribed`, `SubscriptionActive`,
+  `Credits`, `Feature`, `WithinLimit` and `OrgRole` are generated into the
+  consumer's contract stub from the provider's declarations.
   - Decisions are three-valued: an atom that cannot be evaluated (fact not
     registered, contract absent in this deployment, no tenant context) is
     *indeterminate* — a denial with its own status (500/501/400/403) that
@@ -28,9 +31,9 @@ This module is the shared, common library for the Sandloom project. It contains 
     forbidden, 501 not deployed, 500 misconfigured); `require(...,
     status_code=)` only overrides definite denials.
   - Live atoms resolve contracts through `core.get_service` (local provider,
-    else the `SERVICE_BINDINGS` RPC proxy). Which contract and how it is called
-    is an adapter; the defaults bind `billing.entitlements.v1` and
-    `tenancy.membership.v1`.
+    else the `SERVICE_BINDINGS` RPC proxy). Which contract and method an atom
+    calls is the provider's `access_check` declaration, carried by the
+    consumer's generated copy; the kernel binds no contract by default.
 - `shared/guards/auth.py`: `get_current_user_id` (public as `sandloom.sdk.web.current_user_id`), a thin pure-JWT shim over <!-- stale-ok: kernel-internal name of the file described -->
   `authz.current_context` (no I/O). There are no other guard modules — billing
   and role gates are `require(...)` policies from `shared.authz`.

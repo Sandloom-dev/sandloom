@@ -297,13 +297,17 @@ CRUD, events and cross-module calls:
 | routes | `module_router`, `public`, `CurrentUser` |
 | events | `Event`, `on` |
 | contracts | `contract`, `command`, `Contract` |
-| authorization | `require`, `Subscribed`, `SubscriptionActive`, `Credits`, |
-| | `OrgRole`, `Owner`, `authorize_resource` |
+| authorization | `require`, `Owner`, `authorize_resource` |
 | effects | `record_audit`, `on_commit` |
 | tests (`sandloom.sdk.testing`) | `client` (fixture), `as_user`, `published`, |
 | | `deliver`, `fake_contract`, `fake_access_fact` |
 
 Other SDK names are advanced: mark the import `# sandloom: advanced <reason>`.
+The billing and tenancy gates (`Subscribed`, `SubscriptionActive`, `Credits`,
+`OrgRole`) are not sdk names: `sandloom generate` writes them beside the
+consumer's contract stub, and a route imports them from
+`$app.shared.contracts.billing_entitlements_v1` or
+`$app.shared.contracts.tenancy_membership_v1`.
 Ids and times: `default=new_id` (UUIDv7) and `created_at: Mapped[CreatedAt]`
 (`clock_timestamp()`), so a list ordered by `created_at, id` never ties; any
 other time column is `UtcDateTime()` (SANDLOOM-C029).

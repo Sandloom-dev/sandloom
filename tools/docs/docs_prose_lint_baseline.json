@@ -276,8 +276,8 @@
     },
     "docs/modules/http/authorization.md": {
       "K3": 1,
-      "P6": 4,
-      "S4": 5
+      "P6": 3,
+      "S4": 4
     },
     "docs/modules/http/idempotent-write.md": {
       "P6": 1,
@@ -313,12 +313,12 @@
     "docs/operate/loader-configuration.md": {
       "P6": 1,
       "P9": 1,
-      "S4": 4
+      "S4": 3
     },
     "docs/operate/operator-reference.md": {
       "P6": 6,
       "P8": 1,
-      "P9": 58,
+      "P9": 57,
       "S11": 1,
       "S4": 65
     },
@@ -358,7 +358,7 @@
     },
     "docs/reference/testing.md": {
       "P6": 3,
-      "S4": 7
+      "S4": 6
     }
   }
 }

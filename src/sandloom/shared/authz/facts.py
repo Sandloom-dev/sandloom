@@ -187,8 +187,9 @@ class AccessFact:
     min_freshness: str = MODE_CLAIM
     default_mode: str = MODE_AUTO
     #: Denial category when the fact is False (e.g. ``Category.PAYMENT_REQUIRED``
-    #: for a subscription fact → 402, consistent with ``Subscribed`` /
-    #: ``SubscriptionActive`` / ``Credits``). ``None`` → ``forbidden`` (403).
+    #: for a subscription fact → 402, consistent with billing's generated
+    #: ``Subscribed`` / ``SubscriptionActive`` / ``Credits``). ``None`` →
+    #: ``forbidden`` (403).
     #: An explicit ``Entitled(..., category=...)`` overrides it; a resolver
     #: raising :class:`FactDenied` chooses its own category for that denial.
     deny_category: str | None = None
