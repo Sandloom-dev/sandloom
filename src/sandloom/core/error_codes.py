@@ -1391,6 +1391,35 @@ operator CLIs), naming both owners (ADR-0015 decision 3).
 """,
     ),
     _entry(
+        "SANDLOOM-B037",
+        "capability-unavailable",
+        "boot",
+        "a module requires an infrastructure capability its composition cannot "
+        "serve: no instance, no driver, a missing feature, or the driver's "
+        "package is not installed (or fails to import)",
+        "install what the refusal names (pip install 'sandloom[celery]', "
+        "'sandloom[redis]'), or select in INFRA an installed driver that "
+        "advertises the features the module requires",
+        """
+A module declares the capabilities it needs (define_module(capabilities=...)),
+and the application chooses the driver of each instance. At load, build-free,
+the kernel checks every required capability: an instance is configured, its
+driver is registered and advertises the requested features, and the packages
+the driver needs are installed (importlib.util.find_spec: nothing is imported,
+no connection is opened). A built-in driver is registered whether or not its
+package is installed, so this is what tells a registered driver from a usable
+one. Every unmet requirement of the module is refused at once, naming the
+module, the capability, the instance, the driver, the missing feature or
+package, and the install hint or the INFRA alternative. An optional
+requirement only warns. An instance INFRA selects on an uninstalled driver
+refuses startup the same way, and so does a dependency that fails to import
+while a driver is built (strict startup in production). A synthesized default
+instance nothing requires is neither opened nor probed; the instances the
+kernel uses (database, cache, event bus) stay required.
+""",
+        "docs/infrastructure/index.md",
+    ),
+    _entry(
         "SANDLOOM-B020",
         "ambiguous-module",
         "boot",
@@ -1909,6 +1938,8 @@ EXCEPTION_CODES: dict[str, str] = {
     "SqliteUnavailable": "SANDLOOM-B032",
     "DatabaseFeatureMissing": "SANDLOOM-B033",
     "ForeignOwnerRegistration": "SANDLOOM-B034",
+    "DriverUnavailableError": "SANDLOOM-B037",
+    "CapabilityUnavailable": "SANDLOOM-B037",
     "ModelSchemaDrift": "SANDLOOM-B028",
     "DatabaseFileReplaced": "SANDLOOM-B028",
     "NestedWriterRefused": "SANDLOOM-R016",

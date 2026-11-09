@@ -481,7 +481,17 @@ import asyncio, importlib, importlib.util, sys
 import httpx
 from sandloom.sdk._prim.tasks import TaskQueueNotInstalled, _UnqueuedTask
 module = sys.argv[1]
-import sandloom.main as m
+try:
+    import sandloom.main as m
+except Exception as exc:
+    # A module that requires a capability whose driver is an extra (identity
+    # requires the cache: redis-py) refuses with SANDLOOM-B037, naming the
+    # extra; any other failure is one.
+    text = str(exc)
+    assert "[SANDLOOM-B037]" in text and "pip install 'sandloom[" in text, text
+    assert "celery" not in sys.modules, "celery imported on plain sandloom"
+    print(f"plain sandloom + {module} refused, SANDLOOM-B037: {text[:300]}")
+    raise SystemExit(0)
 assert m.core.loaded_modules == [module], m.core.loaded_modules
 assert "celery" not in sys.modules, "celery imported on plain sandloom"
 async def ok():
@@ -527,7 +537,9 @@ def check_plain_module_install(
 
     ``/health`` is 200; ``/ready`` is 503 (``taskqueue_status: fail``) for a
     module with a ``tasks.py``, since its tasks cannot be enqueued without
-    Celery, and 200 (``unused``) otherwise.
+    Celery, and 200 (``unused``) otherwise. A module that requires a
+    capability whose driver is not installed here refuses to boot with
+    SANDLOOM-B037 naming the extra (KB-IC-1), and nothing else.
 
     The module's own dependencies only (no ``sandloom`` extra): a module whose
     ``tasks.py`` uses ``sandloom.sdk.tasks.shared_task`` must load without
