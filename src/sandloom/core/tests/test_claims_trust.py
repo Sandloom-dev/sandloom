@@ -127,7 +127,7 @@ def _register(
     return fn
 
 
-async def _mint(core: CoreFacade) -> dict[str, Any]:
+async def _mint(core: CoreFacade) -> Any:
     return await core.collect_claims(uuid4())
 
 
@@ -691,8 +691,11 @@ def test_install_refuses_an_issuer_field_given_to_another_module() -> None:
 FIELDS = {"email": "u@example.com", "email_verified": False}
 
 
-async def _issue(core: CoreFacade, fields: dict[str, Any] = FIELDS) -> dict[str, Any]:
-    return await core.collect_claims(uuid4(), issuer="idp", issuer_claims=fields)
+async def _issue(core: CoreFacade, fields: dict[str, Any] = FIELDS) -> Any:
+    """Collect as the issuer ``acme.idp``, identified by its own contributor
+    (registered here when the test did not)."""
+    mine = core._contributors_of("idp") or [_register(core, IDP, {}, critical=True)]
+    return await core.collect_claims(uuid4(), issuer=mine[0], issuer_claims=fields)
 
 
 @pytest.mark.asyncio
@@ -722,8 +725,9 @@ async def test_another_module_cannot_mint_the_issuer_fields() -> None:
     """Only the map's issuer's: a step named otherwise refuses the mint."""
     core = _core()
     _register(core, IDP, {"roles": []}, critical=True)
+    rogue = _register(core, ROGUE, {})
     with pytest.raises(ClaimsUnavailable):
-        await core.collect_claims(uuid4(), issuer="rogue", issuer_claims=FIELDS)
+        await core.collect_claims(uuid4(), issuer=rogue, issuer_claims=FIELDS)
 
 
 @pytest.mark.asyncio

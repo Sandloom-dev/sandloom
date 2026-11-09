@@ -12,7 +12,8 @@ from httpx import AsyncClient
 
 from sandloom.sdk.infra import settings
 from sandloom.sdk.security import decode_token
-from sandloom.sdk.testing import revocation_mark_key, set_environment
+from sandloom.sdk.testing import revocation_mark_key, sealed_claims, set_environment
+from sandloom_identity.claims import contribute_identity_claims
 from sandloom_identity.models.user import User
 from sandloom_identity.services.token_service import TokenService
 
@@ -45,17 +46,17 @@ async def test_unverified_user_and_contributors_cannot_override_identity() -> No
     user.email = "u@example.com"
     user.is_verified = False
     checked = {"email": "u@example.com", "email_verified": False, "roles": ["r"]}
-    # The merge's provenance and policy version, here the kernel test
-    # authority's (what as_user stamps), so the verifier's view keeps them.
-    stamped = {"cpv": "sandloom-test", "claims_sources": ["sandloom-test"]}
+    # The sealed merge result, here vouched for by the kernel test authority
+    # (what as_user stamps), so the verifier's view keeps it.
     core = SimpleNamespace(
-        collect_claims=AsyncMock(return_value={**checked, **stamped, "sub": "x"})
+        collect_claims=AsyncMock(return_value=sealed_claims(checked))
     )
     db = AsyncMock()
     db.add = Mock()
     pair = await TokenService.create_tokens(user, db, core)  # type: ignore[arg-type]
     kwargs = core.collect_claims.await_args.kwargs
-    assert kwargs["issuer"] == "identity"
+    # The issuer is identified by its own registered contributor, never a name.
+    assert kwargs["issuer"] is contribute_identity_claims
     assert kwargs["issuer_claims"] == {
         "email": "u@example.com",
         "email_verified": False,

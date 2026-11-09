@@ -56,6 +56,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`migration_chains`](#migration_chains) | function | The core chain plus the chain of every loaded module that has one. |
 | [`migration_drift`](#migration_drift) | function | How a module's migration chain at head differs from its models. |
 | [`MigrationChain`](#migrationchain) | class | One Alembic chain: the kernel's core chain or a module's own. |
+| [`mint_test_token`](#mint_test_token) | function | A signed test token from `data`, the test kit's replacement of a hand-assembled `create_access_token(data={...})`. |
 | [`model_tables`](#model_tables) | function | `{table: owning chain}` for every ORM table of the core and the loaded modules — the owner is the package that DECLARES the model. |
 | [`ModuleBootError`](#modulebooterror) | exception | The module started alone, but logged errors while doing so. |
 | [`ModuleRegistrationDraft`](#moduleregistrationdraft) | class | A buffer of one module's registrations, applied atomically on commit. |
@@ -88,6 +89,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`run_sql`](#run_sql) | function | Run `sql` in its own committed transaction; the rows it returned. |
 | [`SagaHarness`](#sagaharness) | class | The `saga_harness` fixture's object (see the module docstring). |
 | [`SagaRun`](#sagarun) | class | What one `run()` / `drive()` observed. |
+| [`sealed_claims`](#sealed_claims) | function | The kernel test authority's sealed claims: what a test passes as `create_access_token(data, claims=...)` where the application passes the... |
 | [`served_rpc`](#served_rpc) | function | Serve `core`'s internal RPC routes (or `app`) on a loopback socket. |
 | [`set_environment`](#set_environment) | function | Run the rest of the test with `settings.environment == name`. |
 | [`SimulatedCrash`](#simulatedcrash) | exception | The process "died": the transition's UoW rolls back (not an Exception, so the step classification never sees it). |
@@ -765,6 +767,26 @@ One Alembic chain: the kernel's core chain or a module's own.
 ```python
 versions  (property)
 ```
+
+### `mint_test_token`
+
+```python
+def mint_test_token(
+    data: Mapping[str, Any],
+    expires_delta: int | None = None,
+    *,
+    claims_read_at: datetime | None = None,
+) -> str
+```
+
+A signed test token from `data`, the test kit's replacement of a
+hand-assembled `create_access_token(data={...})`.
+
+The envelope (`sub`, `token_type`, `auth_time`, `iat`, `exp`,
+...) is minted as given; every other key (`roles`, `tenant_ids`,
+`tenant_id`, `email`, an application claim) is the kernel test
+authority's sealed contribution (`sealed_claims`): trusted in a
+test composition only, with the provenance a test states checked.
 
 ### `model_tables`
 
@@ -1539,6 +1561,27 @@ def assert_keys_derived(self) -> None
 ```
 
 Every command call carried `saga:<type>:<id>:<step>:do|undo`.
+
+### `sealed_claims`
+
+```python
+def sealed_claims(claims: Mapping[str, Any]) -> SealedClaims
+```
+
+The kernel test authority's sealed claims: what a test passes as
+`create_access_token(data, claims=...)` where the application passes
+the `collect_claims` result (a test that fakes `collect_claims`).
+
+Refused (SANDLOOM-R017) unless this process is a test composition: the
+`sandloom.sdk.testing` pytest plugin or the framework's harness is
+active (the kernel test authority exists nowhere else). Without a
+`claims_sources` of the caller's own, the test authority
+(`sandloom-test`) vouches for every claim; a test that states
+`claims_sources` (and `claims_sources_failed`) gets exactly that
+provenance checked against the composition's `claim_authorities`
+(parts 1 and 3 of the trusted view). A stated `cpv` is minted as
+given (a test of the view's policy versions); `cpv=None` mints none
+(a token of a release before `cpv`).
 
 ### `served_rpc`
 

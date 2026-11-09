@@ -49,6 +49,7 @@ from sandloom.core.di import TenantScope
 from sandloom.core.facade import CoreFacade
 from sandloom.core.rpc import RemoteServiceProxy
 from sandloom.core.runtime import use_active_core
+from sandloom.core.testing.auth import sealed_claims
 from sandloom.core.tests import test_auth_rotation_revocation as _revocation
 from sandloom.core.tests import test_rpc_keyed_binding as _keyed
 from sandloom.core.tests._entry_points_support import installed_entry_points
@@ -209,16 +210,23 @@ class Issuer:
         core.set_service_resolver(_resolver(provider))
 
     async def claims(self, user: UUID) -> dict[str, Any]:
-        claims = await self.core.collect_claims(user)
+        claims = dict(await self.core.collect_claims(user))
         if self.old:
             claims.pop("cpv", None)
         return claims
 
     async def mint(self, user: UUID, **override: Any) -> str:
+        """A real signed token. The current release mints through the sealed
+        result; the release before KB-11 (``old``) and a forged variant
+        (``override``) through the kernel test authority, which mints the
+        stated provenance and ``cpv`` (none for ``old``) as given."""
+        envelope = {"sub": str(user), "token_type": "access"}
+        if not self.old and not override:
+            sealed = await self.core.collect_claims(user)
+            return tokens.create_access_token(envelope, claims=sealed)
         claims = {**(await self.claims(user)), **override}
-        return tokens.create_access_token(
-            {"sub": str(user), "token_type": "access", **claims}
-        )
+        claims.setdefault("cpv", None)
+        return tokens.create_access_token(envelope, claims=sealed_claims(claims))
 
 
 def verifier(
@@ -508,8 +516,9 @@ async def test_the_window_bounds_hold_on_real_tokens(
     open_ = verifier(roles_map(ID), legacy_until=now + 3600)
     claims = await old.claims(user)
     long_lived = tokens.create_access_token(
-        {"sub": str(user), "token_type": "access", **claims},
+        {"sub": str(user), "token_type": "access"},
         expires_delta=settings.access_token_expire_minutes + 5,
+        claims=sealed_claims({**claims, "cpv": None}),
     )
     assert await statuses(open_, long_lived) == ALL_401
     assert await statuses(open_, await old.mint(user)) == OK

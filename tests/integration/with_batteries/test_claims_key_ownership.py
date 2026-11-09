@@ -105,6 +105,12 @@ async def _identity(user_id: Any) -> dict[str, Any]:
     return {"roles": ["member"], "permissions": []}
 
 
+def _issuer(core: CoreFacade) -> Any:
+    """Identity as the issuer, identified by its first registered contributor
+    (``collect_claims`` resolves the issuer from its registration)."""
+    return core._contributors_of("identity")[0]
+
+
 def _with_identity(core: CoreFacade) -> None:
     """Register identity's critical claims contributor on ``core``."""
     with core.module_registration("sandloom_identity") as api:
@@ -133,7 +139,7 @@ async def test_identity_alone_keeps_its_roles_and_gate() -> None:
 
     with core.module_registration("sandloom_identity") as api:
         api.add_claims_contributor(admin, critical=True)
-    claims = await core.collect_claims(uuid4(), object(), issuer="identity")
+    claims = await core.collect_claims(uuid4(), object(), issuer=_issuer(core))
     assert claims["roles"] == ["admin"]
     assert claims["claims_sources"] == ["identity"]
     assert await _is_platform_admin(claims)
@@ -155,7 +161,7 @@ async def test_one_owners_contributors_still_merge() -> None:
     with core.module_registration("sandloom_identity") as api:
         api.add_claims_contributor(first, critical=True)
         api.add_claims_contributor(second, critical=True)
-    claims = await core.collect_claims(uuid4(), object(), issuer="identity")
+    claims = await core.collect_claims(uuid4(), object(), issuer=_issuer(core))
     assert claims["roles"] == ["member", "editor"]
 
 
@@ -177,7 +183,7 @@ async def test_monolith_module_cannot_write_identitys_claims(key: str) -> None:
 
     with core.module_registration("acme.rogue") as api:
         api.add_claims_contributor(rogue)  # not critical
-    claims = await core.collect_claims(uuid4(), object(), issuer="identity")
+    claims = await core.collect_claims(uuid4(), object(), issuer=_issuer(core))
     assert claims[key] == ([] if key == "permissions" else ["member"])
     assert "plan" not in claims  # its whole result is dropped
     assert claims["claims_sources"] == ["identity"]
@@ -198,7 +204,7 @@ async def test_monolith_order_does_not_matter() -> None:
     with core.module_registration("acme.rogue") as api:
         api.add_claims_contributor(rogue)
     _with_identity(core)
-    claims = await core.collect_claims(uuid4(), object(), issuer="identity")
+    claims = await core.collect_claims(uuid4(), object(), issuer=_issuer(core))
     assert claims["roles"] == ["member"]
     assert claims["claims_sources_failed"] == ["rogue"]
 
@@ -220,7 +226,7 @@ async def test_a_critical_violator_refuses_the_mint_naming_itself(first: bool) -
     if first:
         _with_identity(core)
     with pytest.raises(ClaimsUnavailable) as exc_info:
-        await core.collect_claims(uuid4(), object(), issuer="identity")
+        await core.collect_claims(uuid4(), object(), issuer=_issuer(core))
     assert exc_info.value.status_code == 503
     assert exc_info.value.owner == "rogue"
 
@@ -245,7 +251,7 @@ async def test_split_remote_owner_cannot_write_identitys_roles(
     )
     proxy = _Proxy({"roles": ["admin"], "plan": "pro"})
     core.set_service_resolver(lambda name, binding, **_: proxy)
-    claims = await core.collect_claims(uuid4(), object(), issuer="identity")
+    claims = await core.collect_claims(uuid4(), object(), issuer=_issuer(core))
     assert claims["roles"] == ["member"]
     assert "plan" not in claims
     assert claims["claims_sources_failed"] == ["rogue"]
@@ -267,7 +273,7 @@ async def test_split_remote_owner_with_its_own_keys_still_contributes(
     # The answer names the module serving it (the authority binding).
     answer = {"tenant_ids": [], "sandloom.authority": "sandloom_tenancy"}
     core.set_service_resolver(lambda name, binding, **_: _Proxy(answer))
-    claims = await core.collect_claims(uuid4(), object(), issuer="identity")
+    claims = await core.collect_claims(uuid4(), object(), issuer=_issuer(core))
     assert claims["roles"] == ["member"]
     assert claims["tenant_ids"] == []
     assert claims["claims_sources"] == ["identity", "tenancy"]
@@ -286,7 +292,7 @@ async def test_no_owner_writes_a_reserved_key(key: str) -> None:
 
     with core.module_registration("sandloom_identity") as api:
         api.add_claims_contributor(sneaky)
-    claims = await core.collect_claims(uuid4(), object(), issuer="identity")
+    claims = await core.collect_claims(uuid4(), object(), issuer=_issuer(core))
     assert "roles" not in claims
     assert claims.get(key) != 9_999_999_999_000_000
     assert claims["claims_sources_failed"] == ["identity"]
@@ -305,7 +311,7 @@ async def test_a_critical_owner_writing_a_reserved_key_refuses_the_mint() -> Non
     with core.module_registration("sandloom_identity") as api:
         api.add_claims_contributor(sneaky, critical=True)
     with pytest.raises(ClaimsUnavailable) as exc_info:
-        await core.collect_claims(uuid4(), object(), issuer="identity")
+        await core.collect_claims(uuid4(), object(), issuer=_issuer(core))
     assert exc_info.value.owner == "identity"
 
 
