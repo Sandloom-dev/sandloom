@@ -378,10 +378,14 @@ A domain atom is declared by its owner on one boolean contract read method:
               category=Category.FORBIDDEN,
               values={"minimum": ["member", "admin", "owner"]},
               risk={"admin": {"minimum": ["admin", "owner"]}},
-              witnesses_membership=("organization_id", "user_id"))
+              witnesses_membership={"minimum": "member"})
 async def has_role_at_least(self, organization_id: UUID, user_id: UUID,
                             minimum: Literal["member", "admin", "owner"]) -> bool: ...
 ```
+
+`witnesses_membership` names no parameter. The bound `From.org()` and `From.subject_id()` are
+the organization and the caller. The mapping gives each of the method's own parameters the
+value that asks about membership alone (decision 13).
 
 The declaration is part of the method's describe document and `contracts.snapshot.json`.
 `sandloom generate` writes, next to the consumer's stub (ADR-0013's generated package), one typed
@@ -456,7 +460,10 @@ assigned tenant authority's declared membership witness confirms the caller's me
 `tenant_ids` (or its assigned provider, decision 6), read from the consumer's generated copy;
 never found through import order or a process-global table filled at import (the PoC's form,
 rejected). A route policy using `Account.bound_tenant()` adds that contract to the module's
-`consumes`, so the copy is generated; with no witness the kind is `unknown`, `bound_tenant()` is
+`consumes`, so the copy is generated. The entry is optional, lists only the witness method and
+is derived at boot once the witness is resolved. The declaration is in the generated atom
+literal and the contract snapshot. Removing it or changing its values is incompatible
+(SANDLOOM-T004). With no witness the kind is `unknown`, `bound_tenant()` is
 indeterminate, and startup reports the policy (H-19). No hidden RPC: the call is today's
 `has_role_at_least(org, user, "member")`. Freshness and membership guarantees are unchanged.
 Removing the third call (witness 3 → 2, answer #23) is its own change (KB-37) with proven
@@ -630,8 +637,10 @@ Closes the last mint input of decision 5 by removing it; no public name is added
   `email` and `email_verified` (`is_verified is True`) as two scalar subqueries in its one
   statement, in the issuer's session (pending rows are flushed and seen); a missing user still
   answers one row. No statement is added (a refresh stays at six). Another module writing them
-  is a violator. The startup check is unchanged: the issuer is checked as the issuer, so an
-  optional issuer contributor that fails mints a token without them (identity's is critical).
+  is a violator. The issuer's contributor must be critical: the issuer fields have no other
+  writer and no fallback, so an issuer that registers none, or registers it
+  `critical=False`, is refused at startup (SANDLOOM-B035, kb-proto-b035). A token is never
+  minted without them.
 - **The issuer session is the map's issuer's.** The binding of the previous amendment moves to
   `issuer_session`: only the module registered from `claim_authorities["issuer"]` runs its
   contributors in a caller's session (its uncommitted rows, e.g. roles assigned during
