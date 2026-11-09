@@ -1976,6 +1976,35 @@ guarantees:
     core runtime can call collect_claims for an arbitrary user_id and mint that user''s real rights
     (impersonation, adversarial C-a6); hostile in-process code is outside the threat model (goals.md).'
   gap_size: S
+- id: G-AUTH-26
+  statement: collect_claims accepts precomputed and issuer_claims only when the module that registered the
+    issuer= contributor is claim_authorities' issuer (its short name and import path), else SANDLOOM-R017
+    before anything runs. Subscribed, Feature and WithinLimit answer the trusted view's indeterminate for
+    their key (401 token_policy_outdated, 503 claims_policy_mismatch), and read "authority failed at the
+    mint" from the verifier's map. An installed previous= authority carries its own module name, and the
+    verifier marker covers the owner names. At and after the compatibility window's end a token without cpv
+    gives no rights at any gate (Role, Perm, require_platform_admin, platform_operator, TenantScope on a
+    forged tenant; Role | AlwaysAllow allows, ~Role never), and TenantScope never answers a grant the view
+    dropped (ADR-0014 amendment "W2+W3 review fixes").
+  sources:
+  - 'docs/adr/0014-claims-trust-and-authorization-portability.md#Amendment 2026-11-09: W2+W3 review fixes (kb-rf-trust)'
+  tests:
+  - src/sandloom/core/tests/test_sealed_mint.py::test_an_authority_that_is_not_the_issuer_cannot_precompute_its_keys
+  - src/sandloom/core/tests/test_sealed_mint.py::test_a_module_that_is_not_the_issuer_writes_no_issuer_claims
+  - src/sandloom/core/tests/test_sealed_mint.py::test_a_module_named_like_the_issuer_from_another_path_is_not_it
+  - src/sandloom/core/tests/test_sealed_mint.py::test_a_process_whose_map_names_no_issuer_takes_no_precomputed
+  - src/sandloom/core/tests/test_claims_trust.py::test_a_claim_atom_honours_the_views_indeterminate
+  - src/sandloom/core/tests/test_claims_trust.py::test_a_split_verifier_without_the_authority_is_indeterminate
+  - src/sandloom/core/tests/test_claims_trust.py::test_a_previous_authority_named_unlike_its_installed_module_is_refused
+  - src/sandloom/core/tests/test_claims_trust.py::test_the_verifier_marker_covers_the_owners
+  - src/sandloom/core/tests/test_claims_trust.py::test_a_key_the_authority_omitted_is_never_a_foreign_writers
+  - src/sandloom/core/tests/test_claims_window_end.py::test_at_and_after_the_window_end_no_token_without_cpv_gives_rights
+  - src/sandloom/core/tests/test_claims_window_end.py::test_inside_the_window_the_accepted_risk_reads_and_the_source_check_holds
+  gap: 'Code holding the issuer''s registered contributor function can still pass precomputed values of
+    its choice: a capability handed only to the issues_tokens module at registration is a public API
+    decision not taken. T-9''s previous-release token is simulated (the current merge without cpv), not
+    built from the previous release''s wheels.'
+  gap_size: S
 - id: G-REVOKE-01
   statement: An access token is revoked iff its issue instant iat_us (microseconds) is <= its subject's
     revocation mark; a token without iat_us is revoked by any mark; every framework guard rejects a revoked
@@ -7904,7 +7933,7 @@ issued:
   C-UNIT: 2
   C-WORKER: 6
   G-AUDIT: 2
-  G-AUTH: 25
+  G-AUTH: 26
   G-AUTHZ: 13
   G-BILLING: 22
   G-BLOCK: 8
@@ -8590,6 +8619,8 @@ adr_sections:
     "16. Separate changes, each with its own baseline": planned
     "Amendment 2026-11-09: the `cpv` identity of an authority":
     - G-AUTH-24
+    "Amendment 2026-11-09: W2+W3 review fixes (kb-rf-trust)":
+    - G-AUTH-26
     "Mechanisms": informational
     "Alternatives considered": informational
     "Consequences": informational
