@@ -1,5 +1,5 @@
 """PoC stand of tm kb-poc-authz: the perf-dx stand (tm kb-perf-dx-baseline,
-``_evidence/perf-dx/authz_stand.py``) with the same method, extended:
+``_archive/_evidence/perf-dx/authz_stand.py``) with the same method, extended:
 
 * ``KB_VARIANT``: ``authzstand`` (kernel atoms, base), ``authzpa2`` (atoms
   generated next to the contract stubs), ``authzpa3`` (parameterized facts);

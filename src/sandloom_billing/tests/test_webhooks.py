@@ -3,6 +3,7 @@
 import json
 import time
 import uuid
+from typing import Any
 
 import pytest
 from httpx import AsyncClient
@@ -14,14 +15,12 @@ from sandloom_billing.tests.conftest import WEBHOOK_SECRET
 
 
 @pytest.fixture
-def _intentless_subscriptions_grant(monkeypatch: pytest.MonkeyPatch) -> None:
+def _intentless_subscriptions_grant(billing_config: Any) -> None:
     """Opt-in for the tests below that assert ACCESS from an intent-less
     event (no ``sandloom_intent_id``): granting those is an explicit policy
     (ADR-0003 open item 9, default off). Every other test in this module runs
     under the default (intent-less subscriptions grant nothing)."""
-    from sandloom.sdk.infra import settings
-
-    monkeypatch.setattr(settings, "billing_grant_intentless_subscriptions", True)
+    billing_config(billing_grant_intentless_subscriptions=True)
 
 
 def _signed(payload: dict) -> tuple[bytes, dict[str, str]]:
@@ -191,10 +190,8 @@ class TestWebhookProcessing:
         async_client: AsyncClient,
         test_db: AsyncSession,
         catalog,
-        monkeypatch: pytest.MonkeyPatch,
+        billing_config: Any,
     ):
-        from sandloom.sdk.infra import settings
-
         customer = await self._make_psp_customer(test_db)
         body, headers = _signed(
             _subscription_event(
@@ -208,10 +205,10 @@ class TestWebhookProcessing:
             "/api/v1/billing/webhooks/stripe", content=body, headers=headers
         )
 
-        monkeypatch.setattr(settings, "billing_deny_on_past_due", False)
+        billing_config(billing_deny_on_past_due=False)
         assert await BillingService.check_subscription_active(customer.id, test_db)
 
-        monkeypatch.setattr(settings, "billing_deny_on_past_due", True)
+        billing_config(billing_deny_on_past_due=True)
         assert not await BillingService.check_subscription_active(customer.id, test_db)
 
     async def test_checkout_completed_grants_credits(

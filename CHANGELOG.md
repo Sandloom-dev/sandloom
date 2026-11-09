@@ -13,6 +13,32 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **The kernel ships no generated stub, DTO copy or event schema of a module**
+  (KB-22, ADR-0013 decisions 9 and 10; edges C1 to C5 fixed).
+  `sandloom.shared.contracts` (the stubs of `billing.credits.v1`,
+  `billing.entitlements.v1`, `identity.contact.v1`, `identity.security.v1`,
+  `tenancy.membership.v1` and the DTO copies `identity_dto`, `tenancy_dto`),
+  `sandloom/shared/events/*.json` and `sandloom.shared.membership` are deleted,
+  and `architecture_rules.yml` of a tree of top-level module packages names no
+  `shared_package`. A module keeps the stubs and DTO copies of the contracts it
+  `consumes` in its own `_generated/contracts/` package, and each producer's
+  event schema is in its `module.snapshot.json`; the `sandloom` wheel is the
+  same whatever a module changes. `sandloom.shared` keeps `authz`, `guards` and
+  `subject`. **Upgrade:** import a contract stub from your own generated home
+  (`<module>._generated.contracts.<x_y_v1>`; an application:
+  `<app>.shared.contracts.<x_y_v1>`), after listing the contract in
+  `define_module(consumes=[...])` and running `sandloom generate`. The member
+  event ordering rule (`member_event_action`, `refreshed_state_wins`) is stated
+  in the descriptions of the `tenancy.member_*.v1` events
+  (`sandloom docs tenancy.member_added.v1`): inline its 15 lines. A view of a
+  foreign channel is checked (SANDLOOM-C025) against the producer's
+  `module.snapshot.json` when no producer class or exported file is found, and
+  `sandloom docs <contract>` reads the installed provider. A stub and a DTO copy
+  import `ContractRef` / `dto_copy` from the public `sandloom.sdk.contracts`
+  wherever they are written (the kernel home clause of C-GEN-03 is gone).
+
 ### Security
 
 - **Access-bearing contracts have one provider** (KB-13, ADR-0014
@@ -372,6 +398,38 @@ website renders this same changelog.
   snapshot; a new setting is named `<MODULE>_...`.
 
 ### Changed
+
+- **Billing declares its own settings** (KB-52; ADR-0015). `BILLING_PROVIDER`,
+  `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `BILLING_DENY_ON_PAST_DUE`,
+  `BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS`, `BILLING_INTENT_RECONCILE_AFTER_MINUTES`,
+  `BILLING_INTENT_RECONCILE_MAX_ATTEMPTS` and
+  `BILLING_PORTAL_ATTRIBUTION_WINDOW_MINUTES` belong to `sandloom_billing`
+  (`BillingSettings`). Environment names, defaults and bounds are unchanged;
+  the Stripe keys are `SecretStr`. The kernel `Settings` no longer has them,
+  so `settings.billing_provider` and the others are gone (no alias): billing
+  reads its own with `settings_of(BillingSettings)`, and `ModulesConfig` is
+  deleted. Billing's two PSP checks are one production check of its settings,
+  run before its `setup` in every entry point: Stripe without both keys, and
+  the fake PSP in prod (the implicit default included) unless the risk is
+  accepted. A process that does not load billing no longer parses either: an
+  explicit `BILLING_PROVIDER=fake` in prod is no longer refused there. The
+  semantic setting `BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS` is billing's own
+  ratchet (the kernel's falls from 13 to 12, its ceiling from 15 to 14), the
+  removed settings `BILLING_FAKE_ALLOW_UNSIGNED_WEBHOOKS` and
+  `BILLING_ALLOW_FAKE_PSP_IN_PROD` are billing's, and the console settings view
+  lists `billing_provider` only where billing is loaded.
+  **Upgrade:** rename the accepted risk once, in `SANDLOOM_ACCEPTED_RISKS`
+  (`.env`, compose, CI): `fake_psp_in_prod` becomes `billing.fake_psp_in_prod`.
+  There is no alias: the flat id is refused at startup, naming the new one
+  where billing is installed. In a `compose/microservices.yml` run
+  `sandloom add deploy --refresh`: `BILLING_DENY_ON_PAST_DUE` moves from the
+  shared env to the billing service's (only billing reads it; other processes
+  read the rule through the access fact billing describes), and a service that
+  loads no billing must not set it (`SANDLOOM-T019`); delete the line from
+  `x-common-env` of a hand-kept profile. A module of your own that read a
+  `billing_*` or `stripe_*` kernel attribute reads it through billing's settings
+  model or its own environment. The generated tiers page no longer lists the
+  intentless-subscriptions setting or the risk (KB-55 reads declarations).
 
 - **Identity, tenancy and the admin console declare their own settings**
   (KB-53, KB-54; ADR-0015). `TWOFA_ENCRYPTION_KEY`, the SSO client ids and

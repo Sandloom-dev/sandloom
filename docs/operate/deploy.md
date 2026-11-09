@@ -34,7 +34,7 @@ short or placeholder secret stops the process at startup.
 | `NOTIFIER_BACKEND`, `SMTP_HOST`, `SMTP_FROM` | with identity or tenancy | `smtp` and the sender's host and address: both modules require an email notifier, and the default `log` driver delivers no mail, so production refuses to start on it |
 | `BILLING_PROVIDER` | with billing | `stripe`, with `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` |
 
-For a demo without Stripe, set `BILLING_PROVIDER=fake` and add `fake_psp_in_prod` to
+For a demo without Stripe, set `BILLING_PROVIDER=fake` and add `billing.fake_psp_in_prod` to
 `SANDLOOM_ACCEPTED_RISKS`. For a demo without a mail server, add `log_notifier_in_prod`.
 The log driver then stands in for email and **no mail is delivered**. Each accepted
 risk is logged at every start.

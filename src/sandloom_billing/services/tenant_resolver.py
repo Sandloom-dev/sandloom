@@ -53,8 +53,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk.contracts import invalidate_contract_read_memo
 from sandloom.sdk.errors import ServiceNotFound
-from sandloom.shared.contracts.tenancy_dto import MemberState
 from sandloom.shared.subject import UserContext
+from sandloom_billing._generated.contracts.tenancy_dto import MemberState
 from sandloom_billing.models import BillingCustomer
 from sandloom_billing.services.billing_service import BillingService
 

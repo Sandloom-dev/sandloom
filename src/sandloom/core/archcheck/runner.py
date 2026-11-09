@@ -569,9 +569,13 @@ def _per_module_rules(rules: ArchRules, module: str) -> dict[str, PerFile]:
             p,
             rules.module_package(module),
             source_root=rules.source_root,
-            generated=rules.shared_dir
-            / "contracts"
-            / f"{module_name(rules.module_package(module))}_dto.py",
+            generated=(
+                rules.shared_dir
+                / "contracts"
+                / f"{module_name(rules.module_package(module))}_dto.py"
+                if rules.shared_dir is not None
+                else None
+            ),
         ),
     }
 
@@ -645,11 +649,11 @@ def _api10_tree_checks(rules: ArchRules, selected: set[str]) -> list[Violation]:
                     for level, d in a10.find_multi_store_waivers(py)
                 ]
     if "event-view-compat" in selected:
-        exported = rules.shared_dir / "events"
+        exported = rules.shared_dir / "events" if rules.shared_dir else None
         out += [
             Violation("event-view-compat", py, d, level)
             for level, py, d in a10.find_event_view_problems(
-                modules, exported if exported.is_dir() else None
+                modules, exported if exported and exported.is_dir() else None
             )
         ]
     return out

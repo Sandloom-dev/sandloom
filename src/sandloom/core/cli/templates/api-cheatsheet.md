@@ -19,7 +19,7 @@ await NoteCreated(...).publish(*, database=None)   # outbox of the running unit
     group=None, database="default", tenant="derive")          # async def f(event: E) -> None
 @contract("<m>.<name>.v1", *, database=None)                  # stateless class, async methods
 @command(*, idempotency_key: str, idempotency_scope=(), database=None, risk: "money" | None = None)
-quota = Contract(STATS_QUOTA_V1)           # REF from the generated sandloom.shared.contracts.<name>
+quota = Contract(STATS_QUOTA_V1)           # REF from the generated <app>.shared.contracts.<name>
 Contract(REF, optional=True).client() -> P | None          # None only when not deployed
 require(policy, *, status_code=None)       # dependencies=[Depends(require(OrgRole("admin")))]
 Subscribed(statuses=None, *, of: Account, claim_key="subscription_status")   # claims, zero I/O

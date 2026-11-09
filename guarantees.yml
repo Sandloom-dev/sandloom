@@ -3112,16 +3112,19 @@ guarantees:
 - id: G-BILLING-18
   statement: BILLING_PROVIDER=stripe fails fast without STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET; prod
     refuses the fake PSP (when billing registers, in every entry point that builds the composition) unless
-    the accepted risk fake_psp_in_prod is set; both
-    deploy profiles require an explicit BILLING_PROVIDER.
+    the accepted risk billing.fake_psp_in_prod is set; both checks are billing's own settings (BillingSettings,
+    validated before its setup), so a process that does not load billing neither validates nor refuses them;
+    both deploy profiles require an explicit BILLING_PROVIDER.
   sources:
   - docs/reference/cli.md
   - docs/advanced/security-model.md#Secrets
   - docs/operate/topologies.md
   tests:
   - tests/integration/test_resilience_config.py::test_stripe_provider_requires_keys
-  - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_prod_rejects_explicit_fake_psp_unless_opted_in
-  - src/sandloom_billing/tests/test_registration_surface.py::test_fake_psp_in_prod_refuses_registration
+  - src/sandloom_billing/tests/test_webhook_hardening.py::TestForgedWebhooks::test_prod_refuses_fake_psp
+  - src/sandloom_billing/tests/test_billing_settings.py::test_an_empty_stripe_key_counts_as_missing
+  - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_the_kernel_settings_do_not_validate_billing
+  - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_billing_variables_do_not_reach_a_process_without_billing
   - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_module_refusal_stops_every_composed_entry_point
   - src/sandloom/core/tests/test_deploy_profiles.py::test_billing_provider_must_be_chosen
 - id: G-BILLING-19
@@ -4644,7 +4647,7 @@ guarantees:
   statement: 'The boot-time configuration checks (enforce_configuration) refuse an invalid configuration
     identically in every entry point: the app, the Celery worker, sandloom migrate and the sandloom CLI.
     A module''s registration refusal (identity''s TWOFA_ENCRYPTION_KEY in prod and JWT_SECRET, billing''s
-    implicit fake PSP in prod) does the same in every entry point that builds the composition: the app, the worker, beat,
+    fake PSP in prod, implicit or explicit, and Stripe without its keys) does the same in every entry point that builds the composition: the app, the worker, beat,
     sandloom migrate and the composed operator CLIs; sandloom config dump builds none.'
   sources:
   - docs/contributing/repository.md#Repository map
@@ -4748,7 +4751,7 @@ guarantees:
   gap_size: S
 - id: G-RISK-03
   statement: Every registered risk documents what it weakens and which check consults it, and the registry
-    holds exactly the thirteen ids fake_psp_in_prod, log_notifier_in_prod, log_links_in_prod, local_storage_in_prod,
+    holds exactly the twelve ids log_notifier_in_prod, log_links_in_prod, local_storage_in_prod,
     volatile_event_bus, unversioned_ddl_repair, weak_password_hash, shared_hs_secret_split, relay_disabled,
     command_dedupe_below_retry_horizon, saga_horizon_beyond_command_dedupe, experimental_capability,
     development_database_in_prod.
@@ -4793,17 +4796,18 @@ guarantees:
   - src/sandloom/core/tests/test_accepted_risks.py::test_log_notifier_channels_in_prod_need_the_risk
 - id: G-RISK-07
   statement: BILLING_PROVIDER=fake is refused in prod when billing registers (app, worker, beat, sandloom
-    migrate, operator CLIs) unless fake_psp_in_prod is accepted.
+    migrate, operator CLIs) unless the module risk billing.fake_psp_in_prod (declared by billing; no flat
+    alias) is accepted; a process that does not load billing treats the id as not applicable here.
   sources:
   - docs/reference/cli.md
   - docs/contributing/repository.md#Things that look wrong but are intentional
   tests:
   - src/sandloom_billing/tests/test_webhook_hardening.py::TestForgedWebhooks::test_prod_refuses_fake_psp
   - src/sandloom_billing/tests/test_webhook_hardening.py::TestForgedWebhooks::test_register_refuses_fake_psp_in_prod
-  - src/sandloom_billing/tests/test_registration_surface.py::test_fake_psp_in_prod_refuses_registration
+  - src/sandloom_billing/tests/test_registration_surface.py::test_billing_declares_its_settings_and_the_fake_psp_risk
   - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_module_refusal_stops_every_composed_entry_point
-  startup_checks: 'module loader refuses: ConfigurationError (SystemExit from sandloom_billing setup, via
-    sandloom.core.loader.plugin_loader)'
+  startup_checks: 'module loader refuses: ModuleSettingsError (a ConfigurationError) from BillingSettings,
+    validated before sandloom_billing setup, via sandloom.core.loader.plugin_loader'
 - id: G-RISK-08
   statement: The local filesystem object store refuses to build in prod unless local_storage_in_prod is
     accepted.
@@ -5146,7 +5150,7 @@ guarantees:
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_describe_exception_drops_statement_params
 - id: G-OPS-14
   statement: 'In both compose profiles every security/auth-relevant setting (shared env anchor: JWT_*
-    except issuer-only keys, token lifetimes, INTERNAL_API_TOKEN, notifier/SMTP, BILLING_DENY_ON_PAST_DUE)
+    except issuer-only keys, the access-token lifetime, INTERNAL_API_TOKEN, notifier/SMTP)
     and CACHE_URL are identical in every process.'
   sources:
   - docs/operate/topologies.md
@@ -7274,20 +7278,21 @@ capabilities:
   tests:
   - tests/sdk/test_sdk_generators.py::test_add_event_appends_and_refuses_an_unparsable_file
 - id: C-GEN-03
-  statement: 'sandloom add contract writes the provider in contracts.py and its DTO in the module''s own
-    schemas (the provider authors its DTOs; a second contract of the module joins the same schemas import), and
-    writes the stub and the DTO copy at once exactly as sandloom generate renders them (so a saga or caller in
-    the same scaffold boots); a generated stub imports ContractRef and a DTO copy imports dto_copy by where it is written: in an
-    application''s shared package from the public sandloom.sdk.contracts with the `# sandloom: advanced` marker
-    (no sandloom.core import), in the framework''s own sandloom.shared (kernel, which never imports sandloom.sdk,
-    ADR-0010) from the kernel home sandloom.core.descriptors.contract_refs; it names the generated DTO copies,
-    passes its Protocol, and is ruff format clean.'
+  statement: '`sandloom add contract` writes the provider in `contracts.py` and its DTO in the module''s own `schemas`
+    (the provider authors its DTOs; a second contract of the module joins the same `schemas` import), and
+    writes the stub and the DTO copy at once exactly as `sandloom generate` renders them (so a saga or
+    caller in the same scaffold boots), into the consuming package''s generated home:
+    `<module>/_generated/contracts/` for a module, `<app>.shared/contracts/` for an application. A generated
+    stub imports `ContractRef` and a DTO copy imports `dto_copy` from the public `sandloom.sdk.contracts`
+    with the `# sandloom: advanced` marker and no `sandloom.core` import, wherever it is written; the kernel
+    ships no generated stub or DTO copy. The stub names the generated DTO copies, passes its Protocol, and
+    is ruff format clean.'
   sources:
   - tests/fixtures/specs/public-api-1.0-spec.md#5.9 Generators
   tests:
   - tests/sdk/test_sdk_generators.py::test_add_contract_writes_the_generated_stub
   - tests/sdk/test_sdk_generated.py::test_a_generated_stub_is_ruff_formatted
-  - tests/sdk/test_sdk_generated.py::test_the_framework_tree_stubs_keep_the_kernel_home
+  - tests/sdk/test_sdk_generated.py::test_the_kernel_holds_no_generated_file
   - tests/sdk/test_sdk_generated.py::test_an_application_stub_imports_the_public_home
 - id: C-GEN-04
   statement: 'sandloom add consumer writes a view from the producer schema (the tree or the exported file);

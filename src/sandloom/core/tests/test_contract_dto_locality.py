@@ -26,7 +26,7 @@ from sandloom.core.descriptors import ModuleDescriptor
 from sandloom.core.descriptors.contract_refs import dto_copies, dto_copy
 from sandloom.core.facade import CoreFacade
 from sandloom.core.module_api import ModuleRegistrationConflict, contract_method
-from sandloom.shared.contracts.tenancy_dto import MemberState
+from sandloom.shared.subject import UserContext
 
 # A DTO "defined" inside the provider module's own package.
 LedgerEntry = create_model(
@@ -75,7 +75,7 @@ class _PublicLedger:
 class _SharedLedger:
     @classmethod
     @contract_method
-    async def state(cls) -> MemberState | None:
+    async def state(cls) -> UserContext | None:
         return None
 
 
@@ -94,9 +94,9 @@ def test_remote_decode_degrades_when_the_dto_is_not_importable() -> None:
     assert remote == {"amount": 3} and not isinstance(remote, LedgerEntry)
     # A DTO from a shared package resolves to the same class remotely.
     shared = contract_wire.annotation_from_descriptor(
-        contract_wire.type_descriptor(MemberState)
+        contract_wire.type_descriptor(UserContext)
     )
-    assert shared is MemberState
+    assert shared is UserContext
 
 
 def test_remote_decode_resolves_a_loaded_generated_copy() -> None:

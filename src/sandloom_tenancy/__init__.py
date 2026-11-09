@@ -41,7 +41,8 @@ membership cache / role claims safe. The member re-authenticates.
 
 Consumers of the member events apply ``version``-ed events with a version
 guard and REFRESH on a version-less one (an instance from before the upgrade)
-via ``get_member_state`` — see :mod:`sandloom.shared.membership`.
+via ``get_member_state`` — the ordering rule is in the descriptions of
+the ``tenancy.member_*.v1`` events.
 
 Member lifecycle events
 -----------------------

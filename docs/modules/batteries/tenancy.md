@@ -39,7 +39,7 @@ role = await membership.get_role(org_id, user_id)   # no session argument
 | `is_member(organization_id, user_id)` | membership check |
 | `has_role_at_least(organization_id, user_id, minimum)` | live role-hierarchy check |
 | `list_user_organization_ids(user_id)` | active orgs a user belongs to |
-| `get_member_state(organization_id, user_id)` | `MemberState(role, version)` read in one statement — what a member-event consumer stores when it refreshes on a version-less event (rule in `sandloom.shared.membership`) |
+| `get_member_state(organization_id, user_id)` | `MemberState(role, version)` read in one statement — what a member-event consumer stores when it refreshes on a version-less event (the rule is in the `tenancy.member_*.v1` event descriptions) |
 
 Methods take **no session**: each call runs in tenancy's own read-only Unit of
 Work on tenancy's database, identically in-process and over internal RPC

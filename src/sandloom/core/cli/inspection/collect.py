@@ -24,7 +24,9 @@ def layout(rules: Any) -> Doc:
         "source_root": rules.source_root.resolve().relative_to(root).as_posix(),
         "modules_path": rules.modules_path.resolve().relative_to(root).as_posix(),
         "modules_package": rules.modules_package,
-        "shared_dir": rules.shared_dir.resolve().relative_to(root).as_posix(),
+        "shared_dir": rules.shared_dir.resolve().relative_to(root).as_posix()
+        if rules.shared_dir is not None
+        else None,
         "shared_package": rules.shared_dto_package,
         "policy_sha256": sha((root / "architecture_rules.yml").read_bytes()),
         "role_contract": ".claude/rules/module-author.md"
@@ -95,7 +97,9 @@ def _source(entry: Any, root: Path, source_root: Path) -> str | None:
     return None
 
 
-def _wires(entry: Any, shared: str, planned: dict[str, str]) -> list[str]:
+def _wires(entry: Any, shared: str | None, planned: dict[str, str]) -> list[str]:
+    if shared is None:  # a tree of module distributions: no shared package
+        return []
     names = {c.name for c in (*entry.contracts_provided, *entry.contracts_consumed)}
     result = [
         f"{shared}/contracts/{name.replace('.', '_').replace('-', '_')}.py"
@@ -292,7 +296,7 @@ def collect(app: Any, rules: Any, generated: list[Any]) -> Doc:
         _registrations(entry, descriptor, card, nodes, edges)
         _requirements(descriptor, owner, nodes, edges)
     for path, text in sorted(planned.items()):
-        if path.startswith(config["shared_dir"] + "/"):
+        if config["shared_dir"] and path.startswith(config["shared_dir"] + "/"):
             wires[path] = {"sha256": sha(text.encode()), "kind": "generated_wire"}
     provided = {e["target"] for e in edges if e["kind"] == "provides_contract"}
     unresolved = [

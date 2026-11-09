@@ -358,7 +358,7 @@ class Runner:
     def drop_env_file_variables(self) -> None:
         """A variable in the caller's environment wins over --env-file in
         compose: drop every one the dev env file sets (an exported
-        SANDLOOM_ACCEPTED_RISKS without fake_psp_in_prod stopped billing)."""
+        SANDLOOM_ACCEPTED_RISKS without billing.fake_psp_in_prod stopped billing)."""
         keys = Path(self.cwd / "deploy" / ".env.microservices").read_text()
         for line in keys.splitlines():
             if "=" in line and not line.startswith("#"):

@@ -23,7 +23,7 @@ this profile and, in `sandloom test`'s `schema & deploy` step, on an app's.
 
 - **Shared settings.** Security- and auth-relevant settings live in the
   shared env anchor and are identical in every process: `JWT_*`, the access-token
-  lifetime, `INTERNAL_API_TOKEN`, notifier/SMTP, `BILLING_DENY_ON_PAST_DUE`.
+  lifetime, `INTERNAL_API_TOKEN`, notifier/SMTP.
   - The exceptions are the issuer-only `JWT_PRIVATE_KEY` and `JWT_SECRET` on
     the identity processes of the microservices profile.
   - **`CACHE_URL` is shared by all services**: revocation marks, rate limits,

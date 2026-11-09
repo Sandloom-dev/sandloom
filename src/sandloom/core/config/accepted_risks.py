@@ -2,7 +2,7 @@
 
 ``SANDLOOM_ACCEPTED_RISKS`` is a JSON list (or comma-separated string) of the
 stable risk ids registered in :data:`RISKS`. Each id names one weakening that
-the framework otherwise refuses in production (a fake PSP, a volatile event
+the framework otherwise refuses in production (a module's fake backend, a volatile event
 bus, argon2 parameters below the OWASP floor, …): the check that would refuse
 it consults :func:`accepts` instead of a boolean of its own, so the full list
 of weakenings a deployment runs with is one reviewable setting — the model is
@@ -11,7 +11,7 @@ Django's ``SILENCED_SYSTEM_CHECKS``.
 * An unknown id fails startup (the ``Settings`` validator): a typo never
   silently accepts nothing — or the wrong thing.
 * Kernel ids are flat (``relay_disabled``). A module's id is
-  ``<module>.<name>`` (``billing.fake_psp_in_prod``), declared by the module
+  ``<module>.<name>`` (``inventory.oversell_in_prod``), declared by the module
   (``Risk`` in its settings model; ADR-0015 decision 4, owner answers #27,
   #28). The ``Settings`` validator accepts the form only; the loader checks
   the namespace once the modules are registered (:func:`classify_module_risks`):
@@ -26,7 +26,7 @@ Django's ``SILENCED_SYSTEM_CHECKS``.
   (``configuration.accepted_risks``) and by ``sandloom doctor``
   (:mod:`sandloom.core.config.tiers` reports them as overrides).
 * There is no other spelling: the former per-check booleans
-  (``BILLING_ALLOW_FAKE_PSP_IN_PROD``, …) are removed settings
+  (``STORAGE_ALLOW_LOCAL_IN_PROD``, …) are removed settings
   (``config_tiers.REMOVED``) and fail startup when set.
 
 Pure data + pure functions of a settings-like object: no I/O and no import of
@@ -63,13 +63,6 @@ RISKS: tuple[Risk, ...] = (
         "experimental_capability",
         "An experimental capability in prod: its contract may change in any release.",
         "build_infra_registry (sandloom.core.drivers.bootstrap)",
-    ),
-    Risk(
-        "fake_psp_in_prod",
-        "BILLING_PROVIDER=fake with ENVIRONMENT=prod: fake checkout sessions, "
-        "no real payment (demo stacks).",
-        "Settings validator (BILLING_PROVIDER) and billing's critical startup "
-        "check (sandloom_billing.psp.psp_configuration_error)",
     ),
     Risk(
         "log_notifier_in_prod",

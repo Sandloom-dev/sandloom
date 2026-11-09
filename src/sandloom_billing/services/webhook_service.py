@@ -56,8 +56,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk import record_audit
 from sandloom.sdk.data import WallClock, conflict_insert
-from sandloom.sdk.infra import settings
 from sandloom_billing import events
+from sandloom_billing.config import billing_settings
 from sandloom_billing.models import (
     DISPUTE_INQUIRY,
     DISPUTE_LOST,
@@ -163,9 +163,10 @@ _RESPONSE_STATUS = {
 
 def _grants(sub: BillingSubscription) -> bool:
     """The access predicate (same as the live check and the claims)."""
+    cfg = billing_settings()
     return sub.grants_access(
-        deny_on_past_due=settings.billing_deny_on_past_due,
-        allow_intentless=settings.billing_grant_intentless_subscriptions,
+        deny_on_past_due=cfg.billing_deny_on_past_due,
+        allow_intentless=cfg.billing_grant_intentless_subscriptions,
     )
 
 
@@ -1055,7 +1056,8 @@ class WebhookService:
             if created is not None
             else datetime.now(UTC)
         )
-        window = timedelta(minutes=settings.billing_portal_attribution_window_minutes)
+        window_minutes = billing_settings().billing_portal_attribution_window_minutes
+        window = timedelta(minutes=window_minutes)
         found = await db.execute(
             select(OperationIntent.id)
             .where(
@@ -1082,7 +1084,7 @@ class WebhookService:
                 "price_id_after": sub.price_id,
                 "cancel_at_period_end_before": previous[1],
                 "cancel_at_period_end_after": bool(sub.cancel_at_period_end),
-                "window_minutes": settings.billing_portal_attribution_window_minutes,
+                "window_minutes": window_minutes,
             },
             required=True,
         )
@@ -1090,7 +1092,7 @@ class WebhookService:
             "subscription %s: plan / cancellation change with no portal intent "
             "of its customer in the last %d min (audited, applied)",
             sub.stripe_subscription_id,
-            settings.billing_portal_attribution_window_minutes,
+            window_minutes,
         )
 
     # --- Refunds / disputes (ADR-0003 open item 12) ---------------------------

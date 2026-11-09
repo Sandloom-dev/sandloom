@@ -367,14 +367,11 @@ class TestClaimLiveParity:
 
 
 class TestClaimInterpretation:
-    def test_past_due_claim_follows_grace_policy(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from sandloom.sdk.infra import settings
+    def test_past_due_claim_follows_grace_policy(self, billing_config: Any) -> None:
         from sandloom_billing.access import subscription_claim_rule
 
-        monkeypatch.setattr(settings, "billing_deny_on_past_due", False)
+        billing_config(billing_deny_on_past_due=False)
         assert subscription_claim_rule().interpret("past_due") is True
-        monkeypatch.setattr(settings, "billing_deny_on_past_due", True)
+        billing_config(billing_deny_on_past_due=True)
         assert subscription_claim_rule().interpret("past_due") is False
         assert subscription_claim_rule().interpret("expired") is False

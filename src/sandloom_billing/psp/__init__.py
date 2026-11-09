@@ -1,8 +1,6 @@
 """PSP (payment service provider) integration layer."""
 
-from typing import Any
-
-from sandloom.sdk.infra import settings
+from sandloom_billing.config import billing_settings
 
 from .fake import FakeStripeClient
 from .port import (
@@ -41,40 +39,26 @@ __all__ = [
     "sign_stripe_payload",
     "parse_stripe_event",
     "build_psp_client",
-    "psp_configuration_error",
     "install_psp_client",
     "active_psp_client",
 ]
 
 
-def psp_configuration_error(settings: Any) -> str | None:
-    """Why this PSP configuration must not serve traffic, or ``None``.
-
-    The fake PSP issues fake checkout sessions and (without a secret) rejects
-    every webhook, so production with ``BILLING_PROVIDER=fake`` is a
-    misconfiguration that must stop startup, not degrade silently.
-    """
-    if settings.billing_provider != "fake" or not settings.is_prod:
-        return None
-    if settings.accepts_risk("fake_psp_in_prod"):
-        return None
-    return (
-        "BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: set "
-        "BILLING_PROVIDER=stripe with STRIPE_SECRET_KEY and "
-        "STRIPE_WEBHOOK_SECRET (or, for a demo stack, "
-        'SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"])'
-    )
-
-
 def build_psp_client() -> StripeClientPort:
-    """Build the PSP client according to settings (fake by default)."""
-    if settings.billing_provider == "stripe":
-        if not settings.stripe_secret_key:
+    """Build the PSP client according to billing's settings (fake by default)."""
+    cfg = billing_settings()
+    webhook_secret = (
+        cfg.stripe_webhook_secret.get_secret_value()
+        if cfg.stripe_webhook_secret
+        else None
+    )
+    if cfg.billing_provider == "stripe":
+        if not cfg.stripe_secret_key:
             raise RuntimeError("BILLING_PROVIDER=stripe requires STRIPE_SECRET_KEY")
         return StripeHttpClient(
-            settings.stripe_secret_key, settings.stripe_webhook_secret
+            cfg.stripe_secret_key.get_secret_value(), webhook_secret
         )
-    return FakeStripeClient(settings.stripe_webhook_secret)
+    return FakeStripeClient(webhook_secret)
 
 
 # ---------------------------------------------------------------------------
