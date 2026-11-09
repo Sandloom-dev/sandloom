@@ -6,7 +6,8 @@ caller's organization); ``OrgRole`` checks the membership live.
 
 from fastapi import Depends
 
-from sandloom.sdk import CurrentUser, OrgRole, module_router, require
+from sandloom.sdk import CurrentUser, module_router, require
+from teamhub.shared.contracts.tenancy_membership_v1 import OrgRole
 
 from . import services
 from .schemas import SettingsIn, SettingsOut
