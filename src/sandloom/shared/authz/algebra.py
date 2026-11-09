@@ -135,6 +135,15 @@ class Requirement(abc.ABC):
         return Not(self)
 
 
+#: Status order of indeterminate branches of a disjunction (ADR-0014
+#: decision 3): what a client can fix soonest comes first.
+_INDETERMINATE_STATUS_RANK = {401: 0, 503: 1, 501: 2}
+
+
+def _indeterminate_rank(decision: AccessDecision) -> int:
+    return _INDETERMINATE_STATUS_RANK.get(decision.http_status, 3)
+
+
 def _flatten(kind: type, parts: tuple[Requirement, ...]) -> list[Requirement]:
     """Collapse nested And/Or of the same kind into one flat operand list."""
     flat: list[Requirement] = []
@@ -211,9 +220,12 @@ class Or(Requirement):
             if decision.allowed:
                 return decision
             denials.append(decision)
-        for decision in denials:
-            if decision.indeterminate:
-                return decision
+        indeterminate = [d for d in denials if d.indeterminate]
+        if indeterminate:
+            # ADR-0014 decision 3: by what the client can fix without an
+            # operator: 401 (a refresh), then 503 (a retry), then 501, then
+            # any other; the first of equal rank.
+            return min(indeterminate, key=_indeterminate_rank)
         # All operands definitively failed. If they agree on a category, keep
         # it; otherwise the disjunction is a generic forbidden.
         categories = {d.category for d in denials}

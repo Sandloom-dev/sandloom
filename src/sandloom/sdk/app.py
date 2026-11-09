@@ -12,6 +12,8 @@ docs: docs/reference/sdk/app.md; signatures: sandloom docs <name>
 """
 
 from sandloom.core.app_factory import (
+    Authority,
+    LegacyClaimsTokens,
     create_app,
 )
 from sandloom.sdk._prim.app import (
@@ -19,6 +21,8 @@ from sandloom.sdk._prim.app import (
 )
 
 __all__ = [
+    "Authority",
+    "LegacyClaimsTokens",
     "app_modules",
     "create_app",
 ]

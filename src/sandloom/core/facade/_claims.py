@@ -27,7 +27,12 @@ from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import HTTPException, status
 
-from sandloom.core.claims import NO_AUTHORITIES, ClaimAuthorities
+from sandloom.core.claims import (
+    CPV_CLAIM,
+    CPV_VERSION,
+    NO_AUTHORITIES,
+    ClaimAuthorities,
+)
 from sandloom.core.facade._services import (
     CLAIMS_CONTRACT_SUFFIX,
     _ServicesMixin,
@@ -106,6 +111,8 @@ RESERVED_CLAIM_KEYS: frozenset[str] = frozenset(
         # The claim policy version the kernel stamps (ADR-0014 decision 4):
         # never a contributor's.
         "cpv",
+        # The verifier's trusted-view verdict (core.auth.claims_view).
+        "sandloom.untrusted",
     }
 )
 
@@ -545,7 +552,7 @@ class _ClaimsMixin(_ServicesMixin):
             # nothing — an empty result is an authoritative "no").
             if owner:
                 sources.add(owner)
-        self._merge_issuer_claims(claims, key_owner, issuer, issuer_claims)
+        self._merge_issuer_claims(claims, key_owner, issuer, issuer_claims, sources)
 
         # Always stamped (JSON lists for the JWT; UserContext coerces to sets).
         # ``claims_sources_failed`` doubles as the marker that provenance is
@@ -553,6 +560,12 @@ class _ClaimsMixin(_ServicesMixin):
         # module contributed", not "legacy token, trust everything".
         claims["claims_sources"] = sorted(sources - failed)
         claims["claims_sources_failed"] = sorted(failed)
+        # The per-key claim policy version (ADR-0014 decision 4, owner
+        # decision #10): the digest of (key, its authority) for every key
+        # this issuer's map assigns, so a verifier trusts a key only under
+        # the authority both maps name. Changing one key's authority changes
+        # only that key's digest.
+        claims[CPV_CLAIM] = {"v": CPV_VERSION, "k": dict(authorities.digests)}
         return claims
 
     def _merge_issuer_claims(
@@ -561,9 +574,12 @@ class _ClaimsMixin(_ServicesMixin):
         key_owner: Mapping[str, str | None],
         issuer: str | None,
         issuer_claims: Mapping[str, Any] | None,
+        sources: set[str],
     ) -> None:
         """The issuer's own claims, the last and critical step: a key it may
-        not write (:meth:`_claim_violation`) refuses the mint."""
+        not write (:meth:`_claim_violation`) refuses the mint. The issuer is
+        then their verified source in ``sources`` (ADR-0014 decision 3,
+        part 3)."""
         if not issuer_claims:
             return
         violation = self._claim_violation(
@@ -572,6 +588,8 @@ class _ClaimsMixin(_ServicesMixin):
         if violation is not None:
             self._violator(issuer, True, *violation)
         claims.update(issuer_claims)
+        if issuer:
+            sources.add(issuer)
 
     def _claim_violation(
         self,

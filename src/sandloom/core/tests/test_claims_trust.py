@@ -663,7 +663,7 @@ def test_install_without_a_map_boots_a_process_minting_nothing() -> None:
         bindings={},
         log=logging.getLogger("test"),
     )
-    assert policy is NO_AUTHORITIES
+    assert policy.authorities == {} and not policy.assigned and policy.issuer is None
 
 
 def test_install_refuses_an_issuer_field_given_to_another_module() -> None:
