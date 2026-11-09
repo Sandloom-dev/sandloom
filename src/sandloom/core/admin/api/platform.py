@@ -33,6 +33,7 @@ from sandloom.core.auth.verification import (
     assert_token_valid_now,
     ensure_token_not_revoked,
 )
+from sandloom.core.config.module_settings import declared_console
 from sandloom.core.descriptors.module_names import module_name as _module_name
 from sandloom.core.guard_order import authenticates
 from sandloom.core.idempotency import idempotency_guard
@@ -566,6 +567,9 @@ def _bindings(core: Any, details: dict[str, Any]) -> list[BindingView]:
         elif isinstance(failure, dict) and failure.get("contract_incompatible"):
             status = "incompatible"
             detail = safe_error("; ".join(map(str, failure["contract_incompatible"])))
+        elif isinstance(failure, dict) and failure.get("contract_unverified"):
+            status = "unverified"
+            detail = safe_error("; ".join(map(str, failure["contract_unverified"])))
         elif failure is not None:
             status = "unreachable"
             detail = safe_error(str(failure.get("error", "unreachable")))
@@ -607,18 +611,17 @@ _SAFE_SETTINGS = (
 )
 
 
-#: Non-secret settings a loaded module declares (ADR-0015), shown when some
-#: loaded module has the field. Until KB-55 (kernel tools read declarations)
-#: the list is kernel-held: edge row B-C11.
-_DECLARED_SAFE_SETTINGS = ("refresh_token_expire_days", "billing_provider")
-
-
-def _declared_setting(core: Any, key: str) -> tuple[bool, Any]:
-    """``(found, value)`` of the field ``key`` in the loaded modules' settings."""
-    for record in core.module_settings.records():
-        if key in record.model.model_fields:
-            return True, getattr(record.instance, key)
-    return False, None
+def _declared_settings(core: Any) -> list[tuple[str, Any]]:
+    """``(field name, value)`` of each non-secret setting the loaded modules
+    declare for this view (``console`` on their settings model, ADR-0015):
+    the view names no module's setting itself, so a module's row appears
+    exactly where the module is loaded."""
+    return [
+        (key, getattr(record.instance, key))
+        for record in core.module_settings.records()
+        for key in declared_console(record.model)
+        if key in record.model.model_fields
+    ]
 
 
 def _setting_text(value: Any) -> str:
@@ -754,10 +757,10 @@ def _runtime_routes(router: APIRouter, core: Any) -> None:
             for key in _SAFE_SETTINGS
             if hasattr(cfg, key)
         ]
-        for key in _DECLARED_SAFE_SETTINGS:
-            found, value = _declared_setting(core, key)
-            if found:
-                rows.append(SettingView(key=key, value=_setting_text(value)))
+        rows += [
+            SettingView(key=key, value=_setting_text(value))
+            for key, value in _declared_settings(core)
+        ]
         return SettingsView(settings=rows, infrastructure=instances)
 
 

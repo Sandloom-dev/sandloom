@@ -46,7 +46,7 @@ it).
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -827,18 +827,27 @@ def log_overrides(
 
 
 def diagnostics(
-    cfg: Any, module_risks: accepted_risks.ModuleRiskReport | None = None
+    cfg: Any,
+    module_risks: accepted_risks.ModuleRiskReport | None = None,
+    module_overrides: Sequence[Override] = (),
+    module_tiers: Mapping[str, Mapping[str, int]] | None = None,
 ) -> dict[str, object]:
     """``/diagnostics/core`` block: profile, tier counts, overrides, accepted risks.
 
-    ``module_risks``: the module-namespaced accepted risks as the loader
-    classified them (``accepted_risks.diagnostics``)."""
-    return {
+    What the loaded modules declare (ADR-0015) comes from the loader, which
+    read it: ``module_risks`` the module-namespaced accepted risks as it
+    classified them (``accepted_risks.diagnostics``), ``module_overrides`` the
+    modules' semantic settings off their profile value and their active risks,
+    ``module_tiers`` each module's declared tier counts."""
+    block: dict[str, object] = {
         "profile": profile_of(cfg),
         "tiers": tier_counts(),
-        "overrides": [o.to_dict() for o in active_overrides(cfg)],
+        "overrides": [o.to_dict() for o in (*active_overrides(cfg), *module_overrides)],
         "accepted_risks": accepted_risks.diagnostics(cfg, module_risks),
     }
+    if module_tiers:
+        block["module_tiers"] = {m: dict(c) for m, c in sorted(module_tiers.items())}
+    return block
 
 
 # ------------------------------------------------------------------- docs ----

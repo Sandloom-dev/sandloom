@@ -21,6 +21,7 @@ import sandloom.core.contracts.validators as _validators
 import sandloom.core.route_policy as _route_policy
 from sandloom.core import planner as _planner
 from sandloom.core.app_factory.lifecycle import _capability_health
+from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.config import tiers
 from sandloom.core.config.settings import settings
 from sandloom.core.contracts import SchemaEntry
@@ -475,6 +476,19 @@ async def _periodic_diagnostics(core_facade: CoreFacade) -> list[dict[str, Any]]
     ]
 
 
+def _configuration_diagnostics(core_facade: CoreFacade) -> dict[str, object]:
+    """Profile, tiers, overrides and accepted risks: the kernel's, plus what
+    the loaded modules declare (ADR-0015): their module-namespaced risks, their
+    semantic settings off the profile value and their tier counts."""
+    registry = core_facade.module_settings
+    return tiers.diagnostics(
+        settings,
+        registry.risk_report,
+        registry.overrides,
+        _module_settings.module_tier_counts(registry.records()),
+    )
+
+
 def _claims_diagnostics(core_facade: CoreFacade) -> dict[str, Any]:
     """The claim policy's ``legacy_tokens`` mode (G-RISK-14): on with its
     window end and time left, ended, or off; and the acceptances counted."""
@@ -520,7 +534,7 @@ def _install_diagnostics_endpoints(
         return {
             "modules": summary_block,
             # profile, tier counts and active overrides (sandloom.core.config.tiers)
-            "configuration": tiers.diagnostics(settings),
+            "configuration": _configuration_diagnostics(core_facade),
             "event_bus_metrics": get_event_bus_metrics(),
             # the claim policy's legacy_tokens mode (ADR-0014, G-RISK-14)
             "claims": _claims_diagnostics(core_facade),

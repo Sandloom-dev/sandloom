@@ -152,6 +152,7 @@ and never print secrets.
 ```bash
 sandloom config dump                    # every setting, redacted, with its source
 sandloom config dump --only JWT_,RPC_   # name prefixes
+sandloom config dump --kernel-only      # the kernel's settings, no composition built
 sandloom config dump --non-default --json
 sandloom doctor                         # preflight report; exit 0 / 1 warn / 2 fail
 sandloom doctor --json --timeout 10 --skip consumers
@@ -164,12 +165,21 @@ Credentials are redacted by name (`*SECRET*`, `*PASSWORD*`, `*TOKEN`,
 secret stays visible as `null`. `--show-secrets` prints them in clear and is
 refused with `ENVIRONMENT=prod`.
 
+The dump lists the kernel's settings, then a block per loaded module with the
+settings that module declares, under the same source labels and redaction.
+It builds the composition (`SANDLOOM_COMPOSITION_ROOT`) as the app does, in a
+collect mode. A module's invalid setting shows as `# INVALID - <reason>` with
+exit 0, not as a refusal. The dump only builds. It runs no lifespan and no
+background work, and it opens no connection. The build costs about 0.9 s with the three
+batteries, on top of the kernel's 1.6 s. `--kernel-only` skips the build and
+prints the kernel's table alone.
+
 `sandloom doctor` boots the composition root (`SANDLOOM_COMPOSITION_ROOT`, like the
 worker and `sandloom migrate`; no lifespan, no consumers, no relay) and reports:
 
 | Section | Checks |
 |---|---|
-| `config` | settings validate; `ENVIRONMENT` set explicitly; prod: ops token, docs; `multi_tenant_strict` requirements |
+| `config` | settings validate; `ENVIRONMENT` set explicitly; prod: ops token, docs; `multi_tenant_strict` requirements; every active override and accepted risk, the loaded modules' included (a module's risk id that does not apply here is listed as such); every module's invalid setting, one failure each |
 | `modules` | the composition root loads; every consumed contract is local or bound in `SERVICE_BINDINGS` |
 | `infra` | every configured instance (databases, caches, object stores, task queue, event bus) answers its health probe in time — the `/diagnostics/infra` probes (the `celery` taskqueue's connects to its broker) |
 | `periodic` | each loaded module whose taskqueue requirement asks for `periodic`: a beat holds the lease for this module set. If none does, a required need fails and an optional one warns (identity's token cleanup: `refresh_tokens` grows). A held lease shows that a beat schedules the jobs, not that a worker runs them; billing's `billing_reconciler` readiness check covers that |

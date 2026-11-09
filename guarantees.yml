@@ -4756,7 +4756,7 @@ guarantees:
     identically in every entry point: the app, the Celery worker, sandloom migrate and the sandloom CLI.
     A module''s registration refusal (identity''s TWOFA_ENCRYPTION_KEY in prod and JWT_SECRET, billing''s
     fake PSP in prod, implicit or explicit, and Stripe without its keys) does the same in every entry point that builds the composition: the app, the worker, beat,
-    sandloom migrate and the composed operator CLIs; sandloom config dump builds none.'
+    sandloom migrate and the composed operator CLIs; sandloom config dump --kernel-only builds none, and the default dump builds it in collect mode and diagnoses the refusal.'
   sources:
   - docs/contributing/repository.md#Repository map
   tests:
@@ -4836,6 +4836,7 @@ guarantees:
   - src/sandloom/core/tests/test_module_settings.py::test_semantic_override_is_reported_unless_its_risk_is_accepted
   - src/sandloom/core/tests/test_module_settings.py::test_loader_check_refuses_and_logs
   - tests/integration/test_module_settings_fixture.py::test_semantic_override_of_a_module_is_logged
+  - src/sandloom/core/tests/test_kernel_tools_declarations.py::test_known_modules_name_an_import_path_by_its_module_name
 - id: G-CONFIG-13
   statement: 'sandloom check and sandloom test import every module of the application and flag, whether or not
     the modules load together: an environment name two modules (or a module and the kernel) declare
@@ -4881,6 +4882,48 @@ guarantees:
   - src/sandloom_identity/tests/test_refresh_session_settings.py::test_identity_declares_both_lifetimes_under_the_same_env_names
   - src/sandloom_identity/tests/test_refresh_session_settings.py::test_the_absolute_session_lifetime_is_bounded_by_the_declaration
   - src/sandloom_identity/tests/services/test_review_security.py::test_refresh_cannot_extend_primary_session_past_absolute_limit
+- id: G-CONFIG-15
+  statement: 'sandloom config dump lists the kernel''s settings and the settings every loaded module declares,
+    each with its source (env / dotenv / secrets_dir / default) and redaction (SecretStr fields and the one
+    secret-name rule); a module''s invalid setting is a diagnosed entry with exit 0, not a refusal. It builds
+    the composition in collect mode (a context variable set only by config dump and doctor, never read from
+    the environment, off in every serving entry point) and only builds it: no lifespan, no served request and
+    no connection (a socket spy over the bundled modules). --kernel-only builds no composition and prints the
+    kernel''s table byte for byte as before modules declared settings.'
+  sources:
+  - docs/adr/0015-module-settings.md#8. `config dump` and what "activation" means
+  - docs/reference/cli.md
+  tests:
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_dump_lists_module_values_with_provenance_and_redaction
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_dump_diagnoses_an_invalid_module_value_and_exits_zero
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_kernel_only_is_the_kernel_dump_byte_for_byte
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_collect_mode_is_off_in_every_serving_entry_point
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_collect_mode_is_on_for_the_dump_and_never_read_from_the_environment
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_only_the_diagnosing_commands_turn_collect_mode_on
+  - tests/integration/with_batteries/test_config_dump_bundled_modules.py::test_dump_builds_the_bundled_composition_with_no_connection_and_no_lifespan
+  - tests/integration/with_batteries/test_config_dump_bundled_modules.py::test_a_composition_without_a_module_lists_none_of_its_settings
+  - src/sandloom/core/tests/test_kernel_tools_declarations.py::test_module_config_lists_values_with_origin_and_redaction
+- id: G-CONFIG-16
+  statement: 'The kernel''s tools read the loaded modules'' settings declarations and name no module''s
+    setting: tiers and /diagnostics/core (the modules'' accepted risks, semantic overrides and tier counts),
+    doctor (the same overrides and risks, and every module''s refusal in collect mode), the backup plan''s
+    secrets, the console settings list, the deploy-profile check (a value a module declares shared must be
+    equal in every process that loads it, and a process without the module neither holds nor is held to it),
+    the dev env, the docs generator and the deploy scaffold''s environment.'
+  sources:
+  - docs/adr/0015-module-settings.md#11. What moves
+  - docs/reference/cli.md
+  tests:
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_no_kernel_tool_names_a_module_setting
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_scaffold_env_comes_from_the_declaration
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_t014_holds_every_process_that_loads_the_module_to_its_shared_values
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_dev_env_values_and_risks_come_from_the_declaration
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_diagnostics_core_shows_the_modules_overrides_risks_and_tiers
+  - src/sandloom/core/tests/test_kernel_tools_declarations.py::test_core_diagnostics_show_the_modules_risks_overrides_and_tiers
+  - src/sandloom/core/tests/test_kernel_tools_declarations.py::test_doctor_reports_module_overrides_and_inert_risks
+  - src/sandloom/core/tests/test_kernel_tools_declarations.py::test_doctor_lists_every_modules_problem_and_leaves_collect_mode_off
+  - src/sandloom/core/tests/test_platform_declared_settings.py::test_the_view_lists_a_declared_console_setting_only_where_its_module_is_loaded
+  - src/sandloom/core/tests/test_backup_cli.py::test_plan_covers_databases_and_security_redis_without_secrets
 - id: G-RISK-01
   statement: SANDLOOM_ACCEPTED_RISKS accepts only registered risk ids; an unknown id fails Settings validation
     / startup.
@@ -6956,8 +6999,9 @@ capabilities:
   - src/sandloom/core/tests/test_security_cli.py::test_missing_contract_is_an_explicit_error
   - src/sandloom_identity/tests/api/test_security_recovery_ops.py::test_forced_password_reset_refuses_password_login_until_reset
 - id: C-OPS-09
-  statement: sandloom config dump [--json] [--only PREFIXES] prints effective settings with each value's source
-    (env / dotenv / secrets_dir / default).
+  statement: sandloom config dump [--json] [--only PREFIXES] [--kernel-only] prints effective settings with
+    each value's source (env / dotenv / secrets_dir / default), the loaded modules' settings included
+    (G-CONFIG-15).
   sources:
   - docs/reference/cli.md
   - docs/operate/operator-reference.md#Preflight and effective configuration
@@ -8094,7 +8138,7 @@ issued:
   G-BLOCK: 8
   G-CMD: 9
   G-COMPAT: 8
-  G-CONFIG: 14
+  G-CONFIG: 16
   G-CONTRACT: 25
   G-DECL: 7
   G-EFFECT: 5
@@ -8808,7 +8852,8 @@ adr_sections:
     - G-CONFIG-12
     "7. Static gate in `sandloom check` and `sandloom test`":
     - G-CONFIG-13
-    "8. `config dump` and what \"activation\" means": planned
+    "8. `config dump` and what \"activation\" means":
+    - G-CONFIG-15
     "9. Refresh-session settings move to identity":
     - G-CONFIG-14
     "10. Password hashing stays a kernel mechanism (H1)": planned
@@ -8817,6 +8862,7 @@ adr_sections:
     - G-AUTH-19
     - G-CONFIG-14
     - C-CONSOLE-02
+    - G-CONFIG-16
     "Mechanisms": informational
     "Alternatives considered": informational
     "Consequences": informational

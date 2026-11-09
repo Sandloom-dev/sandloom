@@ -47,9 +47,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
 from starlette.routing import compile_path
 
+from sandloom.core.config import module_settings as _ms
 from sandloom.core.descriptors.module_names import module_name as _module_name
+from sandloom.core.descriptors.module_names import resolve_module_names
 from sandloom.core.rpc_identity import allowlist_from_bindings
 from sandloom.core.signing_keys import (
     generate_private_key,
@@ -624,21 +627,73 @@ def profile_problems(
     return report
 
 
+def _module_settings_of(entry: str) -> tuple[str, type[BaseModel] | None]:
+    """``(module name, its settings declaration)`` of a ``SANDLOOM_MODULES``
+    entry; ``None`` for a module that declares none or whose package does not
+    import (the topology check reports that)."""
+    try:
+        (path,) = resolve_module_names([entry])
+        return _module_name(path), _ms.declared_model(path)
+    except (ImportError, AttributeError, RuntimeError, SystemExit, ValueError):
+        return _module_name(entry), None
+
+
+def _module_shared(procs: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, str]]:
+    """``{shared env name: {process: owning module}}``: the settings each
+    loaded module declares identical in every process that loads it
+    (ADR-0015 decision 7). A process without the module is not held to them
+    and holds no value (D-B2, answer #25)."""
+    holders: dict[str, dict[str, str]] = {}
+    for name, svc in procs.items():
+        for entry in modules_of(svc):
+            module, model = _module_settings_of(entry)
+            if model is None:
+                continue
+            for key in _ms.declared_shared(model):
+                holders.setdefault(key, {})[name] = module
+    return holders
+
+
+def _same_everywhere(
+    key: str,
+    procs: Mapping[str, Mapping[str, Any]],
+    problem: Any,
+    *,
+    owner: str | None = None,
+) -> None:
+    values = {name: _env(svc).get(key) for name, svc in procs.items()}
+    missing = sorted(n for n, v in values.items() if v is None)
+    if missing:
+        where = (
+            f"every process that loads {owner} passes it (declared shared by "
+            "that module)"
+            if owner
+            else "shared settings live in the shared env anchor (x-common-env), "
+            "merged by every process"
+        )
+        problem(f"{key} is missing in {missing}: {where}")
+    elif len({json.dumps(v, sort_keys=True) for v in values.values()}) > 1:
+        seen = sorted(set(map(str, values.values())))
+        where = (
+            f"in every process that loads {owner}"
+            if owner
+            else "everywhere (keep it in x-common-env only)"
+        )
+        problem(
+            f"{key} differs between processes ({seen}): it must be identical {where}"
+        )
+
+
 def _shared_settings(procs: dict[str, dict[str, Any]], problem: Any) -> None:
     for key in SHARED_KEYS:
-        values = {name: _env(svc).get(key) for name, svc in procs.items()}
-        missing = sorted(n for n, v in values.items() if v is None)
-        if missing:
-            problem(
-                f"{key} is missing in {missing}: shared settings live in the "
-                "shared env anchor (x-common-env), merged by every process"
-            )
-        elif len({json.dumps(v, sort_keys=True) for v in values.values()}) > 1:
-            seen = sorted(set(map(str, values.values())))
-            problem(
-                f"{key} differs between processes ({seen}): it must be "
-                "identical everywhere (keep it in x-common-env only)"
-            )
+        _same_everywhere(key, procs, problem)
+    for key, holders in sorted(_module_shared(procs).items()):
+        _same_everywhere(
+            key,
+            {name: procs[name] for name in holders},
+            problem,
+            owner=" / ".join(sorted(set(holders.values()))),
+        )
     for name, svc in procs.items():
         env = _env(svc)
         if interpolate(env.get("ENVIRONMENT", "")) != "prod":
@@ -956,6 +1011,31 @@ def _gateway(
 # --------------------------------------------------------------------------- #
 
 
+def _profile_module_settings(
+    compose_text: str,
+) -> list[tuple[str, type[BaseModel]]]:
+    """``(module name, settings declaration)`` of each module the profile's
+    processes load, in first-use order; none for a text that is no compose
+    mapping."""
+    try:
+        yaml = importlib.import_module("yaml")  # optional: the check extra ships it
+    except ImportError:
+        return []
+    try:
+        compose = yaml.safe_load(compose_text)
+    except yaml.YAMLError:  # not a compose file: no module to read
+        return []
+    if not isinstance(compose, dict):
+        return []
+    seen: dict[str, type[BaseModel]] = {}
+    for svc in app_processes(compose).values():
+        for entry in modules_of(svc):
+            module, model = _module_settings_of(entry)
+            if model is not None:
+                seen.setdefault(module, model)
+    return list(seen.items())
+
+
 def dev_shell(compose_text: str) -> dict[str, str]:
     """Fresh random values for every variable the profile requires that a
     key generator can make (DEVELOPMENT / CI ONLY: written in plain text).
@@ -987,25 +1067,33 @@ def dev_shell(compose_text: str) -> dict[str, str]:
         "JWT_KID": "jwt-dev",
         "JWT_SECRET": secrets.token_hex(32),
         "INTERNAL_API_TOKEN": secrets.token_hex(32),
-        "TWOFA_ENCRYPTION_KEY": secrets.token_hex(32),
         "RPC_SERVICE_KEYS": json.dumps(
             {s: {f"{s}-dev": pem} for s, pem in sorted(callers.items())}
         ),
         "RPC_SERVICE_DH_KEYS": json.dumps(
             {s: {f"{s}-dh-dev": pem} for s, pem in sorted(dh.items())}
         ),
-        # A demo stack on the fake PSP (production chooses stripe).
-        "BILLING_PROVIDER": "fake",
     }
+    # What each module the profile loads declares for a development stack
+    # (a demo billing on the fake PSP, a fresh 2FA key; production chooses).
+    module_risks: list[str] = []
+    for module, model in _profile_module_settings(compose_text):
+        wanted = {
+            name: value
+            for name, value in _ms.declared_dev_env(model).items()
+            if name in required
+        }
+        fixed.update(wanted)
+        if wanted:
+            module_risks += [f"{module}.{r}" for r in _ms.declared_dev_risks(model)]
     for var in required:
         if var in fixed:
             shell[var] = fixed[var]
     # A demo stack's accepted risks: local storage, the default log notifier
     # standing in for mail a module requires (notification + email), and the
-    # fake PSP where the profile asks for a billing provider.
-    risks = ["local_storage_in_prod", "log_notifier_in_prod"]
-    if "BILLING_PROVIDER" in shell:
-        risks.insert(1, "billing.fake_psp_in_prod")
+    # risks of the modules whose development environment it set (billing's
+    # fake PSP).
+    risks = ["local_storage_in_prod", *module_risks, "log_notifier_in_prod"]
     shell["SANDLOOM_ACCEPTED_RISKS"] = ",".join(risks)
     return shell
 

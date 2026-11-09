@@ -446,6 +446,32 @@ website renders this same changelog.
 
 ### Changed
 
+- **The kernel's tools read the modules' settings declarations; `config dump`
+  lists module settings** (KB-55; ADR-0015 decisions 8 and 11; edges B-C7, B-C8,
+  B-C9 and B-N8 fixed). A settings model may carry plain class attributes the
+  tools read: `console` (field names the admin console's settings view lists),
+  `shared` (env names identical in every process that loads the module: the
+  deploy-profile check SANDLOOM-T014 holds only those processes to them),
+  `backup` (secrets and what losing one costs, for `sandloom backup plan`),
+  `deploy` (the compose environment `sandloom add deploy` writes for a service
+  that loads the module), `dev_env` and `dev_risks` (what `sandloom keys
+  dev-env` sets). Billing and identity declare theirs; the kernel's deploy
+  scaffold, dev env, backup plan, platform settings view and docs generator no
+  longer name a module's setting. `/diagnostics/core` and `sandloom doctor` show
+  the loaded modules' accepted risks (a module's risk id that does not apply
+  in this process is listed as such), semantic overrides and tier counts
+  beside the kernel's, and doctor lists every module's refusal as one failed
+  check. `sandloom config dump` now also lists, per loaded module, the settings
+  it declares, each with its source and redaction, and shows a module's invalid
+  value as a diagnosed entry with exit 0 instead of exiting. It builds the
+  composition without serving it (no lifespan, no connection; measured:
+  about 2.5 s against 1.65 s with the three batteries). **Upgrade:**
+  `sandloom config dump --kernel-only` prints exactly what the command printed
+  before (the kernel's settings, no composition); the default `--json` output
+  gains module entries (with a `module` key) after the kernel's, and a
+  diagnosed one (`"source": "invalid"`). A module's own `deploy` lines replace
+  the kernel's former per-module env table: declare `deploy` on its settings model.
+
 - **Billing declares its own settings** (KB-52; ADR-0015). `BILLING_PROVIDER`,
   `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `BILLING_DENY_ON_PAST_DUE`,
   `BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS`, `BILLING_INTENT_RECONCILE_AFTER_MINUTES`,
@@ -716,6 +742,15 @@ website renders this same changelog.
   applications.
 
 ### Fixed
+
+- **A module named by its import path is known by its module name, and the
+  platform bindings view says "unverified"** (KB-55). The risk-namespace rule
+  (ADR-0015 decision 4) read a `SANDLOOM_MODULES` entry such as `sandloom_billing`
+  by its last path segment, so an image naming the path knew a module
+  `sandloom_billing` and not `billing`; it now uses the module's name (the
+  entry point's, else the last segment). The admin platform view showed a
+  required contract with no expectation (`contract_unverified`) as an
+  unreachable peer; it shows `unverified` with the reason.
 
 - **Review fixes of waves 2 and 3** (KB-RF-ledger). The SANDLOOM-R017 fix text
   and `docs/advanced/security-model.md` show the keyword-only mint,

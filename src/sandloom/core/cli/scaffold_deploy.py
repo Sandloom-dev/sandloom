@@ -66,7 +66,11 @@ from typing import Any
 
 import sandloom.core.cli.image_secrets as _image_secrets
 from sandloom.core.archcheck.manifest import load_rules
-from sandloom.core.descriptors.module_names import installed_modules
+from sandloom.core.config import module_settings as _module_settings
+from sandloom.core.descriptors.module_names import (
+    installed_modules,
+    resolve_module_names,
+)
 from sandloom.core.descriptors.module_names import module_name as _module_name
 from sandloom.core.rpc_identity import allowlist_from_bindings
 from sandloom.core.testing import deploy_profile as _dp
@@ -87,28 +91,19 @@ _REGION = re.compile(
     re.M | re.S,
 )
 
-#: Settings a bundled module needs on the processes that load it.
-MODULE_ENV: dict[str, tuple[str, ...]] = {
-    "sandloom_identity": (
-        "# identity encrypts TOTP secrets with a DEDICATED key (no JWT_SECRET",
-        "# fallback in prod); comma-separated, newest first, for rotation.",
-        "TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?set TWOFA_ENCRYPTION_KEY "
-        "(openssl rand -hex 32) - required when identity is loaded}",
-        "# Refresh-session lifetime: identity's setting (the issuer's sessions).",
-        "REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}",
-    ),
-    "sandloom_billing": (
-        "# billing refuses the fake PSP in prod: the operator must choose.",
-        "BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or "
-        "fake with SANDLOOM_ACCEPTED_RISKS="
-        "local_storage_in_prod,billing.fake_psp_in_prod for demos)}",
-        "STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}",
-        "STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}",
-        "# Past-due policy: billing's setting (other services read it through the",
-        "# access fact billing describes, never from their own environment).",
-        "BILLING_DENY_ON_PAST_DUE: ${BILLING_DENY_ON_PAST_DUE:-false}",
-    ),
-}
+
+def module_env(module: str) -> tuple[str, ...]:
+    """The compose environment lines of a process that loads ``module`` (a
+    module name or import path): what its settings declaration says it needs
+    (``deploy``, ADR-0015). A module that declares none, or whose package does
+    not import, needs none."""
+    path = resolve_module_names([module])[0]
+    try:
+        model = _module_settings.declared_model(path)
+    except (ImportError, AttributeError, RuntimeError, SystemExit):
+        return ()
+    return _module_settings.declared_deploy(model) if model is not None else ()
+
 
 #: The connection budget per process kind (the profile's pool defaults):
 #: HTTP WEB_CONCURRENCY 2 x (5 + 5 request + 1 + 2 contract), a worker child
@@ -371,7 +366,7 @@ def _env_block(
         f"{_I}BROKER_URL: redis://redis:6379/{svc.broker_db}",
     ]
     for module in svc.modules:
-        lines += [f"{_I}{line}" for line in MODULE_ENV.get(module, ())]
+        lines += [f"{_I}{line}" for line in module_env(module)]
     if issuer:
         lines += [
             f"{_I}# The token ISSUER: the only process holding the signing key",
@@ -980,7 +975,6 @@ def _report(project: Project, result: Result) -> None:
 
 
 __all__ = [
-    "MODULE_ENV",
     "DeployError",
     "Project",
     "Result",
@@ -988,6 +982,7 @@ __all__ = [
     "apply_regions",
     "check",
     "deploy",
+    "module_env",
     "init_files",
     "main",
     "read_services",
