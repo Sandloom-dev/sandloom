@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 from typing import Any
 from uuid import uuid4
 
@@ -47,6 +47,7 @@ from sandloom.core.config.settings import settings
 from sandloom.core.facade import ClaimsUnavailable, CoreFacade
 from sandloom.core.rpc import RemoteServiceProxy
 from sandloom.core.tests import test_rpc_keyed_binding as _keyed
+from sandloom.core.tests._entry_points_support import installed_entry_points
 
 # The keyed RPC harness: the process settings are the caller (``billing``);
 # ``tenancy`` and ``rogue`` are providers with their own X25519 keys.
@@ -58,6 +59,14 @@ EVIL = "evil.grants"  # another module under the short name ``grants``
 CONTRACT = "grants.claims.v1"
 MAP: dict[str, Any] = {"issuer": IDP, "roles": IDP, "tenant_ids": GRANTS}
 NOW = 2_000_000_000.0
+
+
+@pytest.fixture(autouse=True)
+def _standard_entry_points() -> Iterator[None]:
+    """``sandloom_identity`` / ``sandloom_tenancy`` are the modules
+    ``identity`` / ``tenancy`` by their entry points, installed or not."""
+    with installed_entry_points():
+        yield
 
 
 def _issuer(bindings: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> CoreFacade:

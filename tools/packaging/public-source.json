@@ -1562,6 +1562,7 @@
         "src/sandloom/core/testing/slots.py",
         "src/sandloom/core/testing/static_checks.py",
         "src/sandloom/core/testing/workers.py",
+        "src/sandloom/core/tests/_entry_points_support.py",
         "src/sandloom/core/tests/_pipelined_support.py",
         "src/sandloom/core/tests/_root_support.py",
         "src/sandloom/core/tests/_schemas.py",

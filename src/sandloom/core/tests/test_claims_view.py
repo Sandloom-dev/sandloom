@@ -10,6 +10,7 @@ its end, the 401 / 503 split, and the one platform admission.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -21,12 +22,21 @@ from sandloom.core.app_factory.claim_authorities import (
 )
 from sandloom.core.auth import claims_view as view
 from sandloom.core.claims import ClaimAuthorities, cpv_digest
+from sandloom.core.tests._entry_points_support import installed_entry_points
 
 LIFETIME = 900.0
 LEEWAY = 10.0
 NOW = 2_000_000_000.0
 ID = "sandloom_identity"
 ACME = "acme.modules.acme_identity"
+
+
+@pytest.fixture(autouse=True)
+def _standard_entry_points() -> Iterator[None]:
+    """``sandloom_identity`` / ``sandloom_tenancy`` are the modules
+    ``identity`` / ``tenancy`` by their entry points, installed or not."""
+    with installed_entry_points():
+        yield
 
 
 def policy(

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import types
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import ClassVar
 
@@ -17,6 +17,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from sandloom.core.testing import settings_gate as gate
+from sandloom.core.tests._entry_points_support import installed_entry_points
 from sandloom.sdk.module import SemanticSetting  # sandloom: advanced test model
 
 _MODULE = """
@@ -263,6 +264,14 @@ def _profile(tmp_path: Path, services: dict[str, dict[str, object]]) -> Path:
     return path
 
 
+@pytest.fixture
+def standard_modules() -> Iterator[None]:
+    """``identity``, ``tenancy`` and ``billing`` are installed module names
+    (their entry points), whether or not their packages are."""
+    with installed_entry_points():
+        yield
+
+
 def _inventory(make_module: MakeModule, name: str) -> Pkg:
     prefix = name.upper()
     return make_module(
@@ -275,6 +284,7 @@ def _inventory(make_module: MakeModule, name: str) -> Pkg:
     )
 
 
+@pytest.mark.usefixtures("standard_modules")
 def test_a_wrong_module_name_in_a_service_is_reported_with_a_hint(
     make_module: MakeModule, tmp_path: Path
 ) -> None:
@@ -293,17 +303,21 @@ def test_a_wrong_module_name_in_a_service_is_reported_with_a_hint(
     assert "'identty'" in problem and "did you mean 'identity'" in problem
 
 
+@pytest.mark.usefixtures("standard_modules")
 def test_a_valid_module_name_or_import_path_is_not_reported(
     make_module: MakeModule, tmp_path: Path
 ) -> None:
     pkg = _inventory(make_module, "topo_b")
-    modules = [pkg.name, "identity", "sandloom_billing"]
+    # An importable package no profile module declares, named by its path.
+    other = make_module("topo_b_other", {})
+    modules = [pkg.name, "identity", other.name]
     profile = _profile(
         tmp_path, {"api": {"environment": {"SANDLOOM_MODULES": json.dumps(modules)}}}
     )
     assert _problems(pkg, profiles=[profile]) == []
 
 
+@pytest.mark.usefixtures("standard_modules")
 def test_a_name_set_for_a_module_the_service_does_not_load_is_flagged(
     make_module: MakeModule, tmp_path: Path
 ) -> None:
