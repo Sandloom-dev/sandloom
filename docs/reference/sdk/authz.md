@@ -887,10 +887,13 @@ Placed ABOVE `@access_check` (it completes that declaration):
 
 ```python
 @claim_atom("Feature", claim_key="features", entry="key")
-@access_check("LiveFeature", bind={...}, describe="feature '{key}'")
-async def has_feature(self, tenant_type: str, tenant_id: UUID, key: str)
-    -> bool: ...
+@access_check("LiveFeature", bind=ACCOUNT, describe="feature '{key}'")
+async def has_feature(self, tenant_type: str, tenant_id: UUID, key: str):
+    ...
 ```
+
+where `ACCOUNT` is `{"tenant_type": From.account_type(), "tenant_id":
+From.account_id()}`.
 
 ### `ClaimFactCheck`
 
