@@ -8,7 +8,7 @@ predicate as the live check, so both modes agree at mint time.
 
 The contributor runs in billing's OWN Unit of Work on billing's database (the
 contract runtime supplies the session) and is exposed as ``billing.claims.v1``
-so an identity service deployed in another process collects it over RPC. It is
+so the token issuer deployed in another process collects it over RPC. It is
 non-critical: if billing is down, the token is minted with ``billing`` in
 ``claims_sources_failed`` and claim-mode facts escalate to the live check.
 

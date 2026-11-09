@@ -20,9 +20,9 @@ invitations_router = APIRouter(
 @invitations_router.post(
     "/accept",
     response_model=MemberOut,
-    # Class A whose authority (the verified e-mail claim) is identity's, not
-    # tenancy's: re-read the caller's revocation / block marks right before
-    # the membership commits (ADR-0003 G2, cross-service).
+    # Class A whose authority (the verified e-mail claim) is the token
+    # issuer's, not tenancy's: re-read the caller's revocation / block marks
+    # right before the membership commits (ADR-0003 G2, cross-service).
     dependencies=[at_commit(), sensitive("admin")],
 )
 async def accept_invitation(

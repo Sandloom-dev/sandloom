@@ -262,12 +262,15 @@ def test_t5_a_non_critical_authority_refuses_the_boot(infra: Infra) -> None:
 
 
 def test_t6_without_an_assignment_no_writer_is_trusted(infra: Infra) -> None:
-    """T-6: ``roles``/``tenant_ids`` unassigned; both writers are dropped
-    (the issuer's contributor non-critical here, so the login still mints)."""
+    """T-6: ``roles``/``tenant_ids`` unassigned; the violator's writes are
+    dropped and the login still mints a token without them. The issuer's
+    contributor is critical, as decision 7 requires of every issuer (an
+    optional one refuses the boot, below), and writes no unassigned key
+    here; an issuer that does refuses every mint (the next row)."""
     users = Users()
     modules = [f"{M}test_identity", f"{M}forged", f"{M}notes", f"{M}shop"]
     procs = mono(
-        infra, users, modules, root=ISSUER_ONLY_ROOT, POC_TEST_IDENTITY_CRITICAL="0"
+        infra, users, modules, root=ISSUER_ONLY_ROOT, POC_TEST_IDENTITY_SILENT="1"
     )
     with running(infra, procs) as (proc,):
         forge(proc, {"roles": ["admin"], "tenant_ids": [T_A]})
@@ -276,7 +279,7 @@ def test_t6_without_an_assignment_no_writer_is_trusted(infra: Infra) -> None:
         claims = answer.body["claims"]
         assert "roles" not in claims
         assert "tenant_ids" not in claims
-        assert claims["claims_sources_failed"] == ["forged", "test_identity"]
+        assert claims["claims_sources_failed"] == ["forged"]
         token = token_of(answer)
         assert set(gate_statuses(proc, token).values()) == {403}
         none = get(proc, "/api/v1/shop/tenant", token)
@@ -308,6 +311,31 @@ def test_t6_an_issuer_under_a_root_without_a_map_refuses_the_boot(
     assert "SANDLOOM-B035" in log
     assert "no claim_authorities map is set" in log
     assert "'pocapp.modules.test_identity'" in log
+    assert "the root that composes 'pocapp.modules.test_identity' must pass" in log
+    # No installed root's map names this issuer: none is suggested.
+    assert "sandloom_standard.main" not in log
+
+
+def test_t6_an_issuer_with_an_optional_contributor_refuses_the_boot(
+    infra: Infra,
+) -> None:
+    """T-6, decision 7: the issuer fields have no fallback, so an issuer
+    whose contributor is optional refuses the boot instead of minting
+    tokens without them (every invitation accept would fail closed)."""
+    modules = [f"{M}test_identity", f"{M}shop"]
+    procs = mono(
+        infra,
+        Users(),
+        modules,
+        root=ISSUER_ONLY_ROOT,
+        POC_TEST_IDENTITY_CRITICAL="0",
+    )
+    log = boot_refusal(infra, procs)
+    assert "SANDLOOM-B035" in log
+    assert (
+        "the claim_authorities issuer 'pocapp.modules.test_identity' registers "
+        "its claims contributor critical=False"
+    ) in log
 
 
 # --------------------------------------------------------------------------- #

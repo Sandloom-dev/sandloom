@@ -15,6 +15,23 @@ website renders this same changelog.
 
 ### Breaking changes
 
+- **A token issuer needs a critical claims contributor** (kb-proto-b035,
+  ADR-0014 decision 7). The issuer fields (`email`, `email_verified`) have no
+  other writer and no fallback, so the issuing process now refuses the boot
+  (SANDLOOM-B035) when the map's issuer registers no claims contributor or
+  registers it `critical=False`; before, it booted and minted tokens without
+  them (every invitation accept then failed closed). The B035 refusals of a
+  root with no map now name the booted root and lead with the map the
+  issuer's root must pass; one under a default map whose issuer is not
+  composed names that issuer instead of "issuer is None". An installed root
+  is suggested only when it registered its map under the new
+  `sandloom.composition_roots` entry point group (`sandloom-standard` does,
+  for `sandloom_identity`); `STANDARD_CLAIM_AUTHORITIES` now lives in
+  `sandloom_standard` and `sandloom_standard.main` still re-exports it. The
+  log redactor keeps `issues_tokens=True` / `False` readable. **Upgrade:**
+  register your issuer's contributor with
+  `add_claims_contributor(..., critical=True)`.
+
 - **`collect_claims` takes no claim value** (kb-sec2-issuer, ADR-0014
   amendment "no claim value from the caller"). `precomputed=` and
   `issuer_claims=` are removed from `CoreRuntime.collect_claims` and

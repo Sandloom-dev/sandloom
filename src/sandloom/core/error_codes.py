@@ -1417,15 +1417,17 @@ first-registrant rule.
         "contradicted), or the composition cannot honour its "
         "claim_authorities (no map with an issuer loaded, an authority neither "
         "loaded nor bound, a non-critical authority of a claim with no "
-        "fallback, an issuer field given to another module, an issuer "
-        "mismatch)",
+        "fallback, an issuer field given to another module, an issuer with no "
+        "or an optional claims contributor, an issuer mismatch)",
         "give the issuer a durable consumer of core.auth.user_blocked.v1 that "
         "ends the user's refresh sessions, or declare "
         "define_module(..., refresh_sessions=False) and remove what the "
-        "refusal names; boot a composition root with a claim_authorities map "
-        "(sandloom_standard.main, or the app's own <app>.asgi); fix the entry "
-        "the refusal names (the path, the composition, critical=True, or the "
-        "issuer entry)",
+        "refusal names; in the root that composes the issuer pass "
+        "create_app(claim_authorities={...}) and point "
+        "SANDLOOM_COMPOSITION_ROOT at that root (the refusal names the booted "
+        "root, and an installed root whose map names the issuer); fix the "
+        "entry the refusal names (the path, the composition, critical=True, or "
+        "the issuer entry)",
         """
 block_user (any service) revokes the user's access tokens and publishes
 core.auth.user_blocked.v1. Access tokens expire, but refresh sessions live on:
@@ -1446,11 +1448,14 @@ from its authority, the module loaded from the assigned import path or its
 <m>.claims.v1 binding. Startup refuses, naming the key and the module:
 
 - a composition that loads a token issuer (issues_tokens=True) with no map at
-  all: the lean root sandloom.main assigns nothing, so every login would be
-  refused (503). Boot the root that assigns the authorities: the standard
-  root sandloom_standard.main (SANDLOOM_COMPOSITION_ROOT, as the shipped
-  image and profiles set it), the app's own <app>.asgi, or a root passing
-  create_app(claim_authorities={...});
+  all (the lean root sandloom.main assigns nothing), so every login would be
+  refused (503). The root that composes the issuer must pass
+  create_app(claim_authorities={"issuer": ..., ...}); point
+  SANDLOOM_COMPOSITION_ROOT at it (an app's own <app>.asgi). The refusal
+  names the booted root, and suggests an installed root only when that
+  root registered a map naming this issuer (entry point group
+  sandloom.composition_roots: sandloom_standard.main registers the
+  standard map, as the shipped image and profiles set it);
 - in the issuing process, an authority neither loaded nor bound (an assigned
   path that names no module, a typo, is reported this way, with "a typo of
   '<loaded path>'?" when it is close to a loaded one), loaded under its name
@@ -1463,11 +1468,16 @@ from its authority, the module loaded from the assigned import path or its
   map's issuer, or in a map without an issuer: the issuer writes them itself,
   through the same mint check (a map with an issuer that names none assigns
   them to it);
+- in the issuing process, an issuer that registers no claims contributor or
+  registers it critical=False: the issuer fields have no other writer and no
+  fallback (decision 7);
 - an issues_tokens module that is not the map's issuer, or the map's issuer
   loaded without issues_tokens=True.
 
 A root's default map (sandloom_standard.main) keeps only the entries whose
-module is composed.
+module is composed. When it leaves its issuer out (not loaded here) and
+another module issues tokens, the refusal names the left-out issuer: that
+composition needs its own root with its own map.
 """,
         "docs/advanced/security-model.md",
     ),

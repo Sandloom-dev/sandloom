@@ -30,19 +30,23 @@ the result, which the mint check applies in the merge pass
   (or naming one in a map without an issuer) is refused wherever the map is
   read; a map with an issuer that names none assigns them to the issuer. The
   issuer's own claims contributor writes them at the mint through the same
-  check (no caller hands the mint a value); the issuer is checked as the
-  issuer, so an optional issuer contributor that fails mints a token without
-  them, never with another module's.
+  check (no caller hands the mint a value). They have no other writer and no
+  fallback (decision 7), so the issuing process refuses an issuer that
+  registers no claims contributor or registers it ``critical=False``.
 * **The default map** (``default_claim_authorities``, a composition root's
   standard map, e.g. ``sandloom_standard.main``) keeps only the entries whose
   authority is part of this composition: loaded here, or bound through its
   ``<m>.claims.v1``; what it keeps is then checked like an explicit map. An
-  explicit ``claim_authorities`` wins over it.
+  explicit ``claim_authorities`` wins over it. A loaded issuer that is not
+  the default map's issuer, while that one was left out, is refused naming
+  the left-out issuer and the root to write.
 * **No map** (a lean root): nothing is assigned, so every protected claim is
   refused at the mint. A process that loads no ``issues_tokens=True`` module
   boots (it mints nothing); an issuing one refuses the boot (SANDLOOM-B035)
   instead of running an app whose every login is refused (503): the root
-  that composes the issuer must assign its authorities.
+  that composes the issuer must assign its authorities. The refusal names
+  the booted root, and an installed root whose map names that issuer when
+  one registered it (:data:`ROOTS_GROUP`).
 """
 
 from __future__ import annotations
@@ -52,6 +56,7 @@ import logging
 import time
 from collections.abc import Iterable, Mapping
 from dataclasses import replace
+from importlib import metadata
 from typing import Any
 
 from sandloom.core.app_factory.revocation_applier import ISSUER_CODE
@@ -75,6 +80,13 @@ from sandloom.core.descriptors.module_names import (
 #: session obligation: both are the token issuer's startup contract).
 CODE = ISSUER_CODE
 _CLAIMS_SUFFIX = ".claims.v1"
+#: The entry-point group under which a distribution's composition root
+#: registers its claim-authority map (name: the root module, object: the
+#: map), so a refusal can say which installed root composes an issuer
+#: without the kernel naming one. Read only on a refusal.
+ROOTS_GROUP = "sandloom.composition_roots"
+#: The kernel's lean root, booted when SANDLOOM_COMPOSITION_ROOT is unset.
+LEAN_ROOT = "sandloom.main"
 
 
 class ClaimAuthorityError(ValueError):
@@ -332,26 +344,73 @@ def _authority_problem(
     return None
 
 
+def _unexpected_issuer(
+    path: str, expected: str | None, dropped: str | None, booted: str | None
+) -> str:
+    """Why ``path`` (``issues_tokens=True``) is not this map's issuer."""
+    if expected is None and dropped is not None:
+        return _dropped_issuer_problem(path, dropped, booted)
+    named = (
+        f"the claim_authorities issuer is {expected!r}"
+        if expected is not None
+        else "the claim_authorities map names no issuer"
+    )
+    return (
+        f"module {path!r} declares issues_tokens=True, but {named}: name it as "
+        f"the {ISSUER_ENTRY!r} entry, or drop issues_tokens"
+    )
+
+
+def _issuer_contributor_problem(issuer: str, critical: bool | None) -> str | None:
+    """Decision 7 for the issuer fields: no other writer, no fallback."""
+    fields = ", ".join(sorted(ISSUER_FIELDS))
+    if critical is None:
+        return (
+            f"the claim_authorities issuer {issuer!r} registers no claims "
+            f"contributor: the issuer fields ({fields}) have no other writer and "
+            "no fallback (ADR-0014 decision 7); register one with "
+            "add_claims_contributor(..., critical=True)"
+        )
+    if not critical:
+        return (
+            f"the claim_authorities issuer {issuer!r} registers its claims "
+            f"contributor critical=False: the issuer fields ({fields}) have no "
+            "fallback, so a token must never be minted without them (ADR-0014 "
+            "decision 7); register the contributor critical=True"
+        )
+    return None
+
+
 def _issuer_problems(
-    authorities: ClaimAuthorities, loaded: Mapping[str, str], issuers: Iterable[str]
+    authorities: ClaimAuthorities,
+    loaded: Mapping[str, str],
+    issuers: Iterable[str],
+    contributors: Mapping[str, bool],
+    *,
+    dropped: str | None = None,
+    booted: str | None = None,
 ) -> list[str]:
-    """The issuer cross-check of an assigned map (adversarial X2)."""
+    """The issuer cross-check of an assigned map (adversarial X2), and the
+    issuer's own contributor (decision 7)."""
     expected = authorities.issuer
+    issuing = set(issuers)
     problems = [
-        f"module {path!r} declares issues_tokens=True but the claim_authorities "
-        f"issuer is {expected!r}: name it as the {ISSUER_ENTRY!r} entry, or drop "
-        "issues_tokens"
-        for path in sorted(set(issuers))
+        _unexpected_issuer(path, expected, dropped, booted)
+        for path in sorted(issuing)
         if path != expected
     ]
     if expected is not None:
         short = module_name(expected)
-        if loaded.get(short) == expected and expected not in set(issuers):
+        if loaded.get(short) == expected and expected not in issuing:
             problems.append(
                 f"the claim_authorities issuer {expected!r} is loaded here but does "
                 "not declare issues_tokens=True"
             )
-        elif short in loaded and loaded[short] != expected:
+        elif loaded.get(short) == expected:
+            problem = _issuer_contributor_problem(expected, contributors.get(short))
+            if problem is not None:
+                problems.append(problem)
+        elif short in loaded:
             problems.append(
                 f"the claim_authorities issuer is {expected!r}, but the module "
                 f"loaded here under the name {short!r} is {loaded[short]!r}"
@@ -359,18 +418,86 @@ def _issuer_problems(
     return problems
 
 
-def _no_map_problem(issuers: list[str]) -> str:
+def _booted(root: str | None) -> str:
+    """The booted composition root, as a refusal names it."""
+    if root:
+        return f"the booted root {root!r} (SANDLOOM_COMPOSITION_ROOT)"
+    return (
+        f"the booted root {LEAN_ROOT!r} (the lean root: SANDLOOM_COMPOSITION_ROOT "
+        "is unset)"
+    )
+
+
+def _installed_roots() -> list[tuple[str, Any]]:
+    """``(root module, claim-authority map)`` of every installed root that
+    registered its map under :data:`ROOTS_GROUP`. Read only to word a
+    refusal (never at import, never on a request); a hint that does not load
+    is skipped, so it never hides the refusal itself."""
+    return [
+        (entry.name, _load_hint(entry))
+        for entry in metadata.entry_points().select(group=ROOTS_GROUP)
+    ]
+
+
+def _load_hint(entry: Any) -> Any:
+    """The registered map, ``None`` when it does not load."""
+    try:
+        return entry.load()
+    except (ImportError, AttributeError, ValueError):
+        # A broken hint must not hide the refusal it words.
+        return None
+
+
+def _roots_composing(issuers: Iterable[str], booted: str | None) -> list[str]:
+    """The installed roots, other than the booted one, whose map names one of
+    ``issuers`` as its issuer (``sandloom_standard.main`` for
+    ``sandloom_identity``): the kernel names no root, a root registers itself."""
+    wanted = set(issuers)
+    found: set[str] = set()
+    for root, mapping in _installed_roots():
+        if root == (booted or LEAN_ROOT) or not isinstance(mapping, Mapping):
+            continue
+        named = mapping.get(ISSUER_ENTRY)
+        try:
+            path = _entry_path(ISSUER_ENTRY, named)[0] if named else None
+        except ClaimAuthorityError:
+            continue
+        if path in wanted:
+            found.add(root)
+    return sorted(found)
+
+
+def _root_hint(issuers: Iterable[str], booted: str | None) -> str:
+    roots = _roots_composing(issuers, booted)
+    if not roots:
+        return ""
+    names = " or ".join(f"SANDLOOM_COMPOSITION_ROOT={root}" for root in roots)
+    return f"; an installed root assigns this issuer's authorities: {names}"
+
+
+def _no_map_problem(issuers: list[str], booted: str | None = None) -> str:
     """The refusal of an issuing process booted by a root with no map."""
     names = ", ".join(repr(path) for path in sorted(set(issuers)))
     return (
         f"no claim_authorities map is set, but {names} is loaded as the token "
-        "issuer (issues_tokens): with no map no protected claim (roles, "
-        "permissions, tenant_ids, email, ...) has an authority, so every "
-        "token it mints would be refused (503); set "
-        "SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main (the standard root, "
-        "which assigns the batteries' authorities) or your application's own "
-        "root (<app>.asgi), or pass create_app(claim_authorities={...}) in the "
-        "root that composes the issuer"
+        f"issuer (issues_tokens): the root that composes {names} must pass "
+        "create_app(claim_authorities={...}) naming it as the "
+        f"{ISSUER_ENTRY!r}, and SANDLOOM_COMPOSITION_ROOT must name that root; "
+        f"{_booted(booted)} passes no map, so no protected claim (roles, "
+        "permissions, tenant_ids, email, ...) has an authority and every token "
+        f"would be refused (503){_root_hint(issuers, booted)}"
+    )
+
+
+def _dropped_issuer_problem(path: str, dropped: str, booted: str | None) -> str:
+    """An issuer loaded under a default map whose issuer is not composed."""
+    return (
+        f"module {path!r} declares issues_tokens=True, but the default "
+        f"claim-authority map of {_booted(booted)} names the issuer "
+        f"{dropped!r}, which this composition does not load (a default map "
+        "keeps only the authorities composed here): write your own composition "
+        f"root with create_app(claim_authorities={{{ISSUER_ENTRY!r}: {path!r}, "
+        "...}) and point SANDLOOM_COMPOSITION_ROOT at it"
     )
 
 
@@ -381,6 +508,8 @@ def claim_authority_problems(
     contributors: Mapping[str, bool],
     bindings: Mapping[str, Mapping[str, Any]],
     issuers: Iterable[str],
+    dropped_issuer: str | None = None,
+    booted_root: str | None = None,
 ) -> list[str]:
     """Every reason the composition cannot honour ``authorities`` (empty: ok).
 
@@ -388,11 +517,14 @@ def claim_authority_problems(
     ``contributors``: short name -> critical, of every local claims owner;
     ``bindings``: ``SERVICE_BINDINGS``; ``issuers``: the import paths of the
     loaded ``issues_tokens=True`` modules (only an issuing process needs the
-    authorities themselves).
+    authorities themselves). ``dropped_issuer``: the issuer of a default map
+    that :func:`filter_to_composition` left out; ``booted_root``:
+    ``SANDLOOM_COMPOSITION_ROOT`` (``None``: the lean root). Both only word
+    a refusal.
     """
     issuer_list = list(issuers)
     if not authorities.assigned:
-        return [_no_map_problem(issuer_list)] if issuer_list else []
+        return [_no_map_problem(issuer_list, booted_root)] if issuer_list else []
     problems: list[str] = []
     if issuer_list:
         # Only the issuing process mints, so only it needs every authority
@@ -401,7 +533,7 @@ def claim_authority_problems(
         for key, path in sorted(authorities.authorities.items()):
             if key in ISSUER_FIELDS and path == authorities.issuer:
                 # The issuer's own contributor writes them through the mint
-                # check; the issuer itself is checked below.
+                # check; it is checked as the issuer's, below.
                 continue
             problem = _authority_problem(
                 key,
@@ -413,7 +545,16 @@ def claim_authority_problems(
             )
             if problem is not None:
                 problems.append(problem)
-    problems.extend(_issuer_problems(authorities, loaded, issuer_list))
+    problems.extend(
+        _issuer_problems(
+            authorities,
+            loaded,
+            issuer_list,
+            contributors,
+            dropped=dropped_issuer,
+            booted=booted_root,
+        )
+    )
     return problems
 
 
@@ -428,6 +569,7 @@ def install_claim_authorities(
     legacy_tokens: LegacyClaimsTokens | None = None,
     lifetime_seconds: float = 0.0,
     leeway_seconds: float = 0.0,
+    booted_root: str | None = None,
 ) -> ClaimAuthorities:
     """Resolve, check and assign the composition's claim authorities.
 
@@ -436,20 +578,24 @@ def install_claim_authorities(
     view (:mod:`sandloom.core.auth.claims_view`) reads it from this moment on
     (``effective_at``). ``legacy_tokens`` turns on the bounded compatibility
     mode of the initial ``cpv`` enablement (G-RISK-14); past its window end
-    it is off by itself and a WARNING asks to remove it.
+    it is off by itself and a WARNING asks to remove it. ``booted_root``
+    (``SANDLOOM_COMPOSITION_ROOT``, ``None``: the lean root) only words a
+    refusal.
     """
     descriptors = list(loaded_descriptors)
     loaded = {module_name(str(d.name)): str(d.name) for d in descriptors}
     issuers = [str(d.name) for d in descriptors if getattr(d, "issues_tokens", False)]
+    dropped: str | None = None
     try:
         if claim_authorities is not None:
             authorities = build_claim_authorities(claim_authorities)
         elif default_claim_authorities is not None:
+            default = build_claim_authorities(default_claim_authorities)
             authorities = filter_to_composition(
-                build_claim_authorities(default_claim_authorities),
-                loaded=loaded,
-                bindings=bindings,
+                default, loaded=loaded, bindings=bindings
             )
+            if authorities.issuer is None:
+                dropped = default.issuer
         else:
             authorities = NO_AUTHORITIES
         until = legacy_until(legacy_tokens)
@@ -467,6 +613,8 @@ def install_claim_authorities(
             },
             bindings=bindings,
             issuers=issuers,
+            dropped_issuer=dropped,
+            booted_root=booted_root,
         )
     if problems:
         for problem in problems:
@@ -518,6 +666,8 @@ def _log_legacy_mode(log: logging.Logger, window_end: float, now: float) -> None
 
 __all__ = [
     "CODE",
+    "LEAN_ROOT",
+    "ROOTS_GROUP",
     "AuthorityEntry",
     "ClaimAuthorityError",
     "build_claim_authorities",
