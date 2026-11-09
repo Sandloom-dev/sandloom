@@ -190,7 +190,7 @@ def create_app(
 
     ``access_providers`` assigns an access-bearing contract to the module
     that provides it in-process (``{contract: import path or entry-point
-    name}``; ADR-0014 decision 6): a contract a live adapter asks, or a key
+    name}``; ADR-0014 decision 6): a contract a generated access check asks, or a key
     of this map, is registered only by the module its first segment names
     or by the one assigned here, checked by import path; anyone else refuses
     the boot (SANDLOOM-B034). Remotely, ``SERVICE_BINDINGS`` is the

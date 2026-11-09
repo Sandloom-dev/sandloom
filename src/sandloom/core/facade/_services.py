@@ -254,7 +254,7 @@ class _ServicesMixin(_FacadeState):
         """Every registered access-bearing contract its registrant may not
         provide (empty: ok), checked again after every module has loaded: a
         contract can become access-bearing after its registration (a later
-        module binds an adapter that names it)."""
+        module imports a generated copy whose access check names it)."""
         if self._access_classifier is None:
             return []
         bearing = self._access_bearing()

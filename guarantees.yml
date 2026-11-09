@@ -2017,7 +2017,7 @@ guarantees:
   - src/sandloom/core/tests/test_sealed_mint.py::test_a_process_whose_map_names_no_issuer_takes_no_issuer_session
   - tests/architecture/test_no_kernel_handle_access.py::test_analyzer_detects_the_facade_behind_the_runtime
   - src/sandloom/core/tests/test_claims_trust.py::test_a_claim_atom_honours_the_views_indeterminate
-  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_reported_hole_is_closed
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_the_reported_hole_is_closed
   - src/sandloom/core/tests/test_claims_trust.py::test_a_split_verifier_without_the_authority_is_indeterminate
   - src/sandloom/core/tests/test_claims_trust.py::test_a_previous_authority_named_unlike_its_installed_module_is_refused
   - src/sandloom/core/tests/test_claims_trust.py::test_the_verifier_marker_covers_the_owners
@@ -2916,11 +2916,11 @@ guarantees:
   - src/sandloom/core/tests/test_claim_read_atoms.py::test_access_unknown_is_the_same_class_local_and_remote
   - src/sandloom/core/tests/test_claim_read_atoms.py::test_the_user_path_is_three_valued_from_the_token
   - src/sandloom/core/tests/test_claim_read_atoms.py::test_an_or_of_unknown_branches_never_allows
-  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_verbatim_path_is_three_valued_from_the_token
-  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_billing_failed_at_the_mint_never_lets_not_allow
-  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_or_of_two_unknown_branches_never_allows
-  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_default_path_never_goes_live_when_billing_failed
-  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_default_path_answers_the_views_indeterminate
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_the_verbatim_path_is_three_valued_from_the_token
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_billing_failed_at_the_mint_never_lets_not_allow
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_or_of_two_unknown_branches_never_allows
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_the_default_path_never_goes_live_when_billing_failed
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_the_default_path_answers_the_views_indeterminate
   - src/sandloom/core/tests/test_subscribed_agree.py::test_both_paths_answer_every_row_alike
   - src/sandloom/core/tests/test_subscribed_agree.py::test_an_absent_status_never_equals_none
   - src/sandloom/core/tests/test_subscribed_agree.py::test_a_remote_billing_denies_a_proven_absence_with_no_call

@@ -167,7 +167,8 @@ and startup fails ([SANDLOOM-B017](../../reference/error-codes.md#sandloom-b017)
 - **Non-HTTP use** (`authorize(policy, subject=...)` in tasks and consumers,
   service and system subjects) resolves from the authorization context and the
   bound tenant, not from a request.
-- Custom live adapters (`adapter=`) are kept.
+- There is no `adapter=` argument: to answer an atom from your own module,
+  serve the provider's contract there (see below).
 
 ### Account selection in billing itself
 

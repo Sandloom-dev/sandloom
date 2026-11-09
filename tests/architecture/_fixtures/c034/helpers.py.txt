@@ -1,0 +1,24 @@
+# C034 bypass fixtures (kb-rev56-c034): data, not importable.
+#
+# The helper modules of the package ``c034app`` the cases of
+# ``bypasses.py.txt`` import, one per "# === module: <name>" section
+# (written as ``c034app/<name>.py``).
+
+# === module: reex
+# a lowercase, renamed re-export of the ContractRef
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1 as membership_ref
+
+# === module: star
+# a star re-export of the whole stub
+from c034app._generated.contracts.projects_roles_v1 import *
+
+# === module: clients
+# a client and a helper defined in another file of the package
+from sandloom.sdk import Contract
+from c034app._generated.contracts.projects_roles_v1 import PROJECTS_ROLES_V1
+
+shared_roles = Contract(PROJECTS_ROLES_V1)
+
+
+async def is_lead(ctx):
+    return await shared_roles.has_project_role(ctx.tenant, ctx.user, "lead")
