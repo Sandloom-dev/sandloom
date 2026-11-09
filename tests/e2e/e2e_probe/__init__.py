@@ -8,10 +8,11 @@ business module would:
   ``core.get_service`` — locally or over RPC depending on the process — so the
   test can compare both paths' answers;
 - ``GET /_e2e/orgrole/{org_id}`` / ``/_e2e/subscribed/{org_id}`` are gated by
-  the live authz atoms (``OrgRole`` / ``SubscriptionActive``);
+  the generated authz atoms (``OrgRole`` / ``SubscriptionActive``, rendered by
+  ``_generated_atoms``: the kernel ships none);
 - ``GET /_e2e/entitled/personal`` / ``/_e2e/entitled/org/{org_id}`` /
   ``/_e2e/subscribed-claim`` are gated by billing's access facts
-  (``Entitled(...)`` / ``Subscribed(of=Account.user())``) — local in the billing process,
+  (``Entitled(...)`` / ``Subscribed(of=Account.user())``, generated) — local in the billing process,
   resolved through ``billing.facts.v1`` in the other;
 - ``POST /_e2e/block/{user_id}`` / ``/_e2e/unblock/{user_id}`` call the
   emergency ``block_user`` / ``unblock_user`` (used from the process WITHOUT
@@ -46,17 +47,44 @@ async def _on_org_created(session: Any, envelope: Any) -> None:
     RECEIVED.append(str(org_id))
 
 
+def _generated_atoms() -> Any:
+    """The atoms of ``tenancy.membership.v1`` and ``billing.entitlements.v1`` as
+    ``sandloom generate`` writes them (the kernel ships none): the probe has no
+    ``shared/contracts``, so the stubs are rendered and executed here."""
+    import sys
+    from types import ModuleType, SimpleNamespace
+
+    from sandloom.core.cli.generated import render_stub
+    from sandloom_billing.contracts import EntitlementsContract
+    from sandloom_tenancy.contracts import MembershipReadContract
+
+    names: dict[str, Any] = {}
+    for name, contract, provider in (
+        ("tenancy_membership_v1", "tenancy.membership.v1", MembershipReadContract),
+        ("billing_entitlements_v1", "billing.entitlements.v1", EntitlementsContract),
+    ):
+        module = ModuleType(f"{__name__}._stub_{name}")
+        sys.modules[module.__name__] = module
+        exec(  # noqa: S102 - generated source of this repository's own providers
+            compile(render_stub(contract, provider), module.__name__, "exec"),
+            module.__dict__,
+        )
+        names.update(vars(module))
+    return SimpleNamespace(**names)
+
+
 def register(core: ModuleAPI) -> ModuleDescriptor:
     from fastapi import APIRouter, Depends, HTTPException
 
     from sandloom.core.descriptors import CapabilityRequirement, ModuleDescriptor
     from sandloom.core.di import CoreRuntime, block_user, get_core, public, unblock_user
-    from sandloom.shared.authz import (
-        Entitled,
-        OrgRole,
-        Subscribed,
-        SubscriptionActive,
-        require,
+    from sandloom.shared.authz import Entitled, require
+
+    atoms = _generated_atoms()
+    OrgRole, Subscribed, SubscriptionActive = (
+        atoms.OrgRole,
+        atoms.Subscribed,
+        atoms.SubscriptionActive,
     )
 
     router = APIRouter(prefix="/_e2e", tags=["e2e"])

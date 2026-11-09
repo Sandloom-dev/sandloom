@@ -27,7 +27,7 @@ the live tests use (:data:`LIVE_DEPLOYMENTS`) run in the last wave and stay up.
 
 The script covers register / verify / login, ``/auth/me``, organizations,
 members, invitations (create, list, accept), billing plans / subscription /
-credits / checkout, and probe endpoints gated by ``OrgRole``,
+credits / checkout, and probe endpoints gated by the generated ``OrgRole``,
 ``SubscriptionActive``, ``Credits``, ``Entitled(...)`` and ``Subscribed(of=Account.user())``
 (``conformance_probe``, loaded in every process; probe requests are sent to
 EVERY process of a deployment). Where a deployment has no identity, the
