@@ -572,15 +572,6 @@ class Settings(
                         f"JWT_PREVIOUS_SECRETS[{idx}] is {problem}; previous "
                         "secrets must meet the same rules as JWT_SECRET"
                     )
-            if self.twofa_encryption_key:
-                for idx, key in enumerate(
-                    k.strip() for k in self.twofa_encryption_key.split(",")
-                ):
-                    if key and (problem := secret_problem(key)):
-                        raise ValueError(
-                            f"TWOFA_ENCRYPTION_KEY[{idx}] is {problem}; generate "
-                            "a random one (e.g. openssl rand -hex 32)"
-                        )
         if self.jwt_secret is not None and self.jwt_secret in self.jwt_previous_secrets:
             raise ValueError(
                 "JWT_PREVIOUS_SECRETS must not contain the current JWT_SECRET"

@@ -7,9 +7,9 @@ import pytest
 
 from sandloom.sdk import OrgRole
 from sandloom.sdk.contracts import contract_method
-from sandloom.sdk.infra import settings
-from sandloom.sdk.testing import bind_contract_session
+from sandloom.sdk.testing import bind_contract_session, override_settings
 from sandloom_tenancy.claims import tenancy_claims
+from sandloom_tenancy.config import TenancySettings
 
 
 def test_invalid_org_role_fails_at_configuration_time():
@@ -18,13 +18,15 @@ def test_invalid_org_role_fails_at_configuration_time():
 
 
 @pytest.mark.asyncio
-async def test_claims_are_bounded_without_silently_dropping_access(monkeypatch):
-    monkeypatch.setattr(settings, "tenant_claims_max_organizations", 2)
-    with patch(
-        "sandloom_tenancy.claims.MembershipService.list_user_organization_ids",
-        new_callable=AsyncMock,
-        return_value=[uuid.uuid4() for _ in range(3)],
-    ) as read:
+async def test_claims_are_bounded_without_silently_dropping_access():
+    with (
+        override_settings(TenancySettings, tenant_claims_max_organizations=2),
+        patch(
+            "sandloom_tenancy.claims.MembershipService.list_user_organization_ids",
+            new_callable=AsyncMock,
+            return_value=[uuid.uuid4() for _ in range(3)],
+        ) as read,
+    ):
         with (
             bind_contract_session(object()),
             pytest.raises(ValueError, match="TENANT_CLAIMS_MAX_ORGANIZATIONS"),

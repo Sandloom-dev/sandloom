@@ -2,8 +2,8 @@
 
 Regression for ``TWOFA_ENCRYPTION_KEY``: ``config dump`` redacted it while the
 log redactor (:func:`guardrails.is_sensitive_key`) let it through in clear.
-Every field of ``Settings`` (module settings are mixed into it) is enumerated,
-so a new secret setting is covered without editing this test.
+Every field of ``Settings`` is enumerated, so a new secret setting is covered
+without editing this test; the secrets the bundled modules declare are listed.
 """
 
 from __future__ import annotations
@@ -34,7 +34,19 @@ def _dump_masks(name: str) -> bool:
     return config_cli.redact_value(name, _SAMPLE) != _SAMPLE
 
 
-SECRET_SETTINGS = [n for n in _setting_names() if _dump_masks(n)]
+#: Secrets that modules declare (ADR-0015) rather than ``Settings``: the same
+#: two masks must cover them (``config dump`` enumerates declarations from KB-55).
+_MODULE_DECLARED_SECRETS = (
+    "TWOFA_ENCRYPTION_KEY",
+    "GOOGLE_CLIENT_SECRET",
+    "GITHUB_CLIENT_SECRET",
+    "MICROSOFT_CLIENT_SECRET",
+    "LINKEDIN_CLIENT_SECRET",
+    "TELEGRAM_BOT_TOKEN",
+)
+SECRET_SETTINGS = [
+    n for n in [*_setting_names(), *_MODULE_DECLARED_SECRETS] if _dump_masks(n)
+]
 
 
 def test_secret_settings_are_enumerated() -> None:

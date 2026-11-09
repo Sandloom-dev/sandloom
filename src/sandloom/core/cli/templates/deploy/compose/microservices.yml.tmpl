@@ -111,7 +111,6 @@ x-common-env: &common-env
   JWT_ISSUER: ${JWT_ISSUER:-}
   JWT_AUDIENCE: ${JWT_AUDIENCE:-}
   ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
-  REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}
   # Unlocks /diagnostics, /contracts, /metrics and /health details. It does
   # NOT authenticate internal RPC: /_sandloom/rpc only accepts calls authenticated
   # with a per-pair key.

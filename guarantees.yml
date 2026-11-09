@@ -1850,7 +1850,6 @@ guarantees:
   - src/sandloom_identity/tests/test_token_claims_and_revocation.py::test_twofa_key_is_mandatory_in_prod
   - src/sandloom_identity/tests/test_module_registration.py::test_missing_twofa_key_refuses_registration
   - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_module_refusal_stops_every_composed_entry_point
-  - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_prod_twofa_key_must_be_strong
   - src/sandloom_identity/tests/services/test_twofa_service.py::TestSecretCrypto::test_key_rotation
 - id: G-AUTH-20
   statement: A protected claim (roles, permissions, tenant_ids, email, email_verified, subscription_status,
@@ -3492,15 +3491,24 @@ guarantees:
   gap_size: S
 - id: G-COMPAT-04
   statement: 'With CONTRACT_COMPAT_CHECK=ready (default) a caller compares every reachable remote-bound
-    provider''s live describe document with the provider module''s snapshot (found in its package without
-    importing it): an incompatible provider fails /ready with contract_incompatible, an additive one passes.'
+    provider''s live describe document with what it expects of it: the <stem>.describe.json its own module
+    ships beside the generated stub (narrowed to the methods its composed consumes lists), else
+    CONTRACT_SNAPSHOT_PATHS, else the provider module''s snapshot (found in its package without importing
+    it), so a consumer-only install is checked too: an incompatible provider fails /ready with
+    contract_incompatible, an additive one passes, in either upgrade order.'
   sources:
   - docs/modules/between/contracts.md
   - 'deploy/README.md#Rolling upgrades: contract compatibility'
+  - docs/adr/0013-contract-ownership.md#3. Expectation files and narrowing
   tests:
   - src/sandloom/core/tests/test_contract_compat.py::test_ready_fails_on_an_incompatible_provider
   - src/sandloom/core/tests/test_contract_compat.py::test_ready_passes_on_an_additive_provider
   - tests/integration/with_batteries/test_contract_compat_bundled_modules.py::test_expectation_is_found_in_the_provider_package_without_importing_it
+  - tests/integration/with_batteries/test_contract_compat_bundled_modules.py::test_a_bundled_consumer_is_held_to_its_own_expectation
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_consumer_only_install_is_checked_from_its_expectation
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_mixed_version_pair_consumer_only
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_the_expectation_beside_the_stub_wins
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_narrowed_to_the_composed_consumes
 - id: G-COMPAT-05
   statement: ContractRequirement(name, methods=(...)) narrows the compatibility check to the methods the
     consumer calls, so breaks in other methods do not fail /ready.
@@ -3526,9 +3534,28 @@ guarantees:
   - 'deploy/README.md#Rolling upgrades: contract compatibility'
   tests:
   - src/sandloom/core/tests/test_contract_compat.py::test_model_without_field_info_is_a_warning_not_an_error
-  gap: The startup log for a remote binding with no snapshot at all ("unchecked", CONTRACT_SNAPSHOT_PATHS
-    absent) is not asserted.
-  gap_size: S
+- id: G-COMPAT-08
+  statement: 'A required remote contract with no expectation (no copy beside the consumer''s stub, no
+    CONTRACT_SNAPSHOT_PATHS entry, no snapshot in the provider''s package), a consumer copy whose digest does
+    not verify, or a consumed method the copy does not describe is never a warning: CONTRACT_COMPAT_CHECK=strict
+    refuses startup before any probe (ContractUnverifiedError, naming the contract and the fix) and ready fails
+    /ready with contract_unverified; a binding no loaded module consumes needs one too, an optional consumer
+    needs none. <m>.claims.v1 and <m>.facts.v1 are held to the kernel''s own schema. The expectations are read
+    at startup only: /ready reads no file and a contract call sends the same requests as with the check off.'
+  sources:
+  - docs/adr/0013-contract-ownership.md#4. No expectation is never a warning
+  - 'deploy/README.md#Rolling upgrades: contract compatibility'
+  - docs/modules/between/contracts.md
+  tests:
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_no_expectation_refuses_strict_before_any_probe
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_no_expectation_fails_ready_with_contract_unverified
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_a_binding_nobody_consumes_needs_an_expectation_too
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_a_hand_edited_copy_counts_as_no_expectation
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_a_consumed_method_its_copy_does_not_describe_is_unverified
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_an_optional_consumer_needs_no_expectation
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_kernel_family_shapes_match_the_kernel_providers
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_a_remote_claims_contract_under_strict
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_expectations_are_read_at_startup_only
 - id: G-RPC-01
   statement: 'The request key K_req is HKDF-SHA256 over the X25519 agreement of caller and provider with
     a role-ordered, direction-labelled info naming both services and kids: both sides derive the same
@@ -4102,7 +4129,8 @@ guarantees:
   - tests/sdk/test_sdk_discovery.py::test_a_subscripted_saga_records_its_constructing_module
 - id: G-MODULE-15
   statement: Every bundled module (and every example app's module) boots ALONE through create_app + lifespan;
-    only the documented ContractBindingError for required consumed contracts may refuse, and any startup/registration
+    only the documented ContractBindingError for required consumed contracts, or SANDLOOM-B037 for a required
+    capability with no installed driver (G-INFRA-12), may refuse, and any startup/registration
     coupling or error logged at startup fails the boot.
   sources:
   - docs/operate/topologies.md
@@ -4436,6 +4464,69 @@ guarantees:
   - src/sandloom/core/tests/test_database_feature_forms.py::test_the_c030_analyzer
   - src/sandloom/core/tests/test_aggregate_list.py::test_a_renderer_without_it_refuses_it_naming_the_feature
   - src/sandloom/core/tests/test_aggregate_list.py::test_a_module_needing_it_is_refused_at_startup_where_the_renderer_lacks_it
+- id: G-INFRA-10
+  statement: A driver registration names the top-level imports it needs and the install hint; the preflight
+    checks them with importlib.util.find_spec (nothing imported, no connection, answered once per name), so
+    a registered driver whose package is missing is not usable. An instance INFRA selects on such a driver,
+    and a driver whose dependency fails to import while it is built (strict, production startup), stops
+    startup with SANDLOOM-B037 naming the capability, instance, driver, missing package and install hint.
+    An instance nothing requires and the kernel does not use (database, revocation and security cache,
+    event bus) is not built, opened or probed.
+  sources:
+  - docs/adr/0011-driver-api.md
+  - design/kernel-boundary/owner-decision-infra-deps.md
+  tests:
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_a_missing_package_refuses_the_requirement_build_free
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_find_spec_runs_once_per_name
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_requires_takes_top_level_names_only
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_builtin_drivers_name_their_package_and_extra
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_an_import_error_while_building_is_b037
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_an_explicit_instance_on_an_uninstalled_driver_refuses_startup
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_an_unused_synthesized_instance_is_not_opened_or_probed
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_the_kernel_instances_stay_required_in_the_real_registry
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_strict_startup_names_a_kernel_instance_whose_package_is_missing
+- id: G-INFRA-11
+  statement: The taskqueue capability has the feature periodic, meaning the driver runs a module's periodic jobs at
+    their interval in at least one process while the deployment runs. A driver is never granted it for
+    supporting enqueue; only celery advertises it. A module's effective capabilities add what its code
+    shows (a tasks.py needs taskqueue, a beat hook the feature periodic) without relaxing a declaration, and
+    an undeclared derived capability is required; sandloom check asks for the declaration (SANDLOOM-C033).
+  sources:
+  - docs/adr/0011-driver-api.md
+  - design/kernel-boundary/owner-decision-infra-deps.md
+  tests:
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_tasks_derive_taskqueue_and_a_beat_hook_derives_periodic
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_an_undeclared_derived_capability_is_required
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_a_declaration_keeps_required_and_instance
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_bundled_modules_need_what_the_decision_says
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_periodic_is_a_taskqueue_feature_only_celery_advertises
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_an_enqueue_only_driver_cannot_serve_a_beat_hook
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_the_c033_analyzer
+  - tests/integration/module_subsets/test_module_subsets_infrastructure.py::test_a_taskqueue_driver_without_periodic_refuses_billing
+- id: G-INFRA-12
+  statement: A supported module combination starts and becomes ready when every capability its modules
+    require (declared or derived) has a configured, installed driver with the required features; otherwise
+    startup refuses with SANDLOOM-B037 naming the module, the capability, the instance, the driver, and
+    the missing feature or package (periodic for billing, the cache for identity), also for an explicitly
+    selected optional module. Proved on the sixteen module subsets with only the probe under test replaced, namely
+    Celery and Redis installed with real services (ready, every check ok), a broker nobody listens on (the
+    periodic-only web process stays ready), a missing redis or celery package (identity or billing refused
+    naming the guarantee; on plain sandloom without redis-py every other subset boots and is not ready,
+    its cache check naming the package), and a taskqueue driver without periodic.
+  sources:
+  - docs/adr/0011-driver-api.md
+  - design/kernel-boundary/requirements.md#I-19 Every allowed install profile and every module subset boots
+  - design/kernel-boundary/owner-decision-infra-deps.md
+  tests:
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_a_module_gets_every_unmet_requirement_in_one_refusal
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_the_module_preflight_refuses_with_b037_and_the_load_names_it
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_a_selected_optional_module_with_an_unmet_capability_refuses
+  - tests/integration/module_subsets/test_module_subsets_infrastructure.py::test_every_subset_is_ready_on_real_infrastructure
+  - tests/integration/module_subsets/test_module_subsets_infrastructure.py::test_an_unreachable_broker_does_not_unready_the_web_process
+  - tests/integration/module_subsets/test_module_subsets_infrastructure.py::test_a_missing_redis_driver_is_refused_or_visible
+  - tests/integration/module_subsets/test_module_subsets_infrastructure.py::test_a_missing_celery_driver_refuses_billing_naming_periodic
+  - tests/integration/module_subsets/test_module_subsets_infrastructure.py::test_a_taskqueue_driver_without_periodic_refuses_billing
+  - tests/integration/module_subsets/test_module_subsets_wheels.py::test_subset_on_plain_sandloom_p2_unstubbed
 - id: G-CONFIG-01
   statement: Every Settings field is classified in exactly one configuration tier (semantic or ops), and
     every semantic setting defines a value for every profile (dev / test / prod / prod+multi_tenant_strict).
@@ -7731,7 +7822,7 @@ issued:
   G-BILLING: 22
   G-BLOCK: 8
   G-CMD: 9
-  G-COMPAT: 7
+  G-COMPAT: 8
   G-CONFIG: 12
   G-CONTRACT: 23
   G-DECL: 7
@@ -7741,7 +7832,7 @@ issued:
   G-HTTP: 12
   G-IDEM: 18
   G-INBOX: 4
-  G-INFRA: 9
+  G-INFRA: 12
   G-KERNEL: 14
   G-MIGRATE: 12
   G-MODULE: 19
@@ -8230,6 +8321,15 @@ adr_sections:
     - G-SAGA-07
     - G-RISK-13
     Consequences of the amendment: informational
+    'Amendment (2026-11-09): driver availability, `periodic`, module requirements': informational
+    Context of the driver availability amendment: informational
+    Decisions of the driver availability amendment:
+    - G-INFRA-10
+    - G-INFRA-11
+    - G-INFRA-12
+    - G-OPS-23
+    - G-OPS-24
+    Consequences of the driver availability amendment: informational
   0010-public-api-1.0.md:
     Context: informational
     Decision: informational
@@ -8354,7 +8454,8 @@ adr_sections:
     - G-CONTRACT-20
     "3. Expectation files and narrowing":
     - G-CONTRACT-21
-    "4. No expectation is never a warning": planned
+    "4. No expectation is never a warning":
+    - G-COMPAT-08
     "5. Provider absent where `generate` runs":
     - G-CONTRACT-22
     "6. Determinism without the project formatter":

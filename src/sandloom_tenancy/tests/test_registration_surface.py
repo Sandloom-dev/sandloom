@@ -9,12 +9,18 @@ from sandloom.sdk.module import CapabilityRequirement
 from sandloom.sdk.testing import registration_surface
 
 EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the shared tail
+    # ADR-0015: tenancy's declared settings, validated before ``setup``.
+    (
+        "declare_settings",
+        "sandloom_tenancy.config.TenancySettings",
+        "package='sandloom_tenancy'",
+    ),
     (
         "include_router",
         "router[GET /api/v1/platform/tenancy/organizations, GET "
         "/api/v1/platform/tenancy/organizations/{record_id}, GET "
         "/api/v1/platform/tenancy/members]",
-    )
+    ),
 ] + [
     (
         "include_router",

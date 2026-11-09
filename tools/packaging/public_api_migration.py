@@ -110,6 +110,7 @@ H1_KERNEL_NAMES: dict[str, str] = {
     "core.descriptors.contract_refs.ContractRef": "sandloom.sdk.contracts",
     # Module-declared settings (ADR-0015, KB-50).
     "core.module_api.settings_of": "sandloom.sdk.module",
+    "core.module_api.secret_problem": "sandloom.sdk.security",
     "core.module_api.SemanticSetting": "sandloom.sdk.module",
     "core.module_api.RemovedSetting": "sandloom.sdk.module",
     "core.module_api.Risk": "sandloom.sdk.module",

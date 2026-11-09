@@ -218,7 +218,7 @@ def test_every_process_env_validates(
             if "sandloom_identity" in cfg.sandloom_modules:
                 # identity refuses to start in prod without a dedicated key.
                 assert ":?" in env.get("TWOFA_ENCRYPTION_KEY", ""), name
-                assert cfg.twofa_encryption_key, name
+                assert _env(svc, SHELL).get("TWOFA_ENCRYPTION_KEY"), name
 
 
 #: The composition root the framework's image and profiles boot (ADR-0012
@@ -298,7 +298,6 @@ PARITY_KEYS = (
     "JWT_ISSUER",
     "JWT_AUDIENCE",
     "ACCESS_TOKEN_EXPIRE_MINUTES",
-    "REFRESH_TOKEN_EXPIRE_DAYS",
     "INTERNAL_API_TOKEN",
     "FRONTEND_URL",
     "BILLING_DENY_ON_PAST_DUE",

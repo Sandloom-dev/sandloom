@@ -15,6 +15,25 @@ website renders this same changelog.
 
 ### Security
 
+- **A consumer-only install is checked from its own expectations; no
+  expectation is never a warning** (KB-21, ADR-0013 decisions 3 and 4,
+  closes D4). The startup compatibility check now reads what a caller
+  expects of each remote contract from the `<stem>.describe.json` its
+  module ships beside the generated stub (`_generated/contracts/`, narrowed
+  to the methods its composed `consumes` lists), then
+  `CONTRACT_SNAPSHOT_PATHS`, then the provider's package; `<m>.claims.v1`
+  and `<m>.facts.v1` are held to the kernel's own schema. A required remote
+  contract with no expectation (or with a hand-edited one) used to be
+  logged as a WARNING and skipped, also under `CONTRACT_COMPAT_CHECK=strict`;
+  now `strict` refuses startup before any probe
+  (`ContractUnverifiedError`) and `ready` fails `/ready` with
+  `contract_unverified`. The expectations are resolved once at startup:
+  `/ready` reads no file, and a contract call sends the same requests as
+  before. **Upgrade:** a service whose `SERVICE_BINDINGS` names a contract
+  it has no expectation for (no consumer copy, no snapshot in its image,
+  no `CONTRACT_SNAPSHOT_PATHS` entry) now fails `/ready`: run
+  `sandloom generate` in the consuming module, ship the provider's
+  snapshot, or declare the client `optional=True`.
 - **A token issuer without claim authorities refuses the boot; the issuer's
   fields pass the mint check; plan atoms answer 503 while billing is down**
   (W1 review of KB-10). A composition that loads an `issues_tokens=True`
@@ -202,6 +221,27 @@ website renders this same changelog.
   (`guardrails.is_secret_name`), and the log redactor keeps its broader
   substring markers on top. Lookup keys such as `operation_key`,
   `idempotency_key` and `dedupe_key` stay readable in logs and audit data.
+- **The admin console serves in front of the composition's assigned issuer,
+  not a module named `identity`** (KB-41, ADR-0012 decision 4, owner's X4).
+  `/admin/config.json` answered 503 unless the manifest listed a module
+  `identity`. It now reads the claim-authorities map's `issuer` and the login
+  entry that issuer declared on its registration, both written into
+  `admin-manifest.json` by `sandloom generate` (new `issuer` field:
+  `{"module", "login_entry"}`, `null` without an assigned issuer), and
+  serves `issuer` and `login_entry` in `config.json`. No issuer, or an issuer
+  that declares no login entry, is a 503 naming the fix (the console never
+  signs in through a guess); a login entry that is not a route path of the
+  application (a URL, `//host`, `..`, a query) is refused at registration,
+  at `sandloom generate` (the issuer's own package must serve it with `POST`)
+  and again by the console. The issuer is never taken from the `iss` of a
+  token, which is unverified input. Upgrade: declare
+  `define_module(..., issues_tokens=True, login_entry="/auth/login")` on your
+  token issuer (the bundled identity module does), then run
+  `sandloom generate` (or `sandloom admin export`) and restart. New public
+  API: `define_module(login_entry=)`, `ModuleDescriptor.login_entry` and
+  `sandloom.sdk.module.GenerationIssuer` (`GenerationInput.issuer`).
+  The console UI still requires the manifest to list `identity`
+  (a follow-up).
 
 ### Added
 
@@ -279,6 +319,34 @@ website renders this same changelog.
   snapshot; a new setting is named `<MODULE>_...`.
 
 ### Changed
+
+- **Identity, tenancy and the admin console declare their own settings**
+  (KB-53, KB-54; ADR-0015). `TWOFA_ENCRYPTION_KEY`, the SSO client ids and
+  secrets, `TELEGRAM_BOT_TOKEN`, `SSO_ALLOWED_REDIRECT_URIS`,
+  `REFRESH_TOKEN_EXPIRE_DAYS` and `MAX_SESSION_DAYS` belong to
+  `sandloom_identity` (`IdentitySettings`); `TENANT_CLAIMS_MAX_ORGANIZATIONS`
+  to `sandloom_tenancy` (`TenancySettings`); `ADMIN_CONSOLE_ENABLED` and
+  `ADMIN_CONSOLE_DIST` to `sandloom_admin` (`AdminSettings`). Environment names,
+  defaults and bounds are unchanged. The kernel `Settings` no longer has these
+  fields, so `settings.twofa_encryption_key` and the others are gone (no alias):
+  a module reads its own with `settings_of(Model)`. A weak or missing
+  `TWOFA_ENCRYPTION_KEY` in production is now identity's own settings check, run
+  before its `setup` in every entry point: the message is unchanged apart from
+  the `module sandloom_identity:` prefix. The secrets are `SecretStr`. A process
+  that does not load identity (or tenancy, or the console) no longer parses or
+  validates its variables. New advanced name `sandloom.sdk.security.secret_problem`
+  (the strength rule `JWT_SECRET` uses) for a module's production check.
+  **Upgrade:** a module of your own that read one of these kernel attributes
+  reads it through the owning module's settings model or its own environment;
+  in a `compose/microservices.yml` run `sandloom add deploy --refresh`:
+  `REFRESH_TOKEN_EXPIRE_DAYS` moves from the shared env to the identity
+  service's, and a service that loads no identity must not set it
+  (`SANDLOOM-T019`). `sandloom admin create` / `invite` still choose the console
+  or the frontend link from `ADMIN_CONSOLE_ENABLED`, read from the process's
+  environment. The generated configuration reference lists the module settings;
+  the ops tier count falls by the 16 names that moved.
+  The production typo check of module settings also counts every loaded module,
+  one that declares no settings included, as the owner of its variable prefix.
 
 - **Deploy profiles and `sandloom new` / `sandloom add deploy` templates say how
   required mail is sent** (kb-ic-6). Identity and tenancy require an email

@@ -36,6 +36,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`revoke_user_tokens`](#revoke_user_tokens) | async function | Invalidate every access token issued to `user_id` up to now. |
 | [`revoke_user_tokens_on_commit`](#revoke_user_tokens_on_commit) | async function | Revoke `user_id`'s access tokens AFTER the current UoW commits. |
 | [`run_password_hashing`](#run_password_hashing) | async function | Run an argon2 hash/verify `fn(*args)` on the BOUNDED password pool. |
+| [`secret_problem`](#secret_problem) | function | Why `value` is not a production-grade secret (`None` if fine). |
 | [`SERVICE_PRINCIPAL_ID`](#service_principal_id) | constant |  |
 | [`subject_commit_check`](#subject_commit_check) | function | A `before_commit` check: is the request's bearer STILL valid now? |
 | [`unblock_user`](#unblock_user) | async function | Lift an emergency block (audited `auth.user.unblocked`, same rules). |
@@ -293,6 +294,14 @@ Run an argon2 hash/verify `fn(*args)` on the BOUNDED password pool.
 
 See `sandloom.core.auth.hashing.run_password_hashing`
 (`PASSWORD_HASH_CONCURRENCY`): never the loop's default executor.
+
+### `secret_problem`
+
+```python
+def secret_problem(value: str, *, min_length: int = 32) -> str | None
+```
+
+Why `value` is not a production-grade secret (`None` if fine).
 
 ### `SERVICE_PRINCIPAL_ID`
 
