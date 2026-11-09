@@ -155,16 +155,26 @@ def test_billing_variables_do_not_reach_a_process_without_billing(
 ) -> None:
     """B-C4 (ADR-0015): an explicit ``BILLING_PROVIDER=fake`` (or ``stripe``
     with no keys) in prod is billing's to refuse, so a process that does not
-    load billing neither validates nor refuses it, in every entry point."""
+    load billing neither validates nor refuses it, in every entry point.
+
+    Identity issues tokens, so the lean root refuses it with SANDLOOM-B035 (no
+    claim-authorities map); the composition is built under the standard root,
+    which assigns the batteries' authorities."""
+    argv = (
+        [sys.executable, "-c", "import sandloom_standard.main"]
+        if entry == "app"
+        else COMPOSED_ENTRY_POINTS[entry]
+    )
     for billing in ({"BILLING_PROVIDER": "fake"}, {"BILLING_PROVIDER": "stripe"}):
         values = {
             **_MODULE_BASE,
             "SANDLOOM_MODULES": ["sandloom_identity"],
             "TWOFA_ENCRYPTION_KEY": "9f1c4e7a2b8d6035e1f94c7ab23d58e06f7b1a9c4d2e85f3071b6c9ae4d2f815",
             "SANDLOOM_ACCEPTED_RISKS": ["log_notifier_in_prod"],
+            "SANDLOOM_COMPOSITION_ROOT": "sandloom_standard.main",
             **billing,
         }
-        proc = _run(COMPOSED_ENTRY_POINTS[entry], values, tmp_path)
+        proc = _run(argv, values, tmp_path)
         assert INVALID_CONFIGURATION not in proc.stderr, (billing, proc.stderr[-2000:])
 
 
