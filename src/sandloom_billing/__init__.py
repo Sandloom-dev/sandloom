@@ -33,6 +33,22 @@ CREDITS_SERVICE_V1 = "billing.credits.v1"
 FACTS_SERVICE_V1 = "billing.facts.v1"
 MEMBERSHIP_SERVICE_V1 = "tenancy.membership.v1"
 
+#: The claim keys billing writes, declared fail-safe (ADR-0014 decision 7,
+#: billing option (c)): every reader escalates or answers indeterminate when
+#: one is absent (the generated ``Subscribed`` escalates to the live fact or
+#: answers 503 when billing failed at the mint, ``Feature`` / ``WithinLimit``
+#: answer 501 / 503, ``plan_code`` grants nothing), so billing's contributor
+#: may be non-critical and a billing outage still mints a login. An issuer
+#: that binds billing remotely ``"critical": false`` reads the same
+#: declaration from its composition root
+#: (``Authority("sandloom_billing", fail_safe=True)``).
+BILLING_CLAIM_KEYS: tuple[str, ...] = (
+    "subscription_status",
+    "plan_code",
+    "features",
+    "limits",
+)
+
 
 def _setup(core: ModuleAPI) -> None:
     """Register billing's PSP client, claims, access facts and reads.
@@ -52,7 +68,7 @@ def _setup(core: ModuleAPI) -> None:
     psp.install_psp_client(psp.build_psp_client())
 
     # Subscription/plan claims baked into minted access tokens.
-    core.add_claims_contributor(contribute_billing_claims)
+    core.add_claims_contributor(contribute_billing_claims, fail_safe=BILLING_CLAIM_KEYS)
 
     # Configurable access facts: Entitled("subscription.active") (personal
     # tenant; claim / live / auto per the ACCESS setting) and

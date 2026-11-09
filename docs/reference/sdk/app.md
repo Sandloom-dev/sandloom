@@ -47,6 +47,7 @@ class Authority(
     name: str,
     module: str | None = None,
     previous: Authority | None = None,
+    fail_safe: bool = False,
 ) -> None
 ```
 
@@ -59,6 +60,13 @@ other authority a verifier accepts for the key during a rollout
 (`Authority("identity", module="sandloom_identity")`), never by short
 name, it need not be loaded or bound here, and an issuer never stamps it.
 It exists for one rollout and is removed by the next deploy.
+
+`fail_safe=True` declares, in the composition root, that every reader
+of the key escalates or answers indeterminate when it is absent, so the
+authority may be non-critical (ADR-0014 decision 7): needed for an
+authority bound remotely with `"critical": false`, whose own
+declaration (`add_claims_contributor(..., fail_safe=...)`) does not run
+in the issuing process. Never for `NEVER_FAIL_SAFE` or the issuer.
 
 ### `create_app`
 

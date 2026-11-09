@@ -19,9 +19,12 @@ the result, which the mint check applies in the merge pass
   authority): an authority neither loaded nor bound (a typo of a loaded path
   is named as one; nothing is imported to tell), loaded under its short name
   from another path, loaded without a claims contributor, or non-critical
-  for a key whose readers have
-  no fallback (decision 7: only :data:`~sandloom.core.claims.FAIL_SAFE_KEYS`
-  may have a non-critical authority, billing option (c)); an issuer mismatch
+  for a key not declared fail-safe (decision 7: only a key whose every reader
+  escalates or answers indeterminate when it is absent may have a
+  non-critical authority, billing option (c); its local authority declares
+  it with ``add_claims_contributor(..., fail_safe=...)``, the root with
+  ``Authority(..., fail_safe=True)``, the one declaration a remote authority
+  has here; the kernel names no such key); an issuer mismatch
   (an ``issues_tokens=True`` module that is not the map's ``issuer``, or the
   map's issuer loaded without ``issues_tokens=True``); an
   ``issues_tokens=True`` module loaded with no map at all.
@@ -59,10 +62,12 @@ from dataclasses import replace
 from importlib import metadata
 from typing import Any
 
+import sandloom.shared.authz.contract_check as _contract_check
 from sandloom.core.app_factory.revocation_applier import ISSUER_CODE
 from sandloom.core.claims import (
     ISSUER_ENTRY,
     ISSUER_FIELDS,
+    NEVER_FAIL_SAFE,
     NO_AUTHORITIES,
     Authority,
     ClaimAuthorities,
@@ -92,6 +97,14 @@ LEAN_ROOT = "sandloom.main"
 class ClaimAuthorityError(ValueError):
     """A ``claim_authorities`` entry that is not ``{str: str | Authority}``,
     or a ``legacy_tokens`` that is not an absolute UTC time."""
+
+
+class UnprotectedClaimReader(RuntimeError):
+    """SANDLOOM-B035: a generated claim atom imported after ``create_app``
+    reads a claim key the composition's policy, fixed at boot, does not
+    protect (a critical startup task refuses the start)."""
+
+    sandloom_code = CODE
 
 
 #: A ``claim_authorities`` value: an import path or entry-point name, or an
@@ -182,6 +195,21 @@ def legacy_until(legacy_tokens: Any) -> float | None:
         raise ClaimAuthorityError(str(exc)) from exc
 
 
+def _declared_fail_safe(key: str, value: Any) -> bool:
+    """Whether the root declares ``key`` fail-safe (``Authority(...,
+    fail_safe=True)``); a :class:`ClaimAuthorityError` for a key that never
+    is (decision 7) or the issuer entry."""
+    if not isinstance(value, Authority) or not value.fail_safe:
+        return False
+    if key == ISSUER_ENTRY or key in NEVER_FAIL_SAFE:
+        raise ClaimAuthorityError(
+            f"claim_authorities[{key!r}]: fail_safe=True refused: roles, "
+            "permissions, tenant_ids, the issuer's fields and the issuer entry "
+            "are never fail-safe (ADR-0014 decision 7)"
+        )
+    return True
+
+
 def build_claim_authorities(
     mapping: Mapping[str, AuthorityEntry] | None, *, assigned: bool = True
 ) -> ClaimAuthorities:
@@ -201,9 +229,12 @@ def build_claim_authorities(
     authorities: dict[str, str] = {}
     previous: dict[str, str] = {}
     previous_owners: dict[str, str] = {}
+    fail_safe: set[str] = set()
     issuer: str | None = None
     for key, value in mapping.items():
         path, prior = _entry_path(key, value)
+        if _declared_fail_safe(key, value):
+            fail_safe.add(key)
         if key == ISSUER_ENTRY:
             if prior is not None:
                 raise ClaimAuthorityError(
@@ -233,6 +264,40 @@ def build_claim_authorities(
         assigned=assigned,
         previous=previous,
         previous_owners=previous_owners,
+        fail_safe=frozenset(fail_safe),
+    )
+
+
+def declared_policy(
+    authorities: ClaimAuthorities,
+    *,
+    loaded: Mapping[str, str],
+    declared: Mapping[str, frozenset[str]],
+    readers: frozenset[str] = frozenset(),
+) -> ClaimAuthorities:
+    """``authorities`` with what this composition's modules declare.
+
+    ``declared``: local claims-contributor owner (short name) -> the keys it
+    declares fail-safe; ``readers``: the claim keys the generated claim
+    atoms imported here read. A key is fail-safe (its authority may be
+    non-critical, ADR-0014 decision 7) when the root marks it
+    ``Authority(..., fail_safe=True)`` or its assigned authority is loaded
+    here from the assigned path and declares it; every declared key and
+    every key a reader reads is protected (:attr:`ClaimAuthorities.declared`).
+    Boot only: the declarations are in memory, nothing is imported or read.
+    """
+    fail_safe = set(authorities.fail_safe)
+    for key, path in authorities.authorities.items():
+        short = module_name(path)
+        if loaded.get(short) == path and key in declared.get(short, frozenset()):
+            fail_safe.add(key)
+    keys: set[str] = set(readers)
+    for owned in declared.values():
+        keys |= owned
+    return replace(
+        authorities,
+        fail_safe=frozenset(fail_safe),
+        declared=authorities.declared | frozenset(keys),
     )
 
 
@@ -287,6 +352,8 @@ def filter_to_composition(
         verified_owners=authorities.verified_owners,
         previous=authorities.previous,
         previous_owners=authorities.previous_owners,
+        fail_safe=authorities.fail_safe & frozenset(kept),
+        declared=authorities.declared,
     )
 
 
@@ -302,8 +369,10 @@ def _local_authority_problem(
         return (
             f"claim {key!r} is assigned to {path!r}, whose claims contributor is "
             "registered critical=False: only a claim whose every reader escalates "
-            "or denies when it is absent may come from a non-critical authority "
-            "(ADR-0014 decision 7); register the contributor critical=True"
+            "or answers indeterminate when it is absent may come from a "
+            "non-critical authority (ADR-0014 decision 7); register the "
+            "contributor critical=True, or declare the key with "
+            "add_claims_contributor(..., fail_safe=[...])"
         )
     return None
 
@@ -338,8 +407,11 @@ def _authority_problem(
         return (
             f"claim {key!r} is assigned to {path!r}, whose binding "
             f"{short}{_CLAIMS_SUFFIX} is critical: false: only a claim whose every "
-            "reader escalates or denies when it is absent may come from a "
-            "non-critical authority (ADR-0014 decision 7)"
+            "reader escalates or answers indeterminate when it is absent may "
+            "come from a non-critical authority (ADR-0014 decision 7); bind it "
+            "critical, or declare the key fail-safe in the composition root: "
+            f"claim_authorities={{{key!r}: Authority({short!r}, module={path!r}, "
+            "fail_safe=True)}"
         )
     return None
 
@@ -598,6 +670,12 @@ def install_claim_authorities(
                 dropped = default.issuer
         else:
             authorities = NO_AUTHORITIES
+        authorities = declared_policy(
+            authorities,
+            loaded=loaded,
+            declared=core_facade._declared_fail_safe(),
+            readers=_contract_check.generated_claim_keys(),
+        )
         until = legacy_until(legacy_tokens)
     except ClaimAuthorityError as exc:
         problems = [str(exc)]
@@ -641,7 +719,37 @@ def install_claim_authorities(
     if until is not None:
         _log_legacy_mode(log, until + lifetime_seconds + leeway_seconds, now)
     core_facade._assign_claim_authorities(authorities)
+    _recheck_claim_readers(core_facade, authorities, log)
     return authorities
+
+
+def _unprotected_readers(authorities: ClaimAuthorities) -> list[str]:
+    """The claim keys an imported generated claim atom reads that the
+    composition's policy does not protect (empty: ok)."""
+    return sorted(_contract_check.generated_claim_keys() - authorities.protected)
+
+
+def _recheck_claim_readers(
+    core_facade: Any, authorities: ClaimAuthorities, log: logging.Logger
+) -> None:
+    """A critical startup task, before the app serves: a generated claim
+    atom imported after ``create_app`` reads a key the policy fixed at boot
+    does not protect, so an unvouched value would reach it; refuse
+    (SANDLOOM-B035) rather than serve. Boot only, never on a request."""
+
+    async def recheck_claim_readers() -> None:
+        late = _unprotected_readers(authorities)
+        if late:
+            message = (
+                f"{CODE}: generated claim atoms imported after create_app read "
+                f"{', '.join(late)}, which this composition's claim policy does "
+                "not protect: import the generated contract copy before "
+                f"create_app (from a module's code) (`sandloom explain {CODE}`)"
+            )
+            log.error("claim authorities: %s", message)
+            raise UnprotectedClaimReader(message)
+
+    core_facade.add_startup_task(recheck_claim_readers, critical=True, phase="infra")
 
 
 def _log_legacy_mode(log: logging.Logger, window_end: float, now: float) -> None:
@@ -670,8 +778,10 @@ __all__ = [
     "ROOTS_GROUP",
     "AuthorityEntry",
     "ClaimAuthorityError",
+    "UnprotectedClaimReader",
     "build_claim_authorities",
     "claim_authority_problems",
+    "declared_policy",
     "filter_to_composition",
     "install_claim_authorities",
     "legacy_until",

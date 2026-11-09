@@ -182,10 +182,11 @@ class _ServicesMixin(_FacadeState):
         :func:`access_provider_problem`). Any other name keeps the
         first-registrant rule.
         """
+        self._note_access_declaration(name, impl)
         reserved = reserved_contract_owner(name)
         if reserved is not None:
             self._require_own_name(reserved, f"contract {name!r}")
-        elif self._access_classifier is not None and name in self._access_classifier():
+        elif name in self._access_bearing():
             problem = access_provider_problem(
                 name, self._registering_module, self._access_assignment
             )
@@ -210,17 +211,44 @@ class _ServicesMixin(_FacadeState):
         self,
         assigned: Mapping[str, str],
         classify: Callable[[], frozenset[str]],
+        *,
+        declares: Callable[[Any], bool] | None = None,
     ) -> None:
         """Bind the composition's access-provider assignment (``create_app``).
 
         ``assigned``: contract name -> the import path of its provider;
         ``classify``: the access-bearing contract names of this composition,
         read at each registration (registration time only, never on a
-        request). From here on :meth:`register_service` refuses an
+        request); ``declares``: whether an implementation carries
+        ``@access_check`` methods, which makes the name it is registered
+        under access-bearing too (remembered even when that registration is
+        refused). From here on :meth:`register_service` refuses an
         access-bearing name from anyone but its provider.
         """
         self._access_assignment = dict(assigned)
         self._access_classifier = classify
+        self._access_declares = declares
+
+    def _note_access_declaration(self, name: str, impl: Any) -> None:
+        """Remember ``name`` as access-bearing when ``impl`` carries
+        ``@access_check`` methods, before any refusal of its registration
+        (a module's preflight or :meth:`register_service`). Registration
+        time only."""
+        if (
+            self._access_declares is not None
+            and name not in self._access_declared
+            and reserved_contract_owner(name) is None
+            and self._access_declares(impl)
+        ):
+            self._access_declared.add(name)
+
+    def _access_bearing(self) -> frozenset[str]:
+        """The access-bearing names known now (empty before ``create_app``
+        assigned the providers: a bare facade keeps the first-registrant
+        rule). Registration and boot time only."""
+        if self._access_classifier is None:
+            return frozenset()
+        return self._access_classifier() | self._access_declared
 
     def access_provider_problems(self) -> list[str]:
         """Every registered access-bearing contract its registrant may not
@@ -229,7 +257,7 @@ class _ServicesMixin(_FacadeState):
         module imports a generated copy whose access check names it)."""
         if self._access_classifier is None:
             return []
-        bearing = self._access_classifier()
+        bearing = self._access_bearing()
         # The tenant authority's membership witness decides tenant kind: a
         # trust decision like any access check (ADR-0014 decision 13).
         witness = getattr(self, "tenant_witness", None)

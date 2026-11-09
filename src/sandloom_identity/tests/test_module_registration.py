@@ -85,7 +85,7 @@ def test_register_declares_the_identity_surface(sandloom_app: Any) -> None:
     ]
     assert len(draft.event_schemas) == len(producers) == 15
     # Critical: a failing contributor aborts minting (no privilege-less token).
-    assert draft.claims_contributors == [(contribute_identity_claims, True)]
+    assert draft.claims_contributors == [(contribute_identity_claims, True, ())]
     # Outside prod the 2FA key falls back to the JWT secret: no guard task.
     # Best-effort: the unknown-email timing equalizer's dummy argon2 hash is
     # made before serving. Critical: the declared reads (GET /auth/me) are

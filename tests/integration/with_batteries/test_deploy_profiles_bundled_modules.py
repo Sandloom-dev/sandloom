@@ -108,8 +108,10 @@ def test_microservices_db_per_service_and_bindings() -> None:
 SRC = Path(__file__).resolve().parents[3] / "src"
 
 
+#: ``add_claims_contributor(fn, critical=..., fail_safe=...)``: the keyword
+#: arguments, whatever their order (billing declares its fail-safe keys).
 _CONTRIBUTOR_RE = re.compile(
-    r"add_claims_contributor\(\s*\w+\s*(?:,\s*critical\s*=\s*(True|False))?\s*\)"
+    r"add_claims_contributor\(\s*\w+\s*((?:,\s*\w+\s*=\s*[\w.]+\s*)*),?\s*\)"
 )
 
 
@@ -123,7 +125,7 @@ def _claims_contributor_criticality(module: str) -> bool | None:
     matches = _CONTRIBUTOR_RE.findall(init.read_text())
     if not matches:
         return None
-    return any(flag == "True" for flag in matches)
+    return any("critical=True" in re.sub(r"\s", "", kw) for kw in matches)
 
 
 def test_token_issuer_binds_every_remote_claims_contributor() -> None:
