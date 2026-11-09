@@ -436,6 +436,19 @@ def test_orphan_copies_are_removed_once_no_longer_consumed(
     assert "no longer consumes" in refused[0].problems[0]
 
 
+def test_generate_removes_an_orphan_and_check_reports_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    orphan = tmp_path / "x_v1.py"
+    orphan.write_text("x\n")
+    item = generated.Generated(orphan, "", cc.CODE, remove=True)
+    assert generated.apply([item], write=False, shared_dir=tmp_path) == 1
+    assert "(orphan: no longer consumed)" in capsys.readouterr().out
+    assert orphan.is_file()
+    assert generated.apply([item], write=True, shared_dir=tmp_path) == 0
+    assert not orphan.exists() and not item.stale
+
+
 def _kept_problems(tree: dict[str, Any]) -> list[str]:
     kept = cc.keep_committed(tree["shop"], tree["contract"], tree["out"])
     assert kept
