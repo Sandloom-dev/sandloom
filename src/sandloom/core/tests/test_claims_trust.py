@@ -887,7 +887,7 @@ async def test_a_declared_key_without_a_map_is_nobodys() -> None:
     assert "plans" in claims["claims_sources_failed"]
 
 
-@contract("acme.seats.v1")
+@contract("acme.quota.v1")
 class SeatsContract:
     """A fixture provider whose claim atom a consumer imports late."""
 
@@ -917,9 +917,9 @@ async def test_a_claim_atom_imported_after_the_boot_refuses_the_startup(
         bindings={},
         log=logging.getLogger("test"),
     )
-    path = tmp_path / "acme_seats_v1.py"
-    path.write_text(render_stub("acme.seats.v1", SeatsContract))
-    spec = importlib.util.spec_from_file_location("_trust_acme_seats_v1", path)
+    path = tmp_path / "acme_quota_v1.py"
+    path.write_text(render_stub("acme.quota.v1", SeatsContract))
+    spec = importlib.util.spec_from_file_location("_trust_acme_quota_v1", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -933,6 +933,11 @@ async def test_a_claim_atom_imported_after_the_boot_refuses_the_startup(
     finally:
         sys.modules.pop(spec.name, None)
         _contract_check._CLAIM_ATOMS.discard(module.SeatsLeft)
+        # Its live check is a generated atom too: leave no access-bearing
+        # contract behind for the next test.
+        live = getattr(module.SeatsLeft, "_otherwise", None)
+        if live is not None:
+            _contract_check._GENERATED.discard(live)
 
 
 def test_install_assigns_the_checked_map_and_the_explicit_map_wins() -> None:

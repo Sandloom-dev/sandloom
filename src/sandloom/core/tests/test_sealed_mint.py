@@ -19,6 +19,7 @@ beyond the in-memory revocation cache).
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any
@@ -60,9 +61,15 @@ ENVELOPE = {"token_type": "access"}
 ALL_403 = dict.fromkeys(GATES, 403)
 ALL_200 = dict.fromkeys(GATES, 200)
 
+#: Keys modules of this composition declare without the map naming them
+#: (a contributor's fail-safe declaration or an imported claim atom's key;
+#: the kernel names none since B-N12): protected all the same.
+DECLARED = frozenset({"subscription_status", "plan_code", "features", "limits"})
+
 #: Every key a mint takes only from a sealed result: the protected claims
-#: (base and an application key the map assigns), the tenant selectors,
-#: provenance, ``cpv``, the subject structure and the authority binding.
+#: (base, an application key the map assigns, a declared key), the tenant
+#: selectors, provenance, ``cpv``, the subject structure and the authority
+#: binding.
 SEALED_ONLY = (
     "roles",
     "permissions",
@@ -140,7 +147,8 @@ def _register(
 def _core() -> CoreFacade:
     core = CoreFacade(app=FastAPI())
     core.database = lambda name="default": _FakeDatabase()  # type: ignore[method-assign]
-    core._assign_claim_authorities(build_claim_authorities(MAP))
+    policy = dataclasses.replace(build_claim_authorities(MAP), declared=DECLARED)
+    core._assign_claim_authorities(policy)
     return core
 
 

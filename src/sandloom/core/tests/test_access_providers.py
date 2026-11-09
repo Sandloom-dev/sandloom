@@ -265,11 +265,13 @@ def test_an_unclassified_contract_is_first_registrant() -> None:
     assert core.access_provider_problems() == []
 
 
-def test_an_access_check_on_the_implementation_classifies_its_contract() -> None:
+def test_an_access_check_on_the_implementation_classifies_its_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """L1: a provider-only process (no consumer imported a generated atom,
     no assignment) still refuses a module that is not the first-segment
     provider of an implementation carrying ``@access_check`` methods."""
-    assert SEATS not in _contract_check.generated_access_contracts()
+    monkeypatch.setattr(_contract_check, "generated_access_contracts", frozenset)
     core = _core()
     with pytest.raises(ForeignOwnerRegistration, match="'acme.seats.v1'"):
         _register(core, "evil", SEATS, _SeatsContract)
@@ -279,10 +281,13 @@ def test_an_access_check_on_the_implementation_classifies_its_contract() -> None
     assert core.access_provider_problems() == []
 
 
-def test_a_refused_attempt_keeps_the_name_access_bearing() -> None:
+def test_a_refused_attempt_keeps_the_name_access_bearing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The first registrant without an access check cannot keep a name an
     access-checked implementation was offered for: the provider's refused
     attempt classifies it, and the post-load sweep refuses the boot."""
+    monkeypatch.setattr(_contract_check, "generated_access_contracts", frozenset)
     core = _core()
     _register(core, "evil", SEATS, _Seats)  # nothing classifies it yet
     with pytest.raises(ModuleRegistrationConflict):
