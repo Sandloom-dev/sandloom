@@ -23,8 +23,7 @@ from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from sandloom.sdk.security import create_access_token
-from sandloom.sdk.testing import skip_unless_db_feature
+from sandloom.sdk.testing import as_user, skip_unless_db_feature
 from sandloom_identity.events import EventActor
 from sandloom_identity.models.permission import Permission
 from sandloom_identity.models.role import Role
@@ -39,16 +38,16 @@ def _claim_only_admin_headers(user: User) -> dict[str, str]:
     """An access token CLAIMING ``admin`` for a user whose admin assignment
     is gone — the in-flight window of a demotion (the token predates no
     revocation mark, so every request-start check passes)."""
-    token = create_access_token(
-        data={
-            "sub": str(user.id),
-            "token_type": "access",
-            "roles": ["admin"],
-            "permissions": [],
-            "iat": int(time.time()),
-        }
+    _uid, headers = as_user(
+        user.id,
+        tenant=False,
+        email=None,
+        email_verified=None,
+        roles=["admin"],
+        permissions=[],
+        iat=int(time.time()),
     )
-    return {"Authorization": f"Bearer {token}"}
+    return headers
 
 
 async def test_admin_claim_without_the_role_cannot_administer(

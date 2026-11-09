@@ -11,12 +11,15 @@ from typing import Any, cast
 import jwt
 import orjson
 
+import sandloom.core.runtime as _runtime
+from sandloom.core.auth import claims_view as _claims_view
 from sandloom.core.auth.marks import (
     IAT_US_CLAIM,
     _datetime_us,
     _issue_instant_us,
     _seconds_to_us,
 )
+from sandloom.core.claims import NO_AUTHORITIES, ClaimAuthorities
 from sandloom.core.config import accepted_risks
 from sandloom.core.config.common import strict_profile_active
 from sandloom.core.config.settings import settings
@@ -59,6 +62,9 @@ def create_access_token(
     can pick the key directly during a rotation.
     """
     to_encode = data.copy()
+    # A trusted view's verdict is never minted (a payload copied from a
+    # verified token): every verifier computes its own.
+    to_encode.pop(_claims_view.UNTRUSTED_KEY, None)
     now = datetime.now(UTC)
     minutes = (
         settings.access_token_expire_minutes if expires_delta is None else expires_delta
@@ -251,11 +257,14 @@ def _verification_keys(token: str) -> list[Any]:
 
 #: Verified-token cache bound: the newest tokens this process verified.
 VERIFIED_TOKEN_CACHE_SIZE = 2048
-#: token -> (verification settings, claims as JSON, iat, nbf | None, exp):
-#: ONLY tokens whose signature and claims verified. A hit re-checks the time
-#: claims exactly as PyJWT does; everything else about a token is immutable.
+#: token -> (verification settings + claim policy marker, trusted view as
+#: JSON, iat, nbf | None, exp, view valid until): ONLY tokens whose signature
+#: and claims verified. A hit re-checks the time claims exactly as PyJWT
+#: does; everything else about a token is immutable, and its trusted view
+#: (ADR-0014 decision 3) only changes with the policy (in the key) or at the
+#: compatibility window's end (``view valid until``: then re-verified).
 #: Claims are kept serialized so every hit returns fresh objects.
-_verified_tokens: dict[str, tuple[tuple[Any, ...], bytes, int, Any, int]] = {}
+_verified_tokens: dict[str, tuple[tuple[Any, ...], bytes, int, Any, int, float]] = {}
 
 
 def _verification_settings() -> tuple[Any, ...]:
@@ -273,7 +282,9 @@ def _verification_settings() -> tuple[Any, ...]:
     )
 
 
-def _remember_verified(token: str, config: tuple[Any, ...], claims: Any) -> None:
+def _remember_verified(
+    token: str, config: tuple[Any, ...], claims: Any, view_until: float
+) -> None:
     try:
         iat = int(claims["iat"])
         exp = int(claims["exp"])
@@ -283,7 +294,35 @@ def _remember_verified(token: str, config: tuple[Any, ...], claims: Any) -> None
         return
     if len(_verified_tokens) >= VERIFIED_TOKEN_CACHE_SIZE:
         _verified_tokens.pop(next(iter(_verified_tokens)), None)
-    _verified_tokens[token] = (config, raw, iat, nbf, exp)
+    _verified_tokens[token] = (config, raw, iat, nbf, exp, view_until)
+
+
+def _claim_policy() -> tuple[Any, ClaimAuthorities]:
+    """The active composition's core (or ``None``) and its claim policy.
+
+    No core bound (a script that built no app): nothing is assigned, so
+    every protected claim is untrusted (fail closed)."""
+    core = _runtime.get_active_core()
+    policy = getattr(core, "claim_authorities", None)
+    if not isinstance(policy, ClaimAuthorities):
+        return core, NO_AUTHORITIES
+    return core, policy
+
+
+def _trusted_view(claims: dict[str, Any], core: Any, policy: ClaimAuthorities) -> float:
+    """Apply the trusted view to freshly verified ``claims`` (in place)."""
+    valid_until, legacy_keys = _claims_view.apply_view(
+        claims,
+        policy,
+        now=time.time(),
+        lifetime_seconds=settings.access_token_expire_minutes * 60,
+        leeway_seconds=settings.jwt_leeway_seconds,
+    )
+    if legacy_keys and core is not None:
+        # One acceptance per key, as ``<metric>{key="<key>"}``.
+        for key in legacy_keys:
+            core.increment_metric(_claims_view.legacy_metric_name(key), 1)
+    return valid_until
 
 
 def decode_token(token: str) -> dict[str, Any] | None:
@@ -298,11 +337,18 @@ def decode_token(token: str) -> dict[str, Any] | None:
     (``iat`` / ``nbf`` not in the future, ``exp`` not past, with the leeway).
     Revocation and the emergency block are separate (marks), never cached
     here.
+
+    An access token's claims are its **trusted view** (ADR-0014 decision 3,
+    :mod:`sandloom.core.auth.claims_view`): every protected claim the active
+    composition's map does not trust is removed and listed with its reason
+    under ``claims_view.UNTRUSTED_KEY``. The view is computed once per
+    verified token and cached with it, the policy's marker in the key.
     """
-    config = _verification_settings()
+    core, policy = _claim_policy()
+    config = (*_verification_settings(), policy.marker)
     cached = _verified_tokens.get(token)
     if cached is not None and cached[0] == config:
-        _config, raw, iat, nbf, exp = cached
+        _config, raw, iat, nbf, exp, view_until = cached
         now = time.time()
         leeway = settings.jwt_leeway_seconds
         if iat > now + leeway or (nbf is not None and nbf > now + leeway):
@@ -310,10 +356,13 @@ def decode_token(token: str) -> dict[str, Any] | None:
         if exp <= now - leeway:
             _verified_tokens.pop(token, None)
             return None
-        return cast(dict[str, Any], orjson.loads(raw))
+        if now < view_until:
+            return cast(dict[str, Any], orjson.loads(raw))
+        _verified_tokens.pop(token, None)
     claims = _decode_token_uncached(token)
     if claims is not None:
-        _remember_verified(token, config, claims)
+        view_until = _trusted_view(claims, core, policy)
+        _remember_verified(token, config, claims, view_until)
     return claims
 
 

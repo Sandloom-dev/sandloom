@@ -1901,6 +1901,48 @@ guarantees:
   - src/sandloom/core/tests/test_claims_trust.py::test_an_authority_that_ran_and_gave_nothing_denies
   - src/sandloom/core/tests/test_claims_trust.py::test_not_and_or_never_allow_on_a_failed_authority
   - src/sandloom/core/tests/test_claims_trust.py::test_without_a_readable_assignment_a_failure_is_indeterminate
+- id: G-AUTH-23
+  statement: 'Every reader of a verified access token (UserContext, Role, Perm, TenantScope, both platform
+    gates) sees only its trusted view, computed once per verified token and cached with it: a protected
+    key is kept only when one authority A satisfies all three parts: A is the key''s current authority in
+    the verifier''s map or its one previous= authority; the token''s per-key cpv digest equals the digest
+    of (key, A''s import path); A is in claims_sources and not in claims_sources_failed. tenant_id and org_id
+    fall with the tenant_ids grant; a forged view marker is never read from the token. An untrusted key
+    answers 401 token_policy_outdated where one refresh fixes it, 503 claims_policy_mismatch where issuer
+    and verifier disagree, else 403. require_platform_admin and the platform console''s operator gate share
+    one admission: roles admin from the trusted view, never from a source named identity (ADR-0014 decision
+    3).'
+  sources:
+  - 'docs/adr/0014-claims-trust-and-authorization-portability.md#3. Read: one trusted view per verified token'
+  tests:
+  - src/sandloom/core/tests/test_claims_view.py::test_the_one_condition_trusts_the_current_authority
+  - src/sandloom/core/tests/test_claims_view.py::test_a_part_missing_drops_the_key
+  - src/sandloom/core/tests/test_claims_view.py::test_a_forged_untrusted_marker_is_never_read_from_the_token
+  - src/sandloom/core/tests/test_claims_view.py::test_the_tenant_selectors_fall_with_the_grant
+  - src/sandloom/core/tests/test_claims_view.py::test_the_key_change_matrix
+  - src/sandloom/core/tests/test_claims_view.py::test_the_negative_rows_at_step_2
+  - src/sandloom/core/tests/test_claims_view.py::test_platform_admission_status
+  - src/sandloom/core/tests/test_claims_view.py::test_platform_admission_admits_a_trusted_admin_whatever_the_issuer_is_named
+  - tests/integration/replaceability/test_trust_rows.py::test_t1_the_assigned_replacement_issuer_grants_rights
+- id: G-AUTH-24
+  statement: 'A key''s cpv digest is computed from the key and the full import path claim_authorities assigns,
+    the same whether the authority is loaded locally or reached over RPC, so the monolith and every split
+    service stamp and accept one digest per assignment. A remote authority is checked independently at the
+    mint: its pinned service_id and pair MAC prove the answering service, and its <m>.claims.v1 answer must
+    name the assigned import path, else the step fails and a critical authority refuses the mint (503)
+    (ADR-0014 amendment 2026-11-09).'
+  sources:
+  - 'docs/adr/0014-claims-trust-and-authorization-portability.md#Amendment 2026-11-09: the `cpv` identity of an authority'
+  tests:
+  - src/sandloom/core/tests/test_claims_cpv_identity.py::test_mono_and_split_stamp_and_accept_the_same_cpv
+  - src/sandloom/core/tests/test_claims_cpv_identity.py::test_a_service_other_than_the_pinned_one_is_refused
+  - src/sandloom/core/tests/test_claims_cpv_identity.py::test_another_module_behind_the_short_name_is_refused
+  - src/sandloom/core/tests/test_claims_cpv_identity.py::test_an_answer_not_naming_the_assigned_module_fails_the_step
+  - src/sandloom/core/tests/test_claims_cpv_identity.py::test_a_previous_rollout_reads_alike_in_every_placement
+  gap: 'A change of the security authority behind the same import path keeps the digest (the documented
+    rule, src/sandloom/core/tests/test_claims_cpv_identity.py::test_the_digest_is_the_assignment_not_the_implementation);
+    an assignment revision that invalidates old tokens without a new import path is not built.'
+  gap_size: S
 - id: G-REVOKE-01
   statement: An access token is revoked iff its issue instant iat_us (microseconds) is <= its subject's
     revocation mark; a token without iat_us is revoked by any mark; every framework guard rejects a revoked
@@ -4828,11 +4870,18 @@ guarantees:
   sources:
   - docs/adr/0014-claims-trust-and-authorization-portability.md#4. `cpv` per key, with an issuer × verifier rollout and rollback matrix
   - design/kernel-boundary/migration-plan.md
-  gap: Not built yet. KB-11 (migration-plan W2) adds legacy_tokens with its bounds and the window-end test
-    of ADR-0014 decision 4 (tokens without cpv carrying forged roles / tenant_ids give no rights at or after
-    the window end, nor with iat at or after until, mono and split, the argument still written); the test
-    ids replace this gap in that PR.
-  gap_size: M
+  tests:
+  - src/sandloom/core/tests/test_claims_view.py::test_a_token_without_cpv_gives_no_rights_outside_the_window
+  - src/sandloom/core/tests/test_claims_view.py::test_inside_the_window_a_token_without_cpv_is_trusted
+  - src/sandloom/core/tests/test_claims_view.py::test_the_compatibility_window
+  - src/sandloom/core/tests/test_claims_view.py::test_the_compatibility_view_expires_at_the_window_end
+  gap: 'KB-11 built legacy_tokens with its bounds (until required, absolute UTC, no default or setting;
+    iat before until, exp - iat within ACCESS_TOKEN_EXPIRE_MINUTES; off by itself from the window end, the
+    cached view recomputed there), the per-key counter claims_policy_legacy_tokens_total and the startup
+    WARNING with the time left; the window-end test runs on the verifier policy of the monolith and of a
+    split service. Not built yet: the mode with its time left in /diagnostics/core and sandloom doctor, and
+    the one-mode-per-deploy-profile check (T014).'
+  gap_size: S
 - id: G-MIGRATE-01
   statement: Each module owns its own Alembic chain with version table alembic_version_<key>; chains are
     disjoint, together cover every ORM table, and reproduce the ORM schema exactly.
@@ -7817,7 +7866,7 @@ issued:
   C-UNIT: 2
   C-WORKER: 6
   G-AUDIT: 2
-  G-AUTH: 22
+  G-AUTH: 24
   G-AUTHZ: 13
   G-BILLING: 22
   G-BLOCK: 8
@@ -8480,9 +8529,11 @@ adr_sections:
     - G-AUTH-21
     "2. Mint: who may write a protected key":
     - G-AUTH-20
-    "3. Read: one trusted view per verified token": planned
+    "3. Read: one trusted view per verified token":
+    - G-AUTH-23
     "4. `cpv` per key, with an issuer × verifier rollout and rollback matrix":
     - G-RISK-14
+    - G-AUTH-24
     "5. Sealed mint, service tokens, test tokens": planned
     "6. Contract-name ownership for access-bearing contracts": planned
     "7. Billing claims: option (c)":
@@ -8498,6 +8549,8 @@ adr_sections:
     "14. The live adapters: an approved exception, after equivalence": planned
     "15. What else moves, and what stays": planned
     "16. Separate changes, each with its own baseline": planned
+    "Amendment 2026-11-09: the `cpv` identity of an authority":
+    - G-AUTH-24
     "Mechanisms": informational
     "Alternatives considered": informational
     "Consequences": informational

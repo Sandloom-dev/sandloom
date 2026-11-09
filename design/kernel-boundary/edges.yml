@@ -59,7 +59,7 @@ reconciled: "kb-w0-fix-checks after W0 (arch/kernel-boundary 220df07); K1 added,
 summary:
   total: 47  # the 46 judged baseline edges and K1
   kind: {runtime: 46, documentation: 1}
-  current_status: {open: 38, fixed: 7, retained: 2}
+  current_status: {open: 34, fixed: 9, retained: 4}
   target: {fixed: 33, retained: 4, deferred: 10}
   by_adr: {ADR-0012: 16, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
 
@@ -221,7 +221,7 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: disputed
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
     prs: [KB-10, KB-11]
@@ -238,7 +238,7 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: disputed
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
     prs: [KB-10, KB-11]
@@ -246,7 +246,6 @@ edges:
     tests:
       - trust rows T-1, T-13 against /api/v1/platform/<name>
     anchors:
-      - {path: sandloom/core/admin/api/platform.py, symbol: platform_operator}
       - {path: sandloom/core/admin/api/platform.py, literal: '"identity"'}
 
   - id: B-S3
@@ -255,9 +254,10 @@ edges:
     scope: runtime
     owner: tenancy
     baseline_verdict: disputed
-    current_status: open
+    current_status: retained
     target: retained
     adr: ADR-0014
+    reason: "the kernel's tenant grant protocol: TenantScope reads tenant_ids from the trusted view, trusted only from the tenant authority the map assigns (ADR-0014 decisions 1, 3)"
     prs: [KB-10, KB-11]
     invariants: [I-10, I-21, H-14]
     tests:
@@ -726,15 +726,16 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: disputed
-    current_status: open
+    current_status: retained
     target: retained
     adr: ADR-0014
+    reason: "roles and permissions are the kernel's protocol rights format, read only from the trusted view (ADR-0014 decision 3)"
     prs: [KB-11]
     invariants: [I-09, I-21, H-14]
     tests:
       - UserContext.roles / permissions read only from the trusted view (T-1, T-2)
     anchors:
-      - {path: sandloom/shared/subject.py, literal: "From 'identity' module"}
+      - {path: sandloom/shared/subject.py, symbol: UserContext}
     note: >-
       Retained: roles and permissions are the kernel's protocol rights format. KB-11 rewrites
       the comment in kernel terms, so the literal anchor becomes a symbol anchor

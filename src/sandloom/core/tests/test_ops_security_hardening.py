@@ -343,4 +343,9 @@ async def test_module_task_named_infra_does_not_jump_ahead() -> None:
 @pytest.mark.asyncio
 async def test_claims_provenance_always_stamped() -> None:
     claims = await CoreFacade(app=FastAPI()).collect_claims("u")
-    assert claims == {"claims_sources": [], "claims_sources_failed": []}
+    # No map: no key assigned, so the per-key policy version names none.
+    assert claims == {
+        "claims_sources": [],
+        "claims_sources_failed": [],
+        "cpv": {"v": 1, "k": {}},
+    }

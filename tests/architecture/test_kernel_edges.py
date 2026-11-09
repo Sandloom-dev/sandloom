@@ -354,6 +354,32 @@ def test_a_fixed_rows_literal_planted_in_another_kernel_file_fails(
     assert "sandloom/sdk/elsewhere.py:1: fixed-edge 'ix_crm_orders_provider'" in problem
 
 
+def test_a_fixed_rows_literal_an_open_row_anchors_in_its_file_is_that_rows(
+    tmp_path: Path,
+) -> None:
+    """A fixed row's literal (B-S1's ``"identity"``) where an open row anchors
+    it by symbol is the open row's finding; planted anywhere else it is
+    still the fixed row's regression."""
+    src = _tree(
+        tmp_path,
+        {
+            "sandloom/core/cli.py": 'def scaffold():\n    return "crm"\n',
+            "sandloom/core/guard.py": 'TRUSTED = "crm"\n',
+        },
+    )
+    fixed = _row(
+        current_status="fixed",
+        anchors=[{"path": "sandloom/core/old_guard.py", "literal": '"crm"'}],
+    )
+    open_row = _row(
+        "R2", anchors=[{"path": "sandloom/core/cli.py", "symbol": "scaffold"}]
+    )
+    (problem,) = _problems(src, _register(edges=[fixed, open_row]))
+    assert "row R1 is fixed but the edge is back (regression, rule 2)" in problem
+    assert "sandloom/core/guard.py:1" in problem
+    assert "sandloom/core/cli.py" not in problem
+
+
 def test_a_fixed_row_without_a_literal_anchor_fails(tmp_path: Path) -> None:
     """A fixed row the scan cannot see come back (symbol anchors only) fails."""
     src = _tree(tmp_path, {"sandloom/core/x.py": "X = 1\n"})

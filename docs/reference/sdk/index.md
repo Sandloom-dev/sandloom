@@ -69,7 +69,7 @@ These 24 code names are importable from `sandloom.sdk` directly; the six testing
 
 | Module | Beginner names | Names | Summary |
 | --- | ---: | ---: | --- |
-| [`sandloom.sdk.app`](app.md) | 0 | 2 |  |
+| [`sandloom.sdk.app`](app.md) | 0 | 4 |  |
 | [`sandloom.sdk.authz`](authz.md) | 7 | 55 |  |
 | [`sandloom.sdk.contracts`](contracts.md) | 3 | 32 |  |
 | [`sandloom.sdk.data`](data.md) | 6 | 42 |  |

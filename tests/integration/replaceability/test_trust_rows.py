@@ -112,9 +112,10 @@ def test_t1_the_assigned_replacement_issuer_grants_rights(
         assert gate_statuses(issuer, token) == {
             "/api/v1/shop/role-admin": 200,
             "/api/v1/shop/perm-write": 200,
-            # trust by the name "identity" until KB-11 (B-S1, B-S2)
-            "/api/v1/shop/platform": 403,
-            "/api/v1/platform/shop/services": 403,
+            # one platform admission over the trusted view (KB-11, B-S1 and
+            # B-S2 fixed): no source is trusted by the name "identity"
+            "/api/v1/shop/platform": 200,
+            "/api/v1/platform/shop/services": 200,
         }
         tenant = get(issuer, "/api/v1/shop/tenant", token, tenant=T_A)
         assert (tenant.status, tenant.body) == (200, {"tenant": T_A})
@@ -148,8 +149,10 @@ def test_t2_an_optional_violator_loses_its_whole_result(
         assert claims["tenant_ids"] == [T_A]
         assert claims["claims_sources_failed"] == ["forged"]
         assert claims["claims_sources"] == ["grants", "test_identity"]
-        for key in ("loyalty_tier", "tenant_id", "cpv"):
+        for key in ("loyalty_tier", "tenant_id"):
             assert key not in claims, key
+        # the kernel's own per-key policy version, never the forged one
+        assert claims["cpv"]["v"] == 1 and claims["cpv"] != FORGERY["cpv"]
         token = token_of(answer)
         assert set(gate_statuses(issuer, token).values()) == {403}
         foreign = get(issuer, "/api/v1/shop/tenant", token, tenant=T_FOREIGN)

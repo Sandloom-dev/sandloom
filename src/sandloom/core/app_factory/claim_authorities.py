@@ -48,7 +48,9 @@ from __future__ import annotations
 
 import difflib
 import logging
+import time
 from collections.abc import Iterable, Mapping
+from dataclasses import replace
 from typing import Any
 
 from sandloom.core.app_factory.revocation_applier import ISSUER_CODE
@@ -56,7 +58,9 @@ from sandloom.core.claims import (
     ISSUER_ENTRY,
     ISSUER_FIELDS,
     NO_AUTHORITIES,
+    Authority,
     ClaimAuthorities,
+    LegacyClaimsTokens,
 )
 from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
 from sandloom.core.descriptors.module_names import (
@@ -73,7 +77,13 @@ _CLAIMS_SUFFIX = ".claims.v1"
 
 
 class ClaimAuthorityError(ValueError):
-    """A ``claim_authorities`` entry that is not ``{str: str}``."""
+    """A ``claim_authorities`` entry that is not ``{str: str | Authority}``,
+    or a ``legacy_tokens`` that is not an absolute UTC time."""
+
+
+#: A ``claim_authorities`` value: an import path or entry-point name, or an
+#: :class:`~sandloom.core.claims.Authority` (with a ``previous=`` one).
+AuthorityEntry = str | Authority
 
 
 def _resolve(entry: str) -> str:
@@ -86,8 +96,64 @@ def _resolve(entry: str) -> str:
     return entry
 
 
+def _entry_path(key: Any, value: Any) -> tuple[str, Authority | None]:
+    """The import path of ``value`` and its ``previous=`` authority."""
+    authority = value if isinstance(value, Authority) else None
+    name = authority.name if authority is not None else value
+    if not isinstance(key, str) or not key or not isinstance(name, str) or not name:
+        raise ClaimAuthorityError(
+            f"claim_authorities[{key!r}] = {value!r}: each claim key (and "
+            f"{ISSUER_ENTRY!r}) maps to a module import path, an entry-point "
+            "name or an Authority(...)"
+        )
+    prior = authority.previous if authority is not None else None
+    if authority is not None and authority.module:
+        return authority.module, prior
+    try:
+        return _resolve(name), prior
+    except AmbiguousModuleError as exc:
+        raise ClaimAuthorityError(
+            f"claim_authorities[{key!r}] = {value!r} is ambiguous: {exc}"
+        ) from exc
+
+
+def _previous_entry(key: str, previous: Any) -> tuple[str, str]:
+    """``(import path, short name)`` of a ``previous=`` authority: declared
+    with its identity in full, never by short name (ADR-0014 decision 4)."""
+    if (
+        not isinstance(previous, Authority)
+        or not previous.name
+        or not previous.module
+        or previous.previous is not None
+    ):
+        raise ClaimAuthorityError(
+            f"claim_authorities[{key!r}]: previous={previous!r} names the "
+            "authority by its identity in full, "
+            "Authority('<name>', module='<import path>'), without a previous= "
+            "of its own"
+        )
+    return previous.module, previous.name
+
+
+def legacy_until(legacy_tokens: Any) -> float | None:
+    """``legacy_tokens.until`` as a POSIX time (``None``: no compatibility
+    mode); a :class:`ClaimAuthorityError` when it is not an absolute UTC
+    time. Never derived, moved or extended here (G-RISK-14)."""
+    if legacy_tokens is None:
+        return None
+    if not isinstance(legacy_tokens, LegacyClaimsTokens):
+        raise ClaimAuthorityError(
+            f"legacy_tokens={legacy_tokens!r}: pass "
+            "LegacyClaimsTokens(until='<UTC time>')"
+        )
+    try:
+        return legacy_tokens.until_timestamp()
+    except (TypeError, ValueError) as exc:
+        raise ClaimAuthorityError(str(exc)) from exc
+
+
 def build_claim_authorities(
-    mapping: Mapping[str, str] | None, *, assigned: bool = True
+    mapping: Mapping[str, AuthorityEntry] | None, *, assigned: bool = True
 ) -> ClaimAuthorities:
     """Resolve a composition root's map (no check of the composition).
 
@@ -96,33 +162,29 @@ def build_claim_authorities(
     (:data:`~sandloom.core.claims.NO_AUTHORITIES`). The issuer fields are the
     issuer's: an entry naming another module for one is a
     :class:`ClaimAuthorityError`, and a map with an issuer that names none
-    assigns them to it.
+    assigns them to it. An :class:`~sandloom.core.claims.Authority` value may
+    declare one ``previous=`` authority a verifier also accepts for the key
+    during a rollout (never for the issuer entry).
     """
     if mapping is None:
         return NO_AUTHORITIES
     authorities: dict[str, str] = {}
+    previous: dict[str, str] = {}
+    previous_owners: dict[str, str] = {}
     issuer: str | None = None
     for key, value in mapping.items():
-        if (
-            not isinstance(key, str)
-            or not key
-            or not isinstance(value, str)
-            or not value
-        ):
-            raise ClaimAuthorityError(
-                f"claim_authorities[{key!r}] = {value!r}: each claim key (and "
-                f"{ISSUER_ENTRY!r}) maps to a module import path or entry-point name"
-            )
-        try:
-            path = _resolve(value)
-        except AmbiguousModuleError as exc:
-            raise ClaimAuthorityError(
-                f"claim_authorities[{key!r}] = {value!r} is ambiguous: {exc}"
-            ) from exc
+        path, prior = _entry_path(key, value)
         if key == ISSUER_ENTRY:
+            if prior is not None:
+                raise ClaimAuthorityError(
+                    f"claim_authorities[{ISSUER_ENTRY!r}]: the issuer takes no "
+                    "previous= (only a claim key does)"
+                )
             issuer = path
         else:
             authorities[key] = path
+            if prior is not None:
+                previous[key], previous_owners[key] = _previous_entry(key, prior)
     for key in sorted(ISSUER_FIELDS):
         if issuer is not None:
             authorities.setdefault(key, issuer)
@@ -139,6 +201,8 @@ def build_claim_authorities(
         owners={key: module_name(path) for key, path in authorities.items()},
         issuer=issuer,
         assigned=assigned,
+        previous=previous,
+        previous_owners=previous_owners,
     )
 
 
@@ -179,11 +243,20 @@ def filter_to_composition(
     issuer = authorities.issuer
     if issuer is not None and loaded.get(module_name(issuer)) != issuer:
         issuer = None
+    # The mint keeps only what is composed here; the verifier's map is the
+    # root's whole map: in a split a verifier trusts an authority that runs
+    # in another service, proven per key by the token's ``cpv`` digest and
+    # provenance (decision 3). A key whose battery runs nowhere is never
+    # stamped by an issuer, so it is never trusted.
     return ClaimAuthorities(
         authorities=kept,
         owners={key: authorities.owners[key] for key in kept},
         issuer=issuer,
         assigned=True,
+        verified=authorities.verified,
+        verified_owners=authorities.verified_owners,
+        previous=authorities.previous,
+        previous_owners=authorities.previous_owners,
     )
 
 
@@ -330,15 +403,22 @@ def install_claim_authorities(
     core_facade: Any,
     loaded_descriptors: Iterable[Any],
     *,
-    claim_authorities: Mapping[str, str] | None,
-    default_claim_authorities: Mapping[str, str] | None,
+    claim_authorities: Mapping[str, AuthorityEntry] | None,
+    default_claim_authorities: Mapping[str, AuthorityEntry] | None,
     bindings: Mapping[str, Mapping[str, Any]],
     log: logging.Logger,
+    legacy_tokens: LegacyClaimsTokens | None = None,
+    lifetime_seconds: float = 0.0,
+    leeway_seconds: float = 0.0,
 ) -> ClaimAuthorities:
     """Resolve, check and assign the composition's claim authorities.
 
     Raises :class:`ConfigurationError` (SANDLOOM-B035) naming every problem;
-    on success the facade's mint check applies the result.
+    on success the facade's mint check applies the result, and the trusted
+    view (:mod:`sandloom.core.auth.claims_view`) reads it from this moment on
+    (``effective_at``). ``legacy_tokens`` turns on the bounded compatibility
+    mode of the initial ``cpv`` enablement (G-RISK-14); past its window end
+    it is off by itself and a WARNING asks to remove it.
     """
     descriptors = list(loaded_descriptors)
     loaded = {module_name(str(d.name)): str(d.name) for d in descriptors}
@@ -354,8 +434,10 @@ def install_claim_authorities(
             )
         else:
             authorities = NO_AUTHORITIES
+        until = legacy_until(legacy_tokens)
     except ClaimAuthorityError as exc:
         problems = [str(exc)]
+        until = None
     else:
         problems = claim_authority_problems(
             authorities,
@@ -388,15 +470,41 @@ def install_claim_authorities(
             authorities.issuer,
             dict(sorted(authorities.authorities.items())),
         )
+    now = time.time()
+    authorities = replace(authorities, legacy_until=until, effective_at=now)
+    if until is not None:
+        _log_legacy_mode(log, until + lifetime_seconds + leeway_seconds, now)
     core_facade._assign_claim_authorities(authorities)
     return authorities
 
 
+def _log_legacy_mode(log: logging.Logger, window_end: float, now: float) -> None:
+    """Startup WARNING of the compatibility mode (on, or ended)."""
+    end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(window_end))
+    if now >= window_end:
+        log.warning(
+            "claim authorities: the legacy_tokens window ended at %s: tokens "
+            "without cpv give no rights; remove legacy_tokens from the "
+            "composition root",
+            end,
+        )
+    else:
+        log.warning(
+            "claim authorities: legacy_tokens compatibility mode is ON (accepted "
+            "risk G-RISK-14): tokens without cpv are trusted per key until %s "
+            "(%d s left)",
+            end,
+            int(window_end - now),
+        )
+
+
 __all__ = [
     "CODE",
+    "AuthorityEntry",
     "ClaimAuthorityError",
     "build_claim_authorities",
     "claim_authority_problems",
     "filter_to_composition",
     "install_claim_authorities",
+    "legacy_until",
 ]

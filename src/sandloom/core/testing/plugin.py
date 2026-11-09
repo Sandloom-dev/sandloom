@@ -30,6 +30,7 @@ from pathlib import Path
 
 import pytest
 
+from sandloom.core.auth import claims_view as _claims_view
 from sandloom.core.testing.fixtures import (  # noqa: F401 - re-exported as fixtures
     COMPOSITION_ROOT_INI,
     _sandloom_cancel_leftover_tasks,
@@ -69,6 +70,9 @@ from sandloom.core.testing.slots import (
 
 
 def pytest_configure(config: pytest.Config) -> None:
+    # A test composition: the kernel test authority vouches for the claims
+    # of the test kit's tokens (ADR-0014; never in a running application).
+    _claims_view.enable_test_authority()
     config.addinivalue_line(
         "markers",
         "sandloom_allow_server_errors: the client returns a masked 500 instead of "

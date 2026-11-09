@@ -23,6 +23,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from sandloom.core.auth.claims_view import TEST_AUTHORITY, TEST_CPV
 from sandloom.core.config.settings import Settings
 from sandloom.core.di import (
     MissingTenantError,
@@ -37,6 +38,10 @@ from sandloom.core.di import (
 from sandloom.core.orm import TenantScoped
 from sandloom.core.tenant_context import configured_tenant_scope, current_tenant_id
 from sandloom.core.testing import reload_test_env
+
+#: The kernel test authority vouches for these raw tokens' claims
+#: (a test composition only; ADR-0014 trusted view).
+_KIT = {"cpv": TEST_CPV, "claims_sources": [TEST_AUTHORITY]}
 
 
 class _Base(DeclarativeBase):
@@ -239,6 +244,7 @@ def test_header_cannot_override_token_tenant() -> None:
         data={
             "sub": str(uuid.uuid4()),
             "token_type": "access",
+            **_KIT,
             "tenant_id": str(token_tenant),
         }
     )
@@ -261,6 +267,7 @@ def test_header_can_select_tenant_from_token_allowlist() -> None:
         data={
             "sub": str(uuid.uuid4()),
             "token_type": "access",
+            **_KIT,
             "tenant_ids": [str(tenant_a), str(tenant_b)],
         }
     )
@@ -285,6 +292,7 @@ def test_tenant_ids_parse_is_memoised_per_verified_token(monkeypatch) -> None:
         data={
             "sub": str(uuid.uuid4()),
             "token_type": "access",
+            **_KIT,
             "tenant_ids": [str(t) for t in tenants],
         }
     )
@@ -321,6 +329,7 @@ def test_malformed_signed_tenant_ids_entry_is_400_on_every_request() -> None:
         data={
             "sub": str(uuid.uuid4()),
             "token_type": "access",
+            **_KIT,
             # The tenant_id claim would answer alone; the malformed grant entry
             # must still fail the request (no string-membership shortcut).
             "tenant_id": str(good),

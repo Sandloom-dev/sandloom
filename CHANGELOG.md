@@ -15,6 +15,42 @@ website renders this same changelog.
 
 ### Security
 
+- **One trusted view per verified token; one platform admission; per-key
+  `cpv`** (KB-11, ADR-0014 decisions 3 and 4, amended 2026-11-09; edges
+  B-S1, B-S2 fixed). `decode_token` reduces every verified access token
+  once, cached with it, to the claims the composition's map trusts: a
+  protected key counts only when its authority (current, or the one
+  `previous=` the map declares) is named by the token's per-key `cpv`
+  digest of `(key, assigned import path)` and ran at the mint
+  (`claims_sources`, not failed). `UserContext`, `Role`, `Perm`,
+  `TenantScope` and both platform gates read only the view.
+  `require_platform_admin` and the platform console's operator gate share
+  one admission: `roles: admin` from the authority the map assigns, never
+  from a source named `identity`. An untrusted key answers 401
+  `token_policy_outdated` where one refresh fixes it, 503
+  `claims_policy_mismatch` where issuer and verifier run different maps
+  (`Or` picks 401 > 503 > 501). A remote `<m>.claims.v1` answer now names
+  the module serving it; the issuer refuses one naming another module, or
+  none, for an authority of its map, so the pinned `service_id` proves the
+  service and the answer proves the module. New: `Authority(name,
+  module=, previous=)` and `LegacyClaimsTokens(until=)` in
+  `sandloom.sdk.app`, `create_app(legacy_tokens=...)`,
+  `UserContext.untrusted_claims`. **Upgrade:** (1) upgrade every service
+  providing a `<m>.claims.v1` before the token issuer; (2) tokens minted
+  before this release carry no `cpv`: without a compatibility window every
+  client refreshes once (401 `token_policy_outdated`); to roll out without
+  that, pass `legacy_tokens=LegacyClaimsTokens(until="<UTC time the last
+  old issuer stops>")` to `create_app` in every service of the profile,
+  then remove it once `until + ACCESS_TOKEN_EXPIRE_MINUTES +
+  JWT_LEEWAY_SECONDS` has passed (accepted risk G-RISK-14; it ends by
+  itself, is never extended, and is counted in
+  `claims_policy_legacy_tokens_total`); (3) a test minting a raw token with
+  `create_access_token` stamps the kernel test authority (`cpv` and
+  `claims_sources` of `sandloom.core.auth.claims_view.TEST_CPV` /
+  `TEST_AUTHORITY`) or uses `as_user` / `make_user_headers`, which do;
+  (4) to move a key to another authority, deploy
+  `Authority("<path>", previous=Authority("<name>", module="<old path>"))`
+  first (ADR-0014 decision 4).
 - **A consumer-only install is checked from its own expectations; no
   expectation is never a warning** (KB-21, ADR-0013 decisions 3 and 4,
   closes D4). The startup compatibility check now reads what a caller

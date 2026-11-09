@@ -247,6 +247,11 @@ async def contribute(self, user_id: Any) -> dict[str, Any]
 
 Merged claims of this module's contributors for `user_id`.
 
+The answer names, under `sandloom.core.claims.AUTHORITY_CLAIM`,
+the import path of the module registered under this owner: a remote
+issuer binds it to its map (the pinned `service_id` proves the
+service, this proves which module the service runs under the name).
+
 ### `core_from_request`
 
 ```python
