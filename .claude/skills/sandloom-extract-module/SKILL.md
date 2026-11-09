@@ -1,6 +1,7 @@
 ---
 name: sandloom-extract-module
 description: Move one Sandloom module's existing data out of the shared (monolith) database into its own database with `sandloom migrate extract-module` — plan, fence, copy, verify, cut over, clean up. Use when a module that already holds production data is being split into its own service, or when asked to "extract", "move the data of", or "give <module> its own database".
+disable-model-invocation: true
 ---
 
 # Extract a module's data into its own database
