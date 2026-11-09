@@ -14,8 +14,9 @@
       }
     }
   },
+  "digest": "842b283137256d19",
   "fingerprint": "ed0385dfb659939804f7a8cfba941399",
-  "format": 1,
+  "format": 2,
   "generator_format": 2,
   "methods": [
     "platform_admin_exists"

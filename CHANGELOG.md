@@ -272,6 +272,13 @@ website renders this same changelog.
   console declares: its build-time composition must include `sandloom_admin`
   (it fails, saying so, otherwise). New advanced names:
   `GenerationInput`, `GenerationModule`, `ModuleDescriptor.generated_files`.
+  **Upgrade:** a build that runs `sandloom admin export` with a composition
+  that leaves the console out (an explicit `SANDLOOM_MODULES` subset, or a
+  composition root that does not compose `sandloom_admin`) adds
+  `sandloom_admin` to the composition of that build step; the running app's
+  composition does not change. SANDLOOM-T016's slug is now
+  `declared-generated-file` (it was `admin-manifest`): `sandloom explain
+  SANDLOOM-T016` and the code's docs anchor are unchanged.
 - **A module distribution holds copies of the contracts it consumes**
   (ADR-0013, KB-20). In a tree of top-level module packages (the framework,
   an ecosystem module repository), `sandloom generate` writes
@@ -298,6 +305,24 @@ website renders this same changelog.
   breaking against an expectation. Bundled stubs stay in `sandloom.shared`
   until KB-22. Upgrade: run `uv run sandloom generate` (headers change; no
   body changes).
+- **A module's `_generated/` is the generator's, end to end** (ADR-0013
+  decisions 1, 2, 5, 6; W1 review of KB-20). `sandloom check` refuses a file in
+  `<module>/_generated/` that `sandloom generate` did not write or that was
+  edited since, and an import of another module's `_generated` package
+  (static, relative or a constant dynamic import; new rule
+  `generated-reserved`, SANDLOOM-C032). Each `<stem>.describe.json` carries
+  the `digest` of its content (expectation `format` 2), so with the provider
+  not importable an edited expectation is refused like an edited stub
+  (SANDLOOM-T018). `sandloom generate` removes the copies of a contract the
+  module no longer consumes (`--check` reports them; an edited orphan is
+  refused). A module-level `x = Contract(REF)` that no file of the module
+  names again is refused naming the client (it consumed the contract for
+  nothing), and methods stated in `define_module(consumes=[...])` now cover
+  a call the derivation cannot resolve instead of being dropped. The
+  framework's `pyproject.toml` and the one `sandloom new` writes exclude
+  `_generated` from ruff. **Upgrade:** run `uv run sandloom generate` (each
+  committed `.describe.json` gains its `digest`); in an existing app, add
+  `"**/_generated"` to `[tool.ruff] extend-exclude`.
 - **`sandloom admin create` leaves the password rules to the provider.** The
   kernel CLI no longer imports `sandloom_identity.password_policy` and has no
   fallback 8–100 length rule of its own: identity's `password_problem` answer

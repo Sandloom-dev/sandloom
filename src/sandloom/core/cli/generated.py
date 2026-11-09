@@ -92,6 +92,8 @@ class Generated:
     content: str
     code: str
     problems: list[str] = field(default_factory=list)
+    #: a file to delete (an orphan consumer copy, ADR-0013 decision 2)
+    remove: bool = False
 
     @property
     def current(self) -> str | None:
@@ -99,6 +101,8 @@ class Generated:
 
     @property
     def stale(self) -> bool:
+        if self.remove:
+            return self.path.is_file()
         return self.current != self.content
 
 
@@ -748,7 +752,7 @@ def _consumer_plan(
     files = _consumer_copies.plan_composed(
         selected, consumes, planned, rules.source_root, STUBS, registry
     )
-    return [Generated(f.path, f.content, f.code, f.problems) for f in files]
+    return [Generated(f.path, f.content, f.code, f.problems, f.remove) for f in files]
 
 
 def _ensure_package(directory: Path, shared_dir: Path) -> None:
@@ -803,6 +807,23 @@ def _report_broken(broken: list[Generated], root: Path | None) -> None:
         )
 
 
+def _why_stale(item: Generated) -> str:
+    if item.remove:
+        return "(orphan: no longer consumed)"
+    state = "missing" if item.current is None else "differs"
+    return f"({state}){_consumer_copies.explain_diff(item.current, item.content)}"
+
+
+def _write(item: Generated, shared_dir: Path) -> None:
+    item.path.parent.mkdir(parents=True, exist_ok=True)
+    if item.path.suffix == ".py":
+        _ensure_package(item.path.parent, shared_dir)
+    if item.path.name == "inspection.json" and item.path.parent.name == ".sandloom":
+        _inspection_generation.publish_index(item.path, item.content)
+    else:
+        item.path.write_text(item.content, encoding="utf-8")
+
+
 def apply(
     files: Iterable[Generated],
     *,
@@ -825,19 +846,15 @@ def apply(
         if stale:
             print(f"{STALE} ({len(stale)} file(s)):")
         for item in stale:
-            state = "missing" if item.current is None else "differs"
-            why = _consumer_copies.explain_diff(item.current, item.content)
-            print(f"  {_shown(item.path, root)} [{item.code}] ({state}){why}")
+            print(f"  {_shown(item.path, root)} [{item.code}] {_why_stale(item)}")
         return 1 if stale else 0
     for item in stale:
-        item.path.parent.mkdir(parents=True, exist_ok=True)
-        if item.path.suffix == ".py":
-            _ensure_package(item.path.parent, shared_dir)
-        if item.path.name == "inspection.json" and item.path.parent.name == ".sandloom":
-            _inspection_generation.publish_index(item.path, item.content)
+        if item.remove:
+            item.path.unlink()
+            print(f"removed {_shown(item.path, root)} (no longer consumed)")
         else:
-            item.path.write_text(item.content, encoding="utf-8")
-        print(f"wrote {_shown(item.path, root)}")
+            _write(item, shared_dir)
+            print(f"wrote {_shown(item.path, root)}")
     return 0
 
 

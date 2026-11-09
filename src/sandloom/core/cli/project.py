@@ -242,7 +242,8 @@ filterwarnings = ["error::DeprecationWarning"]
 [tool.ruff]
 fix = true
 force-exclude = true
-extend-exclude = ["$app/modules/*/migrations"]
+# `_generated/` holds copies `sandloom generate` lays out itself (ADR-0013).
+extend-exclude = ["$app/modules/*/migrations", "**/_generated"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "C4", "UP", "C901"]
