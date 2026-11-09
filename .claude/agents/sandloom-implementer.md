@@ -61,6 +61,9 @@ subagent): pass no actor on tm calls.
 - Never print a whole snapshot, baseline, JSON schema or log. Read a file
   once, whole, or find the lines with `grep -n`; do not re-read ranges with
   `sed -n` after each edit, trust your Edit results.
+- Before opening a registry, CI config or kernel entry point, read the matching
+  section of `.claude/agent-reference.md` (registry formats and commands, CI by
+  path, `file:line` kernel map, plan index).
 - Search with `grep -rn` on `src/`, `tests/`, `docs/`; skip `.claude/worktrees/`.
 - Near the turn limit (around 100 turns), commit and push WIP, write a precise
   `task_checkpoint` and stop.

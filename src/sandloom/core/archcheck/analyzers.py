@@ -1264,8 +1264,13 @@ def sql_function_hint(name: str) -> str:
 #: At runtime a module gets the read-only ``CoreRuntime`` view (``get_core``)
 #: and at registration the ``ModuleAPI``; neither exposes these, so reaching
 #: them by attribute on whatever object a module holds is a bypass.
+#: ``_facade`` is the full facade behind the view, and ``claims_contributors``
+#: every module's registered contributor (another module's is an issuer it
+#: would mint as: ADR-0014 decision 5).
 KERNEL_HANDLE_ATTRIBUTES = frozenset(
     {
+        "_facade",
+        "claims_contributors",
         "event_bus",
         "infra",
         "service_registry",

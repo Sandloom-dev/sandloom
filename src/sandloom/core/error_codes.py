@@ -1751,8 +1751,8 @@ in-memory test database.
         "runtime",
         "a token mint received protected claims, provenance or the claim "
         "policy marker outside a sealed collect_claims result, a service "
-        "token carried one, or collect_claims got an issuer or a precomputed "
-        "contribution it cannot verify",
+        "token carried one, or collect_claims got an issuer or an issuer "
+        "session it cannot verify",
         "mint a user token with create_access_token(data=..., "
         "claims=await core.collect_claims(user_id, issuer=<your "
         "contributor>)), data holding only the envelope (sub, token_type, "
@@ -1772,8 +1772,9 @@ of its claims is refused at the mint.
 
 collect_claims takes the issuer as one of its own registered claims
 contributors (the module that registered it is the issuer, never a name), and
-precomputed only with the issuer and its session, for the issuer's own
-contributors, with keys claim_authorities assigns to the issuer.
+an issuer session only from the token issuer claim_authorities names. It takes
+no claim value from its caller: every claim, the issuer's email and
+email_verified included, is what a registered contributor returned.
 
 create_service_token is the limited path: it refuses every key above and
 stamps an empty provenance and the current cpv, so the token authenticates

@@ -13,9 +13,9 @@ claim only from the authority the composition assigned it
 (:class:`~sandloom.core.claims.ClaimAuthorities`), the reserved keys from
 nobody, any other key from one owner per token. A step that breaks it is a
 violator: an optional one loses its whole result, a critical one refuses the
-mint naming itself. The issuer's own fields (``email``, ``email_verified``)
-pass the same check as a last, critical step of the issuer
-(``collect_claims(issuer_claims=...)``): never written after it, unchecked.
+mint naming itself. No caller hands the mint a claim value: every claim,
+the issuer's own fields (``email``, ``email_verified``) included, is what a
+registered contributor returned in this pass.
 """
 
 from __future__ import annotations
@@ -267,7 +267,7 @@ class ClaimsContributorContract:
         issuer binds it to its map (the pinned ``service_id`` proves the
         service, this proves which module the service runs under the name).
         """
-        merged = await self._merge(user_id, None)
+        merged = await self._merge(user_id)
         path = self._facade._claims_owner_modules.get(self._owner or "")
         if AUTHORITY_CLAIM in merged:
             # A contributor wrote the kernel's key: it stays a reserved-key
@@ -278,17 +278,10 @@ class ClaimsContributorContract:
             merged[AUTHORITY_CLAIM] = path
         return merged
 
-    async def _merge(
-        self,
-        user_id: Any,
-        precomputed: Mapping[Any, dict[str, Any] | None] | None,
-    ) -> dict[str, Any]:
+    async def _merge(self, user_id: Any) -> dict[str, Any]:
         merged: dict[str, Any] = {}
         for fn in self._facade._contributors_of(self._owner):
-            if precomputed is not None and fn in precomputed:
-                contributed = precomputed[fn]
-            else:
-                contributed = await fn(user_id)
+            contributed = await fn(user_id)
             if contributed:
                 merged.update(contributed)
         return merged
@@ -381,8 +374,6 @@ class _ClaimsMixin(_ServicesMixin):
         issuer_session: Any = None,
         *,
         issuer: Callable[..., Any] | None = None,
-        precomputed: Mapping[Any, dict[str, Any] | None] | None = None,
-        issuer_claims: Mapping[str, Any] | None = None,
     ) -> SealedClaims:
         """Merge every contributor's claims for ``user_id`` (mint cold path).
 
@@ -404,22 +395,13 @@ class _ClaimsMixin(_ServicesMixin):
         registered, is refused: SANDLOOM-R017). ITS contributors run in
         ``issuer_session`` (the issuer's own, possibly uncommitted, request
         transaction — e.g. roles assigned during registration); a session
-        without ``issuer`` is a ``ValueError``.
+        without ``issuer`` is a ``ValueError``, and a session is accepted only
+        from the map's token issuer (``claim_authorities["issuer"]``: its
+        short name and import path; SANDLOOM-R017 otherwise).
 
-        ``precomputed`` maps one of the ISSUER's registered contributor
-        functions to the claims it would return for ``user_id`` in
-        ``issuer_session`` — read by the issuer in a statement it ran anyway
-        (identity folds its roles / permissions into the refresh CAS). That
-        contributor is then not called; the owner is still run, recorded and
-        stamped in ``claims_sources`` exactly as if it had been, and any of the
-        issuer's contributors NOT in the mapping still runs. It is accepted
-        only with ``issuer`` + ``issuer_session``, only for the issuer's own
-        contributors, only with keys the composition assigns to the
-        issuer, and only when that module IS the map's token issuer
-        (``claim_authorities["issuer"]``: its short name and import path;
-        SANDLOOM-R017 otherwise): a caller never supplies another module's
-        claims, a key its issuer is not the authority of, or an authority's
-        own keys without its contributor running.
+        No caller hands the mint a claim value: every claim, the issuer's own
+        fields (``email``, ``email_verified``) included, is what a registered
+        contributor returned in this pass.
 
         A non-critical contributor that fails is logged and recorded in
         ``claims_sources_failed`` (so claim-mode facts escalate to
@@ -431,15 +413,6 @@ class _ClaimsMixin(_ServicesMixin):
         (:attr:`claim_authorities`); a contributor writing one it is not
         assigned, or a reserved key, is a violator (see
         :meth:`_merge_claim_outcomes`).
-
-        ``issuer_claims``: the claims the issuer writes itself from the row
-        it mints for (``email``, ``email_verified``), merged as a last,
-        critical step of ``issuer`` through the same check: a key the
-        composition does not assign to the issuer refuses the mint
-        (:class:`ClaimsUnavailable`), so an issuer field is never minted
-        unchecked. Like ``precomputed`` they are accepted only from the
-        map's token issuer (SANDLOOM-R017; no map names none). No call is
-        added.
         """
         if issuer_session is not None and issuer is None:
             raise ValueError(
@@ -447,23 +420,12 @@ class _ClaimsMixin(_ServicesMixin):
                 "only the issuer's own contributors run in its session; every "
                 "other one runs in its own module's Unit of Work"
             )
-        if issuer_claims and issuer is None:
-            raise ValueError(
-                "collect_claims(issuer_claims=...) needs issuer=<contributor>: "
-                "they are checked as the issuer's own claims"
-            )
         owner = self._resolve_issuer(issuer)
-        if precomputed:
-            self._check_precomputed(owner, issuer_session, precomputed)
-        if precomputed or issuer_claims:
+        if issuer_session is not None:
             self._require_map_issuer(owner)
-        plan = self._claims_plan(user_id, owner, issuer_session, precomputed)
+        plan = self._claims_plan(user_id, owner, issuer_session)
         outcomes = await _run_claims_plan(plan)
-        return _seal_claims(
-            self._merge_claim_outcomes(
-                plan, outcomes, issuer=owner, issuer_claims=issuer_claims
-            )
-        )
+        return _seal_claims(self._merge_claim_outcomes(plan, outcomes))
 
     def _resolve_issuer(self, issuer: Any) -> str | None:
         """The short name of the module that registered ``issuer`` as a
@@ -495,79 +457,38 @@ class _ClaimsMixin(_ServicesMixin):
         return owner
 
     def _require_map_issuer(self, owner: str | None) -> None:
-        """Refuse ``precomputed`` / ``issuer_claims`` unless ``owner`` is the
-        token issuer the composition's map names (SANDLOOM-R017).
+        """Refuse an ``issuer_session`` unless ``owner`` is the token issuer
+        the composition's map names (SANDLOOM-R017).
 
-        Both hand the mint values no contributor computed in this pass, so
-        they are the issuer's alone (ADR-0014 decision 5): the step's owner is
-        the module registered under the map's issuer short name FROM the
-        map's issuer import path. An authority of other keys, or a module
-        merely named like the issuer, is not it; a map naming no issuer here
-        (none, or one this process does not compose) takes neither. Two
-        dictionary reads, no call (the mint path stays as it was).
+        The session's uncommitted rows are read as the issuer's, so only the
+        issuer's own contributors may run in it (ADR-0014 decision 5): the
+        step's owner is the module registered under the map's issuer short
+        name FROM the map's issuer import path. An authority of other keys, or
+        a module merely named like the issuer, is not it; a map naming no
+        issuer here (none, or one this process does not compose) takes no
+        session. Two dictionary reads, no call (the mint path stays as it
+        was).
         """
         expected = self._claim_authorities.issuer
         if expected is None:
             raise UnsealedClaimsError(
-                "SANDLOOM-R017: collect_claims(precomputed=..., issuer_claims=...) "
-                "is the token issuer's, and this composition's claim_authorities "
-                "names no issuer here"
+                "SANDLOOM-R017: collect_claims(issuer_session=...) is the token "
+                "issuer's, and this composition's claim_authorities names no "
+                "issuer here"
             )
         if owner is None or self._claims_owner_modules.get(owner) != expected:
             registered = self._claims_owner_modules.get(owner or "")
             raise UnsealedClaimsError(
-                "SANDLOOM-R017: collect_claims(precomputed=..., issuer_claims=...) "
-                f"is the token issuer's: the module {registered!r} (registered "
-                f"as {owner!r}) is not the claim_authorities issuer {expected!r}"
+                "SANDLOOM-R017: collect_claims(issuer_session=...) is the token "
+                f"issuer's: the module {registered!r} (registered as {owner!r}) "
+                f"is not the claim_authorities issuer {expected!r}"
             )
-
-    def _check_precomputed(
-        self,
-        owner: str | None,
-        issuer_session: Any,
-        precomputed: Mapping[Any, dict[str, Any] | None],
-    ) -> None:
-        """Refuse a ``precomputed`` contribution that is not the verified
-        issuer's own: without ``issuer`` + ``issuer_session``, for a function
-        the issuer did not register, or with a key the composition does not
-        assign to the issuer (SANDLOOM-R017)."""
-        if owner is None or issuer_session is None:
-            raise UnsealedClaimsError(
-                "SANDLOOM-R017: collect_claims(precomputed=...) is accepted "
-                "only with issuer=<contributor> and issuer_session"
-            )
-        owners = self._claim_authorities.owners
-        for fn, contributed in precomputed.items():
-            for f, _critical, o in self._claims_contributors:
-                if f == fn and o == owner:
-                    break
-            else:
-                raise UnsealedClaimsError(
-                    f"SANDLOOM-R017: collect_claims(precomputed=...) names "
-                    f"{fn!r}, which is not a claims contributor of the issuer "
-                    f"{owner!r}"
-                )
-            if not contributed:
-                continue
-            for key in contributed:
-                if owners.get(key) != owner:
-                    break
-            else:
-                continue
-            foreign = sorted(k for k in contributed if owners.get(k) != owner)
-            if foreign:
-                raise UnsealedClaimsError(
-                    f"SANDLOOM-R017: collect_claims(precomputed=...) carries "
-                    f"{', '.join(foreign)}, which claim_authorities does not "
-                    f"assign to the issuer {owner!r}"
-                )
 
     def _claims_plan(
         self,
         user_id: Any,
         issuer: str | None,
         issuer_session: Any,
-        precomputed: Mapping[Any, dict[str, Any] | None] | None,
     ) -> list[_ClaimsStep]:
         """One step per owner: local owners in registration order, then remote.
 
@@ -583,9 +504,7 @@ class _ClaimsMixin(_ServicesMixin):
                     (
                         owner,
                         critical,
-                        self._issuer_claims_call(
-                            owner, user_id, issuer_session, precomputed
-                        ),
+                        self._issuer_claims_call(owner, user_id, issuer_session),
                         None,
                     )
                 )
@@ -609,13 +528,10 @@ class _ClaimsMixin(_ServicesMixin):
         owner: str | None,
         user_id: Any,
         issuer_session: Any,
-        precomputed: Mapping[Any, dict[str, Any] | None] | None,
     ) -> Callable[[], Awaitable[Any]]:
         async def _issuer_call() -> Any:
             contract = ClaimsContributorContract(cast("CoreFacade", self), owner)
             with _module_api.bind_contract_session(issuer_session):
-                if precomputed:
-                    return await contract._merge(user_id, precomputed)
                 return _local_answer(await contract.contribute(user_id))
 
         setattr(_issuer_call, _ISSUER_ATTR, True)
@@ -692,9 +608,6 @@ class _ClaimsMixin(_ServicesMixin):
         self,
         plan: list[_ClaimsStep],
         outcomes: dict[int, _ClaimsOutcome],
-        *,
-        issuer: str | None = None,
-        issuer_claims: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Apply outcomes in plan order; the first critical failure aborts.
 
@@ -706,10 +619,6 @@ class _ClaimsMixin(_ServicesMixin):
         an optional one loses its WHOLE result (never a partial one), is
         recorded in ``claims_sources_failed``, logged at ERROR naming it and
         the key, and counted in ``claims_contributor_violations_total``.
-
-        ``issuer_claims`` are the last step, the issuer's and critical: a key
-        it may not write refuses the mint; its values win over the issuer's
-        contributors' (it reads the row it mints for).
         """
         claims: dict[str, Any] = {}
         sources: set[str] = set()
@@ -746,7 +655,6 @@ class _ClaimsMixin(_ServicesMixin):
             # nothing — an empty result is an authoritative "no").
             if owner:
                 sources.add(owner)
-        self._merge_issuer_claims(claims, key_owner, issuer, issuer_claims, sources)
 
         # Always stamped (JSON lists for the JWT; UserContext coerces to sets).
         # ``claims_sources_failed`` doubles as the marker that provenance is
@@ -761,29 +669,6 @@ class _ClaimsMixin(_ServicesMixin):
         # only that key's digest.
         claims[CPV_CLAIM] = {"v": CPV_VERSION, "k": dict(authorities.digests)}
         return claims
-
-    def _merge_issuer_claims(
-        self,
-        claims: dict[str, Any],
-        key_owner: Mapping[str, str | None],
-        issuer: str | None,
-        issuer_claims: Mapping[str, Any] | None,
-        sources: set[str],
-    ) -> None:
-        """The issuer's own claims, the last and critical step: a key it may
-        not write (:meth:`_claim_violation`) refuses the mint. The issuer is
-        then their verified source in ``sources`` (ADR-0014 decision 3,
-        part 3)."""
-        if not issuer_claims:
-            return
-        violation = self._claim_violation(
-            issuer, issuer_claims, key_owner, self._claim_authorities
-        )
-        if violation is not None:
-            self._violator(issuer, True, *violation)
-        claims.update(issuer_claims)
-        if issuer:
-            sources.add(issuer)
 
     def _claim_violation(
         self,

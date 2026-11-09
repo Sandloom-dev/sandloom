@@ -6,13 +6,21 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock
+from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import event
 
+from sandloom.sdk.contracts import contract_method
 from sandloom.sdk.infra import settings
 from sandloom.sdk.security import decode_token
-from sandloom.sdk.testing import revocation_mark_key, sealed_claims, set_environment
+from sandloom.sdk.testing import (
+    bind_contract_session,
+    revocation_mark_key,
+    sealed_claims,
+    set_environment,
+)
 from sandloom_identity.claims import contribute_identity_claims
 from sandloom_identity.models.user import User
 from sandloom_identity.services.token_service import TokenService
@@ -37,10 +45,11 @@ async def test_access_token_carries_email_verified(
 
 
 async def test_unverified_user_and_contributors_cannot_override_identity() -> None:
-    """``email``/``email_verified`` are handed to the kernel's mint check as
-    the issuer's own claims (which refuses a contributor writing them), and
-    the token carries what the check returned: nothing is written after it
-    except ``sub`` and ``token_type``."""
+    """Identity hands the kernel's mint no claim value: ``email`` /
+    ``email_verified`` come from its own contributor, through the mint check
+    (which refuses another contributor writing them), and the token carries
+    what the check returned: nothing is written after it except ``sub`` and
+    ``token_type``."""
     user = Mock(spec=User)
     user.id = "00000000-0000-0000-0000-000000000001"
     user.email = "u@example.com"
@@ -54,17 +63,56 @@ async def test_unverified_user_and_contributors_cannot_override_identity() -> No
     db = AsyncMock()
     db.add = Mock()
     pair = await TokenService.create_tokens(user, db, core)  # type: ignore[arg-type]
-    kwargs = core.collect_claims.await_args.kwargs
-    # The issuer is identified by its own registered contributor, never a name.
-    assert kwargs["issuer"] is contribute_identity_claims
-    assert kwargs["issuer_claims"] == {
-        "email": "u@example.com",
-        "email_verified": False,
-    }
+    call = core.collect_claims.await_args
+    # The issuer is identified by its own registered contributor, never a
+    # name; the user id and the issuer's session are all it is given.
+    assert call.args == (user.id, db)
+    assert call.kwargs == {"issuer": contribute_identity_claims}
     claims = decode_token(pair.access_token)
     assert claims is not None
     assert claims["sub"] == str(user.id)
     assert {k: claims[k] for k in checked} == checked
+
+
+async def test_the_contributor_reads_the_issuer_fields_in_its_statement(
+    test_db: Any, make_user: Any
+) -> None:
+    """``email`` / ``email_verified`` ride the contributor's one statement:
+    an unverified user is ``False``, a row still pending in the issuer's
+    session is seen (autoflush), and a missing user still answers one row."""
+    contribute = contract_method(contribute_identity_claims)
+    unverified = await make_user("claims-unverified@example.com", verified=False)
+    pending = User(email="claims-pending@example.com", full_name="P", is_verified=True)
+    test_db.add(pending)
+    statements: list[str] = []
+
+    def _count(_conn: Any, _cursor: Any, sql: str, *_args: Any) -> None:
+        if sql.lstrip().upper().startswith("SELECT"):
+            statements.append(sql)
+
+    engine = test_db.bind.sync_engine
+    with bind_contract_session(test_db):
+        assert await contribute(unverified.id) == {
+            "roles": [],
+            "permissions": [],
+            "email": "claims-unverified@example.com",
+            "email_verified": False,
+        }
+        event.listen(engine, "before_cursor_execute", _count)
+        try:
+            seen = await contribute(pending.id)
+        finally:
+            event.remove(engine, "before_cursor_execute", _count)
+        missing = await contribute(uuid4())
+    assert seen["email"] == "claims-pending@example.com"
+    assert seen["email_verified"] is True
+    assert len(statements) == 1, statements  # one statement, no extra I/O
+    assert missing == {
+        "roles": [],
+        "permissions": [],
+        "email": None,
+        "email_verified": False,
+    }
 
 
 async def test_without_a_core_no_issuer_field_is_minted() -> None:
