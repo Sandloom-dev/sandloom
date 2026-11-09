@@ -3018,6 +3018,22 @@
       ],
       "signature": "(statuses:POSITIONAL_OR_KEYWORD|Iterable[str] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str | None=None) -> None"
     },
+    "ClaimReadCheck": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(params:POSITIONAL_OR_KEYWORD|Mapping[str, Any] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str | None=None) -> None"
+    },
     "ClaimRule": {
       "kind": "class",
       "members": [
@@ -3400,6 +3416,10 @@
     "authorize_resource": {
       "kind": "function",
       "signature": "(loader:KEYWORD_ONLY|Callable[[Any, AsyncSession], Awaitable[Any]], by:KEYWORD_ONLY|str, policy:KEYWORD_ONLY|Requirement, cast:KEYWORD_ONLY|Callable[[str], Any] | None=None, not_found_detail:KEYWORD_ONLY|str='Not found', status_code:KEYWORD_ONLY|int | None=None) -> Callable[..., Awaitable[Any]]"
+    },
+    "claim_atom": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, claim_key:KEYWORD_ONLY|str, entry:KEYWORD_ONLY|str, below:KEYWORD_ONLY|str | None=None, claim_keys:KEYWORD_ONLY|Iterable[str]=tuple()) -> Callable[[Any], Any]"
     },
     "current_context": {
       "kind": "function",
@@ -6393,6 +6413,22 @@
       ],
       "signature": "(statuses:POSITIONAL_OR_KEYWORD|Iterable[str] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str | None=None) -> None"
     },
+    "ClaimReadCheck": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(params:POSITIONAL_OR_KEYWORD|Mapping[str, Any] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str | None=None) -> None"
+    },
     "ClaimRule": {
       "kind": "class",
       "members": [
@@ -6763,6 +6799,10 @@
     "authorize_resource": {
       "kind": "function",
       "signature": "(loader:KEYWORD_ONLY|Callable[[Any, AsyncSession], Awaitable[Any]], by:KEYWORD_ONLY|str, policy:KEYWORD_ONLY|Requirement, cast:KEYWORD_ONLY|Callable[[str], Any] | None=None, not_found_detail:KEYWORD_ONLY|str='Not found', status_code:KEYWORD_ONLY|int | None=None) -> Callable[..., Awaitable[Any]]"
+    },
+    "claim_atom": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, claim_key:KEYWORD_ONLY|str, entry:KEYWORD_ONLY|str, below:KEYWORD_ONLY|str | None=None, claim_keys:KEYWORD_ONLY|Iterable[str]=tuple()) -> Callable[[Any], Any]"
     },
     "current_context": {
       "kind": "function",
