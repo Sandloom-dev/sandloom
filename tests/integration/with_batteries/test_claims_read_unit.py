@@ -275,20 +275,24 @@ async def test_real_database_aborted_transaction_is_detected(
 
 
 @pytest.mark.asyncio
-async def test_precomputed_issuer_contributor_is_not_called_but_stamped() -> None:
+async def test_every_issuer_contributor_runs_once_in_its_session() -> None:
+    """No contributor is skipped (no claim value is handed to the mint): the
+    issuer's contributors each run once in its session, the others in their
+    own unit, and every owner is stamped."""
     core, _log = _core()
-    calls: list[str] = []
+    calls: list[tuple[str, Any]] = []
+    issuer_session = object()
 
     async def roles(user_id: Any) -> dict[str, Any]:
-        calls.append("roles")
+        calls.append(("roles", contract_session()))
         return {"roles": ["from-query"]}
 
     async def extra(user_id: Any) -> dict[str, Any]:
-        calls.append("extra")
+        calls.append(("extra", contract_session()))
         return {"extra": True}
 
     async def tenancy(user_id: Any) -> dict[str, Any]:
-        calls.append("tenancy")
+        calls.append(("tenancy", None))
         return {"tenant_ids": []}
 
     with core.module_registration("sandloom_identity") as api:
@@ -296,17 +300,16 @@ async def test_precomputed_issuer_contributor_is_not_called_but_stamped() -> Non
         api.add_claims_contributor(extra)
     _register(core, "sandloom_tenancy", tenancy, critical=True)
 
-    claims = await core.collect_claims(
-        uuid4(), object(), issuer=_issuer(core), precomputed={roles: {"roles": ["cas"]}}
-    )
+    claims = await core.collect_claims(uuid4(), issuer_session, issuer=_issuer(core))
 
-    assert claims["roles"] == ["cas"] and claims["extra"] is True
-    assert sorted(calls) == ["extra", "tenancy"]  # only the precomputed one skipped
+    assert claims["roles"] == ["from-query"] and claims["extra"] is True
+    assert sorted(name for name, _ in calls) == ["extra", "roles", "tenancy"]
+    assert all(s is issuer_session for name, s in calls if name != "tenancy")
     assert claims["claims_sources"] == ["identity", "tenancy"]
 
 
 @pytest.mark.asyncio
-async def test_precomputed_never_stands_in_for_another_owner() -> None:
+async def test_no_caller_stands_in_for_another_owner() -> None:
     core, _log = _core()
 
     async def tenancy(user_id: Any) -> dict[str, Any]:
@@ -317,26 +320,17 @@ async def test_precomputed_never_stands_in_for_another_owner() -> None:
 
     _register(core, "sandloom_tenancy", tenancy, critical=True)
     _register(core, "sandloom_identity", identity, critical=True)
-    # No issuer session: refused (precomputed is the verified issuer's own).
-    with pytest.raises(UnsealedClaimsError, match="only with issuer"):
-        await core.collect_claims(
-            uuid4(), precomputed={tenancy: {"tenant_ids": ["forged"]}}
-        )
-    # Tenancy is not the issuer: refused, never stood in for it.
-    with pytest.raises(UnsealedClaimsError, match="not a claims contributor of"):
-        await core.collect_claims(
+    # No claim value is taken from a caller (SEC-2).
+    with pytest.raises(TypeError, match="precomputed"):
+        await core.collect_claims(  # type: ignore[call-arg]
             uuid4(),
             object(),
             issuer=_issuer(core),
             precomputed={tenancy: {"tenant_ids": ["forged"]}},
         )
-    # Nor may the issuer's own carry tenancy's key.
-    with pytest.raises(UnsealedClaimsError, match="does not assign"):
-        await core.collect_claims(
-            uuid4(),
-            object(),
-            issuer=_issuer(core),
-            precomputed={identity: {"tenant_ids": ["forged"]}},
-        )
+    # Tenancy is not the issuer: its contributor never runs in a caller's
+    # session.
+    with pytest.raises(UnsealedClaimsError, match="not the claim_authorities issuer"):
+        await core.collect_claims(uuid4(), object(), issuer=tenancy)
     claims = await core.collect_claims(uuid4(), object(), issuer=_issuer(core))
     assert claims["tenant_ids"] == ["real"]

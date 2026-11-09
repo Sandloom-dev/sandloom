@@ -97,3 +97,21 @@ def test_analyzer_detects_reflective_kernel_handles() -> None:
         assert shape in joined, (shape, found)
     assert "get_service" not in joined
     assert len(found) == 4, found
+
+
+def test_analyzer_detects_the_facade_behind_the_runtime() -> None:
+    """``core._facade`` is the full facade behind ``CoreRuntime``, and
+    ``claims_contributors`` every module's contributor: another module's is an
+    issuer it would mint as (ADR-0014 decision 5). Both are flagged, by
+    attribute and by name."""
+    fixture = (
+        Path(__file__).parent / "_fixtures" / "broken_module" / "facade_handles.py.txt"
+    )
+    found = find_kernel_handle_access(fixture)
+    joined = "\n".join(found)
+    assert sum(f.endswith(": .claims_contributors") for f in found) == 1, found
+    assert sum(f.endswith(": ._facade") for f in found) == 2, found
+    assert "reflective access to '_facade'" in joined, found
+    assert "reflective access to 'claims_contributors'" in joined, found
+    assert "collect_claims" not in joined
+    assert len(found) == 5, found

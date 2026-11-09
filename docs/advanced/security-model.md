@@ -249,8 +249,9 @@ contributor aborts minting (`503`) — see
 [Claims contributors](../modules/http/route-policy.md#token-claims).
 Contributors cannot write the identity claims. `sub` and `token_type` are
 the minting code's. `email` and `email_verified` are the issuer's fields.
-The issuer writes them at the mint through the same check as every protected
-claim. No other module's value is kept, and none is overwritten silently.
+The issuer's own claims contributor returns them, in the same statement as
+its roles, and the mint checks them like every protected claim. No other
+module's value is kept, and none is overwritten silently.
 
 Each protected claim has one authority, a module the composition root names
 in code: `create_app(claim_authorities={...})`. An `issuer` entry names the
@@ -292,7 +293,8 @@ claim or a tenant selector in `data` is refused (`SANDLOOM-R017`). So are
 provenance and `cpv`. So is a copy or spread of the sealed result. The
 issuer passes one of its own claims contributors as `issuer=`: the kernel
 takes the issuer from the module that registered it, never from a name.
-`precomputed` may carry only the keys the map assigns to that issuer. A
+Only the map's issuer may pass its own session. `collect_claims` takes no
+claim value from its caller: every claim comes from a contributor. A
 token for a service or a test client that needs no user rights comes from
 `create_service_token`. Every `Role` gate denies it, and so does every `Perm`
 gate. The platform and `TenantScope` gates deny it too. `as_user` and

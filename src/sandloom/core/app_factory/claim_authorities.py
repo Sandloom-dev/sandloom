@@ -29,9 +29,10 @@ the result, which the mint check applies in the merge pass
   ``email_verified``) are the map's issuer's: an entry naming another module
   (or naming one in a map without an issuer) is refused wherever the map is
   read; a map with an issuer that names none assigns them to the issuer. The
-  issuer writes them at the mint through the same check
-  (``collect_claims(issuer_claims=...)``, a critical step), so they need no
-  claims contributor of their own.
+  issuer's own claims contributor writes them at the mint through the same
+  check (no caller hands the mint a value); the issuer is checked as the
+  issuer, so an optional issuer contributor that fails mints a token without
+  them, never with another module's.
 * **The default map** (``default_claim_authorities``, a composition root's
   standard map, e.g. ``sandloom_standard.main``) keeps only the entries whose
   authority is part of this composition: loaded here, or bound through its
@@ -399,8 +400,8 @@ def claim_authority_problems(
         # installed (a split's own images).
         for key, path in sorted(authorities.authorities.items()):
             if key in ISSUER_FIELDS and path == authorities.issuer:
-                # The issuer writes them in its own critical mint step; the
-                # issuer itself is checked below.
+                # The issuer's own contributor writes them through the mint
+                # check; the issuer itself is checked below.
                 continue
             problem = _authority_problem(
                 key,

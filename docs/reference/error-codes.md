@@ -113,7 +113,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-R014`](#sandloom-r014) | `services-unreachable` | runtime | a sandloom command cannot reach PostgreSQL or Redis | active |
 | [`SANDLOOM-R016`](#sandloom-r016) | `nested-writer-refused` | runtime | a second writer of the same task began on a database whose writers are serial (SQLite) while the task holds the write lock on another connection that is not one of its open units | active |
 | [`SANDLOOM-R015`](#sandloom-r015) | `sql-form-unsupported` | runtime | a portable SQL form the database cannot write | active |
-| [`SANDLOOM-R017`](#sandloom-r017) | `unsealed-claims` | runtime | a token mint received protected claims, provenance or the claim policy marker outside a sealed collect_claims result, a service token carried one, or collect_claims got an issuer or a precomputed contribution it cannot verify | active |
+| [`SANDLOOM-R017`](#sandloom-r017) | `unsealed-claims` | runtime | a token mint received protected claims, provenance or the claim policy marker outside a sealed collect_claims result, a service token carried one, or collect_claims got an issuer or an issuer session it cannot verify | active |
 | [`SANDLOOM-T001`](#sandloom-t001) | `route-snapshot` | test | a module's routes.snapshot.json does not match its routes | active |
 | [`SANDLOOM-T002`](#sandloom-t002) | `migration-chain` | test | a table or index is not created by its owning migration chain | active |
 | [`SANDLOOM-T004`](#sandloom-t004) | `contract-snapshot` | test | a module's contracts.snapshot.json does not match its contracts | active |
@@ -1774,7 +1774,7 @@ in-memory test database.
 
 ### SANDLOOM-R017
 
-**a token mint received protected claims, provenance or the claim policy marker outside a sealed collect_claims result, a service token carried one, or collect_claims got an issuer or a precomputed contribution it cannot verify**
+**a token mint received protected claims, provenance or the claim policy marker outside a sealed collect_claims result, a service token carried one, or collect_claims got an issuer or an issuer session it cannot verify**
 
 Slug: `unsealed-claims` · kind: runtime · status: active
 
@@ -1792,8 +1792,9 @@ of its claims is refused at the mint.
 
 collect_claims takes the issuer as one of its own registered claims
 contributors (the module that registered it is the issuer, never a name), and
-precomputed only with the issuer and its session, for the issuer's own
-contributors, with keys claim_authorities assigns to the issuer.
+an issuer session only from the token issuer claim_authorities names. It takes
+no claim value from its caller: every claim, the issuer's email and
+email_verified included, is what a registered contributor returned.
 
 create_service_token is the limited path: it refuses every key above and
 stamps an empty provenance and the current cpv, so the token authenticates

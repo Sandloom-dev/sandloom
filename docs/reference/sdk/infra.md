@@ -496,14 +496,13 @@ async def collect_claims(
     issuer_session: Any = None,
     *,
     issuer: Callable[..., Any] | None = None,
-    precomputed: Mapping[Any, dict[str, Any] | None] | None = None,
-    issuer_claims: Mapping[str, Any] | None = None,
 ) -> SealedClaims
 ```
 
 The sealed claims of `user_id` for `create_access_token(data,
 claims=sealed)`; `issuer` is one of the minting module's own
-registered claims contributors. See
+registered claims contributors. Every claim is a registered
+contributor's: no caller hands the mint a value. See
 `sandloom.core.facade.CoreFacade.collect_claims`.
 
 #### `CoreRuntime.get_access_fact`
