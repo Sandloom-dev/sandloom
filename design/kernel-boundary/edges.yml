@@ -59,7 +59,7 @@ reconciled: "kb-w0-fix-checks after W0 (arch/kernel-boundary 220df07); K1 added,
 summary:
   total: 47  # the 46 judged baseline edges and K1
   kind: {runtime: 46, documentation: 1}
-  current_status: {open: 25, fixed: 18, retained: 4}
+  current_status: {open: 22, fixed: 21, retained: 4}
   target: {fixed: 33, retained: 4, deferred: 10}
   by_adr: {ADR-0012: 16, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
 
@@ -384,7 +384,7 @@ edges:
     scope: runtime
     owner: [billing, identity]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-55]
@@ -401,7 +401,7 @@ edges:
     scope: runtime
     owner: [identity, billing]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-55]
@@ -418,7 +418,7 @@ edges:
     scope: runtime
     owner: [billing, identity]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-52, KB-53, KB-55]
@@ -436,19 +436,20 @@ edges:
     scope: runtime
     owner: admin
     baseline_verdict: violation
-    current_status: fixed
+    current_status: open
     target: fixed
     adr: ADR-0015
-    prs: [KB-54]
+    prs: [KB-60]
     invariants: [I-03]
     tests:
       - sandloom admin create picks the link target from the composed app's console route, not a setting
     anchors:
-      - {path: sandloom/core/cli/admin.py, literal: '"admin_console_enabled"'}
+      - {path: sandloom/core/cli/admin.py, symbol: _CONSOLE_SWITCH}
     note: >-
-      KB-54: the kernel `Settings` no longer holds the console switch (admin declares it). The CLI
-      still reads the declared name from the process's source read to keep today's link choice:
-      that remaining name is held by B-N3 (KB-60), which also decides the composed-route test.
+      KB-54 moved the switch out of the kernel `Settings` (admin declares it). `sandloom admin
+      create` still reads the declared name `ADMIN_CONSOLE_ENABLED` from the process's source read
+      to choose the link target. ADR-0015 wants the composed app's console route instead; the owner
+      moved that to KB-60 (2026-11-09), which closes this row together with B-N3 (the link path).
 
   # --- 4.5 naming --------------------------------------------------------------------------
   - id: B-N1
@@ -552,6 +553,7 @@ edges:
     anchors:
       - {path: sandloom/core/cli/project.py, symbol: _IDENTITY_NOTE}
       - {path: sandloom/core/cli/project.py, symbol: _BILLING_ENV}
+      - {path: sandloom/core/cli/project.py, symbol: _IDENTITY_ENV}
     note: Starter phase; env text can be generated from KB-50 declarations.
 
   - id: B-N7
@@ -578,7 +580,7 @@ edges:
     scope: runtime
     owner: [identity, billing]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-55]
@@ -586,7 +588,7 @@ edges:
     tests:
       - sandloom add deploy writes module env from declarations (P14)
     anchors:
-      - {path: sandloom/core/cli/scaffold_deploy.py, symbol: MODULE_ENV}
+      - {path: sandloom/core/cli/scaffold_deploy.py, literal: MODULE_ENV}
 
   - id: B-N9
     class: b

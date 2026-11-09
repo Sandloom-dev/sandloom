@@ -30,7 +30,7 @@
       }
     },
     "tenancy.membership.v1": {
-      "hash": "fbf42e7650aa13c0878c442f6080d419",
+      "hash": "43e39d1d6fe9cddc1dba13372867682b",
       "methods": {
         "get_member_state": {
           "idempotency_key": null,
@@ -136,6 +136,36 @@
           }
         },
         "has_role_at_least": {
+          "access_check": {
+            "bind": {
+              "organization_id": [
+                "org",
+                "org_id",
+                false
+              ],
+              "user_id": [
+                "subject"
+              ]
+            },
+            "category": "forbidden",
+            "describe": "organization role '{minimum}'",
+            "name": "OrgRole",
+            "risk": {
+              "admin": {
+                "minimum": [
+                  "admin",
+                  "owner"
+                ]
+              }
+            },
+            "values": {
+              "minimum": [
+                "member",
+                "admin",
+                "owner"
+              ]
+            }
+          },
           "idempotency_key": null,
           "kind": "read",
           "params": [

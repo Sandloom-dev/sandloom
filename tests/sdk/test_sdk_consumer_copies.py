@@ -211,6 +211,9 @@ def test_kernel_families_get_no_copy(tree: dict[str, Any]) -> None:
     assert cc.is_kernel_family("billing.facts.v1") and cc.is_kernel_family(
         "x.claims.v1"
     )
+    # the runtime reserves only the .v1 names: another version is an ordinary contract
+    assert not cc.is_kernel_family("x.claims.v2")
+    assert not cc.is_kernel_family("x.facts.v2")
     spec = cc.ModuleCopies(
         tree["shop"],
         tree["src"] / tree["shop"],

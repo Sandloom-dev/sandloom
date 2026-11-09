@@ -196,6 +196,17 @@ class AccessFact:
     #: factory returning one (rules that depend on the owner's settings); without
     #: one, a ``claim_key`` means truthiness.
     claim_rule: ClaimRule | Callable[[], ClaimRule] | None = None
+    #: The class name of the claim-tier atom ``sandloom generate`` writes for
+    #: this fact beside the stub of the live check that names it with
+    #: ``access_check(..., claim=<this fact>)`` (ADR-0014 decision 11).
+    atom: str | None = None
+    #: The statuses the generated atom's ``statuses=`` may list (a ``Literal``).
+    atom_statuses: tuple[str, ...] = ()
+    #: The claim keys the generated atom's ``claim_key=`` may read (the first
+    #: is ``claim_key``); each must be assigned to a trusted authority.
+    atom_claim_keys: tuple[str, ...] = ()
+    #: The generated atom's denial label (``None``: its class name).
+    atom_describe: str | None = None
 
     def __post_init__(self) -> None:
         if self.min_freshness not in _RANK:
@@ -557,7 +568,23 @@ def fact_owner_contract(name: str) -> str:
     return facts_contract_name(owner)
 
 
-async def lookup_access_fact(ctx: AuthzContext, name: str) -> AccessFact | None:  # noqa: C901
+def fact_owner_present(ctx: AuthzContext, name: str, owner: str) -> bool:
+    """Whether ``owner`` is part of this composition for fact ``name``: its
+    fact registered locally, or its ``<owner>.facts.v1`` bound. Zero I/O."""
+    core = ctx.core()
+    if core is None:
+        return False
+    get_fact = getattr(core, "get_access_fact", None)
+    local = get_fact(name) if callable(get_fact) else None
+    if local is not None and getattr(local, "owner_module", None) == owner:
+        return True
+    owners_fn = getattr(core, "remote_fact_owners", None)
+    return callable(owners_fn) and owner in set(owners_fn())
+
+
+async def lookup_access_fact(  # noqa: C901
+    ctx: AuthzContext, name: str, *, owner: str | None = None
+) -> AccessFact | None:
     """The fact ``name``: the local registration, else the owner's public one.
 
     Order: ``core.get_access_fact(name)`` (owner co-deployed) → every bound
@@ -565,17 +592,21 @@ async def lookup_access_fact(ctx: AuthzContext, name: str) -> AccessFact | None:
     first dotted segment first), whose ``describe()`` is cached on the core for
     :data:`REMOTE_FACT_TTL_SECONDS`. ``None`` when no owner knows the fact (the
     caller reports 501); :class:`FactOwnerUnreachable` (503) when a bound owner
-    could not be asked and none of the others knows it.
+    could not be asked and none of the others knows it. ``owner=`` (a
+    generated atom's literal) accepts only that module's fact and asks only
+    its facts contract.
     """
     core = ctx.core()
     if core is None:
         return None
     get_fact = getattr(core, "get_access_fact", None)
     local = get_fact(name) if callable(get_fact) else None
-    if local is not None:
+    if local is not None and (owner is None or local.owner_module == owner):
         return cast(AccessFact, local)
     owners_fn = getattr(core, "remote_fact_owners", None)
     owners = list(owners_fn()) if callable(owners_fn) else []
+    if owner is not None:
+        owners = [o for o in owners if o == owner]
     if not owners:
         return None
     cache = getattr(core, "remote_access_fact_cache", None)
@@ -583,7 +614,11 @@ async def lookup_access_fact(ctx: AuthzContext, name: str) -> AccessFact | None:
         cache = {}
     now = time.monotonic()
     hit = cache.get(("fact", name))
-    if hit is not None and hit[0] > now:
+    if (
+        hit is not None
+        and hit[0] > now
+        and (owner is None or hit[1].owner_module == owner)
+    ):
         return cast(AccessFact, hit[1])
     prefix = name.split(".", 1)[0]
     owners.sort(key=lambda o: o != prefix)

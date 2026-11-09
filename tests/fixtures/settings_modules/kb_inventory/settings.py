@@ -1,5 +1,7 @@
 """The inventory module's settings: plain pydantic, aliased to env names."""
 
+import secrets
+from collections.abc import Callable, Mapping
 from typing import ClassVar
 
 from pydantic import BaseModel, Field, SecretStr, ValidationInfo, model_validator
@@ -43,6 +45,25 @@ class InventorySettings(BaseModel):
             "stock sync is always event-driven now",
         ),
     )
+
+    # What the kernel's tools read from the declaration (KB-55, P14).
+    console: ClassVar[tuple[str, ...]] = ("warehouse",)
+    shared: ClassVar[tuple[str, ...]] = ("KB_INVENTORY_WAREHOUSE",)
+    backup: ClassVar[tuple[tuple[str, str], ...]] = (
+        (
+            "KB_INVENTORY_API_TOKEN",
+            "losing KB_INVENTORY_API_TOKEN: stock sync stops until it is re-issued",
+        ),
+    )
+    deploy: ClassVar[tuple[str, ...]] = (
+        "# inventory: the warehouse it reserves from, and its sync token.",
+        "KB_INVENTORY_WAREHOUSE: ${KB_INVENTORY_WAREHOUSE:-main}",
+        "KB_INVENTORY_API_TOKEN: ${KB_INVENTORY_API_TOKEN:?set KB_INVENTORY_API_TOKEN}",
+    )
+    dev_env: ClassVar[Mapping[str, str | Callable[[], str]]] = {
+        "KB_INVENTORY_API_TOKEN": lambda: "dev-" + secrets.token_hex(8)
+    }
+    dev_risks: ClassVar[tuple[str, ...]] = ("oversell_in_prod",)
 
     @model_validator(mode="after")
     def _production(self, info: ValidationInfo) -> "InventorySettings":

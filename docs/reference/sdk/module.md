@@ -109,6 +109,16 @@ route path of this application is refused.
 the process's one read of the environment before anything else
 registers; an invalid value stops the boot (optional module or not).
 Read it with `settings_of(Model)` inside a request, a task or `setup`.
+Class attributes of the model, all optional plain data (annotate them
+`ClassVar`), tell the kernel's tools what the module needs: `semantic`,
+`risks` and `removed` (tiers, accepted risks, removed names),
+`console` (field names the admin console's settings view lists), `shared`
+(env names identical in every process that loads the module: the deploy
+profile check), `backup` (`(secret to keep, what losing it costs)` pairs
+for `sandloom backup plan`), `deploy` (the compose `environment:` lines
+`sandloom add deploy` writes for a service that loads the module),
+`dev_env` (`{ENV_NAME: value or callable}` for `sandloom keys dev-env`)
+and `dev_risks` (its risks that development stack accepts).
 
 `generates` declares files `sandloom generate` writes into the app's
 shared package: file name -> `render(source) -> str`, where `source` is

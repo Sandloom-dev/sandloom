@@ -18,10 +18,11 @@ import os
 import shlex
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import urlsplit
 
 import pytest
+from pydantic import BaseModel, Field
 
 from sandloom.core.cli._operator import add_operator_arguments, operator_intent
 from sandloom.core.config.settings import settings
@@ -71,6 +72,15 @@ def _migrate(url: str, identity_revision: str = "head") -> None:
     migrate_module(url, "sandloom_identity", identity_revision)
 
 
+class _KeyedModule(BaseModel):
+    """A module's settings declaration with a secret to back up."""
+
+    shop_signing_key: str | None = Field(None, alias="SHOP_SIGNING_KEY")
+    backup: ClassVar[tuple[tuple[str, str], ...]] = (
+        ("SHOP_SIGNING_KEY", "losing SHOP_SIGNING_KEY: orders cannot be verified"),
+    )
+
+
 # --------------------------------------------------------------------------- #
 # plan
 # --------------------------------------------------------------------------- #
@@ -91,7 +101,7 @@ def test_plan_covers_databases_and_security_redis_without_secrets(
         },
     )
     monkeypatch.setattr(settings, "security_cache_instance", "security")
-    items = build_backup_plan(settings)
+    items = build_backup_plan(settings, (), [_KeyedModule])
     text = format_plan(items)
     names = {(i.kind, i.name) for i in items}
     assert ("postgres", "default") in names
@@ -103,7 +113,15 @@ def test_plan_covers_databases_and_security_redis_without_secrets(
     assert any("noeviction" in step for step in security[0].backup)
     assert "s3cret" not in text and ":pw@" not in text
     assert "pg_dump --format=custom" in text
-    assert "TWOFA_ENCRYPTION_KEY" in text
+    # the kernel's keys, and each loaded module's declared secret and loss note
+    assert "JWT_SECRET" in text and "STRIPE" not in text
+    assert "SHOP_SIGNING_KEY" in text
+    assert "orders cannot be verified" in text
+
+
+def test_plan_names_no_module_secret_without_a_declaration() -> None:
+    text = format_plan(build_backup_plan(settings))
+    assert "TWOFA_ENCRYPTION_KEY" not in text and "STRIPE_" not in text
 
 
 # --------------------------------------------------------------------------- #

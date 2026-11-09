@@ -17,7 +17,11 @@ composition, never from a list of known contracts in the kernel:
 * (b) the ``service`` of each adapter bound in the live-adapter table
   (:func:`sandloom.shared.authz.live_contracts.live_adapter_contracts`), read
   generically: a custom adapter for ``acme.seats.v1`` makes that name
-  access-bearing with no kernel edit.
+  access-bearing with no kernel edit;
+* (c) the contract of each generated access check a consumer's generated
+  copy carries and the process imported
+  (:func:`sandloom.shared.authz.contract_check.generated_access_contracts`):
+  the literal names it, never a list in the kernel.
 
 A provider cannot declassify its own contract by omitting a declaration. The
 provider is checked by its real identity: its loaded import path, not only
@@ -39,6 +43,7 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
+import sandloom.shared.authz.contract_check as _contract_check
 import sandloom.shared.authz.live_contracts as _live_contracts
 from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
 from sandloom.core.descriptors.module_names import (
@@ -140,7 +145,11 @@ def install_access_providers(
     keys = frozenset(assigned)
 
     def access_bearing() -> frozenset[str]:
-        return keys | _live_contracts.live_adapter_contracts()
+        return (
+            keys
+            | _live_contracts.live_adapter_contracts()
+            | _contract_check.generated_access_contracts()
+        )
 
     core_facade._assign_access_providers(assigned, access_bearing)
     return assigned

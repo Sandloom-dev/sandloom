@@ -1191,6 +1191,10 @@ write_login.install(sys.modules[__name__])
 import infra_rungs  # noqa: E402
 
 infra_rungs.install(sys.modules[__name__])
+# K*: trusted claims view rungs (claims_rungs.py).
+import claims_rungs  # noqa: E402
+
+claims_rungs.install(sys.modules[__name__])
 
 
 async def _run_batch(op: Op, start: int, n: int, conc: int) -> None:

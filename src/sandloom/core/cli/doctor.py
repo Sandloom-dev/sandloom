@@ -18,7 +18,10 @@ Sections (each check is ``ok`` / ``warn`` / ``fail`` / ``skip``):
   ``ENVIRONMENT``, ops token, strict-profile problems from
   :func:`sandloom.core.production_profile.config_problems`); every active profile
   override — a semantic setting off its profile value or an accepted risk
-  (:func:`sandloom.core.config.tiers.active_overrides`).
+  (:func:`sandloom.core.config.tiers.active_overrides`), and the same for the
+  loaded modules' declared settings and risks
+  (:func:`check_module_settings`); the composition loads in collect mode
+  (ADR-0015 decision 8), so every module's refusal is one failed check.
 * **modules** — the composition root (``SANDLOOM_COMPOSITION_ROOT``) loads; which
   modules are loaded; required consumed contracts are bound.
 * **claims** — the claim policy's ``legacy_tokens`` compatibility mode
@@ -75,6 +78,7 @@ from sandloom.core.claims import ClaimAuthorities
 from sandloom.core.cli.config import mask_url_credentials, redact_value
 from sandloom.core.cli.migrate import _hosting_databases
 from sandloom.core.composition import load_composition_core
+from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.config import tiers
 from sandloom.core.config.common import MULTI_TENANT_STRICT, strict_profile_active
 from sandloom.core.config.settings import settings
@@ -249,6 +253,45 @@ def check_overrides(report: Report, cfg: Any) -> None:
             "overrides",
             OK,
             f"no semantic setting overrides the {tiers.profile_of(cfg)} profile",
+        )
+
+
+def _add_diagnosed(report: Report, diagnosed: list[_module_settings.Diagnosed]) -> None:
+    for item in diagnosed:
+        report.add(
+            "config",
+            f"module:{item.module}",
+            FAIL,
+            mask_url_credentials(item.message),
+        )
+
+
+def check_module_settings(report: Report, core: Any) -> None:
+    """What the loaded modules declare (ADR-0015): each semantic setting off
+    its profile value and each active accepted risk, as the kernel's
+    (:func:`check_overrides`), and the module-namespaced risk ids that do not
+    apply here (their module is not loaded in this process)."""
+    registry = getattr(core, "module_settings", None)
+    if registry is None:
+        return
+    cfg = settings
+    for item in registry.overrides:
+        loud = cfg.is_prod or item.kind != "weaker"
+        report.add(
+            "config",
+            f"override:{item.setting}",
+            WARN if loud else OK,
+            item.message(),
+            kind=item.kind,
+            profile=item.profile,
+        )
+    for risk_id in registry.risk_report.inert:
+        report.add(
+            "config",
+            f"risk:{risk_id}",
+            OK,
+            f"{risk_id} is not applicable here: its module is not loaded in "
+            "this process",
         )
 
 
@@ -683,19 +726,34 @@ async def run_doctor(  # noqa: C901
     if "config" not in skip:
         check_config(report, settings)
 
-    needs_core = set(SECTIONS) - {"config"} - skip
+    # The loaded modules' configuration (their overrides, accepted risks and
+    # refusals) is part of "config": it needs the composition too.
+    needs_core = set(SECTIONS) - skip
     if not needs_core:
         return report
     if core_loader is None:
         core_loader = load_composition_core
     try:
-        core = core_loader()
+        # Collect mode (ADR-0015 decision 8): a module's configuration refusal
+        # is listed, every module's, instead of the first one ending the run.
+        with _module_settings.collect_mode() as diagnosed:
+            core = core_loader()
     except BaseException as exc:  # SystemExit from a bad module too
         if isinstance(exc, KeyboardInterrupt):
             raise
-        report.add("modules", "composition_root", FAIL, _error(exc))
+        if not diagnosed:
+            report.add("modules", "composition_root", FAIL, _error(exc))
+        else:
+            _add_diagnosed(report, diagnosed)
+        return report
+    if diagnosed:
+        # A partial composition would be reported as if it were the one the
+        # deployment runs: stop at the refusals.
+        _add_diagnosed(report, diagnosed)
         return report
     try:
+        if "config" not in skip:
+            check_module_settings(report, core)
         if "modules" not in skip:
             check_modules(report, core)
         if "claims" not in skip:

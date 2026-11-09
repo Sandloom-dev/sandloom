@@ -169,7 +169,7 @@ infrastructure tables. See [Migrations](../modules/database/migrations.md) and
 | `sandloom keys generate [--alg EdDSA\|RS256\|ES256] [--purpose jwt\|rpc\|rpc-dh] [--service S] [--kid K] [--out-dir DIR]` | Generate an access-token signing pair, or a service's internal-RPC keys. |
 | `sandloom keys allowlist` | Derive `RPC_ALLOWED_CALLS` from `SERVICE_BINDINGS`. |
 | `sandloom keys dev-env [--deploy-dir D] [--out F]` | DEVELOPMENT / CI ONLY: a compose `--env-file` with fresh keys for every variable the microservices profile requires. |
-| `sandloom config dump [--json] [--only PREFIXES] [--non-default] [--show-secrets]` | The effective settings with their source (env, `.env`, `SECRETS_DIR`, default); secrets redacted unless `--show-secrets` (refused in prod). |
+| `sandloom config dump [--json] [--only PREFIXES] [--non-default] [--show-secrets] [--kernel-only]` | The effective settings with their source (env, `.env`, `SECRETS_DIR`, default), the kernel's and each loaded module's; secrets redacted unless `--show-secrets` (refused in prod). A module's invalid setting is shown as a diagnosed entry (exit 0). It builds the composition without serving it (no lifespan, no connection); `--kernel-only` skips that and prints the kernel's settings only. |
 | `sandloom doctor [--json] [--skip S] [--timeout T] [--lag-warn N]` | Read-only deployment preflight: config, modules, the claim policy's `legacy_tokens` mode (on with its window end and time left, ended, off), infrastructure reachability, migration heads, consumer lag, RLS, sagas (exit `0` ok, `1` warnings, `2` failures). |
 | `sandloom admin export --output FILE [--check]` | Compile the static admin UI manifest; `--check` fails on drift. |
 

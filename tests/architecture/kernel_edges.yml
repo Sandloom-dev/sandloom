@@ -251,7 +251,7 @@ edges:
       - {path: sandloom/core/cli/generated.py, symbol: is_l1}
       - {path: sandloom/core/testing/settings_gate.py, symbol: _declaration}
       - {path: sandloom/core/testing/settings_gate.py, symbol: _resolvable}
-      - {path: sandloom/core/config/module_settings.py, symbol: _declared_risks_of}
+      - {path: sandloom/core/config/module_settings.py, symbol: declared_model}
     note: "sandloom generate imports each module and its register; the settings gate (sandloom check/test) imports each module of the app to read its declared settings, and a refused flat risk id imports the installed modules to name its replacement (KB-51, KB-56)"
   - id: A14
     class: a
@@ -579,7 +579,7 @@ edges:
     scope: runtime
     owner: [billing, identity]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-55]
@@ -592,7 +592,7 @@ edges:
     scope: runtime
     owner: [identity, billing]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-55]
@@ -605,7 +605,7 @@ edges:
     scope: runtime
     owner: [billing, identity]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-52, KB-53, KB-55]
@@ -618,12 +618,12 @@ edges:
     scope: runtime
     owner: admin
     baseline_verdict: violation
-    current_status: fixed
+    current_status: open
     target: fixed
     adr: ADR-0015
-    prs: [KB-54]
+    prs: [KB-60]
     anchors:
-      - {path: sandloom/core/cli/admin.py, literal: "\"admin_console_enabled\""}
+      - {path: sandloom/core/cli/admin.py, symbol: _CONSOLE_SWITCH}
   - id: B-N1
     class: b
     type: naming
@@ -700,6 +700,7 @@ edges:
     anchors:
       - {path: sandloom/core/cli/project.py, symbol: _IDENTITY_NOTE}
       - {path: sandloom/core/cli/project.py, symbol: _BILLING_ENV}
+      - {path: sandloom/core/cli/project.py, symbol: _IDENTITY_ENV}
   - id: B-N7
     class: b
     type: naming
@@ -720,12 +721,12 @@ edges:
     scope: runtime
     owner: [identity, billing]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-55]
     anchors:
-      - {path: sandloom/core/cli/scaffold_deploy.py, symbol: MODULE_ENV}
+      - {path: sandloom/core/cli/scaffold_deploy.py, literal: MODULE_ENV}
   - id: B-N9
     class: b
     type: naming
@@ -986,7 +987,7 @@ loader_call_sites:
   - {path: sandloom/core/cli/generated.py, symbol: is_l1, row: A13, reason: "sandloom generate reads each module's register"}
   - {path: sandloom/core/testing/settings_gate.py, symbol: _declaration, row: A13, reason: "the settings gate imports each module of the app to read its declared settings (ADR-0015 decision 7)"}
   - {path: sandloom/core/testing/settings_gate.py, symbol: _resolvable, row: A13, reason: "the settings gate asks whether a SANDLOOM_MODULES entry names an importable package, without importing it"}
-  - {path: sandloom/core/config/module_settings.py, symbol: _declared_risks_of, row: A13, reason: "a refused flat risk id imports the installed modules to name the namespaced replacement (ADR-0015 decision 4)"}
+  - {path: sandloom/core/config/module_settings.py, symbol: declared_model, row: A13, reason: "a refused flat risk id imports the installed modules to name the namespaced replacement (ADR-0015 decision 4)"}
   - {path: sandloom/core/cli/consumer_copies.py, symbol: _contracts_of, row: A13, reason: "sandloom generate imports each provider's contracts module, never composed, to render a consumer's copies (ADR-0013, KB-20)"}
   - {path: sandloom/core/cli/extract.py, symbol: module_tables, row: A14, reason: "sandloom migrate extract-module imports <pkg>.models"}
   - {path: sandloom/core/testing/migrations.py, symbol: model_tables, row: A15, reason: "the test harness imports <module>.models and the kernel's models"}

@@ -9,7 +9,9 @@ kernel settings (token mechanics every verifier shares).
 
 from __future__ import annotations
 
-from typing import Any
+import secrets
+from collections.abc import Callable, Mapping
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, SecretStr, ValidationInfo, model_validator
 
@@ -108,6 +110,36 @@ class IdentitySettings(BaseModel):
             "frontend redirects."
         ),
     )
+
+    #: What the kernel's tools read from this declaration (ADR-0015 decision 11).
+    #: The console's settings view lists the refresh-session lifetime.
+    console: ClassVar[tuple[str, ...]] = ("refresh_token_expire_days",)
+    #: Identical in every process that loads identity (deploy profile check
+    #: SANDLOOM-T014): the issuer's refresh sessions have one lifetime.
+    shared: ClassVar[tuple[str, ...]] = ("REFRESH_TOKEN_EXPIRE_DAYS",)
+    #: ``(keep in the secret manager, what losing it costs)`` for the backup plan.
+    backup: ClassVar[tuple[tuple[str, str], ...]] = (
+        (
+            "TWOFA_ENCRYPTION_KEY (every key still in the list; a database dump "
+            "plus this key is readable TOTP secrets)",
+            "losing TWOFA_ENCRYPTION_KEY makes every 2FA secret undecryptable: "
+            "users must re-enrol (operator reset-2fa)",
+        ),
+    )
+    #: The compose environment of a process that loads identity
+    #: (``sandloom add deploy``).
+    deploy: ClassVar[tuple[str, ...]] = (
+        "# identity encrypts TOTP secrets with a DEDICATED key (no JWT_SECRET",
+        "# fallback in prod); comma-separated, newest first, for rotation.",
+        "TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?set TWOFA_ENCRYPTION_KEY "
+        "(openssl rand -hex 32) - required when identity is loaded}",
+        "# Refresh-session lifetime: identity's setting (the issuer's sessions).",
+        "REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}",
+    )
+    #: A development / CI stack (``sandloom keys dev-env``) gets a fresh key.
+    dev_env: ClassVar[Mapping[str, str | Callable[[], str]]] = {
+        "TWOFA_ENCRYPTION_KEY": lambda: secrets.token_hex(32)
+    }
 
     def twofa_keys(self) -> list[str]:
         """The configured TOTP keys, newest first (empty when unset)."""

@@ -33,7 +33,9 @@ import psycopg2  # type: ignore[import-untyped]
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from psycopg2 import sql
+from pydantic import BaseModel
 
+from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.descriptors import ModuleDescriptor
 from sandloom.core.infra.config import load_infra_config
 from sandloom.core.migrations.migrations import (
@@ -215,10 +217,43 @@ def _redis_item(url: str, roles: list[str]) -> PlanItem:
     )
 
 
+def _secrets_item(models: Sequence[type[BaseModel]]) -> PlanItem:
+    """The secret manager's item: the kernel's keys, plus what each loaded
+    module's settings declare it holds (``backup``, ADR-0015): the kernel
+    names no module's secret."""
+    backup = [
+        "JWT_SECRET / JWT_PRIVATE_KEY + JWT_PUBLIC_KEYS, RPC keys, "
+        "INTERNAL_API_TOKEN — in the secret manager, NEVER next to the "
+        "database dumps (a dump plus a key can expose what it encrypts)"
+    ]
+    restore: list[str] = []
+    for model in models:
+        for keep, lose in _module_settings.declared_backup(model):
+            if keep:
+                backup.append(
+                    f"{keep} — in the secret manager, never next to the dumps"
+                )
+            if lose:
+                restore.append(lose)
+    return PlanItem(
+        kind="secrets",
+        name="keys",
+        target="secret manager",
+        criticality="critical",
+        backup=backup,
+        restore=restore,
+    )
+
+
 def build_backup_plan(
-    settings: Any, descriptors: Sequence[ModuleDescriptor] = ()
+    settings: Any,
+    descriptors: Sequence[ModuleDescriptor] = (),
+    models: Sequence[type[BaseModel]] = (),
 ) -> list[PlanItem]:
-    """Every backup the deployment configured by ``settings`` needs."""
+    """Every backup the deployment configured by ``settings`` needs.
+
+    ``models``: the settings declarations of the loaded modules
+    (``core.module_settings.records()``), whose secrets the plan lists."""
     config = load_infra_config(settings)
     items: list[PlanItem] = []
     for name, inst in sorted((config.get("database") or {}).items()):
@@ -241,25 +276,7 @@ def build_backup_plan(
                 restore=["restore to the same logical keys; no reconciliation"],
             )
         )
-    items.append(
-        PlanItem(
-            kind="secrets",
-            name="keys",
-            target="secret manager",
-            criticality="critical",
-            backup=[
-                "JWT_SECRET / JWT_PRIVATE_KEY + JWT_PUBLIC_KEYS, "
-                "TWOFA_ENCRYPTION_KEY (every key still in the list), RPC keys, "
-                "INTERNAL_API_TOKEN, STRIPE_* — in the secret manager, NEVER "
-                "next to the database dumps (dump + 2FA key = readable TOTP "
-                "secrets)",
-            ],
-            restore=[
-                "losing TWOFA_ENCRYPTION_KEY makes every 2FA secret "
-                "undecryptable: users must re-enrol (operator reset-2fa)",
-            ],
-        )
-    )
+    items.append(_secrets_item(models))
     return items
 
 
