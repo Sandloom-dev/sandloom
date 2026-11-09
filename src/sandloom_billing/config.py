@@ -8,6 +8,7 @@ Env names are unchanged; the kernel no longer lists them.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field, SecretStr, ValidationInfo, model_validator
@@ -120,6 +121,38 @@ class BillingSettings(BaseModel):
             "billing's settings check (sandloom_billing.config.BillingSettings)",
         ),
     )
+    #: What the kernel's tools read from this declaration (ADR-0015 decision 11).
+    #: The console's settings view lists the provider (no secret).
+    console: ClassVar[tuple[str, ...]] = ("billing_provider",)
+    #: Identical in every process that loads billing (deploy profile check
+    #: SANDLOOM-T014): a worker and the API must apply one past-due policy.
+    shared: ClassVar[tuple[str, ...]] = ("BILLING_DENY_ON_PAST_DUE",)
+    #: ``(keep in the secret manager, what losing it costs)`` for the backup plan.
+    backup: ClassVar[tuple[tuple[str, str], ...]] = (
+        (
+            "STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET (also kept by the PSP dashboard)",
+            "",
+        ),
+    )
+    #: The compose environment of a process that loads billing
+    #: (``sandloom add deploy``).
+    deploy: ClassVar[tuple[str, ...]] = (
+        "# billing refuses the fake PSP in prod: the operator must choose.",
+        "BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or "
+        "fake with SANDLOOM_ACCEPTED_RISKS="
+        "local_storage_in_prod,billing.fake_psp_in_prod for demos)}",
+        "STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}",
+        "STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}",
+        "# Past-due policy: billing's setting (other services read it through the",
+        "# access fact billing describes, never from their own environment).",
+        "BILLING_DENY_ON_PAST_DUE: ${BILLING_DENY_ON_PAST_DUE:-false}",
+    )
+    #: A development / CI stack (``sandloom keys dev-env``) runs a demo on the
+    #: fake PSP and accepts the risk that names.
+    dev_env: ClassVar[Mapping[str, str | Callable[[], str]]] = {
+        "BILLING_PROVIDER": "fake"
+    }
+    dev_risks: ClassVar[tuple[str, ...]] = ("fake_psp_in_prod",)
     removed: ClassVar[tuple[RemovedSetting, ...]] = (
         RemovedSetting(
             "BILLING_FAKE_ALLOW_UNSIGNED_WEBHOOKS",

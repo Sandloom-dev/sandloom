@@ -384,7 +384,7 @@ edges:
     scope: runtime
     owner: [billing, identity]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-55]
@@ -401,7 +401,7 @@ edges:
     scope: runtime
     owner: [identity, billing]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-55]
@@ -418,7 +418,7 @@ edges:
     scope: runtime
     owner: [billing, identity]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-52, KB-53, KB-55]
@@ -552,6 +552,7 @@ edges:
     anchors:
       - {path: sandloom/core/cli/project.py, symbol: _IDENTITY_NOTE}
       - {path: sandloom/core/cli/project.py, symbol: _BILLING_ENV}
+      - {path: sandloom/core/cli/project.py, symbol: _IDENTITY_ENV}
     note: Starter phase; env text can be generated from KB-50 declarations.
 
   - id: B-N7
@@ -578,7 +579,7 @@ edges:
     scope: runtime
     owner: [identity, billing]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0015
     prs: [KB-55]
@@ -586,7 +587,7 @@ edges:
     tests:
       - sandloom add deploy writes module env from declarations (P14)
     anchors:
-      - {path: sandloom/core/cli/scaffold_deploy.py, symbol: MODULE_ENV}
+      - {path: sandloom/core/cli/scaffold_deploy.py, literal: MODULE_ENV}
 
   - id: B-N9
     class: b

@@ -12,6 +12,16 @@ annotated ``ClassVar`` so pydantic leaves them alone::
     risks: ClassVar[tuple[Risk, ...]] = (Risk("oversell_in_prod", ...),)
     removed: ClassVar[tuple[RemovedSetting, ...]] = (RemovedSetting(...),)
 
+What the kernel's tools read from the declaration (ADR-0015 decision 11; each
+optional, plain data so no new SDK name is needed): ``console`` (field names
+the admin console's settings view lists), ``shared`` (env names identical in
+every process that loads the module: deploy-profile check T014), ``backup``
+(``(what to keep in the secret manager, what losing it costs)`` pairs for the
+backup plan), ``deploy`` (the compose ``environment:`` lines of a process that
+loads the module: ``sandloom add deploy``), ``dev_env`` (``{ENV_NAME: value or
+callable}`` for a development / CI stack: ``sandloom keys dev-env``) and
+``dev_risks`` (local risk names that stack accepts).
+
 Production checks are ``model_validator``\\ s reading the validation context:
 ``info.context["environment"]`` (``"dev"`` / ``"test"`` / ``"prod"``),
 ``info.context["accepts_risk"](id)`` (a risk the model declares, by its local
@@ -41,6 +51,7 @@ Where the instances live and how a module reads its own
 
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import importlib
 import json
@@ -48,7 +59,7 @@ import os
 import types
 import typing
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from difflib import get_close_matches
 from importlib import metadata
@@ -249,6 +260,54 @@ def declared_removed(model: type[BaseModel]) -> tuple[RemovedSetting, ...]:
     return tuple(getattr(model, "removed", ()) or ())
 
 
+def declared_console(model: type[BaseModel]) -> tuple[str, ...]:
+    """Field names the admin console's settings view lists (non-secret)."""
+    return tuple(getattr(model, "console", ()) or ())
+
+
+def declared_shared(model: type[BaseModel]) -> tuple[str, ...]:
+    """Env names that must be identical in every process that loads the module
+    (the deploy profile check, SANDLOOM-T014)."""
+    return tuple(str(n).upper() for n in getattr(model, "shared", ()) or ())
+
+
+def declared_backup(model: type[BaseModel]) -> tuple[tuple[str, str], ...]:
+    """``(what to keep in the secret manager, what losing it costs on restore)``
+    per secret the module holds; either text may be empty."""
+    return tuple(
+        (str(keep), str(lose)) for keep, lose in getattr(model, "backup", ()) or ()
+    )
+
+
+def declared_deploy(model: type[BaseModel]) -> tuple[str, ...]:
+    """The compose ``environment:`` lines a process that loads the module
+    needs (comments and ``NAME: ${NAME:...}`` entries, no indentation)."""
+    return tuple(getattr(model, "deploy", ()) or ())
+
+
+def declared_dev_env(model: type[BaseModel]) -> dict[str, str]:
+    """``{ENV_NAME: value}`` a development / CI stack sets for the module: a
+    string, or a callable returning one (a fresh random key per stack)."""
+    out: dict[str, str] = {}
+    for name, value in dict(getattr(model, "dev_env", {}) or {}).items():
+        out[str(name)] = str(value() if callable(value) else value)
+    return out
+
+
+def declared_dev_risks(model: type[BaseModel]) -> tuple[str, ...]:
+    """The module's risks (local names) a development / CI stack that sets its
+    :func:`declared_dev_env` accepts, namespaced by the caller."""
+    return tuple(getattr(model, "dev_risks", ()) or ())
+
+
+def declared_model(package: str) -> type[BaseModel] | None:
+    """The settings model ``package``'s ``define_module(settings=)`` declares
+    (``None`` when it declares none). Importing a module package reads no
+    environment and does no I/O; an import failure propagates."""
+    register = getattr(importlib.import_module(package), "register", None)
+    return getattr(register, "__dict__", {}).get("sandloom_settings")
+
+
 @dataclass(frozen=True)
 class ModuleSettingsRecord:
     """One module's validated settings, as the loader stores them."""
@@ -273,6 +332,10 @@ class ModuleSettingsRegistry:
         #: the module-namespaced accepted-risk ids as the post-load check
         #: classified them (active, inert here); read by diagnostics and doctor.
         self.risk_report: ModuleRiskReport = ModuleRiskReport()
+        #: the loaded modules' semantic settings off their profile value and
+        #: their active accepted risks, as the post-load check found them
+        #: (``/diagnostics/core`` and doctor show them beside the kernel's).
+        self.overrides: list[_tiers.Override] = []
 
     def add(self, record: ModuleSettingsRecord) -> None:
         self._records[record.package] = record
@@ -290,6 +353,48 @@ class ModuleSettingsRegistry:
 REGISTERING: contextvars.ContextVar[list[ModuleSettingsRecord] | None] = (
     contextvars.ContextVar("sandloom_module_settings_registering", default=None)
 )
+
+
+# ----------------------------------------------------------- collect mode ----
+
+
+@dataclass(frozen=True)
+class Diagnosed:
+    """A module's configuration refusal, reported instead of raised."""
+
+    #: the module's import path or entry-point label, as the loader names it.
+    module: str
+    message: str
+
+
+#: Collect mode (ADR-0015 decision 8, D-M6): while a list is set here the
+#: loader reports a module's configuration refusal (its settings error, a
+#: ``SystemExit`` refusal of its ``register``) and the post-load check's
+#: problems in it and goes on, instead of exiting. Set only by the commands
+#: that diagnose (``sandloom config dump``, ``sandloom doctor``) before they
+#: import the composition root; never read from the environment, so a serving
+#: process (API, worker, beat, ``sandloom migrate``, the composed CLIs) never
+#: runs with it (a test asserts it).
+_COLLECT: contextvars.ContextVar[list[Diagnosed] | None] = contextvars.ContextVar(
+    "sandloom_settings_collect_mode", default=None
+)
+
+
+def collecting() -> list[Diagnosed] | None:
+    """The list collect mode reports into, ``None`` when it is off (always,
+    in a serving process)."""
+    return _COLLECT.get()
+
+
+@contextlib.contextmanager
+def collect_mode() -> Iterator[list[Diagnosed]]:
+    """Turn collect mode on for the block; yields the diagnosed problems."""
+    found: list[Diagnosed] = []
+    token = _COLLECT.set(found)
+    try:
+        yield found
+    finally:
+        _COLLECT.reset(token)
 
 
 # ------------------------------------------------------------- validation ----
@@ -632,6 +737,24 @@ def module_overrides(
     return out
 
 
+def module_tier_counts(
+    records: Sequence[ModuleSettingsRecord],
+) -> dict[str, dict[str, int]]:
+    """``{module: {"semantic": n, "ops": m}}`` of the loaded modules'
+    declarations (a field is ops unless a :class:`SemanticSetting` names it)."""
+    out: dict[str, dict[str, int]] = {}
+    for record in records:
+        names = env_names(record.model)
+        semantic = {s.name.upper() for s in declared_semantic(record.model)} & set(
+            names
+        )
+        out[record.module] = {
+            _tiers.SEMANTIC_TIER: len(semantic),
+            _tiers.OPS_TIER: len(names) - len(semantic),
+        }
+    return out
+
+
 def installed_risk_declarations() -> dict[str, tuple[Risk, ...]]:
     """``{module name: its declared risks}`` of the installed modules.
 
@@ -653,10 +776,9 @@ def _declared_risks_of(package: str) -> tuple[Risk, ...] | None:
     """The risks ``package``'s ``define_module(settings=)`` declares; ``None``
     when it declares no settings or does not import."""
     try:
-        register = getattr(importlib.import_module(package), "register", None)
+        model = declared_model(package)
     except (ImportError, AttributeError, RuntimeError, SystemExit):
         return None  # a package that does not import cannot name a replacement
-    model = getattr(register, "__dict__", {}).get("sandloom_settings")
     return declared_risks(model) if model is not None else None
 
 
@@ -748,6 +870,7 @@ def refusal(problems: Sequence[str]) -> ModuleSettingsError:
 
 __all__ = [
     "COLLISION_CODE",
+    "Diagnosed",
     "MODULES_ENTRY_POINT_GROUP",
     "ORIGINS",
     "REGISTERING",
@@ -761,9 +884,18 @@ __all__ = [
     "SemanticSetting",
     "SourceSnapshot",
     "check_declaration",
+    "collect_mode",
+    "collecting",
+    "declared_backup",
+    "declared_console",
+    "declared_deploy",
+    "declared_dev_env",
+    "declared_dev_risks",
+    "declared_model",
     "declared_removed",
     "declared_risks",
     "declared_semantic",
+    "declared_shared",
     "env_names",
     "environment_of",
     "flat_risk_refusal",
@@ -772,6 +904,7 @@ __all__ = [
     "known_module_names",
     "literal_value_problems",
     "module_overrides",
+    "module_tier_counts",
     "post_load_check",
     "process_snapshot",
     "refusal",

@@ -59,7 +59,12 @@ def _descriptors(core: Any) -> list[Any]:
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:
-    items = build_backup_plan(settings, _descriptors(_build_core()))
+    core = _build_core()
+    items = build_backup_plan(
+        settings,
+        _descriptors(core),
+        [record.model for record in core.module_settings.records()],
+    )
     if args.json:
         print(json.dumps([i.as_dict() for i in items], indent=2))
     else:

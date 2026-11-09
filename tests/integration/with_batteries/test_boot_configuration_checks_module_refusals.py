@@ -7,7 +7,8 @@ without its keys, are raised while the module
 registers, so they reach every process that builds the composition: the
 app, the Celery worker and beat, ``sandloom migrate`` and the composed
 operator CLIs, with the kernel's prefix and the module's reason.
-``sandloom config dump`` builds no composition and is not forced to. Real
+``sandloom config dump --kernel-only`` builds no composition and is not forced to;
+the default dump builds it in collect mode and diagnoses the refusal. Real
 processes, an empty working directory and an explicit environment; the
 harness (entry points, environment) is the kernel's.
 """
@@ -114,12 +115,18 @@ def test_module_refusal_stops_every_composed_entry_point(
 def test_config_dump_is_not_forced_to_build_the_composition(
     case: str, tmp_path: Path
 ) -> None:
-    """``sandloom config dump`` reads settings only: a module refusal does not
-    reach it (it builds no composition)."""
-    values, _reason = MODULE_CASES[case]
-    proc = _run(_cli("config", "dump"), values, tmp_path)
+    """``sandloom config dump --kernel-only`` reads the kernel's settings only:
+    a module refusal does not reach it (it builds no composition). The default
+    dump builds the composition in collect mode and diagnoses the refusal
+    (exit 0, ADR-0015 decision 8)."""
+    values, reason = MODULE_CASES[case]
+    proc = _run(_cli("config", "dump", "--kernel-only"), values, tmp_path)
     assert proc.returncode == 0, proc.stderr[-2000:]
     assert INVALID_CONFIGURATION not in proc.stderr
+    diagnosed = _run(_cli("config", "dump"), values, tmp_path)
+    assert diagnosed.returncode == 0, diagnosed.stderr[-2000:]
+    assert INVALID_CONFIGURATION not in diagnosed.stderr
+    assert f"# INVALID - {reason}" in diagnosed.stdout
 
 
 @pytest.mark.subprocess_probe
