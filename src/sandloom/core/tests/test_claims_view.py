@@ -9,11 +9,16 @@ its end, the 401 / 503 split, and the one platform admission.
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 import pytest
 from fastapi import HTTPException
 
+from sandloom.core.app_factory.claim_authorities import (
+    build_claim_authorities,
+    filter_to_composition,
+)
 from sandloom.core.auth import claims_view as view
 from sandloom.core.claims import ClaimAuthorities, cpv_digest
 
@@ -275,3 +280,67 @@ def test_platform_admission_admits_a_trusted_admin_whatever_the_issuer_is_named(
 ):
     out = apply(token(**T2), policy(M2))
     view.platform_admission(out["roles"], view.untrusted_reasons(out))
+
+
+# --- the window end (G-RISK-14), the argument still written --------------
+WINDOW_END = UNTIL + LIFETIME + LEEWAY
+FORGED = {"roles": ["admin"], "tenant_ids": ["t-foreign"], "tenant_id": "t-foreign"}
+WINDOW_MAP = {
+    "issuer": ID,
+    "roles": ID,
+    "permissions": ID,
+    "tenant_ids": "sandloom_tenancy",
+}
+
+
+def window_policy(placement: str) -> ClaimAuthorities:
+    """The verifier with ``legacy_tokens`` still written: the monolith (both
+    authorities loaded) or a split service running neither."""
+    loaded = (
+        {"identity": ID, "tenancy": "sandloom_tenancy"} if placement == "mono" else {}
+    )
+    bindings = {} if placement == "mono" else {"tenancy.claims.v1": {"service_id": "t"}}
+    policy = filter_to_composition(
+        build_claim_authorities(WINDOW_MAP), loaded=loaded, bindings=bindings
+    )
+    return dataclasses.replace(policy, legacy_until=UNTIL, effective_at=NOW - 3600)
+
+
+def forged_token(iat: float) -> dict[str, Any]:
+    return token(sources=["identity", "tenancy"], digest_of=None, iat=iat, **FORGED)
+
+
+@pytest.mark.parametrize("placement", ["mono", "split"])
+def test_inside_the_window_a_token_without_cpv_is_trusted(placement: str) -> None:
+    """The control: the same token inside the window keeps its claims."""
+    out = apply(forged_token(UNTIL - 1), window_policy(placement), now=UNTIL)
+    assert out["roles"] == ["admin"] and out["tenant_ids"] == ["t-foreign"]
+
+
+@pytest.mark.parametrize("placement", ["mono", "split"])
+@pytest.mark.parametrize(
+    ("iat", "now"),
+    [
+        (UNTIL - 1, WINDOW_END),
+        (UNTIL - 1, WINDOW_END + 86_400),
+        (UNTIL, UNTIL + 1),
+        (UNTIL + 5, UNTIL + 10),
+    ],
+    ids=["at-window-end", "after-window-end", "iat-at-until", "iat-after-until"],
+)
+def test_a_token_without_cpv_gives_no_rights_outside_the_window(
+    placement: str, iat: float, now: float
+) -> None:
+    """Forged ``roles`` / ``tenant_ids`` / ``tenant_id`` in a token without
+    ``cpv`` give no rights at or after the window end, nor with ``iat`` at or
+    after ``until``, while ``legacy_tokens`` is still written (ADR-0014
+    decision 4, G-RISK-14)."""
+    out = apply(forged_token(iat), window_policy(placement), now=now)
+    for key in FORGED:
+        assert key not in out, key
+    reasons = view.untrusted_reasons(out)
+    assert reasons["roles"] == reasons["tenant_ids"] == view.OUTDATED
+    assert reasons["tenant_id"] == view.OUTDATED
+    with pytest.raises(HTTPException) as refused:
+        view.platform_admission(out.get("roles"), reasons)
+    assert refused.value.status_code == 401

@@ -42,7 +42,9 @@ The rules (by ``current_status``, never by ``target``):
 2. a runtime row with ``current_status: fixed`` and evidence fails
    (regression); a finding holding its anchor literal is its evidence in any
    kernel file, so a fixed row needs a literal anchor (else it fails: a row
-   the scan cannot see cannot regress);
+   the scan cannot see cannot regress), except a finding an open or
+   retained row anchors in its own file by symbol or exact literal, which is
+   that row's;
 3. a runtime row with ``current_status: open`` or ``retained`` and no
    evidence fails ("set ``current_status: fixed``");
 4. a documentation row (a name only in a docstring or comment) needs no
@@ -862,7 +864,16 @@ def check(
             if r.current_status == "fixed"
             and any(a.literal and holds_literal(a, finding.literal) for a in r.anchors)
         ]
-        if regressed:
+        # A finding an open or retained row anchors precisely in its own file
+        # (its symbol or exact literal, never a path-only anchor) is that
+        # row's: the kernel still names the module there for that row's
+        # reason (B-S1 closed the trust in the source name "identity", while
+        # the CLI scaffolding still names the identity module).
+        if regressed and not any(
+            r.current_status != "fixed"
+            and max((covers(a, finding, sources) for a in r.anchors), default=0) >= 2
+            for r in runtime
+        ):
             for row in regressed:
                 covered_by[row.id].append(finding)
             continue
