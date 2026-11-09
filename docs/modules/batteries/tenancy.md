@@ -178,7 +178,12 @@ must observe a removal with certainty use the live contract
 
 Tenancy declares `OrgRole` on `has_role_at_least` with `access_check`.
 `sandloom generate` writes it beside a consumer's stub. A route imports it from
-`<app>.shared.contracts.tenancy_membership_v1`; the kernel holds no `OrgRole`.
+`<app>.shared.contracts.tenancy_membership_v1`; the kernel holds no `OrgRole`
+and no tenancy term.
+
+The same declaration marks `has_role_at_least` as the membership witness
+(`witnesses_membership={"minimum": "member"}`). The kernel calls a tenant
+`organization` only when this check confirms the caller's membership.
 
 
 ## Platform owner directory

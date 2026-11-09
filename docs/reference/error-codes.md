@@ -1403,14 +1403,16 @@ drops, with a logged SANDLOOM-B034 warning, any fact described under
 another owner_module.
 
 A contract that decides access is access-bearing: a key of
-create_app(access_providers=...), or the contract a bound live adapter asks
-(OrgRole asks tenancy.membership.v1; SubscriptionActive and Credits ask
-billing.entitlements.v1; a custom adapter its own). It is registered
+create_app(access_providers=...), a contract whose implementation carries
+@access_check methods (in every process, a provider-only one included), or
+the contract a generated access atom asks (tenancy's OrgRole asks
+tenancy.membership.v1; billing's SubscriptionActive and Credits ask
+billing.entitlements.v1; a third-party atom its own). It is registered
 in-process only by the module its first segment names (from its installed
 distribution when one provides a module of that name) or by the module the
 composition root assigns, both checked by import path: an app module named
 like the assigned or the first-segment module is not it. Anyone else refuses
-that module's load; a registration a later adapter classifies refuses the
+that module's load; a registration classified later refuses the
 boot. In a split deployment the SERVICE_BINDINGS entry, pinned to the
 provider's service_id, is the assignment. Every other contract name keeps the
 first-registrant rule.

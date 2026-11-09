@@ -317,7 +317,9 @@ async def test_export_needs_a_paid_organization(client, org_admin) -> None:
 ```
 
   A personal `Subscribed(of=Account.user())` reads the token's claim with zero
-  I/O, so there is no contract to fake: the token decides.
+  I/O, so there is no contract to fake: the token decides. A proven absence
+  is `402`, a failed authority `503`, an unprovable absence `501`
+  ([Authorization](../modules/http/authorization.md#three-valued-decisions)).
 
 ## Testing a contract you provide
 

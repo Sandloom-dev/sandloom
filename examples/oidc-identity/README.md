@@ -18,7 +18,7 @@ application as real processes against PostgreSQL and Redis.
 | --- | --- |
 | `oidc_identity/asgi.py` | The composition root and the claim-authority map |
 | `oidc_identity/modules/acme_idp/` | The issuer module (third-party code, not a battery) |
-| `oidc_identity/modules/storefront/` | A consumer module that only uses kernel atoms for its routes |
+| `oidc_identity/modules/storefront/` | A consumer module whose routes use the kernel's `Perm` and the generated `Subscribed` and `OrgRole` atoms |
 | `tests/_oidc_issuer.py` | A local OIDC provider: discovery, JWKS, RS256 keys only it holds. It knows nothing about Sandloom |
 | `tests/test_oidc_replacement.py` | The proof, in two topologies (mono and split) |
 
