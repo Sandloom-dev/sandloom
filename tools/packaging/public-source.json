@@ -2453,6 +2453,7 @@
         "tests/fixtures/specs/api10-ledger-delta-console.md",
         "tests/fixtures/specs/api10-ledger-delta-docsfix.md",
         "tests/fixtures/specs/api10-ledger-delta-docslayout.md",
+        "tests/fixtures/specs/api10-ledger-delta-kb21.md",
         "tests/fixtures/specs/api10-ledger-delta-driverkit.md",
         "tests/fixtures/specs/api10-ledger-delta-dxfix.md",
         "tests/fixtures/specs/api10-ledger-delta-ecosystem.md",
