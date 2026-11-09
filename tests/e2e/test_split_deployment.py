@@ -14,7 +14,7 @@ proves:
    AND billing (collected over RPC from B: ``billing.claims.v1``), with
    authoritative provenance;
 2. a billing endpoint on B gated on organization membership resolves tenancy
-   membership over RPC to A (and so do the live ``OrgRole`` /
+   membership over RPC to A (and so do the generated ``OrgRole`` /
    ``SubscriptionActive`` atoms);
 3. an event published on A (``tenancy.organization_created.v1``) is consumed
    on B;

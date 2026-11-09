@@ -103,12 +103,19 @@ def test_unknown_router_dependency_may_authenticate(tmp_path: Path) -> None:
 
 
 def test_org_gate_before_tenant_scope_is_reported(tmp_path: Path) -> None:
+    from sandloom.core.cli.generated import render_stub
+    from sandloom_billing.contracts import EntitlementsContract
+
     files = _write(
         tmp_path,
         {
+            # the generated stub of the gate's atom, read from its literal
+            "billing_entitlements_v1.py": render_stub(
+                "billing.entitlements.v1", EntitlementsContract
+            ),
             "api/x.py": """
             from fastapi import APIRouter, Depends
-            from sandloom.sdk import SubscriptionActive
+            from ..billing_entitlements_v1 import SubscriptionActive
             router = APIRouter()
             GATE = require(SubscriptionActive(of=Account.org()))
 
@@ -124,10 +131,10 @@ def test_org_gate_before_tenant_scope_is_reported(tmp_path: Path) -> None:
             @router.post("/personal",
                          dependencies=[Depends(require(SubscriptionActive(of=Account.user())))])
             async def personal(tenant=TenantScope()): ...
-            """
+            """,
         },
     )
-    hits = mr.find_guard_order_problems(files)
+    hits = mr.find_guard_order_problems(files[1:])
     assert len(hits) == 1 and hits[0][1].startswith("Line 7: a require(...) gate")
 
 

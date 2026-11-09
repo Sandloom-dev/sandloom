@@ -270,14 +270,26 @@ def test_route_policies_add_the_contracts_their_atoms_call(make_module: Any) -> 
     """A live or fact-backed gate needs its owner's contract in a split
     deployment: it joins the derived ``consumes`` (optional), so the
     preflight reports it unbound and ``sandloom add deploy`` binds it."""
+    from sandloom.core.cli.generated import render_stub
+    from sandloom_billing.contracts import EntitlementsContract
+    from sandloom_tenancy.contracts import MembershipReadContract
+
     pkg = make_module(
         {
+            # the atoms are the generated ones: the contracts come from their literals
+            "entitlements_stub.py": render_stub(
+                "billing.entitlements.v1", EntitlementsContract
+            ),
+            "membership_stub.py": render_stub(
+                "tenancy.membership.v1", MembershipReadContract
+            ),
             "api.py": """
                 from fastapi import Depends
                 from sandloom.sdk import module_router
-                from sandloom.sdk.authz import (
-                    Account, Entitled, OrgRole, SubscriptionActive, require,
-                )
+                from sandloom.sdk.authz import Account, Entitled, require
+
+                from .entitlements_stub import SubscriptionActive
+                from .membership_stub import OrgRole
 
                 router = module_router()
                 PAID = SubscriptionActive(of=Account.org(param="org_id"))
@@ -295,7 +307,7 @@ def test_route_policies_add_the_contracts_their_atoms_call(make_module: Any) -> 
                     ],
                 )
                 async def b() -> None: ...
-            """
+            """,
         }
     )
     consumes = {r.name: r for r in _surface(pkg).descriptor.consumes}

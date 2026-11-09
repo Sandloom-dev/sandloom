@@ -276,13 +276,27 @@ def test_c026_ambiguous_unions_in_contracts(tmp_path: Path) -> None:
     assert "L2.legacy" in hits[1]
 
 
-def test_c027_organization_routes_and_the_personal_account(tmp_path: Path) -> None:
+def test_c027_organization_routes_and_the_personal_account(
+    atoms_on_path: Path,
+) -> None:
+    """The account atoms are the generated ones of ``billing.entitlements.v1``
+    (rendered as ``sandloom generate`` writes them), read from their literals."""
+    from sandloom.core.cli.generated import render_stub
+    from sandloom_billing.contracts import EntitlementsContract
+
+    tmp_path = atoms_on_path
+    _write(
+        tmp_path,
+        "billing_entitlements_v1.py",
+        render_stub("billing.entitlements.v1", EntitlementsContract),
+    )
     path = _write(
         tmp_path,
         "r.py",
         """
-        from sandloom.sdk import Credits, Subscribed, SubscriptionActive
-        from sandloom.sdk.authz import Feature
+        from billing_entitlements_v1 import (
+            Credits, LiveFeature, Subscribed, SubscriptionActive,
+        )
 
         @router.get(
             "/orgs/{org_id}/export",
@@ -305,7 +319,7 @@ def test_c027_organization_routes_and_the_personal_account(tmp_path: Path) -> No
         @router.get("/me", dependencies=[Depends(require(Subscribed(of=Account.user())))])
         async def me(): ...
 
-        @router.get("/teams", dependencies=[Depends(require(Feature("x", of=Account.org(param="team_id"))))])
+        @router.get("/teams", dependencies=[Depends(require(LiveFeature("x", of=Account.org(param="team_id"))))])
         async def teams(): ...
         """,
     )
@@ -313,6 +327,45 @@ def test_c027_organization_routes_and_the_personal_account(tmp_path: Path) -> No
     assert len(hits) == 2
     assert "/orgs/{org_id}/export" in hits[0] and "Account.user()" in hits[0]
     assert "team_id" in hits[1] and "/teams" in hits[1]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="KB-34: atom_metadata.binds_account reads a claim-read atom's top-level "
+    "binds, but the generated Feature / WithinLimit carry them under 'otherwise'; "
+    "the piece that deletes the kernel table fixes it and drops this marker",
+)
+def test_c027_a_generated_claim_read_atom_is_checked_too(
+    atoms_on_path: Path,
+) -> None:
+    from sandloom.core.cli.generated import render_stub
+    from sandloom_billing.contracts import EntitlementsContract
+
+    _write(
+        atoms_on_path,
+        "billing_entitlements_v1.py",
+        render_stub("billing.entitlements.v1", EntitlementsContract),
+    )
+    path = _write(
+        atoms_on_path,
+        "r.py",
+        """
+        from billing_entitlements_v1 import Feature, WithinLimit
+
+        @router.get(
+            "/teams/{team_id}",
+            dependencies=[Depends(require(Feature("x", of=Account.user())))],
+        )
+        async def teams(team_id: UUID): ...
+
+        @router.get(
+            "/orgs/{org_id}/n",
+            dependencies=[Depends(require(WithinLimit("n", 1, of=Account.user())))],
+        )
+        async def n(org_id: UUID): ...
+        """,
+    )
+    assert len(a10.find_account_route_mismatches(path)) == 2
 
 
 def _tree(tmp_path: Path) -> Path:
