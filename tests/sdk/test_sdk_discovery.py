@@ -13,13 +13,17 @@ import textwrap
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import pytest
 from fastapi import FastAPI
 
+from sandloom.core.cli.generated import render_stub
 from sandloom.core.facade import CoreFacade
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.testing import registration_surface
+from sandloom.sdk import contract
+from sandloom.sdk.authz import Category, From, access_check
 from sandloom.sdk.errors import (
     ConsumerDefinitionError,
     ContractDefinitionError,
@@ -266,22 +270,59 @@ def test_consumes_states_the_methods_of_an_unresolved_call(make_module: Any) -> 
     ]
 
 
+@contract("billing.entitlements.v1")
+class _EntitlementsContract:
+    """The subscription check, declared as billing declares it (a fixture:
+    the kernel job has no battery installed)."""
+
+    @access_check(
+        "SubscriptionActive",
+        bind={"tenant_type": From.account_type(), "tenant_id": From.account_id()},
+        category=Category.PAYMENT_REQUIRED,
+        describe="active subscription",
+    )
+    async def check_subscription_active(
+        self, tenant_type: str, tenant_id: UUID
+    ) -> bool:
+        """True while a subscription grants access."""
+        return True
+
+
+@contract("tenancy.membership.v1")
+class _MembershipContract:
+    """The organization role check, declared as tenancy declares it."""
+
+    @access_check(
+        "OrgRole",
+        bind={
+            "organization_id": From.org(param="org_id", validate_against_token=False),
+            "user_id": From.subject_id(),
+        },
+        category=Category.FORBIDDEN,
+        values={"minimum": ["member", "admin", "owner"]},
+        risk={"admin": {"minimum": ["admin", "owner"]}},
+        describe="organization role '{minimum}'",
+    )
+    async def has_role_at_least(
+        self, organization_id: UUID, user_id: UUID, minimum: str
+    ) -> bool:
+        """True when the user's role ranks at least ``minimum``."""
+        return True
+
+
 def test_route_policies_add_the_contracts_their_atoms_call(make_module: Any) -> None:
     """A live or fact-backed gate needs its owner's contract in a split
     deployment: it joins the derived ``consumes`` (optional), so the
     preflight reports it unbound and ``sandloom add deploy`` binds it."""
-    from sandloom.core.cli.generated import render_stub
-    from sandloom_billing.contracts import EntitlementsContract
-    from sandloom_tenancy.contracts import MembershipReadContract
 
     pkg = make_module(
         {
             # the atoms are the generated ones: the contracts come from their literals
             "entitlements_stub.py": render_stub(
-                "billing.entitlements.v1", EntitlementsContract
+                "billing.entitlements.v1", _EntitlementsContract
             ),
             "membership_stub.py": render_stub(
-                "tenancy.membership.v1", MembershipReadContract
+                "tenancy.membership.v1", _MembershipContract
             ),
             "api.py": """
                 from fastapi import Depends
