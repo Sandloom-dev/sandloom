@@ -520,6 +520,7 @@ def define_module(
     events: Any = AUTO,
     issues_tokens: bool = False,
     refresh_sessions: bool = True,
+    login_entry: str | None = None,
     settings: type[BaseModel] | None = None,
     generates: Mapping[str, Callable[[Any], str]] | None = None,
 ) -> Callable[[ModuleAPI], Any]:
@@ -543,6 +544,11 @@ def define_module(
     ``core.auth.user_blocked.v1``; one that holds no refresh sessions
     declares ``refresh_sessions=False`` instead, which startup verifies
     against its refresh routes, session tables and consumers (SANDLOOM-B035).
+    ``login_entry="/auth/login"`` declares, on the issuer only, the route path
+    of its login endpoint: the admin console is served in front of the
+    composition's ``issuer`` only when that issuer declares one (a module
+    without it is a configuration error naming it); a value that is not a
+    route path of this application is refused.
 
     ``settings=`` declares the module's settings: a plain pydantic
     ``BaseModel`` whose fields are aliased to their environment names
@@ -607,6 +613,7 @@ def define_module(
             ],
             issues_tokens=issues_tokens,
             refresh_sessions=refresh_sessions,
+            login_entry=login_entry,
             generated_files=dict(generated_files),
         )
 

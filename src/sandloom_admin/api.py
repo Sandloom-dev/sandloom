@@ -3,6 +3,7 @@
 import gzip
 import json
 import mimetypes
+import re
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -99,6 +100,41 @@ def _usable_manifest() -> dict[str, Any]:
     return manifest
 
 
+#: A login entry the console accepts: one route path of this application
+#: (``/auth/login``), checked again here because the manifest is a file.
+_LOGIN_ENTRY = re.compile(r"/[A-Za-z0-9_~-]+(?:[./][A-Za-z0-9_~-]+)*")
+
+
+def _issuer(manifest: dict[str, Any]) -> tuple[str, str]:
+    """The assigned token issuer and its declared login entry, or a 503 naming
+    what to fix. Read from the manifest the composition generated (the map's
+    ``issuer`` and the issuer's registration), never from a token: its ``iss``
+    is the caller's input. A manifest without it fails closed."""
+    issuer = manifest.get("issuer")
+    if not isinstance(issuer, dict) or not isinstance(issuer.get("module"), str):
+        raise HTTPException(
+            503,
+            "The admin console needs an assigned token issuer: set "
+            "claim_authorities={..., 'issuer': <module>} in the composition "
+            "root, then run `sandloom generate` and restart.",
+        )
+    name: str = issuer["module"]
+    entry = issuer.get("login_entry")
+    if (
+        not isinstance(entry, str)
+        or ".." in entry.split("/")
+        or not _LOGIN_ENTRY.fullmatch(entry)
+    ):
+        raise HTTPException(
+            503,
+            f"The admin console cannot sign operators in: the issuer {name!r} "
+            "declares no login entry. Declare its login route on its "
+            "registration (define_module(..., login_entry='/auth/login')), "
+            "then run `sandloom generate` and restart.",
+        )
+    return name, entry
+
+
 def _accepted(request: Request) -> set[str]:
     """The content codings the client accepts (``q=0`` refuses one)."""
     accepted = set()
@@ -179,10 +215,14 @@ async def console_config(request: Request) -> Response:
     ``development`` (outside production only) lets the console keep its
     session across a reload of the tab (sessionStorage) and show the local
     sign-in hints; production keeps sessions in memory and says nothing."""
-    modules = [m for m in _usable_manifest()["modules"] if m != "core"]
-    if "identity" not in modules:
-        raise HTTPException(503, "The admin console needs the identity module.")
-    payload: dict[str, Any] = {"modules": modules}
+    manifest = _usable_manifest()
+    modules = [m for m in manifest["modules"] if m != "core"]
+    issuer, login_entry = _issuer(manifest)
+    payload: dict[str, Any] = {
+        "modules": modules,
+        "issuer": issuer,
+        "login_entry": login_entry,
+    }
     if settings.environment.value != "prod":
         payload["development"] = True
     return _json(payload, request)

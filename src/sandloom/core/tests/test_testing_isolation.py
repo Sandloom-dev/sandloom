@@ -24,6 +24,7 @@ from typing import Any
 
 import pytest
 
+from sandloom.core.composition import composition_root_name
 from sandloom.core.testing import isolation
 
 _ENV_TEST = (
@@ -57,6 +58,10 @@ def _run_project(root: Path, files: dict[str, str]) -> subprocess.CompletedProce
         for k, v in os.environ.items()
         if not k.startswith(("SANDLOOM_", "PYTEST_", "JWT_")) and k != "ENVIRONMENT"
     }
+    # Stripped with the other SANDLOOM_*: the child composes the root this run
+    # does, and its probes build apps through that root's factory (an issuer
+    # needs its trust map, SANDLOOM-B035).
+    env["SANDLOOM_COMPOSITION_ROOT"] = composition_root_name()
     return subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-p", "no:xdist", "-p", "no:randomly"],
         cwd=root,
@@ -82,11 +87,11 @@ def test_step_1_a_test_builds_its_own_app(tmp_path: Path) -> None:
 
 
                 def test_1_builds_an_app():
-                    from sandloom.core.app_factory import create_app
+                    from sandloom.core.tests._root_support import create_root_app
 
                     seen["before"] = runtime()
                     seen["modules"] = (settings.sandloom_modules, list(settings.sandloom_modules))
-                    core = create_app().state.core
+                    core = create_root_app().state.core
                     seen["app"] = (core, core.infra, core.event_bus)
                     assert runtime() == seen["app"]
 
@@ -125,9 +130,9 @@ def test_step_2_the_next_test_gets_the_previous_runtime_back(tmp_path: Path) -> 
 
                 @pytest.fixture(scope="module")
                 def own_app():
-                    from sandloom.core.app_factory import create_app
+                    from sandloom.core.tests._root_support import create_root_app
 
-                    return create_app()
+                    return create_root_app()
 
 
                 def test_the_module_sees_its_own_app(own_app):

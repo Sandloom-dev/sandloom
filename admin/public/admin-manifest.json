@@ -1,4 +1,8 @@
 {
+  "issuer": {
+    "login_entry": "/auth/login",
+    "module": "identity"
+  },
   "modules": [
     "identity",
     "tenancy",

@@ -49,7 +49,9 @@ def _console_importable() -> bool:
     return importlib.util.find_spec("sandloom_admin") is not None
 
 
-def _compose(*modules: str) -> dict[str, Any]:
+def _compose(*modules: str, root: str | None = None) -> dict[str, Any]:
+    """Boot the composition in a child; ``root`` names a composition root (an
+    issuer such as identity needs one with a trust map, SANDLOOM-B035)."""
     env = {
         **os.environ,
         "SANDLOOM_MODULES": json.dumps(list(modules)),
@@ -64,6 +66,8 @@ def _compose(*modules: str) -> dict[str, Any]:
         ),
     }
     env.pop("SANDLOOM_COMPOSITION_ROOT", None)
+    if root:
+        env["SANDLOOM_COMPOSITION_ROOT"] = root
     done = subprocess.run(
         [sys.executable, "-c", _PROBE],
         cwd=BACKEND,
@@ -99,12 +103,18 @@ def test_a_third_party_module_s_screens_reach_the_manifest() -> None:
 
 
 @pytest.mark.skipif(
-    not (_console_importable() and importlib.util.find_spec("sandloom_identity")),
-    reason="no console or identity package",
+    not (
+        _console_importable()
+        and importlib.util.find_spec("sandloom_identity")
+        and importlib.util.find_spec("sandloom_standard")
+    ),
+    reason="no console, identity or standard-composition package",
 )
 def test_the_console_and_identity_out_of_the_box() -> None:
     """AD-2: the console declares its manifest; identity's screens are in it."""
-    report = _compose("sandloom_identity", "sandloom_admin")
+    report = _compose(
+        "sandloom_identity", "sandloom_admin", root="sandloom_standard.main"
+    )
     item = report["files"]["admin-manifest.json"]
     assert item["problems"] == []
     manifest = json.loads(item["content"])

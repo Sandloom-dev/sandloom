@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 
+from sandloom.core.composition import composition_root_name
+
 # Every case runs its own pytest process; the full matrix covers these probes.
 pytestmark = pytest.mark.subprocess_probe
 
@@ -25,13 +27,22 @@ _PYPROJECT = """\
 pythonpath = ["."]
 addopts = ["-p", "sandloom.core.testing.plugin", "-p", "no:cacheprovider"]
 asyncio_mode = "auto"
-{extra}
+{root_ini}{extra}
 """
 
 
 def _project(root: Path, files: dict[str, str], *, extra_ini: str = "") -> Path:
     root.mkdir(parents=True, exist_ok=True)
-    (root / "pyproject.toml").write_text(_PYPROJECT.format(extra=extra_ini))
+    # The child has no SANDLOOM_* env: name the root this run composes (the
+    # standard one where the batteries are installed) unless the case sets its own.
+    root_ini = (
+        ""
+        if "sandloom_composition_root" in extra_ini
+        else f'sandloom_composition_root = "{composition_root_name()}"\n'
+    )
+    (root / "pyproject.toml").write_text(
+        _PYPROJECT.format(root_ini=root_ini, extra=extra_ini)
+    )
     for rel, body in files.items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
