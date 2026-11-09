@@ -24,6 +24,7 @@ dependencies = [
     "litestar==2.24.0",
     "msgspec==0.22.0",
     "psutil==7.2.2",
+    "sandloom-standard",
     "sandloom-tenancy",
     "sandloom-billing",
     "sandloom-identity",
@@ -31,6 +32,10 @@ dependencies = [
 
 [tool.uv.sources.sandloom]
 path = "../packages/sandloom"
+editable = true
+
+[tool.uv.sources.sandloom-standard]
+path = "../packages/sandloom-standard"
 editable = true
 
 [tool.uv.sources.sandloom-tenancy]

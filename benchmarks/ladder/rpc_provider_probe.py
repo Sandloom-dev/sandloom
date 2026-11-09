@@ -78,7 +78,7 @@ for f in glob.glob(f"{a.work_dir}/p.*"):
 
 with open(a.mix) as fh:
     wl = lc.Workload.from_mix(
-        json.load(fh), ["Authorization: Bearer " + mix.mint(hours=24, tenant=True)]
+        json.load(fh), ["Authorization: Bearer " + mix.mint(hours=24, full=True)]
     )
 topo = json.load(open(a.topology))
 names = [s["name"] for s in topo]

@@ -432,7 +432,7 @@ uv run python -m benchsuite.render smoke.json
 benchsuite/
   common.py            shared env/config + scenario contract
   bench/               the Sandloom module (define_module: api/, events.py, models, services)
-  apps/sandloom_app.py      Sandloom entry point (sandloom.main:app)
+  apps/sandloom_app.py      Sandloom entry point (bench stand root: claim authorities of the bench module)
   apps/fastapi_app.py  bare FastAPI
   apps/litestar_app.py bare Litestar (SQLAlchemy)
   apps/litestar_asyncpg_app.py  Litestar + raw asyncpg

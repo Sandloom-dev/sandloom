@@ -45,18 +45,17 @@ import shlex
 import shutil
 import subprocess
 import sys
-import time
 import uuid
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import asyncpg
-import jwt
 
-from benchsuite import common
+from benchsuite import claims_mint, common
 
 USER = uuid.UUID("00000000-0000-4000-8000-00000000a001")
 ORG = uuid.UUID("00000000-0000-4000-8000-00000000b001")
+ORG_CUSTOMER = uuid.UUID("00000000-0000-4000-8000-0000000000e1")
 PROJECT = uuid.UUID("00000000-0000-4000-8000-00000000c001")
 LINK_CODE = "mixcode"
 PASSWORD = "mix-password-0123456789"
@@ -88,7 +87,8 @@ FULL_MODULES = [
     "linkly.modules.links",
 ]
 _TICKET = json.dumps({"subject": "mix {i}", "body": "b", "priority": "normal"})
-_TASK = json.dumps({"tenant_id": str(ORG), "project_id": str(PROJECT), "title": "t"})
+# the tenant is the token's grant, not a body field (TaskCreateIn forbids extras)
+_TASK = json.dumps({"project_id": str(PROJECT), "title": "t"})
 _LINK = json.dumps({"target_url": "https://example.com/{i}", "custom_code": "m{u}"})
 _LOGIN = json.dumps({"email": "mix@example.com", "password": PASSWORD})
 
@@ -193,15 +193,24 @@ CONFIGS: list[tuple[str, str, str]] = [
 
 
 def database_url(full: bool = False) -> str:
-    """``DATABASE_URL`` with ``_mix`` (``_mixfull``) appended to the name."""
+    """``DATABASE_URL`` with ``_mix`` (``_mixfull``) appended to the name.
+
+    Idempotent: a process that already applied :func:`server_env` (the smoke
+    runs) has the suffixed name in ``DATABASE_URL``, and a token minted for it
+    (``claims_mint``) asks for the same stand again."""
     parts = urlsplit(common.database_url())
+    name = parts.path.rstrip("/")
+    for known in ("_mixfull", "_mix"):
+        name = name.removesuffix(known)
     suffix = "_mixfull" if full else "_mix"
-    return urlunsplit(parts._replace(path=parts.path.rstrip("/") + suffix))
+    return urlunsplit(parts._replace(path=name + suffix))
 
 
 def server_env(full: bool = False) -> dict[str, str]:
     env = {
         "ENVIRONMENT": "dev",
+        # the batteries are composed by the standard root (claim authorities)
+        "SANDLOOM_COMPOSITION_ROOT": "sandloom_standard.main",
         # explicit: the ladder runner exports SANDLOOM_MODULES=["benchsuite.bench"]
         "SANDLOOM_MODULES": '["sandloom_identity", "sandloom_tenancy", "sandloom_billing"]',
         "LOG_LEVEL": "WARNING",
@@ -222,23 +231,13 @@ def server_env(full: bool = False) -> dict[str, str]:
     return env
 
 
-def mint(hours: int = 6, *, tenant: bool = False) -> str:
-    now = int(time.time())
-    claims: dict[str, Any] = {
-        "sub": str(USER),
-        "token_type": "access",
-        "iat": now,
-        "nbf": now,
-        "exp": now + hours * 3600,
-        "jti": uuid.uuid4().hex,
-        "email": "mix@example.com",
-        "email_verified": True,
-        "tenant_ids": [str(ORG)],
-        "claims_sources": ["identity", "tenancy", "billing"],
-    }
-    if tenant:  # full mix: TenantScope routes (notifications) bind ORG
-        claims["tenant_id"] = str(ORG)
-    return jwt.encode(claims, common.jwt_secret(), algorithm="HS256")
+def mint(hours: int = 6, *, full: bool = False) -> str:
+    """The seeded user's access token through the real mint
+    (``benchsuite.claims_mint``): ``collect_claims`` of the stand's own
+    composition reads the roles, the tenancy grant and the subscription from
+    its database, so the token carries the ``cpv`` and provenance the standard
+    trust map verifies. ``full``: the full mix's modules and database."""
+    return claims_mint.mint_platform(USER, hours=hours, env=server_env(full))
 
 
 def _asyncpg_dsn(full: bool = False) -> str:
@@ -312,6 +311,32 @@ async def _seed_full(conn: asyncpg.Connection) -> None:
         USER,
         hash_password(PASSWORD),
     )
+    # The organization's active subscription (helpdesk's premium ticket export
+    # gates on it live: an org subscription is never a token claim).
+    await conn.execute(
+        "INSERT INTO billing_products (id, name, type, is_active) VALUES"
+        " (951, 'Mix Team', 'subscription', true) ON CONFLICT DO NOTHING"
+    )
+    await conn.execute(
+        "INSERT INTO billing_prices (id, product_id, amount, currency,"
+        " recurring_interval, stripe_price_id) VALUES"
+        " (961, 951, 9900, 'USD', 'month', 'price_mix_team') ON CONFLICT DO NOTHING"
+    )
+    await conn.execute(
+        "INSERT INTO billing_customers (id, user_id, organization_id)"
+        " VALUES ($1, NULL, $2) ON CONFLICT DO NOTHING",
+        ORG_CUSTOMER,
+        ORG,
+    )
+    if not await conn.fetchval(
+        "SELECT 1 FROM billing_subscriptions WHERE customer_id = $1", ORG_CUSTOMER
+    ):
+        await conn.execute(
+            "INSERT INTO billing_subscriptions (customer_id, price_id, status,"
+            " current_period_end, cancel_at_period_end, origin) VALUES"
+            " ($1, 961, 'active', now() + interval '365 days', false, 'intent')",
+            ORG_CUSTOMER,
+        )
     if await conn.fetchval("SELECT count(*) FROM tickets_tickets") >= LIST_ROWS:
         return  # seeded before
     await conn.executemany(
@@ -388,7 +413,7 @@ async def smoke_full() -> None:
     from sandloom_standard.main import app
 
     headers = {
-        "Authorization": f"Bearer {mint(tenant=True)}",
+        "Authorization": f"Bearer {mint(full=True)}",
         "Content-Type": "application/json",
     }
     async with app.router.lifespan_context(app):
@@ -429,7 +454,7 @@ def commands_full(n: int = 6000) -> None:
     ``benchmarks/``; the Postgres / Redis containers are taken from
     ``LADDER_PG_CONTAINER`` / ``LADDER_REDIS_CONTAINER``.
     """
-    token = mint(hours=24, tenant=True)
+    token = mint(hours=24, full=True)
     print("set -e")
     for mode, flag in (("off", "false"), ("on", "true")):
         for key, (method, path, body, expect) in CATALOG.items():
@@ -528,7 +553,7 @@ def commands_integration(out_dir: str = "/tmp/mixprof", n: int = 8000) -> None:
     ``git worktree add $MIX_MAIN38_DIR 47cd7e5``, then ``uv sync --frozen`` in
     their ``benchmarks/``.
     """
-    token = mint(hours=24, tenant=True)
+    token = mint(hours=24, full=True)
     header = shlex.quote("Authorization: Bearer " + token)
     print("set -e")
     print(f"uv run python -m benchsuite.mix profiles {shlex.quote(out_dir)}")
