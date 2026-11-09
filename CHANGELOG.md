@@ -583,6 +583,16 @@ website renders this same changelog.
 
 ### Changed
 
+- **G-AUTHZ-05 restated over access checks** (KB-34a, ADR-0014 decision 14,
+  step 1). Who answers a live entitlement or membership check is the
+  consumer's configuration: a third-party provider's declared access checks
+  (the `SubscriptionActive`, `Credits` and `OrgRole` shapes) decide what the
+  kernel atoms decide on the same inputs (allow, deny, indeterminate 400 /
+  403 / 501, a provider down 503), in-process under `access_providers` and
+  over internal RPC through `SERVICE_BINDINGS`, and the root's assignment
+  chooses among candidate providers. The scenarios replace the
+  `register_live_adapter` tests; no API changes yet (the adapters go in a
+  later step).
 - **The kernel's tools read the modules' settings declarations; `config dump`
   lists module settings** (KB-55; ADR-0015 decisions 8 and 11; edges B-C7, B-C8,
   B-C9 and B-N8 fixed). A settings model may carry plain class attributes the
