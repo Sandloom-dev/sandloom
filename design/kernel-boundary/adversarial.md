@@ -7,10 +7,10 @@ nothing; the ADRs decide after the PoCs.
 
 | alternatives file | favoured there | reviewed in |
 |---|---|---|
-| [alternatives-a-boundary.md](alternatives-a-boundary.md) | A1 (names rule + edge register, M1-M5), A4's checks as tests | §2 |
-| [alternatives-b-contracts.md](alternatives-b-contracts.md) | B1 delivered as B4 | §3 |
-| [alternatives-c-authz.md](alternatives-c-authz.md) | TA-1 (trust), PA-2 (portable atoms) | §4 |
-| [alternatives-d-settings.md](alternatives-d-settings.md) | D2a on top of PR #71, hashing H1 | §5 |
+| [alternatives-a-boundary.md](_archive/alternatives-a-boundary.md) | A1 (names rule + edge register, M1-M5), A4's checks as tests | §2 |
+| [alternatives-b-contracts.md](_archive/alternatives-b-contracts.md) | B1 delivered as B4 | §3 |
+| [alternatives-c-authz.md](_archive/alternatives-c-authz.md) | TA-1 (trust), PA-2 (portable atoms) | §4 |
+| [alternatives-d-settings.md](_archive/alternatives-d-settings.md) | D2a on top of PR #71, hashing H1 | §5 |
 
 **Method.** Phase 1, blind to the earlier proposals: requirements, goals, owner answers, the four
 files, the evidence they cite (baseline, guarantee-map, validation, perf-dx-baseline,
@@ -303,7 +303,7 @@ Latency threshold (I-14 part 4, with a quieter bench).
 - Alternatives: the four files above at `ceb3d66`.
 - Evidence cited through them: [baseline.md](baseline.md), [guarantee-map.md](guarantee-map.md),
   [validation.md](validation.md) §1, [perf-dx-baseline.md](perf-dx-baseline.md),
-  [research-trust.md](research-trust.md) §5-§6, research-authz-portability.md,
+  [research-trust.md](_archive/research-trust.md) §5-§6, research-authz-portability.md,
   research-settings.md.
 - Code read in this pass: `main.py:1-48`; `core/composition.py:24-27`, `:55-85`;
   `deploy/docker/Dockerfile:30-32`; `deploy/compose/microservices.yml:91-96`;

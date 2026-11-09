@@ -136,10 +136,7 @@ path = "../../tools/packaging/package_build.py"
 # standard modules' generated stubs and event schemas, authz, guards): every
 # caller process imports it (SANDLOOM-C012).
 [tool.sandloom.exclude]
-paths = [
-    "sandloom/AGENTS.md",
-    "sandloom/CLAUDE.md",
-]
+paths = []
 
 # Local builds (`uvx --from packages/sandloom`) rebuild when the sources change,
 # not only when this file does.

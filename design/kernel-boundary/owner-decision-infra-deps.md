@@ -1,6 +1,6 @@
 # Owner decision: module infrastructure dependencies (2026-11-08)
 
-Basis: [research-infra-deps.md](research-infra-deps.md) (60b118a), accepted as the basis for fixing I-19.
+Basis: [research-infra-deps.md](_archive/research-infra-deps.md) (60b118a), accepted as the basis for fixing I-19.
 Tracked in tm `kb-04a-p2-taskqueue-ready`; implementation tasks `kb-ic-1` … `kb-ic-5`.
 
 ## Direction

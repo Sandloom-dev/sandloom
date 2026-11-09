@@ -8,8 +8,8 @@ billing claims, and how the kernel checks it) and **(b) the portability of domai
 `Account`/`TenantKind`, `Permissions`/`Roles`, the default live adapters, `fake_access_fact`)
 so that the kernel holds none of their domain knowledge and a consumer never imports a provider.
 
-This file compares alternatives by the scenarios of [requirements.md](requirements.md) §5.A and
-§5.C and the owner's answers ([owner-answers.md](owner-answers.md), "answer #n"). It decides
+This file compares alternatives by the scenarios of [requirements.md](../requirements.md) §5.A and
+§5.C and the owner's answers ([owner-answers.md](../owner-answers.md), "answer #n"). It decides
 nothing: the ADR decides, after `kb-poc-trust` and `kb-poc-authz`.
 
 Inputs read: goals.md, requirements.md, owner-answers.md, problems.md, baseline.md,

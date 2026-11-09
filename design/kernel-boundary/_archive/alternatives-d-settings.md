@@ -1,6 +1,6 @@
 # Alternatives D: module-owned configuration
 
-tm `kb-alt-settings` (parent `kb-assess`, decision D of [requirements.md](requirements.md) §2).
+tm `kb-alt-settings` (parent `kb-assess`, decision D of [requirements.md](../requirements.md) §2).
 Question: how the settings, validators, accepted risks, removed-setting entries, backup notes,
 console settings list and deploy shared keys that the kernel holds for identity, tenancy,
 billing and admin move to those modules, while tiers, the ratchet, doctor, diagnostics, secret
@@ -8,9 +8,9 @@ redaction, the `.env` / `SECRETS_DIR` sources and the refusal at every entry poi
 Also: how password hashing splits into a platform crypto mechanism and identity policy.
 
 Written blind: this file does not use `roadmap-review.md`, the roadmap inputs, the
-target-architecture draft or the reconciled review. Inputs: [goals.md](goals.md),
-[requirements.md](requirements.md), [owner-answers.md](owner-answers.md),
-[baseline.md](baseline.md), [guarantee-map.md](guarantee-map.md),
+target-architecture draft or the reconciled review. Inputs: [goals.md](../goals.md),
+[requirements.md](../requirements.md), [owner-answers.md](../owner-answers.md),
+[baseline.md](../baseline.md), [guarantee-map.md](../guarantee-map.md),
 [research-settings.md](research-settings.md) (cited as "research"), and the code.
 
 Code is cited at `f40cb7f` (`arch/kernel-boundary`); `git diff --stat 44451e4 f40cb7f -- src`

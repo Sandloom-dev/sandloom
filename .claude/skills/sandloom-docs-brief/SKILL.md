@@ -1,5 +1,6 @@
 ---
 name: sandloom-docs-brief
+disable-model-invocation: true
 description: Agree with the owner what one Sandloom docs page must say before it is written — purpose, audience and level, job, one message, promise, the argument (the strongest pains and advantages, grouped), evidence, words, actions, reuse and what stays out. Use before writing an entry page, README or landing text, before rewriting a page from scratch, and when the owner rejects a draft that passed the checks.
 ---
 

@@ -27,7 +27,7 @@ def layout(rules: Any) -> Doc:
         "shared_dir": rules.shared_dir.resolve().relative_to(root).as_posix(),
         "shared_package": rules.shared_dto_package,
         "policy_sha256": sha((root / "architecture_rules.yml").read_bytes()),
-        "role_contract": "src/sandloom/AGENTS.md"
+        "role_contract": ".claude/rules/module-author.md"
         if rules.is_framework_tree
         else "AGENTS.md",
     }

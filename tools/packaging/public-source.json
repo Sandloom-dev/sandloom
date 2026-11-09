@@ -36,6 +36,7 @@
         ".claude/rules/contracts.md",
         ".claude/rules/migrations.md",
         ".claude/rules/module-api.md",
+        ".claude/rules/module-author.md",
         ".claude/rules/tasks.md",
         ".claude/rules/tests.md",
         ".claude/skills/sandloom-docs-brief/SKILL.md",
@@ -1169,8 +1170,6 @@
     {
       "reason": "Framework implementation, bundled modules, public SDK/testing kit, templates, tests and generated schemas.",
       "paths": [
-        "src/sandloom/AGENTS.md",
-        "src/sandloom/CLAUDE.md",
         "src/sandloom/__init__.py",
         "src/sandloom/core/AGENTS.md",
         "src/sandloom/core/CLAUDE.md",
@@ -2454,6 +2453,7 @@
         "tests/fixtures/specs/api10-ledger-delta-console.md",
         "tests/fixtures/specs/api10-ledger-delta-docsfix.md",
         "tests/fixtures/specs/api10-ledger-delta-docslayout.md",
+        "tests/fixtures/specs/api10-ledger-delta-kb21.md",
         "tests/fixtures/specs/api10-ledger-delta-driverkit.md",
         "tests/fixtures/specs/api10-ledger-delta-dxfix.md",
         "tests/fixtures/specs/api10-ledger-delta-ecosystem.md",

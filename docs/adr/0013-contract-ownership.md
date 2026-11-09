@@ -17,7 +17,7 @@ search:
 - **Related:** [ADR-0012](0012-kernel-boundary.md),
   [ADR-0014](0014-claims-trust-and-authorization-portability.md) (generated access atoms live
   in the same generated package)
-- **Research and evidence:** `design/kernel-boundary/alternatives-b-contracts.md`,
+- **Research and evidence:** `design/kernel-boundary/_archive/alternatives-b-contracts.md`,
   `adversarial.md` §3, `poc/contracts/results.md` (commit `67980bf`), `baseline.md` §5, §13,
   `guarantee-map.md` §7 and D4
 
