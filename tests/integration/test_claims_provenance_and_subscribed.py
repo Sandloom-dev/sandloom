@@ -146,7 +146,6 @@ def billing_config() -> Iterator[Callable[..., None]]:
         ("past_due", False, True),  # grace period
         ("past_due", True, False),  # BILLING_DENY_ON_PAST_DUE
         ("canceled", False, False),
-        (None, False, False),
     ],
 )
 async def test_subscribed_honours_past_due_grace(
@@ -180,12 +179,14 @@ async def test_subscribed_without_its_owner_is_indeterminate_501(
     assert (decision.http_status, decision.code) == (501, "fact_unregistered")
 
 
-async def test_subscribed_escalates_to_live_when_billing_failed_at_mint(
+async def test_subscribed_is_503_when_billing_failed_at_mint(
     generated_atoms: SimpleNamespace,
 ) -> None:
     """Billing in ``claims_sources_failed``: the (absent) claim is not a
-    genuine "unsubscribed" — Subscribed asks billing live instead of denying
-    402 for the token's whole lifetime."""
+    genuine "unsubscribed", so never a 402 for the token's whole lifetime,
+    and never an allow: 503 ``claim_authority_failed`` with zero I/O, the
+    same on ``Subscribed()`` and ``Subscribed(statuses=...)`` (KB-33g: no
+    live escalation for ``Account.user()``)."""
     Subscribed = generated_atoms.Subscribed
     calls: list[tuple[str, UUID]] = []
 
@@ -201,11 +202,14 @@ async def test_subscribed_escalates_to_live_when_billing_failed_at_mint(
         services={"billing.entitlements.v1": svc},
     )
     subject = _subject(claims_sources=["identity"], claims_sources_failed=["billing"])
-    assert (
-        await Subscribed(of=Account.user()).evaluate(AuthzContext(subject, core=core))
-        is True
-    )
-    assert calls == [("user", USER)]
+    for atom in (
+        Subscribed(of=Account.user()),
+        Subscribed(frozenset({"active"}), of=Account.user()),
+    ):
+        decision = await atom.decide(AuthzContext(subject, core=core))
+        assert not decision.allowed and decision.indeterminate
+        assert (decision.http_status, decision.code) == (503, "claim_authority_failed")
+    assert calls == []
 
 
 async def test_subscribed_without_live_path_is_indeterminate_503(

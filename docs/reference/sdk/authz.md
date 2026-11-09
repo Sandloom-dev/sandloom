@@ -947,23 +947,33 @@ the owner neither loaded nor bound it is indeterminate 501 (nobody may
 vouch for the claim). For an organization account it delegates to the
 owner's live access check (`otherwise` in the literal).
 
-The verbatim read is three-valued from the token (KB-33e, the rows of
-G-AUTHZ-12 as amended by KB-33d): a status present decides (allow when
-it is among the statuses, else a definite deny); the claim removed by
-the view for a reason a refresh or a retry may change is its 401 / 503;
-absent because its authority failed at the mint is 503
-`claim_authority_failed`; absent otherwise (its authority wrote none,
-the view removed it as unassigned / unvouched, a legacy token) or not a
-string is 501 `access_unknown`. `Not` and `Or` never allow on any
-of these; zero I/O on every row.
+Both reads share one trust rule (KB-33g, owner decision 2026-11-09:
+`statuses=` changes the accepted statuses, not the trust rules), so
+the default read and the verbatim read agree on every row, with zero
+I/O beyond the owner's declarative rule:
 
-The default read (KB-33f) shares the first row: the claim removed by the
-view for a reason a refresh or a retry may change is its 401 / 503 with
-zero I/O, before the fact is looked up. A claim the owner did not vouch
-for (it failed at the mint, or did not run) is asked live, 503 without a
-live check; a value the view removed although the owner vouched for the
-token is 501 `access_unknown`; otherwise the owner's rule reads the
-claim (an absent one from an owner that ran is its "no").
+* a status present that the owner vouched for decides: the default read
+  by the owner's rule (e.g. a grace period), the verbatim read by the
+  chosen statuses; outside them a definite deny (the declared 402);
+* the owner's own claim proven absent is the owner's definite deny too:
+  the key is the fact's claim, assigned to the owner and verified, the
+  owner ran at the mint (in `claims_sources`, not failed) under the
+  token's intact claim policy (its `cpv` entry is the one the
+  verifier accepts for the owner), and the view removed nothing. An
+  absent key never equals any status (`statuses={"none"}` does not
+  match it);
+* the claim removed by the view for a reason a refresh or a retry may
+  change: its 401 `token_policy_outdated` / 503
+  `claims_policy_mismatch`;
+* absent (or present but unvouched) because its authority failed at the
+  mint: 503 `claim_authority_failed`, never asked live;
+* absent otherwise (no authority assigned for the key, another
+  authority, the owner did not run, no provable claim policy, a legacy
+  token, removed by the view as unassigned / unvouched, another
+  declared `claim_key=`), or not a string: 501 `access_unknown`.
+
+Only a definite deny is a `False`: `Not` allows only on a proven
+deny, and `Not` / `Or` / `And` never allow on an indeterminate.
 
 #### `ClaimFactCheck.org_params`
 

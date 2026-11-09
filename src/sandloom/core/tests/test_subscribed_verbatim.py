@@ -22,11 +22,13 @@ a contract, a fact over RPC or the database.
 The default path (no ``statuses=``, ``ClaimFactCheck._via_fact``, KB-33f)
 shares the view's row with the same code path: removed as outdated /
 mismatch is 401 / 503 with zero I/O (no fact looked up), never the 402 that
-``Not`` turned into an allow (G-AUTH-23). With billing failed at the mint it
-escalates to billing's live answer (503 without one), never a deny; a value
-the view removed although billing vouched for the token is 501
-``access_unknown``; otherwise billing's rule reads the claim (a status
-present, or absent from a billing that ran: its "no", 402).
+``Not`` turned into an allow (G-AUTH-23). Since KB-33g both reads share one
+trust rule (``test_subscribed_agree.py`` holds the whole table): billing
+failed at the mint is 503 ``claim_authority_failed`` on both, never asked
+live; a value the view removed is 501 ``access_unknown``; a status present
+is read by billing's rule; an absent status is billing's 402 only when its
+absence is proven (billing assigned and verified, ran OK, the token's
+``cpv`` intact): the tokens here carry no ``cpv``, so absent is 501 on both.
 """
 
 from __future__ import annotations
@@ -328,10 +330,12 @@ async def test_or_of_two_unknown_branches_never_allows(
         assert (decision.http_status, decision.code) == (501, "access_unknown")
 
 
-async def test_the_default_path_escalates_when_billing_failed(gen: Any) -> None:
-    """Unchanged: without ``statuses=`` a failed billing is not trusted, so
-    the atom asks billing live; with no provider that is 503, and ``Not``
-    never allows."""
+async def test_the_default_path_never_goes_live_when_billing_failed(
+    gen: Any,
+) -> None:
+    """KB-33g: without ``statuses=`` a failed billing is the same 503
+    ``claim_authority_failed`` as with it, with zero I/O (no longer asked
+    live), and ``Not`` never allows."""
 
     class _NoProvider(_NoIO):
         def get_service(self, name: str) -> Any:
@@ -343,25 +347,27 @@ async def test_the_default_path_escalates_when_billing_failed(gen: Any) -> None:
     for policy in (
         gen.Subscribed(of=Account.user()),
         Not(gen.Subscribed(of=Account.user())),
+        gen.Subscribed(frozenset({"active"}), of=Account.user()),
     ):
         decision = await policy.decide(ctx)
         assert not decision.allowed and decision.indeterminate, decision
-        assert decision.http_status == 503, decision
-    assert "billing.entitlements.v1" in core.asked  # it went live, as before
+        assert (decision.http_status, decision.code) == (
+            503,
+            "claim_authority_failed",
+        ), decision
+    assert core.asked == []
 
 
 # --------------------------------------------------------------------------- #
 # The default path (no statuses=): the view's 401 / 503 first (KB-33f)
 # --------------------------------------------------------------------------- #
 
-ENTITLEMENTS = "billing.entitlements.v1"
-LIVE = "live"
 VIEW = "view"
 
 
 class _NoProvider(_NoIO):
     """Billing's fact registered locally, no live provider bound: asking for
-    it is recorded (the live escalation) and answers "not deployed"."""
+    it is recorded (no row may: KB-33g) and answers "not deployed"."""
 
     def get_service(self, name: str) -> Any:
         self.asked.append(name)
@@ -389,8 +395,8 @@ def counted(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
 
 #: row -> (subject, map, outcome over Subscribed(of=Account.user()), what it
 #: may ask). ``None``: nothing beyond the local fact registry; :data:`VIEW`:
-#: not even that (decided before the fact is looked up); :data:`LIVE`: the
-#: live escalation asks billing's provider (absent here: 503).
+#: not even that (decided before the fact is looked up). No row asks
+#: billing's provider (no live escalation for Account.user(), KB-33g).
 DEFAULT_TABLE: dict[str, tuple[Any, dict[str, str] | None, Any, str | None]] = {
     "present.active": (
         lambda: _subject(failed=set(), status="active"),
@@ -418,30 +424,36 @@ DEFAULT_TABLE: dict[str, tuple[Any, dict[str, str] | None, Any, str | None]] = {
         ALLOW,
         None,
     ),
-    "absent.authority_ran": (lambda: _subject(failed=set()), MAP, DENY, None),
+    # No cpv: the claim policy is not provable, so no absence is (KB-33g).
+    "absent.authority_ran": (
+        lambda: _subject(failed=set()),
+        MAP,
+        (501, "access_unknown"),
+        None,
+    ),
     "absent.other_source_failed": (
         lambda: _subject(failed={"rogue"}),
         MAP,
-        DENY,
+        (501, "access_unknown"),
         None,
     ),
     "failed": (
         lambda: _subject(failed={"billing"}),
         MAP,
-        (503, "claim_unverifiable"),
-        LIVE,
+        (503, "claim_authority_failed"),
+        None,
     ),
     "failed.no_map": (
         lambda: _subject(failed={"billing"}),
         None,
-        (503, "claim_unverifiable"),
-        LIVE,
+        (503, "claim_authority_failed"),
+        None,
     ),
     "failed.view_source_absent": (
         lambda: _subject(failed={"billing"}, untrusted=view.SOURCE_ABSENT),
         MAP,
-        (503, "claim_unverifiable"),
-        LIVE,
+        (503, "claim_authority_failed"),
+        None,
     ),
     "untrusted.outdated": (
         lambda: _subject(failed=set(), untrusted=view.OUTDATED),
@@ -496,8 +508,8 @@ async def test_the_default_path_answers_the_views_indeterminate(
     """Every row of the default read, bare and under Not / Or / And: the
     view's outdated / mismatch is its 401 / 503 before the fact is looked
     up, so ``~Subscribed(of=Account.user())`` never allows on an untrusted
-    claim; no row touches the database, and only the live escalation of a
-    failed billing asks billing's provider."""
+    claim; no row touches the database or asks billing's provider (a failed
+    billing is 503 with zero I/O, KB-33g)."""
     subject, mapping, outcome, asks = DEFAULT_TABLE[row]
     build, expect = WRAPS[wrap]
     core = _NoProvider(mapping)
@@ -514,12 +526,7 @@ async def test_the_default_path_answers_the_views_indeterminate(
         status, code = expected
         assert not decision.allowed and decision.indeterminate, decision
         assert (decision.http_status, decision.code) == (status, code), decision
-    if asks == LIVE:
-        assert set(core.asked) <= {ENTITLEMENTS}, row
-        if wrap == "bare":
-            assert core.asked == [ENTITLEMENTS], row
-    else:
-        assert core.asked == [] and counted["resolve"] == 0, row
+    assert core.asked == [] and counted["resolve"] == 0, row
     if asks == VIEW:
         assert counted["lookup"] == 0, row
 

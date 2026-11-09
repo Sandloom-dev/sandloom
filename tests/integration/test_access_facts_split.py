@@ -223,11 +223,17 @@ async def test_entitled_subscription_same_decision_in_split(
     allowed: bool,
 ) -> None:
     STATE["active"][("user", USER)] = live_active
-    # Entitled (the kernel's) and billing's generated Subscribed (KB-34)
+    # Entitled (the kernel's) escalates to live when billing failed at the
+    # mint; billing's generated Subscribed (KB-34) is 503 there with zero
+    # I/O (KB-33g), mono and split alike.
     Subscribed = generated_atoms.Subscribed
     for policy in (Entitled("subscription.active"), Subscribed(of=Account.user())):
         mono, remote = await _both(split, policy, _subject(**claims))
         assert _key(remote) == _key(mono), policy
+        if isinstance(policy, Subscribed) and claims == BILLING_FAILED:
+            assert not mono.allowed and mono.indeterminate
+            assert (mono.http_status, mono.code) == (503, "claim_authority_failed")
+            continue
         assert mono.allowed is allowed
         if not allowed:
             assert mono.http_status == 402
