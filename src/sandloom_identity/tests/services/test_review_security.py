@@ -120,14 +120,15 @@ async def test_concurrent_password_reset_consumes_nonce_only_once(
 async def test_refresh_cannot_extend_primary_session_past_absolute_limit(
     make_user, test_db
 ):
-    from sandloom.sdk.infra import settings
+    from sandloom_identity.config import identity_settings
     from sandloom_identity.services.token_service import TokenService
 
     user = await make_user("absolute-session@example.com")
     tokens = await TokenService.create_tokens(
         user,
         test_db,
-        auth_time=datetime.now(UTC) - timedelta(days=settings.max_session_days + 1),
+        auth_time=datetime.now(UTC)
+        - timedelta(days=identity_settings().max_session_days + 1),
     )
     await test_db.commit()
     with pytest.raises(HTTPException) as exc:

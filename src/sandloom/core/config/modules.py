@@ -1,4 +1,8 @@
-"""Settings of the bundled business modules (2FA, billing, SSO providers)."""
+"""Settings of the bundled business modules still held by the kernel (billing).
+
+Identity, tenancy and the admin console declare their own (ADR-0015); billing's
+move with KB-52.
+"""
 
 from __future__ import annotations
 
@@ -8,39 +12,11 @@ from pydantic import BaseModel, Field
 
 
 class ModulesConfig(BaseModel):
-    """Settings of the bundled business modules (2FA, billing, SSO providers)."""
+    """Settings of the bundled business modules still held by the kernel (billing).
 
-    # Dedicated key(s) for encrypting TOTP secrets at rest (comma-separated,
-    # newest first, for rotation). Required in production when identity is
-    # loaded (its startup check fails without it); outside production an unset
-    # key falls back to one derived from JWT_SECRET.
-    twofa_encryption_key: str | None = Field(
-        default=None,
-        alias="TWOFA_ENCRYPTION_KEY",
-        description=(
-            "Comma-separated TOTP encryption keys, newest first, for rotation; "
-            "production identity requires explicit keys, while development can "
-            "derive a fallback from JWT_SECRET."
-        ),
-    )
-
-    # Admin console (the optional sandloom-admin package)
-    admin_console_enabled: bool | None = Field(
-        default=None,
-        alias="ADMIN_CONSOLE_ENABLED",
-        description=(
-            "Serve the admin console at /admin/; unset means on outside "
-            "production and off in production."
-        ),
-    )
-    admin_console_dist: str | None = Field(
-        default=None,
-        alias="ADMIN_CONSOLE_DIST",
-        description=(
-            "Directory of a console you built yourself, served instead of the "
-            "packaged one."
-        ),
-    )
+    Identity, tenancy and the admin console declare their own (ADR-0015); billing's
+    move with KB-52.
+    """
 
     # Billing (Stripe)
     billing_provider: Literal["fake", "stripe"] = Field(
@@ -126,64 +102,5 @@ class ModulesConfig(BaseModel):
             "Minutes during which a preceding portal intent attributes "
             "subscription changes to that portal visit; changes outside it are "
             "audited as unattributed."
-        ),
-    )
-
-    # SSO
-    google_client_id: str | None = Field(
-        default=None,
-        alias="GOOGLE_CLIENT_ID",
-        description=("OAuth client ID for Google sign-in."),
-    )
-    google_client_secret: str | None = Field(
-        default=None,
-        alias="GOOGLE_CLIENT_SECRET",
-        description=("OAuth client secret for Google sign-in."),
-    )
-    github_client_id: str | None = Field(
-        default=None,
-        alias="GITHUB_CLIENT_ID",
-        description=("OAuth client ID for GitHub sign-in."),
-    )
-    github_client_secret: str | None = Field(
-        default=None,
-        alias="GITHUB_CLIENT_SECRET",
-        description=("OAuth client secret for GitHub sign-in."),
-    )
-    microsoft_client_id: str | None = Field(
-        default=None,
-        alias="MICROSOFT_CLIENT_ID",
-        description=("OAuth client ID for Microsoft sign-in."),
-    )
-    microsoft_client_secret: str | None = Field(
-        default=None,
-        alias="MICROSOFT_CLIENT_SECRET",
-        description=("OAuth client secret for Microsoft sign-in."),
-    )
-    linkedin_client_id: str | None = Field(
-        default=None,
-        alias="LINKEDIN_CLIENT_ID",
-        description=("OAuth client ID for LinkedIn sign-in."),
-    )
-    linkedin_client_secret: str | None = Field(
-        default=None,
-        alias="LINKEDIN_CLIENT_SECRET",
-        description=("OAuth client secret for LinkedIn sign-in."),
-    )
-    telegram_bot_token: str | None = Field(
-        default=None,
-        alias="TELEGRAM_BOT_TOKEN",
-        description=(
-            "Telegram bot credential used by the Telegram sign-in integration."
-        ),
-    )
-
-    # SSO Security: Allowed redirect URIs (comma-separated)
-    sso_allowed_redirect_uris: str = Field(
-        default="http://localhost:3000,http://localhost:3000/auth/callback,https://app.example.com/auth/callback",
-        alias="SSO_ALLOWED_REDIRECT_URIS",
-        description=(
-            "Comma-separated exact redirect URI allowlist for SSO callbacks and "
-            "frontend redirects."
         ),
     )

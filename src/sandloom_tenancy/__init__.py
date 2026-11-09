@@ -60,6 +60,7 @@ from sandloom.sdk import define_module
 from sandloom.sdk.module import CapabilityRequirement, ModuleAPI
 
 from .claims import tenancy_claims
+from .config import TenancySettings
 from .services.operations import OPERATIONS
 
 MEMBERSHIP_SERVICE_V1 = "tenancy.membership.v1"
@@ -89,6 +90,7 @@ register = define_module(
         CapabilityRequirement("notification", features=frozenset({"email"})),
     ],
     setup=_setup,
+    settings=TenancySettings,
 )
 
 __all__ = ["register", "MEMBERSHIP_SERVICE_V1"]

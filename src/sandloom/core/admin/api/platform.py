@@ -600,7 +600,6 @@ _SAFE_SETTINGS = (
     "rpc_transport",
     "jwt_algorithm",
     "access_token_expire_minutes",
-    "refresh_token_expire_days",
     "auth_revocation_fail_closed",
     "password_hash_profile",
     "rate_limit_enabled",
@@ -611,6 +610,20 @@ _SAFE_SETTINGS = (
     "log_format",
     "log_level",
 )
+
+
+#: Non-secret settings a loaded module declares (ADR-0015), shown when some
+#: loaded module has the field. Until KB-55 (kernel tools read declarations)
+#: the list is kernel-held: edge row B-C11.
+_DECLARED_SAFE_SETTINGS = ("refresh_token_expire_days",)
+
+
+def _declared_setting(core: Any, key: str) -> tuple[bool, Any]:
+    """``(found, value)`` of the field ``key`` in the loaded modules' settings."""
+    for record in core.module_settings.records():
+        if key in record.model.model_fields:
+            return True, getattr(record.instance, key)
+    return False, None
 
 
 def _setting_text(value: Any) -> str:
@@ -741,14 +754,16 @@ def _runtime_routes(router: APIRouter, core: Any) -> None:
                     status=result.status,
                 )
             )
-        return SettingsView(
-            settings=[
-                SettingView(key=key, value=_setting_text(getattr(cfg, key, None)))
-                for key in _SAFE_SETTINGS
-                if hasattr(cfg, key)
-            ],
-            infrastructure=instances,
-        )
+        rows = [
+            SettingView(key=key, value=_setting_text(getattr(cfg, key, None)))
+            for key in _SAFE_SETTINGS
+            if hasattr(cfg, key)
+        ]
+        for key in _DECLARED_SAFE_SETTINGS:
+            found, value = _declared_setting(core, key)
+            if found:
+                rows.append(SettingView(key=key, value=_setting_text(value)))
+        return SettingsView(settings=rows, infrastructure=instances)
 
 
 __all__ = ["install", "platform_operator", "safe_error"]

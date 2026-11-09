@@ -34,7 +34,7 @@ from sandloom_identity.contracts import (
     SecurityOperationsContract,
 )
 from sandloom_identity.events import BaseEvent
-from sandloom_identity.services import auth_service, twofa_service
+from sandloom_identity.services import auth_service
 
 EXPECTED_DESCRIPTOR = ModuleDescriptor(
     name="sandloom_identity",
@@ -120,20 +120,18 @@ def test_register_declares_the_identity_surface(sandloom_app: Any) -> None:
     assert draft.access_facts == []
 
 
-def test_missing_twofa_key_refuses_registration(
-    sandloom_app: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_missing_twofa_key_refuses_registration() -> None:
     """A missing TOTP key stops registration itself (not a lifespan task),
     so every process that builds the composition refuses with the reason;
-    nothing of the module is registered."""
-    monkeypatch.setattr(
-        twofa_service, "twofa_configuration_error", lambda: "TWOFA key missing"
-    )
-    draft = ModuleRegistrationDraft()
-    with pytest.raises(SystemExit, match="TWOFA key missing"):
-        register(ModuleAPI(sandloom_app.state.core, draft=draft))
-    assert draft.startup == []
-    assert draft.claims_contributors == []
+    nothing of the module is registered. The check is identity's own settings
+    model, validated before ``setup``; the subprocess matrix
+    (``test_boot_configuration_checks_module_refusals``) proves every entry
+    point."""
+    from sandloom.sdk.testing import validate_settings
+    from sandloom_identity.config import IdentitySettings
+
+    with pytest.raises(SystemExit, match="TWOFA_ENCRYPTION_KEY is required"):
+        validate_settings(IdentitySettings, {}, environment="prod")
 
 
 def test_missing_jwt_secret_refuses_registration(

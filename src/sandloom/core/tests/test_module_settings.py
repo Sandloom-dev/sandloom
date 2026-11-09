@@ -420,6 +420,23 @@ def test_production_typo_check_ignores_an_absent_modules_variables() -> None:
     assert "did you mean SHOP_ALLOW_DEBT" in problem
 
 
+def test_production_typo_check_counts_a_loaded_module_without_settings() -> None:
+    """A loaded module that declares no settings still owns its prefix: the
+    near-miss under it refuses the boot instead of passing as the variable of
+    an absent module (the loader passes every loaded module)."""
+    records = _records(("shop", ShopEuNeighbour))
+    prod = _kernel("prod")
+    foreign = _snapshot(SHOP_EU_REGIONS="eu-west")
+    known = ("shop", "shop_eu")
+    assert (
+        ms.post_load_check(records, prod, foreign, known_modules=known).problems == []
+    )
+    (problem,) = ms.post_load_check(
+        records, prod, foreign, known_modules=known, loaded_modules=("shop", "shop_eu")
+    ).problems
+    assert problem.startswith("Unknown setting SHOP_EU_REGIONS; did you mean")
+
+
 def test_known_modules_are_the_installed_entry_points_and_the_composition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

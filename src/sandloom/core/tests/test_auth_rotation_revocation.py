@@ -190,7 +190,6 @@ def test_prod_previous_secrets_follow_jwt_secret_rules() -> None:
             ENVIRONMENT="prod",
             JWT_SECRET=_STRONG,
             JWT_PREVIOUS_SECRETS=["change_me_in_production_use_openssl_rand_hex_32"],
-            TWOFA_ENCRYPTION_KEY=_STRONG_2,
         )
     ok = _settings(
         ENVIRONMENT="prod",
@@ -228,16 +227,6 @@ def test_prod_rejects_explicit_fake_psp_unless_opted_in() -> None:
 def test_fake_psp_risk_is_not_accepted_by_default() -> None:
     cfg = _settings(JWT_SECRET="x")
     assert not cfg.accepts_risk("fake_psp_in_prod")
-
-
-def test_prod_twofa_key_must_be_strong() -> None:
-    with pytest.raises(ValidationError, match="TWOFA_ENCRYPTION_KEY"):
-        _settings(ENVIRONMENT="prod", JWT_SECRET=_STRONG, TWOFA_ENCRYPTION_KEY="k")
-    assert _settings(
-        ENVIRONMENT="prod",
-        JWT_SECRET=_STRONG,
-        TWOFA_ENCRYPTION_KEY=f"{_STRONG_2},{_STRONG[::-1]}",
-    ).is_prod
 
 
 def test_revocation_fail_closed_defaults_by_environment() -> None:

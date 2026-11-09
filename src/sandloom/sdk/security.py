@@ -15,6 +15,7 @@ docs: docs/reference/sdk/security.md; signatures: sandloom docs <name>
 .. end sandloom-reference
 """
 
+from sandloom.core.config.common import secret_problem
 from sandloom.core.di import (
     SERVICE_PRINCIPAL_ID,
     ClaimsUnavailable,
@@ -65,6 +66,7 @@ __all__ = [
     "revoke_user_tokens",
     "revoke_user_tokens_on_commit",
     "run_password_hashing",
+    "secret_problem",
     "subject_commit_check",
     "unblock_user",
     "x25519_private_pem",

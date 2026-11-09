@@ -17,6 +17,7 @@ from sandloom.sdk.security import create_access_token, ensure_user_not_blocked
 from sandloom_identity.claims import (
     contribute_identity_claims,
 )
+from sandloom_identity.config import identity_settings
 from sandloom_identity.errors import CommittedHTTPError
 from sandloom_identity.models.refresh_token import RefreshToken
 from sandloom_identity.models.user import User
@@ -167,9 +168,10 @@ class TokenService:
             auth_time=auth_time,
             token=RefreshTokenUtils.hash_token(refresh_token_value),
             expires_at=min(
-                datetime.now(UTC) + timedelta(days=settings.refresh_token_expire_days),
+                datetime.now(UTC)
+                + timedelta(days=identity_settings().refresh_token_expire_days),
                 (auth_time or datetime.now(UTC))
-                + timedelta(days=settings.max_session_days),
+                + timedelta(days=identity_settings().max_session_days),
             ),
         )
 
@@ -249,7 +251,7 @@ class TokenService:
         # A family without a trustworthy primary auth instant must sign in
         # again instead of acquiring a fresh lifetime on every refresh.
         if auth_time is None or now >= auth_time + timedelta(
-            days=settings.max_session_days
+            days=identity_settings().max_session_days
         ):
             await db.execute(
                 update(RefreshToken)
@@ -426,7 +428,7 @@ class TokenService:
         expired-token cleanup), never adds one.
         """
         cutoff_time = datetime.now(UTC) - timedelta(days=days_old)
-        ttl = timedelta(days=settings.refresh_token_expire_days)
+        ttl = timedelta(days=identity_settings().refresh_token_expire_days)
         return await cls._delete_tokens(
             db,
             and_(

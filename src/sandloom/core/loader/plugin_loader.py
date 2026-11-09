@@ -838,8 +838,17 @@ def _check_module_settings(core: CoreFacade) -> None:
     accepted = getattr(kernel, "sandloom_accepted_risks", None) or ()
     if not records and not any(_accepted_risks.is_module_id(i) for i in accepted):
         return
+    # Every loaded module is known, whether or not it is installed as an entry
+    # point (an app-local module) or declares settings: the typo check must
+    # not read a loaded module's variables as an absent module's.
     outcome = _module_settings.post_load_check(
-        records, kernel, loaded_modules=core.loaded_modules
+        records,
+        kernel,
+        known_modules={
+            *_module_settings.known_module_names(kernel),
+            *core.loaded_modules,
+        },
+        loaded_modules=core.loaded_modules,
     )
     core.module_settings.risk_report = outcome.risks
     log = logging.getLogger("sandloom.settings")

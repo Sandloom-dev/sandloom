@@ -15,12 +15,13 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 
-from sandloom.sdk.infra import settings
 from sandloom_identity import tasks
+from sandloom_identity.config import IdentitySettings
 from sandloom_identity.models.refresh_token import RefreshToken
 from sandloom_identity.services.token_service import TokenService
 
-TTL = timedelta(days=settings.refresh_token_expire_days)
+# The configured default: the tests' environment does not set the lifetime.
+TTL = timedelta(days=IdentitySettings.model_fields["refresh_token_expire_days"].default)
 
 
 async def _token(

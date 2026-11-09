@@ -27,6 +27,7 @@ from urllib.parse import urlencode
 import httpx
 
 from sandloom.sdk.infra import Notification, notifier, settings
+from sandloom_identity.config import identity_settings
 from sandloom_identity.providers import Provider
 
 logger = logging.getLogger("sandloom_identity.integrations")
@@ -692,49 +693,50 @@ class OAuthClientFactory:
         provider: Provider, redirect_uri: str | None = None
     ) -> OAuthClient | None:
         """Create OAuth client for provider."""
+        configured = identity_settings()
+        base = f"{settings.frontend_url}/auth/sso"
         if provider == Provider.GOOGLE:
-            if not (settings.google_client_id and settings.google_client_secret):
+            if not (configured.google_client_id and configured.google_client_secret):
                 return None
             return GoogleOAuthClient(
-                client_id=settings.google_client_id,
-                client_secret=settings.google_client_secret,
-                redirect_uri=redirect_uri
-                or f"{settings.frontend_url}/auth/sso/google/callback",
+                client_id=configured.google_client_id,
+                client_secret=configured.google_client_secret.get_secret_value(),
+                redirect_uri=redirect_uri or f"{base}/google/callback",
             )
         elif provider == Provider.MICROSOFT:
-            if not (settings.microsoft_client_id and settings.microsoft_client_secret):
+            if not (
+                configured.microsoft_client_id and configured.microsoft_client_secret
+            ):
                 return None
             return MicrosoftOAuthClient(
-                client_id=settings.microsoft_client_id,
-                client_secret=settings.microsoft_client_secret,
-                redirect_uri=redirect_uri
-                or f"{settings.frontend_url}/auth/sso/microsoft/callback",
+                client_id=configured.microsoft_client_id,
+                client_secret=configured.microsoft_client_secret.get_secret_value(),
+                redirect_uri=redirect_uri or f"{base}/microsoft/callback",
             )
         elif provider == Provider.GITHUB:
-            if not (settings.github_client_id and settings.github_client_secret):
+            if not (configured.github_client_id and configured.github_client_secret):
                 return None
             return GitHubOAuthClient(
-                client_id=settings.github_client_id,
-                client_secret=settings.github_client_secret,
-                redirect_uri=redirect_uri
-                or f"{settings.frontend_url}/auth/sso/github/callback",
+                client_id=configured.github_client_id,
+                client_secret=configured.github_client_secret.get_secret_value(),
+                redirect_uri=redirect_uri or f"{base}/github/callback",
             )
         elif provider == Provider.LINKEDIN:
-            if not (settings.linkedin_client_id and settings.linkedin_client_secret):
+            if not (
+                configured.linkedin_client_id and configured.linkedin_client_secret
+            ):
                 return None
             return LinkedInOAuthClient(
-                client_id=settings.linkedin_client_id,
-                client_secret=settings.linkedin_client_secret,
-                redirect_uri=redirect_uri
-                or f"{settings.frontend_url}/auth/sso/linkedin/callback",
+                client_id=configured.linkedin_client_id,
+                client_secret=configured.linkedin_client_secret.get_secret_value(),
+                redirect_uri=redirect_uri or f"{base}/linkedin/callback",
             )
         elif provider == Provider.TELEGRAM:
-            if not settings.telegram_bot_token:
+            if not configured.telegram_bot_token:
                 return None
             return TelegramOAuthClient(
-                bot_token=settings.telegram_bot_token,
-                redirect_uri=redirect_uri
-                or f"{settings.frontend_url}/auth/sso/telegram/callback",
+                bot_token=configured.telegram_bot_token.get_secret_value(),
+                redirect_uri=redirect_uri or f"{base}/telegram/callback",
             )
         raise AssertionError(f"Unhandled provider case: {provider}")
 
