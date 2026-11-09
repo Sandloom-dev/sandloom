@@ -227,9 +227,11 @@ it logs one `notification.sent` record per send, with the subject and a hash
 of the recipient (never the address).
 
 ```python
+# In the `welcome` module's tests: `sandloom generate` wrote these copies into
+# its own `_generated` package (an application: `<app>.shared.contracts`).
 from sandloom.sdk.testing import deliver, fake_contract
-from sandloom.shared.contracts.identity_contact_v1 import IDENTITY_CONTACT_V1
-from sandloom.shared.contracts.identity_dto import UserContact
+from welcome._generated.contracts.identity_contact_v1 import IDENTITY_CONTACT_V1
+from welcome._generated.contracts.identity_dto import UserContact
 
 
 class Contacts:

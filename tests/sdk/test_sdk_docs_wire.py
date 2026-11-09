@@ -3,14 +3,12 @@ calls, from the installed packages alone (ledger C-SDK-04)."""
 
 from __future__ import annotations
 
-import ast
-import inspect
 import json
 from pathlib import Path
 
 import pytest
 
-import sandloom.shared.contracts as bundled_contracts
+from sandloom.sdk._prim import docs_wire
 from sandloom.sdk._prim.docs import docs_main
 from sandloom.sdk._prim.docs_wire import contract_stubs, event_schemas
 
@@ -26,9 +24,10 @@ def test_a_contract_prints_each_method_with_its_semantics(
     by_name = _out(capsys, "billing.credits.v1")
     assert _out(capsys, "BILLING_CREDITS_V1") == by_name
     assert (
-        "from sandloom.shared.contracts.billing_credits_v1 import BILLING_CREDITS_V1"
-        in by_name
+        "from <your_module>._generated.contracts.billing_credits_v1 "
+        "import BILLING_CREDITS_V1" in by_name
     )
+    assert "provider: sandloom_billing" in by_name
     assert (
         "await client.spend(tenant_type: str, tenant_id: UUID, amount: int" in by_name
     )
@@ -107,15 +106,29 @@ def test_an_app_shared_package_is_read_too(
 
 
 def test_every_bundled_contract_method_states_its_semantics() -> None:
-    """The bundled stubs carry the providers' docstrings: a caller reads the
-    semantics with ``sandloom docs <contract>``, never the provider's source."""
-    directory = Path(inspect.getfile(bundled_contracts)).parent
+    """``sandloom docs <contract>`` reads the installed provider's own class: a
+    caller reads the semantics there, never the provider's source."""
     missing = []
-    for path in sorted(directory.glob("*_v[0-9]*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef) and not ast.get_docstring(node):
-                missing.append(f"{path.name}:{node.name}")
-            if isinstance(node, ast.AsyncFunctionDef) and not ast.get_docstring(node):
-                missing.append(f"{path.name}:{node.name}")
+    for name, stub in contract_stubs().items():
+        if stub.provider is None:
+            continue
+        cls = docs_wire._provider_class(stub)
+        assert cls is not None, name
+        if not (cls.__doc__ or "").strip():
+            missing.append(f"{name}: class")
+        missing += [
+            f"{name}.{method}"
+            for method, _args, _returns, doc in docs_wire._provider_methods(cls)
+            if not doc
+        ]
     assert missing == [], f"undocumented contract surface: {missing}"
+
+
+def test_the_kernel_ships_no_stub_or_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Outside an application every contract and event comes from an installed
+    provider (its ``module.snapshot.json`` and ``contracts`` module)."""
+    monkeypatch.chdir(tmp_path)
+    assert all(stub.provider for stub in contract_stubs().values())
+    assert all("module.snapshot.json" in src for _s, src in event_schemas().values())

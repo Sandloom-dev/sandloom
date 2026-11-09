@@ -400,7 +400,7 @@ Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delet
   rung budget 5,885,658 Ir/req at the PoC base), M-lat split.
 - **Must not touch:** the algebra, the kernel atoms' behaviour, K5/K6/witness (own PRs).
 
-### KB-31 tenant kind from the assigned tenant authority (K1, the change of alternatives-c; not register row K1)
+### KB-31 tenant kind from the assigned tenant authority (K1, the change of `_archive/alternatives-c-authz.md`; not register row K1)
 
 - **Scope:** `tenant_kind` asks the witness declared by the authority of `tenant_ids` (or its
   assigned provider), found from the consumer's generated copy; `bound_tenant()` in a policy adds
@@ -518,7 +518,7 @@ Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delet
 ### KB-49 settings PoC gate: all 16 scenarios (decision D; closes G6)
 
 - **Scope:** a PoC branch, not merged into `main`, that builds ADR-0015's mechanism far enough to
-  run every scenario P1-P16 of alternatives-d §11 with the `inventory` fixture module outside
+  run every scenario P1-P16 of `_archive/alternatives-d-settings.md` §11 with the `inventory` fixture module outside
   `src/` and the bundled billing and identity ports (P10), mono and split, on the merged baseline.
   Each scenario's result (pass, or fail with the reason), the commit and the measurements (P13
   boot cost, P11 `config dump` wall time and socket spy, P12 DX counts) are recorded in
@@ -540,7 +540,7 @@ Conflicts to watch inside a wave: KB-53 and KB-54 (W2) and KB-52 (W3) each delet
   settings, typo check over the union, override logging), `settings_of`, the testing override, a
   fixture module outside `src/`.
 - **Edges:** B-C1 start. **Invariants:** I-13, I-18, answers #25, #29.
-- **Tests:** P1, P2, P5, P7, P13, P15 of alternatives-d §11.
+- **Tests:** P1, P2, P5, P7, P13, P15 of `_archive/alternatives-d-settings.md` §11.
 - **No extra I/O:** one read per process replaces today's. **Measure:** M-boot (P13).
 - **Must not touch:** bundled modules' fields (KB-52..54), risk ids (KB-51).
 

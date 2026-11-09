@@ -13,6 +13,32 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **The kernel ships no generated stub, DTO copy or event schema of a module**
+  (KB-22, ADR-0013 decisions 9 and 10; edges C1 to C5 fixed).
+  `sandloom.shared.contracts` (the stubs of `billing.credits.v1`,
+  `billing.entitlements.v1`, `identity.contact.v1`, `identity.security.v1`,
+  `tenancy.membership.v1` and the DTO copies `identity_dto`, `tenancy_dto`),
+  `sandloom/shared/events/*.json` and `sandloom.shared.membership` are deleted,
+  and `architecture_rules.yml` of a tree of top-level module packages names no
+  `shared_package`. A module keeps the stubs and DTO copies of the contracts it
+  `consumes` in its own `_generated/contracts/` package, and each producer's
+  event schema is in its `module.snapshot.json`; the `sandloom` wheel is the
+  same whatever a module changes. `sandloom.shared` keeps `authz`, `guards` and
+  `subject`. **Upgrade:** import a contract stub from your own generated home
+  (`<module>._generated.contracts.<x_y_v1>`; an application:
+  `<app>.shared.contracts.<x_y_v1>`), after listing the contract in
+  `define_module(consumes=[...])` and running `sandloom generate`. The member
+  event ordering rule (`member_event_action`, `refreshed_state_wins`) is stated
+  in the descriptions of the `tenancy.member_*.v1` events
+  (`sandloom docs tenancy.member_added.v1`): inline its 15 lines. A view of a
+  foreign channel is checked (SANDLOOM-C025) against the producer's
+  `module.snapshot.json` when no producer class or exported file is found, and
+  `sandloom docs <contract>` reads the installed provider. A stub and a DTO copy
+  import `ContractRef` / `dto_copy` from the public `sandloom.sdk.contracts`
+  wherever they are written (the kernel home clause of C-GEN-03 is gone).
+
 ### Security
 
 - **Access-bearing contracts have one provider** (KB-13, ADR-0014

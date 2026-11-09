@@ -59,7 +59,7 @@ reconciled: "kb-w0-fix-checks after W0 (arch/kernel-boundary 220df07); K1 added,
 summary:
   total: 47  # the 46 judged baseline edges and K1
   kind: {runtime: 46, documentation: 1}
-  current_status: {open: 30, fixed: 13, retained: 4}
+  current_status: {open: 25, fixed: 18, retained: 4}
   target: {fixed: 33, retained: 4, deferred: 10}
   by_adr: {ADR-0012: 16, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
 
@@ -822,7 +822,7 @@ edges:
     scope: runtime
     owner: [billing, identity, tenancy]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0013
     prs: [KB-20, KB-21, KB-22]
@@ -831,9 +831,7 @@ edges:
       - kernel wheel scan: no module-owned generated file
       - consumer-only install from wheels (contracts PoC proof 1)
     anchors:
-      - {path: sandloom/shared/contracts/billing_credits_v1.py, literal: "billing.credits.v1"}
-      - {path: sandloom/shared/contracts/tenancy_membership_v1.py, literal: "tenancy.membership.v1"}
-      - {path: sandloom/shared/contracts/identity_security_v1.py, literal: "identity.security.v1"}
+      - {path: "sandloom/shared/contracts/*_v1.py", literal: sandloom.shared.contracts}
       - {path: "sandloom/shared/contracts/*_v1.py"}
 
   - id: C2
@@ -842,7 +840,7 @@ edges:
     scope: runtime
     owner: [identity, tenancy]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0013
     prs: [KB-20, KB-22]
@@ -852,6 +850,7 @@ edges:
     anchors:
       - {path: sandloom/shared/contracts/tenancy_dto.py, symbol: MemberState}
       - {path: sandloom/shared/contracts/identity_dto.py, symbol: UserContact}
+      - {path: "sandloom/shared/contracts/*_dto.py", literal: sandloom.shared.contracts.tenancy_dto}
       - {path: "sandloom/shared/contracts/*_dto.py"}
 
   - id: C3
@@ -860,7 +859,7 @@ edges:
     scope: runtime
     owner: [billing, identity, tenancy]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0013
     prs: [KB-22]
@@ -878,7 +877,7 @@ edges:
     scope: runtime
     owner: [billing, identity, tenancy]
     baseline_verdict: disputed
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0013
     prs: [KB-20, KB-22]
@@ -887,7 +886,6 @@ edges:
       - generator writes nothing into a kernel package; kernel-never-imports-sdk with no exception
     anchors:
       - {path: architecture_rules.yml (repository root), literal: "shared_package: sandloom.shared"}
-      - {path: sandloom/core/cli/generated.py, literal: '"sandloom.shared"'}
     note: The kernel is never a generation target; the framework tree composes without a shared package.
 
   - id: C5
@@ -896,7 +894,7 @@ edges:
     scope: runtime
     owner: tenancy
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0013
     prs: [KB-22]
@@ -905,10 +903,11 @@ edges:
       - tests/integration/test_revocation_pipeline.py unchanged expectations (21 passed)
     anchors:
       - {path: sandloom/shared/membership.py, symbol: refreshed_state_wins}
+      - {path: sandloom/shared/membership.py, literal: sandloom.shared.membership}
 
   # --- rows added after the baseline --------------------------------------------------------
   # Register row K1: not the authorization change "K1" (tenant kind) of KB-31 and
-  # alternatives-c-authz.md, nor the known-namespaces option K1 of alternatives-d-settings.md.
+  # _archive/alternatives-c-authz.md, nor the known-namespaces option K1 of _archive/alternatives-d-settings.md.
   - id: K1
     class: b
     type: configuration

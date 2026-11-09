@@ -136,8 +136,8 @@ def test_add_module_in_the_framework_tree_is_wired_and_gets_the_kit(
     where = add.Layout(
         modules_dir=backend / "src",
         modules_package="",
-        shared_dir=backend / "src" / "sandloom" / "shared",
-        shared_package="sandloom.shared",
+        shared_dir=None,
+        shared_package=None,
         source_root=backend / "src",
     )
     touched = add.add_module("gizmos", where)
@@ -330,6 +330,38 @@ def test_add_contract_writes_the_generated_stub(tmp_path: Path) -> None:
     copy = (root / "probe" / "shared" / "contracts" / "notes_dto.py").read_text()
     assert "class LookupStatus(BaseModel):" in copy
     assert "class LedgerStatus(BaseModel):" in copy
+
+
+def test_add_contract_in_a_module_tree_writes_the_module_local_home(
+    tmp_path: Path,
+) -> None:
+    """A tree of top-level module packages has no shared package: the stub and
+    the DTO copy of a contract the module provides go into the module's own
+    ``_generated/contracts/`` (ADR-0013 decision 1, C-GEN-03), and a saga of the
+    module imports them from there. The kernel gets none."""
+    backend = tmp_path
+    (backend / "src" / "sandloom").mkdir(parents=True)
+    (backend / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+    (backend / "src" / "sandloom" / "local_modules.py").write_text(
+        "LOCAL_MODULES: list[str] = []\n"
+    )
+    where = add.Layout(
+        modules_dir=backend / "src",
+        modules_package="",
+        shared_dir=None,
+        shared_package=None,
+        source_root=backend / "src",
+    )
+    add.add_module("tidy", where)
+    add.add_saga("tidy", "sweep", where)
+    home = backend / "src" / "tidy" / "_generated" / "contracts"
+    assert (home.parent / "__init__.py").read_text().startswith('"""Generated')
+    stub = (home / "tidy_sweep_ledger_v1.py").read_text()
+    assert "from sandloom.sdk.contracts import ContractRef" in stub
+    assert "sandloom.core" not in stub
+    sagas = (backend / "src" / "tidy" / "sagas.py").read_text()
+    assert "from tidy._generated.contracts.tidy_sweep_ledger_v1 import" in sagas
+    assert not (backend / "src" / "sandloom" / "shared").exists()
 
 
 def test_sandloom_add_runs_generate_at_the_end(tmp_path: Path) -> None:

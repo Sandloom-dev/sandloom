@@ -86,8 +86,10 @@ class Layout:
 
     modules_dir: Path
     modules_package: str
-    shared_dir: Path
-    shared_package: str
+    #: The application's generated DTO package; ``None`` in a tree of top-level
+    #: module packages, where each module keeps its own ``_generated/`` home.
+    shared_dir: Path | None
+    shared_package: str | None
     source_root: Path
 
     def module_dir(self, module: str) -> Path:
@@ -95,6 +97,18 @@ class Layout:
 
     def dotted(self, module: str) -> str:
         return f"{self.modules_package}.{module}" if self.modules_package else module
+
+    def generated_home(self, module: str) -> tuple[Path, str]:
+        """``(directory, import package)`` of the generated contract stubs and
+        DTO copies a module's code imports: the application's
+        ``<app>.shared/contracts``, else ``<module>/_generated/contracts``
+        (ADR-0013 decision 1)."""
+        if self.shared_dir is not None and self.shared_package is not None:
+            return self.shared_dir / "contracts", f"{self.shared_package}.contracts"
+        return (
+            self.module_dir(module) / "_generated" / "contracts",
+            f"{self.dotted(module)}._generated.contracts",
+        )
 
     @property
     def framework_tree(self) -> bool:
@@ -706,12 +720,18 @@ def _contract_bootstrap(where: Layout, module: str, name: str, contract: str) ->
     stubs = _stubs()
     copies = importlib.import_module("sandloom.core.cli.dto_copies")
     stem, _protocol, _ref = stubs.stub_names(contract)
-    for directory in (where.shared_dir, where.shared_dir / "contracts"):
+    contracts_dir, contracts_package = where.generated_home(module)
+    init_text = '"""Contract DTO package (generated stubs and DTO copies)."""\n'
+    inits = [contracts_dir]
+    if where.shared_dir is not None:
+        inits.insert(0, where.shared_dir)
+    else:  # the module's `_generated` package, with its own docstring
+        inits.insert(0, contracts_dir.parent)
+        init_text = _consumer_init()
+    for directory in inits:
         init = directory / "__init__.py"
         if not init.exists():
-            _write(
-                init, '"""Contract DTO package (generated stubs and DTO copies)."""\n'
-            )
+            _write(init, init_text)
     if str(where.source_root) in sys.path:
         sys.path.remove(str(where.source_root))
     sys.path.insert(0, str(where.source_root))
@@ -725,8 +745,11 @@ def _contract_bootstrap(where: Layout, module: str, name: str, contract: str) ->
     dto_stem = copies.dto_module_stem(module)
     resolver = copies.Resolver(
         provider_package=package,
-        dto_package=f"{where.shared_package}.contracts.{dto_stem}",
-        shared_packages=("sandloom.shared", where.shared_package),
+        dto_package=f"{contracts_package}.{dto_stem}",
+        shared_packages=(
+            copies.KERNEL_SHARED,
+            *([where.shared_package] if where.shared_package else []),
+        ),
     )
     # Exactly as `sandloom generate` writes them: provenance header, final
     # layout, never the project's formatter (ADR-0013 decisions 6, 7).
@@ -740,7 +763,6 @@ def _contract_bootstrap(where: Layout, module: str, name: str, contract: str) ->
         if spec is not None and other is not provider:
             stubs.render_stub(spec.name, other, resolver)  # its DTOs too
             group.append(consumer.Provider(spec.name, other, package, label))
-    contracts_dir = where.shared_dir / "contracts"
     (contracts_dir / f"{stem}.py").write_text(
         consumer.stub_file(contract, group[0], resolver, stubs.STUBS),
         encoding="utf-8",
@@ -805,6 +827,11 @@ def _import_dto(source: str, dto: str) -> str:
     return "\n".join(lines)
 
 
+def _consumer_init() -> str:
+    """The ``__init__.py`` text of a module's ``_generated`` package."""
+    return str(importlib.import_module("sandloom.core.cli.consumer_copies").INIT)
+
+
 def _stubs() -> Any:
     """:mod:`sandloom.core.cli.generated`, imported when a stub is named: the
     other generators stay static (no settings module)."""
@@ -853,8 +880,10 @@ def _producer_fields(where: Layout, channel: str) -> tuple[list[tuple[str, str]]
                 return list(
                     event.fields.items()
                 ), f"{py.relative_to(where.modules_dir)}"
-    exported = where.shared_dir / "events" / f"{channel}.json"
-    if exported.is_file():
+    exported = (
+        where.shared_dir / "events" / f"{channel}.json" if where.shared_dir else None
+    )
+    if exported is not None and exported.is_file():
         schema = json.loads(exported.read_text(encoding="utf-8"))
         names = {
             "string": "str",
@@ -891,8 +920,9 @@ def add_consumer(
         note = f"fields of the producer ({source})"
     else:
         raise GeneratorError(
-            f"no producer schema for {channel!r} in this tree or "
-            f"{where.shared_dir / 'events'}: pass the fields (--field name:type ...); "
+            f"no producer schema for {channel!r} in this tree"
+            + (f" or {where.shared_dir / 'events'}" if where.shared_dir else "")
+            + ": pass the fields (--field name:type ...); "
             "the view is then marked unverified"
         )
     unverified = "" if found else "  # unverified: no producer schema was found"
@@ -947,7 +977,7 @@ def add_saga(module: str, name: str, where: Layout) -> list[Path]:
                 "from sandloom.sdk import Contract",
                 "from sandloom.sdk.sagas import Saga, local_step, step  "
                 "# sandloom: advanced sagas",
-                f"from {where.shared_package}.contracts.{stem} import {ref}",
+                f"from {where.generated_home(module)[1]}.{stem} import {ref}",
             ]
         )
     )

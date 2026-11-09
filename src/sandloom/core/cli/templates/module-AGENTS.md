@@ -9,7 +9,7 @@ explain <code>` gives the why and the fix. Any signature: `uv run sandloom docs
 ## The one rule: modules are isolated
 
 A module and its tests import only public `sandloom.sdk` modules, the generated contract stubs
-and DTO copies (`sandloom.shared.contracts.*`, the app's `<app>.shared` /
+and DTO copies (`<app>.shared.contracts.*`, `<module>._generated.contracts.*`,
 `CONTRACT_DTO_PACKAGES`) and their own package, all at module level (C001, C002, C005, C013, C021);
 an installed module package (`sandloom_identity`) is another module. Generated code and examples
 use the 30 beginner names; an advanced import carries `# sandloom: advanced <reason>` (SANDLOOM-T009).
@@ -25,7 +25,7 @@ To talk to another module:
   (`sandloom add consumer <m> <channel>`).
 - **Synchronous:** the provider `@contract("<m>.<name>.v1") class X:` in
   `contracts.py` (`sandloom add contract <m> <name>`); the caller, at module level,
-  `x = Contract(M_NAME_V1)` from the generated `sandloom.shared.contracts` stub.
+  `x = Contract(M_NAME_V1)` from the generated stub (`<app>.shared.contracts`).
   `Contract(REF, optional=True).client()` is `None` only when the provider is
   not deployed: use it only where you have a correct answer without it.
 - **Read across modules:** a projection (`sandloom add projection`; docs: `modules/between/projections.md`).

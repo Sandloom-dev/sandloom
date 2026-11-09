@@ -41,7 +41,7 @@ is meant.
 Test (200 for an admin of a paid org, 403 for a member, 402 when unpaid):
 
     from sandloom.sdk.testing import as_user, fake_access_fact, fake_contract
-    from sandloom.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
+    from <app>.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
 
     RANK = {"member": 1, "admin": 2, "owner": 3}
 
@@ -307,8 +307,9 @@ periodic-task`).''',
         '''A module calls another module only through its contract, never its
 code. `uv run sandloom docs contracts` lists the stubs; `uv run sandloom docs <name>`
 prints every method's signature and semantics (`sandloom docs
-billing.credits.v1`). The bundled modules' stubs import from
-`sandloom.shared.contracts.<name>`, your app's from `<app>.shared.contracts.<name>`
+billing.credits.v1`). The stubs import from
+`<app>.shared.contracts.<name>` in an application and from
+`<module>._generated.contracts.<name>` in a module distribution
 (`sandloom generate` writes them from the provider, with the copies of its DTOs
 the stub names: never edit one; a contract you never released may change
 freely: delete its stub and run `sandloom generate`).
@@ -323,7 +324,7 @@ Declare the caller at module level: `define_module` adds it to the module's
     from uuid import UUID
 
     from sandloom.sdk import Contract
-    from sandloom.shared.contracts.billing_credits_v1 import BILLING_CREDITS_V1
+    from <app>.shared.contracts.billing_credits_v1 import BILLING_CREDITS_V1
 
     credits = Contract(BILLING_CREDITS_V1)
 
@@ -380,7 +381,7 @@ Tests fake the provider: a class with the methods your code calls.
     from fastapi import HTTPException
 
     from sandloom.sdk.testing import as_user, fake_contract
-    from sandloom.shared.contracts.billing_credits_v1 import BILLING_CREDITS_V1
+    from <app>.shared.contracts.billing_credits_v1 import BILLING_CREDITS_V1
 
     URL = "/api/v1/<module>/exports"
 
@@ -482,7 +483,7 @@ can refill it:
         full_state,
         tombstone,
     )
-    from sandloom.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
+    from <app>.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
 
     from .models.member import Member
 
@@ -568,7 +569,7 @@ The page: one query on the projection, one billing call:
 
     from sandloom.sdk import Contract, db
     from sandloom.sdk.tenant import current_tenant_id  # sandloom: advanced the organization
-    from sandloom.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
+    from <app>.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
 
     from .models.member import Member
 
@@ -601,9 +602,9 @@ Tests deliver the events (in any order, twice) and fake both contracts:
 
     from sandloom.sdk.tenant import bind_tenant  # sandloom: advanced the organization
     from sandloom.sdk.testing import deliver, fake_contract
-    from sandloom.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
-    from sandloom.shared.contracts.tenancy_dto import MemberState
-    from sandloom.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
+    from <app>.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
+    from <app>.shared.contracts.tenancy_dto import MemberState
+    from <app>.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
 
     from ..projections import MEMBERS, MemberAdded, MemberRemoved, MemberRoleChanged
     from ..team import team_page

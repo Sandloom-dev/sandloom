@@ -64,7 +64,7 @@ grep -rnE "^\s*(from|import) sandloom_(identity|tenancy|billing|admin)" src/sand
 # domain words: stripe psp twofa sso invitation plan_code subscription_status credit organization_id
 ```
 
-Then every inventory row (`_inputs/inventory.md`, written at `main cc90200`) was re-read
+Then every inventory row (`_archive/_inputs/inventory.md`, written at `main cc90200`) was re-read
 at `b8d8506`, and every row below was opened at its line. Commands run are listed in each
 section.
 
@@ -435,7 +435,7 @@ No guard found for: contract names in kernel code (B-R*), claim keys or claim so
 `src/sandloom/core/tests/*.py`, `tools/checks`, `tools/packaging` for `sandloom_identity`,
 `_BUNDLED`, `names no module`.
 
-## 10. Corrections to the earlier inventory (`_inputs/inventory.md`)
+## 10. Corrections to the earlier inventory (`_archive/_inputs/inventory.md`)
 
 The inventory was produced at `main cc90200`; line numbers below are at `b8d8506`.
 

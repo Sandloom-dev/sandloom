@@ -203,5 +203,5 @@ was edited. The ADRs cite these numbers.
 Earlier evidence the ADRs also cite: the replaceability PoC of §1 (`47c31de`), the authorization
 perf and DX baseline ([perf-dx-baseline.md](perf-dx-baseline.md), `162d84a`), the gate probe at
 `86aed8b` ([roadmap-review.md](roadmap-review.md) §2.2, `38f33cb`). No PoC was run for decision D:
-the settings PoC rows P1-P16 (`alternatives-d-settings.md` §11) are the acceptance criteria of
+the settings PoC rows P1-P16 (`_archive/alternatives-d-settings.md` §11) are the acceptance criteria of
 KB-50..KB-56 in [migration-plan.md](migration-plan.md).

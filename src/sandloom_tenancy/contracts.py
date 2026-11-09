@@ -92,7 +92,8 @@ class MembershipReadContract:
         organization) and its last member-event ``version`` (``0`` when tenancy
         never issued one), read in one snapshot. What a projection's
         ``rebuild_from`` returns, and what a v1 consumer re-reads when an event
-        has no version (``sandloom.shared.membership``)."""
+        has no version (the rule is in the ``tenancy.member_*.v1`` event
+        descriptions)."""
         session = db()
         member = and_(
             OrganizationMember.organization_id == organization_id,

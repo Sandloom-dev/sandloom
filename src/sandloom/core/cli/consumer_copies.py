@@ -658,7 +658,7 @@ class ModuleCopies:
     uses: Mapping[str, tuple[str, ...] | None]
     providers: Mapping[str, Provider]
     stubs: Stubs
-    shared_packages: tuple[str, ...] = ("sandloom.shared",)
+    shared_packages: tuple[str, ...] = (_dto_copies.KERNEL_SHARED,)
 
     @property
     def out_dir(self) -> Path:
@@ -860,7 +860,7 @@ def plan_static(
     modules: Mapping[str, Path],
     source_root: Path | None,
     stubs: Stubs,
-    shared_packages: tuple[str, ...] = ("sandloom.shared",),
+    shared_packages: tuple[str, ...] = (_dto_copies.KERNEL_SHARED,),
 ) -> tuple[list[Planned], dict[str, set[str]]]:
     """Before composition: the stubs and DTO copies of every module in
     ``modules`` (``{package: directory}``), from its declarations' AST and
@@ -899,7 +899,7 @@ def plan_composed(
     source_root: Path | None,
     stubs: Stubs,
     registry: Mapping[str, Provider] | None = None,
-    shared_packages: tuple[str, ...] = ("sandloom.shared",),
+    shared_packages: tuple[str, ...] = (_dto_copies.KERNEL_SHARED,),
 ) -> list[Planned]:
     """After composition: every file of each module's copies, expectations
     narrowed to the composed ``consumes`` (``{package: {contract:
