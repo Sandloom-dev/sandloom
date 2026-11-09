@@ -59,8 +59,8 @@ reconciled: "kb-w0-fix-checks after W0 (arch/kernel-boundary 220df07); K1 added,
 summary:
   total: 47  # the 46 judged baseline edges and K1
   kind: {runtime: 46, documentation: 1}
-  current_status: {open: 11, fixed: 32, retained: 4}
-  target: {fixed: 33, retained: 4, deferred: 10}
+  current_status: {open: 5, fixed: 34, retained: 8}
+  target: {fixed: 35, retained: 8, deferred: 4}
   by_adr: {ADR-0012: 16, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
 
 edges:
@@ -80,7 +80,7 @@ edges:
       - G-AUTHZ-05 equivalence scenarios against access checks (KB-34)
       - access_providers assignment, in-process and bound (KB-13)
     anchors:
-      - {path: sandloom/shared/authz/live_contracts.py, literal: register_live_adapter}
+      - {path: "sandloom/shared/authz/*.py", literal: register_live_adapter}
       - {path: sandloom/sdk/authz.py, literal: EntitlementsAdapter}
       - {path: sandloom/sdk/authz.py, literal: MembershipAdapter}
     note: >-
@@ -126,8 +126,8 @@ edges:
       - authorization stand in CI: counts, order, decisions equal (KB-30)
       - tests/laws/test_authz_algebra_laws.py over generated atoms
     anchors:
-      - {path: sandloom/shared/authz/live_contracts.py, literal: '"billing.entitlements.v1"'}
-      - {path: sandloom/shared/authz/live_contracts.py, literal: '"tenancy.membership.v1"'}
+      - {path: "sandloom/shared/authz/*.py", literal: '"billing.entitlements.v1"'}
+      - {path: "sandloom/shared/authz/*.py", literal: '"tenancy.membership.v1"'}
 
   - id: B-R2
     class: b
@@ -525,9 +525,10 @@ edges:
     scope: composition_text
     owner: [identity, tenancy, billing, admin]
     baseline_verdict: disputed
-    current_status: open
-    target: deferred
+    current_status: retained
+    target: retained
     adr: ADR-0012
+    reason: "the bundled-module menu of `sandloom new --with` is the standard distribution's starter (decision 1): `sandloom new` runs before `uv sync`, when the packages are not installed, so neither entry points nor settings declarations can list them"
     prs: [KB-61]
     invariants: [I-03]
     tests: [composition_text scope of the kernel-edge check]
@@ -543,9 +544,10 @@ edges:
     scope: composition_text
     owner: [identity, billing]
     baseline_verdict: disputed
-    current_status: open
-    target: deferred
+    current_status: retained
+    target: retained
     adr: ADR-0012
+    reason: "starter env and README text for the bundled packages `sandloom new` was asked for, written before they are installed: module_env reads the declarations of installed packages only (KB-55 writes the same text from them at `sandloom add deploy`)"
     prs: [KB-61]
     invariants: [I-03]
     tests: [composition_text scope of the kernel-edge check]
@@ -561,9 +563,10 @@ edges:
     scope: composition_text
     owner: [identity, tenancy, billing, admin]
     baseline_verdict: disputed
-    current_status: open
-    target: deferred
+    current_status: retained
+    target: retained
     adr: ADR-0012
+    reason: "the wizard's module menu is the standard composition's starter menu (decision 1); the packages are not installed while the wizard asks, so no declaration can supply it"
     prs: [KB-61]
     invariants: [I-03]
     tests: [composition_text scope of the kernel-edge check]
@@ -595,14 +598,14 @@ edges:
     scope: composition_text
     owner: [identity, tenancy, billing]
     baseline_verdict: violation
-    current_status: open
-    target: deferred
+    current_status: fixed
+    target: fixed
     adr: ADR-0012
     prs: [KB-61]
     invariants: [I-03]
     tests: [composition_text scope of the kernel-edge check]
     anchors:
-      - {path: sandloom/core/cli/templates/deploy/postgres/init-databases.sh, literal: "identity"}
+      - {path: sandloom/core/cli/templates/deploy/postgres/init-databases.sh, literal: sandloom_identity sandloom_tenancy sandloom_billing}
       - {path: sandloom/core/cli/templates/deploy/compose/microservices.yml.tmpl, literal: "loading identity"}
       - {path: sandloom/core/cli/keys.py, literal: "issuer ONLY (identity)"}
     note: Deploy templates and key text; generated from declarations in the starter phase.
@@ -613,8 +616,8 @@ edges:
     scope: composition_text
     owner: [identity, tenancy, billing]
     baseline_verdict: disputed
-    current_status: open
-    target: deferred
+    current_status: fixed
+    target: fixed
     adr: ADR-0012
     prs: [KB-61]
     invariants: [I-03]
@@ -629,9 +632,10 @@ edges:
     scope: composition_text
     owner: [tenancy, billing]
     baseline_verdict: disputed
-    current_status: open
-    target: deferred
+    current_status: retained
+    target: retained
     adr: ADR-0012
+    reason: "recipe text of `sandloom docs recipe`, worked examples written in the standard composition's vocabulary (decision 1); no declaration names an example contract, and a recipe is text an app copies, not code the kernel runs"
     prs: [KB-61]
     invariants: [I-03]
     tests: [composition_text scope of the kernel-edge check]
@@ -661,8 +665,6 @@ edges:
     anchors:
       - {path: sandloom/shared/authz/atoms_claims.py, symbol: ACTIVE_SUBSCRIPTION_STATUSES}
       - {path: sandloom/shared/authz/atoms_claims.py, literal: '"subscription_status"'}
-      - {path: sandloom/shared/authz/atoms_live.py, symbol: SubscriptionActive}
-      - {path: sandloom/shared/authz/atoms_live.py, symbol: Credits}
     note: Feature / WithinLimit move only through KB-33, never removed automatically (answer #21).
 
   - id: B-N13
@@ -679,7 +681,7 @@ edges:
     tests:
       - generated OrgRole: Literal values from tenancy's declaration; mypy typing test
     anchors:
-      - {path: sandloom/shared/authz/atoms_live.py, literal: '"OrgRole"'}
+      - {path: "sandloom/shared/authz/*.py", literal: '"OrgRole"'}
 
   - id: B-N14
     class: b
@@ -715,8 +717,8 @@ edges:
     tests:
       - public API baseline diff reviewed; constants importable from identity
     anchors:
-      - {path: sandloom/shared/authz/constants.py, literal: '"Permissions"'}
-      - {path: sandloom/shared/authz/constants.py, literal: '"Roles"'}
+      - {path: "sandloom/shared/authz/*.py", literal: '"Permissions"'}
+      - {path: "sandloom/shared/authz/*.py", literal: '"Roles"'}
     note: Moved to identity (owner of the rows they name); no importer today.
 
   - id: B-N16

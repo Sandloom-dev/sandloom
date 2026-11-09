@@ -857,8 +857,8 @@ def test_generated_project_passes_its_own_tests(tmp_path: Path) -> None:
 
 def test_generated_project_ships_the_agent_contract(tmp_path: Path) -> None:
     """``sandloom new`` writes the 1.0 agent map at the project root (and a
-    CLAUDE.md importing it): the commands and the 30 beginner names (spec
-    §9.1); its modules inherit it instead of copying it."""
+    CLAUDE.md importing it): the commands and the 26 beginner names (the
+    20 of ``sandloom.sdk``, the 5 test helpers and the ``client`` fixture); its modules inherit it instead of copying it."""
     import sandloom.sdk
     import sandloom.sdk.testing
 

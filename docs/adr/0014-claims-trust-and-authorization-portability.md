@@ -890,7 +890,7 @@ process):
 | controlled refresh: 401 only for `token_policy_outdated` before the map took effect, 503 `claims_policy_mismatch` after, at most one refresh per client | decision 3; C7 | new (KB-11) |
 | access provider by real identity: app-local `acme_orgs` and a same-named module from another path refused, pinned `service_id` remotely | decision 6; X3 | new (KB-13) |
 | `Account` neutrality: third-party `has_seat` on `Account.org(param=)` and `bound_tenant()` without billing, decisions and counts equal to the billing check | decision 15; C4 | new (KB-30) |
-| owner regression set: forged `Role("admin")` deny; platform admin without trusted authority deny; `Role("admin") \| Entitled("missing.fact")` allow; `~Entitled("missing.fact")` never allow; same decisions mono and split | decisions 2, 3; tm reflection on `kb-alt-authz` | new (KB-11) |
+| owner regression set: forged `Role("admin")` deny; platform admin without trusted authority deny; `Role("admin") \| Entitled("missing.fact", owner="billing")` allow; `~Entitled("missing.fact", owner="billing")` never allow; same decisions mono and split | decisions 2, 3; tm reflection on `kb-alt-authz` | new (KB-11) |
 | algebra laws over generated atoms and over the 401 status | H-4, decision 3 | extends `tests/laws/test_authz_algebra_laws.py` |
 | authorization stand in CI: counts, order, decisions per policy, base vs candidate | decision 9; I-23, H-16 | new (KB-30), from `poc/authz/stand.py` |
 | cachegrind rungs for request, mint and the decisive shape | H-10 | extends `benchmarks/ladder` |

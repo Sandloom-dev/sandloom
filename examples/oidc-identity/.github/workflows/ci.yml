@@ -39,5 +39,7 @@ jobs:
       - name: Install
         run: |
           uv sync
+      # --full: the slow tests run too (this suite is all slow: without it
+      # nothing is collected and pytest exits 5).
       - name: The gate (tests, ruff, mypy, sandloom check, generated files)
-        run: uv run sandloom test --ci
+        run: uv run sandloom test --ci --full

@@ -9,14 +9,13 @@ The code does not change; the topology does. `uv run sandloom docs recipe split`
 has the same steps.
 
 1. **Choose the services.** Each module runs in exactly one service; a
-   service may hold several. The bundled modules (identity, tenancy,
-   billing) can each be their own.
+   service may hold several. Every module of this app (your own
+   or an installed package) can be its own.
 2. **Write the split,** one command per service, from the app root:
 
    ```bash
-   uv run sandloom add deploy identity
-   uv run sandloom add deploy tenancy
-   uv run sandloom add deploy billing
+   uv run sandloom add deploy <module>                  # service "<module>"
+   uv run sandloom add deploy <other_module>
    uv run sandloom add deploy <module> <other_module> --service <svc>
    ```
 
