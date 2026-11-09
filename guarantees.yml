@@ -4756,6 +4756,7 @@ guarantees:
   - src/sandloom/core/tests/test_module_settings.py::test_semantic_override_is_reported_unless_its_risk_is_accepted
   - src/sandloom/core/tests/test_module_settings.py::test_loader_check_refuses_and_logs
   - tests/integration/test_module_settings_fixture.py::test_semantic_override_of_a_module_is_logged
+  - src/sandloom/core/tests/test_kernel_tools_declarations.py::test_known_modules_name_an_import_path_by_its_module_name
 - id: G-CONFIG-13
   statement: 'sandloom config dump lists the kernel''s settings and the settings every loaded module declares,
     each with its source (env / dotenv / secrets_dir / default) and redaction (SecretStr fields and the one
