@@ -170,7 +170,7 @@ infrastructure tables. See [Migrations](../modules/database/migrations.md) and
 | `sandloom keys allowlist` | Derive `RPC_ALLOWED_CALLS` from `SERVICE_BINDINGS`. |
 | `sandloom keys dev-env [--deploy-dir D] [--out F]` | DEVELOPMENT / CI ONLY: a compose `--env-file` with fresh keys for every variable the microservices profile requires. |
 | `sandloom config dump [--json] [--only PREFIXES] [--non-default] [--show-secrets]` | The effective settings with their source (env, `.env`, `SECRETS_DIR`, default); secrets redacted unless `--show-secrets` (refused in prod). |
-| `sandloom doctor [--json] [--skip S] [--timeout T] [--lag-warn N]` | Read-only deployment preflight: config, modules, infrastructure reachability, migration heads, consumer lag, RLS, sagas (exit `0` ok, `1` warnings, `2` failures). |
+| `sandloom doctor [--json] [--skip S] [--timeout T] [--lag-warn N]` | Read-only deployment preflight: config, modules, the claim policy's `legacy_tokens` mode (on with its window end and time left, ended, off), infrastructure reachability, migration heads, consumer lag, RLS, sagas (exit `0` ok, `1` warnings, `2` failures). |
 | `sandloom admin export --output FILE [--check]` | Compile the static admin UI manifest; `--check` fails on drift. |
 
 Procedures: the [runbook](../operate/runbook.md) and the

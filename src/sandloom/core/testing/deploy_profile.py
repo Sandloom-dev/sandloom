@@ -20,7 +20,11 @@ One model behind three users:
 * the boot check (:func:`boot_problems`): each HTTP service's
   ``SANDLOOM_MODULES`` booted alone with its own environment, as ``sandloom doctor``
   boots a process (settings, startup preflight, composition root, bound
-  contracts; no network), in a fresh interpreter per service.
+  contracts; no network), in a fresh interpreter per service; the booted
+  services then agree on the claim policy's ``legacy_tokens`` mode (one
+  mode per deployment) and, once none runs it, all stamp and check ``cpv``
+  (the adoption release gate, :func:`claims_mode_problems`; ADR-0014
+  decision 4).
 
 Module topology is read by loading the modules into a fresh, I/O-free facade
 (registration only), never by importing another module's code into the
@@ -1048,6 +1052,10 @@ _DOCTOR = (
     "'infra,migrations,consumers,rls,sagas']))\n"
 )
 
+#: The doctor check carrying a service's claim policy mode (``sandloom
+#: doctor``, section ``claims``).
+CLAIMS_CHECK = ("claims", "legacy_tokens")
+
 
 def boot_service(
     env: Mapping[str, str], *, python: str | None = None, pythonpath: str = ""
@@ -1057,6 +1065,15 @@ def boot_service(
     network), in a fresh interpreter whose environment is exactly ``env``.
     Returns the failures (a doctor failure, or a consumed contract left
     unbound)."""
+    return _boot(env, python=python, pythonpath=pythonpath)[0]
+
+
+def _boot(
+    env: Mapping[str, str], *, python: str | None = None, pythonpath: str = ""
+) -> tuple[list[str], dict[str, Any] | None]:
+    """:func:`boot_service`'s failures and the service's claim policy mode
+    (the details of the doctor's ``claims/legacy_tokens`` check; ``None``:
+    the release reports none, it predates per-key ``cpv``)."""
     base = {k: os.environ[k] for k in ("PATH", "HOME", "LANG") if k in os.environ}
     if pythonpath:
         base["PYTHONPATH"] = pythonpath
@@ -1073,15 +1090,64 @@ def boot_service(
     try:
         report = json.loads(proc.stdout)
     except ValueError:
-        return [f"did not boot: {(proc.stderr or proc.stdout).strip()[-1500:]}"]
+        return [f"did not boot: {(proc.stderr or proc.stdout).strip()[-1500:]}"], None
     failures: list[str] = []
+    mode: dict[str, Any] | None = None
     for check in report.get("checks", []):
         status, section = check.get("status"), check.get("section")
+        if (section, check.get("name")) == CLAIMS_CHECK and status != "skip":
+            mode = dict(check.get("details") or {})
         if status == "fail" or (status == "warn" and section == "modules"):
             failures.append(
                 f"{section}/{check.get('name')}: {check.get('message') or check}"
             )
-    return failures
+    return failures, mode
+
+
+def claims_mode_problems(
+    modes: Mapping[str, Mapping[str, Any] | None],
+) -> dict[str, list[str]]:
+    """The claim policy across the booted services (ADR-0014 decision 4).
+
+    ``modes``: per service, the details of its doctor ``claims/legacy_tokens``
+    check (``None``: none reported, a release before per-key ``cpv``).
+
+    * **one mode per deployment:** every service passes the same
+      ``legacy_tokens`` (none, or the same ``until``): a profile whose
+      services disagree is refused, since a token one trusts another rejects;
+    * **the adoption release gate:** once a service runs without
+      ``legacy_tokens`` (stage 3, enforce), every service is at or above the
+      release that stamps and checks ``cpv``; one below it is refused.
+    """
+    out: dict[str, list[str]] = {}
+
+    def written(mode: Mapping[str, Any]) -> str | None:
+        return None if mode.get("mode") == "off" else str(mode.get("until"))
+
+    reported = {name: mode for name, mode in modes.items() if mode is not None}
+    settings_of = {name: written(mode) for name, mode in reported.items()}
+    if len(set(settings_of.values())) > 1:
+        seen = {
+            until or "<none>": sorted(n for n, u in settings_of.items() if u == until)
+            for until in set(settings_of.values())
+        }
+        text = (
+            f"legacy_tokens differs between services ({dict(sorted(seen.items()))}): "
+            "one mode per deployment, every service passes the same "
+            f"legacy_tokens or none ({CODE})"
+        )
+        for name in settings_of:
+            out.setdefault(name, []).append(text)
+    enforcing = sorted(n for n, until in settings_of.items() if until is None)
+    if enforcing:
+        for name in sorted(set(modes) - set(reported)):
+            out.setdefault(name, []).append(
+                f"reports no claim policy version: below the adoption release "
+                f"of per-key cpv, while {enforcing} run without legacy_tokens "
+                "(stage 3); upgrade it, or pass legacy_tokens everywhere until "
+                f"it is ({CODE})"
+            )
+    return out
 
 
 def boot_problems(
@@ -1096,6 +1162,7 @@ def boot_problems(
     compose = load_profile(deploy_dir / PROFILE)
     services = compose.get("services") or {}
     out: dict[str, list[str]] = {}
+    modes: dict[str, dict[str, Any] | None] = {}
     for name in http_services(compose):
         raw = _env(services[name])
         unset = sorted(
@@ -1110,7 +1177,11 @@ def boot_problems(
             out[name] = [f"the profile requires {unset}"]
             continue
         env = {k: interpolate(v, shell) for k, v in raw.items()}
-        out[name] = boot_service(env, python=python, pythonpath=pythonpath)
+        out[name], mode = _boot(env, python=python, pythonpath=pythonpath)
+        if mode is not None or not out[name]:  # a failed boot reports nothing
+            modes[name] = mode
+    for name, problems in claims_mode_problems(modes).items():
+        out[name].extend(problems)
     return out
 
 
@@ -1128,6 +1199,7 @@ __all__ = [
     "bindings_of",
     "boot_problems",
     "boot_service",
+    "claims_mode_problems",
     "dev_shell",
     "env_file_text",
     "expected_bindings",

@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from collections.abc import Callable, Iterable, Mapping
 from functools import partial
 from typing import Any
@@ -308,6 +309,66 @@ def apply_view(
     return valid_until, tuple(legacy_keys)
 
 
+#: The compatibility mode as diagnostics show it (G-RISK-14).
+LEGACY_OFF = "off"
+LEGACY_ON = "on"
+LEGACY_ENDED = "ended"
+
+
+def _utc(timestamp: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(timestamp))
+
+
+def legacy_accepted(metrics: Mapping[str, Any]) -> dict[str, int]:
+    """Per key, the compatibility-mode acceptances this process counted
+    (:data:`LEGACY_METRIC`), from the facade's metrics."""
+    prefix = f'{LEGACY_METRIC}{{key="'
+    out: dict[str, int] = {}
+    for name, value in metrics.items():
+        counted = isinstance(value, (int, float))
+        if counted and name.startswith(prefix) and name.endswith('"}'):
+            out[name[len(prefix) : -2]] = int(value)
+    return dict(sorted(out.items()))
+
+
+def legacy_tokens_state(
+    policy: ClaimAuthorities,
+    *,
+    now: float,
+    lifetime_seconds: float,
+    leeway_seconds: float,
+    metrics: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The ``legacy_tokens`` mode for ``/diagnostics/core`` and ``sandloom
+    doctor`` (ADR-0014 decision 4, G-RISK-14).
+
+    ``mode`` is ``off`` (no ``legacy_tokens``: a token without ``cpv`` gives
+    no rights), ``on`` (until the window end, ``until +
+    ACCESS_TOKEN_EXPIRE_MINUTES + JWT_LEEWAY_SECONDS``) or ``ended`` (the
+    argument is still written, the mode is off by itself). ``accepted``
+    counts, per key, the tokens without ``cpv`` this process trusted.
+    ``cpv_version`` is the claim policy version this release stamps and
+    checks (the adoption release gate of the deploy-profile check, T014).
+    """
+    state: dict[str, Any] = {
+        "mode": LEGACY_OFF,
+        "cpv_version": CPV_VERSION,
+        "accepted": legacy_accepted(metrics or {}),
+    }
+    until = policy.legacy_until
+    if until is None:
+        return state
+    window_end = until + lifetime_seconds + leeway_seconds
+    state.update(
+        mode=LEGACY_ON if now < window_end else LEGACY_ENDED,
+        risk="G-RISK-14",
+        until=_utc(until),
+        window_end=_utc(window_end),
+        seconds_left=max(0, int(window_end - now)),
+    )
+    return state
+
+
 def untrusted_reasons(claims: Mapping[str, Any]) -> Mapping[str, str]:
     """The view's ``{key: reason}`` of a verified payload (empty: none)."""
     value = claims.get(UNTRUSTED_KEY)
@@ -344,7 +405,10 @@ def platform_admission(roles: Any, untrusted: Mapping[str, str]) -> None:
 
 __all__ = [
     "INDETERMINATE_REASONS",
+    "LEGACY_ENDED",
     "LEGACY_METRIC",
+    "LEGACY_OFF",
+    "LEGACY_ON",
     "MISMATCH",
     "OUTDATED",
     "SOURCE_ABSENT",
@@ -354,7 +418,9 @@ __all__ = [
     "UNTRUSTED_KEY",
     "apply_view",
     "enable_test_authority",
+    "legacy_accepted",
     "legacy_metric_name",
+    "legacy_tokens_state",
     "outdated_or_mismatch",
     "platform_admission",
     "test_authority_enabled",

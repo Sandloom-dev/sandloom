@@ -14,6 +14,7 @@ from prometheus_client import CONTENT_TYPE_LATEST
 from pydantic import BaseModel
 
 import sandloom.core.app_factory.revocation_applier as _applier
+import sandloom.core.auth.claims_view as _claims_view
 import sandloom.core.auth.revocation as _revocation
 import sandloom.core.beat_lease as _beat_lease
 import sandloom.core.contracts.validators as _validators
@@ -474,6 +475,20 @@ async def _periodic_diagnostics(core_facade: CoreFacade) -> list[dict[str, Any]]
     ]
 
 
+def _claims_diagnostics(core_facade: CoreFacade) -> dict[str, Any]:
+    """The claim policy's ``legacy_tokens`` mode (G-RISK-14): on with its
+    window end and time left, ended, or off; and the acceptances counted."""
+    return {
+        "legacy_tokens": _claims_view.legacy_tokens_state(
+            core_facade.claim_authorities,
+            now=time.time(),
+            lifetime_seconds=settings.access_token_expire_minutes * 60,
+            leeway_seconds=settings.jwt_leeway_seconds,
+            metrics=core_facade.list_metrics(),
+        )
+    }
+
+
 def _saga_diagnostics(core_facade: CoreFacade) -> list[dict[str, Any]]:
     runtime = getattr(core_facade, "saga_runtime", None)
     registry = getattr(runtime, "registry", None)
@@ -507,6 +522,8 @@ def _install_diagnostics_endpoints(
             # profile, tier counts and active overrides (sandloom.core.config.tiers)
             "configuration": tiers.diagnostics(settings),
             "event_bus_metrics": get_event_bus_metrics(),
+            # the claim policy's legacy_tokens mode (ADR-0014, G-RISK-14)
+            "claims": _claims_diagnostics(core_facade),
             # registered saga definitions and versions (ADR-0008)
             "sagas": _saga_diagnostics(core_facade),
             # modules needing periodic jobs, and whether a beat schedules them
