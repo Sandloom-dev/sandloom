@@ -61,8 +61,10 @@ the framework's own lives in ``backend/``) and runs every analyzer of
     event-view-compat      event views match their producer; views never
                            publish
     contract-union-hint    (info) an ambiguous union uses codec 1
-    account-route-mismatch an organization route gates billing with
-                           of=Account.user() and no reason
+    account-route-mismatch an organization route gates an account atom
+                           with of=Account.user() and no reason
+    handwritten-access-check a hand-written Requirement calls a declared
+                           access check with other tier, category or risk
 
 Each violation prints as ``path:N: error[SANDLOOM-Cnnn rule]: message``;
 ``sandloom explain <code>`` has the long form. A deliberate exception is waived

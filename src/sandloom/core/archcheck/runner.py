@@ -135,8 +135,12 @@ API10_RULES: dict[str, str] = {
         "discriminated type lets codec 2 apply"
     ),
     "account-route-mismatch": (
-        "a route with an organization parameter gates billing with "
+        "a route with an organization parameter gates an account atom with "
         'of=Account.user() — use Account.org(param=...) or Account.user(reason="...")'
+    ),
+    "handwritten-access-check": (
+        "a hand-written Requirement calls a declared access check with other "
+        "tier, category or risk than its declaration — use the generated atom"
     ),
 }
 

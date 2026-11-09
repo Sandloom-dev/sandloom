@@ -1194,6 +1194,7 @@
         "src/sandloom/core/archcheck/__init__.py",
         "src/sandloom/core/archcheck/analyzers.py",
         "src/sandloom/core/archcheck/api10_rules.py",
+        "src/sandloom/core/archcheck/atom_metadata.py",
         "src/sandloom/core/archcheck/generated_rules.py",
         "src/sandloom/core/archcheck/manifest.py",
         "src/sandloom/core/archcheck/module_rules.py",

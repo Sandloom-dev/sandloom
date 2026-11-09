@@ -59,7 +59,7 @@ reconciled: "kb-w0-fix-checks after W0 (arch/kernel-boundary 220df07); K1 added,
 summary:
   total: 47  # the 46 judged baseline edges and K1
   kind: {runtime: 46, documentation: 1}
-  current_status: {open: 22, fixed: 21, retained: 4}
+  current_status: {open: 20, fixed: 23, retained: 4}
   target: {fixed: 33, retained: 4, deferred: 10}
   by_adr: {ADR-0012: 16, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
 
@@ -748,18 +748,16 @@ edges:
     scope: runtime
     owner: [tenancy, billing]
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
     prs: [KB-32]
     invariants: [H-20, I-13]
     tests:
       - Z-8 fixture: third-party atom found by gate order, C027 and the sensitive-route rule
-      - handwritten-access-check (SANDLOOM-C032 proposed)
+      - handwritten-access-check (SANDLOOM-C034; C032 was taken by generated-reserved)
     anchors:
       - {path: sandloom/core/archcheck/api10_rules.py, literal: "require_org_role"}
-      - {path: sandloom/core/archcheck/api10_rules.py, symbol: BILLING_ATOMS}
-      - {path: sandloom/core/archcheck/module_rules.py, symbol: ORG_ATOMS}
 
   - id: B-N18
     class: b
@@ -767,7 +765,7 @@ edges:
     scope: runtime
     owner: billing
     baseline_verdict: violation
-    current_status: open
+    current_status: fixed
     target: fixed
     adr: ADR-0014
     prs: [KB-32]
@@ -775,8 +773,8 @@ edges:
     tests:
       - sandloom explain SANDLOOM-B017 / C027 texts name no billing atom
     anchors:
-      - {path: sandloom/core/error_codes.py, literal: "SANDLOOM-B017"}
-      - {path: sandloom/core/archcheck/runner.py, literal: "account-route-mismatch"}
+      - {path: sandloom/core/error_codes.py, literal: "a billing atom has no of= subject"}
+      - {path: sandloom/core/archcheck/runner.py, literal: "gates billing with"}
     note: Texts restated over atom metadata (account-bound check), not billing atom names.
 
   - id: B-N19

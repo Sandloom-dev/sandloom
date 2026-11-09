@@ -9,7 +9,10 @@ time. These look at a whole business module (its ``events.py``, its
   with ``register_event_schema``);
 * ``guard-order`` (SANDLOOM-C018) — an ``idempotency_guard`` or a gate that needs
   an organisation is not declared before the authentication / ``TenantScope()``
-  it relies on, where the order is visible in one route declaration;
+  it relies on, where the order is visible in one route declaration (an
+  ``APIRouter(...)`` or a ``module_router(...)``); a gate needs an organisation
+  when its atom's generated literal says so (:mod:`.atom_metadata`), whatever
+  the atom is called or where it comes from;
 * ``consumed-contracts`` (SANDLOOM-C019) — every literal ``get_service("x.y.vN")``
   is declared in ``consumes=`` (or provided by the module itself);
 * ``db-dependency-scope`` (SANDLOOM-C020) — ``Depends(get_db...)`` carries
@@ -34,6 +37,7 @@ import ast
 from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 
+import sandloom.core.archcheck.atom_metadata as _atom_metadata
 from sandloom.core.archcheck.analyzers import (
     HTTP_METHODS,
     _const_str,
@@ -61,14 +65,8 @@ AUTH_NAMES = frozenset(
         "require_operator",
     }
 )
-#: ``require(...)`` atoms that always resolve an organisation (path param,
-#: ``X-Tenant-Id`` header, else the bound tenant).
-ORG_ATOMS = frozenset({"OrgRole"})
-#: Billing atoms that need an organisation unless ``of=Account.user()``.
-ORG_IF_ORGANIZATION = frozenset(
-    {"Subscribed", "SubscriptionActive", "Credits", "Feature", "WithinLimit"}
-)
-_GATE_ATOMS = ORG_ATOMS | ORG_IF_ORGANIZATION
+#: Calls that build a router whose ``dependencies=`` apply to its routes.
+_ROUTER_FACTORIES = frozenset({"APIRouter", "module_router"})
 
 
 def _call_name(node: ast.AST) -> str | None:
@@ -249,38 +247,44 @@ def _is_tenant_scope(node: ast.AST) -> bool:
     return "TenantScope" in _names_called(node)
 
 
-def _org_params_of_gate(node: ast.AST) -> set[str]:
+def _account_params(call: ast.Call) -> set[str]:
+    """Org params an atom reads through its ``of=`` account: none for
+    ``Account.user()``; ``Account.org(param=None)`` and
+    ``Account.bound_tenant()`` read only the header / bound tenant."""
+    account = _keyword(call, "of")
+    kind = _call_name(account) if account is not None else None
+    if kind in (None, "user"):
+        return set()
+    if kind == "org" and isinstance(account, ast.Call):
+        param = _keyword(account, "param")
+        if param is None:
+            return {"org_id"}
+        if _const_str(param) is not None:
+            return {str(_const_str(param))}
+    return {"<bound tenant>"}
+
+
+def _org_params_of_gate(
+    node: ast.AST, atoms: dict[str, _atom_metadata.AtomLiteral]
+) -> set[str]:
     """Org path params an inline ``require(...)`` gate resolves from.
 
-    ``OrgRole`` always resolves an organisation; the billing atoms unless
-    their ``of=`` is ``Account.user()`` (``Account.org(param=None)`` and
-    ``Account.bound_tenant()`` read only the header / bound tenant).
+    Read from the atom's generated literal, never from its name: an atom with
+    an organization bind resolves ``org_param=`` (else its declared default);
+    an atom with an account bind resolves its ``of=`` account.
     """
     params: set[str] = set()
     for call in ast.walk(node):
-        name = _call_name(call)
-        if (
-            not isinstance(call, ast.Call)
-            or name not in ORG_ATOMS | ORG_IF_ORGANIZATION
-        ):
+        if not isinstance(call, ast.Call):
             continue
-        if name == "OrgRole":
-            params.add(_const_str(_keyword(call, "org_param")) or "org_id")
+        literal = _atom_metadata.literal_of(call, atoms)
+        if literal is None:
             continue
-        account = _keyword(call, "of")
-        kind = _call_name(account) if account is not None else None
-        if kind in (None, "user"):
-            continue
-        if kind == "org" and isinstance(account, ast.Call):
-            param = _keyword(account, "param")
-            if param is None:
-                params.add("org_id")
-            elif _const_str(param) is not None:
-                params.add(str(_const_str(param)))
-            else:
-                params.add("<bound tenant>")
-        else:
-            params.add("<bound tenant>")
+        default = _atom_metadata.binds_org(literal)
+        if default is not None:
+            params.add(_const_str(_keyword(call, "org_param")) or default)
+        if _atom_metadata.binds_account(literal):
+            params |= _account_params(call)
     return params
 
 
@@ -362,7 +366,7 @@ def _router_items(
     for node in getattr(tree, "body", []):
         if (
             isinstance(node, ast.Assign)
-            and _call_name(node.value) == "APIRouter"
+            and _call_name(node.value) in _ROUTER_FACTORIES
             and any(isinstance(t, ast.Name) and t.id == router for t in node.targets)
         ):
             return _expand_items(_keyword(node.value, "dependencies"), consts)  # type: ignore[arg-type]
@@ -405,6 +409,7 @@ def find_guard_order_problems(files: Sequence[Path]) -> list[Hit]:
     hits: list[Hit] = []
     for py, tree in _trees(files):
         consts = _module_constants(tree)
+        atoms = _atom_metadata.atom_literals(tree, py)
         for fn in ast.walk(tree):
             if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
@@ -416,7 +421,7 @@ def find_guard_order_problems(files: Sequence[Path]) -> list[Hit]:
                 hits.extend(
                     (py, f"Line {dec.lineno}: {problem} ({fn.name})")
                     for problem in _route_order_problems(
-                        dec, fn, _router_items(tree, router, consts), consts
+                        dec, fn, _router_items(tree, router, consts), consts, atoms
                     )
                 )
     return hits
@@ -427,6 +432,7 @@ def _route_order_problems(
     fn: ast.FunctionDef | ast.AsyncFunctionDef,
     router_items: list[ast.AST] | None,
     consts: dict[str, ast.expr],
+    atoms: dict[str, _atom_metadata.AtomLiteral],
 ) -> list[str]:
     decorator_items = _expand_items(_keyword(dec, "dependencies"), consts)
     if decorator_items is None or router_items is None:
@@ -458,7 +464,7 @@ def _route_order_problems(
             node = _inline_constants(item, consts)
             if "require" not in _names_called(node):
                 continue
-            needed = _org_params_of_gate(node)
+            needed = _org_params_of_gate(node, atoms)
             if needed and not needed & path_params:
                 problems.append(
                     "a require(...) gate that needs an organisation is declared "
@@ -898,7 +904,6 @@ def find_unscoped_db_dependencies(file_path: Path) -> list[str]:
 __all__ = [
     "AUTH_NAMES",
     "HTTP_METHODS",
-    "ORG_ATOMS",
     "find_guard_order_problems",
     "find_database_feature_problems",
     "find_undeclared_capabilities",

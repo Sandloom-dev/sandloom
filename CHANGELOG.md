@@ -388,6 +388,18 @@ website renders this same changelog.
 
 ### Added
 
+- **`sandloom check` reads atom metadata** (ADR-0014, KB-32, H-20). The gate-order,
+  sensitive-route (C022) and account-route (C027) rules resolve an imported atom
+  name to the file that defines it and read its `__sandloom_atom__` literal, so a
+  third-party atom with an organization bind, an account bind or an admin risk is
+  recognised with no name in a list (`ORG_ATOMS`, `BILLING_ATOMS` and the
+  `require_org_role` pattern are gone; the kernel's own atoms are read through a
+  transitional table KB-34 deletes with them). The gate-order rule also reads
+  `module_router()` routes. New rule `handwritten-access-check`
+  ([SANDLOOM-C034](docs/reference/error-codes.md#sandloom-c034)): a hand-written
+  class calling a declared access check with another tier, category or risk than its
+  declaration is an error. A hand-written `require_org_role`-style dependency is no
+  longer tagged by name: state `sensitive("admin")` on its routes.
 - **Contract-anchored access checks** (ADR-0014 decisions 8 to 12, KB-30).
   A provider marks a boolean contract read with
   `@access_check("OrgRole", bind={"organization_id": From.org(param="org_id"),
