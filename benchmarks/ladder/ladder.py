@@ -945,7 +945,7 @@ def _no_membership_contract() -> None:
 
 
 def _platform_rung(key: str, *, patch: Callable[[], None] | None = None):
-    """A platform GET of ``sandloom.main:app`` (``benchsuite.platform``; seed first)."""
+    """A platform GET of ``sandloom_standard.main:app`` (``benchsuite.platform``; seed first)."""
 
     async def factory():
         if "sandloom.core.config.settings" in sys.modules:
@@ -955,7 +955,7 @@ def _platform_rung(key: str, *, patch: Callable[[], None] | None = None):
         os.environ.update(platform.server_env())
         os.environ.pop("MODULE_REQUIRED", None)
         token = platform.mint()
-        from sandloom.main import app
+        from sandloom_standard.main import app
 
         if patch is not None:
             patch()
@@ -974,7 +974,7 @@ def _platform_rung(key: str, *, patch: Callable[[], None] | None = None):
 
 #: Platform endpoints (identity / tenancy / billing GETs, ``benchsuite.platform``).
 for _key in ("Pme", "Porg", "Porgs", "Pmem", "Psub", "Pcred"):
-    rung(_key, f"platform app (sandloom.main), full ASGI in-process: {_key}")(
+    rung(_key, f"platform app (sandloom_standard.main), full ASGI in-process: {_key}")(
         _platform_rung(_key)
     )
 for _key in ("Psub", "Pcred"):
@@ -1002,7 +1002,7 @@ def _contract_rung(stage: str):
 
         from sandloom.core.module_api import contract_read_scope
         from sandloom.core.runtime import get_active_core
-        from sandloom.main import app
+        from sandloom_standard.main import app
 
         life = await _Lifespan(app).__aenter__()
         core = get_active_core()

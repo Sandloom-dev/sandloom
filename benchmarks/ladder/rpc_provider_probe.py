@@ -177,7 +177,7 @@ try:
             for n, port in ports.items():
                 v = v.replace(f"{{port:{n}}}", str(port))
             env[k] = v
-        cmd = [PY, "-m", "uvicorn", "sandloom.main:app", "--host", "127.0.0.1",
+        cmd = [PY, "-m", "uvicorn", "sandloom_standard.main:app", "--host", "127.0.0.1",
                "--port", str(ports[s["name"]]), "--loop", "uvloop", "--http",
                "httptools", "--no-access-log", "--log-level", "warning",
                "--timeout-keep-alive", "75"]

@@ -7,7 +7,7 @@ Installed into ``ladder.py`` (``ladder.py cg MIX``). Env:
   ``benchsuite.loadclient`` does), or an ``EXTRA`` key of this rung (requests
   measured outside the fixed mix catalog, e.g. ``export``: the helpdesk
   ticket export, a 100-row planner list behind ``Subscribed``);
-* ``LADDER_MIX_SVC`` — ``mono`` (``sandloom.main`` with ``mix.FULL_MODULES`` on
+* ``LADDER_MIX_SVC`` — ``mono`` (``sandloom_standard.main`` with ``mix.FULL_MODULES`` on
   ``DATABASE_URL``) or the split service owning the route, ``identity |
   tenancy | billing | apps`` (its modules as ``split_seed.SPLIT``, its
   database ``<LADDER_MIX_SPLIT_PREFIX>_<svc>`` on ``DATABASE_URL``'s server);
@@ -160,11 +160,11 @@ def _svc_env(svc: str, prefix: str, bindings: dict[str, Any]) -> dict[str, str]:
     }
 
 
-#: a service process that is NOT measured: sandloom.main behind a counter of the
+#: a service process that is NOT measured: sandloom_standard.main behind a counter of the
 #: RPC requests it served (``GET /__rpc_count``)
 _SERVER = """
 import sys, uvicorn
-from sandloom.main import app
+from sandloom_standard.main import app
 n = [0]
 async def wrapped(scope, receive, send):
     if scope["type"] == "http":
@@ -295,7 +295,7 @@ async def _mix(ns: Any):
         os.environ.update(_svc_env(svc, prefix, bindings))
 
     path, _, qs = full.partition("?")
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     try:
         from sandloom.core.unit_of_work.dispatch import drain_post_commit
@@ -373,7 +373,7 @@ async def _provider_role(
 
     prefix = os.environ["LADDER_MIX_SPLIT_PREFIX"]
     os.environ.update(_svc_env("tenancy", prefix, {}))
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     n = [0]
 

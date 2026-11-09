@@ -1,6 +1,6 @@
 """RPC stand over a REAL loopback socket: caller CPU vs provider CPU per call.
 
-Starts a provider process (uvicorn, one worker, ``sandloom.main:app`` with
+Starts a provider process (uvicorn, one worker, ``sandloom_standard.main:app`` with
 ``benchsuite.rpcstand.server_env``) and calls ONE contract method from THIS
 process through the production proxy path (``RemoteServiceProxy`` on the
 shared pooled RPC client of ``--transport`` = ``RPC_TRANSPORT``, keep-alive),
@@ -106,7 +106,7 @@ def main() -> None:
         sys.executable,
         "-m",
         "uvicorn",
-        "sandloom.main:app",
+        "sandloom_standard.main:app",
         "--host",
         "127.0.0.1",
         "--port",

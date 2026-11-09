@@ -192,7 +192,7 @@ async def _contract(ns: Any, twice: bool) -> Any:
     plat = _platform_env()
     from sandloom.core.module_api import contract_read_scope
     from sandloom.core.runtime import get_active_core
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     life = await ns._Lifespan(app).__aenter__()
     core = get_active_core()
@@ -214,9 +214,13 @@ async def _contract(ns: Any, twice: bool) -> Any:
 async def _contract_dto(ns: Any) -> Any:
     plat = _platform_env()
     from sandloom.core.module_api import contract_read_scope
-    from sandloom.main import app
+    from sandloom_standard.main import app
     from sandloom.sdk import Contract
-    from sandloom.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
+    # the consumer's generated copy (billing consumes tenancy.membership.v1);
+    # the provider's contract has no shared stub any more
+    from sandloom_billing._generated.contracts.tenancy_membership_v1 import (
+        TENANCY_MEMBERSHIP_V1,
+    )
 
     life = await ns._Lifespan(app).__aenter__()
     membership = Contract(TENANCY_MEMBERSHIP_V1)
@@ -239,7 +243,7 @@ async def _htr(ns: Any) -> Any:
     from sandloom.core.runtime import get_active_core
     from sandloom_identity.models.user import User
     from sandloom_identity.services.token_service import TokenService
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     life = await ns._Lifespan(app).__aenter__()
     core = get_active_core()
@@ -298,7 +302,7 @@ async def _runtime(ns: Any, kind: str) -> Any:
     os.environ.update(rpcstand.server_env())
     from sandloom.core.module_api import contract_read_scope
     from sandloom.core.runtime import get_active_core
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     life = await ns._Lifespan(app).__aenter__()
     core = get_active_core()
