@@ -313,11 +313,11 @@ The provider is checked by its import path, not by its name. An app module
 named `acme_orgs` is not the assigned `acme_orgs` package, and an app module
 named `tenancy` is not the installed tenancy. Anyone else, or a registration
 made outside a module's registration, refuses the boot (`SANDLOOM-B034`).
-Which contracts are access-bearing is read from the assignment and from the
-adapters bound in the process, so a provider cannot opt out by omitting a
-declaration. In a split deployment, `SERVICE_BINDINGS` is the assignment: the
-binding pins the provider's `service_id`, and a process holding other keys
-behind the same URL is refused (401 at the provider, 503 to the caller). Every
+The access-bearing contracts are read from the assignment and the bound
+adapters. A provider cannot opt out by omitting a declaration. In a split
+deployment, `SERVICE_BINDINGS` is the assignment. The binding pins the
+provider's `service_id`: a process with other keys behind the same URL is
+refused (401 at the provider, 503 to the caller). Every
 other contract name keeps the first-registrant rule.
 
 ### Authority at commit (admin and money effects)

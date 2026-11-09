@@ -72,8 +72,8 @@ reference other modules by string, never by import; a module's own
 domain-specific atoms live in its package.
 
 A contract an adapter asks decides access, so only its provider may register
-it: the module its first segment names, or the module your composition root
-assigns. To serve tenancy's membership contract from your own module, assign
+it. That is the module its first segment names, or the one your composition
+root assigns. To serve tenancy's membership contract from your own module, assign
 it in `asgi.py`:
 
 ```python

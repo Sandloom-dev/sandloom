@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -241,3 +242,100 @@ def test_a_malformed_map_refuses_the_boot(mapping: dict[str, Any], match: str) -
     with pytest.raises(ConfigurationError, match="SANDLOOM-B034") as exc:
         _access.install_access_providers(core, access_providers=mapping, log=LOG)
     assert match in str(exc.value)
+
+
+# ------------------------------------------------------------ through create_app
+
+_PROVIDER = """
+from uuid import UUID
+
+from sandloom.core.module_api import contract_method, define_module
+
+
+class Membership:
+    @classmethod
+    @contract_method
+    async def has_role_at_least(cls, org_id: UUID, user_id: UUID, minimum: str) -> bool:
+        return False
+
+
+def _setup(api):
+    api.register_service("tenancy.membership.v1", Membership)
+
+
+register = define_module(__name__, setup=_setup, events=None)
+"""
+
+
+@pytest.fixture
+def provider_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Writes a module at an import path that serves the membership contract
+    and makes it the composition's only module."""
+    from sandloom.core.config.settings import settings
+
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr(settings, "module_load_entrypoints", False)
+
+    def write(path: str) -> None:
+        parts = path.split(".")
+        for depth in range(1, len(parts) + 1):
+            package = tmp_path.joinpath(*parts[:depth])
+            package.mkdir(exist_ok=True)
+            init = package / "__init__.py"
+            if not init.exists():
+                init.write_text(_PROVIDER if depth == len(parts) else "")
+        monkeypatch.setattr(settings, "sandloom_modules", [path])
+        monkeypatch.setattr(settings, "module_required", [path])
+
+    return write
+
+
+def _boot_refusal(**kwargs: Any) -> str:
+    """The text of ``create_app``'s refusal, with its causes."""
+    from sandloom.core.app_factory import create_app
+
+    # Any refusal (a module load failure or ConfigurationError); its text is
+    # what the tests check.
+    with pytest.raises(BaseException) as exc:
+        create_app(**kwargs)
+    texts: list[str] = []
+    err: BaseException | None = exc.value
+    while err is not None:
+        texts.append(str(err))
+        err = err.__cause__ or err.__context__
+    return " | ".join(texts)
+
+
+def test_create_app_refuses_an_unassigned_third_party_provider(
+    provider_module: Any,
+) -> None:
+    provider_module("acme_orgs")
+    refusal = _boot_refusal()
+    assert "SANDLOOM-B034" in refusal
+    assert "'tenancy.membership.v1'" in refusal
+
+
+def test_create_app_accepts_an_assigned_third_party_provider(
+    provider_module: Any,
+) -> None:
+    from sandloom.core.app_factory import create_app
+
+    provider_module("acme_orgs")
+    app = create_app(access_providers={MEMBERSHIP: "acme_orgs"})
+    assert app.state.core.contract_owner(MEMBERSHIP) == "acme_orgs"
+
+
+def test_create_app_refuses_an_app_local_namesake_of_the_assigned(
+    provider_module: Any,
+) -> None:
+    provider_module("kbapp.modules.acme_orgs")
+    refusal = _boot_refusal(access_providers={MEMBERSHIP: "acme_orgs"})
+    assert "SANDLOOM-B034" in refusal
+    assert "'kbapp.modules.acme_orgs'" in refusal
+
+
+def test_create_app_refuses_a_malformed_assignment(provider_module: Any) -> None:
+    provider_module("acme_orgs")
+    refusal = _boot_refusal(access_providers={"acme_orgs.facts.v1": "acme_orgs"})
+    assert "SANDLOOM-B034" in refusal
+    assert "reserved" in refusal
