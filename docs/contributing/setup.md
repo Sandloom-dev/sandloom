@@ -19,12 +19,12 @@ git clone https://github.com/Sandloom-dev/sandloom.git
 cd sandloom
 ```
 
-The checkout runs with its standard modules (identity, tenancy, billing), which
-the standard composition root `sandloom_standard.main` composes from their installed
-`sandloom.modules` entry points, with the claim authorities they need: identity issues
-the tokens and writes `roles` and `permissions`, tenancy writes `tenant_ids`, billing
+The checkout runs with its standard modules (identity, tenancy, billing). The standard
+composition root `sandloom_standard.main` composes them from their installed
+`sandloom.modules` entry points, with the claim authorities they need. Identity issues
+the tokens and writes `roles` and `permissions`, tenancy writes `tenant_ids`, and billing
 writes the subscription claims. The kernel's lean root `sandloom.main` assigns no
-authorities, so with identity installed it refuses to start (`SANDLOOM-B035`): run
+authorities, so with identity installed it refuses to start (`SANDLOOM-B035`). Run
 every process from the standard root.
 
 ## Install dependencies
@@ -52,10 +52,10 @@ cp .env.example .env
 The four mandatory settings are `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`, and
 `JWT_SECRET`. The example sets `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main`, the
 root that `sandloom migrate`, `sandloom generate`, the worker and the other `sandloom`
-commands build; keep it. A checkout or worktree without a `.env` gets the lean root, and
-every command that builds the app refuses with `SANDLOOM-B035`, `sandloom test` included
-(its gates build the app; the root `conftest.py` picks the standard root for the pytest
-suites). Export the variable there:
+commands build; keep it. A checkout or worktree without a `.env` gets the lean root.
+Every command that builds the app then refuses with `SANDLOOM-B035`, `sandloom test`
+included. Its gates build the app, and the root `conftest.py` picks the standard root for
+the pytest suites. Export the variable there:
 
 ```bash
 export SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main
