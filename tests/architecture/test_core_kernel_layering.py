@@ -122,6 +122,9 @@ FACADE_IMPORT_BASELINE = {
     # constructs the facade, not a low-level module reaching up to it. A
     # package since it was split by responsibility (2026-11-07).
     "app_factory/__init__.py",
+    # KB-13: binds the root's access_providers= assignment to the facade at
+    # app build (composition, registration time only).
+    "app_factory/access_providers.py",
     "app_factory/lifecycle.py",
     "app_factory/ops.py",
     "di.py",
