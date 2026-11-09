@@ -2,10 +2,11 @@
 
 Billing declares both as claim atoms of its access checks
 (``billing.entitlements.v1.has_feature`` / ``is_within_limit``); the atoms
-``sandloom generate`` writes beside a consumer's stub are decided against the
-kernel atoms they replace, on the real billing provider over the real test
-database, in-process (mono) and over the real internal RPC (split: a consumer
-core with no module and no database binds the contracts to the standard app).
+``sandloom generate`` writes beside a consumer's stub are decided on the real
+billing provider over the real test database, in-process (mono) and over the
+real internal RPC (split: a consumer core with no module and no database
+binds the contracts to the standard app). The kernel atoms they were once
+compared to leave the kernel (KB-34): the decisions and calls are pinned.
 
 Billing as shipped keeps no features or limits catalogue: its checks raise
 ``AccessUnknown``, so for an organization account every policy over them,
@@ -15,18 +16,18 @@ with zero I/O, and a token without ``features`` / ``limits`` (billing writes
 none) is 501 ``access_unknown`` too (KB-33d).
 
 Otherwise the producer is a test one: the plan reads behind billing's
-methods answer from a table here (an explicit off is a deny), and the
-kernel atoms' organization facts (``organization.features`` /
-``organization.limits``) ask the same billing methods. For each case, steady
-state:
+methods answer from a table here (an explicit off is a deny). For each case,
+steady state:
 
-* the decision is equal (allowed, status, category, code, indeterminate,
-  label) and the provider calls and their order are equal;
+* the decision is the pinned one (allowed, status, category, code,
+  indeterminate, label), mono and split alike, and so are the provider calls
+  and their order;
 * the parameters reach the provider unchanged, over RPC included (the plan
   read records what billing was ASKED);
-* the claims tier is 0 calls / 0 database round trips / 0 RPC; an
+* the claims tier is 0 calls / 0 database round trips / 0 RPC: a present
+  mapping is the complete snapshot, an entry it does not list denies; an
   organization account is one call to billing (two with a bound tenant: the
-  tenant's kind first), the same count as the kernel atom.
+  tenant's kind first).
 """
 
 from __future__ import annotations
@@ -46,7 +47,6 @@ import pytest_asyncio
 from sqlalchemy import event, insert
 from sqlalchemy.engine import Engine
 
-import sandloom.shared.authz as kernel
 from sandloom.core import rpc
 from sandloom.core.claims import ClaimAuthorities
 from sandloom.core.cli.generated import render_stub
@@ -56,7 +56,7 @@ from sandloom.core.di import bind_tenant
 from sandloom.core.facade import CoreFacade
 from sandloom.core.rpc import proxy as rpc_proxy
 from sandloom.core.testing.fixtures import *  # noqa: F403 - db_engine, real_uow_client
-from sandloom.shared.authz import AccessFact, Account, Category, Not, Or
+from sandloom.shared.authz import Account, Category, Not, Or
 from sandloom.shared.authz.context import AuthzContext
 from sandloom.shared.subject import UserContext
 from sandloom_billing import entitlements as billing_entitlements
@@ -93,9 +93,6 @@ def generated(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Any]:
     sys.modules.pop(spec.name, None)
 
 
-KIT_KERNEL = SimpleNamespace(Feature=kernel.Feature, WithinLimit=kernel.WithinLimit)
-
-
 @dataclass(frozen=True)
 class Case:
     policy: Callable[[Any], Any]
@@ -128,10 +125,19 @@ CASES: dict[str, Case] = {
     ),
 }
 
-#: Steady state per request: provider calls (a claims-tier case: none).
-EXPECTED_CALLS: dict[str, int] = {
-    name: 0 if name.startswith("user.") else 2 if name.startswith("bound.") else 1
-    for name in CASES
+_FEATURE = f"{ENTITLEMENTS}.has_feature"
+_LIMIT = f"{ENTITLEMENTS}.is_within_limit"
+_KIND = "tenancy.membership.v1.has_role_at_least"
+#: Steady state per request: the provider methods asked, in order (a
+#: claims-tier case: none; a bound tenant's kind first).
+EXPECTED_CALLS: dict[str, list[str]] = {
+    "org.feature.on": [_FEATURE],
+    "org.feature.off": [_FEATURE],
+    "org.not_feature.off": [_FEATURE],
+    "org.limit.below": [_LIMIT],
+    "org.limit.equal": [_LIMIT],
+    "bound.feature.on": [_KIND, _FEATURE],
+    "bound.limit.equal": [_KIND, _LIMIT],
 }
 #: Steady state per request: the providers' database round trips (billing's
 #: plan reads touch none; the bound tenant's kind is tenancy's 3).
@@ -148,18 +154,29 @@ ASKED: dict[str, list[tuple[Any, ...]]] = {
     "bound.feature.on": [("plan_feature", "organization", ORG, "export")],
     "bound.limit.equal": [("plan_limit_allows", "organization", ORG, "seats", 3)],
 }
-ALLOWED = {
-    "user.feature.on",
-    "user.limit.below",
-    "org.feature.on",
-    "org.not_feature.off",
-    "org.limit.below",
-    "bound.feature.on",
+_ALLOW = (True, 200, None, "ok", False, None)
+_OFF = (False, 403, "forbidden", "Feature", False, "feature 'beta'")
+_AT_LIMIT = (False, 402, "quota_exceeded", "WithinLimit", False, "within limit 'seats'")
+#: Steady state per request: the decision (allowed, status, category, code,
+#: indeterminate, label). ``beta`` is not in the token's (complete)
+#: ``features`` nor in the organization's plan: a definite deny.
+DECISIONS: dict[str, tuple[Any, ...]] = {
+    "user.feature.on": _ALLOW,
+    "user.feature.off": _OFF,
+    "user.limit.below": _ALLOW,
+    "user.limit.equal": _AT_LIMIT,
+    "org.feature.on": _ALLOW,
+    "org.feature.off": _OFF,
+    "org.not_feature.off": _ALLOW,
+    "org.limit.below": _ALLOW,
+    "org.limit.equal": _AT_LIMIT,
+    "bound.feature.on": _ALLOW,
+    "bound.limit.equal": _AT_LIMIT,
 }
 
 
 # --------------------------------------------------------------------------- #
-# The test producer: billing's plan reads from a table; the kernel's facts
+# The test producer: billing's plan reads from a table
 # --------------------------------------------------------------------------- #
 @pytest.fixture
 def asked(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, ...]]:
@@ -186,50 +203,8 @@ def asked(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, ...]]:
     return log
 
 
-async def _org_features(service: Any, ctx: AuthzContext) -> bool:
-    res = await ctx.get_resource()
-    return bool(
-        await service.has_feature("organization", res["organization_id"], res["key"])
-    )
-
-
-async def _org_limits(service: Any, ctx: AuthzContext) -> bool:
-    res = await ctx.get_resource()
-    return bool(
-        await service.is_within_limit(
-            "organization", res["organization_id"], res["key"], res["used"]
-        )
-    )
-
-
-#: The kernel atoms' organization facts on the test producer (local to the
-#: deciding process, asking billing's methods like the generated atoms).
-KERNEL_FACTS = {
-    fact.name: fact
-    for fact in (
-        AccessFact(
-            name="organization.features",
-            owner_module="organization",
-            live_service=ENTITLEMENTS,
-            live_resolver=_org_features,
-            min_freshness="live",
-            default_mode="live",
-        ),
-        AccessFact(
-            name="organization.limits",
-            owner_module="organization",
-            live_service=ENTITLEMENTS,
-            live_resolver=_org_limits,
-            min_freshness="live",
-            default_mode="live",
-        ),
-    )
-}
-
-
 class _Calls:
-    """A core view recording every contract method asked, in order, and
-    serving the kernel atoms' organization facts."""
+    """A core view recording every contract method asked, in order."""
 
     def __init__(self, core: Any) -> None:
         self._core = core
@@ -237,9 +212,6 @@ class _Calls:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._core, name)
-
-    def get_access_fact(self, name: str) -> Any:
-        return KERNEL_FACTS.get(name) or self._core.get_access_fact(name)
 
     def get_service(self, name: str) -> Any:
         service = self._core.get_service(name)
@@ -441,23 +413,23 @@ async def split(
 # --------------------------------------------------------------------------- #
 # The checks
 # --------------------------------------------------------------------------- #
-def _check(name: str, base: Outcome, candidate: Outcome) -> None:
-    assert candidate == base
-    key, calls, _sql, _rpc, asked = candidate
-    assert key[0] is (name in ALLOWED), key
-    assert len(calls) == EXPECTED_CALLS[name]
+def _check(name: str, outcome: Outcome) -> None:
+    """The steady-state decision, provider calls and parameters asked are
+    the pinned ones."""
+    key, calls, _sql, _rpc, asked = outcome
+    assert key == DECISIONS[name], key
+    assert calls == EXPECTED_CALLS.get(name, [])
     assert asked == ASKED.get(name, [])
 
 
 @pytest.mark.parametrize("name", sorted(CASES))
-async def test_mono_billing_atoms_equal_the_kernel_atoms(
+async def test_mono_billing_atoms_decide_as_pinned(
     mono: Any, generated: Any, meter: Meter, asked: Any, name: str
 ) -> None:
-    base = await _decide(mono, KIT_KERNEL, name, meter, asked)
-    candidate = await _decide(mono, generated, name, meter, asked)
-    _check(name, base, candidate)
-    assert candidate[3] == []
-    assert candidate[2] == EXPECTED_SQL[name], candidate[2]
+    outcome = await _decide(mono, generated, name, meter, asked)
+    _check(name, outcome)
+    assert outcome[3] == []
+    assert outcome[2] == EXPECTED_SQL[name], outcome[2]
 
 
 #: Standard billing as shipped (no test producer): it keeps no features or
@@ -569,11 +541,11 @@ async def test_without_a_catalogue_the_user_claims_path_is_unchanged(
 async def test_split_billing_atoms_carry_their_parameters_over_rpc(
     split: CoreFacade, generated: Any, meter: Meter, asked: Any, name: str
 ) -> None:
-    base = await _decide(split, KIT_KERNEL, name, meter, asked)
-    candidate = await _decide(split, generated, name, meter, asked)
-    _check(name, base, candidate)
-    # every call one POST to the provider, its database work in its own
-    # units; the claims tier none at all
-    assert len(candidate[3]) == EXPECTED_CALLS[name]
-    assert candidate[2] == EXPECTED_SQL[name]
-    assert all(r.startswith("POST /_sandloom/rpc/") for r in candidate[3])
+    outcome = await _decide(split, generated, name, meter, asked)
+    _check(name, outcome)
+    # every call one POST to the provider (the method asked), its database
+    # work in its own units; the claims tier none at all
+    assert outcome[3] == [
+        "POST /_sandloom/rpc/" + call.replace("v1.", "v1/", 1) for call in outcome[1]
+    ]
+    assert outcome[2] == EXPECTED_SQL[name]

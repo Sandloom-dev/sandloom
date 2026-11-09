@@ -26,7 +26,9 @@ billing account pays.
 ```python
 from fastapi import Depends
 
-from sandloom.sdk import OrgRole, Subscribed, require
+from myapp.shared.contracts.billing_entitlements_v1 import Subscribed
+from myapp.shared.contracts.tenancy_membership_v1 import OrgRole
+from sandloom.sdk import require
 from sandloom.sdk.authz import Account  # sandloom: advanced billing subject
 
 ORG = Account.org(param="org_id")
@@ -52,26 +54,33 @@ call.
 | resource (2) | loads the resource once, lazily | the request's resource |
 | live (3) | a live contract call | another module's contract |
 
+`Perm`, `Role`, `Owner` and `Entitled` come from `sandloom.sdk`, and `Account`
+from `sandloom.sdk.authz`. The billing and tenancy atoms are **not kernel
+names**. `sandloom generate` writes them from the provider's declarations
+beside the consumer's contract stub. A route imports them from there:
+`<app>.shared.contracts.billing_entitlements_v1` or
+`<app>.shared.contracts.tenancy_membership_v1`, and in a module distribution
+`<module>._generated.contracts.<stem>`. See the [upgrade
+guide](../../operate/upgrade-1.0.md#billing-and-tenancy-atoms-leave-the-kernel).
+
 | Atom | Tier | Reads |
 | --- | --- | --- |
 | `Perm(code)`, `Role(code)` | claim | the `permissions` / `roles` claims |
 | `Subscribed(statuses=None, *, of, claim_key="subscription_status")` | claim with `of=Account.user()`; live with an organization | the `subscription_status` claim (`active` / `trialing` pass; `past_due` passes during the grace period unless `BILLING_DENY_ON_PAST_DUE`), or billing live |
-| `SubscriptionActive(*, of, adapter=None)` | live | billing's entitlements, authoritative |
-| `Credits(minimum, *, of, adapter=None)` | live | the real-time credit balance (never a token claim); it only checks, and spending goes through `billing.credits.v1` |
-| `Feature(key, *, of, claim_key="features")`, `WithinLimit(key, used, *, of, claim_key="limits")` | claim with `Account.user()`; live with an organization | the `features` / `limits` claims, or the owner's `organization.features` / `organization.limits` facts |
+| `SubscriptionActive(*, of)` | live | billing's entitlements, authoritative |
+| `Credits(minimum, *, of)` | live | the real-time credit balance (never a token claim); it only checks, and spending goes through `billing.credits.v1` |
+| `Feature(key, *, of, claim_key="features")`, `WithinLimit(key, used, *, of, claim_key="limits")` | claim with `Account.user()`; live with an organization | the `features` / `limits` claims, or billing's `has_feature` / `is_within_limit` checks (three-valued, see below) |
 | `Owner(get_owner)` | resource | the loaded resource's owner id |
-| `OrgRole(minimum, *, org_param="org_id", adapter=None)` | live | tenancy's membership contract |
+| `OrgRole(minimum, *, org_param="org_id")` | live | tenancy's membership contract (`has_role_at_least`) |
 | `Entitled(fact_name)` | by the fact's mode | a registered access fact |
 
 Live atoms resolve their contract through the service registry (a local
 provider, else the RPC binding) and never pass the request's session. The
-contract an atom talks to is a pluggable adapter
-(`register_live_adapter(ENTITLEMENTS | MEMBERSHIP, adapter)`), defaulting to
-billing's entitlements and tenancy's membership contracts. Cross-cutting atoms
-reference other modules by string, never by import; a module's own
-domain-specific atoms live in its package.
+contract an atom talks to is the one its provider declared with
+`access_check`; there is no process-wide adapter to register. To answer an
+atom from your own module, serve the same contract there (below).
 
-A contract an adapter asks decides access, so only its provider may register
+A contract an atom asks decides access, so only its provider may register
 it. That is the module its first segment names, or the one your composition
 root assigns. To serve tenancy's membership contract from your own module, assign
 it in `asgi.py`:
@@ -194,15 +203,17 @@ with `402`.
 Billing registers `subscription.active` (default `auto`) and
 `organization.subscription.active` (live only, membership-checked); a false
 fact denies `402`, a non-member is refused `403`. In tests,
-`fake_access_fact(name, value)` answers a fact without loading its owner;
-the two subscription facts also answer the live `SubscriptionActive` /
-`Subscribed(of=Account.org(...))` atoms.
+`fake_access_fact(name, value)` answers a fact by name without loading its
+owner. It does not stand in for a provider's contract: to answer the live
+`SubscriptionActive` / `Credits` / `OrgRole` atoms, serve the contract with
+`fake_contract(REF, Fake())` ([Testing](../../reference/testing.md#calling-another-modules-contract)).
 
 A route's gate names the contracts it calls, and they join the module's
-derived `consumes` as optional requirements: `SubscriptionActive` / `Credits`
-add `billing.entitlements.v1`, `Entitled(fact)` adds the fact owner's
-`<owner>.facts.v1`, `Subscribed` adds `billing.facts.v1`, `OrgRole` adds
-`tenancy.membership.v1`. The startup preflight warns when one is unbound,
+derived `consumes` as optional requirements. A generated atom adds its
+provider's contract: `SubscriptionActive` / `Credits` add
+`billing.entitlements.v1` and `OrgRole` adds `tenancy.membership.v1`.
+`Entitled(fact)` adds the fact owner's `<owner>.facts.v1`, and `Subscribed`
+adds `billing.facts.v1`. The startup preflight warns when one is unbound,
 and `sandloom add deploy` binds them in the microservices profile.
 
 ## Access checks declared by a provider
@@ -243,7 +254,9 @@ Tenancy declares `OrgRole`; billing declares `SubscriptionActive` and
 `Credits` (`has_credits_at_least`).
 
 Billing's claim atom `Subscribed` accepts only the statuses and claim keys
-billing declares. Without billing in the composition it answers `501`.
+billing declares. Without billing in the composition it answers `501`. An
+absent `subscription_status` answers `503` when its authority failed at the
+mint and `501` otherwise.
 
 Billing also declares `Feature` and `WithinLimit` (`claim_atom` above
 `has_feature` / `is_within_limit`). Billing has no features and limits

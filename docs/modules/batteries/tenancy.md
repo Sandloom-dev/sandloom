@@ -174,7 +174,11 @@ provides the fail-closed data isolation. They are complementary — tenancy is t
 *who*, tenant scoping is the *enforcement*. The JWT `tenant_ids` allowlist may
 lag membership changes only if the revocation store is unreachable; checks that
 must observe a removal with certainty use the live contract
-(`has_role_at_least` / `is_member`, or the shared `OrgRole` atom).
+(`has_role_at_least` / `is_member`, or the generated `OrgRole` atom).
+
+Tenancy declares `OrgRole` on `has_role_at_least` with `access_check`.
+`sandloom generate` writes it beside a consumer's stub. A route imports it from
+`<app>.shared.contracts.tenancy_membership_v1`; the kernel holds no `OrgRole`.
 
 
 ## Platform owner directory

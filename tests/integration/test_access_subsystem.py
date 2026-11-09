@@ -3,7 +3,8 @@
 Covers the structured decision model, the ``decide`` propagation through the
 algebra, the ``enforce`` chokepoint + deny observability, configurable fact
 resolution (claim/projection/live/auto + freshness floor + provenance), the
-``Entitled`` / ``OrgRole`` atoms, and mint-time claim provenance stamping.
+``Entitled`` atom, the generated ``Subscribed`` / ``OrgRole`` atoms
+(``generated_atoms``, KB-34), and mint-time claim provenance stamping.
 """
 
 from __future__ import annotations
@@ -22,10 +23,8 @@ from sandloom.shared.authz import (
     Entitled,
     FactUnavailable,
     Not,
-    OrgRole,
     Perm,
     Role,
-    Subscribed,
     enforce,
     resolve_fact,
     system_subject,
@@ -97,16 +96,34 @@ async def test_decide_allow_and_deny_categories() -> None:
     assert deny.failed_requirement == "permission 'p.delete'"
 
 
-async def test_subscribed_denies_with_payment_required() -> None:
-    deny = await Subscribed(of=Account.user()).decide(_ctx(_subject()))
+def _billing_core() -> _StubCore:
+    """Billing's ``subscription.active`` registered: the generated
+    ``Subscribed`` reads the claim under it (501 with no owner)."""
+    core = _StubCore()
+    core.facts["subscription.active"] = _sub_fact()
+    return core
+
+
+async def test_subscribed_denies_with_payment_required(
+    generated_atoms: SimpleNamespace,
+) -> None:
+    Subscribed = generated_atoms.Subscribed
+    deny = await Subscribed(of=Account.user()).decide(
+        _ctx(_subject(), core=_billing_core())
+    )
     assert deny.category == Category.PAYMENT_REQUIRED
-    assert deny.http_status == 402
+    assert deny.http_status == 402 and not deny.indeterminate
 
 
-async def test_and_returns_first_failing_cheapest_first() -> None:
+async def test_and_returns_first_failing_cheapest_first(
+    generated_atoms: SimpleNamespace,
+) -> None:
+    Subscribed = generated_atoms.Subscribed
     s = _subject(roles={"admin"})
     # Subscribed (claim, fails) is cheaper than nothing else; it should decide.
-    decision = await (Subscribed(of=Account.user()) & Role("admin")).decide(_ctx(s))
+    decision = await (Subscribed(of=Account.user()) & Role("admin")).decide(
+        _ctx(s, core=_billing_core())
+    )
     assert not decision.allowed
     assert decision.category == Category.PAYMENT_REQUIRED
 
@@ -346,7 +363,10 @@ async def test_entitled_unavailable_is_501() -> None:
 # --------------------------------------------------------------------------
 
 
-async def test_org_role_resolves_membership_service() -> None:
+async def test_org_role_resolves_membership_service(
+    generated_atoms: SimpleNamespace,
+) -> None:
+    OrgRole = generated_atoms.OrgRole
     org_id = uuid4()
 
     async def has_role_at_least(oid: UUID, uid: UUID, minimum: str) -> bool:
@@ -363,12 +383,17 @@ async def test_org_role_resolves_membership_service() -> None:
     ).allowed
 
 
-async def test_org_role_missing_path_param_denies() -> None:
+async def test_org_role_missing_path_param_denies(
+    generated_atoms: SimpleNamespace,
+) -> None:
     core = _StubCore(services={"tenancy.membership.v1": SimpleNamespace()})
-    request = SimpleNamespace(path_params={}, app=None)
-    assert not (
-        await OrgRole("member").decide(_ctx(_subject(), core=core, request=request))
-    ).allowed
+    request = SimpleNamespace(path_params={}, query_params={}, headers={}, app=None)
+    decision = await generated_atoms.OrgRole("member").decide(
+        _ctx(_subject(), core=core, request=request)
+    )
+    # no organization: the question cannot be asked, never an allow
+    assert not decision.allowed and decision.indeterminate
+    assert (decision.http_status, decision.code) == (400, "tenant_context_missing")
 
 
 # --------------------------------------------------------------------------

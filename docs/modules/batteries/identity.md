@@ -65,6 +65,14 @@ can still supply it to security checks and audit handling.
 | `TwoFABackupCode` | `twofa_backup_codes` | 2FA recovery codes (hashed). |
 | `ExternalIdentity` | `external_identities` | SSO provider ↔ user link. |
 
+### Role and permission codes
+
+Identity owns the role and permission rows, so the well-known codes live in
+its own package, `sandloom_identity.rbac`: the classes `Roles` and
+`Permissions`. They are no longer in `sandloom.sdk.authz`. Another module never
+imports identity. It writes the code string in its policy, such as
+`require(Perm("perm.users.read"))`.
+
 ## HTTP API
 
 | Router | Prefix | Endpoints |
