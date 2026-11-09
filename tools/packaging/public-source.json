@@ -2367,6 +2367,7 @@
         "tests/architecture/test_access_canonical.py",
         "tests/architecture/test_admin_console_package.py",
         "tests/architecture/test_agent_context_budget.py",
+        "tests/architecture/test_agent_registry.py",
         "tests/architecture/test_api10_checks.py",
         "tests/architecture/test_api_no_orm_leakage.py",
         "tests/architecture/test_archcheck_library.py",
@@ -2662,6 +2663,7 @@
       "reason": "Maintained checks, packaging, documentation, local CI and smoke tools.",
       "paths": [
         "tools/__init__.py",
+        "tools/agent_registry.py",
         "tools/checks/__init__.py",
         "tools/checks/bench_pool_checkout.py",
         "tools/checks/check_architecture.py",
