@@ -1,4 +1,29 @@
 {
+  "capabilities": [
+    {
+      "capability": "database",
+      "features": [],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    },
+    {
+      "capability": "eventbus",
+      "features": [],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    },
+    {
+      "capability": "taskqueue",
+      "features": [
+        "periodic"
+      ],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    }
+  ],
   "consumers": [],
   "consumes": [
     {

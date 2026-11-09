@@ -998,8 +998,13 @@ def dev_shell(compose_text: str) -> dict[str, str]:
     for var in required:
         if var in fixed:
             shell[var] = fixed[var]
+    # A demo stack's accepted risks: local storage, the default log notifier
+    # standing in for mail a module requires (notification + email), and the
+    # fake PSP where the profile asks for a billing provider.
+    risks = ["local_storage_in_prod", "log_notifier_in_prod"]
     if "BILLING_PROVIDER" in shell:
-        shell["SANDLOOM_ACCEPTED_RISKS"] = "local_storage_in_prod,fake_psp_in_prod"
+        risks.insert(1, "fake_psp_in_prod")
+    shell["SANDLOOM_ACCEPTED_RISKS"] = ",".join(risks)
     return shell
 
 
