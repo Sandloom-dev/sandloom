@@ -600,21 +600,19 @@ sessions, `require_password_reset` serves `force-password-reset`, and
 Run the commands in a process that loads those modules. Otherwise bind each
 contract in `SERVICE_BINDINGS`, pinned to the owner's service, and grant each
 method in `RPC_ALLOWED_CALLS`. Every method is confirmed by describe before
-anything is done, a dry run included: it must be there, and its schema must
-be the shape the kernel calls it with (for example `end_sessions(list[uuid],
-str, str, str) -> {affected: int, ended: list[...]}`,
-`require_password_reset(...) -> int`). A gap or an incompatible schema
-refuses with `SANDLOOM-B039` or `SANDLOOM-B040` (exit status 1), naming what
-was expected and what the owner has, and nothing is written. An issuer
-without passwords refuses `force-password-reset`: reset passwords at the
-provider.
+anything is done, a dry run included. The method must be there with the
+shape the kernel calls, such as `require_password_reset(...) -> int`. A gap
+or an incompatible schema refuses with `SANDLOOM-B039` or `SANDLOOM-B040`
+(exit status 1). The refusal names what was expected and what the owner has,
+and nothing is written. An issuer without passwords refuses
+`force-password-reset`: reset passwords at the provider.
 
 Each answer is checked where the command reads it, before its next step. An
-answer of another shape stops the command with `SANDLOOM-B039`, naming the
-batch and the `--operation-id`, and says that the batch's access tokens are
-not revoked yet. The owner stores its answer for the batch, so a resume with
-the same `--operation-id` stops at the same place: fix the owner's method,
-then run again with a new `--operation-id`.
+answer of another shape stops the command with `SANDLOOM-B039`. The refusal
+names the batch and the `--operation-id`; that batch's access tokens are not
+revoked yet. The owner stores its answer for the batch, so a resume with the
+same `--operation-id` stops at the same place. Fix the owner's method, then
+run again with a new `--operation-id`.
 
 An issuer that declares `refresh_sessions=True` (the default) must report
 `refresh_sessions` ended. The declaration is read where the issuer runs: its

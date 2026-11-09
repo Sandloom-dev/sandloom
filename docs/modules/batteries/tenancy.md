@@ -61,16 +61,17 @@ module that holds the `tenant_ids` claim answers it. Its one method is a read:
 
 Who calls it: `sandloom security revoke-sessions --tenant ORG` and
 `sandloom security force-password-reset --tenant ORG`. The kernel asks the
-owner of `tenant_ids` in the composition root's claim map (tenancy in the
-standard map) for the members, page by page, then ends their sessions at the
-issuer and revokes their access tokens itself. The method is confirmed by
-describe before the command acts, a dry run included; its schema must be the
-shape the kernel calls (`(uuid, uuid | None, int) -> list[uuid]`), or the
-command refuses with SANDLOOM-B039 and does nothing.
+owner of `tenant_ids` in the claim map for the members, page by page. In the
+standard map that owner is tenancy. The kernel then ends the members'
+sessions at the issuer and revokes their access tokens itself.
 
-In one process the CLI calls it locally. In a split, where the CLI runs in a
-service without tenancy, bind `tenancy.security.v1` in `SERVICE_BINDINGS`
-(pinned to tenancy's `service_id`) and grant the method to the calling
+The command confirms the method by describe before it acts, a dry run
+included. Its schema must be `(uuid, uuid | None, int) -> list[uuid]`.
+Otherwise the command refuses with SANDLOOM-B039 and does nothing.
+
+In one process the CLI calls it locally. In a split, the CLI may run in a
+service without tenancy. Bind `tenancy.security.v1` in `SERVICE_BINDINGS`,
+pinned to tenancy's `service_id`. Then grant the method to the calling
 service in tenancy's `RPC_ALLOWED_CALLS`:
 
 ```python
