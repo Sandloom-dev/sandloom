@@ -173,6 +173,35 @@ def test_billing_provider_must_be_chosen(profile: str) -> None:
 @pytest.mark.parametrize(
     "profile", ["compose/monolith.yml", "compose/microservices.yml"]
 )
+def test_mail_is_a_production_choice_and_the_demo_risk_is_documented(
+    profile: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """identity and tenancy require an email notifier. The profile lets a
+    production operator select smtp, and says (in the file) that a mail-less
+    demo accepts ``log_notifier_in_prod``: mail is not delivered."""
+    text = (DEPLOY / profile).read_text(encoding="utf-8")
+    assert "log_notifier_in_prod" in text
+    assert "NOT delivered" in text
+    shell = {
+        **SHELL,
+        "NOTIFIER_BACKEND": "smtp",
+        "SMTP_HOST": "smtp.example.test",
+        "SMTP_FROM": "noreply@example.test",
+        "SANDLOOM_ACCEPTED_RISKS": "local_storage_in_prod,fake_psp_in_prod",
+    }
+    for name, svc in _load(profile)["services"].items():
+        if "SANDLOOM_MODULES" not in (svc.get("environment") or {}):
+            continue
+        with monkeypatch.context() as mp:
+            cfg = _validate(_env(svc, shell), mp)
+            assert cfg.notifier_backend == "smtp", name
+            assert cfg.smtp_host == "smtp.example.test", name
+            assert not cfg.accepts_risk("log_notifier_in_prod"), name
+
+
+@pytest.mark.parametrize(
+    "profile", ["compose/monolith.yml", "compose/microservices.yml"]
+)
 def test_every_process_env_validates(
     profile: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

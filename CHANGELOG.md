@@ -219,7 +219,17 @@ website renders this same changelog.
 
 ### Changed
 
-<<<<<<< ours
+- **Deploy profiles and `sandloom new` / `sandloom add deploy` templates say how
+  required mail is sent** (kb-ic-6). Identity and tenancy require an email
+  notifier, so a prod stack on the default `log` driver already refuses to
+  start. `deploy/compose/monolith.yml`, `deploy/compose/microservices.yml`, the
+  microservices template and the compose file of an app with identity or
+  tenancy now document `NOTIFIER_BACKEND=smtp` with `SMTP_HOST` / `SMTP_FROM`
+  (an app's compose passes the `SMTP_*` settings through) and name the demo
+  choice: a stack without a mail server adds `log_notifier_in_prod` to
+  `SANDLOOM_ACCEPTED_RISKS`; no mail is delivered. Upgrade: a production stack
+  sets `NOTIFIER_BACKEND=smtp` and `SMTP_HOST`; a demo stack adds
+  `log_notifier_in_prod` (CI's microservices smoke does).
 - **Readiness and the taskqueue: transient trouble only, keyed on the
   requirement** (owner decision on module infrastructure dependencies,
   answers 3 and 4; KB-IC-3). `/ready`'s taskqueue term now follows each
@@ -282,7 +292,6 @@ website renders this same changelog.
   `SANDLOOM_MODULES` whose required capability is unmet now refuses startup
   even when it is optional; one only discovered or defaulted is still skipped.
 
->>>>>>> theirs
 - **The admin console's manifest is a file the console declares** (ADR-0012
   decision 4). A module can declare files `sandloom generate` writes into the
   app's shared package, `define_module(..., generates={"name": render})`:
