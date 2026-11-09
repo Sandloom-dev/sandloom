@@ -15,10 +15,10 @@ from typing import Any
 import httpx
 import pytest
 
-from sandloom.core.app_factory import create_app
 from sandloom.core.eventing.event_bus import get_event_bus, set_active_event_bus
 from sandloom.core.infra.active import get_active_infra, set_active_infra
 from sandloom.core.runtime import get_active_core, set_active_core
+from sandloom.core.tests._root_support import create_root_app
 
 
 @pytest.fixture
@@ -56,9 +56,9 @@ def _probe(application: Any) -> None:
 @pytest.mark.usefixtures("restore_process_runtime")
 async def test_a_request_of_the_first_app_sees_its_own_core() -> None:
     """Each app's request and its task see their own core and registry."""
-    first = create_app()
+    first = create_root_app()
     _probe(first)
-    second = create_app()  # moves the process default to the second app
+    second = create_root_app()  # moves the process default to the second app
     _probe(second)
     assert get_active_core() is second.state.core
 
@@ -84,7 +84,7 @@ async def test_a_request_of_the_first_app_sees_its_own_core() -> None:
 async def test_a_task_outliving_the_request_keeps_the_first_apps_core() -> None:
     """A task a request starts and does not await still sees its app's core
     after the response is sent and the second app is the process default."""
-    first = create_app()
+    first = create_root_app()
     seen: dict[str, int] = {}
     done = asyncio.Event()
 
@@ -98,7 +98,7 @@ async def test_a_task_outliving_the_request_keeps_the_first_apps_core() -> None:
         asyncio.get_running_loop().create_task(background())
         return {"ok": True}
 
-    create_app()  # the second app: the process default now
+    create_root_app()  # the second app: the process default now
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=first), base_url="http://test"
     ) as http:
@@ -126,8 +126,8 @@ async def test_the_lifespan_runs_with_its_own_apps_core(
     monkeypatch.setattr(lifecycle, "run_startup", startup)
     monkeypatch.setattr(lifecycle, "run_shutdown", shutdown)
     monkeypatch.setattr(lifecycle.settings, "outbox_relay_enabled", "off")
-    first = create_app()
-    create_app()
+    first = create_root_app()
+    create_root_app()
     async with first.router.lifespan_context(first):
         pass
     expected = id(first.state.core)
