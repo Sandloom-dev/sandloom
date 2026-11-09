@@ -116,6 +116,9 @@ from sandloom.core.rpc.readiness import (
     ContractIncompatibleError as ContractIncompatibleError,
 )
 from sandloom.core.rpc.readiness import (
+    ContractUnverifiedError as ContractUnverifiedError,
+)
+from sandloom.core.rpc.readiness import (
     check_remote_contract_compat as check_remote_contract_compat,
 )
 from sandloom.core.rpc.readiness import (
@@ -173,6 +176,7 @@ __all__ = [
     "RemoteServiceUnavailable",
     "ServiceUnavailableInDeployment",
     "ContractIncompatibleError",
+    "ContractUnverifiedError",
     "check_remote_contract_compat",
     "check_remote_service_bindings",
     "check_rpc_transport",

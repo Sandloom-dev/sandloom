@@ -16,7 +16,11 @@ distributions are built from this tree once, then:
   the deploy profiles run. The empty subset is the kernel factory with no
   default modules.
 
-The expected outcomes are :func:`_module_subset_matrix.expected`. The CI
+The expected outcomes are :func:`_module_subset_matrix.expected`. The P2 venvs
+are booted a second time with the health probes of the cache and the taskqueue
+real (``test_subset_on_plain_sandloom_p2_unstubbed``, KB-IC-4): a stub for them
+hid that plain ``sandloom`` has no redis-py. Only the database probe is
+replaced (no database runs). The CI
 ``packages`` job runs this file; the repository profile is
 ``test_module_subsets_repository.py``.
 """
@@ -39,6 +43,7 @@ from _module_subset_matrix import (
     SubsetRun,
     check_run,
     expected,
+    expected_unstubbed,
     probe_environment,
     run_matrix,
     run_subset,
@@ -100,32 +105,57 @@ def wheels(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
 
 
 @pytest.fixture(scope="module")
-def p2_runs(
+def p2_venvs(
     tmp_path_factory: pytest.TempPathFactory, wheels: dict[str, Path]
-) -> dict[tuple[str, ...], SubsetRun]:
+) -> dict[tuple[str, ...], Path]:
+    """One clean venv per subset: plain ``sandloom`` and the subset's wheels."""
     root = tmp_path_factory.mktemp("subsets-p2")
-    cwd = root / "work"
-    cwd.mkdir()
 
-    def run(subset: tuple[str, ...]) -> SubsetRun:
-        venv = root / subset_id(subset)
-        issuer = "identity" in subset
-        python = _venv(
-            venv,
+    def make(subset: tuple[str, ...]) -> Path:
+        return _venv(
+            root / subset_id(subset),
             str(wheels["sandloom"]),
-            *([str(wheels["sandloom-standard"])] if issuer else []),
+            *([str(wheels["sandloom-standard"])] if "identity" in subset else []),
             *(str(wheels[MODULES[m][1]]) for m in subset),
         )
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        return dict(zip(SUBSETS, pool.map(make, SUBSETS), strict=True))
+
+
+def _p2_runs(
+    cwd: Path,
+    venvs: dict[tuple[str, ...], Path],
+    probe_config: dict[str, object] | None,
+) -> dict[tuple[str, ...], SubsetRun]:
+    def run(subset: tuple[str, ...]) -> SubsetRun:
+        python = venvs[subset]
         return run_subset(
             subset,
             python=python,
-            sandloom=_bin(venv, "sandloom"),
-            root="sandloom_standard.main" if issuer else "sandloom.main",
+            sandloom=python.parent / "sandloom",
+            root="sandloom_standard.main" if "identity" in subset else "sandloom.main",
             cwd=cwd,
             env=probe_environment(),
+            probe_config=probe_config,
         )
 
     return run_matrix(run)
+
+
+@pytest.fixture(scope="module")
+def p2_runs(
+    tmp_path_factory: pytest.TempPathFactory, p2_venvs: dict[tuple[str, ...], Path]
+) -> dict[tuple[str, ...], SubsetRun]:
+    return _p2_runs(tmp_path_factory.mktemp("work-p2"), p2_venvs, None)
+
+
+@pytest.fixture(scope="module")
+def p2_unstubbed_runs(
+    tmp_path_factory: pytest.TempPathFactory, p2_venvs: dict[tuple[str, ...], Path]
+) -> dict[tuple[str, ...], SubsetRun]:
+    """The same venvs, the cache and taskqueue probes real (only ``db`` stubbed)."""
+    return _p2_runs(tmp_path_factory.mktemp("work-p2-live"), p2_venvs, {"stub": ["db"]})
 
 
 @pytest.fixture(scope="module")
@@ -165,6 +195,29 @@ def test_subset_boots_on_plain_sandloom_p2(
     p2_runs: dict[tuple[str, ...], SubsetRun], subset: tuple[str, ...]
 ) -> None:
     check_run(p2_runs[subset], expected(subset, celery=False), celery=False)
+
+
+@pytest.mark.parametrize("subset", SUBSETS, ids=subset_id)
+def test_subset_on_plain_sandloom_p2_unstubbed(
+    p2_unstubbed_runs: dict[tuple[str, ...], SubsetRun], subset: tuple[str, ...]
+) -> None:
+    """No redis-py, no Celery, no stub for them (I-19, KB-IC-4).
+
+    identity (cache) and billing (taskqueue with ``periodic``) are refused with
+    SANDLOOM-B037 naming the module, the capability and the feature. Any other
+    subset boots, and the kernel's own cache check fails with ``No module named
+    'redis'``: plain ``sandloom`` is not ready without the cache driver's
+    package, which the stubbed matrix could not show.
+    """
+    run = p2_unstubbed_runs[subset]
+    want = expected_unstubbed(subset, redis=False, celery=False)
+    check_run(run, want, celery=False)
+    if want.kind == "not_ready_cache":
+        checks = run.probe["health_checks"]
+        assert "No module named 'redis'" in checks["cache"]["details"]["error"], checks
+        assert {n for n, c in checks.items() if c["status"] != "ok"} == {"cache"}, (
+            checks
+        )
 
 
 @pytest.mark.parametrize("subset", SUBSETS, ids=subset_id)

@@ -18,6 +18,7 @@ KB-11's.
 from __future__ import annotations
 
 import re
+import time
 
 import httpx
 import pytest
@@ -358,13 +359,35 @@ def test_t8_a_binding_to_a_process_without_the_authority_fails_the_mint(
     infra: Infra,
 ) -> None:
     """T-8 (b): P1 binds ``grants.claims.v1`` to P2, which does not host
-    ``grants``: the critical binding fails, the mint is 503 naming it."""
+    ``grants``: the critical binding fails, the mint is 503 naming it. P1's
+    ``/ready`` fails too: the binding is held to the kernel's schema of
+    ``<m>.claims.v1`` and P2 does not serve it (KB-21)."""
     users = Users()
     p1, p2 = split(infra, users, SPLIT_BINDINGS)
     p2.modules = [m for m in p2.modules if m != f"{M}grants"]
-    with running(infra, [p1, p2]):
-        answer = mint(p1, users.user)
-        assert (answer.status, answer.detail) == (503, UNAVAILABLE_GRANTS)
+    with running(infra, [p2]):
+        try:
+            p1.start(infra)
+            assert "grants.claims.v1: not served by the provider" in _not_ready(p1)
+            answer = mint(p1, users.user)
+            assert (answer.status, answer.detail) == (503, UNAVAILABLE_GRANTS)
+        finally:
+            p1.close()
+
+
+def _not_ready(proc: Proc, timeout: float = 90.0) -> str:
+    """The ``/ready`` body of ``proc`` once it serves and answers 503."""
+    deadline = time.monotonic() + timeout
+    headers = {"X-Internal-Token": proc.env["INTERNAL_API_TOKEN"]}
+    while time.monotonic() < deadline:
+        try:
+            ready = httpx.get(proc.url + "/ready", headers=headers, timeout=2)
+            if ready.status_code == 503 and "remote_services" in ready.text:
+                return ready.text
+        except httpx.HTTPError:
+            pass
+        time.sleep(0.2)
+    pytest.fail(f"{proc.label} never failed /ready:\n{proc.log_text()[-4000:]}")
 
 
 def test_the_no_grants_root_mints_without_tenant_claims(infra: Infra) -> None:
