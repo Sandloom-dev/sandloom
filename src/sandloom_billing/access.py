@@ -35,7 +35,6 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sandloom.sdk.authz import (
-    ACTIVE_SUBSCRIPTION_STATUSES,
     MODE_LIVE,
     AccessFact,
     Category,
@@ -56,6 +55,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 MEMBERSHIP_SERVICE_V1 = "tenancy.membership.v1"
 ORG_PARAM = "org_id"
 _PAST_DUE = "past_due"
+# Statuses that grant access outright (``past_due`` is policy, see below).
+_ACTIVE_SUBSCRIPTION_STATUSES = frozenset({"active", "trialing"})
 #: Every value the ``subscription_status`` claim can carry: a PSP status,
 #: ``expired`` once access lapsed, ``none`` without a subscription.
 CLAIM_STATUSES: tuple[str, ...] = tuple(
@@ -80,7 +81,7 @@ def subscription_claim_rule() -> ClaimRule:
     and at ``billing.facts.v1.describe()`` time for consumers in other
     processes (so they interpret the claim exactly like billing does).
     """
-    statuses = set(ACTIVE_SUBSCRIPTION_STATUSES)
+    statuses = set(_ACTIVE_SUBSCRIPTION_STATUSES)
     if not billing_settings().billing_deny_on_past_due:
         statuses.add(_PAST_DUE)
     return ClaimRule.one_of(statuses)

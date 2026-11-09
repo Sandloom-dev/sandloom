@@ -15,7 +15,8 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException, Query, status
 
-from sandloom.sdk import CurrentUser, Subscribed, module_router, require
+from helpdesk.shared.contracts.billing_entitlements_v1 import Subscribed
+from sandloom.sdk import CurrentUser, module_router, require
 from sandloom.sdk.authz import (
     Account,  # sandloom: advanced explicit billing account (spec §7)
 )

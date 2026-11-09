@@ -5,16 +5,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from sandloom.sdk import OrgRole
 from sandloom.sdk.contracts import contract_method
 from sandloom.sdk.testing import bind_contract_session, override_settings
 from sandloom_tenancy.claims import tenancy_claims
 from sandloom_tenancy.config import TenancySettings
-
-
-def test_invalid_org_role_fails_at_configuration_time():
-    with pytest.raises(ValueError, match="member, admin or owner"):
-        OrgRole("admn")
 
 
 @pytest.mark.asyncio

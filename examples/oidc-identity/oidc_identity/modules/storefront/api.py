@@ -1,4 +1,4 @@
-"""Routes gated by kernel atoms whose data tenancy, billing and acme_idp supply.
+"""Routes gated by atoms whose data tenancy, billing and acme_idp supply.
 
 - ``/subscribed`` — billing's ``subscription_status`` claim (claim tier, 402);
 - ``/orgs/{org_id}/admin`` — ``OrgRole("admin")``, live over
@@ -16,13 +16,15 @@ from uuid import UUID
 
 from fastapi import Depends
 
+from oidc_identity.shared.contracts.billing_entitlements_v1 import (
+    Subscribed,
+    SubscriptionActive,
+)
+from oidc_identity.shared.contracts.tenancy_membership_v1 import OrgRole
 from sandloom.sdk import CurrentUser, module_router
 from sandloom.sdk.authz import (  # sandloom: advanced authorization atoms
     Account,
-    OrgRole,
     Perm,
-    Subscribed,
-    SubscriptionActive,
     current_context,
     require,
 )
