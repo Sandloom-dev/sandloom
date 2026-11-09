@@ -276,11 +276,17 @@ Startup refuses an assignment the composition cannot honour
 (`SANDLOOM-B035`). Examples: an authority the issuing process neither loads
 nor binds, or an issuer mismatch. A claim whose readers have no fallback
 needs a critical authority. Only the billing claims may come from a
-non-critical one: every reader treats their absence as "not granted". So a
-billing outage still lets users log in. While the billing authority is
-down, `Feature` and `WithinLimit` on the user's token answer `503`
-(indeterminate, never an allow). A billing that ran and granted nothing
-denies. `email` and `email_verified` belong to the map's issuer: a map that
+non-critical one: every reader treats their absence as unknown, never as
+granted. A billing outage still lets users log in.
+
+While the billing authority is down, `Feature` and `WithinLimit` on the user's
+token answer `503` (indeterminate, never an allow). `Subscribed` with an absent
+`subscription_status` answers the same. A claim that is absent although its
+authority ran answers `501`: no source speaks, and a deny would let `Not`
+allow. A claim map that is present is a complete snapshot, and an entry it does
+not list denies.
+
+`email` and `email_verified` belong to the map's issuer: a map that
 assigns them to another module refuses the boot. A lean root with no map
 assigns nothing, so a process that loads a token issuer under it refuses the
 boot rather than refusing every login.
@@ -317,9 +323,10 @@ Over RPC, the binding names the owner. A consumer drops a fact that
 module may write a given claim key is the assignment above.
 
 A contract that decides access has one provider per composition. A live
-atom asks a contract through its adapter: `OrgRole` asks
-`tenancy.membership.v1`, `SubscriptionActive` and `Credits` ask
-`billing.entitlements.v1`, and a custom adapter asks its own contract. Such
+atom is generated from the provider's `access_check` and asks that contract.
+`OrgRole` asks `tenancy.membership.v1`. `SubscriptionActive` and `Credits` ask
+`billing.entitlements.v1`. A third-party atom asks its own contract. The kernel
+keeps no adapter table and no list of fact owners. Such
 a contract is access-bearing, and only two modules may register it
 in-process:
 
@@ -332,8 +339,9 @@ The provider is checked by its import path, not by its name. An app module
 named `acme_orgs` is not the assigned `acme_orgs` package, and an app module
 named `tenancy` is not the installed tenancy. Anyone else, or a registration
 made outside a module's registration, refuses the boot (`SANDLOOM-B034`).
-The access-bearing contracts are read from the assignment and the bound
-adapters. A provider cannot opt out by omitting a declaration. In a split
+The access-bearing contracts are read from the assignment, the bound
+services and the declared `access_check`s. A provider cannot opt out by
+omitting a declaration. In a split
 deployment, `SERVICE_BINDINGS` is the assignment. The binding pins the
 provider's `service_id`: a process with other keys behind the same URL is
 refused (401 at the provider, 503 to the caller). Every

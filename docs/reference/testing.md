@@ -27,7 +27,7 @@ The six beginner names. Everything else in `sandloom.sdk.testing` is advanced.
 | `published(E)` | the `E` events the code under test published with `E(...).publish()`, in order |
 | `await deliver(event, payload=None, *, times=1, event_id=None, session=None, core=None)` | runs every consumer of the event's channel through the real consumer runtime; returns how many consumers ran |
 | `fake_contract(REF, impl)` | serves contract `REF` from `impl` for a `with` block |
-| `fake_access_fact(name, value=True, *, deny_category=None, core=None)` | answers an access fact (an entitlement) without loading its owner |
+| `fake_access_fact(name, value=True, *, deny_category=None, core=None)` | answers an access fact by name (`Entitled(name)`) without loading its owner; a generated atom is faked with `fake_contract` |
 
 ## Activate the plugin
 
@@ -278,36 +278,46 @@ async def test_quota_refuses(client) -> None:
   a provider loaded in the app runs on the test session.
 - **Seed the provider's state** through its HTTP API, never its code.
 - `fake_contract` also serves the contract to kernel code that resolves it
-  through the application (the billing and membership authorization atoms,
-  access facts), so faking `billing.entitlements.v1` reaches
-  `SubscriptionActive` / `Credits`.
-- **Faking an entitlement** without loading billing:
-  `with fake_access_fact("organization.subscription.active", True): ...`.
-  Pass a callable for a per-subject answer and `deny_category=` for a
-  specific denial. The two subscription facts also drive the live atoms
-  that ask the same question, so every form of an organization paid gate is
-  faked the same way:
+  through the application (the generated authorization atoms, access facts),
+  so faking `billing.entitlements.v1` reaches `SubscriptionActive` /
+  `Credits`.
+- **Faking the access checks.** A generated atom (`OrgRole`,
+  `SubscriptionActive`, `Credits`, and an organization `Subscribed`,
+  `Feature`, `WithinLimit`) asks its provider's contract, so a test serves
+  that contract with `fake_contract(REF, Fake())`, importing `REF` and the
+  atom from the app's generated module. `fake_access_fact(name, value)` only
+  answers a fact by name (`Entitled(name)`); it has no billing branch and
+  does not stand in for a contract. Raise `AccessUnknown` from a fake method
+  to test the `501`.
 
 ```python
-from sandloom.sdk.testing import fake_access_fact
+from helpdesk.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
+from sandloom.sdk.testing import fake_contract
 
-# Any of these gates on the route:
+# The gate on the route:
 #   require(OrgRole("admin") & SubscriptionActive(of=Account.org(param="org_id")))
-#   require(Subscribed(of=Account.org(param="org_id")))
-#   require(Entitled("organization.subscription.active"))
+#   (or Subscribed(of=Account.org(param="org_id")), which asks the same check)
+
+
+class Subscription:
+    def __init__(self, active: bool) -> None:
+        self.active = active
+
+    async def check_subscription_active(self, tenant_type, tenant_id) -> bool:
+        return self.active
 
 
 async def test_export_needs_a_paid_organization(client, org_admin) -> None:
     org_id, headers = org_admin
     url = f"/api/v1/orgs/{org_id}/export"
-    with fake_access_fact("organization.subscription.active", False):
+    with fake_contract(BILLING_ENTITLEMENTS_V1, Subscription(False)):
         assert (await client.get(url, headers=headers)).status_code == 402
-    with fake_access_fact("organization.subscription.active", True):
+    with fake_contract(BILLING_ENTITLEMENTS_V1, Subscription(True)):
         assert (await client.get(url, headers=headers)).status_code == 200
 ```
 
-  `"subscription.active"` does the same for a personal gate
-  (`of=Account.user()`).
+  A personal `Subscribed(of=Account.user())` reads the token's claim with zero
+  I/O, so there is no contract to fake: the token decides.
 
 ## Testing a contract you provide
 

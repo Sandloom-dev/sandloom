@@ -339,7 +339,10 @@ subscription status in the webhook service.
 ## Gating an endpoint on billing
 
 A billing gate is an authorization policy whose atom names the paying account
-with a required `of=`. The atoms, the `Account` values and the `402` / `501`
+with a required `of=`. `sandloom generate` writes billing's atoms from billing's
+declarations. A route imports them from the consumer's
+`<app>.shared.contracts.billing_entitlements_v1`; they are not `sandloom.sdk`
+names. The atoms, the `Account` values and the `402` / `501`
 answers are in
 [Authorization](../http/authorization.md#billing-subjects-of-is-required).
 
@@ -347,7 +350,8 @@ answers are in
 ```python
 from fastapi import Depends
 
-from sandloom.sdk import Subscribed, require
+from myapp.shared.contracts.billing_entitlements_v1 import Subscribed
+from sandloom.sdk import require
 from sandloom.sdk.authz import Account  # sandloom: advanced billing subject
 
 @router.get("/report", dependencies=[Depends(require(Subscribed(of=Account.user())))])

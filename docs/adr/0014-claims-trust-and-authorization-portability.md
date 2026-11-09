@@ -14,6 +14,8 @@ search:
   Amended 2026-11-09 by the owner (KB-11; tm reflection `01a1bdeb` on `kb-11-trusted-view`):
   the `cpv` identity of an authority is its import path, local or remote (see
   [the amendment](#amendment-2026-11-09-the-cpv-identity-of-an-authority)).
+  Applied 2026-11-09 (KB-34): the kernel's domain atoms, live adapters and fact-owner table are
+  removed (see [the amendment](#amendment-2026-11-09-kb-34-the-kernel-domain-atoms-are-removed)).
 - **Date:** 2026-11-08
 - **Deciders:** the owner, Sandloom maintainers
 - **Decision id in the assessment:** decision C: part (a) trust, alternative TA-1; part (b)
@@ -52,7 +54,7 @@ a key is:
 PR #72 (`206fa2d`, small fix A) ties `AccessFact.owner_module`, `owner=` and the families
 `<m>.claims.v1` / `<m>.facts.v1` to the registering module (SANDLOOM-B034).
 
-**Portability.** The kernel holds billing and tenancy semantics: `Subscribed`
+**Portability.** Before KB-34 the kernel held billing and tenancy semantics: `Subscribed`
 (`ACTIVE_SUBSCRIPTION_STATUSES = {"active", "trialing"}`), `SubscriptionActive`, `Credits`,
 `OrgRole` (`member/admin/owner`), `Feature`, `WithinLimit`, two process-global live-adapter
 kinds (`register_live_adapter`, A19, B-R1), `WELL_KNOWN_FACT_OWNERS` (B-R3) and `tenant_kind`
@@ -482,6 +484,8 @@ They are removed only after:
    kept, the API is removed) with a `removed:` record for the three names;
 3. this ADR, the docs and the migration guide are updated.
 
+KB-34 met all three and removed the three names (see the amendment of KB-34 below).
+
 ### 15. What else moves, and what stays
 
 - `Feature` and `WithinLimit` stay public capabilities (answer #21, H-2). They move to billing as
@@ -500,7 +504,8 @@ They are removed only after:
   `access_unknown` inside the algebra, as it maps a missing provider (501) and a provider that
   is down (503, K5). Billing's checks raise it until a per-plan features and limits catalogue
   ships, which is a later task. `Feature` and `WithinLimit` stay supported, and a third-party
-  module can provide them through its own contract with no kernel change.
+  module can provide them through its own contract with no kernel change. KB-34 removed the
+  kernel versions; the generated atoms are the only ones.
 - **Amendment (2026-11-09, KB-33d): the user path is three-valued too.** The owner decided that
   the same principle holds for `Account.user()`: the absence of a source is not a negative
   fact. Billing writes `subscription_status` and `plan_code` but no `features` / `limits` claim
@@ -522,8 +527,8 @@ They are removed only after:
   authority of a mapping claim is to write the mapping with every entitlement the account has, or
   not to write it at all. Billing writes none until its catalogue ships: `features={}` would be a
   false statement, and marking the whole contributor failed would discard the
-  `subscription_status` it did write. The kernel `Feature` / `WithinLimit` keep the old reading
-  until KB-34 removes them. This amends G-AUTHZ-12 (the generated atoms no longer decide as the
+  `subscription_status` it did write. The kernel `Feature` / `WithinLimit` kept the old reading
+  until KB-34 removed them. This amends G-AUTHZ-12 (the generated atoms no longer decide as the
   kernel atoms where no source speaks).
 - `Roles` and `Permissions` constants (no importer, B-N15) move to identity, the owner of the rows
   they name. The owner confirms (decision.md, A6) on the condition of an I-17 review in KB-34: the
@@ -693,6 +698,39 @@ Closes the last mint input of decision 5 by removing it; no public name is added
   the issuer's contributor), `test_claims_read_unit.py`, identity's
   `test_token_claims_and_revocation.py` and `test_refresh_identity_claims.py` (the fields in the
   contributor's statement, six refresh statements), `test_no_kernel_handle_access.py`.
+
+### Amendment 2026-11-09: KB-34, the kernel domain atoms are removed
+
+Applies decisions 8, 14 and 15 and the amendment of ADR-0010 (the four beginner names). The
+kernel (`sandloom.sdk`, `sandloom.sdk.authz`, `sandloom.shared.authz`) no longer holds any billing
+or tenancy semantics, and no alias is left (H-9).
+
+- **Removed names:** `OrgRole`, `SubscriptionActive`, `Credits`, `Subscribed`, `Feature`,
+  `WithinLimit`, `ACTIVE_SUBSCRIPTION_STATUSES`, `WELL_KNOWN_FACT_OWNERS`,
+  `register_live_adapter`, `EntitlementsAdapter`, `MembershipAdapter`, and the billing branch of
+  `fake_access_fact` (B-R6). `fake_access_fact` keeps generic fact-by-name stubbing.
+- **Replacements, same names.** The atoms are generated beside the consumer's contract stub:
+  `OrgRole` is a `ContractCheck` of `tenancy.membership.v1.has_role_at_least`; `SubscriptionActive`
+  and `Credits` are `ContractCheck`s of `billing.entitlements.v1`; `Subscribed` is a
+  `ClaimFactCheck`; `Feature` and `WithinLimit` are `ClaimReadCheck`s with `LiveFeature` /
+  `LiveWithinLimit` for the live path. Only the import changes. The live adapters become
+  `access_check` on the provider plus `access_providers` / `SERVICE_BINDINGS` on the deployment
+  (decisions 6 and 14); tests use `fake_contract(REF, Fake())` (decision 15). G-AUTHZ-05 is
+  restated over access checks (a third-party provider answers the live checks in-process and
+  remotely; the consumer chooses it by configuration).
+- **`Roles` and `Permissions`** move to `sandloom_identity.rbac`, owned by identity (A6). Another
+  module never imports it: it writes the code string, `Perm("perm.users.read")`.
+- **Behaviour change of `Feature` / `WithinLimit`.** The removed kernel atoms read a missing source
+  as a deny, so `~Feature(...)` allowed. The generated atoms are three-valued (decision 15): an
+  organization with no source answers 501 `access_unknown`; for a user, a claim mapping is a
+  complete snapshot (an entry that is on allows; off or absent denies), a whole claim that is
+  absent answers 501, and a claim whose authority failed at the mint answers 503. `Not` never
+  allows on an unknown. `Subscribed(statuses=...)` follows the same rule: an absent
+  `subscription_status` with a failed authority answers 503, absent otherwise 501. Standard billing
+  has no features and limits catalogue yet (a later task); `Feature` and `WithinLimit` remain
+  public capabilities for a third-party provider.
+- **Documentation:** the upgrade guide (`operate/upgrade-1.0.md`) lists the import per name, the
+  adapter replacement and this behaviour change; ADR-0010 records the beginner tier after the move.
 
 ## Alternatives considered
 

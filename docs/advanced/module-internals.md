@@ -24,7 +24,7 @@ and its import line says why: `# sandloom: advanced <reason>`.
 | routes | `module_router`, `public`, `CurrentUser` |
 | events | `Event`, `on` |
 | contracts | `contract`, `command`, `Contract` |
-| authorization | `require`, `Subscribed`, `SubscriptionActive`, `Credits`, `OrgRole`, `Owner`, `authorize_resource` |
+| authorization | `require`, `Owner`, `authorize_resource`; the billing and tenancy atoms (`Subscribed`, `SubscriptionActive`, `Credits`, `OrgRole`) are generated beside the contract stub and imported from there, not from `sandloom.sdk` |
 | effects | `record_audit`, `on_commit` |
 | tests (`sandloom.sdk.testing`) | `client` (fixture), `as_user`, `published`, `deliver`, `fake_contract`, `fake_access_fact` |
 
@@ -157,10 +157,14 @@ Then `pip install` it next to an app and add its name to `SANDLOOM_MODULES`.
 
 ## Generated files
 
-`sandloom generate` writes each module's snapshots and the contract stubs, DTO
-copies and event schemas that callers import. These generated files are the one
-stated exception to "a module edits nothing outside its package".
-[Generate contracts and snapshots](../ai/generate.md#what-is-generated) lists
+`sandloom generate` writes each module's snapshots. It also writes the contract
+stubs, DTO copies and event schemas that callers import. Beside each stub it
+writes the **access atoms** the provider declared with `access_check` and
+`AccessFact`, such as `OrgRole`. A route policy
+imports them from the same generated module as the stub. The kernel holds none
+of them ([ADR-0010](../adr/0010-public-api-1.0.md), amendment of 2026-11-09).
+These generated files are the one stated exception to "a module edits nothing
+outside its package". [Generate contracts and snapshots](../ai/generate.md#what-is-generated) lists
 every file and the compatibility check that runs before writing.
 
 ## Design rationale

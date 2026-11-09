@@ -74,7 +74,8 @@ SANDLOOM-B003, SANDLOOM-B004, SANDLOOM-C016.
 ### Billing atoms name their account
 
 `Subscribed`, `SubscriptionActive`, `Credits`, `Feature` and `WithinLimit`
-take a required `of=` ([SANDLOOM-B017](../reference/error-codes.md#sandloom-b017)):
+take a required `of=` ([SANDLOOM-B017](../reference/error-codes.md#sandloom-b017));
+import them from the generated module (next section):
 
 | Old | New |
 | --- | --- |
@@ -91,6 +92,84 @@ An organization route with `of=Account.user()` needs a reason
 `/credits`, checkout and portal use the caller's personal account. A member of
 exactly one organization no longer gets that organization's account
 implicitly: pass `org_id`.
+
+### Billing and tenancy atoms leave the kernel
+
+The kernel holds no billing or tenancy semantics. `OrgRole`, `SubscriptionActive`,
+`Credits`, `Subscribed`, `Feature` and `WithinLimit` (and `LiveFeature` /
+`LiveWithinLimit`) are generated from the provider's declarations by
+`sandloom generate`. The name and the arguments stay; only the import changes,
+and there is no alias:
+
+| Name | Old import | New import |
+| --- | --- | --- |
+| `OrgRole` | `sandloom.sdk` | `<app>.shared.contracts.tenancy_membership_v1` |
+| `SubscriptionActive`, `Credits` | `sandloom.sdk` | `<app>.shared.contracts.billing_entitlements_v1` |
+| `Subscribed` | `sandloom.sdk` | `<app>.shared.contracts.billing_entitlements_v1` |
+| `Feature`, `WithinLimit` | `sandloom.sdk.authz` | `<app>.shared.contracts.billing_entitlements_v1` |
+
+A module distribution imports from `<module>._generated.contracts.<stem>`
+instead of `<app>.shared.contracts.<stem>`. The route's contract is part of the
+module's `consumes`, so `sandloom generate` writes the atoms the first time
+the import appears; run it, then `sandloom test`.
+
+```python
+from myapp.shared.contracts.billing_entitlements_v1 import SubscriptionActive
+from myapp.shared.contracts.tenancy_membership_v1 import OrgRole
+```
+
+The policy expression does not change:
+`require(OrgRole("admin") & SubscriptionActive(of=Account.bound_tenant()))`.
+`Account` stays in `sandloom.sdk.authz`.
+
+Removed from `sandloom.sdk`, `sandloom.sdk.authz` and `sandloom.shared.authz`
+with no replacement name:
+
+| Removed | Instead |
+| --- | --- |
+| `ACTIVE_SUBSCRIPTION_STATUSES` | billing's `AccessFact` declaration; `Subscribed(statuses=...)` names the statuses |
+| `WELL_KNOWN_FACT_OWNERS` | the module that registers an `AccessFact` is its owner (`owner_module`); the kernel keeps no table |
+| `register_live_adapter`, `EntitlementsAdapter`, `MembershipAdapter` | `access_check` on the provider, `access_providers` / `SERVICE_BINDINGS` on the deployment ([ADR-0014](../adr/0014-claims-trust-and-authorization-portability.md)) |
+| the billing branch of `fake_access_fact` | `fake_contract(REF, Fake())` for the provider's contract; `fake_access_fact` keeps stubbing a fact by name |
+| `Roles`, `Permissions` | `sandloom_identity.rbac` in identity's own code; any other module writes the code string, e.g. `Perm("perm.users.read")` |
+
+**Custom adapters.** A project that called `register_live_adapter(ENTITLEMENTS,
+adapter)` or `register_live_adapter(MEMBERSHIP, adapter)` moves the decision to
+the provider. The module that owns the data declares an `access_check`
+(`@access_check("OrgRole", ...)` on its contract). The deployment binds that
+provider with `access_providers` (monolith) or `SERVICE_BINDINGS` (separate
+services). `sandloom generate` then writes the atom for every consumer: the
+check is typed, and its contract call shows in `consumes`.
+
+**Tests.** A test that needed the real billing or tenancy module to answer a
+gate serves the contract instead:
+
+```python
+with fake_contract(BILLING_ENTITLEMENTS_V1, FakeEntitlements()):
+    ...
+```
+
+**Behaviour change of `Feature` and `WithinLimit`.** The generated atoms are
+three-valued and fail closed:
+
+| Account | Token / source | Answer |
+| --- | --- | --- |
+| organization | no source to ask (billing not loaded or bound) | 501 `access_unknown` |
+| user | the claim map (`features` / `limits`) is present: a complete snapshot | allowed when the entry is on (or within the limit); an off or absent entry denies |
+| user | the whole claim is absent | 501 `access_unknown` |
+| user | the claim is absent because the authority failed when the token was minted | 503 |
+
+`Not(Feature(...))` never allows on an unknown answer. The kernel versions
+read a missing source as "off", so `~Feature("x", of=Account.user())` allowed
+on a token without the claim. If a route relied on that, write the claim (a
+mapping of every entitlement the account has) or expect the 501.
+
+Standard billing has no feature or limit catalogue yet. `Feature` and
+`WithinLimit` stay public capabilities for a third-party provider and for
+claims your own authority writes.
+
+`Subscribed(statuses=...)` follows the same rule: an absent `subscription_status`
+with a failed authority answers 503, absent otherwise answers 501.
 
 ### Commands
 

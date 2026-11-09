@@ -8898,6 +8898,9 @@ adr_sections:
     - G-AUTH-26
     "Amendment 2026-11-09: no claim value from the caller (kb-sec2-issuer)":
     - G-AUTH-26
+    "Amendment 2026-11-09: KB-34, the kernel domain atoms are removed":
+    - G-AUTHZ-05
+    - G-AUTHZ-12
     "Mechanisms": informational
     "Alternatives considered": informational
     "Consequences": informational
