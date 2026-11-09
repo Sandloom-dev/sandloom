@@ -57,7 +57,7 @@ added within v1 (additive; older version-less events still validate).
 """
 
 from sandloom.sdk import define_module
-from sandloom.sdk.module import ModuleAPI
+from sandloom.sdk.module import CapabilityRequirement, ModuleAPI
 
 from .claims import tenancy_claims
 from .services.operations import OPERATIONS
@@ -80,7 +80,14 @@ def _setup(core: ModuleAPI) -> None:
 register = define_module(
     __name__,
     version="1.0.0",
-    capabilities=["database", "eventbus"],
+    capabilities=[
+        "database",
+        "eventbus",
+        # Invitations are mailed (services/invitation_service): a notifier
+        # that cannot deliver email (the log driver in production) is refused
+        # at startup instead of logging invitations nobody receives.
+        CapabilityRequirement("notification", features=frozenset({"email"})),
+    ],
     setup=_setup,
 )
 

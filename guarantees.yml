@@ -3360,6 +3360,60 @@ guarantees:
   - tests/sdk/test_sdk_contract_dtos.py::test_every_copied_class_is_marked_and_carries_the_wire_shape
   - src/sandloom/core/tests/test_contract_dto_locality.py::test_remote_decode_resolves_a_loaded_generated_copy
   - src/sandloom_identity/tests/test_contact_contract.py::test_get_contact_and_get_contacts
+- id: G-CONTRACT-20
+  statement: 'A module''s consumes is the single source of the contract copies generated into it: sandloom
+    generate plans <module>/_generated/contracts from the AST of the module''s declarations before it composes
+    the app (a module importing a stub not generated yet still generates). Every entry lists the methods
+    the module calls (derived from calls on the typed client, an optional client''s local included, or stated
+    in consumes=); an entry the generator cannot resolve to a method list is refused naming consumes=, an
+    import of a stub with no consumes entry is refused, generate --check fails when the planned set differs
+    from the composed consumes, and the kernel families <m>.claims.v1 and <m>.facts.v1 get no copy.'
+  sources:
+  - docs/adr/0013-contract-ownership.md#2. `consumes` is the single source of what a consumer requires
+  - docs/reference/error-codes.md
+  tests:
+  - tests/sdk/test_sdk_consumer_copies.py::test_the_planner_reads_the_declarations_before_composition
+  - tests/sdk/test_sdk_consumer_copies.py::test_an_entry_without_methods_is_refused_naming_consumes
+  - tests/sdk/test_sdk_consumer_copies.py::test_the_planned_set_must_equal_the_composed_consumes
+  - tests/sdk/test_sdk_consumer_copies.py::test_an_import_with_no_consumes_entry_is_refused
+  - tests/sdk/test_sdk_consumer_copies.py::test_kernel_families_get_no_copy
+  - tests/sdk/test_sdk_contracts.py::test_an_optional_client_local_resolves_its_methods
+- id: G-CONTRACT-21
+  statement: 'Beside each generated consumer stub, <stem>.describe.json holds the provider''s describe restricted
+    to the methods the consumer''s consumes lists (with contract, fingerprint, provider distribution and class,
+    generator_format and each model''s extra); a field added to a closed result DTO (extra="forbid" in the
+    provider''s model_config) is an incompatible change, to an open one it stays additive.'
+  sources:
+  - docs/adr/0013-contract-ownership.md#3. Expectation files and narrowing
+  tests:
+  - tests/sdk/test_sdk_consumer_copies.py::test_the_expectation_is_narrowed_to_the_consumed_methods
+  - tests/sdk/test_sdk_consumer_copies.py::test_the_closed_dto_rule
+- id: G-CONTRACT-22
+  statement: 'Every generated consumer file starts with a provenance header (contract and fingerprint, provider,
+    generator format and a digest of the body), so a hand edit is detected without the provider: where the
+    provider is not importable, a committed copy whose digest verifies is kept unchanged, a hand-edited one is
+    refused and a missing one is refused naming the module, the contract and the provider (SANDLOOM-T018);
+    a diff of a generated file is reported as a generator change or a contract change.'
+  sources:
+  - docs/adr/0013-contract-ownership.md#5. Provider absent where `generate` runs
+  - docs/adr/0013-contract-ownership.md#7. Provenance header
+  - docs/reference/error-codes.md
+  tests:
+  - tests/sdk/test_sdk_consumer_copies.py::test_provider_absent_keeps_a_verified_copy_and_refuses_otherwise
+  - tests/sdk/test_sdk_consumer_copies.py::test_explain_diff_tells_a_generator_change_from_a_contract_change
+- id: G-CONTRACT-23
+  statement: 'Generated consumer copies are a function of the provider''s declarations and the generator format
+    only: byte-identical across hash seeds and module orders, with ruff absent and under a foreign line-length
+    in the project; DTO copies are rendered in the layout ruff format writes at 88 columns, never piped
+    through the project''s formatter. Two contracts mapping to one stem are refused naming both, and neither
+    file is written.'
+  sources:
+  - docs/adr/0013-contract-ownership.md#6. Determinism without the project formatter
+  - docs/adr/0013-contract-ownership.md#8. Collisions and copies
+  tests:
+  - tests/sdk/test_sdk_consumer_copies.py::test_generation_is_byte_identical_across_seeds_orders_and_formatters
+  - tests/sdk/test_sdk_consumer_copies.py::test_the_final_layout_is_what_ruff_format_writes_at_88
+  - tests/sdk/test_sdk_consumer_copies.py::test_stem_collisions_are_refused_naming_both
 - id: G-COMPAT-01
   statement: 'Each bundled module commits contracts.snapshot.json equal to the rendered describe documents
     of its registered contracts; a stale or missing snapshot fails the suite. For L1 modules, sandloom
@@ -4221,6 +4275,31 @@ guarantees:
   - tests/architecture/test_kernel_edges.py::test_a_module_file_in_the_wheel_fails
   - tests/architecture/test_kernel_edges.py::test_a_fixed_row_with_a_finding_fails_as_a_regression
   - tests/architecture/test_kernel_edges.py::test_a_documentation_row_never_covers_a_runtime_finding
+- id: G-KERNEL-14
+  statement: 'A file a module declares for sandloom generate (define_module(generates=...); the console''s
+    manifest is one) is rendered from data the kernel collects from the composed app, never from modules handed
+    to the renderer, and the kernel names neither the console nor its file. A stale declared file fails
+    generate --check and sandloom test (SANDLOOM-T016); a declaration that cannot be rendered is a problem
+    naming its module, never a crash or a swallowed error; a partially failed composition, and two modules
+    declaring one file, are refused. Without a declaring module there is no file, and the kernel''s platform
+    API stays.'
+  sources:
+  - docs/adr/0012-kernel-boundary.md#4. The admin battery
+  - docs/reference/error-codes.md
+  - docs/reference/sdk/module.md
+  tests:
+  - src/sandloom/core/tests/test_generated_admin_manifest.py::test_the_declared_file_is_planned_with_its_text
+  - src/sandloom/core/tests/test_generated_admin_manifest.py::test_without_a_declaring_module_there_is_no_file
+  - src/sandloom/core/tests/test_generated_admin_manifest.py::test_the_kernel_names_neither_the_console_nor_its_file
+  - src/sandloom/core/tests/test_generation_input.py::test_the_renderer_gets_data_of_the_composed_app
+  - src/sandloom/core/tests/test_generation_input.py::test_without_a_declaration_nothing_is_collected
+  - src/sandloom/core/tests/test_generation_input.py::test_a_broken_declaration_is_never_swallowed
+  - src/sandloom/core/tests/test_generation_input.py::test_a_partially_failed_composition_is_refused
+  - src/sandloom/core/tests/test_generation_input.py::test_a_bad_declaration_is_a_problem_not_a_crash
+  - src/sandloom/core/tests/test_generation_input.py::test_a_renderer_that_refuses_names_its_module
+  - src/sandloom/core/tests/test_generation_input.py::test_two_modules_declaring_one_file_both_fail
+  - src/sandloom/core/tests/test_generation_input.py::test_admin_export_renders_the_declared_file_and_checks_drift
+  - tests/integration/generated_files/test_declared_generated_files.py::test_without_the_console_no_manifest_and_the_platform_api_stays
 - id: G-INFRA-01
   statement: A backend constructor (create_async_engine, redis.from_url, Celery(...), Storage(...)) appears
     only inside sandloom.core.drivers/**; concrete drivers are imported only by the composition layer (app_factory,
@@ -4413,6 +4492,67 @@ guarantees:
     that file does not exist in the repo (only tiers.render_markdown() in memory); nothing checks the
     committed page exists / is current.
   gap_size: S
+- id: G-CONFIG-09
+  statement: 'A module declares its settings on its registration (define_module(settings=Model) or
+    api.declare_settings) as a plain pydantic model only; production checks read the validation context
+    (environment, accepts_risk refusing a risk the model does not declare, a read-only kernel view). A
+    module reads its instance with settings_of in setup and after; settings_of with no application bound
+    raises, so an import-time read fails the import audit, and a failed registration keeps no settings.'
+  sources:
+  - docs/adr/0015-module-settings.md#1. Declaration on registration (D2a)
+  - docs/reference/sdk/module.md
+  tests:
+  - src/sandloom/core/tests/test_module_settings.py::test_only_plain_pydantic_models_are_declarable
+  - src/sandloom/core/tests/test_module_settings.py::test_production_check_reads_the_context
+  - src/sandloom/core/tests/test_module_settings.py::test_accepts_risk_refuses_an_undeclared_risk
+  - src/sandloom/core/tests/test_module_settings.py::test_kernel_view_is_read_only
+  - src/sandloom/core/tests/test_module_settings.py::test_declared_settings_are_readable_in_setup_and_after_commit
+  - src/sandloom/core/tests/test_module_settings.py::test_a_failed_registration_keeps_no_settings
+  - src/sandloom/core/tests/test_module_settings.py::test_settings_of_with_no_application_bound_raises
+  - tests/integration/test_module_settings_fixture.py::test_import_audit_passes_the_fixture_and_fails_an_import_time_read
+  - tests/integration/test_module_settings_fixture.py::test_no_kernel_file_names_the_fixture_module
+- id: G-CONFIG-10
+  statement: 'A process reads its configuration sources once: kernel Settings and every module model validate
+    from one snapshot with pydantic-settings'' precedence (environment over .env over SECRETS_DIR), .env parsed
+    once, and SECRETS_DIR never listed: one lookup per declared alias (kernel and loaded modules).'
+  sources:
+  - docs/adr/0015-module-settings.md#2. One source read per process
+  tests:
+  - src/sandloom/core/tests/test_module_settings.py::test_snapshot_precedence_env_over_dotenv_over_secrets
+  - src/sandloom/core/tests/test_module_settings.py::test_secrets_dir_is_never_listed_and_read_once_per_alias
+  - tests/integration/test_module_settings_fixture.py::test_fixture_reads_env_over_dotenv_over_secrets_from_one_read
+- id: G-CONFIG-11
+  statement: 'A module''s settings are validated before its setup runs; an invalid value raises ModuleSettingsError,
+    a ConfigurationError naming the setting with the configuration-refusal prefix, fatal for an explicitly
+    selected optional module too, and it stops every entry point that builds the composition (doctor reports
+    it).'
+  sources:
+  - docs/adr/0015-module-settings.md#3. Validation before `setup`, one check after loading
+  tests:
+  - src/sandloom/core/tests/test_module_settings.py::test_define_module_validates_settings_before_setup
+  - src/sandloom/core/tests/test_module_settings.py::test_invalid_value_names_the_setting_with_the_kernel_prefix
+  - tests/integration/test_module_settings_fixture.py::test_optional_module_with_an_invalid_value_refuses
+  - tests/integration/test_module_settings_fixture.py::test_module_settings_refusal_stops_every_composed_entry_point
+  - tests/integration/test_module_settings_fixture.py::test_doctor_reports_the_module_settings_refusal
+- id: G-CONFIG-12
+  statement: 'One check after the load pass refuses an environment name declared twice across the kernel and
+    the loaded modules, naming both owners (SANDLOOM-B036), and a loaded module''s removed setting at a live
+    value (at its inert value it is logged); in prod it refuses a near-miss of any declared kernel or loaded
+    module name, but never a variable under the prefix of a module known in the deployment (an installed
+    sandloom.modules entry point or a module SANDLOOM_MODULES names) that this process does not load; a
+    module''s semantic setting weaker than its profile value is logged unless its risk is accepted.'
+  sources:
+  - docs/adr/0015-module-settings.md#3. Validation before `setup`, one check after loading
+  - docs/reference/error-codes.md
+  tests:
+  - src/sandloom/core/tests/test_module_settings.py::test_collisions_refuse_naming_both_owners
+  - src/sandloom/core/tests/test_module_settings.py::test_removed_module_setting_refuses_a_live_value_and_warns_inert
+  - src/sandloom/core/tests/test_module_settings.py::test_production_typo_check_runs_over_module_names
+  - src/sandloom/core/tests/test_module_settings.py::test_production_typo_check_ignores_an_absent_modules_variables
+  - src/sandloom/core/tests/test_module_settings.py::test_known_modules_are_the_installed_entry_points_and_the_composition
+  - src/sandloom/core/tests/test_module_settings.py::test_semantic_override_is_reported_unless_its_risk_is_accepted
+  - src/sandloom/core/tests/test_module_settings.py::test_loader_check_refuses_and_logs
+  - tests/integration/test_module_settings_fixture.py::test_semantic_override_of_a_module_is_logged
 - id: G-RISK-01
   statement: SANDLOOM_ACCEPTED_RISKS accepts only registered risk ids; an unknown id fails Settings validation
     / startup.
@@ -7148,6 +7288,16 @@ capabilities:
   tests:
   - src/sandloom/core/tests/test_testing_seams.py::test_fake_access_fact_drives_the_org_billing_atoms_without_billing
   - src/sandloom/core/tests/test_testing_seams.py::test_fake_contract_reaches_the_kernels_get_service
+- id: C-TEST-16
+  statement: 'override_settings(Model, ...) replaces a module''s declared settings for a test, nested overrides
+    restore in order, and it works with no application bound; validate_settings is the loader''s own
+    validation, context included.'
+  sources:
+  - docs/reference/sdk/testing.md
+  tests:
+  - src/sandloom/core/tests/test_module_settings.py::test_override_settings_nests_and_restores
+  - src/sandloom/core/tests/test_module_settings.py::test_override_settings_without_an_application
+  - src/sandloom/core/tests/test_module_settings.py::test_validate_settings_is_the_loaders_validation
 - id: C-TENANT-10
   statement: The TenantScoped mixin declares no plain tenant_id index on a table whose primary key, unique constraint
     or unique index leads with tenant_id (that key serves the lookups), and keeps it otherwise.
@@ -7298,6 +7448,15 @@ capabilities:
   - tests/sdk/test_sdk_generators.py::test_sandloom_add_runs_generate_at_the_end
   - tests/sdk/test_sdk_generators.py::test_add_contract_writes_the_generated_stub
   - src/sandloom/core/tests/test_quickstart.py::test_sandloom_new_writes_the_generated_files
+- id: C-GEN-16
+  statement: 'A third-party module''s admin.py screens reach the console''s manifest through the console''s
+    declared file, with no change to the kernel, and the console with identity serves identity''s screens out
+    of the box.'
+  sources:
+  - docs/admin-console/add-your-module.md
+  tests:
+  - tests/integration/generated_files/test_declared_generated_files.py::test_a_third_party_module_s_screens_reach_the_manifest
+  - tests/integration/generated_files/test_declared_generated_files.py::test_the_console_and_identity_out_of_the_box
 - id: C-MODULE-10
   statement: A route policy's atoms add the contracts they resolve to the module's derived consumes as optional
     requirements (SubscriptionActive / Credits the entitlements contract, Entitled the fact owner's facts.v1,
@@ -7471,7 +7630,7 @@ issued:
   C-DEPLOY: 9
   C-EFFECT: 2
   C-EVENT: 4
-  C-GEN: 15
+  C-GEN: 16
   C-INFRA: 12
   C-MIGRATE: 9
   C-MODULE: 13
@@ -7486,7 +7645,7 @@ issued:
   C-SDK: 6
   C-SPLIT: 7
   C-TENANT: 10
-  C-TEST: 15
+  C-TEST: 16
   C-UNIT: 2
   C-WORKER: 6
   G-AUDIT: 2
@@ -7496,8 +7655,8 @@ issued:
   G-BLOCK: 8
   G-CMD: 9
   G-COMPAT: 7
-  G-CONFIG: 8
-  G-CONTRACT: 19
+  G-CONFIG: 12
+  G-CONTRACT: 23
   G-DECL: 7
   G-EFFECT: 5
   G-EVENT: 14
@@ -7506,7 +7665,7 @@ issued:
   G-IDEM: 18
   G-INBOX: 4
   G-INFRA: 9
-  G-KERNEL: 13
+  G-KERNEL: 14
   G-MIGRATE: 12
   G-MODULE: 19
   G-MSTORE: 10
@@ -8093,7 +8252,9 @@ adr_sections:
     "1. What the kernel may name": planned
     "2. One edge register, checked": planned
     "3. The standard composition lives in `sandloom-standard`": planned
-    "4. The admin battery": planned
+    "4. The admin battery":
+    - G-KERNEL-14
+    - C-GEN-16
     "5. Revocation: the kernel applies, the issuer ends its sessions":
     - G-REVOKE-07
     - G-REVOKE-25
@@ -8112,13 +8273,19 @@ adr_sections:
     "Context": informational
     "Decision": informational
     "1. Home rule": planned
-    "2. `consumes` is the single source of what a consumer requires": planned
-    "3. Expectation files and narrowing": planned
+    "2. `consumes` is the single source of what a consumer requires":
+    - G-CONTRACT-20
+    "3. Expectation files and narrowing":
+    - G-CONTRACT-21
     "4. No expectation is never a warning": planned
-    "5. Provider absent where `generate` runs": planned
-    "6. Determinism without the project formatter": planned
-    "7. Provenance header": planned
-    "8. Collisions and copies": planned
+    "5. Provider absent where `generate` runs":
+    - G-CONTRACT-22
+    "6. Determinism without the project formatter":
+    - G-CONTRACT-23
+    "7. Provenance header":
+    - G-CONTRACT-22
+    "8. Collisions and copies":
+    - G-CONTRACT-23
     "9. C5 leaves the kernel": planned
     "10. Migration list": planned
     "11. When B2 is adopted": planned
@@ -8130,14 +8297,17 @@ adr_sections:
   0014-claims-trust-and-authorization-portability.md:
     "Context": informational
     "Decision, part (a): trust": informational
-    "1. The composition root assigns authorities; the kernel has no default": planned
-    "2. Mint: who may write a protected key": planned
+    "1. The composition root assigns authorities; the kernel has no default":
+    - G-AUTH-20
+    "2. Mint: who may write a protected key":
+    - G-AUTH-20
     "3. Read: one trusted view per verified token": planned
     "4. `cpv` per key, with an issuer × verifier rollout and rollback matrix":
     - G-RISK-14
     "5. Sealed mint, service tokens, test tokens": planned
     "6. Contract-name ownership for access-bearing contracts": planned
-    "7. Billing claims: option (c)": planned
+    "7. Billing claims: option (c)":
+    - G-AUTH-20
     "Decision, part (b): portability": informational
     "8. Contract-anchored access checks": planned
     "9. The equality invariant": planned
@@ -8156,9 +8326,14 @@ adr_sections:
   0015-module-settings.md:
     "Context": informational
     "Decision": informational
-    "1. Declaration on registration (D2a)": planned
-    "2. One source read per process": planned
-    "3. Validation before `setup`, one check after loading": planned
+    "1. Declaration on registration (D2a)":
+    - G-CONFIG-09
+    - C-TEST-16
+    "2. One source read per process":
+    - G-CONFIG-10
+    "3. Validation before `setup`, one check after loading":
+    - G-CONFIG-11
+    - G-CONFIG-12
     "4. Risk namespaces": planned
     "5. Ratchets and completeness": planned
     "6. Env names": planned

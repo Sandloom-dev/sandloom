@@ -27,8 +27,11 @@ from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.core.infra.contracts import TaskQueueProvider
 from sandloom.core.tasks.enqueue import TaskNotSent, enqueue_once
 
-#: Features the Celery task-queue driver supports.
-CELERY_TASKQUEUE_FEATURES = frozenset({"delay", "idempotency_key"})
+#: Features the Celery task-queue driver supports. ``periodic``: the worker
+#: connects each loaded module's beat hook and one beat per broker and module
+#: set runs it under a fenced lease (sandloom.core.worker, beat_lease); the
+#: only driver that advertises it today.
+CELERY_TASKQUEUE_FEATURES = frozenset({"delay", "idempotency_key", "periodic"})
 
 
 class CeleryTaskQueueOptions(BaseModel):

@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal, cast
 
 from fastapi import APIRouter
 
+from sandloom.core.descriptors.derived_capabilities import derived_needs
 from sandloom.core.descriptors.module_names import module_name
 
 __all__ = [
@@ -192,8 +193,32 @@ class ModuleDescriptor:
     )
 
     def effective_capabilities(self) -> list[CapabilityRequirement]:
-        """Capabilities to preflight at load (the declared list)."""
-        return list(self.capabilities)
+        """Capabilities to preflight at load: the declared ones, plus what the
+        module's code shows it needs: ``taskqueue`` for a ``tasks`` submodule,
+        with the feature ``periodic`` for its beat hook
+        (``setup_periodic_tasks``).
+
+        A declaration wins: a derived need adds its features to every declared
+        requirement of the same capability and never changes its ``required``
+        or ``instance``; only a capability nothing declares is added, required,
+        on the ``default`` instance. Read from the module's files (no import),
+        so ``sandloom check`` (SANDLOOM-C033) still asks for the declaration.
+        """
+        effective = list(self.capabilities)
+        for need in derived_needs(self.name):
+            declared = [
+                i for i, r in enumerate(effective) if r.capability == need.capability
+            ]
+            if not declared:
+                effective.append(
+                    CapabilityRequirement(need.capability, features=need.features)
+                )
+                continue
+            for i in declared:
+                req = effective[i]
+                if not need.features <= req.features:
+                    effective[i] = replace(req, features=req.features | need.features)
+        return effective
 
     def migration_chain_key(self) -> str:
         """Key of this module's migration chain (version-table suffix)."""

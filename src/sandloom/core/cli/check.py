@@ -44,6 +44,8 @@ the framework's own lives in ``backend/``) and runs every analyzer of
     portable-sql           a module and its tests call only the SQL functions
                            every database runs alike (no func.now(); WallClock)
                            and mark raw SQL `# sandloom: raw-sql <reason>`
+    undeclared-capability  a tasks.py declares taskqueue in capabilities=,
+                           and its beat hook the feature "periodic"
 
   Public API 1.0 (spec Appendix A; each joins the list above once its code
   is no longer planned in the catalogue; warnings and notes never fail):
