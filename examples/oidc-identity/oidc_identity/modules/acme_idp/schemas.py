@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
@@ -21,4 +22,18 @@ class SessionsEnded(BaseModel):
     ended: list[Literal["access_tokens", "refresh_sessions", "provider_sessions"]]
 
 
-__all__ = ["SessionsEnded"]
+class OperatorAccount(BaseModel):
+    """An account as acme_idp knows it (``sandloom admin`` / ``grant-admin``).
+
+    No password and no "active" flag: the provider keeps both.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    user_id: UUID
+    email: str
+    #: The provider said the address is verified, at the last sign-in.
+    email_verified: bool
+
+
+__all__ = ["OperatorAccount", "SessionsEnded"]

@@ -144,6 +144,35 @@ async def test_list_platform_admins_tells_which_have_a_password(
     assert by_email["second@example.com"].last_login_at is None
 
 
+async def test_the_issuer_and_the_roles_sides_answer_apart(
+    sandloom_app: Any, test_db: AsyncSession, test_user: User
+) -> None:
+    """``sandloom admin`` asks the issuer's side for the account (no role in
+    it) and the roles owner's side for the role; identity is both."""
+    admin_id = await _create(sandloom_app, test_db, "owner@example.com")
+    security = _security(sandloom_app)
+    with bind_contract_session(test_db):
+        account = await security.account_by_email(" owner@example.com ")
+        member = await security.account_by_email(test_user.email)
+        nobody = await security.account_by_email("nobody@example.com")
+        holders = await security.platform_admin_ids()
+        listed = await security.accounts_by_id([admin_id, test_user.id])
+        assert await security.is_platform_admin(admin_id) is True
+        assert await security.is_platform_admin(test_user.id) is False
+        assert await security.accounts_by_id([]) == []
+    assert nobody is None
+    assert account is not None and account.user_id == admin_id
+    assert (account.email_verified, account.is_active) == (True, True)
+    assert account.password_set is False
+    assert not hasattr(account, "is_platform_admin")
+    assert member is not None and member.user_id == test_user.id
+    assert admin_id in holders and test_user.id not in holders
+    assert [a.user_id for a in listed] == sorted(
+        [admin_id, test_user.id],
+        key=lambda uid: "owner@example.com" if uid == admin_id else test_user.email,
+    )
+
+
 async def test_an_audited_listing_records_who_asked_and_why(
     sandloom_app: Any, test_db: AsyncSession
 ) -> None:

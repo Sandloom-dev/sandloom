@@ -1,7 +1,10 @@
 """``sandloom admin create`` / ``invite`` and ``grant-admin``'s take-over rule.
 
-The ``identity.security.v1`` contract is faked here; identity's real one is
-covered in ``sandloom_identity/tests/api/test_first_admin.py``.
+The ``identity.security.v1`` contract is faked here, registered in a fake
+core as the claim map's issuer and roles owner (the operator resolver runs
+for real); identity's real one is covered in
+``sandloom_identity/tests/api/test_first_admin.py``, other owners and splits
+in ``core/tests/test_admin_operator.py``.
 """
 
 from __future__ import annotations
@@ -18,10 +21,12 @@ from typing import Any
 
 import pytest
 
+from sandloom.core.app_factory.claim_authorities import build_claim_authorities
+from sandloom.core.claims import Authority
 from sandloom.core.cli import admin
 from sandloom.core.cli._operator import OperatorIntent
 from sandloom.core.cli.dev import commands, identity, state
-from sandloom.core.cli.security import SECURITY_CONTRACT, grant_admin
+from sandloom.core.cli.security import grant_admin
 from sandloom.core.config import module_settings
 from sandloom.core.config.settings import settings
 from sandloom.core.module_api._errors import ContractCallError
@@ -29,6 +34,8 @@ from sandloom.core.module_api._service_registry import ServiceNotFound
 
 TOKEN = "tok.en.sig"
 GOOD = "Long-Enough-Passw0rd!"
+IDENTITY = "sandloom_identity"
+SECURITY_CONTRACT = "identity.security.v1"
 
 
 class _Security:
@@ -38,8 +45,32 @@ class _Security:
         }
         self.calls: list[tuple[Any, ...]] = []
 
-    async def account_standing(self, email: str) -> Any:
-        return self.accounts.get(email)
+    @property
+    def contract_schema(self) -> SimpleNamespace:
+        """What a local describe lists: every public async method."""
+        methods = {
+            name
+            for name in dir(type(self))
+            if not name.startswith("_") and name not in {"names", "contract_schema"}
+        }
+        return SimpleNamespace(methods=methods)
+
+    async def account_by_email(self, email: str) -> Any:
+        found = self.accounts.get(email)
+        if found is None:
+            return None
+        return SimpleNamespace(
+            user_id=found.user_id,
+            email=email,
+            email_verified=found.email_verified,
+            is_active=found.is_active,
+            password_set=True,
+        )
+
+    async def is_platform_admin(self, user_id: uuid.UUID) -> bool:
+        return any(
+            a.user_id == user_id and a.is_platform_admin for a in self.accounts.values()
+        )
 
     async def password_problem(self, email: str, password: str) -> str | None:
         return "Password is too short" if len(password) < 12 else None
@@ -94,8 +125,12 @@ class _Security:
         self.calls.append(("audit", reason, operator, show_emails))
         return True
 
-    async def list_platform_admins(self) -> list[Any]:
+    async def platform_admin_ids(self) -> list[uuid.UUID]:
         self.calls.append(("list",))
+        return [uuid.UUID(int=1), uuid.UUID(int=2)]
+
+    async def accounts_by_id(self, user_ids: list[uuid.UUID]) -> list[Any]:
+        assert user_ids == [uuid.UUID(int=1), uuid.UUID(int=2)]
         return [
             SimpleNamespace(
                 email="owner@example.com",
@@ -119,8 +154,29 @@ class _Security:
 
 
 class _Core:
+    """One process loading identity (``security``), the claim map's issuer
+    and roles owner; ``None``: identity neither loaded nor bound."""
+
     def __init__(self, security: Any) -> None:
         self.security = security
+        owner = Authority("identity", module=IDENTITY)
+        self.claim_authorities = build_claim_authorities(
+            {"issuer": owner, "roles": owner}
+        )
+        self.module_descriptors = (
+            [] if security is None else [SimpleNamespace(name=IDENTITY)]
+        )
+        self.settings = settings
+        self.service_registry = SimpleNamespace(try_get=self._local)
+
+    def _local(self, name: str) -> Any:
+        return self.security if name == SECURITY_CONTRACT else None
+
+    def contract_owner(self, name: str) -> str:
+        return IDENTITY
+
+    def local_contract(self, name: str) -> Any:
+        return self.security
 
     def get_service(self, name: str) -> Any:
         if name != SECURITY_CONTRACT or self.security is None:
@@ -497,18 +553,22 @@ def test_invite_reissues_a_link_for_an_admin_only(run: Any) -> None:
 
 def test_an_identity_service_without_the_methods_is_named(run: Any) -> None:
     class _Old:
+        contract_schema = SimpleNamespace(methods={"find_user_id"})
+
         async def find_user_id(self, email: str) -> None:
             return None
 
     code, _, err = run(_Old(), "create", "--email", "o@example.com", "--invite")
     assert code == 1
-    assert "identity" in err and "upgrade" in err
+    assert "SANDLOOM-B039" in err and "owner 'issuer' = identity" in err
+    assert "identity.security.v1 has no account_by_email" in err
     assert len(err.strip().splitlines()) == 1
 
 
 def test_no_identity_module_is_named(run: Any) -> None:
     code, _, err = run(None, "create", "--email", "o@example.com", "--invite")
-    assert code == 1 and "identity module" in err
+    assert code == 1 and "SANDLOOM-B039" in err
+    assert "identity.security.v1 is neither registered" in err
 
 
 async def test_grant_admin_refuses_an_unverified_account() -> None:
@@ -546,7 +606,7 @@ def test_admin_list_names_every_administrator_and_its_password(run: Any) -> None
 
 def test_admin_list_without_administrators_says_how_to_create_one(run: Any) -> None:
     class _Empty(_Security):
-        async def list_platform_admins(self) -> list[Any]:
+        async def platform_admin_ids(self) -> list[uuid.UUID]:
             return []
 
     code, out, _ = run(_Empty(), "list")

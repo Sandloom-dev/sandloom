@@ -30,8 +30,154 @@
       }
     },
     "acme_idp.security.v1": {
-      "hash": "134010500828732b0ef51de4e9c2eda8",
+      "hash": "4e45d66a7bb0a0c2208846f3c8328bce",
       "methods": {
+        "account_by_email": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "email",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "union",
+            "of": [
+              {
+                "fields": {
+                  "email": {
+                    "required": true,
+                    "type": {
+                      "k": "scalar",
+                      "t": "str"
+                    }
+                  },
+                  "email_verified": {
+                    "required": true,
+                    "type": {
+                      "k": "scalar",
+                      "t": "bool"
+                    }
+                  },
+                  "user_id": {
+                    "required": true,
+                    "type": {
+                      "k": "scalar",
+                      "t": "uuid"
+                    }
+                  }
+                },
+                "k": "model",
+                "ref": "oidc_identity.modules.acme_idp.schemas:OperatorAccount",
+                "schema_hash": "edc1827237447551"
+              },
+              {
+                "k": "none"
+              }
+            ]
+          }
+        },
+        "accounts_by_id": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "user_ids",
+              "required": true,
+              "type": {
+                "item": {
+                  "k": "scalar",
+                  "t": "uuid"
+                },
+                "k": "list"
+              }
+            }
+          ],
+          "returns": {
+            "item": {
+              "fields": {
+                "email": {
+                  "required": true,
+                  "type": {
+                    "k": "scalar",
+                    "t": "str"
+                  }
+                },
+                "email_verified": {
+                  "required": true,
+                  "type": {
+                    "k": "scalar",
+                    "t": "bool"
+                  }
+                },
+                "user_id": {
+                  "required": true,
+                  "type": {
+                    "k": "scalar",
+                    "t": "uuid"
+                  }
+                }
+              },
+              "k": "model",
+              "ref": "oidc_identity.modules.acme_idp.schemas:OperatorAccount",
+              "schema_hash": "edc1827237447551"
+            },
+            "k": "list"
+          }
+        },
+        "appoint_platform_admin": {
+          "idempotency_key": "operation_key",
+          "kind": "command",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "user_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "reason",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operator",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operation_key",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "bool"
+          }
+        },
         "end_sessions": {
           "idempotency_key": "operation_key",
           "kind": "command",
@@ -105,6 +251,25 @@
             "schema_hash": "4f5289378be29c98"
           }
         },
+        "is_platform_admin": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "user_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "bool"
+          }
+        },
         "list_user_ids": {
           "idempotency_key": null,
           "kind": "read",
@@ -136,6 +301,27 @@
               }
             }
           ],
+          "returns": {
+            "item": {
+              "k": "scalar",
+              "t": "uuid"
+            },
+            "k": "list"
+          }
+        },
+        "platform_admin_exists": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [],
+          "returns": {
+            "k": "scalar",
+            "t": "bool"
+          }
+        },
+        "platform_admin_ids": {
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [],
           "returns": {
             "item": {
               "k": "scalar",

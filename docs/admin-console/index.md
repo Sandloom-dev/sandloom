@@ -72,6 +72,15 @@ is no flag that takes the password itself, so it never lands in your shell histo
 sessions. `grant-admin` refuses an unverified address for that reason: whoever
 registered it first would keep their password.
 
+These commands ask the modules your composition root names in its claim map. The
+`issuer` answers for the account and its password. The owner of `roles` answers
+for the administrator role. Identity is both in the standard composition. With
+another issuer, such as an external OpenID provider, `grant-admin` and `admin list`
+work when that module offers the methods. `admin create` and `admin invite` need
+one module that is the issuer and the roles owner and keeps passwords. Otherwise
+they are refused before anything is done
+([operator reference](../operate/operator-reference.md)).
+
 While no administrator exists, the sign-in page and the application's startup log
 show the `admin create` command.
 

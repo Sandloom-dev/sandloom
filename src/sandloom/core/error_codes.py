@@ -1607,6 +1607,15 @@ not grant the method, or the provider answers 403; or when the provider
 cannot be described. The refusal names the command, the claim-map key, the
 owner module and its import path, the contract, the missing method and the
 fix.
+
+sandloom admin create and admin invite act on the account and its
+administrator role in one unit (create_platform_admin,
+take_over_platform_admin, a set-password link the issuer mints only for an
+administrator it knows), so the issuer and the owner of roles must be one
+module. With two owners they are refused before anything is read or
+written, never half done: create the account at the issuer, then run
+sandloom security grant-admin, which reads the issuer and writes the roles
+owner and works across two modules.
 """,
         "docs/operate/operator-reference.md",
     ),

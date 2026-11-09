@@ -59,8 +59,8 @@ reconciled: "kb-w0-fix-checks after W0 (arch/kernel-boundary 220df07); K1 added,
 summary:
   total: 47  # the 46 judged baseline edges and K1
   kind: {runtime: 46, documentation: 1}
-  current_status: {open: 4, fixed: 35, retained: 8}
-  target: {fixed: 36, retained: 8, deferred: 3}
+  current_status: {open: 3, fixed: 36, retained: 8}
+  target: {fixed: 37, retained: 8, deferred: 2}
   by_adr: {ADR-0012: 16, ADR-0013: 5, ADR-0014: 15, ADR-0015: 11}
 
 edges:
@@ -169,17 +169,20 @@ edges:
     scope: runtime
     owner: identity
     baseline_verdict: disputed
-    current_status: open
-    target: deferred
+    current_status: fixed
+    target: fixed
     adr: ADR-0012
-    prs: [KB-60]
+    prs: [KB-60, kb-proto-operator-b]
     invariants: [I-02, I-03, I-13]
     tests:
-      - core/tests/test_security_cli.py, moved with the commands in the CLI phase
+      - core/tests/test_admin_create/test_admin_create_cli.py (standard identity: create, invite, list, grant-admin)
+      - core/tests/test_admin_operator.py (roles held by a third module, two owners refused before any call, missing method, unassigned roles owner, mono = split with a CLI process without either owner)
+      - sandloom_identity/tests/api/test_first_admin.py (identity's issuer and roles sides apart)
+      - examples/oidc-identity e2e (acme_idp: grant-admin works, admin create with a password refused, no audit row, no account)
     anchors:
       - {path: sandloom/core/cli/admin.py, literal: "identity.security.v1"}
       - {path: sandloom/core/cli/security.py, literal: "identity.security.v1"}
-    note: "CLI phase after ADR-0012..0015 (owner #14). security.py's literal is grant-admin's (a platform-admin grant, moved with sandloom admin in kb-proto-operator-b); the session commands left it with B-R5."
+    note: "Fixed by kb-proto-operator-b (owner decisions 3, 4, 7, 2026-11-09): grant-admin and sandloom admin create / invite / list ask two candidate owners from the claim map, the issuer (account_by_email, accounts_by_id, password and set-password-link methods) and the authority of roles (is_platform_admin, platform_admin_ids, appoint_platform_admin, record_admin_listing), each confirmed by describe before the first side effect (a dry run too). create / invite act on the account and its role in one unit, so they need one module that is both owners; with two they are refused (SANDLOOM-B039) before anything is read or written, never half done. grant-admin (one write, on the roles owner) and list (a join) work across two owners. The link target and hints stay with kb-proto-operator-b2 (B-C10, B-N3, B-N4)."
 
   - id: B-R5
     class: b

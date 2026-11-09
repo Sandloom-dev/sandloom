@@ -23,6 +23,13 @@ Every command:
 * writes one ``required=True`` audit row per affected user
   (``actor_type="operator"``, ``data`` = operator, reason, operation key).
 
+``sandloom admin`` and ``sandloom security grant-admin`` ask two owners, both
+identity here: the issuer side (``account_by_email``, ``accounts_by_id``,
+the password and set-password-link methods) and the ``roles`` owner side
+(``is_platform_admin``, ``platform_admin_ids``, ``appoint_platform_admin``).
+``account_standing`` and ``list_platform_admins`` mix the two and stay one
+release.
+
 The first administrator: ``create_platform_admin`` (and
 ``take_over_platform_admin`` for an unverified account that holds the
 address) leaves the account with no usable password and a pending
@@ -66,6 +73,7 @@ from sandloom_identity.password_policy import password_policy_violation
 from sandloom_identity.schemas.contact import UserContact
 from sandloom_identity.schemas.operator import (
     AccountStanding,
+    OperatorAccount,
     PlatformAdmin,
     SessionsEnded,
 )
@@ -275,6 +283,17 @@ async def _take_over(user: User, *, reason: str, operator: str, key: str) -> Non
     )
 
 
+def _operator_account(user: User) -> OperatorAccount:
+    return OperatorAccount(
+        user_id=user.id,
+        email=user.email,
+        email_verified=bool(user.is_verified),
+        is_active=bool(user.is_active),
+        password_set=user.hashed_password is not None,
+        last_login_at=user.last_login_at,
+    )
+
+
 @contract(SECURITY_SERVICE_V1)
 class SecurityOperationsContract:
     """Operator commands: sessions, password resets, the first platform admin."""
@@ -295,8 +314,50 @@ class SecurityOperationsContract:
         )
         return found
 
+    async def account_by_email(self, email: str) -> OperatorAccount | None:
+        """The account with this address as the token issuer knows it, or
+        ``None`` (the issuer's side of ``sandloom admin`` / ``grant-admin``;
+        the role is :meth:`is_platform_admin`'s answer)."""
+        session = db()
+        user = await session.scalar(select(User).where(User.email == email.strip()))
+        return None if user is None else _operator_account(user)
+
+    async def accounts_by_id(self, user_ids: list[UUID]) -> list[OperatorAccount]:
+        """The accounts among ``user_ids`` (at most 1000), by address; unknown
+        ids are left out (``sandloom admin list`` joins the roles owner's
+        holders with this)."""
+        if not user_ids:
+            return []
+        session = db()
+        rows = await session.scalars(
+            select(User).where(User.id.in_(user_ids[:MAX_BATCH])).order_by(User.email)
+        )
+        return [_operator_account(user) for user in rows]
+
+    async def is_platform_admin(self, user_id: UUID) -> bool:
+        """Whether the user holds the platform ``admin`` role (the roles
+        owner's side of ``sandloom admin``)."""
+        return await _is_platform_admin(db(), user_id)
+
+    async def platform_admin_ids(self) -> list[UUID]:
+        """The ids of every account holding the platform ``admin`` role, at
+        most 1000 (``sandloom admin list`` asks the issuer for their address)."""
+        session = db()
+        rows = await session.scalars(
+            select(UserRole.user_id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(Role.code == ADMIN_ROLE_CODE)
+            .order_by(UserRole.user_id)
+            .limit(MAX_BATCH)
+        )
+        return list(dict.fromkeys(rows))
+
     async def account_standing(self, email: str) -> AccountStanding | None:
-        """The account with this address as an operator sees it, or ``None``."""
+        """The account with this address as an operator sees it, or ``None``.
+
+        Kept for one release: ``sandloom admin`` asks the issuer's
+        :meth:`account_by_email` and the roles owner's
+        :meth:`is_platform_admin`."""
         session = db()
         user = await session.scalar(select(User).where(User.email == email.strip()))
         if user is None:
@@ -309,8 +370,10 @@ class SecurityOperationsContract:
         )
 
     async def list_platform_admins(self) -> list[PlatformAdmin]:
-        """Every account holding the platform ``admin`` role, by address
-        (``sandloom admin list``: which address is mine, has it a password)."""
+        """Every account holding the platform ``admin`` role, by address.
+
+        Kept for one release: ``sandloom admin list`` joins the roles owner's
+        :meth:`platform_admin_ids` with the issuer's :meth:`accounts_by_id`."""
         session = db()
         rows = await session.scalars(
             select(User)

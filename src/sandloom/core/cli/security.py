@@ -31,7 +31,11 @@ the claim map's ``issuer`` (``<issuer>.security.v1``: ``end_sessions``,
 for ``--tenant``, the owner of ``tenant_ids`` (``<owner>.security.v1``:
 ``list_member_user_ids``). Each method is confirmed by describe before the
 first side effect, a dry run included; a missing one refuses (SANDLOOM-B039 /
-SANDLOOM-B040, exit status 1) and nothing is done.
+SANDLOOM-B040, exit status 1) and nothing is done. ``grant-admin`` asks two
+owners, both confirmed first (a dry run too): the issuer finds the account by
+address (``account_by_email``), the authority of ``roles`` grants the role
+(``appoint_platform_admin``), one write after every check; they may be
+different modules.
 
 What a session revocation guarantees (B-R5, a platform guarantee):
 
@@ -71,6 +75,7 @@ from pathlib import Path
 from typing import Any
 
 import sandloom.core.auth.revocation as _revocation
+import sandloom.core.cli.admin as _admin
 import sandloom.core.cli.operator_owner as _operator_owner
 import sandloom.core.di as _di
 import sandloom.core.migrations.migrations as _migrations
@@ -83,15 +88,11 @@ from sandloom.core.cli._operator import (
 from sandloom.core.cli.operator_owner import OperatorOwner
 from sandloom.core.composition import load_composition_core
 from sandloom.core.module_api._errors import ContractCallError
-from sandloom.core.module_api._service_registry import ServiceNotFound
 from sandloom.core.rpc.errors import RemoteServiceUnavailable
 from sandloom.core.unit_of_work import db_session
 from sandloom.core.unit_of_work.effects import record_audit
 from sandloom.core.unit_of_work.scope import _audit_store
 
-#: The operator contract ``grant-admin`` still calls by name (moved onto the
-#: operator resolver with ``sandloom admin``).
-SECURITY_CONTRACT = "identity.security.v1"
 #: Audit action of an applied export.
 AUDIT_EXPORTED_ACTION = "core.security.audit_exported"
 #: Audit action, per user, of the kernel's access-token revocation.
@@ -228,16 +229,6 @@ class BulkResult:
 
 def _build_core() -> Any:
     return load_composition_core()
-
-
-def _service(core: Any, name: str) -> Any:
-    try:
-        return core.get_service(name)
-    except ServiceNotFound as exc:
-        raise SystemExit(
-            f"error: contract {name!r} is not available in this process — run the "
-            "command where its module is loaded, or bind it in SERVICE_BINDINGS"
-        ) from exc
 
 
 def _refresh_declared(core: Any, owner: OperatorOwner) -> bool | None:
@@ -703,9 +694,20 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
 
 async def grant_admin(core: Any, email: str, intent: OperatorIntent) -> str:
-    """What happened, in one line; a missing user is the operator's next step."""
-    service = _service(core, SECURITY_CONTRACT)
-    standing = await service.account_standing(email)
+    """What happened, in one line; a missing user is the operator's next step.
+
+    Two owners, both confirmed before anything is read, a dry run included:
+    the issuer finds the account (``account_by_email``), the authority of
+    ``roles`` grants the role (``appoint_platform_admin``). One write, on
+    the roles owner, after every check: never half done.
+    """
+    owners = await _admin.admin_owners(
+        core,
+        "grant-admin",
+        issuer=["account_by_email"],
+        roles=["appoint_platform_admin"],
+    )
+    standing = await _admin.account_standing(core, owners, email, with_role=False)
     if standing is None:
         raise SystemExit(
             f"error: no user {email!r}: create the administrator with "
@@ -726,9 +728,25 @@ async def grant_admin(core: Any, email: str, intent: OperatorIntent) -> str:
             "administrator; re-run with --apply --reason ..."
         )
     # A fresh key per run: granting again after a revocation must act, not replay.
-    await service.appoint_platform_admin(
-        user_id, intent.reason, intent.operator, operation_key=uuid.uuid4().hex
-    )
+    try:
+        exists = await owners.roles.call(
+            core,
+            "appoint_platform_admin",
+            user_id,
+            intent.reason,
+            intent.operator,
+            uuid.uuid4().hex,
+        )
+    except ContractCallError as exc:
+        raise SystemExit(
+            f"error: grant-admin: {owners.roles.owner.contract} refused: "
+            f"{getattr(exc, 'detail', exc)}"
+        ) from exc
+    if exists is False:
+        raise SystemExit(
+            f"error: grant-admin: {owners.roles.owner.label()} does not know user "
+            f"{user_id} ({email}); nothing was granted"
+        )
     return f"grant-admin: {email} ({user_id}) is a platform administrator"
 
 
@@ -788,7 +806,6 @@ def main(argv: list[str] | None = None) -> int:
 __all__ = [
     "AUDIT_TOKENS_REVOKED_ACTION",
     "REVOCATION_CLAIM",
-    "SECURITY_CONTRACT",
     "SESSION_KINDS",
     "BulkResult",
     "SessionPlan",

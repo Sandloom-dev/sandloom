@@ -604,6 +604,26 @@ anything is done, a dry run included. A gap refuses with `SANDLOOM-B039` or
 `SANDLOOM-B040` (exit status 1), and nothing is written. An issuer without
 passwords refuses `force-password-reset`: reset passwords at the provider.
 
+**Who answers `grant-admin` and `sandloom admin`.** Two owners from the same
+map, each confirmed the same way before anything is done:
+
+| side | owner | methods |
+|---|---|---|
+| accounts | the `issuer` | `account_by_email`, `accounts_by_id` (`admin list`); with passwords: `password_problem`, `set_password_token`, `set_password_with_token`, `reissue_set_password` |
+| platform role | the owner of `roles` | `is_platform_admin`, `platform_admin_ids` (`admin list`), `appoint_platform_admin` (`grant-admin`), `record_admin_listing` (`admin list` in production) |
+
+`grant-admin` reads the account at the issuer and grants the role at the
+`roles` owner. That is one write, after every check, so the two may be
+different modules. For `admin list`, the `roles` owner's holders are joined
+with the issuer's addresses. `admin create` makes the account and its role in
+one unit (`create_platform_admin`, `take_over_platform_admin`). And
+`admin invite` mints a link the issuer gives only to an administrator it knows. Both need one module
+that is the issuer and the `roles` owner, as identity is in the standard
+composition. With two owners they are refused (`SANDLOOM-B039`) before
+anything is read or written, never half done. Create the account at the
+issuer instead, then run `grant-admin`. An issuer without passwords, such as
+an external OpenID provider, refuses `admin create` the same way.
+
 **What a revocation does, kind by kind** (the command prints one line each):
 
 | kind | who | guaranteed |

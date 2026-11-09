@@ -151,6 +151,33 @@ website renders this same changelog.
 
 ### Security
 
+- **`sandloom security grant-admin` and `sandloom admin create` / `invite` /
+  `list` ask the issuer and the `roles` owner, never half done**
+  (kb-proto-operator-b, owner decisions 3, 4, 7 of 2026-11-09, edge B-R4
+  fixed). The commands no longer call `identity.security.v1` by name: the
+  claim map's `issuer` answers the account side (`account_by_email`,
+  `accounts_by_id`, `password_problem`, `set_password_token`,
+  `set_password_with_token`, `reissue_set_password`) and the authority of
+  `roles` the role side (`is_platform_admin`, `platform_admin_ids`,
+  `appoint_platform_admin`, `record_admin_listing`), each confirmed by
+  describe before the first side effect, a dry run of `grant-admin` included
+  (SANDLOOM-B039 / B040, exit 1; `sandloom admin` now exits 1 for these
+  refusals). `grant-admin` (one write, on the `roles` owner) and `admin list`
+  (holders joined with the issuer's addresses; "at the provider" for an
+  issuer without passwords) work with two different owners; `admin create` and
+  `invite`, which make the account and its role in one unit, need one module
+  that is both and are refused before anything is read or written otherwise.
+  Identity gains `account_by_email`, `accounts_by_id` (DTO `OperatorAccount`),
+  `is_platform_admin` and `platform_admin_ids`; `account_standing` and
+  `list_platform_admins` stay one release. `SECURITY_CONTRACT` is gone from
+  `sandloom.core.cli.admin` and `sandloom.core.cli.security`. Upgrade: where
+  the commands run without identity, grant the new method names in
+  `RPC_ALLOWED_CALLS` for `identity.security.v1` (`account_by_email`,
+  `is_platform_admin`, `platform_admin_ids`, `accounts_by_id` besides the
+  ones already granted). examples/oidc-identity: acme_idp gains the lookup and
+  role methods (`grant-admin` works there; `admin create` is refused, no
+  password methods).
+
 - **`sandloom security revoke-sessions` / `force-password-reset` work with any
   token issuer; access-token revocation is a platform guarantee**
   (kb-proto-operator-a2, owner decision 1 of 2026-11-09, edge B-R5 fixed). The
