@@ -1,6 +1,6 @@
 #!/bin/sh
 # Instructions per request (cachegrind ladder, K requests) of stand cases, base
-# vs candidate, monolith; the method of _evidence/perf-dx/cg_authz.sh:
+# vs candidate, monolith; the method of _archive/_evidence/perf-dx/cg_authz.sh:
 #   Ir/op = (Ir(K requests) - Ir(0 requests)) / K
 #
 #   SIDE=base|wt VARIANT=authzstand|authzpa2 [KB_POC_K6=1 ...] ./cg_poc.sh case...
