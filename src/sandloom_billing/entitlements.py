@@ -70,6 +70,25 @@ class EntitlementsService:
         return balance >= minimum
 
     @classmethod
+    async def plan_feature(cls, tenant_type: str, tenant_id: UUID, key: str) -> bool:
+        """Whether the account's plan enables the feature flag ``key``.
+
+        Billing's plans declare no feature flags (its claims contributor
+        writes no ``features`` claim): ``False`` for every account, with no
+        read, the same "no" the claim path gives (``Feature(of=...)``)."""
+        return False
+
+    @classmethod
+    async def plan_limit_allows(
+        cls, tenant_type: str, tenant_id: UUID, key: str, used: int
+    ) -> bool:
+        """Whether ``used`` is strictly below the account's plan limit ``key``.
+
+        Billing's plans declare no limits (no ``limits`` claim either): an
+        absent limit is 0, so ``False`` for every account, with no read."""
+        return False
+
+    @classmethod
     async def subscription_claims(
         cls, tenant_type: str, tenant_id: UUID, db: AsyncSession
     ) -> dict[str, object]:

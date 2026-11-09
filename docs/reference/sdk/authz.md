@@ -40,7 +40,9 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`authorize`](#authorize) | async function | Inline check over an already-loaded `resource`; raises on failure. |
 | [`AuthzContext`](#authzcontext) | class | Inputs available to a `Requirement` during evaluation. |
 | [`Category`](#category) | class | Mandatory denial categories (TZ §10.2). |
+| [`claim_atom`](#claim_atom) | function | Declare `name`, the claim-tier atom of the access check below it. |
 | [`ClaimFactCheck`](#claimfactcheck) | class | The generic evaluator of a generated claim-tier atom. |
+| [`ClaimReadCheck`](#claimreadcheck) | class | The generic evaluator of a generated claim atom over a mapping claim. |
 | [`ClaimRule`](#claimrule) | class | Declarative claim -> bool interpretation: wire-safe, no callables. |
 | [`ContractCheck`](#contractcheck) | class | The generic evaluator of a generated, contract-anchored atom. |
 | [`current_context`](#current_context) | async function | Authenticated subject from the Bearer access token (cached per request). |
@@ -426,6 +428,7 @@ def access_check(
     risk: Mapping[str, Mapping[str, Iterable[Any]]] | None = None,
     describe: str | None = None,
     claim: Any = None,
+    witnesses_membership: Mapping[str, Any] | None = None,
 ) -> Callable[[Any], Any]
 ```
 
@@ -443,6 +446,13 @@ denial category of a `False` answer (`Category.PAYMENT_REQUIRED`:
 allowed. `claim` is the owner's
 `sandloom.shared.authz.facts.AccessFact` naming a claim-tier
 `atom` this check answers for an organization account.
+`witnesses_membership` declares the check a membership witness: a
+`True` answer, for any value of its own parameters, proves the
+subject (`From.subject_id()`) a member of the organization
+(`From.org()`); the mapping gives the value of each own parameter
+that asks about membership alone (`{"minimum": "member"}`). The
+tenant authority's witness decides `tenant_kind` (ADR-0014 decision
+13); only the authority the root assigned to `tenant_ids` counts.
 
 The declaration is part of the method's describe document and the
 contract snapshot: removing it, re-binding it or lowering a risk is an
@@ -857,6 +867,42 @@ class Category
 
 Mandatory denial categories (TZ §10.2).
 
+### `claim_atom`
+
+```python
+def claim_atom(
+    name: str,
+    *,
+    claim_key: str,
+    entry: str,
+    below: str | None = None,
+    claim_keys: Iterable[str] = (),
+) -> Callable[[Any], Any]
+```
+
+Declare `name`, the claim-tier atom of the access check below it.
+
+`claim_key` is the token claim (a mapping) read for `Account.user()`
+with zero I/O; `entry` the check's parameter whose value names the
+mapping's entry. Without `below` the entry must be `True`; with
+`below="used"` the parameter `used` must be strictly below the entry
+(an integer). `claim_keys` lists further claims a caller may read
+instead (`claim_key=` of the generated atom). For an organization
+account the atom asks the access check, live, with its parameters. The
+atom's category and label are the access check's.
+
+Placed ABOVE `@access_check` (it completes that declaration):
+
+```python
+@claim_atom("Feature", claim_key="features", entry="key")
+@access_check("LiveFeature", bind=ACCOUNT, describe="feature '{key}'")
+async def has_feature(self, tenant_type: str, tenant_id: UUID, key: str):
+    ...
+```
+
+where `ACCOUNT` is `{"tenant_type": From.account_type(), "tenant_id":
+From.account_id()}`.
+
 ### `ClaimFactCheck`
 
 ```python
@@ -911,6 +957,95 @@ def describe(self) -> str
 Human-readable label used in 403 detail messages.
 
 #### `ClaimFactCheck.evaluate`
+
+```python
+async def evaluate(self, ctx: AuthzContext) -> bool
+```
+
+Return True iff the subject satisfies this requirement.
+
+Raise `PolicyIndeterminate` (never return `False`) when the
+requirement cannot be evaluated at all.
+
+### `ClaimReadCheck`
+
+```python
+class ClaimReadCheck(Requirement)(
+    params: Mapping[str, Any] | None = None,
+    *,
+    of: Account = <object object>,
+    claim_key: str | None = None,
+) -> None
+```
+
+The generic evaluator of a generated claim atom over a mapping claim.
+
+A generated subclass sets `__sandloom_atom__` (`read`, `claim_key`,
+`claim_keys`, `entry`, `below`, `category`, `describe` and
+`otherwise`, the access check's own literal) and a typed `__init__`
+calling `super().__init__(params, of=..., claim_key=...)`.
+`Account.user()` (or a bound personal tenant) reads the claim with zero
+I/O; an organization account asks the live check with the same
+parameters.
+
+#### `ClaimReadCheck.org_params`
+
+```python
+def org_params(self) -> frozenset[str]
+```
+
+Path parameters this requirement may read an organisation from.
+
+Non-empty for an atom that resolves an organisation (path parameter,
+`X-Tenant-Id`, else the bound tenant): `create_app` then refuses a
+route that solves the gate before its `TenantScope()` (SANDLOOM-B007).
+
+#### `ClaimReadCheck.contracts`
+
+```python
+def contracts(self) -> frozenset[str]
+```
+
+Sync contracts evaluating this requirement may call (wiring time).
+
+A module's derived `consumes` includes them (optional), so the
+startup preflight reports an unbound one and `sandloom add deploy`
+binds it in a split deployment. Default: none (a claims-only atom).
+
+#### `ClaimReadCheck.risks`
+
+```python
+def risks(self) -> frozenset[str]
+```
+
+The framework risks a gate enforcing this requirement carries
+(ADR-0009 item 6): `{"admin"}` for an admin role, else none. An
+`Or` carries its branches' risks; a `Not` grants no authority.
+
+#### `ClaimReadCheck.needs_request_session`
+
+```python
+def needs_request_session(self) -> bool
+```
+
+True when evaluating this requirement may use the request's
+database session (`ctx.db`): a resource loader, a fact read from a
+local projection, a live adapter.
+
+`require()` opens a session (`get_db`) only for a policy that
+answers True (ADR-0014 K6). Default: any tier above claims. A
+contract-anchored check says False: its provider runs the call in its
+own unit, never in the caller's session.
+
+#### `ClaimReadCheck.describe`
+
+```python
+def describe(self) -> str
+```
+
+Human-readable label used in 403 detail messages.
+
+#### `ClaimReadCheck.evaluate`
 
 ```python
 async def evaluate(self, ctx: AuthzContext) -> bool

@@ -506,14 +506,23 @@ def _risk_lowered(
 def _claim_changed(
     label: str, exp_claim: Any, act_claim: Any, report: CompatReport
 ) -> None:
-    """A claim atom keeps its fact, owner, key and category, and loses no
-    declared status or claim key."""
+    """A claim atom keeps its fact, owner, key, read (entry and compared
+    parameter) and category, and loses no declared status or claim key."""
     if not isinstance(exp_claim, Mapping):
         return
     if not isinstance(act_claim, Mapping):
         report.errors.append(f"{label}: claim atom {exp_claim.get('name')!r} removed")
         return
-    for key in ("name", "fact", "owner", "claim_key", "category"):
+    for key in (
+        "name",
+        "fact",
+        "owner",
+        "claim_key",
+        "category",
+        "read",
+        "entry",
+        "below",
+    ):
         if exp_claim.get(key) != act_claim.get(key):
             report.errors.append(f"{label}: claim atom {key} changed")
     for key in ("statuses", "claim_keys"):

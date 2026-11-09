@@ -45,6 +45,7 @@ from sandloom.shared.authz.atoms_claims import (
 from sandloom.shared.authz.atoms_fact import Entitled
 from sandloom.shared.authz.atoms_live import Credits, OrgRole, SubscriptionActive
 from sandloom.shared.authz.atoms_resource import Owner
+from sandloom.shared.authz.claim_read import ClaimReadCheck, claim_atom
 from sandloom.shared.authz.constants import Permissions, Roles
 from sandloom.shared.authz.context import AuthzContext
 from sandloom.shared.authz.contract_check import (
@@ -157,6 +158,8 @@ __all__ = [
     "From",
     "ContractCheck",
     "ClaimFactCheck",
+    "ClaimReadCheck",
+    "claim_atom",
     # authorization projections
     "register_authz_projection",
     "make_rebuild_gate",

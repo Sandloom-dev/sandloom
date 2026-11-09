@@ -43,6 +43,8 @@
         "check_subscription_active",
         "get_credit_balance",
         "has_credits_at_least",
+        "has_feature",
+        "is_within_limit",
         "subscription_claims"
       ],
       "name": "billing.entitlements.v1"

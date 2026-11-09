@@ -342,4 +342,14 @@ def _access_check_problems(
         for param in params
         if param.name not in binds and param.kind is param.POSITIONAL_ONLY
     )
+    claim = access.get("claim")
+    if isinstance(claim, Mapping) and "read" in claim:
+        # A claim atom over a mapping claim (claim_atom): its entry and its
+        # compared parameter are the check's own parameters.
+        problems.extend(
+            f"{where}: claim atom {field} names {claim[field]!r}, not an "
+            "unbound parameter"
+            for field in ("entry", "below")
+            if claim.get(field) is not None and claim[field] not in own
+        )
     return len(problems) == found

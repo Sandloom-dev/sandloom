@@ -479,6 +479,20 @@ website renders this same changelog.
   `claim_key=` are bound to billing's declaration and which is 501 when
   billing is neither loaded nor bound. The kernel atoms stay; nothing to
   change in callers.
+- **`Feature` and `WithinLimit` as billing's generated atoms** (ADR-0014
+  decision 15, KB-33). A provider declares the claim atom of an access check
+  with `@claim_atom("Feature", claim_key="features", entry="key")` (and
+  `below="used"` for a limit) placed above `@access_check`
+  (`sandloom.sdk.authz`, advanced; evaluated by `ClaimReadCheck`). Billing
+  declares `Feature` and `WithinLimit` on the new reads
+  `billing.entitlements.v1.has_feature(tenant_type, tenant_id, key)` and
+  `is_within_limit(tenant_type, tenant_id, key, used)`. For `Account.user()`
+  the generated atom reads the claim with zero I/O and gives the kernel
+  atom's decisions, indeterminates included. For an organization account it
+  asks billing live with its parameters, which now reach the owner over
+  internal RPC too. Billing's plans declare no features or limits yet, so
+  both reads answer `False`. The kernel atoms stay; nothing to change in
+  callers.
 - **Modules declare their own settings** (ADR-0015, KB-50).
   `define_module(..., settings=InventorySettings)` (or
   `api.declare_settings(InventorySettings)` in a hand-written `register`)
