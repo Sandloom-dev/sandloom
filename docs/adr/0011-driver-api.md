@@ -11,7 +11,7 @@ title: "ADR-0011: The driver API"
 - **Amends:** [ADR-0001](0001-framework-distribution.md) (how driver packages register)
   and [ADR-0010](0010-public-api-1.0.md) (a second public surface, not for modules)
 - **Research:** `design/driver-api/research.md`
-- **Amended:** 2026-11-05, the database capability (see the amendment at the end)
+- **Amended:** 2026-11-05, the database capability; 2026-11-09, driver availability and `periodic` (see the amendments at the end)
 
 ## Context
 
@@ -246,3 +246,91 @@ feature of the `database` capability; there is no namespace per database.
   - portable migration chains;
   - PostgreSQL's concurrency imitated on SQLite;
   - a file per module on SQLite.
+
+## Amendment (2026-11-09): driver availability, `periodic`, module requirements
+
+- **Decided by:** the owner, 2026-11-08, on module infrastructure dependencies
+  (`design/kernel-boundary/owner-decision-infra-deps.md`; basis:
+  `design/kernel-boundary/research-infra-deps.md`)
+- **Implemented by:** KB-IC-1 (availability), KB-IC-2 (declarations and
+  `periodic`), KB-IC-3 (readiness), KB-IC-4 (install-matrix lanes)
+
+### Context of the driver availability amendment
+
+A module declared the abstract capability it needs, and the application chose
+the driver, but three things did not match. Billing needed periodic task
+execution and did not say so. The preflight counted a registered driver as
+usable even when its Python package was missing, so `sandloom-billing` on plain
+`sandloom` loaded and failed later. A permanent installation error showed only
+in `/ready`, while a short broker outage could go unnoticed. No module wheel
+depends on Celery or Redis; it names the capability, and the kernel checks that
+the chosen driver gives it.
+
+### Decisions of the driver availability amendment
+
+1. **A driver registration says what it needs.** `register_driver(...,
+   requires=("celery",), install="pip install 'sandloom[celery]'")` lists the
+   top-level imports the driver needs and how to get them. The preflight checks
+   them with `importlib.util.find_spec`: nothing is imported and nothing
+   connects. This is an early check, not proof that the driver works: an import
+   error of a transitive dependency, or an error while the selected driver is
+   built, is refused the same way (SANDLOOM-B037, strict at production
+   startup). Built-in `celery` needs `celery`; `redis` and the `redis` and
+   `streams` event buses need `redis`. A driver package published through the
+   `sandloom.drivers` entry point is imported when `INFRA` selects it, so its
+   own import failure is SANDLOOM-B022 as before.
+2. **`periodic` is a feature of `taskqueue`.** It means the driver runs a
+   module's periodic jobs at their interval, in at least one process while the
+   deployment runs, and a run may repeat. A driver never gets it for supporting
+   `enqueue`; only `celery` (worker, beat and the beat lease) advertises it.
+   The `TaskQueue` Protocol is unchanged: `periodic` is a guarantee, not a
+   method, as decision 4 says of features. A zero-dependency driver with a
+   second worker and scheduler is deferred until a separate need appears, with
+   conformance checks over the full path (owner answer 7).
+3. **A module's needs are declared and derived.** `capabilities=` states the
+   required or optional capability, its instance and features. The loader adds
+   what the code shows, read without importing it: a `tasks.py` needs
+   `taskqueue`, a beat hook the feature `periodic`. A derived feature never
+   relaxes a declaration. `sandloom check` asks for the declaration
+   (SANDLOOM-C033), and the runtime check stays the last line of defence.
+4. **A module whose required capability cannot be served is refused at
+   startup** with one code, SANDLOOM-B037, for an explicitly selected optional
+   module as well (owner answer 5). It lists every unmet requirement with the
+   module, capability, instance, driver, features, the missing feature or
+   package, and the fix (the install hint, or another driver in `INFRA`). An
+   instance `INFRA` selects on an uninstalled driver is refused the same way.
+5. **An instance nobody uses is not built.** A synthesized `default` instance
+   that no requirement names is not built, opened or probed, and
+   `/diagnostics/infra` lists it as `unused`. The instances the kernel itself
+   uses (the database, the revocation and security cache, the event bus) stay
+   required, so dropping an unneeded probe never disables that requirement.
+6. **Readiness follows use.** `/ready` probes the taskqueue only for a module
+   that uses the queue while serving. A module that needs only `periodic` keeps
+   the web process ready during a broker outage, since the worker and beat run
+   that work, but a guarantee it needs must still be met: billing's reconciler
+   records its runs, and its health check fails when none completed within the
+   allowed interval. The `celery` driver's `health()` is a bounded connection to the
+   broker behind the existing health TTL, so the broker gets one
+   probe per interval. `Celery.health() == ok` alone is not the criterion.
+7. **The install matrix has real lanes.** The sixteen module subsets are booted
+   with stubbed probes (composition) and also with only the probe under test
+   replaced: Celery and Redis installed with real services, a driver missing
+   (clean venv on plain `sandloom`, and a blocked package), a broker nobody
+   listens on, and a taskqueue driver without `periodic`. Expected outcomes:
+   ready, or a SANDLOOM-B037 refusal naming the module, the capability and the
+   missing feature. Plain `sandloom` without redis-py boots a subset without
+   identity or billing, but is not ready: the kernel's own cache check fails and
+   names the package (strict production startup refuses it).
+
+### Consequences of the driver availability amendment
+
+- No module wheel and no module metadata depend on Celery or Redis. The
+  standard extras install them.
+- `DriverRegistration` gains `requires` and `install`; the `periodic` feature is
+  added to the `taskqueue` spec. Neither changes the Protocol a module reads or
+  the `sandloom.driverkit` baseline.
+- A deployment that loads billing without Celery, or identity without redis-py,
+  is refused at startup instead of reporting not ready later.
+- Not done, with the reasons in the owner decision: a dependency on Celery in a
+  module wheel, an automatic memory fallback for Redis (a separate dev and test
+  cache driver is KB-IC-5, refused in production), and a second worker system.
