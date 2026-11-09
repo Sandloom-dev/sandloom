@@ -5,14 +5,16 @@ in-process only by the module its first segment names, or by the module
 ``create_app(access_providers=...)`` assigns, checked by its real identity
 (owner confirmation X3): the loaded import path, not only the short name.
 Which names bear access is read from the consumer's side (the assignment's
-keys, the bound live adapters' contracts), never from a list in the kernel.
-Every other contract name keeps the first-registrant rule.
+keys, the contracts of the imported generated access checks), never from a
+list in the kernel. Every other contract name keeps the first-registrant rule.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import logging
-from collections.abc import Iterator
+import sys
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -21,6 +23,7 @@ import pytest
 from fastapi import FastAPI
 
 from sandloom.core.app_factory import access_providers as _access
+from sandloom.core.cli.generated import render_stub
 from sandloom.core.config.common import ConfigurationError
 from sandloom.core.error_codes import code_for_exception
 from sandloom.core.facade import CoreFacade
@@ -29,10 +32,13 @@ from sandloom.core.lifecycle import CriticalStartupError, run_startup
 from sandloom.core.module_api import contract_method
 from sandloom.core.module_api._registration import ModuleRegistrationConflict
 from sandloom.core.tests._entry_points_support import installed_entry_points
-from sandloom.shared.authz import live_contracts as _live
+from sandloom.sdk import contract
+from sandloom.shared.authz import Category, From, access_check
+from sandloom.shared.authz import contract_check as _contract_check
 
 LOG = logging.getLogger("test.access_providers")
 MEMBERSHIP = "tenancy.membership.v1"
+SEATS = "acme.seats.v1"
 
 
 class _Membership:
@@ -46,29 +52,27 @@ class _Membership:
 
 
 class _Seats:
-    """A provider of a contract only a custom adapter names."""
+    """A provider of a contract only a generated access check names."""
 
     @classmethod
     @contract_method
-    async def subscription_active(cls, tenant_type: str, tenant_id: UUID) -> bool:
+    async def has_seat(cls, account_type: str, account_id: UUID) -> bool:
         """Answer anything."""
         return True
 
 
-class _SeatsAdapter:
-    """A custom entitlements adapter asking ``acme.seats.v1``."""
+@contract(SEATS)
+class _SeatsContract:
+    """The declared contract a consumer's ``sandloom generate`` renders from."""
 
-    service = "acme.seats.v1"
-
-    async def subscription_active(
-        self, service: Any, *, tenant_type: str, tenant_id: UUID, ctx: Any
-    ) -> bool:
-        return bool(await service.subscription_active(tenant_type, tenant_id))
-
-    async def credit_balance(
-        self, service: Any, *, tenant_type: str, tenant_id: UUID, ctx: Any
-    ) -> int:
-        return 0
+    @access_check(
+        "HasSeat",
+        bind={"account_type": From.account_type(), "account_id": From.account_id()},
+        category=Category.PAYMENT_REQUIRED,
+    )
+    async def has_seat(self, account_type: str, account_id: UUID) -> bool:
+        """True while the account holds a seat."""
+        return True
 
 
 @pytest.fixture(autouse=True)
@@ -79,11 +83,29 @@ def _standard_entry_points() -> Iterator[None]:
         yield
 
 
-@pytest.fixture(autouse=True)
-def _default_adapters() -> Iterator[None]:
-    _live.reset_live_adapters()
-    yield
-    _live.reset_live_adapters()
+@pytest.fixture
+def seats_atoms(tmp_path: Path) -> Iterator[Callable[[], Any]]:
+    """Imports the consumer's generated ``HasSeat`` atom on call, as a
+    consumer's stub is imported: from then on ``acme.seats.v1`` bears access
+    (KB-13 source (c)). Nothing is left behind for the next test."""
+    imported: list[Any] = []
+
+    def load() -> Any:
+        path = tmp_path / "acme_seats_v1.py"
+        path.write_text(render_stub(SEATS, _SeatsContract))
+        spec = importlib.util.spec_from_file_location("_kb34a_acme_seats_v1", path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        imported.append(module)
+        return module.HasSeat
+
+    yield load
+    for module in imported:
+        sys.modules.pop(module.__name__, None)
+        _contract_check._GENERATED.discard(module.HasSeat)
+    assert SEATS not in _contract_check.generated_access_contracts()
 
 
 def _core(access_providers: dict[str, str] | None = None) -> CoreFacade:
@@ -142,12 +164,14 @@ def test_a_same_named_module_from_another_path_is_refused() -> None:
         _register(core, "myapp.modules.tenancy", MEMBERSHIP, _Membership)
 
 
-def test_an_app_module_of_the_first_segment_with_no_distribution_is_accepted() -> None:
+def test_an_app_module_of_the_first_segment_with_no_distribution_is_accepted(
+    seats_atoms: Callable[[], Any],
+) -> None:
     """A first segment no installed distribution names is the app's module."""
-    _live.register_live_adapter(_live.ENTITLEMENTS, _SeatsAdapter())
+    seats_atoms()
     core = _core()
-    _register(core, "myapp.modules.acme", "acme.seats.v1", _Seats)
-    assert core.contract_owner("acme.seats.v1") == "myapp.modules.acme"
+    _register(core, "myapp.modules.acme", SEATS, _Seats)
+    assert core.contract_owner(SEATS) == "myapp.modules.acme"
 
 
 def test_an_assignment_is_exclusive() -> None:
@@ -174,34 +198,40 @@ def test_an_entry_point_name_is_resolved_like_a_module_list() -> None:
 # ---------------------------------------------------- classification, generic
 
 
-def test_a_custom_adapter_makes_its_contract_access_bearing() -> None:
-    """No kernel edit: the bound adapter's ``service`` is read generically."""
-    _live.register_live_adapter(_live.ENTITLEMENTS, _SeatsAdapter())
+def test_a_generated_access_check_makes_its_contract_access_bearing(
+    seats_atoms: Callable[[], Any],
+) -> None:
+    """No kernel edit: the imported atom's contract is read generically."""
+    seats_atoms()
     core = _core()
     with pytest.raises(ForeignOwnerRegistration, match="'acme.seats.v1'"):
-        _register(core, "evil", "acme.seats.v1", _Seats)
-    _register(core, "acme", "acme.seats.v1", _Seats)
+        _register(core, "evil", SEATS, _Seats)
+    _register(core, "acme", SEATS, _Seats)
 
 
-def test_an_adapter_bound_after_the_registration_refuses_the_boot() -> None:
-    """The post-load sweep: a later module's adapter classifies an earlier
-    registration, and the boot is refused (B034)."""
+def test_an_access_check_imported_after_the_registration_refuses_the_boot(
+    seats_atoms: Callable[[], Any],
+) -> None:
+    """The post-load sweep: a later module's generated atom classifies an
+    earlier registration, and the boot is refused (B034)."""
     core = _core()
-    _register(core, "evil", "acme.seats.v1", _Seats)  # not access-bearing yet
-    _live.register_live_adapter(_live.ENTITLEMENTS, _SeatsAdapter())
+    _register(core, "evil", SEATS, _Seats)  # not access-bearing yet
+    seats_atoms()
     with pytest.raises(ConfigurationError, match="SANDLOOM-B034") as exc:
         _access.enforce_access_providers(core, log=LOG)
     assert "'evil'" in str(exc.value)
     assert "'acme.seats.v1'" in str(exc.value)
 
 
-async def test_an_adapter_bound_after_create_app_refuses_the_startup() -> None:
-    """The startup recheck: an adapter the root binds after the boot sweep
-    still classifies a registration before the app serves."""
+async def test_an_access_check_imported_after_create_app_refuses_the_startup(
+    seats_atoms: Callable[[], Any],
+) -> None:
+    """The startup recheck: a generated atom the root imports after the boot
+    sweep still classifies a registration before the app serves."""
     core = _core()
-    _register(core, "evil", "acme.seats.v1", _Seats)
+    _register(core, "evil", SEATS, _Seats)
     _access.enforce_access_providers(core, log=LOG)  # nothing to refuse yet
-    _live.register_live_adapter(_live.ENTITLEMENTS, _SeatsAdapter())
+    seats_atoms()
     with pytest.raises(CriticalStartupError) as exc:
         await run_startup(core)
     assert isinstance(exc.value.__cause__, ForeignOwnerRegistration)
@@ -216,7 +246,7 @@ def test_the_assignment_keys_are_access_bearing() -> None:
     _register(core, "acme_orgs", "acme.orgs.v1", _Membership)
 
 
-def test_with_every_adapter_reset_an_unlisted_contract_is_first_registrant() -> None:
+def test_an_unclassified_contract_is_first_registrant() -> None:
     """H-17: a contract nobody classifies keeps the first-registrant rule."""
     core = _core()
     _register(core, "evil", "notes.stats.v1", _Seats)

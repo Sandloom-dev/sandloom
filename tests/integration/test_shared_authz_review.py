@@ -4,7 +4,7 @@ Pure (no DB): three-valued logic through ``Not``/``And``/``Or``, live atoms
 resolving through ``core.get_service`` (incl. remote SERVICE_BINDINGS proxies),
 HTTP guards answering with the decision's status, ``AccessDenied`` as an
 ``HTTPException``, fact-cache keyed by mode, mandatory claim provenance,
-module-agnostic ``UserContext`` claims, pluggable live-contract adapters,
+module-agnostic ``UserContext`` claims,
 organization tenant resolution, lazy DB for claims-only policies, atomic access
 metrics and ``iat`` enforcement.
 """
@@ -30,7 +30,6 @@ from sandloom.core.http.error_handlers import register_error_handlers
 from sandloom.core.module_api._service_registry import ServiceUnavailableInDeployment
 from sandloom.core.testing.auth import mint_test_token
 from sandloom.shared.authz import (
-    ENTITLEMENTS,
     AccessDecision,
     AccessDenied,
     AccessFact,
@@ -50,12 +49,10 @@ from sandloom.shared.authz import (
     SubscriptionActive,
     WithinLimit,
     enforce,
-    register_live_adapter,
     require,
     resolve_fact,
 )
 from sandloom.shared.authz.context import AuthzContext
-from sandloom.shared.authz.live_contracts import reset_live_adapters
 from sandloom.shared.authz.metrics import increment
 from sandloom.shared.subject import UserContext
 
@@ -513,7 +510,7 @@ async def test_mapping_provenance_trusts_only_successful_sources() -> None:
 
 
 # --------------------------------------------------------------------------
-# 8. Module-agnostic UserContext + pluggable adapters + org tenant id
+# 8. Module-agnostic UserContext + org tenant id
 # --------------------------------------------------------------------------
 
 
@@ -546,62 +543,6 @@ async def test_claim_atoms_accept_custom_claim_key() -> None:
     assert await Subscribed(of=Account.user(), claim_key="shop_status").evaluate(
         _ctx(s)
     )
-
-
-async def test_registered_adapter_overrides_contract() -> None:
-    seen: list[str] = []
-
-    class _Adapter:
-        service = "shop.wallet.v1"
-
-        async def subscription_active(
-            self, service: Any, *, tenant_type: str, tenant_id: UUID, ctx: Any
-        ) -> bool:
-            return True
-
-        async def credit_balance(
-            self, service: Any, *, tenant_type: str, tenant_id: UUID, ctx: Any
-        ) -> int:
-            seen.append(service)
-            return 7
-
-    core = _StubCore(services={"shop.wallet.v1": "wallet-svc"})
-    try:
-        register_live_adapter(ENTITLEMENTS, _Adapter())
-        assert (
-            await Credits(5, of=Account.user()).decide(_ctx(_subject(), core=core))
-        ).allowed
-        assert seen == ["wallet-svc"]
-    finally:
-        reset_live_adapters()
-    with pytest.raises(TypeError):
-        register_live_adapter(ENTITLEMENTS, object())
-
-
-async def test_provider_side_live_adapter_registration_warns(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Adapters are consumer-side: a provider module registering one for its
-    own contract only affects ITS process — in a split the consumer silently
-    keeps the default. That must not pass unnoticed."""
-    from sandloom.shared.authz.live_contracts import DefaultEntitlementsAdapter
-
-    adapter = DefaultEntitlementsAdapter()  # service = billing.entitlements.v1
-    provider_globals = {
-        "__name__": "myapp.modules.billing",
-        "register_live_adapter": register_live_adapter,
-        "ENTITLEMENTS": ENTITLEMENTS,
-        "adapter": adapter,
-    }
-    consumer_globals = {**provider_globals, "__name__": "myapp.modules.shop"}
-    try:
-        with caplog.at_level("WARNING", logger="sandloom.access.live_contracts"):
-            exec("register_live_adapter(ENTITLEMENTS, adapter)", consumer_globals)  # noqa: S102 - literal code run under a chosen module name
-            assert not caplog.records
-            exec("register_live_adapter(ENTITLEMENTS, adapter)", provider_globals)  # noqa: S102 - literal code run under a chosen module name
-        assert any("consumer-side" in r.getMessage() for r in caplog.records)
-    finally:
-        reset_live_adapters()
 
 
 async def test_org_credits_use_org_from_path_never_user_id() -> None:
