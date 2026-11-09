@@ -327,7 +327,9 @@ def test_known_modules_name_an_import_path_by_its_module_name(
     monkeypatch.setattr(
         ms.metadata,
         "entry_points",
-        lambda: _EntryPoints(("billing", "sandloom_billing"), ("identity", "sandloom_identity")),
+        lambda: _EntryPoints(
+            ("billing", "sandloom_billing"), ("identity", "sandloom_identity")
+        ),
     )
     kernel = Settings.model_construct(
         sandloom_modules=["sandloom_billing", "app.modules.shop_eu", "identity"],
@@ -346,12 +348,16 @@ def test_an_identity_only_image_treats_a_billing_risk_as_inert_not_unknown(
     monkeypatch.setattr(
         ms.metadata,
         "entry_points",
-        lambda: _EntryPoints(("billing", "sandloom_billing"), ("identity", "sandloom_identity")),
+        lambda: _EntryPoints(
+            ("billing", "sandloom_billing"), ("identity", "sandloom_identity")
+        ),
     )
-    kernel = _kernel("prod", "billing.fake_psp_in_prod", "sandloom_billing.fake_psp_in_prod")
+    kernel = _kernel(
+        "prod", "billing.fake_psp_in_prod", "sandloom_billing.fake_psp_in_prod"
+    )
     kernel.sandloom_modules = ["sandloom_identity"]
     outcome = ms.post_load_check([], kernel, _snapshot(), loaded_modules=["identity"])
-    assert [r for r in outcome.risks.inert] == ["billing.fake_psp_in_prod"]
+    assert list(outcome.risks.inert) == ["billing.fake_psp_in_prod"]
     # the path is no namespace: it is refused as unknown, never accepted
     assert any("sandloom_billing" in p for p in outcome.risks.problems)
 
