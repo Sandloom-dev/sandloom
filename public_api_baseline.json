@@ -2872,6 +2872,7 @@
     "AccessFact": {
       "kind": "class",
       "members": [
+        "absent_claim",
         "atom",
         "atom_claim_keys",
         "atom_describe",
@@ -2889,7 +2890,7 @@
         "projection_reader",
         "to_wire"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None, atom:POSITIONAL_OR_KEYWORD|str | None=None, atom_statuses:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_claim_keys:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_describe:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None, atom:POSITIONAL_OR_KEYWORD|str | None=None, atom_statuses:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_claim_keys:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_describe:POSITIONAL_OR_KEYWORD|str | None=None, absent_claim:POSITIONAL_OR_KEYWORD|str='unknown') -> None"
     },
     "AccessUnknown": {
       "kind": "class",
@@ -6132,6 +6133,7 @@
     "AccessFact": {
       "kind": "class",
       "members": [
+        "absent_claim",
         "atom",
         "atom_claim_keys",
         "atom_describe",
@@ -6149,7 +6151,7 @@
         "projection_reader",
         "to_wire"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None, atom:POSITIONAL_OR_KEYWORD|str | None=None, atom_statuses:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_claim_keys:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_describe:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None, atom:POSITIONAL_OR_KEYWORD|str | None=None, atom_statuses:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_claim_keys:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_describe:POSITIONAL_OR_KEYWORD|str | None=None, absent_claim:POSITIONAL_OR_KEYWORD|str='unknown') -> None"
     },
     "AccessUnknown": {
       "kind": "class",

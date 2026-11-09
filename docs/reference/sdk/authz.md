@@ -333,6 +333,7 @@ class AccessFact(
     atom_statuses: tuple[str, ...] = (),
     atom_claim_keys: tuple[str, ...] = (),
     atom_describe: str | None = None,
+    absent_claim: str = 'unknown',
 ) -> None
 ```
 

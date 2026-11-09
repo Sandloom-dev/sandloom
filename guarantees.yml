@@ -1768,7 +1768,7 @@ guarantees:
     Account.user() escalates to no live check; with billing failed at the mint it is 503
     claim_authority_failed with zero I/O, on Subscribed() and Subscribed(statuses=...) alike, never an
     allow or a deny. Amended 2026-11-09 (KB-33h), provenance proves who ran, not that an absent claim
-    is a negative fact: the generated claim atom of an AccessFact reads its primary claim proven absent
+    is a negative fact; the generated claim atom of an AccessFact reads its primary claim proven absent
     (the trusted owner ran OK at the mint under the accepted claim policy and wrote none) as a deny only
     when the fact declares absent_claim="deny" (billing's subscription.active), else 501
     access_unknown.
@@ -2899,11 +2899,11 @@ guarantees:
     unvouched, another declared claim_key=, or not a string 501 access_unknown. ~Subscribed allows only on
     a proven deny; Not, Or and And never allow on an indeterminate. Never extended to features, limits or
     application claims. Amended 2026-11-09 (KB-33h, owner decision, absence is the fact owner's declared
-    semantics), a proven absence is a deny only where the fact declares it: AccessFact(absent_claim=
+    semantics), a proven absence is a deny only where the fact declares it in AccessFact(absent_claim=
     "unknown" | "deny"), default "unknown", carried in the generated atom's literal, the contract's
     describe document and the facts contract's descriptor, never inferred from a key or an owner name;
-    a literal or descriptor without the field means "unknown". "unknown": the authority ran OK at the
-    mint and wrote no claim is 501 access_unknown. "deny": the fact's definite deny with the fact's own
+    a literal or descriptor without the field means "unknown". With "unknown", the authority ran OK at the
+    mint and wrote no claim is 501 access_unknown. With "deny" it is the fact's definite deny with the fact's own
     category, only for its primary claim, and only when every condition above holds (else 401 / 503 /
     501). Billing's subscription.active declares "deny" (its 402 above); any other owner's fact that
     declares nothing stays 501, and Not over it never allows. A provider that withdraws "deny" is a
