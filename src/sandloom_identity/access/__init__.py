@@ -21,6 +21,7 @@ from sandloom.sdk.security import decode_token
 from sandloom.sdk.web import DbSession, authenticates, current_user_id
 from sandloom_identity.models import Role, UserRole
 from sandloom_identity.models.user import User
+from sandloom_identity.rbac import Roles
 from sandloom_identity.schemas.user import Principal
 from sandloom_identity.services import role_service
 from sandloom_identity.sessions import is_token_revoked
@@ -166,7 +167,7 @@ async def _user_has_admin_role(user_id: UUID, db: AsyncSession) -> bool:
     result = await db.execute(
         select(UserRole)
         .join(Role)
-        .where(UserRole.user_id == user_id, Role.code == "admin")
+        .where(UserRole.user_id == user_id, Role.code == Roles.ADMIN)
     )
     user_role = result.scalar_one_or_none()
     return user_role is not None
