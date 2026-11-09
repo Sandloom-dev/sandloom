@@ -26,7 +26,7 @@ Task: tm `kb-requirements`, amended by `kb-requirements-amend` (parent `kb-asses
 C-...) are entries of `guarantees.yml`; their tests are listed there and rendered in
 `docs/reference/guarantees.md`. D1-D4 (silent degradations), T1-T10 (trust decisions the
 application cannot make) and the probes S0-S7 / boot probe runs 1-3 are from
-[guarantee-map.md](guarantee-map.md) §11-12 and `_evidence/guarantee-map/`. Owner principles
+[guarantee-map.md](guarantee-map.md) §11-12 and `_archive/_evidence/guarantee-map/`. Owner principles
 are from [goals.md](goals.md).
 
 This file states what any solution must satisfy and how a later PoC passes or fails. It
@@ -171,7 +171,7 @@ code or artifacts (class c). The edges fall into five groups:
   explicit assignment today is remote: `SERVICE_BINDINGS`, `service_id`, `RPC_ALLOWED_CALLS`
   (guarantee-map §7).
 - `sandloom` + `sandloom-billing` as published fails to boot without celery, an optional
-  extra of the framework (baseline §13.2, `_evidence/consumer-install.txt`).
+  extra of the framework (baseline §13.2, `_archive/_evidence/consumer-install.txt`).
 - None of the existing guards sees groups 1-5 (baseline §9): `test_shared_purity.py` cannot
   see `sandloom_*`, `.importlinter` excludes them, `test_module_names.py:165` covers literals
   in four directories, the distribution check admits imports through the `standard` and
@@ -513,7 +513,7 @@ status order is 401 `token_policy_outdated`, then 503, then 501.
   - at `44451e4` the platform gates and `Role("admin")` allow `roles: ["admin"]` from any writer
     when `identity` ran without writing `roles` (it wrote only `permissions`, or `{}`, in either
     order): the gates check that `identity` ran, not that it wrote the key (gate probe G2-G4,
-    roadmap-review §2.2, `_evidence/roadmap-review/gate-probe.txt`; `shared/guards/platform.py:14-18`,
+    roadmap-review §2.2, `_archive/_evidence/roadmap-review/gate-probe.txt`; `shared/guards/platform.py:14-18`,
     `core/admin/api/platform.py:63-71`). The bundled identity always writes both keys
     (`sandloom_identity/claims.py:61-69`), so the standard deployment is not affected;
   - the two platform gates are separate code (B-S1, B-S2); no test asserts they decide alike.
