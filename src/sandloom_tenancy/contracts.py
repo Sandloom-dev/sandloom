@@ -90,6 +90,9 @@ class MembershipReadContract:
         values={"minimum": ["member", "admin", "owner"]},
         risk={"admin": {"minimum": ["admin", "owner"]}},
         describe="organization role '{minimum}'",
+        # Any role proves membership; tenant_kind asks with "member"
+        # (ADR-0014 decision 13).
+        witnesses_membership={"minimum": "member"},
     )
     async def has_role_at_least(
         self, organization_id: UUID, user_id: UUID, minimum: str

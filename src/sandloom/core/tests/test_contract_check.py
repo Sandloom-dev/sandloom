@@ -46,6 +46,7 @@ from sandloom.core.cli.generated import render_stub
 from sandloom.core.contract_wire import ContractTypeError
 from sandloom.core.contracts.compatibility import compare_contract
 from sandloom.core.di import bind_tenant
+from sandloom.core.facade._tenant_witness import TenantWitness
 from sandloom.core.module_api import contract_schema
 from sandloom.core.module_api._errors import ContractArgumentError
 from sandloom.core.module_api._service_registry import ServiceUnavailableInDeployment
@@ -165,6 +166,15 @@ class _Core:
         self.services = services
         self.facts = facts or {}
         self.owners: list[str] = []
+        # the assigned tenant authority's witness (ADR-0014 decision 13)
+        self.tenant_witness = TenantWitness(
+            MEMBERSHIP,
+            "has_role_at_least",
+            ("organization_id", "user_id", "minimum"),
+            "organization_id",
+            "user_id",
+            {"minimum": "member"},
+        )
 
     def get_service(self, name: str) -> Any:
         if name not in self.services:

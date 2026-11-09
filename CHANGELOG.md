@@ -15,6 +15,27 @@ website renders this same changelog.
 
 ### Breaking changes
 
+- **Tenant kind from the assigned tenant authority** (KB-31, KB-37, ADR-0014
+  decision 13, owner #7). `tenant_kind` (and so `Account.bound_tenant()`)
+  calls a tenant `organization` only when the membership witness of the
+  module the root assigned `tenant_ids` (`claim_authorities`) confirms the
+  caller's membership; the token's `tenant_ids` alone never does. The
+  witness is declared by the provider:
+  `@access_check(..., witnesses_membership={"minimum": "member"})` on a
+  boolean check binding one `From.org()` and one `From.subject_id()`
+  (tenancy's `has_role_at_least` declares it), read once at boot from the
+  composition's contract expectations. The membership live-adapter slot no
+  longer decides tenant kind. Without an assigned authority or a witness
+  the kind is `unknown`, `bound_tenant()` is indeterminate (403
+  `tenant_kind_unresolved`) and startup logs a WARNING naming each route
+  policy that uses it. **Upgrade:** a root that loads tenancy keeps working
+  (the standard map assigns it); a root without `claim_authorities`, or
+  with a replacement tenant authority, assigns `tenant_ids` and declares
+  the witness on the authority's contract, or states
+  `of=Account.org(...)` / `Account.user()`. An allowing witness check
+  (`OrgRole`) now records the membership for the request, so
+  `OrgRole("admin") & SubscriptionActive(of=Account.bound_tenant())` asks
+  2 calls instead of 3 (answer #23).
 - **A token issuer needs a critical claims contributor** (kb-proto-b035,
   ADR-0014 decision 7). The issuer fields (`email`, `email_verified`) have no
   other writer and no fallback, so the issuing process now refuses the boot
