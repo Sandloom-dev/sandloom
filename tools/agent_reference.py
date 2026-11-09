@@ -46,17 +46,16 @@ EXAMPLE_ANCHORS = (
     ("tests/architecture/kernel_edges.yml", "id: B-N20"),
     ("design/kernel-boundary/edges.yml", "id: B-N20"),
     ("src/sandloom/core/error_codes.py", '"SANDLOOM-T016"'),
-    (
-        "tools/packaging/public-source.json",
-        '"tests/architecture/test_docs_generated.py"',
-    ),
     ("public_api_baseline.json", '"ContractConformanceError"'),
 )
 
 REGISTRIES = """\
 ## 1. Registries (shared files: never open whole, never reorder others' lines)
 
-Add only your own lines (the orchestrator resolves conflicts); find neighbours with `grep -n`.
+Add only your own lines (the orchestrator resolves conflicts). Routine edits are commands; run
+`uv run python tools/agent_registry.py <command>` instead of opening the file:
+`classify <new files>` (public-source.json), `next-id SANDLOOM-C` (error code),
+`next-id G-AUTHZ --bump` (guarantee id, `issued:` raised), `edges-summary` (edges.yml `summary:`).
 
 **guarantees.yml** (page `docs/reference/guarantees.md` is generated)
 ```yaml
@@ -65,10 +64,9 @@ Add only your own lines (the orchestrator resolves conflicts); find neighbours w
   sources: [docs/modules/database/multi-tenancy.md]
   tests: [src/sandloom/core/tests/test_tenant_isolation.py::test_no_tenant_bound_fails_closed]
 ```
-Or `rules:` / `import_contracts:`; none -> `gap` + `gap_size` (S/M/L). A new id also bumps
-`issued:` (ids are never reused; `removed:` needs approved_by); new ADR heading: `adr_sections:`.
-Find: `grep -n 'id: G-TENANT' guarantees.yml`. Gate: `uv run python tools/checks/guarantees.py check`,
-then `... render` for the page.
+Or `rules:` / `import_contracts:`; none -> `gap` + `gap_size` (S/M/L). Id: `next-id G-<AREA> --bump`;
+`removed:` needs approved_by; new ADR heading: `adr_sections:`. Insert after the family's last id
+(`grep -n 'id: G-TENANT' guarantees.yml`). Gate: `uv run python tools/checks/guarantees.py check`, then `render`.
 
 **tests/architecture/kernel_edges.yml** (SANDLOOM-T017) and **design/kernel-boundary/edges.yml**
 (same ids and fields; `test_kernel_edges.py` compares them, and its `summary:` counts)
@@ -88,7 +86,8 @@ then `... render` for the page.
     anchors:
       - {path: sandloom/core/contract_cache_shadow.py, literal: tenancy.membership.v1}
 ```
-A PR that closes a row flips `current_status` in both. Find: `grep -n -A3 'id: B-S' <file>`. Check: `uv run python tests/architecture/kernel_edges.py --report --base origin/arch/kernel-boundary`.
+A PR that closes a row flips `current_status` in both, then `edges-summary`. Find: `grep -n -A3 'id: B-S' <file>`.
+Check: `uv run python tests/architecture/kernel_edges.py --report --base origin/arch/kernel-boundary`.
 
 **src/sandloom/core/error_codes.py** (`CATALOGUE`; page `docs/reference/error-codes.md` is generated)
 ```python
@@ -96,13 +95,11 @@ A PR that closes a row flips `current_status` in both. Find: `grep -n -A3 'id: B
         "<title>", "<fix, one line>", \"\"\"<explain>\"\"\",
         docs="docs/admin-console/add-your-module.md"),
 ```
-Not ordered by number: `grep -n '^        "SANDLOOM-T' src/sandloom/core/error_codes.py`, take the
-next free one. Then `uv run python tools/docs/docs_reference.py` (page), `uv run sandloom explain <code>`.
+Code: `next-id SANDLOOM-<K>`; place it in its kind's section (`grep -n '# ---' <file>`). Then `uv run python tools/docs/docs_reference.py` (page), `uv run sandloom explain <code>`.
 
-**tools/packaging/public-source.json** (every tracked file is classified): `include` =
-`[{"reason": ..., "paths": [exact paths]}]`, then `exclude_files` / `exclude_trees` (`{path: reason}`).
-Line: `"tests/architecture/test_docs_generated.py",`. Put a new file beside its siblings
-(`grep -n '"tests/architecture/test_d' <file>`); owner-local: `exclude_files`. Check: `python3 tools/packaging/export_repository.py --check`.
+**tools/packaging/public-source.json** (every tracked file is classified): `classify <paths>` puts each
+beside its nearest sibling; owner-local: `classify <paths> --exclude-file "<reason>"`. Check:
+`python3 tools/packaging/export_repository.py --check`.
 
 **public_api_baseline.json** (`{module: {name: {kind, members, signature}}}`, SANDLOOM-T008)
 ```json
