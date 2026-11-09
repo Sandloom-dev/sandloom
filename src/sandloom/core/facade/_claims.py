@@ -414,9 +414,12 @@ class _ClaimsMixin(_ServicesMixin):
         stamped in ``claims_sources`` exactly as if it had been, and any of the
         issuer's contributors NOT in the mapping still runs. It is accepted
         only with ``issuer`` + ``issuer_session``, only for the issuer's own
-        contributors and only with keys the composition assigns to the
-        issuer (SANDLOOM-R017 otherwise): a caller never supplies another
-        module's claims, or a key its issuer is not the authority of.
+        contributors, only with keys the composition assigns to the
+        issuer, and only when that module IS the map's token issuer
+        (``claim_authorities["issuer"]``: its short name and import path;
+        SANDLOOM-R017 otherwise): a caller never supplies another module's
+        claims, a key its issuer is not the authority of, or an authority's
+        own keys without its contributor running.
 
         A non-critical contributor that fails is logged and recorded in
         ``claims_sources_failed`` (so claim-mode facts escalate to
@@ -434,7 +437,9 @@ class _ClaimsMixin(_ServicesMixin):
         critical step of ``issuer`` through the same check: a key the
         composition does not assign to the issuer refuses the mint
         (:class:`ClaimsUnavailable`), so an issuer field is never minted
-        unchecked (no map: nothing is assigned). No call is added.
+        unchecked. Like ``precomputed`` they are accepted only from the
+        map's token issuer (SANDLOOM-R017; no map names none). No call is
+        added.
         """
         if issuer_session is not None and issuer is None:
             raise ValueError(

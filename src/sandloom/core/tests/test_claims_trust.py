@@ -995,3 +995,33 @@ def test_the_verifier_marker_covers_the_owners() -> None:
     renamed = {**base, "previous_owners": {"roles": "other"}}
     assert ClaimAuthorities(**renamed).marker != marker
     assert ClaimAuthorities(**base).marker == marker
+
+
+# --------------------------------------------------------------------------- #
+# The gate probe G2-G4 shape at the mint: the authority ran and omitted the
+# key, a non-authority contributor wrote it (ADR-0014 Context)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["roles", "permissions", "tenant_ids"])
+async def test_a_key_the_authority_omitted_is_never_a_foreign_writers(key: str) -> None:
+    """``acme.idp`` / ``acme.grants`` ran and wrote nothing for ``key``;
+    ``acme.rogue`` (optional) wrote it: the rogue loses its whole result,
+    the token carries no ``key`` and records the rogue as failed. Critical,
+    the rogue refuses the mint."""
+    core = _core()
+    _register(core, IDP, {}, critical=True)
+    _register(core, GRANTS, {}, critical=True)
+    _register(core, ROGUE, {key: ["admin"], "loyalty": 1})
+    claims = await _mint(core)
+    assert key not in claims and "loyalty" not in claims
+    assert claims["claims_sources_failed"] == ["rogue"]
+    assert {"idp", "grants"} <= set(claims["claims_sources"])
+    critical = _core()
+    _register(critical, IDP, {}, critical=True)
+    _register(critical, GRANTS, {}, critical=True)
+    _register(critical, ROGUE, {key: ["admin"]}, critical=True)
+    with pytest.raises(ClaimsUnavailable) as refused:
+        await _mint(critical)
+    assert refused.value.owner == "rogue"

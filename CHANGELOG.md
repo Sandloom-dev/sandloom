@@ -41,6 +41,22 @@ website renders this same changelog.
 
 ### Security
 
+- **The mint issuer binding; claim atoms honour the trusted view** (kb-rf-trust,
+  ADR-0014 amendment "W2+W3 review fixes"). `collect_claims(precomputed=...)`
+  and `collect_claims(issuer_claims=...)` are accepted only when the `issuer=`
+  contributor's module is the `claim_authorities` issuer (short name and import
+  path); another authority, a same-named module or a process whose map names
+  no issuer gets SANDLOOM-R017 (it was a 503 or, for an authority's own keys,
+  accepted). `Subscribed`, `Feature` and `WithinLimit` answer the view's 401
+  `token_policy_outdated` / 503 `claims_policy_mismatch` instead of a definite
+  deny; a split verifier reads "authority failed at the mint" from the
+  verifier's map (503, not a deny `~` inverts). An installed `previous=`
+  module must carry its own name (SANDLOOM-B035); the verified-token cache
+  marker covers the owner names. `TenantScope` no longer answers a
+  `tenant_ids` grant the view dropped from a token it had parsed before.
+  Upgrade: nothing for an issuer that is the map's; a module that passed
+  `precomputed` / `issuer_claims` without being the issuer stops doing so.
+
 - **Sealed mint, service tokens, test tokens** (KB-12, ADR-0014 decision 5,
   owner answer #13; SANDLOOM-R017). `collect_claims` returns a sealed,
   read-only result, the only carrier of a token's protected claims (`roles`,
