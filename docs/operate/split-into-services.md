@@ -174,10 +174,13 @@ fails CI on a breaking change: a removed method or parameter, a newly required
 parameter, an incompatible type, a changed kind or idempotency key. Additive changes
 pass.
 
-At runtime each caller compares every bound provider's live describe document with the
-snapshot in its own image. An incompatible provider fails `/ready` with a
+At runtime each caller compares every bound provider's live describe document with
+what it expects. That is the expectation its module ships beside the generated stub,
+else the snapshot in its own image. An incompatible provider fails `/ready` with a
 `contract_incompatible` diagnostic (`CONTRACT_COMPAT_CHECK=ready`, the default;
-`strict` also aborts startup; `off` disables the check). Ship additive changes
+`strict` also aborts startup; `off` disables the check). A required contract with no
+expectation fails `/ready` with `contract_unverified` (`strict` refuses startup), so
+an image without the provider's package is still checked. Ship additive changes
 provider-first. A breaking change is a new contract version (`.v2`).
 
 ## Proof

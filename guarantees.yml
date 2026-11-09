@@ -3492,15 +3492,24 @@ guarantees:
   gap_size: S
 - id: G-COMPAT-04
   statement: 'With CONTRACT_COMPAT_CHECK=ready (default) a caller compares every reachable remote-bound
-    provider''s live describe document with the provider module''s snapshot (found in its package without
-    importing it): an incompatible provider fails /ready with contract_incompatible, an additive one passes.'
+    provider''s live describe document with what it expects of it: the <stem>.describe.json its own module
+    ships beside the generated stub (narrowed to the methods its composed consumes lists), else
+    CONTRACT_SNAPSHOT_PATHS, else the provider module''s snapshot (found in its package without importing
+    it), so a consumer-only install is checked too: an incompatible provider fails /ready with
+    contract_incompatible, an additive one passes, in either upgrade order.'
   sources:
   - docs/modules/between/contracts.md
   - 'deploy/README.md#Rolling upgrades: contract compatibility'
+  - docs/adr/0013-contract-ownership.md#3. Expectation files and narrowing
   tests:
   - src/sandloom/core/tests/test_contract_compat.py::test_ready_fails_on_an_incompatible_provider
   - src/sandloom/core/tests/test_contract_compat.py::test_ready_passes_on_an_additive_provider
   - tests/integration/with_batteries/test_contract_compat_bundled_modules.py::test_expectation_is_found_in_the_provider_package_without_importing_it
+  - tests/integration/with_batteries/test_contract_compat_bundled_modules.py::test_a_bundled_consumer_is_held_to_its_own_expectation
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_consumer_only_install_is_checked_from_its_expectation
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_mixed_version_pair_consumer_only
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_the_expectation_beside_the_stub_wins
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_narrowed_to_the_composed_consumes
 - id: G-COMPAT-05
   statement: ContractRequirement(name, methods=(...)) narrows the compatibility check to the methods the
     consumer calls, so breaks in other methods do not fail /ready.
@@ -3526,9 +3535,28 @@ guarantees:
   - 'deploy/README.md#Rolling upgrades: contract compatibility'
   tests:
   - src/sandloom/core/tests/test_contract_compat.py::test_model_without_field_info_is_a_warning_not_an_error
-  gap: The startup log for a remote binding with no snapshot at all ("unchecked", CONTRACT_SNAPSHOT_PATHS
-    absent) is not asserted.
-  gap_size: S
+- id: G-COMPAT-08
+  statement: 'A required remote contract with no expectation (no copy beside the consumer''s stub, no
+    CONTRACT_SNAPSHOT_PATHS entry, no snapshot in the provider''s package), a consumer copy whose digest does
+    not verify, or a consumed method the copy does not describe is never a warning: CONTRACT_COMPAT_CHECK=strict
+    refuses startup before any probe (ContractUnverifiedError, naming the contract and the fix) and ready fails
+    /ready with contract_unverified; a binding no loaded module consumes needs one too, an optional consumer
+    needs none. <m>.claims.v1 and <m>.facts.v1 are held to the kernel''s own schema. The expectations are read
+    at startup only: /ready reads no file and a contract call sends the same requests as with the check off.'
+  sources:
+  - docs/adr/0013-contract-ownership.md#4. No expectation is never a warning
+  - 'deploy/README.md#Rolling upgrades: contract compatibility'
+  - docs/modules/between/contracts.md
+  tests:
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_no_expectation_refuses_strict_before_any_probe
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_no_expectation_fails_ready_with_contract_unverified
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_a_binding_nobody_consumes_needs_an_expectation_too
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_a_hand_edited_copy_counts_as_no_expectation
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_a_consumed_method_its_copy_does_not_describe_is_unverified
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_an_optional_consumer_needs_no_expectation
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_kernel_family_shapes_match_the_kernel_providers
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_a_remote_claims_contract_under_strict
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_expectations_are_read_at_startup_only
 - id: G-RPC-01
   statement: 'The request key K_req is HKDF-SHA256 over the X25519 agreement of caller and provider with
     a role-ordered, direction-labelled info naming both services and kids: both sides derive the same
@@ -7795,7 +7823,7 @@ issued:
   G-BILLING: 22
   G-BLOCK: 8
   G-CMD: 9
-  G-COMPAT: 7
+  G-COMPAT: 8
   G-CONFIG: 12
   G-CONTRACT: 23
   G-DECL: 7
@@ -8427,7 +8455,8 @@ adr_sections:
     - G-CONTRACT-20
     "3. Expectation files and narrowing":
     - G-CONTRACT-21
-    "4. No expectation is never a warning": planned
+    "4. No expectation is never a warning":
+    - G-COMPAT-08
     "5. Provider absent where `generate` runs":
     - G-CONTRACT-22
     "6. Determinism without the project formatter":

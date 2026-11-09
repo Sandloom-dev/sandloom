@@ -332,7 +332,7 @@ task whose period elapsed during the failover runs once on takeover.
 | --- | --- | --- |
 | `/health/simple` | process is up | k8s `livenessProbe` (recommended), compose healthcheck |
 | `/health` | **local** infra (db, cache, storage, event bus, named instances, module checks) | dependency diagnostics; do not use as liveness |
-| `/ready` | `/health` + required modules loaded + ≥ 1 module when any was requested + required consumers subscribed + required peers reachable + every reachable bound provider compatible with this release's contract snapshot | k8s `readinessProbe` |
+| `/ready` | `/health` + required modules loaded + ≥ 1 module when any was requested + required consumers subscribed + required peers reachable + every reachable bound provider compatible with what this release expects of it, and an expectation for every required remote contract | k8s `readinessProbe` |
 
 Remote peers (`SERVICE_BINDINGS`) are **never** part of `/health`: restarting
 a service cannot fix its peer, and probing peers there turned one stopped
@@ -427,16 +427,21 @@ versioned interfaces, not assumed to match:
   (default `--as consumer`, needs the internal token) compares this build's
   expectations with a RUNNING provider.
 - **Runtime.** With `CONTRACT_COMPAT_CHECK=ready` (default) a caller resolves
-  the expected shape of each remote-bound contract from the provider module's
-  snapshot in its own image (the single framework image carries every module;
-  an image built from the per-module wheels must set `CONTRACT_SNAPSHOT_PATHS`
-  — a binding without any snapshot is logged at startup as unchecked) and
-  compares it
-  with the provider's live describe document (`GET /_sandloom/rpc/<contract>`):
+  at startup what it expects of each remote-bound contract: first the
+  `<stem>.describe.json` its own module ships beside the generated stub
+  (`<module>/_generated/contracts/`, written by `sandloom generate` and
+  narrowed to the methods its `consumes` lists), then `CONTRACT_SNAPSHOT_PATHS`,
+  then the provider module's snapshot in its image. `<m>.claims.v1` and
+  `<m>.facts.v1` are held to the kernel's own schema. It compares each with
+  the provider's live describe document (`GET /_sandloom/rpc/<contract>`):
   an incompatible provider fails `/ready` with a `contract_incompatible`
-  diagnostic naming each break — for every binding with a snapshot, `required`
-  or not (an unreachable non-required peer still never fails `/ready`), and is
-  logged at startup. `strict` also aborts startup when a reachable provider is
+  diagnostic naming each break — for every bound contract, `required` or not
+  (an unreachable non-required peer still never fails `/ready`), and is
+  logged at startup. A required contract with no expectation at all (or a
+  hand-edited one) is never a warning: `/ready` fails with
+  `contract_unverified`, and `strict` refuses startup before any probe (fix:
+  run `sandloom generate` in the consumer, or declare the contract
+  `optional=True`). `strict` also aborts startup when a reachable provider is
   incompatible; `off` disables the check. A peer that publishes no field
   information (pre-snapshot releases) yields warnings (`contracts_unverified`),
   not failures. Narrow the check to what a module really calls with
