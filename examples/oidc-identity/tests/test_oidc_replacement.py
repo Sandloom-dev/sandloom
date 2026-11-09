@@ -396,11 +396,16 @@ def mono(infra: Infra) -> Topology:
     return Topology([Proc("mono", ALL, env)])
 
 
-def _battery_bindings() -> list[str]:
-    """Every contract the batteries provide (P1 calls them over RPC)."""
-    from sandloom.core.testing.boot import provided_contracts
-
-    return sorted(provided_contracts(BATTERIES))
+# Every contract tenancy and billing provide (P1 calls them over RPC), listed
+# as an app author writes SERVICE_BINDINGS.
+BATTERY_CONTRACTS = [
+    "billing.claims.v1",
+    "billing.credits.v1",
+    "billing.entitlements.v1",
+    "billing.facts.v1",
+    "tenancy.claims.v1",
+    "tenancy.membership.v1",
+]
 
 
 def split(infra: Infra) -> Topology:
@@ -416,7 +421,7 @@ def split(infra: Infra) -> Topology:
     p1 = Proc("p1", P1_MODULES, {})
     p2 = Proc("p2", P2_MODULES, {})
     target = {"base_url": p2.url, "service_id": "p2"}
-    bound: dict[str, dict[str, Any]] = dict.fromkeys(_battery_bindings(), target)
+    bound: dict[str, dict[str, Any]] = dict.fromkeys(BATTERY_CONTRACTS, target)
     # Billing's keys are fail-safe (ADR-0014 decision 7): a billing outage
     # still signs a user in, the subscription atoms escalate or deny.
     bound["billing.claims.v1"] = {**target, "critical": False}

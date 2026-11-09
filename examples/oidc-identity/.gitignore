@@ -20,3 +20,5 @@ test_data/
 .mypy_cache/
 .observed_effects.json
 .observed_effects.json.lock
+# `uv run` in the example writes this; no example tracks it
+uv.lock
