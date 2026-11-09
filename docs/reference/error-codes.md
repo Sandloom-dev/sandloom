@@ -113,6 +113,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-R014`](#sandloom-r014) | `services-unreachable` | runtime | a sandloom command cannot reach PostgreSQL or Redis | active |
 | [`SANDLOOM-R016`](#sandloom-r016) | `nested-writer-refused` | runtime | a second writer of the same task began on a database whose writers are serial (SQLite) while the task holds the write lock on another connection that is not one of its open units | active |
 | [`SANDLOOM-R015`](#sandloom-r015) | `sql-form-unsupported` | runtime | a portable SQL form the database cannot write | active |
+| [`SANDLOOM-R017`](#sandloom-r017) | `unsealed-claims` | runtime | a token mint received protected claims, provenance or the claim policy marker outside a sealed collect_claims result, a service token carried one, or collect_claims got an issuer or a precomputed contribution it cannot verify | active |
 | [`SANDLOOM-T001`](#sandloom-t001) | `route-snapshot` | test | a module's routes.snapshot.json does not match its routes | active |
 | [`SANDLOOM-T002`](#sandloom-t002) | `migration-chain` | test | a table or index is not created by its owning migration chain | active |
 | [`SANDLOOM-T004`](#sandloom-t004) | `contract-snapshot` | test | a module's contracts.snapshot.json does not match its contracts | active |
@@ -1770,6 +1771,40 @@ in-memory test database.
 **Fix:** run the module on a database whose renderer writes the form (PostgreSQL writes all of them), or add the form to the renderer
 
 **More:** `docs/infrastructure/database.md`
+
+### SANDLOOM-R017
+
+**a token mint received protected claims, provenance or the claim policy marker outside a sealed collect_claims result, a service token carried one, or collect_claims got an issuer or a precomputed contribution it cannot verify**
+
+Slug: `unsealed-claims` · kind: runtime · status: active
+
+**What happened and why it matters**
+
+Protected claims (roles, permissions, tenant_ids, email, email_verified, the
+access-granting billing claims and every key the composition root's
+claim_authorities assigns), the tenant selectors (tenant_id, org_id),
+claims_sources, claims_sources_failed, cpv and UserContext's structural
+fields reach a token only through the merge that checks each key against its
+assigned authority (ADR-0014 decision 5, owner answer #13). collect_claims
+returns that result sealed and read-only; a hand-assembled dict carrying any
+of them, a spread or copy of the sealed result, or a data key overriding one
+of its claims is refused at the mint.
+
+collect_claims takes the issuer as one of its own registered claims
+contributors (the module that registered it is the issuer, never a name), and
+precomputed only with the issuer and its session, for the issuer's own
+contributors, with keys claim_authorities assigns to the issuer.
+
+create_service_token is the limited path: it refuses every key above and
+stamps an empty provenance and the current cpv, so the token authenticates
+and every Role, Perm, platform and TenantScope gate denies it (403). The
+kernel test authority (as_user, mint_test_token, sealed_claims) exists only
+while the sandloom.sdk.testing plugin or the framework's test harness is
+active; anywhere else it refuses.
+
+**Fix:** mint a user token with create_access_token(data, claims=await core.collect_claims(user_id, issuer=&lt;your contributor>)), data holding only the envelope (sub, token_type, auth_time); a token with no user rights with create_service_token; a test token with as_user or mint_test_token (sandloom.sdk.testing)
+
+**More:** `docs/advanced/security-model.md`
 
 ## Test-harness and snapshot gates (`sandloom test`)
 

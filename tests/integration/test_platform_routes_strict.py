@@ -17,8 +17,9 @@ from uuid import uuid4
 import pytest
 from fastapi.routing import APIRoute
 
-from sandloom.core.auth import marks, tokens
+from sandloom.core.auth import marks
 from sandloom.core.guard_order import authenticator_kind, resolution_order
+from sandloom.core.testing.auth import mint_test_token
 from sandloom.core.testing.fixtures import *  # noqa: F403
 
 _PARAM = re.compile(r"\{([^}:]+)(?::[^}]*)?\}")
@@ -39,8 +40,8 @@ def _authenticated_routes(app: Any) -> list[tuple[str, str]]:
 
 
 def _token(sub: str) -> dict[str, str]:
-    token = tokens.create_access_token(
-        data={"sub": sub, "token_type": "access", "tenant_ids": [str(uuid4())]}
+    token = mint_test_token(
+        {"sub": sub, "token_type": "access", "tenant_ids": [str(uuid4())]}
     )
     return {"Authorization": f"Bearer {token}", "Idempotency-Key": f"k-{uuid4()}"}
 

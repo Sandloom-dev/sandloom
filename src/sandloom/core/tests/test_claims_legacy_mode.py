@@ -31,6 +31,7 @@ from sandloom.core.config.settings import settings
 from sandloom.core.facade import CoreFacade
 from sandloom.core.runtime import use_active_core
 from sandloom.core.testing import deploy_profile
+from sandloom.core.testing.auth import mint_test_token
 
 LIFETIME = settings.access_token_expire_minutes * 60
 LEEWAY = settings.jwt_leeway_seconds
@@ -97,13 +98,16 @@ def test_diagnostics_show_the_mode_and_count_each_acceptance() -> None:
     now = time.time()
     core = CoreFacade(app=FastAPI())
     core._assign_claim_authorities(_policy(now + 600))
-    token = tokens.create_access_token(
+    # A token of the release before ``cpv``: the test authority mints the
+    # stated provenance and no ``cpv``.
+    token = mint_test_token(
         {
             "sub": str(uuid4()),
             "token_type": "access",
             "roles": ["admin"],
             "claims_sources": ["identity"],
             "claims_sources_failed": [],
+            "cpv": None,
         }
     )
     tokens._verified_tokens.clear()

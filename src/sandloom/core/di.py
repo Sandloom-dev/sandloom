@@ -42,6 +42,7 @@ import sandloom.core.sql_alchemy.write_admission as _write_admission
 # tooling that need it import ``sandloom.core.unit_of_work`` directly).
 from sandloom.core import unit_of_work as _uow
 from sandloom.core.async_runner import run_async
+from sandloom.core.claims import SealedClaims
 from sandloom.core.config.settings import settings as _settings
 from sandloom.core.consumers.callbacks import EventEnvelope
 from sandloom.core.effects import RECORD_TTL_SECONDS
@@ -585,17 +586,39 @@ def create_access_token(
     data: dict[str, Any],
     expires_delta: int | None = None,
     claims_read_at: datetime | None = None,
+    claims: SealedClaims | None = None,
 ) -> str:
     """Create JWT access token via sandloom.core.auth (stable adapter).
 
+    ``claims``: the sealed result of ``collect_claims``, the only carrier of
+    protected claims, provenance and ``cpv``; ``data`` carries the envelope
+    (``sub``, ``token_type``, ``auth_time``) and unprotected keys, and a
+    protected key, provenance or ``cpv`` in it is refused (SANDLOOM-R017).
     ``claims_read_at``: when the token's claims were read; a revocation
     committed after it revokes the token (its revocation instant starts there).
     Import at call-time so test patches against security are honored.
     """
 
     return _tokens.create_access_token(
-        data=data, expires_delta=expires_delta, claims_read_at=claims_read_at
+        data=data,
+        expires_delta=expires_delta,
+        claims_read_at=claims_read_at,
+        claims=claims,
     )
+
+
+def create_service_token(
+    *,
+    data: dict[str, Any],
+    expires_delta: int | None = None,
+) -> str:
+    """A token that authenticates and grants no user rights (a service or a
+    test client): no protected claim, tenant selector, provenance or ``cpv``
+    in ``data`` (SANDLOOM-R017); every ``Role``, ``Perm``, platform and
+    ``TenantScope`` gate denies it with 403.
+    """
+
+    return _tokens.create_service_token(data=data, expires_delta=expires_delta)
 
 
 async def run_password_hashing(fn: Callable[..., _T], *args: Any) -> _T:
@@ -790,6 +813,7 @@ __all__ = [
     "authenticates",
     "authorizes",
     "create_access_token",
+    "create_service_token",
     "run_password_hashing",
     "password_hasher",
     "rehash_password_if_needed",
