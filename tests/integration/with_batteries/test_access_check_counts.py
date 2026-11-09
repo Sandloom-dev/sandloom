@@ -30,6 +30,14 @@ calls / 6 database round trips mono, 2 RPC / 6 provider round trips / 0
 consumer split (3 / 9 before answer #23: the tenant kind's membership call
 is saved by the allowing ``OrgRole``, the witness of the assigned tenant
 authority); ``Credits`` 1 / 4; the claims tier 0 / 0.
+
+ADR-0014 K5 (KB-35, Z-9 / C-F7): with ``tenancy.membership.v1`` bound to a
+provider no connection reaches, the generated ``OrgRole`` is indeterminate
+503 ``owner_unavailable``; ``OrgRole | SubscriptionActive`` allows only on the
+subscription, ``~OrgRole`` never allows, each atom asks its provider as often
+as before; the provider's allowlist refusal (``rpc_caller_forbidden``) stays
+an error. K6 (KB-36, Z-5 / C-B7): after the boot probe (one ``GET`` per
+remote binding) a first request makes no describe ``GET``.
 """
 
 from __future__ import annotations
@@ -59,6 +67,8 @@ from sandloom.core.contract_testing import rpc_settings
 from sandloom.core.di import bind_tenant
 from sandloom.core.facade import CoreFacade
 from sandloom.core.rpc import proxy as rpc_proxy
+from sandloom.core.rpc import readiness as rpc_readiness
+from sandloom.core.rpc.errors import RemoteServiceUnavailable
 from sandloom.core.testing.fixtures import *  # noqa: F403 - db_engine, real_uow_client
 from sandloom.shared.authz import Account, Not, Role
 from sandloom.shared.authz.context import AuthzContext
@@ -427,6 +437,10 @@ async def mono(
     yield sandloom_core
 
 
+#: The host of a binding whose provider is down (K5): every connection fails.
+DOWN_HOST = "down"
+
+
 @pytest_asyncio.fixture
 async def split(
     real_uow_client: Any,
@@ -437,8 +451,22 @@ async def split(
 ) -> AsyncIterator[CoreFacade]:
     """A consumer core bound to the standard app (the provider process)."""
     await _seed(db_engine)
+    async for consumer in _consumer(sandloom_app, meter, monkeypatch):
+        yield consumer
+
+
+async def _consumer(
+    sandloom_app: Any,
+    meter: Meter,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    allowed: tuple[str, ...] = CONTRACTS,
+    down: tuple[str, ...] = (),
+) -> AsyncIterator[CoreFacade]:
+    """The consumer core; ``allowed``: what the provider lets it call;
+    ``down``: contracts bound to a provider no connection reaches."""
     for name, value in rpc_settings(
-        PROVIDER, peers=(CONSUMER,), allowed_calls={CONSUMER: list(CONTRACTS)}
+        PROVIDER, peers=(CONSUMER,), allowed_calls={CONSUMER: list(allowed)}
     ).items():
         monkeypatch.setattr(settings, name, value)
     transport = httpx.ASGITransport(app=sandloom_app)
@@ -446,11 +474,15 @@ async def split(
 
     async def counted(request: httpx.Request) -> httpx.Response:
         meter.rpc.append(f"{request.method} {request.url.path}")
+        if request.url.host == DOWN_HOST:
+            raise httpx.ConnectError("connection refused", request=request)
         return await real(request)
 
     monkeypatch.setattr(transport, "handle_async_request", counted)
     client = httpx.AsyncClient(transport=transport, base_url="http://provider")
     monkeypatch.setattr(rpc_proxy, "_rpc_client", lambda: client)
+    monkeypatch.setattr(rpc_readiness, "_rpc_client", lambda: client)
+    monkeypatch.setattr(rpc_proxy, "_RPC_RETRY_DELAY_SECONDS", 0.0)
 
     from fastapi import FastAPI
 
@@ -459,7 +491,10 @@ async def split(
         update={
             **rpc_settings(CONSUMER, peers=(PROVIDER,)),
             "service_bindings": {
-                c: {"base_url": "http://provider", "service_id": PROVIDER}
+                c: {
+                    "base_url": f"http://{DOWN_HOST if c in down else 'provider'}",
+                    "service_id": PROVIDER,
+                }
                 for c in CONTRACTS
             },
         }
@@ -540,3 +575,140 @@ async def test_the_decisive_shape_asks_two_calls(
         "billing.entitlements.v1.check_subscription_active",
     ]
     assert sql == 6
+
+
+# --------------------------------------------------------------------------- #
+# K5 (Z-9, C-F7): tenancy down in a split, inside the algebra
+# --------------------------------------------------------------------------- #
+OUTAGE_CASES: dict[str, Case] = {
+    "orgrole": CASES["orgrole"],
+    "or_sub_user.admin": CASES["or_sub_user.admin"],
+    "or_sub_user.outsider": Case(
+        CASES["or_sub_user.admin"].policy, subject="outsider", path={"org_id": str(ORG)}
+    ),
+    "not_member.admin": CASES["not_member.admin"],
+}
+
+#: (allowed, status, code) with ``tenancy.membership.v1`` unreachable, and the
+#: provider calls asked (tenancy's attempted, billing's answered).
+OUTAGE_EXPECTED: dict[str, tuple[tuple[bool, int, str], list[str]]] = {
+    "orgrole": ((False, 503, "owner_unavailable"), ["membership"]),
+    # the subscription reliably allowed: the Or allows on it
+    "or_sub_user.admin": ((True, 200, "ok"), ["membership", "entitlements"]),
+    # no subscription: the broken branch decides, never an allow
+    "or_sub_user.outsider": (
+        (False, 503, "owner_unavailable"),
+        ["membership", "entitlements"],
+    ),
+    "not_member.admin": ((False, 503, "owner_unavailable"), ["membership"]),
+}
+
+
+@pytest_asyncio.fixture
+async def tenancy_down(
+    real_uow_client: Any,
+    sandloom_app: Any,
+    db_engine: Any,
+    meter: Meter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncIterator[CoreFacade]:
+    await _seed(db_engine)
+    async for consumer in _consumer(
+        sandloom_app, meter, monkeypatch, down=("tenancy.membership.v1",)
+    ):
+        yield consumer
+
+
+@pytest.mark.parametrize("name", sorted(OUTAGE_CASES))
+async def test_split_tenancy_down_is_indeterminate_503(
+    tenancy_down: CoreFacade, generated: Any, meter: Meter, name: str
+) -> None:
+    case = OUTAGE_CASES[name]
+    calls = _Calls(tenancy_down)
+    request: Any = _Req(case.path)
+    ctx = AuthzContext(_subject(case), request=request, core=calls)
+    meter.reset()
+    decision = await case.policy(generated).decide(ctx)
+    (allowed, status, code), asked = OUTAGE_EXPECTED[name]
+    assert (decision.allowed, decision.http_status, decision.code) == (
+        allowed,
+        status,
+        code,
+    )
+    assert decision.indeterminate is (not allowed)
+    # M-calls unchanged: each atom asks its provider once, as before K5
+    assert [c.split(".")[1] for c in calls.log] == asked
+    # the indeterminate branch is reported even where its sibling allowed
+    assert tenancy_down.get_metric("access_indeterminate_branch_total") == 1
+
+
+async def test_split_allowlist_refusal_stays_an_error(
+    real_uow_client: Any,
+    sandloom_app: Any,
+    db_engine: Any,
+    generated: Any,
+    meter: Meter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``rpc_caller_forbidden`` (the provider's RPC_ALLOWED_CALLS) is a broken
+    security invariant, not an outage: an error, the ``Or`` does not allow."""
+    await _seed(db_engine)
+    billing_only = ("billing.entitlements.v1", "billing.facts.v1")
+    async for consumer in _consumer(
+        sandloom_app, meter, monkeypatch, allowed=billing_only
+    ):
+        case = CASES["or_sub_user.admin"]
+        calls = _Calls(consumer)
+        request: Any = _Req(case.path)
+        ctx = AuthzContext(_subject(case), request=request, core=calls)
+        with pytest.raises(RemoteServiceUnavailable) as raised:
+            await case.policy(generated).decide(ctx)
+        assert raised.value.code == "rpc_caller_forbidden"
+        assert calls.log == ["tenancy.membership.v1.has_role_at_least"]
+        assert consumer.get_metric("access_indeterminate_branch_total") is None
+
+
+# --------------------------------------------------------------------------- #
+# K6 (Z-5, C-B7): no describe GET on a first request after the boot probe
+# --------------------------------------------------------------------------- #
+FIRST_REQUEST_CASES = ("orgrole_and_subactive", "or_sub_user.admin", "bound.decisive")
+
+
+async def _first_request(core: Any, kit: Any, name: str, meter: Meter) -> list[str]:
+    case = CASES[name]
+    request: Any = _Req(case.path)
+    ctx = AuthzContext(_subject(case), request=request, core=core)
+    meter.reset()
+    with ExitStack() as stack:
+        if case.bound is not None:
+            stack.enter_context(bind_tenant(case.bound))
+        assert (await case.policy(kit).decide(ctx)).allowed
+    return list(meter.rpc)
+
+
+@pytest.mark.parametrize("name", FIRST_REQUEST_CASES)
+async def test_without_the_boot_probe_a_first_request_describes(
+    split: CoreFacade, generated: Any, meter: Meter, name: str
+) -> None:
+    """The request-path describe K6 removes (what the next test compares to):
+    one ``GET`` per contract the first request calls."""
+    first = await _first_request(split, generated, name, meter)
+    posts = {r.split(" ")[1].rsplit("/", 1)[0] for r in first if r.startswith("POST ")}
+    assert sorted(r for r in first if r.startswith("GET ")) == sorted(
+        f"GET {p}" for p in posts
+    )
+
+
+@pytest.mark.parametrize("name", FIRST_REQUEST_CASES)
+async def test_the_boot_probe_seeds_every_binding_no_describe_on_request(
+    split: CoreFacade, generated: Any, meter: Meter, name: str
+) -> None:
+    meter.reset()
+    result = await rpc_readiness.describe_remote_bindings(split)
+    assert result.status == "ok"
+    # one GET per remote binding at boot, none of them with a known snapshot
+    assert sorted(meter.rpc) == sorted(f"GET /_sandloom/rpc/{c}" for c in CONTRACTS)
+    first = await _first_request(split, generated, name, meter)
+    assert not [r for r in first if r.startswith("GET ")]
+    calls, _sql = EXPECTED[name]
+    assert len(first) == calls  # only the access checks' POSTs

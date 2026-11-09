@@ -2657,6 +2657,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tenant_type",
@@ -2716,6 +2717,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -2732,6 +2734,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -2748,6 +2751,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tenant_type",
@@ -2766,6 +2770,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tenant_type",
@@ -2975,6 +2980,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -3013,6 +3019,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -3042,6 +3049,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -3059,6 +3067,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tenant_type",
@@ -3079,6 +3088,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -3131,6 +3141,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_fact",
         "org_params",
         "risks",
@@ -3180,6 +3191,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -3196,6 +3208,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -3213,6 +3226,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -3229,6 +3243,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -3245,6 +3260,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -3285,6 +3301,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -3301,6 +3318,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -3338,6 +3356,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tenant_type",
@@ -3356,6 +3375,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tenant_type",
@@ -3383,6 +3403,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_fact",
         "org_params",
         "risks",
@@ -6351,6 +6372,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -6389,6 +6411,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -6418,6 +6441,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -6435,6 +6459,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tenant_type",
@@ -6455,6 +6480,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -6507,6 +6533,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_fact",
         "org_params",
         "risks",
@@ -6544,6 +6571,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -6560,6 +6588,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -6577,6 +6606,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -6593,6 +6623,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -6609,6 +6640,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -6649,6 +6681,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -6665,6 +6698,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -6702,6 +6736,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tenant_type",
@@ -6720,6 +6755,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tenant_type",
@@ -6747,6 +6783,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_fact",
         "org_params",
         "risks",
