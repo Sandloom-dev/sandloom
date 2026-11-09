@@ -3035,6 +3035,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -6446,6 +6447,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"

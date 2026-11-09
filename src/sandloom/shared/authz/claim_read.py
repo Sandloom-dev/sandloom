@@ -216,6 +216,11 @@ class ClaimReadCheck(Requirement):
     def risks(self) -> frozenset[str]:
         return self._live.risks()
 
+    def needs_request_session(self) -> bool:
+        # The claim is read from the token; the live check runs in the
+        # provider's own unit: require() opens no session for it (K6).
+        return self._live.needs_request_session()
+
     def describe(self) -> str:
         return self._label
 

@@ -44,6 +44,7 @@ from sandloom.core.contracts.compatibility import compare_contract
 from sandloom.core.facade import CoreFacade
 from sandloom.core.module_api import contract_schema
 from sandloom.core.module_api._service_registry import ServiceUnavailableInDeployment
+from sandloom.core.rpc.errors import RemoteServiceUnavailable
 from sandloom.sdk import contract
 from sandloom.shared.authz import (
     AccessFact,
@@ -501,6 +502,50 @@ async def test_without_a_provider_the_organization_path_is_501(gen: Any) -> None
             assert not decision.allowed
             assert decision.indeterminate and decision.http_status == 501
             assert decision.code == "service_unavailable"
+
+
+class _DownProvider:
+    """A bound provider that is down (K5): every call fails over RPC."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def has_feature(self, *_args: Any) -> bool:
+        self.calls += 1
+        raise RemoteServiceUnavailable(
+            PLANS_CONTRACT, reason="unreachable", code="remote_service_unavailable"
+        )
+
+
+async def test_a_provider_down_is_503_and_never_allows(gen: Any) -> None:
+    """The organization path inherits K5: indeterminate 503, ``Not`` never
+    allows, ``Or`` still allows on a genuine allow; the claims path never
+    asks the provider at all."""
+    org = uuid4()
+    down = _DownProvider()
+    subject = _subject(tenant_ids=[str(org)], **CLAIMS)
+    ctx = AuthzContext(subject, request=_req(org), core=_Core(down, facts=False))
+    atom = gen.Feature("export", of=Account.org())
+    for policy in (atom, Not(atom)):
+        decision = await policy.decide(ctx)
+        assert not decision.allowed
+        assert decision.indeterminate and decision.http_status == 503
+    assert (
+        await Or(atom, gen.Feature("export", of=Account.user())).decide(ctx)
+    ).allowed
+    assert down.calls == 2  # the Or decided on its cheaper, claims branch
+
+
+async def test_no_request_session_is_opened(gen: Any) -> None:
+    """K6: the claim is in the token and the live check runs in the
+    provider's unit, so ``require()`` opens no session for either."""
+    for atom in (
+        gen.Feature("export", of=Account.user()),
+        gen.WithinLimit("seats", 1, of=Account.org()),
+        gen.Feature("export", of=Account.bound_tenant()),
+    ):
+        for policy in (atom, Not(atom), atom & Role("admin")):
+            assert not policy.needs_request_session(), policy.describe()
 
 
 # --------------------------------------------------------------------------- #

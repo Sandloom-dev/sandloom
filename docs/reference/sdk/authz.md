@@ -1011,6 +1011,21 @@ The framework risks a gate enforcing this requirement carries
 (ADR-0009 item 6): `{"admin"}` for an admin role, else none. An
 `Or` carries its branches' risks; a `Not` grants no authority.
 
+#### `ClaimReadCheck.needs_request_session`
+
+```python
+def needs_request_session(self) -> bool
+```
+
+True when evaluating this requirement may use the request's
+database session (`ctx.db`): a resource loader, a fact read from a
+local projection, a live adapter.
+
+`require()` opens a session (`get_db`) only for a policy that
+answers True (ADR-0014 K6). Default: any tier above claims. A
+contract-anchored check says False: its provider runs the call in its
+own unit, never in the caller's session.
+
 #### `ClaimReadCheck.describe`
 
 ```python
