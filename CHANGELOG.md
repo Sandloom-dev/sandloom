@@ -36,6 +36,16 @@ website renders this same changelog.
   (`OrgRole`) now records the membership for the request, so
   `OrgRole("admin") & SubscriptionActive(of=Account.bound_tenant())` asks
   2 calls instead of 3 (answer #23).
+- **The membership witness is part of the contract** (KB-31b, ADR-0014
+  decision 13). A route policy stating `Account.bound_tenant()` now adds the
+  assigned tenant authority's witness contract to its module's `consumes`
+  (optional, the witness method only; derived at boot, so
+  `module.snapshot.json`, the consumer copy and `sandloom add deploy` see it).
+  The generated atom literal carries `witnesses_membership`; the contract
+  schema refuses an unusable witness at registration (not first at boot); and
+  removing a witness or changing its values is an incompatible change
+  (SANDLOOM-T004). **Upgrade:** run `sandloom generate`; a provider that drops
+  or changes its witness ships a new contract version.
 - **A token issuer needs a critical claims contributor** (kb-proto-b035,
   ADR-0014 decision 7). The issuer fields (`email`, `email_verified`) have no
   other writer and no fallback, so the issuing process now refuses the boot

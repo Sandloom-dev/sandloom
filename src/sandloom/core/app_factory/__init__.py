@@ -18,8 +18,10 @@ import sandloom.core.admin.api.platform as _platform
 import sandloom.core.app_factory.access_providers as _access_providers
 import sandloom.core.app_factory.claim_authorities as _claim_authorities
 import sandloom.core.app_factory.revocation_applier as _applier
+import sandloom.core.app_factory.tenant_witness as _witness_consumes
 import sandloom.core.consumers.runtime as _runtime
 import sandloom.core.drivers.system_db as _system_db
+import sandloom.core.facade._tenant_witness as _tenant_witness
 import sandloom.core.guard_order as _guard_order
 import sandloom.core.http.route_index as _route_index
 import sandloom.core.http.route_runtime as _route_runtime
@@ -266,6 +268,16 @@ def create_app(
         leeway_seconds=settings.jwt_leeway_seconds,
         booted_root=settings.sandloom_composition_root,
     )
+    # ADR-0014 decision 13: a route policy stating Account.bound_tenant()
+    # consumes the assigned tenant authority's witness (boot only, no I/O).
+    if _witness_consumes.add_witness_consumes(
+        core_facade,
+        module_summary,
+        core_facade.tenant_witness,
+        _tenant_witness.bound_tenant_routes(application),
+        log=main_logger,
+    ):
+        application.state.app_manifest = AppManifest.from_summary(module_summary)
     # Sagas (ADR-0008): check every registered definition against its
     # contracts, install the advance consumers and the timer sweep.
     saga_runtime = install_sagas(

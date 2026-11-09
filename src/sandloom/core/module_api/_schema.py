@@ -342,6 +342,8 @@ def _access_check_problems(
         for param in params
         if param.name not in binds and param.kind is param.POSITIONAL_ONLY
     )
+    if "witnesses_membership" in access:
+        _witness_problems(where, access, own, problems)
     claim = access.get("claim")
     if isinstance(claim, Mapping) and "read" in claim:
         # A claim atom over a mapping claim (claim_atom): its entry and its
@@ -353,3 +355,47 @@ def _access_check_problems(
             if claim.get(field) is not None and claim[field] not in own
         )
     return len(problems) == found
+
+
+def _witness_problems(
+    where: str, access: Mapping[str, Any], own: set[str], problems: list[str]
+) -> None:
+    """A membership witness (ADR-0014 decision 13) binds one organization and
+    one subject, nothing else, and gives a declared JSON scalar for each of
+    its own parameters: the call the kernel makes to ask about membership
+    alone. Checked here, at registration and by ``sandloom generate``, not
+    first at boot."""
+    witness = access.get("witnesses_membership")
+    if not isinstance(witness, Mapping):
+        problems.append(f"{where}: witnesses_membership is not a mapping")
+        return
+    kinds = sorted(
+        str(source[0]) if isinstance(source, list) and source else "?"
+        for source in (access.get("bind") or {}).values()
+    )
+    if kinds != ["org", "subject"]:
+        problems.append(
+            f"{where}: a membership witness binds exactly one From.org() and one "
+            f"From.subject_id(), not {', '.join(kinds) or 'nothing'}"
+        )
+    given = {str(k) for k in witness}
+    problems.extend(
+        f"{where}: witnesses_membership names {arg!r}, not an unbound parameter"
+        for arg in sorted(given - own)
+    )
+    problems.extend(
+        f"{where}: witnesses_membership gives no value for {arg!r}"
+        for arg in sorted(own - given)
+    )
+    allowed = access.get("values") or {}
+    for arg, value in sorted(witness.items(), key=lambda item: str(item[0])):
+        if type(value) not in (str, int, bool):
+            problems.append(
+                f"{where}: witnesses_membership[{arg!r}] is {value!r}, not a JSON "
+                "scalar"
+            )
+        elif arg in allowed and value not in allowed[arg]:
+            problems.append(
+                f"{where}: witnesses_membership[{arg!r}] = {value!r} is not "
+                "among its declared values"
+            )

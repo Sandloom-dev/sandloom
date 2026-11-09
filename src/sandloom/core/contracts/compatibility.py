@@ -466,8 +466,9 @@ def _index_of(params: list[Mapping[str, Any]], name: str) -> int:
 def _compare_access_check(where: str, exp: Any, act: Any, report: CompatReport) -> None:
     """An access check (ADR-0014 decision 10) consumers were generated
     against may be added, relabelled or widened, never removed, re-bound,
-    given another denial category, narrowed in its values or lowered in risk:
-    a lowered risk would let a gate drop its ``admin`` step-up silently."""
+    given another denial category, narrowed in its values, lowered in risk or
+    stripped of its membership witness: a lowered risk would let a gate drop
+    its ``admin`` step-up silently."""
     if not isinstance(exp, Mapping):
         return
     label = f"{where}: access check {exp.get('name')!r}"
@@ -480,6 +481,24 @@ def _compare_access_check(where: str, exp: Any, act: Any, report: CompatReport) 
     _narrowed(label, "values", exp.get("values"), act.get("values"), report)
     _risk_lowered(label, exp.get("risk") or {}, act.get("risk") or {}, report)
     _claim_changed(label, exp.get("claim"), act.get("claim"), report)
+    _witness_changed(label, exp, act, report)
+
+
+def _witness_changed(
+    label: str, exp: Mapping[str, Any], act: Mapping[str, Any], report: CompatReport
+) -> None:
+    """A membership witness consumers were generated against (ADR-0014
+    decision 13) is never removed, and the values that ask about membership
+    alone never change: another value (``"admin"`` for ``"member"``) narrows
+    who counts as a member, so an organization tenant would read
+    ``unknown``. Adding a witness is compatible."""
+    key = "witnesses_membership"
+    if key not in exp:
+        return
+    if key not in act:
+        report.errors.append(f"{label}: membership witness removed")
+    elif exp.get(key) != act.get(key):
+        report.errors.append(f"{label}: membership witness values changed")
 
 
 def _risk_lowered(

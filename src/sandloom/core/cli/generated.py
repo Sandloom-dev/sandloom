@@ -368,6 +368,10 @@ def atom_literal(contract: str, method: str, runtime: Any) -> dict[str, Any]:
     for key in ("values", "risk", "describe"):
         if spec.get(key):
             literal[key] = spec[key]
+    if isinstance(spec.get("witnesses_membership"), Mapping):
+        # The membership witness (ADR-0014 decision 13); ``{}`` is a witness
+        # with no own parameter, so presence decides, not truthiness.
+        literal["witnesses_membership"] = dict(spec["witnesses_membership"])
     return literal
 
 

@@ -18,7 +18,10 @@ at import, never on a request. A contract counts when the authority owns it
 (its first segment is the authority's name) or the root assigned it to the
 authority (``access_providers``). No witness, or two different ones: none
 is used, the kind stays ``unknown`` and a route policy using
-``Account.bound_tenant()`` is reported at startup (H-19).
+``Account.bound_tenant()`` is reported at startup (H-19). With a witness, a
+module whose route policy uses ``Account.bound_tenant()`` consumes the
+witness contract (``sandloom.core.app_factory.tenant_witness``), so
+``sandloom generate`` writes its copy and a split deployment binds it.
 """
 
 from __future__ import annotations
@@ -233,26 +236,38 @@ def _uses_bound_tenant(policy: Any, seen: set[int] | None = None) -> bool:
     return any(_uses_bound_tenant(child, seen) for child in children)
 
 
-def bound_tenant_policies(app: Any) -> list[tuple[str, str]]:
-    """``(route, policy)`` of every route whose policy uses
-    ``Account.bound_tenant()`` (startup only)."""
-    out: list[tuple[str, str]] = []
-    seen: set[int] = set()
+def bound_tenant_routes(app: Any) -> list[tuple[Any, str]]:
+    """``(route, policy)`` of every route of ``app`` whose policy uses
+    ``Account.bound_tenant()``, one entry per route and policy (startup and
+    ``sandloom generate`` only: a walk over the routes, no I/O)."""
+    out: list[tuple[Any, str]] = []
+    uses: dict[int, bool] = {}
 
-    def visit(dependant: Any, route: str) -> None:
+    def visit(dependant: Any, route: Any, seen: set[int]) -> None:
         for sub in getattr(dependant, "dependencies", None) or ():
             policy = getattr(getattr(sub, "call", None), "__sandloom_policy__", None)
             if policy is not None and id(policy) not in seen:
                 seen.add(id(policy))
-                if _uses_bound_tenant(policy):
+                if id(policy) not in uses:
+                    uses[id(policy)] = _uses_bound_tenant(policy)
+                if uses[id(policy)]:
                     describe = getattr(policy, "describe", None)
                     label = describe() if callable(describe) else repr(policy)
                     out.append((route, str(label)))
-            visit(sub, route)
+            visit(sub, route, seen)
 
     for route in getattr(app, "routes", None) or ():
+        visit(getattr(route, "dependant", None), route, set())
+    return out
+
+
+def bound_tenant_policies(app: Any) -> list[tuple[str, str]]:
+    """``(route, policy)`` of every route whose policy uses
+    ``Account.bound_tenant()`` (startup only), the route as ``METHODS path``."""
+    out: list[tuple[str, str]] = []
+    for route, label in bound_tenant_routes(app):
         methods = ",".join(sorted(getattr(route, "methods", None) or ()))
-        visit(getattr(route, "dependant", None), f"{methods} {route.path}".strip())
+        out.append((f"{methods} {route.path}".strip(), label))
     return out
 
 
@@ -288,6 +303,7 @@ __all__ = [
     "TenantWitness",
     "authority_contracts",
     "bound_tenant_policies",
+    "bound_tenant_routes",
     "report",
     "resolve_tenant_witness",
     "witness_from_describe",
