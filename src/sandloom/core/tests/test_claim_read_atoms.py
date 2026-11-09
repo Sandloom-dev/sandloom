@@ -2,17 +2,18 @@
 
 ``Feature`` and ``WithinLimit`` move out of the kernel as generated atoms of
 their owner's access checks. A third-party provider (``planco.plans.v1``, no
-battery involved) declares both exactly as billing does; the atoms
-``sandloom generate``'s renderer writes beside the stub are compared with the
-kernel atoms they replace. Pinned here:
+battery involved) declares both exactly as billing does; the decisions of
+the atoms ``sandloom generate``'s renderer writes beside the stub are pinned
+as written-out expectations (the kernel atoms' decisions wherever a source
+speaks, KB-34b; no kernel atom is evaluated). Pinned here:
 
 * generation: the declaration is in the describe document, the atoms are
   rendered in their final layout with the kernel atoms' signatures
   (``Feature(key, *, of, claim_key)``, ``WithinLimit(key, used, *, of,
   claim_key)``), a malformed declaration is refused;
-* ``Account.user()``: decisions equal to the kernel atoms' wherever a source
-  speaks (present, an authority that failed at the mint 503, the view's 401 /
-  503), under ``Not`` and ``Or`` too, with zero calls and no contract named;
+* ``Account.user()``: the pinned decision of every atom on every subject
+  (present, an authority that failed at the mint 503, the view's 401 / 503),
+  under ``Not`` and ``Or`` too, with zero calls and no contract named;
 * ``Account.user()`` three-valued from the token (KB-33d, G-AUTHZ-12 as
   amended, the owner's table): a present map is the complete snapshot (an
   explicit on allows, an explicit off or an unlisted entry denies); the
@@ -21,9 +22,8 @@ kernel atoms they replace. Pinned here:
   ``Not`` allowed); a failed authority 503; never an allow under ``Not``,
   ``Or`` or ``And``, and nothing asked;
 * an organization account: the provider's live check asked once with the
-  atom's parameters, decisions equal to the kernel atoms on a test producer
-  (the owner's organization fact asking the same provider), the same calls;
-  no provider is 501 and ``Not`` never allows;
+  atom's parameters, the pinned decisions and calls; no provider is 501 and
+  ``Not`` never allows;
 * no source for the answer (KB-33c, C-B5): a provider raising
   ``AccessUnknown`` is indeterminate 501 ``access_unknown``; ``Not`` and an
   ``Or`` of such branches never allow;
@@ -47,7 +47,6 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import FastAPI
 
-import sandloom.shared.authz as kernel
 from sandloom.core.app_factory.claim_authorities import build_claim_authorities
 from sandloom.core.auth import claims_view as view
 from sandloom.core.cli import dto_copies as _dto_copies
@@ -66,7 +65,6 @@ from sandloom.core.rpc.errors import RemoteServiceUnavailable
 from sandloom.core.testing import InMemoryCache
 from sandloom.sdk import contract
 from sandloom.shared.authz import (
-    AccessFact,
     AccessUnknown,
     Account,
     Category,
@@ -177,12 +175,28 @@ async def test_the_atoms_are_generated_in_their_final_layout(tmp_path: Path) -> 
 
 
 async def test_the_signatures_are_the_kernel_atoms(gen: Any) -> None:
-    for name in ("Feature", "WithinLimit"):
+    """The kernel atoms' signatures, written out: a call site keeps working
+    when it imports the generated atom instead."""
+    positional = inspect.Parameter.POSITIONAL_OR_KEYWORD
+    keyword = inspect.Parameter.KEYWORD_ONLY
+    expected = {
+        "Feature": [
+            ("self", positional),
+            ("key", positional),
+            ("of", keyword),
+            ("claim_key", keyword),
+        ],
+        "WithinLimit": [
+            ("self", positional),
+            ("key", positional),
+            ("used", positional),
+            ("of", keyword),
+            ("claim_key", keyword),
+        ],
+    }
+    for name, params in expected.items():
         mine = inspect.signature(getattr(gen, name).__init__).parameters
-        theirs = inspect.signature(getattr(kernel, name).__init__).parameters
-        assert list(mine) == list(theirs)
-        for pname, param in mine.items():
-            assert param.kind is theirs[pname].kind, (name, pname)
+        assert [(p, v.kind) for p, v in mine.items()] == params, name
 
 
 async def test_a_malformed_declaration_is_refused() -> None:
@@ -219,7 +233,7 @@ async def test_a_malformed_declaration_is_refused() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Account.user(): the claims, zero I/O, the kernel atoms' decisions
+# Account.user(): the claims, zero I/O, the pinned decisions
 # --------------------------------------------------------------------------- #
 class _Provider:
     """A recording provider of planco.plans.v1 (the test producer): what
@@ -329,33 +343,94 @@ def _key(decision: Any) -> tuple[Any, ...]:
     )
 
 
-#: Where the generated atom departs from the kernel atom (KB-33d, the owner's
-#: decision of 2026-11-09, G-AUTHZ-12 as amended): the kernel atom denies on
-#: no source, so ``Not`` allows; the generated atom answers 501
-#: ``access_unknown``. The subjects whose claims are absent with no failed
-#: authority to blame, or malformed.
-UNKNOWN_SUBJECTS = frozenset(
-    {"absent.ran", "absent.failed.unassigned", "absent.legacy", "malformed"}
-)
-#: Entries of the wrong type in :data:`CLAIMS` (a flag ``1``, a limit
-#: ``"3"`` or ``True``): malformed, 501 ``access_unknown`` when read.
-UNKNOWN_ATOMS = frozenset({"feature.truthy", "limit.text", "limit.bool"})
+#: The pinned decisions (KB-34b: written out, no kernel atom evaluated). An
+#: outcome is ``"allow"``, ``"deny"`` (definite) or the indeterminate
+#: ``(status, code)``. Wherever a source speaks they are the kernel atoms'
+#: decisions; where none does (KB-33d, the owner's decision of 2026-11-09,
+#: G-AUTHZ-12 as amended) the kernel atom denied, so ``Not`` allowed, and the
+#: generated atom answers 501 ``access_unknown``.
+UNKNOWN = (501, "access_unknown")
+AUTHORITY_FAILED = (503, "claim_authority_failed")
+#: A present map (:data:`CLAIMS`) is the complete snapshot, whatever else
+#: failed and with or without provenance: an entry of the wrong type (a flag
+#: ``1``, a limit ``"3"`` or ``True``) is malformed, 501.
+PRESENT_OUTCOMES: dict[str, Any] = {
+    "feature.on": "allow",
+    "feature.off": "deny",
+    "feature.truthy": UNKNOWN,
+    "feature.missing": "deny",
+    "limit.below": "allow",
+    "limit.equal": "deny",
+    "limit.text": UNKNOWN,
+    "limit.bool": UNKNOWN,
+    "limit.zero": "allow",
+    "limit.missing": "deny",
+}
+#: Subjects every atom answers alike: an empty map denies every entry; a
+#: claim absent with no failed authority to blame (or malformed) is 501; an
+#: absent claim whose authority failed (or may have, with no map) is 503.
+UNIFORM_OUTCOMES: dict[str, Any] = {
+    "empty": "deny",
+    "absent.ran": UNKNOWN,
+    "absent.failed": AUTHORITY_FAILED,
+    "absent.failed.unassigned": UNKNOWN,
+    "absent.failed.no_map": AUTHORITY_FAILED,
+    "absent.legacy": UNKNOWN,
+    "malformed": UNKNOWN,
+}
+#: The view removed one key for a reason: an atom of that key answers the
+#: view's 401 / 503, or 501 for a reason that is no source's word; an atom of
+#: the other key finds no claim at all, 501.
+VIEW_OUTCOMES: dict[str, Any] = {
+    view.OUTDATED: (401, view.OUTDATED),
+    view.MISMATCH: (503, view.MISMATCH),
+    view.UNASSIGNED: UNKNOWN,
+    view.SOURCE_ABSENT: UNKNOWN,
+}
+#: The category of each indeterminate status, and each kind's definite deny.
+INDETERMINATE_CATEGORY = {
+    401: Category.UNAUTHENTICATED,
+    501: Category.POLICY_MISCONFIGURED,
+    503: Category.POLICY_MISCONFIGURED,
+}
+DENIAL = {
+    "feature": ("Feature", 403, Category.FORBIDDEN),
+    "limit": ("WithinLimit", 402, Category.QUOTA_EXCEEDED),
+}
 
 
-def _departs(atom: str, subject: str) -> bool:
-    """Whether the generated atom answers ``access_unknown`` where the kernel
-    atom denies."""
-    key = "features" if atom.startswith("feature.") else "limits"
+def _expected(atom: str, subject: str) -> Any:
+    """The pinned outcome of the bare ``atom`` on ``subject``."""
     if subject.startswith("view."):
-        # a viewed subject carries no claim at all: only the view's own 401
-        # / 503 for the atom's key is a source's word, the rest is unknown
-        return subject not in {
-            f"view.{key}.{view.OUTDATED}",
-            f"view.{key}.{view.MISMATCH}",
-        }
-    if subject in UNKNOWN_SUBJECTS:
-        return True
-    return subject.startswith("present") and atom in UNKNOWN_ATOMS
+        _, key, reason = subject.split(".", 2)
+        mine = key == ("features" if atom.startswith("feature.") else "limits")
+        return VIEW_OUTCOMES[reason] if mine else UNKNOWN
+    if subject.startswith("present"):
+        return PRESENT_OUTCOMES[atom]
+    return UNIFORM_OUTCOMES[subject]
+
+
+def _expected_key(atom: str, outcome: Any, label: str) -> tuple[Any, ...]:
+    """The whole bare decision (:func:`_key`) an outcome stands for."""
+    if outcome == "allow":
+        return (True, 200, None, "ok", False, None)
+    if outcome == "deny":
+        code, status, category = DENIAL[atom.split(".", 1)[0]]
+        return (False, status, category, code, False, label)
+    status, code = outcome
+    return (False, status, INDETERMINATE_CATEGORY[status], code, True, label)
+
+
+def _wrapped(wrap: str, outcome: Any, subject: str) -> Any:
+    """How a wrap maps the bare outcome: ``Not`` swaps a definite answer and
+    keeps an indeterminate; ``Role("member")`` beside it in an ``Or`` allows
+    on every subject holding the role (all but the viewed ones, which carry
+    no claim at all), else the ``Or`` is the atom's own answer."""
+    if wrap == "not":
+        return {"allow": "deny", "deny": "allow"}.get(outcome, outcome)
+    if wrap == "or_allowed" and not subject.startswith("view."):
+        return "allow"
+    return outcome
 
 
 @pytest.mark.parametrize("wrap", sorted(WRAPS))
@@ -363,25 +438,28 @@ def _departs(atom: str, subject: str) -> bool:
 async def test_the_user_account_decides_as_the_kernel_atom(
     gen: Any, atom: str, wrap: str
 ) -> None:
-    """Equal to the kernel atom wherever a source speaks (present, empty,
-    the view's 401 / 503, an authority that failed); where none does, the
-    generated atom is 501 ``access_unknown`` and never allows (only a
-    reliable sibling of an ``Or`` does), with zero calls on every row."""
+    """The pinned decision on every subject: the kernel atom's wherever a
+    source speaks (present, empty, the view's 401 / 503, an authority that
+    failed); where none does, 501 ``access_unknown``, never an allow (only a
+    reliable sibling of an ``Or`` allows), with zero calls on every row."""
     provider = _Provider()
     for name, (subject, mapping) in SUBJECTS.items():
         core = _core(mapping)
         core.get_service = lambda _n: provider  # type: ignore[method-assign,assignment]
         ctx = AuthzContext(subject(), core=core)
-        base = await WRAPS[wrap](USER_ATOMS[atom](kernel)).decide(ctx)
-        candidate = await WRAPS[wrap](USER_ATOMS[atom](gen)).decide(ctx)
-        if not _departs(atom, name):
-            assert _key(candidate) == _key(base), name
-        elif wrap == "or_allowed" and base.allowed:
-            assert candidate.allowed, name  # the sibling Role allowed reliably
+        built = USER_ATOMS[atom](gen)
+        decision = await WRAPS[wrap](built).decide(ctx)
+        outcome = _wrapped(wrap, _expected(atom, name), name)
+        if wrap == "bare":
+            expected = _expected_key(atom, outcome, built.describe())
+            assert _key(decision) == expected, name
+        elif outcome == "allow":
+            assert decision.allowed and not decision.indeterminate, name
+        elif outcome == "deny":
+            assert not decision.allowed and not decision.indeterminate, name
         else:
-            assert not candidate.allowed, name
-            assert candidate.indeterminate and candidate.http_status == 501, name
-            assert candidate.code == "access_unknown", name
+            assert not decision.allowed and decision.indeterminate, name
+            assert (decision.http_status, decision.code) == outcome, name
     assert provider.calls == []
 
 
@@ -415,7 +493,10 @@ DENY = (False, None)
 #: The owner's table (2026-11-09): row -> (subject, mapping, atom over the
 #: atom's kind, outcome). An outcome is ``ALLOW`` / ``DENY`` or the
 #: indeterminate ``(status, code)``.
-TOKEN: dict[str, Any] = {"features": {"export": True, "beta": False}, "limits": {"seats": 3}}
+TOKEN: dict[str, Any] = {
+    "features": {"export": True, "beta": False},
+    "limits": {"seats": 3},
+}
 TABLE: dict[str, tuple[Any, dict[str, str] | None, dict[str, Any], Any]] = {
     "explicit.on": (
         lambda: _subject(**TOKEN),
@@ -659,31 +740,11 @@ async def test_the_user_account_is_claim_tier_and_names_no_contract(gen: Any) ->
 # An organization account: the live check with the parameters
 # --------------------------------------------------------------------------- #
 class _Core:
-    """A core serving the provider and, for the kernel atoms, the owner's
-    organization facts (the test producer asking the same provider)."""
+    """A core serving the provider (none: the contract is not in the
+    deployment) and no access fact."""
 
-    def __init__(self, provider: Any | None, *, facts: bool = True) -> None:
+    def __init__(self, provider: Any | None) -> None:
         self.provider = provider
-        self.facts: dict[str, Any] = {}
-        if facts and provider is not None:
-            self.facts = {
-                "organization.features": AccessFact(
-                    name="organization.features",
-                    owner_module="organization",
-                    live_service=PLANS_CONTRACT,
-                    live_resolver=_kernel_feature,
-                    min_freshness="live",
-                    default_mode="live",
-                ),
-                "organization.limits": AccessFact(
-                    name="organization.limits",
-                    owner_module="organization",
-                    live_service=PLANS_CONTRACT,
-                    live_resolver=_kernel_limit,
-                    min_freshness="live",
-                    default_mode="live",
-                ),
-            }
 
     def get_service(self, name: str) -> Any:
         if name != PLANS_CONTRACT or self.provider is None:
@@ -691,29 +752,13 @@ class _Core:
         return self.provider
 
     def get_access_fact(self, name: str) -> Any:
-        return self.facts.get(name)
+        return None
 
     def remote_fact_owners(self) -> list[str]:
         return []
 
     def get_metric(self, name: str) -> Any:
         return None
-
-
-async def _kernel_feature(service: Any, ctx: AuthzContext) -> bool:
-    res = await ctx.get_resource()
-    return bool(
-        await service.has_feature("organization", res["organization_id"], res["key"])
-    )
-
-
-async def _kernel_limit(service: Any, ctx: AuthzContext) -> bool:
-    res = await ctx.get_resource()
-    return bool(
-        await service.is_within_limit(
-            "organization", res["organization_id"], res["key"], res["used"]
-        )
-    )
 
 
 class _Req:
@@ -737,6 +782,30 @@ ORG_ATOMS: dict[str, Any] = {
     "limit.equal": lambda k: k.WithinLimit("seats", 3, of=Account.org()),
     "not.feature.off": lambda k: Not(k.Feature("beta", of=Account.org())),
 }
+_ALLOWED = (True, 200, None, "ok", False, None)
+#: atom -> (the pinned decision, the one call: method and the parameters
+#: after the account). The kernel atoms' decisions and calls on the same
+#: producer (the owner's organization fact asking the same provider).
+ORG_EXPECTED: dict[str, tuple[tuple[Any, ...], tuple[str, tuple[Any, ...]]]] = {
+    "feature.on": (_ALLOWED, ("has_feature", ("export",))),
+    "feature.off": (
+        (False, 403, Category.FORBIDDEN, "Feature", False, "feature 'beta'"),
+        ("has_feature", ("beta",)),
+    ),
+    "limit.below": (_ALLOWED, ("is_within_limit", ("seats", 2))),
+    "limit.equal": (
+        (
+            False,
+            402,
+            Category.QUOTA_EXCEEDED,
+            "WithinLimit",
+            False,
+            "within limit 'seats'",
+        ),
+        ("is_within_limit", ("seats", 3)),
+    ),
+    "not.feature.off": (_ALLOWED, ("has_feature", ("beta",))),
+}
 
 
 @pytest.mark.parametrize("atom", sorted(ORG_ATOMS))
@@ -745,17 +814,13 @@ async def test_an_organization_asks_the_live_check_with_its_parameters(
 ) -> None:
     org = uuid4()
     plans = {org: {"features": {"export": True}, "limits": {"seats": 3}}}
-    outcomes = []
-    for kit in (kernel, gen):
-        provider = _Provider(plans)
-        subject = UserContext(user_id=uuid4(), tenant_ids=[str(org)])
-        ctx = AuthzContext(subject, request=_req(org), core=_Core(provider))
-        decision = await ORG_ATOMS[atom](kit).decide(ctx)
-        outcomes.append((_key(decision), provider.calls))
-    assert outcomes[1] == outcomes[0]
-    _decision, calls = outcomes[1]
-    assert len(calls) == 1 and calls[0][1][:2] == ("organization", org)
-    assert calls[0][1][2] in {"export", "beta", "seats"}
+    provider = _Provider(plans)
+    subject = UserContext(user_id=uuid4(), tenant_ids=[str(org)])
+    ctx = AuthzContext(subject, request=_req(org), core=_Core(provider))
+    decision = await ORG_ATOMS[atom](gen).decide(ctx)
+    expected, (method, params) = ORG_EXPECTED[atom]
+    assert _key(decision) == expected
+    assert provider.calls == [(method, ("organization", org, *params))]
 
 
 async def test_the_parameters_reach_the_provider_unchanged(gen: Any) -> None:
@@ -849,7 +914,7 @@ async def test_no_source_is_501_and_never_allows(gen: Any, policy: str) -> None:
     org = uuid4()
     provider = _NoSource()
     subject = UserContext(user_id=uuid4(), roles={"member"}, tenant_ids=[str(org)])
-    ctx = AuthzContext(subject, request=_req(org), core=_Core(provider, facts=False))
+    ctx = AuthzContext(subject, request=_req(org), core=_Core(provider))
     decision = await NO_SOURCE[policy](gen).decide(ctx)
     _assert_unknown(decision)
     assert "catalogue" in decision.reason
@@ -863,7 +928,7 @@ async def test_no_source_still_lets_a_reliable_sibling_allow(gen: Any) -> None:
     org = uuid4()
     provider = _NoSource()
     subject = _subject(tenant_ids=[str(org)], **CLAIMS)
-    ctx = AuthzContext(subject, request=_req(org), core=_Core(provider, facts=False))
+    ctx = AuthzContext(subject, request=_req(org), core=_Core(provider))
     atom = gen.Feature("beta", of=Account.org())
     assert (await Or(Role("member"), atom).decide(ctx)).allowed
     assert (await gen.Feature("export", of=Account.user()).decide(ctx)).allowed
@@ -1046,7 +1111,7 @@ async def test_a_third_party_source_decides_alike_mono_and_split(
         }
         outcomes = {}
         for name, provider in topologies.items():
-            core = _Serving(provider, facts=False)
+            core = _Serving(provider)
             ctx = AuthzContext(subject, request=_req(org), core=core)
             decision = await policy(acme.gen).decide(ctx)
             outcomes[name] = _key(decision)
@@ -1089,7 +1154,7 @@ async def test_a_provider_down_is_503_and_never_allows(gen: Any) -> None:
     org = uuid4()
     down = _DownProvider()
     subject = _subject(tenant_ids=[str(org)], **CLAIMS)
-    ctx = AuthzContext(subject, request=_req(org), core=_Core(down, facts=False))
+    ctx = AuthzContext(subject, request=_req(org), core=_Core(down))
     atom = gen.Feature("export", of=Account.org())
     for policy in (atom, Not(atom)):
         decision = await policy.decide(ctx)

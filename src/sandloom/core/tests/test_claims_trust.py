@@ -3,16 +3,22 @@ refusals (ADR-0014 decisions 1, 2 and 7; SANDLOOM-B035).
 
 Kernel-only: the modules are fake import paths (``acme.*``) registered on a
 facade with fake databases, so no battery is needed and no I/O happens. The
-running-process rows (T-1..T-8, mono and split) are in
+claim atoms ``Feature`` / ``WithinLimit`` are the ones ``sandloom generate``
+writes beside a consumer's stub of a fixture plans contract
+(``acme.plans.v1``, declared as billing declares them; ADR-0014 decision
+15). The running-process rows (T-1..T-8, mono and split) are in
 ``tests/integration/replaceability/test_trust_rows.py``.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import logging
+import sys
+from collections.abc import Callable, Iterator
 from types import SimpleNamespace
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -35,6 +41,7 @@ from sandloom.core.claims import (
     Authority,
     ClaimAuthorities,
 )
+from sandloom.core.cli.generated import render_stub
 from sandloom.core.config.common import ConfigurationError
 from sandloom.core.facade import ClaimsUnavailable, CoreFacade
 from sandloom.core.facade._claims import CLAIMS_VIOLATIONS_METRIC, RESERVED_CLAIM_KEYS
@@ -42,14 +49,17 @@ from sandloom.core.tests._entry_points_support import (
     FakeEntryPoint,
     installed_entry_points,
 )
+from sandloom.sdk import contract
 from sandloom.shared.authz import (
     Account,
-    Feature,
+    Category,
+    From,
     Not,
     Or,
     Role,
     Subscribed,
-    WithinLimit,
+    access_check,
+    claim_atom,
 )
 from sandloom.shared.authz.context import AuthzContext
 from sandloom.shared.subject import UserContext
@@ -883,6 +893,48 @@ async def test_the_issuer_writes_no_reserved_key(key: str) -> None:
 # --------------------------------------------------------------------------- #
 
 PLAN_MAP = {**MAP, "features": PLANS, "limits": PLANS}
+PLANS_CONTRACT = "acme.plans.v1"
+ACCOUNT_BIND = {"tenant_type": From.account_type(), "tenant_id": From.account_id()}
+
+
+@contract(PLANS_CONTRACT)
+class PlansContract:
+    """Plan entitlements (a fixture provider, declared as billing declares
+    its ``Feature`` / ``WithinLimit``)."""
+
+    @claim_atom("Feature", claim_key="features", entry="key")
+    @access_check("LiveFeature", bind=ACCOUNT_BIND, describe="feature '{key}'")
+    async def has_feature(self, tenant_type: str, tenant_id: UUID, key: str) -> bool:
+        """True when the plan enables ``key``."""
+        return False
+
+    @claim_atom("WithinLimit", claim_key="limits", entry="key", below="used")
+    @access_check(
+        "LiveWithinLimit",
+        bind=ACCOUNT_BIND,
+        category=Category.QUOTA_EXCEEDED,
+        describe="within limit '{key}'",
+    )
+    async def is_within_limit(
+        self, tenant_type: str, tenant_id: UUID, key: str, used: int
+    ) -> bool:
+        """True when ``used`` is below the plan limit ``key``."""
+        return False
+
+
+@pytest.fixture(scope="module")
+def gen(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Any]:
+    """The generated atoms of :data:`PLANS_CONTRACT`, imported as a consumer
+    imports them."""
+    path = tmp_path_factory.mktemp("stub") / "acme_plans_v1.py"
+    path.write_text(render_stub(PLANS_CONTRACT, PlansContract))
+    spec = importlib.util.spec_from_file_location("_trust_acme_plans_v1", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    yield module
+    sys.modules.pop(spec.name, None)
 
 
 def _subject(*, failed: set[str] | None, **claims: Any) -> UserContext:
@@ -898,15 +950,32 @@ def _authz(subject: UserContext, mapping: dict[str, str] | None = PLAN_MAP) -> A
     return AuthzContext(subject, core=core)
 
 
-FEATURE = Feature("export", of=Account.user())
-LIMIT = WithinLimit("seats", 2, of=Account.user())
+#: The generated atom of each kind, over the generated module.
+ATOMS: dict[str, Callable[[Any], Any]] = {
+    "Feature": lambda g: g.Feature("export", of=Account.user()),
+    "WithinLimit": lambda g: g.WithinLimit("seats", 2, of=Account.user()),
+}
+KINDS = sorted(ATOMS)
+
+
+def _feature(gen: Any) -> Any:
+    return ATOMS["Feature"](gen)
+
+
+def _unknown(decision: Any) -> bool:
+    """Indeterminate 501 ``access_unknown``: the token says nothing."""
+    return (
+        not decision.allowed
+        and decision.indeterminate
+        and (decision.http_status, decision.code) == (501, "access_unknown")
+    )
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("atom", [FEATURE, LIMIT], ids=["Feature", "WithinLimit"])
-async def test_a_failed_authority_is_indeterminate_503(atom: Any) -> None:
+@pytest.mark.parametrize("kind", KINDS)
+async def test_a_failed_authority_is_indeterminate_503(gen: Any, kind: str) -> None:
     """The plans authority failed at the mint: the token proves nothing."""
-    decision = await atom.decide(_authz(_subject(failed={"plans"})))
+    decision = await ATOMS[kind](gen).decide(_authz(_subject(failed={"plans"})))
     assert not decision.allowed
     assert decision.indeterminate
     assert decision.http_status == 503
@@ -914,57 +983,68 @@ async def test_a_failed_authority_is_indeterminate_503(atom: Any) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("atom", [FEATURE, LIMIT], ids=["Feature", "WithinLimit"])
-async def test_an_authority_that_ran_and_gave_nothing_denies(atom: Any) -> None:
-    """Billing ran: no feature, no limit is its definite "no"."""
-    for subject in (
-        _subject(failed=set()),
-        _subject(failed=set(), features={}, limits={}),
-        _subject(failed={"rogue"}),
-    ):
-        decision = await atom.decide(_authz(subject))
-        assert not decision.allowed
-        assert not decision.indeterminate
+@pytest.mark.parametrize("kind", KINDS)
+async def test_an_authority_that_ran_denies_only_on_its_complete_map(
+    gen: Any, kind: str
+) -> None:
+    """The plans authority ran: its mapping is the complete snapshot, so an
+    empty one is a definite "no"; no mapping at all is no word from it,
+    indeterminate 501 ``access_unknown`` (KB-33d), and ``Not`` never allows."""
+    atom = ATOMS[kind](gen)
+    empty = _authz(_subject(failed=set(), features={}, limits={}))
+    decision = await atom.decide(empty)
+    assert not decision.allowed and not decision.indeterminate
+    assert (await Not(atom).decide(empty)).allowed
+    for subject in (_subject(failed=set()), _subject(failed={"rogue"})):
+        ctx = _authz(subject)
+        assert _unknown(await atom.decide(ctx))
+        assert _unknown(await Not(atom).decide(ctx))
 
 
 @pytest.mark.asyncio
-async def test_a_present_claim_is_read_whatever_failed() -> None:
+async def test_a_present_claim_is_read_whatever_failed(gen: Any) -> None:
     """Only an absent value escalates."""
     subject = _subject(failed={"rogue"}, features={"export": True}, limits={"seats": 3})
-    assert (await FEATURE.decide(_authz(subject))).allowed
-    assert (await LIMIT.decide(_authz(subject))).allowed
+    for kind in KINDS:
+        assert (await ATOMS[kind](gen).decide(_authz(subject))).allowed, kind
 
 
 @pytest.mark.asyncio
-async def test_an_unassigned_key_and_a_legacy_token_deny() -> None:
-    """Unassigned in the composition: a definite deny; no provenance: as before."""
-    unassigned = await FEATURE.decide(_authz(_subject(failed={"plans"}), MAP))
-    assert not unassigned.allowed and not unassigned.indeterminate
-    legacy = await FEATURE.decide(_authz(_subject(failed=None)))
-    assert not legacy.allowed and not legacy.indeterminate
+async def test_an_unassigned_key_and_a_legacy_token_are_unknown(gen: Any) -> None:
+    """Unassigned in the composition, or no provenance: nobody vouched for an
+    absent claim, 501 ``access_unknown``, never a deny ``Not`` could invert."""
+    for ctx in (
+        _authz(_subject(failed={"plans"}), MAP),
+        _authz(_subject(failed=None)),
+    ):
+        assert _unknown(await _feature(gen).decide(ctx))
+        assert _unknown(await Not(_feature(gen)).decide(ctx))
 
 
 @pytest.mark.asyncio
-async def test_without_a_readable_assignment_a_failure_is_indeterminate() -> None:
+async def test_without_a_readable_assignment_a_failure_is_indeterminate(
+    gen: Any,
+) -> None:
     """No core (or a root without a map): any failed source may have been the
     authority, so never a deny ``Not`` could invert."""
     for ctx in (
         _authz(_subject(failed={"plans"}), None),
         AuthzContext(_subject(failed={"plans"}), core=_core(None)),
     ):
-        decision = await FEATURE.decide(ctx)
+        decision = await _feature(gen).decide(ctx)
         assert decision.indeterminate and decision.http_status == 503
 
 
 @pytest.mark.asyncio
-async def test_not_and_or_never_allow_on_a_failed_authority() -> None:
+async def test_not_and_or_never_allow_on_a_failed_authority(gen: Any) -> None:
     """ADR-0014: an indeterminate operand never allows; a satisfied one does."""
     ctx = _authz(_subject(failed={"plans"}))
-    negated = await Not(FEATURE).decide(ctx)
+    feature = _feature(gen)
+    negated = await Not(feature).decide(ctx)
     assert not negated.allowed and negated.indeterminate
-    either = await Or(Role("ops"), FEATURE).decide(ctx)
+    either = await Or(Role("ops"), feature).decide(ctx)
     assert not either.allowed and either.http_status == 503
-    assert (await Or(Role("member"), FEATURE).decide(ctx)).allowed
+    assert (await Or(Role("member"), feature).decide(ctx)).allowed
 
 
 # --------------------------------------------------------------------------- #
@@ -983,15 +1063,16 @@ def _split_verifier() -> CoreFacade:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("atom", [FEATURE, LIMIT], ids=["Feature", "WithinLimit"])
+@pytest.mark.parametrize("kind", KINDS)
 async def test_a_split_verifier_without_the_authority_is_indeterminate(
-    atom: Any,
+    gen: Any, kind: str
 ) -> None:
     """The plans authority failed at the mint and runs in another service:
     the token proves nothing here either, so 503, and ``Not`` never allows
     (the narrowed mint map would read the key as unassigned: a deny that
     ``~Feature`` turns into an allow)."""
     ctx = AuthzContext(_subject(failed={"plans"}), core=_split_verifier())
+    atom = ATOMS[kind](gen)
     decision = await atom.decide(ctx)
     assert decision.indeterminate and decision.http_status == 503
     negated = await Not(atom).decide(ctx)
@@ -1002,16 +1083,24 @@ async def test_a_split_verifier_without_the_authority_is_indeterminate(
 # SEC-3: Subscribed / Feature / WithinLimit honour the view's 401 / 503
 # --------------------------------------------------------------------------- #
 
-SUBSCRIBED = Subscribed(of=Account.user())
-SUBSCRIBED_VERBATIM = Subscribed(frozenset({"active"}), of=Account.user())
-#: (atom, the claim key it reads)
-CLAIM_ATOMS = [
-    (FEATURE, "features"),
-    (LIMIT, "limits"),
-    (SUBSCRIBED, "subscription_status"),
-    (SUBSCRIBED_VERBATIM, "subscription_status"),
+#: (the atom over the generated module, the claim key it reads). Feature and
+#: WithinLimit are the generated atoms. Subscribed is still the kernel atom
+#: here: the generated ``Subscribed`` (a ``ClaimFactCheck``) does not honour
+#: the view's 401 / 503 yet (it denies 402, so ``Not`` allows); its rows
+#: move once it does (KB-34b handover).
+CLAIM_ATOMS: list[tuple[Callable[[Any], Any], str]] = [
+    (ATOMS["Feature"], "features"),
+    (ATOMS["WithinLimit"], "limits"),
+    (lambda _g: Subscribed(of=Account.user()), "subscription_status"),
+    (
+        lambda _g: Subscribed(frozenset({"active"}), of=Account.user()),
+        "subscription_status",
+    ),
 ]
 CLAIM_IDS = ["Feature", "WithinLimit", "Subscribed", "Subscribed-statuses"]
+#: The keys the generated claim atoms read: a claim the view removed is no
+#: source's word for them.
+GENERATED_KEYS = frozenset({"features", "limits"})
 
 
 def _viewed(key: str, reason: str) -> UserContext:
@@ -1030,28 +1119,39 @@ def _viewed(key: str, reason: str) -> UserContext:
     ("reason", "status"), [(view.OUTDATED, 401), (view.MISMATCH, 503)]
 )
 async def test_a_claim_atom_honours_the_views_indeterminate(
-    atom: Any, key: str, reason: str, status: int
+    gen: Any, atom: Callable[[Any], Any], key: str, reason: str, status: int
 ) -> None:
     """The view removed the atom's key because the token predates the claim
     policy (one refresh fixes it) or issuer and verifier disagree: the atom
     answers that indeterminate, never a 402/403 for the token's life, and
     its negation never allows."""
     ctx = _authz(_viewed(key, reason))
-    decision = await atom.decide(ctx)
+    decision = await atom(gen).decide(ctx)
     assert decision.indeterminate and decision.http_status == status
     assert decision.code == reason
-    negated = await Not(atom).decide(ctx)
+    negated = await Not(atom(gen)).decide(ctx)
     assert not negated.allowed
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("atom", "key"), CLAIM_ATOMS, ids=CLAIM_IDS)
-async def test_a_definite_untrusted_reason_still_denies(atom: Any, key: str) -> None:
-    """An unassigned key, or one whose authority was absent at the mint, is
-    a definite deny (the view's other reasons), as before."""
+async def test_a_definite_untrusted_reason_never_allows(
+    gen: Any, atom: Callable[[Any], Any], key: str
+) -> None:
+    """An unassigned key, or one whose authority was absent at the mint (the
+    view's other reasons): for a generated claim atom nobody vouched for the
+    claim, 501 ``access_unknown`` (KB-33d); the kernel ``Subscribed`` denies
+    definitely, as before. Neither allows."""
+    generated = key in GENERATED_KEYS
     for reason in (view.UNASSIGNED, view.SOURCE_ABSENT):
-        decision = await atom.decide(_authz(_viewed(key, reason)))
-        assert not decision.allowed and not decision.indeterminate, reason
+        ctx = _authz(_viewed(key, reason))
+        decision = await atom(gen).decide(ctx)
+        assert not decision.allowed, reason
+        if generated:
+            assert _unknown(decision), reason
+            assert _unknown(await Not(atom(gen)).decide(ctx)), reason
+        else:
+            assert not decision.indeterminate, reason
 
 
 # --------------------------------------------------------------------------- #
