@@ -90,7 +90,6 @@ SHARED_KEYS: tuple[str, ...] = (
     "RPC_SERVICE_DH_KEYS",
     "RPC_ALLOWED_CALLS",
     "FRONTEND_URL",
-    "BILLING_DENY_ON_PAST_DUE",
     "NOTIFIER_BACKEND",
     "SMTP_HOST",
     "SMTP_PORT",
@@ -1006,7 +1005,7 @@ def dev_shell(compose_text: str) -> dict[str, str]:
     # fake PSP where the profile asks for a billing provider.
     risks = ["local_storage_in_prod", "log_notifier_in_prod"]
     if "BILLING_PROVIDER" in shell:
-        risks.insert(1, "fake_psp_in_prod")
+        risks.insert(1, "billing.fake_psp_in_prod")
     shell["SANDLOOM_ACCEPTED_RISKS"] = ",".join(risks)
     return shell
 

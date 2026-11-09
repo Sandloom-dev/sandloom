@@ -186,7 +186,7 @@
       "type": "object"
     },
     "tenancy.member_added.v1": {
-      "description": "A member joined (``add_member``, an accepted invitation, a new owner).",
+      "description": "A member joined (``add_member``, an accepted invitation, a new owner).\n\nOrdering: delivery is at-least-once and unordered, and ``version`` is\noptional within ``.v1`` (a tenancy still on an older release publishes\nnone during a rolling upgrade). Decide per event: ``version`` present:\napply it when it is newer than the version you stored (or you stored\nnone), else skip it; ``version`` absent: refresh, re-reading\n``tenancy.membership.v1.get_member_state(organization_id, user_id)`` (role\nand version in one statement) and storing that unless it is older than\nwhat you stored.",
       "properties": {
         "actor_id": {
           "anyOf": [
@@ -314,7 +314,7 @@
       "type": "object"
     },
     "tenancy.member_removed.v1": {
-      "description": "A member was removed or left (no ``role``).",
+      "description": "A member was removed or left (no ``role``).\n\nOrdering: delivery is at-least-once and unordered, and ``version`` is\noptional within ``.v1`` (a tenancy still on an older release publishes\nnone during a rolling upgrade). Decide per event: ``version`` present:\napply it when it is newer than the version you stored (or you stored\nnone), else skip it; ``version`` absent: refresh, re-reading\n``tenancy.membership.v1.get_member_state(organization_id, user_id)`` (role\nand version in one statement) and storing that unless it is older than\nwhat you stored.",
       "properties": {
         "actor_id": {
           "anyOf": [
@@ -442,7 +442,7 @@
       "type": "object"
     },
     "tenancy.member_role_changed.v1": {
-      "description": "A member's role changed (both sides of an ownership transfer too).",
+      "description": "A member's role changed (both sides of an ownership transfer too).\n\nOrdering: delivery is at-least-once and unordered, and ``version`` is\noptional within ``.v1`` (a tenancy still on an older release publishes\nnone during a rolling upgrade). Decide per event: ``version`` present:\napply it when it is newer than the version you stored (or you stored\nnone), else skip it; ``version`` absent: refresh, re-reading\n``tenancy.membership.v1.get_member_state(organization_id, user_id)`` (role\nand version in one statement) and storing that unless it is older than\nwhat you stored.",
       "properties": {
         "actor_id": {
           "anyOf": [

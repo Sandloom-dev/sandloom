@@ -104,8 +104,8 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | Env var | Type | Default | Description |
 | --- | --- | --- | --- |
 | `BILLING_PROVIDER` | `Literal['fake', 'stripe']` | `'fake'` | Payment provider selector: fake for local/testing flows or stripe for real Stripe integration. |
-| `STRIPE_SECRET_KEY` | `str | None` | `None` | Stripe API secret used by the Stripe payment-provider adapter. |
-| `STRIPE_WEBHOOK_SECRET` | `str | None` | `None` | Stripe webhook signing secret used to authenticate incoming webhook payloads. |
+| `STRIPE_SECRET_KEY` | `SecretStr | None` | `None` | Stripe API secret used by the Stripe payment-provider adapter. |
+| `STRIPE_WEBHOOK_SECRET` | `SecretStr | None` | `None` | Stripe webhook signing secret used to authenticate incoming webhook payloads. |
 | `BILLING_DENY_ON_PAST_DUE` | `bool` | `False` | Deny subscription entitlements while payment is past due; disabled preserves the configured past-due grace behavior. |
 
 ## Storage
@@ -277,11 +277,11 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `RATE_LIMIT_GLOBAL_REQUESTS` | `int` | `0` | Global per-client-IP request allowance per configured period; zero disables this additional fail-open floor. |
 | `RATE_LIMIT_GLOBAL_PERIOD_SECONDS` | `int` | `60` | Window length in seconds for the global per-client-IP request allowance. |
 | `RATE_LIMIT_GLOBAL_EXEMPT_PATH_PREFIXES` | `list[str]` | `['/health', '/ready', '/metrics', '/_sandloom/']` | Request path prefixes excluded from the additional global rate limiter. |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `Literal['grpc', 'http/protobuf']` | `'grpc'` | OTLP exporter protocol used with TRACING_URL: grpc or http/protobuf. |
 | `BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS` | `bool` | `False` | Allow catalog-backed subscriptions created without a framework operation intent to grant access; default denies those new intentless grants. |
 | `BILLING_INTENT_RECONCILE_AFTER_MINUTES` | `int` | `30` | Minimum pending-intent age in minutes before periodic reconciliation looks up or expires its payment-provider operation. |
 | `BILLING_INTENT_RECONCILE_MAX_ATTEMPTS` | `int` | `5` | Failed reconciliation attempts per operation intent before leaving it for operator follow-up. |
 | `BILLING_PORTAL_ATTRIBUTION_WINDOW_MINUTES` | `int` | `60` | Minutes during which a preceding portal intent attributes subscription changes to that portal visit; changes outside it are audited as unattributed. |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | `Literal['grpc', 'http/protobuf']` | `'grpc'` | OTLP exporter protocol used with TRACING_URL: grpc or http/protobuf. |
 | `MAX_SESSION_DAYS` | `int` | `30` | Absolute session lifetime in days; refreshing a token does not extend this deadline. |
 | `TENANT_CLAIMS_MAX_ORGANIZATIONS` | `int` | `128` | Maximum organization memberships embedded in an access token; excessive claims are refused rather than silently truncated. |
 | `ADMIN_CONSOLE_ENABLED` | `bool | None` | `None` | Serve the admin console at /admin/; unset means on outside production and off in production. |

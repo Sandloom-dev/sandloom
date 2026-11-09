@@ -2,7 +2,8 @@
 (moved from the kernel's ``test_boot_configuration_checks.py``, KB-05c).
 
 Identity without ``TWOFA_ENCRYPTION_KEY`` in prod or without ``JWT_SECRET``,
-and billing on the implicit fake PSP in prod, are raised while the module
+and billing on the fake PSP (implicit or explicit) in prod or on Stripe
+without its keys, are raised while the module
 registers, so they reach every process that builds the composition: the
 app, the Celery worker and beat, ``sandloom migrate`` and the composed
 operator CLIs, with the kernel's prefix and the module's reason.
@@ -71,6 +72,23 @@ MODULE_CASES: dict[str, tuple[dict[str, Any], str]] = {
         },
         "module sandloom_billing: BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod",
     ),
+    "billing-explicit-fake-psp": (
+        {
+            **_MODULE_BASE,
+            "SANDLOOM_MODULES": ["sandloom_billing"],
+            "BILLING_PROVIDER": "fake",
+        },
+        "module sandloom_billing: BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod",
+    ),
+    "billing-stripe-without-keys": (
+        {
+            **_MODULE_BASE,
+            "SANDLOOM_MODULES": ["sandloom_billing"],
+            "BILLING_PROVIDER": "stripe",
+        },
+        "module sandloom_billing: BILLING_PROVIDER=stripe requires variables: "
+        "STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET",
+    ),
 }
 
 
@@ -112,7 +130,7 @@ def test_module_cases_build_once_the_configuration_is_fixed(tmp_path: Path) -> N
         **_MODULE_BASE,
         "SANDLOOM_MODULES": ["sandloom_identity", "sandloom_billing"],
         "TWOFA_ENCRYPTION_KEY": "9f1c4e7a2b8d6035e1f94c7ab23d58e06f7b1a9c4d2e85f3071b6c9ae4d2f815",
-        "SANDLOOM_ACCEPTED_RISKS": ["fake_psp_in_prod", "log_notifier_in_prod"],
+        "SANDLOOM_ACCEPTED_RISKS": ["billing.fake_psp_in_prod", "log_notifier_in_prod"],
     }
     proc = _run(
         [sys.executable, "-c", "import sandloom_standard.main; print('built')"],
@@ -121,6 +139,26 @@ def test_module_cases_build_once_the_configuration_is_fixed(tmp_path: Path) -> N
     )
     assert proc.returncode == 0, proc.stderr[-2000:]
     assert proc.stdout.strip().endswith("built")
+
+
+@pytest.mark.subprocess_probe
+@pytest.mark.parametrize("entry", sorted(COMPOSED_ENTRY_POINTS))
+def test_billing_variables_do_not_reach_a_process_without_billing(
+    entry: str, tmp_path: Path
+) -> None:
+    """B-C4 (ADR-0015): an explicit ``BILLING_PROVIDER=fake`` (or ``stripe``
+    with no keys) in prod is billing's to refuse, so a process that does not
+    load billing neither validates nor refuses it, in every entry point."""
+    for billing in ({"BILLING_PROVIDER": "fake"}, {"BILLING_PROVIDER": "stripe"}):
+        values = {
+            **_MODULE_BASE,
+            "SANDLOOM_MODULES": ["sandloom_identity"],
+            "TWOFA_ENCRYPTION_KEY": "9f1c4e7a2b8d6035e1f94c7ab23d58e06f7b1a9c4d2e85f3071b6c9ae4d2f815",
+            "SANDLOOM_ACCEPTED_RISKS": ["log_notifier_in_prod"],
+            **billing,
+        }
+        proc = _run(COMPOSED_ENTRY_POINTS[entry], values, tmp_path)
+        assert INVALID_CONFIGURATION not in proc.stderr, (billing, proc.stderr[-2000:])
 
 
 @pytest.mark.subprocess_probe

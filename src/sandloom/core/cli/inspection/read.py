@@ -122,7 +122,8 @@ class Reader:
             )
         self.layout: Doc = self.doc["layout"]
         for key in ("source_root", "modules_path", "shared_dir"):
-            files.contained(self.root, self.layout[key])
+            if self.layout[key] is not None:
+                files.contained(self.root, self.layout[key])
         policy = sha(files.read(self.root, "architecture_rules.yml").encode())
         if policy != self.layout["policy_sha256"]:
             raise InspectionError(
@@ -283,6 +284,8 @@ class Reader:
 
     def _import_path(self, name: str) -> str | None:
         package = self.layout["shared_package"]
+        if package is None:
+            return None
         if name == package or name.startswith(package + "."):
             tail = name[len(package) :].lstrip(".").split(".")
             path = (

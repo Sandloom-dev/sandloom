@@ -66,5 +66,5 @@ Run the gates from the repository root; every one must pass before work is done.
    - an import from `sandloom.core` or an `sandloom.sdk._*` package in module code;
    - state on a `@contract` class, or reaching `core.event_bus` /
      `core.infra` / `.raw_client()`;
-   - a hand-edited generated file (`sandloom/shared/contracts/*`,
+   - a hand-edited generated file (`<module>/_generated/contracts/*`,
      `module.snapshot.json`): `sandloom generate` rewrites it.

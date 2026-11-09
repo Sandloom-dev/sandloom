@@ -49,7 +49,6 @@ EXTRA_PUBLIC = (
     "sandloom.shared.guards.auth",
     "sandloom.shared.guards.platform",
     "sandloom.shared.subject",
-    "sandloom.shared.membership",
     "sandloom.core.testing",
     "sandloom.core.contract_testing",
 )
@@ -121,13 +120,9 @@ H1_KERNEL_NAMES: dict[str, str] = {
 #: Kernel names that moved out of ``sandloom.shared.schemas`` (gone) on
 #: 2026-10-28, and the generated DTO copies' marker: kept where they are, no
 #: ``sandloom.sdk`` home (the DTOs themselves are generated copies in
-#: ``sandloom.shared.contracts``).
+#: each consumer's ``_generated`` package, ADR-0013).
 MOVED_KERNEL_NAMES: dict[str, str] = {
     "shared.subject.UserContext": "sandloom.shared.subject (the token subject)",
-    "shared.membership.MemberEventAction": "sandloom.shared.membership (consumer rule)",
-    "shared.membership.member_event_action": "sandloom.shared.membership (consumer rule)",
-    "shared.membership.member_event_version": "sandloom.shared.membership (consumer rule)",
-    "shared.membership.refreshed_state_wins": "sandloom.shared.membership (consumer rule)",
     "core.descriptors.contract_refs.dto_copy": "generated DTO copies (kernel home)",
 }
 #: H1 kernel names whose ``sandloom.sdk`` home has another name (``<module>.<name>``).

@@ -5,7 +5,7 @@ x-modules: &modules
   BILLING_PROVIDER: fake
   # No mail server: the log notifier stands in for the email identity and
   # tenancy require (mail is NOT delivered).
-  SANDLOOM_ACCEPTED_RISKS: fake_psp_in_prod,log_notifier_in_prod
+  SANDLOOM_ACCEPTED_RISKS: billing.fake_psp_in_prod,log_notifier_in_prod
 
 services:
   broker:

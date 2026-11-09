@@ -1,7 +1,8 @@
 """Billing test fixtures, on top of the framework harness (``sandloom.core.testing``)."""
 
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import ExitStack
 from typing import Any
 
 import pytest
@@ -11,7 +12,9 @@ from sqlalchemy import JSON, String, column, func, select, table
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk.testing import as_user as _mint
+from sandloom.sdk.testing import override_settings
 from sandloom.sdk.testing.fixtures import *  # noqa: F403
+from sandloom_billing.config import BillingSettings
 from sandloom_billing.models import (
     INTERVAL_MONTH,
     PRODUCT_TYPE_ONE_TIME,
@@ -48,6 +51,18 @@ async def outbox_count(db: AsyncSession, channel: str) -> int:
         select(func.count()).select_from(OUTBOX).where(OUTBOX.c.channel == channel)
     )
     return int(count or 0)
+
+
+@pytest.fixture
+def billing_config() -> Iterator[Callable[..., None]]:
+    """``billing_config(billing_deny_on_past_due=True)``: billing's declared
+    settings (ADR-0015) for the rest of the test; calls nest."""
+    with ExitStack() as stack:
+
+        def _set(**values: Any) -> None:
+            stack.enter_context(override_settings(BillingSettings, **values))
+
+        yield _set
 
 
 @pytest.fixture

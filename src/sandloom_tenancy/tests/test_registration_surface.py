@@ -59,19 +59,19 @@ EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the s
         "register_event_schema",
         "'tenancy.member_added.v1'",
         "'MemberAdded'",
-        "mapping:46032824bbfa",
+        "mapping:039e7e850c0c",
     ),
     (
         "register_event_schema",
         "'tenancy.member_removed.v1'",
         "'MemberRemoved'",
-        "mapping:62aedfc91fa8",
+        "mapping:d5a34251fd5b",
     ),
     (
         "register_event_schema",
         "'tenancy.member_role_changed.v1'",
         "'MemberRoleChanged'",
-        "mapping:602f5701eb1c",
+        "mapping:f298b21448e1",
     ),
     (
         "register_event_schema",

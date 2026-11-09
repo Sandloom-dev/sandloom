@@ -33,7 +33,7 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   `INTERNAL_API_TOKEN`; identity refuses to start without
   `TWOFA_ENCRYPTION_KEY`; `BILLING_PROVIDER=stripe` requires
   `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET`, and `fake` is refused unless
-  `SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]` (demo stacks only). Every accepted
+  `SANDLOOM_ACCEPTED_RISKS=["billing.fake_psp_in_prod"]` (demo stacks only). Every accepted
   risk is logged as a WARNING at each start, exported as
   `sandloom_accepted_risk_active{risk}` and listed by `/diagnostics/core` and
   `sandloom doctor`; an unknown id fails startup.

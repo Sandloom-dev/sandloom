@@ -600,7 +600,6 @@ _SAFE_SETTINGS = (
     "password_hash_profile",
     "rate_limit_enabled",
     "trust_proxy_headers",
-    "billing_provider",
     "notifier_backend",
     "docs_enabled",
     "log_format",
@@ -611,7 +610,7 @@ _SAFE_SETTINGS = (
 #: Non-secret settings a loaded module declares (ADR-0015), shown when some
 #: loaded module has the field. Until KB-55 (kernel tools read declarations)
 #: the list is kernel-held: edge row B-C11.
-_DECLARED_SAFE_SETTINGS = ("refresh_token_expire_days",)
+_DECLARED_SAFE_SETTINGS = ("refresh_token_expire_days", "billing_provider")
 
 
 def _declared_setting(core: Any, key: str) -> tuple[bool, Any]:
