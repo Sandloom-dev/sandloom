@@ -22,6 +22,8 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field
 
 from sandloom.core.config.settings import settings
+from sandloom.core.descriptors import HealthResult
+from sandloom.core.drivers.celery_broker_probe import probe_broker
 from sandloom.core.effects import RECORD_TTL_SECONDS
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.core.infra.contracts import TaskQueueProvider
@@ -206,6 +208,13 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
             return send()
         except (EncodeError, ContentDisallowed, NotRegistered) as exc:
             raise TaskNotSent(f"{type(exc).__name__}: {exc}") from exc
+
+    async def health(self) -> HealthResult:
+        """One bounded connection to this instance's broker
+        (:func:`~sandloom.core.drivers.celery_broker_probe.probe_broker`);
+        building the provider sends nothing, so without it a broker outage
+        was invisible."""
+        return await probe_broker(self._app)
 
     async def raw_backend(self) -> Any:
         return self._app
