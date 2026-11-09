@@ -590,18 +590,19 @@ kernel, `core.security.tokens_revoked`, and by the issuer, e.g. identity's
 bulk command with the same `--operation-id` replays finished batches (durable
 command dedupe) instead of repeating them.
 
-**Who answers.** The session commands ask the token issuer the composition
-root's claim map names (`issuer`): its `<issuer>.security.v1` contract
-(`identity.security.v1` in the standard composition) with `end_sessions`,
-`require_password_reset` for `force-password-reset` and `list_user_ids` for
-`--all`. `--tenant` asks the owner of `tenant_ids` (`tenancy.security.v1`,
-`list_member_user_ids`). Run them in a process that loads those modules, or
-bind each contract in `SERVICE_BINDINGS` (pinned to the owner's service) with an
-`RPC_ALLOWED_CALLS` grant of each method. Every method is confirmed by describe
-before anything is done, a dry run included: a missing method, grant or binding
-refuses with `SANDLOOM-B039` / `SANDLOOM-B040` (exit status 1) and nothing is
-written. An issuer without passwords (an external OpenID provider in front)
-refuses `force-password-reset`: reset passwords at the provider.
+**Who answers.** The session commands ask the `issuer` of the composition
+root's claim map. They call its `<issuer>.security.v1` contract
+(`identity.security.v1` in the standard composition). `end_sessions` ends
+sessions, `require_password_reset` serves `force-password-reset`, and
+`list_user_ids` serves `--all`. `--tenant` asks the owner of `tenant_ids`
+(`tenancy.security.v1`, `list_member_user_ids`).
+
+Run the commands in a process that loads those modules. Otherwise bind each
+contract in `SERVICE_BINDINGS`, pinned to the owner's service, and grant each
+method in `RPC_ALLOWED_CALLS`. Every method is confirmed by describe before
+anything is done, a dry run included. A gap refuses with `SANDLOOM-B039` or
+`SANDLOOM-B040` (exit status 1), and nothing is written. An issuer without
+passwords refuses `force-password-reset`: reset passwords at the provider.
 
 **What a revocation does, kind by kind** (the command prints one line each):
 
@@ -610,7 +611,7 @@ refuses `force-password-reset`: reset passwords at the provider.
 | Sandloom access tokens | the kernel, for every issuer | yes: one unit in the command's process (audit row per user, the mark written before commit, `core.auth.tokens_revoked.v1` in the outbox, applied by every service's revocation applier); no success before it commits |
 | Sandloom refresh sessions | the issuer's `end_sessions`, before the kernel's mark | where the issuer declares `refresh_sessions=True`; "not applicable" for a stateless issuer |
 | External identity-provider sessions | the provider | no: "not controlled", end them at the provider (unless the issuer reports it ended them) |
-| A new sign-in | — | still possible: a revocation is not a block. Block the account (`POST /api/v1/users/{id}/block`, the kernel's `block_user`) to refuse it |
+| A new sign-in | nobody | still possible: a revocation is not a block. Block the account (`POST /api/v1/users/{id}/block`, the kernel's `block_user`) to refuse it |
 
 With a stateless OIDC issuer the report reads: access tokens revoked /
 refresh sessions not applicable / external IdP sessions not controlled / new

@@ -7154,6 +7154,7 @@ capabilities:
   - tests/integration/test_security_revocation_split.py::test_the_kernel_part_is_one_durable_unit_every_service_applies
   - tests/integration/test_security_revocation_split.py::test_a_cli_process_without_the_issuer_revokes_durably
   - tests/integration/test_security_revocation_split.py::test_a_reset_the_issuer_cannot_do_leaves_no_trace
+  - tests/integration/test_security_revocation_split.py::test_standard_identity_with_the_real_units
 - id: C-OPS-09
   statement: sandloom config dump [--json] [--only PREFIXES] [--kernel-only] prints effective settings with
     each value's source (env / dotenv / secrets_dir / default), the loaded modules' settings included

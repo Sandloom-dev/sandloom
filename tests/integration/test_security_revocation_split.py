@@ -305,3 +305,39 @@ async def test_a_reset_the_issuer_cannot_do_leaves_no_trace(
             )
     assert await _rows(sessions, ids) == ([], [])
     assert marks.subject_key(ids[0]) not in cli_cache.store
+
+
+async def test_standard_identity_with_the_real_units(
+    real_uow_client: Any, db_engine: Any, sandloom_core: Any
+) -> None:
+    """The standard composition, nothing faked: the resolver finds identity,
+    identity ends the refresh sessions, the kernel's unit revokes."""
+    from sandloom_identity.models.user import User
+
+    target = uuid.uuid4()
+    sessions = async_sessionmaker(db_engine, expire_on_commit=False)
+    async with sessions.begin() as db:
+        db.add(User(id=target, email=f"{target.hex}@example.com", full_name="T"))
+    old = _claims(target)
+    result = await run_bulk(
+        sandloom_core,
+        "revoke-sessions",
+        Targets(users=(target,)),
+        APPLY,
+        operation_id=uuid.uuid4().hex,
+    )
+    assert summary_line(result).startswith("revoke-sessions: 1 user(s) affected")
+    assert "issuer identity" in summary_line(result)
+    assert "  refresh sessions ended by identity" in result.lines()
+    assert await verification.is_token_revoked(old)
+    async with db_engine.connect() as conn:
+        actions = (
+            await conn.execute(
+                text("SELECT action FROM audit_log WHERE resource_id = :t"),
+                {"t": str(target)},
+            )
+        ).scalars()
+        assert sorted(actions) == [
+            AUDIT_TOKENS_REVOKED_ACTION,
+            "identity.user.sessions_revoked",
+        ]
