@@ -1128,6 +1128,7 @@
     "ContractMethodRuntime": {
       "kind": "class",
       "members": [
+        "access_check",
         "bind",
         "decode_result",
         "describe",
@@ -1139,7 +1140,7 @@
         "result_plan",
         "risk"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, kind:POSITIONAL_OR_KEYWORD|Literal['read', 'command'], signature:POSITIONAL_OR_KEYWORD|inspect.Signature, annotations:POSITIONAL_OR_KEYWORD|dict[str, Any], returns:POSITIONAL_OR_KEYWORD|Any, idempotency_key:POSITIONAL_OR_KEYWORD|str | None=None, idempotency_scope:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), risk:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, kind:POSITIONAL_OR_KEYWORD|Literal['read', 'command'], signature:POSITIONAL_OR_KEYWORD|inspect.Signature, annotations:POSITIONAL_OR_KEYWORD|dict[str, Any], returns:POSITIONAL_OR_KEYWORD|Any, idempotency_key:POSITIONAL_OR_KEYWORD|str | None=None, idempotency_scope:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), risk:POSITIONAL_OR_KEYWORD|str | None=None, access_check:POSITIONAL_OR_KEYWORD|dict[str, Any] | None=None) -> None"
     },
     "ContractMethodSpec": {
       "kind": "class",
@@ -2931,6 +2932,10 @@
     "AccessFact": {
       "kind": "class",
       "members": [
+        "atom",
+        "atom_claim_keys",
+        "atom_describe",
+        "atom_statuses",
         "build_facts_contract",
         "claim_key",
         "claim_rule",
@@ -2944,7 +2949,7 @@
         "projection_reader",
         "to_wire"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None, atom:POSITIONAL_OR_KEYWORD|str | None=None, atom_statuses:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_claim_keys:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_describe:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
     },
     "Account": {
       "kind": "class",
@@ -2997,6 +3002,22 @@
       ],
       "signature": "()"
     },
+    "ClaimFactCheck": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(statuses:POSITIONAL_OR_KEYWORD|Iterable[str] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str | None=None) -> None"
+    },
     "ClaimRule": {
       "kind": "class",
       "members": [
@@ -3009,6 +3030,22 @@
         "values"
       ],
       "signature": "(kind:POSITIONAL_OR_KEYWORD|str='truthy', values:POSITIONAL_OR_KEYWORD|frozenset[Any]=frozenset()) -> None"
+    },
+    "ContractCheck": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(params:POSITIONAL_OR_KEYWORD|Mapping[str, Any] | None=None, of:KEYWORD_ONLY|Account | None=None, org_param:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Credits": {
       "kind": "class",
@@ -3099,6 +3136,16 @@
         "tier"
       ],
       "signature": "(key:POSITIONAL_OR_KEYWORD|str, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='features') -> None"
+    },
+    "From": {
+      "kind": "class",
+      "members": [
+        "account_id",
+        "account_type",
+        "org",
+        "subject_id"
+      ],
+      "signature": "()"
     },
     "MEMBERSHIP": {
       "kind": "value"
@@ -3342,6 +3389,10 @@
       ],
       "signature": "(key:POSITIONAL_OR_KEYWORD|str, used:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='limits') -> None"
     },
+    "access_check": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, bind:KEYWORD_ONLY|Mapping[str, list[Any]], category:KEYWORD_ONLY|str='forbidden', values:KEYWORD_ONLY|Mapping[str, Iterable[Any]] | None=None, risk:KEYWORD_ONLY|Mapping[str, Mapping[str, Iterable[Any]]] | None=None, describe:KEYWORD_ONLY|str | None=None, claim:KEYWORD_ONLY|Any=None) -> Callable[[Any], Any]"
+    },
     "authorize": {
       "kind": "function",
       "signature": "(resource:POSITIONAL_OR_KEYWORD|Any, policy:POSITIONAL_OR_KEYWORD|Requirement, ctx:KEYWORD_ONLY|UserContext, request:KEYWORD_ONLY|Request | None=None, db:KEYWORD_ONLY|AsyncSession | None=None, status_code:KEYWORD_ONLY|int | None=None) -> None"
@@ -3360,7 +3411,7 @@
     },
     "lookup_access_fact": {
       "kind": "function",
-      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str) -> AccessFact | None"
+      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str, owner:KEYWORD_ONLY|str | None=None) -> AccessFact | None"
     },
     "make_rebuild_gate": {
       "kind": "function",
@@ -3402,6 +3453,7 @@
     "ContractMethodRuntime": {
       "kind": "class",
       "members": [
+        "access_check",
         "bind",
         "decode_result",
         "describe",
@@ -3413,7 +3465,7 @@
         "result_plan",
         "risk"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, kind:POSITIONAL_OR_KEYWORD|Literal['read', 'command'], signature:POSITIONAL_OR_KEYWORD|inspect.Signature, annotations:POSITIONAL_OR_KEYWORD|dict[str, Any], returns:POSITIONAL_OR_KEYWORD|Any, idempotency_key:POSITIONAL_OR_KEYWORD|str | None=None, idempotency_scope:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), risk:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, kind:POSITIONAL_OR_KEYWORD|Literal['read', 'command'], signature:POSITIONAL_OR_KEYWORD|inspect.Signature, annotations:POSITIONAL_OR_KEYWORD|dict[str, Any], returns:POSITIONAL_OR_KEYWORD|Any, idempotency_key:POSITIONAL_OR_KEYWORD|str | None=None, idempotency_scope:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), risk:POSITIONAL_OR_KEYWORD|str | None=None, access_check:POSITIONAL_OR_KEYWORD|dict[str, Any] | None=None) -> None"
     },
     "ContractMethodSpec": {
       "kind": "class",
@@ -6255,6 +6307,10 @@
     "AccessFact": {
       "kind": "class",
       "members": [
+        "atom",
+        "atom_claim_keys",
+        "atom_describe",
+        "atom_statuses",
         "build_facts_contract",
         "claim_key",
         "claim_rule",
@@ -6268,7 +6324,7 @@
         "projection_reader",
         "to_wire"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None, atom:POSITIONAL_OR_KEYWORD|str | None=None, atom_statuses:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_claim_keys:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_describe:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
     },
     "Account": {
       "kind": "class",
@@ -6321,6 +6377,22 @@
       ],
       "signature": "()"
     },
+    "ClaimFactCheck": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(statuses:POSITIONAL_OR_KEYWORD|Iterable[str] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str | None=None) -> None"
+    },
     "ClaimRule": {
       "kind": "class",
       "members": [
@@ -6333,6 +6405,22 @@
         "values"
       ],
       "signature": "(kind:POSITIONAL_OR_KEYWORD|str='truthy', values:POSITIONAL_OR_KEYWORD|frozenset[Any]=frozenset()) -> None"
+    },
+    "ContractCheck": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(params:POSITIONAL_OR_KEYWORD|Mapping[str, Any] | None=None, of:KEYWORD_ONLY|Account | None=None, org_param:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Credits": {
       "kind": "class",
@@ -6423,6 +6511,16 @@
         "tier"
       ],
       "signature": "(key:POSITIONAL_OR_KEYWORD|str, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='features') -> None"
+    },
+    "From": {
+      "kind": "class",
+      "members": [
+        "account_id",
+        "account_type",
+        "org",
+        "subject_id"
+      ],
+      "signature": "()"
     },
     "MEMBERSHIP": {
       "kind": "value"
@@ -6654,6 +6752,10 @@
       ],
       "signature": "(key:POSITIONAL_OR_KEYWORD|str, used:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='limits') -> None"
     },
+    "access_check": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, bind:KEYWORD_ONLY|Mapping[str, list[Any]], category:KEYWORD_ONLY|str='forbidden', values:KEYWORD_ONLY|Mapping[str, Iterable[Any]] | None=None, risk:KEYWORD_ONLY|Mapping[str, Mapping[str, Iterable[Any]]] | None=None, describe:KEYWORD_ONLY|str | None=None, claim:KEYWORD_ONLY|Any=None) -> Callable[[Any], Any]"
+    },
     "authorize": {
       "kind": "function",
       "signature": "(resource:POSITIONAL_OR_KEYWORD|Any, policy:POSITIONAL_OR_KEYWORD|Requirement, ctx:KEYWORD_ONLY|UserContext, request:KEYWORD_ONLY|Request | None=None, db:KEYWORD_ONLY|AsyncSession | None=None, status_code:KEYWORD_ONLY|int | None=None) -> None"
@@ -6672,7 +6774,7 @@
     },
     "lookup_access_fact": {
       "kind": "function",
-      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str) -> AccessFact | None"
+      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str, owner:KEYWORD_ONLY|str | None=None) -> AccessFact | None"
     },
     "make_rebuild_gate": {
       "kind": "function",

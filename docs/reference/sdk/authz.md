@@ -30,6 +30,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 
 | Name | Kind | Summary |
 | --- | --- | --- |
+| [`access_check`](#access_check) | function | Declare a boolean contract read method as the access check `name`. |
 | [`AccessDecision`](#accessdecision) | class | The outcome of evaluating a policy against an `AuthzContext`. |
 | [`AccessDenied`](#accessdenied) | exception | Raised by `enforce` (and the HTTP guards) when a policy is not satisfied. |
 | [`AccessFact`](#accessfact) | class | Declarative binding of a fact name to its three resolution paths. |
@@ -39,7 +40,9 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`authorize`](#authorize) | async function | Inline check over an already-loaded `resource`; raises on failure. |
 | [`AuthzContext`](#authzcontext) | class | Inputs available to a `Requirement` during evaluation. |
 | [`Category`](#category) | class | Mandatory denial categories (TZ §10.2). |
+| [`ClaimFactCheck`](#claimfactcheck) | class | The generic evaluator of a generated claim-tier atom. |
 | [`ClaimRule`](#claimrule) | class | Declarative claim -> bool interpretation: wire-safe, no callables. |
+| [`ContractCheck`](#contractcheck) | class | The generic evaluator of a generated, contract-anchored atom. |
 | [`current_context`](#current_context) | async function | Authenticated subject from the Bearer access token (cached per request). |
 | [`enforce`](#enforce) | async function | Evaluate `policy` for `subject`; raise `AccessDenied` on deny. |
 | [`Entitled`](#entitled) | class | Subject satisfies the registered access fact `fact_name`. |
@@ -49,6 +52,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`FactOwnerUnreachable`](#factownerunreachable) | exception | The fact's owner is bound but could not describe its facts (503). |
 | [`FactUnavailable`](#factunavailable) | exception | A fact could not be resolved in any acceptable mode (a misconfiguration). |
 | [`Feature`](#feature) | class | The account's plan enables the feature flag `key` (`of=`, §7.2). |
+| [`From`](#from) | class | Where an access check's argument comes from (the kernel's sources). |
 | [`lookup_access_fact`](#lookup_access_fact) | async function | The fact `name`: the local registration, else the owner's public one. |
 | [`make_rebuild_gate`](#make_rebuild_gate) | function | A startup task that rebuilds an authz projection from its sources. |
 | [`MEMBERSHIP`](#membership) | constant |  |
@@ -409,6 +413,40 @@ Human-readable label used in 403 detail messages.
 
 ## Advanced names
 
+### `access_check`
+
+```python
+def access_check(
+    name: str,
+    *,
+    bind: Mapping[str, list[Any]],
+    category: str = 'forbidden',
+    values: Mapping[str, Iterable[Any]] | None = None,
+    risk: Mapping[str, Mapping[str, Iterable[Any]]] | None = None,
+    describe: str | None = None,
+    claim: Any = None,
+) -> Callable[[Any], Any]
+```
+
+Declare a boolean contract read method as the access check `name`.
+
+`bind` maps method parameters to `From` sources; the method's
+other parameters become the atom's own parameters, in signature order.
+`values` narrows one of them to a closed set (typed as a `Literal`
+in the generated class, e.g. `{"minimum": ["member", "admin",
+"owner"]}`). `risk` is a value table: `{"admin": {"minimum":
+["admin", "owner"]}}` means the gate carries the `admin` risk when
+every listed parameter has one of the listed values. `category` is the
+denial category of a `False` answer (`Category.PAYMENT_REQUIRED`:
+402). `describe` is the denial label, `{param}` placeholders
+allowed. `claim` is the owner's
+`sandloom.shared.authz.facts.AccessFact` naming a claim-tier
+`atom` this check answers for an organization account.
+
+The declaration is part of the method's describe document and the
+contract snapshot: removing it, re-binding it or lowering a risk is an
+incompatible change (SANDLOOM-T004).
+
 ### `AccessDecision`
 
 ```python
@@ -531,6 +569,10 @@ class AccessFact(
     default_mode: str = 'auto',
     deny_category: str | None = None,
     claim_rule: ClaimRule | Callable[[], ClaimRule] | None = None,
+    atom: str | None = None,
+    atom_statuses: tuple[str, ...] = (),
+    atom_claim_keys: tuple[str, ...] = (),
+    atom_describe: str | None = None,
 ) -> None
 ```
 
@@ -799,6 +841,70 @@ class Category
 
 Mandatory denial categories (TZ §10.2).
 
+### `ClaimFactCheck`
+
+```python
+class ClaimFactCheck(Requirement)(
+    statuses: Iterable[str] | None = None,
+    *,
+    of: Account = <object object>,
+    claim_key: str | None = None,
+) -> None
+```
+
+The generic evaluator of a generated claim-tier atom.
+
+For `Account.user()` it reads the owner's claim `claim_key` with zero
+I/O: interpreted by the owner's fact (its declarative rule, e.g. a grace
+period) under the token's provenance, or, with explicit `statuses=` or
+another declared `claim_key=`, verbatim against those statuses. With
+the owner neither loaded nor bound it is indeterminate 501 (nobody may
+vouch for the claim). For an organization account it delegates to the
+owner's live access check (`otherwise` in the literal).
+
+#### `ClaimFactCheck.org_params`
+
+```python
+def org_params(self) -> frozenset[str]
+```
+
+Path parameters this requirement may read an organisation from.
+
+Non-empty for an atom that resolves an organisation (path parameter,
+`X-Tenant-Id`, else the bound tenant): `create_app` then refuses a
+route that solves the gate before its `TenantScope()` (SANDLOOM-B007).
+
+#### `ClaimFactCheck.contracts`
+
+```python
+def contracts(self) -> frozenset[str]
+```
+
+Sync contracts evaluating this requirement may call (wiring time).
+
+A module's derived `consumes` includes them (optional), so the
+startup preflight reports an unbound one and `sandloom add deploy`
+binds it in a split deployment. Default: none (a claims-only atom).
+
+#### `ClaimFactCheck.describe`
+
+```python
+def describe(self) -> str
+```
+
+Human-readable label used in 403 detail messages.
+
+#### `ClaimFactCheck.evaluate`
+
+```python
+async def evaluate(self, ctx: AuthzContext) -> bool
+```
+
+Return True iff the subject satisfies this requirement.
+
+Raise `PolicyIndeterminate` (never return `False`) when the
+requirement cannot be evaluated at all.
+
 ### `ClaimRule`
 
 ```python
@@ -853,6 +959,80 @@ Parse a wire rule; `None` for anything not understood.
 
 Fail closed: a consumer that cannot parse the rule never reads the
 claim and escalates to the owner's live answer instead.
+
+### `ContractCheck`
+
+```python
+class ContractCheck(Requirement)(
+    params: Mapping[str, Any] | None = None,
+    *,
+    of: Account | None = None,
+    org_param: str | None = None,
+) -> None
+```
+
+The generic evaluator of a generated, contract-anchored atom.
+
+A generated subclass sets `__sandloom_atom__` (`contract`,
+`method`, `args` in signature order, `binds`, `tier`,
+`category`, and optionally `values`, `risk`, `describe`) and a
+typed `__init__` that calls `super().__init__(params, of=...,
+org_param=...)`. Every wiring-time answer (`tier`, `contracts()`,
+`org_params()`, `risks()`, the denial category) is read from the
+literal (decision 10).
+
+#### `ContractCheck.org_params`
+
+```python
+def org_params(self) -> frozenset[str]
+```
+
+Path parameters this requirement may read an organisation from.
+
+Non-empty for an atom that resolves an organisation (path parameter,
+`X-Tenant-Id`, else the bound tenant): `create_app` then refuses a
+route that solves the gate before its `TenantScope()` (SANDLOOM-B007).
+
+#### `ContractCheck.contracts`
+
+```python
+def contracts(self) -> frozenset[str]
+```
+
+Sync contracts evaluating this requirement may call (wiring time).
+
+A module's derived `consumes` includes them (optional), so the
+startup preflight reports an unbound one and `sandloom add deploy`
+binds it in a split deployment. Default: none (a claims-only atom).
+
+#### `ContractCheck.risks`
+
+```python
+def risks(self) -> frozenset[str]
+```
+
+The framework risks a gate enforcing this requirement carries
+(ADR-0009 item 6): `{"admin"}` for an admin role, else none. An
+`Or` carries its branches' risks; a `Not` grants no authority.
+
+#### `ContractCheck.describe`
+
+```python
+def describe(self) -> str
+```
+
+Human-readable label used in 403 detail messages.
+
+#### `ContractCheck.evaluate`
+
+```python
+async def evaluate(self, ctx: AuthzContext) -> bool
+```
+
+Return True iff the subject satisfies this requirement.
+
+Raise `PolicyIndeterminate` (never return `False`) when the
+requirement cannot be evaluated at all.
 
 ### `current_context`
 
@@ -1052,10 +1232,65 @@ def describe(self) -> str
 
 Human-readable label used in 403 detail messages.
 
+### `From`
+
+```python
+class From
+```
+
+Where an access check's argument comes from (the kernel's sources).
+
+#### `From.subject_id`
+
+```python
+@staticmethod
+def subject_id() -> list[Any]
+```
+
+The authenticated principal's user id.
+
+#### `From.org`
+
+```python
+@staticmethod
+def org(
+    *,
+    param: str | None = 'org_id',
+    validate_against_token: bool = True,
+) -> list[Any]
+```
+
+The organization: path or query `param`, else `X-Tenant-Id`,
+else the bound tenant. `validate_against_token=False` when the
+check itself is the authority on membership.
+
+#### `From.account_type`
+
+```python
+@staticmethod
+def account_type() -> list[Any]
+```
+
+`"user"` or `"organization"`: the kind of the atom's `of=`.
+
+#### `From.account_id`
+
+```python
+@staticmethod
+def account_id() -> list[Any]
+```
+
+The id of the account the atom's `of=` names.
+
 ### `lookup_access_fact`
 
 ```python
-async def lookup_access_fact(ctx: AuthzContext, name: str) -> AccessFact | None
+async def lookup_access_fact(
+    ctx: AuthzContext,
+    name: str,
+    *,
+    owner: str | None = None,
+) -> AccessFact | None
 ```
 
 The fact `name`: the local registration, else the owner's public one.
@@ -1065,7 +1300,9 @@ Order: `core.get_access_fact(name)` (owner co-deployed) → every bound
 first dotted segment first), whose `describe()` is cached on the core for
 `REMOTE_FACT_TTL_SECONDS`. `None` when no owner knows the fact (the
 caller reports 501); `FactOwnerUnreachable` (503) when a bound owner
-could not be asked and none of the others knows it.
+could not be asked and none of the others knows it. `owner=` (a
+generated atom's literal) accepts only that module's fact and asks only
+its facts contract.
 
 ### `make_rebuild_gate`
 

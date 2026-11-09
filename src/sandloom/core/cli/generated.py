@@ -292,11 +292,228 @@ def _declaration(ref: str, protocol: str, literal: str) -> str:
     return f"{annotation} = {call}"
 
 
+#: Where a generated atom imports its evaluator and ``Account`` from: the
+#: public authorization facade, marked as advanced generated code (T009).
+ATOM_HOME = ("sandloom.sdk.authz", "sandloom: advanced generated code")
+
+
+def _py(value: Any, indent: str) -> str:
+    """A JSON value as Python source at ``indent`` (ruff's layout: inline when
+    it fits the line, else one element per line with a trailing comma)."""
+    if isinstance(value, dict):
+        items = [
+            f"{json.dumps(str(k))}: {_py(v, indent + '    ')}" for k, v in value.items()
+        ]
+        brackets = ("{", "}")
+    elif isinstance(value, (list, tuple)):
+        items = [_py(v, indent + "    ") for v in value]
+        brackets = ("[", "]")
+    else:
+        return _literal(value)
+    flat = brackets[0] + ", ".join(items) + brackets[1]
+    if "\n" not in flat and len(indent) + len(flat) <= _LINE:
+        return flat
+    inner = "".join(f"{indent}    {item},\n" for item in items)
+    return f"{brackets[0]}\n{inner}{indent}{brackets[1]}"
+
+
+def _literal_block(literal: Mapping[str, Any]) -> str:
+    """``__sandloom_atom__`` as a class attribute, one key per line (its
+    trailing comma keeps ruff from joining it); a value that overflows its
+    line is split one element per line, as ruff splits it."""
+    lines: list[str] = []
+    indent = "        "
+    for key, value in literal.items():
+        head = f"{indent}{json.dumps(key)}: "
+        flat = _py(value, "")
+        if "\n" not in flat and len(head) + len(flat) + 1 <= _LINE:
+            lines.append(f"{head}{flat},")
+        else:
+            lines.append(f"{head}{_py(value, indent)},")
+    body = "\n".join(lines)
+    return f"    __sandloom_atom__: ClassVar[dict[str, Any]] = {{\n{body}\n    }}\n"
+
+
+def _def_init(params: list[str], call: str) -> str:
+    """``def __init__(...) -> None:`` and its ``super().__init__`` body."""
+    head: list[str] = []
+    for line in _dto_copies.fit_lines(
+        f"    def __init__({', '.join(params)}) -> None:"
+    ):
+        stripped = line.lstrip(" ")
+        if stripped.startswith("] | "):
+            # A split subscript followed by ``| X``: ruff breaks before the
+            # operator, at the bracket's indentation.
+            indent = line[: len(line) - len(stripped)]
+            head += [f"{indent}]", f"{indent}{stripped[2:]}"]
+        else:
+            head.append(line)
+    body = _dto_copies.fit_lines(f"        super().__init__({call})")
+    return "\n".join([*head, *body]) + "\n"
+
+
+def atom_literal(contract: str, method: str, runtime: Any) -> dict[str, Any]:
+    """The ``__sandloom_atom__`` literal of ``runtime``'s access check: what
+    the generic evaluator reads (ADR-0014 decision 10)."""
+    spec = runtime.access_check
+    literal: dict[str, Any] = {
+        "contract": contract,
+        "method": method,
+        "args": list(runtime.signature.parameters),
+        "binds": spec["bind"],
+        "tier": 3,
+        "category": spec.get("category", "forbidden"),
+    }
+    for key in ("values", "risk", "describe"):
+        if spec.get(key):
+            literal[key] = spec[key]
+    return literal
+
+
+def _class_head(name: str, base: str, doc: str | None) -> str:
+    text = docstring(doc, "    ")
+    return f"class {name}({base}):\n" + (f"{text}\n\n" if text else "")
+
+
+def _render_check(
+    contract: str,
+    method: str,
+    runtime: Any,
+    doc: str | None,
+    imports: _Imports,
+    resolver: _dto_copies.Resolver | None,
+) -> str:
+    """The typed ``ContractCheck`` subclass of one access check: the bound
+    parameters leave the signature, the rest are the atom's own (a closed
+    ``values`` set typed as a ``Literal``); ``org_param=`` for an organization
+    bind, a required ``of=`` for an account bind."""
+    spec = runtime.access_check
+    binds = spec["bind"]
+    kinds = {source[0] for source in binds.values()}
+    home, marker = ATOM_HOME
+    imports.need("typing", "Any")
+    imports.need("typing", "ClassVar")
+    imports.need(home, "ContractCheck", marker)
+    values = spec.get("values") or {}
+    params = ["self"]
+    passed: list[str] = []
+    for pname, param in runtime.signature.parameters.items():
+        if pname in binds:
+            continue
+        if pname in values:
+            imports.need("typing", "Literal")
+            text = f"Literal[{', '.join(_literal(v) for v in values[pname])}]"
+        else:
+            text = render_annotation(runtime.annotations[pname], imports, resolver)
+        if param.kind is param.KEYWORD_ONLY and "*" not in params:
+            params.append("*")
+        text = f"{pname}: {text}"
+        if param.default is not param.empty:
+            text += f" = {_literal(param.default)}"
+        params.append(text)
+        passed.append(pname)
+    keywords: list[str] = []
+    if "org" in kinds:
+        default = next(b[1] for b in binds.values() if b[0] == "org")
+        params += ([] if "*" in params else ["*"]) + [
+            f"org_param: str | None = {_literal(default)}"
+        ]
+        keywords.append("org_param=org_param")
+    if kinds & {"account_type", "account_id"}:
+        imports.need(home, "Account", marker)
+        params += ([] if "*" in params else ["*"]) + ["of: Account"]
+        keywords.append("of=of")
+    call = "{" + ", ".join(f"{json.dumps(p)}: {p}" for p in passed) + "}"
+    return (
+        _class_head(spec["name"], "ContractCheck", doc)
+        + _literal_block(atom_literal(contract, method, runtime))
+        + "\n"
+        + _def_init(params, ", ".join([call, *keywords]))
+    )
+
+
+def _render_claim(
+    spec: Mapping[str, Any], otherwise: dict[str, Any], imports: _Imports
+) -> str:
+    """The typed ``ClaimFactCheck`` subclass an owner's fact names
+    (``access_check(..., claim=fact)``): ``statuses=`` typed as a ``Literal``
+    of the declared statuses, ``claim_key=`` of the declared keys (ADR-0014
+    decision 11), ``of=`` required."""
+    home, marker = ATOM_HOME
+    for name in ("Any", "ClassVar", "Literal"):
+        imports.need("typing", name)
+    imports.need(home, "ClaimFactCheck", marker)
+    imports.need(home, "Account", marker)
+    literal: dict[str, Any] = {
+        "fact": spec["fact"],
+        "owner": spec["owner"],
+        "claim_key": spec["claim_key"],
+        "claim_keys": list(spec["claim_keys"]),
+        "statuses": list(spec["statuses"]),
+        "tier": 1,
+        "category": spec["category"],
+    }
+    if spec.get("describe"):
+        literal["describe"] = spec["describe"]
+    literal["otherwise"] = otherwise
+    keys = ", ".join(_literal(k) for k in spec["claim_keys"])
+    statuses = (
+        f"frozenset[Literal[{', '.join(_literal(s) for s in spec['statuses'])}]]"
+        if spec["statuses"]
+        else "frozenset[str]"
+    )
+    doc = (
+        f"The owner's claim ``{spec['claim_key']}`` under its provenance (zero\n"
+        "I/O) for ``Account.user()``; for an organization account the live check\n"
+        f"``{otherwise['contract']}.{otherwise['method']}``. Fact\n"
+        f"``{spec['fact']}`` of ``{spec['owner']}``: indeterminate 501 when that\n"
+        "module is neither loaded nor bound."
+    )
+    params = [
+        "self",
+        f"statuses: {statuses} | None = None",
+        "*",
+        "of: Account",
+        f"claim_key: Literal[{keys}] = {_literal(spec['claim_key'])}",
+    ]
+    return (
+        _class_head(spec["name"], "ClaimFactCheck", doc)
+        + _literal_block(literal)
+        + "\n"
+        + _def_init(params, "statuses, of=of, claim_key=claim_key")
+    )
+
+
+def _render_atoms(
+    contract: str,
+    provider: Any,
+    imports: _Imports,
+    resolver: _dto_copies.Resolver | None,
+) -> list[str]:
+    """The generated atoms of ``provider``'s access checks, by method name,
+    then the claim atoms they name."""
+    atoms: list[str] = []
+    claims: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for name, runtime in sorted(contract_schema(provider).methods.items()):
+        if runtime.access_check is None:
+            continue
+        method = getattr(provider, name, None)
+        doc = inspect.getdoc(method) if method is not None else None
+        atoms.append(_render_check(contract, name, runtime, doc, imports, resolver))
+        claim = runtime.access_check.get("claim")
+        if isinstance(claim, dict):
+            claims.append((claim, atom_literal(contract, name, runtime)))
+    for claim, otherwise in sorted(claims, key=lambda c: str(c[0]["name"])):
+        atoms.append(_render_claim(claim, otherwise, imports))
+    return atoms
+
+
 def render_stub(
     contract: str, provider: Any, resolver: _dto_copies.Resolver | None = None
 ) -> str:
     """The generated stub of contract ``contract`` provided by ``provider``
-    (its DTOs imported from where ``resolver`` places them)."""
+    (its DTOs imported from where ``resolver`` places them), followed by the
+    typed atoms of its access checks (ADR-0014 decision 8)."""
     _stem, protocol, ref = stub_names(contract)
     imports = _Imports()
     imports.need("typing", "Protocol")
@@ -331,6 +548,8 @@ def render_stub(
         body = f"{class_doc}\n\n{body}" if methods else class_doc
     body = body or "    pass"
     declaration = _declaration(ref, protocol, json.dumps(contract))
+    atoms = _render_atoms(contract, provider, imports, resolver)
+    tail = "".join(f"\n\n{atom}" for atom in atoms)
     return (
         f'{HEADER}"""Contract ``{contract}``: the typed stub callers import.\n\n'
         f"Generated from ``{provider.__module__}.{provider.__qualname__}``.\n"
@@ -338,7 +557,7 @@ def render_stub(
         "from __future__ import annotations\n\n"
         f"{imports.render()}\n\n\n"
         f"class {protocol}(Protocol):\n{body}\n\n\n"
-        f"{declaration}\n"
+        f"{declaration}\n{tail}"
     )
 
 

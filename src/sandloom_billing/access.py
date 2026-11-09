@@ -47,6 +47,8 @@ from sandloom.sdk.errors import ServiceNotFound
 from sandloom.sdk.tenant import current_tenant_id_optional
 from sandloom_billing.config import billing_settings
 from sandloom_billing.entitlements import ENTITLEMENTS_SERVICE_V1
+from sandloom_billing.models.subscription import PSP_SUBSCRIPTION_STATUSES
+from sandloom_billing.services.billing_service import CLAIM_STATUS_EXPIRED
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.sdk.authz import AuthzContext
@@ -54,6 +56,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 MEMBERSHIP_SERVICE_V1 = "tenancy.membership.v1"
 ORG_PARAM = "org_id"
 _PAST_DUE = "past_due"
+#: Every value the ``subscription_status`` claim can carry: a PSP status,
+#: ``expired`` once access lapsed, ``none`` without a subscription.
+CLAIM_STATUSES: tuple[str, ...] = tuple(
+    sorted(PSP_SUBSCRIPTION_STATUSES | {CLAIM_STATUS_EXPIRED, "none"})
+)
 
 
 async def _live_subscription_active(service: object, ctx: AuthzContext) -> bool:
@@ -150,6 +157,13 @@ SUBSCRIPTION_ACTIVE_FACT = AccessFact(
     default_mode="auto",
     # Same 402 as Subscribed / SubscriptionActive / Credits.
     deny_category=Category.PAYMENT_REQUIRED,
+    # The generated claim atom ``Subscribed`` (beside the stub of
+    # billing.entitlements.v1, named by check_subscription_active's access
+    # check): ``statuses=`` may list only these, ``claim_key=`` only these.
+    atom="Subscribed",
+    atom_statuses=CLAIM_STATUSES,
+    atom_claim_keys=("subscription_status",),
+    atom_describe="active subscription",
 )
 
 ORG_SUBSCRIPTION_ACTIVE_FACT = AccessFact(

@@ -205,6 +205,45 @@ add `billing.entitlements.v1`, `Entitled(fact)` adds the fact owner's
 `tenancy.membership.v1`. The startup preflight warns when one is unbound,
 and `sandloom add deploy` binds them in the microservices profile.
 
+## Access checks declared by a provider
+
+A provider turns one boolean read of its contract into a typed atom with
+`access_check` (`sandloom.sdk.authz`, advanced; ADR-0014 decision 8). For
+example, `@access_check("HasSeat", bind={"account_id": From.account_id()},
+category=Category.PAYMENT_REQUIRED)` on `has_seat(self, account_id: UUID) ->
+bool`.
+
+`bind` maps parameters to the kernel's sources:
+
+- `From.subject_id()`: the caller's user id;
+- `From.org(param="org_id")`: the organization of the request;
+- `From.account_type()` / `From.account_id()`: the account the atom's `of=`
+  names.
+
+Every other parameter is the atom's own. `values=` types one as a `Literal`,
+and `risk=` gives a gate the `admin` risk for listed values.
+
+`sandloom generate` writes `HasSeat` beside each consumer's stub of the
+contract. A consumer imports it from its generated package and writes
+`require(HasSeat(of=Account.org()))`, with no kernel change.
+
+- A `False` answer denies with the declared category.
+- No provider is `501`.
+- A provider that no longer matches the generated atom is `501
+  contract_mismatch` inside the algebra: `Or` may still allow, `Not` never
+  allows.
+- Removing, re-binding or lowering the risk of a declared check breaks the
+  contract snapshot (SANDLOOM-T004): publish a new `.vN`.
+
+Tenancy declares `OrgRole`; billing declares `SubscriptionActive` and
+`Credits` (`has_credits_at_least`).
+
+Billing's claim atom `Subscribed` accepts only the statuses and claim keys
+billing declares. Without billing in the composition it answers `501`.
+
+Until the kernel atoms are removed, both forms exist. They decide the same
+with the same calls.
+
 ## What breaks it
 
 | Code | What it catches |

@@ -17,6 +17,8 @@ from uuid import UUID
 from fastapi import HTTPException
 
 from sandloom.sdk import command, contract, db
+from sandloom.sdk.authz import Category, From, access_check
+from sandloom_billing.access import SUBSCRIPTION_ACTIVE_FACT
 from sandloom_billing.credits import CreditsService, ensure_tenant_matches
 from sandloom_billing.entitlements import EntitlementsService
 from sandloom_billing.exceptions import BillingError
@@ -36,14 +38,41 @@ class EntitlementsContract:
     ``fake_contract(BILLING_ENTITLEMENTS_V1, Fake())``.
     """
 
+    @access_check(
+        "SubscriptionActive",
+        bind={"tenant_type": From.account_type(), "tenant_id": From.account_id()},
+        category=Category.PAYMENT_REQUIRED,
+        describe="active subscription",
+        claim=SUBSCRIPTION_ACTIVE_FACT,
+    )
     async def check_subscription_active(
         self, tenant_type: str, tenant_id: UUID
     ) -> bool:
         """True while a subscription grants access: active or trialing inside
         its period, or ``past_due`` within the grace window (unless the
-        deployment denies on ``past_due``). False without a billing customer."""
+        deployment denies on ``past_due``). False without a billing customer.
+        Its access check ``SubscriptionActive(of=...)`` asks it live for the
+        account ``of=`` names (402 when it answers False)."""
         return await EntitlementsService.check_subscription_active(
             tenant_type, tenant_id, db()
+        )
+
+    @access_check(
+        "Credits",
+        bind={"tenant_type": From.account_type(), "tenant_id": From.account_id()},
+        category=Category.PAYMENT_REQUIRED,
+        describe="at least {minimum} credits",
+    )
+    async def has_credits_at_least(
+        self, tenant_type: str, tenant_id: UUID, minimum: int
+    ) -> bool:
+        """True when the live credit balance is at least ``minimum`` (the
+        query of ``get_credit_balance``; False without a billing customer
+        unless ``minimum`` is 0 or less). A read for a gate, never a spend:
+        to spend, call ``billing.credits.v1.spend`` (atomic). Its access check
+        ``Credits(minimum, of=...)`` answers 402 when it is False."""
+        return await EntitlementsService.has_credits_at_least(
+            tenant_type, tenant_id, minimum, db()
         )
 
     async def get_credit_balance(self, tenant_type: str, tenant_id: UUID) -> int:

@@ -102,6 +102,11 @@ H1_KERNEL_NAMES: dict[str, str] = {
     # The portable aggregate (2026-11-05, slice 10; no feature).
     "core.orm.aggregate_list": "sandloom.sdk.data",
     "shared.authz.Account": "sandloom.sdk.authz",
+    # Contract-anchored access checks (ADR-0014 decision 8, KB-30).
+    "shared.authz.access_check": "sandloom.sdk.authz",
+    "shared.authz.From": "sandloom.sdk.authz",
+    "shared.authz.ContractCheck": "sandloom.sdk.authz",
+    "shared.authz.ClaimFactCheck": "sandloom.sdk.authz",
     "core.di.current_service": "sandloom.sdk.web",
     "core.di.authorizes": "sandloom.sdk.web",
     # The kernel home of ContractRef (WS-A dbd87f6f): generated contract

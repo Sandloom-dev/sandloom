@@ -61,6 +61,15 @@ class EntitlementsService:
         return await BillingService.get_credit_balance(customer.id, db)
 
     @classmethod
+    async def has_credits_at_least(
+        cls, tenant_type: str, tenant_id: UUID, minimum: int, db: AsyncSession
+    ) -> bool:
+        """``get_credit_balance(...) >= minimum``: the same queries, compared
+        in billing (``billing.entitlements.v1.has_credits_at_least``)."""
+        balance = await cls.get_credit_balance(tenant_type, tenant_id, db)
+        return balance >= minimum
+
+    @classmethod
     async def subscription_claims(
         cls, tenant_type: str, tenant_id: UUID, db: AsyncSession
     ) -> dict[str, object]:

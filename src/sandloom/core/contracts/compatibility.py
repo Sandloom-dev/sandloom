@@ -403,6 +403,9 @@ def _compare_method(  # noqa: C901
         )
     if exp.get("idempotency_scope", []) != act.get("idempotency_scope", []):
         report.errors.append(f"{where}: idempotency scope changed")
+    _compare_access_check(
+        where, exp.get("access_check"), act.get("access_check"), report
+    )
     exp_params = list(exp.get("params") or ())
     act_params = list(act.get("params") or ())
     act_by_name = {str(p.get("name")): p for p in act_params}
@@ -458,3 +461,79 @@ def _index_of(params: list[Mapping[str, Any]], name: str) -> int:
         if param.get("name") == name:
             return index
     return -1
+
+
+def _compare_access_check(where: str, exp: Any, act: Any, report: CompatReport) -> None:
+    """An access check (ADR-0014 decision 10) consumers were generated
+    against may be added, relabelled or widened, never removed, re-bound,
+    given another denial category, narrowed in its values or lowered in risk:
+    a lowered risk would let a gate drop its ``admin`` step-up silently."""
+    if not isinstance(exp, Mapping):
+        return
+    label = f"{where}: access check {exp.get('name')!r}"
+    if not isinstance(act, Mapping):
+        report.errors.append(f"{label} removed by the provider")
+        return
+    for key in ("name", "bind", "category"):
+        if exp.get(key) != act.get(key):
+            report.errors.append(f"{label}: {key} changed")
+    _narrowed(label, "values", exp.get("values"), act.get("values"), report)
+    _risk_lowered(label, exp.get("risk") or {}, act.get("risk") or {}, report)
+    _claim_changed(label, exp.get("claim"), act.get("claim"), report)
+
+
+def _risk_lowered(
+    label: str,
+    exp_risk: Mapping[str, Any],
+    act_risk: Mapping[str, Any],
+    report: CompatReport,
+) -> None:
+    """Each declared risk must still apply to every value it applied to."""
+    for risk, conditions in exp_risk.items():
+        now = act_risk.get(risk)
+        if not isinstance(now, Mapping):
+            report.errors.append(f"{label}: risk {risk!r} removed (lowered)")
+            continue
+        for param, values in conditions.items():
+            if param not in now or not set(values) <= set(now[param]):
+                report.errors.append(f"{label}: risk {risk!r} lowered for {param!r}")
+        for param in sorted(set(now) - set(conditions)):
+            report.errors.append(
+                f"{label}: risk {risk!r} gained the condition {param!r} (lowered)"
+            )
+
+
+def _claim_changed(
+    label: str, exp_claim: Any, act_claim: Any, report: CompatReport
+) -> None:
+    """A claim atom keeps its fact, owner, key and category, and loses no
+    declared status or claim key."""
+    if not isinstance(exp_claim, Mapping):
+        return
+    if not isinstance(act_claim, Mapping):
+        report.errors.append(f"{label}: claim atom {exp_claim.get('name')!r} removed")
+        return
+    for key in ("name", "fact", "owner", "claim_key", "category"):
+        if exp_claim.get(key) != act_claim.get(key):
+            report.errors.append(f"{label}: claim atom {key} changed")
+    for key in ("statuses", "claim_keys"):
+        missing = sorted(set(exp_claim.get(key) or ()) - set(act_claim.get(key) or ()))
+        if missing:
+            report.errors.append(
+                f"{label}: claim atom {key} removed {', '.join(map(str, missing))}"
+            )
+
+
+def _narrowed(label: str, key: str, exp: Any, act: Any, report: CompatReport) -> None:
+    exp_values = exp if isinstance(exp, Mapping) else {}
+    act_values = act if isinstance(act, Mapping) else {}
+    for param, values in exp_values.items():
+        if param not in act_values:
+            continue  # the provider takes any value now: wider
+        missing = sorted(set(values) - set(act_values[param]), key=str)
+        if missing:
+            report.errors.append(
+                f"{label}: {key} of {param!r} lost {', '.join(map(str, missing))}"
+            )
+    for param in sorted(set(act_values) - set(exp_values)):
+        report.errors.append(f"{label}: {key} of {param!r} became a closed set")
