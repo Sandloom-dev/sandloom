@@ -2840,11 +2840,21 @@ guarantees:
   - tests/integration/test_authz_subjects.py::test_tenant_kind_is_authoritative_and_memoised
 - id: G-AUTHZ-12
   statement: Feature / WithinLimit with an organization account read the owner's organization.features / organization.limits
-    facts live (501 without a registered fact); with Account.user() they read the claims as before.
+    facts live (501 without a registered fact); with Account.user() they read the claims as before. Billing's
+    generated Feature / WithinLimit (claim atoms of billing.entitlements.v1's has_feature / is_within_limit)
+    decide as the kernel atoms on every trust case of the claims with zero I/O, and for an organization account
+    ask billing's live check once with their parameters, in-process and over internal RPC alike (501 without
+    a provider, never an allow).
   sources:
   - docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects
+  - docs/adr/0014-claims-trust-and-authorization-portability.md#15. What else moves, and what stays
   tests:
   - tests/integration/test_authz_subjects.py::test_org_feature_and_limit_need_the_owners_fact
+  - src/sandloom/core/tests/test_claim_read_atoms.py::test_the_user_account_decides_as_the_kernel_atom
+  - src/sandloom/core/tests/test_claim_read_atoms.py::test_an_organization_asks_the_live_check_with_its_parameters
+  - src/sandloom/core/tests/test_claim_read_atoms.py::test_without_a_provider_the_organization_path_is_501
+  - tests/integration/with_batteries/test_plan_atoms.py::test_mono_billing_atoms_equal_the_kernel_atoms
+  - tests/integration/with_batteries/test_plan_atoms.py::test_split_billing_atoms_carry_their_parameters_over_rpc
 - id: G-GUARD-01
   statement: create_app refuses (GuardOrderError) a route where FastAPI resolves an idempotency_guard
     before its authenticating dependency; router-level auth counts as preceding, and a custom authenticator

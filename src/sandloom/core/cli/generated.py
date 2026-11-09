@@ -395,24 +395,7 @@ def _render_check(
     imports.need("typing", "Any")
     imports.need("typing", "ClassVar")
     imports.need(home, "ContractCheck", marker)
-    values = spec.get("values") or {}
-    params = ["self"]
-    passed: list[str] = []
-    for pname, param in runtime.signature.parameters.items():
-        if pname in binds:
-            continue
-        if pname in values:
-            imports.need("typing", "Literal")
-            text = f"Literal[{', '.join(_literal(v) for v in values[pname])}]"
-        else:
-            text = render_annotation(runtime.annotations[pname], imports, resolver)
-        if param.kind is param.KEYWORD_ONLY and "*" not in params:
-            params.append("*")
-        text = f"{pname}: {text}"
-        if param.default is not param.empty:
-            text += f" = {_literal(param.default)}"
-        params.append(text)
-        passed.append(pname)
+    params, passed = _own_params(runtime, imports, resolver)
     keywords: list[str] = []
     if "org" in kinds:
         default = next(b[1] for b in binds.values() if b[0] == "org")
@@ -431,6 +414,35 @@ def _render_check(
         + "\n"
         + _def_init(params, ", ".join([call, *keywords]))
     )
+
+
+def _own_params(
+    runtime: Any, imports: _Imports, resolver: _dto_copies.Resolver | None
+) -> tuple[list[str], list[str]]:
+    """The access check's own parameters (every unbound one, in signature
+    order, a closed ``values`` set typed as a ``Literal``): the rendered
+    ``__init__`` parameters from ``self`` on, and the names passed through."""
+    spec = runtime.access_check
+    binds = spec["bind"]
+    values = spec.get("values") or {}
+    params = ["self"]
+    passed: list[str] = []
+    for pname, param in runtime.signature.parameters.items():
+        if pname in binds:
+            continue
+        if pname in values:
+            imports.need("typing", "Literal")
+            text = f"Literal[{', '.join(_literal(v) for v in values[pname])}]"
+        else:
+            text = render_annotation(runtime.annotations[pname], imports, resolver)
+        if param.kind is param.KEYWORD_ONLY and "*" not in params:
+            params.append("*")
+        text = f"{pname}: {text}"
+        if param.default is not param.empty:
+            text += f" = {_literal(param.default)}"
+        params.append(text)
+        passed.append(pname)
+    return params, passed
 
 
 def _render_claim(
@@ -485,6 +497,62 @@ def _render_claim(
     )
 
 
+def _render_claim_read(
+    spec: Mapping[str, Any],
+    otherwise: dict[str, Any],
+    runtime: Any,
+    imports: _Imports,
+    resolver: _dto_copies.Resolver | None,
+) -> str:
+    """The typed ``ClaimReadCheck`` subclass a ``claim_atom`` declares: the
+    access check's own parameters, ``of=`` required, ``claim_key=`` typed as
+    a ``Literal`` of the declared keys (ADR-0014 decision 15)."""
+    home, marker = ATOM_HOME
+    for name in ("Any", "ClassVar", "Literal"):
+        imports.need("typing", name)
+    imports.need(home, "ClaimReadCheck", marker)
+    imports.need(home, "Account", marker)
+    literal: dict[str, Any] = {
+        "read": spec["read"],
+        "claim_key": spec["claim_key"],
+        "claim_keys": list(spec["claim_keys"]),
+        "entry": spec["entry"],
+    }
+    if spec.get("below"):
+        literal["below"] = spec["below"]
+    literal["tier"] = 1
+    literal["category"] = spec["category"]
+    if spec.get("describe"):
+        literal["describe"] = spec["describe"]
+    literal["otherwise"] = otherwise
+    entry = f"the entry named by ``{spec['entry']}``"
+    test = (
+        f"``{spec['below']}`` must be strictly below\n{entry}"
+        if spec.get("below")
+        else f"{entry} must be\n``True``"
+    )
+    doc = (
+        f"Reads the claim ``{spec['claim_key']}`` for ``Account.user()`` with "
+        f"zero I/O:\n{test}. An organization account asks the live check\n"
+        f"``{otherwise['contract']}.{otherwise['method']}`` with the same\n"
+        "parameters."
+    )
+    params, passed = _own_params(runtime, imports, resolver)
+    keys = ", ".join(_literal(k) for k in spec["claim_keys"])
+    params += [
+        *([] if "*" in params else ["*"]),
+        "of: Account",
+        f"claim_key: Literal[{keys}] = {_literal(spec['claim_key'])}",
+    ]
+    call = "{" + ", ".join(f"{json.dumps(p)}: {p}" for p in passed) + "}"
+    return (
+        _class_head(spec["name"], "ClaimReadCheck", doc)
+        + _literal_block(literal)
+        + "\n"
+        + _def_init(params, f"{call}, of=of, claim_key=claim_key")
+    )
+
+
 def _render_atoms(
     contract: str,
     provider: Any,
@@ -494,7 +562,7 @@ def _render_atoms(
     """The generated atoms of ``provider``'s access checks, by method name,
     then the claim atoms they name."""
     atoms: list[str] = []
-    claims: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    claims: list[tuple[dict[str, Any], dict[str, Any], Any]] = []
     for name, runtime in sorted(contract_schema(provider).methods.items()):
         if runtime.access_check is None:
             continue
@@ -503,9 +571,14 @@ def _render_atoms(
         atoms.append(_render_check(contract, name, runtime, doc, imports, resolver))
         claim = runtime.access_check.get("claim")
         if isinstance(claim, dict):
-            claims.append((claim, atom_literal(contract, name, runtime)))
-    for claim, otherwise in sorted(claims, key=lambda c: str(c[0]["name"])):
-        atoms.append(_render_claim(claim, otherwise, imports))
+            claims.append((claim, atom_literal(contract, name, runtime), runtime))
+    for claim, otherwise, runtime in sorted(claims, key=lambda c: str(c[0]["name"])):
+        if "read" in claim:
+            atoms.append(
+                _render_claim_read(claim, otherwise, runtime, imports, resolver)
+            )
+        else:
+            atoms.append(_render_claim(claim, otherwise, imports))
     return atoms
 
 

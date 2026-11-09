@@ -107,6 +107,9 @@ H1_KERNEL_NAMES: dict[str, str] = {
     "shared.authz.From": "sandloom.sdk.authz",
     "shared.authz.ContractCheck": "sandloom.sdk.authz",
     "shared.authz.ClaimFactCheck": "sandloom.sdk.authz",
+    # Claim atoms over a mapping claim (ADR-0014 decision 15, KB-33).
+    "shared.authz.claim_atom": "sandloom.sdk.authz",
+    "shared.authz.ClaimReadCheck": "sandloom.sdk.authz",
     "core.di.current_service": "sandloom.sdk.web",
     "core.di.authorizes": "sandloom.sdk.web",
     # The kernel home of ContractRef (WS-A dbd87f6f): generated contract

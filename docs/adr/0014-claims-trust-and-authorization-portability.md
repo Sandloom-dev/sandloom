@@ -480,6 +480,14 @@ They are removed only after:
 - `Feature` and `WithinLimit` stay public capabilities (answer #21, H-2). They move to billing as
   generated claim or access atoms with their parameters carried locally and over RPC (K3,
   KB-33); the kernel keeps them until that move passes, and removal is never automatic.
+  KB-33 chose claim atoms: billing declares `Feature` and `WithinLimit` with `claim_atom` above
+  its access checks `has_feature(tenant_type, tenant_id, key)` and
+  `is_within_limit(tenant_type, tenant_id, key, used)`. For `Account.user()` the generated atom
+  reads the `features` / `limits` claim with zero I/O, as the kernel atom does, with the same
+  indeterminates. For an organization account it asks that check live, with its parameters as
+  contract arguments, so they reach billing over internal RPC too. Billing's plans declare no
+  features or limits yet, so both checks answer `False`. Giving billing a plan entitlements
+  source is the owner's decision before KB-34.
 - `Roles` and `Permissions` constants (no importer, B-N15) move to identity, the owner of the rows
   they name. The owner confirms (decision.md, A6) on the condition of an I-17 review in KB-34: the
   public API baseline and beginner tier diff, the upgrade step naming the new import, no alias
