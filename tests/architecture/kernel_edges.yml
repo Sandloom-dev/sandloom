@@ -367,7 +367,7 @@ edges:
     adr: ADR-0014
     prs: [KB-13, KB-30, KB-34, KB-34g]
     anchors:
-      - {path: sandloom/shared/authz/live_contracts.py, literal: register_live_adapter}
+      - {path: "sandloom/shared/authz/*.py", literal: register_live_adapter}
       - {path: sandloom/sdk/authz.py, literal: EntitlementsAdapter}
       - {path: sandloom/sdk/authz.py, literal: MembershipAdapter}
     note: "Started by KB-13: the contract a live adapter names, or a key of create_app(access_providers=...), is registered in-process only by its first-segment module or the assigned one, by import path (SANDLOOM-B034); read generically from the adapter table, no contract literal in the kernel. Fixed after KB-30 and KB-34."
@@ -395,8 +395,9 @@ edges:
     adr: ADR-0014
     prs: [KB-30, KB-34, KB-34g]
     anchors:
-      - {path: sandloom/shared/authz/live_contracts.py, literal: '"billing.entitlements.v1"'}
-      - {path: sandloom/shared/authz/live_contracts.py, literal: '"tenancy.membership.v1"'}
+      - {path: "sandloom/shared/authz/*.py", literal: '"billing.entitlements.v1"'}
+      - {path: "sandloom/shared/authz/*.py", literal: '"tenancy.membership.v1"'}
+    note: "KB-34g deleted live_contracts.py, where the literals stood; the literals are matched in every kernel file."
   - id: B-R2
     class: b
     type: runtime_call
@@ -678,9 +679,10 @@ edges:
     scope: composition_text
     owner: [identity, tenancy, billing, admin]
     baseline_verdict: disputed
-    current_status: open
-    target: deferred
+    current_status: retained
+    target: retained
     adr: ADR-0012
+    reason: "the bundled-module menu of `sandloom new --with` is the standard distribution's starter (decision 1): `sandloom new` runs before `uv sync`, when the packages are not installed, so neither entry points nor settings declarations can list them"
     prs: [KB-61]
     anchors:
       - {path: sandloom/core/cli/project.py, symbol: _BUNDLED}
@@ -692,9 +694,10 @@ edges:
     scope: composition_text
     owner: [identity, billing]
     baseline_verdict: disputed
-    current_status: open
-    target: deferred
+    current_status: retained
+    target: retained
     adr: ADR-0012
+    reason: "starter env and README text for the bundled packages `sandloom new` was asked for, written before they are installed: module_env reads the declarations of installed packages only (KB-55 writes the same text from them at `sandloom add deploy`)"
     prs: [KB-61]
     anchors:
       - {path: sandloom/core/cli/project.py, symbol: _IDENTITY_NOTE}
@@ -706,9 +709,10 @@ edges:
     scope: composition_text
     owner: [identity, tenancy, billing, admin]
     baseline_verdict: disputed
-    current_status: open
-    target: deferred
+    current_status: retained
+    target: retained
     adr: ADR-0012
+    reason: "the wizard's module menu is the standard composition's starter menu (decision 1); the packages are not installed while the wizard asks, so no declaration can supply it"
     prs: [KB-61]
     anchors:
       - {path: sandloom/core/cli/wizard.py, symbol: MODULES}
@@ -732,35 +736,38 @@ edges:
     scope: composition_text
     owner: [identity, tenancy, billing]
     baseline_verdict: violation
-    current_status: open
-    target: deferred
+    current_status: fixed
+    target: fixed
     adr: ADR-0012
     prs: [KB-61]
     anchors:
-      - {path: sandloom/core/cli/templates/deploy/postgres/init-databases.sh, literal: identity}
+      - {path: sandloom/core/cli/templates/deploy/postgres/init-databases.sh, literal: sandloom_identity sandloom_tenancy sandloom_billing}
       - {path: sandloom/core/cli/templates/deploy/compose/microservices.yml.tmpl, literal: loading identity}
       - {path: sandloom/core/cli/keys.py, literal: issuer ONLY (identity)}
+    note: "Fixed by KB-61: the init script names no module, the microservices template says 'the module that issues tokens', `sandloom keys generate` says 'issuer ONLY'."
   - id: B-N10
     class: b
     type: naming
     scope: composition_text
     owner: [identity, tenancy, billing]
     baseline_verdict: disputed
-    current_status: open
-    target: deferred
+    current_status: fixed
+    target: fixed
     adr: ADR-0012
     prs: [KB-61]
     anchors:
       - {path: sandloom/core/cli/templates/skills/sandloom-split-deploy/SKILL.md, literal: add deploy identity}
+    note: "Fixed by KB-61: the split-deploy skill (and the `split` recipe) use `<module>`; the template is rendered with the app name only."
   - id: B-N11
     class: b
     type: naming
     scope: composition_text
     owner: [tenancy, billing]
     baseline_verdict: disputed
-    current_status: open
-    target: deferred
+    current_status: retained
+    target: retained
     adr: ADR-0012
+    reason: "recipe text of `sandloom docs recipe`, worked examples written in the standard composition's vocabulary (decision 1); no declaration names an example contract, and a recipe is text an app copies, not code the kernel runs"
     prs: [KB-61]
     anchors:
       - {path: sandloom/sdk/_prim/recipes.py, literal: TENANCY_MEMBERSHIP_V1}
@@ -785,8 +792,6 @@ edges:
       # declarations since kb-rev56-keys (billing's fail_safe=, the root's
       # Authority(fail_safe=True), the imported claim atoms' keys).
       - {path: sandloom/core/claims.py, symbol: FAIL_SAFE_KEYS}
-      - {path: sandloom/shared/authz/atoms_live.py, symbol: SubscriptionActive}
-      - {path: sandloom/shared/authz/atoms_live.py, symbol: Credits}
   - id: B-N13
     class: b
     type: naming
@@ -798,7 +803,8 @@ edges:
     adr: ADR-0014
     prs: [KB-30, KB-34, KB-34g]
     anchors:
-      - {path: sandloom/shared/authz/atoms_live.py, literal: '"OrgRole"'}
+      - {path: "sandloom/shared/authz/*.py", literal: '"OrgRole"'}
+    note: "KB-34g deleted atoms_live.py, where the literal stood; it is matched in every kernel file."
   - id: B-N14
     class: b
     type: naming
@@ -824,8 +830,9 @@ edges:
     adr: ADR-0014
     prs: [KB-34, KB-34g]
     anchors:
-      - {path: sandloom/shared/authz/constants.py, literal: '"Permissions"'}
-      - {path: sandloom/shared/authz/constants.py, literal: '"Roles"'}
+      - {path: "sandloom/shared/authz/*.py", literal: '"Permissions"'}
+      - {path: "sandloom/shared/authz/*.py", literal: '"Roles"'}
+    note: "KB-34g deleted constants.py, where the literals stood; they are matched in every kernel file."
   - id: B-N16
     class: b
     type: naming

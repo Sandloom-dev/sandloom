@@ -159,10 +159,10 @@ the microservices profile (`deploy/compose/microservices.yml`), its
 gateway (`deploy/gateway/nginx.conf`) and the database init script from the
 framework's templates. Never hand-write them. One command per service:
 
-    uv run sandloom add deploy identity                  # service "identity"
-    uv run sandloom add deploy tenancy
-    uv run sandloom add deploy billing
-    uv run sandloom add deploy catalog orders --service shop
+    uv run sandloom add deploy catalog                   # service "catalog"
+    uv run sandloom add deploy orders
+    uv run sandloom add deploy shipping
+    uv run sandloom add deploy payments invoices --service finance
 
 Each service gets its own database, a migrate one-shot, its RPC keys, a
 worker for `tasks.py` and one beat for periodic tasks. Every run re-derives,

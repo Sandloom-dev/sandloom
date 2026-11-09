@@ -25,7 +25,7 @@
 # the profile and says when it is stale.
 #
 # Keys. Access tokens are ASYMMETRIC (EdDSA): the token issuer (the service
-# loading identity) alone holds JWT_PRIVATE_KEY (+ JWT_SECRET for its emailed
+# loading the module that issues tokens) alone holds JWT_PRIVATE_KEY (+ JWT_SECRET for its emailed
 # tokens); every other service verifies with JWT_PUBLIC_KEYS and cannot mint.
 # Every service holds its own X25519 key (RPC_DH_PRIVATE_KEY); a calling
 # service also an Ed25519 key (RPC_PRIVATE_KEY) that signs its commands.

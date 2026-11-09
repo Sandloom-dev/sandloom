@@ -234,7 +234,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         return 0
     print(f"# JWT_ALGORITHM={algorithm}   (every service)")
     print(f"# JWT_KID={kid}   (issuer)")
-    print("# JWT_PRIVATE_KEY  — issuer ONLY (identity); keep it in a secret store:")
+    print("# JWT_PRIVATE_KEY  — issuer ONLY; keep it in a secret store:")
     print(private, end="")
     print("# JWT_PUBLIC_KEYS — every service (merge with the kids still in use):")
     print(public_keys)
