@@ -30,8 +30,11 @@ description: Create a business module in this Sandloom app (sandloom add module,
    - **Routes:** `module_router()` authenticates every route and binds the
      tenant. Take the caller as `user: CurrentUser`, the session as `db()`.
      Only an open route declares `dependencies=[public(reason="...")]`.
-   - **Gates:** `dependencies=[Depends(require(OrgRole("admin")))]`; a
-     billing atom names its account (`sandloom docs recipe org-gate`).
+   - **Gates:** `dependencies=[Depends(require(OrgRole("admin")))]`; `OrgRole` and
+     the billing atoms are not sdk names: `sandloom generate` writes them, import
+     from `<app>.shared.contracts.tenancy_membership_v1` /
+     `billing_entitlements_v1`. A billing atom names its account
+     (`sandloom docs recipe org-gate`).
    - **Events:** `uv run sandloom add event <name> <CamelName>`, then
      `await X(...).publish()` inside the unit.
 4. **Other modules** only through events, contracts, projections or sagas:

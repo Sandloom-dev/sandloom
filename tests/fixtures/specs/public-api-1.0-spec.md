@@ -386,6 +386,11 @@ membership}`) with `inspect` and the ledger with a word-boundary search.
 (tests included) that mention the name. Statuses: `kept` (same name and
 parameters, new home), `renamed`, `replaced` (same semantics through the
 named API), `changed` (one argument replaced, same resolutions), `adr0009` (removed by ADR-0009, superseding mechanism named).
+KB-34 (2026-11-09) removed the kernel's domain atoms and live adapters: a `replaced`
+row whose 1.0 home names no `aja.sdk` name is no longer a kernel name, and the cell
+says where the replacement lives (a generated stub or `sandloom_identity.rbac`) or
+that the mechanism is gone; the hand-off's ledger delta
+(`api10-ledger-delta-kb34.md`) records each as removed.
 Rows marked "(imported directly)" come from the import scan of the
 bundled modules and examples. `CoreFacade` appears once, only in a test comment.
 
@@ -586,7 +591,7 @@ bundled modules and examples. `CoreFacade` appears once, only in a test comment.
 | `core.facade.StartupTask` | aja.sdk.infra | kept | 0 |  |  |
 | `core.facade.claims_contract_name` | aja.sdk.infra | kept | 0 | owner |  |
 | `core.facade.facts_contract_name` | aja.sdk.infra | kept | 0 | owner |  |
-| `shared.authz.ACTIVE_SUBSCRIPTION_STATUSES` | aja.sdk.authz | kept | 1 |  |  |
+| `shared.authz.ACTIVE_SUBSCRIPTION_STATUSES` | removed (KB-34): billing keeps its statuses in its own `access.py`; `Subscribed(statuses=...)` names them | replaced | 1 |  |  |
 | `shared.authz.AccessDecision` | aja.sdk.authz | kept | 0 | allowed, code, category, reason, http_status, failed_requirement, policy_code, metadata, indeterminate |  |
 | `shared.authz.AccessDenied` | aja.sdk.authz | kept | 0 | decision, status_code |  |
 | `shared.authz.AccessFact` | aja.sdk.authz | kept | 2 | name, owner_module, claim_key, projection_reader, live_service, live_resolver, min_freshness, default_mode, deny_category, claim_rule |  |
@@ -594,36 +599,36 @@ bundled modules and examples. `CoreFacade` appears once, only in a test comment.
 | `shared.authz.AuthzContext` | aja.sdk.authz | kept | 1 | subject, request, db, resource, loader, source, core |  |
 | `shared.authz.Category` | aja.sdk.authz | kept | 2 | args, kwargs |  |
 | `shared.authz.ClaimRule` | aja.sdk.authz | kept | 1 | kind, values | G-AUTHZ-04 |
-| `shared.authz.Credits` | aja.sdk.authz: required of=Account.user()/org(param=)/bound_tenant() replaces tenant_type + org_param (same resolutions); other parameters kept | changed | 14 | minimum, tenant_type, org_param, adapter | G-AUTHZ-01, G-AUTHZ-03, C-AUTH-06 |
-| `shared.authz.ENTITLEMENTS` | aja.sdk.authz | kept | 0 |  |  |
-| `shared.authz.Entitled` | aja.sdk.authz | kept | 4 | fact_name, category, code, mode | C-AUTH-06 |
-| `shared.authz.EntitlementsAdapter` | aja.sdk.authz | kept | 0 | args, kwargs |  |
+| `shared.authz.Credits` | generated `<app>.shared.contracts.billing_entitlements_v1.Credits` (KB-34); no kernel name | replaced | 14 | minimum, tenant_type, org_param, adapter | G-AUTHZ-01, G-AUTHZ-03, C-AUTH-06 |
+| `shared.authz.ENTITLEMENTS` | removed (KB-34): no live adapter kinds; the provider's `access_check` declares the contract | replaced | 0 |  |  |
+| `shared.authz.Entitled` | aja.sdk.authz; `owner=` added (KB-34) | changed | 4 | fact_name, category, code, mode, owner | C-AUTH-06 |
+| `shared.authz.EntitlementsAdapter` | removed (KB-34): the generated check asks the provider's contract; no adapter protocol | replaced | 0 | args, kwargs |  |
 | `shared.authz.FactDenied` | aja.sdk.authz | kept | 1 | reason, category, code |  |
 | `shared.authz.FactOwnerUnreachable` | aja.sdk.authz | kept | 0 | args, kwargs |  |
 | `shared.authz.FactUnavailable` | aja.sdk.authz | kept | 1 | args, kwargs |  |
-| `shared.authz.Feature` | aja.sdk.authz: required of=Account.user()/org(...) added; claim_key and every other parameter kept | changed | 1 | key, claim_key |  |
-| `shared.authz.MEMBERSHIP` | aja.sdk.authz | kept | 0 |  |  |
-| `shared.authz.MembershipAdapter` | aja.sdk.authz | kept | 0 | args, kwargs |  |
+| `shared.authz.Feature` | generated `<app>.shared.contracts.billing_entitlements_v1.Feature` (claim atom of `has_feature`; KB-34); no kernel name | replaced | 1 | key, claim_key |  |
+| `shared.authz.MEMBERSHIP` | removed (KB-34): no live adapter kinds; the provider's `access_check` declares the contract | replaced | 0 |  |  |
+| `shared.authz.MembershipAdapter` | removed (KB-34): the generated check asks the provider's contract; no adapter protocol | replaced | 0 | args, kwargs |  |
 | `shared.authz.Not` | aja.sdk.authz | kept | 6 | inner |  |
 | `shared.authz.Or` | aja.sdk.authz | kept | 0 | parts |  |
-| `shared.authz.OrgRole` | aja.sdk.authz | kept | 4 | minimum, org_param, adapter |  |
+| `shared.authz.OrgRole` | generated `<app>.shared.contracts.tenancy_membership_v1.OrgRole` (KB-34); no kernel name | replaced | 4 | minimum, org_param, adapter |  |
 | `shared.authz.Owner` | aja.sdk.authz | kept | 6 | get_owner | C-AUTH-06 |
 | `shared.authz.Perm` | aja.sdk.authz | kept | 0 | perm | C-AUTH-06 |
-| `shared.authz.Permissions` | aja.sdk.authz | kept | 4 | args, kwargs |  |
+| `shared.authz.Permissions` | `sandloom_identity.rbac.Permissions` (KB-34); no kernel name | replaced | 4 | args, kwargs |  |
 | `shared.authz.PolicyIndeterminate` | aja.sdk.authz | kept | 0 | decision |  |
 | `shared.authz.Requirement` | aja.sdk.authz | kept | 0 | args, kwargs |  |
 | `shared.authz.Role` | aja.sdk.authz | kept | 26 | role | C-AUTH-06 |
-| `shared.authz.Roles` | aja.sdk.authz | kept | 6 | args, kwargs |  |
+| `shared.authz.Roles` | `sandloom_identity.rbac.Roles` (KB-34); no kernel name | replaced | 6 | args, kwargs |  |
 | `shared.authz.SOURCE_HTTP` | aja.sdk.authz | kept | 0 |  |  |
 | `shared.authz.SOURCE_INTERNAL` | aja.sdk.authz | kept | 0 |  |  |
 | `shared.authz.SOURCE_SYSTEM` | aja.sdk.authz | kept | 0 |  |  |
 | `shared.authz.SOURCE_TASK` | aja.sdk.authz | kept | 0 |  |  |
-| `shared.authz.Subscribed` | aja.sdk.authz: required of=Account.user()/org(param=)/bound_tenant() replaces tenant_type + org_param (same resolutions); other parameters kept | changed | 5 | statuses, claim_key, tenant_type, org_param | G-AUTHZ-01, G-AUTHZ-02, C-AUTH-06 |
-| `shared.authz.SubscriptionActive` | aja.sdk.authz: required of=Account.user()/org(param=)/bound_tenant() replaces tenant_type + org_param (same resolutions); other parameters kept | changed | 4 | tenant_type, org_param, adapter | G-AUTHZ-03, C-AUTH-06 |
+| `shared.authz.Subscribed` | generated `<app>.shared.contracts.billing_entitlements_v1.Subscribed` (claim fact check; KB-34); no kernel name | replaced | 5 | statuses, claim_key, tenant_type, org_param | G-AUTHZ-01, G-AUTHZ-02, C-AUTH-06 |
+| `shared.authz.SubscriptionActive` | generated `<app>.shared.contracts.billing_entitlements_v1.SubscriptionActive` (KB-34); no kernel name | replaced | 4 | tenant_type, org_param, adapter | G-AUTHZ-03, C-AUTH-06 |
 | `shared.authz.TIER_CLAIM` | aja.sdk.authz | kept | 0 |  |  |
 | `shared.authz.TIER_LIVE` | aja.sdk.authz | kept | 0 |  |  |
 | `shared.authz.TIER_RESOURCE` | aja.sdk.authz | kept | 0 |  |  |
-| `shared.authz.WithinLimit` | aja.sdk.authz: required of=Account.user()/org(...) added; claim_key and every other parameter kept | changed | 0 | key, used, claim_key |  |
+| `shared.authz.WithinLimit` | generated `<app>.shared.contracts.billing_entitlements_v1.WithinLimit` (claim atom of `is_within_limit`; KB-34); no kernel name | replaced | 0 | key, used, claim_key |  |
 | `shared.authz.authorize` | aja.sdk.authz | kept | 12 | resource, policy, ctx, request, db, status_code | G-BILLING-01 |
 | `shared.authz.authorize_resource` | aja.sdk.authz | kept | 0 | loader, by, policy, cast, not_found_detail, status_code |  |
 | `shared.authz.current_context` | aja.sdk.authz | kept | 5 | request, credentials |  |
@@ -631,7 +636,7 @@ bundled modules and examples. `CoreFacade` appears once, only in a test comment.
 | `shared.authz.lookup_access_fact` | aja.sdk.authz | kept | 0 | ctx, name |  |
 | `shared.authz.make_rebuild_gate` | aja.sdk.authz | kept | 0 | rebuilder, name |  |
 | `shared.authz.register_authz_projection` | aja.sdk.authz | kept | 0 | core, descriptor, consumers, rebuilder, rebuild_on_startup, critical |  |
-| `shared.authz.register_live_adapter` | aja.sdk.authz | kept | 0 | kind, adapter |  |
+| `shared.authz.register_live_adapter` | removed (KB-34): serve the provider's contract in the module that provides it (`access_providers`, `SERVICE_BINDINGS`) | replaced | 0 | kind, adapter |  |
 | `shared.authz.require` | aja.sdk.authz | kept | 17 | policy, status_code | G-AUTHZ-02, G-AUTHZ-06, G-BILLING-18, G-OPS-12, C-AUTH-06 |
 | `shared.authz.resolve_fact` | aja.sdk.authz | kept | 0 | fact, ctx, mode |  |
 | `shared.authz.service_subject` | aja.sdk.authz | kept | 0 | roles |  |
@@ -670,7 +675,7 @@ bundled modules and examples. `CoreFacade` appears once, only in a test comment.
 | `core.testing.committing_uow` | aja.sdk.testing | kept | 7 | session_factory, database |  |
 | `core.testing.deliver_event` | aja.sdk.testing.deliver | renamed | 0 | channel, payload, times, event_id, session, core |  |
 | `core.testing.email_of` | aja.sdk.testing | kept | 8 | user_id |  |
-| `core.testing.fake_access_fact` | aja.sdk.testing | kept | 0 | name, value, deny_category, core |  |
+| `core.testing.fake_access_fact` | aja.sdk.testing; `owner=` added (KB-34) | changed | 0 | name, value, deny_category, core, owner |  |
 | `core.testing.flush_owned_redis` | aja.sdk.testing | kept | 2 | client, owner | G-OPS-07 |
 | `core.testing.make_user_headers` | aja.sdk.testing.as_user | renamed | 23 | user_id, tenant_id, email, email_verified, tenant, claims |  |
 | `core.testing.migrate_module` | aja.sdk.testing | kept | 4 | url, package, revision, downgrade, chain |  |

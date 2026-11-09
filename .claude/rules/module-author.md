@@ -17,7 +17,7 @@ A module and its tests import only public `sandloom.sdk` modules, the generated 
 and DTO copies (`<app>.shared.contracts.*`, `<module>._generated.contracts.*`,
 `CONTRACT_DTO_PACKAGES`) and their own package, all at module level (C001, C002, C005, C013, C021);
 an installed module package (`sandloom_identity`) is another module. Generated code and examples
-use the 30 beginner names; an advanced import carries `# sandloom: advanced <reason>` (SANDLOOM-T009).
+use the 26 beginner names; an advanced import carries `# sandloom: advanced <reason>` (SANDLOOM-T009).
 
 To talk to another module:
 

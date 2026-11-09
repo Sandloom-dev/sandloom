@@ -2467,6 +2467,7 @@
         "tests/fixtures/specs/api10-ledger-delta-kb11b.md",
         "tests/fixtures/specs/api10-ledger-delta-kb30.md",
         "tests/fixtures/specs/api10-ledger-delta-kb33.md",
+        "tests/fixtures/specs/api10-ledger-delta-kb34.md",
         "tests/fixtures/specs/api10-ledger-delta-kb11c.md",
         "tests/fixtures/specs/api10-ledger-delta-kb12.md",
         "tests/fixtures/specs/api10-ledger-delta-kb52.md",

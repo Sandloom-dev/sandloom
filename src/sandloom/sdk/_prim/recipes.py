@@ -676,8 +676,10 @@ Tests deliver the events (in any order, twice) and fake both contracts:
         assert (await team(org))["members"] == {str(ann): "owner"}
 
 A gate on the plan itself is a route atom, not a projection:
-`require(SubscriptionActive(of=Account.org(param="org_id")))` (`sandloom docs
-recipe org-gate`).''',
+`require(SubscriptionActive(of=Account.org(param="org_id")))`, with
+`SubscriptionActive` imported from the generated
+`<app>.shared.contracts.billing_entitlements_v1` (`sandloom docs recipe
+org-gate`).''',
     ),
     "event-v2": (
         "roll your own event to v2: dual publish, move consumers, retire v1",

@@ -2097,7 +2097,7 @@ Slug: `beginner-tier` · kind: test · status: active
 
 **What happened and why it matters**
 
-Generators and examples teach the 30 beginner names (spec §2.2), and an application's modules keep to them: the `schema & deploy` step of `sandloom test` reports an advanced import that has no marker.
+Generators and examples teach the 26 beginner names (spec §2.2), and an application's modules keep to them: the `schema & deploy` step of `sandloom test` reports an advanced import that has no marker.
 
 **Fix:** use the beginner-tier name, or mark the line `# sandloom: advanced <reason>`
 

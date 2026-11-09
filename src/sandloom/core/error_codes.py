@@ -1966,7 +1966,7 @@ reports breaking changes.
         "test",
         "a module imports an advanced sandloom.sdk name without a marker",
         "use the beginner-tier name, or mark the line `# sandloom: advanced <reason>`",
-        "Generators and examples teach the 30 beginner names (spec §2.2), and an "
+        "Generators and examples teach the 26 beginner names (spec §2.2), and an "
         "application's modules keep to them: the `schema & deploy` step of "
         "`sandloom test` reports an advanced import that has no marker.",
     ),
