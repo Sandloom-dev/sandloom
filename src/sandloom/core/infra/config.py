@@ -52,15 +52,36 @@ DEFAULTED_CAPABILITIES: tuple[str, ...] = (
 
 DEFAULT_INSTANCE = "default"
 
+#: The synthesized instances the kernel itself uses in every composition, so
+#: they count as required whether or not a module names them: the database
+#: (outbox, audit, units), the cache (token revocation, user blocks, rate
+#: limits, idempotency, the beat lease) and the event bus (the outbox relay).
+#: Any other synthesized instance is opened, probed and listed as usable only
+#: when a module's requirement names it (``InfraRegistry.in_use``).
+KERNEL_INSTANCES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("database", DEFAULT_INSTANCE),
+        ("cache", DEFAULT_INSTANCE),
+        ("eventbus", DEFAULT_INSTANCE),
+    }
+)
+
 
 @dataclass(slots=True)
 class InstanceConfig:
-    """One configured infrastructure instance."""
+    """One configured infrastructure instance.
+
+    ``implicit`` marks a ``default`` instance synthesized from the flat
+    settings that ``INFRA`` does not name: nobody selected it, so nothing
+    opens or probes it unless the kernel (:data:`KERNEL_INSTANCES`) or a
+    module's requirement uses it. An instance ``INFRA`` names is explicit.
+    """
 
     capability: str
     name: str
     driver: str
     options: dict[str, Any] = field(default_factory=dict)
+    implicit: bool = False
 
 
 # capability -> {instance_name -> InstanceConfig}
@@ -84,7 +105,11 @@ def _default_eventbus_driver(settings: Any) -> str:
 
 
 def _synthesize_defaults(settings: Settings) -> InfraConfig:
-    """Build the implicit ``default`` instance for each capability."""
+    """Build the implicit ``default`` instance for each capability.
+
+    Every instance built here is marked ``implicit``; :func:`_overlay` makes
+    it explicit when ``INFRA`` names it.
+    """
     eventbus_driver = _default_eventbus_driver(settings)
 
     objectstore_options: dict[str, Any] = {
@@ -99,7 +124,7 @@ def _synthesize_defaults(settings: Settings) -> InfraConfig:
             secret_access_key=settings.s3_secret_access_key,
         )
 
-    return {
+    synthesized: InfraConfig = {
         "database": {
             DEFAULT_INSTANCE: InstanceConfig(
                 capability="database",
@@ -162,6 +187,10 @@ def _synthesize_defaults(settings: Settings) -> InfraConfig:
             )
         },
     }
+    for instances in synthesized.values():
+        for cfg in instances.values():
+            cfg.implicit = True
+    return synthesized
 
 
 class InfraConfigError(ValueError):
@@ -260,6 +289,7 @@ def load_infra_config(settings: Settings) -> InfraConfig:
 
 __all__ = [
     "DEFAULT_INSTANCE",
+    "KERNEL_INSTANCES",
     "database_instance_url",
     "eventbus_driver",
     "InstanceConfig",

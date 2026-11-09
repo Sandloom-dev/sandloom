@@ -86,6 +86,9 @@ force-exclude = true
 extend-exclude = [
     "alembic",
     "src/*/migrations/versions",
+    # Consumer copies are laid out by `sandloom generate`, never by ruff
+    # (ADR-0013 decision 6).
+    "src/*/_generated",
 ]
 
 [tool.ruff.lint]

@@ -5,8 +5,9 @@ For every module declared with L1 discovery (``define_module`` of
 ``sandloom.sdk``):
 
 - ``<module>/module.snapshot.json``: the module's declared surface, sections
-  ``events`` (producer schemas), ``consumers``, ``consumes``, ``contracts``,
-  ``sagas`` and ``projections`` (``routes`` stay in ``routes.snapshot.json``
+  ``events`` (producer schemas), ``consumers``, ``consumes``,
+  ``capabilities`` (declared or derived), ``contracts``, ``sagas`` and
+  ``projections`` (``routes`` stay in ``routes.snapshot.json``
   and contract describes in ``contracts.snapshot.json`` until model E's
   route snapshot moves them here);
 - ``<shared>/events/<channel>.json``: each producer's schema, so views in
@@ -92,6 +93,8 @@ class Generated:
     content: str
     code: str
     problems: list[str] = field(default_factory=list)
+    #: a file to delete (an orphan consumer copy, ADR-0013 decision 2)
+    remove: bool = False
 
     @property
     def current(self) -> str | None:
@@ -99,6 +102,8 @@ class Generated:
 
     @property
     def stale(self) -> bool:
+        if self.remove:
+            return self.path.is_file()
         return self.current != self.content
 
 
@@ -428,6 +433,8 @@ def module_surface(entry: Any) -> dict[str, Any]:
     A token issuer's document also records its ``issuer`` declaration
     (``refresh_sessions``: whether it holds refresh sessions an emergency
     block must end; ADR-0012 decision 5). Other modules carry no such key.
+    ``capabilities`` are the infrastructure needs the load preflight checks,
+    declared or derived from the module's code (SANDLOOM-C033).
     """
     surface: dict[str, Any] = {
         "format": 1,
@@ -454,6 +461,16 @@ def module_surface(entry: Any) -> dict[str, Any]:
         "consumes": [
             {"name": u.name, "required": u.required, "methods": list(u.methods)}
             for u in entry.contracts_consumed
+        ],
+        "capabilities": [
+            {
+                "capability": c.capability,
+                "instance": c.instance,
+                "version": c.version,
+                "features": list(c.features),
+                "required": c.required,
+            }
+            for c in getattr(entry, "capabilities", ())
         ],
         "contracts": [
             {"name": c.name, "database": c.database, "methods": list(c.methods)}
@@ -762,7 +779,7 @@ def _consumer_plan(
     files = _consumer_copies.plan_composed(
         selected, consumes, planned, rules.source_root, STUBS, registry
     )
-    return [Generated(f.path, f.content, f.code, f.problems) for f in files]
+    return [Generated(f.path, f.content, f.code, f.problems, f.remove) for f in files]
 
 
 def _ensure_package(directory: Path, shared_dir: Path) -> None:
@@ -817,6 +834,23 @@ def _report_broken(broken: list[Generated], root: Path | None) -> None:
         )
 
 
+def _why_stale(item: Generated) -> str:
+    if item.remove:
+        return "(orphan: no longer consumed)"
+    state = "missing" if item.current is None else "differs"
+    return f"({state}){_consumer_copies.explain_diff(item.current, item.content)}"
+
+
+def _write(item: Generated, shared_dir: Path) -> None:
+    item.path.parent.mkdir(parents=True, exist_ok=True)
+    if item.path.suffix == ".py":
+        _ensure_package(item.path.parent, shared_dir)
+    if item.path.name == "inspection.json" and item.path.parent.name == ".sandloom":
+        _inspection_generation.publish_index(item.path, item.content)
+    else:
+        item.path.write_text(item.content, encoding="utf-8")
+
+
 def apply(
     files: Iterable[Generated],
     *,
@@ -839,19 +873,15 @@ def apply(
         if stale:
             print(f"{STALE} ({len(stale)} file(s)):")
         for item in stale:
-            state = "missing" if item.current is None else "differs"
-            why = _consumer_copies.explain_diff(item.current, item.content)
-            print(f"  {_shown(item.path, root)} [{item.code}] ({state}){why}")
+            print(f"  {_shown(item.path, root)} [{item.code}] {_why_stale(item)}")
         return 1 if stale else 0
     for item in stale:
-        item.path.parent.mkdir(parents=True, exist_ok=True)
-        if item.path.suffix == ".py":
-            _ensure_package(item.path.parent, shared_dir)
-        if item.path.name == "inspection.json" and item.path.parent.name == ".sandloom":
-            _inspection_generation.publish_index(item.path, item.content)
+        if item.remove:
+            item.path.unlink()
+            print(f"removed {_shown(item.path, root)} (no longer consumed)")
         else:
-            item.path.write_text(item.content, encoding="utf-8")
-        print(f"wrote {_shown(item.path, root)}")
+            _write(item, shared_dir)
+            print(f"wrote {_shown(item.path, root)}")
     return 0
 
 

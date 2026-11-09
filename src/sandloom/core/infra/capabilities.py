@@ -200,8 +200,14 @@ TASKQUEUE_CAPABILITY = CapabilitySpec(
     name="taskqueue",
     version="v1",
     provider_contract=TaskQueueProvider,
-    features=frozenset({"delay", "idempotency_key"}),
-    description="Background job broker (fire-and-forget enqueue).",
+    # ``periodic`` is a guarantee, not a method: the driver runs a module's
+    # periodic jobs (its beat hook) at their interval in at least one process
+    # while the deployment runs; a run may repeat, so the module tolerates
+    # duplicates. A driver never advertises it for supporting enqueue alone;
+    # only ``celery`` (worker, beat and the beat lease) does today. A module
+    # with a beat hook needs it (derived at load, declared: SANDLOOM-C033).
+    features=frozenset({"delay", "idempotency_key", "periodic"}),
+    description="Background job broker (enqueue; periodic jobs with 'periodic').",
 )
 
 EVENTBUS_CAPABILITY = CapabilitySpec(

@@ -20,11 +20,12 @@ its ``operation_key`` and NOT atomic with the caller's transaction (saga).
 
 from sandloom.sdk import define_module
 from sandloom.sdk.infra import settings
-from sandloom.sdk.module import ContractRequirement, ModuleAPI
+from sandloom.sdk.module import CapabilityRequirement, ContractRequirement, ModuleAPI
 
 from . import psp
 from .access import ORG_SUBSCRIPTION_ACTIVE_FACT, SUBSCRIPTION_ACTIVE_FACT
 from .claims import contribute_billing_claims
+from .services.intent_reconciler import RECONCILER_HEALTH_CHECK, ReconcilerHealthCheck
 from .services.operations import OPERATIONS
 
 ENTITLEMENTS_SERVICE_V1 = "billing.entitlements.v1"
@@ -69,6 +70,12 @@ def _setup(core: ModuleAPI) -> None:
     # planner; planned at startup, a schema error fails the boot).
     core.register_operations(*OPERATIONS)
 
+    # The reconciler's operational criterion (G-OPS-24): /health and /ready
+    # of every process that loads billing fail when no reconciler run
+    # completed within the allowed interval (no worker, no beat, a broker
+    # down for longer, or every run failing). `broker ok` alone is not it.
+    core.register_health_check(RECONCILER_HEALTH_CHECK, ReconcilerHealthCheck())
+
 
 # Discovered (sandloom.sdk define_module): the routers of ``api.__all__``, the
 # producer classes of ``events`` and the ``@contract`` providers of
@@ -76,7 +83,14 @@ def _setup(core: ModuleAPI) -> None:
 register = define_module(
     __name__,
     version="1.0.0",
-    capabilities=["database", "eventbus"],
+    capabilities=[
+        "database",
+        "eventbus",
+        # The intent reconciler (tasks.py) closes and escalates payment
+        # operations no request will close: it must run at its interval, so
+        # the task queue's driver must run periodic jobs, not only enqueue.
+        CapabilityRequirement("taskqueue", features=frozenset({"periodic"})),
+    ],
     consumes=[
         # Organization billing context. Optional: a personal-only deployment
         # (no tenancy anywhere) runs without it; when the token shows tenancy

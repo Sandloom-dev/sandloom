@@ -197,6 +197,11 @@ def _register_health_checks(core_facade: CoreFacade, infra: InfraRegistry) -> No
         return await _capability_health(core_facade, "cache")
 
     async def storage_health() -> HealthResult:
+        # The kernel uses no object store: a synthesized one nothing requires
+        # is neither built nor probed (database, cache and eventbus are the
+        # kernel's own, KERNEL_INSTANCES, and always probed).
+        if not infra.in_use("objectstore"):
+            return HealthResult(status="ok", details={"status": "unused"})
         return await _capability_health(core_facade, "objectstore")
 
     async def eventbus_health() -> HealthResult:
@@ -215,9 +220,12 @@ def _register_health_checks(core_facade: CoreFacade, infra: InfraRegistry) -> No
 
         Default db/cache/storage are covered by the dedicated checks above;
         this surfaces additional databases/caches/object-stores declared via
-        INFRA so /ready reflects them too.
+        INFRA so /ready reflects them too. The taskqueue is never probed
+        here: readiness owns it (the processes that use it on the request
+        path), so ``/health`` opens no broker connection and a broker outage
+        never fails it.
         """
-        results = await infra.health_all()
+        results = await infra.health_all(skip=frozenset({"taskqueue"}))
         failures = {
             key: res.details
             for key, res in results.items()

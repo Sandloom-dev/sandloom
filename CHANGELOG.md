@@ -253,6 +253,79 @@ website renders this same changelog.
 
 ### Changed
 
+- **Deploy profiles and `sandloom new` / `sandloom add deploy` templates say how
+  required mail is sent** (kb-ic-6). Identity and tenancy require an email
+  notifier, so a prod stack on the default `log` driver already refuses to
+  start. `deploy/compose/monolith.yml`, `deploy/compose/microservices.yml`, the
+  microservices template and the compose file of an app with identity or
+  tenancy now document `NOTIFIER_BACKEND=smtp` with `SMTP_HOST` / `SMTP_FROM`
+  (an app's compose passes the `SMTP_*` settings through) and name the demo
+  choice: a stack without a mail server adds `log_notifier_in_prod` to
+  `SANDLOOM_ACCEPTED_RISKS`; no mail is delivered. Upgrade: a production stack
+  sets `NOTIFIER_BACKEND=smtp` and `SMTP_HOST`; a demo stack adds
+  `log_notifier_in_prod` (CI's microservices smoke does).
+- **Readiness and the taskqueue: transient trouble only, keyed on the
+  requirement** (owner decision on module infrastructure dependencies,
+  answers 3 and 4; KB-IC-3). `/ready`'s taskqueue term now follows each
+  loaded module's REQUIRED taskqueue requirement (declared or derived), not
+  the presence of a `tasks.py`. A module that uses the queue while serving
+  (no feature named, or `delay` / `idempotency_key`) makes `/ready` 503 when
+  its broker cannot be reached, naming the instance. A module that needs only
+  `periodic` keeps the web process ready during a broker outage: the worker
+  and beat run that work. The internal block lists such modules under
+  `background_modules`. An optional requirement is never probed. The internal
+  `taskqueue` block now holds per-instance results under `instances`, and
+  `instance` / `details` are gone from its top level. The `celery` driver's
+  `health()` now connects to the broker once per probe, bounded by
+  `HEALTH_CHECK_TIMEOUT_SECONDS` and with no retry; before, it always answered
+  `ok`. `/ready` caches it with the other probes, so the broker gets one
+  connection per TTL however many hits arrive. **Upgrade:** a deployment whose
+  `/ready` was 503 only because Celery was missing is now refused at startup
+  (kb-ic-1). A monitor reading `taskqueue.status` or `taskqueue.details` reads
+  `taskqueue.instances.<name>` instead.
+- **Billing watches that its intent reconciler runs** (KB-IC-3). A reachable
+  broker is not enough. Every completed run of `reconcile_operation_intents`
+  records its end in the new table `billing_reconciler_runs` (migration
+  `0012_billing`). The `billing_reconciler` health check fails when no run
+  completed within 15 minutes (three periods): `never_ran` means no worker or
+  no beat, and `overdue` means one of them, or the broker, stopped, or every
+  run fails. The check is part of `/health` and `/ready` in every process that
+  loads billing, after a 15-minute grace from process start in which it reads
+  nothing. **Upgrade:** run `sandloom migrate upgrade-all --apply`, and run a
+  worker and one beat wherever billing runs; in development without them,
+  `/ready` turns 503 on this check after 15 minutes.
+- **`sandloom doctor` has a `periodic` section, and `/diagnostics/core` a
+  `periodic` block** (KB-IC-3). For each loaded module whose taskqueue
+  requirement asks for `periodic`, they show whether a beat holds the lease
+  for this module set. If none does, a required need fails and an optional
+  one warns: identity's token cleanup is optional, and without it
+  `refresh_tokens` grows without bound (documented on the identity page).
+- **Modules declare the infrastructure their code needs; startup checks it,
+  also where it is only derived** (owner decision on module infrastructure
+  dependencies, item 2; kb-ic-2). The `taskqueue` capability has a new
+  feature `periodic`: the driver runs a module's periodic jobs at their
+  interval while the deployment runs (only `celery` advertises it; a driver
+  never gets it for supporting enqueue). `ModuleDescriptor.effective_capabilities()`
+  now adds what a module's code shows it needs, read without importing it: a
+  `tasks.py` needs `taskqueue`, its `setup_periodic_tasks` the feature
+  `periodic`. A declaration keeps its `required` and `instance` and only
+  gains the derived feature; a capability nothing declares is derived as
+  required. New `sandloom check` rule `undeclared-capability`
+  (SANDLOOM-C033) asks for the declaration, `sandloom add task` writes it,
+  and `module.snapshot.json` records the effective requirements
+  (`capabilities`). Billing declares `taskqueue` with `periodic` (its intent
+  reconciler must run); identity declares it optional (its token cleanup is
+  storage hygiene). Identity and tenancy now require `notification` with
+  `email`, so **a production deployment on the default `log` notifier refuses
+  them at startup** instead of logging verification, reset and invitation
+  mail nobody receives. Upgrade: configure a delivering notifier
+  (`NOTIFIER_BACKEND=smtp` and `SMTP_*`, or a driver package), or accept the
+  risk for a demo stack with `SANDLOOM_ACCEPTED_RISKS=log_notifier_in_prod`;
+  run `uv run sandloom generate`; declare `taskqueue` in each module with a
+  `tasks.py` (`sandloom check` names them). A module selected in
+  `SANDLOOM_MODULES` whose required capability is unmet now refuses startup
+  even when it is optional; one only discovered or defaulted is still skipped.
+
 - **The admin console's manifest is a file the console declares** (ADR-0012
   decision 4). A module can declare files `sandloom generate` writes into the
   app's shared package, `define_module(..., generates={"name": render})`:
@@ -269,6 +342,13 @@ website renders this same changelog.
   console declares: its build-time composition must include `sandloom_admin`
   (it fails, saying so, otherwise). New advanced names:
   `GenerationInput`, `GenerationModule`, `ModuleDescriptor.generated_files`.
+  **Upgrade:** a build that runs `sandloom admin export` with a composition
+  that leaves the console out (an explicit `SANDLOOM_MODULES` subset, or a
+  composition root that does not compose `sandloom_admin`) adds
+  `sandloom_admin` to the composition of that build step; the running app's
+  composition does not change. SANDLOOM-T016's slug is now
+  `declared-generated-file` (it was `admin-manifest`): `sandloom explain
+  SANDLOOM-T016` and the code's docs anchor are unchanged.
 - **A module distribution holds copies of the contracts it consumes**
   (ADR-0013, KB-20). In a tree of top-level module packages (the framework,
   an ecosystem module repository), `sandloom generate` writes
@@ -295,6 +375,24 @@ website renders this same changelog.
   breaking against an expectation. Bundled stubs stay in `sandloom.shared`
   until KB-22. Upgrade: run `uv run sandloom generate` (headers change; no
   body changes).
+- **A module's `_generated/` is the generator's, end to end** (ADR-0013
+  decisions 1, 2, 5, 6; W1 review of KB-20). `sandloom check` refuses a file in
+  `<module>/_generated/` that `sandloom generate` did not write or that was
+  edited since, and an import of another module's `_generated` package
+  (static, relative or a constant dynamic import; new rule
+  `generated-reserved`, SANDLOOM-C032). Each `<stem>.describe.json` carries
+  the `digest` of its content (expectation `format` 2), so with the provider
+  not importable an edited expectation is refused like an edited stub
+  (SANDLOOM-T018). `sandloom generate` removes the copies of a contract the
+  module no longer consumes (`--check` reports them; an edited orphan is
+  refused). A module-level `x = Contract(REF)` that no file of the module
+  names again is refused naming the client (it consumed the contract for
+  nothing), and methods stated in `define_module(consumes=[...])` now cover
+  a call the derivation cannot resolve instead of being dropped. The
+  framework's `pyproject.toml` and the one `sandloom new` writes exclude
+  `_generated` from ruff. **Upgrade:** run `uv run sandloom generate` (each
+  committed `.describe.json` gains its `digest`); in an existing app, add
+  `"**/_generated"` to `[tool.ruff] extend-exclude`.
 - **`sandloom admin create` leaves the password rules to the provider.** The
   kernel CLI no longer imports `sandloom_identity.password_policy` and has no
   fallback 8–100 length rule of its own: identity's `password_problem` answer
@@ -366,6 +464,27 @@ website renders this same changelog.
 
 ### Fixed
 
+- **A registered driver whose package is missing no longer passes the
+  preflight; SANDLOOM-B037 names what is missing** (KB-IC-1). The built-in
+  `celery` taskqueue and `redis` cache drivers are registered whether or not
+  Celery or redis-py is installed, and `validate_requirement` read only their
+  metadata, so a module requiring `taskqueue` or `cache` loaded on plain
+  `sandloom` and failed later. A driver registration now lists the packages it
+  needs (`register_driver(..., requires=("celery",), install="pip install
+  'sandloom[celery]'")`; `redis` and `streams` event buses need `redis`), and
+  the preflight checks them with `importlib.util.find_spec`: nothing imported,
+  no connection. A module whose required capabilities cannot be met is refused
+  with one new boot code, SANDLOOM-B037 (`capability-unavailable`), listing
+  every unmet requirement with the module, capability, instance, driver,
+  features, the missing feature or package, and the fix (the install hint, or
+  another driver in `INFRA`). An instance `INFRA` selects on an uninstalled
+  driver refuses startup with the same code, and so does a dependency that
+  fails to import while a driver is built (strict, production startup).
+  A synthesized `default` instance nothing requires is no longer built,
+  opened or probed: an app without task modules starts in production without
+  Celery, `/diagnostics/infra` lists it with `status: "unused"`, and `/health`
+  skips an unused object store. The instances the kernel itself uses
+  (database, the revocation/security cache, the event bus) stay required.
 - **`sandloom-billing` and `sandloom-identity` boot on plain `sandloom`, without
   Celery.** `sandloom.sdk.tasks` imported Celery at import, so a module whose
   `tasks.py` uses the typed `shared_task` failed to load (`ModuleLoadError ...

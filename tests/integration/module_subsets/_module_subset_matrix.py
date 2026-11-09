@@ -11,10 +11,11 @@ An outcome is one of:
 
 - **ready**: boots, ``/health`` 200, ``/ready`` 200;
 - **not ready, taskqueue**: boots, ``/health`` 200, ``/ready`` 503 with
-  ``taskqueue_status: fail``. A loaded module registers tasks and the
-  configured taskqueue (Celery, the ``sandloom[celery]`` extra) cannot open,
-  so readiness names the capability (KB-02, I-20); every enqueue refuses with
-  ``TaskQueueNotInstalled`` (KB-01). Only on plain ``sandloom`` (P2);
+  ``taskqueue_status: fail``: a loaded module uses the taskqueue on the
+  request path and its broker cannot be reached (KB-IC-3). No bundled module
+  does: billing needs only ``periodic`` (the worker and beat run it) and
+  identity's queue is optional, so the web process reports ``unused`` and a
+  missing driver is a startup refusal instead (B037, KB-IC-1);
 - **refused**: startup stops before serving, only for a reason in
   :data:`PREDEFINED_REFUSALS`, with its code and a message naming what is
   missing (owner answer #4). On today's declarations no bundled module
@@ -56,9 +57,10 @@ SUBSETS: tuple[tuple[str, ...], ...] = tuple(
     for combo in itertools.combinations(MODULES, size)
 )
 
-#: Modules that register tasks (a ``tasks.py``, the worker's submodule): on
-#: plain ``sandloom`` their subsets are not ready (taskqueue). Pinned against
-#: the source by ``test_task_modules_are_the_modules_with_tasks``.
+#: Modules that register tasks (a ``tasks.py``, the worker's submodule).
+#: Their web processes do not gate on the taskqueue (billing: ``periodic``
+#: only; identity: optional), so they report ``unused`` (KB-IC-3). Pinned
+#: against the source by ``test_task_modules_are_the_modules_with_tasks``.
 TASK_MODULES = frozenset({"identity", "billing"})
 
 #: The reasons a subset may refuse to start (I-19): code -> what it means.
@@ -66,8 +68,14 @@ TASK_MODULES = frozenset({"identity", "billing"})
 #: for its own settings (I-18, answer #29).
 PREDEFINED_REFUSALS: dict[str, str] = {
     "SANDLOOM-B005": "a required consumed contract has no provider and no binding",
+    "SANDLOOM-B037": "a required capability has no installed driver with its features",
     "configuration": "a selected module refuses its configuration",
 }
+
+#: Modules whose required capabilities need a driver extra plain ``sandloom``
+#: lacks (KB-IC-1): identity requires the cache (redis-py), billing the
+#: taskqueue with ``periodic`` (Celery). Their subsets refuse with B037 there.
+NEEDS_DRIVER_EXTRAS = frozenset({"identity", "billing"})
 
 #: The environment every probe runs with: placeholders only, nothing listens.
 PROBE_ENV = {
@@ -96,12 +104,11 @@ class Outcome:
 
 def expected(subset: Sequence[str], *, celery: bool) -> Outcome:
     """The expected outcome of ``subset`` (I-19's table) with or without Celery."""
-    tasks = bool(TASK_MODULES.intersection(subset))
-    if not tasks:
-        return Outcome("ready", taskqueue="unused")
-    if celery:
-        return Outcome("ready", taskqueue="ok")
-    return Outcome("not_ready_taskqueue", taskqueue="fail")
+    if not celery and NEEDS_DRIVER_EXTRAS.intersection(subset):
+        return Outcome("refused", refusal="SANDLOOM-B037")
+    # No bundled module uses the queue on the request path (KB-IC-3): the
+    # web process never probes it, with or without Celery.
+    return Outcome("ready", taskqueue="unused")
 
 
 #: Run in a fresh interpreter of the profile's environment. argv[1] is the
@@ -135,7 +142,7 @@ except BaseException as exc:
     from sandloom.core.error_codes import code_for_exception
     code = code_for_exception(exc)
     result.update(
-        outcome="refused" if code == "SANDLOOM-B005" else "error",
+        outcome="refused" if code in ("SANDLOOM-B005", "SANDLOOM-B037") else "error",
         code=code,
         message=f"{type(exc).__name__}: {exc}",
         traceback=traceback.format_exc()[-3000:],

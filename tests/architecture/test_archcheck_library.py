@@ -67,7 +67,9 @@ def test_rule_ids_are_stable() -> None:
         "dialect-imports",  # infra-agnostic: no database dialect in a module
         "utc-datetime-columns",  # infra-agnostic: times read back in UTC
         "database-feature-forms",  # infra-agnostic: feature forms declared
+        "undeclared-capability",  # tasks declare taskqueue / periodic (C033)
         "portable-sql",  # infra-agnostic: SQL every database runs alike
+        "generated-reserved",  # ADR-0013: _generated/ is the generator's (C032)
     } | {
         # Public API 1.0 (C021-C027, e.g. "module-local-imports"): each is an
         # sandloom check rule exactly when its catalogue code is no longer planned.

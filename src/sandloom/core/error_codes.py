@@ -123,7 +123,14 @@ composed `consumes`. It refuses, writing nothing:
 - the planned set and the composed `consumes` differ (a contract named only by a
   route policy or a computed name: state it in `consumes=`);
 - the module imports `<module>._generated.contracts.<stem>` that no `consumes`
-  entry stands for, or the consumed contract cannot be read from the declaration.
+  entry stands for, or the consumed contract cannot be read from the declaration;
+- a module-level `x = Contract(REF)` is never named again in the module (a
+  `consumes` entry for nothing: call it or drop it);
+- a copy of a contract the module no longer consumes was edited (an unedited one
+  is removed; `--check` reports it).
+Each expectation carries the digest of its content, so with the provider not
+importable an edited `.describe.json` is refused like an edited stub. Methods
+stated in `consumes=` cover a call the derivation cannot resolve.
 """,
         docs="docs/adr/0013-contract-ownership.md",
     ),
@@ -158,7 +165,7 @@ and the rows a change moves, for the PR description.
     ),
     _entry(
         "SANDLOOM-T016",
-        "admin-manifest",
+        "declared-generated-file",
         "test",
         "a module-declared generated file (the console's manifest) is stale or "
         "cannot be rendered",
@@ -691,6 +698,62 @@ Computed are not read. Tenant admission is a separate question: raw SQL inside
 a function also needs unscoped() (SANDLOOM-C015).
 """,
         docs="docs/modules/database/conventions.md",
+    ),
+    _entry(
+        "SANDLOOM-C032",
+        "generated-reserved",
+        "check",
+        "a hand-written file in a module's _generated/ package, or an import of "
+        "another module's _generated package",
+        "move your own code out of <module>/_generated/ and regenerate an edited "
+        "copy (sandloom generate); to use another module's contract, declare it "
+        "in this module's consumes (Contract(REF) at module level) and import "
+        "this module's own copy",
+        """
+`<module>/_generated/` holds the copies `sandloom generate` writes for the
+contracts the module consumes: each stub and DTO copy starts with a provenance
+header whose digest covers its body, each `<stem>.describe.json` carries the
+digest of its content, and each package `__init__.py` is the generator's
+one-liner (ADR-0013). The next `sandloom generate` rewrites or removes what is
+there, so a hand-written file in it is lost, and an edited copy no longer says
+what the provider declares. Another module's `_generated` package is that
+module's view of its providers, narrowed to the methods it calls; importing it
+couples the two modules and bypasses your own `consumes`, so the provider is
+never checked against what you call.
+""",
+        docs="docs/adr/0013-contract-ownership.md",
+    ),
+    _entry(
+        "SANDLOOM-C033",
+        "undeclared-capability",
+        "check",
+        "a module's code needs an infrastructure capability its define_module "
+        "does not declare",
+        'declare it in define_module: capabilities=["taskqueue"] for a '
+        'tasks.py, CapabilityRequirement("taskqueue", '
+        'features=frozenset({"periodic"})) for a beat hook (required=False '
+        "when the module works without its schedule), with CapabilityRequirement "
+        "from sandloom.sdk.module",
+        """
+A module states the infrastructure it needs in define_module(capabilities=[...])
+and the deployment chooses the driver; startup checks that they match. Some
+needs are visible in the module's code, and the kernel derives them at load
+whether they are declared or not: a tasks.py (or tasks/ package), which the
+framework worker imports and runs, needs the taskqueue capability; a beat hook
+(setup_periodic_tasks) in it needs the taskqueue feature "periodic", a driver
+that runs the module's periodic jobs at their interval in at least one process
+while the deployment runs (a driver never has it for supporting enqueue alone;
+only celery advertises it today). This check asks for the declaration, so a
+reader, an agent and the module snapshot see the need where every other need
+is stated. A declaration decides required or optional: the derived need only
+adds its feature to it, and a capability nobody declared is derived as
+required. The check reads tasks.py and the capabilities= of define_module (or
+ModuleDescriptor); an entry it cannot read statically decides nothing (that is
+a SANDLOOM-C030 finding). It does not claim to find every capability a module
+uses: a module that reaches one another way declares it itself, and the
+startup check stays the last line of defence.
+""",
+        docs="docs/modules/background/tasks.md",
     ),
     # ------------------------------------------------------------- boot time
     _entry(
@@ -1359,6 +1422,35 @@ operator CLIs), naming both owners (ADR-0015 decision 3).
 """,
     ),
     _entry(
+        "SANDLOOM-B037",
+        "capability-unavailable",
+        "boot",
+        "a module requires an infrastructure capability its composition cannot "
+        "serve: no instance, no driver, a missing feature, or the driver's "
+        "package is not installed (or fails to import)",
+        "install what the refusal names (pip install 'sandloom[celery]', "
+        "'sandloom[redis]'), or select in INFRA an installed driver that "
+        "advertises the features the module requires",
+        """
+A module declares the capabilities it needs (define_module(capabilities=...)),
+and the application chooses the driver of each instance. At load, build-free,
+the kernel checks every required capability: an instance is configured, its
+driver is registered and advertises the requested features, and the packages
+the driver needs are installed (importlib.util.find_spec: nothing is imported,
+no connection is opened). A built-in driver is registered whether or not its
+package is installed, so this is what tells a registered driver from a usable
+one. Every unmet requirement of the module is refused at once, naming the
+module, the capability, the instance, the driver, the missing feature or
+package, and the install hint or the INFRA alternative. An optional
+requirement only warns. An instance INFRA selects on an uninstalled driver
+refuses startup the same way, and so does a dependency that fails to import
+while a driver is built (strict startup in production). A synthesized default
+instance nothing requires is neither opened nor probed; the instances the
+kernel uses (database, cache, event bus) stay required.
+""",
+        "docs/infrastructure/index.md",
+    ),
+    _entry(
         "SANDLOOM-B020",
         "ambiguous-module",
         "boot",
@@ -1908,6 +2000,8 @@ EXCEPTION_CODES: dict[str, str] = {
     "SqliteUnavailable": "SANDLOOM-B032",
     "DatabaseFeatureMissing": "SANDLOOM-B033",
     "ForeignOwnerRegistration": "SANDLOOM-B034",
+    "DriverUnavailableError": "SANDLOOM-B037",
+    "CapabilityUnavailable": "SANDLOOM-B037",
     "ModelSchemaDrift": "SANDLOOM-B028",
     "DatabaseFileReplaced": "SANDLOOM-B028",
     "NestedWriterRefused": "SANDLOOM-R016",

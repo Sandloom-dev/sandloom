@@ -481,7 +481,17 @@ import asyncio, importlib, importlib.util, sys
 import httpx
 from sandloom.sdk._prim.tasks import TaskQueueNotInstalled, _UnqueuedTask
 module = sys.argv[1]
-import sandloom.main as m
+try:
+    import sandloom.main as m
+except Exception as exc:
+    # A module that requires a capability whose driver is an extra (identity
+    # requires the cache: redis-py) refuses with SANDLOOM-B037, naming the
+    # extra; any other failure is one.
+    text = str(exc)
+    assert "[SANDLOOM-B037]" in text and "pip install 'sandloom[" in text, text
+    assert "celery" not in sys.modules, "celery imported on plain sandloom"
+    print(f"plain sandloom + {module} refused, SANDLOOM-B037: {text[:300]}")
+    raise SystemExit(0)
 assert m.core.loaded_modules == [module], m.core.loaded_modules
 assert "celery" not in sys.modules, "celery imported on plain sandloom"
 async def ok():
@@ -496,13 +506,14 @@ async def probe():
             return {p: await c.get(p) for p in ("/health", "/ready")}
 responses = asyncio.run(probe())
 has_tasks = importlib.util.find_spec(module + ".tasks") is not None
-# A module with tasks cannot enqueue them here: the default taskqueue (celery)
-# cannot open, so /ready fails naming it; /health never fails on it.
-expected = {"/health": 200, "/ready": 503 if has_tasks else 200}
+# A module that boots here has no unmet required taskqueue (B037 refuses one,
+# KB-IC-1), so readiness never probes the queue (KB-IC-3): "unused". Its
+# tasks still cannot be enqueued without Celery (checked below).
+expected = {"/health": 200, "/ready": 200}
 codes = {p: r.status_code for p, r in responses.items()}
 assert codes == expected, (codes, responses["/ready"].json())
 taskqueue = responses["/ready"].json()["taskqueue_status"]
-assert taskqueue == ("fail" if has_tasks else "unused"), taskqueue
+assert taskqueue == "unused", taskqueue
 refused = []
 if has_tasks:
     tasks = importlib.import_module(module + ".tasks")
@@ -525,9 +536,11 @@ def check_plain_module_install(
 ) -> None:
     """One module wheel on plain ``sandloom``: boots, probes answer, enqueue refuses.
 
-    ``/health`` is 200; ``/ready`` is 503 (``taskqueue_status: fail``) for a
-    module with a ``tasks.py``, since its tasks cannot be enqueued without
-    Celery, and 200 (``unused``) otherwise.
+    ``/health`` and ``/ready`` are 200 (``taskqueue_status: unused``: a
+    module that boots here uses no queue on the request path), and a task of
+    a module with a ``tasks.py`` refuses ``.delay()``. A module that requires a
+    capability whose driver is not installed here refuses to boot with
+    SANDLOOM-B037 naming the extra (KB-IC-1), and nothing else.
 
     The module's own dependencies only (no ``sandloom`` extra): a module whose
     ``tasks.py`` uses ``sandloom.sdk.tasks.shared_task`` must load without

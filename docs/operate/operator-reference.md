@@ -171,7 +171,8 @@ worker and `sandloom migrate`; no lifespan, no consumers, no relay) and reports:
 |---|---|
 | `config` | settings validate; `ENVIRONMENT` set explicitly; prod: ops token, docs; `multi_tenant_strict` requirements |
 | `modules` | the composition root loads; every consumed contract is local or bound in `SERVICE_BINDINGS` |
-| `infra` | every configured instance (databases, caches, object stores, task queue, event bus) answers its health probe in time — the `/diagnostics/infra` probes |
+| `infra` | every configured instance (databases, caches, object stores, task queue, event bus) answers its health probe in time — the `/diagnostics/infra` probes (the `celery` taskqueue's connects to its broker) |
+| `periodic` | each loaded module whose taskqueue requirement asks for `periodic`: a beat holds the lease for this module set. If none does, a required need fails and an optional one warns (identity's token cleanup: `refresh_tokens` grows). A held lease shows that a beat schedules the jobs, not that a worker runs them; billing's `billing_reconciler` readiness check covers that |
 | `migrations` | per database: applied revision of the core chain and each module chain vs the code's heads (`ok` / `behind` / `missing` / `unknown` = migrated by a newer release); read-only connections |
 | `consumers` | each durable consumer's Streams group exists; pending and lag (`--lag-warn`, default 1000) |
 | `rls` | `tenant_rls` databases: the app role cannot escape RLS; strict profile: every tenant table covered |
@@ -827,12 +828,27 @@ restore the interpreter's own behaviour exactly.
 - **Errors**: set `SENTRY_DSN` to enable Sentry reporting.
 - **Health**: `/health` (operational health, 503 when degraded),
   `/health/simple` (process liveness), `/ready` (health + required modules +
-  required consumer subscriptions + a taskqueue that opens while a loaded module
-  has a `tasks.py`, `taskqueue_status`; topology shown only with the internal token),
-  `/diagnostics/infra` (capabilities, stability, drivers, per-instance health),
-  `/diagnostics/consumers` and `/diagnostics/services` (token-gated). Results are cached for
-  `HEALTH_CACHE_TTL_SECONDS` (default 3s) so anonymous probes cannot fan out
-  infra checks.
+  required consumer subscriptions + a reachable taskqueue broker while a
+  loaded module requires the taskqueue on the request path, `taskqueue_status`;
+  topology shown only with the internal token),
+  `/diagnostics/infra` (capabilities, stability, drivers, per-instance health;
+  the `celery` taskqueue's probe connects to its broker),
+  `/diagnostics/core` (also: each module needing periodic jobs and whether a
+  beat schedules them), `/diagnostics/consumers` and `/diagnostics/services`
+  (token-gated). Results are cached for `HEALTH_CACHE_TTL_SECONDS` (default 3s)
+  so anonymous probes cannot fan out infra checks: one broker connection per
+  TTL, however many `/ready` hits arrive.
+- **Readiness and the taskqueue**: readiness reports trouble that can pass
+  (a broker outage). A missing driver is refused at startup instead. The
+  taskqueue term follows each loaded module's taskqueue requirement:
+
+  | the module requires | a broker outage |
+  |---|---|
+  | the queue on the request path (no feature, or `delay`, `idempotency_key`) | `/ready` 503, `taskqueue_status: fail`, naming the instance |
+  | only `periodic` (billing) | the web process stays ready (`unused`; the internal block lists it under `background_modules`); the worker and beat run that work, and the module checks its own runs: billing's `billing_reconciler` check fails after 15 minutes without a run |
+  | it optionally (identity's cleanup), or not at all | never probed |
+
+  `/health` never includes the taskqueue.
 - **Client IP**: behind a proxy set `TRUST_PROXY_HEADERS=true` and
   `TRUSTED_PROXY_IPS` (CIDRs); `X-Forwarded-For` is then walked right-to-left
   from a trusted peer. Rate limiting (sliding window) is always on in prod.

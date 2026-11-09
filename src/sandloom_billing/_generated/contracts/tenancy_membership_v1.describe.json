@@ -145,8 +145,9 @@
       }
     }
   },
+  "digest": "fc51df864d0410d4",
   "fingerprint": "fbf42e7650aa13c0878c442f6080d419",
-  "format": 1,
+  "format": 2,
   "generator_format": 2,
   "methods": [
     "get_member_state",

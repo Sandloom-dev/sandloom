@@ -31,10 +31,12 @@ short or placeholder secret stops the process at startup.
 | `JWT_SECRET` | always | signs access tokens |
 | `INTERNAL_API_TOKEN` | always | unlocks `/diagnostics`, `/contracts`, `/metrics` and `/health` details; it never authenticates calls between services |
 | `TWOFA_ENCRYPTION_KEY` | with identity | encrypts TOTP secrets at rest |
+| `NOTIFIER_BACKEND`, `SMTP_HOST`, `SMTP_FROM` | with identity or tenancy | `smtp` and the sender's host and address: both modules require an email notifier, and the default `log` driver delivers no mail, so production refuses to start on it |
 | `BILLING_PROVIDER` | with billing | `stripe`, with `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` |
 
-For a demo without Stripe, set `BILLING_PROVIDER=fake` and
-`SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod`. Each accepted
+For a demo without Stripe, set `BILLING_PROVIDER=fake` and add `fake_psp_in_prod` to
+`SANDLOOM_ACCEPTED_RISKS`. For a demo without a mail server, add `log_notifier_in_prod`.
+The log driver then stands in for email and **no mail is delivered**. Each accepted
 risk is logged at every start.
 
 Keep real secrets in files rather than in the environment: see
@@ -92,8 +94,9 @@ sets it to 2. Keep
   `postgres_data` volume is not a backup policy. See
   [Backups](operator-reference.md#backups-restore).
 - Choose how email is sent. The default `log` driver only writes messages to the log,
-  so sign-up and password-reset emails from identity don't reach anyone until you set
-  `NOTIFIER_BACKEND` and `SMTP_*`. See
+  so sign-up and password-reset emails from identity don't reach anyone. Identity and
+  tenancy require email. A production stack on `log` refuses to start until you set
+  `NOTIFIER_BACKEND=smtp` and `SMTP_*`, or accept `log_notifier_in_prod` for a demo. See
   [Notifications](../infrastructure/notifications.md).
 - Choose where files live. The default object store is a local volume on one host, which
   is what the `local_storage_in_prod` risk accepts. See

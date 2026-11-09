@@ -130,7 +130,7 @@ def test_create_app_refuses_in_production(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(
         settings,
         "sandloom_accepted_risks",
-        [*settings.sandloom_accepted_risks, "fake_psp_in_prod"],
+        [*settings.sandloom_accepted_risks, "fake_psp_in_prod", "log_notifier_in_prod"],
     )
     with pytest.raises(gw.GuaranteeWindowError, match="command_dedupe"):
         app_factory.create_app()

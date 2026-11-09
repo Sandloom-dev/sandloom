@@ -226,6 +226,46 @@ def test_consumes_are_derived_and_merged_never_weaker(make_module: Any) -> None:
     ]
 
 
+def test_consumes_states_the_methods_of_an_unresolved_call(make_module: Any) -> None:
+    """A client passed to a helper derives no method list; the methods
+    stated in ``consumes=`` cover it (ADR-0013 decision 2) instead of being
+    dropped, and an entry stating none stays without a list."""
+    pkg = make_module(
+        {
+            "api.py": """
+                from sandloom.sdk import Contract
+                from sandloom.sdk.contracts import ContractRef
+
+                quota = Contract(ContractRef("stats.quota.v1"))
+
+                async def helper(client) -> None:
+                    await client.reserve(1, "k")
+
+                async def f() -> None:
+                    await helper(quota)
+            """
+        }
+    )
+    assert _surface(pkg).descriptor.consumes == [
+        ContractRequirement("stats.quota.v1", required=True, methods=())
+    ]
+    stated = _surface(
+        pkg,
+        consumes=[
+            ContractRequirement("stats.quota.v1", required=False, methods=("reserve",))
+        ],
+    ).descriptor.consumes
+    assert stated == [
+        ContractRequirement("stats.quota.v1", required=True, methods=("reserve",))
+    ]
+    unstated = _surface(
+        pkg, consumes=[ContractRequirement("stats.quota.v1", reason="gate")]
+    ).descriptor.consumes
+    assert unstated == [
+        ContractRequirement("stats.quota.v1", required=True, reason="gate", methods=())
+    ]
+
+
 def test_route_policies_add_the_contracts_their_atoms_call(make_module: Any) -> None:
     """A live or fact-backed gate needs its owner's contract in a split
     deployment: it joins the derived ``consumes`` (optional), so the

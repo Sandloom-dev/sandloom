@@ -118,6 +118,8 @@ EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the s
         "JoinRead('billing.balance.of_organization')",
         "JoinRead('billing.plan.of_price')",
     ),
+    # the reconciler's operational criterion (G-OPS-24)
+    ("register_health_check", "'billing_reconciler'", "ReconcilerHealthCheck"),
 ]
 
 
@@ -150,6 +152,8 @@ def test_registration_surface_is_pinned() -> None:
     assert descriptor.capabilities == [
         CapabilityRequirement("database"),
         CapabilityRequirement("eventbus"),
+        # The intent reconciler must run at its interval.
+        CapabilityRequirement("taskqueue", features=frozenset({"periodic"})),
     ]
     assert descriptor.consumes == [
         ContractRequirement(

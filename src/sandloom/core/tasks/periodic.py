@@ -3,17 +3,21 @@
 A module's ``tasks.py`` that defines :data:`PERIODIC_HOOK` registers beat
 schedules; the worker connects the hook (:mod:`sandloom.core.worker`). Deploy
 tooling and the static checks (SANDLOOM-T010) need the answer without importing
-the module or building a Celery app.
+the module or building a Celery app. The reading of ``tasks.py`` is the
+descriptors' own (:mod:`sandloom.core.descriptors.derived_capabilities`), which
+also derives a loaded module's ``taskqueue`` requirement and its ``periodic``
+feature.
 """
 
 from __future__ import annotations
 
-import ast
 import importlib.util
-from pathlib import Path
 
-#: The hook a module's ``tasks.py`` defines to schedule periodic tasks.
-PERIODIC_HOOK = "setup_periodic_tasks"
+from sandloom.core.descriptors.derived_capabilities import (
+    PERIODIC_HOOK,
+    defines_periodic_hook,
+    tasks_source,
+)
 
 
 def has_periodic_tasks(module: str) -> bool:
@@ -24,16 +28,8 @@ def has_periodic_tasks(module: str) -> bool:
     except (ImportError, ValueError):
         return False
     locations = list(getattr(spec, "submodule_search_locations", None) or [])
-    for location in locations:
-        tasks = Path(location) / "tasks.py"
-        if tasks.is_file():
-            tree = ast.parse(tasks.read_text(encoding="utf-8"))
-            return any(
-                isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-                and node.name == PERIODIC_HOOK
-                for node in tree.body
-            )
-    return False
+    path = tasks_source(locations)
+    return path is not None and defines_periodic_hook(path)
 
 
 __all__ = ["PERIODIC_HOOK", "has_periodic_tasks"]
