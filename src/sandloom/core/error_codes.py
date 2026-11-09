@@ -123,7 +123,14 @@ composed `consumes`. It refuses, writing nothing:
 - the planned set and the composed `consumes` differ (a contract named only by a
   route policy or a computed name: state it in `consumes=`);
 - the module imports `<module>._generated.contracts.<stem>` that no `consumes`
-  entry stands for, or the consumed contract cannot be read from the declaration.
+  entry stands for, or the consumed contract cannot be read from the declaration;
+- a module-level `x = Contract(REF)` is never named again in the module (a
+  `consumes` entry for nothing: call it or drop it);
+- a copy of a contract the module no longer consumes was edited (an unedited one
+  is removed; `--check` reports it).
+Each expectation carries the digest of its content, so with the provider not
+importable an edited `.describe.json` is refused like an edited stub. Methods
+stated in `consumes=` cover a call the derivation cannot resolve.
 """,
         docs="docs/adr/0013-contract-ownership.md",
     ),
@@ -158,7 +165,7 @@ and the rows a change moves, for the PR description.
     ),
     _entry(
         "SANDLOOM-T016",
-        "admin-manifest",
+        "declared-generated-file",
         "test",
         "a module-declared generated file (the console's manifest) is stale or "
         "cannot be rendered",
@@ -691,6 +698,30 @@ Computed are not read. Tenant admission is a separate question: raw SQL inside
 a function also needs unscoped() (SANDLOOM-C015).
 """,
         docs="docs/modules/database/conventions.md",
+    ),
+    _entry(
+        "SANDLOOM-C032",
+        "generated-reserved",
+        "check",
+        "a hand-written file in a module's _generated/ package, or an import of "
+        "another module's _generated package",
+        "move your own code out of <module>/_generated/ and regenerate an edited "
+        "copy (sandloom generate); to use another module's contract, declare it "
+        "in this module's consumes (Contract(REF) at module level) and import "
+        "this module's own copy",
+        """
+`<module>/_generated/` holds the copies `sandloom generate` writes for the
+contracts the module consumes: each stub and DTO copy starts with a provenance
+header whose digest covers its body, each `<stem>.describe.json` carries the
+digest of its content, and each package `__init__.py` is the generator's
+one-liner (ADR-0013). The next `sandloom generate` rewrites or removes what is
+there, so a hand-written file in it is lost, and an edited copy no longer says
+what the provider declares. Another module's `_generated` package is that
+module's view of its providers, narrowed to the methods it calls; importing it
+couples the two modules and bypasses your own `consumes`, so the provider is
+never checked against what you call.
+""",
+        docs="docs/adr/0013-contract-ownership.md",
     ),
     _entry(
         "SANDLOOM-C033",

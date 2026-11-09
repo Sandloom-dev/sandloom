@@ -25,7 +25,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | --- | --- | --- | --- | --- |
 | [`SANDLOOM-T018`](#sandloom-t018) | `consumer-copy` | test | a module's copy of a contract it consumes cannot be generated or verified | active |
 | [`SANDLOOM-T017`](#sandloom-t017) | `kernel-edge` | test | the kernel names a module its edge register does not record, or the register is out of date | active |
-| [`SANDLOOM-T016`](#sandloom-t016) | `admin-manifest` | test | a module-declared generated file (the console's manifest) is stale or cannot be rendered | active |
+| [`SANDLOOM-T016`](#sandloom-t016) | `declared-generated-file` | test | a module-declared generated file (the console's manifest) is stale or cannot be rendered | active |
 | [`SANDLOOM-T015`](#sandloom-t015) | `inspection-inputs` | test | module context or declared architecture inspection cannot use its inputs | active |
 | [`SANDLOOM-C001`](#sandloom-c001) | `module-boundaries` | check | a business module imports a sibling business module | active |
 | [`SANDLOOM-C002`](#sandloom-c002) | `framework-imports` | check | import outside the framework public API | active |
@@ -58,6 +58,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C029`](#sandloom-c029) | `utc-datetime-columns` | check | a time column declared DateTime(timezone=True) in module code | active |
 | [`SANDLOOM-C030`](#sandloom-c030) | `database-feature-forms` | check | a module uses a sandloom.sdk.data form that needs a database feature it does not declare | active |
 | [`SANDLOOM-C031`](#sandloom-c031) | `portable-sql` | check | a module or its tests call a SQL function not every database has, write unmarked raw SQL, or ask which database runs them | active |
+| [`SANDLOOM-C032`](#sandloom-c032) | `generated-reserved` | check | a hand-written file in a module's _generated/ package, or an import of another module's _generated package | active |
 | [`SANDLOOM-C033`](#sandloom-c033) | `undeclared-capability` | check | a module's code needs an infrastructure capability its define_module does not declare | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
@@ -669,6 +670,29 @@ a function also needs unscoped() (SANDLOOM-C015).
 **Fix:** use a portable form from sandloom.sdk.data (WallClock() for func.now(), aggregate_list(), json_path()), or declare a database feature form; mark reviewed raw SQL `# sandloom: raw-sql <reason>`; gate a test with skip_unless_db_feature(...) (a race test: skip_unless_db_feature("concurrent_writers")) or ask has_optimized_reads()
 
 **More:** `docs/modules/database/conventions.md`
+
+### SANDLOOM-C032
+
+**a hand-written file in a module's _generated/ package, or an import of another module's _generated package**
+
+Slug: `generated-reserved` · kind: check · status: active
+
+**What happened and why it matters**
+
+`<module>/_generated/` holds the copies `sandloom generate` writes for the
+contracts the module consumes: each stub and DTO copy starts with a provenance
+header whose digest covers its body, each `<stem>.describe.json` carries the
+digest of its content, and each package `__init__.py` is the generator's
+one-liner (ADR-0013). The next `sandloom generate` rewrites or removes what is
+there, so a hand-written file in it is lost, and an edited copy no longer says
+what the provider declares. Another module's `_generated` package is that
+module's view of its providers, narrowed to the methods it calls; importing it
+couples the two modules and bypasses your own `consumes`, so the provider is
+never checked against what you call.
+
+**Fix:** move your own code out of &lt;module>/_generated/ and regenerate an edited copy (sandloom generate); to use another module's contract, declare it in this module's consumes (Contract(REF) at module level) and import this module's own copy
+
+**More:** `docs/adr/0013-contract-ownership.md`
 
 ### SANDLOOM-C033
 
@@ -1708,7 +1732,14 @@ composed `consumes`. It refuses, writing nothing:
 - the planned set and the composed `consumes` differ (a contract named only by a
   route policy or a computed name: state it in `consumes=`);
 - the module imports `<module>._generated.contracts.<stem>` that no `consumes`
-  entry stands for, or the consumed contract cannot be read from the declaration.
+  entry stands for, or the consumed contract cannot be read from the declaration;
+- a module-level `x = Contract(REF)` is never named again in the module (a
+  `consumes` entry for nothing: call it or drop it);
+- a copy of a contract the module no longer consumes was edited (an unedited one
+  is removed; `--check` reports it).
+Each expectation carries the digest of its content, so with the provider not
+importable an edited `.describe.json` is refused like an edited stub. Methods
+stated in `consumes=` cover a call the derivation cannot resolve.
 
 **Fix:** install the provider as a development dependency (or commit the copy generated where it is installed), and state the methods of a consumed contract in define_module(consumes=[ContractRequirement(name, methods=(...))]) where a call cannot be resolved
 
@@ -1747,7 +1778,7 @@ and the rows a change moves, for the PR description.
 
 **a module-declared generated file (the console's manifest) is stale or cannot be rendered**
 
-Slug: `admin-manifest` · kind: test · status: active
+Slug: `declared-generated-file` · kind: test · status: active
 
 **What happened and why it matters**
 
