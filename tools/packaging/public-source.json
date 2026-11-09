@@ -1601,6 +1601,7 @@
         "src/sandloom/core/tests/test_claims_split_matrix.py",
         "src/sandloom/core/tests/test_claims_trust.py",
         "src/sandloom/core/tests/test_claims_view.py",
+        "src/sandloom/core/tests/test_claims_window_end.py",
         "src/sandloom/core/tests/test_cli_checkbox.py",
         "src/sandloom/core/tests/test_cli_mark.py",
         "src/sandloom/core/tests/test_cli_ui.py",

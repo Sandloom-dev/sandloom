@@ -23,6 +23,9 @@ built sections. No statement of an existing entry changes and no test is removed
 - G-CONFIG-14 (KB-53, ADR-0015 decision 9): the refresh-session lifetimes are identity's declared
   settings; the access-JWT parameters stay in the kernel.
 - C-TEST-17 (KB-56, ADR-0015 decision 5): the per-module semantic ratchet helper.
+- G-AUTH-26 (kb-rf-trust, ADR-0014 amendment "W2+W3 review fixes"): `collect_claims` takes
+  precomputed and issuer claims only from the claim authorities' issuer module, and a token
+  without `cpv` gives no rights after the compatibility window.
 
 ## ADR section mapping
 

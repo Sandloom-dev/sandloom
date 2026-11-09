@@ -216,6 +216,8 @@ class Subscribed(Requirement):
         )
 
         status = ctx.subject.claim(self.claim_key)
+        if status is None:
+            _raise_if_policy_indeterminate(ctx, self.claim_key, self.describe())
         try:
             fact = await lookup_access_fact(ctx, SUBSCRIPTION_FACT)
         except FactOwnerUnreachable as exc:
@@ -248,7 +250,13 @@ class Subscribed(Requirement):
                 live = SubscriptionActive(of=self.account)
                 return await live.evaluate(ctx)
         if self._explicit_statuses or self.claim_key != "subscription_status":
-            return self._verbatim(ctx.subject.claim(self.claim_key))
+            status = ctx.subject.claim(self.claim_key)
+            if status is None:
+                # Removed by the trusted view for a reason a refresh or a
+                # retry may change: that indeterminate, never a 402 for the
+                # token's life (ADR-0014 decision 3).
+                _raise_if_policy_indeterminate(ctx, self.claim_key, self.describe())
+            return self._verbatim(status)
         return await self._via_fact(ctx)
 
     def describe(self) -> str:
@@ -264,9 +272,12 @@ def _claim_authority_failed(ctx: AuthzContext, key: str) -> bool:
 
     * no authoritative provenance, or nothing failed: ``False`` (the
       authority ran, so an absent value is its "no");
-    * the composition assigns ``key``: whether that authority is in
-      ``claims_sources_failed``; an unassigned key is a definite deny
-      (``False``);
+    * the composition assigns ``key``: whether that authority (or the one
+      ``previous=`` authority of a rollout) is in ``claims_sources_failed``;
+      an unassigned key is a definite deny (``False``). Read from the
+      VERIFIER's map (``verified_owners``, the root's whole map), never the
+      mint map a split service narrows to what it composes: a verifier
+      running no plans authority still knows whose failure it was;
     * no assignment readable here (no core, or a root without a map): any
       failed source might have been the authority, so ``True`` (the caller
       answers indeterminate, which never allows; a deny could be inverted
@@ -279,8 +290,10 @@ def _claim_authority_failed(ctx: AuthzContext, key: str) -> bool:
     authorities = getattr(ctx.core(), "claim_authorities", None)
     if authorities is None or not getattr(authorities, "assigned", False):
         return True
-    owner = authorities.owner_of(key)
-    return owner is not None and owner in failed
+    owner = authorities.verified_owners.get(key)
+    if owner is None:
+        return False
+    return owner in failed or authorities.previous_owners.get(key) in failed
 
 
 class _AccountClaimAtom(Requirement):
@@ -316,6 +329,10 @@ class _AccountClaimAtom(Requirement):
         """The token's ``claim_key`` value; indeterminate (503) when it is
         absent because its authority failed at the mint."""
         value = ctx.subject.claim(self.claim_key)
+        if value is None:
+            # The view removed it for a reason a refresh (401) or a retry
+            # (503) may change: that indeterminate first (ADR-0014 d. 3).
+            _raise_if_policy_indeterminate(ctx, self.claim_key, self.describe())
         if value is None and _claim_authority_failed(ctx, self.claim_key):
             raise _indeterminate(
                 self,
