@@ -219,7 +219,7 @@ def _sb(
         PY,
         "ladder/server_bench.py",
         "--target",
-        "sandloom.main:app",
+        "sandloom_standard.main:app",
         "--env-file",
         envf,
         "--env",

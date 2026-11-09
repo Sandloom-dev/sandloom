@@ -4,7 +4,7 @@ The model weights per-endpoint CPU costs by a SYNTHETIC traffic mix. This
 stand measures the per-endpoint server CPU (µs/request) so the model's assumed
 costs can be replaced by measured ones. It generates NO load by itself.
 
-Platform only (identity + tenancy + billing, ``sandloom.main:app``)::
+Platform only (identity + tenancy + billing, ``sandloom_standard.main:app``)::
 
     # a separate database (DATABASE_URL = owner DSN; *_mix is appended)
     python -m benchsuite.mix seed          # migrations + one user, one org, membership
@@ -363,7 +363,7 @@ async def smoke() -> None:
     os.environ.update(server_env())
     import httpx
 
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     headers = {"Authorization": f"Bearer {mint()}"}
     async with app.router.lifespan_context(app):
@@ -385,7 +385,7 @@ async def smoke_full() -> None:
     sys.path[:0] = os.environ["PYTHONPATH"].split(os.pathsep)
     import httpx
 
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     headers = {
         "Authorization": f"Bearer {mint(tenant=True)}",
@@ -414,7 +414,7 @@ def commands() -> None:
     for name, weight, path in ENDPOINTS:
         print(
             f"# {name} (model weight {weight} %)\n"
-            "uv run python ladder/server_bench.py --target sandloom.main:app "
+            "uv run python ladder/server_bench.py --target sandloom_standard.main:app "
             f"--env-file /tmp/mix.env --no-id --path {shlex.quote(path)} "
             f"--header {shlex.quote('Authorization: Bearer ' + token)} "
             "--conc 64 --n 8000 --reps 3"
@@ -435,7 +435,7 @@ def commands_full(n: int = 6000) -> None:
         for key, (method, path, body, expect) in CATALOG.items():
             rows = max(n // 30, 128) if key == "login" else n  # ~40 ms hash
             parts = [
-                "uv run python ladder/server_bench.py --target sandloom.main:app",
+                "uv run python ladder/server_bench.py --target sandloom_standard.main:app",
                 "--env-file /tmp/mixfull.env",
                 f"--env PLANNER_OPTIMIZED_EXECUTOR={flag}",
                 f"--no-id --path {shlex.quote(path)} --method {method}",
@@ -542,7 +542,7 @@ def commands_integration(out_dir: str = "/tmp/mixprof", n: int = 8000) -> None:
             )
         for profile in PROFILES:
             base = (
-                "uv run python ladder/server_bench.py --target sandloom.main:app"
+                "uv run python ladder/server_bench.py --target sandloom_standard.main:app"
                 f" --env-file /tmp/mixfull.env --env PLANNER_OPTIMIZED_EXECUTOR={flag}"
                 f" --mix {shlex.quote(os.path.join(out_dir, profile + '.json'))}"
                 f" --no-id --path / --header {header}{where}"

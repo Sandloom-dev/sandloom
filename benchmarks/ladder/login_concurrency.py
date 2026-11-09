@@ -98,7 +98,7 @@ def _start(name: str, port: int, cpus: float, env: dict[str, str]) -> None:
         "gunicorn",
         "-c",
         "python:sandloom.core.cli.gunicorn_conf",
-        "sandloom.main:app",
+        "sandloom_standard.main:app",
     ]
     subprocess.run(args, check=True, capture_output=True)
 

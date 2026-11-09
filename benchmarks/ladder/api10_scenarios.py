@@ -258,7 +258,7 @@ async def scenario_orggate(n: int) -> dict[str, Any]:
     from fastapi import APIRouter, Depends
 
     from sandloom.core.http.route_runtime import install_route_runtime
-    from sandloom.main import app
+    from sandloom_standard.main import app
     from sandloom.shared.authz import Subscribed, current_context, require
     from sandloom.shared.authz.account import Account
 

@@ -1,4 +1,4 @@
-"""Platform-endpoint stand: the identity/tenancy/billing GETs of ``sandloom.main:app``.
+"""Platform-endpoint stand: the identity/tenancy/billing GETs of ``sandloom_standard.main:app``.
 
 Measures the per-request cost of the platform's own hot reads (``/auth/me``,
 ``/api/v1/orgs…``, ``/api/v1/billing/…``) in-process (ladder rungs ``P*``)
@@ -133,7 +133,7 @@ async def smoke() -> None:
     os.environ.update(server_env())
     import httpx
 
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     headers = {"Authorization": f"Bearer {mint()}"}
     async with app.router.lifespan_context(app):
