@@ -264,7 +264,9 @@ async def test_split_remote_owner_with_its_own_keys_still_contributes(
         "service_bindings",
         {"tenancy.claims.v1": {"base_url": "http://tenancy"}},
     )
-    core.set_service_resolver(lambda name, binding, **_: _Proxy({"tenant_ids": []}))
+    # The answer names the module serving it (the authority binding).
+    answer = {"tenant_ids": [], "sandloom.authority": "sandloom_tenancy"}
+    core.set_service_resolver(lambda name, binding, **_: _Proxy(answer))
     claims = await core.collect_claims(uuid4(), object(), issuer="identity")
     assert claims["roles"] == ["member"]
     assert claims["tenant_ids"] == []

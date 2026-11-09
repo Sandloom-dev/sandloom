@@ -45,8 +45,11 @@ async def test_unverified_user_and_contributors_cannot_override_identity() -> No
     user.email = "u@example.com"
     user.is_verified = False
     checked = {"email": "u@example.com", "email_verified": False, "roles": ["r"]}
+    # The merge's provenance and policy version, here the kernel test
+    # authority's (what as_user stamps), so the verifier's view keeps them.
+    stamped = {"cpv": "sandloom-test", "claims_sources": ["sandloom-test"]}
     core = SimpleNamespace(
-        collect_claims=AsyncMock(return_value={**checked, "sub": "x"})
+        collect_claims=AsyncMock(return_value={**checked, **stamped, "sub": "x"})
     )
     db = AsyncMock()
     db.add = Mock()

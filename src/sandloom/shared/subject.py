@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
-from sandloom.core.auth.claims_view import UNTRUSTED_KEY
+from sandloom.core.auth.claims_view import UNTRUSTED_KEY as _UNTRUSTED_KEY
 
 #: Top-level keys that are first-class ``UserContext`` fields (plus the ``sub``
 #: alias). Every other token claim lands in the namespaced ``claims`` mapping.
@@ -117,9 +117,9 @@ class UserContext(BaseModel):
         extra = {
             k: v
             for k, v in data.items()
-            if k not in _FIELD_KEYS and k != UNTRUSTED_KEY and k != "untrusted_claims"
+            if k not in _FIELD_KEYS and k != _UNTRUSTED_KEY and k != "untrusted_claims"
         }
-        untrusted = data.get(UNTRUSTED_KEY)
+        untrusted = data.get(_UNTRUSTED_KEY)
         known["untrusted_claims"] = (
             {str(k): str(v) for k, v in untrusted.items()}
             if isinstance(untrusted, dict)
