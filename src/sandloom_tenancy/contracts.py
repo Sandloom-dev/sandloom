@@ -175,16 +175,41 @@ class MembershipReadContract:
         """Member user ids of an organization (active or not), in id order,
         strictly after ``after``: keyset paging, at most 1000 per call (a
         larger ``limit`` is capped). Page until fewer than ``limit`` return."""
-        session = db()
-        stmt = (
-            select(OrganizationMember.user_id)
-            .where(OrganizationMember.organization_id == organization_id)
-            .order_by(OrganizationMember.user_id)
-            .limit(max(1, min(limit, 1000)))
-        )
-        if after is not None:
-            stmt = stmt.where(OrganizationMember.user_id > after)
-        return list((await session.execute(stmt)).scalars())
+        return await _member_user_ids(organization_id, after, limit)
 
 
-__all__ = ["MembershipReadContract"]
+async def _member_user_ids(
+    organization_id: UUID, after: UUID | None, limit: int
+) -> list[UUID]:
+    session = db()
+    stmt = (
+        select(OrganizationMember.user_id)
+        .where(OrganizationMember.organization_id == organization_id)
+        .order_by(OrganizationMember.user_id)
+        .limit(max(1, min(limit, 1000)))
+    )
+    if after is not None:
+        stmt = stmt.where(OrganizationMember.user_id > after)
+    return list((await session.execute(stmt)).scalars())
+
+
+@contract("tenancy.security.v1")
+class TenancySecurityContract:
+    """Tenancy's operator contract (reserved to tenancy, SANDLOOM-B034).
+
+    ``sandloom security revoke-sessions --tenant ORG`` (and
+    ``force-password-reset --tenant``) asks the owner of the ``tenant_ids``
+    claim for the organization's members: tenancy in the standard map.
+    Confirmed by describe before the command acts; reads only.
+    """
+
+    async def list_member_user_ids(
+        self, organization_id: UUID, after: UUID | None, limit: int
+    ) -> list[UUID]:
+        """Member user ids of an organization (active or not), in id order,
+        strictly after ``after``: keyset paging, at most 1000 per call (a
+        larger ``limit`` is capped). Page until fewer than ``limit`` return."""
+        return await _member_user_ids(organization_id, after, limit)
+
+
+__all__ = ["MembershipReadContract", "TenancySecurityContract"]

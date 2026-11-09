@@ -38,6 +38,13 @@
         "list_user_organization_ids"
       ],
       "name": "tenancy.membership.v1"
+    },
+    {
+      "database": null,
+      "methods": [
+        "list_member_user_ids"
+      ],
+      "name": "tenancy.security.v1"
     }
   ],
   "events": {

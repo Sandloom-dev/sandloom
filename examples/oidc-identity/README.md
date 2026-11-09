@@ -45,6 +45,8 @@ Every protected token claim has one authority, written in code in
 `oidc_identity/asgi.py` (ADR-0014):
 
 ```python
+IDP = Authority("acme_idp", module="oidc_identity.modules.acme_idp")
+
 CLAIM_AUTHORITIES = {
     "issuer": IDP,  # acme_idp mints the token
     "roles": IDP,
@@ -59,6 +61,10 @@ CLAIM_AUTHORITIES = {
 
 - `issuer` names the module that issues tokens. `email` and `email_verified` are
   not listed: a map that names an issuer gives those two keys to it.
+- `Authority("acme_idp", module=...)` carries the public name. A process that
+  does not load acme_idp (P2 in split, or an operator command there) still
+  knows its operator contract is `acme_idp.security.v1`; an import path alone
+  names nothing outside the process that loads it.
 - A contributor that writes a claim it is not assigned loses its whole result.
   Startup refuses a map the composition cannot honour (`sandloom explain
   SANDLOOM-B035`): the process that loads the issuer needs every named authority
@@ -86,6 +92,14 @@ In both topologies:
   The provider's back-channel logout revokes a subject's tokens (`acme_idp`). An
   emergency block refuses the account's tokens and its next sign-in. A new sign-in
   after a logout works again.
+- **Operator commands.** `sandloom security revoke-sessions --user ID` finds
+  `acme_idp` as the issuer and calls its `acme_idp.security.v1`
+  (`end_sessions`; `list_user_ids` for `--all`). The kernel revokes the access
+  tokens in every process, and the report reads: access tokens revoked /
+  refresh sessions not applicable / external IdP sessions not controlled / new
+  sign-in still possible. `force-password-reset` is refused before anything is
+  done (`SANDLOOM-B039`: acme_idp keeps no passwords), a dry run too. In split
+  the command runs in P2, which does not load acme_idp, and reaches it over RPC.
 
 The two topologies:
 
@@ -152,10 +166,11 @@ processes (bindings, allowlist, RPC keys, the EdDSA JWT key); the guides
 
 ## Current limits
 
-- The **operator CLIs** (`sandloom security ...`, `sandloom admin create`) still
-  assume `sandloom_identity`. They are moved to the claim-authority model by the
-  tasks `kb-proto-operator-a` and `kb-proto-operator-b` (wave W7). Until then use
-  the block route above for an emergency block.
+- `sandloom admin ...` and `sandloom security grant-admin` still assume
+  `sandloom_identity`; they move to the claim-authority model with task
+  `kb-proto-operator-b` (wave W7). The session commands already work here (see
+  above). A revocation is not a block: use the block route above to refuse the
+  next sign-in.
 - The **admin console** still signs in through identity's `/auth` paths. Login
   through the issuer named in the map is task `kb-proto-console-login`.
 - `acme_idp` is an example, not a hardened product: no refresh tokens, no account

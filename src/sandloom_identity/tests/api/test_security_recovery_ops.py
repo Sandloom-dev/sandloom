@@ -192,6 +192,33 @@ async def test_security_contract_revokes_sessions_in_bulk_with_operator_audit(
 
 
 @pytest.mark.asyncio
+async def test_end_sessions_reports_the_kinds_identity_ended(
+    async_client: AsyncClient,
+    test_db: AsyncSession,
+    test_user: User,
+    sandloom_app: Any,
+) -> None:
+    """``end_sessions`` (what ``sandloom security revoke-sessions`` calls):
+    identity's refresh sessions and access tokens end, said kind by kind."""
+    login = await _login(async_client, test_user)
+    assert login.status_code == 200
+    contract = sandloom_app.state.core.get_service(SECURITY_SERVICE_V1)
+    with bind_contract_session(test_db), bind_test_uow(test_db):
+        ended = await contract.end_sessions(
+            [test_user.id, uuid4()], "credential leak SEC-12", "carol", "op-3"
+        )
+    assert ended.affected == 1
+    assert ended.ended == ["access_tokens", "refresh_sessions"]
+    refreshed = await async_client.post(
+        "/auth/refresh", json={"refresh_token": login.json()["refresh_token"]}
+    )
+    assert refreshed.status_code == 401
+    assert [a[0] for a in await _audit(test_db, test_user)] == [
+        "identity.user.sessions_revoked"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_forced_password_reset_refuses_password_login_until_reset(
     async_client: AsyncClient,
     test_db: AsyncSession,

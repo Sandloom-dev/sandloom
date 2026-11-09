@@ -163,7 +163,7 @@
       }
     },
     "identity.security.v1": {
-      "hash": "ed0385dfb659939804f7a8cfba941399",
+      "hash": "f783038f79e857822867dc0562ff76fe",
       "methods": {
         "account_standing": {
           "idempotency_key": null,
@@ -322,6 +322,79 @@
           "returns": {
             "k": "scalar",
             "t": "uuid"
+          }
+        },
+        "end_sessions": {
+          "idempotency_key": "operation_key",
+          "kind": "command",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "user_ids",
+              "required": true,
+              "type": {
+                "item": {
+                  "k": "scalar",
+                  "t": "uuid"
+                },
+                "k": "list"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "reason",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operator",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "operation_key",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "fields": {
+              "affected": {
+                "required": true,
+                "type": {
+                  "k": "scalar",
+                  "t": "int"
+                }
+              },
+              "ended": {
+                "required": true,
+                "type": {
+                  "item": {
+                    "k": "literal",
+                    "values": [
+                      "access_tokens",
+                      "refresh_sessions",
+                      "provider_sessions"
+                    ]
+                  },
+                  "k": "list"
+                }
+              }
+            },
+            "k": "model",
+            "ref": "sandloom_identity.schemas.operator:SessionsEnded",
+            "schema_hash": "5e57665cf9946b78"
           }
         },
         "find_user_id": {

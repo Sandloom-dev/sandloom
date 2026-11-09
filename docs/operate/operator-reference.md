@@ -583,14 +583,38 @@ block record that survives a database restore.
 
 Every command below is a **dry-run by default**; `--apply` acts and needs
 `--reason` (and `--operator`, default your login); in production also
-`--confirm-production`. Each applied action is audited (per user by identity
-with `actor_type="operator"`, or `core.security.*` for the export /
-reconciliation). Re-running an interrupted bulk command with the same
-`--operation-id` replays finished batches (durable command dedupe) instead of
-repeating them. The session commands call identity's `identity.security.v1`
-contract — run them in a process that loads identity (or binds it via
-`SERVICE_BINDINGS` with an `RPC_ALLOWED_CALLS` grant); `--tenant` also needs
-`tenancy.membership.v1`.
+`--confirm-production`. Each applied action is audited (per user by the
+kernel, `core.security.tokens_revoked`, and by the issuer, e.g. identity's
+`identity.user.sessions_revoked`, with `actor_type="operator"`; or
+`core.security.*` for the export / reconciliation). Re-running an interrupted
+bulk command with the same `--operation-id` replays finished batches (durable
+command dedupe) instead of repeating them.
+
+**Who answers.** The session commands ask the token issuer the composition
+root's claim map names (`issuer`): its `<issuer>.security.v1` contract
+(`identity.security.v1` in the standard composition) with `end_sessions`,
+`require_password_reset` for `force-password-reset` and `list_user_ids` for
+`--all`. `--tenant` asks the owner of `tenant_ids` (`tenancy.security.v1`,
+`list_member_user_ids`). Run them in a process that loads those modules, or
+bind each contract in `SERVICE_BINDINGS` (pinned to the owner's service) with an
+`RPC_ALLOWED_CALLS` grant of each method. Every method is confirmed by describe
+before anything is done, a dry run included: a missing method, grant or binding
+refuses with `SANDLOOM-B039` / `SANDLOOM-B040` (exit status 1) and nothing is
+written. An issuer without passwords (an external OpenID provider in front)
+refuses `force-password-reset`: reset passwords at the provider.
+
+**What a revocation does, kind by kind** (the command prints one line each):
+
+| kind | who | guaranteed |
+|---|---|---|
+| Sandloom access tokens | the kernel, for every issuer | yes: one unit in the command's process (audit row per user, the mark written before commit, `core.auth.tokens_revoked.v1` in the outbox, applied by every service's revocation applier); no success before it commits |
+| Sandloom refresh sessions | the issuer's `end_sessions`, before the kernel's mark | where the issuer declares `refresh_sessions=True`; "not applicable" for a stateless issuer |
+| External identity-provider sessions | the provider | no: "not controlled", end them at the provider (unless the issuer reports it ended them) |
+| A new sign-in | — | still possible: a revocation is not a block. Block the account (`POST /api/v1/users/{id}/block`, the kernel's `block_user`) to refuse it |
+
+With a stateless OIDC issuer the report reads: access tokens revoked /
+refresh sessions not applicable / external IdP sessions not controlled / new
+sign-in still possible.
 
 **0. Contain and record.** Open an incident, freeze deploys, then export the
 audit window you will reason about:
@@ -646,7 +670,8 @@ are out.
   redeploy.
 
 **4. Tenant-scoped compromise.** `sandloom security revoke-sessions --tenant <org>
---apply --reason …` (pages the members through `tenancy.membership.v1`), plus
+--apply --reason …` (pages the members through the `tenant_ids` owner's
+`tenancy.security.v1`), plus
 `force-password-reset --tenant` if their credentials are suspect.
 
 **5. Close.** `sandloom backup reconcile-security` must report clean; export the

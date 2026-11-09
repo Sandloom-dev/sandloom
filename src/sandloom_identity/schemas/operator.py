@@ -9,6 +9,7 @@ Callers import the generated copy (``identity_dto``, written by
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -43,4 +44,23 @@ class PlatformAdmin(BaseModel):
     last_login_at: datetime | None = None
 
 
-__all__ = ["AccountStanding", "PlatformAdmin"]
+class SessionsEnded(BaseModel):
+    """What the token issuer's ``end_sessions`` ended, kind by kind.
+
+    ``sandloom security revoke-sessions`` reports each kind from this answer:
+    the kernel revokes every access token itself (any issuer); the issuer ends
+    what only it holds.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    #: Users of the batch the issuer knows (unknown ids are left out).
+    affected: int
+    #: The kinds of session the issuer holds for them, now ended:
+    #: ``access_tokens`` (its access tokens), ``refresh_sessions`` (its own
+    #: refresh sessions), ``provider_sessions`` (sessions at an external
+    #: identity provider). A kind it does not hold is left out.
+    ended: list[Literal["access_tokens", "refresh_sessions", "provider_sessions"]]
+
+
+__all__ = ["AccountStanding", "PlatformAdmin", "SessionsEnded"]

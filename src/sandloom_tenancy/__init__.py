@@ -77,8 +77,10 @@ def _setup(core: ModuleAPI) -> None:
 
 # Discovered (sandloom.sdk define_module): the routers of ``api.__all__``, the
 # producer classes of ``events`` and the read-only ``tenancy.membership.v1``
-# provider of ``contracts`` (never the full MembershipService: its write
-# methods would be callable by any module or internal RPC caller).
+# and ``tenancy.security.v1`` (operator: a tenant's members for
+# ``sandloom security ... --tenant``) providers of ``contracts`` (never the
+# full MembershipService: its write methods would be callable by any module or
+# internal RPC caller).
 register = define_module(
     __name__,
     version="1.0.0",

@@ -151,6 +151,40 @@ website renders this same changelog.
 
 ### Security
 
+- **`sandloom security revoke-sessions` / `force-password-reset` work with any
+  token issuer; access-token revocation is a platform guarantee**
+  (kb-proto-operator-a2, owner decision 1 of 2026-11-09, edge B-R5 fixed). The
+  commands ask the claim map's `issuer` (`<issuer>.security.v1`:
+  `end_sessions`, `require_password_reset`, `list_user_ids` for `--all`) and,
+  for `--tenant`, the owner of `tenant_ids` (`<owner>.security.v1`:
+  `list_member_user_ids`; tenancy registers `tenancy.security.v1`), each method
+  confirmed by describe before any side effect, a dry run with `--user`
+  included (SANDLOOM-B039 / B040, exit 1). The kernel then revokes every
+  access token of each batch itself, in one unit of the command's own process:
+  a durable claim of the batch, an audit row per user
+  (`core.security.tokens_revoked`), the mark written before commit and the
+  `core.auth.tokens_revoked.v1` record in the same outbox, which every
+  service's revocation applier applies to its own cache. No success is
+  printed before that unit commits; a cache or database failure stops with
+  the batch named and the `--operation-id` to resume. The issuer ends its own
+  refresh sessions first (identity: new `end_sessions` returning
+  `SessionsEnded{affected, ended}`; `revoke_sessions` stays one release); an
+  issuer loaded here that declares `refresh_sessions=True` and does not report
+  them fails the command. The report prints one line per kind (access tokens
+  revoked; refresh sessions ended or not applicable; external IdP sessions not
+  controlled; a new sign-in still possible: a revocation is not a block), and
+  `--json` gains `issuer`, `sessions` and `password_reset`.
+  `force-password-reset` with an issuer that has no passwords is refused with
+  no audit row and no mark. Upgrade: where the command runs in a process
+  without the issuer, bind `<issuer>.security.v1` in `SERVICE_BINDINGS`
+  (pinned to the issuer's service) and grant `end_sessions` (plus
+  `require_password_reset`, `list_user_ids`) in `RPC_ALLOWED_CALLS`; for
+  `--tenant`, bind and grant `tenancy.security.v1.list_member_user_ids` instead
+  of `tenancy.membership.v1`. The command's process needs its database (core
+  chain) for the kernel's unit. examples/oidc-identity names its issuer
+  `Authority("acme_idp", module=...)` and gives acme_idp `acme_idp.security.v1`
+  (`list_user_ids`, `end_sessions`; no password methods).
+
 - **`<m>.security.v1` is reserved to module `m`; operator owners are resolved
   and confirmed** (kb-proto-operator-a, ADR-0012 decision 1, ADR-0013
   decision 4 amended). Only module `m` registers `m.security.v1`
