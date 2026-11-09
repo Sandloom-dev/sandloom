@@ -5,8 +5,9 @@ For every module declared with L1 discovery (``define_module`` of
 ``sandloom.sdk``):
 
 - ``<module>/module.snapshot.json``: the module's declared surface, sections
-  ``events`` (producer schemas), ``consumers``, ``consumes``, ``contracts``,
-  ``sagas`` and ``projections`` (``routes`` stay in ``routes.snapshot.json``
+  ``events`` (producer schemas), ``consumers``, ``consumes``,
+  ``capabilities`` (declared or derived), ``contracts``, ``sagas`` and
+  ``projections`` (``routes`` stay in ``routes.snapshot.json``
   and contract describes in ``contracts.snapshot.json`` until model E's
   route snapshot moves them here);
 - ``<shared>/events/<channel>.json``: each producer's schema, so views in
@@ -407,6 +408,8 @@ def module_surface(entry: Any) -> dict[str, Any]:
     A token issuer's document also records its ``issuer`` declaration
     (``refresh_sessions``: whether it holds refresh sessions an emergency
     block must end; ADR-0012 decision 5). Other modules carry no such key.
+    ``capabilities`` are the infrastructure needs the load preflight checks,
+    declared or derived from the module's code (SANDLOOM-C033).
     """
     surface: dict[str, Any] = {
         "format": 1,
@@ -433,6 +436,16 @@ def module_surface(entry: Any) -> dict[str, Any]:
         "consumes": [
             {"name": u.name, "required": u.required, "methods": list(u.methods)}
             for u in entry.contracts_consumed
+        ],
+        "capabilities": [
+            {
+                "capability": c.capability,
+                "instance": c.instance,
+                "version": c.version,
+                "features": list(c.features),
+                "required": c.required,
+            }
+            for c in getattr(entry, "capabilities", ())
         ],
         "contracts": [
             {"name": c.name, "database": c.database, "methods": list(c.methods)}

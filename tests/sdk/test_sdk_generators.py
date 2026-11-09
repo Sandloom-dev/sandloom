@@ -156,8 +156,20 @@ def test_add_task_writes_an_idempotent_task_and_its_schedule(tmp_path: Path) -> 
     where = add.layout(root)
     created, note = add.add_task("notes", "purge", where, periodic="0 3 * * *")
     tasks = root / "probe" / "modules" / "notes" / "tasks.py"
-    assert created == [tasks]
-    add.add_task("notes", "rollup", where, periodic="*/15 * * * *")
+    init = tasks.parent / "__init__.py"
+    # The beat hook needs a driver that runs periodic jobs: declared in
+    # define_module, as `sandloom check` asks (SANDLOOM-C033).
+    assert created == [tasks, init]
+    assert (
+        'CapabilityRequirement("taskqueue", features=frozenset({"periodic"}))'
+        in init.read_text()
+    )
+    assert (
+        "from sandloom.sdk.module import CapabilityRequirement  # sandloom: advanced"
+        in (init.read_text())
+    )
+    created, _ = add.add_task("notes", "rollup", where, periodic="*/15 * * * *")
+    assert created == [tasks]  # declared once
     source = tasks.read_text()
     assert "from sandloom.sdk.tasks import cron, shared_task" in source
     assert "acks_late=True, reject_on_worker_lost=True" in source
@@ -169,6 +181,35 @@ def test_add_task_writes_an_idempotent_task_and_its_schedule(tmp_path: Path) -> 
         add.add_task("notes", "purge", where)
     with pytest.raises(add.GeneratorError, match="5 cron fields"):
         add.add_task("notes", "nightly", where, periodic="daily")
+
+
+def test_add_task_declares_the_task_queue(tmp_path: Path) -> None:
+    """A task without a schedule declares ``taskqueue``; a later schedule
+    turns it into the ``periodic`` requirement; a ``define_module`` with
+    comments inside is left to its author, with a note."""
+    root = _app(tmp_path, everything=False)
+    where = add.layout(root)
+    init = root / "probe" / "modules" / "notes" / "__init__.py"
+    created, note = add.add_task("notes", "reindex", where)
+    assert init in created and note is None
+    assert 'capabilities=["taskqueue"]' in init.read_text()
+    add.add_task("notes", "purge", where, periodic="0 3 * * *")
+    text = init.read_text()
+    assert '"taskqueue"' not in text.replace('CapabilityRequirement("taskqueue"', "")
+    assert 'features=frozenset({"periodic"})' in text
+
+    add.add_module("stats", where)
+    stats = root / "probe" / "modules" / "stats" / "__init__.py"
+    stats.write_text(
+        stats.read_text().replace(
+            'define_module(__name__, version="0.1.0")',
+            'define_module(\n    __name__,\n    version="0.1.0",  # kept\n)',
+        )
+    )
+    before = stats.read_text()
+    created, note = add.add_task("stats", "rollup", where)
+    assert stats not in created and stats.read_text() == before
+    assert note and 'capabilities=["taskqueue"]' in note and "SANDLOOM-C033" in note
 
 
 def test_add_event_appends_and_refuses_an_unparsable_file(tmp_path: Path) -> None:

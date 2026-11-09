@@ -20,7 +20,7 @@ its ``operation_key`` and NOT atomic with the caller's transaction (saga).
 
 from sandloom.sdk import define_module
 from sandloom.sdk.infra import settings
-from sandloom.sdk.module import ContractRequirement, ModuleAPI
+from sandloom.sdk.module import CapabilityRequirement, ContractRequirement, ModuleAPI
 
 from . import psp
 from .access import ORG_SUBSCRIPTION_ACTIVE_FACT, SUBSCRIPTION_ACTIVE_FACT
@@ -76,7 +76,14 @@ def _setup(core: ModuleAPI) -> None:
 register = define_module(
     __name__,
     version="1.0.0",
-    capabilities=["database", "eventbus"],
+    capabilities=[
+        "database",
+        "eventbus",
+        # The intent reconciler (tasks.py) closes and escalates payment
+        # operations no request will close: it must run at its interval, so
+        # the task queue's driver must run periodic jobs, not only enqueue.
+        CapabilityRequirement("taskqueue", features=frozenset({"periodic"})),
+    ],
     consumes=[
         # Organization billing context. Optional: a personal-only deployment
         # (no tenancy anywhere) runs without it; when the token shows tenancy

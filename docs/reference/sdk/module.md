@@ -511,7 +511,16 @@ entities by plain UUID — never declare cross-module foreign keys.
 def effective_capabilities(self) -> list[CapabilityRequirement]
 ```
 
-Capabilities to preflight at load (the declared list).
+Capabilities to preflight at load: the declared ones, plus what the
+module's code shows it needs: `taskqueue` for a `tasks` submodule,
+with the feature `periodic` for its beat hook
+(`setup_periodic_tasks`).
+
+A declaration wins: a derived need adds its features to every declared
+requirement of the same capability and never changes its `required`
+or `instance`; only a capability nothing declares is added, required,
+on the `default` instance. Read from the module's files (no import),
+so `sandloom check` (SANDLOOM-C033) still asks for the declaration.
 
 #### `ModuleDescriptor.migration_chain_key`
 

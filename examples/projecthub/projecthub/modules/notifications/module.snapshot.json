@@ -1,4 +1,27 @@
 {
+  "capabilities": [
+    {
+      "capability": "database",
+      "features": [],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    },
+    {
+      "capability": "eventbus",
+      "features": [],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    },
+    {
+      "capability": "notification",
+      "features": [],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    }
+  ],
   "consumers": [
     {
       "bind_tenant_from": null,

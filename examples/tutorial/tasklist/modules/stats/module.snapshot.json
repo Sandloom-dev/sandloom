@@ -1,4 +1,5 @@
 {
+  "capabilities": [],
   "consumers": [
     {
       "bind_tenant_from": "tenant_id",

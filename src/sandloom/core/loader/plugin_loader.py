@@ -305,6 +305,23 @@ def _is_required(name: str, desc: ModuleDescriptor | None) -> bool:
     return name in _configured_paths("module_required")
 
 
+def _selected_explicitly(explicit_call: bool) -> bool:
+    """Were the listed modules chosen by the deployment (or the caller)?
+
+    ``True`` for a ``modules=`` list passed to the loader and for a
+    ``SANDLOOM_MODULES`` the deployment configured; ``False`` for the
+    composition root's defaults. A selected module whose required
+    capability is unmet refuses startup even when it is optional (owner
+    decision on infrastructure dependencies, question 5): selecting a module
+    and not providing what it needs is a deployment error, not a reason to
+    serve without it.
+    """
+    if explicit_call:
+        return True
+    configured = getattr(settings, "sandloom_modules", None)
+    return bool(configured) and configured is not _defaulted_modules
+
+
 def _configured_paths(setting: str) -> set[str]:
     """A module-list setting as import paths (entries may be module names)."""
     entries = [str(e) for e in getattr(settings, setting, []) or []]
@@ -431,9 +448,12 @@ def _preflight_capabilities(core: CoreFacade, desc: ModuleDescriptor) -> None:
     registry (no I/O — providers build lazily; feature and package checks are
     in-memory and ``find_spec``). Every ``required`` requirement that cannot be
     satisfied is refused at once with one ``CapabilityUnavailable``
-    (SANDLOOM-B037), which — inside the registration transaction — rolls back
-    the module's registration and (if the module is required) aborts startup.
-    Optional requirements only warn.
+    (SANDLOOM-B037, a :class:`CapabilityError`), which — inside the
+    registration transaction — rolls back the module's registration and aborts
+    startup if the module is required or was selected (``SANDLOOM_MODULES``;
+    optional or not, see :func:`_selected_explicitly`). Optional requirements
+    only warn. The requirements are the effective ones: declared, plus derived
+    from the module's code (:meth:`ModuleDescriptor.effective_capabilities`).
 
     Skipped entirely when no infrastructure registry is bound (bare facades in
     unit tests), so test apps need no infra wiring.
@@ -504,15 +524,23 @@ def _preflight_database_features(registry: Any, desc: ModuleDescriptor) -> None:
 
 
 def _record_failure(
-    name: str, desc: ModuleDescriptor | None, exc: Exception, summary: ModuleLoadSummary
+    name: str,
+    desc: ModuleDescriptor | None,
+    exc: Exception,
+    summary: ModuleLoadSummary,
+    *,
+    fatal: bool = False,
 ) -> None:
+    """Record a module's load failure; ``fatal`` makes it abort startup
+    whatever the module's optionality (a selected module whose required
+    capability is unmet, :func:`_selected_explicitly`)."""
     logger.error("[plugin_loader] Failed module %s: %s", name, exc, exc_info=exc)
 
     summary.failed.append(
         FailedModule(
             name=name,
             error=_guardrails.scrub_text(str(exc)),
-            required=_is_required(name, desc),
+            required=fatal or _is_required(name, desc),
         )
     )
     if _metrics_mod is not None:
@@ -524,7 +552,11 @@ def _record_failure(
 
 
 def _load_list(  # noqa: C901
-    module_names: Sequence[str], core: CoreFacade, summary: ModuleLoadSummary
+    module_names: Sequence[str],
+    core: CoreFacade,
+    summary: ModuleLoadSummary,
+    *,
+    selected: bool = False,
 ) -> None:
     """Import and register each module in the requested order.
 
@@ -553,6 +585,7 @@ def _load_list(  # noqa: C901
             summary.skipped.append(SkippedModule(name=name, reason="duplicate"))
             continue
         desc: ModuleDescriptor | None = None
+        unmet_capability = False
         try:
             # Registration is transactional: everything the module registers is
             # buffered in a draft and applied atomically on success; a failure
@@ -566,7 +599,9 @@ def _load_list(  # noqa: C901
                     pending = [n for n in queue if not _should_skip(n)]
                     _check_dependencies(desc, summary, pending)
                     _check_chain_collision(desc, summary)
+                    unmet_capability = True
                     _preflight_capabilities(core, desc)
+                    unmet_capability = False
                 if desc and desc.routes:
                     api.include_router(desc.routes)
             if desc:
@@ -589,7 +624,9 @@ def _load_list(  # noqa: C901
                 continue
             queue.append(name)
         except Exception as e:
-            _record_failure(name, desc, e, summary)
+            # A selected module whose required capability is unmet refuses
+            # startup even when it is optional (_selected_explicitly).
+            _record_failure(name, desc, e, summary, fatal=unmet_capability and selected)
             if _fail_fast():
                 raise
 
@@ -750,7 +787,12 @@ def _load_with_summary(
         except Exception:  # pragma: no cover - reported again by the loader
             logger.exception("[plugin_loader] Entry point package discovery failed")
     logger.debug("[plugin_loader] Start load; explicit=%s", explicit)
-    _load_list(explicit, core_facade, summary)
+    _load_list(
+        explicit,
+        core_facade,
+        summary,
+        selected=_selected_explicitly(modules is not None),
+    )
     if getattr(settings, "module_load_entrypoints", False):
         _load_entry_points(core_facade, summary)
     core_facade.loaded_modules = [d.name for d in summary.loaded]

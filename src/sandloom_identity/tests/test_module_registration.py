@@ -45,6 +45,11 @@ EXPECTED_DESCRIPTOR = ModuleDescriptor(
         ),
         CapabilityRequirement("cache"),
         CapabilityRequirement("eventbus"),
+        # Account mail must be delivered; the token cleanup is optional.
+        CapabilityRequirement("notification", features=frozenset({"email"})),
+        CapabilityRequirement(
+            "taskqueue", features=frozenset({"periodic"}), required=False
+        ),
     ],
     issues_tokens=True,
 )

@@ -96,6 +96,7 @@ _CHECK_RULE_IDS: tuple[str, ...] = (
     "utc-datetime-columns",
     "database-feature-forms",
     "portable-sql",
+    "undeclared-capability",
 )
 RULES: dict[str, str] = dict.fromkeys(_CHECK_RULE_IDS, "")
 
@@ -665,6 +666,9 @@ def _module_level_checks(
         ),
         "guard-order": lambda: mr.find_guard_order_problems(files),
         "consumed-contracts": lambda: mr.find_undeclared_contracts(files),
+        "undeclared-capability": lambda: mr.find_undeclared_capabilities(
+            module_dir, files
+        ),
     }
     for rule, check in checks.items():
         if rule not in selected:

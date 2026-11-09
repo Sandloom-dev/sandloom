@@ -144,4 +144,6 @@ def test_registration_surface_is_pinned() -> None:
     assert descriptor.capabilities == [
         CapabilityRequirement("database"),
         CapabilityRequirement("eventbus"),
+        # Invitations are mailed: a notifier that cannot deliver email refuses.
+        CapabilityRequirement("notification", features=frozenset({"email"})),
     ]
