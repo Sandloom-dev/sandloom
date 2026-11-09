@@ -386,7 +386,8 @@ def refuse_unsealed(
 ) -> None:
     """Raise :class:`UnsealedClaimsError` when ``data`` carries a key of
     :func:`unsealed_keys`."""
-    bad = sorted(k for k in data if k in unsealed_keys(policy))
+    refused = unsealed_keys(policy)
+    bad = sorted(k for k in data if k in refused)
     if bad:
         raise UnsealedClaimsError(
             f"SANDLOOM-R017: {what} carries {', '.join(bad)} outside a sealed "

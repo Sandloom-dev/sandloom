@@ -429,6 +429,7 @@ bundled modules and examples. `CoreFacade` appears once, only in a test comment.
 | `core.di.contract_session` | aja.sdk.data.db() (inside a contract method) | replaced | 11 |  | G-RLS-12 |
 | `core.di.core_from_request` | aja.sdk.infra | kept | 0 | request |  |
 | `core.di.create_access_token` | aja.sdk.security | kept | 5 | data, expires_delta |  |
+| `core.di.create_service_token` | aja.sdk.security | kept | 0 | data, expires_delta | G-AUTH-25 (KB-12) |
 | `core.di.current_tenant_id` | aja.sdk.tenant | kept | 0 |  | G-TENANT-07 |
 | `core.di.current_tenant_id_optional` | aja.sdk.tenant | kept | 3 |  |  |
 | `core.di.db_session` | aja.sdk.data.open_uow | renamed | 11 | name | G-OUTBOX-08, G-BILLING-19 |
@@ -675,6 +676,7 @@ bundled modules and examples. `CoreFacade` appears once, only in a test comment.
 | `core.testing.migrate_module` | aja.sdk.testing | kept | 4 | url, package, revision, downgrade, chain |  |
 | `core.testing.migration_chains` | aja.sdk.testing (advanced) | kept | 0 | core |  |
 | `core.testing.migration_drift` | aja.sdk.testing (advanced) | kept | 0 | module, core |  |
+| `core.testing.mint_test_token` | aja.sdk.testing | kept | 0 | data, expires_delta, claims_read_at | G-AUTH-25 (KB-12) |
 | `core.testing.model_tables` | aja.sdk.testing (advanced) | kept | 0 | core |  |
 | `core.testing.open_saga_harness` | aja.sdk.testing | kept | 0 | core |  |
 | `core.testing.operation_classes` | aja.sdk.testing.assert_route_snapshot (C-TEST-07) | adr0009 | 1 | app |  |
@@ -688,6 +690,7 @@ bundled modules and examples. `CoreFacade` appears once, only in a test comment.
 | `core.testing.route_policy` | aja.sdk.testing | kept | 1 | route |  |
 | `core.testing.run_on_commit` | aja.sdk.testing | kept | 5 | session, database | G-EFFECT-03, C-EFFECT-02 |
 | `core.testing.run_sql` | aja.sdk.testing | kept | 7 | url, sql, params |  |
+| `core.testing.sealed_claims` | aja.sdk.testing | kept | 0 | claims | G-AUTH-25 (KB-12) |
 | `core.testing.set_environment` | aja.sdk.testing | kept | 2 | monkeypatch, name |  |
 | `core.testing.skip_unless_db_feature` | aja.sdk.testing (advanced) | kept | 0 | features, database |  |
 | `core.testing.has_optimized_reads` | aja.sdk.testing (advanced) | kept | 0 | bind |  |
