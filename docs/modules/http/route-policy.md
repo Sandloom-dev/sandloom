@@ -151,7 +151,7 @@ route. The owner of the effect declares the risk once:
 
 | Risk | Declared by | Examples |
 | --- | --- | --- |
-| `admin` | the framework's admin gates | `require(Role("admin"))`, `require(OrgRole("admin"))`, `require_platform_admin`, tenancy's org-admin gate |
+| `admin` | the framework's admin gates | `require(Role("admin"))`, `require(OrgRole("admin"))` (the generated `OrgRole` of `tenancy_membership_v1`, whose `access_check` declares the `admin` risk), `require_platform_admin`, tenancy's org-admin gate |
 | `money` | the effect owner | `@command(..., risk="money")` on a contract command; the `MoneyLedger` model mixin (names its unique operation-key column); `@sensitive_effect("money")` on an effect service |
 | `security` | the credential owner | `@sensitive_effect("security", step_up=300)` on credential-changing services |
 

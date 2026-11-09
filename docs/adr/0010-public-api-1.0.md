@@ -22,7 +22,7 @@ search:
 - **Overriding rule (owner):** no guarantee weakens and no capability is
   removed; the guarantee ledger is the gate.
 - **Amended:** 2026-11-08, accepted: a generated consumer API category and
-  the new imports of four beginner atoms (see the amendment at the end;
+  the new imports of four beginner atoms, applied in KB-34 on 2026-11-09 (see the amendment at the end;
   decided with [ADR-0013](0013-contract-ownership.md) and
   [ADR-0014](0014-claims-trust-and-authorization-portability.md)).
 - **Research:**
@@ -70,8 +70,10 @@ the public API and the transaction rules the rest of the reduction needs.
   same-semantics replacements, and the billing atoms' subject argument
   (Decision 7). Repository usage is never a reason to drop a public name.
   The scanner fails if any name has no public home.
-- Each module declares `__all__` and `__beginner__`; 27 beginner names are
-  taught by the generators, the tutorial and the agent cheat sheet. The
+- Each module declares `__all__` and `__beginner__`; 27 beginner names were
+  taught at acceptance (30 before KB-34; 26 after it: 20 code names in
+  `sandloom.sdk.__all__`, the five `sandloom.sdk.testing` names and the
+  `client` fixture, see the amendment) and are taught by the generators, the tutorial and the agent cheat sheet. The
   surface is snapshotted.
 - Importing `sandloom.sdk` reads no environment and performs no I/O: settings
   become a lazy proxy forced by every entry point, and an import audit
@@ -316,7 +318,8 @@ from testing: `sandloom test` never writes a generated file).
 - **Golden path: 31 → 9 concepts** (10 with an authorization gate); an
   ordinary write route carries no policy line; a new module touches no file
   outside its package except generated contract stubs and event schemas.
-- **Surface:** 27 beginner names; every capability keeps a public home and
+- **Surface:** 27 beginner names at acceptance (26 after the four atoms move in
+  KB-34, see the amendment); every capability keeps a public home and
   its parameters; `help()` works without an environment.
 - **Guarantees:** none weakens. Stronger: authentication presence, write
   admission, compatibility checked before writes, derived labels, explicit
@@ -423,7 +426,19 @@ approved migration of the public `sdk` contract and beginner DX.
    `Account`, `Role`, `Perm`, `Owner`, `require`, `authorize_resource` and
    the other beginner names stay in `sandloom.sdk`. The beginner tier is
    recounted in the surface snapshot (SANDLOOM-T009) and the agent cheat
-   sheet.
+   sheet. **Applied by KB-34 (2026-11-09):** `sandloom.sdk.__all__` goes from
+   24 names to 20 (`Subscribed`, `SubscriptionActive`, `Credits` and `OrgRole`
+   leave it), so the beginner tier is 26 names (20 + the five
+   `sandloom.sdk.testing` names + the `client` fixture) instead of 30. The
+   advanced `Feature` and `WithinLimit` of `sandloom.sdk.authz` leave the
+   kernel the same way and are imported from
+   `<generated>.billing_entitlements_v1`. `ACTIVE_SUBSCRIPTION_STATUSES`,
+   `WELL_KNOWN_FACT_OWNERS`, `register_live_adapter`, `EntitlementsAdapter` and
+   `MembershipAdapter` are removed without a replacement name
+   ([ADR-0014](0014-claims-trust-and-authorization-portability.md), decision
+   14); `Roles` and `Permissions` move to `sandloom_identity.rbac`. The
+   [upgrade guide](../operate/upgrade-1.0.md#billing-and-tenancy-atoms-leave-the-kernel)
+   gives the import per name.
 3. **Generation.** A route policy that uses a generated atom adds the
    atom's contract to the module's `consumes` (it already does for the
    kernel's live atoms), so `sandloom generate` writes the stub and the
