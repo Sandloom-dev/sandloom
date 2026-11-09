@@ -765,6 +765,29 @@ website renders this same changelog.
 
 ### Added
 
+- **`ModuleAPI.claim_owner(key)`** (KB-proto-operator-b2). The public name of the
+  module the composition's `claim_authorities` assigns a protected claim key, or
+  `None`. Call it when a startup task runs, not from `setup` (the map is installed
+  after the modules register). The admin console's first-administrator check asks
+  `claim_owner("roles")`'s `<owner>.security.v1` (`platform_admin_exists`) and is
+  skipped, with a debug line, when there is no owner or it lacks the method.
+  `sandloom admin create --invite` and `admin invite` build the set-password link
+  on the composed application's served `set_password_page` route (the console names
+  it only while it serves it), else on `FRONTEND_URL`'s reset page, else refuse; no
+  setting name is read. The development start page names no module command.
+  `claim_owner` answers only a name the process can vouch for (declared in the map,
+  an installed distribution's, or a module loaded here from that path), never an
+  import path's last segment. The link page counts only when the module that serves
+  the console (`/admin`) mounted it; two routes of that name are refused before
+  anything is done. The console's first-administrator check holds the owner to
+  the shape it expects (no argument, a yes/no answer) and skips quietly, with the
+  debug line, when the provider is unreachable, withholds the grant or lacks the
+  method over RPC. `ADMIN_CONSOLE_ENABLED` is the console's declared deploy line:
+  `sandloom add deploy` writes it for the service that loads the console only, and
+  `sandloom new` only with `--with admin`; the starter environment of identity and
+  billing now equals their declared deploy lines (adds `REFRESH_TOKEN_EXPIRE_DAYS`
+  and `BILLING_DENY_ON_PAST_DUE`).
+
 - **`sandloom check` reads atom metadata** (ADR-0014, KB-32, H-20). The gate-order,
   sensitive-route (C022) and account-route (C027) rules resolve an imported atom
   name to the file that defines it and read its `__sandloom_atom__` literal, so a

@@ -356,7 +356,7 @@ async def test_create_and_invite_with_two_owners_are_refused_first(
     command: str, extra: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(admin_cli, "_stdin_is_tty", lambda: False)
-    monkeypatch.setattr(admin_cli, "_check_link_target", lambda: None)
+    monkeypatch.setattr(admin_cli, "_check_link_target", lambda core: None)
     args = _args(command, **extra)
     with pytest.raises(OperatorCapabilityUnavailable) as exc:
         if command == "create":

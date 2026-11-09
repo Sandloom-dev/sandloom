@@ -1,15 +1,7 @@
 {
   "capabilities": [],
   "consumers": [],
-  "consumes": [
-    {
-      "methods": [
-        "platform_admin_exists"
-      ],
-      "name": "identity.security.v1",
-      "required": false
-    }
-  ],
+  "consumes": [],
   "contracts": [],
   "events": {},
   "format": 1,

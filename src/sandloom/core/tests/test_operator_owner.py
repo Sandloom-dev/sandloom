@@ -55,7 +55,7 @@ from sandloom.core.facade._services import (
     ForeignOwnerRegistration,
     reserved_contract_owner,
 )
-from sandloom.core.module_api import contract_method
+from sandloom.core.module_api import ModuleAPI, contract_method
 
 IDP = "oidcapp.modules.acme_idp"
 RBAC = "oidcapp.modules.acme_rbac"
@@ -213,6 +213,32 @@ def test_the_verifier_owner_uses_the_declared_name() -> None:
     authorities = build_claim_authorities(OIDC_MAP)
     assert authorities.verified_owners is not None
     assert authorities.verified_owners["roles"] == "acme_idp"
+
+
+def test_a_module_reads_the_roles_owner_through_the_facade_and_the_api() -> None:
+    """ModuleAPI.claim_owner: the declared public name of a claim key's owner
+    (the admin console's first-administrator check), else None."""
+    facade = CoreFacade(app=FastAPI())
+    assert facade.claim_owner("roles") is None  # no map yet
+    facade._claim_authorities = build_claim_authorities(OIDC_MAP)
+    api = ModuleAPI(facade)
+    assert api.claim_owner("roles") == "acme_idp"
+    assert api.claim_owner("tenant_ids") == "tenancy"
+    assert api.claim_owner("features") is None
+
+
+def test_claim_owner_never_guesses_a_name_from_an_import_path() -> None:
+    """A path the root names without ``Authority(name, module=...)``, that no
+    installed distribution provides and that is not loaded here (its package
+    is not even importable in this process) has no name: ``None``, never its
+    last import segment. Loaded here from that path, it has the loader's."""
+    path = "acme_unimportable_pkg.modules.idp"
+    facade = CoreFacade(app=FastAPI())
+    facade._claim_authorities = build_claim_authorities({"issuer": path, "roles": path})
+    api = ModuleAPI(facade)
+    assert api.claim_owner("roles") is None
+    facade.module_descriptors = [SimpleNamespace(name=path)]
+    assert api.claim_owner("roles") == "idp"
 
 
 # --- reservation (B034) ------------------------------------------------------

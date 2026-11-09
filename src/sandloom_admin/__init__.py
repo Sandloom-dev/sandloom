@@ -10,14 +10,26 @@ At startup it logs how to create the first administrator while none exists
 """
 
 from sandloom.sdk import define_module
+from sandloom.sdk.module import ModuleAPI
 
+from .api import PAGE_OFF, PAGE_SERVED, console_enabled, router
 from .config import AdminSettings
 from .manifest import FILE_NAME, render
-from .startup import setup
+from .startup import setup as startup_setup
+
+
+def setup(core: ModuleAPI) -> None:
+    """Mount the console, the set-password page first (the catch-all of the
+    console's router would take its path), then the startup check."""
+    core.include_router(PAGE_SERVED if console_enabled() else PAGE_OFF)
+    core.include_router(router)
+    startup_setup(core)
+
 
 register = define_module(
     __name__,
     version="1.0.0",
+    router=None,
     setup=setup,
     generates={FILE_NAME: render},
     settings=AdminSettings,

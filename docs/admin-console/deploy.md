@@ -54,8 +54,9 @@ API calls go through the same gateway, which routes each one to the service that
 it, so nothing in the console knows your topology. Each service reports on itself: choose
 the source at the top of the platform views.
 
-Use `--service admin` if you would rather give it a process of its own. Set
-`ADMIN_CONSOLE_ENABLED` in the shared environment, as with any setting that must match.
+Use `--service admin` if you would rather give it a process of its own. The console
+declares its switch: `sandloom add deploy` writes `ADMIN_CONSOLE_ENABLED` (off by
+default) into the service that loads the console, and no other. Set it there.
 
 Generate the manifest in an environment that loads every module, then deploy it in the
 image of each service. See [Split into services](../operate/split-into-services.md).

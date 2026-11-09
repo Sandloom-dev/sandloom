@@ -781,6 +781,29 @@ class _ClaimsMixin(_ServicesMixin):
         """The composition's claim-authority assignment."""
         return self._claim_authorities
 
+    def claim_owner(self, key: str) -> str | None:
+        """The public name of the module the composition's claim map assigns
+        ``key`` (``"roles"``, a protected claim key), else ``None``: the
+        module whose reserved ``<name>.security.v1`` answers the operator
+        questions about that claim. Read at run time, after the map is
+        installed (never during a module's registration); no I/O.
+
+        Only a name this process can vouch for: the public name the root
+        declares (``Authority(name, module=path)``, an installed
+        distribution's entry point), else the loader's name of a module
+        loaded here from that path. A path neither declared nor loaded here
+        is ``None``: its last import segment is a guess, not its name
+        (``sandloom_identity`` is ``identity``)."""
+        authorities = self._claim_authorities
+        path = (authorities.verified or {}).get(key)
+        if not path:
+            return None
+        name = authorities.names.get(path)
+        if name is not None:
+            return name
+        loaded = {getattr(d, "name", None) for d in self.module_descriptors}
+        return _short_module_name(path) if path in loaded else None
+
     @property
     def tenant_witness(self) -> _tenant_witness.TenantWitness | None:
         """The assigned tenant authority's membership witness, which

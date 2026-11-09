@@ -53,8 +53,12 @@ ask for a link instead:
 uv run sandloom admin create --email you@example.com --invite --if-missing
 ```
 
-The command prints a link to the console's set-password page. Whoever opens it sets
-the password and is signed in. The link works once and only for 15 minutes, so it is
+The command prints a link to the console's set-password page. The page comes from
+the running application, not from a setting. While the console serves it, the
+console names that route `set_password_page`, and the command builds the link on
+its path. Only the module that serves the console (`/admin`) counts. A route of that
+name from another module gets no link. Two routes of that name are refused before
+anything is done. Whoever opens it sets the password and is signed in. The link works once and only for 15 minutes, so it is
 safe to pass on in a chat. `--if-missing` makes a second run do nothing when the
 address is already an administrator.
 
@@ -82,7 +86,11 @@ they are refused before anything is done
 ([operator reference](../operate/operator-reference.md)).
 
 While no administrator exists, the sign-in page and the application's startup log
-show the `admin create` command.
+show the `admin create` command. The console's startup check asks the module the
+composition assigns `roles` to (`platform_admin_exists`, through its
+`<owner>.security.v1`). It asks nobody when that owner lacks the method or runs
+elsewhere, and the log stays quiet then. The development start page does not name
+the command; it points to the startup log.
 
 Outside production, a failed sign-in names two more commands. `admin list` shows
 which addresses are administrators and which of them have a password; `admin invite`
@@ -107,8 +115,8 @@ memory alone hides. That risk is fine for a development app on your own machine 
 never for production. The server tells the console its mode (`/admin/config.json`),
 and production never stores the session.
 
-With the console off, as in production by default, the link opens your own frontend
-instead: `FRONTEND_URL/auth/reset-password#token=...`. The token is in the URL
+With the console off, as in production by default, the application serves no
+set-password page. The link then opens your own frontend: `FRONTEND_URL/auth/reset-password#token=...`. The token is in the URL
 fragment, which the browser never sends to a server: no access log records it.
 Your reset page must read the token from `location.hash`, send it in the body of
 `POST /auth/reset-password`, and then remove it from the address bar with

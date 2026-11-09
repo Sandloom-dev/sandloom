@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from pydantic import BaseModel, Field
 
 from sandloom.sdk.module import settings_of
@@ -23,6 +25,13 @@ class AdminSettings(BaseModel):
             "Directory of a console you built yourself, served instead of the "
             "packaged one."
         ),
+    )
+    #: The compose environment of a process that loads the console
+    #: (``sandloom add deploy``; ``sandloom new --with admin`` writes the same
+    #: lines into the monolith profile).
+    deploy: ClassVar[tuple[str, ...]] = (
+        "# The admin console is off in production unless switched on here.",
+        "ADMIN_CONSOLE_ENABLED: ${ADMIN_CONSOLE_ENABLED:-false}",
     )
 
 

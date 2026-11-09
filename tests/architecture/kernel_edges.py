@@ -44,7 +44,11 @@ The rules (by ``current_status``, never by ``target``):
    kernel file, so a fixed row needs a literal anchor (else it fails: a row
    the scan cannot see cannot regress), except a finding an open or
    retained row anchors in its own file by symbol or exact literal, which is
-   that row's;
+   that row's. A ``local: true`` literal anchor (a shell script or compose
+   template the scan does not read, where a module name is any word of the
+   text) is evidence only in its own file: its literal is not matched in the
+   kernel's Python files, where the same word is anything else
+   (``rpc_identity``);
 3. a runtime row with ``current_status: open`` or ``retained`` and no
    evidence fails ("set ``current_status: fixed``");
 4. a documentation row (a name only in a docstring or comment) needs no
@@ -170,6 +174,8 @@ class Anchor:
     path: str
     literal: str | None = None
     symbol: str | None = None
+    #: Evidence in its own file only, never matched in other kernel files.
+    local: bool = False
 
     @property
     def exact(self) -> str | None:
@@ -292,10 +298,14 @@ def _anchor(raw: Mapping[str, Any], where: str) -> Anchor:
     literal, symbol = raw.get("literal"), raw.get("symbol")
     if literal is not None and symbol is not None:
         raise RegisterError(f"{where}: an anchor has a literal or a symbol, not both")
+    local = raw.get("local", False)
+    if not isinstance(local, bool) or (local and literal is None):
+        raise RegisterError(f"{where}: local is true or false, on a literal anchor")
     return Anchor(
         str(raw["path"]),
         None if literal is None else str(literal),
         None if symbol is None else str(symbol),
+        local,
     )
 
 
@@ -462,13 +472,14 @@ def _call_name(node: ast.Call) -> str:
 
 def fixed_literals(register: Register) -> tuple[Anchor, ...]:
     """The literal anchors of every runtime row whose ``current_status`` is
-    ``fixed``: the scan matches them in every kernel file (rule 2)."""
+    ``fixed``: the scan matches them in every kernel file (rule 2), except a
+    ``local`` one, evidence in its own file only."""
     return tuple(
         a
         for r in register.rows
         if r.runtime and r.current_status == "fixed"
         for a in r.anchors
-        if a.literal
+        if a.literal and not a.local
     )
 
 
@@ -857,12 +868,18 @@ def check(
             used_not_edges.update(ignored)
             continue
         # Rule 2 everywhere: a finding holding a fixed row's anchor literal is
-        # that row's evidence in any kernel file, not only the anchored one.
+        # that row's evidence in any kernel file, not only the anchored one
+        # (a local anchor's in its own file only).
         regressed = [
             r
             for r in runtime
             if r.current_status == "fixed"
-            and any(a.literal and holds_literal(a, finding.literal) for a in r.anchors)
+            and any(
+                a.literal
+                and (not a.local or a.matches_path(finding.path))
+                and holds_literal(a, finding.literal)
+                for a in r.anchors
+            )
         ]
         # A finding an open or retained row anchors precisely in its own file
         # (its symbol or exact literal, never a path-only anchor) is that
