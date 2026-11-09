@@ -98,7 +98,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B036`](#sandloom-b036) | `settings-collision` | boot | one environment name is declared twice: by the kernel and a loaded module's settings, or by two loaded modules | active |
 | [`SANDLOOM-B037`](#sandloom-b037) | `capability-unavailable` | boot | a module requires an infrastructure capability its composition cannot serve: no instance, no driver, a missing feature, or the driver's package is not installed (or fails to import) | active |
 | [`SANDLOOM-B038`](#sandloom-b038) | `fact-owner-missing` | boot | an access-fact policy or fake names no valid owner module | active |
-| [`SANDLOOM-B039`](#sandloom-b039) | `operator-capability-unavailable` | runtime | an operator command's owner cannot be confirmed to provide what the command needs: no owner is assigned, its public name is unknown, its &lt;owner>.security.v1 is neither local nor bound, the contract lacks a method, or this service may not call it | active |
+| [`SANDLOOM-B039`](#sandloom-b039) | `operator-capability-unavailable` | runtime | an operator command's owner cannot be confirmed to provide what the command needs: no owner is assigned, its public name is unknown, its &lt;owner>.security.v1 is neither local nor bound, the contract lacks a method or has it with another shape, this service may not call it, or the owner answered with another shape | active |
 | [`SANDLOOM-B040`](#sandloom-b040) | `operator-owner-substitution` | runtime | the service an operator command would call for &lt;owner>.security.v1 is not the owner the claim map names: its binding names another service than the owner's other bindings, or its describe states another provider, or its answer is not bound to the pinned service | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
@@ -1479,7 +1479,15 @@ from its authority, the module loaded from the assigned import path or its
   registers it critical=False: the issuer fields have no other writer and no
   fallback (decision 7);
 - an issues_tokens module that is not the map's issuer, or the map's issuer
-  loaded without issues_tokens=True.
+  loaded without issues_tokens=True;
+- an Authority(name, module=path) whose name is not the module's public
+  name: the map keeps name as the name the authority is verified, bound and
+  asked under, so it must be the entry-point name path is installed under
+  (Authority('acme', module='sandloom_identity') when it is installed as
+  identity is refused: write Authority('identity', module='sandloom_identity')),
+  a name that is not an identifier, or two entries naming one module
+  differently. A path that is not installed keeps the declared name: its last
+  import segment is not its name.
 
 A root's default map (sandloom_standard.main) keeps only the entries whose
 module is composed. When it leaves its issuer out (not loaded here) and
@@ -1589,7 +1597,7 @@ application asks for it.
 
 ### SANDLOOM-B039
 
-**an operator command's owner cannot be confirmed to provide what the command needs: no owner is assigned, its public name is unknown, its &lt;owner>.security.v1 is neither local nor bound, the contract lacks a method, or this service may not call it**
+**an operator command's owner cannot be confirmed to provide what the command needs: no owner is assigned, its public name is unknown, its &lt;owner>.security.v1 is neither local nor bound, the contract lacks a method or has it with another shape, this service may not call it, or the owner answered with another shape**
 
 Slug: `operator-capability-unavailable` · kind: runtime · status: active
 
@@ -1621,6 +1629,19 @@ cannot be described. The refusal names the command, the claim-map key, the
 owner module and its import path, the contract, the missing method and the
 fix.
 
+A method that is there must also have the shape the kernel calls it with
+(sandloom.core.cli.operator_owner.OPERATOR_METHOD_SHAPES): the parameters it
+sends, in order (an extra parameter must be optional), and an answer whose
+every value the command can read (a narrower answer is fine). The refusal
+names both, "incompatible end_sessions: expected (list[uuid], str, str, str)
+-> {affected: int, ended: list[...]}, got ... -> int": type the owner's
+method with DTOs, not dict[str, Any]. The command also checks each answer
+where it reads it, before its next step; an answer of another shape stops it
+with this code, the batch and the --operation-id named. The owner stores its
+answer for that operation, so a resume with the same --operation-id stops at
+the same place: fix the owner's method, then run with a new --operation-id
+(what is already done is done again, harmlessly).
+
 sandloom admin create and admin invite act on the account and its
 administrator role in one unit (create_platform_admin,
 take_over_platform_admin, a set-password link the issuer mints only for an
@@ -1630,7 +1651,7 @@ written, never half done: create the account at the issuer, then run
 sandloom security grant-admin, which reads the issuer and writes the roles
 owner and works across two modules.
 
-**Fix:** assign the owner in the composition root's claim_authorities (Authority('&lt;name>', module='&lt;import path>')), run the command where the owner is loaded or bind &lt;owner>.security.v1 in SERVICE_BINDINGS, add the method to the owner's &lt;owner>.security.v1 (or do it at the external provider), or grant the method in RPC_ALLOWED_CALLS
+**Fix:** assign the owner in the composition root's claim_authorities (Authority('&lt;name>', module='&lt;import path>')), run the command where the owner is loaded or bind &lt;owner>.security.v1 in SERVICE_BINDINGS, add the method to the owner's &lt;owner>.security.v1 with the shape the refusal names (or do it at the external provider), or grant the method in RPC_ALLOWED_CALLS
 
 **More:** `docs/operate/operator-reference.md`
 

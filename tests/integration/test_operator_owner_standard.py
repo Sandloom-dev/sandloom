@@ -26,7 +26,12 @@ from sandloom.core.app_factory.claim_authorities import (
     build_claim_authorities,
 )
 from sandloom.core.claims import Authority, ClaimAuthorities
-from sandloom.core.cli.operator_owner import operator_owner
+from sandloom.core.cli.operator_owner import (
+    OPERATOR_METHOD_SHAPES,
+    operator_owner,
+    schema_problem,
+)
+from sandloom.core.module_api._provider import contract_schema
 
 
 def _core(authorities: ClaimAuthorities) -> Any:
@@ -135,3 +140,24 @@ def test_no_provider_wheel_resolves_the_declared_name_in_a_subprocess() -> None:
     assert got["kept_roles"] is True  # bound through identity.claims.v1
     assert "SANDLOOM-B039" in got["bare"]
     assert "Authority('<name>', module='sandloom_identity')" in got["bare"]
+
+
+@pytest.mark.parametrize("contract", ["identity", "tenancy"])
+def test_the_bundled_owners_have_the_shapes_the_kernel_calls(contract: str) -> None:
+    """identity.security.v1 and tenancy.security.v1 pass the schema check of
+    every operator method they provide (SANDLOOM-B039 otherwise)."""
+    from sandloom_identity.contracts import SecurityOperationsContract
+    from sandloom_tenancy.contracts import TenancySecurityContract
+
+    impl = (
+        SecurityOperationsContract()
+        if contract == "identity"
+        else TenancySecurityContract()
+    )
+    described = {
+        name: method.describe()
+        for name, method in contract_schema(impl).methods.items()
+    }
+    shared = sorted(set(described) & set(OPERATOR_METHOD_SHAPES))
+    assert shared
+    assert {m: schema_problem(m, described[m]) for m in shared} == dict.fromkeys(shared)

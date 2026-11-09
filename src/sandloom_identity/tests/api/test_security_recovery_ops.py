@@ -170,10 +170,10 @@ async def test_security_contract_revokes_sessions_in_bulk_with_operator_audit(
         assert page == sorted(page)
         tail = await contract.list_user_ids(page[0], 10)
         assert page[0] not in tail
-        affected = await contract.revoke_sessions(
+        ended = await contract.end_sessions(
             [test_user.id, uuid4()], "credential leak SEC-9", "alice", "op-1"
         )
-    assert affected == 1
+    assert ended.affected == 1
     refreshed = await async_client.post(
         "/auth/refresh", json={"refresh_token": login.json()["refresh_token"]}
     )
@@ -199,20 +199,25 @@ async def test_end_sessions_reports_the_kinds_identity_ended(
     sandloom_app: Any,
 ) -> None:
     """``end_sessions`` (what ``sandloom security revoke-sessions`` calls):
-    identity's refresh sessions and access tokens end, said kind by kind."""
+    identity's refresh sessions end, said kind by kind. The access tokens
+    are the kernel's to revoke, after this: identity writes no second
+    revocation mark (one still works until the kernel's unit)."""
     login = await _login(async_client, test_user)
     assert login.status_code == 200
+    access = {"Authorization": f"Bearer {login.json()['access_token']}"}
     contract = sandloom_app.state.core.get_service(SECURITY_SERVICE_V1)
     with bind_contract_session(test_db), bind_test_uow(test_db):
         ended = await contract.end_sessions(
             [test_user.id, uuid4()], "credential leak SEC-12", "carol", "op-3"
         )
     assert ended.affected == 1
-    assert ended.ended == ["access_tokens", "refresh_sessions"]
+    assert ended.ended == ["refresh_sessions"]
     refreshed = await async_client.post(
         "/auth/refresh", json={"refresh_token": login.json()["refresh_token"]}
     )
     assert refreshed.status_code == 401
+    me = await async_client.get("/auth/me", headers=access)
+    assert me.status_code == 200, me.text
     assert [a[0] for a in await _audit(test_db, test_user)] == [
         "identity.user.sessions_revoked"
     ]
@@ -278,7 +283,7 @@ async def test_security_contract_rejects_oversized_batches(
 
     contract = sandloom_app.state.core.get_service(SECURITY_SERVICE_V1)
     with bind_contract_session(test_db), pytest.raises(ContractCallError) as info:
-        await contract.revoke_sessions(
+        await contract.end_sessions(
             [uuid4() for _ in range(1001)], "too many", "eve", "op-3"
         )
     assert info.value.status_code == 422

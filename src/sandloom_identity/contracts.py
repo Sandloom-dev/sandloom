@@ -17,9 +17,12 @@ Every command:
 
 * runs in identity's own UoW and is deduplicated durably on
   ``operation_key`` (a retried batch never repeats its effect);
-* revokes every refresh token of the batch in the database and every access
-  token through the kernel mark (``require_immediate``: written before commit
-  or the batch is refused with 503 and rolls back);
+* revokes every refresh token of the batch in the database: identity's own
+  sessions. The access tokens of a ``sandloom security`` batch are the
+  kernel's to revoke, in its own unit after this (one revocation, never a
+  second one here); identity's own operations that end sessions (a
+  take-over, a new set-password link) revoke them through the kernel mark
+  (``require_immediate``: written before commit or refused with 503);
 * writes one ``required=True`` audit row per affected user
   (``actor_type="operator"``, ``data`` = operator, reason, operation key).
 
@@ -27,8 +30,6 @@ Every command:
 identity here: the issuer side (``account_by_email``, ``accounts_by_id``,
 the password and set-password-link methods) and the ``roles`` owner side
 (``is_platform_admin``, ``platform_admin_ids``, ``appoint_platform_admin``).
-``account_standing`` and ``list_platform_admins`` mix the two and stay one
-release.
 
 The first administrator: ``create_platform_admin`` (and
 ``take_over_platform_admin`` for an unverified account that holds the
@@ -71,12 +72,7 @@ from sandloom_identity.models.user import User
 from sandloom_identity.models.user_role import UserRole
 from sandloom_identity.password_policy import password_policy_violation
 from sandloom_identity.schemas.contact import UserContact
-from sandloom_identity.schemas.operator import (
-    AccountStanding,
-    OperatorAccount,
-    PlatformAdmin,
-    SessionsEnded,
-)
+from sandloom_identity.schemas.operator import OperatorAccount, SessionsEnded
 from sandloom_identity.services.auth_service import AuthService
 from sandloom_identity.services.role_service import ADMIN_ROLE_CODE
 from sandloom_identity.services.setup_state import platform_admin_exists
@@ -108,8 +104,21 @@ async def _existing(user_ids: list[UUID]) -> list[UUID]:
 
 @sensitive_effect("admin")
 async def _end_sessions(
-    users: list[UUID], *, action: str, reason: str, operator: str, key: str
+    users: list[UUID],
+    *,
+    action: str,
+    reason: str,
+    operator: str,
+    key: str,
+    access_tokens: bool,
 ) -> None:
+    """End the users' refresh sessions (in the database) and audit each.
+
+    ``access_tokens``: also revoke their access tokens through the kernel
+    mark, for identity's own operations (an administrator take-over, a new
+    set-password link). Never for the batches of ``sandloom security``: the
+    kernel revokes those access tokens itself, after this, in its own unit.
+    """
     session = db()
     await session.execute(
         update(RefreshToken)
@@ -127,6 +136,8 @@ async def _end_sessions(
             data={"reason": reason, "operator": operator, "operation_key": key},
             required=True,
         )
+    if not access_tokens:
+        return
     # Last fallible step: each mark is written before commit (or 503 + rollback).
     for user_id in users:
         await revoke_sessions(user_id, reason=f"operator ({operator}): {reason}")
@@ -280,6 +291,7 @@ async def _take_over(user: User, *, reason: str, operator: str, key: str) -> Non
         reason=reason,
         operator=operator,
         key=key,
+        access_tokens=True,
     )
 
 
@@ -351,47 +363,6 @@ class SecurityOperationsContract:
             .limit(MAX_BATCH)
         )
         return list(dict.fromkeys(rows))
-
-    async def account_standing(self, email: str) -> AccountStanding | None:
-        """The account with this address as an operator sees it, or ``None``.
-
-        Kept for one release: ``sandloom admin`` asks the issuer's
-        :meth:`account_by_email` and the roles owner's
-        :meth:`is_platform_admin`."""
-        session = db()
-        user = await session.scalar(select(User).where(User.email == email.strip()))
-        if user is None:
-            return None
-        return AccountStanding(
-            user_id=user.id,
-            is_platform_admin=await _is_platform_admin(session, user.id),
-            email_verified=bool(user.is_verified),
-            is_active=bool(user.is_active),
-        )
-
-    async def list_platform_admins(self) -> list[PlatformAdmin]:
-        """Every account holding the platform ``admin`` role, by address.
-
-        Kept for one release: ``sandloom admin list`` joins the roles owner's
-        :meth:`platform_admin_ids` with the issuer's :meth:`accounts_by_id`."""
-        session = db()
-        rows = await session.scalars(
-            select(User)
-            .join(UserRole, UserRole.user_id == User.id)
-            .join(Role, Role.id == UserRole.role_id)
-            .where(Role.code == ADMIN_ROLE_CODE)
-            .order_by(User.email)
-            .limit(MAX_BATCH)
-        )
-        return [
-            PlatformAdmin(
-                email=user.email,
-                password_set=user.hashed_password is not None,
-                is_active=bool(user.is_active),
-                last_login_at=user.last_login_at,
-            )
-            for user in rows.unique()
-        ]
 
     @command(idempotency_key="operation_key")
     async def record_admin_listing(
@@ -514,6 +485,7 @@ class SecurityOperationsContract:
             reason=reason,
             operator=operator,
             key=operation_key,
+            access_tokens=True,
         )
         return True
 
@@ -548,35 +520,15 @@ class SecurityOperationsContract:
         return True
 
     @command(idempotency_key="operation_key")
-    async def revoke_sessions(
-        self, user_ids: list[UUID], reason: str, operator: str, operation_key: str
-    ) -> int:
-        """End every session of the users; returns how many exist.
-
-        Kept for one release: ``sandloom security revoke-sessions`` calls
-        :meth:`end_sessions`, which also says which kinds of session ended."""
-        _check_batch(user_ids, reason, operator)
-        users = await _existing(user_ids)
-        if users:
-            await _end_sessions(
-                users,
-                action="identity.user.sessions_revoked",
-                reason=reason,
-                operator=operator,
-                key=operation_key,
-            )
-        return len(users)
-
-    @command(idempotency_key="operation_key")
     async def end_sessions(
         self, user_ids: list[UUID], reason: str, operator: str, operation_key: str
     ) -> SessionsEnded:
-        """End every session identity holds for the users: their refresh
-        sessions (revoked in the database) and their access tokens. Audited
-        per user (``identity.user.sessions_revoked``). ``affected``: how many
-        of the users exist. The kernel revokes the access tokens of every
-        issuer itself (``sandloom security revoke-sessions``); this is
-        identity's own part, called before it."""
+        """End the sessions identity holds for the users: their refresh
+        sessions, revoked in the database. Audited per user
+        (``identity.user.sessions_revoked``). ``affected``: how many of the
+        users exist; ``ended``: ``refresh_sessions``. Their access tokens are
+        not identity's to revoke here: ``sandloom security revoke-sessions``
+        revokes those for every issuer itself, in its own unit, after this."""
         _check_batch(user_ids, reason, operator)
         users = await _existing(user_ids)
         if users:
@@ -586,16 +538,18 @@ class SecurityOperationsContract:
                 reason=reason,
                 operator=operator,
                 key=operation_key,
+                access_tokens=False,
             )
-        return SessionsEnded(
-            affected=len(users), ended=["access_tokens", "refresh_sessions"]
-        )
+        return SessionsEnded(affected=len(users), ended=["refresh_sessions"])
 
     @command(idempotency_key="operation_key")
     async def require_password_reset(
         self, user_ids: list[UUID], reason: str, operator: str, operation_key: str
     ) -> int:
-        """Refuse password sign-in until a reset, and end every session."""
+        """Refuse password sign-in until a reset and end the users' refresh
+        sessions; returns how many of the users exist. The access tokens are
+        the kernel's to revoke (``sandloom security force-password-reset``
+        does, after :meth:`end_sessions`)."""
         _check_batch(user_ids, reason, operator)
         users = await _existing(user_ids)
         if users:
@@ -612,6 +566,7 @@ class SecurityOperationsContract:
                 reason=reason,
                 operator=operator,
                 key=operation_key,
+                access_tokens=False,
             )
         return len(users)
 

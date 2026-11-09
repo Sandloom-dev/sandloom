@@ -14,12 +14,14 @@ SANDLOOM-B040). ``<m>.security.v1`` is reserved to module ``m``
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections.abc import Iterator
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from fastapi import FastAPI
+from pydantic import BaseModel
 
 import sandloom.core.app_factory.claim_authorities as _claim_authorities
 import sandloom.core.rpc.proxy as rpc_proxy
@@ -75,15 +77,26 @@ class _AcmeSecurity:
 
     @classmethod
     @contract_method
-    async def list_user_ids(cls, after: str | None, limit: int) -> list[str]:
+    async def list_user_ids(
+        cls, after: uuid.UUID | None, limit: int
+    ) -> list[uuid.UUID]:
         """No user is listed here."""
         return []
 
     @classmethod
     @contract_method
-    async def end_sessions(cls, user_ids: list[str], reason: str) -> int:
-        """Every listed user's sessions end."""
-        return len(user_ids)
+    async def end_sessions(
+        cls, user_ids: list[uuid.UUID], reason: str, operator: str, operation_key: str
+    ) -> SessionsEnded:
+        """Every listed user's sessions end (the shape the kernel calls)."""
+        return SessionsEnded(affected=len(user_ids), ended=["access_tokens"])
+
+
+class SessionsEnded(BaseModel):
+    """The issuer's ``end_sessions`` answer."""
+
+    affected: int
+    ended: list[Literal["access_tokens", "refresh_sessions", "provider_sessions"]]
 
 
 def _core(authorities: ClaimAuthorities, **extra: Any) -> Any:

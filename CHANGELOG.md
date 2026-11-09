@@ -15,6 +15,44 @@ website renders this same changelog.
 
 ### Breaking changes
 
+- **`Authority(name, module=path)` must name the module's real name**
+  (kb-proto-operator-a, moved here by kb-w7-rev-b). The claim map keeps
+  `name` as the module's public name, so an `Authority(name, module=path)`
+  whose `name` is not the installed entry-point name (or, for a module loaded
+  by path, its last import segment) is now refused at startup
+  (SANDLOOM-B035). Upgrade: write the module's real name, e.g.
+  `Authority("identity", module="sandloom_identity")`.
+
+- **`identity.security.v1` drops `account_standing`, `list_platform_admins`
+  and `revoke_sessions`; `end_sessions` ends only identity's own sessions**
+  (kb-w7-rev-b, W7 reviews: owner decision 1 of 2026-11-09, no deprecated API).
+  The three methods and their DTOs (`AccountStanding`, `PlatformAdmin`) are
+  removed. `end_sessions` and `require_password_reset` now end identity's
+  refresh sessions and write its audit rows only: they no longer write a
+  revocation mark (the kernel's `sandloom security` unit revokes the access
+  tokens, once, after them), and `end_sessions` reports
+  `ended=["refresh_sessions"]`. Upgrade: call `end_sessions` (answer
+  `SessionsEnded{affected, ended}`) for `revoke_sessions`;
+  `account_by_email` plus the `roles` owner's `is_platform_admin` for
+  `account_standing`; `platform_admin_ids` joined with `accounts_by_id` for
+  `list_platform_admins`; drop the three names from `RPC_ALLOWED_CALLS`; run
+  `sandloom generate` (copies of `identity.security.v1` lose them). A caller
+  of `end_sessions` outside `sandloom security` that needs the access tokens
+  revoked calls `revoke_user_tokens_on_commit` itself
+  (`docs/operate/upgrade-1.0.md`).
+
+- **An operator owner's methods must have the shape the kernel calls**
+  (kb-w7-rev-b, owner decision 3 of 2026-11-09). `sandloom security` and
+  `sandloom admin` compare each `<owner>.security.v1` method's schema (local,
+  or the bound provider's live describe) with the shape they call it with
+  (`sandloom.core.cli.operator_owner.OPERATOR_METHOD_SHAPES`) before the first
+  side effect, a dry run included; an incompatible one is refused like a
+  missing one (SANDLOOM-B039, exit 1), expected against got. Upgrade: type an
+  owner's operator methods as the table says, e.g. `end_sessions(user_ids:
+  list[UUID], reason: str, operator: str, operation_key: str) ->
+  SessionsEnded` with a DTO `affected: int`, `ended: list[Literal[...]]`, not
+  `dict[str, Any]`; `require_password_reset(...) -> int`.
+
 - **An access fact is identified by its owner and its name** (KB-34k, owner
   decision 2026-11-09, W5+W6 security review M2). `owner=` is a required
   keyword of `Entitled`, `fake_access_fact` and `lookup_access_fact`: write
@@ -151,6 +189,29 @@ website renders this same changelog.
 
 ### Security
 
+- **Operator commands check every answer, hold a split's issuer to its
+  `refresh_sessions` declaration, and revoke access tokens once**
+  (kb-w7-rev-b, W7 security review M1, M3, M4, L7). `sandloom security
+  revoke-sessions` / `force-password-reset` check each owner answer where
+  they read it (`operator_owner.answer_problem`), before the next side
+  effect: a `require_password_reset` answering a DTO, an `end_sessions`
+  answering a count (no longer read as "refresh sessions not applicable") or
+  a malformed page of targets stops with SANDLOOM-B039, the batch and the
+  `--operation-id` named, never a traceback; a resume replaying the stored
+  answer stops the same way and says how to go on (fix the owner, a new
+  operation id). The RPC describe answer states the registering module's
+  `refresh_sessions` declaration (additive, MAC-bound like the rest, read
+  from the loaded descriptors: no I/O), so a CLI process without the issuer
+  enforces it too: an issuer that declares refresh sessions and does not
+  report them ended fails the command after the kernel revoked the batch's
+  access tokens, and one whose `end_sessions` cannot report them is refused
+  before anything. Identity's `end_sessions` no longer writes a second
+  revocation mark (doubled marks and `core.auth.tokens_revoked.v1` records;
+  an issuer cache outage failed the batch before the kernel's unit).
+  `grant-admin` without an answer from the `roles` owner (a timeout, an
+  unreadable reply) or with an answer that is not a boolean says the outcome
+  is unknown and to check with `sandloom admin list`, never a traceback.
+
 - **`sandloom security grant-admin` and `sandloom admin create` / `invite` /
   `list` ask the issuer and the `roles` owner, never half done**
   (kb-proto-operator-b, owner decisions 3, 4, 7 of 2026-11-09, edge B-R4
@@ -230,10 +291,8 @@ website renders this same changelog.
   process that does not load them. `Authority(name, module=path)` now keeps
   `name` as the module's public name (the verifier's owner, the
   `<m>.claims.v1` binding a split looks for); the standard map declares
-  `identity`, `tenancy` and `billing` this way. Upgrade: an
-  `Authority(name, module=path)` whose `name` is not the installed entry-point
-  name (or, for a module loaded by path, its last segment) is now refused
-  (SANDLOOM-B035); write the module's real name.
+  `identity`, `tenancy` and `billing` this way (its stricter refusal is under
+  Breaking changes).
 
 - **SANDLOOM-C034 sees every spelling of a hand-written contract client**
   (kb-rev56-c034, W5+W6 review M1). A ContractRef reached through a module

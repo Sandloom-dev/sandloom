@@ -50,6 +50,36 @@ Work on tenancy's database, identically in-process and over internal RPC
 if tenancy cannot answer, token issuance fails with `503` instead of minting a
 token without the allowlist.
 
+## Operator contract: `tenancy.security.v1`
+
+Tenancy's operator contract, reserved to tenancy (SANDLOOM-B034): only the
+module that holds the `tenant_ids` claim answers it. Its one method is a read:
+
+| Method | Purpose |
+| --- | --- |
+| `list_member_user_ids(organization_id, after, limit)` | an organization's member user ids (active or not), in id order, strictly after `after`; at most 1000 per call (a larger `limit` is capped) |
+
+Who calls it: `sandloom security revoke-sessions --tenant ORG` and
+`sandloom security force-password-reset --tenant ORG`. The kernel asks the
+owner of `tenant_ids` in the claim map for the members, page by page. In the
+standard map that owner is tenancy. The kernel then ends the members'
+sessions at the issuer and revokes their access tokens itself.
+
+The command confirms the method by describe before it acts, a dry run
+included. Its schema must be `(uuid, uuid | None, int) -> list[uuid]`.
+Otherwise the command refuses with SANDLOOM-B039 and does nothing.
+
+In one process the CLI calls it locally. In a split, the CLI may run in a
+service without tenancy. Bind `tenancy.security.v1` in `SERVICE_BINDINGS`,
+pinned to tenancy's `service_id`. Then grant the method to the calling
+service in tenancy's `RPC_ALLOWED_CALLS`:
+
+```python
+RPC_ALLOWED_CALLS = {"ops-cli": {"tenancy.security.v1": ["list_member_user_ids"]}}
+```
+
+See the [operator reference](../../operate/operator-reference.md).
+
 ## HTTP API
 
 | Router | Prefix | Endpoints |

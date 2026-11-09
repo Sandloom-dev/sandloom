@@ -1728,6 +1728,7 @@
         "src/sandloom/core/tests/test_operational_metrics.py",
         "src/sandloom/core/tests/test_operator_owner.py",
         "src/sandloom/core/tests/test_security_operator.py",
+        "src/sandloom/core/tests/test_operator_shapes.py",
         "src/sandloom/core/tests/test_ops_cli.py",
         "src/sandloom/core/tests/test_ops_review_regressions.py",
         "src/sandloom/core/tests/test_ops_security_hardening.py",

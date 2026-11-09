@@ -301,6 +301,29 @@ the route declares `replay_safe(reason=...)` after review. Explicit
 
 See the [Testing reference](../reference/testing.md).
 
+### Operator contracts (`<m>.security.v1`)
+
+`identity.security.v1` keeps one way to do each thing; the methods that mixed
+the token issuer's and the `roles` owner's answers are gone. After the change,
+run `sandloom generate` (the copies of `identity.security.v1` lose them) and
+remove them from `RPC_ALLOWED_CALLS`.
+
+| Old | New |
+| --- | --- |
+| `revoke_sessions(user_ids, reason, operator, operation_key) -> int` | `end_sessions(...)`, answer `SessionsEnded{affected, ended}` (`.affected` is the old count) |
+| `account_standing(email) -> AccountStanding` | the issuer's `account_by_email(email) -> OperatorAccount` and the `roles` owner's `is_platform_admin(user_id)` |
+| `list_platform_admins() -> list[PlatformAdmin]` | the `roles` owner's `platform_admin_ids()` joined with the issuer's `accounts_by_id(ids)` |
+| `end_sessions` / `require_password_reset` revoking the users' access tokens | they end identity's refresh sessions only; `sandloom security revoke-sessions` / `force-password-reset` revoke the access tokens, once, after them. Another caller that needs the access tokens revoked calls `revoke_user_tokens_on_commit(user_id, reason=..., require_immediate=True)` (`sandloom.sdk.security`) |
+
+An owner module's operator methods must have the shape the kernel calls them
+with, or `sandloom security` / `sandloom admin` refuse before acting
+([SANDLOOM-B039](../reference/error-codes.md#sandloom-b039), expected
+against got). Type them with DTOs, not `dict[str, Any]`: for example
+`end_sessions(...) -> SessionsEnded` with `affected: int` and
+`ended: list[Literal["access_tokens", "refresh_sessions", "provider_sessions"]]`,
+and `require_password_reset(...) -> int`. The table is
+`sandloom.core.cli.operator_owner.OPERATOR_METHOD_SHAPES`.
+
 ## Low impact
 
 | Old | New |

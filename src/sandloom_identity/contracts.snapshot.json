@@ -163,7 +163,7 @@
       }
     },
     "identity.security.v1": {
-      "hash": "b3b06ebca2108d20bfc1e57cf3899db0",
+      "hash": "fed598e20f77c2fd4e99403c0ad7c2d1",
       "methods": {
         "account_by_email": {
           "idempotency_key": null,
@@ -238,64 +238,6 @@
                 "k": "model",
                 "ref": "sandloom_identity.schemas.operator:OperatorAccount",
                 "schema_hash": "fff3f006b3122b6b"
-              },
-              {
-                "k": "none"
-              }
-            ]
-          }
-        },
-        "account_standing": {
-          "idempotency_key": null,
-          "kind": "read",
-          "params": [
-            {
-              "kind": "positional_or_keyword",
-              "name": "email",
-              "required": true,
-              "type": {
-                "k": "scalar",
-                "t": "str"
-              }
-            }
-          ],
-          "returns": {
-            "k": "union",
-            "of": [
-              {
-                "fields": {
-                  "email_verified": {
-                    "required": true,
-                    "type": {
-                      "k": "scalar",
-                      "t": "bool"
-                    }
-                  },
-                  "is_active": {
-                    "required": true,
-                    "type": {
-                      "k": "scalar",
-                      "t": "bool"
-                    }
-                  },
-                  "is_platform_admin": {
-                    "required": true,
-                    "type": {
-                      "k": "scalar",
-                      "t": "bool"
-                    }
-                  },
-                  "user_id": {
-                    "required": true,
-                    "type": {
-                      "k": "scalar",
-                      "t": "uuid"
-                    }
-                  }
-                },
-                "k": "model",
-                "ref": "sandloom_identity.schemas.operator:AccountStanding",
-                "schema_hash": "36dc4deb2de4a568"
               },
               {
                 "k": "none"
@@ -601,57 +543,6 @@
             "t": "bool"
           }
         },
-        "list_platform_admins": {
-          "idempotency_key": null,
-          "kind": "read",
-          "params": [],
-          "returns": {
-            "item": {
-              "fields": {
-                "email": {
-                  "required": true,
-                  "type": {
-                    "k": "scalar",
-                    "t": "str"
-                  }
-                },
-                "is_active": {
-                  "required": true,
-                  "type": {
-                    "k": "scalar",
-                    "t": "bool"
-                  }
-                },
-                "last_login_at": {
-                  "required": false,
-                  "type": {
-                    "k": "union",
-                    "of": [
-                      {
-                        "k": "scalar",
-                        "t": "datetime"
-                      },
-                      {
-                        "k": "none"
-                      }
-                    ]
-                  }
-                },
-                "password_set": {
-                  "required": true,
-                  "type": {
-                    "k": "scalar",
-                    "t": "bool"
-                  }
-                }
-              },
-              "k": "model",
-              "ref": "sandloom_identity.schemas.operator:PlatformAdmin",
-              "schema_hash": "6d14b5e3fa6df909"
-            },
-            "k": "list"
-          }
-        },
         "list_user_ids": {
           "idempotency_key": null,
           "kind": "read",
@@ -841,55 +732,6 @@
           }
         },
         "require_password_reset": {
-          "idempotency_key": "operation_key",
-          "kind": "command",
-          "params": [
-            {
-              "kind": "positional_or_keyword",
-              "name": "user_ids",
-              "required": true,
-              "type": {
-                "item": {
-                  "k": "scalar",
-                  "t": "uuid"
-                },
-                "k": "list"
-              }
-            },
-            {
-              "kind": "positional_or_keyword",
-              "name": "reason",
-              "required": true,
-              "type": {
-                "k": "scalar",
-                "t": "str"
-              }
-            },
-            {
-              "kind": "positional_or_keyword",
-              "name": "operator",
-              "required": true,
-              "type": {
-                "k": "scalar",
-                "t": "str"
-              }
-            },
-            {
-              "kind": "positional_or_keyword",
-              "name": "operation_key",
-              "required": true,
-              "type": {
-                "k": "scalar",
-                "t": "str"
-              }
-            }
-          ],
-          "returns": {
-            "k": "scalar",
-            "t": "int"
-          }
-        },
-        "revoke_sessions": {
           "idempotency_key": "operation_key",
           "kind": "command",
           "params": [

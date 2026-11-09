@@ -18,10 +18,11 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from fastapi import FastAPI
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -63,6 +64,13 @@ DRY = OperatorIntent(apply=False, operator="al", reason="")
 OIDC_MAP: dict[str, str | Authority] = {"issuer": Authority("acme_idp", module=IDP)}
 
 
+class SessionsEnded(BaseModel):
+    """The issuer's ``end_sessions`` answer (the shape the kernel reads)."""
+
+    affected: int
+    ended: list[Literal["access_tokens", "refresh_sessions", "provider_sessions"]]
+
+
 class _AcmeSecurity:
     """A stateless issuer: sessions, no passwords."""
 
@@ -70,9 +78,9 @@ class _AcmeSecurity:
     @contract_method
     async def end_sessions(
         cls, user_ids: list[uuid.UUID], reason: str, operator: str, operation_key: str
-    ) -> dict[str, Any]:
+    ) -> SessionsEnded:
         """Its sessions are the access tokens it minted."""
-        return {"affected": len(user_ids), "ended": ["access_tokens"]}
+        return SessionsEnded(affected=len(user_ids), ended=["access_tokens"])
 
 
 class _FakeUoW:
@@ -231,6 +239,15 @@ def _provider() -> CoreFacade:
     with core.module_registration(IDP) as api:
         api.register_service(CONTRACT, _AcmeSecurity)
     core._claim_authorities = build_claim_authorities(OIDC_MAP)
+    # A stateless issuer: its describe says refresh_sessions=False.
+    core.module_descriptors = [
+        SimpleNamespace(
+            name=IDP,
+            issues_tokens=True,
+            refresh_sessions=False,
+            database_instances=lambda: (),
+        )
+    ]
     return core
 
 

@@ -203,6 +203,99 @@ async def test_missing_contract_is_an_explicit_error() -> None:
         )
 
 
+class _ResetAnswersADto(_Security):
+    """Scenario A: the reset commits, then answers a DTO instead of an int
+    (and replays that stored answer on a resume)."""
+
+    async def require_password_reset(  # type: ignore[override]
+        self, ids: list[Any], reason: str, op: str, key: str
+    ) -> Any:
+        self.calls.append(("require_password_reset", ids, reason, op, key))
+        return SimpleNamespace(affected=len(ids))
+
+
+class _EndAnswersAnInt(_Security):
+    """Scenario B: ``end_sessions`` answers a count, not ``SessionsEnded``."""
+
+    async def end_sessions(  # type: ignore[override]
+        self, ids: list[Any], reason: str, op: str, key: str
+    ) -> Any:
+        self.calls.append(("end_sessions", ids, reason, op, key))
+        return len(ids)
+
+
+async def test_a_reset_answering_a_dto_stops_before_the_next_side_effect() -> None:
+    """Scenario A: the issuer committed the reset but answered a DTO. The
+    command stops there with a diagnosable refusal naming the batch and the
+    operation id, no traceback: end_sessions and the kernel's revocation are
+    not run, and a resume replaying the stored answer is refused the same
+    way, with the way on (fix the issuer, a new --operation-id)."""
+    for attempt in range(2):
+        security = _ResetAnswersADto()
+        revoked = _Revoked()
+        with pytest.raises(OperatorCapabilityUnavailable) as exc:
+            await run_bulk(
+                _identity(security),
+                "force-password-reset",
+                Targets(users=tuple(USERS[:2])),
+                APPLY,
+                operation_id="op-a",
+                revoke=revoked,
+            )
+        text = str(exc.value)
+        assert "SANDLOOM-B039" in text, attempt
+        assert "batch 1 (2 user(s))" in text
+        assert "require_password_reset answered incompatibly" in text
+        assert "expected int, got SimpleNamespace" in text
+        assert "NOT revoked" in text
+        assert "--operation-id op-a replays it" in text
+        assert "new --operation-id" in text
+        assert [c[0] for c in security.calls] == ["require_password_reset"]
+        assert revoked.batches == []
+
+
+async def test_end_sessions_answering_an_int_is_not_read_as_not_applicable() -> None:
+    """Scenario B: a count instead of ``SessionsEnded`` is refused before the
+    kernel's unit, never reported as "refresh sessions not applicable"."""
+    security = _EndAnswersAnInt()
+    revoked = _Revoked()
+    with pytest.raises(OperatorCapabilityUnavailable) as exc:
+        await run_bulk(
+            _identity(security),
+            "revoke-sessions",
+            Targets(users=(USERS[0],)),
+            APPLY,
+            operation_id="op-b",
+            revoke=revoked,
+        )
+    text = str(exc.value)
+    assert "end_sessions answered incompatibly" in text
+    assert "got int" in text
+    assert "not applicable" not in text
+    assert "--operation-id op-b" in text
+    assert revoked.batches == []
+
+
+async def test_a_malformed_page_of_targets_is_refused_without_a_traceback() -> None:
+    class _BadPager(_Security):
+        async def list_user_ids(  # type: ignore[override]
+            self, after: uuid.UUID | None, limit: int
+        ) -> list[Any]:
+            return ["not-a-uuid"]
+
+    with pytest.raises(OperatorCapabilityUnavailable) as exc:
+        await run_bulk(
+            _identity(_BadPager()),
+            "revoke-sessions",
+            Targets(all_users=True),
+            APPLY,
+            operation_id="op-c",
+            revoke=_Revoked(),
+        )
+    assert "page 1 of the targets" in str(exc.value)
+    assert "list_user_ids answered incompatibly" in str(exc.value)
+
+
 def test_batch_key_depends_on_operation_and_members() -> None:
     a = batch_operation_key("revoke-sessions", "op", USERS[:2])
     assert a == batch_operation_key("revoke-sessions", "op", USERS[:2])
