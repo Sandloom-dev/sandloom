@@ -32,7 +32,7 @@ from sandloom.core.facade import CoreFacade
 from sandloom.core.module_api import contract_method
 from sandloom.core.rpc import proxy as rpc_proxy
 from sandloom.sdk.testing import override_settings
-from sandloom.shared.authz import Account, Entitled, Subscribed
+from sandloom.shared.authz import Account, Entitled
 from sandloom.shared.authz.context import AuthzContext
 from sandloom.shared.authz.results import AccessDecision
 from sandloom.shared.subject import UserContext
@@ -216,9 +216,15 @@ BILLING_FAILED = {"claims_sources": ["identity"], "claims_sources_failed": ["bil
     ],
 )
 async def test_entitled_subscription_same_decision_in_split(
-    split: dict[str, Any], claims: dict[str, Any], live_active: bool, allowed: bool
+    split: dict[str, Any],
+    generated_atoms: SimpleNamespace,
+    claims: dict[str, Any],
+    live_active: bool,
+    allowed: bool,
 ) -> None:
     STATE["active"][("user", USER)] = live_active
+    # Entitled (the kernel's) and billing's generated Subscribed (KB-34)
+    Subscribed = generated_atoms.Subscribed
     for policy in (Entitled("subscription.active"), Subscribed(of=Account.user())):
         mono, remote = await _both(split, policy, _subject(**claims))
         assert _key(remote) == _key(mono), policy

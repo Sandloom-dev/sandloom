@@ -141,6 +141,28 @@ website renders this same changelog.
   Upgrade: a personal-account gate on billing's `Feature` / `WithinLimit`
   that denied with 403 / 402 now answers 501 until a catalogue writes the
   claims, and its `Not` no longer allows.
+- **`Subscribed(statuses=...)`: an absent subscription status is never a
+  deny that `Not` turns into an allow** (KB-33e, an amendment of
+  G-AUTHZ-12). Billing's generated `Subscribed` with explicit `statuses=`
+  (or another declared `claim_key=`) read the token's `subscription_status`
+  verbatim and denied when it was absent, without asking why. So
+  `~Subscribed(statuses=..., of=Account.user())` allowed when billing failed
+  at the mint. The verbatim read now follows the KB-33d rows, still with
+  zero I/O:
+  - A status present decides: among `statuses` allows, any other denies 402.
+  - Removed by the trusted view for a reason a refresh or a retry may change:
+    401 `token_policy_outdated` / 503 `claims_policy_mismatch`, as before.
+  - Absent because its authority failed at the mint: 503
+    `claim_authority_failed`.
+  - Absent otherwise (billing ran and wrote none, the view removed it as
+    unassigned or unvouched, a token without provenance), or a value that is
+    not a string: 501 `access_unknown`.
+
+  `Not` never allows on these, and `Or` allows only on another branch. The
+  default path (no `statuses=`) is unchanged: a status billing did not
+  vouch for is asked live, 503 without a live check. Upgrade: a
+  `Subscribed(statuses=..., of=Account.user())` gate on a token without the
+  claim answers 501 or 503 instead of 402.
 - **The mint issuer binding; claim atoms honour the trusted view** (kb-rf-trust,
   ADR-0014 amendment "W2+W3 review fixes"). `collect_claims(precomputed=...)`
   and `collect_claims(issuer_claims=...)` are accepted only when the `issuer=`

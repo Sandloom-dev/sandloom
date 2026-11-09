@@ -1902,13 +1902,15 @@ guarantees:
 - id: G-AUTH-22
   statement: Feature and WithinLimit on the user's token are indeterminate (503, never an allow, so Not
     cannot invert them) when the claim is absent because its authority is in claims_sources_failed (or no
-    assignment is readable and a source failed); an authority that ran and wrote no value denies, as does
-    an unassigned key or a token without provenance (ADR-0014 decision 7, billing option (c)).
+    assignment is readable and a source failed); an authority that ran and wrote an empty mapping denies
+    (ADR-0014 decision 7, billing option (c)). Amended 2026-11-09 (KB-33d, pinned on the generated atoms by
+    KB-34b) - a claim absent otherwise (the authority ran and wrote none, an unassigned key, a token without
+    provenance) is 501 access_unknown, never a deny Not could invert.
   sources:
   - docs/advanced/security-model.md#Authorization
   tests:
   - src/sandloom/core/tests/test_claims_trust.py::test_a_failed_authority_is_indeterminate_503
-  - src/sandloom/core/tests/test_claims_trust.py::test_an_authority_that_ran_and_gave_nothing_denies
+  - src/sandloom/core/tests/test_claims_trust.py::test_an_authority_that_ran_denies_only_on_its_complete_map
   - src/sandloom/core/tests/test_claims_trust.py::test_not_and_or_never_allow_on_a_failed_authority
   - src/sandloom/core/tests/test_claims_trust.py::test_without_a_readable_assignment_a_failure_is_indeterminate
 - id: G-AUTH-23
@@ -2863,6 +2865,13 @@ guarantees:
     its authority failed at the mint 503 claim_authority_failed, removed by the view its 401 / 503 (else
     501), and a claim that is not a mapping or an entry of the wrong type 501 access_unknown; Not, Or and
     And never allow on any of these. Billing writes no features / limits claim until its catalogue ships.
+    Amended 2026-11-09 (KB-33e), billing's generated Subscribed on its verbatim path (statuses= or another
+    declared claim_key=, Account.user()) follows the same rows with zero I/O, no longer a deny on an absent
+    status. A status present decides (among the statuses allows, else 402); absent because its authority
+    failed at the mint 503 claim_authority_failed, removed by the view its 401 / 503, absent otherwise
+    (unassigned / unvouched by the view, no source wrote it, no provenance) or not a string 501
+    access_unknown; Not, Or and And never allow on any of these. The default path is unchanged (a status
+    billing did not vouch for is asked live, 503 without a live check).
   sources:
   - docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects
   - docs/adr/0014-claims-trust-and-authorization-portability.md#15. What else moves, and what stays
@@ -2871,7 +2880,7 @@ guarantees:
   - src/sandloom/core/tests/test_claim_read_atoms.py::test_the_user_account_decides_as_the_kernel_atom
   - src/sandloom/core/tests/test_claim_read_atoms.py::test_an_organization_asks_the_live_check_with_its_parameters
   - src/sandloom/core/tests/test_claim_read_atoms.py::test_without_a_provider_the_organization_path_is_501
-  - tests/integration/with_batteries/test_plan_atoms.py::test_mono_billing_atoms_equal_the_kernel_atoms
+  - tests/integration/with_batteries/test_plan_atoms.py::test_mono_billing_atoms_decide_as_pinned
   - tests/integration/with_batteries/test_plan_atoms.py::test_split_billing_atoms_carry_their_parameters_over_rpc
   - tests/integration/with_batteries/test_plan_atoms.py::test_mono_billing_without_a_catalogue_is_501_never_an_allow
   - tests/integration/with_batteries/test_plan_atoms.py::test_split_billing_without_a_catalogue_is_501_never_an_allow
@@ -2881,6 +2890,10 @@ guarantees:
   - src/sandloom/core/tests/test_claim_read_atoms.py::test_access_unknown_is_the_same_class_local_and_remote
   - src/sandloom/core/tests/test_claim_read_atoms.py::test_the_user_path_is_three_valued_from_the_token
   - src/sandloom/core/tests/test_claim_read_atoms.py::test_an_or_of_unknown_branches_never_allows
+  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_verbatim_path_is_three_valued_from_the_token
+  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_billing_failed_at_the_mint_never_lets_not_allow
+  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_or_of_two_unknown_branches_never_allows
+  - src/sandloom/core/tests/test_subscribed_verbatim.py::test_the_default_path_escalates_when_billing_failed
 - id: G-GUARD-01
   statement: create_app refuses (GuardOrderError) a route where FastAPI resolves an idempotency_guard
     before its authenticating dependency; router-level auth counts as preceding, and a custom authenticator
@@ -7807,13 +7820,14 @@ capabilities:
   - src/sandloom/core/tests/test_deploy_profiles.py::test_a_module_with_periodic_tasks_and_no_beat_is_reported
 - id: C-TEST-15
   statement: fake_contract(REF, impl) also serves the contract to kernel code that resolves it through the active
-    application (core.get_service - the billing and membership authz atoms), and fake_access_fact on the
-    subscription facts drives the live SubscriptionActive / Subscribed(of=Account.org(...)) atoms, with or without
-    billing loaded.
+    application (core.get_service - the generated billing and membership access atoms), so
+    fake_contract("billing.entitlements.v1", Fake()) drives the generated SubscriptionActive /
+    Subscribed(of=Account.org(...)) atoms with no billing loaded (ADR-0014 decision 15; fake_access_fact keeps
+    the generic fact-by-name stubbing).
   sources:
   - docs/reference/testing.md
   tests:
-  - src/sandloom/core/tests/test_testing_seams.py::test_fake_access_fact_drives_the_org_billing_atoms_without_billing
+  - src/sandloom/core/tests/test_testing_seams.py::test_fake_contract_drives_the_org_billing_atoms_without_billing
   - src/sandloom/core/tests/test_testing_seams.py::test_fake_contract_reaches_the_kernels_get_service
 - id: C-TEST-16
   statement: 'override_settings(Model, ...) replaces a module''s declared settings for a test, nested overrides
