@@ -330,7 +330,7 @@ class SealedClaims(Mapping[str, Any]):
 
     __slots__ = ("_data", "_seal")
 
-    _data: Mapping[str, Any]
+    _data: dict[str, Any]
     _seal: object
 
     def __init__(self, data: Mapping[str, Any], *, seal: object = None) -> None:
@@ -338,7 +338,7 @@ class SealedClaims(Mapping[str, Any]):
             raise UnsealedClaimsError(
                 "SANDLOOM-R017: SealedClaims are built by collect_claims only"
             )
-        object.__setattr__(self, "_data", MappingProxyType(dict(data)))
+        object.__setattr__(self, "_data", dict(data))
         object.__setattr__(self, "_seal", seal)
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -363,8 +363,14 @@ class SealedClaims(Mapping[str, Any]):
 
 def _seal_claims(data: Mapping[str, Any]) -> SealedClaims:
     """Kernel-internal: seal a merge result (``collect_claims``) or the
-    kernel test authority's contribution (``sandloom.core.testing.auth``)."""
+    kernel test authority's contribution (``sandloom.core.testing.auth``),
+    as a copy: the caller's dict stays the caller's."""
     return SealedClaims(data, seal=_SEAL)
+
+
+#: The last policy :func:`unsealed_keys` resolved, and its set (one policy
+#: per composition: the mint path builds the set once, not per token).
+_UNSEALED: list[tuple[ClaimAuthorities, frozenset[str]]] = []
 
 
 def unsealed_keys(policy: ClaimAuthorities) -> frozenset[str]:
@@ -372,13 +378,23 @@ def unsealed_keys(policy: ClaimAuthorities) -> frozenset[str]:
     ``policy``: every protected claim, the tenant selectors, provenance,
     ``cpv``, ``UserContext``'s structural fields and the authority binding.
     """
-    return (
+    if _UNSEALED and _UNSEALED[0][0] is policy:
+        return _UNSEALED[0][1]
+    keys = (
         policy.protected
         | TENANT_SELECTORS
         | PROVENANCE_KEYS
         | SUBJECT_STRUCTURE_KEYS
         | frozenset({AUTHORITY_CLAIM})
     )
+    _UNSEALED[:] = [(policy, keys)]
+    return keys
+
+
+def sealed_data(claims: SealedClaims) -> dict[str, Any]:
+    """Kernel-internal: the claims a sealed result carries, for the mint to
+    merge (never handed to a caller)."""
+    return claims._data
 
 
 def refuse_unsealed(
@@ -387,6 +403,8 @@ def refuse_unsealed(
     """Raise :class:`UnsealedClaimsError` when ``data`` carries a key of
     :func:`unsealed_keys`."""
     refused = unsealed_keys(policy)
+    if refused.isdisjoint(data):
+        return
     bad = sorted(k for k in data if k in refused)
     if bad:
         raise UnsealedClaimsError(

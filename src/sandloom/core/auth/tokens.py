@@ -27,6 +27,7 @@ from sandloom.core.claims import (
     SealedClaims,
     UnsealedClaimsError,
     refuse_unsealed,
+    sealed_data,
 )
 from sandloom.core.config import accepted_risks
 from sandloom.core.config.common import strict_profile_active
@@ -84,9 +85,7 @@ def create_access_token(
     ``JWT_KID`` is configured it is stamped as the ``kid`` header so verifiers
     can pick the key directly during a rotation.
     """
-    if claims is not None and not (
-        isinstance(claims, SealedClaims) and claims.is_sealed()
-    ):
+    if claims is not None and not (type(claims) is SealedClaims and claims.is_sealed()):
         raise UnsealedClaimsError(
             "SANDLOOM-R017: create_access_token(claims=...) takes the sealed "
             f"result of collect_claims only, not a {type(claims).__name__}"
@@ -98,13 +97,14 @@ def create_access_token(
     # verified token): every verifier computes its own.
     to_encode.pop(_claims_view.UNTRUSTED_KEY, None)
     if claims is not None:
-        overridden = sorted(k for k in claims if k in to_encode)
-        if overridden:
+        sealed = sealed_data(claims)
+        if not to_encode.keys().isdisjoint(sealed):
+            overridden = sorted(k for k in sealed if k in to_encode)
             raise UnsealedClaimsError(
                 "SANDLOOM-R017: create_access_token(data=...) overrides "
                 f"{', '.join(overridden)} of the sealed collect_claims result"
             )
-        to_encode.update(claims)
+        to_encode.update(sealed)
     return _mint(to_encode, expires_delta, claims_read_at)
 
 
