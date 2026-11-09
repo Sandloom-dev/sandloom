@@ -30,6 +30,8 @@ from types import MappingProxyType
 from typing import Any
 from uuid import UUID
 
+import sandloom.core.contract_compat as _compat
+
 #: The claim key whose authority classifies tenants (ADR-0014 decision 1).
 TENANT_GRANT = "tenant_ids"
 #: The key of an ``access_check`` declaration naming the membership witness.
@@ -198,8 +200,6 @@ def resolve_tenant_witness(core: Any) -> tuple[TenantWitness | None, str]:
     names = authority_contracts(core, str(owner), str(path))
     if not names:
         return None, f"the tenant authority {owner!r} provides no contract here"
-    import sandloom.core.contract_compat as _compat  # noqa: PLC0415 - cold: startup file reads
-
     plan = _compat.resolve_expectations(core, names)
     found, problems = _declared(plan, names, str(owner))
     if len(found) == 1:

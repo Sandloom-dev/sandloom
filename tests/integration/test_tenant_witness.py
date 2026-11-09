@@ -134,6 +134,26 @@ def test_an_unusable_declaration_is_named(doc: dict[str, Any], why: str) -> None
     assert isinstance(found, str) and why in found, found
 
 
+def test_the_declaration_binds_one_organization_and_one_subject() -> None:
+    from sandloom.shared.authz.contract_check import From, access_check, access_check_of
+
+    @access_check("Ok", bind=ROLE_BIND, witnesses_membership={"minimum": "member"})
+    async def ok(organization_id: UUID, user_id: UUID, minimum: str) -> bool: ...
+
+    spec = access_check_of(ok)
+    assert spec is not None and spec["witnesses_membership"] == {"minimum": "member"}
+    with pytest.raises(ValueError, match="exactly one"):
+        access_check(
+            "Bad", bind={"organization_id": From.org()}, witnesses_membership={}
+        )
+    with pytest.raises(ValueError, match="own parameter"):
+        access_check(
+            "Bad",
+            bind=ROLE_BIND,
+            witnesses_membership={"minimum": ["member"]},
+        )
+
+
 # --------------------------------------------------------------------------- #
 # Resolution from the assigned authority (boot)
 # --------------------------------------------------------------------------- #

@@ -58,8 +58,10 @@ from sandloom.shared.authz.account import (
     _MISSING,
     Account,
     account_org_params,
+    record_membership,
     require_account,
     resolve_account,
+    tenant_witness,
 )
 from sandloom.shared.authz.algebra import TIER_CLAIM, TIER_LIVE, Requirement
 from sandloom.shared.authz.results import AccessDecision, Category, PolicyIndeterminate
@@ -141,6 +143,30 @@ def _claim_spec(fact: Any) -> dict[str, Any]:
     return spec
 
 
+def _witness_spec(
+    name: str, bind: Mapping[str, list[Any]], values: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """The ``witnesses_membership`` declaration: one organization and one
+    subject bind, a JSON scalar for each other parameter (checked against
+    the signature by the contract schema and at boot)."""
+    if values is None:
+        return {}
+    kinds = sorted(source[0] for source in bind.values())
+    if kinds != ["org", "subject"]:
+        raise ValueError(
+            f"access_check {name}: a membership witness binds exactly one "
+            "From.org() and one From.subject_id(), nothing else"
+        )
+    if not isinstance(values, Mapping) or not all(
+        isinstance(v, str | int | bool) for v in values.values()
+    ):
+        raise ValueError(
+            f"access_check {name}: witnesses_membership maps each own "
+            "parameter to the value that asks about membership alone"
+        )
+    return {"witnesses_membership": {str(k): v for k, v in values.items()}}
+
+
 def access_check(
     name: str,
     *,
@@ -150,6 +176,7 @@ def access_check(
     risk: Mapping[str, Mapping[str, Iterable[Any]]] | None = None,
     describe: str | None = None,
     claim: Any = None,
+    witnesses_membership: Mapping[str, Any] | None = None,
 ) -> Callable[[Any], Any]:
     """Declare a boolean contract read method as the access check ``name``.
 
@@ -165,6 +192,13 @@ def access_check(
     allowed. ``claim`` is the owner's
     :class:`~sandloom.shared.authz.facts.AccessFact` naming a claim-tier
     ``atom`` this check answers for an organization account.
+    ``witnesses_membership`` declares the check a membership witness: a
+    ``True`` answer, for any value of its own parameters, proves the
+    subject (``From.subject_id()``) a member of the organization
+    (``From.org()``); the mapping gives the value of each own parameter
+    that asks about membership alone (``{"minimum": "member"}``). The
+    tenant authority's witness decides ``tenant_kind`` (ADR-0014 decision
+    13); only the authority the root assigned to ``tenant_ids`` counts.
 
     The declaration is part of the method's describe document and the
     contract snapshot: removing it, re-binding it or lowering a risk is an
@@ -193,6 +227,7 @@ def access_check(
         spec["describe"] = describe
     if claim is not None:
         spec["claim"] = _claim_spec(claim)
+    spec.update(_witness_spec(name, spec["bind"], witnesses_membership))
 
     def decorate(fn: Any) -> Any:
         setattr(getattr(fn, "__func__", fn), ACCESS_CHECK_ATTR, spec)
@@ -430,6 +465,18 @@ class ContractCheck(Requirement):
                 f"result {type(result).__name__} is not a boolean",
                 requirement,
             )
+        if result:
+            witness = tenant_witness(ctx)
+            if witness is not None:
+                # The tenant authority's witness allowed: the caller is a
+                # member, this request's tenant kind need not ask (KB-37).
+                record_membership(
+                    ctx,
+                    self._contract,
+                    self._method,
+                    bound.get(witness.organization),
+                    bound.get(witness.subject),
+                )
         return result
 
 

@@ -24,10 +24,12 @@ Two topologies:
   the provider process, over the real internal RPC (proxy, pair MAC, the
   ``/_sandloom/rpc`` server, the providers' own units; ASGI transport).
 
-Pinned numbers (the plan's budget, KB-30): the decisive shape
-``OrgRole("admin") & SubscriptionActive(of=Account.bound_tenant())`` is 3
-calls / 9 database round trips mono, 3 RPC / 9 provider round trips / 0
-consumer split; ``Credits`` 1 / 4; the claims tier 0 / 0.
+Pinned numbers (the plan's budget, KB-30, KB-37): the decisive shape
+``OrgRole("admin") & SubscriptionActive(of=Account.bound_tenant())`` is 2
+calls / 6 database round trips mono, 2 RPC / 6 provider round trips / 0
+consumer split (3 / 9 before answer #23: the tenant kind's membership call
+is saved by the allowing ``OrgRole``, the witness of the assigned tenant
+authority); ``Credits`` 1 / 4; the claims tier 0 / 0.
 """
 
 from __future__ import annotations
@@ -50,6 +52,7 @@ from sqlalchemy.engine import Engine
 
 import sandloom.shared.authz as kernel
 from sandloom.core import rpc
+from sandloom.core.claims import ClaimAuthorities
 from sandloom.core.cli.generated import render_stub
 from sandloom.core.config.settings import settings
 from sandloom.core.contract_testing import rpc_settings
@@ -181,9 +184,9 @@ EXPECTED: dict[str, tuple[int, int]] = {
     "orgrole": (1, 3),
     "orgrole_and_subactive": (2, 6),
     "orgrole_and_subactive.outsider": (1, 3),
-    "bound.decisive": (3, 9),
+    "bound.decisive": (2, 6),
     "bound.member": (1, 3),
-    "bound.admin_inactive": (3, 9),
+    "bound.admin_inactive": (2, 6),
     "bound.outsider": (1, 3),
     "bound.subscribed": (2, 6),
     "or_sub_user.admin": (1, 3),
@@ -463,6 +466,16 @@ async def split(
     )
     consumer = CoreFacade(app=app, settings_obj=cfg)
     app.state.core = consumer
+    # the root's map, as create_app assigns it in the consumer process: the
+    # tenant authority's witness is read from the provider's declaration
+    consumer._assign_claim_authorities(
+        ClaimAuthorities(
+            authorities={"tenant_ids": "sandloom_tenancy"},
+            owners={"tenant_ids": "tenancy"},
+            assigned=True,
+        )
+    )
+    assert consumer.tenant_witness is not None
 
     def no_database(name: str = "default") -> Any:
         raise AssertionError(f"the consumer asked for its database {name!r}")
@@ -517,13 +530,13 @@ async def test_split_generated_atoms_equal_the_kernel_atoms(
     assert all(r.startswith("POST /_sandloom/rpc/") for r in candidate[3])
 
 
-async def test_the_decisive_shape_asks_the_same_three_calls(
+async def test_the_decisive_shape_asks_two_calls(
     mono: Any, generated: Any, meter: Meter
 ) -> None:
     _key, calls, sql, _rpc = await _decide(mono, generated, "bound.decisive", meter)
+    # the second has_role_at_least (the tenant kind's) is gone (answer #23)
     assert calls == [
-        "tenancy.membership.v1.has_role_at_least",
         "tenancy.membership.v1.has_role_at_least",
         "billing.entitlements.v1.check_subscription_active",
     ]
-    assert sql == 9
+    assert sql == 6

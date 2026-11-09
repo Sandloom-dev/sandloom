@@ -1,7 +1,7 @@
 {
   "contract": "tenancy.membership.v1",
   "describe": {
-    "hash": "43e39d1d6fe9cddc1dba13372867682b",
+    "hash": "02904ecc05fea4fac472695042e261c7",
     "methods": {
       "get_member_state": {
         "idempotency_key": null,
@@ -135,6 +135,9 @@
               "admin",
               "owner"
             ]
+          },
+          "witnesses_membership": {
+            "minimum": "member"
           }
         },
         "idempotency_key": null,
@@ -175,8 +178,8 @@
       }
     }
   },
-  "digest": "606d5383e2763104",
-  "fingerprint": "43e39d1d6fe9cddc1dba13372867682b",
+  "digest": "5ca951809dd7d417",
+  "fingerprint": "02904ecc05fea4fac472695042e261c7",
   "format": 2,
   "generator_format": 2,
   "methods": [
