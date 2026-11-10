@@ -71,6 +71,7 @@
         ".github/CODEOWNERS",
         ".github/actions/bench-tools/action.yml",
         ".github/assets/scanned-by-snyk.webp",
+        ".github/branch-protection-kernel-boundary.json",
         ".github/branch-protection.json",
         ".github/copilot-instructions.md",
         ".github/pull_request_template.md",

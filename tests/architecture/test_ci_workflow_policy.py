@@ -24,6 +24,49 @@ def triggers(document: dict) -> dict:
     return document.get("on", document.get(True, {}))
 
 
+def test_kernel_boundary_prs_run_on_the_merge_candidate():
+    ci = workflow("ci.yml")
+    assert set(triggers(ci)["pull_request"]["branches"]) == {
+        "main",
+        "arch/kernel-boundary",
+    }
+    # The default pull_request checkout tests refs/pull/<n>/merge, not head.
+    for job in ci["jobs"].values():
+        for step in job.get("steps", []):
+            if step.get("uses", "").startswith("actions/checkout@"):
+                assert "ref" not in step.get("with", {})
+
+
+@pytest.mark.parametrize("base", ["main", "arch/kernel-boundary"])
+@pytest.mark.parametrize("full", [False, True])
+def test_boundary_gates_run_even_for_a_docs_only_change(runner, base, full):
+    outputs = workflow("ci.yml")["jobs"]["changes"]["outputs"]
+    context = {
+        "github": {"base_ref": base},
+        "inputs": {"full_validation": full},
+        "steps": {"filter": {"outputs": dict.fromkeys(outputs, "false")}},
+    }
+    actual = {
+        name: runner.Expr(
+            expr.removeprefix("${{").removesuffix("}}").strip(), context
+        ).eval()
+        for name, expr in outputs.items()
+    }
+    mandatory = {"backend", "examples", "packages", "architecture"}
+    assert actual == {
+        name: "true"
+        if full or (base == "arch/kernel-boundary" and name in mandatory)
+        else "false"
+        for name in outputs
+    }
+
+
+def test_backend_checks_generated_files_with_the_declared_composition():
+    steps = workflow("ci.yml")["jobs"]["backend-static"]["steps"]
+    step = next(s for s in steps if s.get("run") == "uv run sandloom generate --check")
+    assert step["env"]["SANDLOOM_COMPOSITION_ROOT"] == "sandloom_standard.main"
+
+
 def test_uv_cache_has_one_writer_per_python_and_explicit_readers(runner):
     writers = []
     for path in WORKFLOWS.glob("*.yml"):

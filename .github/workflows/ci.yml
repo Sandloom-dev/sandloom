@@ -13,7 +13,7 @@ on:
         type: string
         default: "[]"
   pull_request:
-    branches: ["main"]
+    branches: ["main", "arch/kernel-boundary"]
     # A close event cancels the older PR run without starting its test jobs.
     types: [opened, synchronize, reopened, ready_for_review, closed]
 
@@ -64,15 +64,17 @@ jobs:
   changes:
     if: ${{ github.event.action != 'closed' }}
     runs-on: ubuntu-latest
+    # The migration branch always checks boundary, packaging and example gates,
+    # even when a PR only changes docs or policy; main keeps its path selection.
     outputs:
-      backend: ${{ inputs.full_validation && 'true' || steps.filter.outputs.backend }}
+      backend: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || steps.filter.outputs.backend }}
       admin: ${{ inputs.full_validation && 'true' || steps.filter.outputs.admin }}
-      examples: ${{ inputs.full_validation && 'true' || steps.filter.outputs.examples }}
+      examples: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || steps.filter.outputs.examples }}
       deploy: ${{ inputs.full_validation && 'true' || steps.filter.outputs.deploy }}
       benchmarks: ${{ inputs.full_validation && 'true' || steps.filter.outputs.benchmarks }}
       docs: ${{ inputs.full_validation && 'true' || steps.filter.outputs.docs }}
-      packages: ${{ inputs.full_validation && 'true' || steps.filter.outputs.packages }}
-      architecture: ${{ inputs.full_validation && 'true' || steps.filter.outputs.architecture }}
+      packages: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || steps.filter.outputs.packages }}
+      architecture: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || steps.filter.outputs.architecture }}
       dependency_review: ${{ inputs.full_validation && 'true' || steps.filter.outputs.dependency_review }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -251,6 +253,11 @@ jobs:
 
       - name: Public API surface gate
         run: uv run python tools/packaging/check_public_api.py
+
+      - name: Generated files are current
+        env:
+          SANDLOOM_COMPOSITION_ROOT: sandloom_standard.main
+        run: uv run sandloom generate --check
 
       - name: Installed-wheel RPC transport smoke
         # Builds the sandloom wheel, installs it ALONE into a clean venv

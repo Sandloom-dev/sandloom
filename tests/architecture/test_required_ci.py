@@ -126,6 +126,15 @@ def test_branch_protection_requires_the_stable_actions_check_without_bypasses():
     assert protection["enforce_admins"] is True
 
 
+def test_kernel_boundary_protection_requires_the_latest_base_and_actions_gate():
+    current = json.loads((ROOT / ".github/branch-protection.json").read_text())
+    proposed = json.loads(
+        (ROOT / ".github/branch-protection-kernel-boundary.json").read_text()
+    )
+    current["required_status_checks"]["strict"] = True
+    assert proposed == current
+
+
 def test_cli_fails_on_invalid_input_instead_of_reporting_a_green_check():
     result = subprocess.run(
         [sys.executable, str(SCRIPT)],
