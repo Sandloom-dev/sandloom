@@ -148,3 +148,61 @@ def test_a_route_path_is_a_login_entry(entry: str) -> None:
 def test_only_the_issuer_declares_a_login_entry() -> None:
     with pytest.raises(ValueError, match="issues_tokens=True"):
         ModuleDescriptor(name="acme.notes", version="1", login_entry="/auth/login")
+
+
+def test_console_auth_does_not_require_roles_in_an_issuer_only_app() -> None:
+    app = _app(
+        [
+            _issuer(
+                login_entry="/auth/login",
+                console_auth={"kind": "id_token"},
+                refresh_sessions=False,
+            )
+        ],
+        issuer=ISSUER,
+    )
+    generated = generation_input.collect(app).issuer
+    assert generated is not None
+    assert generated.console_auth == {"kind": "id_token"}
+
+
+def test_console_auth_carries_the_compositions_roles_owner() -> None:
+    app = _app(
+        [_issuer(login_entry="/auth/login", console_auth={"kind": "id_token"})],
+        issuer=ISSUER,
+    )
+    app.state.core.claim_authorities = ClaimAuthorities(
+        issuer=ISSUER, assigned=True, owners={"roles": "acme_roles"}
+    )
+    generated = generation_input.collect(app).issuer
+    assert generated is not None
+    assert generated.console_auth == {"kind": "id_token", "roles_owner": "acme_roles"}
+
+
+@pytest.mark.parametrize(
+    "auth",
+    [
+        {"kind": "redirect"},
+        {"kind": "password", "me": "//evil.example/me"},
+        {"kind": "password", "arbitrary": "/anything"},
+    ],
+)
+def test_console_auth_refuses_unsupported_or_unsafe_declarations(
+    auth: dict[str, str],
+) -> None:
+    with pytest.raises(ValueError, match="console_auth"):
+        _issuer(login_entry="/auth/login", console_auth=auth)
+
+
+def test_console_auth_session_endpoints_are_served_by_the_issuer() -> None:
+    app = _app(
+        [
+            _issuer(
+                login_entry="/auth/login",
+                console_auth={"kind": "password", "refresh": "/foreign/refresh"},
+            )
+        ],
+        issuer=ISSUER,
+    )
+    with pytest.raises(ValueError, match="console_auth.refresh"):
+        generation_input.collect(app)

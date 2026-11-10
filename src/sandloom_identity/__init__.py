@@ -107,6 +107,13 @@ register = define_module(
     # The route the admin console signs an operator in through (the console
     # reads it from the composition's assigned issuer, ADR-0012 decision 4).
     login_entry="/auth/login",
+    console_auth={
+        "kind": "password",
+        "refresh": "/auth/refresh",
+        "logout": "/auth/logout",
+        "me": "/auth/me",
+        "setup_state": "/api/v1/identity/setup-state",
+    },
     setup=_setup,
     settings=IdentitySettings,
 )

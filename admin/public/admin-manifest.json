@@ -1,5 +1,13 @@
 {
   "issuer": {
+    "console_auth": {
+      "kind": "password",
+      "logout": "/auth/logout",
+      "me": "/auth/me",
+      "refresh": "/auth/refresh",
+      "roles_owner": "identity",
+      "setup_state": "/api/v1/identity/setup-state"
+    },
     "login_entry": "/auth/login",
     "module": "identity"
   },

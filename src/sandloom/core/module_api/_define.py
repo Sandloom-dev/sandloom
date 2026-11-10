@@ -104,6 +104,7 @@ def define_module(
     issues_tokens: bool = False,
     refresh_sessions: bool = True,
     login_entry: str | None = None,
+    console_auth: Mapping[str, str] | None = None,
     settings: type[BaseModel] | None = None,
 ) -> Callable[[ModuleAPI], Any]:
     """Build a module's ``register(core)`` from declarations + conventions.
@@ -194,6 +195,7 @@ def define_module(
             issues_tokens=issues_tokens,
             refresh_sessions=refresh_sessions,
             login_entry=login_entry,
+            console_auth=dict(console_auth) if console_auth is not None else None,
         )
 
     register.__qualname__ = register.__name__ = "register"

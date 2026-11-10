@@ -103,6 +103,7 @@ def _issuer(
         return None
     descriptor = next((d for d in loaded if d.name == path), None)
     entry = getattr(descriptor, "login_entry", None)
+    auth = getattr(descriptor, "console_auth", None)
     if entry is not None:
         served = routes.get((entry, "POST"), "")
         if served != path and not served.startswith(path + "."):
@@ -110,7 +111,23 @@ def _issuer(
                 f"the issuer {path!r} declares login_entry={entry!r}, but no POST "
                 f"route of {path} serves it: declare the path of its login endpoint"
             )
-    return GenerationIssuer(path, module_name(path), entry)
+    if auth is not None:
+        for key in ("refresh", "logout", "me", "setup_state"):
+            endpoint = auth.get(key)
+            if endpoint is None:
+                continue
+            verb = "GET" if key in {"me", "setup_state"} else "POST"
+            owner = routes.get((endpoint, verb), "")
+            if owner != path and not owner.startswith(path + "."):
+                raise ValueError(
+                    f"console_auth.{key}={endpoint!r}: no {verb} route "
+                    f"of {path} serves it"
+                )
+        auth = dict(auth)
+        roles_owner = getattr(authorities, "owners", {}).get("roles")
+        if roles_owner:
+            auth["roles_owner"] = roles_owner
+    return GenerationIssuer(path, module_name(path), entry, auth)
 
 
 def _problem(name: str) -> str | None:

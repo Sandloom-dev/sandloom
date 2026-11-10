@@ -539,4 +539,7 @@ def _issuer(issuer: Any) -> Json | None:
     """
     if issuer is None:
         return None
-    return {"module": issuer.name, "login_entry": issuer.login_entry}
+    result: Json = {"module": issuer.name, "login_entry": issuer.login_entry}
+    if getattr(issuer, "console_auth", None) is not None:
+        result["console_auth"] = dict(issuer.console_auth)
+    return result

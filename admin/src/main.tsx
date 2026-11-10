@@ -11,6 +11,7 @@ const root = createRoot(container);
 loadConfig()
   .then((config) => {
     // Outside production a reload of this tab keeps the session (sessionStorage).
+    api.configureAuth(config.auth);
     api.keepAcrossReloads(config.development);
     root.render(
       <StrictMode>

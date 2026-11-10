@@ -1,3 +1,4 @@
+import { consoleAuth, type ConsoleAuth } from './auth';
 export class HttpError extends Error {
   constructor(
     message: string,
@@ -29,7 +30,7 @@ export type User = Schema<'UserOut'>;
 export type Role = Schema<'RoleOut'>;
 export type Organization = Schema<'OrganizationOut'>;
 export type Member = Schema<'MemberOut'>;
-type TokenPair = Schema<'TokenPair'>;
+type TokenPair = Partial<Schema<'TokenPair'>> & { access_token: string };
 export interface Session {
   subject: string;
   roles: string[];
@@ -37,7 +38,7 @@ export interface Session {
 }
 type StoredSession = Session & { access: string; refresh: string };
 
-function claims(token: string): { sub: string; roles: string[] } {
+function claims(token: string, rolesOwner: string): { sub: string; roles: string[]; exp?: number } {
   try {
     const raw = (token.split('.')[1] ?? '').replace(/-/g, '+').replace(/_/g, '/');
     const value: unknown = JSON.parse(
@@ -52,10 +53,11 @@ function claims(token: string): { sub: string; roles: string[] } {
     };
     // Only trust roles that identity itself contributed to this token.
     const trusted =
-      list('claims_sources').includes('identity') &&
-      !list('claims_sources_failed').includes('identity');
+      list('claims_sources').includes(rolesOwner) &&
+      !list('claims_sources_failed').includes(rolesOwner);
     return {
       sub: record.sub,
+      exp: typeof record.exp === 'number' ? record.exp : undefined,
       roles: trusted ? list('roles').filter((r): r is string => typeof r === 'string') : [],
     };
   } catch {
@@ -144,6 +146,15 @@ export class ApiClient {
   private refreshing?: Promise<void>;
   private requests = new Set<AbortController>();
   private listeners = new Set<() => void>();
+  private authentication?: ConsoleAuth;
+  get auth(): ConsoleAuth {
+    if (!this.authentication) throw new Error('Console sign-in is not configured');
+    return this.authentication;
+  }
+  configureAuth(config: ConsoleAuth) {
+    this.clear();
+    this.authentication = consoleAuth(config);
+  }
   constructor(private readonly fetcher: typeof fetch = (...args) => fetch(...args)) {}
 
   get snapshot(): Session | undefined {
@@ -197,7 +208,7 @@ export class ApiClient {
       return;
     }
     this.generation++;
-    this.session = restored;
+    this.session = { ...restored, roles: claims(restored.access, this.auth.roles_owner).roles };
     this.changed();
   }
   private persist() {
@@ -224,24 +235,27 @@ export class ApiClient {
     if (
       !pair ||
       typeof pair.access_token !== 'string' ||
-      typeof pair.refresh_token !== 'string' ||
-      typeof pair.expires_in !== 'number' ||
-      !Number.isFinite(pair.expires_in) ||
-      pair.expires_in <= 0
+      (this.auth.refresh !== undefined && typeof pair.refresh_token !== 'string')
     ) {
       throw new HttpError('The server returned an invalid session', 401);
     }
-    const parsed = claims(pair.access_token);
+    const parsed = claims(pair.access_token, this.auth.roles_owner);
+    const expiresAt =
+      typeof pair.expires_in === 'number'
+        ? Date.now() + pair.expires_in * 1000
+        : (parsed.exp ?? 0) * 1000;
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now())
+      throw new HttpError('The server returned an invalid session', 401);
     this.session = {
       subject: parsed.sub,
       roles: parsed.roles,
       access: pair.access_token,
-      refresh: pair.refresh_token,
-      expiresAt: Date.now() + pair.expires_in * 1000,
+      refresh: pair.refresh_token ?? '',
+      expiresAt,
     };
     this.persist();
   }
-  async login(data: Schema<'LoginIn'>, requiredRole?: string) {
+  async login(data: Schema<'LoginIn'> | { id_token: string }, requiredRole?: string) {
     if (this.session) this.clear();
     else {
       this.generation++;
@@ -250,17 +264,21 @@ export class ApiClient {
     }
     const epoch = this.generation;
     const pair = await this.request<TokenPair>(
-      '/auth/login',
+      this.auth.login,
       { method: 'POST', body: JSON.stringify(data) },
       false,
     );
     if (epoch !== this.generation) throw new HttpError('Sign-in cancelled', 401);
-    if (requiredRole && !claims(pair.access_token).roles.includes(requiredRole)) {
-      await this.request(
-        '/auth/logout',
-        { method: 'POST', body: JSON.stringify({ refresh_token: pair.refresh_token }) },
-        false,
-      ).catch(() => undefined);
+    if (
+      requiredRole &&
+      !claims(pair.access_token, this.auth.roles_owner).roles.includes(requiredRole)
+    ) {
+      if (this.auth.logout && pair.refresh_token)
+        await this.request(
+          this.auth.logout,
+          { method: 'POST', body: JSON.stringify({ refresh_token: pair.refresh_token }) },
+          false,
+        ).catch(() => undefined);
       throw new HttpError('Platform administrator access is required', 403);
     }
     this.install(pair);
@@ -275,10 +293,10 @@ export class ApiClient {
   async logout() {
     const refresh = this.session?.refresh;
     this.clear();
-    if (refresh) {
+    if (refresh && this.auth.logout) {
       // Local access is removed even when the server is unreachable. No retries.
       await this.request(
-        '/auth/logout',
+        this.auth.logout,
         { method: 'POST', body: JSON.stringify({ refresh_token: refresh }) },
         false,
       );
@@ -286,14 +304,20 @@ export class ApiClient {
   }
   private async ensure() {
     if (!this.session) throw new HttpError('Sign in to continue', 401);
-    if (this.session.expiresAt - Date.now() > 15_000) return;
+    const remaining = this.session.expiresAt - Date.now();
+    if (remaining > (this.auth.refresh ? 15_000 : 0)) return;
+    if (!this.auth.refresh || !this.session.refresh) {
+      this.clear();
+      throw new HttpError('Sign in again to continue', 401);
+    }
+    const refreshPath = this.auth.refresh;
     if (!this.refreshing) {
       const epoch = this.generation;
       const refresh = this.session.refresh;
       this.refreshing = (async () => {
         try {
           const pair = await this.request<TokenPair>(
-            '/auth/refresh',
+            refreshPath,
             { method: 'POST', body: JSON.stringify({ refresh_token: refresh }) },
             false,
           );
@@ -334,7 +358,17 @@ export class ApiClient {
     options: RequestInit = {},
     authenticated = true,
   ): Promise<{ data: T; headers: Headers }> {
-    if (!path.startsWith('/auth/') && !path.startsWith('/api/v1/'))
+    const target = new URL(path, 'https://console.invalid');
+    if (
+      target.origin !== 'https://console.invalid' ||
+      !path.startsWith('/') ||
+      path.startsWith('//') ||
+      path.includes('\\') ||
+      Array.from(path).some((c) => c.charCodeAt(0) <= 32) ||
+      (!target.pathname.startsWith('/api/v1/') &&
+        !target.pathname.startsWith('/auth/') &&
+        !Object.values(this.auth).includes(path))
+    )
       throw new Error('Unsupported public API path');
     if (authenticated) await this.ensure();
     const epoch = this.generation;
@@ -377,7 +411,7 @@ export class ApiClient {
     }
   }
   me() {
-    return this.request<User>('/auth/me');
+    return this.auth.me ? this.request<User>(this.auth.me) : Promise.resolve(undefined);
   }
 }
 

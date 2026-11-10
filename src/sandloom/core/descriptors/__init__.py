@@ -108,6 +108,7 @@ class GenerationIssuer:
     package: str
     name: str
     login_entry: str | None = None
+    console_auth: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -243,7 +244,28 @@ class ModuleDescriptor:
         default_factory=lambda: cast(dict[str, GeneratedFileRenderer], {})
     )
 
+    console_auth: Mapping[str, str] | None = None
+
     def __post_init__(self) -> None:
+        if self.console_auth is not None:
+            auth = self.console_auth
+            paths = {"refresh", "logout", "me", "setup_state"}
+            if (
+                not isinstance(auth, Mapping)
+                or set(auth) - (paths | {"kind"})
+                or not isinstance(auth.get("kind"), str)
+                or auth.get("kind") not in {"password", "id_token"}
+                or any(login_entry_problem(auth[key]) for key in paths & set(auth))
+                or self.login_entry is None
+                or not self.issues_tokens
+            ):
+                raise ValueError(
+                    "console_auth requires an issuer login_entry, a kind "
+                    "(password or id_token), and valid optional "
+                    "refresh/logout/me/setup_state route paths"
+                )
+            if "refresh" in auth and not self.refresh_sessions:
+                raise ValueError("console_auth.refresh requires refresh_sessions=True")
         if self.login_entry is None:
             return
         if not self.issues_tokens:

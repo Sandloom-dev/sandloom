@@ -70,6 +70,7 @@ def define_module(
     issues_tokens: bool = False,
     refresh_sessions: bool = True,
     login_entry: str | None = None,
+    console_auth: Mapping[str, str] | None = None,
     settings: type[BaseModel] | None = None,
     generates: Mapping[str, Callable[[Any], str]] | None = None,
 ) -> Callable[[ModuleAPI], Any]
@@ -102,6 +103,18 @@ of its login endpoint: the admin console is served in front of the
 composition's `issuer` only when that issuer declares one (a module
 without it is a configuration error naming it); a value that is not a
 route path of this application is refused.
+`console_auth={"kind": "password", "refresh": "/auth/refresh",
+"logout": "/auth/logout", "me": "/auth/me"}` declares the console's
+sign-in protocol and optional session endpoints, all served by this
+issuer. `kind="id_token"` presents an external identity-token exchange
+instead of a password form; omit session endpoints for a stateless issuer.
+Refresh/logout accept `{"refresh_token": ...}`; refresh returns the
+token pair (`access_token`, `refresh_token`, `expires_in` in seconds).
+The optional me route returns profile fields (`full_name`, `email`),
+setup-state returns `{"has_admin": bool}`. Password login accepts
+`email`, `password` and optional `otp` and returns the token pair.
+The composition supplies the roles claim owner. Redirect-only sign-in
+is unsupported; the console needs a token exchange endpoint.
 
 `settings=` declares the module's settings: a plain pydantic
 `BaseModel` whose fields are aliased to their environment names
@@ -208,7 +221,12 @@ loaded module in load order. A renderer imports no other module.
 ### `GenerationIssuer`
 
 ```python
-class GenerationIssuer(package: str, name: str, login_entry: str | None = None) -> None
+class GenerationIssuer(
+    package: str,
+    name: str,
+    login_entry: str | None = None,
+    console_auth: Mapping[str, str] | None = None,
+) -> None
 ```
 
 The composition's assigned token issuer as a generated file's renderer sees it.
@@ -552,6 +570,7 @@ class ModuleDescriptor(
     refresh_sessions: bool = True,
     login_entry: str | None = None,
     generated_files: dict[str, GeneratedFileRenderer] = <factory>,
+    console_auth: Mapping[str, str] | None = None,
 ) -> None
 ```
 

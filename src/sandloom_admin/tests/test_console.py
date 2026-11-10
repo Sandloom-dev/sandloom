@@ -53,7 +53,14 @@ def _manifest(package: Path, **overrides: object) -> None:
                 "version": 1,
                 "modules": ["identity", "core"],
                 "resources": [],
-                "issuer": {"module": "test_identity", "login_entry": "/auth/login"},
+                "issuer": {
+                    "module": "test_identity",
+                    "login_entry": "/auth/login",
+                    "console_auth": {
+                        "kind": "password",
+                        "roles_owner": "test_identity",
+                    },
+                },
                 **overrides,
             }
         )
@@ -194,6 +201,7 @@ async def test_the_manifest_comes_from_the_application(
         "modules": ["identity"],
         "issuer": "test_identity",
         "login_entry": "/auth/login",
+        "console_auth": {"kind": "password", "roles_owner": "test_identity"},
         "development": True,
     }
 
@@ -230,6 +238,7 @@ async def test_production_config_does_not_say_development(
         "modules": ["identity"],
         "issuer": "test_identity",
         "login_entry": "/auth/login",
+        "console_auth": {"kind": "password", "roles_owner": "test_identity"},
     }
 
 
@@ -379,3 +388,45 @@ async def test_the_set_password_page_is_named_only_while_it_is_served(
         transport=ASGITransport(app=off), base_url="http://test"
     ) as http:
         assert (await http.get("/admin/set-password")).status_code == 404
+
+
+async def test_stateless_oidc_console_config_has_no_invented_session_routes(
+    client: AsyncClient, application_package: tuple[Path, str]
+) -> None:
+    package, _ = application_package
+    _manifest(
+        package,
+        modules=["acme"],
+        issuer={
+            "module": "acme",
+            "login_entry": "/api/v1/acme/login",
+            "console_auth": {"kind": "id_token", "roles_owner": "grants"},
+        },
+    )
+    response = await client.get("/admin/config.json")
+    assert response.status_code == 200
+    assert response.json()["console_auth"] == {
+        "kind": "id_token",
+        "roles_owner": "grants",
+    }
+
+
+@pytest.mark.parametrize(
+    "auth",
+    [
+        None,
+        {"kind": "redirect", "roles_owner": "acme"},
+        {"kind": "password", "roles_owner": "acme", "me": "//evil/me"},
+    ],
+)
+async def test_missing_or_unsafe_console_auth_names_the_fix(
+    client: AsyncClient, application_package: tuple[Path, str], auth: object
+) -> None:
+    package, _ = application_package
+    _manifest(
+        package,
+        issuer={"module": "acme", "login_entry": "/login", "console_auth": auth},
+    )
+    response = await client.get("/admin/config.json")
+    assert response.status_code == 503
+    assert "console_auth" in response.json()["detail"]

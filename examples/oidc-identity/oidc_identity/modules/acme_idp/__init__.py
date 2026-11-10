@@ -31,6 +31,7 @@ register = define_module(
     issues_tokens=True,
     refresh_sessions=False,
     login_entry="/api/v1/acme_idp/login",
+    console_auth={"kind": "id_token"},
     settings=AcmeIdpSettings,
     setup=_setup,
 )

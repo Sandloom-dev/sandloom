@@ -53,6 +53,13 @@ EXPECTED_DESCRIPTOR = ModuleDescriptor(
     ],
     issues_tokens=True,
     login_entry="/auth/login",
+    console_auth={
+        "kind": "password",
+        "refresh": "/auth/refresh",
+        "logout": "/auth/logout",
+        "me": "/auth/me",
+        "setup_state": "/api/v1/identity/setup-state",
+    },
 )
 
 

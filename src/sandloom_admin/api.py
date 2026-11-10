@@ -224,10 +224,33 @@ async def console_config(request: Request) -> Response:
     manifest = _usable_manifest()
     modules = [m for m in manifest["modules"] if m != "core"]
     issuer, login_entry = _issuer(manifest)
+    auth = manifest["issuer"].get("console_auth")
+    paths = {"refresh", "logout", "me", "setup_state"}
+    if (
+        not isinstance(auth, dict)
+        or set(auth) - (paths | {"kind", "roles_owner"})
+        or not isinstance(auth.get("kind"), str)
+        or auth.get("kind") not in {"password", "id_token"}
+        or not isinstance(auth.get("roles_owner"), str)
+        or not auth["roles_owner"]
+        or any(
+            not isinstance(auth[key], str)
+            or not _LOGIN_ENTRY.fullmatch(auth[key])
+            or ".." in auth[key].split("/")
+            for key in paths & set(auth)
+        )
+    ):
+        raise HTTPException(
+            503,
+            f"The issuer {issuer!r} needs a console_auth declaration "
+            "(password or id_token and its session routes), plus an "
+            "assigned roles claim owner. Run `sandloom generate` and restart.",
+        )
     payload: dict[str, Any] = {
         "modules": modules,
         "issuer": issuer,
         "login_entry": login_entry,
+        "console_auth": auth,
     }
     if settings.environment.value != "prod":
         payload["development"] = True
