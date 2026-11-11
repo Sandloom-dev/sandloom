@@ -550,6 +550,11 @@ class InfraProvider(abc.ABC):
     supported_features: ClassVar[frozenset[str]] = frozenset()
     #: Optional pydantic model validating an instance's options before building.
     options_schema: ClassVar[type[Any] | None] = None
+    #: Top-level imports needed by the backend. The entry point must be
+    #: importable without them so the registry can check them before building.
+    required_imports: ClassVar[tuple[str, ...]] = ()
+    #: Installation command to show when a backend import is missing.
+    install_hint: ClassVar[str] = ""
 
     def __init__(self, *, name: str, driver: str, options: Mapping[str, Any]) -> None:
         self.name = name
