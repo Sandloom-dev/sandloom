@@ -7,6 +7,8 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+## [0.7.0a12]
+
 ### Fixed
 
 - Declare `argon2-cffi>=25.1.0,<26`, which the login service imports; it was

@@ -7,6 +7,8 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+## [0.7.0a12]
+
 ### Added
 
 - The distribution: `sandloom_standard.main` exposes `app` and `core`, the kernel

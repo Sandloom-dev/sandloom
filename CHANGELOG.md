@@ -13,6 +13,22 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+## [0.7.0a12]
+
+This alpha separates the lean kernel from the standard composition and its
+optional Identity, Tenancy and Billing packages. Install `sandloom[standard]`
+and use `sandloom_standard.main:app` to boot the standard root from your own
+manifest. Set `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main` for every
+process in that deployment. See the
+[upgrade guide](https://sandloom.dev/docs/operate/upgrade/) for the rollout.
+
+- External drivers declare optional Python dependencies and installation hints.
+  Driver selection stays in `INFRA`, and startup validates the selected driver.
+- Billing reports background reconciliation health separately from HTTP readiness.
+  Operations that require compensation fail closed when reconciliation is unavailable.
+- Legacy access-token compatibility is disabled by default. When explicitly
+  enabled, the compatibility window only applies to tokens without `cpv`.
+
 ### Breaking changes
 
 - **`Authority(name, module=path)` must name the module's real name**

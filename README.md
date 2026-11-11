@@ -2,7 +2,7 @@
 
 **Python backend framework for AI-driven development.**
 
-[![PyPI alpha](https://img.shields.io/badge/PyPI-0.7.0a11-d7bd91)](https://pypi.org/project/sandloom/0.7.0a11/)
+[![PyPI alpha](https://img.shields.io/badge/PyPI-0.7.0a12-d7bd91)](https://pypi.org/project/sandloom/0.7.0a12/)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776ab)](docs/getting-started/installation.md)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 [![Known Vulnerabilities](https://snyk.io/test/github/Sandloom-dev/sandloom/badge.svg)](https://snyk.io/test/github/Sandloom-dev/sandloom)
@@ -25,8 +25,13 @@ services with the same modules. Add identity, organizations or billing as needed
 [Quickstart](#quickstart) · [See architecture checks](#see-architecture-checks-in-action) ·
 [Documentation](docs/index.md) · [Examples](examples/README.md)
 
-> **Alpha:** `0.7.0a11` is available on PyPI. <!-- sandloom-release -->
+> **Alpha:** `0.7.0a12`. <!-- sandloom-release -->
+> [Release notes](https://sandloom.dev/docs/changelog/) ·
 > [Compatibility and stability](docs/contributing/versioning.md).
+
+The standard composition ships in `sandloom-standard`. Install it with
+`sandloom[standard]` and see [how to boot it](docs/operate/loader-configuration.md#explicit-list).
+For existing deployments, see the [upgrade guide](docs/operate/upgrade.md).
 
 ## Why Sandloom
 
@@ -52,12 +57,12 @@ You need **Python 3.11+** (3.12 recommended) and
 [uv 0.13.4+](https://docs.astral.sh/uv/). For PostgreSQL and Redis, use
 **Docker with Compose**, or servers you already run (`sandloom dev up --services external`).
 
-Create a backend with one module from the published alpha. This example uses
+Create a backend with one module from the alpha. This example uses
 the framework without the optional identity, tenancy and billing packages:
 
 <!-- readme:quickstart:start -->
 ```bash
-uvx --from "sandloom==0.7.0a11" sandloom new myapp --no-batteries --module notes
+uvx --from "sandloom==0.7.0a12" sandloom new myapp --no-batteries --module notes
 cd myapp
 uv sync
 uv run sandloom generate
@@ -67,7 +72,7 @@ uv run uvicorn myapp.asgi:app --reload
 ```
 <!-- readme:quickstart:end -->
 
-At a terminal, `uvx --from "sandloom==0.7.0a11" sandloom new` with no name asks
+At a terminal, `uvx --from "sandloom==0.7.0a12" sandloom new` with no name asks
 for the name, the modules and the coding agents, and can run the setup.
 Scripts and coding agents pass `--yes`.
 
