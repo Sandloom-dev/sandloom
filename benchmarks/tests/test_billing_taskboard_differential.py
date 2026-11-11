@@ -415,7 +415,7 @@ async def bt(
     monkeypatch.setattr(settings, "db_pool_size", 1)
     monkeypatch.setattr(settings, "db_max_overflow", 0)
     monkeypatch.setattr(settings, "sandloom_modules", list(mix.FULL_MODULES))
-    from sandloom.main import create_app
+    from sandloom_standard.main import create_app
 
     app = create_app()
     core = app.state.core

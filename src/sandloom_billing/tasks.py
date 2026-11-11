@@ -25,22 +25,27 @@ from sandloom.sdk.effects import run_async
 from sandloom.sdk.tasks import shared_task
 from sandloom_billing.psp import active_psp_client
 from sandloom_billing.services.intent_reconciler import IntentReconciler
+from sandloom_billing.services.reconciler_health import (
+    RECONCILE_INTERVAL_SECONDS,
+    record_reconciler_run,
+)
 from sandloom_billing.services.webhook_service import purge_orphan_payment_states
 
 logger = logging.getLogger("sandloom_billing.tasks")
 
-#: How often beat runs the reconciler (seconds). The staleness threshold is
-#: ``BILLING_INTENT_RECONCILE_AFTER_MINUTES``; this only bounds the delay.
-RECONCILE_INTERVAL_SECONDS = 300.0
-
 
 async def reconcile_intents_once(psp: Any | None = None) -> dict[str, int]:
-    """One reconciliation run with billing's PSP client; returns the counts."""
+    """One reconciliation run with billing's PSP client; returns the counts.
+
+    Its last unit records the completed run (the ``billing_reconciler``
+    health check's input): a run that raises records nothing.
+    """
     report = await IntentReconciler.run(psp if psp is not None else active_psp_client())
     counts = report.as_dict()
     # Housekeeping: refund / dispute states that never matched a grant.
     async with open_uow() as db:
         counts["purged_payment_states"] = await purge_orphan_payment_states(db)
+        await record_reconciler_run(db)
     if report.still_failing or report.escalated:
         logger.warning("billing intent reconcile: %s", counts)
     elif report.reconciled or report.compensated:

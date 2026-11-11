@@ -1,0 +1,67 @@
+# kb-roadmap-review gate probe at arch/kernel-boundary 86aed8b (src = b8d8506 + PR #70).
+# Real CoreFacade._merge_claim_outcomes, real require_platform_admin, real Role.evaluate; no DB, no login.
+#   $ SANDLOOM_TEST_OWNER=kb-roadmap uv run python gate_probe.py
+
+----- gate_probe.py -----
+"""kb-roadmap-review probe: does a platform gate accept `roles` that the
+`identity` owner did not write, at HEAD (PR #70 merged)? Real merge, real
+require_platform_admin, real Role atom evaluate; no DB, no login."""
+import asyncio, os, uuid
+os.environ.update({
+    "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
+    "CACHE_URL": "redis://localhost:6399/5", "BROKER_URL": "redis://localhost:6399/6",
+    "JWT_SECRET": "roadmap-probe-not-a-real-secret-0123456789", "EVENT_BUS_BACKEND": "memory",
+    "SANDLOOM_MODULES": "[]",
+})
+from fastapi import FastAPI, HTTPException
+from sandloom.core.facade import CoreFacade
+from sandloom.core.facade._claims import ClaimsUnavailable
+from sandloom.shared.guards.platform import require_platform_admin
+from sandloom.shared.subject import UserContext
+from sandloom.shared.authz.atoms_claims import Role
+
+facade = CoreFacade(app=FastAPI())
+
+def subject(merged):
+    return UserContext.model_validate({**merged, "sub": str(uuid.uuid4()), "user_id": str(uuid.uuid4())}) if hasattr(UserContext, "model_validate") else UserContext(**merged)
+
+async def gate(s):
+    try:
+        await require_platform_admin(subject=s); return "ALLOW"
+    except HTTPException as e:
+        return f"{e.status_code}"
+
+class Ctx:  # Role.evaluate reads ctx.subject only
+    def __init__(self, s): self.subject = s
+
+async def case(label, plan, outcomes):
+    try:
+        merged = facade._merge_claim_outcomes(plan, outcomes)
+    except ClaimsUnavailable as exc:
+        print(f"{label}: mint refused 503 (ClaimsUnavailable {exc})"); return
+    s = subject(merged)
+    print(f"{label}: roles={sorted(s.roles)} sources={sorted(s.claims_sources)} failed={sorted(s.claims_sources_failed)}"
+          f" -> require_platform_admin {await gate(s)}, Role('admin') {await Role('admin').evaluate(Ctx(s))}")
+
+async def main():
+    P = [("identity", True, None, None), ("rogue", False, None, None)]
+    await case("G1 identity writes roles=[] ; rogue roles=[admin]", P,
+               {0: (True, {"roles": [], "permissions": []}), 1: (True, {"roles": ["admin"]})})
+    await case("G2 identity ran, wrote no roles key ; rogue roles=[admin]", P,
+               {0: (True, {"permissions": []}), 1: (True, {"roles": ["admin"]})})
+    await case("G3 identity ran, empty answer ; rogue roles=[admin]", P,
+               {0: (True, {}), 1: (True, {"roles": ["admin"]})})
+    P2 = [("rogue", False, None, None), ("identity", True, None, None)]
+    await case("G4 rogue first roles=[admin] ; identity ran, no roles key", P2,
+               {0: (True, {"roles": ["admin"]}), 1: (True, {"permissions": []})})
+    await case("G5 rogue (non-critical) writes email ; identity none", P,
+               {0: (True, {"roles": []}), 1: (True, {"email": "x@evil.test", "email_verified": True})})
+asyncio.run(main())
+
+----- output -----
+claims contributor 'rogue' wrote the claim 'roles' owned by 'identity'; refusing to mint the token (one owner per claim key)
+G1 identity writes roles=[] ; rogue roles=[admin]: mint refused 503 (ClaimsUnavailable 503: Token claims from 'rogue' are unavailable; try again later)
+G2 identity ran, wrote no roles key ; rogue roles=[admin]: roles=['admin'] sources=['identity', 'rogue'] failed=[] -> require_platform_admin ALLOW, Role('admin') True
+G3 identity ran, empty answer ; rogue roles=[admin]: roles=['admin'] sources=['identity', 'rogue'] failed=[] -> require_platform_admin ALLOW, Role('admin') True
+G4 rogue first roles=[admin] ; identity ran, no roles key: roles=['admin'] sources=['identity', 'rogue'] failed=[] -> require_platform_admin ALLOW, Role('admin') True
+G5 rogue (non-critical) writes email ; identity none: roles=[] sources=['identity', 'rogue'] failed=[] -> require_platform_admin 403, Role('admin') False

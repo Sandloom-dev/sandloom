@@ -3,8 +3,9 @@
 A provider authors its contract DTOs (pydantic models, Enums) in its own
 module, by convention its ``schemas`` module. ``sandloom generate`` writes a
 copy of every DTO a provided contract signature names -- nested ones
-included -- into the shared DTO package, one file per provider module
-(``<shared>/contracts/<module>_dto.py``); the contract stubs name the copies,
+included -- into the consumer's generated package (``<module>/_generated/contracts/`` or
+an application's ``<app>.shared/contracts/``), one file per provider module
+(``<provider>_dto.py``); the contract stubs name the copies,
 so every caller process imports the same generated class and a remote caller
 never needs the provider's package.
 
@@ -14,7 +15,8 @@ defaults, the aliases (an ``alias_generator`` resolved to per-field
 ``model_config`` options of the allowed set. It does not carry methods,
 properties or validators: a validator is the provider's and runs where the
 provider binds an argument or builds its result. Each copy is marked with
-:func:`sandloom.core.descriptors.contract_refs.dto_copy` (its origin).
+:func:`sandloom.sdk.contracts.dto_copy` (its origin, imported from the public
+home, :func:`contract_refs_home`; the kernel ships no copy).
 
 What cannot be copied faithfully is refused (:class:`CopyError`, naming the
 field path and the fix): ``@contract`` checks the closed set when it
@@ -75,6 +77,20 @@ def origin_of(cls: type) -> str:
 
 def _within(module: str, package: str) -> bool:
     return module == package or module.startswith(package + ".")
+
+
+#: The framework's own shared package: classes a stub names there are
+#: referenced as they are, never copied (nothing is generated into it).
+KERNEL_SHARED = "sandloom.shared"
+
+
+def contract_refs_home() -> tuple[str, str]:
+    """``(module, marker)`` a generated stub or DTO copy imports
+    ``ContractRef`` / ``dto_copy`` from, wherever it is written: the public
+    ``sandloom.sdk.contracts`` with the ``# sandloom: advanced`` marker of the
+    beginner-tier pin (SANDLOOM-T009), since both names are advanced; never a
+    ``sandloom.core`` import (ADR-0013 decision 10)."""
+    return "sandloom.sdk.contracts", "sandloom: advanced generated code"
 
 
 # --------------------------------------------------------------------------- #
@@ -149,20 +165,176 @@ class Resolver:
 
 
 class Imports:
-    """The imports a generated file needs (isort order is ruff's job)."""
+    """The imports a generated file needs, rendered in their final layout
+    (ADR-0013 decision 6): isort's sections (the standard library, third
+    party, then ``sandloom`` and the package the file is written to), names
+    ordered by type, a long line wrapped one name per line."""
 
-    def __init__(self) -> None:
+    def __init__(self, first_party: Iterable[str] = ("sandloom",)) -> None:
         self.names: dict[str, set[str]] = {}
+        self.comments: dict[str, str] = {}
+        self.first_party = tuple(first_party)
 
-    def need(self, module: str, name: str) -> str:
+    def need(self, module: str, name: str, comment: str | None = None) -> str:
+        """Import ``name`` from ``module``; ``comment`` trails its line."""
         self.names.setdefault(module, set()).add(name)
+        if comment:
+            self.comments[module] = comment
         return name
 
+    def _section(self, module: str) -> int:
+        top = module.split(".", 1)[0]
+        if top in sys.stdlib_module_names:
+            return 0
+        return 2 if top in self.first_party else 1
+
     def render(self) -> str:
-        return "\n".join(
-            f"from {module} import {', '.join(sorted(names))}"
-            for module, names in sorted(self.names.items())
-        )
+        groups: list[list[str]] = [[], [], []]
+        for module in sorted(self.names, key=str.lower):
+            comment = self.comments.get(module)
+            groups[self._section(module)].append(
+                import_line(module, self.names[module], comment)
+            )
+        return "\n\n".join("\n".join(g) for g in groups if g)
+
+
+def _name_order(name: str) -> tuple[int, str]:
+    """isort's ``order-by-type``: CONSTANTS, then Classes, then functions."""
+    if name.isupper() and len(name) > 1:
+        return 0, name
+    return (1 if name[:1].isupper() else 2), name
+
+
+def import_line(module: str, names: Iterable[str], comment: str | None = None) -> str:
+    """``from module import names`` as isort writes it: one line when it fits
+    (its trailing comment included), else one name per line."""
+    ordered = sorted(set(names), key=_name_order)
+    tail = f"  # {comment}" if comment else ""
+    line = f"from {module} import {', '.join(ordered)}{tail}"
+    if len(line) <= LINE:
+        return line
+    inner = "".join(f"    {n},\n" for n in ordered)
+    return f"from {module} import ({tail}\n{inner})"
+
+
+# --------------------------------------------------------------------------- #
+# Final layout: the line wrapping ``ruff format`` applies at 88 columns
+# --------------------------------------------------------------------------- #
+
+#: The line length every generated file is laid out for, whatever the
+#: consuming project's formatter says (ADR-0013 decision 6).
+LINE = 88
+_CLOSE = {"(": ")", "[": "]", "{": "}"}
+
+
+def _scan(text: str) -> list[tuple[int, str, int]]:
+    """``(index, char, depth before it)`` of every bracket and top-level
+    comma of ``text``, strings skipped."""
+    out: list[tuple[int, str, int]] = []
+    depth = 0
+    quote: str | None = None
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote is not None:
+            if char == "\\":
+                index += 1
+            elif char == quote:
+                quote = None
+        elif char in "\"'":
+            quote = char
+        elif char in _CLOSE:
+            out.append((index, char, depth))
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+            out.append((index, char, depth))
+        elif char == ",":
+            out.append((index, char, depth))
+        index += 1
+    return out
+
+
+def _pairs(text: str) -> list[tuple[int, int]]:
+    """``(open, close)`` of the outermost brackets of ``text``, in order."""
+    out: list[tuple[int, int]] = []
+    start = -1
+    for index, char, depth in _scan(text):
+        if depth == 0 and char in _CLOSE:
+            start = index
+        elif depth == 0 and char in ")]}" and start >= 0:
+            out.append((start, index))
+    return out
+
+
+def _elements(body: str) -> list[str]:
+    """``body`` split at its top-level commas (brackets and strings kept)."""
+    cuts = [i for i, char, depth in _scan(body) if char == "," and depth == 0]
+    out: list[str] = []
+    start = 0
+    for cut in cuts:
+        out.append(body[start:cut].strip())
+        start = cut + 1
+    last = body[start:].strip()
+    if last:
+        out.append(last)
+    return out
+
+
+def _indent(line: str) -> str:
+    return line[: len(line) - len(line.lstrip(" "))]
+
+
+def _split_body(body: str, indent: str, bracket: str) -> list[str]:
+    """The lines of a bracket's content: on one line when it fits, else one
+    element per line with a trailing comma (one element: split inside it)."""
+    one = f"{indent}{body.strip()}"
+    if len(one) <= LINE:
+        return [one]
+    items = _elements(body)
+    if len(items) == 1:
+        return fit_lines(one)
+    out: list[str] = []
+    for item in items:
+        out += fit_lines(f"{indent}{item},")
+    return out
+
+
+def fit_lines(line: str) -> list[str]:
+    """``line`` (one statement) wrapped the way ``ruff format`` wraps it at
+    :data:`LINE`: split at the last bracket whose head fits (an earlier one
+    when the head would overflow), the content on its own lines; a long
+    right-hand side without brackets goes in parentheses when that fits."""
+    if len(line) <= LINE:
+        return [line]
+    indent = _indent(line)
+    pairs = [(o, c) for o, c in _pairs(line) if line[o + 1 : c].strip()]
+    if not pairs:
+        return _parenthesized(line, indent)
+    start, end = pairs[-1]
+    for candidate in reversed(pairs):
+        if len(line[: candidate[0] + 1]) <= LINE:
+            start, end = candidate
+            break
+    head = line[: start + 1]
+    body = line[start + 1 : end]
+    tail = f"{indent}{line[end:]}"
+    return [head, *_split_body(body, indent + "    ", line[start]), *fit_lines(tail)]
+
+
+def _parenthesized(line: str, indent: str) -> list[str]:
+    """``x = value`` with a long bracket-free value: ``x = (`` / value / ``)``
+    when the value then fits; as it is otherwise."""
+    head, sep, value = line.partition(" = ")
+    inner = f"{indent}    {value}"
+    if not sep or len(inner) > LINE or len(f"{head} = (") > LINE:
+        return [line]
+    return [f"{head} = (", inner, f"{indent})"]
+
+
+def fit(line: str) -> str:
+    """:func:`fit_lines` joined."""
+    return "\n".join(fit_lines(line))
 
 
 _SIMPLE = {int: "int", str: "str", float: "float", bool: "bool", type(None): "None"}
@@ -449,7 +621,7 @@ def _render_enum(cls: type[enum.Enum], r: Renderer) -> str:
                 f"value {value!r} is not a JSON scalar",
                 "use str, int, float, bool or None values",
             )
-        lines.append(f"    {name} = {r.value(value, where)}")
+        lines.append(fit(f"    {name} = {r.value(value, where)}"))
     doc = _docstring(cls)
     body = "\n".join(lines)
     if doc is not None:
@@ -490,10 +662,10 @@ def _render_field(cls: type[BaseModel], name: str, info: FieldInfo, r: Renderer)
     annotation = r.annotation(info.annotation, where)
     kwargs = _field_kwargs(name, info, r, where)
     if not kwargs:
-        return f"    {name}: {annotation}"
+        return fit(f"    {name}: {annotation}")
     if list(kwargs) == ["default"]:
-        return f"    {name}: {annotation} = {kwargs['default']}"
-    return f"    {name}: {annotation} = {r.field_call(kwargs)}"
+        return fit(f"    {name}: {annotation} = {kwargs['default']}")
+    return fit(f"    {name}: {annotation} = {r.field_call(kwargs)}")
 
 
 def _field_kwargs(
@@ -540,7 +712,7 @@ def _render_model(cls: type[BaseModel], r: Renderer) -> str:
     if copied:
         r.imports.need("pydantic", "ConfigDict")
         items = ", ".join(f"{k}={r.value(v, where)}" for k, v in copied.items())
-        lines += [f"    model_config = ConfigDict({items})", ""]
+        lines += [fit(f"    model_config = ConfigDict({items})"), ""]
     lines += [
         _render_field(cls, name, info, r) for name, info in cls.model_fields.items()
     ]
@@ -574,9 +746,10 @@ def _render_copy(cls: type, renderer: Renderer) -> str:
 def render_module(module: str, resolver: Resolver) -> str:
     """The generated DTO module of provider module ``module``: a copy of
     every class ``resolver`` placed for copying (and what those name)."""
-    imports = Imports()
+    imports = Imports(("sandloom", resolver.dto_package.split(".", 1)[0]))
     r = Renderer(resolver, imports)
-    imports.need("sandloom.core.descriptors.contract_refs", "dto_copy")
+    home, marker = contract_refs_home()
+    imports.need(home, "dto_copy", marker)
     # Discover field/default dependencies before choosing any exported name.
     index = 0
     while index < len(resolver.copied):
@@ -588,7 +761,8 @@ def render_module(module: str, resolver: Resolver) -> str:
             module, "generated DTO names collide", "rename the conflicting DTO classes"
         )
     blocks = {
-        cls: f"@dto_copy({json.dumps(origin_of(cls))})\n{_render_copy(cls, r)}"
+        cls: fit(f"@dto_copy({json.dumps(origin_of(cls))})")
+        + f"\n{_render_copy(cls, r)}"
         for cls in resolver.copied
     }
     order = _topological(list(blocks))
@@ -686,8 +860,10 @@ __all__ = [
     "HEADER",
     "CopyError",
     "Imports",
+    "KERNEL_SHARED",
     "Renderer",
     "Resolver",
+    "contract_refs_home",
     "dto_module_stem",
     "origin_of",
     "render_module",

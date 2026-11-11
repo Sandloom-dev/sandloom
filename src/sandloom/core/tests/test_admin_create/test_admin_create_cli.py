@@ -1,7 +1,10 @@
 """``sandloom admin create`` / ``invite`` and ``grant-admin``'s take-over rule.
 
-The ``identity.security.v1`` contract is faked here; identity's real one is
-covered in ``sandloom_identity/tests/api/test_first_admin.py``.
+The ``identity.security.v1`` contract is faked here, registered in a fake
+core as the claim map's issuer and roles owner (the operator resolver runs
+for real); identity's real one is covered in
+``sandloom_identity/tests/api/test_first_admin.py``, other owners and splits
+in ``core/tests/test_admin_operator.py``.
 """
 
 from __future__ import annotations
@@ -18,16 +21,23 @@ from typing import Any
 
 import pytest
 
+from sandloom.core.app_factory.claim_authorities import build_claim_authorities
+from sandloom.core.claims import Authority
 from sandloom.core.cli import admin
 from sandloom.core.cli._operator import OperatorIntent
 from sandloom.core.cli.dev import commands, identity, state
-from sandloom.core.cli.security import SECURITY_CONTRACT, grant_admin
+from sandloom.core.cli.security import grant_admin
 from sandloom.core.config.settings import settings
 from sandloom.core.module_api._errors import ContractCallError
 from sandloom.core.module_api._service_registry import ServiceNotFound
+from sandloom.core.route_markers import stamp_routes
 
 TOKEN = "tok.en.sig"
+#: The import path the console module was loaded from (its routes' stamp).
+CONSOLE_MODULE = "sandloom_admin"
 GOOD = "Long-Enough-Passw0rd!"
+IDENTITY = "sandloom_identity"
+SECURITY_CONTRACT = "identity.security.v1"
 
 
 class _Security:
@@ -37,8 +47,32 @@ class _Security:
         }
         self.calls: list[tuple[Any, ...]] = []
 
-    async def account_standing(self, email: str) -> Any:
-        return self.accounts.get(email)
+    @property
+    def contract_schema(self) -> SimpleNamespace:
+        """What a local describe lists: every public async method."""
+        methods = {
+            name
+            for name in dir(type(self))
+            if not name.startswith("_") and name not in {"names", "contract_schema"}
+        }
+        return SimpleNamespace(methods=methods)
+
+    async def account_by_email(self, email: str) -> Any:
+        found = self.accounts.get(email)
+        if found is None:
+            return None
+        return SimpleNamespace(
+            user_id=found.user_id,
+            email=email,
+            email_verified=found.email_verified,
+            is_active=found.is_active,
+            password_set=True,
+        )
+
+    async def is_platform_admin(self, user_id: uuid.UUID) -> bool:
+        return any(
+            a.user_id == user_id and a.is_platform_admin for a in self.accounts.values()
+        )
 
     async def password_problem(self, email: str, password: str) -> str | None:
         return "Password is too short" if len(password) < 12 else None
@@ -93,8 +127,12 @@ class _Security:
         self.calls.append(("audit", reason, operator, show_emails))
         return True
 
-    async def list_platform_admins(self) -> list[Any]:
+    async def platform_admin_ids(self) -> list[uuid.UUID]:
         self.calls.append(("list",))
+        return [uuid.UUID(int=1), uuid.UUID(int=2)]
+
+    async def accounts_by_id(self, user_ids: list[uuid.UUID]) -> list[Any]:
+        assert user_ids == [uuid.UUID(int=1), uuid.UUID(int=2)]
         return [
             SimpleNamespace(
                 email="owner@example.com",
@@ -118,8 +156,41 @@ class _Security:
 
 
 class _Core:
+    """One process loading identity (``security``), the claim map's issuer
+    and roles owner; ``None``: identity neither loaded nor bound."""
+
     def __init__(self, security: Any) -> None:
         self.security = security
+        owner = Authority("identity", module=IDENTITY)
+        self.claim_authorities = build_claim_authorities(
+            {"issuer": owner, "roles": owner}
+        )
+        self.module_descriptors = (
+            [] if security is None else [SimpleNamespace(name=IDENTITY)]
+        )
+        self.settings = settings
+        console = [
+            SimpleNamespace(path="/admin", name="console_index", methods={"GET"}),
+            SimpleNamespace(path="/admin/{path:path}", name="console", methods={"GET"}),
+            SimpleNamespace(
+                path="/admin/set-password",
+                name="set_password_page" if _PAGE["served"] else "set_password_entry",
+                methods={"GET"},
+            ),
+        ]
+        # The loader stamps every route a module mounts with that module.
+        stamp_routes(console, CONSOLE_MODULE)
+        self.app = SimpleNamespace(routes=[*_PAGE["before"], *console])
+        self.service_registry = SimpleNamespace(try_get=self._local)
+
+    def _local(self, name: str) -> Any:
+        return self.security if name == SECURITY_CONTRACT else None
+
+    def contract_owner(self, name: str) -> str:
+        return IDENTITY
+
+    def local_contract(self, name: str) -> Any:
+        return self.security
 
     def get_service(self, name: str) -> Any:
         if name != SECURITY_CONTRACT or self.security is None:
@@ -145,13 +216,29 @@ class _Stream(io.StringIO):
         return self._tty
 
 
+#: Whether the fake composed application mounts the console's set-password
+#: page (the console module names the route only while it serves it).
+_PAGE: dict[str, Any] = {"served": True, "before": []}
+
+
+def _console_switch(monkeypatch: pytest.MonkeyPatch, served: bool) -> None:
+    """The composed application serves the console's set-password page, or
+    mounts a route of another name (ADR-0015, edge rows B-C10 / B-N3)."""
+    monkeypatch.setitem(_PAGE, "served", served)
+
+
+def _mounted_first(monkeypatch: pytest.MonkeyPatch, *routes: Any) -> None:
+    """Routes the composed application mounts before the console's."""
+    monkeypatch.setitem(_PAGE, "before", list(routes))
+
+
 @pytest.fixture
 def run(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> Any:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(settings, "frontend_url", "http://localhost:3000")
-    monkeypatch.setattr(settings, "admin_console_enabled", None)
+    _console_switch(monkeypatch, True)
     fields = set(settings.model_fields_set) - {"frontend_url"}
     monkeypatch.setattr(type(settings), "model_fields_set", property(lambda s: fields))
 
@@ -173,14 +260,18 @@ def run(
     return _run
 
 
+def _frontend(monkeypatch: pytest.MonkeyPatch, frontend: str) -> None:
+    monkeypatch.setattr(settings, "frontend_url", frontend)
+    fields = set(settings.model_fields_set) | {"frontend_url"}
+    monkeypatch.setattr(type(settings), "model_fields_set", property(lambda s: fields))
+
+
 def _prod(monkeypatch: pytest.MonkeyPatch, frontend: str | None = None) -> None:
+    """Production, where the console module serves no console by default."""
     monkeypatch.setattr(type(settings), "is_prod", property(lambda s: True))
+    _console_switch(monkeypatch, False)
     if frontend is not None:
-        monkeypatch.setattr(settings, "frontend_url", frontend)
-        fields = set(settings.model_fields_set) | {"frontend_url"}
-        monkeypatch.setattr(
-            type(settings), "model_fields_set", property(lambda s: fields)
-        )
+        _frontend(monkeypatch, frontend)
 
 
 def test_no_terminal_and_no_mode_names_both_flags(run: Any) -> None:
@@ -379,6 +470,123 @@ def test_production_needs_apply_confirm_and_reason(
     assert "?token=" not in out
 
 
+@pytest.mark.parametrize(
+    ("served", "environment", "link"),
+    [
+        (False, "dev", "https://app.example.com/auth/reset-password#token="),
+        (True, "prod", "https://app.example.com/admin/set-password#token="),
+        (True, "dev", "https://app.example.com/admin/set-password#token="),
+    ],
+)
+def test_link_target_follows_the_composed_apps_page(
+    run: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    served: bool,
+    environment: str,
+    link: str,
+) -> None:
+    """A mounted set-password page of the composed application (the console
+    names the route only while it serves it) picks the console; without one
+    the frontend's reset page. No setting name is read."""
+    if environment == "prod":
+        _prod(monkeypatch, "https://app.example.com")
+        extra = ("--apply", "--confirm-production", "--reason", "go-live")
+    else:
+        _frontend(monkeypatch, "https://app.example.com")
+        extra = ("--apply",)
+    _console_switch(monkeypatch, served)
+    code, out, _ = run(
+        _Security(), "create", "--email", "owner@example.com", "--invite", *extra
+    )
+    assert code == 0
+    assert link in out
+
+
+def test_no_page_and_no_frontend_refuses_before_acting(
+    run: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The token never goes into a link to a route that is not mounted."""
+    _console_switch(monkeypatch, False)
+    security = _Security()
+    code, out, err = run(
+        security, "create", "--email", "owner@example.com", "--invite", "--apply"
+    )
+    assert code == 2 and "serves no set-password page" in err
+    assert security.calls == [] and "set-password#" not in out + err
+
+
+def _squatter(path: str = "/notes/set-password") -> SimpleNamespace:
+    """Another module's page carrying the console page's route name."""
+    route = SimpleNamespace(path=path, name="set_password_page", methods={"GET"})
+    stamp_routes([route], "app.modules.notes")
+    return route
+
+
+def test_a_page_of_that_name_another_module_mounts_gets_no_token(
+    run: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the console module's page opens a link: another module's route of
+    that name (mounted first, the console off) is not the console's page, so
+    the link goes to the frontend's reset page."""
+    _frontend(monkeypatch, "https://app.example.com")
+    _console_switch(monkeypatch, False)
+    _mounted_first(monkeypatch, _squatter())
+    code, out, _ = run(
+        _Security(), "create", "--email", "owner@example.com", "--invite", "--apply"
+    )
+    assert code == 0
+    assert "https://app.example.com/auth/reset-password#token=" in out
+    assert "/notes/set-password" not in out
+
+
+def test_a_squatter_without_a_frontend_is_refused_before_acting(
+    run: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _console_switch(monkeypatch, False)
+    _mounted_first(monkeypatch, _squatter())
+    security = _Security()
+    code, out, err = run(
+        security, "create", "--email", "owner@example.com", "--invite", "--apply"
+    )
+    assert code == 2 and "serves no set-password page" in err
+    assert security.calls == [] and "/notes/set-password" not in out + err
+
+
+def test_a_second_console_entry_leaves_no_console_page(
+    run: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two modules answering the console's entry path: neither is the
+    console module, so no page of theirs opens a link."""
+    entry = SimpleNamespace(path="/admin/", name="other_index", methods={"GET"})
+    stamp_routes([entry], "app.modules.notes")
+    _console_switch(monkeypatch, True)
+    _mounted_first(monkeypatch, entry)
+    security = _Security()
+    code, _, err = run(
+        security, "create", "--email", "owner@example.com", "--invite", "--apply"
+    )
+    assert code == 2 and "serves no set-password page" in err
+    assert security.calls == []
+
+
+@pytest.mark.parametrize("served", [True, False])
+def test_two_routes_of_that_name_are_refused_before_acting(
+    run: Any, monkeypatch: pytest.MonkeyPatch, served: bool
+) -> None:
+    """Which page a link would open is ambiguous: refused, nothing done."""
+    _frontend(monkeypatch, "https://app.example.com")
+    _console_switch(monkeypatch, served)
+    _mounted_first(monkeypatch, _squatter(), _squatter("/other/set-password"))
+    security = _Security()
+    code, out, err = run(
+        security, "create", "--email", "owner@example.com", "--invite", "--apply"
+    )
+    assert code == 2
+    assert "routes are named 'set_password_page'" in err
+    assert "/notes/set-password (mounted by app.modules.notes)" in err
+    assert security.calls == [] and "#token=" not in out
+
+
 def test_production_invite_needs_frontend_url(
     run: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -452,18 +660,22 @@ def test_invite_reissues_a_link_for_an_admin_only(run: Any) -> None:
 
 def test_an_identity_service_without_the_methods_is_named(run: Any) -> None:
     class _Old:
+        contract_schema = SimpleNamespace(methods={"find_user_id"})
+
         async def find_user_id(self, email: str) -> None:
             return None
 
     code, _, err = run(_Old(), "create", "--email", "o@example.com", "--invite")
     assert code == 1
-    assert "identity" in err and "upgrade" in err
+    assert "SANDLOOM-B039" in err and "owner 'issuer' = identity" in err
+    assert "identity.security.v1 has no account_by_email" in err
     assert len(err.strip().splitlines()) == 1
 
 
 def test_no_identity_module_is_named(run: Any) -> None:
     code, _, err = run(None, "create", "--email", "o@example.com", "--invite")
-    assert code == 1 and "identity module" in err
+    assert code == 1 and "SANDLOOM-B039" in err
+    assert "identity.security.v1 is neither registered" in err
 
 
 async def test_grant_admin_refuses_an_unverified_account() -> None:
@@ -501,7 +713,7 @@ def test_admin_list_names_every_administrator_and_its_password(run: Any) -> None
 
 def test_admin_list_without_administrators_says_how_to_create_one(run: Any) -> None:
     class _Empty(_Security):
-        async def list_platform_admins(self) -> list[Any]:
+        async def platform_admin_ids(self) -> list[uuid.UUID]:
             return []
 
     code, out, _ = run(_Empty(), "list")
@@ -595,8 +807,30 @@ def test_the_prompt_names_whose_password_it_is(
     assert prompts[0].startswith(
         "Password for owner@example.com (console administrator of "
     )
-    assert "at least" in prompts[0]
+    assert "at least" not in prompts[0]  # the provider's rules, not the kernel's
     assert prompts[1] == "Repeat the password: "
+
+
+def test_only_the_providers_answer_decides_the_password(
+    run: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B-I1 / I-20: no kernel fallback policy. A 10-character password that
+    an 8-character length rule would pass is refused when the provider says
+    so; a 3-character one is accepted when the provider has no objection."""
+    weak = "ten-chars!"
+    security = _Security()
+    argv = ("create", "--email", "owner@example.com", "--password-stdin")
+    code, _, err = run(security, *argv, stdin=weak + "\n")
+    assert code == 2 and "too short" in err and security.calls == []
+
+    class _Lenient(_Security):
+        async def password_problem(self, email: str, password: str) -> str | None:
+            return None
+
+    lenient = _Lenient()
+    code, out, _ = run(lenient, *argv, stdin="abc\n")
+    assert code == 0, out
+    assert lenient.calls[-1][2] == "abc"
 
 
 def test_if_missing_needs_no_mode_for_an_existing_administrator(run: Any) -> None:

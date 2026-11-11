@@ -8,7 +8,9 @@ description: "Reference of sandloom.sdk.module: every public name with its signa
 # `sandloom.sdk.module`
 
 Modules: `define_module`, the L2 `register` form (`ModuleAPI`,
-`ModuleDescriptor`), requirements, health and loader results.
+`ModuleDescriptor`), requirements, health, loader results and a module's
+declared settings (`settings_of`, `SemanticSetting`, `RemovedSetting`,
+`Risk`).
 
 Public API 1.0 (spec §2.2, Appendix C).
 
@@ -28,6 +30,9 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`CapabilityRequirement`](#capabilityrequirement) | class | An infrastructure capability a module needs to function. |
 | [`ContractRequirement`](#contractrequirement) | class | A sync service contract a module CALLS (`core.get_service(name)`). |
 | [`FailedModule`](#failedmodule) | class | A module that failed to load, with its error and whether it was required. |
+| [`GenerationInput`](#generationinput) | class | What `sandloom generate` hands a module's generated-file renderer. |
+| [`GenerationIssuer`](#generationissuer) | class | The composition's assigned token issuer as a generated file's renderer sees it. |
+| [`GenerationModule`](#generationmodule) | class | One loaded module as a generated file's renderer sees it: data, not the module. |
 | [`HealthCheck`](#healthcheck) | callable |  |
 | [`HealthResult`](#healthresult) | class | Outcome of a module health check: a status plus optional details. |
 | [`HealthStatus`](#healthstatus) | callable |  |
@@ -35,6 +40,10 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`ModuleAPI`](#moduleapi) | class | Stable, minimal registration surface for business modules. |
 | [`ModuleDescriptor`](#moduledescriptor) | class | What a module returns from `register(core)` to describe itself. |
 | [`ModuleLoadSummary`](#moduleloadsummary) | class | Aggregate result of a load pass: loaded, skipped, failed, and duplicates. |
+| [`RemovedSetting`](#removedsetting) | class | A setting that no longer exists; still configuring it is reported. |
+| [`Risk`](#risk) | class | One stable, documented weakening a deployment may accept. |
+| [`SemanticSetting`](#semanticsetting) | class | A setting whose value changes a guarantee, defined per profile. |
+| [`settings_of`](#settings_of) | function | The validated settings `model` of the running application. |
 | [`SkippedModule`](#skippedmodule) | class | A module the loader skipped, with the reason why. |
 
 ## Beginner names
@@ -59,6 +68,11 @@ def define_module(
     router: Any = 'auto',
     events: Any = 'auto',
     issues_tokens: bool = False,
+    refresh_sessions: bool = True,
+    login_entry: str | None = None,
+    console_auth: Mapping[str, str] | None = None,
+    settings: type[BaseModel] | None = None,
+    generates: Mapping[str, Callable[[Any], str]] | None = None,
 ) -> Callable[[ModuleAPI], Any]
 ```
 
@@ -78,6 +92,53 @@ consumed contracts). `setup(core)` stays for what has no declaration
 (startup tasks, claims contributors, planner operations). `router=` /
 `events=` override discovery as today; `consumes` adds to the derived
 requirements. Modules are REQUIRED unless `optional=True`.
+
+`issues_tokens=True` marks the access-token issuer. An issuer ends its
+refresh sessions on an emergency block with a durable consumer of
+`core.auth.user_blocked.v1`; one that holds no refresh sessions
+declares `refresh_sessions=False` instead, which startup verifies
+against its refresh routes, session tables and consumers (SANDLOOM-B035).
+`login_entry="/auth/login"` declares, on the issuer only, the route path
+of its login endpoint: the admin console is served in front of the
+composition's `issuer` only when that issuer declares one (a module
+without it is a configuration error naming it); a value that is not a
+route path of this application is refused.
+`console_auth={"kind": "password", "refresh": "/auth/refresh",
+"logout": "/auth/logout", "me": "/auth/me"}` declares the console's
+sign-in protocol and optional session endpoints, all served by this
+issuer. `kind="id_token"` presents an external identity-token exchange
+instead of a password form; omit session endpoints for a stateless issuer.
+Refresh/logout accept `{"refresh_token": ...}`; refresh returns the
+token pair (`access_token`, `refresh_token`, `expires_in` in seconds).
+The optional me route returns profile fields (`full_name`, `email`),
+setup-state returns `{"has_admin": bool}`. Password login accepts
+`email`, `password` and optional `otp` and returns the token pair.
+The composition supplies the roles claim owner. Redirect-only sign-in
+is unsupported; the console needs a token exchange endpoint.
+
+`settings=` declares the module's settings: a plain pydantic
+`BaseModel` whose fields are aliased to their environment names
+(`Field(alias="INVENTORY_RESERVE_TTL_SECONDS")`). It is validated from
+the process's one read of the environment before anything else
+registers; an invalid value stops the boot (optional module or not).
+Read it with `settings_of(Model)` inside a request, a task or `setup`.
+Class attributes of the model, all optional plain data (annotate them
+`ClassVar`), tell the kernel's tools what the module needs: `semantic`,
+`risks` and `removed` (tiers, accepted risks, removed names),
+`console` (field names the admin console's settings view lists), `shared`
+(env names identical in every process that loads the module: the deploy
+profile check), `backup` (`(secret to keep, what losing it costs)` pairs
+for `sandloom backup plan`), `deploy` (the compose `environment:` lines
+`sandloom add deploy` writes for a service that loads the module),
+`dev_env` (`{ENV_NAME: value or callable}` for `sandloom keys dev-env`)
+and `dev_risks` (its risks that development stack accepts).
+
+`generates` declares files `sandloom generate` writes into the app's
+shared package: file name -> `render(source) -> str`, where `source` is
+the composed app as data (`sandloom.sdk.module.GenerationInput`:
+OpenAPI, routes, each loaded module's `admin.py` resources). `sandloom
+test` fails when a file is stale (SANDLOOM-T016). The admin console
+declares its manifest this way.
 
 ## Advanced names
 
@@ -140,6 +201,54 @@ class FailedModule(name: str, error: str, required: bool) -> None
 
 A module that failed to load, with its error and whether it was required.
 
+### `GenerationInput`
+
+```python
+class GenerationInput(
+    openapi: Mapping[str, Any],
+    routes: Mapping[tuple[str, str], str],
+    modules: tuple[GenerationModule, ...],
+    issuer: GenerationIssuer | None = None,
+) -> None
+```
+
+What `sandloom generate` hands a module's generated-file renderer.
+
+Data of the composed app (ADR-0012 decision 4): its OpenAPI document, its
+routes as `(path, METHOD) -> the endpoint's Python module` and every
+loaded module in load order. A renderer imports no other module.
+
+### `GenerationIssuer`
+
+```python
+class GenerationIssuer(
+    package: str,
+    name: str,
+    login_entry: str | None = None,
+    console_auth: Mapping[str, str] | None = None,
+) -> None
+```
+
+The composition's assigned token issuer as a generated file's renderer sees it.
+
+`package` is the import path the `claim_authorities` map assigns as
+`issuer` (never read from a token), `name` its module name and
+`login_entry` the login route the issuer declared on its registration
+(`define_module(login_entry=...)`; `None`: it declared none). A
+declaration the composition cannot honour is a `ValueError` of the
+collector, never a silent `None`.
+
+### `GenerationModule`
+
+```python
+class GenerationModule(package: str, name: str, admin_resources: Any = None) -> None
+```
+
+One loaded module as a generated file's renderer sees it: data, not the module.
+
+`package` is its import name, `name` its module name, `admin_resources`
+the `RESOURCES` its `admin.py` declares (`None` without one).
+
 ### `HealthCheck`
 
 ```python
@@ -192,6 +301,22 @@ methods buffer into it and are applied only on a successful commit; read
 methods always reflect the live facade. Without a draft (direct use in
 tests) writes apply to the facade immediately, preserving the simple API.
 
+#### `ModuleAPI.declare_settings`
+
+```python
+def declare_settings(self, model: type[M], *, package: str | None = None) -> M
+```
+
+Declare this module's settings model and return its instance.
+
+The model (a plain pydantic `BaseModel`, fields aliased to their
+environment names) is validated now, from the process's one read of
+the environment, before `setup` runs; `settings_of(model)` reads
+it afterwards. An invalid value raises `ModuleSettingsError` (a
+`ConfigurationError`: the boot stops, optional module or not).
+`define_module(settings=...)` calls this for you; `package`
+(default: the registering module) names the module in messages.
+
 #### `ModuleAPI.include_router`
 
 ```python
@@ -211,6 +336,21 @@ Register a sync service contract provided by this module.
 `database` overrides the database the contract runtime opens the
 provider's Unit of Work on; by default it is the database the module's
 descriptor declares (`ModuleDescriptor.database_instances()`).
+
+#### `ModuleAPI.claim_owner`
+
+```python
+def claim_owner(self, key: str) -> str | None
+```
+
+The public name of the module the composition's
+`claim_authorities` assigns the protected claim key `key`
+(`"roles"`), or `None` when it names none or that module has no
+name this process can vouch for (none declared in the map, not
+installed, not loaded here). Call it when a startup
+task runs, not from `setup` (the map is installed after the modules
+register); the owner's reserved `<name>.security.v1` is the
+contract that answers operator questions about that claim.
 
 #### `ModuleAPI.get_service`
 
@@ -256,13 +396,27 @@ def add_shutdown_task(self, task: ShutdownTask) -> None
 #### `ModuleAPI.register_health_check`
 
 ```python
-def register_health_check(self, name: str, fn: HealthCheck) -> None
+def register_health_check(
+    self,
+    name: str,
+    fn: HealthCheck,
+    *,
+    operational: bool = False,
+) -> None
 ```
+
+Register a health probe. Operational probes feed /health only.
 
 #### `ModuleAPI.add_claims_contributor`
 
 ```python
-def add_claims_contributor(self, fn: Any, *, critical: bool = False) -> None
+def add_claims_contributor(
+    self,
+    fn: Any,
+    *,
+    critical: bool = False,
+    fail_safe: Iterable[str] = (),
+) -> None
 ```
 
 Register a contributor of JWT claims (`async (user_id) -> dict`).
@@ -272,7 +426,10 @@ database (read it with `contract_session`); it is also exposed as
 the `<module>.claims.v1` contract so a token issuer in another process
 can collect it over RPC (`SERVICE_BINDINGS`). `critical=True`
 aborts token minting (503) if the contributor fails (use for security
-claims like roles/permissions and tenant allowlists).
+claims like roles/permissions and tenant allowlists). `fail_safe`
+names the keys whose every reader escalates or answers indeterminate
+when they are absent: only those may come from a non-critical
+contributor (ADR-0014 decision 7), and they are protected claims.
 
 #### `ModuleAPI.register_query_projection`
 
@@ -369,7 +526,8 @@ def register_access_fact(self, fact: Any) -> None
 Register an `sandloom.shared.authz.facts.AccessFact`.
 
 Binds a fact name to its claim/projection/live resolution paths so
-`Entitled(name)` policies resolve it by configuration.
+`Entitled(name, owner=<this module>)` policies resolve it by
+configuration.
 
 #### `ModuleAPI.register_operations`
 
@@ -417,6 +575,10 @@ class ModuleDescriptor(
     migrations_chain: str | None = None,
     consumes: list[ContractRequirement] = <factory>,
     issues_tokens: bool = False,
+    refresh_sessions: bool = True,
+    login_entry: str | None = None,
+    generated_files: dict[str, GeneratedFileRenderer] = <factory>,
+    console_auth: Mapping[str, str] | None = None,
 ) -> None
 ```
 
@@ -435,7 +597,16 @@ entities by plain UUID — never declare cross-module foreign keys.
 def effective_capabilities(self) -> list[CapabilityRequirement]
 ```
 
-Capabilities to preflight at load (the declared list).
+Capabilities to preflight at load: the declared ones, plus what the
+module's code shows it needs: `taskqueue` for a `tasks` submodule,
+with the feature `periodic` for its beat hook
+(`setup_periodic_tasks`).
+
+A declaration wins: a derived need adds its features to every declared
+requirement of the same capability and never changes its `required`
+or `instance`; only a capability nothing declares is added, required,
+on the `default` instance. Read from the module's files (no import),
+so `sandloom check` (SANDLOOM-C033) still asks for the declaration.
 
 #### `ModuleDescriptor.migration_chain_key`
 
@@ -494,6 +665,82 @@ def success(self) -> bool
 ```python
 def to_dict(self) -> dict[str, Any]
 ```
+
+### `RemovedSetting`
+
+```python
+class RemovedSetting(
+    name: str,
+    removed_in: str,
+    hint: str,
+    inert: object = False,
+) -> None
+```
+
+A setting that no longer exists; still configuring it is reported.
+
+Set to its `inert` value (today's only behaviour) it logs a warning;
+any other value fails startup — that behaviour is gone.
+
+### `Risk`
+
+```python
+class Risk(
+    id: str,
+    weakens: str,
+    consulted_by: str,
+    refused: frozenset[str] = frozenset(),
+    outside_prod: bool = False,
+) -> None
+```
+
+One stable, documented weakening a deployment may accept.
+
+### `SemanticSetting`
+
+```python
+class SemanticSetting(
+    name: str,
+    why: str,
+    profile: Mapping[str, object],
+    strength: tuple[object, ...] = (),
+    refused: frozenset[str] = frozenset(),
+    effective: Callable[[Any], object] | None = None,
+    applies: Callable[[Any], bool] | None = None,
+    adr: str | None = None,
+    selector: bool = False,
+    infra_option: bool = False,
+    risk: str | None = None,
+    risk_list: bool = False,
+) -> None
+```
+
+A setting whose value changes a guarantee, defined per profile.
+
+#### `SemanticSetting.value`
+
+```python
+def value(self, cfg: Any) -> object
+```
+
+#### `SemanticSetting.weaker`
+
+```python
+def weaker(self, value: object, than: object) -> bool
+```
+
+### `settings_of`
+
+```python
+def settings_of(model: type[M]) -> M
+```
+
+The validated settings `model` of the running application.
+
+Call it where the application is bound (a request, a task, a consumer,
+the module's `setup`), never at import: with no application bound it
+raises `SettingsNotBoundError`, which is how the import audit
+catches a module-level read.
 
 ### `SkippedModule`
 

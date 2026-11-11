@@ -82,6 +82,10 @@
     "served_rpc": {
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any, app:POSITIONAL_OR_KEYWORD|Any=None, settings:POSITIONAL_OR_KEYWORD|Any=None) -> AsyncIterator[str]"
+    },
+    "split_env": {
+      "kind": "function",
+      "signature": "(processes:POSITIONAL_OR_KEYWORD|Mapping[str, Sequence[str]], urls:POSITIONAL_OR_KEYWORD|Mapping[str, str], issuer:KEYWORD_ONLY|str, bindings:KEYWORD_ONLY|Mapping[str, Mapping[str, Mapping[str, Any]]] | None=None) -> dict[str, dict[str, str]]"
     }
   },
   "sandloom.core.descriptors": {
@@ -186,22 +190,26 @@
       "kind": "class",
       "members": [
         "capabilities",
+        "console_auth",
         "consumes",
         "database_instances",
         "depends_on",
         "effective_capabilities",
+        "generated_files",
         "health_check",
         "issues_tokens",
+        "login_entry",
         "migration_chain_key",
         "migrations_chain",
         "migrations_database",
         "migrations_path",
         "name",
         "optional",
+        "refresh_sessions",
         "routes",
         "version"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, optional:POSITIONAL_OR_KEYWORD|bool=False, routes:POSITIONAL_OR_KEYWORD|APIRouter | None=None, health_check:POSITIONAL_OR_KEYWORD|HealthCheck | None=None, migrations_path:POSITIONAL_OR_KEYWORD|str | None=None, depends_on:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, capabilities:POSITIONAL_OR_KEYWORD|list[CapabilityRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, migrations_database:POSITIONAL_OR_KEYWORD|str | None=None, migrations_chain:POSITIONAL_OR_KEYWORD|str | None=None, consumes:POSITIONAL_OR_KEYWORD|list[ContractRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, issues_tokens:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, optional:POSITIONAL_OR_KEYWORD|bool=False, routes:POSITIONAL_OR_KEYWORD|APIRouter | None=None, health_check:POSITIONAL_OR_KEYWORD|HealthCheck | None=None, migrations_path:POSITIONAL_OR_KEYWORD|str | None=None, depends_on:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, capabilities:POSITIONAL_OR_KEYWORD|list[CapabilityRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, migrations_database:POSITIONAL_OR_KEYWORD|str | None=None, migrations_chain:POSITIONAL_OR_KEYWORD|str | None=None, consumes:POSITIONAL_OR_KEYWORD|list[ContractRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, issues_tokens:POSITIONAL_OR_KEYWORD|bool=False, refresh_sessions:POSITIONAL_OR_KEYWORD|bool=True, login_entry:POSITIONAL_OR_KEYWORD|str | None=None, generated_files:POSITIONAL_OR_KEYWORD|dict[str, GeneratedFileRenderer]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, console_auth:POSITIONAL_OR_KEYWORD|Mapping[str, str] | None=None) -> None"
     },
     "ModuleLoadSummary": {
       "kind": "class",
@@ -682,7 +690,11 @@
     },
     "create_access_token": {
       "kind": "function",
-      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None, claims_read_at:KEYWORD_ONLY|datetime | None=None) -> str"
+      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None, claims_read_at:KEYWORD_ONLY|datetime | None=None, claims:KEYWORD_ONLY|SealedClaims | None=None) -> str"
+    },
+    "create_service_token": {
+      "kind": "function",
+      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None) -> str"
     },
     "current_tenant_id": {
       "kind": "function",
@@ -931,11 +943,14 @@
     "CoreFacade": {
       "kind": "class",
       "members": [
+        "access_provider_problems",
         "add_claims_contributor",
         "add_shutdown_task",
         "add_startup_task",
         "cache",
         "capability",
+        "claim_authorities",
+        "claim_owner",
         "claims_contributors",
         "collect_claims",
         "contract_database",
@@ -964,6 +979,7 @@
         "logger_factory",
         "module_descriptors",
         "module_registration",
+        "module_settings",
         "notifier",
         "objectstore",
         "projection_registry",
@@ -996,7 +1012,8 @@
         "startup_task_phased_specs",
         "startup_task_specs",
         "startup_tasks",
-        "taskqueue"
+        "taskqueue",
+        "tenant_witness"
       ],
       "signature": "(app:POSITIONAL_OR_KEYWORD|FastAPI, settings_obj:POSITIONAL_OR_KEYWORD|Settings | None=None, service_registry:POSITIONAL_OR_KEYWORD|ServiceRegistry | None=None, get_db:POSITIONAL_OR_KEYWORD|Callable[[], Awaitable[AsyncSession]] | Callable[[], AsyncGenerator[AsyncSession, None]] | None=None) -> None"
     },
@@ -1045,6 +1062,17 @@
   "sandloom.core.module_api": {
     "AUTO": {
       "kind": "value"
+    },
+    "AccessUnknown": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
     },
     "BACKWARD": {
       "kind": "value"
@@ -1118,6 +1146,7 @@
     "ContractMethodRuntime": {
       "kind": "class",
       "members": [
+        "access_check",
         "bind",
         "decode_result",
         "describe",
@@ -1129,7 +1158,7 @@
         "result_plan",
         "risk"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, kind:POSITIONAL_OR_KEYWORD|Literal['read', 'command'], signature:POSITIONAL_OR_KEYWORD|inspect.Signature, annotations:POSITIONAL_OR_KEYWORD|dict[str, Any], returns:POSITIONAL_OR_KEYWORD|Any, idempotency_key:POSITIONAL_OR_KEYWORD|str | None=None, idempotency_scope:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), risk:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, kind:POSITIONAL_OR_KEYWORD|Literal['read', 'command'], signature:POSITIONAL_OR_KEYWORD|inspect.Signature, annotations:POSITIONAL_OR_KEYWORD|dict[str, Any], returns:POSITIONAL_OR_KEYWORD|Any, idempotency_key:POSITIONAL_OR_KEYWORD|str | None=None, idempotency_scope:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), risk:POSITIONAL_OR_KEYWORD|str | None=None, access_check:POSITIONAL_OR_KEYWORD|dict[str, Any] | None=None) -> None"
     },
     "ContractMethodSpec": {
       "kind": "class",
@@ -1207,6 +1236,8 @@
         "add_claims_contributor",
         "add_shutdown_task",
         "add_startup_task",
+        "claim_owner",
+        "declare_settings",
         "get_schema_registry",
         "get_service",
         "include_router",
@@ -1245,6 +1276,16 @@
       ],
       "signature": "() -> None"
     },
+    "ModuleSettingsError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "with_traceback"
+      ],
+      "signature": null
+    },
     "ReadContractWriteError": {
       "kind": "class",
       "members": [
@@ -1253,6 +1294,27 @@
         "with_traceback"
       ],
       "signature": null
+    },
+    "RemovedSetting": {
+      "kind": "class",
+      "members": [
+        "hint",
+        "inert",
+        "name",
+        "removed_in"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, removed_in:POSITIONAL_OR_KEYWORD|str, hint:POSITIONAL_OR_KEYWORD|str, inert:POSITIONAL_OR_KEYWORD|object=False) -> None"
+    },
+    "Risk": {
+      "kind": "class",
+      "members": [
+        "consulted_by",
+        "id",
+        "outside_prod",
+        "refused",
+        "weakens"
+      ],
+      "signature": "(id:POSITIONAL_OR_KEYWORD|str, weakens:POSITIONAL_OR_KEYWORD|str, consulted_by:POSITIONAL_OR_KEYWORD|str, refused:POSITIONAL_OR_KEYWORD|frozenset[str]=frozenset(), outside_prod:POSITIONAL_OR_KEYWORD|bool=False) -> None"
     },
     "Saga": {
       "kind": "class",
@@ -1288,6 +1350,26 @@
         "with_traceback"
       ],
       "signature": null
+    },
+    "SemanticSetting": {
+      "kind": "class",
+      "members": [
+        "adr",
+        "applies",
+        "effective",
+        "infra_option",
+        "name",
+        "profile",
+        "refused",
+        "risk",
+        "risk_list",
+        "selector",
+        "strength",
+        "value",
+        "weaker",
+        "why"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, why:POSITIONAL_OR_KEYWORD|str, profile:POSITIONAL_OR_KEYWORD|Mapping[str, object], strength:POSITIONAL_OR_KEYWORD|tuple[object, ...]=tuple(), refused:POSITIONAL_OR_KEYWORD|frozenset[str]=frozenset(), effective:POSITIONAL_OR_KEYWORD|Callable[[Any], object] | None=None, applies:POSITIONAL_OR_KEYWORD|Callable[[Any], bool] | None=None, adr:POSITIONAL_OR_KEYWORD|str | None=None, selector:POSITIONAL_OR_KEYWORD|bool=False, infra_option:POSITIONAL_OR_KEYWORD|bool=False, risk:POSITIONAL_OR_KEYWORD|str | None=None, risk_list:POSITIONAL_OR_KEYWORD|bool=False) -> None"
     },
     "StepKind": {
       "kind": "class",
@@ -1399,7 +1481,7 @@
     },
     "define_module": {
       "kind": "function",
-      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False) -> Callable[[ModuleAPI], Any]"
+      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False, refresh_sessions:KEYWORD_ONLY|bool=True, login_entry:KEYWORD_ONLY|str | None=None, console_auth:KEYWORD_ONLY|Mapping[str, str] | None=None, settings:KEYWORD_ONLY|type[BaseModel] | None=None) -> Callable[[ModuleAPI], Any]"
     },
     "invalidate_contract_read_memo": {
       "kind": "function",
@@ -1417,13 +1499,29 @@
       "kind": "function",
       "signature": "(parts:VAR_POSITIONAL|object) -> str"
     },
+    "override_settings": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|type[M], values:VAR_KEYWORD|Any) -> Iterator[M]"
+    },
     "run_contract_call": {
       "kind": "function",
       "signature": "(func:POSITIONAL_OR_KEYWORD|Callable[..., Awaitable[Any]], args:POSITIONAL_OR_KEYWORD|tuple[Any, ...], kwargs:POSITIONAL_OR_KEYWORD|dict[str, Any], spec:KEYWORD_ONLY|ContractMethodSpec, core:KEYWORD_ONLY|Any=None, database:KEYWORD_ONLY|str='default', contract:KEYWORD_ONLY|str | None=None) -> Any"
     },
+    "secret_problem": {
+      "kind": "function",
+      "signature": "(value:POSITIONAL_OR_KEYWORD|str, min_length:KEYWORD_ONLY|int=32) -> str | None"
+    },
+    "settings_of": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|type[M]) -> M"
+    },
     "step": {
       "kind": "function",
       "signature": "(name:POSITIONAL_OR_KEYWORD|str, call:KEYWORD_ONLY|str, args:KEYWORD_ONLY|ArgsFn, compensate:KEYWORD_ONLY|str | None=None, compensate_args:KEYWORD_ONLY|ArgsFn | None=None, kind:KEYWORD_ONLY|StepKind | str | None=None, refuse_on:KEYWORD_ONLY|Iterable[int]=tuple(), check_args:KEYWORD_ONLY|bool=True, deadline:KEYWORD_ONLY|timedelta | None=None) -> CommandStep"
+    },
+    "validate_settings": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|type[M], env:POSITIONAL_OR_KEYWORD|Mapping[str, str] | None=None, environment:KEYWORD_ONLY|str | None=None, accepted_risks:KEYWORD_ONLY|Iterable[str] | None=None, package:KEYWORD_ONLY|str | None=None) -> M"
     }
   },
   "sandloom.core.orm": {
@@ -2062,8 +2160,10 @@
         "incr",
         "incr_many",
         "incr_window",
+        "install_hint",
         "options_schema",
         "raw_client",
+        "required_imports",
         "set",
         "set_many",
         "set_max",
@@ -2216,7 +2316,7 @@
     },
     "fake_access_fact": {
       "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, value:POSITIONAL_OR_KEYWORD|bool | Callable[[Any], Any]=True, deny_category:KEYWORD_ONLY|str | None=None, core:KEYWORD_ONLY|Any=None) -> Iterator[None]"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, value:POSITIONAL_OR_KEYWORD|bool | Callable[[Any], Any]=True, owner:KEYWORD_ONLY|str, deny_category:KEYWORD_ONLY|str | None=None, core:KEYWORD_ONLY|Any=None) -> Iterator[None]"
     },
     "flush_owned_redis": {
       "kind": "function",
@@ -2241,6 +2341,10 @@
     "migration_drift": {
       "kind": "function",
       "signature": "(module:POSITIONAL_OR_KEYWORD|str, core:KEYWORD_ONLY|Any=None) -> list[str]"
+    },
+    "mint_test_token": {
+      "kind": "function",
+      "signature": "(data:POSITIONAL_OR_KEYWORD|Mapping[str, Any], expires_delta:POSITIONAL_OR_KEYWORD|int | None=None, claims_read_at:KEYWORD_ONLY|datetime | None=None) -> str"
     },
     "model_tables": {
       "kind": "function",
@@ -2289,6 +2393,10 @@
     "run_sql": {
       "kind": "function",
       "signature": "(url:POSITIONAL_OR_KEYWORD|str, sql:POSITIONAL_OR_KEYWORD|str, params:POSITIONAL_OR_KEYWORD|Any=None) -> list[Any]"
+    },
+    "sealed_claims": {
+      "kind": "function",
+      "signature": "(claims:POSITIONAL_OR_KEYWORD|Mapping[str, Any]) -> SealedClaims"
     },
     "set_environment": {
       "kind": "function",
@@ -2451,7 +2559,9 @@
         "features_for",
         "from_config",
         "health",
+        "install_hint",
         "options_schema",
+        "required_imports",
         "supported_features"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
@@ -2483,7 +2593,9 @@
         "features_for",
         "from_config",
         "health",
+        "install_hint",
         "options_schema",
+        "required_imports",
         "send",
         "supported_features"
       ],
@@ -2558,24 +2670,6 @@
       "kind": "callable",
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
-    "Credits": {
-      "kind": "class",
-      "members": [
-        "adapter",
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "org_params",
-        "risks",
-        "tenant_type",
-        "tier"
-      ],
-      "signature": "(minimum:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
-    },
     "CurrentUser": {
       "kind": "callable",
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
@@ -2617,23 +2711,6 @@
       ],
       "signature": "() -> None"
     },
-    "OrgRole": {
-      "kind": "class",
-      "members": [
-        "adapter",
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "org_params",
-        "risks",
-        "tier"
-      ],
-      "signature": "(minimum:POSITIONAL_OR_KEYWORD|str, org_param:KEYWORD_ONLY|str='org_id', adapter:KEYWORD_ONLY|Any=None) -> None"
-    },
     "Owner": {
       "kind": "class",
       "members": [
@@ -2644,46 +2721,12 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
       ],
       "signature": "(get_owner:POSITIONAL_OR_KEYWORD|Callable[[Any], UUID | None]) -> None"
-    },
-    "Subscribed": {
-      "kind": "class",
-      "members": [
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "org_params",
-        "risks",
-        "tenant_type",
-        "tier"
-      ],
-      "signature": "(statuses:POSITIONAL_OR_KEYWORD|frozenset[str] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='subscription_status') -> None"
-    },
-    "SubscriptionActive": {
-      "kind": "class",
-      "members": [
-        "adapter",
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "org_params",
-        "risks",
-        "tenant_type",
-        "tier"
-      ],
-      "signature": "(of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
     },
     "TenantScoped": {
       "kind": "class",
@@ -2753,7 +2796,7 @@
     },
     "define_module": {
       "kind": "function",
-      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False) -> Callable[[ModuleAPI], Any]"
+      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False, refresh_sessions:KEYWORD_ONLY|bool=True, login_entry:KEYWORD_ONLY|str | None=None, console_auth:KEYWORD_ONLY|Mapping[str, str] | None=None, settings:KEYWORD_ONLY|type[BaseModel] | None=None, generates:KEYWORD_ONLY|Mapping[str, Callable[[Any], str]] | None=None) -> Callable[[ModuleAPI], Any]"
     },
     "module_router": {
       "kind": "function",
@@ -2785,19 +2828,32 @@
     }
   },
   "sandloom.sdk.app": {
+    "Authority": {
+      "kind": "class",
+      "members": [
+        "fail_safe",
+        "module",
+        "previous"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, module:POSITIONAL_OR_KEYWORD|str | None=None, previous:POSITIONAL_OR_KEYWORD|Authority | None=None, fail_safe:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+    },
+    "LegacyClaimsTokens": {
+      "kind": "class",
+      "members": [
+        "until_timestamp"
+      ],
+      "signature": "(until:POSITIONAL_OR_KEYWORD|str | datetime) -> None"
+    },
     "app_modules": {
       "kind": "function",
       "signature": "(package:POSITIONAL_OR_KEYWORD|str) -> list[str]"
     },
     "create_app": {
       "kind": "function",
-      "signature": "(default_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), default_optional_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), title:KEYWORD_ONLY|str='Sandloom Framework') -> fastapi.applications.FastAPI"
+      "signature": "(default_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), default_optional_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), title:KEYWORD_ONLY|str='Sandloom Framework', claim_authorities:KEYWORD_ONLY|collections.abc.Mapping[str, str | sandloom.core.claims.Authority] | None=None, default_claim_authorities:KEYWORD_ONLY|collections.abc.Mapping[str, str | sandloom.core.claims.Authority] | None=None, legacy_tokens:KEYWORD_ONLY|sandloom.core.claims.LegacyClaimsTokens | None=None, access_providers:KEYWORD_ONLY|collections.abc.Mapping[str, str] | None=None) -> fastapi.applications.FastAPI"
     }
   },
   "sandloom.sdk.authz": {
-    "ACTIVE_SUBSCRIPTION_STATUSES": {
-      "kind": "value"
-    },
     "AccessDecision": {
       "kind": "class",
       "members": [
@@ -2830,6 +2886,11 @@
     "AccessFact": {
       "kind": "class",
       "members": [
+        "absent_claim",
+        "atom",
+        "atom_claim_keys",
+        "atom_describe",
+        "atom_statuses",
         "build_facts_contract",
         "claim_key",
         "claim_rule",
@@ -2843,7 +2904,18 @@
         "projection_reader",
         "to_wire"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None, atom:POSITIONAL_OR_KEYWORD|str | None=None, atom_statuses:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_claim_keys:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_describe:POSITIONAL_OR_KEYWORD|str | None=None, absent_claim:POSITIONAL_OR_KEYWORD|str='unknown') -> None"
+    },
+    "AccessUnknown": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Account": {
       "kind": "class",
@@ -2868,6 +2940,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -2896,6 +2969,40 @@
       ],
       "signature": "()"
     },
+    "ClaimFactCheck": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "needs_request_session",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(statuses:POSITIONAL_OR_KEYWORD|Iterable[str] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ClaimReadCheck": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "needs_request_session",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(params:POSITIONAL_OR_KEYWORD|Mapping[str, Any] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str | None=None) -> None"
+    },
     "ClaimRule": {
       "kind": "class",
       "members": [
@@ -2909,10 +3016,9 @@
       ],
       "signature": "(kind:POSITIONAL_OR_KEYWORD|str='truthy', values:POSITIONAL_OR_KEYWORD|frozenset[Any]=frozenset()) -> None"
     },
-    "Credits": {
+    "ContractCheck": {
       "kind": "class",
       "members": [
-        "adapter",
         "category",
         "code",
         "contracts",
@@ -2920,15 +3026,12 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
-        "tenant_type",
         "tier"
       ],
-      "signature": "(minimum:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
-    },
-    "ENTITLEMENTS": {
-      "kind": "value"
+      "signature": "(params:POSITIONAL_OR_KEYWORD|Mapping[str, Any] | None=None, of:KEYWORD_ONLY|Account | None=None, org_param:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Entitled": {
       "kind": "class",
@@ -2940,19 +3043,12 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
       ],
-      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None) -> None"
-    },
-    "EntitlementsAdapter": {
-      "kind": "class",
-      "members": [
-        "credit_balance",
-        "subscription_active"
-      ],
-      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, owner:KEYWORD_ONLY|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None) -> None"
     },
     "FactDenied": {
       "kind": "class",
@@ -2981,25 +3077,15 @@
       ],
       "signature": null
     },
-    "Feature": {
+    "From": {
       "kind": "class",
       "members": [
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "org_fact",
-        "org_params",
-        "risks",
-        "tier"
+        "account_id",
+        "account_type",
+        "org",
+        "subject_id"
       ],
-      "signature": "(key:POSITIONAL_OR_KEYWORD|str, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='features') -> None"
-    },
-    "MEMBERSHIP": {
-      "kind": "value"
+      "signature": "()"
     },
     "MODE_AUTO": {
       "kind": "value"
@@ -3013,13 +3099,6 @@
     "MODE_PROJECTION": {
       "kind": "value"
     },
-    "MembershipAdapter": {
-      "kind": "class",
-      "members": [
-        "has_role_at_least"
-      ],
-      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
-    },
     "Not": {
       "kind": "class",
       "members": [
@@ -3030,6 +3109,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -3046,28 +3126,12 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
       ],
       "signature": "(parts:VAR_POSITIONAL|Requirement) -> None"
-    },
-    "OrgRole": {
-      "kind": "class",
-      "members": [
-        "adapter",
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "org_params",
-        "risks",
-        "tier"
-      ],
-      "signature": "(minimum:POSITIONAL_OR_KEYWORD|str, org_param:KEYWORD_ONLY|str='org_id', adapter:KEYWORD_ONLY|Any=None) -> None"
     },
     "Owner": {
       "kind": "class",
@@ -3079,6 +3143,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -3095,26 +3160,12 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
       ],
       "signature": "(perm:POSITIONAL_OR_KEYWORD|str) -> None"
-    },
-    "Permissions": {
-      "kind": "class",
-      "members": [
-        "PERMISSIONS_READ",
-        "PERMISSIONS_WRITE",
-        "ROLES_DELETE",
-        "ROLES_READ",
-        "ROLES_WRITE",
-        "SYSTEM_ADMIN",
-        "USERS_DELETE",
-        "USERS_READ",
-        "USERS_WRITE"
-      ],
-      "signature": "()"
     },
     "PolicyIndeterminate": {
       "kind": "class",
@@ -3135,6 +3186,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -3151,20 +3203,12 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
       ],
       "signature": "(role:POSITIONAL_OR_KEYWORD|str) -> None"
-    },
-    "Roles": {
-      "kind": "class",
-      "members": [
-        "ADMIN",
-        "OPS",
-        "SUPPORT"
-      ],
-      "signature": "()"
     },
     "SOURCE_HTTP": {
       "kind": "value"
@@ -3178,41 +3222,6 @@
     "SOURCE_TASK": {
       "kind": "value"
     },
-    "Subscribed": {
-      "kind": "class",
-      "members": [
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "org_params",
-        "risks",
-        "tenant_type",
-        "tier"
-      ],
-      "signature": "(statuses:POSITIONAL_OR_KEYWORD|frozenset[str] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='subscription_status') -> None"
-    },
-    "SubscriptionActive": {
-      "kind": "class",
-      "members": [
-        "adapter",
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "org_params",
-        "risks",
-        "tenant_type",
-        "tier"
-      ],
-      "signature": "(of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
-    },
     "TIER_CLAIM": {
       "kind": "value"
     },
@@ -3222,22 +3231,9 @@
     "TIER_RESOURCE": {
       "kind": "value"
     },
-    "WithinLimit": {
-      "kind": "class",
-      "members": [
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "org_fact",
-        "org_params",
-        "risks",
-        "tier"
-      ],
-      "signature": "(key:POSITIONAL_OR_KEYWORD|str, used:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='limits') -> None"
+    "access_check": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, bind:KEYWORD_ONLY|Mapping[str, list[Any]], category:KEYWORD_ONLY|str='forbidden', values:KEYWORD_ONLY|Mapping[str, Iterable[Any]] | None=None, risk:KEYWORD_ONLY|Mapping[str, Mapping[str, Iterable[Any]]] | None=None, describe:KEYWORD_ONLY|str | None=None, claim:KEYWORD_ONLY|Any=None, witnesses_membership:KEYWORD_ONLY|Mapping[str, Any] | None=None) -> Callable[[Any], Any]"
     },
     "authorize": {
       "kind": "function",
@@ -3246,6 +3242,10 @@
     "authorize_resource": {
       "kind": "function",
       "signature": "(loader:KEYWORD_ONLY|Callable[[Any, AsyncSession], Awaitable[Any]], by:KEYWORD_ONLY|str, policy:KEYWORD_ONLY|Requirement, cast:KEYWORD_ONLY|Callable[[str], Any] | None=None, not_found_detail:KEYWORD_ONLY|str='Not found', status_code:KEYWORD_ONLY|int | None=None) -> Callable[..., Awaitable[Any]]"
+    },
+    "claim_atom": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, claim_key:KEYWORD_ONLY|str, entry:KEYWORD_ONLY|str, below:KEYWORD_ONLY|str | None=None, claim_keys:KEYWORD_ONLY|Iterable[str]=tuple()) -> Callable[[Any], Any]"
     },
     "current_context": {
       "kind": "function",
@@ -3257,7 +3257,7 @@
     },
     "lookup_access_fact": {
       "kind": "function",
-      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str) -> AccessFact | None"
+      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str, owner:KEYWORD_ONLY|str) -> AccessFact | None"
     },
     "make_rebuild_gate": {
       "kind": "function",
@@ -3266,10 +3266,6 @@
     "register_authz_projection": {
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any, descriptor:KEYWORD_ONLY|Any, consumers:KEYWORD_ONLY|list[Any], rebuilder:KEYWORD_ONLY|Any, rebuild_on_startup:KEYWORD_ONLY|bool=False, critical:KEYWORD_ONLY|bool=True) -> None"
-    },
-    "register_live_adapter": {
-      "kind": "function",
-      "signature": "(kind:POSITIONAL_OR_KEYWORD|str, adapter:POSITIONAL_OR_KEYWORD|Any) -> None"
     },
     "require": {
       "kind": "function",
@@ -3299,6 +3295,7 @@
     "ContractMethodRuntime": {
       "kind": "class",
       "members": [
+        "access_check",
         "bind",
         "decode_result",
         "describe",
@@ -3310,7 +3307,7 @@
         "result_plan",
         "risk"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, kind:POSITIONAL_OR_KEYWORD|Literal['read', 'command'], signature:POSITIONAL_OR_KEYWORD|inspect.Signature, annotations:POSITIONAL_OR_KEYWORD|dict[str, Any], returns:POSITIONAL_OR_KEYWORD|Any, idempotency_key:POSITIONAL_OR_KEYWORD|str | None=None, idempotency_scope:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), risk:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, kind:POSITIONAL_OR_KEYWORD|Literal['read', 'command'], signature:POSITIONAL_OR_KEYWORD|inspect.Signature, annotations:POSITIONAL_OR_KEYWORD|dict[str, Any], returns:POSITIONAL_OR_KEYWORD|Any, idempotency_key:POSITIONAL_OR_KEYWORD|str | None=None, idempotency_scope:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), risk:POSITIONAL_OR_KEYWORD|str | None=None, access_check:POSITIONAL_OR_KEYWORD|dict[str, Any] | None=None) -> None"
     },
     "ContractMethodSpec": {
       "kind": "class",
@@ -3444,6 +3441,10 @@
       "kind": "function",
       "signature": "() -> ContractReadScope | None"
     },
+    "dto_copy": {
+      "kind": "function",
+      "signature": "(origin:POSITIONAL_OR_KEYWORD|str) -> Callable[[T], T]"
+    },
     "invalidate_contract_read_memo": {
       "kind": "function",
       "signature": "() -> None"
@@ -3459,6 +3460,10 @@
     "service": {
       "kind": "function",
       "signature": "(name:POSITIONAL_OR_KEYWORD|str, optional:KEYWORD_ONLY|bool=False) -> Any"
+    },
+    "undigested": {
+      "kind": "function",
+      "signature": "(names:VAR_POSITIONAL|str) -> Callable[[Any], Any]"
     }
   },
   "sandloom.sdk.data": {
@@ -4433,11 +4438,14 @@
     "CoreFacade": {
       "kind": "class",
       "members": [
+        "access_provider_problems",
         "add_claims_contributor",
         "add_shutdown_task",
         "add_startup_task",
         "cache",
         "capability",
+        "claim_authorities",
+        "claim_owner",
         "claims_contributors",
         "collect_claims",
         "contract_database",
@@ -4466,6 +4474,7 @@
         "logger_factory",
         "module_descriptors",
         "module_registration",
+        "module_settings",
         "notifier",
         "objectstore",
         "projection_registry",
@@ -4498,7 +4507,8 @@
         "startup_task_phased_specs",
         "startup_task_specs",
         "startup_tasks",
-        "taskqueue"
+        "taskqueue",
+        "tenant_witness"
       ],
       "signature": "(app:POSITIONAL_OR_KEYWORD|FastAPI, settings_obj:POSITIONAL_OR_KEYWORD|Settings | None=None, service_registry:POSITIONAL_OR_KEYWORD|ServiceRegistry | None=None, get_db:POSITIONAL_OR_KEYWORD|Callable[[], Awaitable[AsyncSession]] | Callable[[], AsyncGenerator[AsyncSession, None]] | None=None) -> None"
     },
@@ -4647,6 +4657,28 @@
       ],
       "signature": "(name:POSITIONAL_OR_KEYWORD|str, error:POSITIONAL_OR_KEYWORD|str, required:POSITIONAL_OR_KEYWORD|bool) -> None"
     },
+    "GenerationInput": {
+      "kind": "class",
+      "members": [
+        "issuer"
+      ],
+      "signature": "(openapi:POSITIONAL_OR_KEYWORD|Mapping[str, Any], routes:POSITIONAL_OR_KEYWORD|Mapping[tuple[str, str], str], modules:POSITIONAL_OR_KEYWORD|tuple[GenerationModule, ...], issuer:POSITIONAL_OR_KEYWORD|GenerationIssuer | None=None) -> None"
+    },
+    "GenerationIssuer": {
+      "kind": "class",
+      "members": [
+        "console_auth",
+        "login_entry"
+      ],
+      "signature": "(package:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str, login_entry:POSITIONAL_OR_KEYWORD|str | None=None, console_auth:POSITIONAL_OR_KEYWORD|Mapping[str, str] | None=None) -> None"
+    },
+    "GenerationModule": {
+      "kind": "class",
+      "members": [
+        "admin_resources"
+      ],
+      "signature": "(package:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str, admin_resources:POSITIONAL_OR_KEYWORD|Any=None) -> None"
+    },
     "HealthCheck": {
       "kind": "callable",
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
@@ -4678,6 +4710,8 @@
         "add_claims_contributor",
         "add_shutdown_task",
         "add_startup_task",
+        "claim_owner",
+        "declare_settings",
         "get_schema_registry",
         "get_service",
         "include_router",
@@ -4702,22 +4736,26 @@
       "kind": "class",
       "members": [
         "capabilities",
+        "console_auth",
         "consumes",
         "database_instances",
         "depends_on",
         "effective_capabilities",
+        "generated_files",
         "health_check",
         "issues_tokens",
+        "login_entry",
         "migration_chain_key",
         "migrations_chain",
         "migrations_database",
         "migrations_path",
         "name",
         "optional",
+        "refresh_sessions",
         "routes",
         "version"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, optional:POSITIONAL_OR_KEYWORD|bool=False, routes:POSITIONAL_OR_KEYWORD|APIRouter | None=None, health_check:POSITIONAL_OR_KEYWORD|HealthCheck | None=None, migrations_path:POSITIONAL_OR_KEYWORD|str | None=None, depends_on:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, capabilities:POSITIONAL_OR_KEYWORD|list[CapabilityRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, migrations_database:POSITIONAL_OR_KEYWORD|str | None=None, migrations_chain:POSITIONAL_OR_KEYWORD|str | None=None, consumes:POSITIONAL_OR_KEYWORD|list[ContractRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, issues_tokens:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, optional:POSITIONAL_OR_KEYWORD|bool=False, routes:POSITIONAL_OR_KEYWORD|APIRouter | None=None, health_check:POSITIONAL_OR_KEYWORD|HealthCheck | None=None, migrations_path:POSITIONAL_OR_KEYWORD|str | None=None, depends_on:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, capabilities:POSITIONAL_OR_KEYWORD|list[CapabilityRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, migrations_database:POSITIONAL_OR_KEYWORD|str | None=None, migrations_chain:POSITIONAL_OR_KEYWORD|str | None=None, consumes:POSITIONAL_OR_KEYWORD|list[ContractRequirement]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, issues_tokens:POSITIONAL_OR_KEYWORD|bool=False, refresh_sessions:POSITIONAL_OR_KEYWORD|bool=True, login_entry:POSITIONAL_OR_KEYWORD|str | None=None, generated_files:POSITIONAL_OR_KEYWORD|dict[str, GeneratedFileRenderer]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, console_auth:POSITIONAL_OR_KEYWORD|Mapping[str, str] | None=None) -> None"
     },
     "ModuleLoadSummary": {
       "kind": "class",
@@ -4734,6 +4772,47 @@
       ],
       "signature": "(loaded:POSITIONAL_OR_KEYWORD|list[ModuleDescriptor]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, skipped:POSITIONAL_OR_KEYWORD|list[SkippedModule]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, failed:POSITIONAL_OR_KEYWORD|list[FailedModule]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, duplicates:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, explicit:POSITIONAL_OR_KEYWORD|list[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, consumes:POSITIONAL_OR_KEYWORD|dict[str, list[dict[str, Any]]]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, manifests:POSITIONAL_OR_KEYWORD|dict[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
     },
+    "RemovedSetting": {
+      "kind": "class",
+      "members": [
+        "hint",
+        "inert",
+        "name",
+        "removed_in"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, removed_in:POSITIONAL_OR_KEYWORD|str, hint:POSITIONAL_OR_KEYWORD|str, inert:POSITIONAL_OR_KEYWORD|object=False) -> None"
+    },
+    "Risk": {
+      "kind": "class",
+      "members": [
+        "consulted_by",
+        "id",
+        "outside_prod",
+        "refused",
+        "weakens"
+      ],
+      "signature": "(id:POSITIONAL_OR_KEYWORD|str, weakens:POSITIONAL_OR_KEYWORD|str, consulted_by:POSITIONAL_OR_KEYWORD|str, refused:POSITIONAL_OR_KEYWORD|frozenset[str]=frozenset(), outside_prod:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+    },
+    "SemanticSetting": {
+      "kind": "class",
+      "members": [
+        "adr",
+        "applies",
+        "effective",
+        "infra_option",
+        "name",
+        "profile",
+        "refused",
+        "risk",
+        "risk_list",
+        "selector",
+        "strength",
+        "value",
+        "weaker",
+        "why"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, why:POSITIONAL_OR_KEYWORD|str, profile:POSITIONAL_OR_KEYWORD|Mapping[str, object], strength:POSITIONAL_OR_KEYWORD|tuple[object, ...]=tuple(), refused:POSITIONAL_OR_KEYWORD|frozenset[str]=frozenset(), effective:POSITIONAL_OR_KEYWORD|Callable[[Any], object] | None=None, applies:POSITIONAL_OR_KEYWORD|Callable[[Any], bool] | None=None, adr:POSITIONAL_OR_KEYWORD|str | None=None, selector:POSITIONAL_OR_KEYWORD|bool=False, infra_option:POSITIONAL_OR_KEYWORD|bool=False, risk:POSITIONAL_OR_KEYWORD|str | None=None, risk_list:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+    },
     "SkippedModule": {
       "kind": "class",
       "members": [
@@ -4744,7 +4823,11 @@
     },
     "define_module": {
       "kind": "function",
-      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False) -> Callable[[ModuleAPI], Any]"
+      "signature": "(package:POSITIONAL_ONLY|str | None=None, version:KEYWORD_ONLY|str='0.1.0', optional:KEYWORD_ONLY|bool=False, consumes:KEYWORD_ONLY|Sequence[Any]=tuple(), capabilities:KEYWORD_ONLY|Sequence[Any]=tuple(), depends_on:KEYWORD_ONLY|Sequence[str]=tuple(), migrations_database:KEYWORD_ONLY|str | None=None, migrations_chain:KEYWORD_ONLY|str | None=None, health_check:KEYWORD_ONLY|Any | None=None, setup:KEYWORD_ONLY|Callable[[ModuleAPI], None] | None=None, name:KEYWORD_ONLY|str | None=None, router:KEYWORD_ONLY|Any='auto', events:KEYWORD_ONLY|Any='auto', issues_tokens:KEYWORD_ONLY|bool=False, refresh_sessions:KEYWORD_ONLY|bool=True, login_entry:KEYWORD_ONLY|str | None=None, console_auth:KEYWORD_ONLY|Mapping[str, str] | None=None, settings:KEYWORD_ONLY|type[BaseModel] | None=None, generates:KEYWORD_ONLY|Mapping[str, Callable[[Any], str]] | None=None) -> Callable[[ModuleAPI], Any]"
+    },
+    "settings_of": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|type[M]) -> M"
     }
   },
   "sandloom.sdk.projections": {
@@ -5136,7 +5219,11 @@
     },
     "create_access_token": {
       "kind": "function",
-      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None, claims_read_at:KEYWORD_ONLY|datetime | None=None) -> str"
+      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None, claims_read_at:KEYWORD_ONLY|datetime | None=None, claims:KEYWORD_ONLY|SealedClaims | None=None) -> str"
+    },
+    "create_service_token": {
+      "kind": "function",
+      "signature": "(data:KEYWORD_ONLY|dict[str, Any], expires_delta:KEYWORD_ONLY|int | None=None) -> str"
     },
     "decode_token": {
       "kind": "function",
@@ -5198,6 +5285,10 @@
       "kind": "function",
       "signature": "(fn:POSITIONAL_OR_KEYWORD|Callable[..., _T], args:VAR_POSITIONAL|Any) -> _T"
     },
+    "secret_problem": {
+      "kind": "function",
+      "signature": "(value:POSITIONAL_OR_KEYWORD|str, min_length:KEYWORD_ONLY|int=32) -> str | None"
+    },
     "subject_commit_check": {
       "kind": "function",
       "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> Callable[[], Awaitable[None]]"
@@ -5213,6 +5304,35 @@
     "x25519_public_pem": {
       "kind": "function",
       "signature": "(key:POSITIONAL_OR_KEYWORD|x25519.X25519PrivateKey | x25519.X25519PublicKey) -> str"
+    }
+  },
+  "sandloom.sdk.tasks": {
+    "Task": {
+      "kind": "class",
+      "members": [
+        "apply_async",
+        "delay",
+        "s",
+        "si"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "TaskQueueNotInstalled": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
+    "cron": {
+      "kind": "function",
+      "signature": "(expression:POSITIONAL_OR_KEYWORD|str) -> Any"
+    },
+    "shared_task": {
+      "kind": "function",
+      "signature": "(fn:POSITIONAL_ONLY|Callable[..., Any] | None=None, name:KEYWORD_ONLY|str | None=None, acks_late:KEYWORD_ONLY|bool | None=None, reject_on_worker_lost:KEYWORD_ONLY|bool | None=None, options:VAR_KEYWORD|Any) -> Any"
     }
   },
   "sandloom.sdk.tenant": {
@@ -5310,8 +5430,10 @@
         "incr",
         "incr_many",
         "incr_window",
+        "install_hint",
         "options_schema",
         "raw_client",
+        "required_imports",
         "set",
         "set_many",
         "set_max",
@@ -5345,6 +5467,16 @@
         "preflight"
       ],
       "signature": "() -> None"
+    },
+    "ModuleSettingsError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "with_traceback"
+      ],
+      "signature": null
     },
     "Outcome": {
       "kind": "class",
@@ -5533,7 +5665,7 @@
     },
     "fake_access_fact": {
       "kind": "function",
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, value:POSITIONAL_OR_KEYWORD|bool | Callable[[Any], Any]=True, deny_category:KEYWORD_ONLY|str | None=None, core:KEYWORD_ONLY|Any=None) -> Iterator[None]"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, value:POSITIONAL_OR_KEYWORD|bool | Callable[[Any], Any]=True, owner:KEYWORD_ONLY|str, deny_category:KEYWORD_ONLY|str | None=None, core:KEYWORD_ONLY|Any=None) -> Iterator[None]"
     },
     "fake_contract": {
       "kind": "function",
@@ -5571,6 +5703,10 @@
       "kind": "function",
       "signature": "(module:POSITIONAL_OR_KEYWORD|str, core:KEYWORD_ONLY|Any=None) -> list[str]"
     },
+    "mint_test_token": {
+      "kind": "function",
+      "signature": "(data:POSITIONAL_OR_KEYWORD|Mapping[str, Any], expires_delta:POSITIONAL_OR_KEYWORD|int | None=None, claims_read_at:KEYWORD_ONLY|datetime | None=None) -> str"
+    },
     "model_tables": {
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any=None) -> dict[str, MigrationChain]"
@@ -5582,6 +5718,10 @@
     "override_instance": {
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any, capability:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str='default', driver:KEYWORD_ONLY|str, options:VAR_KEYWORD|Any) -> AsyncIterator[Any]"
+    },
+    "override_settings": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|type[M], values:VAR_KEYWORD|Any) -> Iterator[M]"
     },
     "probe": {
       "kind": "function",
@@ -5655,6 +5795,10 @@
       "kind": "function",
       "signature": "(url:POSITIONAL_OR_KEYWORD|str, sql:POSITIONAL_OR_KEYWORD|str, params:POSITIONAL_OR_KEYWORD|Any=None) -> list[Any]"
     },
+    "sealed_claims": {
+      "kind": "function",
+      "signature": "(claims:POSITIONAL_OR_KEYWORD|Mapping[str, Any]) -> SealedClaims"
+    },
     "served_rpc": {
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any, app:POSITIONAL_OR_KEYWORD|Any=None, settings:POSITIONAL_OR_KEYWORD|Any=None) -> AsyncIterator[str]"
@@ -5670,6 +5814,10 @@
     "spawn_served": {
       "kind": "function",
       "signature": "(port:POSITIONAL_OR_KEYWORD|ReservedPort, app:POSITIONAL_OR_KEYWORD|str, env:KEYWORD_ONLY|dict[str, str], log_level:KEYWORD_ONLY|str='warning', label:KEYWORD_ONLY|str='', popen_kwargs:VAR_KEYWORD|Any) -> SpawnedServer"
+    },
+    "split_env": {
+      "kind": "function",
+      "signature": "(processes:POSITIONAL_OR_KEYWORD|Mapping[str, Sequence[str]], urls:POSITIONAL_OR_KEYWORD|Mapping[str, str], issuer:KEYWORD_ONLY|str, bindings:KEYWORD_ONLY|Mapping[str, Mapping[str, Mapping[str, Any]]] | None=None) -> dict[str, dict[str, str]]"
     },
     "stop_revocation_listener": {
       "kind": "function",
@@ -5690,6 +5838,10 @@
     "use_security_cache": {
       "kind": "function",
       "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch, provider:POSITIONAL_OR_KEYWORD|CacheProvider) -> CacheProvider"
+    },
+    "validate_settings": {
+      "kind": "function",
+      "signature": "(model:POSITIONAL_OR_KEYWORD|type[M], env:POSITIONAL_OR_KEYWORD|Mapping[str, str] | None=None, environment:KEYWORD_ONLY|str | None=None, accepted_risks:KEYWORD_ONLY|Iterable[str] | None=None, package:KEYWORD_ONLY|str | None=None) -> M"
     },
     "wait_revocation_listener_subscribed": {
       "kind": "function",
@@ -5973,9 +6125,6 @@
   },
   "sandloom.shared": {},
   "sandloom.shared.authz": {
-    "ACTIVE_SUBSCRIPTION_STATUSES": {
-      "kind": "value"
-    },
     "AccessDecision": {
       "kind": "class",
       "members": [
@@ -6008,6 +6157,11 @@
     "AccessFact": {
       "kind": "class",
       "members": [
+        "absent_claim",
+        "atom",
+        "atom_claim_keys",
+        "atom_describe",
+        "atom_statuses",
         "build_facts_contract",
         "claim_key",
         "claim_rule",
@@ -6021,7 +6175,18 @@
         "projection_reader",
         "to_wire"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None, atom:POSITIONAL_OR_KEYWORD|str | None=None, atom_statuses:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_claim_keys:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), atom_describe:POSITIONAL_OR_KEYWORD|str | None=None, absent_claim:POSITIONAL_OR_KEYWORD|str='unknown') -> None"
+    },
+    "AccessUnknown": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "code",
+        "http_status",
+        "with_traceback"
+      ],
+      "signature": "(detail:POSITIONAL_OR_KEYWORD|Any=None, status_code:KEYWORD_ONLY|int | None=None, headers:KEYWORD_ONLY|Mapping[str, str] | None=None, code:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Account": {
       "kind": "class",
@@ -6046,6 +6211,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -6074,6 +6240,40 @@
       ],
       "signature": "()"
     },
+    "ClaimFactCheck": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "needs_request_session",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(statuses:POSITIONAL_OR_KEYWORD|Iterable[str] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "ClaimReadCheck": {
+      "kind": "class",
+      "members": [
+        "category",
+        "code",
+        "contracts",
+        "decide",
+        "describe",
+        "evaluate",
+        "mentions_resource",
+        "needs_request_session",
+        "org_params",
+        "risks",
+        "tier"
+      ],
+      "signature": "(params:POSITIONAL_OR_KEYWORD|Mapping[str, Any] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str | None=None) -> None"
+    },
     "ClaimRule": {
       "kind": "class",
       "members": [
@@ -6087,10 +6287,9 @@
       ],
       "signature": "(kind:POSITIONAL_OR_KEYWORD|str='truthy', values:POSITIONAL_OR_KEYWORD|frozenset[Any]=frozenset()) -> None"
     },
-    "Credits": {
+    "ContractCheck": {
       "kind": "class",
       "members": [
-        "adapter",
         "category",
         "code",
         "contracts",
@@ -6098,15 +6297,12 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
-        "tenant_type",
         "tier"
       ],
-      "signature": "(minimum:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
-    },
-    "ENTITLEMENTS": {
-      "kind": "value"
+      "signature": "(params:POSITIONAL_OR_KEYWORD|Mapping[str, Any] | None=None, of:KEYWORD_ONLY|Account | None=None, org_param:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Entitled": {
       "kind": "class",
@@ -6118,19 +6314,12 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
       ],
-      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None) -> None"
-    },
-    "EntitlementsAdapter": {
-      "kind": "class",
-      "members": [
-        "credit_balance",
-        "subscription_active"
-      ],
-      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, owner:KEYWORD_ONLY|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None) -> None"
     },
     "FactDenied": {
       "kind": "class",
@@ -6159,32 +6348,15 @@
       ],
       "signature": null
     },
-    "Feature": {
+    "From": {
       "kind": "class",
       "members": [
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "org_fact",
-        "org_params",
-        "risks",
-        "tier"
+        "account_id",
+        "account_type",
+        "org",
+        "subject_id"
       ],
-      "signature": "(key:POSITIONAL_OR_KEYWORD|str, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='features') -> None"
-    },
-    "MEMBERSHIP": {
-      "kind": "value"
-    },
-    "MembershipAdapter": {
-      "kind": "class",
-      "members": [
-        "has_role_at_least"
-      ],
-      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+      "signature": "()"
     },
     "Not": {
       "kind": "class",
@@ -6196,6 +6368,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -6212,28 +6385,12 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
       ],
       "signature": "(parts:VAR_POSITIONAL|Requirement) -> None"
-    },
-    "OrgRole": {
-      "kind": "class",
-      "members": [
-        "adapter",
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "org_params",
-        "risks",
-        "tier"
-      ],
-      "signature": "(minimum:POSITIONAL_OR_KEYWORD|str, org_param:KEYWORD_ONLY|str='org_id', adapter:KEYWORD_ONLY|Any=None) -> None"
     },
     "Owner": {
       "kind": "class",
@@ -6245,6 +6402,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -6261,26 +6419,12 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
       ],
       "signature": "(perm:POSITIONAL_OR_KEYWORD|str) -> None"
-    },
-    "Permissions": {
-      "kind": "class",
-      "members": [
-        "PERMISSIONS_READ",
-        "PERMISSIONS_WRITE",
-        "ROLES_DELETE",
-        "ROLES_READ",
-        "ROLES_WRITE",
-        "SYSTEM_ADMIN",
-        "USERS_DELETE",
-        "USERS_READ",
-        "USERS_WRITE"
-      ],
-      "signature": "()"
     },
     "PolicyIndeterminate": {
       "kind": "class",
@@ -6301,6 +6445,7 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
@@ -6317,20 +6462,12 @@
         "describe",
         "evaluate",
         "mentions_resource",
+        "needs_request_session",
         "org_params",
         "risks",
         "tier"
       ],
       "signature": "(role:POSITIONAL_OR_KEYWORD|str) -> None"
-    },
-    "Roles": {
-      "kind": "class",
-      "members": [
-        "ADMIN",
-        "OPS",
-        "SUPPORT"
-      ],
-      "signature": "()"
     },
     "SOURCE_HTTP": {
       "kind": "value"
@@ -6344,41 +6481,6 @@
     "SOURCE_TASK": {
       "kind": "value"
     },
-    "Subscribed": {
-      "kind": "class",
-      "members": [
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "org_params",
-        "risks",
-        "tenant_type",
-        "tier"
-      ],
-      "signature": "(statuses:POSITIONAL_OR_KEYWORD|frozenset[str] | None=None, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='subscription_status') -> None"
-    },
-    "SubscriptionActive": {
-      "kind": "class",
-      "members": [
-        "adapter",
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "org_params",
-        "risks",
-        "tenant_type",
-        "tier"
-      ],
-      "signature": "(of:KEYWORD_ONLY|Account=<builtins.object>, adapter:KEYWORD_ONLY|Any=None) -> None"
-    },
     "TIER_CLAIM": {
       "kind": "value"
     },
@@ -6388,22 +6490,9 @@
     "TIER_RESOURCE": {
       "kind": "value"
     },
-    "WithinLimit": {
-      "kind": "class",
-      "members": [
-        "category",
-        "code",
-        "contracts",
-        "decide",
-        "describe",
-        "evaluate",
-        "mentions_resource",
-        "org_fact",
-        "org_params",
-        "risks",
-        "tier"
-      ],
-      "signature": "(key:POSITIONAL_OR_KEYWORD|str, used:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='limits') -> None"
+    "access_check": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, bind:KEYWORD_ONLY|Mapping[str, list[Any]], category:KEYWORD_ONLY|str='forbidden', values:KEYWORD_ONLY|Mapping[str, Iterable[Any]] | None=None, risk:KEYWORD_ONLY|Mapping[str, Mapping[str, Iterable[Any]]] | None=None, describe:KEYWORD_ONLY|str | None=None, claim:KEYWORD_ONLY|Any=None, witnesses_membership:KEYWORD_ONLY|Mapping[str, Any] | None=None) -> Callable[[Any], Any]"
     },
     "authorize": {
       "kind": "function",
@@ -6412,6 +6501,10 @@
     "authorize_resource": {
       "kind": "function",
       "signature": "(loader:KEYWORD_ONLY|Callable[[Any, AsyncSession], Awaitable[Any]], by:KEYWORD_ONLY|str, policy:KEYWORD_ONLY|Requirement, cast:KEYWORD_ONLY|Callable[[str], Any] | None=None, not_found_detail:KEYWORD_ONLY|str='Not found', status_code:KEYWORD_ONLY|int | None=None) -> Callable[..., Awaitable[Any]]"
+    },
+    "claim_atom": {
+      "kind": "function",
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, claim_key:KEYWORD_ONLY|str, entry:KEYWORD_ONLY|str, below:KEYWORD_ONLY|str | None=None, claim_keys:KEYWORD_ONLY|Iterable[str]=tuple()) -> Callable[[Any], Any]"
     },
     "current_context": {
       "kind": "function",
@@ -6423,7 +6516,7 @@
     },
     "lookup_access_fact": {
       "kind": "function",
-      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str) -> AccessFact | None"
+      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str, owner:KEYWORD_ONLY|str) -> AccessFact | None"
     },
     "make_rebuild_gate": {
       "kind": "function",
@@ -6432,10 +6525,6 @@
     "register_authz_projection": {
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any, descriptor:KEYWORD_ONLY|Any, consumers:KEYWORD_ONLY|list[Any], rebuilder:KEYWORD_ONLY|Any, rebuild_on_startup:KEYWORD_ONLY|bool=False, critical:KEYWORD_ONLY|bool=True) -> None"
-    },
-    "register_live_adapter": {
-      "kind": "function",
-      "signature": "(kind:POSITIONAL_OR_KEYWORD|str, adapter:POSITIONAL_OR_KEYWORD|Any) -> None"
     },
     "require": {
       "kind": "function",

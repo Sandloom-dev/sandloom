@@ -1,34 +1,36 @@
 """Authorization seams for tests: fake an access fact (an entitlement).
 
-A module gating on ``Entitled("subscription.active")`` (or any fact another
-module owns) needs that owner to resolve it — billing, in practice. A module
-test must not import billing; :func:`fake_access_fact` answers the fact on the
-active application for the duration of a block::
+A module gating on ``Entitled("subscription.active", owner="billing")`` (or
+any fact another module owns) needs that owner to resolve it — billing, in
+practice. A module test must not import billing; :func:`fake_access_fact`
+answers the fact on the active application for the duration of a block::
 
-    with fake_access_fact("subscription.active", True):
+    with fake_access_fact("subscription.active", True, owner="billing"):
         assert (await client.post(...)).status_code == 201
     with fake_access_fact(
-        "subscription.active", False, deny_category="payment_required"
+        "subscription.active",
+        False,
+        owner="billing",
+        deny_category="payment_required",
     ):
         assert (await client.post(...)).status_code == 402
-    with fake_access_fact("quota.ok", lambda ctx: ctx.subject.user_id == alice):
+    with fake_access_fact(
+        "quota.ok", lambda ctx: ctx.subject.user_id == alice, owner="quotas"
+    ):
         ...
 
 ``value`` is a bool, or a callable of the authz context returning one (sync
-or async; it may raise ``FactDenied``). The previous registration, if any, is
-restored afterwards.
+or async; it may raise ``FactDenied``). ``owner`` is required: a fact is
+identified by its owner module and its name, so the fake answers only a
+policy naming the same owner (``fake_access_fact(name, owner="rogue")`` never
+satisfies ``Entitled(name, owner="billing")``). A missing, empty or invalid
+``owner`` raises ``InvalidFactOwner`` (SANDLOOM-B038). The previous
+registration, if any, is restored afterwards.
 
-The two subscription facts also drive the live billing atoms that ask the
-same question, so a route gated either way is faked the same way:
-
-- ``"subscription.active"``: ``SubscriptionActive(of=Account.user())``;
-- ``"organization.subscription.active"``: ``SubscriptionActive`` /
-  ``Subscribed`` with ``of=Account.org(...)`` (or a bound organization).
-
-The live entitlements adapter answers the faked tenant kind from ``value``
-and the other one (and ``Credits``) from the real provider; when billing is
-not loaded, the entitlements contract resolves to a stub that only the faked
-question may use.
+It answers a fact by name and owner and nothing else: a generated atom
+(``OrgRole``, ``SubscriptionActive``, ``Credits``, ``Subscribed``, ...) asks
+its provider's contract, so a test serves that contract with
+``fake_contract(REF, Fake())``.
 """
 
 from __future__ import annotations
@@ -40,15 +42,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import sandloom.core.runtime as _runtime
-from sandloom.core.module_api._service_registry import ServiceNotFound
-from sandloom.core.testing.services import override_service
-from sandloom.shared.authz import live_contracts as _live
-
-#: Fact name -> the tenant kind of the live entitlement atoms that ask it.
-LIVE_SUBSCRIPTION_FACTS = {
-    "subscription.active": "user",
-    "organization.subscription.active": "organization",
-}
+from sandloom.core.descriptors.module_names import require_fact_owner
 
 
 @dataclass(frozen=True)
@@ -57,8 +51,8 @@ class _FakeFact:
 
     name: str
     value: bool | Callable[[Any], Any]
+    owner_module: str
     deny_category: str | None = None
-    owner_module: str = "sandloom.core.testing"
     claim_key: str | None = None
     claim_rule: Any = None
     live_service: str | None = None
@@ -86,10 +80,13 @@ def fake_access_fact(
     name: str,
     value: bool | Callable[[Any], Any] = True,
     *,
+    owner: str,
     deny_category: str | None = None,
     core: Any = None,
 ) -> Iterator[None]:
-    """Answer the access fact ``name`` with ``value`` inside the block."""
+    """Answer the access fact ``(owner, name)`` with ``value`` inside the
+    block; only a policy naming the same ``owner`` sees it."""
+    owner = require_fact_owner(owner, name, "fake_access_fact")
     if core is None:
         core = _runtime.get_active_core()
     if core is None:
@@ -101,15 +98,9 @@ def fake_access_fact(
     facts: dict[str, Any] = core._access_facts
     missing = object()
     previous = facts.get(name, missing)
-    fake = _FakeFact(name, value, deny_category)
-    facts[name] = fake
+    facts[name] = _FakeFact(name, value, owner, deny_category)
     try:
-        tenant_type = LIVE_SUBSCRIPTION_FACTS.get(name)
-        if tenant_type is None:
-            yield
-        else:
-            with _fake_live_entitlements(core, tenant_type, fake):
-                yield
+        yield
     finally:
         if previous is missing:
             facts.pop(name, None)
@@ -117,67 +108,4 @@ def fake_access_fact(
             facts[name] = previous
 
 
-class _StubEntitlements:
-    """``billing.entitlements.v1`` while billing is not loaded: only the
-    faked subscription question is answered (by the fake adapter)."""
-
-    def __getattr__(self, method: str) -> Any:
-        raise RuntimeError(
-            f"billing.entitlements.v1.{method}: billing is not loaded and "
-            "fake_access_fact fakes only the subscription question; fake the "
-            "contract with fake_contract(...) for anything else"
-        )
-
-
-@dataclass
-class _FakeEntitlementsAdapter:
-    inner: Any
-    tenant_type: str
-    fake: _FakeFact
-
-    @property
-    def service(self) -> str:
-        return str(self.inner.service)
-
-    async def subscription_active(
-        self, service: Any, *, tenant_type: str, tenant_id: Any, ctx: Any
-    ) -> bool:
-        if tenant_type == self.tenant_type:
-            return await self.fake.projection_reader(ctx)
-        return bool(
-            await self.inner.subscription_active(
-                service, tenant_type=tenant_type, tenant_id=tenant_id, ctx=ctx
-            )
-        )
-
-    async def credit_balance(
-        self, service: Any, *, tenant_type: str, tenant_id: Any, ctx: Any
-    ) -> int:
-        return int(
-            await self.inner.credit_balance(
-                service, tenant_type=tenant_type, tenant_id=tenant_id, ctx=ctx
-            )
-        )
-
-
-@contextmanager
-def _fake_live_entitlements(
-    core: Any, tenant_type: str, fake: _FakeFact
-) -> Iterator[None]:
-    inner = _live.get_live_adapter(_live.ENTITLEMENTS)
-    _live.register_live_adapter(
-        _live.ENTITLEMENTS, _FakeEntitlementsAdapter(inner, tenant_type, fake)
-    )
-    try:
-        try:
-            core.get_service(inner.service)
-        except ServiceNotFound:
-            with override_service(core, inner.service, _StubEntitlements()):
-                yield
-        else:
-            yield
-    finally:
-        _live.register_live_adapter(_live.ENTITLEMENTS, inner)
-
-
-__all__ = ["LIVE_SUBSCRIPTION_FACTS", "fake_access_fact"]
+__all__ = ["fake_access_fact"]

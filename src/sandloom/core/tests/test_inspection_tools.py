@@ -224,6 +224,92 @@ def test_project_json_contains_modules_and_relations(
     assert rc == 0
     assert len(data["modules"]) == 3
     assert data["edges"] and data["module_relations"]
+    coupling = data["sync_coupling"]
+    assert coupling["basis"] == "declared_requires"
+    by_id = {m["module_id"]: m for m in coupling["modules"]}
+    assert set(by_id) == {m["id"] for m in data["modules"]}
+    assert by_id["module:notes"]["depends_on"] == [
+        {"module_id": "module:stats", "required": True}
+    ]
+    assert by_id["module:notes"]["longest_chain"] == ["module:notes", "module:stats"]
+    assert coupling["critical"] == [{"module_id": "module:stats", "fan_in": 1}]
+
+
+def _sync(kind: str, source: str, target: str) -> dict[str, str]:
+    return {"kind": kind + "_contract", "source": source, "target": target}
+
+
+def test_sync_coupling_reports_depth_fan_and_critical_modules() -> None:
+    # a -> b -> c -> d, a -> d, e -> d (optional), f stands alone; events ignored.
+    links = [
+        _sync("required", "a", "b"),
+        _sync("required", "b", "c"),
+        _sync("required", "c", "d"),
+        _sync("required", "a", "d"),
+        _sync("optional", "a", "d"),
+        _sync("optional", "e", "d"),
+        {"kind": "event_impact", "source": "f", "target": "a"},
+    ]
+    ids = ["a", "b", "c", "d", "e", "f"]
+    result = graph.sync_coupling(links, ids)
+    assert result == graph.sync_coupling(list(reversed(links)), ids)
+    assert "upper bound" in result["meaning"] and "not measured" in result["meaning"]
+    by_id = {m["module_id"]: m for m in result["modules"]}
+    assert [m["module_id"] for m in result["modules"]] == ids
+    a = by_id["a"]
+    assert a["depends_on"] == [
+        {"module_id": "b", "required": True},
+        {"module_id": "d", "required": True},
+    ]
+    assert (a["fan_out"], a["fan_in"], a["depth"]) == (2, 0, 3)
+    assert a["longest_chain"] == ["a", "b", "c", "d"]
+    assert by_id["e"]["depends_on"] == [{"module_id": "d", "required": False}]
+    assert (by_id["d"]["fan_in"], by_id["d"]["depth"]) == (3, 0)
+    assert (by_id["f"]["fan_out"], by_id["f"]["fan_in"], by_id["f"]["depth"]) == (
+        0,
+        0,
+        0,
+    )
+    assert not any(m["in_cycle"] or m["reaches_cycle"] for m in result["modules"])
+    assert result["max_depth"] == 3
+    assert result["critical"] == [
+        {"module_id": "d", "fan_in": 3},
+        {"module_id": "b", "fan_in": 1},
+        {"module_id": "c", "fan_in": 1},
+    ]
+
+
+def test_sync_coupling_marks_contract_cycles_instead_of_infinite_depth() -> None:
+    # x -> y -> z -> y (cycle y/z), z -> w, s -> s (self-require).
+    links = [
+        _sync("required", "x", "y"),
+        _sync("required", "y", "z"),
+        _sync("optional", "z", "y"),
+        _sync("required", "z", "w"),
+        _sync("required", "s", "s"),
+    ]
+    result = graph.sync_coupling(links, ["s", "w", "x", "y", "z"])
+    by_id = {m["module_id"]: m for m in result["modules"]}
+    for node in ("y", "z"):
+        assert by_id[node]["in_cycle"] and by_id[node]["depth"] is None
+        assert by_id[node]["cycle_module_ids"] == ["y", "z"]
+        assert by_id[node]["longest_chain"] == []
+    x = by_id["x"]
+    assert (x["in_cycle"], x["reaches_cycle"], x["depth"]) == (False, True, 1)
+    assert x["longest_chain"] == ["x", "y"]
+    assert by_id["w"]["depth"] == 0 and not by_id["w"]["reaches_cycle"]
+    s = by_id["s"]
+    assert s["in_cycle"] and s["cycle_module_ids"] == ["s"]
+    assert (s["fan_out"], s["fan_in"], s["depends_on"]) == (0, 0, [])
+    assert result["max_depth"] == 1
+
+
+def test_sync_coupling_handles_deep_chains() -> None:
+    links = [_sync("required", str(i), str(i + 1)) for i in range(2500)]
+    result = graph.sync_coupling(links, [])
+    assert result["max_depth"] == 2500
+    assert result["modules"][0]["module_id"] == "0"
+    assert len(result["modules"][0]["longest_chain"]) == 2501
 
 
 @pytest.mark.parametrize(

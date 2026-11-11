@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
+from typing import Any
 
 import orjson
 import pytest
@@ -52,6 +53,17 @@ STREAM = "test.recreate.stream.v1"
 INVENTORY = "sandloom:consumers"
 
 
+async def _reset(client: Any) -> None:
+    """Drop the stream, its DLQ, the inventory AND the bus's cache inbox.
+
+    The bus dedupes by envelope id in ``inbox:<stream>:<group>:<id>`` (24 h
+    TTL, ``ConsumerInbox``). Left behind, a rerun on the same Redis sees
+    ``e1`` as already handled and the handler never runs.
+    """
+    inbox = [key async for key in client.scan_iter(match=f"inbox:{STREAM}:*")]
+    await client.delete(STREAM, f"{STREAM}.dlq", INVENTORY, *inbox)
+
+
 @pytest.fixture
 async def transport():
     cache_url = os.getenv("CACHE_URL")
@@ -62,13 +74,13 @@ async def transport():
         await client.ping()
     except Exception:  # pragma: no cover  # noqa: BLE001 - test Redis unreachable: skip
         pytest.skip("Redis unreachable")
-    await client.delete(STREAM, f"{STREAM}.dlq", INVENTORY)
+    await _reset(client)
 
     async def _factory():
         return client
 
     yield RedisStreamsTransport(client_factory=_factory, retry_base_ms=0), client
-    await client.delete(STREAM, f"{STREAM}.dlq", INVENTORY)
+    await _reset(client)
     await client.aclose()
 
 

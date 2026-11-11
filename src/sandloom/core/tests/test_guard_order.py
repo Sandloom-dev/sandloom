@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import importlib.util
+import sys
+from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -9,6 +13,7 @@ import pytest
 from fastapi import APIRouter, Depends, FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 
+from sandloom.core.cli.generated import render_stub
 from sandloom.core.di import authenticates, idempotency_guard
 from sandloom.core.guard_order import (
     GuardOrderError,
@@ -16,7 +21,15 @@ from sandloom.core.guard_order import (
     resolution_order,
     validate_guard_order,
 )
-from sandloom.shared.authz import Account, Subscribed, require
+from sandloom.sdk import contract
+from sandloom.shared.authz import (
+    Account,
+    Category,
+    From,
+    Role,
+    access_check,
+    require,
+)
 from sandloom.shared.guards.auth import get_current_user_id
 
 
@@ -63,7 +76,7 @@ def test_guard_after_auth_param_passes() -> None:
 
 
 def test_router_level_auth_precedes_route_guard() -> None:
-    router = APIRouter(dependencies=[Depends(require(Subscribed(of=Account.user())))])
+    router = APIRouter(dependencies=[Depends(require(Role("member")))])
 
     @router.post("/x", dependencies=[Depends(idempotency_guard(scope="x"))])
     async def x() -> None: ...
@@ -124,32 +137,45 @@ async def test_resolution_order_is_fastapi_depth_first_and_cached() -> None:
     assert calls == names  # the order FastAPI actually ran them in
 
 
-def test_bundled_app_routes_pass() -> None:
-    # create_app already refuses a violation; this pins that the bundled
-    # routes really carry guards and authentication the check can see.
-    from sandloom.core.guard_order import is_authenticator, is_idempotency_guard
-    from sandloom.main import app
-
-    guarded = 0
-    for route in app.routes:
-        order = resolution_order(getattr(route, "dependant", None))
-        if any(is_idempotency_guard(c) for c in order):
-            guarded += 1
-            assert any(is_authenticator(c) for c in order), route
-    assert guarded >= 10
-    assert guard_order_problems(app.routes) == []
-
-
 # --- SANDLOOM-B007: an org-scoped gate must not run before TenantScope() ---------
 
 
-def _org_gate() -> Any:
-    from sandloom.shared.authz import SubscriptionActive
-
-    return require(SubscriptionActive(of=Account.org()))
+PLANS = "fixture.plans.v1"
 
 
-def test_org_gate_before_tenant_scope_is_refused() -> None:
+@contract(PLANS)
+class PlansContract:
+    """Subscriptions (a fixture provider, declared as billing declares it)."""
+
+    @access_check(
+        "SubscriptionActive",
+        bind={"tenant_type": From.account_type(), "tenant_id": From.account_id()},
+        category=Category.PAYMENT_REQUIRED,
+        describe="active subscription",
+    )
+    async def check_subscription_active(
+        self, tenant_type: str, tenant_id: UUID
+    ) -> bool:
+        """True while a subscription grants access."""
+        return True
+
+
+@pytest.fixture
+def plans(tmp_path: Path) -> Iterator[Any]:
+    """The generated atoms of :data:`PLANS`, as ``sandloom generate`` renders
+    them beside a consumer's stub."""
+    path = tmp_path / "fixture_plans_v1.py"
+    path.write_text(render_stub(PLANS, PlansContract))
+    spec = importlib.util.spec_from_file_location("_guard_order_plans_v1", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    yield module
+    sys.modules.pop(spec.name, None)
+
+
+def test_org_gate_before_tenant_scope_is_refused(plans: Any) -> None:
     """Agent A's trap: the gate in decorator dependencies runs first."""
     from sandloom.core.di import TenantScope
     from sandloom.core.guard_order import (
@@ -158,21 +184,25 @@ def test_org_gate_before_tenant_scope_is_refused() -> None:
         validate_gate_order,
     )
 
+    def org_gate() -> Any:
+        return require(plans.SubscriptionActive(of=Account.org()))
+
     router = APIRouter()
 
-    @router.post("/notes", dependencies=[Depends(_org_gate())])
+    @router.post("/notes", dependencies=[Depends(org_gate())])
     async def trap(tenant: UUID = TenantScope()) -> None: ...
 
-    @router.post("/orgs/{org_id}/notes", dependencies=[Depends(_org_gate())])
+    @router.post("/orgs/{org_id}/notes", dependencies=[Depends(org_gate())])
     async def from_path(org_id: UUID, tenant: UUID = TenantScope()) -> None: ...
 
     @router.post("/ok")
     async def ok(
-        tenant: UUID = TenantScope(), _ctx: Any = Depends(_org_gate())
+        tenant: UUID = TenantScope(), _ctx: Any = Depends(org_gate())
     ) -> None: ...
 
     @router.post(
-        "/personal", dependencies=[Depends(require(Subscribed(of=Account.user())))]
+        "/personal",
+        dependencies=[Depends(require(plans.SubscriptionActive(of=Account.user())))],
     )
     async def personal(tenant: UUID = TenantScope()) -> None: ...
 

@@ -22,7 +22,7 @@ tier, recorded here and pinned by ``src/sandloom/core/tests/test_config_tiers.py
     log / metrics knobs, endpoints, credentials, backend selection (the
     escape hatch that admits a weaker backend in prod is the semantic
     ``SANDLOOM_ACCEPTED_RISKS`` list), and product policy the framework has no
-    opinion on (``BILLING_DENY_ON_PAST_DUE``).
+    opinion on (a module's own policy knobs).
 
 There is no migration tier and no deprecated value: the framework carries no
 transitional flags (it is not released; a change of behaviour removes the old
@@ -46,7 +46,7 @@ it).
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -329,13 +329,6 @@ SEMANTIC: tuple[SemanticSetting, ...] = (
         risk="relay_disabled",
         adr="docs/adr/0006-accepted-risks.md",
     ),
-    # ---- billing policy
-    SemanticSetting(
-        "BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS",
-        "A subscription without an operation intent grants entitlements.",
-        profile=_all(False),
-        strength=_BOOL_WEAK_TRUE,
-    ),
     # ---- transport
     SemanticSetting(
         "SMTP_USE_TLS",
@@ -392,17 +385,6 @@ REMOVED: tuple[RemovedSetting, ...] = (
         "read contracts are memoised per request; opt out per scope with "
         "contract_read_scope(memo=False)",
         inert=True,
-    ),
-    RemovedSetting(
-        "BILLING_FAKE_ALLOW_UNSIGNED_WEBHOOKS",
-        "0.8",
-        "the fake PSP always rejects unsigned webhooks; sign test payloads with "
-        "sandloom_billing.psp.sign_stripe_payload",
-    ),
-    RemovedSetting(
-        "BILLING_ALLOW_FAKE_PSP_IN_PROD",
-        "0.8",
-        'accept the risk explicitly: SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]',
     ),
     RemovedSetting(
         "NOTIFIER_ALLOW_LOG_IN_PROD",
@@ -615,9 +597,6 @@ OPS: frozenset[str] = frozenset(
         "JWT_PRIVATE_KEY",
         "JWT_PUBLIC_KEYS",
         "ACCESS_TOKEN_EXPIRE_MINUTES",
-        "REFRESH_TOKEN_EXPIRE_DAYS",
-        "MAX_SESSION_DAYS",
-        "TENANT_CLAIMS_MAX_ORGANIZATIONS",
         "AUTH_REVOCATION_MARK_TTL_SECONDS",
         "JWT_ISSUER",
         "JWT_AUDIENCE",
@@ -656,26 +635,6 @@ OPS: frozenset[str] = frozenset(
         "RATE_LIMIT_GLOBAL_REQUESTS",
         "RATE_LIMIT_GLOBAL_PERIOD_SECONDS",
         "RATE_LIMIT_GLOBAL_EXEMPT_PATH_PREFIXES",
-        "TWOFA_ENCRYPTION_KEY",
-        "ADMIN_CONSOLE_ENABLED",
-        "ADMIN_CONSOLE_DIST",
-        "BILLING_PROVIDER",
-        "BILLING_DENY_ON_PAST_DUE",
-        "STRIPE_SECRET_KEY",
-        "STRIPE_WEBHOOK_SECRET",
-        "BILLING_INTENT_RECONCILE_AFTER_MINUTES",
-        "BILLING_INTENT_RECONCILE_MAX_ATTEMPTS",
-        "BILLING_PORTAL_ATTRIBUTION_WINDOW_MINUTES",
-        "GOOGLE_CLIENT_ID",
-        "GOOGLE_CLIENT_SECRET",
-        "GITHUB_CLIENT_ID",
-        "GITHUB_CLIENT_SECRET",
-        "MICROSOFT_CLIENT_ID",
-        "MICROSOFT_CLIENT_SECRET",
-        "LINKEDIN_CLIENT_ID",
-        "LINKEDIN_CLIENT_SECRET",
-        "TELEGRAM_BOT_TOKEN",
-        "SSO_ALLOWED_REDIRECT_URIS",
         "SENTRY_DSN",
         "SENTRY_TRACES_SAMPLE_RATE",
         "TRACING_URL",
@@ -736,10 +695,13 @@ class Override:
     profile: str
     profile_value: object = None
     explicit: bool = True
+    #: the declaration of an accepted module risk (a kernel risk is looked up
+    #: in :data:`accepted_risks.RISKS`).
+    risk: accepted_risks.Risk | None = None
 
     def message(self) -> str:
         if self.kind == "accepted_risk":
-            item = accepted_risks.risk(str(self.value))
+            item = self.risk or accepted_risks.risk(str(self.value))
             return (
                 f"ACCEPTED RISK: {item.id} — {item.weakens} "
                 f"Consulted by: {item.consulted_by}."
@@ -864,14 +826,28 @@ def log_overrides(
     return found
 
 
-def diagnostics(cfg: Any) -> dict[str, object]:
-    """``/diagnostics/core`` block: profile, tier counts, overrides, accepted risks."""
-    return {
+def diagnostics(
+    cfg: Any,
+    module_risks: accepted_risks.ModuleRiskReport | None = None,
+    module_overrides: Sequence[Override] = (),
+    module_tiers: Mapping[str, Mapping[str, int]] | None = None,
+) -> dict[str, object]:
+    """``/diagnostics/core`` block: profile, tier counts, overrides, accepted risks.
+
+    What the loaded modules declare (ADR-0015) comes from the loader, which
+    read it: ``module_risks`` the module-namespaced accepted risks as it
+    classified them (``accepted_risks.diagnostics``), ``module_overrides`` the
+    modules' semantic settings off their profile value and their active risks,
+    ``module_tiers`` each module's declared tier counts."""
+    block: dict[str, object] = {
         "profile": profile_of(cfg),
         "tiers": tier_counts(),
-        "overrides": [o.to_dict() for o in active_overrides(cfg)],
-        "accepted_risks": accepted_risks.diagnostics(cfg),
+        "overrides": [o.to_dict() for o in (*active_overrides(cfg), *module_overrides)],
+        "accepted_risks": accepted_risks.diagnostics(cfg, module_risks),
     }
+    if module_tiers:
+        block["module_tiers"] = {m: dict(c) for m, c in sorted(module_tiers.items())}
+    return block
 
 
 # ------------------------------------------------------------------- docs ----
@@ -932,8 +908,15 @@ def render_markdown() -> str:
         "## Accepted risks (`SANDLOOM_ACCEPTED_RISKS`)",
         "",
         "The one list of weaker guarantees a deployment accepts, e.g. "
-        '`SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]` (JSON list or comma-'
-        "separated). An unknown id fails startup. Each accepted risk is logged "
+        '`SANDLOOM_ACCEPTED_RISKS=["relay_disabled"]` (JSON list or comma-'
+        "separated). An unknown id fails startup. The ids below are the "
+        "kernel's. A module declares its own, named `<module>.<name>` "
+        "(for example `inventory.oversell_in_prod`): the id of a loaded module "
+        "is checked against what that module declares, the id of a module "
+        "installed or listed in `SANDLOOM_MODULES` but not loaded in this "
+        "process is inert, listed as not applicable here, and any other "
+        "module name fails startup, so a typo never passes silently. A module "
+        "risk has no flat spelling and no alias. Each accepted risk is logged "
         "as a WARNING at every start, exported as "
         "`sandloom_accepted_risk_active{risk}`, and listed by `/diagnostics/core` "
         "(`configuration.accepted_risks`) and `sandloom doctor`.",

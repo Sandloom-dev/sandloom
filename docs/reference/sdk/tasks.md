@@ -20,6 +20,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`cron`](#cron) | function | A beat schedule from a five-field cron expression (`"minute hour day-of-month month day-of-week"`, e.g. `"0 3 * * *"`): |
 | [`shared_task`](#shared_task) | function | `@shared_task` / `@shared_task(name=..., acks_late=True, ...)`. |
 | [`Task`](#task) | class | A registered task: call it inline, or enqueue it. |
+| [`TaskQueueNotInstalled`](#taskqueuenotinstalled) | exception | A task was enqueued, or a beat schedule built, in a process without Celery. |
 
 ## Advanced names
 
@@ -36,6 +37,9 @@ A beat schedule from a five-field cron expression
 def setup_periodic_tasks(sender: Any, **kwargs: Any) -> None:
     sender.add_periodic_task(cron("0 3 * * *"), purge.s(), name="m.purge")
 ```
+
+Raises `TaskQueueNotInstalled` when Celery is not installed (a beat
+schedule only exists where Celery runs).
 
 ### `shared_task`
 
@@ -56,6 +60,9 @@ def shared_task(
 An idempotent, at-least-once task (redelivered when a worker dies) is
 `@shared_task(acks_late=True, reject_on_worker_lost=True)`; its body
 runs async work through `run_async(...)` with `open_uow()` blocks.
+
+Without Celery installed the function becomes a task that runs inline
+and refuses every enqueue with `TaskQueueNotInstalled`.
 
 ### `Task`
 
@@ -95,6 +102,17 @@ def apply_async(
     **options: Any,
 ) -> Any
 ```
+
+### `TaskQueueNotInstalled`
+
+```python
+class TaskQueueNotInstalled(RuntimeError)
+```
+
+A task was enqueued, or a beat schedule built, in a process without Celery.
+
+Calling the task inline still works; `delay` / `apply_async` / `s` /
+`si` and `cron` need the `sandloom[celery]` extra.
 
 ## Examples and related guides
 

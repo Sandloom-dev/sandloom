@@ -1,5 +1,5 @@
 """The static checks of Public API 1.0 (spec §5.10, §5.1, §4.4, §6, §5.2,
-§5.3, §7.3; codes SANDLOOM-C021 … SANDLOOM-C027).
+§5.3, §7.3; codes SANDLOOM-C021 … SANDLOOM-C027, SANDLOOM-C034).
 
 Purely static, like every ``sandloom check`` rule: an analyzer reports only what
 it can decide from the source, and a deliberate exception is waived on its
@@ -23,25 +23,33 @@ C025   ``event-view-compat``        error /  a view incompatible with its produc
                                     warning  (or ``.publish()`` on it); a view
                                              with no producer schema found
 C026   ``contract-union-hint``      info     an ambiguous union in a contract
-C027   ``account-route-mismatch``   error    an organization route gating billing
-                                             with ``of=Account.user()``
+C027   ``account-route-mismatch``   error    an organization route gating an
+                                             account atom with ``of=Account.user()``
 =====  ===========================  =======  ===================================
+
+SANDLOOM-C034 ``handwritten-access-check`` (error): a hand-written
+``Requirement`` calls a declared access check with other tier, category or risk
+than its declaration (:mod:`sandloom.core.archcheck.atom_metadata`).
 """
 
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import re
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
 
+import sandloom.core.archcheck.atom_metadata as _atom_metadata
 from sandloom.core.archcheck.analyzers import (
     _const_str,
     is_endpoint_decorator,
     parse_file,
     read_source,
 )
+from sandloom.core.archcheck.module_rules import _module_constants
+from sandloom.core.descriptors.module_names import installed_modules
 
 Hit = tuple[Path, str]
 
@@ -56,6 +64,7 @@ SEVERITY: dict[str, str] = {
     "event-view-compat": "error",
     "contract-union-hint": "info",
     "account-route-mismatch": "error",
+    "handwritten-access-check": "error",
 }
 
 
@@ -163,19 +172,11 @@ SECURITY_CALLS = frozenset(
         "unblock_user",
     }
 )
-#: A framework admin gate: it carries the admin risk statically (G-SENS-01),
-#: so a route behind it is tagged.
-_ADMIN_GATE = re.compile(
-    r"\brequire_platform_admin\b"
-    r"|\bRole\(\s*['\"]admin['\"]"
-    r"|\bOrgRole\(\s*['\"](admin|owner)['\"]"
-    r"|\brequire_org_role\(\s*(ROLE_ADMIN|ROLE_OWNER|['\"](admin|owner)['\"])"
-)
-#: A member-level organization gate (no admin risk).
-_MEMBER_GATE = re.compile(
-    r"\brequire_org_role\(\s*(ROLE_MEMBER|['\"]member['\"])"
-    r"|\bOrgRole\(\s*['\"]member['\"]"
-)
+#: The kernel's own admin gates: the platform role is protocol vocabulary and
+#: carries the admin risk statically (G-SENS-01), so a route behind it is
+#: tagged. A domain atom's admin risk is read from its generated literal
+#: (:mod:`sandloom.core.archcheck.atom_metadata`), never from a name here.
+_ADMIN_GATE = re.compile(r"\brequire_platform_admin\b|\bRole\(\s*['\"]admin['\"]")
 #: A call deciding an authority by hand (``user_has_admin_role``,
 #: ``holds_admin_in_tx``, ``is_owner``, ``check_role`` ...).
 _AUTHORITY_CALL = re.compile(
@@ -188,14 +189,32 @@ def _decorator_calls(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.Cal
     return [d for d in fn.decorator_list if isinstance(d, ast.Call)]
 
 
-def _admin_routers(tree: ast.AST) -> set[str]:
+class _Atoms:
+    """The generated atoms a file uses and its module constants (read once)."""
+
+    __slots__ = ("consts", "literals")
+
+    def __init__(self, tree: ast.AST, file_path: Path) -> None:
+        self.literals = _atom_metadata.atom_literals(tree, file_path)
+        self.consts = _module_constants(tree)
+
+    def admin_gate(self, nodes: list[ast.AST]) -> bool:
+        return _atom_metadata.admin_gate(nodes, self.literals, self.consts)
+
+    def member_gate(self, nodes: list[ast.AST]) -> bool:
+        return _atom_metadata.member_gate(nodes, self.literals, self.consts)
+
+
+def _admin_routers(tree: ast.AST, atoms: _Atoms) -> set[str]:
     """Module-level routers whose own ``dependencies`` carry an admin gate."""
     names: set[str] = set()
     for node in getattr(tree, "body", ()):
         if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
             continue
         deps = _keyword(node.value, "dependencies")
-        if deps is not None and _ADMIN_GATE.search(ast.unparse(deps)):
+        if deps is not None and (
+            _ADMIN_GATE.search(ast.unparse(deps)) or atoms.admin_gate([deps])
+        ):
             names.update(t.id for t in node.targets if isinstance(t, ast.Name))
     return names
 
@@ -213,22 +232,31 @@ def _endpoint(
     return None
 
 
-def _route_text(fn: ast.FunctionDef | ast.AsyncFunctionDef, dec: ast.Call) -> str:
+def _route_nodes(
+    fn: ast.FunctionDef | ast.AsyncFunctionDef, dec: ast.Call
+) -> list[ast.AST]:
     """The route's declarations: its decorator and its parameters' defaults
     and annotations (where gates and markers live)."""
     args = fn.args
-    parts = [ast.unparse(dec)]
-    parts += [
-        ast.unparse(arg.annotation)
+    nodes: list[ast.AST] = [dec]
+    nodes += [
+        arg.annotation
         for arg in (*args.posonlyargs, *args.args, *args.kwonlyargs)
         if arg.annotation is not None
     ]
-    parts += [ast.unparse(d) for d in (*args.defaults, *args.kw_defaults) if d]
-    return "\n".join(parts)
+    nodes += [d for d in (*args.defaults, *args.kw_defaults) if d]
+    return nodes
+
+
+def _route_text(nodes: list[ast.AST]) -> str:
+    return "\n".join(ast.unparse(n) for n in nodes)
 
 
 def _hand_rolled_authority(
-    fn: ast.FunctionDef | ast.AsyncFunctionDef, dec: ast.Call, declared: str
+    fn: ast.FunctionDef | ast.AsyncFunctionDef,
+    dec: ast.Call,
+    declared: str,
+    member_gate: bool,
 ) -> str | None:
     """Why a write route decides an authority by hand, else ``None``."""
     for stmt in fn.body:
@@ -248,7 +276,7 @@ def _hand_rolled_authority(
     if re.search(r"\bat_commit\(\s*\)", declared):
         return "declares at_commit() for an authority it checks itself"
     path = _const_str(dec.args[0]) if dec.args else None
-    if path and "/members" in path and _MEMBER_GATE.search(declared):
+    if path and "/members" in path and member_gate:
         return "changes a membership behind a member-level gate"
     return None
 
@@ -269,7 +297,9 @@ def _untagged_money_commands(
 
 
 def _route_check(
-    fn: ast.FunctionDef | ast.AsyncFunctionDef, admin_routers: set[str]
+    fn: ast.FunctionDef | ast.AsyncFunctionDef,
+    admin_routers: set[str],
+    atoms: _Atoms,
 ) -> tuple[bool, str | None]:
     """``(tagged, hit)`` for an endpoint: whether a gate or marker carries its
     risk, and the hand-rolled authority report of an untagged write route."""
@@ -277,15 +307,19 @@ def _route_check(
     if endpoint is None:
         return False, None
     dec, method, router = endpoint
-    declared = _route_text(fn, dec)
+    nodes = _route_nodes(fn, dec)
+    declared = _route_text(nodes)
     if (
         router in admin_routers
         or _ADMIN_GATE.search(declared)
+        or atoms.admin_gate(nodes)
         or re.search(r"\b(sensitive|public)\(", declared)
     ):
         return True, None
     why = (
-        _hand_rolled_authority(fn, dec, declared) if method in _WRITE_METHODS else None
+        _hand_rolled_authority(fn, dec, declared, atoms.member_gate(nodes))
+        if method in _WRITE_METHODS
+        else None
     )
     if why is None:
         return False, None
@@ -312,7 +346,8 @@ def find_untagged_sensitive(file_path: Path) -> list[str]:
     already and is not reported; neither is a ``public()`` route.
     """
     tree = parse_file(file_path)
-    admin_routers = _admin_routers(tree)
+    atoms = _Atoms(tree, file_path)
+    admin_routers = _admin_routers(tree, atoms)
     found: list[str] = []
     for fn in ast.walk(tree):
         if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
@@ -322,7 +357,7 @@ def find_untagged_sensitive(file_path: Path) -> list[str]:
             for d in _decorator_calls(fn)
         )
         found += _untagged_money_commands(fn, tagged)
-        route_tagged, hit = _route_check(fn, admin_routers)
+        route_tagged, hit = _route_check(fn, admin_routers, atoms)
         if hit is not None and not tagged:
             found.append(hit)
             continue
@@ -496,10 +531,6 @@ def find_contract_union_hints(file_path: Path) -> list[str]:
 # SANDLOOM-C027 account-route-mismatch
 # --------------------------------------------------------------------------- #
 
-#: Billing atoms that take ``of=`` (spec §7.2).
-BILLING_ATOMS = frozenset(
-    {"Subscribed", "SubscriptionActive", "Credits", "Feature", "WithinLimit"}
-)
 _ORG_PARAMS = frozenset({"org_id", "organization_id"})
 _PATH_PARAM = re.compile(r"{([A-Za-z_][A-Za-z0-9_]*)(?::[^}]*)?}")
 
@@ -548,13 +579,17 @@ def _query_params(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
 
 
 def find_account_route_mismatches(file_path: Path) -> list[str]:
-    """Organization routes gating billing with ``of=Account.user()`` (C027).
+    """Organization routes gating an account atom with ``of=Account.user()`` (C027).
+
+    An account atom is any atom whose generated literal binds an account
+    (:func:`sandloom.core.archcheck.atom_metadata.binds_account`).
 
     Also refuses ``Account.org(param=X)`` on a route without ``X`` in its path
     or parameters (today's rule for ``org_param``).
     """
     tree = parse_file(file_path)
     org_params = _org_param_names(tree)
+    atoms = _atom_metadata.atom_literals(tree, file_path)
     found: list[str] = []
     for fn in ast.walk(tree):
         if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
@@ -564,17 +599,24 @@ def find_account_route_mismatches(file_path: Path) -> list[str]:
             org_route = bool(in_path & org_params)
             for root in nodes:
                 found += _route_account_problems(
-                    root, path, in_path | _query_params(fn), org_route
+                    root, path, in_path | _query_params(fn), org_route, atoms
                 )
     return sorted(set(found), key=_line_of)
 
 
 def _route_account_problems(
-    root: ast.AST, path: str, available: set[str], org_route: bool
+    root: ast.AST,
+    path: str,
+    available: set[str],
+    org_route: bool,
+    atoms: dict[str, _atom_metadata.AtomLiteral],
 ) -> list[str]:
     out: list[str] = []
     for node in ast.walk(root):
-        if _call_name(node) not in BILLING_ATOMS or not isinstance(node, ast.Call):
+        if not isinstance(node, ast.Call):
+            continue
+        literal = _atom_metadata.literal_of(node, atoms)
+        if literal is None or not _atom_metadata.binds_account(literal):
             continue
         of = _keyword(node, "of")
         account = _account_call(of) if of is not None else None
@@ -797,6 +839,29 @@ def _view_names_in(file: Path, views: list[EventClass]) -> set[str]:
     return names
 
 
+def _installed_snapshot_schema(channel: str) -> dict[str, object] | None:
+    """The producer's schema of ``channel`` from the ``module.snapshot.json`` of
+    the installed module whose ``sandloom.modules`` entry point is the channel's
+    first segment (the package is located, not imported)."""
+    module = channel.split(".", 1)[0]
+    for installed in installed_modules():
+        if installed.name != module:
+            continue
+        try:
+            spec = importlib.util.find_spec(installed.path)  # located, not imported
+        except (ImportError, ValueError):
+            continue
+        locations = spec.submodule_search_locations if spec else None
+        snapshot = (
+            Path(next(iter(locations))) / "module.snapshot.json" if locations else None
+        )
+        if snapshot is not None and snapshot.is_file():
+            events = json.loads(snapshot.read_text(encoding="utf-8")).get("events")
+            schema = (events or {}).get(channel)
+            return schema if isinstance(schema, dict) else None
+    return None
+
+
 def _view_problems(
     view: EventClass, producers: dict[str, EventClass], exported: Path | None
 ) -> list[tuple[str, Path, str]]:
@@ -806,17 +871,22 @@ def _view_problems(
         problems = _compare_with_class(view, producer)
     else:
         schema_file = exported / f"{view.channel}.json" if exported else None
-        if schema_file is None or not schema_file.is_file():
+        schema: dict[str, object] | None = None
+        if schema_file is not None and schema_file.is_file():
+            schema = json.loads(schema_file.read_text(encoding="utf-8"))
+        else:
+            schema = _installed_snapshot_schema(view.channel)
+        if schema is None:
             return [
                 (
                     "warning",
                     view.file,
                     f"Line {line}: view {view.node.name} of {view.channel!r} is "
-                    "unverified: no producer in this tree and no exported schema "
-                    "— run the producer's `sandloom test` to export it",
+                    "unverified: no producer in this tree, no exported schema and "
+                    "no installed producer snapshot — install the producer, or run "
+                    "its `sandloom test` to export the schema",
                 )
             ]
-        schema = json.loads(schema_file.read_text(encoding="utf-8"))
         problems = _compare_with_schema(view, schema)
     return [
         (
@@ -828,6 +898,12 @@ def _view_problems(
     ]
 
 
+def find_handwritten_access_checks(file_path: Path) -> list[str]:
+    """A hand-written class calling a declared access check with other tier,
+    category or risk than its declaration (C034, owner answer #22)."""
+    return _atom_metadata.handwritten_access_checks(parse_file(file_path), file_path)
+
+
 def per_file_rules() -> dict[str, Callable[[Path], list[str]]]:
     """Rule id -> per-file analyzer (``(path) -> ["Line N: ..."]``)."""
     return {
@@ -836,6 +912,7 @@ def per_file_rules() -> dict[str, Callable[[Path], list[str]]]:
         "unsafe-tenant-query": find_unsafe_tenant_queries,
         "contract-union-hint": find_contract_union_hints,
         "account-route-mismatch": find_account_route_mismatches,
+        "handwritten-access-check": find_handwritten_access_checks,
     }
 
 
@@ -848,7 +925,6 @@ def iter_python(paths: Iterable[Path]) -> Iterator[Path]:
 
 
 __all__ = [
-    "BILLING_ATOMS",
     "beginner_names",
     "find_beginner_tier_problems",
     "MONEY_VERBS",
@@ -860,6 +936,7 @@ __all__ = [
     "find_account_route_mismatches",
     "find_contract_union_hints",
     "find_event_view_problems",
+    "find_handwritten_access_checks",
     "find_module_local_imports",
     "find_multi_store_waivers",
     "find_unsafe_tenant_queries",

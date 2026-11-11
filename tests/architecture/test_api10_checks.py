@@ -1,4 +1,4 @@
-"""The Public API 1.0 static checks SANDLOOM-C021 … SANDLOOM-C027 (spec Appendix A).
+"""The Public API 1.0 static checks SANDLOOM-C021 … SANDLOOM-C027 (spec Appendix A) and C034.
 
 Each analyzer on a minimal source; the runner wiring (severity, the
 pending-until-unplanned gate, the tree-wide view check).
@@ -6,16 +6,24 @@ pending-until-unplanned gate, the tree-wide view check).
 
 from __future__ import annotations
 
+import ast
 import json
 import textwrap
+from collections.abc import Iterator
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
 from sandloom.core import error_codes
 from sandloom.core.archcheck import api10_rules as a10
+from sandloom.core.archcheck import atom_metadata
 from sandloom.core.archcheck.manifest import load_rules
 from sandloom.core.archcheck.runner import API10_RULES, PENDING_RULES, RULES, run_checks
+from sandloom.core.cli.generated import render_stub
+from sandloom.sdk import contract
+from sandloom.sdk.authz import AccessFact, ClaimRule
+from sandloom.shared.authz import Category, From, access_check, claim_atom
 
 
 def _write(tmp_path: Path, name: str, source: str) -> Path:
@@ -34,6 +42,7 @@ def test_every_api10_rule_has_its_appendix_a_code() -> None:
         "event-view-compat": "SANDLOOM-C025",
         "contract-union-hint": "SANDLOOM-C026",
         "account-route-mismatch": "SANDLOOM-C027",
+        "handwritten-access-check": "SANDLOOM-C034",
     }
     assert set(API10_RULES) == set(codes) == set(a10.SEVERITY)
     for rule, code in codes.items():
@@ -102,13 +111,45 @@ def test_c022_untagged_money_and_security_effects(tmp_path: Path) -> None:
     assert "change_password()" in hits[1]
 
 
-def test_c022_hand_rolled_authority_routes(tmp_path: Path) -> None:
+_ORG_ROLE_STUB = """
+class OrgRole(ContractCheck):
+    __sandloom_atom__: ClassVar[dict[str, Any]] = {
+        "contract": "orgs.membership.v1",
+        "method": "has_role_at_least",
+        "args": ["organization_id", "user_id", "minimum"],
+        "binds": {"organization_id": ["org", "org_id", False], "user_id": ["subject"]},
+        "tier": 3,
+        "category": "forbidden",
+        "values": {"minimum": ["member", "admin", "owner"]},
+        "risk": {"admin": {"minimum": ["admin", "owner"]}},
+    }
+"""
+
+
+@pytest.fixture
+def atoms_on_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """``tmp_path`` on ``sys.path`` with fresh metadata caches: the rules
+    resolve a name a file imports to the file that defines it."""
+    monkeypatch.syspath_prepend(str(tmp_path))
+    atom_metadata.clear_caches()
+    yield tmp_path
+    atom_metadata.clear_caches()
+
+
+def test_c022_hand_rolled_authority_routes(atoms_on_path: Path) -> None:
     """The three hand-rolled authority shapes WS-A found in identity and
-    tenancy are reported; admin-gated, tagged, public and read routes are not."""
+    tenancy are reported; admin-gated, tagged, public and read routes are not.
+    The member / admin level of a gate is read from its atom's literal."""
+    tmp_path = atoms_on_path
+    _write(tmp_path, "orgs_stub.py", _ORG_ROLE_STUB)
     path = _write(
         tmp_path,
         "api.py",
         """
+        from orgs_stub import OrgRole
+
+        ROLE_MEMBER = "member"
+        ROLE_ADMIN = "admin"
         router = APIRouter()
         admin_router = APIRouter(dependencies=[Depends(require_platform_admin)])
 
@@ -121,14 +162,14 @@ def test_c022_hand_rolled_authority_routes(tmp_path: Path) -> None:
         async def accept(user_id=Depends(get_current_user_id)): ...
 
         @router.delete("/{org_id}/members/{member_id}")
-        async def remove(org_id, user_id=Depends(require_org_role(ROLE_MEMBER))): ...
+        async def remove(org_id, user_id=Depends(require(OrgRole(ROLE_MEMBER)))): ...
 
         @router.put("/x", dependencies=[sensitive("admin")])
         async def tagged():
             raise HTTPException(status.HTTP_403_FORBIDDEN)
 
         @router.delete("/{org_id}/members/{m}")
-        async def admin_remove(org_id, u=Depends(require_org_role(ROLE_ADMIN))):
+        async def admin_remove(org_id, u=Depends(require(OrgRole(ROLE_ADMIN)))):
             raise HTTPException(status.HTTP_403_FORBIDDEN)
 
         @admin_router.post("/users/{user_id}/block")
@@ -241,11 +282,90 @@ def test_c026_ambiguous_unions_in_contracts(tmp_path: Path) -> None:
     assert "L2.legacy" in hits[1]
 
 
-def test_c027_organization_routes_and_the_personal_account(tmp_path: Path) -> None:
+_SUBSCRIPTION_FACT = AccessFact(
+    name="subscription.active",
+    owner_module="billing",
+    claim_key="subscription_status",
+    claim_rule=ClaimRule.one_of(("active", "trialing")),
+    live_service="billing.entitlements.v1",
+    deny_category=Category.PAYMENT_REQUIRED,
+    atom="Subscribed",
+    atom_statuses=("active", "trialing"),
+    atom_claim_keys=("subscription_status",),
+    atom_describe="active subscription",
+)
+_ACCOUNT = {"tenant_type": From.account_type(), "tenant_id": From.account_id()}
+
+
+@contract("billing.entitlements.v1")
+class _EntitlementsContract:
+    """The account atoms of billing's entitlements, declared as billing
+    declares them (a fixture: the kernel job has no battery installed)."""
+
+    @access_check(
+        "SubscriptionActive",
+        bind=_ACCOUNT,
+        category=Category.PAYMENT_REQUIRED,
+        describe="active subscription",
+        claim=_SUBSCRIPTION_FACT,
+    )
+    async def check_subscription_active(
+        self, tenant_type: str, tenant_id: UUID
+    ) -> bool:
+        """True while a subscription grants access."""
+        return True
+
+    @access_check(
+        "Credits",
+        bind=_ACCOUNT,
+        category=Category.PAYMENT_REQUIRED,
+        describe="at least {minimum} credits",
+    )
+    async def has_credits_at_least(
+        self, tenant_type: str, tenant_id: UUID, minimum: int
+    ) -> bool:
+        """True when the balance is at least ``minimum``."""
+        return True
+
+    @claim_atom("Feature", claim_key="features", entry="key")
+    @access_check("LiveFeature", bind=_ACCOUNT, describe="feature '{key}'")
+    async def has_feature(self, tenant_type: str, tenant_id: UUID, key: str) -> bool:
+        """True when the plan enables ``key``."""
+        return True
+
+    @claim_atom("WithinLimit", claim_key="limits", entry="key", below="used")
+    @access_check(
+        "LiveWithinLimit",
+        bind=_ACCOUNT,
+        category=Category.QUOTA_EXCEEDED,
+        describe="within limit '{key}'",
+    )
+    async def is_within_limit(
+        self, tenant_type: str, tenant_id: UUID, key: str, used: int
+    ) -> bool:
+        """True when ``used`` is below the limit."""
+        return True
+
+
+def test_c027_organization_routes_and_the_personal_account(
+    atoms_on_path: Path,
+) -> None:
+    """The account atoms are the generated ones of ``billing.entitlements.v1``
+    (rendered as ``sandloom generate`` writes them), read from their literals."""
+    tmp_path = atoms_on_path
+    _write(
+        tmp_path,
+        "billing_entitlements_v1.py",
+        render_stub("billing.entitlements.v1", _EntitlementsContract),
+    )
     path = _write(
         tmp_path,
         "r.py",
         """
+        from billing_entitlements_v1 import (
+            Credits, LiveFeature, Subscribed, SubscriptionActive,
+        )
+
         @router.get(
             "/orgs/{org_id}/export",
             dependencies=[Depends(require(Subscribed(of=Account.user())))],
@@ -267,7 +387,7 @@ def test_c027_organization_routes_and_the_personal_account(tmp_path: Path) -> No
         @router.get("/me", dependencies=[Depends(require(Subscribed(of=Account.user())))])
         async def me(): ...
 
-        @router.get("/teams", dependencies=[Depends(require(Feature("x", of=Account.org(param="team_id"))))])
+        @router.get("/teams", dependencies=[Depends(require(LiveFeature("x", of=Account.org(param="team_id"))))])
         async def teams(): ...
         """,
     )
@@ -275,6 +395,42 @@ def test_c027_organization_routes_and_the_personal_account(tmp_path: Path) -> No
     assert len(hits) == 2
     assert "/orgs/{org_id}/export" in hits[0] and "Account.user()" in hits[0]
     assert "team_id" in hits[1] and "/teams" in hits[1]
+
+
+def test_c027_a_generated_claim_read_atom_is_checked_too(
+    atoms_on_path: Path,
+) -> None:
+    _write(
+        atoms_on_path,
+        "billing_entitlements_v1.py",
+        render_stub("billing.entitlements.v1", _EntitlementsContract),
+    )
+    path = _write(
+        atoms_on_path,
+        "r.py",
+        """
+        from billing_entitlements_v1 import Feature, WithinLimit
+
+        @router.get(
+            "/orgs/{org_id}/teams",
+            dependencies=[Depends(require(Feature("x", of=Account.user())))],
+        )
+        async def teams(org_id: UUID): ...
+
+        @router.get(
+            "/teams/{team_id}",
+            dependencies=[Depends(require(Feature("x", of=Account.user())))],
+        )
+        async def team(team_id: UUID): ...
+
+        @router.get(
+            "/orgs/{org_id}/n",
+            dependencies=[Depends(require(WithinLimit("n", 1, of=Account.user())))],
+        )
+        async def n(org_id: UUID): ...
+        """,
+    )
+    assert len(a10.find_account_route_mismatches(path)) == 2
 
 
 def _tree(tmp_path: Path) -> Path:
@@ -390,3 +546,207 @@ def test_c025_sees_fields_inherited_from_an_abstract_base(tmp_path: Path) -> Non
     deep = found["notes.note.deep.v1"]
     assert set(deep.fields) == {"tenant_id", "note", "note_id", "extra"}
     assert deep.optional == {"extra"}
+
+
+# --------------------------------------------------------------------------- #
+# archcheck from atom metadata (H-20, answer #22): the Z-8 fixture
+# --------------------------------------------------------------------------- #
+_FIXTURES = Path(__file__).parent / "_fixtures"
+
+
+def _z8_consumer(root: Path) -> Path:
+    """The Z-8 consumer app on ``root``: a third-party provider's generated
+    stub (``ProjectRole``, ``SeatsAvailable``) and a module's ``api.py``."""
+    contracts = root / "z8app" / "shared" / "contracts"
+    reports = root / "z8app" / "modules" / "reports"
+    for package in (root / "z8app", root / "z8app" / "shared", contracts, reports):
+        package.mkdir(parents=True, exist_ok=True)
+        (package / "__init__.py").write_text("")
+    stub = (_FIXTURES / "z8_stub.py.txt").read_text(encoding="utf-8")
+    (contracts / "projects_roles_v1.py").write_text(stub, encoding="utf-8")
+    api = reports / "api.py"
+    api.write_text(
+        (_FIXTURES / "z8_reports_api.py.txt").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    return api
+
+
+def test_z8_gate_order_reads_the_literal_and_module_router(
+    atoms_on_path: Path,
+) -> None:
+    """A third-party atom with an organization bind is found by the gate-order
+    rule with no name in a list: through an alias, and on a ``module_router()``
+    route (the pre-existing gap: only ``APIRouter`` was read)."""
+    from sandloom.core.archcheck import module_rules as mr
+
+    api = _z8_consumer(atoms_on_path)
+    hits = [hit for _path, hit in mr.find_guard_order_problems([api])]
+    assert len(hits) == 2, hits
+    assert "(board)" in hits[0] and "TenantScope()" in hits[0]
+    assert "(board_two)" in hits[1]
+
+
+def test_z8_c027_account_atom_from_its_literal(atoms_on_path: Path) -> None:
+    api = _z8_consumer(atoms_on_path)
+    hits = a10.find_account_route_mismatches(api)
+    assert len(hits) == 1, hits
+    assert "/orgs/{org_id}/seats" in hits[0]
+    assert "SeatsAvailable(of=Account.user())" in hits[0]
+
+
+def test_z8_sensitive_route_classified_from_the_risk_table(
+    atoms_on_path: Path,
+) -> None:
+    """``ProjectRole("lead")`` carries the admin risk, ``("viewer")`` does not:
+    the write route behind the viewer gate decides an authority by hand."""
+    api = _z8_consumer(atoms_on_path)
+    hits = a10.find_untagged_sensitive(api)
+    assert len(hits) == 1, hits
+    assert "POST /orgs/{org_id}/notes" in hits[0]
+
+
+def test_z8_handwritten_access_check_c034(atoms_on_path: Path) -> None:
+    """``CheapLead`` calls the declared check with a lower tier and without its
+    risk; ``HonestLead`` states the declared metadata and is not reported."""
+    api = _z8_consumer(atoms_on_path)
+    hits = a10.find_handwritten_access_checks(api)
+    assert len(hits) == 2, hits
+    assert all(
+        "CheapLead" in h and "projects.roles.v1.has_project_role" in h for h in hits
+    )
+    assert "tier 1 (declared 3)" in hits[0]
+    assert "does not state its declared risk ['admin'] (risks())" in hits[1]
+    assert not any("HonestLead" in h for h in hits)
+
+
+def test_a_reexported_atom_is_found_where_it_is_defined(atoms_on_path: Path) -> None:
+    api = _z8_consumer(atoms_on_path)
+    contracts = atoms_on_path / "z8app" / "shared" / "contracts"
+    (contracts / "__init__.py").write_text(
+        "from .projects_roles_v1 import ProjectRole as Reexported\n"
+    )
+    other = _write(
+        atoms_on_path,
+        "other.py",
+        """
+        from z8app.shared.contracts import Reexported
+        from z8app.shared import contracts as c
+
+        @router.get("/orgs/{org_id}/seats", dependencies=[Depends(require(Reexported("lead")))])
+        async def a(org_id): ...
+
+        @router.post("/orgs/{org_id}/x", dependencies=[Depends(require(c.Reexported("lead")))])
+        async def b(org_id):
+            raise HTTPException(status_code=403)
+        """,
+    )
+    assert api.is_file()
+    assert a10.find_untagged_sensitive(other) == []
+    (contracts / "__init__.py").write_text("")  # nothing re-exported any more
+    atom_metadata.clear_caches()
+    assert len(a10.find_untagged_sensitive(other)) == 1
+
+
+def test_a_name_alone_is_not_an_atom(atoms_on_path: Path) -> None:
+    """A class called ``OrgRole`` without a generated literal binds nothing the
+    rules can read: no gate-order or account report, and no tag."""
+    from sandloom.core.archcheck import module_rules as mr
+
+    _write(atoms_on_path, "plain.py", "class OrgRole:\n    pass\n")
+    api = _write(
+        atoms_on_path,
+        "api.py",
+        """
+        from plain import OrgRole
+
+        @router.post("/x", dependencies=[Depends(require(OrgRole("admin")))])
+        async def x(tenant=TenantScope()):
+            raise HTTPException(status_code=403)
+        """,
+    )
+    assert mr.find_guard_order_problems([api]) == []
+    assert len(a10.find_untagged_sensitive(api)) == 1
+
+
+def test_a_renamed_or_reexported_name_borrows_no_metadata(atoms_on_path: Path) -> None:
+    """KB-34: the kernel table of atoms is gone. A literal-less class at the
+    old kernel path, under a former atom's name, re-exported or renamed, is no
+    atom (no admin gate that would hide a hand-rolled authority, no account
+    bind); a renamed generated atom keeps its own literal, not another's."""
+    from sandloom.core.archcheck import module_rules as mr
+
+    kernel = atoms_on_path / "sandloom" / "shared" / "authz"
+    kernel.mkdir(parents=True)
+    (kernel / "atoms_live.py").write_text("class OrgRole:\n    pass\n")
+    _write(atoms_on_path, "orgs_stub.py", _ORG_ROLE_STUB)
+    _write(
+        atoms_on_path,
+        "reexp.py",
+        """
+        from sandloom.shared.authz.atoms_live import OrgRole as ProjectRole
+        from orgs_stub import OrgRole as Gate
+        """,
+    )
+    api = _write(
+        atoms_on_path,
+        "api.py",
+        """
+        from sandloom.shared.authz.atoms_live import OrgRole
+        from reexp import ProjectRole, Gate
+
+        @router.post("/a", dependencies=[Depends(require(OrgRole("admin")))])
+        async def a():
+            raise HTTPException(status_code=403)
+
+        @router.post("/b", dependencies=[Depends(require(ProjectRole("admin")))])
+        async def b():
+            raise HTTPException(status_code=403)
+
+        @router.post("/c", dependencies=[Depends(require(Gate("member")))])
+        async def c():
+            raise HTTPException(status_code=403)
+
+        @router.post("/d", dependencies=[Depends(require(Gate("admin")))])
+        async def d():
+            raise HTTPException(status_code=403)
+        """,
+    )
+    hits = a10.find_untagged_sensitive(api)
+    assert len(hits) == 3, hits  # /a, /b (no atom) and /c (member gate)
+    assert not any("POST /d" in h for h in hits)
+    assert mr.find_guard_order_problems([api]) == []
+    assert a10.find_account_route_mismatches(api) == []
+    found = atom_metadata.atom_literals(ast.parse(api.read_text()), api)
+    assert set(found) == {"Gate"}, found
+
+
+def test_c034_follows_a_reexported_contract_ref(atoms_on_path: Path) -> None:
+    """A hand-written check calling the declared method through a ContractRef
+    re-exported (and renamed) by a package is still compared with the
+    declaration: a re-export is no way around SANDLOOM-C034."""
+    api = _z8_consumer(atoms_on_path)
+    contracts = atoms_on_path / "z8app" / "shared" / "contracts"
+    (contracts / "__init__.py").write_text(
+        "from .projects_roles_v1 import PROJECTS_ROLES_V1 as ROLES\n"
+    )
+    source = api.read_text(encoding="utf-8").replace(
+        "roles = Contract(PROJECTS_ROLES_V1)",
+        "from z8app.shared.contracts import ROLES\n\nroles = Contract(ROLES)",
+    )
+    other = _write(atoms_on_path, "other_api.py", "")
+    other.write_text(source, encoding="utf-8")
+    hits = a10.find_handwritten_access_checks(other)
+    assert len(hits) == 2, hits
+    assert all("CheapLead" in h for h in hits)
+
+
+def test_no_atom_name_list_remains() -> None:
+    """B-N17: neither a billing or tenancy atom list nor tenancy's function."""
+    from sandloom.core.archcheck import module_rules as mr
+
+    assert not hasattr(a10, "BILLING_ATOMS")
+    assert not hasattr(mr, "ORG_ATOMS") and not hasattr(mr, "ORG_IF_ORGANIZATION")
+    for module in (a10, mr):
+        source = Path(module.__file__ or "").read_text(encoding="utf-8")
+        assert "require_org_role" not in source

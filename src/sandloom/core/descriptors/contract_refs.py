@@ -13,7 +13,9 @@ spellings).
 
 from __future__ import annotations
 
+import inspect
 import threading
+import typing
 from collections.abc import Callable
 from typing import Any, Generic, TypeVar
 
@@ -39,12 +41,17 @@ class ContractRef(Generic[P]):
     def __init__(self, name: str, protocol: type[P] | None = None) -> None:
         self.name = name
         self.protocol = protocol
+        if protocol is not None:
+            with _LOCK:
+                _REFS.setdefault(name, []).append(protocol)
 
     def __repr__(self) -> str:
         return f"ContractRef({self.name!r})"
 
 
 _COPIES: dict[str, list[type]] = {}
+#: contract name -> the stub Protocols declared for it (one per consumer).
+_REFS: dict[str, list[type]] = {}
 _LOCK = threading.Lock()
 
 
@@ -77,4 +84,50 @@ def copy_origin(cls: Any) -> str | None:
     return origin if isinstance(origin, str) else None
 
 
-__all__ = ["DTO_COPY_ATTR", "ContractRef", "copy_origin", "dto_copies", "dto_copy"]
+def _nominal_copies(annotation: Any, out: list[type], seen: set[int]) -> None:
+    """The generated copies ``annotation`` names, at any depth."""
+    if id(annotation) in seen:
+        return
+    seen.add(id(annotation))
+    if inspect.isclass(annotation):
+        if copy_origin(annotation) is not None and annotation not in out:
+            out.append(annotation)
+        return
+    for arg in typing.get_args(annotation):
+        if arg is not Ellipsis:
+            _nominal_copies(arg, out, seen)
+
+
+def _hints(member: Any) -> list[Any]:
+    try:
+        return list(typing.get_type_hints(member).values())
+    except (NameError, TypeError, AttributeError):
+        # an unresolvable annotation names no copy
+        return []
+
+
+def contract_copies(contract: str) -> tuple[type, ...]:
+    """The generated copies the loaded consumer stubs of ``contract`` name in
+    their method signatures, in stub-import order. Read from the stubs'
+    Protocols (no import, no I/O); a method whose annotations do not resolve
+    contributes none."""
+    with _LOCK:
+        protocols = tuple(_REFS.get(contract, ()))
+    out: list[type] = []
+    seen: set[int] = set()
+    for protocol in protocols:
+        for name, member in vars(protocol).items():
+            if not name.startswith("_") and callable(member):
+                for hint in _hints(member):
+                    _nominal_copies(hint, out, seen)
+    return tuple(out)
+
+
+__all__ = [
+    "DTO_COPY_ATTR",
+    "ContractRef",
+    "contract_copies",
+    "copy_origin",
+    "dto_copies",
+    "dto_copy",
+]

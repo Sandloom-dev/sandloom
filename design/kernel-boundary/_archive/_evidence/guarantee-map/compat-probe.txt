@@ -1,0 +1,57 @@
+# Contract-compat probe (kb-guarantee-map): CONTRACT_COMPAT_CHECK=strict, remote bindings for
+# tenancy.membership.v1 and billing.entitlements.v1, providers down. Real expected_contracts and
+# check_remote_contract_compat; the core is a stand-in with real Settings.
+
+----- compat_probe.py -----
+"""Contract-compat probe (kb-guarantee-map): CONTRACT_COMPAT_CHECK=strict, a
+remote binding for tenancy.membership.v1 whose provider is down, in a process
+that does / does not have the provider's package installed. The real
+contract_compat.expected_contracts and readiness.check_remote_contract_compat;
+the core is a stand-in with only the attributes they read."""
+import asyncio
+import importlib.util
+import logging
+from types import SimpleNamespace
+
+from sandloom.core import contract_compat
+from sandloom.core.rpc import readiness
+
+logging.basicConfig(level=logging.WARNING, format="[%(levelname)s] %(name)s: %(message)s")
+NAMES = ["tenancy.membership.v1", "billing.entitlements.v1"]
+import os  # noqa: E402
+
+os.environ.update({"DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:9/db",
+                   "CACHE_URL": "redis://127.0.0.1:9/9", "BROKER_URL": "redis://127.0.0.1:9/9",
+                   "JWT_SECRET": "gmap-probe-not-a-real-secret-0123456789abcdef"})
+from sandloom.core.config.settings import Settings  # noqa: E402
+
+core = SimpleNamespace(
+    settings=Settings().model_copy(update={
+        "contract_snapshot_paths": [], "contract_compat_check": "strict",
+        "service_bindings": {n: {"base_url": "http://127.0.0.1:9", "service_id": n.split(".")[0],
+                                 "timeout_seconds": 0.2} for n in NAMES}}),
+    service_registry=SimpleNamespace(contains=lambda name: False),
+    loaded_modules=["shop.modules.orders"], module_descriptors=[],
+)
+print("provider packages importable:",
+      {m: importlib.util.find_spec(m) is not None for m in ("sandloom_tenancy", "sandloom_billing")})
+found = contract_compat.expected_contracts(core, NAMES)
+print("expected_contracts ->", {k: v.source.split("site-packages/")[-1].split("src/")[-1] for k, v in found.items()})
+try:
+    result = asyncio.run(readiness.check_remote_contract_compat(core))
+    print("check_remote_contract_compat (strict) ->", result.status, result.details)
+except Exception as exc:  # noqa: BLE001
+    print("check_remote_contract_compat (strict) raised", type(exc).__name__, str(exc)[:200])
+
+----- output -----
+## consumer process WITHOUT the provider packages (venv-redis: sandloom wheel + redis only)
+[WARNING] sandloom.core.rpc: No contract snapshot for remote contract billing.entitlements.v1: its compatibility is not checked (ship the provider module's package or set CONTRACT_SNAPSHOT_PATHS)
+[WARNING] sandloom.core.rpc: No contract snapshot for remote contract tenancy.membership.v1: its compatibility is not checked (ship the provider module's package or set CONTRACT_SNAPSHOT_PATHS)
+provider packages importable: {'sandloom_tenancy': False, 'sandloom_billing': False}
+expected_contracts -> {}
+check_remote_contract_compat (strict) -> ok {'probed': []}
+
+## repository environment (provider packages installed)
+provider packages importable: {'sandloom_tenancy': True, 'sandloom_billing': True}
+expected_contracts -> {'tenancy.membership.v1': '<repo>/packages/editable/sandloom-tenancy/sandloom_tenancy/contracts.snapshot.json', 'billing.entitlements.v1': '<repo>/packages/editable/sandloom-billing/sandloom_billing/contracts.snapshot.json'}
+check_remote_contract_compat (strict) -> ok {'probed': ['billing.entitlements.v1', 'tenancy.membership.v1']}

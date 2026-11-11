@@ -1,15 +1,18 @@
-"""``sandloom docs`` for what an app calls besides ``sandloom.sdk`` names: the generated
-contract stubs and the exported event schemas (spec §5.2, §5.3).
+"""``sandloom docs`` for what an app calls besides ``sandloom.sdk`` names: the
+contracts and the event schemas of the installed modules and of the application
+(spec §5.2, §5.3; ADR-0013).
 
 ``sandloom docs contracts`` / ``sandloom docs events`` list them; ``sandloom docs
 billing.credits.v1`` (or ``BILLING_CREDITS_V1``) prints each method's
 signature and the provider's docstring; ``sandloom docs tenancy.member_added.v2``
 prints the event's fields, the producer's notes and a view to copy.
 
-Everything is read from the installed packages: ``sandloom.shared.contracts`` /
-``sandloom.shared.events`` (the bundled modules) and, in an application, its own
-``<app>.shared`` package (named by ``pyproject.toml`` in the working
-directory). No repository ``docs/`` is needed.
+The kernel ships no generated stub or schema. A contract is read from its
+provider (the installed module whose ``module.snapshot.json`` lists it, its
+``contracts`` module imported only to describe one) or, in an application, from
+the stub in its own ``<app>.shared`` package; an event schema from the
+producer's ``module.snapshot.json`` or the application's exported file. No
+repository ``docs/`` is needed.
 """
 
 from __future__ import annotations
@@ -27,8 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-#: The bundled modules' shared package (stubs and event schemas).
-BUNDLED = "sandloom.shared"
+from sandloom.core.descriptors.module_names import installed_modules
 
 
 def _app_shared() -> str | None:
@@ -46,15 +48,6 @@ def _app_shared() -> str | None:
     return package if found is not None else None
 
 
-def _shared_packages() -> list[str]:
-    """The shared packages to read: the bundled one first, then the app's."""
-    packages = [BUNDLED]
-    app = _app_shared()
-    if app is not None and app != BUNDLED:
-        packages.append(app)
-    return packages
-
-
 def _package_dir(package: str) -> Path | None:
     try:
         spec = importlib.util.find_spec(package)
@@ -65,6 +58,23 @@ def _package_dir(package: str) -> Path | None:
     return Path(next(iter(spec.submodule_search_locations)))
 
 
+def _snapshots() -> list[tuple[str, dict[str, Any]]]:
+    """``(import path, module.snapshot.json)`` of every installed module that
+    ships one (the packages are located, not imported)."""
+    found: list[tuple[str, dict[str, Any]]] = []
+    for installed in installed_modules():
+        directory = _package_dir(installed.path)
+        if directory is None:
+            continue
+        try:
+            doc = json.loads((directory / "module.snapshot.json").read_text("utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(doc, dict):
+            found.append((installed.path, doc))
+    return found
+
+
 # --------------------------------------------------------------------------- #
 # Contracts
 # --------------------------------------------------------------------------- #
@@ -73,22 +83,41 @@ def _package_dir(package: str) -> Path | None:
 @dataclass(frozen=True)
 class _Stub:
     name: str  # billing.credits.v1
-    module: str  # sandloom.shared.contracts.billing_credits_v1
+    module: str  # the module a caller imports the reference from
     ref: str  # BILLING_CREDITS_V1
+    #: The application stub's file; ``None`` for an installed provider.
+    path: Path | None = None
+    #: The installed provider's import path (its ``contracts`` module is read).
+    provider: str | None = None
+
+
+def _ref_of(name: str) -> tuple[str, str]:
+    stem = "_".join(name.split("."))
+    return stem, stem.upper()
 
 
 def contract_stubs() -> dict[str, _Stub]:
-    """``{contract name: stub}`` of every generated stub found (the bundled
-    package wins for a stub the app mirrors)."""
+    """``{contract name: stub}`` of every contract found: the application's
+    own stubs first, then each installed provider's contracts."""
     found: dict[str, _Stub] = {}
-    for package in _shared_packages():
-        directory = _package_dir(f"{package}.contracts")
-        if directory is None:
-            continue
+    app = _app_shared()
+    directory = _package_dir(f"{app}.contracts") if app else None
+    if app and directory is not None:
         for info in pkgutil.iter_modules([str(directory)]):
-            stub = _read_stub(f"{package}.contracts.{info.name}", directory)
-            if stub is not None and stub.name not in found:
-                found[stub.name] = stub
+            stub = _read_stub(f"{app}.contracts.{info.name}", directory)
+            if stub is not None:
+                found.setdefault(stub.name, stub)
+    for package, doc in _snapshots():
+        for entry in doc.get("contracts") or []:
+            name = entry.get("name") if isinstance(entry, dict) else None
+            if isinstance(name, str) and name not in found:
+                stem, ref = _ref_of(name)
+                found[name] = _Stub(
+                    name,
+                    f"<your_module>._generated.contracts.{stem}",
+                    ref,
+                    provider=package,
+                )
     return dict(sorted(found.items()))
 
 
@@ -105,7 +134,7 @@ def _read_stub(module: str, directory: Path) -> _Stub | None:
         return None
     if match is None:
         return None
-    return _Stub(name=match.group(2), module=module, ref=match.group(1))
+    return _Stub(name=match.group(2), module=module, ref=match.group(1), path=path)
 
 
 def _find_stub(name: str) -> _Stub | None:
@@ -117,31 +146,107 @@ def _find_stub(name: str) -> _Stub | None:
     return None
 
 
-def describe_contract(stub: _Stub) -> str:
-    """The ``sandloom docs <contract>`` text: the import, then every method's
-    signature and docstring, from the stub's source."""
-    module = importlib.import_module(stub.module)
-    tree = ast.parse(inspect.getsource(module))
-    protocol = next(
-        (node for node in tree.body if isinstance(node, ast.ClassDef)), None
-    )
-    out = [
-        f"{stub.name} (contract)",
-        f"  from {stub.module} import {stub.ref}",
-        f"  client = Contract({stub.ref})  # at module level (sandloom.sdk.Contract)",
-    ]
+def _annotation(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, type) and not getattr(value, "__args__", None):
+        return value.__name__
+    text = str(value).replace("typing.", "")
+    return re.sub(r"\b(?:\w+\.)+(\w+)", r"\1", text)
+
+
+def _signature(function: Any) -> tuple[str, str]:
+    """``(arguments, " -> return")`` of a provider method, as a caller writes it."""
+    signature = inspect.signature(function)
+    arguments = []
+    for param in signature.parameters.values():
+        text = param.name
+        if param.annotation is not inspect.Parameter.empty:
+            text += f": {_annotation(param.annotation)}"
+        if param.default is not inspect.Parameter.empty:
+            text += f" = {param.default!r}"
+        arguments.append(text)
+    returns = ""
+    if signature.return_annotation is not inspect.Signature.empty:
+        returns = f" -> {_annotation(signature.return_annotation)}"
+    return ", ".join(arguments), returns
+
+
+def _provider_class(stub: _Stub) -> type | None:
+    """The ``@contract`` class of ``stub`` in its provider's ``contracts`` module."""
+    try:
+        module = importlib.import_module(f"{stub.provider}.contracts")
+    except ImportError:
+        return None
+    for value in vars(module).values():
+        if not isinstance(value, type):
+            continue  # never touch a lazy proxy
+        spec = value.__dict__.get("__sandloom_contract__")
+        if spec is not None and getattr(spec, "name", None) == stub.name:
+            return value
+    return None
+
+
+Method = tuple[str, str, str, str | None]
+
+
+def _provider_methods(cls: type) -> list[Method]:
+    out: list[Method] = []
+    for key in vars(cls):
+        member = getattr(cls, key)
+        if key.startswith("_") or not callable(member):
+            continue
+        arguments, returns = _signature(member)
+        out.append((key, arguments, returns, inspect.getdoc(member)))
+    return out
+
+
+def _stub_methods(stub: _Stub) -> tuple[str | None, list[Method]]:
+    """``(class docstring, methods)`` from an application stub's source."""
+    if stub.path is None:
+        return None, []
+    tree = ast.parse(stub.path.read_text(encoding="utf-8"))
+    protocol = next((n for n in tree.body if isinstance(n, ast.ClassDef)), None)
     if protocol is None:
-        return "\n".join(out)
-    class_doc = ast.get_docstring(protocol)
-    if class_doc:
-        out += ["", textwrap.indent(class_doc, "  ")]
+        return None, []
+    methods: list[Method] = []
     for node in protocol.body:
         if not isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
             continue
         args = ast.unparse(node.args).removeprefix("self, ").removeprefix("self")
         returns = f" -> {ast.unparse(node.returns)}" if node.returns else ""
-        out += ["", f"  await client.{node.name}({args}){returns}"]
-        doc = ast.get_docstring(node)
+        methods.append((node.name, args, returns, ast.get_docstring(node)))
+    return ast.get_docstring(protocol), methods
+
+
+def describe_contract(stub: _Stub) -> str:
+    """The ``sandloom docs <contract>`` text: the import, then every method's
+    signature and docstring, from the application stub's source or the
+    provider's class."""
+    out = [f"{stub.name} (contract)"]
+    if stub.provider is None:
+        class_doc, methods = _stub_methods(stub)
+        out.append(f"  from {stub.module} import {stub.ref}")
+    else:
+        out += [
+            f"  provider: {stub.provider}",
+            f"  from {stub.module} import {stub.ref}",
+            "    (the calling module lists it in define_module(consumes=...) and "
+            "`sandloom generate` writes the copy: <module>/_generated/contracts/, "
+            "<app>/shared/contracts/ in an application)",
+        ]
+        cls = _provider_class(stub)
+        if cls is None:
+            out.append(f"  ({stub.provider}.contracts could not be read)")
+            return "\n".join(out)
+        class_doc, methods = inspect.getdoc(cls), _provider_methods(cls)
+    out.append(
+        f"  client = Contract({stub.ref})  # at module level (sandloom.sdk.Contract)"
+    )
+    if class_doc:
+        out += ["", textwrap.indent(class_doc, "  ")]
+    for name, args, returns, doc in methods:
+        out += ["", f"  await client.{name}({args}){returns}"]
         out.append(textwrap.indent(doc or "(no docstring on the provider)", "      "))
     out += [
         "",
@@ -155,7 +260,7 @@ def describe_contract(stub: _Stub) -> str:
 def list_contracts() -> str:
     stubs = contract_stubs()
     if not stubs:
-        return "sandloom docs: no generated contract stubs found"
+        return "sandloom docs: no contracts found (no installed module provides one)"
     width = max(len(name) for name in stubs)
     lines = ["contracts (sandloom docs <name> for the methods):"]
     lines += [
@@ -170,15 +275,23 @@ def list_contracts() -> str:
 # --------------------------------------------------------------------------- #
 
 
-def event_schemas() -> dict[str, Path]:
-    """``{channel: exported schema file}`` (bundled first, then the app's)."""
-    found: dict[str, Path] = {}
-    for package in _shared_packages():
-        directory = _package_dir(package)
-        if directory is None or not (directory / "events").is_dir():
-            continue
+def event_schemas() -> dict[str, tuple[dict[str, Any], str]]:
+    """``{channel: (schema, where it was read)}``: the application's exported
+    files first, then each installed producer's ``module.snapshot.json``."""
+    found: dict[str, tuple[dict[str, Any], str]] = {}
+    app = _app_shared()
+    directory = _package_dir(app) if app else None
+    if directory is not None and (directory / "events").is_dir():
         for path in sorted((directory / "events").glob("*.json")):
-            found.setdefault(path.stem, path)
+            try:
+                schema = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            found.setdefault(path.stem, (schema, str(path)))
+    for package, doc in _snapshots():
+        for channel, schema in sorted((doc.get("events") or {}).items()):
+            if isinstance(schema, dict):
+                found.setdefault(channel, (schema, f"{package} module.snapshot.json"))
     return dict(sorted(found.items()))
 
 
@@ -223,17 +336,16 @@ def _field_lines(schema: dict[str, Any]) -> list[tuple[str, str, bool, str]]:
     return rows
 
 
-def describe_event(channel: str, path: Path) -> str:
+def describe_event(channel: str, schema: dict[str, Any], source: str) -> str:
     """The ``sandloom docs <channel>`` text: fields, the producer's notes and a
     view of the channel to copy."""
-    schema = json.loads(path.read_text(encoding="utf-8"))
     rows = _field_lines(schema)
     base, version = channel.rsplit(".", 1)
     others = sorted(
         c for c in event_schemas() if c.rsplit(".", 1)[0] == base and c != channel
     )
     out = [
-        f"{channel} (event) — producer {schema.get('title', '?')}; schema {path}",
+        f"{channel} (event) — producer {schema.get('title', '?')}; schema {source}",
     ]
     if schema.get("description"):
         out += ["", textwrap.indent(str(schema["description"]), "  ")]
@@ -291,13 +403,10 @@ def describe_event(channel: str, path: Path) -> str:
 def list_events() -> str:
     schemas = event_schemas()
     if not schemas:
-        return "sandloom docs: no exported event schemas found"
+        return "sandloom docs: no event schemas found (no installed producer)"
     lines = ["events (sandloom docs <channel> for the fields):"]
-    for channel, path in schemas.items():
-        try:
-            doc = str(json.loads(path.read_text(encoding="utf-8")).get("description"))
-        except (OSError, ValueError):
-            doc = ""
+    for channel, (schema, _source) in schemas.items():
+        doc = str(schema.get("description"))
         first = doc.split("\n", 1)[0] if doc and doc != "None" else ""
         lines.append(f"  {channel:<44} {first}".rstrip())
     return "\n".join(lines)
@@ -312,7 +421,7 @@ def describe_wire(name: str) -> str | None:
         return list_events()
     schemas = event_schemas()
     if name in schemas:
-        return describe_event(name, schemas[name])
+        return describe_event(name, *schemas[name])
     stub = _find_stub(name)
     if stub is not None:
         return describe_contract(stub)

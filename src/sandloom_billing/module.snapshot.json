@@ -1,8 +1,37 @@
 {
+  "capabilities": [
+    {
+      "capability": "database",
+      "features": [],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    },
+    {
+      "capability": "eventbus",
+      "features": [],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    },
+    {
+      "capability": "taskqueue",
+      "features": [
+        "periodic"
+      ],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    }
+  ],
   "consumers": [],
   "consumes": [
     {
-      "methods": [],
+      "methods": [
+        "get_member_state",
+        "get_role",
+        "has_role_at_least"
+      ],
       "name": "tenancy.membership.v1",
       "required": false
     }
@@ -13,6 +42,9 @@
       "methods": [
         "check_subscription_active",
         "get_credit_balance",
+        "has_credits_at_least",
+        "has_feature",
+        "is_within_limit",
         "subscription_claims"
       ],
       "name": "billing.entitlements.v1"
@@ -388,5 +420,33 @@
   "format": 1,
   "module": "sandloom_billing",
   "projections": [],
-  "sagas": []
+  "sagas": [],
+  "settings": {
+    "BILLING_DENY_ON_PAST_DUE": {
+      "tier": "ops"
+    },
+    "BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS": {
+      "tier": "semantic"
+    },
+    "BILLING_INTENT_RECONCILE_AFTER_MINUTES": {
+      "tier": "ops"
+    },
+    "BILLING_INTENT_RECONCILE_MAX_ATTEMPTS": {
+      "tier": "ops"
+    },
+    "BILLING_PORTAL_ATTRIBUTION_WINDOW_MINUTES": {
+      "tier": "ops"
+    },
+    "BILLING_PROVIDER": {
+      "tier": "ops"
+    },
+    "STRIPE_SECRET_KEY": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "STRIPE_WEBHOOK_SECRET": {
+      "legacy": true,
+      "tier": "ops"
+    }
+  }
 }

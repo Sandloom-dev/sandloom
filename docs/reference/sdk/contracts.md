@@ -47,12 +47,14 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`ContractSchema`](#contractschema) | class | Every exposed method of one registered contract provider + a stable hash. |
 | [`current_contract_read_scope`](#current_contract_read_scope) | function | The read scope bound to the current context, if any. |
 | [`DEFAULT_CONTRACT_DTO_PACKAGES`](#default_contract_dto_packages) | constant |  |
+| [`dto_copy`](#dto_copy) | function | Mark a generated wire-shape copy of the provider DTO `origin` (`"<module>:<qualname>"`) and register it, so an RPC caller that does not i... |
 | [`FORWARD`](#forward) | constant |  |
 | [`invalidate_contract_read_memo`](#invalidate_contract_read_memo) | function | Clear the current read scope's memo (a write happened elsewhere). |
 | [`normalize_contract_error`](#normalize_contract_error) | function | The caller-side form of a provider exception, or `None` (a 5xx bug). |
 | [`OptionalContract`](#optionalcontract) | class | `Contract(REF, optional=True)`: `client()` is `None` only when the provider is neither local nor bound in this deployment (decided at sta... |
 | [`run_contract_call`](#run_contract_call) | async function | Run one contract call in the provider's own Unit of Work. |
 | [`service`](#service) | function | The proxy of contract `name` (spec §2.3, §5.3). |
+| [`undigested`](#undigested) | function | Keep the secret arguments `names` of a command out of every stored record: its args digest (the durable command log and the cache reserva... |
 
 ## Beginner names
 
@@ -331,6 +333,7 @@ class ContractMethodRuntime(
     idempotency_key: str | None = None,
     idempotency_scope: tuple[str, ...] = (),
     risk: str | None = None,
+    access_check: dict[str, Any] | None = None,
 ) -> None
 ```
 
@@ -680,6 +683,17 @@ DEFAULT_CONTRACT_DTO_PACKAGES: tuple = ('sandloom.shared',)
 
 *(no docstring)*
 
+### `dto_copy`
+
+```python
+def dto_copy(origin: str) -> Callable[[T], T]
+```
+
+Mark a generated wire-shape copy of the provider DTO `origin`
+(`"<module>:<qualname>"`) and register it, so an RPC caller that does
+not import the provider decodes the provider's class into a copy
+(`dto_copies`). Written by `sandloom generate`; never by hand.
+
 ### `FORWARD`
 
 ```python
@@ -780,6 +794,23 @@ The proxy of contract `name` (spec §2.3, §5.3).
 `optional=True` returns `None` only when the provider is neither local
 nor bound in this deployment; a deployed provider that is down still
 raises when called.
+
+### `undigested`
+
+```python
+def undigested(*names: str) -> Callable[[Any], Any]
+```
+
+Keep the secret arguments `names` of a command out of every stored
+record: its args digest (the durable command log and the cache
+reservation) is taken over the other arguments only.
+
+For a single-use secret the caller never repeats under one key (a reset
+token, a password set through it). The same key with another value of an
+undigested argument therefore REPLAYS instead of being refused as a
+conflict: use a fresh key per attempt. Stack it on the function with
+`@command` (either order); the idempotency key and the
+`idempotency_scope` arguments cannot be undigested.
 
 ## Examples and related guides
 

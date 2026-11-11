@@ -1,0 +1,17 @@
+"""Contracts the quota module provides."""
+
+from uuid import UUID
+
+from sandloom.sdk import contract
+
+from . import services
+
+
+@contract("quota.limits.v1")
+class Limits:
+    """Contract ``quota.limits.v1``: how many items an owner may still create."""
+
+    async def available(self, owner_id: UUID, units: int) -> bool:
+        """True when ``owner_id`` may create ``units`` more items in the bound
+        tenant (at most ``services.ITEM_LIMIT``)."""
+        return await services.count_items(owner_id) + units <= services.ITEM_LIMIT

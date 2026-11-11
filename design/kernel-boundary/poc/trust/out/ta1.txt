@@ -1,0 +1,375 @@
+
+######## legacy-base-mint   root=base   kernel: $SCRATCH/venv-base/lib/python3.12/site-packages/sandloom
+  base kernel claims: {"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": [], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": [], "cpv": null}
+
+######## T1-mono   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-1 ADMIN: mint 200 claims={"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": [], "cpv": "1:8264c48c7229"}
+  T-1 ADMIN GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-1 ADMIN GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-1 ADMIN GET /api/v1/shop/role-and-perm: 200 {"ok":"Role(admin) & Perm"}
+  T-1 ADMIN GET /api/v1/shop/platform: 200 {"ok":"platform admin"}
+  T-1 ADMIN GET /api/v1/platform/shop/services: 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","category":"infrastructure"},{"id":"db","status":"ok","category":"infrastructure"},{"id":"eventbus","status":"ok","category":"infrastructure"},{"id":"infra...
+  T-1 ADMIN (grant T_A) /shop/tenant no header: 200 {"tenant":"T_A"}
+  T-1 ADMIN (grant T_A) /shop/tenant X-Tenant-Id T_A: 200 {"tenant":"T_A"}
+  T-1 ADMIN (grant T_A) /shop/tenant X-Tenant-Id T_FOREIGN: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  T-1 ADMIN (grant T_A) /notes/items X-Tenant-Id T_A: 200 {"rls_tenant_setting":"T_A","bodies":["note of A"]}
+  T-1 USER: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": [], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": [], "cpv": "1:8264c48c7229"}
+  T-1 USER GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-1 USER GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-1 USER GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-1 USER GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-1 USER GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+
+######## T1-split   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-1 ADMIN: mint 200 claims={"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": [], "cpv": "1:8264c48c7229"}
+  T-1 ADMIN GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-1 ADMIN GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-1 ADMIN GET /api/v1/shop/role-and-perm: 200 {"ok":"Role(admin) & Perm"}
+  T-1 ADMIN GET /api/v1/shop/platform: 200 {"ok":"platform admin"}
+  T-1 ADMIN GET /api/v1/platform/shop/services: 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","category":"infrastructure"},{"id":"db","status":"ok","category":"infrastructure"},{"id":"eventbus","status":"ok","category":"infrastructure"},{"id":"infra...
+  T-1 ADMIN (grant T_A) /shop/tenant no header: 200 {"tenant":"T_A"}
+  T-1 ADMIN (grant T_A) /shop/tenant X-Tenant-Id T_A: 200 {"tenant":"T_A"}
+  T-1 ADMIN (grant T_A) /shop/tenant X-Tenant-Id T_FOREIGN: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  T-1 ADMIN (grant T_A) /notes/items X-Tenant-Id T_A: 200 {"rls_tenant_setting":"T_A","bodies":["note of A"]}
+  T-1 USER: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": [], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": [], "cpv": "1:8264c48c7229"}
+  T-1 USER GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-1 USER GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-1 USER GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-1 USER GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-1 USER GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+
+######## T2-mono   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-2 USER, forged writes {"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": ["0f000000-0000-4000-8000-00000000000f"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-2 USER GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-2 USER GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-2 USER GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-2 USER GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-2 USER /shop/tenant no header: 200 {"tenant":"T_A"}
+  T-2 USER /shop/tenant X-Tenant-Id T_A: 200 {"tenant":"T_A"}
+  T-2 USER /shop/tenant X-Tenant-Id T_FOREIGN: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  T-2 USER /notes/items X-Tenant-Id T_A: 200 {"rls_tenant_setting":"T_A","bodies":["note of A"]}
+  T-2 USER, forged writes {"permissions": ["perm.poc.write"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER, forged writes {"tenant_ids": ["0f000000-0000-4000-8000-00000000000f"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER, forged writes {"claims_sources": ["test_identity"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER, forged writes {"cpv": "1:forged"}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER, forged writes {"tenant_id": "0f000000-0000-4000-8000-00000000000f"}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER, forged writes {"loyalty_tier": "gold"}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": [], "cpv": "1:8264c48c7229"}
+  T-2 ERROR lines naming forged (new): 6
+  T-2 log: sandloom.core.facade: claims contributor 'forged' wrote the claim 'roles' (a protected claim assigned to 'test_identity'); its whole contribution is dropped [request_id=cb3825e7-f3ec-43ae-b740-d62f61a3881d]
+  T-2 log: sandloom.core.facade: claims contributor 'forged' wrote the claim 'permissions' (a protected claim assigned to 'test_identity'); its whole contribution is dropped [request_id=938e98b2-e5ea-4252-9360-5799c0a9cbc4]
+  T-2 metric: sandloom_facade_counter_total{name="claims_contributor_violations_total"} 6.0
+
+######## T2-forged-first   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-2 USER, forged writes {"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": ["0f000000-0000-4000-8000-00000000000f"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-2 USER GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-2 USER GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-2 USER GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-2 USER GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-2 USER /shop/tenant no header: 200 {"tenant":"T_A"}
+  T-2 USER /shop/tenant X-Tenant-Id T_A: 200 {"tenant":"T_A"}
+  T-2 USER /shop/tenant X-Tenant-Id T_FOREIGN: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  T-2 USER /notes/items X-Tenant-Id T_A: 200 {"rls_tenant_setting":"T_A","bodies":["note of A"]}
+  T-2 USER, forged writes {"permissions": ["perm.poc.write"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER, forged writes {"tenant_ids": ["0f000000-0000-4000-8000-00000000000f"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER, forged writes {"claims_sources": ["test_identity"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER, forged writes {"cpv": "1:forged"}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER, forged writes {"tenant_id": "0f000000-0000-4000-8000-00000000000f"}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER, forged writes {"loyalty_tier": "gold"}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": [], "cpv": "1:8264c48c7229"}
+  T-2 ERROR lines naming forged (new): 6
+  T-2 log: sandloom.core.facade: claims contributor 'forged' wrote the claim 'roles' (a protected claim assigned to 'test_identity'); its whole contribution is dropped [request_id=03720d19-3fd7-452b-a4fb-d27ce38b2bd9]
+  T-2 log: sandloom.core.facade: claims contributor 'forged' wrote the claim 'permissions' (a protected claim assigned to 'test_identity'); its whole contribution is dropped [request_id=ed673434-5e1e-48eb-998e-c9371a55c9e4]
+  T-2 metric: sandloom_facade_counter_total{name="claims_contributor_violations_total"} 6.0
+
+######## T2-split   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-2 USER, forged writes {"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": ["0f000000-0000-4000-8000-00000000000f"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-2 USER GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-2 USER GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-2 USER GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-2 USER GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-2 USER /shop/tenant no header: 200 {"tenant":"T_A"}
+  T-2 USER /shop/tenant X-Tenant-Id T_A: 200 {"tenant":"T_A"}
+  T-2 USER /shop/tenant X-Tenant-Id T_FOREIGN: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  T-2 USER /notes/items X-Tenant-Id T_A: 200 {"rls_tenant_setting":"T_A","bodies":["note of A"]}
+  T-2 USER, forged writes {"permissions": ["perm.poc.write"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER, forged writes {"tenant_ids": ["0f000000-0000-4000-8000-00000000000f"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER, forged writes {"claims_sources": ["test_identity"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER, forged writes {"cpv": "1:forged"}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER, forged writes {"tenant_id": "0f000000-0000-4000-8000-00000000000f"}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-2 USER, forged writes {"loyalty_tier": "gold"}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": [], "cpv": "1:8264c48c7229"}
+  T-2 ERROR lines naming forged (new): 6
+  T-2 log: sandloom.core.facade: claims contributor 'forged' wrote the claim 'roles' (a protected claim assigned to 'test_identity'); its whole contribution is dropped [request_id=6e367780-7333-4743-93e5-3c82a2845cdf]
+  T-2 log: sandloom.core.facade: claims contributor 'forged' wrote the claim 'permissions' (a protected claim assigned to 'test_identity'); its whole contribution is dropped [request_id=ee4bd1dd-cbe3-42cc-b68e-b7abc5fae9c0]
+  T-2 metric: sandloom_facade_counter_total{name="claims_contributor_violations_total"} 6.0
+
+######## T3-mono   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-3 forged registered after test_identity: USER, critical forged writes roles: mint 503 {"detail": "Token claims from 'forged' are unavailable; try again later", "code": null}
+  T-3 forged registered after test_identity: ADMIN, critical forged writes roles: mint 503 {"detail": "Token claims from 'forged' are unavailable; try again later", "code": null}
+  T-3 forged registered after test_identity: USER, critical forged writes only its own key: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": [], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": [], "cpv": "1:8264c48c7229"}
+  T-3 forged registered BEFORE test_identity: USER, critical forged writes roles: mint 503 {"detail": "Token claims from 'forged' are unavailable; try again later", "code": null}
+  T-3 forged registered BEFORE test_identity: ADMIN, critical forged writes roles: mint 503 {"detail": "Token claims from 'forged' are unavailable; try again later", "code": null}
+  T-3 forged registered BEFORE test_identity: USER, critical forged writes only its own key: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": [], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": [], "cpv": "1:8264c48c7229"}
+  log lines:
+  T-3 log: sandloom.core.facade: claims contributor 'forged' wrote the claim 'roles' (a protected claim assigned to 'test_identity'); refusing to mint the token [request_id=791a8b99-8370-4fbb-b414-554e273a1e4c]
+  T-3 log: sandloom.core.facade: claims contributor 'forged' wrote the claim 'roles' (a protected claim assigned to 'test_identity'); refusing to mint the token [request_id=a8bfce49-c7e9-43d2-80a7-1edf4d644e4f]
+
+######## T3-split   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-3 remote forged.claims.v1, critical binding: USER, critical forged writes roles: mint 503 {"detail": "Token claims from 'forged' are unavailable; try again later", "code": null}
+  T-3 remote forged.claims.v1, critical binding: ADMIN, critical forged writes roles: mint 503 {"detail": "Token claims from 'forged' are unavailable; try again later", "code": null}
+  T-3 remote forged.claims.v1, critical binding: USER, critical forged writes only its own key: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": [], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": [], "cpv": "1:8264c48c7229"}
+
+######## T4-mono   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-4 100 logins: status counts {200: 100}; tokens with roles=admin: 0
+  T-4 ERROR lines naming forged: 100
+  T-4 metric before: (no sample of claims_contributor_violations_total; /metrics 200)
+  T-4 metric after: sandloom_facade_counter_total{name="claims_contributor_violations_total"} 100.0
+
+######## T4-split   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-4 100 logins: status counts {200: 100}; tokens with roles=admin: 0
+  T-4 ERROR lines naming forged: 100
+  T-4 metric before: (no sample of claims_contributor_violations_total; /metrics 200)
+  T-4 metric after: sandloom_facade_counter_total{name="claims_contributor_violations_total"} 100.0
+
+######## T5   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+== T-5 (a) authority missing in the issuer: issuer 'identity', test_identity/grants neither loaded nor bound
+  T5-missing exit code: 1
+  T5-missing log: [core.config] Invalid configuration: SANDLOOM-B035: claim 'permissions' is assigned to 'pocapp.modules.test_identity', which is neither loaded in this issuing process nor bound (test_identity.claims.v1 is not in SERVICE_BINDINGS); claim 'roles' is assigned to 'pocapp.modules.test_identity', which is neither loaded in this issuing process nor bound (test_identity.claims.v1 is not in SERVICE_BINDINGS); claim 'tenant_id...
+== T-5 (b) authority registered non-critical
+  T5-noncritical exit code: 1
+  T5-noncritical log: [core.config] Invalid configuration: SANDLOOM-B035: claim 'permissions' is assigned to 'pocapp.modules.test_identity', whose claims contributor is registered critical=False: the authority of a protected claim must be critical (answer #14); claim 'roles' is assigned to 'pocapp.modules.test_identity', whose claims contributor is registered critical=False: the authority of a protected claim must be critical (answer #14)...
+== T-5 (c) path typo
+  T5-typo exit code: 1
+  T5-typo log: [core.config] Invalid configuration: SANDLOOM-B035: claim 'roles' is assigned to 'pocapp.modules.test_identty', which names no module (not importable, no sandloom.modules entry point): a typo? (`sandloom explain SANDLOOM-B035`)
+== T-5 (d) split: grants.claims.v1 bound critical: false
+  T5-split-p1 exit code: 1
+  T5-split-p1 log: [core.config] Invalid configuration: SANDLOOM-B035: claim 'tenant_ids' is assigned to 'pocapp.modules.grants', whose binding grants.claims.v1 is critical: false: the authority of a protected claim must be critical (answer #14) (`sandloom explain SANDLOOM-B035`)
+
+######## T6-mono   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-6 ADMIN, no assignment, forged writes roles/tenant_ids: mint 200 claims={"claims_sources": [], "claims_sources_failed": ["forged", "test_identity"], "cpv": "1:4f53cda18c2b"}
+  T-6 ADMIN GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-6 ADMIN GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-6 ADMIN GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-6 ADMIN GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-6 ADMIN GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-6 ADMIN /shop/tenant no header: 400 {"detail":"tenant context required","code":null}
+  T-6 ADMIN /shop/tenant X-Tenant-Id T_A: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  T-6 ADMIN /shop/tenant X-Tenant-Id T_FOREIGN: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  T-6 ADMIN /notes/items X-Tenant-Id T_A: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  T-6' no assignment, test_identity CRITICAL writes roles: mint 503 {"detail": "Token claims from 'test_identity' are unavailable; try again later", "code": null}
+
+######## T6-split   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-6 split ADMIN, no assignment: mint 200 claims={"claims_sources": [], "claims_sources_failed": ["forged", "test_identity"], "cpv": "1:4f53cda18c2b"}
+  T-6 split ADMIN GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-6 split ADMIN GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-6 split ADMIN GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-6 split ADMIN GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-6 split ADMIN GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-6 split ADMIN /shop/tenant no header: 400 {"detail":"tenant context required","code":null}
+  T-6 split ADMIN /shop/tenant X-Tenant-Id T_A: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  T-6 split ADMIN /shop/tenant X-Tenant-Id T_FOREIGN: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  T-6 split ADMIN /notes/items X-Tenant-Id T_A: 403 {"detail":"tenant is not authorized by the access token","code":null}
+
+######## T7   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+== T-7 (a) app-local module named 'identity' (lean), unassigned, non-critical, grants admin to everyone
+  T-7a USER minted by 'identity': mint 200 claims={"roles": [], "permissions": [], "tenant_ids": [], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["identity"], "cpv": "1:8264c48c7229"}
+  T-7a USER GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-7a USER GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-7a USER GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-7a USER GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-7a USER GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-7a log: sandloom.core.facade: claims contributor 'identity' wrote the claim 'roles' (a protected claim assigned to 'test_identity'); its whole contribution is dropped [request_id=0d7984f2-9432-481a-87e4-b5b54913ebf4]
+  T-7a' the same, 'identity' critical: mint 503 {"detail": "Token claims from 'identity' are unavailable; try again later", "code": null}
+== T-7 (b) forged passes owner='identity' / owner='test_identity'
+  T7-owner-identity exit code: 1
+  T7-owner-identity log: 2026-11-08 14:31:53,955 [ERROR] sandloom.core.loader.plugin_loader: [plugin_loader] Failed module pocapp.modules.forged: SANDLOOM-B034: a claims contributor under module 'identity' is registered outside a module's registration: register it from the module's register() or setup= (`sandloom explain SANDLOOM-B034`)
+  T7-owner-identity log: sandloom.core.facade._services.ForeignOwnerRegistration: SANDLOOM-B034: a claims contributor under module 'identity' is registered outside a module's registration: register it from the module's register() or setup= (`sandloom explain SANDLOOM-B034`)
+  T7-owner-identity log: sandloom.core.loader.plugin_loader.ModuleLoadError: Required modules failed: pocapp.modules.forged: SANDLOOM-B034: a claims contributor under module 'identity' is registered outside a module's registration: register it from the module's register() or setup= (`sandloom explain SANDLOOM-B034`) (total_failed=1)
+  T7-owner-ti exit code: 1
+  T7-owner-ti log: 2026-11-08 14:31:55,282 [ERROR] sandloom.core.loader.plugin_loader: [plugin_loader] Failed module pocapp.modules.forged: SANDLOOM-B034: a claims contributor under module 'test_identity' is registered outside a module's registration: register it from the module's register() or setup= (`sandloom explain SANDLOOM-B034`)
+  T7-owner-ti log: sandloom.core.facade._services.ForeignOwnerRegistration: SANDLOOM-B034: a claims contributor under module 'test_identity' is registered outside a module's registration: register it from the module's register() or setup= (`sandloom explain SANDLOOM-B034`)
+  T7-owner-ti log: sandloom.core.loader.plugin_loader.ModuleLoadError: Required modules failed: pocapp.modules.forged: SANDLOOM-B034: a claims contributor under module 'test_identity' is registered outside a module's registration: register it from the module's register() or setup= (`sandloom explain SANDLOOM-B034`) (total_failed=1)
+== T-7 (c) forged registered first: see T2-forged-first / T3-forged-first
+
+######## T8   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+== T-8 (a) P2 hosts forged registering grants.claims.v1 / test_identity.claims.v1
+  T8-squat-grants exit code: 1
+  T8-squat-grants log: 2026-11-08 14:31:56,567 [ERROR] sandloom.core.loader.plugin_loader: [plugin_loader] Failed module pocapp.modules.forged: SANDLOOM-B034: module 'pocapp.modules.forged' registers contract 'grants.claims.v1' under module 'grants': a module registers only under its own name 'forged'; move the registration into module 'grants' or name it after 'forged' (`sandloom explain SANDLOOM-B034`)
+  T8-squat-grants log: sandloom.core.facade._services.ForeignOwnerRegistration: SANDLOOM-B034: module 'pocapp.modules.forged' registers contract 'grants.claims.v1' under module 'grants': a module registers only under its own name 'forged'; move the registration into module 'grants' or name it after 'forged' (`sandloom explain SANDLOOM-B034`)
+  T8-squat-grants log: sandloom.core.loader.plugin_loader.ModuleLoadError: Required modules failed: pocapp.modules.forged: SANDLOOM-B034: module 'pocapp.modules.forged' registers contract 'grants.claims.v1' under module 'grants': a module registers only under its own name 'forged'; move the registration into module 'grants' or name it after 'forged' (`sandloom explain SANDLOOM-B034`) (total_failed=1)
+  T8-squat-ti exit code: 1
+  T8-squat-ti log: 2026-11-08 14:31:57,791 [ERROR] sandloom.core.loader.plugin_loader: [plugin_loader] Failed module pocapp.modules.forged: SANDLOOM-B034: module 'pocapp.modules.forged' registers contract 'test_identity.claims.v1' under module 'test_identity': a module registers only under its own name 'forged'; move the registration into module 'test_identity' or name it after 'forged' (`sandloom explain SANDLOOM-B034`)
+  T8-squat-ti log: sandloom.core.facade._services.ForeignOwnerRegistration: SANDLOOM-B034: module 'pocapp.modules.forged' registers contract 'test_identity.claims.v1' under module 'test_identity': a module registers only under its own name 'forged'; move the registration into module 'test_identity' or name it after 'forged' (`sandloom explain SANDLOOM-B034`)
+  T8-squat-ti log: sandloom.core.loader.plugin_loader.ModuleLoadError: Required modules failed: pocapp.modules.forged: SANDLOOM-B034: module 'pocapp.modules.forged' registers contract 'test_identity.claims.v1' under module 'test_identity': a module registers only under its own name 'forged'; move the registration into module 'test_identity' or name it after 'forged' (`sandloom explain SANDLOOM-B034`) (total_failed=1)
+== T-8 (b) P1 binds grants.claims.v1 to P2 where grants is not loaded
+  T-8b ADMIN: mint 503 {"detail": "Token claims from 'grants' are unavailable; try again later", "code": null}
+  T-8b P1 log: sandloom.core.rpc: No contract snapshot for remote contract grants.claims.v1: its compatibility is not checked (ship the provider module's package or set CONTRACT_SNAPSHOT_PATHS)
+  T-8b P1 log: sandloom.core.rpc: Could not describe remote contract grants.claims.v1 at http://127.0.0.1:52970; decoding its results without their annotations [request_id=0f4e5978-fb50-4c1d-83dc-520d1bf344e5]
+
+######## T9-mono   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/role-admin: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/perm-write: 401 {"detail":"the access token predates the claim policy; refresh it (permission 'perm.poc.write')","code":"token_policy_outdated"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/not-role: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/platform: 401 {"detail":"token_policy_outdated","code":null}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/platform/shop/services: 401 {"detail":"token_policy_outdated","code":null}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/role-admin: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/perm-write: 401 {"detail":"the access token predates the claim policy; refresh it (permission 'perm.poc.write')","code":"token_policy_outdated"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/not-role: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/platform: 401 {"detail":"token_policy_outdated","code":null}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/platform/shop/services: 401 {"detail":"token_policy_outdated","code":null}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/role-admin: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/perm-write: 401 {"detail":"the access token predates the claim policy; refresh it (permission 'perm.poc.write')","code":"token_policy_outdated"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/not-role: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/platform: 401 {"detail":"token_policy_outdated","code":null}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/platform/shop/services: 401 {"detail":"token_policy_outdated","code":null}
+  T-9 after refresh (re-mint) ADMIN: mint 200 claims={"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": [], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": [], "cpv": "1:8264c48c7229"}
+  T-9 refreshed ADMIN GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 refreshed ADMIN GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-9 refreshed ADMIN GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-9 refreshed ADMIN GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 refreshed ADMIN GET /api/v1/shop/not-role: 403 {"detail":"requires NOT role 'admin'","code":"negation_failed"}
+  T-9 refreshed ADMIN GET /api/v1/shop/platform: 200 {"ok":"platform admin"}
+  T-9 refreshed ADMIN GET /api/v1/platform/shop/services: 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","category":"infrastructure"},{"id":"db","status":"ok","category":"infrastructure"},{"id":"eventbus","status":"ok","category":"infrastructure"},{"id":"infra...
+  T-9 log: sandloom.claims.trust: claim policy mismatch: a token minted under cpv=<none: legacy token> reached a process running cpv=1:8264c48c7229; its protected claims are untrusted (legacy token, or issuer and verifier run different claim_authorities) [request_id=e3cf0f90-a41f-40aa-ac0f-136d79792a3d]
+
+######## T9-split   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/role-admin: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/perm-write: 401 {"detail":"the access token predates the claim policy; refresh it (permission 'perm.poc.write')","code":"token_policy_outdated"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/not-role: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/platform: 401 {"detail":"token_policy_outdated","code":null}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/platform/shop/services: 401 {"detail":"token_policy_outdated","code":null}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/role-admin: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/perm-write: 401 {"detail":"the access token predates the claim policy; refresh it (permission 'perm.poc.write')","code":"token_policy_outdated"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/not-role: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/platform: 401 {"detail":"token_policy_outdated","code":null}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/platform/shop/services: 401 {"detail":"token_policy_outdated","code":null}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/role-admin: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/perm-write: 401 {"detail":"the access token predates the claim policy; refresh it (permission 'perm.poc.write')","code":"token_policy_outdated"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/not-role: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/platform: 401 {"detail":"token_policy_outdated","code":null}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/platform/shop/services: 401 {"detail":"token_policy_outdated","code":null}
+  T-9 after refresh (re-mint) ADMIN: mint 200 claims={"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": [], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": [], "cpv": "1:8264c48c7229"}
+  T-9 refreshed ADMIN GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 refreshed ADMIN GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-9 refreshed ADMIN GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-9 refreshed ADMIN GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 refreshed ADMIN GET /api/v1/shop/not-role: 403 {"detail":"requires NOT role 'admin'","code":"negation_failed"}
+  T-9 refreshed ADMIN GET /api/v1/shop/platform: 200 {"ok":"platform admin"}
+  T-9 refreshed ADMIN GET /api/v1/platform/shop/services: 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","category":"infrastructure"},{"id":"db","status":"ok","category":"infrastructure"},{"id":"eventbus","status":"ok","category":"infrastructure"},{"id":"infra...
+
+######## T10   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-10 ADMIN minted by P1 (map A): mint 200 claims={"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": [], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": [], "cpv": "1:8264c48c7229"}
+  T-10 at P1 (map A) GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-10 at P1 (map A) GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-10 at P1 (map A) GET /api/v1/shop/role-and-perm: 200 {"ok":"Role(admin) & Perm"}
+  T-10 at P3 (map B) GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-10 at P3 (map B) GET /api/v1/shop/role-admin: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-10 at P3 (map B) GET /api/v1/shop/perm-write: 401 {"detail":"the access token predates the claim policy; refresh it (permission 'perm.poc.write')","code":"token_policy_outdated"}
+  T-10 at P3 (map B) GET /api/v1/shop/role-and-perm: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-10 at P3 (map B) GET /api/v1/shop/platform: 401 {"detail":"token_policy_outdated","code":null}
+  T-10 at P3 again GET /api/v1/shop/role-admin: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-10 T10-p1 log: sandloom.app: claim trust: cpv=1:8264c48c7229 authorities={'roles': 'pocapp.modules.test_identity', 'permissions': 'pocapp.modules.test_identity', 'tenant_ids': 'pocapp.modules.grants'} test_authority=False
+  T-10 T10-p3 log: sandloom.app: claim trust: cpv=1:aa015457855a authorities={'roles': 'pocapp.modules.grants', 'permissions': 'pocapp.modules.test_identity', 'tenant_ids': 'pocapp.modules.grants'} test_authority=False
+  T-10 T10-p3 log: sandloom.claims.trust: claim policy mismatch: a token minted under cpv=1:8264c48c7229 reached a process running cpv=1:aa015457855a; its protected claims are untrusted (legacy token, or issuer and verifier run different claim_authorities) [request_id=8a48cda7-5
+
+######## T11-mono   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-11 create_access_token({"roles": ["admin"], "claims_sources": ["test_identity"], "claims_sources_failed": []}): UnsealedClaimsError: SANDLOOM-R017: create_access_token(data=...) carries claims_sources, claims_sources_failed, roles outside a sealed collect_claims result: protected claims, provenance and cpv come only from collect_claims (create_access_token(data, claims=sealed)); a service token uses create_service_token without them
+  T-11 create_access_token({"roles": ["admin"]}): UnsealedClaimsError: SANDLOOM-R017: create_access_token(data=...) carries roles outside a sealed collect_claims result: protected claims, provenance and cpv come only from collect_claims (create_access_token(data, claims=sealed)); a service token uses create_service_token without them
+  T-11 create_access_token({"cpv": "1:anything"}): UnsealedClaimsError: SANDLOOM-R017: create_access_token(data=...) carries cpv outside a sealed collect_claims result: protected claims, provenance and cpv come only from collect_claims (create_access_token(data, claims=sealed)); a service token uses create_service_token without them
+  T-11 create_access_token({"tenant_ids": ["0a000000-0000-4000-8000-00000000000a"]}): UnsealedClaimsError: SANDLOOM-R017: create_access_token(data=...) carries tenant_ids outside a sealed collect_claims result: protected claims, provenance and cpv come only from collect_claims (create_access_token(data, claims=sealed)); a service token uses create_service_token without them
+  T-11 create_access_token({"email": "x@example.com"}): TOKEN MINTED
+  T-11 hand-minted GET /api/v1/shop/role-admin: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-11 hand-minted GET /api/v1/shop/perm-write: 401 {"detail":"the access token predates the claim policy; refresh it (permission 'perm.poc.write')","code":"token_policy_outdated"}
+  T-11 hand-minted GET /api/v1/shop/role-and-perm: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-11 hand-minted GET /api/v1/shop/platform: 401 {"detail":"token_policy_outdated","code":null}
+  T-11 hand-minted GET /api/v1/platform/shop/services: 401 {"detail":"token_policy_outdated","code":null}
+  T-11 create_service_token({"roles": ["admin"]}): UnsealedClaimsError: SANDLOOM-R017: create_service_token refuses roles: a service token grants no user rights
+  T-11 create_service_token({"tenant_id": "0a000000-0000-4000-8000-00000000000a"}): UnsealedClaimsError: SANDLOOM-R017: create_service_token refuses tenant_id: a service token grants no user rights
+  T-11 create_service_token({}): TOKEN MINTED
+  T-11 service token GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-11 service token GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-11 service token GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-11 service token GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-11 service token GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 service token GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 service token /shop/tenant X-Tenant-Id T_A: 403 {"detail":"tenant is not authorized by the access token","code":null}
+
+######## T11-split   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-11 create_access_token({"roles": ["admin"], "claims_sources": ["test_identity"], "claims_sources_failed": []}): UnsealedClaimsError: SANDLOOM-R017: create_access_token(data=...) carries claims_sources, claims_sources_failed, roles outside a sealed collect_claims result: protected claims, provenance and cpv come only from collect_claims (create_access_token(data, claims=sealed)); a service token uses create_service_token without them
+  T-11 create_access_token({"roles": ["admin"]}): UnsealedClaimsError: SANDLOOM-R017: create_access_token(data=...) carries roles outside a sealed collect_claims result: protected claims, provenance and cpv come only from collect_claims (create_access_token(data, claims=sealed)); a service token uses create_service_token without them
+  T-11 create_access_token({"cpv": "1:anything"}): UnsealedClaimsError: SANDLOOM-R017: create_access_token(data=...) carries cpv outside a sealed collect_claims result: protected claims, provenance and cpv come only from collect_claims (create_access_token(data, claims=sealed)); a service token uses create_service_token without them
+  T-11 create_access_token({"tenant_ids": ["0a000000-0000-4000-8000-00000000000a"]}): UnsealedClaimsError: SANDLOOM-R017: create_access_token(data=...) carries tenant_ids outside a sealed collect_claims result: protected claims, provenance and cpv come only from collect_claims (create_access_token(data, claims=sealed)); a service token uses create_service_token without them
+  T-11 create_access_token({"email": "x@example.com"}): TOKEN MINTED
+  T-11 hand-minted GET /api/v1/shop/role-admin: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-11 hand-minted GET /api/v1/shop/perm-write: 401 {"detail":"the access token predates the claim policy; refresh it (permission 'perm.poc.write')","code":"token_policy_outdated"}
+  T-11 hand-minted GET /api/v1/shop/role-and-perm: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-11 hand-minted GET /api/v1/shop/platform: 401 {"detail":"token_policy_outdated","code":null}
+  T-11 hand-minted GET /api/v1/platform/shop/services: 401 {"detail":"token_policy_outdated","code":null}
+  T-11 create_service_token({"roles": ["admin"]}): UnsealedClaimsError: SANDLOOM-R017: create_service_token refuses roles: a service token grants no user rights
+  T-11 create_service_token({"tenant_id": "0a000000-0000-4000-8000-00000000000a"}): UnsealedClaimsError: SANDLOOM-R017: create_service_token refuses tenant_id: a service token grants no user rights
+  T-11 create_service_token({}): TOKEN MINTED
+  T-11 service token GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-11 service token GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-11 service token GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-11 service token GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-11 service token GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 service token GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 service token /shop/tenant X-Tenant-Id T_A: 403 {"detail":"tenant is not authorized by the access token","code":null}
+
+######## T12-prod   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+== T-12 the kernel test authority assigned in a composition without the test plugin
+  T12-testauth exit code: 1
+  T12-testauth log: [core.config] Invalid configuration: SANDLOOM-B035: claim 'roles' is assigned to the kernel test authority 'sandloom-test', which only a test composition may assign (`sandloom explain SANDLOOM-B035`)
+
+######## T13-mono   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-13 USER, forged writes roles=admin: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": [], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-13 forged Role(admin): 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-13 platform admin, roles not from the authority: 403 {"detail":"Platform administrator role required","code":null}
+  T-13 kernel platform API, same: 403 {"detail":"Platform administrator role required","code":null}
+  T-13 ~Entitled(missing.fact), USER: 501 {"detail":"access fact 'missing.fact' is not registered and no bound <owner>.facts.v1 contract describes it","code":"fact_unregistered"}
+  T-13 ADMIN (trusted roles): mint 200 claims={"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": [], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": [], "cpv": "1:8264c48c7229"}
+  T-13 Role(admin) | Entitled(missing.fact): 200 {"ok":"Role(admin) | Entitled(missing.fact)"}
+  T-13 ~Entitled(missing.fact), ADMIN: 501 {"detail":"access fact 'missing.fact' is not registered and no bound <owner>.facts.v1 contract describes it","code":"fact_unregistered"}
+
+######## T13-split   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-13 USER, forged writes roles=admin: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": [], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"], "cpv": "1:8264c48c7229"}
+  T-13 forged Role(admin): 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-13 platform admin, roles not from the authority: 403 {"detail":"Platform administrator role required","code":null}
+  T-13 kernel platform API, same: 403 {"detail":"Platform administrator role required","code":null}
+  T-13 ~Entitled(missing.fact), USER: 501 {"detail":"access fact 'missing.fact' is not registered and no bound <owner>.facts.v1 contract describes it","code":"fact_unregistered"}
+  T-13 ADMIN (trusted roles): mint 200 claims={"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": [], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": [], "cpv": "1:8264c48c7229"}
+  T-13 Role(admin) | Entitled(missing.fact): 200 {"ok":"Role(admin) | Entitled(missing.fact)"}
+  T-13 ~Entitled(missing.fact), ADMIN: 501 {"detail":"access fact 'missing.fact' is not registered and no bound <owner>.facts.v1 contract describes it","code":"fact_unregistered"}
+
+######## T14   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-14 mono plain (control): status ['200']; per request: DB 0, Redis {'GET': 1.0, 'SELECT': 0.05}, RPC 0
+  T-14 mono Role(admin): status ['200']; per request: DB 0, Redis {'GET': 1.0, 'SELECT': 0.05}, RPC 0
+  T-14 mono Perm(perm.poc.write): status ['200']; per request: DB 0, Redis {'GET': 1.0, 'SELECT': 0.05}, RPC 0
+  T-14 mono Role & Perm: status ['200']; per request: DB 0, Redis {'GET': 1.0, 'SELECT': 0.05}, RPC 0
+  T-14 mono TenantScope: status ['200']; per request: DB 0, Redis {'GET': 1.0, 'SELECT': 0.05}, RPC 0
+  T-14 split plain (control): status ['200']; per request: DB 0, Redis {'GET': 1.0, 'SELECT': 0.05}, RPC 0
+  T-14 split Role(admin): status ['200']; per request: DB 0, Redis {'GET': 1.0, 'SELECT': 0.05}, RPC 0
+  T-14 split Perm(perm.poc.write): status ['200']; per request: DB 0, Redis {'GET': 1.0, 'SELECT': 0.05}, RPC 0
+  T-14 split Role & Perm: status ['200']; per request: DB 0, Redis {'GET': 1.0, 'SELECT': 0.05}, RPC 0
+  T-14 split TenantScope: status ['200']; per request: DB 0, Redis {'GET': 1.0, 'SELECT': 0.05}, RPC 0
+
+######## T16   root=ta1   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+== T-16 R2: an issuer without a core.auth.user_blocked.v1 consumer
+  T16-noblock exit code: 1
+  T16-noblock log: [core.config] Invalid configuration: SANDLOOM-B035: module 'pocapp.modules.test_identity' issues tokens but registers no durable consumer of core.auth.user_blocked.v1: the issuer ends its refresh sessions on an emergency block (answer #16) (`sandloom explain SANDLOOM-B035`)
+== T-16 R1: the kernel's durable revocation applier, no identity module loaded
+  T-16 consumer: {"name": "sessions@user_blocked", "channel": "core.auth.user_blocked.v1", "kind": "side_effect", "required": true, "state": "running", "last_error": null, "attempts": 1, "last_connected_at": "2026-11-08T14:32:53.134398+00:00", "group": "pocapp.modules.test_identity:sessions@user_blocked", "module": "pocapp.modules.test_identity", "service": null, "lag": null, "pending": null}
+  T-16 consumer: {"name": "auth@tokens_revoked", "channel": "core.auth.tokens_revoked.v1", "kind": "side_effect", "required": true, "state": "running", "last_error": null, "attempts": 1, "last_connected_at": "2026-11-08T14:32:53.134470+00:00", "group": "sandloom:auth@tokens_revoked@url:15271b03da0445e2", "module": "sandloom", "service": null, "lag": null, "pending": null}

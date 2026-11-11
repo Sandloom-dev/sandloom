@@ -33,7 +33,7 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   `INTERNAL_API_TOKEN`; identity refuses to start without
   `TWOFA_ENCRYPTION_KEY`; `BILLING_PROVIDER=stripe` requires
   `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET`, and `fake` is refused unless
-  `SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]` (demo stacks only). Every accepted
+  `SANDLOOM_ACCEPTED_RISKS=["billing.fake_psp_in_prod"]` (demo stacks only). Every accepted
   risk is logged as a WARNING at each start, exported as
   `sandloom_accepted_risk_active{risk}` and listed by `/diagnostics/core` and
   `sandloom doctor`; an unknown id fails startup.
@@ -55,16 +55,29 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   revoking transaction, retries the after-commit mark write
   (`AUTH_REVOCATION_WRITE_ATTEMPTS`=3, backoff from
   `AUTH_REVOCATION_RETRY_BASE_SECONDS`=0.05) and, if it still fails, leaves it
-  to identity's durable consumer `sessions@tokens_revoked` (redelivered until
-  the cache is back; idempotent). Alerts:
+  to the kernel's durable applier `auth@tokens_revoked`, which every service
+  runs in its own group `sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME>`
+  (redelivered until the cache is back; idempotent). On a shared bus a
+  process without `SANDLOOM_SERVICE_NAME` refuses to start. The bus is the
+  one the `default` eventbus instance resolves to: `EVENT_BUS_BACKEND`, or
+  the `INFRA` entry `eventbus.default` when it sets a driver. Every driver
+  except `memory` counts as shared. Give each service its own name, the same
+  for all its replicas. Two services under one name share one group, and
+  each misses part of the other's revocations. Alerts:
   `increase(auth_revocation_deferred_total[5m]) > 0` (warning: revocations
   pending on the applier — a cache outage), and
   `increase(auth_revocation_applier_failures_total[10m]) > 0` sustained, or a
-  growing `sessions@tokens_revoked` pending count / DLQ entry on
-  `core.auth.tokens_revoked.v1` (critical: revoked tokens still accepted). A
-  deployment without identity has no applier — the retries are its only
-  backstop. Revocations made with `require_immediate=True` (every bundled
-  security event) never depend on it: their mark is written before commit,
+  growing `auth@tokens_revoked` pending count / DLQ entry on
+  `core.auth.tokens_revoked.v1` (critical: revoked tokens still accepted).
+  `/ready` answers 503 when the applier is not running, or when its oldest
+  pending revocation or block event is older than `ACCESS_TOKEN_EXPIRE_MINUTES`.
+  It also answers 503 when such an event is dead-lettered. A dead-letter
+  queue it cannot count is not ready either: the read failed, or the queue
+  holds more than 10,000 entries. The queue is read at most once per
+  `HEALTH_CACHE_TTL_SECONDS`, however many probes arrive. The reasons are
+  listed under `revocation_consumers`; `sandloom_consumer_lag_seconds`
+  exports the lag and drops to 0 once the backlog clears. Revocations made
+  with `require_immediate=True` (every bundled security event) never depend on it: their mark is written before commit,
   or the change is refused with `503` —
   `increase(auth_revocation_immediate_refused_total[5m]) > 0` means changes
   are being refused because the cache is unreachable;
@@ -75,13 +88,14 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   `auth_revocation_corrupt_mark_total` increase means some writer stored an
   unparsable mark: that user is locked out (fail-closed) until their next
   login repairs it — investigate the writer.
-- **Stuck / dead-lettered revocations (runbook).** identity's
-  `sessions@tokens_revoked` and `sessions@user_blocked` consumers are
+- **Stuck / dead-lettered revocations (runbook).** The kernel's
+  `auth@tokens_revoked` applier and identity's `sessions@user_blocked`
+  consumer are
   `dead_letter=False`: a delivery that fails (cache or database down) is
   retried forever with capped backoff (≤ 60 s), never parked. Alert on
   `auth_revocation_pending_seconds > 60` (warning) / `> 300` (critical: a
   revoked token may still be accepted wherever the cache is reachable); the
-  affected identity replica answers `/ready` 503 (`revocations_pending`) until
+  affected replica answers `/ready` 503 (`revocations_pending`) until
   it drains, and logs `Durable revocation of subject … still pending` at ERROR.
   Fix the cache; nothing else to do. A CRITICAL `Malformed durable revocation`
   log / `increase(auth_revocation_malformed_total[5m]) > 0` / a new entry with
@@ -92,6 +106,20 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   is fixed and the payload corrected upstream, drop the entry. `sandloom streams
   dlq-replay` would re-deliver the same malformed payload and dead-letter it
   again.
+- **The retired identity group (upgrade runbook).** Before the kernel took
+  over, identity applied revocations in the group
+  `identity:sessions@tokens_revoked`. Nothing reads it any more. Redis still
+  keeps it with its pending entries; `sandloom streams groups
+  core.auth.tokens_revoked.v1` shows its lag growing. Wait until every
+  service runs the new version with its
+  `sandloom:auth@tokens_revoked@<service>` group running. Then delete the
+  old group and its owner record:
+  `redis-cli XGROUP DESTROY <EVENT_STREAM_PREFIX>core.auth.tokens_revoked.v1
+  identity:sessions@tokens_revoked`, then `sandloom streams release-group
+  core.auth.tokens_revoked.v1 identity:sessions@tokens_revoked`. Its
+  inventory entry turns stale after 5 minutes and is listed only by
+  `sandloom streams consumers --all`. Nothing is lost: the new groups apply
+  every revocation from the stream, idempotently.
 - Logs redact keys containing sensitive substrings and scrub token-like values
   inside messages (`sandloom.core.observability.guardrails`); the same scrubber is
   Sentry's `before_send`.
@@ -124,6 +152,7 @@ and never print secrets.
 ```bash
 sandloom config dump                    # every setting, redacted, with its source
 sandloom config dump --only JWT_,RPC_   # name prefixes
+sandloom config dump --kernel-only      # the kernel's settings, no composition built
 sandloom config dump --non-default --json
 sandloom doctor                         # preflight report; exit 0 / 1 warn / 2 fail
 sandloom doctor --json --timeout 10 --skip consumers
@@ -136,14 +165,24 @@ Credentials are redacted by name (`*SECRET*`, `*PASSWORD*`, `*TOKEN`,
 secret stays visible as `null`. `--show-secrets` prints them in clear and is
 refused with `ENVIRONMENT=prod`.
 
+The dump lists the kernel's settings, then a block per loaded module with the
+settings that module declares, under the same source labels and redaction.
+It builds the composition (`SANDLOOM_COMPOSITION_ROOT`) as the app does, in a
+collect mode. A module's invalid setting shows as `# INVALID - <reason>` with
+exit 0, not as a refusal. The dump only builds. It runs no lifespan and no
+background work, and it opens no connection. The build costs about 0.9 s with the three
+batteries, on top of the kernel's 1.6 s. `--kernel-only` skips the build and
+prints the kernel's table alone.
+
 `sandloom doctor` boots the composition root (`SANDLOOM_COMPOSITION_ROOT`, like the
 worker and `sandloom migrate`; no lifespan, no consumers, no relay) and reports:
 
 | Section | Checks |
 |---|---|
-| `config` | settings validate; `ENVIRONMENT` set explicitly; prod: ops token, docs; `multi_tenant_strict` requirements |
+| `config` | settings validate; `ENVIRONMENT` set explicitly; prod: ops token, docs; `multi_tenant_strict` requirements; every active override and accepted risk, the loaded modules' included (a module's risk id that does not apply here is listed as such); every module's invalid setting, one failure each |
 | `modules` | the composition root loads; every consumed contract is local or bound in `SERVICE_BINDINGS` |
-| `infra` | every configured instance (databases, caches, object stores, task queue, event bus) answers its health probe in time — the `/diagnostics/infra` probes |
+| `infra` | every configured instance (databases, caches, object stores, task queue, event bus) answers its health probe in time — the `/diagnostics/infra` probes (the `celery` taskqueue's connects to its broker) |
+| `periodic` | each loaded module whose taskqueue requirement asks for `periodic`: a beat holds the lease for this module set. If none does, a required need fails and an optional one warns (identity's token cleanup: `refresh_tokens` grows). A held lease shows that a beat schedules the jobs, not that a worker runs them; billing's `billing_reconciler` readiness check covers that |
 | `migrations` | per database: applied revision of the core chain and each module chain vs the code's heads (`ok` / `behind` / `missing` / `unknown` = migrated by a newer release); read-only connections |
 | `consumers` | each durable consumer's Streams group exists; pending and lag (`--lag-warn`, default 1000) |
 | `rls` | `tenant_rls` databases: the app role cannot escape RLS; strict profile: every tenant table covered |
@@ -271,8 +310,10 @@ This section holds the settings, commands and metrics.
   `sandloom_streams_group_pending` and `/diagnostics/consumers`);
   `sandloom streams consumers [--all]` lists the cross-service subscription
   inventory (stream, group, module, `SANDLOOM_SERVICE_NAME`, consumer id;
-  heartbeated every 30 s, stale after 5 min). Set `SANDLOOM_SERVICE_NAME` per
-  deployment so these listings say which service a consumer belongs to.
+  heartbeated every 30 s, stale after 5 min). `SANDLOOM_SERVICE_NAME` says
+  which service a consumer belongs to in these listings. It also names the
+  kernel's revocation applier group, so it is required on a shared bus and
+  must differ between services. It never renames a module's group.
 - Group ownership: the first process to join a group records
   `sandloom:group-owner:<stream>:<group>` (module + physical consumer database).
   A process of another module / database joining that group fails startup —
@@ -542,14 +583,73 @@ block record that survives a database restore.
 
 Every command below is a **dry-run by default**; `--apply` acts and needs
 `--reason` (and `--operator`, default your login); in production also
-`--confirm-production`. Each applied action is audited (per user by identity
-with `actor_type="operator"`, or `core.security.*` for the export /
-reconciliation). Re-running an interrupted bulk command with the same
-`--operation-id` replays finished batches (durable command dedupe) instead of
-repeating them. The session commands call identity's `identity.security.v1`
-contract — run them in a process that loads identity (or binds it via
-`SERVICE_BINDINGS` with an `RPC_ALLOWED_CALLS` grant); `--tenant` also needs
-`tenancy.membership.v1`.
+`--confirm-production`. Each applied action is audited (per user by the
+kernel, `core.security.tokens_revoked`, and by the issuer, e.g. identity's
+`identity.user.sessions_revoked`, with `actor_type="operator"`; or
+`core.security.*` for the export / reconciliation). Re-running an interrupted
+bulk command with the same `--operation-id` replays finished batches (durable
+command dedupe) instead of repeating them.
+
+**Who answers.** The session commands ask the `issuer` of the composition
+root's claim map. They call its `<issuer>.security.v1` contract
+(`identity.security.v1` in the standard composition). `end_sessions` ends
+sessions, `require_password_reset` serves `force-password-reset`, and
+`list_user_ids` serves `--all`. `--tenant` asks the owner of `tenant_ids`
+(`tenancy.security.v1`, `list_member_user_ids`).
+
+Run the commands in a process that loads those modules. Otherwise bind each
+contract in `SERVICE_BINDINGS`, pinned to the owner's service, and grant each
+method in `RPC_ALLOWED_CALLS`. Every method is confirmed by describe before
+anything is done, a dry run included. The method must be there with the
+shape the kernel calls, such as `require_password_reset(...) -> int`. A gap
+or an incompatible schema refuses with `SANDLOOM-B039` or `SANDLOOM-B040`
+(exit status 1). The refusal names what was expected and what the owner has,
+and nothing is written. An issuer without passwords refuses
+`force-password-reset`: reset passwords at the provider.
+
+Each answer is checked where the command reads it, before its next step. An
+answer of another shape stops the command with `SANDLOOM-B039`. The refusal
+names the batch and the `--operation-id`; that batch's access tokens are not
+revoked yet. The owner stores its answer for the batch, so a resume with the
+same `--operation-id` stops at the same place. Fix the owner's method, then
+run again with a new `--operation-id`.
+
+An issuer that declares `refresh_sessions=True` (the default) must report
+`refresh_sessions` ended. The declaration is read where the issuer runs: its
+descriptor in one process, its describe answer in a split.
+
+**Who answers `grant-admin` and `sandloom admin`.** Two owners from the same
+map, each confirmed the same way before anything is done:
+
+| side | owner | methods |
+|---|---|---|
+| accounts | the `issuer` | `account_by_email`, `accounts_by_id` (`admin list`); with passwords: `password_problem`, `set_password_token`, `set_password_with_token`, `reissue_set_password` |
+| platform role | the owner of `roles` | `is_platform_admin`, `platform_admin_ids` (`admin list`), `appoint_platform_admin` (`grant-admin`), `record_admin_listing` (`admin list` in production) |
+
+`grant-admin` reads the account at the issuer and grants the role at the
+`roles` owner. That is one write, after every check, so the two may be
+different modules. For `admin list`, the `roles` owner's holders are joined
+with the issuer's addresses. `admin create` makes the account and its role in
+one unit (`create_platform_admin`, `take_over_platform_admin`). And
+`admin invite` mints a link the issuer gives only to an administrator it knows. Both need one module
+that is the issuer and the `roles` owner, as identity is in the standard
+composition. With two owners they are refused (`SANDLOOM-B039`) before
+anything is read or written, never half done. Create the account at the
+issuer instead, then run `grant-admin`. An issuer without passwords, such as
+an external OpenID provider, refuses `admin create` the same way.
+
+**What a revocation does, kind by kind** (the command prints one line each):
+
+| kind | who | guaranteed |
+|---|---|---|
+| Sandloom access tokens | the kernel, for every issuer | yes: one unit in the command's process (audit row per user, the mark written before commit, `core.auth.tokens_revoked.v1` in the outbox, applied by every service's revocation applier); no success before it commits |
+| Sandloom refresh sessions | the issuer's `end_sessions`, before the kernel's mark | where the issuer declares `refresh_sessions=True`; "not applicable" for a stateless issuer |
+| External identity-provider sessions | the provider | no: "not controlled", end them at the provider (unless the issuer reports it ended them) |
+| A new sign-in | nobody | still possible: a revocation is not a block. Block the account (`POST /api/v1/users/{id}/block`, the kernel's `block_user`) to refuse it |
+
+With a stateless OIDC issuer the report reads: access tokens revoked /
+refresh sessions not applicable / external IdP sessions not controlled / new
+sign-in still possible.
 
 **0. Contain and record.** Open an incident, freeze deploys, then export the
 audit window you will reason about:
@@ -605,7 +705,8 @@ are out.
   redeploy.
 
 **4. Tenant-scoped compromise.** `sandloom security revoke-sessions --tenant <org>
---apply --reason …` (pages the members through `tenancy.membership.v1`), plus
+--apply --reason …` (pages the members through the `tenant_ids` owner's
+`tenancy.security.v1`), plus
 `force-password-reset --tenant` if their credentials are suspect.
 
 **5. Close.** `sandloom backup reconcile-security` must report clean; export the
@@ -796,12 +897,32 @@ restore the interpreter's own behaviour exactly.
 - **Traces**: set `TRACING_URL` to your OTLP endpoint (TLS auto for https).
 - **Errors**: set `SENTRY_DSN` to enable Sentry reporting.
 - **Health**: `/health` (operational health, 503 when degraded),
-  `/health/simple` (process liveness), `/ready` (health + required modules +
-  required consumer subscriptions; topology shown only with the internal token),
-  `/diagnostics/infra` (capabilities, stability, drivers, per-instance health),
-  `/diagnostics/consumers` and `/diagnostics/services` (token-gated). Results are cached for
-  `HEALTH_CACHE_TTL_SECONDS` (default 3s) so anonymous probes cannot fan out
-  infra checks.
+  `/health/simple` (process liveness), `/ready` (serving health + required modules +
+  required consumer subscriptions + a reachable taskqueue broker while a
+  loaded module requires the taskqueue on the request path, `taskqueue_status`;
+  topology shown only with the internal token),
+  `/diagnostics/infra` (capabilities, stability, drivers, per-instance health;
+  the `celery` taskqueue's probe connects to its broker),
+  `/diagnostics/core` (also: each module needing periodic jobs and whether a
+  beat schedules them), `/diagnostics/consumers` and `/diagnostics/services`
+  (token-gated). Results are cached for `HEALTH_CACHE_TTL_SECONDS` (default 3s)
+  so anonymous probes cannot fan out infra checks: one broker connection per
+  TTL, however many `/ready` hits arrive.
+- **Readiness and the taskqueue**: readiness reports trouble that can pass
+  (a broker outage). A missing driver is refused at startup instead. The
+  taskqueue term follows each loaded module's taskqueue requirement:
+
+  | the module requires | a broker outage |
+  |---|---|
+  | the queue on the request path (no feature, or `delay`, `idempotency_key`) | `/ready` 503, `taskqueue_status: fail`, naming the instance |
+  | only `periodic` (Billing) | the web process can stay ready. `taskqueue_status` is `unused`, and internal details list the module under `background_modules`. |
+  | it optionally (identity's cleanup), or not at all | never probed |
+
+  The taskqueue broker probe feeds `/ready`. An overdue or missing Billing
+  reconciler run makes `/health` return 503.
+  Unresolved compensation failures also degrade that probe. New checkout and
+  portal requests, including pending retries, need a run completed in the last
+  15 minutes. See the [Billing HTTP API](../modules/batteries/billing.md#http-api).
 - **Client IP**: behind a proxy set `TRUST_PROXY_HEADERS=true` and
   `TRUSTED_PROXY_IPS` (CIDRs); `X-Forwarded-For` is then walked right-to-left
   from a trusted peer. Rate limiting (sliding window) is always on in prod.

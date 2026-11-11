@@ -11,11 +11,23 @@ from typing import Any, cast
 import jwt
 import orjson
 
+import sandloom.core.runtime as _runtime
+from sandloom.core.auth import claims_view as _claims_view
 from sandloom.core.auth.marks import (
     IAT_US_CLAIM,
     _datetime_us,
     _issue_instant_us,
     _seconds_to_us,
+)
+from sandloom.core.claims import (
+    CPV_CLAIM,
+    CPV_VERSION,
+    NO_AUTHORITIES,
+    ClaimAuthorities,
+    SealedClaims,
+    UnsealedClaimsError,
+    refuse_unsealed,
+    sealed_data,
 )
 from sandloom.core.config import accepted_risks
 from sandloom.core.config.common import strict_profile_active
@@ -33,8 +45,23 @@ def create_access_token(
     expires_delta: int | None = None,
     *,
     claims_read_at: datetime | None = None,
+    claims: SealedClaims | None = None,
 ) -> str:
     """Mint a JWT.
+
+    ``claims``: the sealed result of ``collect_claims``, the only carrier of
+    the token's protected claims (``roles``, ``permissions``, ``tenant_ids``,
+    ``email``, ``email_verified``, the billing claims and every key the
+    composition's ``claim_authorities`` names), its provenance
+    (``claims_sources``, ``claims_sources_failed``) and ``cpv`` (ADR-0014
+    decision 5, owner answer #13). ``data`` carries the envelope (``sub``,
+    ``token_type``, ``auth_time``, the registered claims) and unprotected
+    keys. A protected key, a tenant selector (``tenant_id``, ``org_id``),
+    provenance, ``cpv`` or ``UserContext``'s structural fields in ``data``,
+    a ``claims`` that is not sealed, or a ``data`` key that overrides one of
+    ``claims`` is refused (:class:`~sandloom.core.claims.UnsealedClaimsError`,
+    SANDLOOM-R017). A token that grants no user rights:
+    :func:`create_service_token`.
 
     Adds the standard registered claims every token should carry: ``iat``
     (issued-at), ``nbf`` (not-before) and a unique ``jti`` (token id, the hook a
@@ -58,7 +85,59 @@ def create_access_token(
     ``JWT_KID`` is configured it is stamped as the ``kid`` header so verifiers
     can pick the key directly during a rotation.
     """
+    if claims is not None and not (type(claims) is SealedClaims and claims.is_sealed()):
+        raise UnsealedClaimsError(
+            "SANDLOOM-R017: create_access_token(claims=...) takes the sealed "
+            f"result of collect_claims only, not a {type(claims).__name__}"
+        )
+    _core, policy = _claim_policy()
+    refuse_unsealed(data, policy, "create_access_token(data=...)")
+    if claims is None:
+        to_encode = data.copy()
+    else:
+        sealed = sealed_data(claims)
+        if not sealed.keys().isdisjoint(data):
+            overridden = sorted(k for k in sealed if k in data)
+            raise UnsealedClaimsError(
+                "SANDLOOM-R017: create_access_token(data=...) overrides "
+                f"{', '.join(overridden)} of the sealed collect_claims result"
+            )
+        to_encode = {**sealed, **data}
+    # A trusted view's verdict is never minted (a payload copied from a
+    # verified token): every verifier computes its own.
+    to_encode.pop(_claims_view.UNTRUSTED_KEY, None)
+    return _mint(to_encode, expires_delta, claims_read_at)
+
+
+def create_service_token(data: dict[str, Any], expires_delta: int | None = None) -> str:
+    """Mint a token that authenticates and grants no user rights.
+
+    The limited path for a service or a test client (ADR-0014 decision 5):
+    ``data`` is the envelope (``sub``, ``token_type``, ...) and unprotected
+    keys only. Every key :func:`create_access_token` takes only from a
+    sealed result is refused (SANDLOOM-R017): no protected claim, tenant
+    selector, provenance, ``cpv`` or subject structure. The kernel stamps an
+    empty provenance and the current ``cpv``, so the token's absent protected
+    claims read as a definite deny (403) on every gate (``Role``, ``Perm``,
+    platform admission, ``TenantScope``), never as "refresh" (401
+    ``token_policy_outdated``).
+    """
+    _core, policy = _claim_policy()
+    refuse_unsealed(data, policy, "create_service_token(data=...)")
     to_encode = data.copy()
+    to_encode.pop(_claims_view.UNTRUSTED_KEY, None)
+    to_encode["claims_sources"] = []
+    to_encode["claims_sources_failed"] = []
+    to_encode[CPV_CLAIM] = {"v": CPV_VERSION, "k": dict(policy.digests)}
+    return _mint(to_encode, expires_delta, None)
+
+
+def _mint(
+    to_encode: dict[str, Any],
+    expires_delta: int | None,
+    claims_read_at: datetime | None,
+) -> str:
+    """Stamp the envelope on ``to_encode`` (in place) and sign it."""
     now = datetime.now(UTC)
     minutes = (
         settings.access_token_expire_minutes if expires_delta is None else expires_delta
@@ -251,11 +330,14 @@ def _verification_keys(token: str) -> list[Any]:
 
 #: Verified-token cache bound: the newest tokens this process verified.
 VERIFIED_TOKEN_CACHE_SIZE = 2048
-#: token -> (verification settings, claims as JSON, iat, nbf | None, exp):
-#: ONLY tokens whose signature and claims verified. A hit re-checks the time
-#: claims exactly as PyJWT does; everything else about a token is immutable.
+#: token -> (verification settings + claim policy marker, trusted view as
+#: JSON, iat, nbf | None, exp, view valid until): ONLY tokens whose signature
+#: and claims verified. A hit re-checks the time claims exactly as PyJWT
+#: does; everything else about a token is immutable, and its trusted view
+#: (ADR-0014 decision 3) only changes with the policy (in the key) or at the
+#: compatibility window's end (``view valid until``: then re-verified).
 #: Claims are kept serialized so every hit returns fresh objects.
-_verified_tokens: dict[str, tuple[tuple[Any, ...], bytes, int, Any, int]] = {}
+_verified_tokens: dict[str, tuple[tuple[Any, ...], bytes, int, Any, int, float]] = {}
 
 
 def _verification_settings() -> tuple[Any, ...]:
@@ -273,7 +355,9 @@ def _verification_settings() -> tuple[Any, ...]:
     )
 
 
-def _remember_verified(token: str, config: tuple[Any, ...], claims: Any) -> None:
+def _remember_verified(
+    token: str, config: tuple[Any, ...], claims: Any, view_until: float
+) -> None:
     try:
         iat = int(claims["iat"])
         exp = int(claims["exp"])
@@ -283,7 +367,35 @@ def _remember_verified(token: str, config: tuple[Any, ...], claims: Any) -> None
         return
     if len(_verified_tokens) >= VERIFIED_TOKEN_CACHE_SIZE:
         _verified_tokens.pop(next(iter(_verified_tokens)), None)
-    _verified_tokens[token] = (config, raw, iat, nbf, exp)
+    _verified_tokens[token] = (config, raw, iat, nbf, exp, view_until)
+
+
+def _claim_policy() -> tuple[Any, ClaimAuthorities]:
+    """The active composition's core (or ``None``) and its claim policy.
+
+    No core bound (a script that built no app): nothing is assigned, so
+    every protected claim is untrusted (fail closed)."""
+    core = _runtime.get_active_core()
+    policy = getattr(core, "claim_authorities", None)
+    if not isinstance(policy, ClaimAuthorities):
+        return core, NO_AUTHORITIES
+    return core, policy
+
+
+def _trusted_view(claims: dict[str, Any], core: Any, policy: ClaimAuthorities) -> float:
+    """Apply the trusted view to freshly verified ``claims`` (in place)."""
+    valid_until, legacy_keys = _claims_view.apply_view(
+        claims,
+        policy,
+        now=time.time(),
+        lifetime_seconds=settings.access_token_expire_minutes * 60,
+        leeway_seconds=settings.jwt_leeway_seconds,
+    )
+    if legacy_keys and core is not None:
+        # One acceptance per key, as ``<metric>{key="<key>"}``.
+        for key in legacy_keys:
+            core.increment_metric(_claims_view.legacy_metric_name(key), 1)
+    return valid_until
 
 
 def decode_token(token: str) -> dict[str, Any] | None:
@@ -298,11 +410,18 @@ def decode_token(token: str) -> dict[str, Any] | None:
     (``iat`` / ``nbf`` not in the future, ``exp`` not past, with the leeway).
     Revocation and the emergency block are separate (marks), never cached
     here.
+
+    An access token's claims are its **trusted view** (ADR-0014 decision 3,
+    :mod:`sandloom.core.auth.claims_view`): every protected claim the active
+    composition's map does not trust is removed and listed with its reason
+    under ``claims_view.UNTRUSTED_KEY``. The view is computed once per
+    verified token and cached with it, the policy's marker in the key.
     """
-    config = _verification_settings()
+    core, policy = _claim_policy()
+    config = (*_verification_settings(), policy.marker)
     cached = _verified_tokens.get(token)
     if cached is not None and cached[0] == config:
-        _config, raw, iat, nbf, exp = cached
+        _config, raw, iat, nbf, exp, view_until = cached
         now = time.time()
         leeway = settings.jwt_leeway_seconds
         if iat > now + leeway or (nbf is not None and nbf > now + leeway):
@@ -310,10 +429,13 @@ def decode_token(token: str) -> dict[str, Any] | None:
         if exp <= now - leeway:
             _verified_tokens.pop(token, None)
             return None
-        return cast(dict[str, Any], orjson.loads(raw))
+        if now < view_until:
+            return cast(dict[str, Any], orjson.loads(raw))
+        _verified_tokens.pop(token, None)
     claims = _decode_token_uncached(token)
     if claims is not None:
-        _remember_verified(token, config, claims)
+        view_until = _trusted_view(claims, core, policy)
+        _remember_verified(token, config, claims, view_until)
     return claims
 
 

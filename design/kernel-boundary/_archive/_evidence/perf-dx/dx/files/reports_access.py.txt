@@ -1,0 +1,31 @@
+"""``QuotaAvailable``: a typed access check over ``quota.limits.v1``."""
+
+from dxquota.shared.contracts.quota_limits_v1 import QUOTA_LIMITS_V1
+from sandloom.sdk import Contract
+from sandloom.sdk.authz import (  # sandloom: advanced a typed access check
+    TIER_LIVE,
+    AuthzContext,
+    Category,
+    Requirement,
+)
+
+limits = Contract(QUOTA_LIMITS_V1)
+
+
+class QuotaAvailable(Requirement):
+    """The caller may still create ``units`` items (a live contract call)."""
+
+    tier = TIER_LIVE
+    category = Category.QUOTA_EXCEEDED
+
+    def __init__(self, units: int = 1) -> None:
+        self.units = units
+
+    async def evaluate(self, ctx: AuthzContext) -> bool:
+        return await limits.available(ctx.subject.user_id, self.units)
+
+    def contracts(self) -> frozenset[str]:
+        return frozenset({QUOTA_LIMITS_V1.name})
+
+    def describe(self) -> str:
+        return f"quota for {self.units} item(s)"

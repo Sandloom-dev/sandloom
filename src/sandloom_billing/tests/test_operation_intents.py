@@ -233,6 +233,7 @@ async def test_role_loss_during_checkout_revokes_the_intent_and_expires_the_sess
 
 
 async def test_role_loss_during_portal_revokes_the_intent_and_withholds_the_url(
+    fresh_reconciler: None,
     async_client: AsyncClient,
     test_db: AsyncSession,
     fake_psp: Any,
@@ -1075,6 +1076,7 @@ async def test_failed_recheck_on_retry_never_revokes_an_issued_intent(
 
 
 async def test_retry_of_an_issued_portal_intent_is_refused_without_a_psp_call(
+    fresh_reconciler: None,
     async_client: AsyncClient,
     fake_psp: Any,
     sessions: async_sessionmaker[AsyncSession],
@@ -1097,6 +1099,7 @@ async def test_retry_of_an_issued_portal_intent_is_refused_without_a_psp_call(
 
 
 async def test_demoted_manager_cannot_replay_a_portal_url_with_a_new_token(
+    fresh_reconciler: None,
     async_client: AsyncClient,
     test_db: AsyncSession,
     fake_psp: Any,

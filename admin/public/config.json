@@ -1,3 +1,13 @@
 {
-  "modules": ["identity", "tenancy", "billing"]
+  "modules": ["identity", "tenancy", "billing"],
+  "issuer": "identity",
+  "login_entry": "/auth/login",
+  "console_auth": {
+    "kind": "password",
+    "refresh": "/auth/refresh",
+    "logout": "/auth/logout",
+    "me": "/auth/me",
+    "setup_state": "/api/v1/identity/setup-state",
+    "roles_owner": "identity"
+  }
 }

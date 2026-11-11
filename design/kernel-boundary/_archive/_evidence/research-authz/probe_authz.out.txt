@@ -1,0 +1,26 @@
+# Output of probe_authz.py at 38f33cb (branch arch/kernel-boundary), 2026-11-08.
+# Command (repo root; dummy settings, nothing is connected):
+#   DATABASE_URL=postgresql+asyncpg://x:y@127.0.0.1:1/none CACHE_URL=redis://127.0.0.1:1/9 \
+#   BROKER_URL=redis://127.0.0.1:1/9 JWT_SECRET=<dummy> ENVIRONMENT=dev \
+#   uv run python design/kernel-boundary/_evidence/research-authz/probe_authz.py
+# P1 uses a fake bound provider raising the RPC proxy's RemoteServiceUnavailable; P4 a counting fake core.
+
+P1  provider bound but down, inside Or
+    raised: RemoteServiceUnavailable 503 -> the allowing sibling never ran; no indeterminate decision, no deny log
+    same policy, tenancy NOT bound (absent): allow
+P2  require(policy) depends on get_db?  (tier > TIER_CLAIM, deps.py:121-123)
+    Role("admin")                                        tier=1 db_param=False
+    Subscribed(of=Account.user())                        tier=1 db_param=False
+    Role("admin") | Credits(10, of=Account.user())       tier=3 db_param=True
+    Entitled("subscription.active")                      tier=3 db_param=True
+    OrgRole("admin")                                     tier=3 db_param=True
+P3  order: And/Or sort by tier, stable for equal tiers (algebra.py:165, :209)
+    ~(F & U) both live               evaluated=['F'] -> allow
+    ~(U & F) both live               evaluated=['U'] -> indeterminate
+    ~(U & F) F re-tiered to claim    evaluated=['F'] -> allow
+P4  OrgRole('admin') & SubscriptionActive(of=Account.bound_tenant()) - contract calls
+    decision allowed: True
+    call: has_role_at_least ('7503f11b-2602-48f0-9093-327d81e1c92d', '98437682-1dd8-4085-9d14-ac2629140e79', 'admin')
+    call: has_role_at_least ('7503f11b-2602-48f0-9093-327d81e1c92d', '98437682-1dd8-4085-9d14-ac2629140e79', 'member')
+    call: check_subscription_active ('organization', '7503f11b-2602-48f0-9093-327d81e1c92d')
+    total contract calls: 3

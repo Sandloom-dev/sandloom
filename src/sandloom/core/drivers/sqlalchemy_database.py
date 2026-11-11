@@ -876,7 +876,7 @@ class SystemChannelUnavailable(TenantRLSConfigError):
 def _validated_rls_options(
     name: str, options: Mapping[str, object]
 ) -> SQLAlchemyDatabaseOptions:
-    opts = SQLAlchemyDatabaseOptions(**options)
+    opts = SQLAlchemyDatabaseOptions.model_validate(options)
     system_url = opts.system_url or (
         settings.database_system_url if name == DEFAULT_INSTANCE else None
     )

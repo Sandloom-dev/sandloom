@@ -100,16 +100,85 @@ def _landed(
 
 CATALOGUE: tuple[ErrorCode, ...] = (
     _entry(
-        "SANDLOOM-T016",
-        "admin-manifest",
+        "SANDLOOM-T018",
+        "consumer-copy",
         "test",
-        "the admin console's manifest is stale or cannot be compiled",
-        "run sandloom generate; if it reports a declaration, fix that admin.py",
+        "a module's copy of a contract it consumes cannot be generated or verified",
+        "install the provider as a development dependency (or commit the copy "
+        "generated where it is installed), and state the methods of a consumed "
+        "contract in define_module(consumes=[ContractRequirement(name, "
+        "methods=(...))]) where a call cannot be resolved",
         """
-The admin console draws its screens from `<app>/shared/admin-manifest.json`,
-compiled from the `admin.py` declarations of every composed module and checked
-against the application's OpenAPI. `sandloom test` fails when the file differs
-from what the current declarations and routes compile to.
+A module distribution (a top-level module package) holds the stub, the DTO copies
+and the expectation (`<stem>.describe.json`) of every contract it consumes in
+`<module>/_generated/contracts/` (ADR-0013). `sandloom generate` plans the set from
+the module's declarations before composing the app, then checks it against the
+composed `consumes`. It refuses, writing nothing:
+- the provider is not importable where `generate` runs and no copy is committed,
+  or the committed copy was edited by hand (its provenance header's digest no
+  longer matches its body);
+- a `consumes` entry has no method list: a call the generator cannot follow
+  (`getattr`, a client passed to a helper, `core.get_service`) must be stated in
+  `define_module(consumes=[ContractRequirement(name, methods=(...))])`;
+- the planned set and the composed `consumes` differ (a contract named only by a
+  route policy or a computed name: state it in `consumes=`);
+- the module imports `<module>._generated.contracts.<stem>` that no `consumes`
+  entry stands for, or the consumed contract cannot be read from the declaration;
+- a module-level `x = Contract(REF)` is never named again in the module (a
+  `consumes` entry for nothing: call it or drop it);
+- a copy of a contract the module no longer consumes was edited (an unedited one
+  is removed; `--check` reports it).
+Each expectation carries the digest of its content, so with the provider not
+importable an edited `.describe.json` is refused like an edited stub. Methods
+stated in `consumes=` cover a call the derivation cannot resolve.
+""",
+        docs="docs/adr/0013-contract-ownership.md",
+    ),
+    _entry(
+        "SANDLOOM-T017",
+        "kernel-edge",
+        "test",
+        "the kernel names a module its edge register does not record, "
+        "or the register is out of date",
+        "remove the name from kernel code, or record it in "
+        "tests/architecture/kernel_edges.yml; a row whose edge is gone sets "
+        "current_status: fixed",
+        """
+Shipped kernel code (`sandloom.core`, `sandloom.sdk`, `sandloom.shared`,
+`sandloom.main`) and the `sandloom` wheel name no module (ADR-0012). Every place
+where they still do is one row of `tests/architecture/kernel_edges.yml`, with a
+current status (`open`, `fixed`, `retained`) and a target. The check scans string
+literals outside docstrings for module names, module packages, non-`core` channels
+and the declared module settings and claim keys; static imports of a module
+package (`from sandloom_billing import x`); dynamic imports with a computed
+argument outside the listed loader call sites; the anchor literal of every
+`fixed` row, in any kernel file; and generated module files in the wheel. It
+fails when a finding matches no runtime row, when a `fixed` row has a finding
+again (its literal anywhere in the kernel included), when a `fixed` row has no
+literal anchor the scan could find, when an `open` or `retained` row has none
+left, when a `retained` row has no ADR id and reason, and when a documentation
+row's anchor no longer holds its text.
+`uv run python tests/architecture/kernel_edges.py --report` prints the counts
+and the rows a change moves, for the PR description.
+""",
+        docs="docs/adr/0012-kernel-boundary.md",
+    ),
+    _entry(
+        "SANDLOOM-T016",
+        "declared-generated-file",
+        "test",
+        "a module-declared generated file (the console's manifest) is stale or "
+        "cannot be rendered",
+        "run sandloom generate; if it reports a declaration, fix the module it names",
+        """
+A module can declare a file `sandloom generate` writes into `<app>/shared/`
+(`define_module(generates=...)`), rendered from the composed app's data: its
+OpenAPI, its routes and every loaded module's `admin.py` declarations. The
+admin console declares its manifest this way and checks each screen against
+the application's OpenAPI. `sandloom test` fails when the file differs from
+what the current declarations and routes render to; a renderer that refuses,
+a name two modules declare and a partially failed composition are reported
+with the module to fix.
 """,
         docs="docs/admin-console/add-your-module.md",
     ),
@@ -137,8 +206,8 @@ from what the current declarations and routes compile to.
         "a business module imports a sibling business module",
         "publish an Event subclass (`await NoteCreated(...).publish()`) and "
         "react to it with @on(NoteCreated) in the other module, or call its "
-        "contract through Contract(X_Y_V1) from the generated "
-        "sandloom.shared.contracts stub; never import the other module",
+        "contract through Contract(X_Y_V1) from the generated stub "
+        "(`sandloom generate`); never import the other module",
         """
 Modules are atomic and isolated: each one can be deployed as its own service.
 An import of another business module (any spelling: absolute, relative,
@@ -280,9 +349,11 @@ must be visible in review.
 A provider authors its contract DTOs (pydantic models, Enums) in its own
 module, by convention its schemas module. `sandloom generate` writes a
 wire-shape copy of every DTO a provided contract signature names (nested ones
-included) into the shared DTO package, next to the stub, which names the
-copy: every caller process imports the same generated class, and a call
-returns it locally and over RPC alike. A copy carries the fields, their types
+included) into each consumer's generated package (the consuming module's
+`_generated/contracts/`, an application's shared package), next to the stub,
+which names the copy: a caller process imports its own generated class (a
+consumer's copy decodes the provider's result on the typed path), locally
+and over RPC alike. The kernel ships no copy. A copy carries the fields, their types
 and constraints, defaults, aliases, Literal / Enum values, nested models and
 the model_config options; not methods, properties or validators (a validator
 is the provider's: it runs where the provider binds an argument or builds
@@ -294,9 +365,10 @@ one the copy cannot carry (a parametrised generic, a default or
 default_factory it cannot write, a custom constraint, a callable
 discriminator) when @contract decorates the provider; a DTO of ANOTHER
 module's package or a function-local one when the module registers the
-contract (use the other module's generated copy from the shared DTO
-package); a missing copy (`sandloom check`, contract-dtos); a hand-edited or
-stale copy (`sandloom test`: run `sandloom generate`).
+contract (use the other module's generated copy from your own generated
+package); in an application, a provider DTO missing from its shared package
+(`sandloom check`, contract-dtos); a hand-edited or stale copy (`sandloom
+test`: run `sandloom generate`).
 """,
     ),
     _entry(
@@ -489,7 +561,8 @@ unscoped() block (the relational counterpart is SANDLOOM-C015).
         "only the producing module publishes a channel",
         """
 A view (an Event class for a foreign channel) is checked against the producer
-schema found in the manifest or the exported schema file; with neither it is
+schema found in the tree, in an application's exported schema file, or in the
+`module.snapshot.json` of the installed producer; with none of them it is
 reported as unverified (warning). .publish() on a view is refused: only the
 producer owns a channel.
 """,
@@ -510,13 +583,17 @@ hint only points at the faster fully typed codec (owner decision Q3).
         "SANDLOOM-C027",
         "account-route-mismatch",
         "check",
-        "a route with an organization parameter gates billing with of=Account.user()",
+        "a route with an organization parameter gates an account atom with "
+        "of=Account.user()",
         "use of=Account.org(param=...) for an organization route, or state "
         'Account.user(reason="...") when the personal account is intended',
         """
-A route under /orgs/{org_id} that checks the caller's personal subscription
-or credits almost always meant the organization's account. The check refuses
-the combination unless the atom states why (spec §7.3).
+A route under /orgs/{org_id} that checks the caller's personal account (a
+subscription, credits, a quota) almost always meant the organization's account.
+The check refuses the combination unless the atom states why (spec §7.3). An
+atom is an account atom when its generated __sandloom_atom__ literal binds an
+account (sandloom check reads the literal of the file the name is imported
+from, not the name).
 """,
     ),
     _entry(
@@ -629,6 +706,92 @@ Computed are not read. Tenant admission is a separate question: raw SQL inside
 a function also needs unscoped() (SANDLOOM-C015).
 """,
         docs="docs/modules/database/conventions.md",
+    ),
+    _entry(
+        "SANDLOOM-C032",
+        "generated-reserved",
+        "check",
+        "a hand-written file in a module's _generated/ package, or an import of "
+        "another module's _generated package",
+        "move your own code out of <module>/_generated/ and regenerate an edited "
+        "copy (sandloom generate); to use another module's contract, declare it "
+        "in this module's consumes (Contract(REF) at module level) and import "
+        "this module's own copy",
+        """
+`<module>/_generated/` holds the copies `sandloom generate` writes for the
+contracts the module consumes: each stub and DTO copy starts with a provenance
+header whose digest covers its body, each `<stem>.describe.json` carries the
+digest of its content, and each package `__init__.py` is the generator's
+one-liner (ADR-0013). The next `sandloom generate` rewrites or removes what is
+there, so a hand-written file in it is lost, and an edited copy no longer says
+what the provider declares. Another module's `_generated` package is that
+module's view of its providers, narrowed to the methods it calls; importing it
+couples the two modules and bypasses your own `consumes`, so the provider is
+never checked against what you call.
+""",
+        docs="docs/adr/0013-contract-ownership.md",
+    ),
+    _entry(
+        "SANDLOOM-C033",
+        "undeclared-capability",
+        "check",
+        "a module's code needs an infrastructure capability its define_module "
+        "does not declare",
+        'declare it in define_module: capabilities=["taskqueue"] for a '
+        'tasks.py, CapabilityRequirement("taskqueue", '
+        'features=frozenset({"periodic"})) for a beat hook (required=False '
+        "when the module works without its schedule), with CapabilityRequirement "
+        "from sandloom.sdk.module",
+        """
+A module states the infrastructure it needs in define_module(capabilities=[...])
+and the deployment chooses the driver; startup checks that they match. Some
+needs are visible in the module's code, and the kernel derives them at load
+whether they are declared or not: a tasks.py (or tasks/ package), which the
+framework worker imports and runs, needs the taskqueue capability; a beat hook
+(setup_periodic_tasks) in it needs the taskqueue feature "periodic", a driver
+that runs the module's periodic jobs at their interval in at least one process
+while the deployment runs (a driver never has it for supporting enqueue alone;
+only celery advertises it today). This check asks for the declaration, so a
+reader, an agent and the module snapshot see the need where every other need
+is stated. A declaration decides required or optional: the derived need only
+adds its feature to it, and a capability nobody declared is derived as
+required. The check reads tasks.py and the capabilities= of define_module (or
+ModuleDescriptor); an entry it cannot read statically decides nothing (that is
+a SANDLOOM-C030 finding). It does not claim to find every capability a module
+uses: a module that reaches one another way declares it itself, and the
+startup check stays the last line of defence.
+""",
+        docs="docs/modules/background/tasks.md",
+    ),
+    _entry(
+        "SANDLOOM-C034",
+        "handwritten-access-check",
+        "check",
+        "a hand-written Requirement calls a declared access check with other "
+        "tier, category or risk than its declaration",
+        "use the generated atom (sandloom generate writes it beside your stub), "
+        "or state the declared tier, category and risks() on your class",
+        """
+A provider declares an access check once (access_check): its tier, its category
+(the status a denial carries) and the risks of its arguments. sandloom generate
+writes the atom with that declaration in its __sandloom_atom__ literal; the
+route policy, the startup classification and sandloom check all read it. A
+hand-written Requirement whose body calls the same method through
+Contract(REF) is a second declaration the others do not see: a lower tier
+skips the live check where a claim decides, another category answers with
+another status, a missing risks() hides an administrative gate from the route
+policy. sandloom check compares the class with the literal and refuses a
+difference, however the client is spelled: Contract or OptionalContract
+(aliased or not), built anywhere in the file or imported from the package,
+its ContractRef reached through a module alias, a re-export, a star import, a
+local alias or written by hand; a call through a bound method, a constant
+getattr or a helper function counts as the class's own. Only a class that
+sandloom generate wrote into a _generated/ package is exempt. Not seen: a name
+computed at run time (getattr with a variable, importlib), an authority
+decided outside the package. Those are not proven statically; every route is
+classified independently at startup and the runtime checks apply.
+""",
+        docs="docs/adr/0014-claims-trust-and-authorization-portability.md",
     ),
     # ------------------------------------------------------------- boot time
     _entry(
@@ -880,13 +1043,18 @@ that does not exist on E is refused (spec §5.4).
         "SANDLOOM-B017",
         "authz-subject-missing",
         "boot",
-        "a billing atom has no of= subject",
+        "an access check that binds an account has no of= subject",
         "state the account: of=Account.user(), of=Account.org(param=...) "
         "(a route under /orgs/{...}) or of=Account.bound_tenant()",
         """
-Subscribed, SubscriptionActive, Credits, Feature and WithinLimit take a
-required of=: a default could check another billing account than the one the
-route means (owner decision 1, spec §7.2).
+An access check whose declaration binds an account (its generated class takes a
+required of=, and the atom's __sandloom_atom__ literal binds account_type /
+account_id or names a claim fact) cannot guess the account: a default could
+check another account than the one the route means (owner decision 1, spec
+§7.2). Billing's generated Subscribed, SubscriptionActive, Credits, Feature and
+WithinLimit are such checks today. The generated signature makes of= keyword-only
+and required: leaving it out is Python's TypeError naming of= (a type checker
+flags it first); a value that is not an Account raises this code.
 """,
     ),
     _landed(
@@ -1210,11 +1378,14 @@ requires (SANDLOOM-C030); without it they refuse when compiled (SANDLOOM-R015).
         "boot",
         "a module registers an access fact, a claims contributor or a "
         "<m>.claims.v1 / <m>.facts.v1 contract under another module's name, "
-        "or one of them is registered outside a module's registration",
+        "or an access-bearing contract it is not the provider of, or one of "
+        "them is registered outside a module's registration",
         "register the fact, contributor or contract from the module whose "
         "short name it carries (its register() or setup=); give an access "
         "fact the registering module as owner_module and drop owner= that "
-        "names another module",
+        "names another module; to serve another module's access-bearing "
+        "contract, assign it in the composition root: "
+        "create_app(access_providers={contract: module})",
         """
 The kernel stamps a fact's owner_module and a claims contributor's owner
 into provenance (claims_sources), resolves claim-mode facts by them, and
@@ -1228,8 +1399,273 @@ from a startup task or the composition root), refuse the module's load and
 the boot. Over RPC a consumer reads facts from the <m>.facts.v1 binding and
 drops, with a logged SANDLOOM-B034 warning, any fact described under
 another owner_module.
+
+A contract that decides access is access-bearing: a key of
+create_app(access_providers=...), a contract whose implementation carries
+@access_check methods (in every process, a provider-only one included), or
+the contract a generated access atom asks (tenancy's OrgRole asks
+tenancy.membership.v1; billing's SubscriptionActive and Credits ask
+billing.entitlements.v1; a third-party atom its own). It is registered
+in-process only by the module its first segment names (from its installed
+distribution when one provides a module of that name) or by the module the
+composition root assigns, both checked by import path: an app module named
+like the assigned or the first-segment module is not it. Anyone else refuses
+that module's load; a registration classified later refuses the
+boot. In a split deployment the SERVICE_BINDINGS entry, pinned to the
+provider's service_id, is the assignment. Every other contract name keeps the
+first-registrant rule.
 """,
         "docs/advanced/security-model.md",
+    ),
+    _entry(
+        "SANDLOOM-B035",
+        "token-issuer-obligation",
+        "boot",
+        "the token issuer's startup contract is broken: an issues_tokens "
+        "module cannot end its sessions on an emergency block (no durable "
+        "consumer of core.auth.user_blocked.v1, or refresh_sessions=False "
+        "contradicted), or the composition cannot honour its "
+        "claim_authorities (no map with an issuer loaded, an authority neither "
+        "loaded nor bound, a non-critical authority of a claim with no "
+        "fallback, an issuer field given to another module, an issuer with no "
+        "or an optional claims contributor, an issuer mismatch)",
+        "give the issuer a durable consumer of core.auth.user_blocked.v1 that "
+        "ends the user's refresh sessions, or declare "
+        "define_module(..., refresh_sessions=False) and remove what the "
+        "refusal names; in the root that composes the issuer pass "
+        "create_app(claim_authorities={...}) and point "
+        "SANDLOOM_COMPOSITION_ROOT at that root (the refusal names the booted "
+        "root, and an installed root whose map names the issuer); fix the "
+        "entry the refusal names (the path, the composition, critical=True, or "
+        "the issuer entry)",
+        """
+block_user (any service) revokes the user's access tokens and publishes
+core.auth.user_blocked.v1. Access tokens expire, but refresh sessions live on:
+the module that mints tokens (issues_tokens=True) must end them when the
+event arrives, in a durable consumer, or lifting the block would revive
+them. An issuer that holds no refresh sessions says so explicitly with
+refresh_sessions=False (recorded in module.snapshot.json, never inferred from
+an absent consumer); startup verifies the declaration against what the module
+registers: a route whose path names "refresh", a table whose name contains
+"refresh" or "session", or its own consumer of core.auth.user_blocked.v1
+contradicts it and refuses the boot (ADR-0012 decision 5).
+
+The issuer mints only the claims the composition root assigned
+(create_app(claim_authorities={key: module, ..., "issuer": module}),
+ADR-0014): a protected claim (roles, permissions, tenant_ids, email,
+email_verified, the billing claims and every key the map names) is kept only
+from its authority, the module loaded from the assigned import path or its
+<m>.claims.v1 binding. Startup refuses, naming the key and the module:
+
+- a composition that loads a token issuer (issues_tokens=True) with no map at
+  all (the lean root sandloom.main assigns nothing), so every login would be
+  refused (503). The root that composes the issuer must pass
+  create_app(claim_authorities={"issuer": ..., ...}); point
+  SANDLOOM_COMPOSITION_ROOT at it (an app's own <app>.asgi). The refusal
+  names the booted root, and suggests an installed root only when that
+  root registered a map naming this issuer (entry point group
+  sandloom.composition_roots: sandloom_standard.main registers the
+  standard map, as the shipped image and profiles set it);
+- in the issuing process, an authority neither loaded nor bound (an assigned
+  path that names no module, a typo, is reported this way, with "a typo of
+  '<loaded path>'?" when it is close to a loaded one), loaded under its name
+  from another path, or loaded without a claims contributor;
+- a non-critical authority (contributor critical=False, or binding
+  "critical": false) of a claim not declared fail-safe (decision 7: only a
+  key whose every reader escalates or answers indeterminate when it is
+  absent; its local authority declares it with
+  add_claims_contributor(..., fail_safe=[...]), the root with
+  Authority(..., fail_safe=True), the only declaration of a remote
+  authority; roles, permissions, tenant_ids and the issuer's fields never
+  are);
+- an issuer field (email, email_verified) assigned to a module other than the
+  map's issuer, or in a map without an issuer: the issuer writes them itself,
+  through the same mint check (a map with an issuer that names none assigns
+  them to it);
+- in the issuing process, an issuer that registers no claims contributor or
+  registers it critical=False: the issuer fields have no other writer and no
+  fallback (decision 7);
+- an issues_tokens module that is not the map's issuer, or the map's issuer
+  loaded without issues_tokens=True;
+- an Authority(name, module=path) whose name is not the module's public
+  name: the map keeps name as the name the authority is verified, bound and
+  asked under, so it must be the entry-point name path is installed under
+  (Authority('acme', module='sandloom_identity') when it is installed as
+  identity is refused: write Authority('identity', module='sandloom_identity')),
+  a name that is not an identifier, or two entries naming one module
+  differently. A path that is not installed keeps the declared name: its last
+  import segment is not its name.
+
+A root's default map (sandloom_standard.main) keeps only the entries whose
+module is composed. When it leaves its issuer out (not loaded here) and
+another module issues tokens, the refusal names the left-out issuer: that
+composition needs its own root with its own map.
+""",
+        "docs/advanced/security-model.md",
+    ),
+    _entry(
+        "SANDLOOM-B036",
+        "settings-collision",
+        "boot",
+        "one environment name is declared twice: by the kernel and a loaded "
+        "module's settings, or by two loaded modules",
+        "rename the module's setting: a module's environment names start with "
+        "its prefix (INVENTORY_ for inventory); two modules that need one "
+        "value each declare their own name",
+        """
+A module declares its settings with define_module(..., settings=Model): each
+field's alias is the environment name it reads. Every name has one owner, so
+a value never configures two things at once and `sandloom config dump`,
+redaction and the typo check know whose it is. After the modules load, the
+kernel compares the names the kernel Settings and every loaded module declare;
+a name declared twice refuses the boot in every entry point that builds the
+composition (the app, the worker and beat, `sandloom migrate`, the composed
+operator CLIs), naming both owners (ADR-0015 decision 3).
+""",
+    ),
+    _entry(
+        "SANDLOOM-B037",
+        "capability-unavailable",
+        "boot",
+        "a module requires an infrastructure capability its composition cannot "
+        "serve: no instance, no driver, a missing feature, or the driver's "
+        "package is not installed (or fails to import)",
+        "install what the refusal names (pip install 'sandloom[celery]', "
+        "'sandloom[redis]'), or select in INFRA an installed driver that "
+        "advertises the features the module requires",
+        """
+A module declares the capabilities it needs (define_module(capabilities=...)),
+and the application chooses the driver of each instance. At load, build-free,
+the kernel checks every required capability: an instance is configured, its
+driver is registered and advertises the requested features, and the packages
+the driver needs are installed (importlib.util.find_spec: nothing is imported,
+no connection is opened). A built-in driver is registered whether or not its
+package is installed, so this is what tells a registered driver from a usable
+one. Every unmet requirement of the module is refused at once, naming the
+module, the capability, the instance, the driver, the missing feature or
+package, and the install hint or the INFRA alternative. An optional
+requirement only warns. An instance INFRA selects on an uninstalled driver
+refuses startup the same way, and so does a dependency that fails to import
+while a driver is built (strict startup in production). A synthesized default
+instance nothing requires is neither opened nor probed; the instances the
+kernel uses (database, cache, event bus) stay required.
+""",
+        "docs/infrastructure/index.md",
+    ),
+    _entry(
+        "SANDLOOM-B038",
+        "fact-owner-missing",
+        "boot",
+        "an access-fact policy or fake names no valid owner module",
+        'state the module that registers the fact: Entitled("subscription.active", '
+        'owner="billing"), fake_access_fact(name, value, owner="billing")',
+        """
+An access fact is identified for authorization by its owner module and its
+name, never by its name alone: two modules may name a fact alike, and only the
+module the policy means may answer it. Entitled(fact_name, owner=...) and
+fake_access_fact(name, value, owner=...) therefore take owner= as a required
+keyword. Leaving it out is Python's TypeError naming owner (a type checker
+flags it first); None, a non-string, an empty string or a string that is not a
+module name (a Python identifier) raises this code when the policy is built,
+at import, before any request. The policy accepts only that module's fact:
+registered in this process by that module, or described by that module's
+bound <owner>.facts.v1. Another module's fact of the same name never satisfies
+it; an owner neither loaded nor bound answers 501 fact_unregistered, an owner
+whose contract cannot be reached 503 fact_owner_unavailable, both
+indeterminate, so a negation never turns them into an allow.
+""",
+        "docs/modules/http/authorization.md",
+    ),
+    _entry(
+        "SANDLOOM-B039",
+        "operator-capability-unavailable",
+        "runtime",
+        "an operator command's owner cannot be confirmed to provide what the "
+        "command needs: no owner is assigned, its public name is unknown, its "
+        "<owner>.security.v1 is neither local nor bound, the contract lacks a "
+        "method or has it with another shape, this service may not call it, "
+        "or the owner answered with another shape",
+        "assign the owner in the composition root's claim_authorities "
+        "(Authority('<name>', module='<import path>')), run the command where "
+        "the owner is loaded or bind <owner>.security.v1 in SERVICE_BINDINGS, "
+        "add the method to the owner's <owner>.security.v1 with the shape the "
+        "refusal names (or do it at the external provider), or grant the "
+        "method in RPC_ALLOWED_CALLS",
+        """
+An operator command (sandloom security ..., sandloom admin ...) acts on what a
+module owns: sessions, accounts, credentials and the email-to-user lookup
+belong to the token issuer, platform-administrator roles to the authority of
+the roles claim, tenant members to the authority of tenant_ids. The kernel
+names none of them: it reads the candidate owner from the composition root's
+claim_authorities map (the whole declaration, also in a process of a split
+that does not load the owner) and asks that module's <owner>.security.v1.
+
+A claim authority is a candidate, not proof: the module that writes roles may
+read them from LDAP and have no way to grant one. So before the first side
+effect, a dry run included, the command confirms each capability by describe:
+the method is in the owner's contract, read from the local schema when the
+owner runs in this process, else from the bound provider's live describe
+(GET /_sandloom/rpc/<owner>.security.v1). It refuses, with exit status 1 and
+nothing done, when the map assigns no owner for the key; when the owner's
+public name is unknown here (a module neither installed nor loaded in this
+process: declare it as Authority('<name>', module='<import path>'), its
+last import segment is not its name); when <owner>.security.v1 is neither
+registered here nor in SERVICE_BINDINGS; when the contract has no such method
+(an external identity provider cannot reset a password: do it there, or add
+the method to the owner); when this service's RPC_ALLOWED_CALLS entry does
+not grant the method, or the provider answers 403; or when the provider
+cannot be described. The refusal names the command, the claim-map key, the
+owner module and its import path, the contract, the missing method and the
+fix.
+
+A method that is there must also have the shape the kernel calls it with
+(sandloom.core.cli.operator_owner.OPERATOR_METHOD_SHAPES): the parameters it
+sends, in order (an extra parameter must be optional), and an answer whose
+every value the command can read (a narrower answer is fine). The refusal
+names both, "incompatible end_sessions: expected (list[uuid], str, str, str)
+-> {affected: int, ended: list[...]}, got ... -> int": type the owner's
+method with DTOs, not dict[str, Any]. The command also checks each answer
+where it reads it, before its next step; an answer of another shape stops it
+with this code, the batch and the --operation-id named. The owner stores its
+answer for that operation, so a resume with the same --operation-id stops at
+the same place: fix the owner's method, then run with a new --operation-id
+(what is already done is done again, harmlessly).
+
+sandloom admin create and admin invite act on the account and its
+administrator role in one unit (create_platform_admin,
+take_over_platform_admin, a set-password link the issuer mints only for an
+administrator it knows), so the issuer and the owner of roles must be one
+module. With two owners they are refused before anything is read or
+written, never half done: create the account at the issuer, then run
+sandloom security grant-admin, which reads the issuer and writes the roles
+owner and works across two modules.
+""",
+        "docs/operate/operator-reference.md",
+    ),
+    _entry(
+        "SANDLOOM-B040",
+        "operator-owner-substitution",
+        "runtime",
+        "the service an operator command would call for <owner>.security.v1 "
+        "is not the owner the claim map names: its binding names another "
+        "service than the owner's other bindings, or its describe states "
+        "another provider, or its answer is not bound to the pinned service",
+        "bind <owner>.security.v1 to the owner's own service (the service_id "
+        "of its other bindings, e.g. <owner>.claims.v1), and register the "
+        "contract from the module the claim map names",
+        """
+An operator command calls the owner the composition root's claim_authorities
+names, never a stand-in: a binding of <owner>.security.v1 that points at
+another service would hand session revocation or an administrator grant to
+whoever answers there. Before the first side effect the command checks that
+the binding is pinned to a service_id, that it is the same service_id as the
+owner's other bindings (<owner>.claims.v1 and every other <owner>.*), that
+the describe answer is bound to that service (the pair key, ADR-0004), and
+that the describe states the provider import path the claim map names; in
+one process, that the local contract was registered from that import path. A
+mismatch refuses the command with exit status 1 and nothing done.
+""",
+        "docs/operate/operator-reference.md",
     ),
     _entry(
         "SANDLOOM-B020",
@@ -1487,6 +1923,46 @@ in-memory test database.
 """,
         docs="docs/infrastructure/database.md",
     ),
+    _entry(
+        "SANDLOOM-R017",
+        "unsealed-claims",
+        "runtime",
+        "a token mint received protected claims, provenance or the claim "
+        "policy marker outside a sealed collect_claims result, a service "
+        "token carried one, or collect_claims got an issuer or an issuer "
+        "session it cannot verify",
+        "mint a user token with create_access_token(data=..., "
+        "claims=await core.collect_claims(user_id, issuer=<your "
+        "contributor>)), data holding only the envelope (sub, token_type, "
+        "auth_time); a token with no user rights with create_service_token; "
+        "a test token with "
+        "as_user or mint_test_token (sandloom.sdk.testing)",
+        """
+Protected claims (roles, permissions, tenant_ids, email, email_verified, the
+access-granting billing claims and every key the composition root's
+claim_authorities assigns), the tenant selectors (tenant_id, org_id),
+claims_sources, claims_sources_failed, cpv and UserContext's structural
+fields reach a token only through the merge that checks each key against its
+assigned authority (ADR-0014 decision 5, owner answer #13). collect_claims
+returns that result sealed and read-only; a hand-assembled dict carrying any
+of them, a spread or copy of the sealed result, or a data key overriding one
+of its claims is refused at the mint.
+
+collect_claims takes the issuer as one of its own registered claims
+contributors (the module that registered it is the issuer, never a name), and
+an issuer session only from the token issuer claim_authorities names. It takes
+no claim value from its caller: every claim, the issuer's email and
+email_verified included, is what a registered contributor returned.
+
+create_service_token is the limited path: it refuses every key above and
+stamps an empty provenance and the current cpv, so the token authenticates
+and every Role, Perm, platform and TenantScope gate denies it (403). The
+kernel test authority (as_user, mint_test_token, sealed_claims) exists only
+while the sandloom.sdk.testing plugin or the framework's test harness is
+active; anywhere else it refuses.
+""",
+        docs="docs/advanced/security-model.md",
+    ),
     # ------------------------------------------------------- tests/snapshots
     _entry(
         "SANDLOOM-T001",
@@ -1625,7 +2101,7 @@ reports breaking changes.
         "test",
         "a module imports an advanced sandloom.sdk name without a marker",
         "use the beginner-tier name, or mark the line `# sandloom: advanced <reason>`",
-        "Generators and examples teach the 30 beginner names (spec §2.2), and an "
+        "Generators and examples teach the 26 beginner names (spec §2.2), and an "
         "application's modules keep to them: the `schema & deploy` step of "
         "`sandloom test` reports an advanced import that has no marker.",
     ),
@@ -1724,6 +2200,37 @@ distinct prefixes).
 """,
         "docs/operate/split-into-services.md",
     ),
+    _entry(
+        "SANDLOOM-T019",
+        "settings-gate",
+        "test",
+        "the settings a module declares, or a service's environment, break the "
+        "static settings gate",
+        "rename a new setting with its module's prefix (INVENTORY_ for inventory); "
+        "run `sandloom generate` and review the settings record of "
+        "module.snapshot.json; correct the module name, remove the variable or fix "
+        "the literal value in the deploy profile's service",
+        """
+`sandloom check` and the schema & deploy step of `sandloom test` import every
+module of the application (importing reads no environment and does no I/O) and
+read the settings each declares with `define_module(settings=Model)`, without
+running a process (ADR-0015 decision 7; SANDLOOM-B036 is the collision it also
+reports). They refuse:
+- a new setting whose name lacks the module's prefix (`INVENTORY_` for
+  `inventory`); a name that `module.snapshot.json` records as `legacy` is
+  grandfathered, a module without a snapshot grandfathers nothing;
+- a module whose snapshot does not record its settings, or records a tier
+  other than the one the code declares: `sandloom generate` writes the record,
+  and a semantic setting that appears there is a reviewed change;
+- in a deploy profile, a `SANDLOOM_MODULES` entry that is neither an installed
+  module nor an importable package, a variable set for a module the service does
+  not load, and a literal value the module's declaration refuses. A profile
+  carries `${VAR:?...}` placeholders and no production secrets, so only names
+  and literal values are checked; values are validated where the process starts.
+A secret literal is never printed.
+""",
+        "docs/adr/0015-module-settings.md",
+    ),
 )
 
 _BY_CODE = {e.code: e for e in CATALOGUE}
@@ -1750,9 +2257,14 @@ EXCEPTION_CODES: dict[str, str] = {
     "SqliteUnavailable": "SANDLOOM-B032",
     "DatabaseFeatureMissing": "SANDLOOM-B033",
     "ForeignOwnerRegistration": "SANDLOOM-B034",
+    "DriverUnavailableError": "SANDLOOM-B037",
+    "CapabilityUnavailable": "SANDLOOM-B037",
+    "OperatorCapabilityUnavailable": "SANDLOOM-B039",
+    "OperatorOwnerSubstitution": "SANDLOOM-B040",
     "ModelSchemaDrift": "SANDLOOM-B028",
     "DatabaseFileReplaced": "SANDLOOM-B028",
     "NestedWriterRefused": "SANDLOOM-R016",
+    "UnsealedClaimsError": "SANDLOOM-R017",
     "UnsupportedServerVersion": "SANDLOOM-B030",
     "UnsupportedSqlForm": "SANDLOOM-R015",
     "GateOrderError": "SANDLOOM-B007",

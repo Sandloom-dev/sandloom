@@ -1,0 +1,3 @@
+{
+  "_about": "Kernel tests that still need a bundled module (tools/ci/no_batteries.py). The kernel-without-batteries job runs each as a strict xfail: one that passes without the batteries fails the run until its entry is removed. The list only goes down: every entry must be in CEILING (tools/ci/no_batteries.py), which is empty since KB-05c, so the list stays empty. A test that needs a battery belongs in a suite that installs one (tests/integration/with_batteries, a module's own tests); it never joins this list."
+}

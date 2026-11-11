@@ -21,7 +21,6 @@ from uuid import UUID
 from fastapi import HTTPException, status
 
 from sandloom.sdk.security import (
-    apply_pending_revocation,
     ensure_token_not_revoked,
     revoke_user_tokens_on_commit,
 )
@@ -89,21 +88,8 @@ async def is_token_revoked(claims: dict[str, Any]) -> bool:
     return False
 
 
-async def apply_token_revocation(session: Any, envelope: dict[str, Any]) -> None:
-    """``core.auth.tokens_revoked.v1`` consumer: the durable revocation applier.
-
-    Every ``revoke_user_tokens_on_commit`` (any module, any service) writes this
-    event into its own transaction. The mark is normally already written after
-    commit; when that write failed (cache outage) this delivery writes it — and
-    raises while it still cannot, so the event is redelivered (at-least-once).
-    Marks are monotonic, so re-applying is a cheap no-op.
-    """
-    await apply_pending_revocation(envelope.get("payload") or {})
-
-
 __all__ = [
     "SESSIONS_REVOKED_CHANNEL",
-    "apply_token_revocation",
     "is_token_revoked",
     "revoke_sessions",
 ]

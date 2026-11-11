@@ -94,7 +94,7 @@ def _rpc_rung(ns: Any, m: Any, layer: str, tenant: bool):
     async def factory():
         _rpc_boot(m.planner_opt)
         from sandloom.core.runtime import get_active_core
-        from sandloom.main import app
+        from sandloom_standard.main import app
         from benchsuite import rpcstand
 
         life = await ns._Lifespan(app).__aenter__()

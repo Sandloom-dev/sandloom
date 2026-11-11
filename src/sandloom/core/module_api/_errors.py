@@ -101,6 +101,22 @@ class ContractResultNotReplayable(ContractCallError, RuntimeError):
     code = "contract_result_not_replayable"
 
 
+class AccessUnknown(ContractCallError):
+    """An access check's provider has no source for the answer (501).
+
+    Raised by the provider method of an ``@access_check`` (or a
+    ``@claim_atom`` above one) when it cannot say yes or no, e.g. it keeps no
+    catalogue for the key asked: "not known" is never a ``False`` answer. A
+    generated atom maps it to an indeterminate 501 ``access_unknown`` inside
+    the algebra, so ``Not`` never allows and ``Or`` allows only on another
+    branch that reliably allowed. ``detail`` says what is missing; the same
+    class reaches a local and a remote caller.
+    """
+
+    http_status = 501
+    code = "access_unknown"
+
+
 #: Framework error classes, rebuilt by ``code`` on the remote caller's side.
 CONTRACT_ERROR_CLASSES: dict[str, type[ContractCallError]] = {
     cls.code: cls
@@ -111,6 +127,7 @@ CONTRACT_ERROR_CLASSES: dict[str, type[ContractCallError]] = {
         ContractCallInProgress,
         ContractIdempotencyUnavailable,
         ContractResultNotReplayable,
+        AccessUnknown,
     )
     if cls.code is not None
 }

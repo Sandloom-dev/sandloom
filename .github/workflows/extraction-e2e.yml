@@ -74,7 +74,7 @@ jobs:
       - name: Extraction scenario + extractor integration tests
         run: >-
           uv run pytest tests/extraction
-          src/sandloom/core/tests/test_module_extraction.py
+          tests/integration/with_batteries/test_module_extraction.py
           -q --no-cov -p no:cacheprovider -rs -s
         env:
           SANDLOOM_EXTRACTION_E2E: "1"

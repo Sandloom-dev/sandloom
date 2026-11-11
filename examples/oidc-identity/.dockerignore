@@ -1,0 +1,18 @@
+.git
+.venv
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+data/
+test_data/
+
+# secrets never enter an image: env files and key files at any depth
+**/.env
+**/.env.*
+!**/.env.example
+**/jwt_private_key
+**/rpc_private_key
+**/rpc_dh_private_key
+**/*.pem

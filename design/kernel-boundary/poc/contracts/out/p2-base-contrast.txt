@@ -1,0 +1,10 @@
+# base (ceb3d66): the same additive changes (tenancy MemberState.display_name, billing CreditsAdded.note)
+$ sandloom generate
+wrote src/sandloom/shared/events/billing.credits.added.v1.json
+wrote src/sandloom_billing/module.snapshot.json
+wrote src/sandloom_tenancy/contracts.snapshot.json
+wrote src/sandloom/shared/contracts/tenancy_dto.py
+wrote .sandloom/inspection.json
+$ git status --short -- src/sandloom packages/sandloom
+ M src/sandloom/shared/contracts/tenancy_dto.py
+ M src/sandloom/shared/events/billing.credits.added.v1.json

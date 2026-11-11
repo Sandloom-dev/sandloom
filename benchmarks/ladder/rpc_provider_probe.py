@@ -78,7 +78,7 @@ for f in glob.glob(f"{a.work_dir}/p.*"):
 
 with open(a.mix) as fh:
     wl = lc.Workload.from_mix(
-        json.load(fh), ["Authorization: Bearer " + mix.mint(hours=24, tenant=True)]
+        json.load(fh), ["Authorization: Bearer " + mix.mint(hours=24, full=True)]
     )
 topo = json.load(open(a.topology))
 names = [s["name"] for s in topo]
@@ -177,7 +177,7 @@ try:
             for n, port in ports.items():
                 v = v.replace(f"{{port:{n}}}", str(port))
             env[k] = v
-        cmd = [PY, "-m", "uvicorn", "sandloom.main:app", "--host", "127.0.0.1",
+        cmd = [PY, "-m", "uvicorn", "sandloom_standard.main:app", "--host", "127.0.0.1",
                "--port", str(ports[s["name"]]), "--loop", "uvloop", "--http",
                "httptools", "--no-access-log", "--log-level", "warning",
                "--timeout-keep-alive", "75"]

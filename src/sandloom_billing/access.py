@@ -20,7 +20,7 @@ Two facts, one per billing tenant kind:
 
 Both facts are part of billing's PUBLIC contract: registering them exposes
 ``billing.facts.v1`` (``describe`` / ``evaluate``), so a process WITHOUT
-billing that binds it resolves ``Entitled(...)`` /
+billing that binds it resolves ``Entitled(..., owner="billing")`` /
 ``Subscribed(of=Account.user())`` exactly
 like the monolith (claim read with :func:`subscription_claim_rule`, live
 answered by billing).
@@ -35,7 +35,6 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sandloom.sdk.authz import (
-    ACTIVE_SUBSCRIPTION_STATUSES,
     MODE_LIVE,
     AccessFact,
     Category,
@@ -44,9 +43,11 @@ from sandloom.sdk.authz import (
     FactUnavailable,
 )
 from sandloom.sdk.errors import ServiceNotFound
-from sandloom.sdk.infra import settings
 from sandloom.sdk.tenant import current_tenant_id_optional
+from sandloom_billing.config import billing_settings
 from sandloom_billing.entitlements import ENTITLEMENTS_SERVICE_V1
+from sandloom_billing.models.subscription import PSP_SUBSCRIPTION_STATUSES
+from sandloom_billing.services.billing_service import CLAIM_STATUS_EXPIRED
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.sdk.authz import AuthzContext
@@ -54,6 +55,13 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 MEMBERSHIP_SERVICE_V1 = "tenancy.membership.v1"
 ORG_PARAM = "org_id"
 _PAST_DUE = "past_due"
+# Statuses that grant access outright (``past_due`` is policy, see below).
+_ACTIVE_SUBSCRIPTION_STATUSES = frozenset({"active", "trialing"})
+#: Every value the ``subscription_status`` claim can carry: a PSP status,
+#: ``expired`` once access lapsed, ``none`` without a subscription.
+CLAIM_STATUSES: tuple[str, ...] = tuple(
+    sorted(PSP_SUBSCRIPTION_STATUSES | {CLAIM_STATUS_EXPIRED, "none"})
+)
 
 
 async def _live_subscription_active(service: object, ctx: AuthzContext) -> bool:
@@ -73,8 +81,8 @@ def subscription_claim_rule() -> ClaimRule:
     and at ``billing.facts.v1.describe()`` time for consumers in other
     processes (so they interpret the claim exactly like billing does).
     """
-    statuses = set(ACTIVE_SUBSCRIPTION_STATUSES)
-    if not settings.billing_deny_on_past_due:
+    statuses = set(_ACTIVE_SUBSCRIPTION_STATUSES)
+    if not billing_settings().billing_deny_on_past_due:
         statuses.add(_PAST_DUE)
     return ClaimRule.one_of(statuses)
 
@@ -150,6 +158,17 @@ SUBSCRIPTION_ACTIVE_FACT = AccessFact(
     default_mode="auto",
     # Same 402 as Subscribed / SubscriptionActive / Credits.
     deny_category=Category.PAYMENT_REQUIRED,
+    # The generated claim atom ``Subscribed`` (beside the stub of
+    # billing.entitlements.v1, named by check_subscription_active's access
+    # check): ``statuses=`` may list only these, ``claim_key=`` only these.
+    atom="Subscribed",
+    atom_statuses=CLAIM_STATUSES,
+    atom_claim_keys=("subscription_status",),
+    atom_describe="active subscription",
+    # Billing's contract: ``subscription_claims()`` writes no
+    # ``subscription_status`` for a user with no billing customer, so billing's
+    # own claim proven absent is "no subscription", the 402 above (KB-33h).
+    absent_claim="deny",
 )
 
 ORG_SUBSCRIPTION_ACTIVE_FACT = AccessFact(

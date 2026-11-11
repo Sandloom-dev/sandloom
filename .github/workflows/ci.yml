@@ -13,7 +13,7 @@ on:
         type: string
         default: "[]"
   pull_request:
-    branches: ["main"]
+    branches: ["main", "arch/kernel-boundary"]
     # A close event cancels the older PR run without starting its test jobs.
     types: [opened, synchronize, reopened, ready_for_review, closed]
 
@@ -64,15 +64,17 @@ jobs:
   changes:
     if: ${{ github.event.action != 'closed' }}
     runs-on: ubuntu-latest
+    # The migration branch always checks boundary, packaging and example gates,
+    # even when a PR only changes docs or policy; main keeps its path selection.
     outputs:
-      backend: ${{ inputs.full_validation && 'true' || steps.filter.outputs.backend }}
+      backend: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || steps.filter.outputs.backend }}
       admin: ${{ inputs.full_validation && 'true' || steps.filter.outputs.admin }}
-      examples: ${{ inputs.full_validation && 'true' || steps.filter.outputs.examples }}
+      examples: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || steps.filter.outputs.examples }}
       deploy: ${{ inputs.full_validation && 'true' || steps.filter.outputs.deploy }}
       benchmarks: ${{ inputs.full_validation && 'true' || steps.filter.outputs.benchmarks }}
       docs: ${{ inputs.full_validation && 'true' || steps.filter.outputs.docs }}
-      packages: ${{ inputs.full_validation && 'true' || steps.filter.outputs.packages }}
-      architecture: ${{ inputs.full_validation && 'true' || steps.filter.outputs.architecture }}
+      packages: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || steps.filter.outputs.packages }}
+      architecture: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || steps.filter.outputs.architecture }}
       dependency_review: ${{ inputs.full_validation && 'true' || steps.filter.outputs.dependency_review }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -251,6 +253,11 @@ jobs:
 
       - name: Public API surface gate
         run: uv run python tools/packaging/check_public_api.py
+
+      - name: Generated files are current
+        env:
+          SANDLOOM_COMPOSITION_ROOT: sandloom_standard.main
+        run: uv run sandloom generate --check
 
       - name: Installed-wheel RPC transport smoke
         # Builds the sandloom wheel, installs it ALONE into a clean venv
@@ -525,6 +532,92 @@ jobs:
           GOOGLE_CLIENT_SECRET: ci-dummy-google-client-secret
           SANDLOOM_E2E_REQUIRED: "1"
 
+  kernel-without-batteries:
+    # ADR-0012 fitness test (KB-05): the kernel's unit, SDK and architecture
+    # suites in a venv with the sandloom package alone, and the
+    # replaceability fixtures (identity, tenancy and billing replaced by
+    # test modules, mono and split). tools/ci/no_batteries.py hides the
+    # bundled modules from every import, also from the checkout's src/.
+    # Its pending list is empty and only goes down (a ceiling in the tool):
+    # a new kernel test that needs a battery fails here; put it in
+    # tests/integration/with_batteries or the module's own tests.
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: .
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sandloom_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
+      CACHE_URL: redis://127.0.0.1:6380/0
+      BROKER_URL: redis://127.0.0.1:6380/14
+      JWT_SECRET: ci-kernel-lane-not-a-real-secret
+      SANDLOOM_TEST_OWNER: ci-kernel-without-batteries
+      # The replaceability topologies are real uvicorn processes: missing
+      # PostgreSQL/Redis fails the job instead of skipping.
+      SANDLOOM_E2E_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Start Redis with enough databases for every xdist worker
+        working-directory: .
+        run: |
+          docker run -d --name redis -p 6380:6379 redis:7 \
+            redis-server --databases 256 --save "" --appendonly no
+          for _ in $(seq 1 30); do
+            docker exec redis redis-cli ping | grep -q PONG && break
+            sleep 1
+          done
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          save-cache: false
+
+      - name: A venv with the kernel package and no module package
+        # The kernel's extras and the pinned dev tools; no sandloom-identity,
+        # -tenancy, -billing or -admin. The hook then hides their sources.
+        run: |
+          uv venv --python 3.12 .venv-kernel
+          uv export --frozen --only-group dev --no-hashes --no-emit-project \
+            > "$RUNNER_TEMP/dev-requirements.txt"
+          uv pip install --python .venv-kernel/bin/python \
+            -e "packages/sandloom[redis,celery,check,fast,sqlite,sentry]" \
+            -r "$RUNNER_TEMP/dev-requirements.txt"
+          .venv-kernel/bin/python tools/ci/no_batteries.py install
+          .venv-kernel/bin/python tools/ci/no_batteries.py check
+
+      - name: Kernel suites and the replaceability fixtures
+        run: >-
+          .venv-kernel/bin/python -m pytest -q -n auto --dist loadfile
+          --durations=25 --sandloom-shuffle=random -p tools.ci.no_batteries
+          src/sandloom/core/tests tests/sdk tests/architecture
+          tests/integration/replaceability
+
   second-db-test-lane:
     # The second database (spec: design/infra-agnostic/spec.md, section 6).
     # PostgreSQL (backend-tests) is the mandatory lane and runs everything;
@@ -623,7 +716,7 @@ jobs:
         # runs: its PostgreSQL ledgers are this one's other lane.
         if: ${{ !cancelled() && needs.changes.outputs.examples == 'true' && !contains(fromJSON(inputs.reused_jobs || '[]'), 'examples') }}
         run: |
-          for app in linkly helpdesk projecthub academy tutorial; do
+          for app in linkly helpdesk projecthub academy oidc-identity tutorial; do
             (cd "examples/$app" && \
               SANDLOOM_TEST_DATABASE_URL="sqlite+aiosqlite:///${{ runner.temp }}/sandloom-sqlite/${app}_test.db" \
               "${{ github.workspace }}/.venv/bin/python" -m pytest -q -n 2 -p no:cacheprovider \
@@ -799,6 +892,8 @@ jobs:
             path: examples/projecthub
           - app: academy
             path: examples/academy
+          - app: oidc-identity
+            path: examples/oidc-identity
           - app: tasklist
             path: examples/tutorial
     services:
@@ -879,11 +974,16 @@ jobs:
           JWT_SECRET: ci-examples-not-a-real-secret-0123456789
           CACHE_URL: redis://127.0.0.1:6380/0
           BROKER_URL: redis://127.0.0.1:6380/1
+          # oidc-identity's issuer module requires its provider settings.
+          ACME_IDP_ISSUER: https://idp.example.test
+          ACME_IDP_CLIENT_ID: storefront-web
         run: |
-          db="mig_${{ matrix.app }}"
+          app="${{ matrix.app }}"
+          package="${app//-/_}"
+          db="mig_$package"
           psql -h localhost -p 5433 -U test_user -d sandloom_test -c "CREATE DATABASE $db"
           psql -h localhost -p 5433 -U test_user -d "$db" -c "CREATE EXTENSION IF NOT EXISTS citext"
-          export PYTHONPATH="$PWD" SANDLOOM_COMPOSITION_ROOT="${{ matrix.app }}.asgi"
+          export PYTHONPATH="$PWD" SANDLOOM_COMPOSITION_ROOT="$package.asgi"
           # Unset in .env.example (the tutorial app): every discovered module
           # (sed, not grep: no match is no error under bash -e).
           modules="$(sed -n 's/^SANDLOOM_MODULES=//p' .env.example)"
@@ -1094,7 +1194,9 @@ jobs:
     env:
       COMPOSE_FILE: deploy/compose/microservices.yml
       BILLING_PROVIDER: fake
-      SANDLOOM_ACCEPTED_RISKS: local_storage_in_prod,fake_psp_in_prod
+      # Smoke stack: no mail server, so the log notifier stands in for the
+      # email identity and tenancy require (mail is NOT delivered).
+      SANDLOOM_ACCEPTED_RISKS: local_storage_in_prod,billing.fake_psp_in_prod,log_notifier_in_prod
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Dummy secrets (never real; fresh per run)
@@ -1268,6 +1370,7 @@ jobs:
       - supply-chain
       - backend-tests
       - backend-tests-isolation
+      - kernel-without-batteries
       - second-db-test-lane
       - skip-ledger
       - benchmarks-security

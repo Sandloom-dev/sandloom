@@ -8,6 +8,7 @@ from sandloom.sdk import require
 from sandloom.sdk.authz import Role
 from sandloom.sdk.web import DbSession
 from sandloom_identity.access import admin_in_transaction
+from sandloom_identity.rbac import Roles
 from sandloom_identity.schemas.rbac import (
     PermissionCreate,
     PermissionOut,
@@ -34,7 +35,7 @@ roles_router = APIRouter(
     response_model=RoleOut,
     status_code=status.HTTP_201_CREATED,
     dependencies=[
-        Depends(require(Role("admin"))),
+        Depends(require(Role(Roles.ADMIN))),
         Depends(admin_in_transaction),
     ],
 )
@@ -50,7 +51,7 @@ async def create_role(
 @roles_router.get(
     "/roles",
     response_model=list[RoleOut],
-    dependencies=[Depends(require(Role("admin")))],
+    dependencies=[Depends(require(Role(Roles.ADMIN)))],
 )
 async def list_roles(
     db: DbSession,
@@ -63,7 +64,7 @@ async def list_roles(
 @roles_router.get(
     "/roles/{role_id}",
     response_model=RoleWithPermissions,
-    dependencies=[Depends(require(Role("admin")))],
+    dependencies=[Depends(require(Role(Roles.ADMIN)))],
 )
 async def get_role(
     role_id: UUID,
@@ -78,7 +79,7 @@ async def get_role(
     "/roles/{role_id}",
     response_model=RoleOut,
     dependencies=[
-        Depends(require(Role("admin"))),
+        Depends(require(Role(Roles.ADMIN))),
         Depends(admin_in_transaction),
     ],
 )
@@ -96,7 +97,7 @@ async def update_role(
     "/roles/{role_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[
-        Depends(require(Role("admin"))),
+        Depends(require(Role(Roles.ADMIN))),
         Depends(admin_in_transaction),
     ],
 )
@@ -116,7 +117,7 @@ async def delete_role(
     response_model=PermissionOut,
     status_code=status.HTTP_201_CREATED,
     dependencies=[
-        Depends(require(Role("admin"))),
+        Depends(require(Role(Roles.ADMIN))),
         Depends(admin_in_transaction),
     ],
 )
@@ -132,7 +133,7 @@ async def create_permission(
 @roles_router.get(
     "/permissions",
     response_model=list[PermissionOut],
-    dependencies=[Depends(require(Role("admin")))],
+    dependencies=[Depends(require(Role(Roles.ADMIN)))],
 )
 async def list_permissions(
     db: DbSession,
@@ -146,7 +147,7 @@ async def list_permissions(
     "/roles/{role_id}/permissions/{permission_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[
-        Depends(require(Role("admin"))),
+        Depends(require(Role(Roles.ADMIN))),
         Depends(admin_in_transaction),
     ],
 )
@@ -163,7 +164,7 @@ async def assign_permission_to_role(
     "/roles/{role_id}/permissions/{permission_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[
-        Depends(require(Role("admin"))),
+        Depends(require(Role(Roles.ADMIN))),
         Depends(admin_in_transaction),
     ],
 )

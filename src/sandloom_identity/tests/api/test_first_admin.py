@@ -124,7 +124,7 @@ async def test_setting_the_first_password_is_audited_as_a_set(
     assert "identity.password.reset" not in actions
 
 
-async def test_list_platform_admins_tells_which_have_a_password(
+async def test_admin_accounts_tell_which_have_a_password(
     sandloom_app: Any, async_client: AsyncClient, test_db: AsyncSession
 ) -> None:
     first = await _create(sandloom_app, test_db, "owner@example.com")
@@ -135,13 +135,43 @@ async def test_list_platform_admins_tells_which_have_a_password(
         await _login(async_client, "owner@example.com", NEW_PASSWORD)
     ).status_code == 200
     with bind_contract_session(test_db):
-        admins = await _security(sandloom_app).list_platform_admins()
+        security = _security(sandloom_app)
+        admins = await security.accounts_by_id(await security.platform_admin_ids())
     by_email = {a.email: a for a in admins}
     assert set(by_email) == {"owner@example.com", "second@example.com"}
     assert by_email["owner@example.com"].password_set is True
     assert by_email["owner@example.com"].last_login_at is not None
     assert by_email["second@example.com"].password_set is False
     assert by_email["second@example.com"].last_login_at is None
+
+
+async def test_the_issuer_and_the_roles_sides_answer_apart(
+    sandloom_app: Any, test_db: AsyncSession, test_user: User
+) -> None:
+    """``sandloom admin`` asks the issuer's side for the account (no role in
+    it) and the roles owner's side for the role; identity is both."""
+    admin_id = await _create(sandloom_app, test_db, "owner@example.com")
+    security = _security(sandloom_app)
+    with bind_contract_session(test_db):
+        account = await security.account_by_email(" owner@example.com ")
+        member = await security.account_by_email(test_user.email)
+        nobody = await security.account_by_email("nobody@example.com")
+        holders = await security.platform_admin_ids()
+        listed = await security.accounts_by_id([admin_id, test_user.id])
+        assert await security.is_platform_admin(admin_id) is True
+        assert await security.is_platform_admin(test_user.id) is False
+        assert await security.accounts_by_id([]) == []
+    assert nobody is None
+    assert account is not None and account.user_id == admin_id
+    assert (account.email_verified, account.is_active) == (True, True)
+    assert account.password_set is False
+    assert not hasattr(account, "is_platform_admin")
+    assert member is not None and member.user_id == test_user.id
+    assert admin_id in holders and test_user.id not in holders
+    assert [a.user_id for a in listed] == sorted(
+        [admin_id, test_user.id],
+        key=lambda uid: "owner@example.com" if uid == admin_id else test_user.email,
+    )
 
 
 async def test_an_audited_listing_records_who_asked_and_why(
@@ -223,10 +253,11 @@ async def test_an_existing_account_is_refused(
         await _create(sandloom_app, test_db, test_user.email.upper())
     assert info.value.status_code == 409
     with bind_contract_session(test_db):
-        standing = await _security(sandloom_app).account_standing(test_user.email)
-    assert standing is not None
-    assert standing.user_id == test_user.id
-    assert standing.is_platform_admin is False
+        security = _security(sandloom_app)
+        account = await security.account_by_email(test_user.email)
+        assert account is not None
+        assert account.user_id == test_user.id
+        assert await security.is_platform_admin(account.user_id) is False
 
 
 async def test_minting_needs_an_admin_who_must_set_a_password(

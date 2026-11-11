@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
+from sandloom.core.auth.claims_view import UNTRUSTED_KEY as _UNTRUSTED_KEY
+
 #: Top-level keys that are first-class ``UserContext`` fields (plus the ``sub``
 #: alias). Every other token claim lands in the namespaced ``claims`` mapping.
 _FIELD_KEYS = frozenset(
@@ -70,7 +72,9 @@ class UserContext(BaseModel):
 
     user_id: UUID = Field(validation_alias=AliasChoices("user_id", "sub"))
 
-    # From 'identity' module
+    # The kernel's protected authorization claims (ADR-0014): written only by
+    # the authority the composition root assigns them, and read here only
+    # from the trusted view of the verified token.
     roles: set[str] = Field(default_factory=set)
     permissions: set[str] = Field(default_factory=set)
 
@@ -97,13 +101,30 @@ class UserContext(BaseModel):
     #: a legacy token (provenance keys absent).
     provenance_authoritative: bool = False
 
+    #: ``{key: reason}`` of every protected claim the trusted view removed
+    #: from the token (ADR-0014 decision 3): ``token_policy_outdated`` (a
+    #: refresh fixes it), ``claims_policy_mismatch`` (issuer and verifier
+    #: disagree), ``unassigned`` or ``authority_absent``. Set only by the
+    #: view, never from a token claim of that name.
+    untrusted_claims: dict[str, str] = Field(default_factory=dict)
+
     @model_validator(mode="before")
     @classmethod
     def _collect_claims(cls, data: Any) -> Any:
         if not isinstance(data, dict):
             return data
         known = {k: v for k, v in data.items() if k in _FIELD_KEYS}
-        extra = {k: v for k, v in data.items() if k not in _FIELD_KEYS}
+        extra = {
+            k: v
+            for k, v in data.items()
+            if k not in _FIELD_KEYS and k != _UNTRUSTED_KEY and k != "untrusted_claims"
+        }
+        untrusted = data.get(_UNTRUSTED_KEY)
+        known["untrusted_claims"] = (
+            {str(k): str(v) for k, v in untrusted.items()}
+            if isinstance(untrusted, dict)
+            else {}
+        )
         claims = dict(known.get("claims") or {})
         claims.update(extra)
         known["claims"] = claims

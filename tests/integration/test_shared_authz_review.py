@@ -4,9 +4,10 @@ Pure (no DB): three-valued logic through ``Not``/``And``/``Or``, live atoms
 resolving through ``core.get_service`` (incl. remote SERVICE_BINDINGS proxies),
 HTTP guards answering with the decision's status, ``AccessDenied`` as an
 ``HTTPException``, fact-cache keyed by mode, mandatory claim provenance,
-module-agnostic ``UserContext`` claims, pluggable live-contract adapters,
+module-agnostic ``UserContext`` claims,
 organization tenant resolution, lazy DB for claims-only policies, atomic access
-metrics and ``iat`` enforcement.
+metrics and ``iat`` enforcement. The billing / tenancy atoms are the
+generated ones (``generated_atoms``, KB-34): the kernel ships none.
 """
 
 from __future__ import annotations
@@ -23,43 +24,41 @@ import jwt
 import pytest
 from fastapi import Depends, FastAPI, HTTPException
 
-from sandloom.core.auth.tokens import create_access_token
 from sandloom.core.config.settings import settings
 from sandloom.core.di import bind_tenant, get_db
 from sandloom.core.facade import CoreFacade
 from sandloom.core.http.error_handlers import register_error_handlers
 from sandloom.core.module_api._service_registry import ServiceUnavailableInDeployment
+from sandloom.core.testing.auth import mint_test_token
 from sandloom.shared.authz import (
-    ENTITLEMENTS,
     AccessDecision,
     AccessDenied,
     AccessFact,
     Account,
     Category,
     ClaimRule,
-    Credits,
     Entitled,
     FactUnavailable,
-    Feature,
     Not,
-    OrgRole,
     Perm,
     PolicyIndeterminate,
     Role,
-    Subscribed,
-    SubscriptionActive,
-    WithinLimit,
     enforce,
-    register_live_adapter,
     require,
     resolve_fact,
 )
 from sandloom.shared.authz.context import AuthzContext
-from sandloom.shared.authz.live_contracts import reset_live_adapters
 from sandloom.shared.authz.metrics import increment
 from sandloom.shared.subject import UserContext
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture
+def atoms(generated_atoms: SimpleNamespace) -> SimpleNamespace:
+    """Billing's and tenancy's generated atoms, imported as a consumer does."""
+    return generated_atoms
+
 
 USER = uuid4()
 ENT = "billing.entitlements.v1"
@@ -109,9 +108,14 @@ def _entitlements(*, active: bool = True, balance: int = 0) -> Any:
         calls.append((tt, tid))
         return balance
 
+    async def has_credits_at_least(tt: str, tid: UUID, minimum: int) -> bool:
+        calls.append((tt, tid))
+        return balance >= minimum
+
     return SimpleNamespace(
         check_subscription_active=check_subscription_active,
         get_credit_balance=get_credit_balance,
+        has_credits_at_least=has_credits_at_least,
         calls=calls,
     )
 
@@ -138,7 +142,7 @@ def _sub_fact(**over: object) -> AccessFact:
 
 async def test_not_over_unregistered_fact_denies_misconfigured() -> None:
     core = _StubCore()  # "account.suspended" NOT registered
-    decision = await (~Entitled("account.suspended")).decide(
+    decision = await (~Entitled("account.suspended", owner="billing")).decide(
         _ctx(_subject(), core=core)
     )
     assert not decision.allowed
@@ -153,7 +157,9 @@ async def test_not_over_unavailable_fact_denies_501() -> None:
     core = _StubCore(services={})  # live service absent
     core.facts["account.suspended"] = _sub_fact(name="account.suspended")
     s = _subject()  # no provenance -> auto must go live -> unavailable
-    decision = await Not(Entitled("account.suspended")).decide(_ctx(s, core=core))
+    decision = await Not(Entitled("account.suspended", owner="billing")).decide(
+        _ctx(s, core=core)
+    )
     assert not decision.allowed and decision.indeterminate
     assert decision.http_status == 501
 
@@ -161,14 +167,16 @@ async def test_not_over_unavailable_fact_denies_501() -> None:
 async def test_not_evaluate_raises_instead_of_inverting() -> None:
     core = _StubCore()
     with pytest.raises(PolicyIndeterminate):
-        await Not(Entitled("nope")).evaluate(_ctx(_subject(), core=core))
+        await Not(Entitled("nope", owner="billing")).evaluate(
+            _ctx(_subject(), core=core)
+        )
     with pytest.raises(PolicyIndeterminate):
-        await Entitled("nope").evaluate(_ctx(_subject(), core=core))
+        await Entitled("nope", owner="billing").evaluate(_ctx(_subject(), core=core))
 
 
 async def test_or_with_erroring_branch_does_not_allow() -> None:
     core = _StubCore()
-    policy = Perm("x") | ~Entitled("account.suspended")
+    policy = Perm("x") | ~Entitled("account.suspended", owner="billing")
     decision = await policy.decide(_ctx(_subject(), core=core))
     assert not decision.allowed
     assert decision.indeterminate and decision.http_status == 501
@@ -176,7 +184,7 @@ async def test_or_with_erroring_branch_does_not_allow() -> None:
 
 async def test_or_genuine_branch_still_allows() -> None:
     core = _StubCore()
-    policy = Role("admin") | Entitled("broken")
+    policy = Role("admin") | Entitled("broken", owner="billing")
     decision = await policy.decide(_ctx(_subject(roles={"admin"}), core=core))
     assert decision.allowed
 
@@ -230,7 +238,7 @@ async def test_or_genuine_allow_wins_over_indeterminate_sibling_any_order() -> N
 
 async def test_and_propagates_indeterminate() -> None:
     core = _StubCore()
-    policy = Role("admin") & ~Entitled("broken")
+    policy = Role("admin") & ~Entitled("broken", owner="billing")
     decision = await policy.decide(_ctx(_subject(roles={"admin"}), core=core))
     assert decision.indeterminate and decision.category == Category.POLICY_MISCONFIGURED
     # And.evaluate must not silently answer False either
@@ -240,14 +248,21 @@ async def test_and_propagates_indeterminate() -> None:
 
 async def test_double_negation_of_error_still_denies() -> None:
     core = _StubCore()
-    decision = await Not(Not(Entitled("broken"))).decide(_ctx(_subject(), core=core))
+    decision = await Not(Not(Entitled("broken", owner="billing"))).decide(
+        _ctx(_subject(), core=core)
+    )
     assert not decision.allowed and decision.indeterminate
 
 
 async def test_enforce_maps_indeterminate_to_access_denied_501() -> None:
     core = _StubCore()
     with pytest.raises(AccessDenied) as exc:
-        await enforce(~Entitled("broken"), subject=_subject(), core=core, source="task")
+        await enforce(
+            ~Entitled("broken", owner="billing"),
+            subject=_subject(),
+            core=core,
+            source="task",
+        )
     assert exc.value.status_code == 501
     assert exc.value.decision.indeterminate
     assert core.metrics.get("access_indeterminate_total") == 1
@@ -273,19 +288,25 @@ def _facade_with_remote(service: object) -> tuple[CoreFacade, list[str]]:
     return core, resolved
 
 
-async def test_credits_uses_remote_binding_proxy() -> None:
+async def test_credits_uses_remote_binding_proxy(atoms: SimpleNamespace) -> None:
     svc = _entitlements(balance=100)
     core, resolved = _facade_with_remote(svc)
-    decision = await Credits(10, of=Account.user()).decide(_ctx(_subject(), core=core))
+    decision = await atoms.Credits(10, of=Account.user()).decide(
+        _ctx(_subject(), core=core)
+    )
     assert decision.allowed
     assert resolved == [ENT]
 
 
-async def test_subscription_active_uses_remote_binding_proxy() -> None:
+async def test_subscription_active_uses_remote_binding_proxy(
+    atoms: SimpleNamespace,
+) -> None:
     svc = _entitlements(active=True)
     core, _ = _facade_with_remote(svc)
     assert (
-        await SubscriptionActive(of=Account.user()).decide(_ctx(_subject(), core=core))
+        await atoms.SubscriptionActive(of=Account.user()).decide(
+            _ctx(_subject(), core=core)
+        )
     ).allowed
 
 
@@ -297,26 +318,33 @@ async def test_live_fact_uses_remote_binding_proxy() -> None:
     assert resolved == [ENT]
 
 
-async def test_live_atom_without_provider_is_501_decision_not_http_exception() -> None:
+async def test_live_atom_without_provider_is_501_decision_not_http_exception(
+    atoms: SimpleNamespace,
+) -> None:
     core = CoreFacade(FastAPI())  # no local provider, no binding
-    for atom in (Credits(1, of=Account.user()), SubscriptionActive(of=Account.user())):
+    for atom in (
+        atoms.Credits(1, of=Account.user()),
+        atoms.SubscriptionActive(of=Account.user()),
+    ):
         decision = await atom.decide(_ctx(_subject(), core=core, source="task"))
         assert not decision.allowed and decision.indeterminate
         assert decision.http_status == 501
         assert decision.code == "service_unavailable"
     # No core bound at all (worker without core=) -> same typed decision.
-    decision = await Credits(1, of=Account.user()).decide(
+    decision = await atoms.Credits(1, of=Account.user()).decide(
         _ctx(_subject(), source="task")
     )
     assert decision.http_status == 501
     # The primitive evaluate raises a typed error, never HTTPException.
     with pytest.raises(PolicyIndeterminate) as exc:
-        await Credits(1, of=Account.user()).evaluate(_ctx(_subject(), source="task"))
+        await atoms.Credits(1, of=Account.user()).evaluate(
+            _ctx(_subject(), source="task")
+        )
     assert not isinstance(exc.value, HTTPException)
 
 
-async def test_not_over_missing_live_service_denies() -> None:
-    decision = await (~Credits(1, of=Account.user())).decide(
+async def test_not_over_missing_live_service_denies(atoms: SimpleNamespace) -> None:
+    decision = await (~atoms.Credits(1, of=Account.user())).decide(
         _ctx(_subject(), core=_StubCore())
     )
     assert not decision.allowed and decision.http_status == 501
@@ -330,10 +358,13 @@ async def test_not_over_missing_live_service_denies() -> None:
 def _token(**claims: object) -> str:
     data: dict[str, object] = {"sub": str(USER), "token_type": "access"}
     data.update(claims)
-    return create_access_token(data=data)
+    return mint_test_token(data)
 
 
-def _app(core: object) -> tuple[FastAPI, list[str]]:
+def _app(core: object, atoms: SimpleNamespace) -> tuple[FastAPI, list[str]]:
+    facts = getattr(core, "facts", None)
+    if isinstance(facts, dict):  # billing's fact, as billing registers it
+        facts.setdefault("subscription.active", _sub_fact())
     app = FastAPI()
     app.state.core = core
     register_error_handlers(app)
@@ -345,16 +376,21 @@ def _app(core: object) -> tuple[FastAPI, list[str]]:
 
     app.dependency_overrides[get_db] = _fake_db
 
-    @app.get("/sub", dependencies=[Depends(require(Subscribed(of=Account.user())))])
+    @app.get(
+        "/sub", dependencies=[Depends(require(atoms.Subscribed(of=Account.user())))]
+    )
     async def _sub() -> dict[str, str]:
         return {"ok": "sub"}
 
-    @app.get("/fact", dependencies=[Depends(require(Entitled("nope")))])
+    @app.get(
+        "/fact", dependencies=[Depends(require(Entitled("nope", owner="billing")))]
+    )
     async def _fact() -> dict[str, str]:
         return {"ok": "fact"}
 
     @app.get(
-        "/credits", dependencies=[Depends(require(Credits(50, of=Account.user())))]
+        "/credits",
+        dependencies=[Depends(require(atoms.Credits(50, of=Account.user())))],
     )
     async def _credits() -> dict[str, str]:
         return {"ok": "credits"}
@@ -362,7 +398,7 @@ def _app(core: object) -> tuple[FastAPI, list[str]]:
     @app.get(
         "/credits-override",
         dependencies=[
-            Depends(require(Credits(50, of=Account.user()), status_code=409))
+            Depends(require(atoms.Credits(50, of=Account.user()), status_code=409))
         ],
     )
     async def _credits_override() -> dict[str, str]:
@@ -374,7 +410,13 @@ def _app(core: object) -> tuple[FastAPI, list[str]]:
 
     @app.get("/enforce")
     async def _enforce() -> dict[str, str]:
-        await enforce(Subscribed(of=Account.user()), subject=_subject(), core=core)
+        # A present status billing's rule rejects: a definite 402 on every
+        # path (an absent status on a token without provenance is 501, KB-33g).
+        await enforce(
+            atoms.Subscribed(of=Account.user()),
+            subject=_subject(subscription_status="canceled"),
+            core=core,
+        )
         return {"ok": "enforce"}
 
     return app, db_opened
@@ -386,45 +428,53 @@ async def _get(app: FastAPI, path: str, token: str) -> httpx.Response:
         return await client.get(path, headers={"Authorization": f"Bearer {token}"})
 
 
-async def test_http_subscribed_denial_is_402() -> None:
-    app, _ = _app(_StubCore())
+async def test_http_subscribed_denial_is_402(atoms: SimpleNamespace) -> None:
+    app, _ = _app(_StubCore(), atoms)
     resp = await _get(app, "/sub", _token())
     assert resp.status_code == 402
     assert resp.json()["code"] == "Subscribed"
     assert "active subscription" in resp.json()["detail"]
 
 
-async def test_http_unregistered_fact_is_501_not_403() -> None:
-    app, _ = _app(_StubCore())
+async def test_http_unregistered_fact_is_501_not_403(atoms: SimpleNamespace) -> None:
+    app, _ = _app(_StubCore(), atoms)
     resp = await _get(app, "/fact", _token())
     assert resp.status_code == 501
 
 
-async def test_http_missing_contract_is_501() -> None:
-    app, _ = _app(_StubCore(services={}))
+async def test_http_missing_contract_is_501(atoms: SimpleNamespace) -> None:
+    app, _ = _app(_StubCore(services={}), atoms)
     resp = await _get(app, "/credits", _token())
     assert resp.status_code == 501
     assert resp.json()["code"] == "service_unavailable"
 
 
-async def test_http_credits_denial_is_402_with_reason_detail() -> None:
-    app, db_opened = _app(_StubCore(services={ENT: _entitlements(balance=0)}))
+async def test_http_credits_denial_is_402_with_reason_detail(
+    atoms: SimpleNamespace,
+) -> None:
+    app, db_opened = _app(_StubCore(services={ENT: _entitlements(balance=0)}), atoms)
     resp = await _get(app, "/credits", _token())
     assert resp.status_code == 402
     assert resp.json()["detail"] == "requires at least 50 credits"
-    assert db_opened == ["db"]  # live policy gets the request session
+    # A contract check runs in the provider's own unit of work: it never
+    # opens the request session (G-AUTHZ-02).
+    assert db_opened == []
 
 
-async def test_http_status_override_only_for_definite_denials() -> None:
-    app, _ = _app(_StubCore(services={ENT: _entitlements(balance=0)}))
+async def test_http_status_override_only_for_definite_denials(
+    atoms: SimpleNamespace,
+) -> None:
+    app, _ = _app(_StubCore(services={ENT: _entitlements(balance=0)}), atoms)
     assert (await _get(app, "/credits-override", _token())).status_code == 409
-    app2, _ = _app(_StubCore(services={}))
+    app2, _ = _app(_StubCore(services={}), atoms)
     # An indeterminate 501 is never relabelled by the override.
     assert (await _get(app2, "/credits-override", _token())).status_code == 501
 
 
-async def test_http_claims_only_policy_opens_no_db_session() -> None:
-    app, db_opened = _app(_StubCore())
+async def test_http_claims_only_policy_opens_no_db_session(
+    atoms: SimpleNamespace,
+) -> None:
+    app, db_opened = _app(_StubCore(), atoms)
     resp = await _get(app, "/role", _token(roles=["admin"]))
     assert resp.status_code == 200
     resp = await _get(app, "/sub", _token())
@@ -432,8 +482,8 @@ async def test_http_claims_only_policy_opens_no_db_session() -> None:
     assert db_opened == []
 
 
-async def test_http_enforce_in_endpoint_maps_status() -> None:
-    app, _ = _app(_StubCore())
+async def test_http_enforce_in_endpoint_maps_status(atoms: SimpleNamespace) -> None:
+    app, _ = _app(_StubCore(), atoms)
     resp = await _get(app, "/enforce", _token())
     assert resp.status_code == 402
     assert resp.json()["code"] == "Subscribed"
@@ -450,8 +500,8 @@ async def test_access_denied_is_http_exception_and_picklable() -> None:
     assert clone.decision == decision and clone.status_code == 402
 
 
-async def test_token_without_iat_is_rejected() -> None:
-    app, _ = _app(_StubCore())
+async def test_token_without_iat_is_rejected(atoms: SimpleNamespace) -> None:
+    app, _ = _app(_StubCore(), atoms)
     exp = datetime.now(UTC) + timedelta(minutes=5)
     no_iat = jwt.encode(
         {"sub": str(USER), "token_type": "access", "exp": exp, "roles": ["admin"]},
@@ -513,11 +563,11 @@ async def test_mapping_provenance_trusts_only_successful_sources() -> None:
 
 
 # --------------------------------------------------------------------------
-# 8. Module-agnostic UserContext + pluggable adapters + org tenant id
+# 8. Module-agnostic UserContext + org tenant id
 # --------------------------------------------------------------------------
 
 
-async def test_user_context_namespaces_module_claims() -> None:
+async def test_user_context_namespaces_module_claims(atoms: SimpleNamespace) -> None:
     payload = {
         "sub": str(USER),
         "roles": ["admin"],
@@ -536,94 +586,42 @@ async def test_user_context_namespaces_module_claims() -> None:
     assert s.claim("limits") == {"seats": 3}
     for removed in ("plan_code", "subscription_status", "features", "limits"):
         assert not hasattr(s, removed)
-    assert await Feature("export", of=Account.user()).evaluate(_ctx(s))
-    assert await WithinLimit("seats", 2, of=Account.user()).evaluate(_ctx(s))
-    assert not await WithinLimit("seats", 3, of=Account.user()).evaluate(_ctx(s))
+    assert await atoms.Feature("export", of=Account.user()).evaluate(_ctx(s))
+    assert await atoms.WithinLimit("seats", 2, of=Account.user()).evaluate(_ctx(s))
+    assert not await atoms.WithinLimit("seats", 3, of=Account.user()).evaluate(_ctx(s))
 
 
-async def test_claim_atoms_accept_custom_claim_key() -> None:
-    s = _subject(shop_status="active")
-    assert await Subscribed(of=Account.user(), claim_key="shop_status").evaluate(
-        _ctx(s)
-    )
-
-
-async def test_registered_adapter_overrides_contract() -> None:
-    seen: list[str] = []
-
-    class _Adapter:
-        service = "shop.wallet.v1"
-
-        async def subscription_active(
-            self, service: Any, *, tenant_type: str, tenant_id: UUID, ctx: Any
-        ) -> bool:
-            return True
-
-        async def credit_balance(
-            self, service: Any, *, tenant_type: str, tenant_id: UUID, ctx: Any
-        ) -> int:
-            seen.append(service)
-            return 7
-
-    core = _StubCore(services={"shop.wallet.v1": "wallet-svc"})
-    try:
-        register_live_adapter(ENTITLEMENTS, _Adapter())
-        assert (
-            await Credits(5, of=Account.user()).decide(_ctx(_subject(), core=core))
-        ).allowed
-        assert seen == ["wallet-svc"]
-    finally:
-        reset_live_adapters()
-    with pytest.raises(TypeError):
-        register_live_adapter(ENTITLEMENTS, object())
-
-
-async def test_provider_side_live_adapter_registration_warns(
-    caplog: pytest.LogCaptureFixture,
+async def test_claim_atoms_read_only_a_declared_claim_key(
+    atoms: SimpleNamespace,
 ) -> None:
-    """Adapters are consumer-side: a provider module registering one for its
-    own contract only affects ITS process — in a split the consumer silently
-    keeps the default. That must not pass unnoticed."""
-    from sandloom.shared.authz.live_contracts import DefaultEntitlementsAdapter
-
-    adapter = DefaultEntitlementsAdapter()  # service = billing.entitlements.v1
-    provider_globals = {
-        "__name__": "myapp.modules.billing",
-        "register_live_adapter": register_live_adapter,
-        "ENTITLEMENTS": ENTITLEMENTS,
-        "adapter": adapter,
-    }
-    consumer_globals = {**provider_globals, "__name__": "myapp.modules.shop"}
-    try:
-        with caplog.at_level("WARNING", logger="sandloom.access.live_contracts"):
-            exec("register_live_adapter(ENTITLEMENTS, adapter)", consumer_globals)  # noqa: S102 - literal code run under a chosen module name
-            assert not caplog.records
-            exec("register_live_adapter(ENTITLEMENTS, adapter)", provider_globals)  # noqa: S102 - literal code run under a chosen module name
-        assert any("consumer-side" in r.getMessage() for r in caplog.records)
-    finally:
-        reset_live_adapters()
+    with pytest.raises(ValueError, match="the owner's declaration"):
+        atoms.Subscribed(of=Account.user(), claim_key="shop_status")
 
 
-async def test_org_credits_use_org_from_path_never_user_id() -> None:
+async def test_org_credits_use_org_from_path_never_user_id(
+    atoms: SimpleNamespace,
+) -> None:
     org = uuid4()
     svc = _entitlements(balance=100)
     core = _StubCore(services={ENT: svc})
     request = SimpleNamespace(path_params={"org_id": str(org)}, headers={}, app=None)
     s = _subject(tenant_ids=[str(org)])
-    atom = Credits(10, of=Account.org())
+    atom = atoms.Credits(10, of=Account.org())
     assert (await atom.decide(_ctx(s, core=core, request=request))).allowed
     assert svc.calls == [("organization", org)]
     assert USER not in {tid for _, tid in svc.calls}
 
 
-async def test_org_subscription_from_tenant_header_validated() -> None:
+async def test_org_subscription_from_tenant_header_validated(
+    atoms: SimpleNamespace,
+) -> None:
     org = uuid4()
     svc = _entitlements(active=True)
     core = _StubCore(services={ENT: svc})
     request = SimpleNamespace(
         path_params={}, headers={"X-Tenant-Id": str(org)}, app=None
     )
-    atom = SubscriptionActive(of=Account.org())
+    atom = atoms.SubscriptionActive(of=Account.org())
     ok = await atom.decide(
         _ctx(_subject(tenant_ids=[str(org)]), core=core, request=request)
     )
@@ -635,21 +633,23 @@ async def test_org_subscription_from_tenant_header_validated() -> None:
     assert denied.http_status == 403 and svc.calls == []
 
 
-async def test_org_credits_use_bound_tenant() -> None:
+async def test_org_credits_use_bound_tenant(atoms: SimpleNamespace) -> None:
     org = uuid4()
     svc = _entitlements(balance=100)
     core = _StubCore(services={ENT: svc})
     with bind_tenant(org):
-        decision = await Credits(10, of=Account.org()).decide(
+        decision = await atoms.Credits(10, of=Account.org()).decide(
             _ctx(_subject(), core=core, source="task")
         )
     assert decision.allowed and svc.calls == [("organization", org)]
 
 
-async def test_org_credits_without_org_context_is_indeterminate() -> None:
+async def test_org_credits_without_org_context_is_indeterminate(
+    atoms: SimpleNamespace,
+) -> None:
     svc = _entitlements(balance=100)
     core = _StubCore(services={ENT: svc})
-    atom = Credits(10, of=Account.org())
+    atom = atoms.Credits(10, of=Account.org())
     decision = await atom.decide(_ctx(_subject(), core=core))
     assert decision.indeterminate and decision.http_status == 400
     # and the negation cannot turn it into an allow
@@ -657,10 +657,12 @@ async def test_org_credits_without_org_context_is_indeterminate() -> None:
     assert svc.calls == []
 
 
-async def test_org_role_missing_org_cannot_be_negated_into_allow() -> None:
+async def test_org_role_missing_org_cannot_be_negated_into_allow(
+    atoms: SimpleNamespace,
+) -> None:
     core = _StubCore(services={"tenancy.membership.v1": SimpleNamespace()})
     request = SimpleNamespace(path_params={}, headers={}, app=None)
-    decision = await (~OrgRole("admin")).decide(
+    decision = await (~atoms.OrgRole("admin")).decide(
         _ctx(_subject(), core=core, request=request)
     )
     assert not decision.allowed and decision.indeterminate

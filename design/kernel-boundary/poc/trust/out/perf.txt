@@ -1,0 +1,31 @@
+# kb-poc-trust T-15 cost, base (ceb3d66+PR72) vs TA-1 candidate, same session 2026-11-08
+# machine shared with other agents (load average 7-44 during the runs)
+
+## cachegrind micro rung (bench/cg_micro.sh 20000): decode_token cache hit + UserContext + Role&Perm decided, no I/O
+base rep1 micro 152626 Ir/op (K=20000, Ir0=6465771427, IrK=9518304726)
+ta1 rep1 micro 162336 Ir/op (K=20000, Ir0=6519205605, IrK=9765937284)
+base rep2 micro 152593 Ir/op (K=20000, Ir0=6465772340, IrK=9517641739)
+ta1 rep2 micro 162340 Ir/op (K=20000, Ir0=6519198224, IrK=9766015940)
+base rep3 micro 152581 Ir/op (K=20000, Ir0=6465769314, IrK=9517407971)
+ta1 rep3 micro 162258 Ir/op (K=20000, Ir0=6518864356, IrK=9764032768)
+ta1-opt rep1 micro 159687 Ir/op (K=20000, Ir0=6518140709, IrK=9711881466)
+
+## cachegrind full request, monolith with identity+tenancy+billing (bench/cg_trust.sh; K=200, mint K=100; 1 rep, pre-optimisation TA-1)
+base rep1 control 1146927 Ir/op (K=200, Ir0=13437987834, IrK=13667373237)
+base rep1 role_and_perm 1250519 Ir/op (K=200, Ir0=13440481455, IrK=13690585261)
+base rep1 tenant 1279324 Ir/op (K=200, Ir0=13440998471, IrK=13696863371)
+base rep1 mint 4220001 Ir/op (K=100, Ir0=13425497336, IrK=13847497436)
+ta1 rep1 control 1125421 Ir/op (K=200, Ir0=13480919686, IrK=13706003964)
+ta1 rep1 role_and_perm 1276742 Ir/op (K=200, Ir0=13483232321, IrK=13738580754)
+ta1 rep1 tenant 1262824 Ir/op (K=200, Ir0=13486671634, IrK=13739236590)
+ta1 rep1 mint 4248724 Ir/op (K=100, Ir0=13470719996, IrK=13895592455)
+
+## latency in-process ASGI, concurrency 1 (bench/trust_stand.py run --n 2000; mint n=200), 3 runs alternating base/ta1 (ta1 = with the optimisation)
+base control        p50  1093  p95  1466  p99  1898 us  (median of 3 runs; p50 per run [1133, 1093, 1038])
+base role_and_perm  p50  1188  p95  1682  p99  2469 us  (median of 3 runs; p50 per run [1188, 1186, 1202])
+base tenant         p50  1209  p95  1670  p99  2323 us  (median of 3 runs; p50 per run [1209, 1188, 1243])
+base mint           p50  4971  p95  6740  p99  8530 us  (median of 3 runs; p50 per run [3779, 5182, 4971])
+ta1  control        p50  1097  p95  1413  p99  1790 us  (median of 3 runs; p50 per run [1087, 1097, 1111])
+ta1  role_and_perm  p50  1166  p95  1625  p99  2062 us  (median of 3 runs; p50 per run [1131, 1166, 1215])
+ta1  tenant         p50  1189  p95  1644  p99  2096 us  (median of 3 runs; p50 per run [1153, 1233, 1189])
+ta1  mint           p50  4891  p95  6969  p99  8226 us  (median of 3 runs; p50 per run [5200, 4891, 3540])

@@ -187,7 +187,9 @@ _org_router = APIRouter(prefix="/api/v1/_billing_org_demo")
 @_org_router.get(
     "/{org_id}/premium",
     # No explicit category: the fact's own deny_category (402) applies.
-    dependencies=[Depends(require(Entitled("organization.subscription.active")))],
+    dependencies=[
+        Depends(require(Entitled("organization.subscription.active", owner="billing")))
+    ],
 )
 async def _org_premium(org_id: uuid.UUID) -> dict[str, str]:
     return {"ok": str(org_id)}
@@ -195,7 +197,9 @@ async def _org_premium(org_id: uuid.UUID) -> dict[str, str]:
 
 @_org_router.get(
     "/premium",
-    dependencies=[Depends(require(Entitled("organization.subscription.active")))],
+    dependencies=[
+        Depends(require(Entitled("organization.subscription.active", owner="billing")))
+    ],
 )
 async def _org_premium_no_org() -> dict[str, str]:
     return {"ok": "?"}
@@ -203,7 +207,7 @@ async def _org_premium_no_org() -> dict[str, str]:
 
 @_org_router.get(
     "/personal",
-    dependencies=[Depends(require(Entitled("subscription.active")))],
+    dependencies=[Depends(require(Entitled("subscription.active", owner="billing")))],
 )
 async def _personal_premium() -> dict[str, str]:
     return {"ok": "personal"}
@@ -212,7 +216,13 @@ async def _personal_premium() -> dict[str, str]:
 @_org_router.get(
     "/personal-forbidden",
     dependencies=[
-        Depends(require(Entitled("subscription.active", category=Category.FORBIDDEN)))
+        Depends(
+            require(
+                Entitled(
+                    "subscription.active", owner="billing", category=Category.FORBIDDEN
+                )
+            )
+        )
     ],
 )
 async def _personal_premium_override() -> dict[str, str]:
@@ -274,7 +284,7 @@ class TestOrgAccessFact:
     async def test_personal_subscription_fact_denies_402(
         self, async_client: AsyncClient, test_db: AsyncSession
     ):
-        """Entitled("subscription.active") denies 402 like Subscribed /
+        """Entitled("subscription.active", owner="billing") denies 402 like Subscribed /
         SubscriptionActive / Credits (the fact declares PAYMENT_REQUIRED);
         an explicit Entitled(category=...) still overrides it."""
         user_id, headers = make_user_headers()
@@ -367,14 +377,11 @@ class TestClaimLiveParity:
 
 
 class TestClaimInterpretation:
-    def test_past_due_claim_follows_grace_policy(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from sandloom.sdk.infra import settings
+    def test_past_due_claim_follows_grace_policy(self, billing_config: Any) -> None:
         from sandloom_billing.access import subscription_claim_rule
 
-        monkeypatch.setattr(settings, "billing_deny_on_past_due", False)
+        billing_config(billing_deny_on_past_due=False)
         assert subscription_claim_rule().interpret("past_due") is True
-        monkeypatch.setattr(settings, "billing_deny_on_past_due", True)
+        billing_config(billing_deny_on_past_due=True)
         assert subscription_claim_rule().interpret("past_due") is False
         assert subscription_claim_rule().interpret("expired") is False

@@ -7,8 +7,10 @@ paths:
 
 Copy-paste examples for every fixture, auth headers, rollback, events and
 contracts: `docs/reference/testing.md`. Run `uv run sandloom test <module>` while
-iterating and `uv run sandloom test --full` once at the end; never a serial
-`pytest -q` after each fix.
+iterating. Inside a tracked wave, run the tests of what you touched plus every
+test that references the changed symbols (`grep -rln '<symbol>' src tests`) and
+the static gates; `uv run sandloom test --full` runs once per wave, by the
+orchestrator (alone: once at the end). Never a serial `pytest -q` after each fix.
 
 - **Imports.** Module tests import only `sandloom.sdk` (`sandloom.sdk.testing` for the
   kit), the generated stubs and DTOs, and their own package (C013). Seed
@@ -22,7 +24,8 @@ iterating and `uv run sandloom test --full` once at the end; never a serial
   - `await deliver(E(...), times=2)` drives the registered consumer runtime
     (schema check, durable claim, tenant binding), not only the handler;
   - `with fake_contract(REF, impl):` serves a contract you call;
-  - `with fake_access_fact(name, value):` fakes an entitlement.
+  - `with fake_access_fact(name, value, owner="billing"):` fakes an entitlement
+    of its owner module (an `Entitled(name, owner=...)` of another owner never sees it).
   - Never create identity rows from another module's tests.
 - **Environment.** `.env.test` is loaded for you.
   - Use your own resources on a shared machine: `SANDLOOM_TEST_OWNER`,

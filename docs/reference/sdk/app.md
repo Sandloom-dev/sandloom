@@ -22,7 +22,9 @@ app = create_app(default_modules=app_modules("helpdesk.modules"))
 | Name | Kind | Summary |
 | --- | --- | --- |
 | [`app_modules`](#app_modules) | function | The dotted names of `package`'s module packages, sorted by name. |
+| [`Authority`](#authority) | class | One claim key's authority in `create_app(claim_authorities=...)`. |
 | [`create_app`](#create_app) | function | Build a fully wired Sandloom application (kernel + modules + ops API). |
+| [`LegacyClaimsTokens`](#legacyclaimstokens) | class | The bounded compatibility mode of the initial `cpv` enablement (ADR-0014 decision 4; an accepted temporary risk, G-RISK-14). |
 
 ## Advanced names
 
@@ -38,6 +40,38 @@ A subpackage counts when its `__init__.py` defines `register` (a
 `define_module(...)` assignment or a `def register`); packages whose
 name starts with `_` are skipped.
 
+### `Authority`
+
+```python
+class Authority(
+    name: str,
+    module: str | None = None,
+    previous: Authority | None = None,
+    fail_safe: bool = False,
+) -> None
+```
+
+One claim key's authority in `create_app(claim_authorities=...)`.
+
+A plain string value is `Authority(<value>)`. `module` is the import
+path when `name` is a short (entry-point) name, and `name` is then
+kept as the authority's stable public name: the name its `<m>.claims.v1`
+and `<m>.security.v1` are served under, known even in a process where
+the module is not installed (an installed distribution must carry the
+same entry-point name); `previous` is the one
+other authority a verifier accepts for the key during a rollout
+(ADR-0014 decision 4): declared with its identity in full
+(`Authority("identity", module="sandloom_identity")`), never by short
+name, it need not be loaded or bound here, and an issuer never stamps it.
+It exists for one rollout and is removed by the next deploy.
+
+`fail_safe=True` declares, in the composition root, that every reader
+of the key escalates or answers indeterminate when it is absent, so the
+authority may be non-critical (ADR-0014 decision 7): needed for an
+authority bound remotely with `"critical": false`, whose own
+declaration (`add_claims_contributor(..., fail_safe=...)`) does not run
+in the issuing process. Never for `NEVER_FAIL_SAFE` or the issuer.
+
 ### `create_app`
 
 ```python
@@ -46,6 +80,10 @@ def create_app(
     default_modules: collections.abc.Sequence[str] = (),
     default_optional_modules: collections.abc.Sequence[str] = (),
     title: str = 'Sandloom Framework',
+    claim_authorities: collections.abc.Mapping[str, str | sandloom.core.claims.Authority] | None = None,
+    default_claim_authorities: collections.abc.Mapping[str, str | sandloom.core.claims.Authority] | None = None,
+    legacy_tokens: sandloom.core.claims.LegacyClaimsTokens | None = None,
+    access_providers: collections.abc.Mapping[str, str] | None = None,
 ) -> fastapi.applications.FastAPI
 ```
 
@@ -57,6 +95,61 @@ the kernel defaults (empty) the module set comes from configuration
 alone. Every module is required unless named in
 `default_optional_modules` (defaulted lists only) or declared
 `optional=True`.
+
+`claim_authorities` assigns each protected claim key to the module that
+is its authority, plus the token `issuer` (`{key: import path or
+entry-point name}`; ADR-0014): the mint keeps a protected claim only from
+its authority, and startup refuses an assignment the composition cannot
+honour (SANDLOOM-B035). `default_claim_authorities` applies when
+`claim_authorities` is not given and keeps only the entries whose module
+is part of the composition (loaded, or bound through its
+`<m>.claims.v1`). With neither, no claim is assigned, and a composition
+that loads a token issuer (`issues_tokens=True`) refuses the boot.
+A value may be an `Authority(name, previous=Authority(old, module=...))`
+for one rollout of a key's authority. Every verifier reads protected
+claims only through the trusted view of this map (per-key `cpv`).
+
+`legacy_tokens=LegacyClaimsTokens(until="<UTC time>")` is the bounded
+compatibility mode of the initial `cpv` enablement (an accepted
+temporary risk, G-RISK-14): written for one upgrade, never by default,
+off by itself at `until + ACCESS_TOKEN_EXPIRE_MINUTES +
+JWT_LEEWAY_SECONDS`.
+
+`access_providers` assigns an access-bearing contract to the module
+that provides it in-process (`{contract: import path or entry-point
+name}`; ADR-0014 decision 6): a contract a generated access check asks, or a key
+of this map, is registered only by the module its first segment names
+or by the one assigned here, checked by import path; anyone else refuses
+the boot (SANDLOOM-B034). Remotely, `SERVICE_BINDINGS` is the
+assignment. Every other contract keeps the first-registrant rule.
+
+### `LegacyClaimsTokens`
+
+```python
+class LegacyClaimsTokens(until: str | datetime) -> None
+```
+
+The bounded compatibility mode of the initial `cpv` enablement
+(ADR-0014 decision 4; an accepted temporary risk, G-RISK-14).
+
+`until` (an absolute UTC time, required, no default, no setting) is the
+end of the transition: the time by which the last issuer that stamps no
+`cpv` stopped. A verifier then trusts a token without `cpv` per key
+when the key's authority ran at its mint and was kept, its `iat` is
+before `until` and its `exp - iat` does not exceed
+`ACCESS_TOKEN_EXPIRE_MINUTES`; from `until + ACCESS_TOKEN_EXPIRE_MINUTES
++ JWT_LEEWAY_SECONDS` on the mode is off by itself (fail closed). The
+framework never moves or extends `until`: a later one is a new operator
+decision written in the composition root.
+
+#### `LegacyClaimsTokens.until_timestamp`
+
+```python
+def until_timestamp(self) -> float
+```
+
+`until` as a POSIX timestamp; a `ValueError` when it is not an
+absolute UTC time (a naive time or an offset other than UTC).
 
 ## Examples and related guides
 

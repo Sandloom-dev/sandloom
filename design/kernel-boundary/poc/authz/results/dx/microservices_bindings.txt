@@ -1,0 +1,2 @@
+131:  RPC_ALLOWED_CALLS: '{"reports": ["quota.limits.v1"]}'
+187:  SERVICE_BINDINGS: '{"quota.limits.v1": {"base_url": "http://quota:8000", "service_id": "quota"}}'

@@ -45,8 +45,8 @@ RATCHETED_PREFIXES = ("ASYNC", "BLE", "S", "SIM", "RUF", "PERF", "PLC0415", "C90
 NOQA_BASELINE: dict[str, int] = {
     "ASYNC109": 19,
     "ASYNC240": 2,
-    "BLE001": 206,
-    "C901": 81,
+    "BLE001": 202,
+    "C901": 79,
     "PERF401": 24,
     # 118 (2026-10-28): +1 optional import, testing/ownership.py: `redis` is
     # the `sandloom[redis]` extra and `sandloom test --help` must run in a
@@ -59,7 +59,7 @@ NOQA_BASELINE: dict[str, int] = {
     # up` ask a .env database's renderer for schema_from_models (SQLite) only
     # when .env names one; importing the renderers costs the dev CLI 0.3 s
     # and loads the settings.
-    "PLC0415": 122,
+    "PLC0415": 121,  # -2: the kernel domain atoms left (KB-34g)
     "RUF001": 4,
     "RUF005": 2,
     "RUF012": 3,
@@ -68,7 +68,7 @@ NOQA_BASELINE: dict[str, int] = {
     "S105": 8,
     "S106": 1,
     "S108": 1,
-    "S110": 29,
+    "S110": 28,
     "S112": 3,
     "S301": 0,
     "S311": 9,

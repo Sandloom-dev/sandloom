@@ -1,6 +1,7 @@
 ---
 name: sandloom-key-rotation
 description: Rotate Sandloom secrets and keys without a forced logout or an RPC outage — JWT (HS256 and EdDSA/RS256/ES256 kids), internal RPC X25519 and Ed25519 keys, TWOFA_ENCRYPTION_KEY, INTERNAL_API_TOKEN / METRICS_TOKEN — and what changes when a key is compromised. Use when asked to rotate, roll, renew or replace any of these, or after a suspected key leak.
+disable-model-invocation: true
 ---
 
 # Rotate keys and secrets

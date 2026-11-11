@@ -56,6 +56,7 @@ from sandloom.core.cli.scaffold_wiring import (
     project_root,
     wire_module,
 )
+from sandloom.core.descriptors.derived_capabilities import defines_periodic_hook
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 #: ruff format's line length (generated files pass the project's format gate).
@@ -85,8 +86,10 @@ class Layout:
 
     modules_dir: Path
     modules_package: str
-    shared_dir: Path
-    shared_package: str
+    #: The application's generated DTO package; ``None`` in a tree of top-level
+    #: module packages, where each module keeps its own ``_generated/`` home.
+    shared_dir: Path | None
+    shared_package: str | None
     source_root: Path
 
     def module_dir(self, module: str) -> Path:
@@ -94,6 +97,18 @@ class Layout:
 
     def dotted(self, module: str) -> str:
         return f"{self.modules_package}.{module}" if self.modules_package else module
+
+    def generated_home(self, module: str) -> tuple[Path, str]:
+        """``(directory, import package)`` of the generated contract stubs and
+        DTO copies a module's code imports: the application's
+        ``<app>.shared/contracts``, else ``<module>/_generated/contracts``
+        (ADR-0013 decision 1)."""
+        if self.shared_dir is not None and self.shared_package is not None:
+            return self.shared_dir / "contracts", f"{self.shared_package}.contracts"
+        return (
+            self.module_dir(module) / "_generated" / "contracts",
+            f"{self.dotted(module)}._generated.contracts",
+        )
 
     @property
     def framework_tree(self) -> bool:
@@ -198,10 +213,48 @@ def _call(head: str, args: str) -> str:
     return f"{head}(\n{lines}{indent})"
 
 
-def _module_files(name: str) -> dict[str, str]:
+def _module_files(name: str, *, with_settings: bool) -> dict[str, str]:
     cls = camel(name)
     item = f"{cls}Item"
     files: dict[str, str] = {}
+    settings_import = ""
+    settings_argument = ""
+    settings_reader = ""
+    limit_parameter = "limit: Annotated[int, Query(ge=1, le=100)] = 20"
+    resolve_limit = ""
+    if with_settings:
+        settings_import = f"from .settings import {cls}Settings\n"
+        settings_argument = f", settings={cls}Settings"
+        settings_reader = (
+            "from sandloom.sdk.module import settings_of"
+            "  # sandloom: advanced module settings\n"
+        )
+        limit_parameter = "limit: Annotated[int | None, Query(ge=1, le=100)] = None"
+        resolve_limit = (
+            "    if limit is None:\n"
+            f"        limit = settings_of({cls}Settings).default_page_size\n"
+        )
+        page_size = _call(
+            "    default_page_size: int = Field",
+            f'default=20, ge=1, le=100, alias="{name.upper()}_DEFAULT_PAGE_SIZE"',
+        )
+        files["settings.py"] = f'''"""Settings for the {name} module.
+
+Keep environment aliases prefixed with ``{name.upper()}_``.
+Read validated settings at runtime with ``settings_of({cls}Settings)``
+from ``sandloom.sdk.module``.
+"""
+
+from pydantic import BaseModel, Field
+
+
+class {cls}Settings(BaseModel):
+{page_size}
+'''
+    init_settings_import = f"{settings_import}\n" if settings_import else ""
+    register = _call(
+        "register = define_module", f'__name__, version="0.1.0"{settings_argument}'
+    )
     files["__init__.py"] = f'''"""The {name} module.
 
 Everything it declares is discovered: routes in ``api.py``, events in
@@ -211,7 +264,7 @@ events and contracts.
 
 from sandloom.sdk import define_module
 
-register = define_module(__name__, version="0.1.0")
+{init_settings_import}{register}
 '''
     files["models/__init__.py"] = f'''"""The {name} tables.
 
@@ -327,10 +380,10 @@ from uuid import UUID
 from fastapi import HTTPException, Query
 
 from sandloom.sdk import CurrentUser, module_router
-
+{settings_reader}
 from . import services
 from .schemas import ItemIn, ItemOut
-
+{settings_import}
 router = module_router()
 
 
@@ -341,10 +394,10 @@ async def create_item(body: ItemIn, user: CurrentUser) -> ItemOut:
 
 @router.get("/items")
 async def list_items(
-    user: CurrentUser, limit: Annotated[int, Query(ge=1, le=100)] = 20
+    user: CurrentUser, {limit_parameter}
 ) -> list[ItemOut]:
     """A page of the tenant's items: ``le=`` caps what one request may load."""
-    return await services.list_items(limit=limit)
+{resolve_limit}    return await services.list_items(limit=limit)
 
 
 @router.get("/items/{{item_id}}")
@@ -551,7 +604,7 @@ def downgrade() -> None:
 '''
 
 
-def add_module(name: str, where: Layout) -> list[Path]:
+def add_module(name: str, where: Layout, *, with_settings: bool = True) -> list[Path]:
     """``sandloom add module <name>``: a new package; refuses an existing one.
 
     Also wires it where its project loads modules (``wire_module``: the
@@ -566,7 +619,7 @@ def add_module(name: str, where: Layout) -> list[Path]:
     target = where.module_dir(name)
     if target.exists():
         raise GeneratorError(f"{target} already exists")
-    files = _module_files(name)
+    files = _module_files(name, with_settings=with_settings)
     if where.framework_tree:
         files["tests/conftest.py"] = FRAMEWORK_TREE_CONFTEST
     if not contract_inherited(target.parent):
@@ -705,12 +758,18 @@ def _contract_bootstrap(where: Layout, module: str, name: str, contract: str) ->
     stubs = _stubs()
     copies = importlib.import_module("sandloom.core.cli.dto_copies")
     stem, _protocol, _ref = stubs.stub_names(contract)
-    for directory in (where.shared_dir, where.shared_dir / "contracts"):
+    contracts_dir, contracts_package = where.generated_home(module)
+    init_text = '"""Contract DTO package (generated stubs and DTO copies)."""\n'
+    inits = [contracts_dir]
+    if where.shared_dir is not None:
+        inits.insert(0, where.shared_dir)
+    else:  # the module's `_generated` package, with its own docstring
+        inits.insert(0, contracts_dir.parent)
+        init_text = _consumer_init()
+    for directory in inits:
         init = directory / "__init__.py"
         if not init.exists():
-            _write(
-                init, '"""Contract DTO package (generated stubs and DTO copies)."""\n'
-            )
+            _write(init, init_text)
     if str(where.source_root) in sys.path:
         sys.path.remove(str(where.source_root))
     sys.path.insert(0, str(where.source_root))
@@ -724,24 +783,31 @@ def _contract_bootstrap(where: Layout, module: str, name: str, contract: str) ->
     dto_stem = copies.dto_module_stem(module)
     resolver = copies.Resolver(
         provider_package=package,
-        dto_package=f"{where.shared_package}.contracts.{dto_stem}",
-        shared_packages=("sandloom.shared", where.shared_package),
+        dto_package=f"{contracts_package}.{dto_stem}",
+        shared_packages=(
+            copies.KERNEL_SHARED,
+            *([where.shared_package] if where.shared_package else []),
+        ),
     )
-    contracts_dir = where.shared_dir / "contracts"
-    (contracts_dir / f"{stem}.py").write_text(
-        stubs.render_stub(contract, provider, resolver), encoding="utf-8"
-    )
+    # Exactly as `sandloom generate` writes them: provenance header, final
+    # layout, never the project's formatter (ADR-0013 decisions 6, 7).
+    consumer = importlib.import_module("sandloom.core.cli.consumer_copies")
+    label = consumer.distribution_label(package)
+    group = [consumer.Provider(contract, provider, package, label)]
     for other in vars(module_contracts).values():
-        spec = getattr(other, "__dict__", {}).get("__sandloom_contract__")
+        if not issubclass(type(other), type):  # never touch a lazy proxy
+            continue
+        spec = other.__dict__.get("__sandloom_contract__")
         if spec is not None and other is not provider:
             stubs.render_stub(spec.name, other, resolver)  # its DTOs too
+            group.append(consumer.Provider(spec.name, other, package, label))
+    (contracts_dir / f"{stem}.py").write_text(
+        consumer.stub_file(contract, group[0], resolver, stubs.STUBS),
+        encoding="utf-8",
+    )
     target = contracts_dir / f"{dto_stem}.py"
     if resolver.copied:
-        text = copies.render_module(module, resolver)
-        target.write_text(
-            copies.ruff_formatted(text, target, cwd=where.source_root),
-            encoding="utf-8",
-        )
+        target.write_text(consumer.dto_file(module, resolver, group), encoding="utf-8")
 
 
 def _contract_dto(directory: Path, contract: str, dto: str) -> Path:
@@ -799,6 +865,11 @@ def _import_dto(source: str, dto: str) -> str:
     return "\n".join(lines)
 
 
+def _consumer_init() -> str:
+    """The ``__init__.py`` text of a module's ``_generated`` package."""
+    return str(importlib.import_module("sandloom.core.cli.consumer_copies").INIT)
+
+
 def _stubs() -> Any:
     """:mod:`sandloom.core.cli.generated`, imported when a stub is named: the
     other generators stay static (no settings module)."""
@@ -847,8 +918,10 @@ def _producer_fields(where: Layout, channel: str) -> tuple[list[tuple[str, str]]
                 return list(
                     event.fields.items()
                 ), f"{py.relative_to(where.modules_dir)}"
-    exported = where.shared_dir / "events" / f"{channel}.json"
-    if exported.is_file():
+    exported = (
+        where.shared_dir / "events" / f"{channel}.json" if where.shared_dir else None
+    )
+    if exported is not None and exported.is_file():
         schema = json.loads(exported.read_text(encoding="utf-8"))
         names = {
             "string": "str",
@@ -885,8 +958,9 @@ def add_consumer(
         note = f"fields of the producer ({source})"
     else:
         raise GeneratorError(
-            f"no producer schema for {channel!r} in this tree or "
-            f"{where.shared_dir / 'events'}: pass the fields (--field name:type ...); "
+            f"no producer schema for {channel!r} in this tree"
+            + (f" or {where.shared_dir / 'events'}" if where.shared_dir else "")
+            + ": pass the fields (--field name:type ...); "
             "the view is then marked unverified"
         )
     unverified = "" if found else "  # unverified: no producer schema was found"
@@ -941,7 +1015,7 @@ def add_saga(module: str, name: str, where: Layout) -> list[Path]:
                 "from sandloom.sdk import Contract",
                 "from sandloom.sdk.sagas import Saga, local_step, step  "
                 "# sandloom: advanced sagas",
-                f"from {where.shared_package}.contracts.{stem} import {ref}",
+                f"from {where.generated_home(module)[1]}.{stem} import {ref}",
             ]
         )
     )
@@ -1340,11 +1414,162 @@ def add_task(
     )
     block = _task_block(module, where.dotted(module), name)
     edited = [_append(path, block, header=header)]
+    if periodic is not None:
+        _add_periodic(path, module, name, periodic)
+    declared, declare_note = _declare_taskqueue(
+        directory / "__init__.py", periodic=defines_periodic_hook(path)
+    )
+    edited += declared
     if periodic is None:
-        return edited, None
-    _add_periodic(path, module, name, periodic)
+        return edited, declare_note
     wired, note = _wire_beat(where, module)
-    return edited + wired, note
+    notes = [n for n in (note, declare_note) if n]
+    return edited + wired, "; ".join(notes) or None
+
+
+#: The declaration ``sandloom add task`` writes (SANDLOOM-C033).
+_TASKQUEUE = '"taskqueue"'
+_TASKQUEUE_PERIODIC = (
+    'CapabilityRequirement("taskqueue", features=frozenset({"periodic"}))'
+)
+_CAPABILITY_IMPORT = (
+    "from sandloom.sdk.module import CapabilityRequirement  "
+    "# sandloom: advanced periodic"
+)
+
+
+def _taskqueue_entries(source: str, call: ast.Call, periodic: bool) -> list[str] | None:
+    """The ``capabilities=`` entries after declaring the task queue, or
+    ``None`` when the existing list is not a plain literal (or already
+    declares it as it should be)."""
+    keyword = next((k for k in call.keywords if k.arg == "capabilities"), None)
+    if keyword is None:
+        return [_TASKQUEUE_PERIODIC if periodic else _TASKQUEUE]
+    if not isinstance(keyword.value, ast.List | ast.Tuple):
+        return None
+    entries: list[str] = []
+    found = False
+    for item in keyword.value.elts:
+        segment = ast.get_source_segment(source, item)
+        if segment is None:
+            return None
+        is_string = isinstance(item, ast.Constant) and item.value == "taskqueue"
+        is_requirement = (
+            isinstance(item, ast.Call)
+            and item.args
+            and isinstance(item.args[0], ast.Constant)
+            and item.args[0].value == "taskqueue"
+        )
+        if is_requirement:
+            return None  # a hand-written requirement: the author's to extend
+        if is_string:
+            found = True
+            if periodic:
+                segment = _TASKQUEUE_PERIODIC
+            else:
+                return None  # already declared
+        entries.append(segment)
+    if not found:
+        entries.append(_TASKQUEUE_PERIODIC if periodic else _TASKQUEUE)
+    return entries
+
+
+def _declare_taskqueue(init: Path, *, periodic: bool) -> tuple[list[Path], str | None]:
+    """Declare ``taskqueue`` (with ``periodic`` for a beat hook) in the
+    module's ``define_module(capabilities=[...])``, which ``sandloom check``
+    asks for (SANDLOOM-C033). A call it cannot rewrite safely (comments
+    inside it, a computed list, a hand-written requirement) is left alone and
+    the note says what to declare."""
+    wanted = _TASKQUEUE_PERIODIC if periodic else f"[{_TASKQUEUE}]"
+    manual = (
+        f"declare the task queue in {init.parent.name}/__init__.py: "
+        f"define_module(..., capabilities=[{wanted.strip('[]')}]) (SANDLOOM-C033)"
+    )
+    if not init.is_file():
+        return [], manual
+    source = init.read_text(encoding="utf-8")
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        raise GeneratorError(f"{init} does not parse ({exc}); fix it first") from exc
+    found = [
+        (node, node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "define_module"
+    ]
+    if len(found) != 1:
+        return [], manual
+    statement, call = found[0]
+    text = ast.get_source_segment(source, statement)
+    if text is None or "#" in text or call.end_lineno is None:
+        return [], manual
+    entries = _taskqueue_entries(source, call, periodic)
+    if entries is None:
+        has_periodic = "periodic" in text
+        return [], (None if has_periodic or not periodic else manual)
+    args = [ast.get_source_segment(source, a) or "" for a in call.args]
+    args += [
+        f"{k.arg}={ast.get_source_segment(source, k.value)}"
+        if k.arg
+        else f"**{ast.get_source_segment(source, k.value)}"
+        for k in call.keywords
+        if k.arg != "capabilities"
+    ]
+    args.append(f"capabilities=[{', '.join(entries)}]")
+    targets = " = ".join(
+        ast.get_source_segment(source, t) or "" for t in statement.targets
+    )
+    rewritten = _call(f"{targets} = define_module", ", ".join(args))
+    lines = source.split("\n")
+    start, end = statement.lineno - 1, statement.end_lineno or statement.lineno
+    lines[start:end] = rewritten.split("\n")
+    source = "\n".join(lines)
+    if periodic:
+        source = _import_capability_requirement(source, tree)
+    init.write_text(source, encoding="utf-8")
+    return [init], None
+
+
+def _import_capability_requirement(source: str, tree: ast.Module) -> str:
+    """``source`` importing ``CapabilityRequirement`` from ``sandloom.sdk.module``
+    (lines before the rewritten ``define_module`` are those of ``tree``), in
+    the place isort keeps it: merged into an existing one-line import of that
+    module, else among the ``sandloom`` imports in order."""
+    imports = [n for n in tree.body if isinstance(n, ast.ImportFrom) and n.level == 0]
+    if any(
+        (alias.asname or alias.name) == "CapabilityRequirement"
+        for node in imports
+        for alias in node.names
+    ):
+        return source
+    lines = source.split("\n")
+    module = "sandloom.sdk.module"
+    for node in imports:
+        if node.module == module and node.lineno == node.end_lineno:
+            if any(a.asname for a in node.names):
+                break  # an aliased import: a separate line keeps it readable
+            comment = lines[node.lineno - 1].partition("#")[2]
+            names = sorted({*(a.name for a in node.names), "CapabilityRequirement"})
+            new = f"from {module} import {', '.join(names)}"
+            new += f"  #{comment}" if comment else ""
+            lines[node.lineno - 1] = new
+            return "\n".join(lines)
+    ours = [n for n in imports if (n.module or "").split(".")[0] == "sandloom"]
+    after = [n for n in ours if (n.module or "") > module]
+    if after:
+        at = after[0].lineno - 1
+    elif ours:
+        at = ours[-1].end_lineno or ours[-1].lineno
+    else:
+        everything = [
+            n for n in tree.body if isinstance(n, ast.Import | ast.ImportFrom)
+        ]
+        at = (everything[-1].end_lineno or 0) if everything else 0
+    lines[at:at] = [_CAPABILITY_IMPORT]
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------- #

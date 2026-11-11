@@ -11,10 +11,10 @@ source_root: src
 # The kernel (sandloom: core, sdk, shared) is not a business module; its
 # boundaries are the import-linter contracts in .importlinter.
 kernel_package: sandloom
-# The generated contract stubs and exported event schemas of the standard
-# modules land here; `sandloom.shared` ships whole in the `sandloom`
-# distribution (with the hand-written contract DTOs, SANDLOOM-C012).
-shared_package: sandloom.shared
+# No `shared_package`: the kernel ships no generated contract stub, DTO copy or
+# event schema (ADR-0013). Each module keeps the copies of the contracts it
+# consumes in its own `_generated/` package, and its producer schemas in its
+# `module.snapshot.json`.
 
 # Public API surface of core available to business modules
 public_api:
@@ -47,6 +47,7 @@ public_api:
   - sandloom.sdk.projections
   - sandloom.sdk.sagas
   - sandloom.sdk.security
+  - sandloom.sdk.tasks
   - sandloom.sdk.tenant
   - sandloom.sdk.testing
   - sandloom.sdk.testing.fixtures

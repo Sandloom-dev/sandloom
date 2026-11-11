@@ -19,6 +19,19 @@ Both deny `402` (`deny_category=PAYMENT_REQUIRED`, consistent with
 `Subscribed` / `SubscriptionActive` / `Credits`); the org fact refuses a
 non-member or a request without an organization with `403`.
 
+`subscription.active` declares `absent_claim="deny"`. For `Account.user()`,
+a `subscription_status` that billing proved absent is its own definite `402`.
+Billing ran at the mint under the intact claim policy and wrote none, as for
+a user with no customer. `Subscribed()` and `Subscribed(statuses=...)` agree.
+Billing failed at the mint is `503 claim_authority_failed`, never asked live.
+A token without provenance or `cpv` is `501 access_unknown`. The table is in
+[Authorization](../http/authorization.md#three-valued-decisions).
+
+Billing declares its four claims fail-safe with
+`add_claims_contributor(..., fail_safe=[...])`, so a billing outage does not
+break a login. An issuer that binds billing remotely declares them in its
+root with `Authority("sandloom_billing", fail_safe=True)`.
+
 ## Domain entities
 
 | Model | Table | Description |
@@ -38,8 +51,47 @@ on billing's database, identically in-process and over internal RPC.
 
 | Contract | Methods / purpose |
 | --- | --- |
-| `billing.entitlements.v1` | read: `check_subscription_active(tenant_type, tenant_id)`, `get_credit_balance(tenant_type, tenant_id)`, `subscription_claims(tenant_type, tenant_id)` |
+| `billing.entitlements.v1` | read: `check_subscription_active(tenant_type, tenant_id)`, `has_credits_at_least(tenant_type, tenant_id, minimum)`, `has_feature(tenant_type, tenant_id, key)`, `is_within_limit(tenant_type, tenant_id, key, used)`, `get_credit_balance(tenant_type, tenant_id)`, `subscription_claims(tenant_type, tenant_id)` |
 | `billing.credits.v1` | command: `spend(tenant_type, tenant_id, amount, operation_key, *, reason="") -> int`; read: `get_balance(tenant_type, tenant_id)` |
+
+### Features and limits
+
+`Feature(key, of=...)` and `WithinLimit(key, used, of=...)` are supported
+Sandloom capabilities. Billing declares both as the generated atoms of
+`billing.entitlements.v1`'s `has_feature` and `is_within_limit`; import them
+from the contract's generated stub. With `Account.user()` they read the
+token's `features` and `limits` claims with zero I/O. With an organization
+account they ask billing live.
+
+With `Account.user()` the token decides in three ways:
+
+- A `features` / `limits` mapping in the token is the account's complete
+  entitlements. An entry it lists decides, and an entry it does not list
+  denies (a flag off, a limit of 0).
+- No mapping in the token is unknown: an indeterminate `501` with code
+  `access_unknown`. When billing failed while the token was minted, it is a
+  `503` with code `claim_authority_failed`.
+- A mapping that is malformed is also `501 access_unknown`.
+
+None of the unknowns is a deny: `Not` over them never allows. Billing
+writes `subscription_status` and `plan_code` but no `features` or `limits`
+claim until the catalogue ships. Until then both atoms answer `501` for a
+personal account. A module that writes such a claim writes the whole
+mapping or none.
+
+Billing does not have a per-plan features and limits catalogue yet; it is
+planned as a later task. Until it ships, billing cannot answer either check
+for an organization, and both methods raise `AccessUnknown`. The atom then
+answers an indeterminate `501` with code `access_unknown` and a reason that
+names the missing catalogue. It never answers a deny: no `Not` or `Or` over
+such atoms allows. An `Or` still
+allows when one of its other branches allows.
+
+A module that keeps its own catalogue provides the same atoms from its own
+contract. It declares `@claim_atom` above `@access_check` methods that return
+`True` or `False`, and raises `AccessUnknown` when it has no answer. Nothing
+in the kernel changes, in-process or over internal RPC
+([authorization](../http/authorization.md)).
 
 The PSP client (fake or Stripe, by `BILLING_PROVIDER`) is billing-internal and
 is **not** a service contract: no other module (and no RPC caller) can reach it.
@@ -137,6 +189,23 @@ retried. Failed PSP steps are bounded by
 `BILLING_INTENT_RECONCILE_MAX_ATTEMPTS` (default 5); then the intent gets
 `followup_at` for an operator. An `issued` intent is never touched. Details:
 [ADR-0003, "Intent reconciliation"](../../adr/0003-fewer-sync-rpc-membership-reads.md#intent-reconciliation-72).
+
+Deployment validation checks that the profile declares a worker and one beat
+on the same broker. Each completed reconciler run records its time in
+`billing_reconciler_runs`.
+
+The `billing_reconciler` check makes `/health` return HTTP 503 for missing runs,
+overdue runs or unresolved compensation failures. The age limit is 15 minutes, or three
+scheduled periods. Restarting web does not refresh the heartbeat. Use the
+`periodic` section of `sandloom doctor` to check the beat lease. Check the
+worker's deployment status and logs when the lease is healthy and runs are
+missing.
+
+`/health/simple` reports web liveness. `/ready` checks the web process and its
+serving dependencies. Read-only Billing requests can continue while the
+reconciler is stopped. New checkout and portal requests, including retries of pending intents,
+return HTTP 503 unless a reconciler run completed in the last 15 minutes. A retry of an already issued checkout can still return the stored URL
+after checking authorization and expiry.
 
 ## Webhooks
 
@@ -255,10 +324,13 @@ subscription status in the webhook service.
   `BILLING_PROVIDER=stripe` **fails fast at startup** unless `STRIPE_SECRET_KEY`
   and `STRIPE_WEBHOOK_SECRET` are set.
 - With `ENVIRONMENT=prod` the fake PSP is refused unless
-  `SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]`. An explicit
-  `BILLING_PROVIDER=fake` fails settings validation. On the implicit default,
-  billing refuses to register: the app, the worker, beat, `sandloom migrate` and
-  the operator commands all stop.
+  `SANDLOOM_ACCEPTED_RISKS=["billing.fake_psp_in_prod"]`. An explicit
+  `BILLING_PROVIDER=fake`, like the implicit default, is refused by billing's
+  own settings before it registers. The app, the worker, beat, `sandloom
+  migrate` and the operator commands all stop. A process that does not load
+  billing does not check it. These are billing's declared settings
+  (`sandloom_billing.config.BillingSettings`): read them with
+  `settings_of(BillingSettings)`.
 - `BILLING_DENY_ON_PAST_DUE` — `past_due` loses access immediately (default:
   access kept until `current_period_end`).
 
@@ -275,7 +347,10 @@ subscription status in the webhook service.
 ## Gating an endpoint on billing
 
 A billing gate is an authorization policy whose atom names the paying account
-with a required `of=`. The atoms, the `Account` values and the `402` / `501`
+with a required `of=`. `sandloom generate` writes billing's atoms from billing's
+declarations. A route imports them from the consumer's
+`<app>.shared.contracts.billing_entitlements_v1`; they are not `sandloom.sdk`
+names. The atoms, the `Account` values and the `402` / `501`
 answers are in
 [Authorization](../http/authorization.md#billing-subjects-of-is-required).
 
@@ -283,8 +358,9 @@ answers are in
 ```python
 from fastapi import Depends
 
-from sandloom.sdk import Subscribed, require
-from sandloom.sdk.authz import Account  # sandloom: advanced billing subject
+from myapp.shared.contracts.billing_entitlements_v1 import Subscribed
+from sandloom.sdk import require
+from sandloom.sdk.authz import Account  # sandloom: advanced account target
 
 @router.get("/report", dependencies=[Depends(require(Subscribed(of=Account.user())))])
 ```

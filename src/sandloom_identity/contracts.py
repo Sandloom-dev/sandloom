@@ -7,17 +7,29 @@ time by any module that writes to users; events carry no PII.
 the first platform administrator: ``sandloom admin create`` / ``invite``).
 
 The contract behind ``sandloom security revoke-sessions`` and ``sandloom security
-force-password-reset`` (:mod:`sandloom.core.cli.security`): the kernel CLI pages
-the target users (all users here, or a tenant's members through
-``tenancy.membership.v1``) and sends them in batches. Every command:
+force-password-reset`` (:mod:`sandloom.core.cli.security`), found as the
+issuer's ``<issuer>.security.v1`` and confirmed by describe: the kernel CLI
+pages the target users (all users through ``list_user_ids`` here, or a
+tenant's members through the ``tenant_ids`` owner's
+``tenancy.security.v1``), sends them in batches (``end_sessions``,
+``require_password_reset``) and then revokes their access tokens itself.
+Every command:
 
 * runs in identity's own UoW and is deduplicated durably on
   ``operation_key`` (a retried batch never repeats its effect);
-* revokes every refresh token of the batch in the database and every access
-  token through the kernel mark (``require_immediate``: written before commit
-  or the batch is refused with 503 and rolls back);
+* revokes every refresh token of the batch in the database: identity's own
+  sessions. The access tokens of a ``sandloom security`` batch are the
+  kernel's to revoke, in its own unit after this (one revocation, never a
+  second one here); identity's own operations that end sessions (a
+  take-over, a new set-password link) revoke them through the kernel mark
+  (``require_immediate``: written before commit or refused with 503);
 * writes one ``required=True`` audit row per affected user
   (``actor_type="operator"``, ``data`` = operator, reason, operation key).
+
+``sandloom admin`` and ``sandloom security grant-admin`` ask two owners, both
+identity here: the issuer side (``account_by_email``, ``accounts_by_id``,
+the password and set-password-link methods) and the ``roles`` owner side
+(``is_platform_admin``, ``platform_admin_ids``, ``appoint_platform_admin``).
 
 The first administrator: ``create_platform_admin`` (and
 ``take_over_platform_admin`` for an unverified account that holds the
@@ -46,8 +58,8 @@ from sqlalchemy import delete, exists, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sandloom.core.module_api import contract_session, undigested
-from sandloom.sdk import command, contract, record_audit
+from sandloom.sdk import command, contract, db, record_audit
+from sandloom.sdk.contracts import undigested  # sandloom: advanced secret command args
 from sandloom.sdk.effects import sensitive_effect
 from sandloom.sdk.security import is_user_blocked
 from sandloom_identity.events import EventActor
@@ -60,7 +72,7 @@ from sandloom_identity.models.user import User
 from sandloom_identity.models.user_role import UserRole
 from sandloom_identity.password_policy import password_policy_violation
 from sandloom_identity.schemas.contact import UserContact
-from sandloom_identity.schemas.operator import AccountStanding, PlatformAdmin
+from sandloom_identity.schemas.operator import OperatorAccount, SessionsEnded
 from sandloom_identity.services.auth_service import AuthService
 from sandloom_identity.services.role_service import ADMIN_ROLE_CODE
 from sandloom_identity.services.setup_state import platform_admin_exists
@@ -83,8 +95,8 @@ def _check_batch(user_ids: list[UUID], reason: str, operator: str) -> None:
 async def _existing(user_ids: list[UUID]) -> list[UUID]:
     if not user_ids:
         return []
-    db = contract_session()
-    rows = await db.execute(
+    session = db()
+    rows = await session.execute(
         select(User.id).where(User.id.in_(user_ids)).order_by(User.id)
     )
     return list(rows.scalars())
@@ -92,10 +104,23 @@ async def _existing(user_ids: list[UUID]) -> list[UUID]:
 
 @sensitive_effect("admin")
 async def _end_sessions(
-    users: list[UUID], *, action: str, reason: str, operator: str, key: str
+    users: list[UUID],
+    *,
+    action: str,
+    reason: str,
+    operator: str,
+    key: str,
+    access_tokens: bool,
 ) -> None:
-    db = contract_session()
-    await db.execute(
+    """End the users' refresh sessions (in the database) and audit each.
+
+    ``access_tokens``: also revoke their access tokens through the kernel
+    mark, for identity's own operations (an administrator take-over, a new
+    set-password link). Never for the batches of ``sandloom security``: the
+    kernel revokes those access tokens itself, after this, in its own unit.
+    """
+    session = db()
+    await session.execute(
         update(RefreshToken)
         .where(RefreshToken.user_id.in_(users), RefreshToken.is_revoked.is_(False))
         .values(is_revoked=True, revoked_at=datetime.now(UTC))
@@ -111,6 +136,8 @@ async def _end_sessions(
             data={"reason": reason, "operator": operator, "operation_key": key},
             required=True,
         )
+    if not access_tokens:
+        return
     # Last fallible step: each mark is written before commit (or 503 + rollback).
     for user_id in users:
         await revoke_sessions(user_id, reason=f"operator ({operator}): {reason}")
@@ -129,16 +156,16 @@ _EMAIL = TypeAdapter(EmailStr)
 
 
 async def _assign_admin_role(user: User) -> None:
-    db = contract_session()
-    role = await _admin_role(db)
-    assigned = await db.scalar(
+    session = db()
+    role = await _admin_role(session)
+    assigned = await session.scalar(
         select(UserRole.id).where(
             UserRole.user_id == user.id, UserRole.role_id == role.id
         )
     )
     if assigned is None:
-        db.add(UserRole(user_id=user.id, role_id=role.id))
-    await db.flush()
+        session.add(UserRole(user_id=user.id, role_id=role.id))
+    await session.flush()
 
 
 def _operator_audit(
@@ -207,8 +234,8 @@ def _normalized_email(email: str) -> str:
 async def _create_admin(
     email: str, full_name: str, *, reason: str, operator: str, key: str
 ) -> UUID:
-    db = contract_session()
-    exists_already = await db.scalar(select(User.id).where(User.email == email))
+    session = db()
+    exists_already = await session.scalar(select(User.id).where(User.email == email))
     if exists_already is not None:
         raise HTTPException(409, f"an account with the address {email} already exists")
     now = datetime.now(UTC)
@@ -223,9 +250,9 @@ async def _create_admin(
     )
     _require_set_password(user)
     try:
-        async with db.begin_nested():
-            db.add(user)
-            await db.flush()
+        async with session.begin_nested():
+            session.add(user)
+            await session.flush()
     except IntegrityError as exc:
         # Another create for the same address committed first (unique email).
         raise HTTPException(
@@ -244,7 +271,7 @@ async def _create_admin(
 
 @sensitive_effect("admin")
 async def _take_over(user: User, *, reason: str, operator: str, key: str) -> None:
-    db = contract_session()
+    session = db()
     # Whoever registered the address first loses every way in: the password,
     # a second factor, linked sign-in providers and every session. A
     # deactivated account is reactivated: the administrator it becomes must
@@ -256,7 +283,7 @@ async def _take_over(user: User, *, reason: str, operator: str, key: str) -> Non
         user.is_verified = True
         user.email_verified_at = datetime.now(UTC)
     for model in (TwoFASecret, TwoFABackupCode, ExternalIdentity):
-        await db.execute(delete(model).where(model.user_id == user.id))
+        await session.execute(delete(model).where(model.user_id == user.id))
     await _assign_admin_role(user)
     await _end_sessions(
         [user.id],
@@ -264,6 +291,18 @@ async def _take_over(user: User, *, reason: str, operator: str, key: str) -> Non
         reason=reason,
         operator=operator,
         key=key,
+        access_tokens=True,
+    )
+
+
+def _operator_account(user: User) -> OperatorAccount:
+    return OperatorAccount(
+        user_id=user.id,
+        email=user.email,
+        email_verified=bool(user.is_verified),
+        is_active=bool(user.is_active),
+        password_set=user.hashed_password is not None,
+        last_login_at=user.last_login_at,
     )
 
 
@@ -273,52 +312,57 @@ class SecurityOperationsContract:
 
     async def list_user_ids(self, after: UUID | None, limit: int) -> list[UUID]:
         """User ids in id order, strictly after ``after`` (keyset paging)."""
-        db = contract_session()
+        session = db()
         stmt = select(User.id).order_by(User.id).limit(max(1, min(limit, MAX_BATCH)))
         if after is not None:
             stmt = stmt.where(User.id > after)
-        return list((await db.execute(stmt)).scalars())
+        return list((await session.execute(stmt)).scalars())
 
     async def find_user_id(self, email: str) -> UUID | None:
         """The id of the user with this address, or ``None``."""
-        db = contract_session()
-        found: UUID | None = await db.scalar(select(User.id).where(User.email == email))
+        session = db()
+        found: UUID | None = await session.scalar(
+            select(User.id).where(User.email == email)
+        )
         return found
 
-    async def account_standing(self, email: str) -> AccountStanding | None:
-        """The account with this address as an operator sees it, or ``None``."""
-        db = contract_session()
-        user = await db.scalar(select(User).where(User.email == email.strip()))
-        if user is None:
-            return None
-        return AccountStanding(
-            user_id=user.id,
-            is_platform_admin=await _is_platform_admin(db, user.id),
-            email_verified=bool(user.is_verified),
-            is_active=bool(user.is_active),
-        )
+    async def account_by_email(self, email: str) -> OperatorAccount | None:
+        """The account with this address as the token issuer knows it, or
+        ``None`` (the issuer's side of ``sandloom admin`` / ``grant-admin``;
+        the role is :meth:`is_platform_admin`'s answer)."""
+        session = db()
+        user = await session.scalar(select(User).where(User.email == email.strip()))
+        return None if user is None else _operator_account(user)
 
-    async def list_platform_admins(self) -> list[PlatformAdmin]:
-        """Every account holding the platform ``admin`` role, by address
-        (``sandloom admin list``: which address is mine, has it a password)."""
-        db = contract_session()
-        rows = await db.scalars(
-            select(User)
-            .join(UserRole, UserRole.user_id == User.id)
+    async def accounts_by_id(self, user_ids: list[UUID]) -> list[OperatorAccount]:
+        """The accounts among ``user_ids`` (at most 1000), by address; unknown
+        ids are left out (``sandloom admin list`` joins the roles owner's
+        holders with this)."""
+        if not user_ids:
+            return []
+        session = db()
+        rows = await session.scalars(
+            select(User).where(User.id.in_(user_ids[:MAX_BATCH])).order_by(User.email)
+        )
+        return [_operator_account(user) for user in rows]
+
+    async def is_platform_admin(self, user_id: UUID) -> bool:
+        """Whether the user holds the platform ``admin`` role (the roles
+        owner's side of ``sandloom admin``)."""
+        return await _is_platform_admin(db(), user_id)
+
+    async def platform_admin_ids(self) -> list[UUID]:
+        """The ids of every account holding the platform ``admin`` role, at
+        most 1000 (``sandloom admin list`` asks the issuer for their address)."""
+        session = db()
+        rows = await session.scalars(
+            select(UserRole.user_id)
             .join(Role, Role.id == UserRole.role_id)
             .where(Role.code == ADMIN_ROLE_CODE)
-            .order_by(User.email)
+            .order_by(UserRole.user_id)
             .limit(MAX_BATCH)
         )
-        return [
-            PlatformAdmin(
-                email=user.email,
-                password_set=user.hashed_password is not None,
-                is_active=bool(user.is_active),
-                last_login_at=user.last_login_at,
-            )
-            for user in rows.unique()
-        ]
+        return list(dict.fromkeys(rows))
 
     @command(idempotency_key="operation_key")
     async def record_admin_listing(
@@ -346,7 +390,7 @@ class SecurityOperationsContract:
 
     async def platform_admin_exists(self) -> bool:
         """Whether any active account holds the platform ``admin`` role."""
-        return await platform_admin_exists(contract_session())
+        return await platform_admin_exists(db())
 
     async def password_problem(self, email: str, password: str) -> str | None:
         """Why identity's password policy refuses ``password`` for this
@@ -360,14 +404,14 @@ class SecurityOperationsContract:
         A read, never stored: it signs the account's current reset nonce.
         Identity's ``POST /auth/reset-password`` accepts it once.
         """
-        db = contract_session()
-        user = await db.get(User, user_id)
+        session = db()
+        user = await session.get(User, user_id)
         if (
             user is None
             or not user.is_active
             or not user.password_reset_required
             or not user.password_reset_nonce
-            or not await _is_platform_admin(db, user.id)
+            or not await _is_platform_admin(session, user.id)
         ):
             return None
         return email_token_utils.generate_set_password_token(
@@ -404,8 +448,8 @@ class SecurityOperationsContract:
         is pending; a deactivated account is reactivated. 409 for a blocked
         account (nothing changes). Returns whether the user exists."""
         _check_batch([user_id], reason, operator)
-        db = contract_session()
-        user = await db.get(User, user_id)
+        session = db()
+        user = await session.get(User, user_id)
         if user is None:
             return False
         if await is_user_blocked(user.id):
@@ -423,24 +467,25 @@ class SecurityOperationsContract:
         link and every session end. 409 for an account that is not an active,
         unblocked administrator; returns whether the user exists."""
         _check_batch([user_id], reason, operator)
-        db = contract_session()
-        user = await db.get(User, user_id)
+        session = db()
+        user = await session.get(User, user_id)
         if user is None:
             return False
-        if not await _is_platform_admin(db, user.id):
+        if not await _is_platform_admin(session, user.id):
             raise HTTPException(409, "the account is not a platform administrator")
         if not user.is_active or await is_user_blocked(user.id):
             raise HTTPException(
                 409, "the account is deactivated or blocked: unblock it first"
             )
         _require_set_password(user)
-        await db.flush()
+        await session.flush()
         await _end_sessions(
             [user.id],
             action="identity.user.set_password_link_issued",
             reason=reason,
             operator=operator,
             key=operation_key,
+            access_tokens=True,
         )
         return True
 
@@ -454,8 +499,10 @@ class SecurityOperationsContract:
         a password the policy refuses. Neither secret is in the stored record:
         it holds a digest over ``operation_key`` alone and ``True`` (use a
         fresh key per attempt)."""
-        db = contract_session()
-        await AuthService.reset_password(token, new_password, db, actor=EventActor())
+        session = db()
+        await AuthService.reset_password(
+            token, new_password, session, actor=EventActor()
+        )
         return True
 
     @command(idempotency_key="operation_key")
@@ -465,18 +512,23 @@ class SecurityOperationsContract:
         """Make the user a platform administrator; returns whether the user
         exists. 409 for an unverified address (``take_over_platform_admin``)."""
         _check_batch([user_id], reason, operator)
-        db = contract_session()
-        user = await db.get(User, user_id)
+        session = db()
+        user = await session.get(User, user_id)
         if user is None:
             return False
         await _grant_admin(user, reason=reason, operator=operator, key=operation_key)
         return True
 
     @command(idempotency_key="operation_key")
-    async def revoke_sessions(
+    async def end_sessions(
         self, user_ids: list[UUID], reason: str, operator: str, operation_key: str
-    ) -> int:
-        """End every session of the users; returns how many exist."""
+    ) -> SessionsEnded:
+        """End the sessions identity holds for the users: their refresh
+        sessions, revoked in the database. Audited per user
+        (``identity.user.sessions_revoked``). ``affected``: how many of the
+        users exist; ``ended``: ``refresh_sessions``. Their access tokens are
+        not identity's to revoke here: ``sandloom security revoke-sessions``
+        revokes those for every issuer itself, in its own unit, after this."""
         _check_batch(user_ids, reason, operator)
         users = await _existing(user_ids)
         if users:
@@ -486,19 +538,23 @@ class SecurityOperationsContract:
                 reason=reason,
                 operator=operator,
                 key=operation_key,
+                access_tokens=False,
             )
-        return len(users)
+        return SessionsEnded(affected=len(users), ended=["refresh_sessions"])
 
     @command(idempotency_key="operation_key")
     async def require_password_reset(
         self, user_ids: list[UUID], reason: str, operator: str, operation_key: str
     ) -> int:
-        """Refuse password sign-in until a reset, and end every session."""
+        """Refuse password sign-in until a reset and end the users' refresh
+        sessions; returns how many of the users exist. The access tokens are
+        the kernel's to revoke (``sandloom security force-password-reset``
+        does, after :meth:`end_sessions`)."""
         _check_batch(user_ids, reason, operator)
         users = await _existing(user_ids)
         if users:
-            db = contract_session()
-            await db.execute(
+            session = db()
+            await session.execute(
                 update(User)
                 .where(User.id.in_(users))
                 .values(password_reset_required=True, password_reset_nonce=None)
@@ -510,6 +566,7 @@ class SecurityOperationsContract:
                 reason=reason,
                 operator=operator,
                 key=operation_key,
+                access_tokens=False,
             )
         return len(users)
 
@@ -537,9 +594,9 @@ class ContactContract:
     async def get_contact(self, user_id: UUID) -> UserContact | None:
         """The user's contact details (email, full name, whether the email is
         verified, whether the account is active); ``None`` for an unknown user."""
-        db = contract_session()
+        session = db()
         user = (
-            await db.execute(select(User).where(User.id == user_id))
+            await session.execute(select(User).where(User.id == user_id))
         ).scalar_one_or_none()
         return _contact(user) if user is not None else None
 
@@ -550,8 +607,8 @@ class ContactContract:
             raise HTTPException(422, f"at most {MAX_BATCH} users per call")
         if not user_ids:
             return []
-        db = contract_session()
-        rows = await db.execute(
+        session = db()
+        rows = await session.execute(
             select(User).where(User.id.in_(user_ids)).order_by(User.id)
         )
         return [_contact(user) for user in rows.scalars()]

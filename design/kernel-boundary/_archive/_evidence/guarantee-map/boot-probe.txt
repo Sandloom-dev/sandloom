@@ -1,0 +1,208 @@
+# Boot probe (kb-guarantee-map): real create_app + lifespan + collect_claims + platform_operator,
+# kernel from the sandloom wheel (b8d8506 == HEAD) with the redis extra only (no celery, no bundled module):
+#   $ $S/kb-gmap/venv-redis/bin/python -W ignore boot_probe.py '<SANDLOOM_MODULES>'
+# Throwaway containers: postgres:16-alpine on 127.0.0.1:48433, redis:7-alpine on 127.0.0.1:48380 (db 5/6).
+# Stand-in modules (app-local package 'shop', sources below): identity = a third-party issuer that is
+# named 'identity'; accounts = the same code under its own name; orgs = a tenancy replacement serving
+# 'tenancy.membership.v1'; inventory = a business module whose contributor writes tenant_id.
+
+----- boot_probe.py -----
+"""Boot probe (kb-guarantee-map): the kernel from the lean wheel (no bundled
+module installed), composed with SANDLOOM_MODULES = argv[1] (a JSON list of
+app-local stand-in modules, or []). Real create_app, real lifespan, real
+collect_claims through the contract runtime, real platform_operator gate.
+Postgres and Redis are throwaway containers (SANDLOOM_GMAP_PG / _REDIS)."""
+import asyncio
+import json
+import os
+import sys
+import uuid
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "app"))
+modules = sys.argv[1] if len(sys.argv) > 1 else "[]"
+os.environ.update({
+    "DATABASE_URL": os.environ["SANDLOOM_GMAP_PG"],
+    "CACHE_URL": os.environ["SANDLOOM_GMAP_REDIS"] + "/5",
+    "BROKER_URL": os.environ["SANDLOOM_GMAP_REDIS"] + "/6",
+    "JWT_SECRET": "gmap-probe-not-a-real-secret-0123456789abcdef",
+    "EVENT_BUS_BACKEND": "memory", "SANDLOOM_MODULES": modules,
+    "OUTBOX_RELAY_ENABLED": "off", "ENVIRONMENT": "dev",
+})
+from fastapi.testclient import TestClient  # noqa: E402
+
+from sandloom.core.app_factory import create_app  # noqa: E402
+from sandloom.core.auth.tokens import create_access_token  # noqa: E402
+
+app = create_app()
+core = app.state.core
+print("SANDLOOM_MODULES =", modules)
+print("loaded:", list(core.loaded_modules))
+print("claims contributors (owner, critical):",
+      [(o, c) for _f, c, o in core._claims_contributors])
+print("services -> owner:",
+      {n: core.contract_owner(n) for n in sorted(core.service_registry.list())})
+print("consumers of core.auth.*:",
+      [(getattr(d, "channel", None), getattr(d, "name", None)) for d in core.event_consumers
+       if str(getattr(d, "channel", "")).startswith("core.auth.")])
+prefixes = sorted({r.path.split("/")[4] for r in app.routes
+                   if getattr(r, "path", "").startswith("/api/v1/platform/")})
+print("platform routers mounted:", prefixes)
+
+with TestClient(app) as client:
+    rr = client.get("/ready"); print("lifespan: started; /ready ->", rr.status_code, rr.text[:300])
+    uid = uuid.uuid4()
+
+    async def collect():
+        return await core.collect_claims(uid)
+
+    try:
+        claims = client.portal.call(collect)
+        print("collect_claims ->", json.dumps({k: claims[k] for k in sorted(claims)}))
+    except Exception as exc:  # noqa: BLE001
+        claims = None
+        print("collect_claims raised", type(exc).__name__, getattr(exc, "detail", exc))
+    if claims is not None:
+        token = create_access_token(data={**claims, "sub": str(uid), "token_type": "access"})
+        for prefix in prefixes:
+            r = client.get(f"/api/v1/platform/{prefix}/services",
+                           headers={"Authorization": f"Bearer {token}"})
+            print(f"GET /api/v1/platform/{prefix}/services ->", r.status_code, r.text[:90])
+    if "shop.modules.orgs" in core.loaded_modules:
+        from sandloom.shared.authz import OrgRole
+        from sandloom.shared.authz.context import AuthzContext
+        from sandloom.shared.subject import UserContext
+
+        async def org_role():
+            subj = UserContext(user_id=uid, claims_sources=[], claims_sources_failed=[])
+            out = {}
+            for minimum in ("member", "admin"):
+                req = OrgRole(minimum, org_param="org")
+                ctx = AuthzContext(subject=subj, core=core)
+                ctx._org_override = None
+                from starlette.requests import Request
+                scope = {"type": "http", "headers": [], "path_params": {"org": str(uuid.uuid4())},
+                         "app": app, "query_string": b""}
+                d = await req.decide(AuthzContext(subject=subj, request=Request(scope), core=core))
+                out[minimum] = "allow" if d.allowed else f"deny {d.http_status}"
+            return out
+
+        print("OrgRole via the kernel's membership adapter (tenancy.membership.v1 served by orgs):",
+              client.portal.call(org_role))
+
+----- shop/modules/identity/__init__.py -----
+"""A third-party token issuer that happens to be named 'identity' (app-local)."""
+from sandloom.sdk import define_module
+
+
+async def accounts_claims(user_id):
+    return {"roles": ["admin"], "permissions": []}
+
+
+def _setup(api):
+    api.add_claims_contributor(accounts_claims, critical=True)
+
+
+register = define_module(__name__, issues_tokens=True, setup=_setup)
+
+----- shop/modules/accounts/__init__.py -----
+"""A third-party token issuer that named under its own name, accounts."""
+from sandloom.sdk import define_module
+
+
+async def accounts_claims(user_id):
+    return {"roles": ["admin"], "permissions": []}
+
+
+def _setup(api):
+    api.add_claims_contributor(accounts_claims, critical=True)
+
+
+register = define_module(__name__, issues_tokens=True, setup=_setup)
+
+----- shop/modules/orgs/__init__.py -----
+"""A third-party tenancy replacement ('orgs')."""
+from sandloom.sdk import define_module
+
+register = define_module(__name__)
+
+----- shop/modules/inventory/__init__.py -----
+"""A third-party business module with a claims contributor."""
+from sandloom.sdk import define_module
+
+
+async def inventory_claims(user_id):
+    return {"tenant_id": "00000000-0000-4000-8000-0000000000aa"}
+
+
+def _setup(api):
+    api.add_claims_contributor(inventory_claims)
+
+
+register = define_module(__name__, setup=_setup)
+
+----- shop/modules/orgs/contracts.py -----
+"""orgs provides the membership contract under tenancy's name (the name the kernel's
+OrgRole live adapter calls)."""
+from uuid import UUID
+
+from sandloom.sdk.contracts import contract
+
+
+@contract("tenancy.membership.v1")
+class OrgsMembership:
+    async def has_role_at_least(self, org_id: UUID, user_id: UUID, minimum: str) -> bool:
+        return minimum == "member"
+
+===== run 1: SANDLOOM_MODULES=[] =====
+2026-11-08 09:53:48,333 [WARNING] sandloom.core.infra: [infra] error opening taskqueue/default
+ModuleNotFoundError: No module named 'celery'
+2026-11-08 09:53:48,477 [INFO] httpx: HTTP Request: GET http://testserver/ready "HTTP/1.1 200 OK"
+SANDLOOM_MODULES = []
+loaded: []
+claims contributors (owner, critical): []
+services -> owner: {}
+consumers of core.auth.*: []
+platform routers mounted: []
+lifespan: started; /ready -> 200 {"status":"ok","health_status":"ok","required_services_status":"ok","revocations_pending":false}
+collect_claims -> {"claims_sources": [], "claims_sources_failed": []}
+
+===== run 2: SANDLOOM_MODULES=[shop.modules.identity, shop.modules.orgs, shop.modules.inventory] =====
+2026-11-08 09:53:50,451 [WARNING] sandloom.core.infra: [infra] error opening taskqueue/default
+ModuleNotFoundError: No module named 'celery'
+2026-11-08 09:53:50,584 [INFO] httpx: HTTP Request: GET http://testserver/ready "HTTP/1.1 200 OK"
+2026-11-08 09:53:50,604 [INFO] httpx: HTTP Request: GET http://testserver/api/v1/platform/identity/services "HTTP/1.1 200 OK"
+2026-11-08 09:53:50,622 [INFO] httpx: HTTP Request: GET http://testserver/api/v1/platform/inventory/services "HTTP/1.1 200 OK"
+2026-11-08 09:53:50,639 [INFO] httpx: HTTP Request: GET http://testserver/api/v1/platform/orgs/services "HTTP/1.1 200 OK"
+SANDLOOM_MODULES = ["shop.modules.identity","shop.modules.orgs","shop.modules.inventory"]
+loaded: ['shop.modules.identity', 'shop.modules.orgs', 'shop.modules.inventory']
+claims contributors (owner, critical): [('identity', True), ('inventory', False)]
+services -> owner: {'identity.claims.v1': 'shop.modules.identity', 'inventory.claims.v1': 'shop.modules.inventory', 'tenancy.membership.v1': 'shop.modules.orgs'}
+consumers of core.auth.*: []
+platform routers mounted: ['identity', 'inventory', 'orgs']
+lifespan: started; /ready -> 200 {"status":"ok","health_status":"ok","required_services_status":"ok","revocations_pending":false}
+collect_claims -> {"claims_sources": ["identity", "inventory"], "claims_sources_failed": [], "permissions": [], "roles": ["admin"], "tenant_id": "00000000-0000-4000-8000-0000000000aa"}
+GET /api/v1/platform/identity/services -> 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","cate
+GET /api/v1/platform/inventory/services -> 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","cate
+GET /api/v1/platform/orgs/services -> 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","cate
+OrgRole via the kernel's membership adapter (tenancy.membership.v1 served by orgs): {'member': 'allow', 'admin': 'deny 403'}
+
+===== run 3: SANDLOOM_MODULES=[shop.modules.accounts] =====
+2026-11-08 09:54:04,698 [WARNING] sandloom.core.infra: [infra] error opening taskqueue/default
+ModuleNotFoundError: No module named 'celery'
+2026-11-08 09:54:04,842 [INFO] httpx: HTTP Request: GET http://testserver/ready "HTTP/1.1 200 OK"
+2026-11-08 09:54:04,845 [INFO] httpx: HTTP Request: GET http://testserver/api/v1/platform/accounts/services "HTTP/1.1 403 Forbidden"
+SANDLOOM_MODULES = ["shop.modules.accounts"]
+loaded: ['shop.modules.accounts']
+claims contributors (owner, critical): [('accounts', True)]
+services -> owner: {'accounts.claims.v1': 'shop.modules.accounts'}
+consumers of core.auth.*: []
+platform routers mounted: ['accounts']
+lifespan: started; /ready -> 200 {"status":"ok","health_status":"ok","required_services_status":"ok","revocations_pending":false}
+collect_claims -> {"claims_sources": ["accounts"], "claims_sources_failed": [], "permissions": [], "roles": ["admin"]}
+GET /api/v1/platform/accounts/services -> 403 {"detail":"Platform administrator role required","code":null}
+
+===== contrast: repository environment (uv run), the bundled modules, create_app only, one process per line =====
+["sandloom_identity"] loaded ['sandloom_identity'] | consumers of core.auth.*: [('core.auth.user_blocked.v1', 'sessions@user_blocked'), ('core.auth.tokens_revoked.v1', 'sessions@tokens_revoked')]
+["sandloom_tenancy"] loaded ['sandloom_tenancy'] | consumers of core.auth.*: []
+["sandloom_tenancy","sandloom_billing"] loaded ['sandloom_tenancy', 'sandloom_billing'] | consumers of core.auth.*: []

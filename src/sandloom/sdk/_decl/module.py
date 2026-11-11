@@ -39,6 +39,7 @@ from types import ModuleType
 from typing import Any, cast
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 from sandloom.sdk._decl._owner import (
     CONVENTIONAL,
@@ -378,7 +379,7 @@ def _policy_requirements(routers: Sequence[APIRouter]) -> list[ContractRequireme
     ``require(...)`` / ``authorize_resource(...)`` tag their dependency with
     the policy; each atom names the contracts it resolves
     (``Requirement.contracts()``: ``SubscriptionActive`` / ``Credits`` ->
-    the entitlements contract, ``Entitled(fact)`` -> ``<owner>.facts.v1``,
+    the entitlements contract, ``Entitled(fact, owner=o)`` -> ``<o>.facts.v1``,
     ``OrgRole`` -> the membership contract). Optional: a module tested alone
     with ``fake_access_fact`` still boots, the preflight warns when one is
     unbound, and ``sandloom add deploy`` binds them.
@@ -422,7 +423,12 @@ def _with_policy_contracts(
 def _merge_consumes(
     explicit: Sequence[Any], derived: Sequence[ContractRequirement]
 ) -> list[Any]:
-    """Explicit requirements plus derived ones, never weaker than either."""
+    """Explicit requirements plus derived ones, never weaker than either.
+
+    Methods: the union when both list them; the explicit list when the
+    derived entry has none (a call the derivation cannot resolve, which
+    ``consumes=`` states, ADR-0013 decision 2); none when the explicit
+    entry lists none."""
     out: list[Any] = [
         ContractRequirement(c) if isinstance(c, str) else c for c in explicit
     ]
@@ -435,7 +441,7 @@ def _merge_consumes(
             continue
         current = out[index]
         methods: tuple[str, ...] = ()
-        if current.methods and req.methods:
+        if current.methods:
             methods = tuple(sorted(set(current.methods) | set(req.methods)))
         out[index] = ContractRequirement(
             current.name,
@@ -513,6 +519,11 @@ def define_module(
     router: Any = AUTO,
     events: Any = AUTO,
     issues_tokens: bool = False,
+    refresh_sessions: bool = True,
+    login_entry: str | None = None,
+    console_auth: Mapping[str, str] | None = None,
+    settings: type[BaseModel] | None = None,
+    generates: Mapping[str, Callable[[Any], str]] | None = None,
 ) -> Callable[[ModuleAPI], Any]:
     """Build a module's ``register(core)`` from its declarations (spec §5.7).
 
@@ -528,8 +539,56 @@ def define_module(
     (startup tasks, claims contributors, planner operations). ``router=`` /
     ``events=`` override discovery as today; ``consumes`` adds to the derived
     requirements. Modules are REQUIRED unless ``optional=True``.
+
+    ``issues_tokens=True`` marks the access-token issuer. An issuer ends its
+    refresh sessions on an emergency block with a durable consumer of
+    ``core.auth.user_blocked.v1``; one that holds no refresh sessions
+    declares ``refresh_sessions=False`` instead, which startup verifies
+    against its refresh routes, session tables and consumers (SANDLOOM-B035).
+    ``login_entry="/auth/login"`` declares, on the issuer only, the route path
+    of its login endpoint: the admin console is served in front of the
+    composition's ``issuer`` only when that issuer declares one (a module
+    without it is a configuration error naming it); a value that is not a
+    route path of this application is refused.
+    ``console_auth={"kind": "password", "refresh": "/auth/refresh",
+    "logout": "/auth/logout", "me": "/auth/me"}`` declares the console's
+    sign-in protocol and optional session endpoints, all served by this
+    issuer. ``kind="id_token"`` presents an external identity-token exchange
+    instead of a password form; omit session endpoints for a stateless issuer.
+    Refresh/logout accept ``{"refresh_token": ...}``; refresh returns the
+    token pair (``access_token``, ``refresh_token``, ``expires_in`` in seconds).
+    The optional me route returns profile fields (``full_name``, ``email``),
+    setup-state returns ``{"has_admin": bool}``. Password login accepts
+    ``email``, ``password`` and optional ``otp`` and returns the token pair.
+    The composition supplies the roles claim owner. Redirect-only sign-in
+    is unsupported; the console needs a token exchange endpoint.
+
+    ``settings=`` declares the module's settings: a plain pydantic
+    ``BaseModel`` whose fields are aliased to their environment names
+    (``Field(alias="INVENTORY_RESERVE_TTL_SECONDS")``). It is validated from
+    the process's one read of the environment before anything else
+    registers; an invalid value stops the boot (optional module or not).
+    Read it with ``settings_of(Model)`` inside a request, a task or ``setup``.
+    Class attributes of the model, all optional plain data (annotate them
+    ``ClassVar``), tell the kernel's tools what the module needs: ``semantic``,
+    ``risks`` and ``removed`` (tiers, accepted risks, removed names),
+    ``console`` (field names the admin console's settings view lists), ``shared``
+    (env names identical in every process that loads the module: the deploy
+    profile check), ``backup`` (``(secret to keep, what losing it costs)`` pairs
+    for ``sandloom backup plan``), ``deploy`` (the compose ``environment:`` lines
+    ``sandloom add deploy`` writes for a service that loads the module),
+    ``dev_env`` (``{ENV_NAME: value or callable}`` for ``sandloom keys dev-env``)
+    and ``dev_risks`` (its risks that development stack accepts).
+
+    ``generates`` declares files ``sandloom generate`` writes into the app's
+    shared package: file name -> ``render(source) -> str``, where ``source`` is
+    the composed app as data (:class:`~sandloom.sdk.module.GenerationInput`:
+    OpenAPI, routes, each loaded module's ``admin.py`` resources). ``sandloom
+    test`` fails when a file is stale (SANDLOOM-T016). The admin console
+    declares its manifest this way.
     """
     pkg = package or caller_module(1)
+    generated_files = dict(generates or {})
     if pkg == "__main__":
         raise TypeError(
             "define_module() could not infer the module package; call it as "
@@ -539,6 +598,10 @@ def define_module(
     short = short_name(descriptor_name)
 
     def register(core: ModuleAPI) -> Any:
+        if settings is not None:
+            # Validated before anything else registers and before setup
+            # (ADR-0015): an invalid value refuses the boot.
+            core.declare_settings(settings, package=pkg)
         found = discover(pkg)
         routers = _routers(pkg, router, found)
         schemas = (
@@ -572,10 +635,16 @@ def define_module(
                 for c in capabilities
             ],
             issues_tokens=issues_tokens,
+            refresh_sessions=refresh_sessions,
+            login_entry=login_entry,
+            console_auth=dict(console_auth) if console_auth is not None else None,
+            generated_files=dict(generated_files),
         )
 
     register.__qualname__ = register.__name__ = "register"
     register.__module__ = pkg
+    # Read by static tools (the settings gate): the declaration, no register run.
+    register.__dict__["sandloom_settings"] = settings
     register.__doc__ = f"Register the {short} module (declared via define_module)."
     # Read by the tooling (``sandloom test``'s generated files): an L1 module.
     register.__dict__["sandloom_l1"] = True

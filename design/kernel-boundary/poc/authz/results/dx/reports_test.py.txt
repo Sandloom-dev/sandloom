@@ -1,0 +1,70 @@
+"""Tests of the reports module (sandloom.sdk.testing fixtures)."""
+
+from typing import Any
+from uuid import uuid4
+
+from dxquota.shared.contracts.quota_limits_v1 import QUOTA_LIMITS_V1
+from sandloom.sdk.testing import as_user, fake_contract, published
+
+from ..events import ItemCreated
+
+
+async def test_create_and_read_an_item(client: Any) -> None:
+    _, headers = as_user(tenant_id=uuid4())
+    created = await client.post(
+        "/api/v1/reports/items", json={"title": "first"}, headers=headers
+    )
+    assert created.status_code == 201, created.text
+    assert len(published(ItemCreated)) == 1
+    item = created.json()
+    fetched = await client.get(f"/api/v1/reports/items/{item['id']}", headers=headers)
+    assert fetched.status_code == 200
+    assert fetched.json()["title"] == "first"
+
+
+async def test_list_items_is_capped_and_tenant_scoped(client: Any) -> None:
+    _, headers = as_user(tenant_id=uuid4())
+    _, other = as_user(tenant_id=uuid4())
+    for title in ("a", "b", "c"):
+        created = await client.post(
+            "/api/v1/reports/items", json={"title": title}, headers=headers
+        )
+        assert created.status_code == 201, created.text
+    listed = await client.get("/api/v1/reports/items", headers=headers)
+    assert listed.status_code == 200
+    # Newest first, deterministically: all three rows share one transaction.
+    assert [item["title"] for item in listed.json()] == ["c", "b", "a"]
+    page = await client.get(
+        "/api/v1/reports/items", params={"limit": 2}, headers=headers
+    )
+    assert len(page.json()) == 2
+    foreign = await client.get("/api/v1/reports/items", headers=other)
+    assert foreign.json() == []
+    over_cap = await client.get(
+        "/api/v1/reports/items", params={"limit": 101}, headers=headers
+    )
+    assert over_cap.status_code == 422
+
+
+async def test_items_need_an_authenticated_user(client: Any) -> None:
+    response = await client.post("/api/v1/reports/items", json={"title": "x"})
+    assert response.status_code == 401
+
+
+class _Quota:
+    def __init__(self, left: int) -> None:
+        self.left = left
+
+    async def available(self, owner_id: Any, units: int) -> bool:
+        return units <= self.left
+
+
+async def test_export_is_gated_by_the_quota(client: Any) -> None:
+    _, headers = as_user(tenant_id=uuid4())
+    with fake_contract(QUOTA_LIMITS_V1, _Quota(left=1)):
+        ok = await client.post("/api/v1/reports/exports", headers=headers)
+    assert ok.status_code == 201, ok.text
+    with fake_contract(QUOTA_LIMITS_V1, _Quota(left=0)):
+        denied = await client.post("/api/v1/reports/exports", headers=headers)
+    assert denied.status_code == 402, denied.text
+    assert denied.json()["code"] == "QuotaAvailable"

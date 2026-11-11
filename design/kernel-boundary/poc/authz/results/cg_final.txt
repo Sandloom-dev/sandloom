@@ -1,0 +1,4 @@
+wt authzpa2 k6=0 witness=0 subscribed 1228980 instr/op (K=200, Ir0=13671756859)
+wt authzpa2 k6=0 witness=1 bound.orgrole_and_subactive 5132642 instr/op (K=200, Ir0=13781453517)
+wt authzpa2 k6=1 witness=0 bound.orgrole_and_subactive 5297506 instr/op (K=200, Ir0=13774247415)
+wt authzpa2 k6=0 witness=0 bound.orgrole_and_subactive 5804676 instr/op (K=200, Ir0=13795320352)

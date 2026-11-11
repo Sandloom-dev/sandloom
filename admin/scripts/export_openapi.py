@@ -31,9 +31,11 @@ for _name, _value in (
     os.environ.setdefault(_name, _value)
 # Import only constructs the app. No lifespan, DB connection or migrations run.
 from sandloom.core.composition import load_composition_app
-from sandloom.core.admin import compile_app
-app = load_composition_app('sandloom.main')
-manifest = compile_app(app)
+from sandloom.core.cli.generation_input import collect
+from sandloom_admin.compiler import compile_manifest
+app = load_composition_app('sandloom_standard.main')
+# The kernel collects the composed app's data; the console's compiler renders it.
+manifest = compile_manifest(collect(app))
 schema = app.openapi()
 schema['paths'] = {p: v for p, v in schema['paths'].items()
                    if p.startswith(('/auth/', '/api/v1/'))}

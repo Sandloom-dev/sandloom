@@ -36,7 +36,16 @@ class ExternalIdentity(Base):
 
     __table_args__ = (
         Index("ix_external_identities_user_id", "user_id"),
-        Index("ix_external_identities_provider", "provider"),
+        # Covered by the unique (provider, external_id) index below, so the
+        # kernel's redundant-index check (SANDLOOM-T012) would report it. Kept
+        # until dropping it is measured and approved (it was outside the drop
+        # set of revision 0007); test_redundant_index_ratchet.py only lets
+        # this set shrink.
+        Index(
+            "ix_external_identities_provider",
+            "provider",
+            info={"sandloom_known_redundant": "not yet measured for a drop"},
+        ),
         Index(
             "uq_external_identities_provider_external_id",
             "provider",

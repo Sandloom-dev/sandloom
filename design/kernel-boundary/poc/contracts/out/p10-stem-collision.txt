@@ -1,0 +1,7 @@
+stub_names('a.b_c.v1'): ('a_b_c_v1', 'ABCV1', 'A_B_C_V1')
+stub_names('a_b.c.v1'): ('a_b_c_v1', 'ABCV1', 'A_B_C_V1')
+1) module distribution `consumer` imports _generated.contracts.a_b_c_v1:
+   consumer/_generated/contracts/a_b_c_v1.py: error[SANDLOOM-T007]: stub name collision: contracts a.b_c.v1 and a_b.c.v1 both map to a_b_c_v1.py; rename one contract
+2) application shared package, both providers composed (plan() check):
+   {'a_b_c_v1': ['a.b_c.v1', 'a_b.c.v1']}
+3) written: nothing

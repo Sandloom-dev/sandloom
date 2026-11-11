@@ -611,7 +611,9 @@ async def test_a_read_after_the_request_finished_is_not_attributed() -> None:
 
 
 def test_middleware_is_not_installed_when_the_shadow_is_off() -> None:
-    from sandloom.main import app
+    from sandloom.core.composition import load_composition_app
+
+    app = load_composition_app()
 
     assert shadow.current() is None
     middleware: Any = shadow.ShadowRequestMiddleware

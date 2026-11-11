@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from collections.abc import AsyncIterator, Generator
 from pathlib import Path
@@ -49,6 +50,24 @@ def _seed_test_env() -> None:
 
 _seed_test_env()
 
+
+def _standard_root_when_installed() -> None:
+    """Compose the suite with the standard root when it is installed.
+
+    The lean ``sandloom.main`` assigns no claim authorities (ADR-0012
+    decision 3, ADR-0014), so with the batteries installed it refuses the
+    boot (identity issues tokens, SANDLOOM-B035). A checkout with
+    ``sandloom-standard`` tests the
+    standard composition, ``sandloom_standard.main`` with its trust map; the
+    ``kernel-without-batteries`` venv has no ``sandloom-standard`` and keeps
+    the lean root. An explicit ``SANDLOOM_COMPOSITION_ROOT`` wins.
+    """
+    if importlib.util.find_spec("sandloom_standard") is not None:
+        os.environ.setdefault("SANDLOOM_COMPOSITION_ROOT", "sandloom_standard.main")
+
+
+_standard_root_when_installed()
+
 from sandloom.core.testing.connections import apply_test_pool_profile  # noqa: E402
 from sandloom.core.testing.fixtures import (  # noqa: E402, F401 - autouse fixtures
     _sandloom_cancel_leftover_tasks,
@@ -59,6 +78,15 @@ from sandloom.core.testing.fixtures import (  # noqa: E402, F401 - autouse fixtu
     runs_on_session_loop,
 )
 from sandloom.core.testing.workers import apply_worker_env  # noqa: E402
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    # A test composition (as the sandloom pytest plugin declares it): the
+    # kernel test authority vouches for the test kit's tokens (ADR-0014).
+    from sandloom.core.auth.claims_view import enable_test_authority
+
+    enable_test_authority()
+
 
 # pytest-xdist: move this worker onto its own database / Redis DBs BEFORE any
 # test module imports the framework (sandloom.core.config.settings snapshots the

@@ -1,0 +1,11 @@
+# probe 2 output (uv run python -I cost_probe.py), commit 38f33cb, Darwin arm64
+python 3.12.10
+kernel Settings() median ms: 41.83
+module BaseSettings (22 fields, own env+.env+secrets read) median ms: 17.28
+module BaseModel.model_validate(shared snapshot) median ms: 0.001
+metadata.entry_points().select('sandloom.modules') median ms: 3.56
+secret from SECRETS_DIR file by alias: True
+env overrides default: True
+two models, one env name API_KEY -> both read it silently: shared shared
+[env only] kernel Settings() median ms: 2.39
+[env only] module BaseSettings median ms: 0.41

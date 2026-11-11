@@ -116,10 +116,16 @@ from sandloom.core.rpc.readiness import (
     ContractIncompatibleError as ContractIncompatibleError,
 )
 from sandloom.core.rpc.readiness import (
+    ContractUnverifiedError as ContractUnverifiedError,
+)
+from sandloom.core.rpc.readiness import (
     check_remote_contract_compat as check_remote_contract_compat,
 )
 from sandloom.core.rpc.readiness import (
     check_remote_service_bindings as check_remote_service_bindings,
+)
+from sandloom.core.rpc.readiness import (
+    describe_remote_bindings as describe_remote_bindings,
 )
 from sandloom.core.rpc.server import RpcFastPathMiddleware as RpcFastPathMiddleware
 from sandloom.core.rpc.server import rpc_router as rpc_router
@@ -173,10 +179,12 @@ __all__ = [
     "RemoteServiceUnavailable",
     "ServiceUnavailableInDeployment",
     "ContractIncompatibleError",
+    "ContractUnverifiedError",
     "check_remote_contract_compat",
     "check_remote_service_bindings",
     "check_rpc_transport",
     "close_rpc_client",
+    "describe_remote_bindings",
     "install_service_rpc_routes",
     "remote_service_proxy",
     "rpc_router",

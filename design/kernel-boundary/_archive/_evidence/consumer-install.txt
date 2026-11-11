@@ -1,0 +1,422 @@
+# Consumer install: `sandloom` + `sandloom-billing` wheels (built at b8d8506); the provider
+# of tenancy.membership.v1 (sandloom-tenancy) is NOT installed. Fresh venv outside the repo
+# (Python 3.12), $S = scratch directory. Driver: consumer.sh; probe: consumer_probe.py (below).
+# Phase B's provider is a stand-in class registered as tenancy.membership.v1 on a bare
+# CoreFacade and served by the kernel's own RPC routes on 127.0.0.1 (pattern of
+# tools/packaging/wheel_rpc_smoke.py); no tenancy code runs. The orders module is the
+# app's own; its services.py appended the lines shown under step 3.
+# Trimmed: dev-mode startup warnings, `sandloom new` / `add module` file lists.
+# 1. the two wheels as published: sandloom + sandloom-billing (billing depends on plain `sandloom`)
+
+$ uv venv -q --python 3.12 $S/venv-consumer
+[exit 0]
+
+$ uv pip install -q --python $S/venv-consumer/bin/python $S/dist/sandloom-0.7.0a11-py3-none-any.whl $S/dist/sandloom_billing-0.7.0a11-py3-none-any.whl
+[exit 0]
+
+$ uv pip list | grep -iE "sandloom|celery|redis"
+sandloom                  0.7.0a11
+sandloom-billing          0.7.0a11
+[exit 0]
+
+$ python -I consumer_probe.py   (bootstrap; output trimmed to the error)
+    raise ModuleLoadError(summary)
+  File "sandloom/sdk/_prim/tasks.py", line 16, in <module>
+  File "sandloom_billing/tasks.py", line 25, in <module>
+2026-11-08 00:59:49,070 [ERROR] sandloom.core.loader.plugin_loader: [plugin_loader] Failed module sandloom_billing: No module named 'celery'
+ModuleNotFoundError: No module named 'celery'
+find_spec('sandloom_billing'): True
+find_spec('sandloom_tenancy'): None
+sandloom.core.loader.plugin_loader.ModuleLoadError: Required modules failed: sandloom_billing: No module named 'celery' (total_failed=1)
+[exit 1]
+
+# 2. with the kernel extras the standard set uses: sandloom[redis,celery] + sandloom-billing
+
+$ uv pip install -q --python $S/venv-consumer/bin/python sandloom[redis,celery] @ file://$S/dist/sandloom-0.7.0a11-py3-none-any.whl $S/dist/sandloom_billing-0.7.0a11-py3-none-any.whl
+[exit 0]
+
+$ uv pip list | grep -iE "sandloom|celery|redis"
+celery                    5.6.3
+redis                     5.3.1
+sandloom                  0.7.0a11
+sandloom-billing          0.7.0a11
+[exit 0]
+
+# phase A: bootstrap and contract registration, no provider, no binding
+
+$ $S/venv-consumer/bin/python -I $S/scripts/consumer_probe.py
+2026-11-08 00:59:50,340 [WARNING] sandloom.core.loader.plugin_loader: [plugin_loader] sandloom_billing consumes optional contract 'tenancy.membership.v1', which is neither provided locally nor bound in SERVICE_BINDINGS (organization billing context / org subscription fact)
+find_spec('sandloom_tenancy'): None
+find_spec('sandloom_billing'): True
+loaded_modules: ['sandloom_billing']
+local provider billing.entitlements.v1: True
+local provider billing.credits.v1: True
+local provider billing.facts.v1: True
+local provider billing.claims.v1: True
+local provider tenancy.membership.v1: False
+Contract(TENANCY_MEMBERSHIP_V1, optional=True).client(): None
+[exit 0]
+
+# phase B: stand-in provider of tenancy.membership.v1 over internal RPC
+
+$ $S/venv-consumer/bin/python -I $S/scripts/consumer_probe.py --rpc
+find_spec('sandloom_tenancy'): None
+find_spec('sandloom_billing'): True
+loaded_modules: ['sandloom_billing']
+local provider billing.entitlements.v1: True
+local provider billing.credits.v1: True
+local provider billing.facts.v1: True
+local provider billing.claims.v1: True
+local provider tenancy.membership.v1: False
+Contract(TENANCY_MEMBERSHIP_V1, optional=True).client(): <sandloom.core.rpc.proxy.RemoteServiceProxy object at 0x10a413830>
+bound client: _TypedClient
+get_member_state over RPC -> type: sandloom.shared.contracts.tenancy_dto.MemberState
+get_member_state over RPC -> value: organization_id=UUID('a6c056c8-df19-42c8-adf2-153e502a5112') user_id=UUID('1a862ade-dbb1-49aa-8b5f-9073ed599eda') role='admin' version=7
+isinstance(result, kernel-wheel MemberState): True
+get_member_state, provider omits ids: ValidationError: 2 validation errors for MemberState
+has_role_at_least(admin) over RPC: True
+has_role_at_least(owner) over RPC: False
+live adapter 'membership' -> contract: tenancy.membership.v1
+[exit 0]
+
+# 3. generation in an app: sandloom new + an app module consuming billing.entitlements.v1 (required) and tenancy.membership.v1 (optional)
+
+$ $S/venv-consumer/bin/sandloom new shop --dir $S/run-consumer -y --no-git --services none
+Created application 'shop' (55 files) at $S/run-consumer/shop
+
+[exit 0]
+
+$ uv pip install -q --python $S/venv-consumer/bin/python --no-deps -e .
+[exit 0]
+
+$ $S/venv-consumer/bin/sandloom add module orders
+  $S/run-consumer/shop/shop/modules/orders/__init__.py
+  $S/run-consumer/shop/shop/modules/orders/models/__init__.py
+  $S/run-consumer/shop/shop/modules/orders/models/item.py
+  $S/run-consumer/shop/shop/modules/orders/schemas.py
+  $S/run-consumer/shop/shop/modules/orders/events.py
+  $S/run-consumer/shop/shop/modules/orders/services.py
+  $S/run-consumer/shop/shop/modules/orders/api.py
+  $S/run-consumer/shop/shop/modules/orders/migrations/env.py
+  $S/run-consumer/shop/shop/modules/orders/migrations/script.py.mako
+  $S/run-consumer/shop/shop/modules/orders/migrations/versions/0001_orders_baseline.py
+  $S/run-consumer/shop/shop/modules/orders/tests/__init__.py
+  $S/run-consumer/shop/shop/modules/orders/tests/test_migrations.py
+  $S/run-consumer/shop/shop/modules/orders/tests/test_orders.py
+wrote shop/shared/events/orders.item.created.v1.json
+wrote shop/modules/orders/module.snapshot.json
+wrote shop/modules/orders/routes.snapshot.json
+wrote .sandloom/inspection.json
+generated files current (7 file(s))
+
+Next: `sandloom test` (the module's tests and every gate).
+[exit 0]
+(orders/services.py: entitlements = Contract(BILLING_ENTITLEMENTS_V1); membership = Contract(TENANCY_MEMBERSHIP_V1, optional=True); stubs imported from sandloom.shared.contracts)
+
+$ sandloom generate   (composition root as generated: BUNDLED = [])
+sandloom.core.loader.plugin_loader: [plugin_loader] shop.modules.orders consumes optional contract 'tenancy.membership.v1', which is neither provided locally nor bound in SERVICE_BINDINGS
+    raise ContractBindingError(missing)
+sandloom.core.loader.plugin_loader.ContractBindingError: Consumed contracts are neither provided locally nor bound in SERVICE_BINDINGS: shop.modules.orders consumes 'billing.entitlements.v1'
+[exit 1]
+
+$ grep BUNDLED shop/asgi.py
+12:BUNDLED: list[str] = ["sandloom_billing"]
+
+$ sandloom generate
+sandloom.core.loader.plugin_loader: [plugin_loader] sandloom_billing consumes optional contract 'tenancy.membership.v1', which is neither provided locally nor bound in SERVICE_BINDINGS (organization billing context / org subscription fact)
+sandloom.core.loader.plugin_loader: [plugin_loader] shop.modules.orders consumes optional contract 'tenancy.membership.v1', which is neither provided locally nor bound in SERVICE_BINDINGS
+wrote shop/shared/events/billing.subscription.created.v1.json
+wrote shop/shared/events/billing.subscription.updated.v1.json
+wrote shop/shared/events/billing.subscription.canceled.v1.json
+wrote shop/shared/events/billing.credits.added.v1.json
+wrote shop/shared/events/billing.credits.spent.v1.json
+wrote shop/shared/events/billing.credits.reversed.v1.json
+wrote shop/shared/events/billing.credits.restored.v1.json
+wrote shop/shared/contracts/billing_entitlements_v1.py
+wrote shop/shared/contracts/billing_credits_v1.py
+wrote shop/modules/orders/module.snapshot.json
+wrote .sandloom/inspection.json
+warning[SANDLOOM-T015]: some interfaces are incomplete; graph/context report their scope
+generated files current (16 file(s))
+[exit 0]
+
+$ $S/venv-consumer/bin/python -c import json; print(json.dumps(json.load(open('shop/modules/orders/module.snapshot.json'))['consumes']))
+[{"methods": ["check_subscription_active"], "name": "billing.entitlements.v1", "required": true}, {"methods": [], "name": "tenancy.membership.v1", "required": false}]
+[exit 0]
+
+$ ls shop/shared/contracts
+__init__.py
+billing_credits_v1.py
+billing_entitlements_v1.py
+
+$ diff <kernel wheel>/sandloom/shared/contracts/billing_entitlements_v1.py shop/shared/contracts/billing_entitlements_v1.py
+12c12
+< from sandloom.core.descriptors.contract_refs import ContractRef
+---
+> from sandloom.sdk.contracts import ContractRef  # sandloom: advanced generated code
+[exit 1]
+
+$ diff <kernel wheel>/sandloom/shared/contracts/billing_credits_v1.py shop/shared/contracts/billing_credits_v1.py
+12c12
+< from sandloom.core.descriptors.contract_refs import ContractRef
+---
+> from sandloom.sdk.contracts import ContractRef  # sandloom: advanced generated code
+[exit 1]
+
+$ $S/venv-consumer/bin/sandloom generate --check
+2026-11-08 00:59:59,021 [WARNING] sandloom.core.loader.plugin_loader: [plugin_loader] sandloom_billing consumes optional contract 'tenancy.membership.v1', which is neither provided locally nor bound in SERVICE_BINDINGS (organization billing context / org subscription fact)
+2026-11-08 00:59:59,021 [WARNING] sandloom.core.loader.plugin_loader: [plugin_loader] shop.modules.orders consumes optional contract 'tenancy.membership.v1', which is neither provided locally nor bound in SERVICE_BINDINGS
+generated files up to date (16 file(s))
+[exit 0]
+
+$ python -c "import shop.asgi"   (bootstrap of the app composition)
+sandloom.core.loader.plugin_loader: [plugin_loader] sandloom_billing consumes optional contract 'tenancy.membership.v1', which is neither provided locally nor bound in SERVICE_BINDINGS (organization billing context / org subscription fact)
+sandloom.core.loader.plugin_loader: [plugin_loader] shop.modules.orders consumes optional contract 'tenancy.membership.v1', which is neither provided locally nor bound in SERVICE_BINDINGS
+loaded_modules ['sandloom_billing', 'shop.modules.example', 'shop.modules.orders']
+tenancy.membership.v1 local: False
+[exit 0]
+
+# 4. DTO copy in the kernel wheel vs the provider class in the tenancy wheel (unpacked aside, not installed)
+
+$ $S/venv-consumer/bin/python -I $S/scripts/dto_compare.py $S/run-consumer/tenancy-wheel/sandloom_tenancy/schemas/membership.py
+provider fields: ['organization_id', 'user_id', 'role', 'version']
+copy fields:     ['organization_id', 'user_id', 'role', 'version']
+JSON schemas equal (descriptions aside): True
+model_config frozen: True True
+[exit 0]
+
+----- appended to shop/modules/orders/services.py (step 3) -----
+# --- kb-baseline-close probe: a consumer of two bundled contracts -----------
+from sandloom.sdk.contracts import Contract  # noqa: E402
+from sandloom.shared.contracts.billing_entitlements_v1 import (  # noqa: E402
+    BILLING_ENTITLEMENTS_V1,
+)
+from sandloom.shared.contracts.tenancy_membership_v1 import (  # noqa: E402
+    TENANCY_MEMBERSHIP_V1,
+)
+
+entitlements = Contract(BILLING_ENTITLEMENTS_V1)
+membership = Contract(TENANCY_MEMBERSHIP_V1, optional=True)
+
+
+async def can_order(org_id: UUID, user_id: UUID) -> bool:
+    client = membership.client()
+    if client is not None and not await client.is_member(org_id, user_id):
+        return False
+    return bool(await entitlements.check_subscription_active("organization", org_id))
+
+----- consumer_probe.py -----
+"""Consumer install probe: sandloom + sandloom-billing wheels, tenancy absent.
+
+Phase A (no binding): bootstrap, contract registration, optional consumer.
+Phase B (--rpc): a stand-in provider of tenancy.membership.v1 (NOT the tenancy
+module: a plain class served by the kernel's RPC routes) on a uvicorn port; the
+billing process binds it through SERVICE_BINDINGS and calls it, results
+converted by the kernel wheel's DTO copy (sandloom.shared.contracts.tenancy_dto).
+"""
+import asyncio
+import json
+import os
+import socket
+import sys
+import uuid
+
+RPC = "--rpc" in sys.argv
+os.environ.update({
+    "ENVIRONMENT": "dev",
+    "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
+    "CACHE_URL": "redis://localhost:6379/0",
+    "BROKER_URL": "redis://localhost:6379/1",
+    "JWT_SECRET": "consumer-probe-not-a-real-secret",
+    "EVENT_BUS_BACKEND": "memory",
+})
+os.environ.pop("SANDLOOM_MODULES", None)  # default: installed entry points
+PORT = 0
+if RPC:
+    from sandloom.core.signing_keys import (
+        generate_private_key, generate_x25519_key, private_pem, public_pem,
+        x25519_private_pem, x25519_public_pem,
+    )
+    sig, dh = generate_private_key("EdDSA"), generate_x25519_key()
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        PORT = s.getsockname()[1]
+    sid = "probe"
+    os.environ.update({
+        "RPC_SERVICE_ID": sid, "RPC_PRIVATE_KEY": private_pem(sig), "RPC_KEY_ID": "k1",
+        "RPC_DH_PRIVATE_KEY": x25519_private_pem(dh), "RPC_DH_KEY_ID": "k1",
+        "RPC_SERVICE_KEYS": json.dumps({sid: {"k1": public_pem(sig)}}),
+        "RPC_SERVICE_DH_KEYS": json.dumps({sid: {"k1": x25519_public_pem(dh)}}),
+        "RPC_ALLOWED_CALLS": json.dumps({sid: ["tenancy.membership.v1"]}),
+        "SERVICE_BINDINGS": json.dumps({"tenancy.membership.v1": {
+            "base_url": f"http://127.0.0.1:{PORT}", "service_id": sid}}),
+    })
+
+
+def show(label, value):
+    print(f"{label}: {value}")
+
+
+import importlib.util  # noqa: E402
+
+show("find_spec('sandloom_tenancy')", importlib.util.find_spec("sandloom_tenancy"))
+show("find_spec('sandloom_billing')", importlib.util.find_spec("sandloom_billing") is not None)
+
+import sandloom.main as m  # noqa: E402
+
+core = m.core
+show("loaded_modules", core.loaded_modules)
+for name in ("billing.entitlements.v1", "billing.credits.v1", "billing.facts.v1",
+             "billing.claims.v1", "tenancy.membership.v1"):
+    show(f"local provider {name}", core.local_contract(name) is not None)
+
+from sandloom.sdk.contracts import Contract  # noqa: E402
+from sandloom.shared.contracts.tenancy_dto import MemberState  # noqa: E402
+from sandloom.shared.contracts.tenancy_membership_v1 import (  # noqa: E402
+    TENANCY_MEMBERSHIP_V1,
+)
+
+membership = Contract(TENANCY_MEMBERSHIP_V1, optional=True)
+client = membership.client()
+show("Contract(TENANCY_MEMBERSHIP_V1, optional=True).client()", client)
+
+if RPC:
+    import uvicorn
+    from fastapi import FastAPI
+
+    from sandloom.core.facade import CoreFacade
+    from sandloom.core.module_api import contract_method
+    from sandloom.core.rpc import close_rpc_client, install_service_rpc_routes
+
+    class _UoW:
+        session = None
+
+        async def __aenter__(self):
+            self.session = type("S", (), {"info": {}})()
+            return self
+
+        async def __aexit__(self, *exc):
+            self.session = None
+
+    class _Database:
+        def uow_factory(self):
+            return _UoW
+
+        def outbox(self):
+            return None
+
+        def audit(self):
+            return None
+
+    class StandInMembership:  # stands in for tenancy's provider, no tenancy code
+        @classmethod
+        @contract_method
+        async def get_member_state(cls, organization_id: uuid.UUID, user_id: uuid.UUID) -> dict:
+            if organization_id == uuid.UUID(int=0):  # an older wire shape
+                return {"role": "admin", "version": 7}
+            return {"organization_id": str(organization_id), "user_id": str(user_id),
+                    "role": "admin", "version": 7}
+
+        @classmethod
+        @contract_method
+        async def has_role_at_least(cls, organization_id: uuid.UUID, user_id: uuid.UUID, minimum: str) -> bool:
+            return minimum in ("member", "admin")
+
+    papp = FastAPI()
+    pcore = CoreFacade(app=papp)
+    papp.state.core = pcore
+    pcore.database = lambda name="default": _Database()
+    pcore.register_service("tenancy.membership.v1", StandInMembership)
+    install_service_rpc_routes(papp, pcore)
+
+    async def main():
+        server = uvicorn.Server(uvicorn.Config(papp, host="127.0.0.1", port=PORT,
+                                               log_level="warning", lifespan="off"))
+        task = asyncio.create_task(server.serve())
+        while not server.started:
+            await asyncio.sleep(0.01)
+        try:
+            c = membership.client()
+            show("bound client", type(c).__name__)
+            st = await c.get_member_state(uuid.uuid4(), uuid.uuid4())
+            show("get_member_state over RPC -> type", f"{type(st).__module__}.{type(st).__name__}")
+            show("get_member_state over RPC -> value", st)
+            show("isinstance(result, kernel-wheel MemberState)", isinstance(st, MemberState))
+            try:
+                await c.get_member_state(uuid.UUID(int=0), uuid.uuid4())
+                show("get_member_state, provider omits ids", "accepted")
+            except Exception as exc:  # noqa: BLE001
+                show("get_member_state, provider omits ids", f"{type(exc).__name__}: {str(exc).splitlines()[0]}")
+            show("has_role_at_least(admin) over RPC", await c.has_role_at_least(uuid.uuid4(), uuid.uuid4(), "admin"))
+            show("has_role_at_least(owner) over RPC", await c.has_role_at_least(uuid.uuid4(), uuid.uuid4(), "owner"))
+            from sandloom.shared.authz.live_contracts import get_live_adapter
+            show("live adapter 'membership' -> contract", get_live_adapter("membership").service)
+        finally:
+            await close_rpc_client()
+            server.should_exit = True
+            await task
+
+    asyncio.run(main())
+
+----- dto_compare.py -----
+"""Compare the kernel wheel's DTO copy with the provider's own class (tenancy
+wheel unpacked aside; its package __init__ not executed)."""
+import importlib.util, json, sys
+path = sys.argv[1]
+spec = importlib.util.spec_from_file_location("tenancy_membership_schema", path)
+mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+from sandloom.shared.contracts.tenancy_dto import MemberState as Copy
+orig, copy = mod.MemberState.model_json_schema(), Copy.model_json_schema()
+orig.pop("description", None); copy.pop("description", None)
+print("provider fields:", list(mod.MemberState.model_fields))
+print("copy fields:    ", list(Copy.model_fields))
+print("JSON schemas equal (descriptions aside):", orig == copy)
+print("model_config frozen:", mod.MemberState.model_config.get("frozen"), Copy.model_config.get("frozen"))
+
+----- consumer.sh -----
+#!/bin/bash
+# Consumer install: sandloom + sandloom-billing wheels (built at b8d8506); tenancy absent.
+set -u
+S=$S
+W=$S/dist; V=$S/venv-consumer; R=$S/run-consumer
+unset VIRTUAL_ENV
+step(){ echo; echo "\$ $*"; "$@" < /dev/null; echo "[exit $?]"; }
+rm -rf $V $R; mkdir -p $R; cd $R
+echo '# 1. the two wheels as published: sandloom + sandloom-billing (billing depends on plain `sandloom`)'
+step uv venv -q --python 3.12 $V
+step uv pip install -q --python $V/bin/python $W/sandloom-0.7.0a11-py3-none-any.whl $W/sandloom_billing-0.7.0a11-py3-none-any.whl
+echo; echo '$ uv pip list | grep -iE "sandloom|celery|redis"'; uv pip list --python $V/bin/python 2>/dev/null | grep -iE "^(sandloom|sandloom-[a-z]+|celery|redis) "; echo "[exit 0]"
+echo; echo '$ python -I consumer_probe.py   (bootstrap; output trimmed to the error)'
+$V/bin/python -I $S/scripts/consumer_probe.py > $R/a0.out 2>&1; rc=$?
+grep -E "^find_spec|ModuleLoadError|No module named|sandloom_billing/tasks.py|sdk/_prim/tasks.py" $R/a0.out | sed "s#$V/lib/python3.12/site-packages/##" | sort -u; echo "[exit $rc]"
+echo; echo '# 2. with the kernel extras the standard set uses: sandloom[redis,celery] + sandloom-billing'
+step uv pip install -q --python $V/bin/python "sandloom[redis,celery] @ file://$W/sandloom-0.7.0a11-py3-none-any.whl" $W/sandloom_billing-0.7.0a11-py3-none-any.whl
+echo; echo '$ uv pip list | grep -iE "sandloom|celery|redis"'; uv pip list --python $V/bin/python 2>/dev/null | grep -iE "^(sandloom|sandloom-[a-z]+|celery|redis) "; echo "[exit 0]"
+echo; echo '# phase A: bootstrap and contract registration, no provider, no binding'
+step $V/bin/python -I $S/scripts/consumer_probe.py
+echo; echo '# phase B: stand-in provider of tenancy.membership.v1 over internal RPC'
+step $V/bin/python -I $S/scripts/consumer_probe.py --rpc
+
+echo; echo '# 3. generation in an app: sandloom new + an app module consuming billing.entitlements.v1 (required) and tenancy.membership.v1 (optional)'
+step $V/bin/sandloom new shop --dir $R -y --no-git --services none
+cd $R/shop
+step uv pip install -q --python $V/bin/python --no-deps -e .
+step $V/bin/sandloom add module orders
+cp $S/scripts/orders_services_probe.py shop/modules/orders/services.py
+echo '(orders/services.py: entitlements = Contract(BILLING_ENTITLEMENTS_V1); membership = Contract(TENANCY_MEMBERSHIP_V1, optional=True); stubs imported from sandloom.shared.contracts)'
+echo; echo '$ sandloom generate   (composition root as generated: BUNDLED = [])'
+$V/bin/sandloom generate > $R/gen-a.out 2>&1; rc=$?; grep -E "WARNING|ContractBindingError|^wrote|generated files" $R/gen-a.out | sed 's/^.*\[WARNING\] //'; echo "[exit $rc]"
+sed -i '' 's/^BUNDLED: list\[str\] = \[\]/BUNDLED: list[str] = ["sandloom_billing"]/' shop/asgi.py
+echo; echo '$ grep BUNDLED shop/asgi.py'; grep -n '^BUNDLED' shop/asgi.py
+echo; echo '$ sandloom generate'
+$V/bin/sandloom generate > $R/gen-b.out 2>&1; rc=$?; grep -E "WARNING|SANDLOOM-|^wrote|generated files" $R/gen-b.out | sed 's/^.*\[WARNING\] //'; echo "[exit $rc]"
+step $V/bin/python -c "import json; print(json.dumps(json.load(open('shop/modules/orders/module.snapshot.json'))['consumes']))"
+echo; echo '$ ls shop/shared/contracts'; ls shop/shared/contracts
+for f in billing_entitlements_v1 billing_credits_v1; do echo; echo "\$ diff <kernel wheel>/sandloom/shared/contracts/$f.py shop/shared/contracts/$f.py"; diff $V/lib/python3.12/site-packages/sandloom/shared/contracts/$f.py shop/shared/contracts/$f.py; echo "[exit $?]"; done
+step $V/bin/sandloom generate --check
+export DATABASE_URL=postgresql+asyncpg://u:p@localhost/db CACHE_URL=redis://localhost:6379/0 BROKER_URL=redis://localhost:6379/1 JWT_SECRET=consumer-probe-not-a-real-secret EVENT_BUS_BACKEND=memory
+echo; echo '$ python -c "import shop.asgi"   (bootstrap of the app composition)'
+$V/bin/python -c "import shop.asgi as a; c=a.app.state.core; print('loaded_modules', c.loaded_modules); print('tenancy.membership.v1 local:', c.local_contract('tenancy.membership.v1') is not None)" 2>&1 | sed 's/^.*\[WARNING\] //' | grep -v "ENVIRONMENT is not set\|INTERNAL_API_TOKEN"; echo "[exit ${PIPESTATUS[0]}]"
+echo; echo '# 4. DTO copy in the kernel wheel vs the provider class in the tenancy wheel (unpacked aside, not installed)'
+mkdir -p $R/tenancy-wheel; (cd $R/tenancy-wheel && unzip -oq $W/sandloom_tenancy-0.7.0a11-py3-none-any.whl 'sandloom_tenancy/schemas/*')
+step $V/bin/python -I $S/scripts/dto_compare.py $R/tenancy-wheel/sandloom_tenancy/schemas/membership.py

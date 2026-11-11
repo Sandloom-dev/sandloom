@@ -27,7 +27,7 @@ from sandloom.core.route_policy import resolve_route_policy
 from sandloom.core.sql_alchemy.money_ledger import MoneyLedgerError
 from sandloom.core.testing import make_user_headers
 from sandloom.core.testing.fixtures import *  # noqa: F403
-from sandloom.shared.authz import OrgRole, Role, current_context, require
+from sandloom.shared.authz import Role, current_context, require
 from sandloom.shared.guards.platform import require_platform_admin
 
 pytestmark = pytest.mark.asyncio
@@ -121,8 +121,13 @@ def _policy_of(dependency: Any) -> Any:
     return resolve_route_policy(route)
 
 
-async def test_admin_gates_carry_the_admin_risk_and_member_gates_do_not() -> None:
+async def test_admin_gates_carry_the_admin_risk_and_member_gates_do_not(
+    generated_atoms: Any,
+) -> None:
     from sandloom_tenancy.access import require_org_role
+
+    # tenancy's generated OrgRole carries its admin risk in its literal (KB-34)
+    OrgRole = generated_atoms.OrgRole
 
     tagged = {
         "platform admin": Depends(require_platform_admin),

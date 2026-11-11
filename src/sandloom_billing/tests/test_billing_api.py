@@ -171,7 +171,9 @@ class TestCheckoutAndPortal:
         assert resp.status_code == 400
         assert "Idempotency-Key" in resp.text
 
-    async def test_customer_portal(self, async_client: AsyncClient, user_a, fake_psp):
+    async def test_customer_portal(
+        self, async_client: AsyncClient, user_a, fake_psp, fresh_reconciler
+    ):
         _, headers = user_a
         resp = await async_client.post(
             "/api/v1/billing/customer-portal",
@@ -182,7 +184,7 @@ class TestCheckoutAndPortal:
         assert resp.json()["url"].startswith("https://billing.stripe.local/")
 
     async def test_psp_customer_created_once(
-        self, async_client: AsyncClient, user_a, fake_psp
+        self, async_client: AsyncClient, user_a, fake_psp, fresh_reconciler
     ):
         _, headers = user_a
         for idx in range(2):

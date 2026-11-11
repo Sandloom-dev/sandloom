@@ -358,7 +358,8 @@ def test_prod_split_deployment_refuses_a_shared_hs_secret() -> None:
     env = {
         "ENVIRONMENT": "prod",
         "JWT_SECRET": _STRONG,
-        "SANDLOOM_ACCEPTED_RISKS": "fake_psp_in_prod",
+        "SANDLOOM_ACCEPTED_RISKS": "billing.fake_psp_in_prod",
+        "SANDLOOM_SERVICE_NAME": "api",  # prod's Streams bus (ADR-0012 d. 5)
     }
     problem = tokens.token_signing_problem
     monolith = _role_cfg(**env)
@@ -374,7 +375,10 @@ def test_prod_split_deployment_refuses_a_shared_hs_secret() -> None:
     )
     assert "split" in str(problem(issuer_loaded=True, cfg=bound))
     opted_out = _role_cfg(
-        **{**env, "SANDLOOM_ACCEPTED_RISKS": "fake_psp_in_prod,shared_hs_secret_split"}
+        **{
+            **env,
+            "SANDLOOM_ACCEPTED_RISKS": "billing.fake_psp_in_prod,shared_hs_secret_split",
+        }
     )
     assert problem(issuer_loaded=False, cfg=opted_out) is None
     # Outside prod the shared secret stays the default.
@@ -410,14 +414,6 @@ def test_app_factory_registers_a_critical_refusal(
         app_factory.logging.getLogger("t"),
     )
     assert added == []
-
-
-def test_identity_declares_itself_the_token_issuer() -> None:
-    import inspect
-
-    import sandloom_identity as identity_pkg
-
-    assert "issues_tokens=True" in inspect.getsource(identity_pkg)
 
 
 # -- sandloom keys generate ------------------------------------------------------

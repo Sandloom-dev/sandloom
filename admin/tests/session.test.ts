@@ -1,5 +1,5 @@
+import { identityClient } from './auth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiClient } from '../src/api/client';
 
 const token = (sub = 'operator') =>
   `test.${btoa(JSON.stringify({ sub, roles: ['admin'], claims_sources: ['identity'] }))}.test`;
@@ -24,7 +24,7 @@ describe('session boundary', () => {
       }
       return json({ id: 'operator' });
     });
-    const client = new ApiClient(fetcher);
+    const client = identityClient(fetcher);
     await client.login({ email: 'admin@example.test', password: 'private' });
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + 10_000);
@@ -40,7 +40,7 @@ describe('session boundary', () => {
           ? json({ id: 'operator' })
           : json({ detail: 'Uncertain result' }, 502),
     );
-    const client = new ApiClient(fetcher);
+    const client = identityClient(fetcher);
     await client.login({ email: 'admin@example.test', password: 'private' });
     await expect(
       client.request('/api/v1/roles', { method: 'POST', body: '{}' }),
@@ -49,7 +49,7 @@ describe('session boundary', () => {
   });
   it('discards a response from the previous user even if the transport ignores abort', async () => {
     let finish!: (value: Response) => void;
-    const client = new ApiClient(async (path) =>
+    const client = identityClient(async (path) =>
       path === '/auth/login'
         ? json(pair())
         : path === '/auth/me'
@@ -75,7 +75,7 @@ describe('session boundary', () => {
           ? json({ detail: 'Token has been revoked' }, 401)
           : json({ id: 'operator' }),
     );
-    const client = new ApiClient(fetcher);
+    const client = identityClient(fetcher);
     await client.login({ email: 'admin@example.test', password: 'private' });
     revoked = true;
     await expect(client.me()).rejects.toMatchObject({ status: 401 });
@@ -87,7 +87,7 @@ describe('session boundary', () => {
 describe('authority changes', () => {
   it('does not resurrect a session when refresh completes after logout', async () => {
     let finish!: (response: Response) => void;
-    const client = new ApiClient(async (path) =>
+    const client = identityClient(async (path) =>
       path === '/auth/login'
         ? json(pair(20))
         : path === '/auth/refresh'
@@ -107,7 +107,7 @@ describe('authority changes', () => {
     expect(client.snapshot).toBeUndefined();
   });
   it('invalidates the UI context when refresh returns fewer permissions', async () => {
-    const client = new ApiClient(async (path) =>
+    const client = identityClient(async (path) =>
       path === '/auth/login'
         ? json(pair(20))
         : path === '/auth/refresh'
@@ -128,7 +128,7 @@ describe('authority changes', () => {
 });
 
 it('classifies a malformed successful mutation response as unknown, rather than acknowledging it', async () => {
-  const api = new ApiClient(async (path) =>
+  const api = identityClient(async (path) =>
     path === '/auth/login'
       ? json(pair())
       : path === '/auth/me'

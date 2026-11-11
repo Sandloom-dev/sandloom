@@ -27,6 +27,7 @@ from uuid import uuid4
 
 import pytest
 
+from sandloom.core.app_factory.revocation_applier import apply_token_revocation
 from sandloom.core.auth import marks, revocation
 from sandloom.core.consumers.callbacks import build_consumer_callback
 from sandloom.core.eventing.delivery import PoisonEventError
@@ -61,20 +62,20 @@ async def _no_session(_database: str) -> AsyncIterator[None]:
 
 
 async def _applier(session: Any, envelope: dict[str, Any]) -> None:
-    """What identity registers (``sessions@tokens_revoked``)."""
-    await revocation.apply_pending_revocation(envelope.get("payload") or {})
+    """The kernel's applier (``auth@tokens_revoked``, ADR-0012 decision 5)."""
+    await apply_token_revocation(session, envelope)
 
 
 def _callback(*, dead_letter: bool) -> Any:
     return build_consumer_callback(
-        name="identity:sessions@tokens_revoked",
+        name="sandloom:auth@tokens_revoked@local",
         database="default",
         handler=_applier,
         durable=False,
         opener=_no_session,
         metric_processed="event_consumer_events_processed_total",
         metric_failed="event_consumer_events_failed_total",
-        labels={"consumer": "identity:sessions@tokens_revoked"},
+        labels={"consumer": "sandloom:auth@tokens_revoked@local"},
         dead_letter=dead_letter,
     )
 
@@ -128,7 +129,7 @@ async def test_streams_outage_longer_than_the_old_budget_is_applied_not_dlqd(
         max_deliveries=OLD_BUDGET, retry_base_ms=1, retry_max_ms=20
     )
     bus = StreamsEventBus(InMemorySchemaRegistry(), transport, poll_interval=0.005)
-    group = "identity:sessions@tokens_revoked"
+    group = "sandloom:auth@tokens_revoked@local"
     await bus.subscribe(CHANNEL, _callback(dead_letter=False), group=group)
     sub = str(uuid4())
     mark = time.time() + 2
@@ -173,7 +174,7 @@ async def test_streams_malformed_revocation_is_dead_lettered_at_once(
 ) -> None:
     transport = MemoryTransport(max_deliveries=OLD_BUDGET, retry_base_ms=0)
     bus = StreamsEventBus(InMemorySchemaRegistry(), transport, poll_interval=0.005)
-    group = "identity:sessions@tokens_revoked"
+    group = "sandloom:auth@tokens_revoked@local"
     await bus.subscribe(CHANNEL, _callback(dead_letter=False), group=group)
     before = marks.revocation_metrics_snapshot()
     malformed = marks._METRIC_REVOCATION_MALFORMED
@@ -356,7 +357,7 @@ async def test_redis_streams_never_dead_letter_group_survives_the_old_budget(
         retry_base_ms=1,
         retry_max_ms=5,
     )
-    group = "identity:sessions@tokens_revoked"
+    group = "sandloom:auth@tokens_revoked@local"
     transport.never_dead_letter(stream, group)
     await transport.ensure_group(stream, group)
     try:

@@ -69,7 +69,7 @@ work there too. Failed generation leaves the previous HTML intact and unopened.
 | `sandloom new … --yes` (alias `--no-input`) | Ask nothing: the flags and the defaults decide, and the app name is required. The output ends with the "Next steps" block. Scripts and coding agents pass it. |
 | `sandloom new … --setup [--admin-email <e>]` | Also run the setup. With `--with admin` and `--admin-email`, the last step creates the administrator; without a terminal it prints a set-password link (`admin create --invite`). CI refuses `--setup`: CI provides its own services. |
 | `sandloom new … --plain` | No colour, no redrawn lines and typed answers, for screen readers and logs. `NO_COLOR` and `FORCE_COLOR` work too. |
-| `sandloom add module <name>` | A new module under the app's `modules` package. It is discovered: nothing else to edit. |
+| `sandloom add module <name>` | Creates a module under the app's `modules` package and declares `<MODULE>_DEFAULT_PAGE_SIZE` in `settings.py`. |
 | `sandloom add event <module> <name> [--field F]` | A typed `Event` in the module's `events.py`. |
 | `sandloom add consumer <module> <channel> [--field F]` | An `@on` consumer of a channel (another module's event). |
 | `sandloom add contract <module> <name>` | A `@contract` class and its DTO in the module's `schemas.py`; the stub and the DTO copy are generated. |
@@ -159,18 +159,18 @@ infrastructure tables. See [Migrations](../modules/database/migrations.md) and
 | `sandloom streams groups <channel> \| consumers [--all] \| release-group <channel> <group>` | Consumer groups of a channel, the subscription inventory, or forget a group's owner fingerprint. |
 | `sandloom projection list \| rebuild <name> [--tenant <id>]` | List registered projections and consumers; rebuild one from its source. |
 | `sandloom sagas list [--all] \| show <type> <id> \| retry <type> <id> \| park <type> <id> \| resolve <type> <id> --step S --as applied\|skipped` | Operate saga instances. Dry run unless `--apply --reason R` (prod: also `--confirm-production`). |
-| `sandloom security revoke-sessions \| force-password-reset (--all \| --tenant ORG \| --user ID) [--operation-id ID]` | Incident response: end every session of the targets, or require a password reset. Dry run unless `--apply --reason R` (prod: also `--confirm-production`); `--operation-id` resumes an interrupted run. |
-| `sandloom security grant-admin --email ADDRESS [--apply --reason R] [--confirm-production]` | Make a registered user with a verified address a platform administrator. An unverified address is refused: use `sandloom admin create --take-over`. Dry run by default. |
-| `sandloom admin create --email ADDRESS [--name N] [--invite \| --password-stdin] [--if-missing] [--take-over] [--quiet] [--apply --confirm-production --reason R]` | Create a platform administrator for the [console](../admin-console/index.md). At a terminal it asks for the password twice; `--invite` prints a one-time set-password link (15 minutes) for agents and CI; `--password-stdin` reads one line from a pipe. `--if-missing` succeeds when the address is already an administrator, without a terminal too. `--quiet` prints no success line. Acts at once outside production. |
-| `sandloom admin invite --email ADDRESS [--apply --confirm-production --reason R]` | A new set-password link for an administrator; the old link and the account's sessions end. |
-| `sandloom admin list [--confirm-production --reason R [--show-emails]]` | The platform administrators: address, whether a password is set, last sign-in. Read-only. In production it needs `--confirm-production --reason`, writes an audit record (`identity.admin.listed`) and masks the addresses unless `--show-emails`. The command grants no access the server's CLI lacks; in production it adds the audit trail and keeps addresses out of shell history and CI logs. |
+| `sandloom security revoke-sessions \| force-password-reset (--all \| --tenant ORG \| --user ID) [--operation-id ID]` | Incident response: end every session of the targets, or require a password reset. The kernel revokes the access tokens (any issuer); the claim map's issuer ends its refresh sessions; the output reports each kind of session. Asks the issuer's `<issuer>.security.v1` (`--tenant`: the `tenant_ids` owner's), confirmed before anything is done: a missing method refuses (`SANDLOOM-B039`, exit 1), e.g. `force-password-reset` with an issuer that has no passwords. Dry run unless `--apply --reason R` (prod: also `--confirm-production`); `--operation-id` resumes an interrupted run. |
+| `sandloom security grant-admin --email ADDRESS [--apply --reason R] [--confirm-production]` | Make a registered user with a verified address a platform administrator. The issuer finds the account (`account_by_email`), the owner of `roles` grants the role (`appoint_platform_admin`); both are confirmed before anything is done, a dry run included, and may be different modules. An unverified address is refused: use `sandloom admin create --take-over`. Dry run by default. |
+| `sandloom admin create --email ADDRESS [--name N] [--invite \| --password-stdin] [--if-missing] [--take-over] [--quiet] [--apply --confirm-production --reason R]` | Create a platform administrator for the [console](../admin-console/index.md). At a terminal it asks for the password twice; `--invite` prints a one-time set-password link (15 minutes) for agents and CI, built on the set-password page the composed application serves (the console's `set_password_page` route), else on `FRONTEND_URL`'s `/auth/reset-password`, else refused before anything is done; `--password-stdin` reads one line from a pipe. `--if-missing` succeeds when the address is already an administrator, without a terminal too. `--quiet` prints no success line. Acts at once outside production. Makes the account and its role in one unit, so the claim map's issuer and `roles` owner must be one module with `create_platform_admin` (and the password methods for a password): otherwise refused before anything is done (`SANDLOOM-B039`, exit 1); create the account at the issuer, then `grant-admin`. |
+| `sandloom admin invite --email ADDRESS [--apply --confirm-production --reason R]` | A new set-password link for an administrator; the old link and the account's sessions end. Same owner rule as `admin create`. |
+| `sandloom admin list [--confirm-production --reason R [--show-emails]]` | The platform administrators: the `roles` owner's holders (`platform_admin_ids`) with the issuer's address, whether a password is set (`at the provider` for an issuer that keeps none) and last sign-in (`accounts_by_id`). Read-only. In production it needs `--confirm-production --reason`, writes an audit record through the `roles` owner (identity: `identity.admin.listed`) and masks the addresses unless `--show-emails`. The command grants no access the server's CLI lacks; in production it adds the audit trail and keeps addresses out of shell history and CI logs. |
 | `sandloom security audit-export --since T [--until T] [--action-prefix P] --output FILE` | Export an audit-log window as JSONL (sanitized metadata). |
 | `sandloom backup plan \| verify <dump> \| reconcile-security` | What to back up per database and Redis endpoint; restore a dump into a scratch database and check it; re-derive blocks and revocation marks after a security-cache restore. |
 | `sandloom keys generate [--alg EdDSA\|RS256\|ES256] [--purpose jwt\|rpc\|rpc-dh] [--service S] [--kid K] [--out-dir DIR]` | Generate an access-token signing pair, or a service's internal-RPC keys. |
 | `sandloom keys allowlist` | Derive `RPC_ALLOWED_CALLS` from `SERVICE_BINDINGS`. |
 | `sandloom keys dev-env [--deploy-dir D] [--out F]` | DEVELOPMENT / CI ONLY: a compose `--env-file` with fresh keys for every variable the microservices profile requires. |
-| `sandloom config dump [--json] [--only PREFIXES] [--non-default] [--show-secrets]` | The effective settings with their source (env, `.env`, `SECRETS_DIR`, default); secrets redacted unless `--show-secrets` (refused in prod). |
-| `sandloom doctor [--json] [--skip S] [--timeout T] [--lag-warn N]` | Read-only deployment preflight: config, modules, infrastructure reachability, migration heads, consumer lag, RLS, sagas (exit `0` ok, `1` warnings, `2` failures). |
+| `sandloom config dump [--json] [--only PREFIXES] [--non-default] [--show-secrets] [--kernel-only]` | The effective settings with their source (env, `.env`, `SECRETS_DIR`, default), the kernel's and each loaded module's; secrets redacted unless `--show-secrets` (refused in prod). A module's invalid setting is shown as a diagnosed entry (exit 0). It builds the composition without serving it (no lifespan, no connection); `--kernel-only` skips that and prints the kernel's settings only. |
+| `sandloom doctor [--json] [--skip S] [--timeout T] [--lag-warn N]` | Read-only deployment preflight: config, modules, the claim policy's `legacy_tokens` mode (on with its window end and time left, ended, off), infrastructure reachability, migration heads, consumer lag, RLS, sagas (exit `0` ok, `1` warnings, `2` failures). |
 | `sandloom admin export --output FILE [--check]` | Compile the static admin UI manifest; `--check` fails on drift. |
 
 Procedures: the [runbook](../operate/runbook.md) and the
@@ -250,7 +250,7 @@ are logged at startup and listed by `/diagnostics/core` and `sandloom doctor`.
 
 **Every production weakening is an accepted risk, never a new boolean**
 ([ADR-0006](../adr/0006-accepted-risks.md)): `SANDLOOM_ACCEPTED_RISKS` (JSON or
-comma list) names stable ids (`fake_psp_in_prod`, `log_notifier_in_prod`,
+comma list) names stable ids (`log_notifier_in_prod`,
 `local_storage_in_prod`, `volatile_event_bus`, `unversioned_ddl_repair`,
 `weak_password_hash`, `shared_hs_secret_split`, `relay_disabled`,
 `command_dedupe_below_retry_horizon`, `saga_horizon_beyond_command_dedupe`).
@@ -366,8 +366,9 @@ is raw env).
   `LOG_LEVEL`, `SENTRY_DSN` (+ `SENTRY_TRACES_SAMPLE_RATE`; no-op when
   unset), `TRACING_URL` (OTLP endpoint).
 - **Billing and notifications.** `BILLING_PROVIDER=stripe` fails fast at
-  startup unless `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` are set; prod
-  refuses `fake` unless the risk `fake_psp_in_prod` is accepted.
+  startup unless `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` are set. Prod
+  refuses `fake` unless the module risk `billing.fake_psp_in_prod` is accepted.
+  Both are billing's own settings check: a process without billing skips them.
   `NOTIFIER_BACKEND` (log/smtp; default log) + `SMTP_*`
   (host/port/username/password/from/use_tls for the email driver).
 - **Secrets.** In prod, secrets and tokens must be at least 32 characters and

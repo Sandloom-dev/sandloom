@@ -6,6 +6,12 @@ defaults to the fake PSP; the microservices profile gives each service its own
 database + migrate one-shot, wires SERVICE_BINDINGS to the owning service,
 requires INTERNAL_API_TOKEN and uses the Streams bus; both profiles run the
 framework worker (``sandloom.core.worker``) — not identity's.
+
+What needs the bundled modules installed (their module names, consumed
+contracts and claims contributors: the bindings, the issuer's claims, each
+service booting alone, the split invariants on the shipped profile) is in
+``tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py``,
+on this file's environment and helpers.
 """
 
 from __future__ import annotations
@@ -95,7 +101,9 @@ SHELL = {
     "INTERNAL_API_TOKEN": secrets.token_hex(32),
     "TWOFA_ENCRYPTION_KEY": secrets.token_hex(32),
     "BILLING_PROVIDER": "fake",
-    "SANDLOOM_ACCEPTED_RISKS": "local_storage_in_prod,fake_psp_in_prod",
+    # A demo stack: the default log notifier stands in for mail delivery,
+    # which identity and tenancy require (notification + email).
+    "SANDLOOM_ACCEPTED_RISKS": "local_storage_in_prod,billing.fake_psp_in_prod,log_notifier_in_prod",
 }
 
 
@@ -165,6 +173,35 @@ def test_billing_provider_must_be_chosen(profile: str) -> None:
 @pytest.mark.parametrize(
     "profile", ["compose/monolith.yml", "compose/microservices.yml"]
 )
+def test_mail_is_a_production_choice_and_the_demo_risk_is_documented(
+    profile: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """identity and tenancy require an email notifier. The profile lets a
+    production operator select smtp, and says (in the file) that a mail-less
+    demo accepts ``log_notifier_in_prod``: mail is not delivered."""
+    text = (DEPLOY / profile).read_text(encoding="utf-8")
+    assert "log_notifier_in_prod" in text
+    assert "NOT delivered" in text
+    shell = {
+        **SHELL,
+        "NOTIFIER_BACKEND": "smtp",
+        "SMTP_HOST": "smtp.example.test",
+        "SMTP_FROM": "noreply@example.test",
+        "SANDLOOM_ACCEPTED_RISKS": "local_storage_in_prod,billing.fake_psp_in_prod",
+    }
+    for name, svc in _load(profile)["services"].items():
+        if "SANDLOOM_MODULES" not in (svc.get("environment") or {}):
+            continue
+        with monkeypatch.context() as mp:
+            cfg = _validate(_env(svc, shell), mp)
+            assert cfg.notifier_backend == "smtp", name
+            assert cfg.smtp_host == "smtp.example.test", name
+            assert not cfg.accepts_risk("log_notifier_in_prod"), name
+
+
+@pytest.mark.parametrize(
+    "profile", ["compose/monolith.yml", "compose/microservices.yml"]
+)
 def test_every_process_env_validates(
     profile: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -177,11 +214,46 @@ def test_every_process_env_validates(
             env = svc["environment"]
             assert "SANDLOOM_ACCEPTED_RISKS" in env, name
             if "sandloom_billing" in cfg.sandloom_modules:
-                assert cfg.accepts_risk("fake_psp_in_prod"), name
+                # a module risk is billing's own (ADR-0015): the id is accepted
+                # in the list the loader classifies, not by a kernel check
+                assert "billing.fake_psp_in_prod" in cfg.sandloom_accepted_risks, name
             if "sandloom_identity" in cfg.sandloom_modules:
                 # identity refuses to start in prod without a dedicated key.
                 assert ":?" in env.get("TWOFA_ENCRYPTION_KEY", ""), name
-                assert cfg.twofa_encryption_key, name
+                assert _env(svc, SHELL).get("TWOFA_ENCRYPTION_KEY"), name
+
+
+#: The composition root the framework's image and profiles boot (ADR-0012
+#: decision 3: the sandloom-standard distribution; sandloom.main is lean).
+STANDARD_ROOT = "sandloom_standard.main"
+
+
+@pytest.mark.parametrize(
+    "profile", ["compose/monolith.yml", "compose/microservices.yml"]
+)
+def test_every_process_names_the_standard_composition_root(profile: str) -> None:
+    """The API, worker, beat and migrate one-shots of a shipped profile all
+    boot ``sandloom_standard.main``: one composition per deployment."""
+    roots = {
+        name: (svc.get("environment") or {}).get("SANDLOOM_COMPOSITION_ROOT")
+        for name, svc in _load(profile)["services"].items()
+        if "SANDLOOM_MODULES" in (svc.get("environment") or {})
+    }
+    assert roots, profile
+    assert set(roots.values()) == {STANDARD_ROOT}, roots
+
+
+def test_the_image_boots_the_standard_composition_root() -> None:
+    """The image's default for every command (ENV) and its API (CMD, both
+    targets) name the standard root, so ``docker run <image> sandloom ...``
+    composes what the API serves."""
+    text = (DEPLOY / "docker/Dockerfile").read_text()
+    assert f"ENV SANDLOOM_COMPOSITION_ROOT={STANDARD_ROOT}" in text
+    commands = re.findall(r"^CMD (\[.*\])$", text, re.M)
+    assert len(commands) == 2, commands
+    for command in commands:
+        assert f"{STANDARD_ROOT}:app" in json.loads(command), command
+    assert "sandloom.main:app" not in text
 
 
 @pytest.mark.parametrize(
@@ -199,183 +271,6 @@ def test_worker_and_beat_use_framework_entrypoint(profile: str) -> None:
     assert not any(
         "sandloom_identity.tasks" in json.dumps(c) for c in commands.values()
     )
-
-
-def test_microservices_db_per_service_and_bindings() -> None:
-    services = _load("compose/microservices.yml")["services"]
-    http = {n: services[n] for n in HTTP_SERVICES}
-    dbs = {_env(s, SHELL)["DATABASE_URL"].rsplit("/", 1)[1] for s in http.values()}
-    assert len(dbs) == len(http) and {"sandloom_identity", "sandloom_billing"} <= dbs
-    created = services["db"]["environment"]["POSTGRES_MULTIPLE_DATABASES"].split()
-    assert set(created) == dbs
-
-    for name, svc in http.items():
-        env = _env(svc, SHELL)
-        assert env["EVENT_BUS_BACKEND"] == "streams"
-        assert ":?" in svc["environment"]["INTERNAL_API_TOKEN"]
-        # Its own migrate one-shot, against its own database, gates startup.
-        migrate = services[f"migrate-{name}"]
-        # It creates its database when missing (a service added to a stack
-        # whose volume init-databases.sh already ran on).
-        assert migrate["command"] == [
-            "sandloom",
-            "migrate",
-            "upgrade-all",
-            "--apply",
-            "--create-databases",
-        ]
-        assert _env(migrate, SHELL)["DATABASE_URL"] == env["DATABASE_URL"]
-        assert _env(migrate, SHELL)["SANDLOOM_MODULES"] == env["SANDLOOM_MODULES"]
-        assert svc["depends_on"][f"migrate-{name}"] == {
-            "condition": "service_completed_successfully"
-        }
-        # Bindings only point at OTHER services that provide the contract.
-        bindings = json.loads(env.get("SERVICE_BINDINGS") or "{}")
-        for contract, binding in bindings.items():
-            owner = _service_of(services, contract.split(".")[0])
-            assert owner != name
-            assert binding["base_url"] == f"http://{owner}:2222"
-
-    billing = json.loads(_env(http["billing"], SHELL)["SERVICE_BINDINGS"])
-    assert "tenancy.membership.v1" in billing
-
-
-def _service_of(services: dict[str, Any], short: str) -> str | None:
-    """The HTTP service whose SANDLOOM_MODULES include the module ``*.<short>``."""
-    for name in HTTP_SERVICES:
-        modules = json.loads(_env(services[name], SHELL)["SANDLOOM_MODULES"])
-        if any(module_name(m) == short for m in modules):
-            return name
-    return None
-
-
-SRC = Path(__file__).resolve().parents[3]
-_CONTRIBUTOR_RE = re.compile(
-    r"add_claims_contributor\(\s*\w+\s*(?:,\s*critical\s*=\s*(True|False))?\s*\)"
-)
-
-
-def _claims_contributor_criticality(module: str) -> bool | None:
-    """``sandloom_tenancy`` -> True/False (critical?) or None (contributes nothing).
-
-    Read statically from the module's ``register()`` source so the test does
-    not depend on booting every module.
-    """
-    init = SRC.joinpath(*module.split("."), "__init__.py")
-    matches = _CONTRIBUTOR_RE.findall(init.read_text())
-    if not matches:
-        return None
-    return any(flag == "True" for flag in matches)
-
-
-def test_token_issuer_binds_every_remote_claims_contributor() -> None:
-    """The issuer (the service loading identity) must collect the claims of
-    every claims-contributing module deployed in ANOTHER service, with the
-    same criticality as the contributor — otherwise tokens minted there
-    silently lack tenancy's ``tenant_ids`` / billing's subscription claims."""
-    services = _load("compose/microservices.yml")["services"]
-    http = {n: services[n] for n in HTTP_SERVICES}
-    modules = {
-        n: json.loads(_env(s, SHELL)["SANDLOOM_MODULES"]) for n, s in http.items()
-    }
-    issuers = [n for n, mods in modules.items() if "sandloom_identity" in mods]
-    assert issuers == ["identity"]
-    issuer = issuers[0]
-    bindings = json.loads(_env(http[issuer], SHELL).get("SERVICE_BINDINGS") or "{}")
-
-    contributors = 0
-    for name, mods in modules.items():
-        if name == issuer:
-            continue
-        for module in mods:
-            critical = _claims_contributor_criticality(module)
-            if critical is None:
-                continue
-            contributors += 1
-            short = module_name(module)
-            contract = f"{short}.claims.v1"
-            assert contract in bindings, (
-                f"{issuer} mints tokens but does not bind {contract} "
-                f"(deployed in {name})"
-            )
-            assert bindings[contract]["base_url"] == f"http://{name}:2222"
-            bound_critical = bindings[contract].get("critical", True) is not False
-            assert bound_critical is critical, (contract, bindings[contract])
-    # tenancy (critical) and billing (non-critical) both contribute claims.
-    assert contributors >= 2
-    assert _claims_contributor_criticality("sandloom_tenancy") is True
-    assert _claims_contributor_criticality("sandloom_billing") is False
-
-
-def _consumed_not_local(modules: list[str]) -> set[str]:
-    """Contracts the modules declare in ``consumes`` that they don't provide.
-
-    Loads the modules into a fresh, I/O-free facade (registration only) and
-    reads the loader's consumes preflight.
-    """
-    from fastapi import FastAPI
-
-    from sandloom.core.facade import CoreFacade
-    from sandloom.core.loader.plugin_loader import load_module_topology
-    from sandloom.core.schema.registry import InMemorySchemaRegistry
-
-    core = CoreFacade(app=FastAPI())
-    core.register_schema_registry(InMemorySchemaRegistry())
-    summary = load_module_topology(core, modules)
-    return {
-        entry["contract"]
-        for entries in summary.consumes.values()
-        for entry in entries
-        if entry["resolution"] != "local"
-    }
-
-
-def _deployed(services: dict[str, Any], contract: str, consumer: str) -> bool:
-    """Is the contract's provider deployed in some service? A consumed
-    contract whose provider module is not in the profile cannot be bound: that
-    is a warning (SANDLOOM-T003), not a topology the feature author must choose."""
-    if _service_of(services, contract.split(".")[0]) is not None:
-        return True
-    warnings.warn(
-        f"SANDLOOM-T003: {consumer} consumes {contract}, but its provider module is "
-        "not deployed in compose/microservices.yml (the binding is "
-        "missing there) — `sandloom add deploy <module> --service <name>` "
-        "adds it",
-        stacklevel=2,
-    )
-    return False
-
-
-def test_microservices_bindings_are_exactly_the_consumed_contracts(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Every service binds exactly what its modules consume and don't provide
-    (+ the issuer's remote ``<module>.claims.v1``) — no missing binding (it
-    would fail at startup / first use) and no stale one (dead coupling)."""
-    from sandloom.core.config.settings import settings
-
-    monkeypatch.setattr(settings, "module_load_entrypoints", False)
-    services = _load("compose/microservices.yml")["services"]
-    http = {n: services[n] for n in HTTP_SERVICES}
-    modules = {
-        n: json.loads(_env(s, SHELL)["SANDLOOM_MODULES"]) for n, s in http.items()
-    }
-    for name, mods in modules.items():
-        bindings = json.loads(_env(http[name], SHELL).get("SERVICE_BINDINGS") or "{}")
-        expected = {
-            contract
-            for contract in _consumed_not_local(mods)
-            if _deployed(services, contract, name)
-        }
-        if "sandloom_identity" in mods:  # the token issuer collects remote claims
-            for other, other_mods in modules.items():
-                if other == name:
-                    continue
-                for module in other_mods:
-                    if _claims_contributor_criticality(module) is not None:
-                        expected.add(f"{module_name(module)}.claims.v1")
-        assert set(bindings) == expected, (name, sorted(bindings), sorted(expected))
-    assert "tenancy.membership.v1" in _consumed_not_local(["sandloom_billing"])
 
 
 def test_init_script_is_mounted() -> None:
@@ -405,10 +300,8 @@ PARITY_KEYS = (
     "JWT_ISSUER",
     "JWT_AUDIENCE",
     "ACCESS_TOKEN_EXPIRE_MINUTES",
-    "REFRESH_TOKEN_EXPIRE_DAYS",
     "INTERNAL_API_TOKEN",
     "FRONTEND_URL",
-    "BILLING_DENY_ON_PAST_DUE",
     "NOTIFIER_BACKEND",
     "SMTP_HOST",
     "SMTP_PORT",
@@ -929,29 +822,6 @@ def test_rpc_allowlist_is_derived_from_bindings(
     assert allowed == allowlist_from_bindings(bindings)
 
 
-def test_every_service_keys_its_responses_and_callers_pin_providers(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """EVERY microservices process (providers such as tenancy included) holds
-    its own X25519 key, and every binding pins its provider's service id — so
-    every request authenticates and every response is keyed."""
-    from sandloom.core.rpc_binding import own_dh_key
-
-    procs = _app_processes("compose/microservices.yml")
-    ids = set()
-    for name, svc in procs.items():
-        with monkeypatch.context() as mp:
-            cfg = _validate(_env(svc, SHELL), mp)
-        own = own_dh_key(cfg)
-        assert own is not None and own.service_id == cfg.rpc_service_id, name
-        ids.add(cfg.rpc_service_id)
-        services = _load("compose/microservices.yml")["services"]
-        for contract, binding in cfg.service_bindings.items():
-            owner = _service_of(services, contract.split(".")[0])
-            assert binding.get("service_id") == owner, (name, contract)
-    assert ids == set(HTTP_SERVICES)
-
-
 def test_a_module_missing_from_the_microservices_profile_is_a_warning() -> None:
     """R2.6: a module the platform loads but the microservices profile does
     not deploy is reported (SANDLOOM-T003), never a forced topology choice for the
@@ -977,25 +847,6 @@ def test_a_module_missing_from_the_microservices_profile_is_a_warning() -> None:
 
 
 # ---- the split invariants an application's profile is checked with ---------
-
-
-def test_the_profile_passes_the_split_invariants_apps_are_checked_with() -> None:
-    """``sandloom test`` (schema & deploy) checks an application's profile with
-    :func:`profile_problems` (SANDLOOM-T014); the framework's own passes it."""
-    from sandloom.core.testing.deploy_profile import profile_problems
-
-    report = profile_problems(DEPLOY, served=["sandloom_identity", "sandloom_tenancy"])
-    assert report.problems == []
-    assert report.warnings == []
-
-
-def test_every_service_boots_alone_with_its_bindings() -> None:
-    """Each HTTP service's SANDLOOM_MODULES, with exactly its own environment,
-    boots as ``sandloom doctor`` boots a process (settings, startup preflight,
-    composition root, every consumed contract bound; no network)."""
-    from sandloom.core.testing.deploy_profile import boot_problems
-
-    assert boot_problems(DEPLOY, SHELL) == {name: [] for name in HTTP_SERVICES}
 
 
 def _broken(tmp_path: Path, edits: dict[str, tuple[str, str]]) -> Path:
@@ -1028,16 +879,6 @@ _TENANCY_ID = "  RPC_SERVICE_ID: tenancy\n"
         ),
         (
             {
-                "compose/microservices.yml": (
-                    '  SERVICE_BINDINGS: \'{"tenancy.membership.v1"',
-                    '  SERVICE_BINDINGS_X: \'{"tenancy.membership.v1"',
-                )
-            },
-            "billing: SERVICE_BINDINGS binds [], its modules need "
-            "['tenancy.membership.v1']",
-        ),
-        (
-            {
                 "gateway/nginx.conf": (
                     "        location / { return 404; }",
                     "        location / { proxy_pass http://identity; }",
@@ -1064,8 +905,23 @@ _TENANCY_ID = "  RPC_SERVICE_ID: tenancy\n"
             },
             "tenancy: does not wait for migrate-tenancy to complete",
         ),
+        (
+            {
+                "compose/microservices.yml": (
+                    _TENANCY_ID,
+                    _TENANCY_ID + "  SANDLOOM_COMPOSITION_ROOT: sandloom.main\n",
+                )
+            },
+            "SANDLOOM_COMPOSITION_ROOT differs between processes",
+        ),
     ],
-    ids=["cache-url", "binding", "internal-route", "issuer-only", "migrate"],
+    ids=[
+        "cache-url",
+        "internal-route",
+        "issuer-only",
+        "migrate",
+        "composition-root",
+    ],
 )
 def test_the_split_invariants_report_what_breaks_them(
     tmp_path: Path, edits: dict[str, tuple[str, str]], expected: str
@@ -1073,6 +929,35 @@ def test_the_split_invariants_report_what_breaks_them(
     from sandloom.core.testing.deploy_profile import profile_problems
 
     problems = profile_problems(_broken(tmp_path, edits)).problems
+    assert any(expected in p and "SANDLOOM-T014" in p for p in problems), problems
+
+
+@pytest.mark.parametrize(
+    "edit,expected",
+    [
+        (
+            (
+                "  SANDLOOM_SERVICE_NAME: tenancy\n",
+                "  SANDLOOM_SERVICE_NAME: identity\n",
+            ),
+            "SANDLOOM_SERVICE_NAME='identity' is set in",
+        ),
+        (
+            ("  SANDLOOM_SERVICE_NAME: tenancy\n", ""),
+            "tenancy: SANDLOOM_SERVICE_NAME is missing",
+        ),
+    ],
+    ids=["duplicate", "missing"],
+)
+def test_the_split_profile_names_each_service_once(
+    tmp_path: Path, edit: tuple[str, str], expected: str
+) -> None:
+    """Two services of one profile with one ``SANDLOOM_SERVICE_NAME`` would
+    share the revocation applier's group (ADR-0012 decision 5): T014."""
+    from sandloom.core.testing.deploy_profile import profile_problems
+
+    broken = _broken(tmp_path, {"compose/microservices.yml": edit})
+    problems = profile_problems(broken).problems
     assert any(expected in p and "SANDLOOM-T014" in p for p in problems), problems
 
 

@@ -119,6 +119,18 @@ class Requirement(abc.ABC):
         """
         return frozenset()
 
+    def needs_request_session(self) -> bool:
+        """True when evaluating this requirement may use the request's
+        database session (``ctx.db``): a resource loader, a fact read from a
+        local projection, a live adapter.
+
+        ``require()`` opens a session (``get_db``) only for a policy that
+        answers True (ADR-0014 K6). Default: any tier above claims. A
+        contract-anchored check says False: its provider runs the call in its
+        own unit, never in the caller's session.
+        """
+        return self.tier > TIER_CLAIM
+
     def risks(self) -> frozenset[str]:
         """The framework risks a gate enforcing this requirement carries
         (ADR-0009 item 6): ``{"admin"}`` for an admin role, else none. An
@@ -133,6 +145,15 @@ class Requirement(abc.ABC):
 
     def __invert__(self) -> Requirement:
         return Not(self)
+
+
+#: Status order of indeterminate branches of a disjunction (ADR-0014
+#: decision 3): what a client can fix soonest comes first.
+_INDETERMINATE_STATUS_RANK = {401: 0, 503: 1, 501: 2}
+
+
+def _indeterminate_rank(decision: AccessDecision) -> int:
+    return _INDETERMINATE_STATUS_RANK.get(decision.http_status, 3)
 
 
 def _flatten(kind: type, parts: tuple[Requirement, ...]) -> list[Requirement]:
@@ -171,6 +192,9 @@ class And(Requirement):
     def mentions_resource(self) -> bool:
         return any(p.mentions_resource() for p in self.parts)
 
+    def needs_request_session(self) -> bool:
+        return any(p.needs_request_session() for p in self.parts)
+
     def org_params(self) -> frozenset[str]:
         return frozenset().union(*(p.org_params() for p in self.parts))
 
@@ -188,7 +212,8 @@ class Or(Requirement):
     """Disjunction: any operand may hold. Short-circuits on first allow.
 
     Only a genuinely satisfied operand allows — and one that does allows even
-    if a sibling is indeterminate (``Role("admin") | Entitled("x")`` admits an
+    if a sibling is indeterminate (``Role("admin") | Entitled("x", owner="m")``
+    admits an
     admin while the ``x`` fact is unregistered): the grant comes from the
     satisfied operand, never from inverting or guessing the broken one. When
     none allows and at least one operand was indeterminate, the disjunction is
@@ -211,9 +236,12 @@ class Or(Requirement):
             if decision.allowed:
                 return decision
             denials.append(decision)
-        for decision in denials:
-            if decision.indeterminate:
-                return decision
+        indeterminate = [d for d in denials if d.indeterminate]
+        if indeterminate:
+            # ADR-0014 decision 3: by what the client can fix without an
+            # operator: 401 (a refresh), then 503 (a retry), then 501, then
+            # any other; the first of equal rank.
+            return min(indeterminate, key=_indeterminate_rank)
         # All operands definitively failed. If they agree on a category, keep
         # it; otherwise the disjunction is a generic forbidden.
         categories = {d.category for d in denials}
@@ -227,6 +255,9 @@ class Or(Requirement):
 
     def mentions_resource(self) -> bool:
         return any(p.mentions_resource() for p in self.parts)
+
+    def needs_request_session(self) -> bool:
+        return any(p.needs_request_session() for p in self.parts)
 
     def org_params(self) -> frozenset[str]:
         return frozenset().union(*(p.org_params() for p in self.parts))
@@ -245,7 +276,8 @@ class Not(Requirement):
     """Negation of a single requirement.
 
     Negates only a *definite* answer: an indeterminate inner decision is
-    returned unchanged (deny), so ``~Entitled("account.suspended")`` never
+    returned unchanged (deny), so
+    ``~Entitled("account.suspended", owner="accounts")`` never
     allows because the fact is unregistered or its service is down.
     """
 
@@ -271,6 +303,9 @@ class Not(Requirement):
 
     def mentions_resource(self) -> bool:
         return self.inner.mentions_resource()
+
+    def needs_request_session(self) -> bool:
+        return self.inner.needs_request_session()
 
     def org_params(self) -> frozenset[str]:
         return self.inner.org_params()

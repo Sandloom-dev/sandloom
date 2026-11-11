@@ -51,14 +51,6 @@ def installed(monkeypatch: pytest.MonkeyPatch):
     module_names.refresh_installed_modules()
 
 
-def test_the_installed_standard_modules_are_discovered() -> None:
-    names = {m.name: m.path for m in module_names.installed_modules()}
-    assert names["identity"] == "sandloom_identity"
-    assert names["tenancy"] == "sandloom_tenancy"
-    assert names["billing"] == "sandloom_billing"
-    assert module_name("sandloom_identity") == "identity"
-
-
 def test_module_name_is_the_entry_point_name_else_the_last_segment(installed) -> None:
     installed(_EP("crm", "acme_crm_module", "acme-crm"))
     assert module_name("acme_crm_module") == "crm"
@@ -154,39 +146,17 @@ def test_the_loader_refuses_an_ambiguous_module_before_loading_anything(
     assert ModuleLoadSummary  # the refusal happens before any summary exists
 
 
-def test_configuration_names_installed_modules_by_entry_point_name() -> None:
-    from sandloom.core.testing.boot import load_topology
-
-    _core, summary = load_topology(["identity", "tenancy"], exact=True)
-    assert [d.name for d in summary.loaded] == ["sandloom_identity", "sandloom_tenancy"]
-    assert summary.explicit == ["sandloom_identity", "sandloom_tenancy"]
-
-
 def test_the_kernel_names_no_module() -> None:
-    """G-KERNEL-13: no default module list in the kernel's settings, app
-    factory, loader or standard root: installed modules are discovered."""
-    import ast
-    from pathlib import Path
+    """G-KERNEL-13: no default module list in the kernel's settings; the
+    standard root composes whatever is installed.
 
+    Which names the shipped kernel may hold is the kernel-edge check's
+    (SANDLOOM-T017, ``tests/architecture/kernel_edges.py`` over
+    ``kernel_edges.yml``): it scans every kernel directory, not only the
+    settings, app factory, loader and ``main``, and replaced the literal scan
+    this test carried (ADR-0012 decision 2)."""
     from sandloom.core.config.settings import Settings
 
-    root = Path(__file__).resolve().parents[2]  # src/sandloom
-    names = {"identity", "tenancy", "billing"}
-    paths = {f"sandloom_{n}" for n in names} | {f"sandloom.{n}" for n in names}
-    sources = [
-        *sorted((root / "core" / "config").glob("*.py")),
-        *sorted((root / "core" / "app_factory").glob("*.py")),
-        root / "core" / "loader" / "plugin_loader.py",
-        root / "main.py",
-    ]
-    for source in sources:
-        tree = ast.parse(source.read_text(encoding="utf-8"))
-        literals = {
-            node.value
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Constant) and isinstance(node.value, str)
-        }
-        assert not (literals & (names | paths)), (source, literals & (names | paths))
     for field in ("sandloom_modules", "module_required"):
         factory = Settings.model_fields[field].default_factory
         assert factory is not None and factory() == []  # type: ignore[call-arg]

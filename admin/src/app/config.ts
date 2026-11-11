@@ -1,3 +1,4 @@
+import { consoleAuth, type ConsoleAuth } from '@/api/auth';
 import { parseManifest } from '@/schema/manifest';
 import { widgetNames } from '@/features/widgets';
 import type { AdminManifest } from '@/schema/types';
@@ -7,6 +8,7 @@ export interface AdminConfig {
   manifest: AdminManifest;
   /** Served outside production: keep the session across a reload of the tab. */
   development: boolean;
+  auth: ConsoleAuth;
 }
 // Static same-origin bootstrap files, read before any API session exists.
 const bootstrapFile = (name: string) =>
@@ -37,7 +39,6 @@ export async function loadConfig(): Promise<AdminConfig> {
     config && typeof config === 'object' && 'modules' in config ? config.modules : null;
   if (
     !Array.isArray(modules) ||
-    !modules.includes('identity') ||
     modules.some((m) => typeof m !== 'string' || !manifest.modules.includes(m)) ||
     new Set(modules).size !== modules.length
   )
@@ -48,7 +49,12 @@ export async function loadConfig(): Promise<AdminConfig> {
     typeof config === 'object' &&
     'development' in config &&
     config.development === true;
+  const raw = config as Record<string, unknown>;
+  if (typeof raw.issuer !== 'string' || !names.includes(raw.issuer))
+    throw new Error('Invalid admin issuer configuration');
+  const auth = consoleAuth({ ...(raw.console_auth as object), login: raw.login_entry });
   return {
+    auth,
     development,
     modules: new Set([...names, 'core']),
     manifest: {

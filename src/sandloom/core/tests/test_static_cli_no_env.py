@@ -50,25 +50,6 @@ def test_static_cli_runs_with_empty_environment(
     assert proc.stdout.strip()
 
 
-@pytest.mark.slow
-@pytest.mark.subprocess_probe
-def test_sandloom_check_runs_against_a_manifest_with_empty_environment(
-    tmp_path: Path,
-) -> None:
-    """A real ``sandloom check`` run (manifest + analyzers) needs no env either."""
-    proc = _run_empty_env(
-        [
-            str(_BIN / "sandloom"),
-            "check",
-            "--rules",
-            str(_BACKEND / "architecture_rules.yml"),
-        ],
-        tmp_path,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "sandloom check: OK" in proc.stdout
-
-
 @pytest.mark.subprocess_probe
 def test_importing_static_submodules_does_not_build_settings(tmp_path: Path) -> None:
     code = (

@@ -1,0 +1,183 @@
+# kb-poc-trust TA-0 control transcript (2026-11-08T14:33:16Z): same patched kernel, claim_trust_mode=ta0 (M1, M2, one platform admission on raw claims; no view, no cpv, no sealed mint)
+
+######## T1-mono   root=ta0   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-1 ADMIN: mint 200 claims={"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": []}
+  T-1 ADMIN GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-1 ADMIN GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-1 ADMIN GET /api/v1/shop/role-and-perm: 200 {"ok":"Role(admin) & Perm"}
+  T-1 ADMIN GET /api/v1/shop/platform: 200 {"ok":"platform admin"}
+  T-1 ADMIN GET /api/v1/platform/shop/services: 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","category":"infrastructure"},{"id":"db","status":"ok","category":"infrastructure"},{"id":"eventbus","status":"ok","category":"infrastructure"},{"id":"infra...
+  T-1 ADMIN (grant T_A) /shop/tenant no header: 200 {"tenant":"T_A"}
+  T-1 ADMIN (grant T_A) /shop/tenant X-Tenant-Id T_A: 200 {"tenant":"T_A"}
+  T-1 ADMIN (grant T_A) /shop/tenant X-Tenant-Id T_FOREIGN: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  T-1 ADMIN (grant T_A) /notes/items X-Tenant-Id T_A: 200 {"rls_tenant_setting":"T_A","bodies":["note of A"]}
+  T-1 USER: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": [], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": []}
+  T-1 USER GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-1 USER GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-1 USER GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-1 USER GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-1 USER GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+
+######## T2-mono   root=ta0   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-2 USER, forged writes {"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": ["0f000000-0000-4000-8000-00000000000f"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"]}
+  T-2 USER GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-2 USER GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-2 USER GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-2 USER GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-2 USER GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-2 USER /shop/tenant no header: 200 {"tenant":"T_A"}
+  T-2 USER /shop/tenant X-Tenant-Id T_A: 200 {"tenant":"T_A"}
+  T-2 USER /shop/tenant X-Tenant-Id T_FOREIGN: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  T-2 USER /notes/items X-Tenant-Id T_A: 200 {"rls_tenant_setting":"T_A","bodies":["note of A"]}
+  T-2 USER, forged writes {"permissions": ["perm.poc.write"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"]}
+  T-2 USER, forged writes {"tenant_ids": ["0f000000-0000-4000-8000-00000000000f"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"]}
+  T-2 USER, forged writes {"claims_sources": ["test_identity"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"]}
+  T-2 USER, forged writes {"cpv": "1:forged"}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"]}
+  T-2 USER, forged writes {"tenant_id": "0f000000-0000-4000-8000-00000000000f"}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"]}
+  T-2 USER, forged writes {"loyalty_tier": "gold"}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  T-2 ERROR lines naming forged (new): 6
+  T-2 log: sandloom.core.facade: claims contributor 'forged' wrote the claim 'roles' (a protected claim assigned to 'test_identity'); its whole contribution is dropped [request_id=3ff2cb52-3088-41fa-ad1e-c4de134aa7e6]
+  T-2 log: sandloom.core.facade: claims contributor 'forged' wrote the claim 'permissions' (a protected claim assigned to 'test_identity'); its whole contribution is dropped [request_id=944bddf9-4f50-489e-a384-d31d065248f2]
+  T-2 metric: sandloom_facade_counter_total{name="claims_contributor_violations_total"} 6.0
+
+######## T9-mono   root=ta0   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/not-role: 403 {"detail":"requires NOT role 'admin'","code":"negation_failed"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/platform: 200 {"ok":"platform admin"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/platform/shop/services: 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","category":"infrastructure"},{"id":"db","status":"ok","category":"infrastructure"},{"id":"eventbus","status":"ok","category":"infrastructure"},{"id":"infra...
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/not-role: 403 {"detail":"requires NOT role 'admin'","code":"negation_failed"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/not-role: 403 {"detail":"requires NOT role 'admin'","code":"negation_failed"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/platform: 200 {"ok":"platform admin"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/platform/shop/services: 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","category":"infrastructure"},{"id":"db","status":"ok","category":"infrastructure"},{"id":"eventbus","status":"ok","category":"infrastructure"},{"id":"infra...
+  T-9 after refresh (re-mint) ADMIN: mint 200 claims={"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": [], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": []}
+  T-9 refreshed ADMIN GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 refreshed ADMIN GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-9 refreshed ADMIN GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-9 refreshed ADMIN GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 refreshed ADMIN GET /api/v1/shop/not-role: 403 {"detail":"requires NOT role 'admin'","code":"negation_failed"}
+  T-9 refreshed ADMIN GET /api/v1/shop/platform: 200 {"ok":"platform admin"}
+  T-9 refreshed ADMIN GET /api/v1/platform/shop/services: 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","category":"infrastructure"},{"id":"db","status":"ok","category":"infrastructure"},{"id":"eventbus","status":"ok","category":"infrastructure"},{"id":"infra...
+
+######## T9-split   root=ta0   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/not-role: 403 {"detail":"requires NOT role 'admin'","code":"negation_failed"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/shop/platform: 200 {"ok":"platform admin"}
+  T-9 L1 roles+claims_sources, no failed (legacy issuer) GET /api/v1/platform/shop/services: 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","category":"infrastructure"},{"id":"db","status":"ok","category":"infrastructure"},{"id":"eventbus","status":"ok","category":"infrastructure"},{"id":"infra...
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/not-role: 403 {"detail":"requires NOT role 'admin'","code":"negation_failed"}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-9 L2 roles+permissions, no provenance GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/not-role: 403 {"detail":"requires NOT role 'admin'","code":"negation_failed"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/shop/platform: 200 {"ok":"platform admin"}
+  T-9 L3 roles+claims_sources+failed=[] (skipped collect_claims) GET /api/v1/platform/shop/services: 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","category":"infrastructure"},{"id":"db","status":"ok","category":"infrastructure"},{"id":"eventbus","status":"ok","category":"infrastructure"},{"id":"infra...
+  T-9 after refresh (re-mint) ADMIN: mint 200 claims={"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": [], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": []}
+  T-9 refreshed ADMIN GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 refreshed ADMIN GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-9 refreshed ADMIN GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-9 refreshed ADMIN GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 refreshed ADMIN GET /api/v1/shop/not-role: 403 {"detail":"requires NOT role 'admin'","code":"negation_failed"}
+  T-9 refreshed ADMIN GET /api/v1/shop/platform: 200 {"ok":"platform admin"}
+  T-9 refreshed ADMIN GET /api/v1/platform/shop/services: 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","category":"infrastructure"},{"id":"db","status":"ok","category":"infrastructure"},{"id":"eventbus","status":"ok","category":"infrastructure"},{"id":"infra...
+
+######## T10   root=ta0   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-10 ADMIN minted by P1 (map A): mint 200 claims={"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": [], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": []}
+  T-10 at P1 (map A) GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-10 at P1 (map A) GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-10 at P1 (map A) GET /api/v1/shop/role-and-perm: 200 {"ok":"Role(admin) & Perm"}
+  T-10 at P3 (map B) GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-10 at P3 (map B) GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-10 at P3 (map B) GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-10 at P3 (map B) GET /api/v1/shop/role-and-perm: 200 {"ok":"Role(admin) & Perm"}
+  T-10 at P3 (map B) GET /api/v1/shop/platform: 200 {"ok":"platform admin"}
+  T-10 at P3 again GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-10 T10-p1 log: sandloom.app: claim trust: cpv=1:8264c48c7229 authorities={'roles': 'pocapp.modules.test_identity', 'permissions': 'pocapp.modules.test_identity', 'tenant_ids': 'pocapp.modules.grants'} test_authority=False
+  T-10 T10-p3 log: sandloom.app: claim trust: cpv=1:aa015457855a authorities={'roles': 'pocapp.modules.grants', 'permissions': 'pocapp.modules.test_identity', 'tenant_ids': 'pocapp.modules.grants'} test_authority=False
+
+######## T11-mono   root=ta0   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-11 create_access_token({"roles": ["admin"], "claims_sources": ["test_identity"], "claims_sources_failed": []}): TOKEN MINTED
+  T-11 hand-minted GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-11 hand-minted GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-11 hand-minted GET /api/v1/shop/role-and-perm: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-11 hand-minted GET /api/v1/shop/platform: 200 {"ok":"platform admin"}
+  T-11 hand-minted GET /api/v1/platform/shop/services: 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","category":"infrastructure"},{"id":"db","status":"ok","category":"infrastructure"},{"id":"eventbus","status":"ok","category":"infrastructure"},{"id":"infra...
+  T-11 create_access_token({"roles": ["admin"]}): TOKEN MINTED
+  T-11 hand-minted GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-11 hand-minted GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-11 hand-minted GET /api/v1/shop/role-and-perm: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-11 hand-minted GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 hand-minted GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 create_access_token({"cpv": "1:anything"}): TOKEN MINTED
+  T-11 hand-minted GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-11 hand-minted GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-11 hand-minted GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-11 hand-minted GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 hand-minted GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 create_access_token({"tenant_ids": ["0a000000-0000-4000-8000-00000000000a"]}): TOKEN MINTED
+  T-11 hand-minted GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-11 hand-minted GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-11 hand-minted GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-11 hand-minted GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 hand-minted GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 create_access_token({"email": "x@example.com"}): TOKEN MINTED
+  T-11 hand-minted GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-11 hand-minted GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-11 hand-minted GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-11 hand-minted GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 hand-minted GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 create_service_token({"roles": ["admin"]}): TOKEN MINTED
+  T-11 service token GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-11 service token GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-11 service token GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-11 service token GET /api/v1/shop/role-and-perm: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-11 service token GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 service token GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 service token /shop/tenant X-Tenant-Id T_A: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  T-11 create_service_token({"tenant_id": "0a000000-0000-4000-8000-00000000000a"}): TOKEN MINTED
+  T-11 service token GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-11 service token GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-11 service token GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-11 service token GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-11 service token GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 service token GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 service token /shop/tenant X-Tenant-Id T_A: 200 {"tenant":"T_A"}
+  T-11 create_service_token({}): TOKEN MINTED
+  T-11 service token GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-11 service token GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-11 service token GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  T-11 service token GET /api/v1/shop/role-and-perm: 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-11 service token GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 service token GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  T-11 service token /shop/tenant X-Tenant-Id T_A: 403 {"detail":"tenant is not authorized by the access token","code":null}
+
+######## T13-mono   root=ta0   kernel: $SCRATCH/venv-kernel/lib/python3.12/site-packages/sandloom
+  T-13 USER, forged writes roles=admin: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": [], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": ["forged"]}
+  T-13 forged Role(admin): 403 {"detail":"requires role 'admin'","code":"Role"}
+  T-13 platform admin, roles not from the authority: 403 {"detail":"Platform administrator role required","code":null}
+  T-13 kernel platform API, same: 403 {"detail":"Platform administrator role required","code":null}
+  T-13 ~Entitled(missing.fact), USER: 501 {"detail":"access fact 'missing.fact' is not registered and no bound <owner>.facts.v1 contract describes it","code":"fact_unregistered"}
+  T-13 ADMIN (trusted roles): mint 200 claims={"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": [], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  T-13 Role(admin) | Entitled(missing.fact): 200 {"ok":"Role(admin) | Entitled(missing.fact)"}
+  T-13 ~Entitled(missing.fact), ADMIN: 501 {"detail":"access fact 'missing.fact' is not registered and no bound <owner>.facts.v1 contract describes it","code":"fact_unregistered"}

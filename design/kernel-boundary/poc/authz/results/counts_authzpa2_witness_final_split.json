@@ -1,0 +1,354 @@
+{
+ "topology": "split",
+ "m": 20,
+ "windows": {
+  "bound.orgrole_and_subactive first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 12.0,
+    "postgres": 88.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "SELECT billing_customers.id, billing_customers.stripe_customer_id, billing_customers.user_id, billing_customers.organization_id ",
+     "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL",
+     "COMMIT;",
+     "BEGIN;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT billing_operation_intents.id, billing_operation_intents.operation, billing_operation_intents.status, billing_operation_intents.customer_id, billing_opera",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "COMMIT;",
+     "INSERT INTO billing_operation_intents (id, operation, status, customer_id, tenant_type, tenant_id, actor_id, request_key, params_digest, price_id, authorized_ve",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT pg_catalog.pg_class.relname ",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "DELETE FROM wsa_risk_probe",
+     "SELECT billing_operation_intents.id, billing_operation_intents.operation, billing_operation_intents.status, billing_operation_intents.customer_id, billing_opera",
+     "COMMIT;",
+     "COMMIT;",
+     "DELETE FROM wsa_risk_ledger",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "COMMIT;",
+     "BEGIN;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "COMMIT;",
+     "UPDATE billing_customers SET stripe_customer_id=$1::VARCHAR WHERE billing_customers.id = $2::UUID AND billing_customers.stripe_customer_id IS NULL RETURNING bil",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "COMMIT;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "COMMIT;",
+     "BEGIN;",
+     "BEGIN;",
+     "SELECT count(*) AS count_1 ",
+     "ROLLBACK;",
+     "UPDATE billing_operation_intents SET status=$1::VARCHAR, authorized_version=$2::BIGINT, psp_session_id=$3::VARCHAR, psp_session_url=$4::VARCHAR, issued_at=clock",
+     "COMMIT;",
+     "BEGIN;",
+     "SELECT laws_saga_effects.method, laws_saga_effects.operation_key, laws_saga_effects.amount ",
+     "ROLLBACK;",
+     "BEGIN;",
+     "BEGIN;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT billing_operation_intents.id, billing_operation_intents.operation, billing_operation_intents.status, billing_operation_intents.customer_id, billing_opera",
+     "INSERT INTO saga_instances (id, saga_type, definition_version, saga_id, tenant_id, status, step_index, direction, resolving, attempt, last_outcome, step_first_a",
+     "ROLLBACK;",
+     "INSERT INTO contract_command_log (dedupe_key, contract, tenant_id, args_digest, status, result, effects, created_at, expires_at) VALUES ($1::VARCHAR, $2::VARCHA",
+     "INSERT INTO outbox_messages (id, channel, schema_version, payload, trace_id, emitted_at, delivery_attempts) SELECT * FROM unnest(CAST($1 AS UUID[]), CAST($2 AS ",
+     "COMMIT;",
+     "BEGIN;",
+     "SELECT billing_customers.stripe_customer_id ",
+     "UPDATE outbox_messages SET delivered_at=$1::TIMESTAMP WITHOUT TIME ZONE, last_error=$2::VARCHAR WHERE outbox_messages.id = ANY ($3::UUID[]) AND outbox_messages.",
+     "INSERT INTO wsa_risk_probe (v) VALUES ($1::VARCHAR) RETURNING wsa_risk_probe.id",
+     "ROLLBACK;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "BEGIN;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "UPDATE contract_command_log SET status=$1::VARCHAR, result=$2::VARCHAR, effects=$3::VARCHAR, expires_at=$4::TIMESTAMP WITHOUT TIME ZONE WHERE contract_command_l",
+     "COMMIT;",
+     "INSERT INTO billing_stripe_events (event_id, status) VALUES ($1::VARCHAR, $2::VARCHAR) ON CONFLICT (event_id) DO NOTHING RETURNING billing_stripe_events.id",
+     "COMMIT;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL",
+     "SAVEPOINT sa_savepoint_1",
+     "BEGIN;",
+     "BEGIN;",
+     "INSERT INTO saga_steps (instance_id, step, direction, saga_type, tenant_id, status, attempts, operation_key, first_attempt_at) VALUES ($1::UUID, $2::VARCHAR, $3",
+     "COMMIT;",
+     "SELECT billing_customers.id, billing_customers.stripe_customer_id, billing_customers.user_id, billing_customers.organization_id ",
+     "BEGIN;",
+     "SELECT billing_subscriptions.id, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_subscription_id, billing_subscr",
+     "INSERT INTO audit_log (id, occurred_at, actor_id, actor_type, action, resource_type, resource_id, data, request_id, trace_id) SELECT * FROM unnest(CAST($1 AS UU",
+     "COMMIT;",
+     "INSERT INTO contract_command_log (dedupe_key, contract, tenant_id, args_digest, status, result, effects, created_at, expires_at) VALUES ($1::VARCHAR, $2::VARCHA",
+     "INSERT INTO laws_saga_effects (method, operation_key, amount, refunds) VALUES ($1::VARCHAR, $2::VARCHAR, $3::INTEGER, $4::VARCHAR) RETURNING laws_saga_effects.i",
+     "SELECT billing_operation_intents.id, billing_operation_intents.operation, billing_operation_intents.status, billing_operation_intents.customer_id, billing_opera",
+     "BEGIN;",
+     "UPDATE contract_command_log SET status=$1::VARCHAR, result=$2::VARCHAR, effects=$3::VARCHAR, expires_at=$4::TIMESTAMP WITHOUT TIME ZONE WHERE contract_command_l",
+     "COMMIT;",
+     "SELECT billing_prices.id ",
+     "SELECT * FROM wsa_risk_probe ORDER BY id",
+     "INSERT INTO saga_steps (instance_id, step, direction, saga_type, tenant_id, status, outcome, attempts, operation_key, first_attempt_at, last_attempt_at, last_du",
+     "ROLLBACK;",
+     "SELECT billing_subscriptions.id ",
+     "UPDATE saga_instances SET saga_type=$1::VARCHAR, definition_version=$2::INTEGER, saga_id=$3::VARCHAR, tenant_id=$4::UUID, status=$5::VARCHAR, step_index=$6::INT",
+     "BEGIN;",
+     "INSERT INTO billing_subscriptions (customer_id, price_id, stripe_subscription_id, status, current_period_end, trial_end, canceled_at, cancel_at_period_end, last",
+     "INSERT INTO outbox_messages (id, channel, schema_version, payload, trace_id, emitted_at, delivery_attempts) SELECT * FROM unnest(CAST($1 AS UUID[]), CAST($2 AS ",
+     "SELECT action, data FROM audit_log WHERE actor_id = $1 ORDER BY id",
+     "COMMIT;"
+    ],
+    "kb_provider": [
+     "BEGIN;",
+     "select pg_catalog.version()",
+     "select current_schema()",
+     "show transaction isolation level",
+     "show standard_conforming_strings",
+     "ROLLBACK;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db0": 3.0,
+    "db3": 2.0
+   },
+   "redis_sample": {
+    "db0": [
+     "PING",
+     "CLIENT",
+     "CLIENT"
+    ],
+    "db3": [
+     "SELECT",
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 4.0,
+   "rpc_sample": [
+    "GET /_sandloom/rpc/tenancy.membership.v1 200",
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "GET /_sandloom/rpc/billing.entitlements.v1 200",
+    "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+   ]
+  },
+  "bound.orgrole_and_subactive steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 6.0,
+    "postgres": 12.95
+   },
+   "pg_sample": {
+    "postgres": [
+     "COMMIT;",
+     "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL",
+     "SELECT setval(CAST(format('%I.%I', schemaname, sequencename) AS regclass), start_value, false) FROM pg_sequences WHERE last_value IS NOT NULL AND CAST(format('%",
+     "INSERT INTO saga_steps (instance_id, step, direction, saga_type, tenant_id, status, outcome, attempts, operation_key, first_attempt_at, last_attempt_at, last_du",
+     "BEGIN;",
+     "COMMIT;",
+     "UPDATE saga_instances SET saga_type=$1::VARCHAR, definition_version=$2::INTEGER, saga_id=$3::VARCHAR, tenant_id=$4::UUID, status=$5::VARCHAR, step_index=$6::INT",
+     "COMMIT;",
+     "SET LOCAL row_security = off",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "SET LOCAL lock_timeout = '30s'"
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 2.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+   ]
+  },
+  "bound.member first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0,
+    "postgres": 14.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT setval(CAST(format('%I.%I', schemaname, sequencename) AS regclass), start_value, false) FROM pg_sequences WHERE last_value IS NOT NULL AND CAST(format('%",
+     "COMMIT;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "BEGIN;",
+     "INSERT INTO contract_command_log (dedupe_key, contract, tenant_id, args_digest, status, result, effects, created_at, expires_at) VALUES ($1::VARCHAR, $2::VARCHA",
+     "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL",
+     "SELECT coalesce(sum(laws_saga_effects.amount), $1::INTEGER) AS coalesce_1 ",
+     "INSERT INTO laws_saga_effects (method, operation_key, amount, refunds) VALUES ($1::VARCHAR, $2::VARCHAR, $3::INTEGER, $4::VARCHAR) RETURNING laws_saga_effects.i",
+     "BEGIN;",
+     "UPDATE contract_command_log SET status=$1::VARCHAR, result=$2::VARCHAR, effects=$3::VARCHAR, expires_at=$4::TIMESTAMP WITHOUT TIME ZONE WHERE contract_command_l",
+     "COMMIT;",
+     "INSERT INTO saga_steps (instance_id, step, direction, saga_type, tenant_id, status, outcome, attempts, operation_key, first_attempt_at, last_attempt_at, last_du",
+     "UPDATE saga_instances SET saga_type=$1::VARCHAR, definition_version=$2::INTEGER, saga_id=$3::VARCHAR, tenant_id=$4::UUID, status=$5::VARCHAR, step_index=$6::INT"
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+   ]
+  },
+  "bound.member steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0,
+    "postgres": 7.2
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "COMMIT;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "BEGIN;",
+     "INSERT INTO contract_command_log (dedupe_key, contract, tenant_id, args_digest, status, result, effects, created_at, expires_at) VALUES ($1::VARCHAR, $2::VARCHA",
+     "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL"
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+   ]
+  },
+  "bound.admin_inactive first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 6.0,
+    "postgres": 15.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SAVEPOINT sa_savepoint_2",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "INSERT INTO tenancy_invitations (id, organization_id, email, role, token_hash, invited_by, expires_at, accepted_at, revoked_at) VALUES ($1::UUID, $2::UUID, $3, ",
+     "BEGIN;",
+     "INSERT INTO contract_command_log (dedupe_key, contract, tenant_id, args_digest, status, result, effects, created_at, expires_at) VALUES ($1::VARCHAR, $2::VARCHA",
+     "RELEASE SAVEPOINT sa_savepoint_2",
+     "SELECT contract_command_log.args_digest, contract_command_log.status, contract_command_log.result, contract_command_log.effects ",
+     "ROLLBACK;",
+     "SELECT tenancy_invitations.id, tenancy_invitations.organization_id, tenancy_invitations.email, tenancy_invitations.role, tenancy_invitations.token_hash, tenancy",
+     "INSERT INTO saga_steps (instance_id, step, direction, saga_type, tenant_id, status, outcome, attempts, operation_key, first_attempt_at, last_attempt_at, last_du",
+     "UPDATE saga_instances SET saga_type=$1::VARCHAR, definition_version=$2::INTEGER, saga_id=$3::VARCHAR, tenant_id=$4::UUID, status=$5::VARCHAR, step_index=$6::INT",
+     "COMMIT;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, "
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b002', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 2.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+   ]
+  },
+  "bound.admin_inactive steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 6.0,
+    "postgres": 13.1
+   },
+   "pg_sample": {
+    "postgres": [
+     "INSERT INTO tenancy_members (id, organization_id, user_id, role) VALUES ($1::UUID, $2::UUID, $3::UUID, $4::VARCHAR) RETURNING tenancy_members.created_at",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "SELECT tenancy_organizations.id, tenancy_organizations.name, tenancy_organizations.slug, tenancy_organizations.owner_id, tenancy_organizations.is_active, tenanc",
+     "INSERT INTO saga_steps (instance_id, step, direction, saga_type, tenant_id, status, outcome, attempts, operation_key, first_attempt_at, last_attempt_at, last_du",
+     "INSERT INTO outbox_messages (id, channel, schema_version, payload, trace_id, emitted_at, delivery_attempts) SELECT * FROM unnest(CAST($1 AS UUID[]), CAST($2 AS ",
+     "UPDATE saga_instances SET saga_type=$1::VARCHAR, definition_version=$2::INTEGER, saga_id=$3::VARCHAR, tenant_id=$4::UUID, status=$5::VARCHAR, step_index=$6::INT",
+     "COMMIT;",
+     "INSERT INTO tenancy_member_versions (organization_id, user_id, version) VALUES ($1::UUID, $2::UUID, $3::BIGINT) ON CONFLICT (organization_id, user_id) DO UPDATE",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "INSERT INTO users (id, email, username, full_name, first_name, last_name, hashed_password, password_reset_nonce, password_reset_required, is_active, is_superuse",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "COMMIT;"
+    ],
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b002', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 2.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+   ]
+  }
+ }
+}

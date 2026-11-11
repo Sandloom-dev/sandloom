@@ -1,0 +1,71 @@
+## a) consumer N (billing a11) -> provider N+1 (tenancy a12)
+$ [venv-prov-N1] provider.py --variant N1
+provider N1: methods ['count_members', 'get_member_state', 'get_role', 'has_role_at_least', 'is_member', 'list_member_user_ids', 'list_user_organization_ids']; MemberState sandloom_tenancy.schemas.membership:MemberState fields ['display_name', 'organization_id', 'role', 'user_id', 'version']; fingerprint c4e8cceeee8535538925e198491dd926
+$ [venv-cons-N] consumer.py --compat strict 
+installed: ['sandloom-billing==0.7.0a11', 'sandloom==0.7.0a11']
+find_spec('sandloom_tenancy'): None
+find_spec('sandloom.shared.contracts'): None
+loaded_modules: ['sandloom_billing']
+client: _TypedClient
+get_member_state -> sandloom_billing._generated.contracts.tenancy_dto.MemberState: MemberState(organization_id=UUID('a6c056c8-df19-42c8-adf2-153e502a5112'), user_id=UUID('1a862ade-dbb1-49aa-8b5f-9073ed599eda'), role='admin', version=7)
+is billing's own copy: True
+core.get_service(name).get_member_state -> sandloom_billing._generated.contracts.tenancy_dto.MemberState
+billing tenant_resolver._member_state -> sandloom_billing._generated.contracts.tenancy_dto.MemberState version=7
+expectation of tenancy.membership.v1: sandloom_billing/_generated/contracts/tenancy_membership_v1.describe.json
+startup compat (strict): ok {"probed": ["tenancy.membership.v1"]}
+/ready services: ok {"probed": ["tenancy.membership.v1"]}
+
+## b) consumer N+1 (billing a12) -> provider N (tenancy a11)
+$ [venv-prov-N] provider.py --variant N
+provider N: methods ['get_member_state', 'get_role', 'has_role_at_least', 'is_member', 'list_member_user_ids', 'list_user_organization_ids']; MemberState sandloom_tenancy.schemas.membership:MemberState fields ['organization_id', 'role', 'user_id', 'version']; fingerprint fbf42e7650aa13c0878c442f6080d419
+$ [venv-cons-N1] consumer.py --compat strict --call count_members
+2026-11-08 13:55:53,020 [ERROR] sandloom.core.rpc: Remote contract(s) incompatible with this release: {'tenancy.membership.v1': {'contract_incompatible': ['tenancy.membership.v1.count_members: method removed by the provider'], 'expected_from': '$PC/venv-cons-N1/lib/python3.12/site-packages/sandloom_billing/_generated/contracts/tenancy_membership_v1.describe.json'}}
+installed: ['sandloom-billing==0.7.0a12', 'sandloom==0.7.0a11']
+find_spec('sandloom_tenancy'): None
+find_spec('sandloom.shared.contracts'): None
+loaded_modules: ['sandloom_billing']
+client: _TypedClient
+get_member_state -> sandloom_billing._generated.contracts.tenancy_dto.MemberState: MemberState(organization_id=UUID('a6c056c8-df19-42c8-adf2-153e502a5112'), user_id=UUID('1a862ade-dbb1-49aa-8b5f-9073ed599eda'), role='admin', version=7, display_name=None)
+is billing's own copy: True
+core.get_service(name).get_member_state -> sandloom_billing._generated.contracts.tenancy_dto.MemberState
+billing tenant_resolver._member_state -> sandloom_billing._generated.contracts.tenancy_dto.MemberState version=7
+call count_members -> ServiceUnavailableInDeployment: 501: Service 'tenancy.membership.v1' is not available in this deployment (Method 'count_members' is not exposed by 'tenancy.membership.v1')
+expectation of tenancy.membership.v1: sandloom_billing/_generated/contracts/tenancy_membership_v1.describe.json
+startup compat (strict): REFUSED ContractIncompatibleError: remote contract(s) incompatible with this release: {'tenancy.membership.v1': {'contract_incompatible': ['tenancy.membership.v1.count_members: method removed by the provider'], 'expected_from': '$PC/venv-cons-N1/lib/python3.12/site-packages/sandloom_billing/_generated/contracts/tenancy_membership_v1.describe.json'}}
+/ready services: fail {"remote_services": {"tenancy.membership.v1": {"contract_incompatible": ["tenancy.membership.v1.count_members: method removed by the provider"], "expected_from": "$PC/venv-cons-N1/lib/python3.12/site-packages/sandloom_billing/_generated/contracts/tenancy_membership_v1.describe.json"}}}
+
+$ [venv-prov-N] provider.py --variant N
+provider N: methods ['get_member_state', 'get_role', 'has_role_at_least', 'is_member', 'list_member_user_ids', 'list_user_organization_ids']; MemberState sandloom_tenancy.schemas.membership:MemberState fields ['organization_id', 'role', 'user_id', 'version']; fingerprint fbf42e7650aa13c0878c442f6080d419
+$ [venv-cons-N1] consumer.py --compat ready --call count_members
+2026-11-08 13:55:55,009 [ERROR] sandloom.core.rpc: Remote contract(s) incompatible with this release: {'tenancy.membership.v1': {'contract_incompatible': ['tenancy.membership.v1.count_members: method removed by the provider'], 'expected_from': '$PC/venv-cons-N1/lib/python3.12/site-packages/sandloom_billing/_generated/contracts/tenancy_membership_v1.describe.json'}}
+installed: ['sandloom-billing==0.7.0a12', 'sandloom==0.7.0a11']
+find_spec('sandloom_tenancy'): None
+find_spec('sandloom.shared.contracts'): None
+loaded_modules: ['sandloom_billing']
+client: _TypedClient
+get_member_state -> sandloom_billing._generated.contracts.tenancy_dto.MemberState: MemberState(organization_id=UUID('a6c056c8-df19-42c8-adf2-153e502a5112'), user_id=UUID('1a862ade-dbb1-49aa-8b5f-9073ed599eda'), role='admin', version=7, display_name=None)
+is billing's own copy: True
+core.get_service(name).get_member_state -> sandloom_billing._generated.contracts.tenancy_dto.MemberState
+billing tenant_resolver._member_state -> sandloom_billing._generated.contracts.tenancy_dto.MemberState version=7
+call count_members -> ServiceUnavailableInDeployment: 501: Service 'tenancy.membership.v1' is not available in this deployment (Method 'count_members' is not exposed by 'tenancy.membership.v1')
+expectation of tenancy.membership.v1: sandloom_billing/_generated/contracts/tenancy_membership_v1.describe.json
+startup compat (ready): fail {"remote_services": {"tenancy.membership.v1": {"contract_incompatible": ["tenancy.membership.v1.count_members: method removed by the provider"], "expected_from": "$PC/venv-cons-N1/lib/python3.12/site-packages/sandloom_billing/_generated/contracts/tenancy_membership_v1.describe.json"}}}
+/ready services: fail {"remote_services": {"tenancy.membership.v1": {"contract_incompatible": ["tenancy.membership.v1.count_members: method removed by the provider"], "expected_from": "$PC/venv-cons-N1/lib/python3.12/site-packages/sandloom_billing/_generated/contracts/tenancy_membership_v1.describe.json"}}}
+
+## c) consumer N+1 -> provider N+1
+$ [venv-prov-N1] provider.py --variant N1
+provider N1: methods ['count_members', 'get_member_state', 'get_role', 'has_role_at_least', 'is_member', 'list_member_user_ids', 'list_user_organization_ids']; MemberState sandloom_tenancy.schemas.membership:MemberState fields ['display_name', 'organization_id', 'role', 'user_id', 'version']; fingerprint c4e8cceeee8535538925e198491dd926
+$ [venv-cons-N1] consumer.py --compat strict --call count_members
+installed: ['sandloom-billing==0.7.0a12', 'sandloom==0.7.0a11']
+find_spec('sandloom_tenancy'): None
+find_spec('sandloom.shared.contracts'): None
+loaded_modules: ['sandloom_billing']
+client: _TypedClient
+get_member_state -> sandloom_billing._generated.contracts.tenancy_dto.MemberState: MemberState(organization_id=UUID('a6c056c8-df19-42c8-adf2-153e502a5112'), user_id=UUID('1a862ade-dbb1-49aa-8b5f-9073ed599eda'), role='admin', version=7, display_name='Ada')
+is billing's own copy: True
+core.get_service(name).get_member_state -> sandloom_billing._generated.contracts.tenancy_dto.MemberState
+billing tenant_resolver._member_state -> sandloom_billing._generated.contracts.tenancy_dto.MemberState version=7
+call count_members -> 3
+expectation of tenancy.membership.v1: sandloom_billing/_generated/contracts/tenancy_membership_v1.describe.json
+startup compat (strict): ok {"probed": ["tenancy.membership.v1"]}
+/ready services: ok {"probed": ["tenancy.membership.v1"]}

@@ -1,0 +1,15 @@
+async def test_limits_available_counts_the_owners_items(client: Any) -> None:
+    """quota.limits.v1 through a route that gates on it (reports' export)."""
+    _, headers = as_user(tenant_id=uuid4())
+    export = "/api/v1/reports/exports"
+    for title in ("a", "b"):
+        created = await client.post(
+            "/api/v1/quota/items", json={"title": title}, headers=headers
+        )
+        assert created.status_code == 201, created.text
+    assert (await client.post(export, headers=headers)).status_code == 201
+    third = await client.post(
+        "/api/v1/quota/items", json={"title": "c"}, headers=headers
+    )
+    assert third.status_code == 201, third.text
+    assert (await client.post(export, headers=headers)).status_code == 402

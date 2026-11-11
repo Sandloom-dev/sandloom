@@ -108,9 +108,14 @@ the concept page with the full detail.
 - **Revocation durability: the commit → access-stops window.**
   `revoke_user_tokens_on_commit(user_id, reason=...)` ties a revocation to a
   database change. It always writes `core.auth.tokens_revoked.v1` into the
-  change's transaction (identity's durable consumer `sessions@tokens_revoked`
-  applies it in whatever service hosts identity — idempotent, monotonic) and
-  writes the mark after commit (retried). On that **default** path the mark
+  change's transaction (the kernel's durable applier applies it in every
+  service, each in its own group `sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME>`
+  — idempotent, monotonic, whether identity is loaded there or not) and
+  writes the mark after commit (retried). On a shared event bus a service
+  without `SANDLOOM_SERVICE_NAME` refuses to start. The bus counts as shared
+  for every driver but `memory`, whether `EVENT_BUS_BACKEND` or `INFRA`
+  selects it. Two unnamed services would share one group, and each would
+  miss the other's revocations. On that **default** path the mark
   can trail the commit: while the cache is down tokens are refused (`503`,
   fail-closed) or accepted (fail-open, dev), and once it is back an old token
   is ACCEPTED until the applier runs. Worst case after recovery, with the
@@ -128,7 +133,11 @@ the concept page with the full detail.
   `/ready` answers `503 degraded` (`revocations_pending: true`; per process —
   under gunicorn the worker whose applier is retrying reports it, and the
   `livemax` gauge aggregates the workers); `/health`
-  (liveness) is unaffected. Only a payload that can NEVER apply (malformed)
+  (liveness) is unaffected. `/ready` also fails when the applier is needed
+  and absent or stopped. It fails when the oldest pending revocation or
+  block event is older than `ACCESS_TOKEN_EXPIRE_MINUTES`. It fails when such
+  an event is dead-lettered. A younger backlog stays ready: it is exported as
+  `sandloom_consumer_lag_seconds`, with a WARNING above half that bound. Only a payload that can NEVER apply (malformed)
   is dead-lettered — at once, CRITICAL, `auth_revocation_malformed_total`.
   **`require_immediate=True` closes the window**: the mark is written
   synchronously BEFORE commit, and if that write fails the change is refused
@@ -204,6 +213,12 @@ the concept page with the full detail.
   published through the outbox; identity's durable consumer
   (`identity:sessions@user_blocked`, local or in its own service) revokes
   every refresh token. Lifting the block therefore requires a fresh login.
+  Every token issuer owes this (SANDLOOM-B035). A module declared
+  `issues_tokens=True` registers a durable consumer of
+  `core.auth.user_blocked.v1`. One that holds no refresh sessions declares
+  `define_module(..., refresh_sessions=False)` instead. Startup refuses an
+  issuer with neither. It also refuses a declaration that a refresh route,
+  a session table or such a consumer contradicts.
 - **Cost per request.** One Redis round trip (a `GET` of the subject
   record). Several guards on one request share one check.
 - **Cache outage.** `AUTH_REVOCATION_FAIL_CLOSED` governs the check (unset =
@@ -232,19 +247,95 @@ Every minted token records claim provenance in `claims_sources` /
 treated as unknown and escalates to a live check, and a failing *critical*
 contributor aborts minting (`503`) — see
 [Claims contributors](../modules/http/route-policy.md#token-claims).
-Contributors cannot override the identity claims (`sub`, `email`,
-`email_verified`, `token_type`). A claim key has one owner. A second module
-writing it (another module's `roles` or `permissions`, say) aborts minting
-(`503`). So does any module writing the token envelope or the provenance
-(`iat_us`, `auth_time`, `jti`, `claims_sources`, …). Provenance names only
-the modules that ran. Without this rule, a module could put
+Contributors cannot write the identity claims. `sub` and `token_type` are
+the minting code's. `email` and `email_verified` are the issuer's fields.
+The issuer's own claims contributor returns them, in the same statement as
+its roles, and the mint checks them like every protected claim. No other
+module's value is kept, and none is overwritten silently.
+
+Each protected claim has one authority, a module the composition root names
+in code: `create_app(claim_authorities={...})`. An `issuer` entry names the
+module that mints tokens. The kernel holds no default map. The standard
+composition (`sandloom_standard.main`) assigns identity's, tenancy's and
+billing's claims to them, each only when that module is composed.
+
+A protected claim is kept at the mint only from its authority. That is the
+module loaded from the assigned import path, or its pinned `<m>.claims.v1`
+binding. A name is not proof: a module merely named `identity` is not the
+authority. A contributor is a violator when it writes a protected claim it is
+not assigned. Writing the token envelope or the provenance (`iat_us`,
+say) makes it a violator too. An optional violator
+loses its whole result, and the login still succeeds. It is listed in
+`claims_sources_failed`. The violation is logged at ERROR and counted in
+`claims_contributor_violations_total`. A critical violator refuses the mint
+(`503`) naming itself. Without this rule, a module could put
 `roles: ["admin"]` in a token stamped with identity and pass the platform
 administrator gate.
+
+Startup refuses an assignment the composition cannot honour
+(`SANDLOOM-B035`). Examples: an authority the issuing process neither loads
+nor binds, or an issuer mismatch. A claim whose readers have no fallback
+needs a critical authority. Only a claim declared fail-safe may come from a
+non-critical one: every reader treats its absence as unknown, never as
+granted. The kernel names no such claim. The authority declares its own
+with `add_claims_contributor(fn, fail_safe=[...])`; billing declares its four
+claims. An issuer that binds the authority remotely with `"critical": false`
+reads the declaration from the composition root instead:
+`Authority("sandloom_billing", fail_safe=True)`, as the standard root writes
+it. `roles`, `permissions`, `tenant_ids` and the issuer's fields are never
+fail-safe. A billing outage still lets users log in. A declared key is a
+protected claim even when the map does not name it. So is every key that a
+generated claim atom imported in the process reads.
+
+While the billing authority is down, `Feature` and `WithinLimit` on the user's
+token answer `503` (indeterminate, never an allow). So does `Subscribed` with an absent
+`subscription_status`. It never asks billing live.
+
+A claim that is absent although its authority ran answers `501`. Provenance
+proves which authority ran. It does not prove that a claim the authority did
+not write means "no", and a deny would let `Not` allow. The one exception is a
+fact that declares it: `AccessFact(absent_claim="deny")` makes the proven
+absence of its own primary claim a definite deny. Billing's
+`subscription.active` declares it, so a user with no billing customer is `402`.
+
+"Proven" means all of these hold:
+
+- the key is assigned to the owner and verified;
+- the owner ran at the mint and did not fail;
+- the token's `cpv` for the key is the digest the verifier accepts;
+- the view removed nothing.
+
+A claim map that is present is a complete snapshot, and an entry it
+does not list denies.
+
+`email` and `email_verified` belong to the map's issuer: a map that
+assigns them to another module refuses the boot. A lean root with no map
+assigns nothing, so a process that loads a token issuer under it refuses the
+boot rather than refusing every login.
+
+The mint is sealed. `collect_claims` returns a read-only result. Only
+that result carries a token's protected claims, its provenance and `cpv`:
+`create_access_token(data=..., claims=sealed)`. `data` holds the envelope
+(`sub` and `token_type` with `auth_time`) and unprotected keys. A protected
+claim or a tenant selector in `data` is refused (`SANDLOOM-R017`). So are
+provenance and `cpv`. So is a copy or spread of the sealed result. The
+issuer passes one of its own claims contributors as `issuer=`: the kernel
+takes the issuer from the module that registered it, never from a name.
+Only the map's issuer may pass its own session. `collect_claims` takes no
+claim value from its caller: every claim comes from a contributor. A
+token for a service or a test client that needs no user rights comes from
+`create_service_token`. Every `Role` gate denies it, and so does every `Perm`
+gate. The platform and `TenantScope` gates deny it too. `as_user` and
+`mint_test_token` mint through the kernel test authority, which exists only
+while the testing plugin runs. These checks
+stop mistakes. Code that holds the signing key can still sign anything, and
+that is outside the threat model.
 
 The names in provenance are tied to the module that registers. Claims
 contributors and access facts are accepted only under the short name of the
 module being registered. So are the contracts named after a module
-(`<m>.claims.v1`, `<m>.facts.v1`). Another module's name refuses the boot
+(`<m>.claims.v1`, `<m>.facts.v1`); the operator contract `<m>.security.v1`
+is reserved the same way. Another module's name refuses the boot
 (`SANDLOOM-B034`), and so does a registration made outside a module's
 registration. Without this rule, a module could answer another module's facts
 or write claims in its name.
@@ -252,7 +343,33 @@ or write claims in its name.
 Over RPC, the binding names the owner. A consumer drops a fact that
 `<m>.facts.v1` describes under another `owner_module`, and logs
 `SANDLOOM-B034`. The check compares names with the registering module; which
-module may write a given claim key is the first-writer rule above.
+module may write a given claim key is the assignment above.
+
+A contract that decides access has one provider per composition. A live
+atom is generated from the provider's `access_check` and asks that contract.
+Tenancy's `OrgRole` asks `tenancy.membership.v1`. Billing's `SubscriptionActive`
+and `Credits` ask `billing.entitlements.v1`. A third-party atom asks its own
+contract; the kernel treats all of them alike. The kernel
+keeps no adapter table and no list of fact owners. Such
+a contract is access-bearing, and only two modules may register it
+in-process:
+
+- the module its first segment names, from its installed distribution when
+  one provides a module of that name;
+- the module the composition root assigns:
+  `create_app(access_providers={"tenancy.membership.v1": "acme_orgs"})`.
+
+The provider is checked by its import path, not by its name. An app module
+named `acme_orgs` is not the assigned `acme_orgs` package, and an app module
+named `tenancy` is not the installed tenancy. Anyone else, or a registration
+made outside a module's registration, refuses the boot (`SANDLOOM-B034`).
+The access-bearing contracts are read from the assignment, the bound
+services and the declared `access_check`s. A provider cannot opt out by
+omitting a declaration. In a split
+deployment, `SERVICE_BINDINGS` is the assignment. The binding pins the
+provider's `service_id`: a process with other keys behind the same URL is
+refused (401 at the provider, 503 to the caller). Every
+other contract name keeps the first-registrant rule.
 
 ### Authority at commit (admin and money effects)
 
@@ -887,7 +1004,7 @@ keys), scrub credential-shaped values from messages, and Sentry events pass the
 same redaction. Production fails fast on a weak or placeholder `JWT_SECRET` /
 `JWT_PREVIOUS_SECRETS` / `TWOFA_ENCRYPTION_KEY` / `INTERNAL_API_TOKEN` /
 `METRICS_TOKEN`, on `BILLING_PROVIDER=stripe` without its keys, and on
-`BILLING_PROVIDER=fake` unless `SANDLOOM_ACCEPTED_RISKS` lists `fake_psp_in_prod`
+`BILLING_PROVIDER=fake` unless `SANDLOOM_ACCEPTED_RISKS` lists `billing.fake_psp_in_prod`
 (every accepted risk is logged at each start and exported as
 `sandloom_accepted_risk_active{risk}`). See the
 [Secrets management](../operate/operator-reference.md#secrets-management) for secret-manager

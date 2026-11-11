@@ -8,6 +8,7 @@ local, bound remotely (``SERVICE_BINDINGS``) or absent:
 
 - ``OrgRole`` (``tenancy.membership.v1``);
 - ``SubscriptionActive`` / ``Credits`` (``billing.entitlements.v1``, live);
+  all generated atoms, rendered by ``_generated_atoms`` (the kernel ships none);
 - ``Entitled(...)`` (billing's access facts, ``billing.facts.v1`` when remote);
 - ``Subscribed(of=Account.user())`` (claim-cheap, through the ``subscription.active`` fact).
 
@@ -23,7 +24,7 @@ acknowledged write lost in a Redis failover). The read path is untouched.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from sandloom.shared.authz import Account
@@ -33,17 +34,44 @@ if TYPE_CHECKING:  # pragma: no cover
     from sandloom.core.module_api import ModuleAPI
 
 
+def _generated_atoms() -> Any:
+    """The atoms of ``tenancy.membership.v1`` and ``billing.entitlements.v1`` as
+    ``sandloom generate`` writes them (the kernel ships none): the probe has no
+    ``shared/contracts``, so the stubs are rendered and executed here."""
+    import sys
+    from types import ModuleType, SimpleNamespace
+
+    from sandloom.core.cli.generated import render_stub
+    from sandloom_billing.contracts import EntitlementsContract
+    from sandloom_tenancy.contracts import MembershipReadContract
+
+    names: dict[str, Any] = {}
+    for name, contract, provider in (
+        ("tenancy_membership_v1", "tenancy.membership.v1", MembershipReadContract),
+        ("billing_entitlements_v1", "billing.entitlements.v1", EntitlementsContract),
+    ):
+        module = ModuleType(f"{__name__}._stub_{name}")
+        sys.modules[module.__name__] = module
+        exec(  # noqa: S102 - generated source of this repository's own providers
+            compile(render_stub(contract, provider), module.__name__, "exec"),
+            module.__dict__,
+        )
+        names.update(vars(module))
+    return SimpleNamespace(**names)
+
+
 def register(core: ModuleAPI) -> ModuleDescriptor:
     from fastapi import APIRouter, Depends
 
     from sandloom.core.descriptors import ModuleDescriptor
-    from sandloom.shared.authz import (
-        Credits,
-        Entitled,
-        OrgRole,
-        Subscribed,
-        SubscriptionActive,
-        require,
+    from sandloom.shared.authz import Entitled, require
+
+    atoms = _generated_atoms()
+    Credits, OrgRole, Subscribed, SubscriptionActive = (
+        atoms.Credits,
+        atoms.OrgRole,
+        atoms.Subscribed,
+        atoms.SubscriptionActive,
     )
 
     router = APIRouter(prefix="/_conf", tags=["conformance"])
@@ -72,14 +100,20 @@ def register(core: ModuleAPI) -> ModuleDescriptor:
 
     @router.get(
         "/entitled/personal",
-        dependencies=[Depends(require(Entitled("subscription.active")))],
+        dependencies=[
+            Depends(require(Entitled("subscription.active", owner="billing")))
+        ],
     )
     async def entitled_personal() -> dict[str, bool]:
         return {"ok": True}
 
     @router.get(
         "/entitled/org/{org_id}",
-        dependencies=[Depends(require(Entitled("organization.subscription.active")))],
+        dependencies=[
+            Depends(
+                require(Entitled("organization.subscription.active", owner="billing"))
+            )
+        ],
     )
     async def entitled_org(org_id: UUID) -> dict[str, bool]:
         return {"ok": True}
@@ -103,8 +137,6 @@ _FAULT = {"mode": "off"}
 
 
 def _install_revocation_fault(router: object) -> None:
-    from typing import Any
-
     from fastapi import HTTPException
 
     from sandloom.core.auth import revocation
@@ -122,7 +154,7 @@ def _install_revocation_fault(router: object) -> None:
             return f"v1:after:{mark_us // 1_000_000}.{mark_us % 1_000_000:06d}"
         return await real(user_id, mark_us, tail, replay=replay)
 
-    revocation._write_revocation = _faulty  # type: ignore[assignment]
+    revocation._write_revocation = _faulty
 
     async def set_fault(mode: str) -> dict[str, str]:
         if mode not in ("off", "outage", "lost"):

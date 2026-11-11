@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import TYPE_CHECKING, Any
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Any, TypeVar
 
+import sandloom.core.config.module_settings as _module_settings
 import sandloom.core.consumers.callbacks as _callbacks
 import sandloom.core.contracts.validators as _validators
 import sandloom.core.descriptors as _descriptors
+import sandloom.core.module_api._settings as _settings
 import sandloom.core.planner as _planner
 import sandloom.core.route_markers as _route_markers
 from sandloom.core import contract_wire
@@ -20,6 +23,8 @@ from sandloom.core.module_api._service_registry import (
     _validate_service_name,
 )
 
+M = TypeVar("M", bound="BaseModel")
+
 
 class _RegistrationControlFlow(Exception):
     """An expected loader deferral/duplicate, not a failed registration."""
@@ -27,6 +32,7 @@ class _RegistrationControlFlow(Exception):
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from fastapi import APIRouter
+    from pydantic import BaseModel
 
     from sandloom.core.config.settings import Settings
     from sandloom.core.descriptors import HealthCheck
@@ -61,16 +67,20 @@ class ModuleRegistrationDraft:
         self.service_databases: dict[str, str] = {}
         self.startup: list[tuple[Any, bool]] = []
         self.shutdown: list[Any] = []
-        self.health: list[tuple[str, Any]] = []
+        self.health: list[tuple[str, Any, bool]] = []
         self.event_schemas: list[tuple[str, str, dict[str, Any] | None]] = []
         self.event_schema_objs: list[Any] = []
-        self.claims_contributors: list[tuple[Any, bool]] = []
+        self.claims_contributors: list[tuple[Any, bool, tuple[str, ...]]] = []
         self.query_projections: list[Any] = []
         self.projection_consumers: list[Any] = []
         self.projection_rebuilders: list[tuple[str, Any]] = []
         self.event_consumers: list[Any] = []
         self.access_facts: list[Any] = []
         self.sagas: list[Any] = []
+        #: the module's validated settings (ADR-0015), applied last.
+        self.module_settings: list[_module_settings.ModuleSettingsRecord] = []
+        #: the name the loader registers the module under (set by the facade).
+        self.module_name: str | None = None
 
     def commit(self, facade: CoreFacade) -> None:
         """Validate the whole draft, then apply it (atomic: all or nothing)."""
@@ -109,10 +119,12 @@ class ModuleRegistrationDraft:
                 facade.add_startup_task(task, critical=critical)
             for shutdown_task in self.shutdown:
                 facade.add_shutdown_task(shutdown_task)
-            for hc_name, fn in self.health:
-                facade.register_health_check(hc_name, fn)
-            for contributor, critical in self.claims_contributors:
-                facade.add_claims_contributor(contributor, critical=critical)
+            for hc_name, fn, operational in self.health:
+                facade.register_health_check(hc_name, fn, operational=operational)
+            for contributor, critical, fail_safe in self.claims_contributors:
+                facade.add_claims_contributor(
+                    contributor, critical=critical, fail_safe=fail_safe
+                )
             for channel, schema_name, schema in self.event_schemas:
                 facade.register_event_schema(channel, schema_name, schema)
             for obj in self.event_schema_objs:
@@ -137,6 +149,12 @@ class ModuleRegistrationDraft:
                     _route_markers.stamp_routes(
                         facade.app.router.routes[before:], module
                     )
+            # Last: nothing after it can fail, so the restore above never
+            # has to take settings back.
+            if self.module_settings:
+                registry = _settings.registry_of(facade)
+                for record in self.module_settings:
+                    registry.add(record)
         except Exception:
             facade.restore_registrations(checkpoint)
             raise
@@ -145,6 +163,9 @@ class ModuleRegistrationDraft:
     def _preflight_services(self, facade: CoreFacade, errors: list[str]) -> None:
         seen: set[str] = set()
         for name, impl in self.services:
+            # An access-checked implementation classifies its name even when
+            # this draft is refused (ADR-0014 decision 6).
+            facade._note_access_declaration(name, impl)
             try:
                 _validate_service_name(name)
             except ServiceRegistryError as exc:
@@ -161,7 +182,7 @@ class ModuleRegistrationDraft:
     def _preflight_health(self, facade: CoreFacade, errors: list[str]) -> None:
         live = facade.health_checks
         seen: set[str] = set()
-        for name, _fn in self.health:
+        for name, _fn, _operational in self.health:
             if name in seen or name in live:
                 errors.append(f"duplicate health check {name!r}")
             seen.add(name)
@@ -332,6 +353,23 @@ class ModuleAPI:
         self._facade = facade
         self._draft = draft
 
+    # -- Settings (ADR-0015) ----------------------------------------------
+    def declare_settings(self, model: type[M], *, package: str | None = None) -> M:
+        """Declare this module's settings model and return its instance.
+
+        The model (a plain pydantic ``BaseModel``, fields aliased to their
+        environment names) is validated now, from the process's one read of
+        the environment, before ``setup`` runs; ``settings_of(model)`` reads
+        it afterwards. An invalid value raises ``ModuleSettingsError`` (a
+        ``ConfigurationError``: the boot stops, optional module or not).
+        ``define_module(settings=...)`` calls this for you; ``package``
+        (default: the registering module) names the module in messages.
+        """
+        pkg = package or (self._draft.module_name if self._draft else None)
+        if not pkg:
+            pkg = str(model.__module__).rsplit(".", 1)[0]
+        return _settings.declare(self._facade, self._draft, model, pkg)
+
     # -- HTTP -------------------------------------------------------------
     def include_router(self, router: APIRouter, **kwargs: Any) -> None:
         """Mount a module's router (replaces reaching into ``core.app``)."""
@@ -356,6 +394,17 @@ class ModuleAPI:
                 self._draft.service_databases[name] = database
         else:
             self._facade.register_service(name, impl, database=database)
+
+    def claim_owner(self, key: str) -> str | None:
+        """The public name of the module the composition's
+        ``claim_authorities`` assigns the protected claim key ``key``
+        (``"roles"``), or ``None`` when it names none or that module has no
+        name this process can vouch for (none declared in the map, not
+        installed, not loaded here). Call it when a startup
+        task runs, not from ``setup`` (the map is installed after the modules
+        register); the owner's reserved ``<name>.security.v1`` is the
+        contract that answers operator questions about that claim."""
+        return self._facade.claim_owner(key)
 
     def get_service(self, name: str) -> Any:
         if self._draft is not None:
@@ -396,14 +445,19 @@ class ModuleAPI:
         else:
             self._facade.add_shutdown_task(task)
 
-    def register_health_check(self, name: str, fn: HealthCheck) -> None:
+    def register_health_check(
+        self, name: str, fn: HealthCheck, *, operational: bool = False
+    ) -> None:
+        """Register a health probe. Operational probes feed /health only."""
         if self._draft is not None:
-            self._draft.health.append((name, fn))
+            self._draft.health.append((name, fn, operational))
         else:
-            self._facade.register_health_check(name, fn)
+            self._facade.register_health_check(name, fn, operational=operational)
 
     # -- Token claims -----------------------------------------------------
-    def add_claims_contributor(self, fn: Any, *, critical: bool = False) -> None:
+    def add_claims_contributor(
+        self, fn: Any, *, critical: bool = False, fail_safe: Iterable[str] = ()
+    ) -> None:
         """Register a contributor of JWT claims (``async (user_id) -> dict``).
 
         The contributor runs in the module's OWN Unit of Work on its own
@@ -411,12 +465,19 @@ class ModuleAPI:
         the ``<module>.claims.v1`` contract so a token issuer in another process
         can collect it over RPC (``SERVICE_BINDINGS``). ``critical=True``
         aborts token minting (503) if the contributor fails (use for security
-        claims like roles/permissions and tenant allowlists).
+        claims like roles/permissions and tenant allowlists). ``fail_safe``
+        names the keys whose every reader escalates or answers indeterminate
+        when they are absent: only those may come from a non-critical
+        contributor (ADR-0014 decision 7), and they are protected claims.
         """
+        if isinstance(fail_safe, str):
+            raise ValueError("fail_safe is a collection of claim keys")
         if self._draft is not None:
-            self._draft.claims_contributors.append((fn, critical))
+            self._draft.claims_contributors.append((fn, critical, tuple(fail_safe)))
         else:
-            self._facade.add_claims_contributor(fn, critical=critical)
+            self._facade.add_claims_contributor(
+                fn, critical=critical, fail_safe=fail_safe
+            )
 
     # -- Query projections (Cross-Module Query layer) ---------------------
     def register_query_projection(self, descriptor: Any) -> None:
@@ -526,7 +587,8 @@ class ModuleAPI:
         """Register an :class:`~sandloom.shared.authz.facts.AccessFact`.
 
         Binds a fact name to its claim/projection/live resolution paths so
-        ``Entitled(name)`` policies resolve it by configuration.
+        ``Entitled(name, owner=<this module>)`` policies resolve it by
+        configuration.
         """
         if self._draft is not None:
             self._draft.access_facts.append(fact)

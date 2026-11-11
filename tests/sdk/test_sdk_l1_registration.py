@@ -173,7 +173,8 @@ for info in sorted(pkgutil.iter_modules(pkg.__path__), key=lambda i: i.name):
     closure = inspect.getclosurevars(register).nonlocals
     keys = ("version", "optional", "consumes", "capabilities", "depends_on",
             "migrations_database", "migrations_chain", "health_check", "setup",
-            "router", "events", "issues_tokens")
+            "router", "events", "issues_tokens", "refresh_sessions",
+            "login_entry", "console_auth", "settings", "generates")
     kwargs = {k: closure[k] for k in keys if k in closure}
     if "descriptor_name" in closure and closure["descriptor_name"] != closure.get("pkg"):
         kwargs["name"] = closure["descriptor_name"]

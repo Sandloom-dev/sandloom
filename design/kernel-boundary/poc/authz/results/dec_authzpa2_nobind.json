@@ -1,0 +1,90 @@
+{
+ "variant": "authzpa2",
+ "topology": "split-nobind",
+ "cases": {
+  "subscribed": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 501,
+     "body": {
+      "detail": "access fact 'subscription.active': its owner 'billing' is not deployed",
+      "code": "fact_unregistered"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "credits": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 501,
+     "body": {
+      "detail": "contract 'billing.entitlements.v1' is not configured",
+      "code": "service_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "orgrole": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 501,
+     "body": {
+      "detail": "contract 'tenancy.membership.v1' is not configured",
+      "code": "service_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "bound.orgrole_and_subactive": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 501,
+     "body": {
+      "detail": "contract 'tenancy.membership.v1' is not configured",
+      "code": "service_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "or_sub_user.admin": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 501,
+     "body": {
+      "detail": "contract 'tenancy.membership.v1' is not configured",
+      "code": "service_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "not_member.admin": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 501,
+     "body": {
+      "detail": "contract 'tenancy.membership.v1' is not configured",
+      "code": "service_unavailable"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "_metrics": {
+   "access_denied_total": 6,
+   "access_indeterminate_total": 6,
+   "access_denied_policy_misconfigured_total": 6,
+   "access_indeterminate_branch_total": null
+  }
+ }
+}

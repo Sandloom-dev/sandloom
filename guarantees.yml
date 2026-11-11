@@ -191,7 +191,7 @@ guarantees:
   - src/sandloom/core/tests/test_review_archcheck.py::test_raw_tenant_sql_requires_explicit_system_scope
   - src/sandloom/core/tests/test_review_archcheck.py::test_deferred_sql_does_not_inherit_creation_scope
   - src/sandloom/core/tests/test_review_archcheck.py::test_raw_sql_declaration_defaults_do_not_need_a_runtime_scope
-  - tests/architecture/test_archcheck_library.py::test_framework_manifest_passes_every_rule
+  - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_manifest_passes_every_rule
   rules:
   - unsafe-tenant-sql
   gap: The rule is only tested at the analyzer level (find_unsafe_tenant_sql); no test runs it through
@@ -1335,7 +1335,7 @@ guarantees:
   - src/sandloom/core/tests/test_guard_order.py::test_guard_in_route_dependencies_before_param_auth_is_refused
   - src/sandloom/core/tests/test_guard_order.py::test_guard_param_before_auth_param_is_refused
   - src/sandloom/core/tests/test_guard_order.py::test_custom_authenticator_counts_once_marked
-  - src/sandloom/core/tests/test_guard_order.py::test_bundled_app_routes_pass
+  - tests/integration/with_batteries/test_guard_order_bundled_app.py::test_bundled_app_routes_pass
   startup_checks: 'create_app refuses: GuardOrderError (sandloom.core.guard_order)'
 - id: G-IDEM-15
   statement: A valid token's revocation and block state is checked live before an idempotency reservation
@@ -1578,7 +1578,7 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_streams_split_identity.py::test_dlq_replay_reaches_only_the_failed_group
   - src/sandloom/core/tests/test_streams_split_identity.py::test_memory_dlq_replay_is_targeted_too
-  - src/sandloom/core/tests/test_admin_operations.py::test_stream_dlq_replay_targets_the_group_and_audits_first
+  - tests/integration/with_batteries/test_admin_operations.py::test_stream_dlq_replay_targets_the_group_and_audits_first
 - id: G-EVENT-12
   statement: Streams are trimmed by age (EVENT_STREAM_RETENTION_SECONDS) and optionally by length (EVENT_STREAM_MAXLEN)
     on publish.
@@ -1700,7 +1700,7 @@ guarantees:
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_create_app_refuses_key_material_that_fails_the_boot_check
   - src/sandloom/core/tests/test_production_profile.py::test_startup_role_check_has_no_shared_secret_opt_out_under_the_profile
   - src/sandloom_identity/tests/test_module_registration.py::test_missing_jwt_secret_refuses_registration
-  - src/sandloom/core/tests/test_boot_configuration_checks.py::test_module_refusal_stops_every_composed_entry_point
+  - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_module_refusal_stops_every_composed_entry_point
   startup_checks: create_app registers a critical refusal for the JWT role check (sandloom.core.app_factory.enforce_configuration)
 - id: G-AUTH-06
   statement: A verify-only process (asymmetric mode, no private key) cannot mint access tokens; in the
@@ -1757,14 +1757,21 @@ guarantees:
   - docs/modules/index.md#What you get by default, and what you declare
   - docs/advanced/security-model.md#Authorization
   tests:
-  - src/sandloom/core/tests/test_contract_runtime.py::test_local_contributor_runs_in_its_own_uow_and_is_exposed
+  - tests/integration/with_batteries/test_contract_runtime_identity_claims.py::test_local_contributor_runs_in_its_own_uow_and_is_exposed
   - src/sandloom/core/tests/test_contract_runtime.py::test_critical_local_contributor_failure_is_503
   - src/sandloom/core/tests/test_contract_runtime.py::test_critical_remote_contributor_failure_is_503
   - src/sandloom/core/tests/test_contract_runtime.py::test_first_critical_failure_in_registration_order_wins
 - id: G-AUTH-12
   statement: Every minted token carries claims_sources / claims_sources_failed; a module's claim is trusted
     only when that module is in claims_sources and not in claims_sources_failed, otherwise the fact is
-    unknown and escalates to a live check.
+    unknown and escalates to a live check. Amended 2026-11-09 (KB-33g), billing's generated Subscribed for
+    Account.user() escalates to no live check; with billing failed at the mint it is 503
+    claim_authority_failed with zero I/O, on Subscribed() and Subscribed(statuses=...) alike, never an
+    allow or a deny. Amended 2026-11-09 (KB-33h), provenance proves who ran, not that an absent claim
+    is a negative fact; the generated claim atom of an AccessFact reads its primary claim proven absent
+    (the trusted owner ran OK at the mint under the accepted claim policy and wrote none) as a deny only
+    when the fact declares absent_claim="deny" (billing's subscription.active), else 501
+    access_unknown.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   - docs/advanced/security-model.md#Authorization
@@ -1772,13 +1779,24 @@ guarantees:
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_claims_provenance_always_stamped
   - tests/integration/test_claims_provenance_and_subscribed.py::test_authoritative_provenance_trusts_only_listed_owner
   - tests/integration/test_claims_provenance_and_subscribed.py::test_owner_in_both_lists_is_not_trusted
-  - tests/integration/test_claims_provenance_and_subscribed.py::test_subscribed_escalates_to_live_when_billing_failed_at_mint
+  - tests/integration/test_claims_provenance_and_subscribed.py::test_subscribed_is_503_when_billing_failed_at_mint
+  - src/sandloom/core/tests/test_absent_claim_policy.py::test_a_successful_contributor_without_the_claim_is_501_by_default
 - id: G-AUTH-13
-  statement: Claims contributors cannot override the identity claims (sub, email, email_verified, token_type).
+  statement: Claims contributors cannot write the identity claims. sub and token_type are the minting
+    code's (reserved); email and email_verified are the map's issuer's fields, which identity's own claims
+    contributor returns (read with its roles in its one statement, in the issuer's session) and the mint
+    check keeps only from it, never after it, so another module's value is dropped as a violator and none
+    is overwritten silently; collect_claims takes no claim value from its caller; with no core (no check)
+    they are not minted.
   sources:
   - docs/advanced/security-model.md#Authorization
   tests:
   - src/sandloom_identity/tests/test_token_claims_and_revocation.py::test_unverified_user_and_contributors_cannot_override_identity
+  - src/sandloom_identity/tests/test_token_claims_and_revocation.py::test_without_a_core_no_issuer_field_is_minted
+  - src/sandloom_identity/tests/test_token_claims_and_revocation.py::test_the_contributor_reads_the_issuer_fields_in_its_statement
+  - src/sandloom/core/tests/test_claims_trust.py::test_the_issuers_fields_pass_the_check_and_win
+  - src/sandloom/core/tests/test_claims_trust.py::test_without_a_map_the_issuers_fields_are_not_minted
+  - src/sandloom/core/tests/test_sealed_mint.py::test_another_module_writing_the_issuers_fields_is_a_violator
 - id: G-AUTH-14
   statement: Identity stamps auth_time (epoch seconds of the primary sign-in) and carries it unchanged
     through refresh; recency (step-up) checks read auth_time, never iat, so a refreshed token with a fresh
@@ -1843,9 +1861,179 @@ guarantees:
   tests:
   - src/sandloom_identity/tests/test_token_claims_and_revocation.py::test_twofa_key_is_mandatory_in_prod
   - src/sandloom_identity/tests/test_module_registration.py::test_missing_twofa_key_refuses_registration
-  - src/sandloom/core/tests/test_boot_configuration_checks.py::test_module_refusal_stops_every_composed_entry_point
-  - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_prod_twofa_key_must_be_strong
+  - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_module_refusal_stops_every_composed_entry_point
   - src/sandloom_identity/tests/services/test_twofa_service.py::TestSecretCrypto::test_key_rotation
+- id: G-AUTH-20
+  statement: A protected claim (roles, permissions, tenant_ids, email, email_verified, every key of the
+    composition's claim_authorities, every key a claims contributor declares fail-safe and every key a
+    generated claim atom imported in the process reads) is minted only from the authority the composition
+    root assigned it (the module loaded from the assigned import path, or its <m>.claims.v1 binding); a
+    contributor writing a protected claim it is not assigned, or a reserved key, is a violator. An optional
+    violator loses its whole result (claims_sources_failed, an ERROR log, claims_contributor_violations_total)
+    and the token is minted with the authorities' values; a critical one refuses the mint (503) naming
+    itself. Startup refuses an assignment the composition cannot honour (SANDLOOM-B035), incl. a
+    non-critical authority of a claim not declared fail-safe (by its local authority, add_claims_contributor
+    fail_safe=, or by the root, Authority(fail_safe=True); never roles, permissions, tenant_ids or the
+    issuer's fields), so billing, which declares its four claims, still mints a login when it is down.
+  sources:
+  - docs/advanced/security-model.md#Authorization
+  - docs/modules/http/route-policy.md#Token claims
+  tests:
+  - src/sandloom/core/tests/test_claims_trust.py::test_an_optional_violator_loses_its_whole_result
+  - src/sandloom/core/tests/test_claims_trust.py::test_a_critical_violator_refuses_the_mint_naming_itself
+  - src/sandloom/core/tests/test_claims_trust.py::test_a_module_named_like_the_authority_is_not_it
+  - src/sandloom/core/tests/test_claims_trust.py::test_a_remote_authority_is_its_binding
+  - src/sandloom/core/tests/test_claims_trust.py::test_startup_refuses_a_non_critical_authority_of_a_rights_key
+  - tests/integration/replaceability/test_trust_rows.py::test_t2_an_optional_violator_loses_its_whole_result
+  - tests/integration/replaceability/test_trust_rows.py::test_t5_a_typo_in_an_authority_refuses_the_boot
+  - tests/integration/with_batteries/test_billing_down_login.py::test_billing_down_still_logs_in
+- id: G-AUTH-21
+  statement: A composition that loads a token issuer (issues_tokens=True) with no claim_authorities map
+    refuses the boot (SANDLOOM-B035, naming the booted root, the map the issuer's root must pass, and an
+    installed root only when its registered map names that issuer) instead of running an app whose every
+    mint is refused (503); a process with no issuer boots. A map that assigns an issuer field (email,
+    email_verified) to a module other than its issuer, or names one without an issuer, refuses the boot, and
+    so does an issuer with no claims contributor or a critical=False one (the issuer fields have no
+    fallback, ADR-0014 decision 7).
+  sources:
+  - docs/advanced/security-model.md#Authorization
+  - docs/contributing/setup.md#Configure the environment
+  tests:
+  - src/sandloom/core/tests/test_claims_trust.py::test_no_map_refuses_an_issuing_process_only
+  - src/sandloom/core/tests/test_claims_trust.py::test_install_without_a_map_refuses_an_issuing_process
+  - src/sandloom/core/tests/test_claims_trust.py::test_install_refuses_an_issuer_field_given_to_another_module
+  - src/sandloom/core/tests/test_claims_trust.py::test_an_issuer_field_assigned_to_anyone_else_is_refused
+  - src/sandloom/core/tests/test_composition_root.py::test_default_root_is_sandloom_main
+  - tests/integration/replaceability/test_trust_rows.py::test_t6_an_issuer_under_a_root_without_a_map_refuses_the_boot
+  - src/sandloom/core/tests/test_claims_trust.py::test_no_map_leads_with_the_root_that_composes_the_issuer
+  - src/sandloom/core/tests/test_claims_trust.py::test_no_map_suggests_a_registered_root_whose_map_names_the_issuer
+  - src/sandloom/core/tests/test_claims_trust.py::test_the_issuer_needs_a_critical_contributor_of_its_own
+  - tests/integration/replaceability/test_trust_rows.py::test_t6_an_issuer_with_an_optional_contributor_refuses_the_boot
+- id: G-AUTH-22
+  statement: Feature and WithinLimit on the user's token are indeterminate (503, never an allow, so Not
+    cannot invert them) when the claim is absent because its authority is in claims_sources_failed (or no
+    assignment is readable and a source failed); an authority that ran and wrote an empty mapping denies
+    (ADR-0014 decision 7, billing option (c)). Amended 2026-11-09 (KB-33d, pinned on the generated atoms by
+    KB-34b) - a claim absent otherwise (the authority ran and wrote none, an unassigned key, a token without
+    provenance) is 501 access_unknown, never a deny Not could invert.
+  sources:
+  - docs/advanced/security-model.md#Authorization
+  tests:
+  - src/sandloom/core/tests/test_claims_trust.py::test_a_failed_authority_is_indeterminate_503
+  - src/sandloom/core/tests/test_claims_trust.py::test_an_authority_that_ran_denies_only_on_its_complete_map
+  - src/sandloom/core/tests/test_claims_trust.py::test_not_and_or_never_allow_on_a_failed_authority
+  - src/sandloom/core/tests/test_claims_trust.py::test_without_a_readable_assignment_a_failure_is_indeterminate
+- id: G-AUTH-23
+  statement: 'Every reader of a verified access token (UserContext, Role, Perm, TenantScope, both platform
+    gates) sees only its trusted view, computed once per verified token and cached with it: a protected
+    key is kept only when one authority A satisfies all three parts: A is the key''s current authority in
+    the verifier''s map or its one previous= authority; the token''s per-key cpv digest equals the digest
+    of (key, A''s import path); A is in claims_sources and not in claims_sources_failed. tenant_id and org_id
+    fall with the tenant_ids grant; a forged view marker is never read from the token. An untrusted key
+    answers 401 token_policy_outdated where one refresh fixes it, 503 claims_policy_mismatch where issuer
+    and verifier disagree, else 403. require_platform_admin and the platform console''s operator gate share
+    one admission: roles admin from the trusted view, never from a source named identity (ADR-0014 decision
+    3).'
+  sources:
+  - 'docs/adr/0014-claims-trust-and-authorization-portability.md#3. Read: one trusted view per verified token'
+  tests:
+  - src/sandloom/core/tests/test_claims_view.py::test_the_one_condition_trusts_the_current_authority
+  - src/sandloom/core/tests/test_claims_view.py::test_a_part_missing_drops_the_key
+  - src/sandloom/core/tests/test_claims_view.py::test_a_forged_untrusted_marker_is_never_read_from_the_token
+  - src/sandloom/core/tests/test_claims_view.py::test_the_tenant_selectors_fall_with_the_grant
+  - src/sandloom/core/tests/test_claims_view.py::test_the_key_change_matrix
+  - src/sandloom/core/tests/test_claims_view.py::test_the_negative_rows_at_step_2
+  - src/sandloom/core/tests/test_claims_view.py::test_platform_admission_status
+  - src/sandloom/core/tests/test_claims_view.py::test_platform_admission_admits_a_trusted_admin_whatever_the_issuer_is_named
+  - tests/integration/replaceability/test_trust_rows.py::test_t1_the_assigned_replacement_issuer_grants_rights
+  - src/sandloom/core/tests/test_claims_split_matrix.py::test_the_key_change_steps_and_rollback_in_split
+  - src/sandloom/core/tests/test_claims_split_matrix.py::test_the_negative_rows_at_step_2
+  - src/sandloom/core/tests/test_claims_split_matrix.py::test_a_key_change_without_previous_answers_503_not_a_refresh_loop
+  - src/sandloom/core/tests/test_claims_split_matrix.py::test_one_service_issuer_and_verifier_never_loops
+  - src/sandloom/core/tests/test_claims_io_counts.py::test_role_perm_and_tenant_scope_cost_one_cache_get
+- id: G-AUTH-24
+  statement: 'A key''s cpv digest is computed from the key and the full import path claim_authorities assigns,
+    the same whether the authority is loaded locally or reached over RPC, so the monolith and every split
+    service stamp and accept one digest per assignment. A remote authority is checked independently at the
+    mint: its pinned service_id and pair MAC prove the answering service, and its <m>.claims.v1 answer must
+    name the assigned import path, else the step fails and a critical authority refuses the mint (503)
+    (ADR-0014 amendment 2026-11-09).'
+  sources:
+  - 'docs/adr/0014-claims-trust-and-authorization-portability.md#Amendment 2026-11-09: the `cpv` identity of an authority'
+  tests:
+  - src/sandloom/core/tests/test_claims_cpv_identity.py::test_mono_and_split_stamp_and_accept_the_same_cpv
+  - src/sandloom/core/tests/test_claims_cpv_identity.py::test_a_service_other_than_the_pinned_one_is_refused
+  - src/sandloom/core/tests/test_claims_cpv_identity.py::test_another_module_behind_the_short_name_is_refused
+  - src/sandloom/core/tests/test_claims_cpv_identity.py::test_an_answer_not_naming_the_assigned_module_fails_the_step
+  - src/sandloom/core/tests/test_claims_cpv_identity.py::test_a_previous_rollout_reads_alike_in_every_placement
+  gap: 'A change of the security authority behind the same import path keeps the digest (the documented
+    rule, src/sandloom/core/tests/test_claims_cpv_identity.py::test_the_digest_is_the_assignment_not_the_implementation);
+    an assignment revision that invalidates old tokens without a new import path is not built.'
+  gap_size: S
+- id: G-AUTH-25
+  statement: Protected claims, the tenant selectors (tenant_id, org_id), provenance (claims_sources, claims_sources_failed),
+    cpv and UserContext's structural fields reach a token only inside the sealed, read-only result of collect_claims
+    (create_access_token(data, claims=sealed)); in data, in an unsealed or spread result, or as a data key
+    overriding a sealed claim they are refused with SANDLOOM-R017. collect_claims resolves the issuer from the
+    module that registered the contributor it is given, never from a name, and takes no claim value from its
+    caller; every claim is what a registered contributor returned in that pass, the issuer's email and
+    email_verified included. create_service_token refuses the same keys and stamps an empty provenance and the current cpv, so
+    Role, Perm, platform admission and TenantScope deny it. The kernel test authority (as_user, mint_test_token,
+    sealed_claims) mints only while the sandloom pytest plugin or the framework's harness is active, and a test
+    that states claims_sources gets that provenance checked (ADR-0014 decision 5, owner answer #13).
+  sources:
+  - docs/adr/0014-claims-trust-and-authorization-portability.md#5. Sealed mint, service tokens, test tokens
+  tests:
+  - src/sandloom/core/tests/test_sealed_mint.py::test_a_hand_minted_sealed_key_is_refused
+  - src/sandloom/core/tests/test_sealed_mint.py::test_a_spread_sealed_result_is_a_plain_dict_and_refused
+  - src/sandloom/core/tests/test_sealed_mint.py::test_data_never_overrides_a_sealed_claim
+  - src/sandloom/core/tests/test_sealed_mint.py::test_the_issuer_is_never_a_string
+  - src/sandloom/core/tests/test_sealed_mint.py::test_collect_claims_takes_no_claim_value
+  - src/sandloom/core/tests/test_sealed_mint.py::test_the_issuers_fields_come_from_its_own_contributor
+  - src/sandloom/core/tests/test_sealed_mint.py::test_a_service_token_is_denied_by_every_gate
+  - src/sandloom/core/tests/test_sealed_mint.py::test_a_test_token_passes_every_gate_in_a_test_app
+  - src/sandloom/core/tests/test_sealed_mint.py::test_a_test_stating_claims_sources_gets_that_provenance_checked
+  - src/sandloom/core/tests/test_sealed_mint.py::test_the_test_authority_is_refused_outside_a_test_composition
+  gap: 'Mistakes only (threat T4): kernel code can still build a sealed result; any module holding the
+    core runtime can call collect_claims for an arbitrary user_id and mint that user''s real rights
+    (impersonation, adversarial C-a6); and code that reaches the issuer''s contributor and passes a forged
+    duck-typed session, or that has write access to the issuer''s tables, mints what it forged (the bar of
+    reading the JWT key). Hostile in-process code is outside the threat model (goals.md).'
+  gap_size: S
+- id: G-AUTH-26
+  statement: collect_claims runs contributors in a caller's issuer_session only when the module that
+    registered the issuer= contributor is claim_authorities' issuer (its short name and import path), else
+    SANDLOOM-R017 before anything runs; it takes no precomputed or issuer_claims (a TypeError, no alias), and
+    sandloom check flags a module reaching the facade behind CoreRuntime (_facade) or the registered
+    contributors (claims_contributors). Subscribed, Feature and WithinLimit answer the trusted view's indeterminate for
+    their key (401 token_policy_outdated, 503 claims_policy_mismatch), and read "authority failed at the
+    mint" from the verifier's map. An installed previous= authority carries its own module name, and the
+    verifier marker covers the owner names. At and after the compatibility window's end a token without cpv
+    gives no rights at any gate (Role, Perm, require_platform_admin, platform_operator, TenantScope on a
+    forged tenant; Role | AlwaysAllow allows, ~Role never), and TenantScope never answers a grant the view
+    dropped (ADR-0014 amendments "W2+W3 review fixes" and "no claim value from the caller").
+  sources:
+  - 'docs/adr/0014-claims-trust-and-authorization-portability.md#Amendment 2026-11-09: W2+W3 review fixes (kb-rf-trust)'
+  - 'docs/adr/0014-claims-trust-and-authorization-portability.md#Amendment 2026-11-09: no claim value from the caller (kb-sec2-issuer)'
+  tests:
+  - src/sandloom/core/tests/test_sealed_mint.py::test_an_authority_that_is_not_the_issuer_takes_no_issuer_session
+  - src/sandloom/core/tests/test_sealed_mint.py::test_collect_claims_takes_no_claim_value
+  - src/sandloom/core/tests/test_sealed_mint.py::test_a_module_named_like_the_issuer_from_another_path_is_not_it
+  - src/sandloom/core/tests/test_sealed_mint.py::test_a_process_whose_map_names_no_issuer_takes_no_issuer_session
+  - tests/architecture/test_no_kernel_handle_access.py::test_analyzer_detects_the_facade_behind_the_runtime
+  - src/sandloom/core/tests/test_claims_trust.py::test_a_claim_atom_honours_the_views_indeterminate
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_the_reported_hole_is_closed
+  - src/sandloom/core/tests/test_claims_trust.py::test_a_split_verifier_without_the_authority_is_indeterminate
+  - src/sandloom/core/tests/test_claims_trust.py::test_a_previous_authority_named_unlike_its_installed_module_is_refused
+  - src/sandloom/core/tests/test_claims_trust.py::test_the_verifier_marker_covers_the_owners
+  - src/sandloom/core/tests/test_claims_trust.py::test_a_key_the_authority_omitted_is_never_a_foreign_writers
+  - src/sandloom/core/tests/test_claims_window_end.py::test_at_and_after_the_window_end_no_token_without_cpv_gives_rights
+  - src/sandloom/core/tests/test_claims_window_end.py::test_inside_the_window_the_accepted_risk_reads_and_the_source_check_holds
+  gap: 'A forged duck-typed issuer_session (or uncommitted rows in the issuer''s own tables) passed with
+    the issuer''s contributor still yields the claims it forged: deliberate forgery or write access to the
+    issuer''s tables, the bar of reading the JWT key (hostile in-process code, C-a6). T-9''s previous-release token is simulated (the current merge without cpv), not
+    built from the previous release''s wheels.'
+  gap_size: S
 - id: G-REVOKE-01
   statement: An access token is revoked iff its issue instant iat_us (microseconds) is <= its subject's
     revocation mark; a token without iat_us is revoked by any mark; every framework guard rejects a revoked
@@ -1927,17 +2115,19 @@ guarantees:
 - id: G-REVOKE-07
   statement: 'Revocation is at-least-once: core.auth.tokens_revoked.v1 is written to the outbox in the
     same UoW, the post-commit mark write is retried AUTH_REVOCATION_WRITE_ATTEMPTS times, a still-failing
-    write is counted (auth_revocation_deferred_total) and identity''s durable consumer sessions@tokens_revoked
-    applies it idempotently without ever lowering a newer mark.'
+    write is counted (auth_revocation_deferred_total) and the kernel''s durable applier auth@tokens_revoked,
+    registered in every composition under the group sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME>,
+    applies it idempotently in every service without ever lowering a newer mark.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_revocation_windows.py::test_revocation_is_persisted_in_the_uow_for_the_durable_applier
   - src/sandloom/core/tests/test_revocation_windows.py::test_exhausted_retries_count_a_deferred_revocation
-  - src/sandloom_identity/tests/test_revocation_applier.py::test_applier_never_moves_a_newer_mark_backwards
+  - src/sandloom/core/tests/test_revocation_applier.py::test_applier_never_moves_a_newer_mark_backwards
   - tests/integration/test_revocation_pipeline.py::test_a_crash_after_a_failed_mark_write_is_applied_from_the_outbox
   - src/sandloom/core/tests/test_revocation_windows.py::test_a_durable_replay_lifts_past_an_early_mark_whose_re_mark_was_lost
+  - src/sandloom/core/tests/test_revocation_applier.py::test_applier_writes_the_pending_mark_once_the_cache_is_back
 - id: G-REVOKE-08
   statement: 'The revocation applier is registered dead_letter=False: an outage is retried forever with
     capped backoff (never parked in the DLQ), only a malformed payload is dead-lettered at once, and while
@@ -2106,6 +2296,67 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_security_review_regressions.py::test_guarded_request_never_sends_remote_command
   - src/sandloom/core/tests/test_security_review_regressions.py::test_guarded_request_can_still_send_described_remote_read
+- id: G-REVOKE-25
+  statement: 'The kernel registers the durable core.auth.tokens_revoked.v1 applier (auth@tokens_revoked,
+    dead_letter=False) in every composition, with no business module loaded too (identity absent): a mark
+    that failed after commit is re-applied in every service. Its group is per service,
+    sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME> (never derived from the database): the replicas of
+    one service share it and every other service applies every revocation in its own group; the in-process
+    memory bus runs it under ...@local.'
+  sources:
+  - docs/advanced/security-model.md#Authentication
+  - docs/operate/operator-reference.md#Secrets management
+  tests:
+  - src/sandloom/core/tests/test_revocation_applier.py::test_a_lean_app_registers_the_local_applier_and_is_ready
+  - src/sandloom/core/tests/test_revocation_applier.py::test_the_group_is_named_by_the_service_not_the_database
+  - src/sandloom/core/tests/test_revocation_applier.py::test_three_replicas_and_two_deployments_on_one_bus
+  - src/sandloom/core/tests/test_revocation_applier.py::test_cache_failure_redelivers_then_applies_and_restart_replays_idempotently
+  - src/sandloom/core/tests/test_revocation_applier.py::test_a_channel_version_change_keeps_the_deployment_group
+- id: G-REVOKE-26
+  statement: 'On a shared event bus a process without SANDLOOM_SERVICE_NAME (or with whitespace or ''|''
+    in it) refuses to start in every entry point (app, worker, sandloom migrate, the configured CLI) with
+    INVALID_CONFIGURATION, in every environment. The bus is the resolved driver of the default eventbus
+    instance, EVENT_BUS_BACKEND with the INFRA overlay applied; every driver but memory is shared, and an
+    INFRA eventbus the merge refuses counts as shared.'
+  sources:
+  - docs/advanced/security-model.md#Authentication
+  - docs/operate/operator-reference.md#Secrets management
+  tests:
+  - src/sandloom/core/tests/test_revocation_applier.py::test_a_shared_bus_without_a_name_is_refused
+  - src/sandloom/core/tests/test_revocation_applier.py::test_a_shared_bus_chosen_through_infra_is_refused_without_a_name
+  - src/sandloom/core/tests/test_revocation_applier.py::test_an_unreadable_infra_eventbus_counts_as_shared
+  - src/sandloom/core/tests/test_revocation_applier.py::test_every_entry_point_refuses_a_shared_bus_without_a_name
+  - src/sandloom/core/tests/test_revocation_applier.py::test_create_app_refuses_an_infra_selected_shared_bus_without_a_name
+  - src/sandloom/core/tests/test_revocation_applier.py::test_the_in_process_bus_needs_no_name
+  - src/sandloom/core/tests/test_revocation_applier.py::test_infra_selecting_the_memory_bus_is_in_process
+  gap: Two services given the same SANDLOOM_SERVICE_NAME share one applier group and split revocations; only
+    SANDLOOM-T014 refuses that, statically, within one deploy profile. Nothing detects at runtime one group
+    consumed by processes with different module sets (the subscription inventory keeps one entry per stream
+    and group, and the owner fingerprint compares module and database only).
+  gap_size: M
+- id: G-REVOKE-27
+  statement: '/ready (never /health) answers 503 naming the consumer when the applier is needed (shared
+    bus) and its group is missing or not running, when a core.auth.tokens_revoked.v1 or core.auth.user_blocked.v1
+    consumer is not running, when its oldest unacknowledged event is older than ACCESS_TOKEN_EXPIRE_MINUTES,
+    when one of its group''s events is dead-lettered (counted over the whole DLQ), or when that count is
+    unknown (the read failed or the DLQ is longer than the scan); a younger backlog stays ready. The DLQ is
+    read at most once per HEALTH_CACHE_TTL_SECONDS (single flight), and sandloom_consumer_lag_seconds returns
+    to 0 once the backlog clears.'
+  sources:
+  - docs/operate/operator-reference.md#Secrets management
+  tests:
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_a_backlog_older_than_the_token_lifetime_is_not_ready
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_one_dead_letter_is_not_ready
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_a_consumer_that_is_not_running_is_not_ready
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_a_needed_applier_that_is_missing_is_not_ready
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_ready_answers_by_the_criteria
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_ready_judges_the_applier_on_an_infra_selected_bus
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_an_unknown_dead_letter_count_is_not_ready
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_a_failed_dead_letter_read_is_not_ready_until_it_succeeds
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_the_whole_dead_letter_queue_is_counted_not_the_oldest_page
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_a_dead_letter_queue_longer_than_the_scan_is_unknown
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_concurrent_ready_calls_share_one_dead_letter_read
+  - src/sandloom/core/tests/test_revocation_readiness.py::test_the_lag_gauge_resets_when_the_backlog_clears
 - id: G-BLOCK-01
   statement: 'The block is a value of the subject-state record (v1:blocked:<us>, no TTL), read live on
     every authenticated request, never from a per-process copy, and rejects every token of the user,
@@ -2165,8 +2416,9 @@ guarantees:
   gap_size: M
 - id: G-BLOCK-05
   statement: 'On commit block_user ends the user''s sessions: all access tokens issued so far are revoked
-    and core.auth.user_blocked.v1 is published, whose identity consumer revokes every refresh token, so
-    lifting the block requires a fresh login.'
+    and core.auth.user_blocked.v1 is published, whose durable consumer in the token issuer (identity''s
+    sessions@user_blocked; the SANDLOOM-B035 obligation of every issues_tokens module, G-BLOCK-08) revokes
+    every refresh token, so lifting the block requires a fresh login.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   - docs/advanced/security-model.md#Authentication
@@ -2194,6 +2446,20 @@ guarantees:
   - src/sandloom/core/tests/test_subject_record.py::test_unblock_never_resurrects_pre_block_tokens
   - src/sandloom/core/tests/test_subject_record.py::test_a_rolled_back_unblock_keeps_the_block
   - src/sandloom/core/tests/test_subject_record.py::test_redis_unblock_swaps_and_never_deletes
+- id: G-BLOCK-08
+  statement: 'SANDLOOM-B035: startup refuses a module declared issues_tokens=True that neither registers a
+    durable core.auth.user_blocked.v1 consumer (a volatile one or another module''s does not count) nor
+    declares refresh_sessions=False, and refuses that declaration when the module registers a refresh route,
+    a refresh-session table or a user_blocked consumer; the declaration is recorded in module.snapshot.json.'
+  sources:
+  - docs/advanced/security-model.md#Authentication
+  tests:
+  - src/sandloom/core/tests/test_issuer_obligation.py::test_an_issuer_without_a_block_consumer_is_refused
+  - src/sandloom/core/tests/test_issuer_obligation.py::test_a_volatile_block_consumer_does_not_count
+  - src/sandloom/core/tests/test_issuer_obligation.py::test_another_modules_block_consumer_does_not_count
+  - src/sandloom/core/tests/test_issuer_obligation.py::test_a_contradicted_stateless_declaration_is_refused
+  - src/sandloom/core/tests/test_issuer_obligation.py::test_the_refusal_is_an_invalid_configuration_naming_b035
+  - src/sandloom/core/tests/test_issuer_obligation.py::test_the_declaration_is_recorded_in_the_module_snapshot
 - id: G-OPCLASS-03
   statement: 'The platform route policy is pinned: each module''s routes equal its committed routes.snapshot.json
     (format 3: the full resolved policy per route and method) and the kernel-mounted routes carry the kernel''s
@@ -2265,8 +2531,8 @@ guarantees:
   - docs/adr/0009-route-policy-and-session-freshness.md#Risk is declared at its source, once, by its owner
   tests:
   - src/sandloom_billing/tests/test_platform_admin.py::test_all_operator_reads_deny_tenant_accounts
-  - src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets
-  - src/sandloom/core/tests/test_admin_operations.py::test_outbox_requeue_is_audited_atomically_and_idempotent
+  - tests/integration/with_batteries/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets
+  - tests/integration/with_batteries/test_admin_operations.py::test_outbox_requeue_is_audited_atomically_and_idempotent
   - src/sandloom_billing/tests/test_platform_admin.py::test_committed_adjustment_is_concurrent_safe_and_audit_failure_rolls_back
 - id: G-ROUTE-01
   statement: create_app refuses (RoutePolicyError, SANDLOOM-B008) an API route that neither resolves an authenticator
@@ -2296,7 +2562,7 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_route_policy_auth.py::test_public_with_a_reason_passes_and_is_recorded
   - src/sandloom/core/tests/test_route_policy_auth.py::test_router_level_public_covers_its_routes
-  - src/sandloom/core/tests/test_route_policy_auth.py::test_bundled_public_routes_are_exactly_the_reviewed_set
+  - tests/integration/with_batteries/test_route_policy_bundled_public_routes.py::test_bundled_public_routes_are_exactly_the_reviewed_set
   - tests/architecture/test_operation_classes.py::test_router_level_class_covers_its_routes
 - id: G-ROUTE-03
   statement: 'PSP webhooks are public(reason=...) routes, not service principals, and verify their signature
@@ -2304,7 +2570,7 @@ guarantees:
   sources:
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
   tests:
-  - src/sandloom/core/tests/test_route_policy_auth.py::test_bundled_public_routes_are_exactly_the_reviewed_set
+  - tests/integration/with_batteries/test_route_policy_bundled_public_routes.py::test_bundled_public_routes_are_exactly_the_reviewed_set
   - src/sandloom_billing/tests/test_webhooks.py::TestWebhookSecurity::test_invalid_signature_rejected
   - src/sandloom_billing/tests/test_webhooks.py::TestWebhookSecurity::test_missing_signature_rejected
 - id: G-ROUTE-04
@@ -2484,6 +2750,9 @@ guarantees:
   - tests/integration/test_shared_authz_review.py::test_or_with_erroring_branch_does_not_allow
   - tests/integration/test_shared_authz_review.py::test_double_negation_of_error_still_denies
   - tests/integration/test_access_facts_split.py::test_unreachable_owner_is_503
+  - src/sandloom/core/tests/test_contract_check_outage.py::test_or_allows_only_on_the_branch_that_reliably_allowed
+  - src/sandloom/core/tests/test_contract_check_outage.py::test_a_negated_down_provider_never_allows
+  - src/sandloom/core/tests/test_contract_check_outage.py::test_an_authentication_or_allowlist_refusal_stays_an_error
 - id: G-AUTHZ-02
   statement: require(...) evaluates the cheapest tier first (claims -> resource -> live) and short-circuits;
     a claims-only policy such as require(Subscribed(of=Account.user())) opens no DB session and does no I/O.
@@ -2495,6 +2764,7 @@ guarantees:
   - tests/integration/test_shared_authz_review.py::test_http_claims_only_policy_opens_no_db_session
   - tests/integration/test_authz_algebra.py::test_cheap_claim_short_circuits_before_resource_load
   - tests/integration/test_access_subsystem.py::test_and_returns_first_failing_cheapest_first
+  - src/sandloom/core/tests/test_contract_check_outage.py::test_a_contract_check_opens_no_request_session
 - id: G-AUTHZ-03
   statement: SubscriptionActive(of=...) and Credits(n, of=...) (of= required) are live and authoritative, resolved
     through the owner's contract (local, or the SERVICE_BINDINGS RPC proxy when remote).
@@ -2518,13 +2788,20 @@ guarantees:
   - tests/integration/test_access_facts_split.py::test_describe_is_declarative_and_cached
   - tests/integration/test_access_facts_split.py::test_unbound_fact_is_501_not_500
 - id: G-AUTHZ-05
-  statement: 'Live adapters are consumer-side configuration: a registered adapter overrides the owner''s
-    contract, and registering one on the provider side warns.'
+  statement: 'Who answers a live entitlement or membership check is the consumer''s configuration: a third-party
+    provider''s access checks (the SubscriptionActive, Credits and OrgRole shapes) decide what the standard
+    contracts'' generated atoms (billing.entitlements.v1, tenancy.membership.v1) decide on the same inputs (allow, deny, indeterminate 400 / 403 / 501, a provider down 503), in-process
+    under the access_providers assignment and over internal RPC through SERVICE_BINDINGS pinned to its service_id;
+    the root''s assignment chooses among candidate providers and refuses every other (SANDLOOM-B034).'
   sources:
+  - 'docs/adr/0014-claims-trust-and-authorization-portability.md#14. The live adapters: an approved exception, after equivalence'
   - docs/modules/index.md#What you get by default, and what you declare
   tests:
-  - tests/integration/test_shared_authz_review.py::test_registered_adapter_overrides_contract
-  - tests/integration/test_shared_authz_review.py::test_provider_side_live_adapter_registration_warns
+  - tests/integration/test_access_providers_split.py::test_a_third_party_provider_decides_as_the_kernel_atoms_mono_and_split
+  - tests/integration/test_access_providers_split.py::test_the_root_chooses_the_provider_by_configuration
+  - tests/integration/test_access_providers_split.py::test_without_a_provider_both_are_501_even_negated
+  - tests/integration/test_access_providers_split.py::test_a_provider_down_is_503_both_ways
+  - tests/integration/test_access_providers_split.py::test_only_the_pinned_service_id_answers_remotely
 - id: G-AUTHZ-06
   statement: require(...) as a route dependency rejects resource-loading policies (only claim and live
     policies are allowed there).
@@ -2552,9 +2829,11 @@ guarantees:
   tests:
   - tests/integration/test_access_subsystem.py::test_enforce_denies_and_records_metric
 - id: G-AUTHZ-09
-  statement: Subscribed, SubscriptionActive, Credits, Feature and WithinLimit require of=; a missing or non-Account
-    value raises AuthzSubjectMissingError (a TypeError, SANDLOOM-B017) naming the three choices (Account.user(),
-    Account.org(param=), Account.bound_tenant()).
+  statement: Billing's generated Subscribed, SubscriptionActive, Credits, Feature and WithinLimit require of=
+    (the kernel ships none of them since KB-34); their generated signature makes of= keyword-only and required, so
+    a missing one is a TypeError naming of= at the declaration (a type checker flags it before the run), and a
+    non-Account value raises AuthzSubjectMissingError (a TypeError, SANDLOOM-B017) naming the three choices
+    (Account.user(), Account.org(param=), Account.bound_tenant()).
   sources:
   - docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects
   - tests/fixtures/specs/public-api-1.0-spec.md#7.2 `of=` (required, no default)
@@ -2581,13 +2860,93 @@ guarantees:
   tests:
   - tests/integration/test_authz_subjects.py::test_bound_tenant_resolves_by_tenant_kind
   - tests/integration/test_authz_subjects.py::test_tenant_kind_is_authoritative_and_memoised
+  - tests/integration/test_tenant_witness.py::test_a_bound_tenant_policy_consumes_the_witness_contract
+  - src/sandloom/core/tests/test_contract_check.py::test_a_breaking_access_check_change_is_incompatible
 - id: G-AUTHZ-12
-  statement: Feature / WithinLimit with an organization account read the owner's organization.features / organization.limits
-    facts live (501 without a registered fact); with Account.user() they read the claims as before.
+  statement: The kernel ships no Feature / WithinLimit (KB-34); the atoms are billing's generated Feature
+    / WithinLimit (claim atoms of billing.entitlements.v1's has_feature / is_within_limit)
+    read the claims with zero I/O, and for an organization account ask billing's live check once with their
+    parameters, in-process and over internal RPC alike (501 without a provider, never an allow). A provider
+    with no source for the answer (billing has no per-plan features / limits catalogue yet) raises AccessUnknown,
+    an indeterminate 501 access_unknown in mono and split, never a deny, so Not and Or over it never allow;
+    an explicit off or exceeded limit from a source still denies, and a third-party contract provides the
+    same atoms with no kernel change. Amended 2026-11-09 (KB-33d), for Account.user() the generated atoms are
+    three-valued from the token with zero I/O, no longer the kernel atoms' reading where no source speaks.
+    A present features / limits mapping is the complete entitlements snapshot (an explicit on allows, an
+    explicit off or an unlisted entry denies); the whole claim absent is 501 access_unknown, absent because
+    its authority failed at the mint 503 claim_authority_failed, removed by the view its 401 / 503 (else
+    501), and a claim that is not a mapping or an entry of the wrong type 501 access_unknown; Not, Or and
+    And never allow on any of these. Billing writes no features / limits claim until its catalogue ships.
+    Amended 2026-11-09 (KB-33e), billing's generated Subscribed on its verbatim path (statuses= or another
+    declared claim_key=, Account.user()) follows the same rows with zero I/O, no longer a deny on an absent
+    status. A status present decides (among the statuses allows, else 402); absent because its authority
+    failed at the mint 503 claim_authority_failed, removed by the view its 401 / 503, absent otherwise
+    (unassigned / unvouched by the view, no source wrote it, no provenance) or not a string 501
+    access_unknown; Not, Or and And never allow on any of these. Amended 2026-11-09 (KB-33f), the
+    default path shares the view's row with zero I/O, before the fact is looked up; removed as outdated /
+    mismatch it is 401 token_policy_outdated / 503 claims_policy_mismatch, no longer the 402 that Not turned
+    into an allow; a value the view removed although billing vouched for the token is 501 access_unknown.
+    Amended 2026-11-09 (KB-33g,
+    owner decision, statuses= changes the accepted statuses, not the trust rules), Subscribed() and
+    Subscribed(statuses=...) share one trust rule and agree on every row, with zero I/O for Account.user()
+    beyond billing's declarative rule for a present status. Billing's own claim proven absent is billing's
+    definite 402 on both; the key is the fact's claim, assigned to billing in the verifier's map, billing
+    is in claims_sources and not in claims_sources_failed, the token's cpv entry for the key is the digest
+    the verifier accepts for billing, and the view removed nothing (billing's subscription_claims() is {}
+    for a user with no billing customer). An absent key never equals a status (statuses={"none"} does not
+    match it). A status present that billing vouched for decides (outside the accepted statuses 402);
+    removed by the view 401 token_policy_outdated / 503 claims_policy_mismatch; billing failed at the mint
+    503 claim_authority_failed, no longer asked live; no authority assigned for the key, another authority,
+    billing not run, no cpv or another policy's digest, a legacy token, removed by the view as unassigned /
+    unvouched, another declared claim_key=, or not a string 501 access_unknown. ~Subscribed allows only on
+    a proven deny; Not, Or and And never allow on an indeterminate. Never extended to features, limits or
+    application claims. Amended 2026-11-09 (KB-33h, owner decision, absence is the fact owner's declared
+    semantics), a proven absence is a deny only where the fact declares it in AccessFact(absent_claim=
+    "unknown" | "deny"), default "unknown", carried in the generated atom's literal, the contract's
+    describe document and the facts contract's descriptor, never inferred from a key or an owner name;
+    a literal or descriptor without the field means "unknown". With "unknown", the authority ran OK at the
+    mint and wrote no claim is 501 access_unknown. With "deny" it is the fact's definite deny with the fact's own
+    category, only for its primary claim, and only when every condition above holds (else 401 / 503 /
+    501). Billing's subscription.active declares "deny" (its 402 above); any other owner's fact that
+    declares nothing stays 501, and Not over it never allows. A provider that withdraws "deny" is a
+    breaking contract change.
   sources:
   - docs/adr/0010-public-api-1.0.md#7. Explicit authorization subjects
+  - docs/adr/0014-claims-trust-and-authorization-portability.md#15. What else moves, and what stays
   tests:
   - tests/integration/test_authz_subjects.py::test_org_feature_and_limit_need_the_owners_fact
+  - src/sandloom/core/tests/test_claim_read_atoms.py::test_the_user_account_decides_as_the_kernel_atom
+  - src/sandloom/core/tests/test_claim_read_atoms.py::test_an_organization_asks_the_live_check_with_its_parameters
+  - src/sandloom/core/tests/test_claim_read_atoms.py::test_without_a_provider_the_organization_path_is_501
+  - tests/integration/with_batteries/test_plan_atoms.py::test_mono_billing_atoms_decide_as_pinned
+  - tests/integration/with_batteries/test_plan_atoms.py::test_split_billing_atoms_carry_their_parameters_over_rpc
+  - tests/integration/with_batteries/test_plan_atoms.py::test_mono_billing_without_a_catalogue_is_501_never_an_allow
+  - tests/integration/with_batteries/test_plan_atoms.py::test_split_billing_without_a_catalogue_is_501_never_an_allow
+  - tests/integration/with_batteries/test_plan_atoms.py::test_without_a_catalogue_the_user_claims_path_is_unchanged
+  - src/sandloom/core/tests/test_claim_read_atoms.py::test_no_source_is_501_and_never_allows
+  - src/sandloom/core/tests/test_claim_read_atoms.py::test_a_third_party_source_decides_alike_mono_and_split
+  - src/sandloom/core/tests/test_claim_read_atoms.py::test_access_unknown_is_the_same_class_local_and_remote
+  - src/sandloom/core/tests/test_claim_read_atoms.py::test_the_user_path_is_three_valued_from_the_token
+  - src/sandloom/core/tests/test_claim_read_atoms.py::test_an_or_of_unknown_branches_never_allows
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_the_verbatim_path_is_three_valued_from_the_token
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_billing_failed_at_the_mint_never_lets_not_allow
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_or_of_two_unknown_branches_never_allows
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_the_default_path_never_goes_live_when_billing_failed
+  - tests/integration/with_batteries/test_subscribed_verbatim.py::test_the_default_path_answers_the_views_indeterminate
+  - tests/integration/with_batteries/test_subscribed_agree.py::test_both_paths_answer_every_row_alike
+  - tests/integration/with_batteries/test_subscribed_agree.py::test_billing_declares_its_absent_claim_a_deny
+  - tests/integration/with_batteries/test_subscribed_agree.py::test_an_absent_status_never_equals_none
+  - tests/integration/with_batteries/test_subscribed_agree.py::test_a_remote_billing_denies_a_proven_absence_with_no_call
+  - tests/integration/with_batteries/test_subscribed_agree.py::test_a_previous_authority_of_another_name_proves_no_absence
+  - src/sandloom/core/tests/test_absent_claim_policy.py::test_a_successful_contributor_without_the_claim_is_501_by_default
+  - src/sandloom/core/tests/test_absent_claim_policy.py::test_a_fact_declaring_deny_denies_with_its_own_category
+  - src/sandloom/core/tests/test_absent_claim_policy.py::test_deny_needs_every_provenance_condition
+  - src/sandloom/core/tests/test_absent_claim_policy.py::test_deny_applies_only_to_the_primary_claim
+  - src/sandloom/core/tests/test_absent_claim_policy.py::test_an_old_literal_without_the_field_means_unknown
+  - src/sandloom/core/tests/test_absent_claim_policy.py::test_an_old_descriptor_without_the_field_means_unknown
+  - src/sandloom/core/tests/test_absent_claim_policy.py::test_withdrawing_deny_is_a_breaking_contract_change
+  - tests/integration/with_batteries/test_subscribed_no_customer.py::test_no_billing_customer_is_402_on_both_reads
+  - tests/integration/with_batteries/test_subscribed_no_customer.py::test_the_decision_does_no_io
 - id: G-GUARD-01
   statement: create_app refuses (GuardOrderError) a route where FastAPI resolves an idempotency_guard
     before its authenticating dependency; router-level auth counts as preceding, and a custom authenticator
@@ -2598,7 +2957,7 @@ guarantees:
   - src/sandloom/core/tests/test_guard_order.py::test_guard_in_route_dependencies_before_param_auth_is_refused
   - src/sandloom/core/tests/test_guard_order.py::test_guard_param_before_auth_param_is_refused
   - src/sandloom/core/tests/test_guard_order.py::test_custom_authenticator_counts_once_marked
-  - src/sandloom/core/tests/test_guard_order.py::test_bundled_app_routes_pass
+  - tests/integration/with_batteries/test_guard_order_bundled_app.py::test_bundled_app_routes_pass
   startup_checks: 'create_app refuses: GuardOrderError'
   gap: Tests call the order checker directly; no test boots create_app with a misordered route to prove
     the startup wiring.
@@ -2932,17 +3291,20 @@ guarantees:
 - id: G-BILLING-18
   statement: BILLING_PROVIDER=stripe fails fast without STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET; prod
     refuses the fake PSP (when billing registers, in every entry point that builds the composition) unless
-    the accepted risk fake_psp_in_prod is set; both
-    deploy profiles require an explicit BILLING_PROVIDER.
+    the accepted risk billing.fake_psp_in_prod is set; both checks are billing's own settings (BillingSettings,
+    validated before its setup), so a process that does not load billing neither validates nor refuses them;
+    both deploy profiles require an explicit BILLING_PROVIDER.
   sources:
   - docs/reference/cli.md
   - docs/advanced/security-model.md#Secrets
   - docs/operate/topologies.md
   tests:
   - tests/integration/test_resilience_config.py::test_stripe_provider_requires_keys
-  - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_prod_rejects_explicit_fake_psp_unless_opted_in
-  - src/sandloom_billing/tests/test_registration_surface.py::test_fake_psp_in_prod_refuses_registration
-  - src/sandloom/core/tests/test_boot_configuration_checks.py::test_module_refusal_stops_every_composed_entry_point
+  - src/sandloom_billing/tests/test_webhook_hardening.py::TestForgedWebhooks::test_prod_refuses_fake_psp
+  - src/sandloom_billing/tests/test_billing_settings.py::test_an_empty_stripe_key_counts_as_missing
+  - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_the_kernel_settings_do_not_validate_billing
+  - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_billing_variables_do_not_reach_a_process_without_billing
+  - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_module_refusal_stops_every_composed_entry_point
   - src/sandloom/core/tests/test_deploy_profiles.py::test_billing_provider_must_be_chosen
 - id: G-BILLING-19
   statement: 'The checkout and portal routes are operation_intent routes and take no request unit: each intent step
@@ -3260,6 +3622,111 @@ guarantees:
   - tests/sdk/test_sdk_contract_dtos.py::test_every_copied_class_is_marked_and_carries_the_wire_shape
   - src/sandloom/core/tests/test_contract_dto_locality.py::test_remote_decode_resolves_a_loaded_generated_copy
   - src/sandloom_identity/tests/test_contact_contract.py::test_get_contact_and_get_contacts
+- id: G-CONTRACT-20
+  statement: 'A module''s consumes is the single source of the contract copies generated into it: sandloom
+    generate plans <module>/_generated/contracts from the AST of the module''s declarations before it composes
+    the app (a module importing a stub not generated yet still generates). Every entry lists the methods
+    the module calls (derived from calls on the typed client, an optional client''s local included, or stated
+    in consumes=); an entry the generator cannot resolve to a method list is refused naming consumes=, an
+    import of a stub with no consumes entry is refused, generate --check fails when the planned set differs
+    from the composed consumes, and the kernel families <m>.claims.v1 and <m>.facts.v1 get no copy.'
+  sources:
+  - docs/adr/0013-contract-ownership.md#2. `consumes` is the single source of what a consumer requires
+  - docs/reference/error-codes.md
+  tests:
+  - tests/sdk/test_sdk_consumer_copies.py::test_the_planner_reads_the_declarations_before_composition
+  - tests/sdk/test_sdk_consumer_copies.py::test_an_entry_without_methods_is_refused_naming_consumes
+  - tests/sdk/test_sdk_consumer_copies.py::test_the_planned_set_must_equal_the_composed_consumes
+  - tests/sdk/test_sdk_consumer_copies.py::test_an_import_with_no_consumes_entry_is_refused
+  - tests/sdk/test_sdk_consumer_copies.py::test_kernel_families_get_no_copy
+  - tests/sdk/test_sdk_contracts.py::test_an_optional_client_local_resolves_its_methods
+- id: G-CONTRACT-21
+  statement: 'Beside each generated consumer stub, <stem>.describe.json holds the provider''s describe restricted
+    to the methods the consumer''s consumes lists (with contract, fingerprint, provider distribution and class,
+    generator_format and each model''s extra); a field added to a closed result DTO (extra="forbid" in the
+    provider''s model_config) is an incompatible change, to an open one it stays additive.'
+  sources:
+  - docs/adr/0013-contract-ownership.md#3. Expectation files and narrowing
+  tests:
+  - tests/sdk/test_sdk_consumer_copies.py::test_the_expectation_is_narrowed_to_the_consumed_methods
+  - tests/sdk/test_sdk_consumer_copies.py::test_the_closed_dto_rule
+- id: G-CONTRACT-22
+  statement: 'Every generated consumer file starts with a provenance header (contract and fingerprint, provider,
+    generator format and a digest of the body), so a hand edit is detected without the provider: where the
+    provider is not importable, a committed copy whose digest verifies is kept unchanged, a hand-edited one is
+    refused and a missing one is refused naming the module, the contract and the provider (SANDLOOM-T018);
+    a diff of a generated file is reported as a generator change or a contract change.'
+  sources:
+  - docs/adr/0013-contract-ownership.md#5. Provider absent where `generate` runs
+  - docs/adr/0013-contract-ownership.md#7. Provenance header
+  - docs/reference/error-codes.md
+  tests:
+  - tests/sdk/test_sdk_consumer_copies.py::test_provider_absent_keeps_a_verified_copy_and_refuses_otherwise
+  - tests/sdk/test_sdk_consumer_copies.py::test_explain_diff_tells_a_generator_change_from_a_contract_change
+- id: G-CONTRACT-23
+  statement: 'Generated consumer copies are a function of the provider''s declarations and the generator format
+    only: byte-identical across hash seeds and module orders, with ruff absent and under a foreign line-length
+    in the project; DTO copies are rendered in the layout ruff format writes at 88 columns, never piped
+    through the project''s formatter. Two contracts mapping to one stem are refused naming both, and neither
+    file is written.'
+  sources:
+  - docs/adr/0013-contract-ownership.md#6. Determinism without the project formatter
+  - docs/adr/0013-contract-ownership.md#8. Collisions and copies
+  tests:
+  - tests/sdk/test_sdk_consumer_copies.py::test_generation_is_byte_identical_across_seeds_orders_and_formatters
+  - tests/sdk/test_sdk_consumer_copies.py::test_the_final_layout_is_what_ruff_format_writes_at_88
+  - tests/sdk/test_sdk_consumer_copies.py::test_stem_collisions_are_refused_naming_both
+- id: G-CONTRACT-24
+  statement: 'A contract the authorization layer asks to decide access (a key of create_app(access_providers=...),
+    the service of any live adapter, or the contract of an imported generated access check) is registered in-process only by the module its
+    first segment names, from its installed distribution when one provides a module of that name, or by the
+    one module the composition root assigns, checked by import path. An unassigned third party, an app-local
+    namesake of an assigned or installed module, a second claimant of one assignment, a registration made
+    outside a module''s registration, an access check imported after the registration and a malformed assignment refuse
+    the boot (SANDLOOM-B034), at boot only; a provider cannot opt out by omitting a declaration. Remotely
+    SERVICE_BINDINGS pinned to the provider''s service_id is the assignment: another process behind the URL
+    answers nothing, and an assigned provider decides the same mono and split. Every other contract name keeps
+    the first-registrant rule.'
+  sources:
+  - docs/adr/0014-claims-trust-and-authorization-portability.md#6. Contract-name ownership for access-bearing contracts
+  - docs/advanced/security-model.md
+  tests:
+  - src/sandloom/core/tests/test_access_providers.py::test_an_unassigned_third_party_provider_is_refused
+  - src/sandloom/core/tests/test_access_providers.py::test_an_assigned_third_party_provider_is_accepted
+  - src/sandloom/core/tests/test_access_providers.py::test_an_app_local_module_of_the_assigned_name_is_refused
+  - src/sandloom/core/tests/test_access_providers.py::test_the_first_segment_module_from_its_distribution_is_accepted
+  - src/sandloom/core/tests/test_access_providers.py::test_a_same_named_module_from_another_path_is_refused
+  - src/sandloom/core/tests/test_access_providers.py::test_an_assignment_is_exclusive
+  - src/sandloom/core/tests/test_access_providers.py::test_an_access_bearing_contract_outside_a_registration_is_refused
+  - src/sandloom/core/tests/test_access_providers.py::test_a_generated_access_check_makes_its_contract_access_bearing
+  - src/sandloom/core/tests/test_access_providers.py::test_an_access_check_imported_after_the_registration_refuses_the_boot
+  - src/sandloom/core/tests/test_access_providers.py::test_an_access_check_imported_after_create_app_refuses_the_startup
+  - src/sandloom/core/tests/test_access_providers.py::test_a_bare_facade_keeps_the_first_registrant_rule
+  - src/sandloom/core/tests/test_access_providers.py::test_a_malformed_map_refuses_the_boot
+  - src/sandloom/core/tests/test_access_providers.py::test_create_app_refuses_an_unassigned_third_party_provider
+  - tests/integration/test_access_providers_split.py::test_an_assigned_provider_decides_the_same_mono_and_split
+  - tests/integration/test_access_providers_split.py::test_only_the_pinned_service_id_answers_remotely
+  gap: 'Boot-time check only: a contract registered by hostile code that bypasses registration is outside the
+    threat model (mistakes only); the remote half rests on the service_id pin of SERVICE_BINDINGS (G-RPC).'
+  gap_size: S
+- id: G-CONTRACT-25
+  statement: 'Generated consumer artifacts live in the distribution that consumes them: a module keeps the stubs,
+    DTO copies and expectation files of the contracts it consumes in its own _generated/contracts/ package,
+    an application in <app>.shared/contracts/; the producer''s module.snapshot.json, shipped in its wheel,
+    is the published event schema. The kernel ships none: sandloom/shared holds no generated contract stub,
+    DTO copy, event schema or module helper (membership.py is gone) and is never a generation target.
+    _generated/ is reserved: sandloom check refuses a hand-written or edited file in it and an import of
+    another module''s _generated package (SANDLOOM-C032), while the generator''s own files pass.'
+  sources:
+  - docs/adr/0013-contract-ownership.md#1. Home rule
+  - docs/adr/0013-contract-ownership.md#9. C5 leaves the kernel
+  tests:
+  - tests/sdk/test_sdk_generated.py::test_the_kernel_holds_no_generated_file
+  - tests/sdk/test_sdk_generated.py::test_an_application_stub_imports_the_public_home
+  - tests/architecture/test_generated_reservation.py::test_the_generators_own_files_pass
+  - tests/architecture/test_generated_reservation.py::test_a_hand_written_or_edited_file_is_refused
+  - tests/architecture/test_generated_reservation.py::test_an_import_of_another_modules_generated_package_is_refused
+  - tests/architecture/test_generated_reservation.py::test_sandloom_check_runs_the_rule
 - id: G-COMPAT-01
   statement: 'Each bundled module commits contracts.snapshot.json equal to the rendered describe documents
     of its registered contracts; a stale or missing snapshot fails the suite. For L1 modules, sandloom
@@ -3271,7 +3738,7 @@ guarantees:
   - docs/modules/between/contracts.md
   - 'deploy/README.md#Rolling upgrades: contract compatibility'
   tests:
-  - src/sandloom/core/tests/test_contract_compat.py::test_committed_module_snapshots_match_registered_contracts
+  - tests/integration/with_batteries/test_contract_compat_bundled_modules.py::test_committed_module_snapshots_match_registered_contracts
   - tests/sdk/test_sdk_generated.py::test_apply_writes_in_dev_and_fails_stale_in_ci
   - tests/sdk/test_sdk_generated.py::test_a_stale_file_asks_for_sandloom_generate_and_is_left_alone
   - src/sandloom/core/tests/test_run_tests_cli.py::test_sandloom_test_never_writes_a_generated_file
@@ -3304,15 +3771,24 @@ guarantees:
   gap_size: S
 - id: G-COMPAT-04
   statement: 'With CONTRACT_COMPAT_CHECK=ready (default) a caller compares every reachable remote-bound
-    provider''s live describe document with the provider module''s snapshot (found in its package without
-    importing it): an incompatible provider fails /ready with contract_incompatible, an additive one passes.'
+    provider''s live describe document with what it expects of it: the <stem>.describe.json its own module
+    ships beside the generated stub (narrowed to the methods its composed consumes lists), else
+    CONTRACT_SNAPSHOT_PATHS, else the provider module''s snapshot (found in its package without importing
+    it), so a consumer-only install is checked too: an incompatible provider fails /ready with
+    contract_incompatible, an additive one passes, in either upgrade order.'
   sources:
   - docs/modules/between/contracts.md
   - 'deploy/README.md#Rolling upgrades: contract compatibility'
+  - docs/adr/0013-contract-ownership.md#3. Expectation files and narrowing
   tests:
   - src/sandloom/core/tests/test_contract_compat.py::test_ready_fails_on_an_incompatible_provider
   - src/sandloom/core/tests/test_contract_compat.py::test_ready_passes_on_an_additive_provider
-  - src/sandloom/core/tests/test_contract_compat.py::test_expectation_is_found_in_the_provider_package_without_importing_it
+  - tests/integration/with_batteries/test_contract_compat_bundled_modules.py::test_expectation_is_found_in_the_provider_package_without_importing_it
+  - tests/integration/with_batteries/test_contract_compat_bundled_modules.py::test_a_bundled_consumer_is_held_to_its_own_expectation
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_consumer_only_install_is_checked_from_its_expectation
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_mixed_version_pair_consumer_only
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_the_expectation_beside_the_stub_wins
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_narrowed_to_the_composed_consumes
 - id: G-COMPAT-05
   statement: ContractRequirement(name, methods=(...)) narrows the compatibility check to the methods the
     consumer calls, so breaks in other methods do not fail /ready.
@@ -3338,9 +3814,28 @@ guarantees:
   - 'deploy/README.md#Rolling upgrades: contract compatibility'
   tests:
   - src/sandloom/core/tests/test_contract_compat.py::test_model_without_field_info_is_a_warning_not_an_error
-  gap: The startup log for a remote binding with no snapshot at all ("unchecked", CONTRACT_SNAPSHOT_PATHS
-    absent) is not asserted.
-  gap_size: S
+- id: G-COMPAT-08
+  statement: 'A required remote contract with no expectation (no copy beside the consumer''s stub, no
+    CONTRACT_SNAPSHOT_PATHS entry, no snapshot in the provider''s package), a consumer copy whose digest does
+    not verify, or a consumed method the copy does not describe is never a warning: CONTRACT_COMPAT_CHECK=strict
+    refuses startup before any probe (ContractUnverifiedError, naming the contract and the fix) and ready fails
+    /ready with contract_unverified; a binding no loaded module consumes needs one too, an optional consumer
+    needs none. <m>.claims.v1 and <m>.facts.v1 are held to the kernel''s own schema. The expectations are read
+    at startup only: /ready reads no file and a contract call sends the same requests as with the check off.'
+  sources:
+  - docs/adr/0013-contract-ownership.md#4. No expectation is never a warning
+  - 'deploy/README.md#Rolling upgrades: contract compatibility'
+  - docs/modules/between/contracts.md
+  tests:
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_no_expectation_refuses_strict_before_any_probe
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_no_expectation_fails_ready_with_contract_unverified
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_a_binding_nobody_consumes_needs_an_expectation_too
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_a_hand_edited_copy_counts_as_no_expectation
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_a_consumed_method_its_copy_does_not_describe_is_unverified
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_an_optional_consumer_needs_no_expectation
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_kernel_family_shapes_match_the_kernel_providers
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_a_remote_claims_contract_under_strict
+  - src/sandloom/core/tests/test_contract_compat_expectations.py::test_expectations_are_read_at_startup_only
 - id: G-RPC-01
   statement: 'The request key K_req is HKDF-SHA256 over the X25519 agreement of caller and provider with
     a role-ordered, direction-labelled info naming both services and kids: both sides derive the same
@@ -3754,8 +4249,8 @@ guarantees:
   - docs/modules/index.md#What a module may import
   - docs/adr/0001-framework-distribution.md#Verification of current boundaries (from the codebase)
   tests:
-  - tests/architecture/test_archcheck_library.py::test_framework_imports_catch_from_sandloom_import_and_dynamic_aliases
-  - tests/architecture/test_archcheck_library.py::test_framework_manifest_passes_every_rule
+  - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_imports_catch_from_sandloom_import_and_dynamic_aliases
+  - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_manifest_passes_every_rule
   - src/sandloom/core/tests/test_architecture.py::test_architecture_checker_runs_without_violations
   rules:
   - framework-imports
@@ -3766,7 +4261,7 @@ guarantees:
   sources:
   - docs/modules/index.md#What a module may import
   tests:
-  - tests/architecture/test_archcheck_library.py::test_framework_manifest_passes_every_rule
+  - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_manifest_passes_every_rule
   rules:
   - framework-imports
   gap: no test proves a module importing sandloom.core.module_api._service_registry or sandloom.core.facade._state
@@ -3888,7 +4383,7 @@ guarantees:
   - docs/adr/0002-framework-absorbs-module-boilerplate.md#Decision
   tests:
   - tests/architecture/test_archcheck_library.py::test_test_imports_is_a_whitelist
-  - tests/architecture/test_archcheck_library.py::test_test_imports_whitelist_runs_in_sandloom_check
+  - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_test_imports_whitelist_runs_in_sandloom_check
   - tests/architecture/test_archcheck_library.py::test_test_imports_rule_honours_the_allowlist
   - tests/architecture/test_archcheck_library.py::test_legacy_test_import_baseline_has_no_stale_entries
   rules:
@@ -3914,7 +4409,8 @@ guarantees:
   - tests/sdk/test_sdk_discovery.py::test_a_subscripted_saga_records_its_constructing_module
 - id: G-MODULE-15
   statement: Every bundled module (and every example app's module) boots ALONE through create_app + lifespan;
-    only the documented ContractBindingError for required consumed contracts may refuse, and any startup/registration
+    only the documented ContractBindingError for required consumed contracts, or SANDLOOM-B037 for a required
+    capability with no installed driver (G-INFRA-12), may refuse, and any startup/registration
     coupling or error logged at startup fails the boot.
   sources:
   - docs/operate/topologies.md
@@ -4057,13 +4553,29 @@ guarantees:
   rules:
   - infra-imports
 - id: G-KERNEL-10
-  statement: 'sandloom.shared stays module-agnostic: it never imports a business module (absolute or relative),
-    so it cannot become a transitive coupling channel.'
+  statement: 'The kernel stays module-agnostic: no shipped code of sandloom.core, sandloom.sdk, sandloom.shared
+    or sandloom.main imports a business-module package (every sandloom_* package of the source layout or
+    of a sandloom.modules entry point, discovered; for sandloom.shared also a non-kernel sandloom.<m> subpackage),
+    absolute, relative, function-local, TYPE_CHECKING, or dynamic by a literal or module-level string constant,
+    beyond the open import rows of the edge register tests/architecture/kernel_edges.yml (a row whose
+    import is gone fails until it is set fixed); in the built wheels
+    a first-party import resolves through base requirements only, never through an extra. So shared cannot
+    become a transitive coupling channel.'
   sources:
   - docs/modules/index.md#What a module may import
   - docs/adr/0001-framework-distribution.md#Verification of current boundaries (from the codebase)
   tests:
   - tests/architecture/test_shared_purity.py::test_shared_does_not_import_business_modules
+  - tests/architecture/test_shared_purity.py::test_the_kernel_imports_no_business_module_beyond_the_allowlist
+  - tests/architecture/test_shared_purity.py::test_the_scan_catches_planted_violations
+  - tests/architecture/test_shared_purity.py::test_the_allowlist_tolerates_listed_debt_and_fails_stale_entries
+  - tests/architecture/test_distribution_imports.py::test_the_allowlist_is_the_registers_open_import_rows
+  - tests/architecture/test_kernel_import_contracts.py::test_the_kernel_module_contract_names_every_business_module
+  - tests/architecture/test_kernel_import_contracts.py::test_the_kernel_module_contract_breaks_on_a_planted_import
+  - tests/architecture/test_distribution_imports.py::test_an_extra_is_not_a_dependency_for_first_party_imports
+  - tests/architecture/test_distribution_imports.py::test_an_allowlisted_violation_passes_and_a_stale_entry_fails
+  import_contracts:
+  - kernel-imports-no-module
 - id: G-KERNEL-11
   statement: The enforced public surface (the public_api modules of architecture_rules.yml, including the sandloom.sdk modules of Public API 1.0, + sandloom.shared.* and the test surfaces) is snapshotted in
     public_api_baseline.json and a backward-incompatible change fails the build.
@@ -4088,7 +4600,10 @@ guarantees:
 - id: G-KERNEL-13
   statement: 'The kernel names no business module: sandloom.core settings carry no default module list, the standard
     root sandloom.main composes whatever module packages are installed (their sandloom.modules entry points),
-    and the kernel factory alone builds a working app.'
+    and the kernel factory alone builds a working app. Every place where shipped kernel code or the sandloom
+    wheel still names a module (a literal module name, package, non-core channel, declared module setting or
+    claim key, a computed dynamic import outside the listed loader call sites, a generated module file) is
+    a row of the edge register tests/architecture/kernel_edges.yml, checked by current status (SANDLOOM-T017).'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   - docs/adr/0001-framework-distribution.md#Boundary remediations required before the split
@@ -4096,6 +4611,37 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_generated_project_packaging.py::test_minimal_app_uses_the_kernel_factory
   - src/sandloom/core/tests/test_module_names.py::test_the_kernel_names_no_module
+  - tests/architecture/test_kernel_edges.py::test_the_seeded_register_passes
+  - tests/architecture/test_kernel_edges.py::test_a_planted_module_name_fails_naming_path_pattern_and_class
+  - tests/architecture/test_kernel_edges.py::test_a_computed_import_outside_the_loader_call_sites_fails
+  - tests/architecture/test_kernel_edges.py::test_a_module_file_in_the_wheel_fails
+  - tests/architecture/test_kernel_edges.py::test_a_fixed_row_with_a_finding_fails_as_a_regression
+  - tests/architecture/test_kernel_edges.py::test_a_documentation_row_never_covers_a_runtime_finding
+- id: G-KERNEL-14
+  statement: 'A file a module declares for sandloom generate (define_module(generates=...); the console''s
+    manifest is one) is rendered from data the kernel collects from the composed app, never from modules handed
+    to the renderer, and the kernel names neither the console nor its file. A stale declared file fails
+    generate --check and sandloom test (SANDLOOM-T016); a declaration that cannot be rendered is a problem
+    naming its module, never a crash or a swallowed error; a partially failed composition, and two modules
+    declaring one file, are refused. Without a declaring module there is no file, and the kernel''s platform
+    API stays.'
+  sources:
+  - docs/adr/0012-kernel-boundary.md#4. The admin battery
+  - docs/reference/error-codes.md
+  - docs/reference/sdk/module.md
+  tests:
+  - src/sandloom/core/tests/test_generated_admin_manifest.py::test_the_declared_file_is_planned_with_its_text
+  - src/sandloom/core/tests/test_generated_admin_manifest.py::test_without_a_declaring_module_there_is_no_file
+  - src/sandloom/core/tests/test_generated_admin_manifest.py::test_the_kernel_names_neither_the_console_nor_its_file
+  - src/sandloom/core/tests/test_generation_input.py::test_the_renderer_gets_data_of_the_composed_app
+  - src/sandloom/core/tests/test_generation_input.py::test_without_a_declaration_nothing_is_collected
+  - src/sandloom/core/tests/test_generation_input.py::test_a_broken_declaration_is_never_swallowed
+  - src/sandloom/core/tests/test_generation_input.py::test_a_partially_failed_composition_is_refused
+  - src/sandloom/core/tests/test_generation_input.py::test_a_bad_declaration_is_a_problem_not_a_crash
+  - src/sandloom/core/tests/test_generation_input.py::test_a_renderer_that_refuses_names_its_module
+  - src/sandloom/core/tests/test_generation_input.py::test_two_modules_declaring_one_file_both_fail
+  - src/sandloom/core/tests/test_generation_input.py::test_admin_export_renders_the_declared_file_and_checks_drift
+  - tests/integration/generated_files/test_declared_generated_files.py::test_without_the_console_no_manifest_and_the_platform_api_stays
 - id: G-INFRA-01
   statement: A backend constructor (create_async_engine, redis.from_url, Celery(...), Storage(...)) appears
     only inside sandloom.core.drivers/**; concrete drivers are imported only by the composition layer (app_factory,
@@ -4198,6 +4744,69 @@ guarantees:
   - src/sandloom/core/tests/test_database_feature_forms.py::test_the_c030_analyzer
   - src/sandloom/core/tests/test_aggregate_list.py::test_a_renderer_without_it_refuses_it_naming_the_feature
   - src/sandloom/core/tests/test_aggregate_list.py::test_a_module_needing_it_is_refused_at_startup_where_the_renderer_lacks_it
+- id: G-INFRA-10
+  statement: A driver registration names the top-level imports it needs and the install hint; the preflight
+    checks them with importlib.util.find_spec (nothing imported, no connection, answered once per name), so
+    a registered driver whose package is missing is not usable. An instance INFRA selects on such a driver,
+    and a driver whose dependency fails to import while it is built (strict, production startup), stops
+    startup with SANDLOOM-B037 naming the capability, instance, driver, missing package and install hint.
+    An instance nothing requires and the kernel does not use (database, revocation and security cache,
+    event bus) is not built, opened or probed.
+  sources:
+  - docs/adr/0011-driver-api.md
+  - design/kernel-boundary/owner-decision-infra-deps.md
+  tests:
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_a_missing_package_refuses_the_requirement_build_free
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_find_spec_runs_once_per_name
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_requires_takes_top_level_names_only
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_builtin_drivers_name_their_package_and_extra
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_an_import_error_while_building_is_b037
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_an_explicit_instance_on_an_uninstalled_driver_refuses_startup
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_an_unused_synthesized_instance_is_not_opened_or_probed
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_the_kernel_instances_stay_required_in_the_real_registry
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_strict_startup_names_a_kernel_instance_whose_package_is_missing
+- id: G-INFRA-11
+  statement: The taskqueue capability has the feature periodic, meaning the driver runs a module's periodic jobs at
+    their interval in at least one process while the deployment runs. A driver is never granted it for
+    supporting enqueue; only celery advertises it. A module's effective capabilities add what its code
+    shows (a tasks.py needs taskqueue, a beat hook the feature periodic) without relaxing a declaration, and
+    an undeclared derived capability is required; sandloom check asks for the declaration (SANDLOOM-C033).
+  sources:
+  - docs/adr/0011-driver-api.md
+  - design/kernel-boundary/owner-decision-infra-deps.md
+  tests:
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_tasks_derive_taskqueue_and_a_beat_hook_derives_periodic
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_an_undeclared_derived_capability_is_required
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_a_declaration_keeps_required_and_instance
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_bundled_modules_need_what_the_decision_says
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_periodic_is_a_taskqueue_feature_only_celery_advertises
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_an_enqueue_only_driver_cannot_serve_a_beat_hook
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_the_c033_analyzer
+  - tests/integration/module_subsets/test_module_subsets_infrastructure.py::test_a_taskqueue_driver_without_periodic_refuses_billing
+- id: G-INFRA-12
+  statement: A supported module combination starts and becomes ready when every capability its modules
+    require (declared or derived) has a configured, installed driver with the required features; otherwise
+    startup refuses with SANDLOOM-B037 naming the module, the capability, the instance, the driver, and
+    the missing feature or package (periodic for billing, the cache for identity), also for an explicitly
+    selected optional module. Proved on the sixteen module subsets with only the probe under test replaced, namely
+    Celery and Redis installed with real services (ready, every check ok), a broker nobody listens on (the
+    periodic-only web process stays ready), a missing redis or celery package (identity or billing refused
+    naming the guarantee; on plain sandloom without redis-py every other subset boots and is not ready,
+    its cache check naming the package), and a taskqueue driver without periodic.
+  sources:
+  - docs/adr/0011-driver-api.md
+  - design/kernel-boundary/requirements.md#I-19 Every allowed install profile and every module subset boots
+  - design/kernel-boundary/owner-decision-infra-deps.md
+  tests:
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_a_module_gets_every_unmet_requirement_in_one_refusal
+  - src/sandloom/core/tests/test_infra_driver_availability.py::test_the_module_preflight_refuses_with_b037_and_the_load_names_it
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_a_selected_optional_module_with_an_unmet_capability_refuses
+  - tests/integration/module_subsets/test_module_subsets_infrastructure.py::test_every_subset_is_ready_on_real_infrastructure
+  - tests/integration/module_subsets/test_module_subsets_infrastructure.py::test_an_unreachable_broker_does_not_unready_the_web_process
+  - tests/integration/module_subsets/test_module_subsets_infrastructure.py::test_a_missing_redis_driver_is_refused_or_visible
+  - tests/integration/module_subsets/test_module_subsets_infrastructure.py::test_a_missing_celery_driver_refuses_billing_naming_periodic
+  - tests/integration/module_subsets/test_module_subsets_infrastructure.py::test_a_taskqueue_driver_without_periodic_refuses_billing
+  - tests/integration/module_subsets/test_module_subsets_wheels.py::test_subset_on_plain_sandloom_p2_unstubbed
 - id: G-CONFIG-01
   statement: Every Settings field is classified in exactly one configuration tier (semantic or ops), and
     every semantic setting defines a value for every profile (dev / test / prod / prod+multi_tenant_strict).
@@ -4268,14 +4877,14 @@ guarantees:
   statement: 'The boot-time configuration checks (enforce_configuration) refuse an invalid configuration
     identically in every entry point: the app, the Celery worker, sandloom migrate and the sandloom CLI.
     A module''s registration refusal (identity''s TWOFA_ENCRYPTION_KEY in prod and JWT_SECRET, billing''s
-    implicit fake PSP in prod) does the same in every entry point that builds the composition: the app, the worker, beat,
-    sandloom migrate and the composed operator CLIs; sandloom config dump builds none.'
+    fake PSP in prod, implicit or explicit, and Stripe without its keys) does the same in every entry point that builds the composition: the app, the worker, beat,
+    sandloom migrate and the composed operator CLIs; sandloom config dump --kernel-only builds none, and the default dump builds it in collect mode and diagnoses the refusal.'
   sources:
   - docs/contributing/repository.md#Repository map
   tests:
   - src/sandloom/core/tests/test_boot_configuration_checks.py::test_moved_validator_refuses_every_entry_point
-  - src/sandloom/core/tests/test_boot_configuration_checks.py::test_module_refusal_stops_every_composed_entry_point
-  - src/sandloom/core/tests/test_boot_configuration_checks.py::test_config_dump_is_not_forced_to_build_the_composition
+  - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_module_refusal_stops_every_composed_entry_point
+  - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_config_dump_is_not_forced_to_build_the_composition
   - src/sandloom/core/tests/test_module_configuration_refusal.py::test_module_refusal_is_the_kernel_configuration_refusal
 - id: G-CONFIG-08
   statement: The generated configuration-tiers reference renders every semantic setting (with its reason)
@@ -4288,6 +4897,155 @@ guarantees:
     that file does not exist in the repo (only tiers.render_markdown() in memory); nothing checks the
     committed page exists / is current.
   gap_size: S
+- id: G-CONFIG-09
+  statement: 'A module declares its settings on its registration (define_module(settings=Model) or
+    api.declare_settings) as a plain pydantic model only; production checks read the validation context
+    (environment, accepts_risk refusing a risk the model does not declare, a read-only kernel view). A
+    module reads its instance with settings_of in setup and after; settings_of with no application bound
+    raises, so an import-time read fails the import audit, and a failed registration keeps no settings.'
+  sources:
+  - docs/adr/0015-module-settings.md#1. Declaration on registration (D2a)
+  - docs/reference/sdk/module.md
+  tests:
+  - src/sandloom/core/tests/test_module_settings.py::test_only_plain_pydantic_models_are_declarable
+  - src/sandloom/core/tests/test_module_settings.py::test_production_check_reads_the_context
+  - src/sandloom/core/tests/test_module_settings.py::test_accepts_risk_refuses_an_undeclared_risk
+  - src/sandloom/core/tests/test_module_settings.py::test_kernel_view_is_read_only
+  - src/sandloom/core/tests/test_module_settings.py::test_declared_settings_are_readable_in_setup_and_after_commit
+  - src/sandloom/core/tests/test_module_settings.py::test_a_failed_registration_keeps_no_settings
+  - src/sandloom/core/tests/test_module_settings.py::test_settings_of_with_no_application_bound_raises
+  - tests/integration/test_module_settings_fixture.py::test_import_audit_passes_the_fixture_and_fails_an_import_time_read
+  - tests/integration/test_module_settings_fixture.py::test_no_kernel_file_names_the_fixture_module
+- id: G-CONFIG-10
+  statement: 'A process reads its configuration sources once: kernel Settings and every module model validate
+    from one snapshot with pydantic-settings'' precedence (environment over .env over SECRETS_DIR), .env parsed
+    once, and SECRETS_DIR never listed: one lookup per declared alias (kernel and loaded modules).'
+  sources:
+  - docs/adr/0015-module-settings.md#2. One source read per process
+  tests:
+  - src/sandloom/core/tests/test_module_settings.py::test_snapshot_precedence_env_over_dotenv_over_secrets
+  - src/sandloom/core/tests/test_module_settings.py::test_secrets_dir_is_never_listed_and_read_once_per_alias
+  - tests/integration/test_module_settings_fixture.py::test_fixture_reads_env_over_dotenv_over_secrets_from_one_read
+- id: G-CONFIG-11
+  statement: 'A module''s settings are validated before its setup runs; an invalid value raises ModuleSettingsError,
+    a ConfigurationError naming the setting with the configuration-refusal prefix, fatal for an explicitly
+    selected optional module too, and it stops every entry point that builds the composition (doctor reports
+    it).'
+  sources:
+  - docs/adr/0015-module-settings.md#3. Validation before `setup`, one check after loading
+  tests:
+  - src/sandloom/core/tests/test_module_settings.py::test_define_module_validates_settings_before_setup
+  - src/sandloom/core/tests/test_module_settings.py::test_invalid_value_names_the_setting_with_the_kernel_prefix
+  - tests/integration/test_module_settings_fixture.py::test_optional_module_with_an_invalid_value_refuses
+  - tests/integration/test_module_settings_fixture.py::test_module_settings_refusal_stops_every_composed_entry_point
+  - tests/integration/test_module_settings_fixture.py::test_doctor_reports_the_module_settings_refusal
+- id: G-CONFIG-12
+  statement: 'One check after the load pass refuses an environment name declared twice across the kernel and
+    the loaded modules, naming both owners (SANDLOOM-B036), and a loaded module''s removed setting at a live
+    value (at its inert value it is logged); in prod it refuses a near-miss of any declared kernel or loaded
+    module name, but never a variable under the prefix of a module known in the deployment (an installed
+    sandloom.modules entry point or a module SANDLOOM_MODULES names) that this process does not load; a
+    module''s semantic setting weaker than its profile value is logged unless its risk is accepted.'
+  sources:
+  - docs/adr/0015-module-settings.md#3. Validation before `setup`, one check after loading
+  - docs/reference/error-codes.md
+  tests:
+  - src/sandloom/core/tests/test_module_settings.py::test_collisions_refuse_naming_both_owners
+  - src/sandloom/core/tests/test_module_settings.py::test_removed_module_setting_refuses_a_live_value_and_warns_inert
+  - src/sandloom/core/tests/test_module_settings.py::test_production_typo_check_runs_over_module_names
+  - src/sandloom/core/tests/test_module_settings.py::test_production_typo_check_ignores_an_absent_modules_variables
+  - src/sandloom/core/tests/test_module_settings.py::test_known_modules_are_the_installed_entry_points_and_the_composition
+  - src/sandloom/core/tests/test_module_settings.py::test_semantic_override_is_reported_unless_its_risk_is_accepted
+  - src/sandloom/core/tests/test_module_settings.py::test_loader_check_refuses_and_logs
+  - tests/integration/test_module_settings_fixture.py::test_semantic_override_of_a_module_is_logged
+  - src/sandloom/core/tests/test_kernel_tools_declarations.py::test_known_modules_name_an_import_path_by_its_module_name
+- id: G-CONFIG-13
+  statement: 'sandloom check and sandloom test import every module of the application and flag, whether or not
+    the modules load together: an environment name two modules (or a module and the kernel) declare
+    (SANDLOOM-B036), a new setting without its module''s prefix (INVENTORY_ for inventory; a name the committed
+    module.snapshot.json records as legacy, written once by generate for a module that already had it, still
+    passes and a new module''s unprefixed name is not grandfathered), a tier that module.snapshot.json does not
+    record, a module that reads its settings at import, and, per service of the deploy profiles (SANDLOOM-T019),
+    a wrong module name in SANDLOOM_MODULES, a variable set for a module the service does not load and a
+    literal value its declaration refuses; a placeholder passes and a secret literal is never echoed. The
+    static gate validates names and literal values only.'
+  sources:
+  - docs/adr/0015-module-settings.md#6. Env names
+  - docs/adr/0015-module-settings.md#7. Static gate in `sandloom check` and `sandloom test`
+  - docs/reference/error-codes.md
+  tests:
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_name_declared_by_two_modules_that_never_load_together_is_flagged
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_name_declared_by_the_kernel_and_a_module_is_flagged
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_new_unprefixed_name_fails_and_a_prefixed_one_passes
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_name_the_snapshot_records_as_legacy_is_grandfathered
+  - src/sandloom/core/tests/test_settings_gate.py::test_settings_section_grandfathers_only_names_a_module_already_had
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_module_without_a_recorded_settings_section_is_flagged
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_tier_changed_in_the_code_but_not_in_the_snapshot_is_flagged
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_name_left_in_the_snapshot_but_not_declared_is_flagged
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_wrong_module_name_in_a_service_is_reported_with_a_hint
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_name_set_for_a_module_the_service_does_not_load_is_flagged
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_literal_value_its_declaration_refuses_is_flagged
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_secret_literal_is_never_echoed
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_placeholder_or_a_valid_literal_passes
+  - src/sandloom/core/tests/test_settings_gate.py::test_generate_records_the_settings_and_grandfathers_a_module_that_adopts_them
+  - tests/integration/test_settings_gate_fixture.py::test_p9_a_name_two_modules_declare_is_flagged_though_they_never_load_together
+  - tests/integration/test_settings_gate_fixture.py::test_p6_a_module_that_reads_its_settings_at_import_is_reported
+  - tests/integration/test_settings_gate_fixture.py::test_a_module_that_declares_settings_needs_its_snapshot_record
+  - tests/integration/test_settings_gate_fixture.py::test_the_gate_reaches_sandloom_check
+- id: G-CONFIG-14
+  statement: 'The refresh-session lifetimes REFRESH_TOKEN_EXPIRE_DAYS and MAX_SESSION_DAYS (1 to 365 days, an
+    absolute deadline a refresh does not extend) are identity''s declared settings under unchanged env names;
+    the kernel Settings holds neither and keeps the access-JWT signing, verification and revocation parameters
+    (JWT_*, ACCESS_TOKEN_EXPIRE_MINUTES, AUTH_REVOCATION_*).'
+  sources:
+  - docs/adr/0015-module-settings.md#9. Refresh-session settings move to identity
+  tests:
+  - src/sandloom_identity/tests/test_refresh_session_settings.py::test_the_kernel_settings_hold_no_refresh_session_lifetime
+  - src/sandloom_identity/tests/test_refresh_session_settings.py::test_identity_declares_both_lifetimes_under_the_same_env_names
+  - src/sandloom_identity/tests/test_refresh_session_settings.py::test_the_absolute_session_lifetime_is_bounded_by_the_declaration
+  - src/sandloom_identity/tests/services/test_review_security.py::test_refresh_cannot_extend_primary_session_past_absolute_limit
+- id: G-CONFIG-15
+  statement: 'sandloom config dump lists the kernel''s settings and the settings every loaded module declares,
+    each with its source (env / dotenv / secrets_dir / default) and redaction (SecretStr fields and the one
+    secret-name rule); a module''s invalid setting is a diagnosed entry with exit 0, not a refusal. It builds
+    the composition in collect mode (a context variable set only by config dump and doctor, never read from
+    the environment, off in every serving entry point) and only builds it: no lifespan, no served request and
+    no connection (a socket spy over the bundled modules). --kernel-only builds no composition and prints the
+    kernel''s table byte for byte as before modules declared settings.'
+  sources:
+  - docs/adr/0015-module-settings.md#8. `config dump` and what "activation" means
+  - docs/reference/cli.md
+  tests:
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_dump_lists_module_values_with_provenance_and_redaction
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_dump_diagnoses_an_invalid_module_value_and_exits_zero
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_kernel_only_is_the_kernel_dump_byte_for_byte
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_collect_mode_is_off_in_every_serving_entry_point
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_collect_mode_is_on_for_the_dump_and_never_read_from_the_environment
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_only_the_diagnosing_commands_turn_collect_mode_on
+  - tests/integration/with_batteries/test_config_dump_bundled_modules.py::test_dump_builds_the_bundled_composition_with_no_connection_and_no_lifespan
+  - tests/integration/with_batteries/test_config_dump_bundled_modules.py::test_a_composition_without_a_module_lists_none_of_its_settings
+  - src/sandloom/core/tests/test_kernel_tools_declarations.py::test_module_config_lists_values_with_origin_and_redaction
+- id: G-CONFIG-16
+  statement: 'The kernel''s tools read the loaded modules'' settings declarations and name no module''s
+    setting: tiers and /diagnostics/core (the modules'' accepted risks, semantic overrides and tier counts),
+    doctor (the same overrides and risks, and every module''s refusal in collect mode), the backup plan''s
+    secrets, the console settings list, the deploy-profile check (a value a module declares shared must be
+    equal in every process that loads it, and a process without the module neither holds nor is held to it),
+    the dev env, the docs generator and the deploy scaffold''s environment.'
+  sources:
+  - docs/adr/0015-module-settings.md#11. What moves
+  - docs/reference/cli.md
+  tests:
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_no_kernel_tool_names_a_module_setting
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_scaffold_env_comes_from_the_declaration
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_t014_holds_every_process_that_loads_the_module_to_its_shared_values
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_dev_env_values_and_risks_come_from_the_declaration
+  - tests/integration/test_kernel_tools_declarations_fixture.py::test_diagnostics_core_shows_the_modules_overrides_risks_and_tiers
+  - src/sandloom/core/tests/test_kernel_tools_declarations.py::test_core_diagnostics_show_the_modules_risks_overrides_and_tiers
+  - src/sandloom/core/tests/test_kernel_tools_declarations.py::test_doctor_reports_module_overrides_and_inert_risks
+  - src/sandloom/core/tests/test_kernel_tools_declarations.py::test_doctor_lists_every_modules_problem_and_leaves_collect_mode_off
+  - src/sandloom/core/tests/test_platform_declared_settings.py::test_the_view_lists_a_declared_console_setting_only_where_its_module_is_loaded
+  - src/sandloom/core/tests/test_backup_cli.py::test_plan_covers_databases_and_security_redis_without_secrets
 - id: G-RISK-01
   statement: SANDLOOM_ACCEPTED_RISKS accepts only registered risk ids; an unknown id fails Settings validation
     / startup.
@@ -4311,7 +5069,7 @@ guarantees:
   gap_size: S
 - id: G-RISK-03
   statement: Every registered risk documents what it weakens and which check consults it, and the registry
-    holds exactly the thirteen ids fake_psp_in_prod, log_notifier_in_prod, log_links_in_prod, local_storage_in_prod,
+    holds exactly the twelve ids log_notifier_in_prod, log_links_in_prod, local_storage_in_prod,
     volatile_event_bus, unversioned_ddl_repair, weak_password_hash, shared_hs_secret_split, relay_disabled,
     command_dedupe_below_retry_horizon, saga_horizon_beyond_command_dedupe, experimental_capability,
     development_database_in_prod.
@@ -4356,17 +5114,18 @@ guarantees:
   - src/sandloom/core/tests/test_accepted_risks.py::test_log_notifier_channels_in_prod_need_the_risk
 - id: G-RISK-07
   statement: BILLING_PROVIDER=fake is refused in prod when billing registers (app, worker, beat, sandloom
-    migrate, operator CLIs) unless fake_psp_in_prod is accepted.
+    migrate, operator CLIs) unless the module risk billing.fake_psp_in_prod (declared by billing; no flat
+    alias) is accepted; a process that does not load billing treats the id as not applicable here.
   sources:
   - docs/reference/cli.md
   - docs/contributing/repository.md#Things that look wrong but are intentional
   tests:
   - src/sandloom_billing/tests/test_webhook_hardening.py::TestForgedWebhooks::test_prod_refuses_fake_psp
   - src/sandloom_billing/tests/test_webhook_hardening.py::TestForgedWebhooks::test_register_refuses_fake_psp_in_prod
-  - src/sandloom_billing/tests/test_registration_surface.py::test_fake_psp_in_prod_refuses_registration
-  - src/sandloom/core/tests/test_boot_configuration_checks.py::test_module_refusal_stops_every_composed_entry_point
-  startup_checks: 'module loader refuses: ConfigurationError (SystemExit from sandloom_billing setup, via
-    sandloom.core.loader.plugin_loader)'
+  - src/sandloom_billing/tests/test_registration_surface.py::test_billing_declares_its_settings_and_the_fake_psp_risk
+  - tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py::test_module_refusal_stops_every_composed_entry_point
+  startup_checks: 'module loader refuses: ModuleSettingsError (a ConfigurationError) from BillingSettings,
+    validated before sandloom_billing setup, via sandloom.core.loader.plugin_loader'
 - id: G-RISK-08
   statement: The local filesystem object store refuses to build in prod unless local_storage_in_prod is
     accepted.
@@ -4424,6 +5183,59 @@ guarantees:
   - src/sandloom/core/tests/test_sqlite_boot.py::test_b029_admits_the_accepted_risk_outside_the_strict_profile
   - src/sandloom/core/tests/test_sqlite_boot.py::test_b029_leaves_development_tests_and_postgresql_alone
   startup_checks: development_database_config_problem at create_app / enforce_configuration
+- id: G-RISK-14
+  statement: 'The legacy_tokens compatibility mode of the initial cpv enablement (ADR-0014 decision 4)
+    is an accepted temporary security risk, bounded and never extended by the framework: until is a required
+    absolute UTC time, the end of the actual transition (the last old issuer stopped), with no default,
+    setting or environment variable; a token without cpv is accepted only with iat before until and exp
+    - iat at most ACCESS_TOKEN_EXPIRE_MINUTES, and still only per key from an allowed authority that ran
+    and was kept; from the window end, until + ACCESS_TOKEN_EXPIRE_MINUTES + JWT_LEEWAY_SECONDS, the mode
+    accepts nothing even while the argument stays written, so an old token with forged roles or tenant_ids
+    grants no rights; a later until is a separate operator decision, a new acceptance of the risk. The
+    mode is shown with its time left in /diagnostics/core and sandloom doctor, counted per key, and one
+    mode per deploy profile (T014). It is a composition argument, not a SANDLOOM_ACCEPTED_RISKS id.'
+  sources:
+  - docs/adr/0014-claims-trust-and-authorization-portability.md#4. `cpv` per key, with an issuer × verifier rollout and rollback matrix
+  - design/kernel-boundary/migration-plan.md
+  tests:
+  - src/sandloom/core/tests/test_claims_view.py::test_a_token_without_cpv_gives_no_rights_outside_the_window
+  - src/sandloom/core/tests/test_claims_view.py::test_inside_the_window_a_token_without_cpv_is_trusted
+  - src/sandloom/core/tests/test_claims_view.py::test_the_compatibility_window
+  - src/sandloom/core/tests/test_claims_view.py::test_the_compatibility_view_expires_at_the_window_end
+  - src/sandloom/core/tests/test_claims_split_matrix.py::test_the_initial_enablement_stages_and_rollback
+  - src/sandloom/core/tests/test_claims_split_matrix.py::test_the_window_bounds_hold_on_real_tokens
+  - src/sandloom/core/tests/test_claims_legacy_mode.py::test_on_until_the_window_end_with_the_time_left
+  - src/sandloom/core/tests/test_claims_legacy_mode.py::test_ended_at_and_after_the_window_end
+  - src/sandloom/core/tests/test_claims_legacy_mode.py::test_diagnostics_show_the_mode_and_count_each_acceptance
+  - src/sandloom/core/tests/test_claims_legacy_mode.py::test_doctor_shows_the_mode
+  - src/sandloom/core/tests/test_claims_legacy_mode.py::test_the_profile_keeps_one_mode
+- id: G-RISK-15
+  statement: 'Kernel risk ids stay flat; a module''s accepted risk is <module>.<name>, declared in its settings
+    model. After the modules load, the id of a loaded module is checked against what it declares and an
+    undeclared one refuses the boot; the id of a module installed, loaded or listed in SANDLOOM_MODULES but not
+    loaded in this process is inert and listed as "not applicable here" (so one SANDLOOM_ACCEPTED_RISKS serves
+    every service of a split with one image); any other namespace refuses, so a typo in a module or risk name
+    never passes silently. A flat id that is no kernel id is refused and names the namespaced replacement when
+    the module declaring it is installed; there is no alias. Accepted module risks are logged, counted in
+    sandloom_accepted_risk_active{risk} and reported by the tier diagnostics, in every entry point that builds
+    the composition.'
+  sources:
+  - docs/adr/0015-module-settings.md#4. Risk namespaces
+  - docs/adr/0006-accepted-risks.md#Decision
+  tests:
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_kernel_ids_stay_flat_and_module_ids_are_not_kernel_ids
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_settings_defers_a_module_id_and_refuses_a_flat_unknown_one
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_a_flat_id_names_the_replacement_of_an_installed_module
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_the_id_of_a_loaded_module_is_checked_against_its_declaration
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_an_undeclared_id_of_a_loaded_module_refuses
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_the_id_of_a_known_module_that_is_not_loaded_is_inert
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_an_unknown_namespace_refuses_even_beside_a_known_one
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_a_typo_in_the_risk_name_of_a_loaded_module_is_not_inert
+  - src/sandloom/core/tests/test_risk_namespaces.py::test_diagnostics_list_an_inert_id_as_not_applicable_here
+  - tests/integration/test_settings_risk_namespaces.py::test_a_bad_risk_id_refuses_in_every_composed_entry_point
+  - tests/integration/test_settings_risk_namespaces.py::test_the_id_of_an_installed_module_this_service_does_not_load_is_inert
+  - tests/integration/test_settings_risk_namespaces.py::test_an_accepted_module_risk_starts_and_is_logged
+  - tests/integration/test_settings_risk_namespaces.py::test_without_the_risk_the_module_check_still_refuses_in_prod
 - id: G-MIGRATE-01
   statement: Each module owns its own Alembic chain with version table alembic_version_<key>; chains are
     disjoint, together cover every ORM table, and reproduce the ORM schema exactly.
@@ -4449,8 +5261,8 @@ guarantees:
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   tests:
-  - src/sandloom/core/tests/test_loader_migrations_hardening.py::test_chain_collision_detected
-  - src/sandloom/core/tests/test_loader_migrations_hardening.py::test_loader_rejects_colliding_chain
+  - tests/integration/with_batteries/test_loader_migrations_chain_collision.py::test_chain_collision_detected
+  - tests/integration/with_batteries/test_loader_migrations_chain_collision.py::test_loader_rejects_colliding_chain
 - id: G-MIGRATE-04
   statement: 'Migration runs hold a per-database advisory lock: a concurrent run waits at most --lock-timeout
     seconds (must be positive) and logs the holder''s pid / application_name.'
@@ -4489,10 +5301,10 @@ guarantees:
   sources:
   - 'deploy/README.md#Runbook: moving a module''s data out of the monolith database'
   tests:
-  - src/sandloom/core/tests/test_module_extraction.py::test_dry_run_writes_nothing
-  - src/sandloom/core/tests/test_module_extraction.py::test_apply_requires_stopped_writes
-  - src/sandloom/core/tests/test_module_extraction.py::test_live_writer_blocks_the_fence
-  - src/sandloom/core/tests/test_module_extraction.py::test_non_empty_target_is_refused
+  - tests/integration/with_batteries/test_module_extraction.py::test_dry_run_writes_nothing
+  - tests/integration/with_batteries/test_module_extraction.py::test_apply_requires_stopped_writes
+  - tests/integration/with_batteries/test_module_extraction.py::test_live_writer_blocks_the_fence
+  - tests/integration/with_batteries/test_module_extraction.py::test_non_empty_target_is_refused
 - id: G-MIGRATE-08
   statement: extract-module is crash-resumable and verifiable (row counts + checksums vs manifest), --unfence
     rolls back only before completion (after it needs --force), --drop-source is a separate explicit cleanup,
@@ -4500,10 +5312,10 @@ guarantees:
   sources:
   - 'deploy/README.md#Runbook: moving a module''s data out of the monolith database'
   tests:
-  - src/sandloom/core/tests/test_module_extraction.py::test_extract_crash_resume_verify_and_cleanup
-  - src/sandloom/core/tests/test_module_extraction.py::test_unfence_rolls_back_before_completion
-  - src/sandloom/core/tests/test_module_extraction.py::test_group_owner_transfer_redis_transport
-  - src/sandloom/core/tests/test_module_extraction.py::test_shared_rows_stream_idempotently_and_detect_missing_keys
+  - tests/integration/with_batteries/test_module_extraction.py::test_extract_crash_resume_verify_and_cleanup
+  - tests/integration/with_batteries/test_module_extraction.py::test_unfence_rolls_back_before_completion
+  - tests/integration/with_batteries/test_module_extraction.py::test_group_owner_transfer_redis_transport
+  - tests/integration/with_batteries/test_module_extraction.py::test_shared_rows_stream_idempotently_and_detect_missing_keys
 - id: G-MIGRATE-09
   statement: sandloom migrate resolves the module set through the composition root (SANDLOOM_COMPOSITION_ROOT) and
     upgrade-all exits non-zero on failure, including a database stamped at a non-head revision.
@@ -4555,7 +5367,7 @@ guarantees:
   - src/sandloom/core/tests/test_module_subset.py::test_subset_whose_only_module_failed_is_not_ready
   - src/sandloom/core/tests/test_revocation_never_dead_lettered.py::test_ready_degrades_while_a_revocation_is_stuck_liveness_unaffected
 - id: G-OPS-03
-  statement: 'Peers never feed /health (liveness); a down peer fails only /ready and only when its SERVICE_BINDINGS
+  statement: 'Peers never feed /health (operational health); a down peer fails only /ready and only when its SERVICE_BINDINGS
     entry is required: true, with concurrent, capped, authenticated probes.'
   sources:
   - docs/operate/topologies.md
@@ -4647,7 +5459,7 @@ guarantees:
   - src/sandloom/core/tests/test_testing_isolation.py::test_class_flags_and_process_caches_are_put_back
   - src/sandloom/core/tests/test_testing_shuffle.py::test_a_seed_fixes_the_order_and_is_printed_for_replay
   - src/sandloom/core/tests/test_testing_shuffle.py::test_files_stay_contiguous_and_their_tests_are_shuffled
-  - src/sandloom/core/tests/test_run_tests_cli.py::test_the_test_steps_run_in_a_seeded_random_order
+  - tests/integration/with_batteries/test_run_tests_cli_framework_plan.py::test_the_test_steps_run_in_a_seeded_random_order
 - id: G-OPS-11
   statement: sandloom config dump redacts secrets recursively (incl. URL credentials) and refuses --show-secrets
     in prod.
@@ -4667,6 +5479,7 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_security_cli.py::test_dry_run_counts_targets_and_calls_no_command
   - src/sandloom/core/tests/test_security_cli.py::test_cli_requires_exactly_one_target_and_a_reason_to_apply
+  - src/sandloom/core/tests/test_security_operator.py::test_dry_run_with_listed_users_confirms_the_issuer
   gap: The prod --confirm-production requirement of sandloom security is untested (only sandloom backup's guard
     rails test it).
   gap_size: S
@@ -4683,7 +5496,7 @@ guarantees:
   - src/sandloom/core/tests/test_ops_security_hardening.py::test_describe_exception_drops_statement_params
 - id: G-OPS-14
   statement: 'In both compose profiles every security/auth-relevant setting (shared env anchor: JWT_*
-    except issuer-only keys, token lifetimes, INTERNAL_API_TOKEN, notifier/SMTP, BILLING_DENY_ON_PAST_DUE)
+    except issuer-only keys, the access-token lifetime, INTERNAL_API_TOKEN, notifier/SMTP)
     and CACHE_URL are identical in every process.'
   sources:
   - docs/operate/topologies.md
@@ -4708,7 +5521,7 @@ guarantees:
   - docs/operate/topologies.md
   - deploy/README.md#Migrations (one-shot `migrate` services)
   tests:
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_microservices_db_per_service_and_bindings
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_microservices_db_per_service_and_bindings
   - tests/architecture/test_ledger_static_pins.py::test_monolith_migrate_one_shot_gates_every_process
 - id: G-OPS-17
   statement: Every set of periodic tasks in a deploy profile is scheduled by exactly one beat, and modules
@@ -4725,9 +5538,9 @@ guarantees:
   sources:
   - docs/operate/operator-reference.md#Backups & restore
   tests:
-  - src/sandloom/core/tests/test_backup_cli.py::test_verify_fails_when_a_chain_is_behind_its_head
+  - tests/integration/with_batteries/test_backup_cli_restore_checks.py::test_verify_fails_when_a_chain_is_behind_its_head
   - src/sandloom/core/tests/test_backup_cli.py::test_verify_fails_when_the_restore_fails
-  - src/sandloom/core/tests/test_backup_cli.py::test_verify_flags_orphan_rows_of_a_broken_restore
+  - tests/integration/with_batteries/test_backup_cli_restore_checks.py::test_verify_flags_orphan_rows_of_a_broken_restore
   - src/sandloom/core/tests/test_backup_cli.py::test_operator_guard_rails
 - id: G-OPS-19
   statement: After a security-cache restore from a stale snapshot, sandloom backup reconcile-security re-derives
@@ -4776,8 +5589,53 @@ guarantees:
   - src/sandloom/core/tests/test_image_secrets.py::test_the_generated_dockerfile_copies_only_what_it_builds
   - src/sandloom/core/tests/test_image_secrets.py::test_sandloom_add_deploy_patches_an_old_dockerignore
   - src/sandloom/core/tests/test_image_secrets.py::test_docker_agrees_the_context_has_no_secret
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_deploy_patches_a_dockerignore_that_would_ship_the_env_file
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_deploy_patches_a_dockerignore_that_would_ship_the_env_file
   - tests/e2e/test_app_split.py::test_an_sandloom_new_app_splits_into_microservices
+- id: G-OPS-23
+  statement: /ready's taskqueue term follows the loaded modules' required taskqueue requirements (declared
+    or derived), never the presence of a tasks module. While one uses the queue on the request path (no
+    feature, or one beyond periodic), /ready probes that instance's broker through the cached readiness
+    probes (one probe per instance per TTL, however many hits) and answers 503 with taskqueue_status fail,
+    naming the capability and the instance, when the broker is unreachable or the driver cannot open. A
+    periodic-only requirement keeps the process ready on a broker outage (owner decision on
+    infrastructure dependencies, answer 3); an optional or absent one is never probed; /health never
+    fails on the taskqueue. The celery driver's health() opens one broker connection bounded by
+    HEALTH_CHECK_TIMEOUT_SECONDS, without retry, and names the broker without its credentials.
+  sources:
+  - docs/operate/operator-reference.md#Observability
+  - design/kernel-boundary/owner-decision-infra-deps.md
+  tests:
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_ready_fails_naming_the_taskqueue_when_its_broker_is_down
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_ready_fails_when_the_driver_cannot_open
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_a_periodic_only_module_keeps_the_web_process_ready_on_a_broker_outage
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_a_request_path_module_beside_a_periodic_one_still_gates
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_the_taskqueue_is_not_probed_without_a_required_requirement
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_health_never_fails_on_the_taskqueue
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_the_taskqueue_probe_is_cached_like_the_other_readiness_probes
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_one_broker_connection_per_ttl_however_many_ready_hits
+  - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_an_unreachable_broker_fails_naming_it_without_credentials
+  - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_a_hanging_broker_is_bounded_by_the_timeout
+  - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_the_connect_is_bounded_and_does_not_retry
+  - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_the_provider_health_probes_its_broker
+- id: G-OPS-24
+  statement: Every completed Billing intent reconciler run writes its time. The billing_reconciler
+    check in /health reports missing or overdue progress and outstanding compensation failures.
+    It does not gate /ready or /health/simple. New checkout and portal effects require a
+    completed run in the last 900 seconds (three 300-second periods). Restarting web never
+    extends that window.
+  sources:
+  - docs/modules/batteries/billing.md
+  - design/kernel-boundary/owner-decision-infra-deps.md
+  tests:
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_each_completed_run_records_itself
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_a_run_that_raises_records_nothing
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_a_run_older_than_the_allowed_interval_fails_as_overdue
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_restarting_the_web_process_never_grants_startup_grace
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_the_health_check_reads_the_recorded_run
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_fresh_progress_and_failed_compensations_are_reported_separately
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_new_psp_effects_wait_for_reconciler_recovery
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_operational_failure_keeps_web_ready_and_live
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_billing_registers_the_reconciler_check
 
 - id: G-SAGA-01
   statement: register_saga refuses a malformed definition deterministically at registration (duplicate
@@ -4797,7 +5655,7 @@ guarantees:
   - docs/adr/0008-sagas.md#1. Definition (registration-time checks)
   tests:
   - src/sandloom/core/tests/test_sagas_definition.py::test_requirements_cover_every_called_method
-  - src/sandloom/core/tests/test_sagas_definition.py::test_register_saga_buffers_and_the_loader_merges_consumes
+  - tests/integration/with_batteries/test_sagas_definition_bundled_sagas.py::test_register_saga_buffers_and_the_loader_merges_consumes
 - id: G-SAGA-03
   statement: Saga instance tables are reached across tenants only through the audited system channel under
     tenant RLS. On every database, with or without tenant RLS, the runtime itself scopes saga state to the
@@ -4971,7 +5829,8 @@ guarantees:
   - tests/fixtures/specs/public-api-1.0-spec.md#2.4 Import isolation
   - docs/adr/0010-public-api-1.0.md#1. One public namespace, `sandloom.sdk`, with a beginner tier
   tests:
-  - tests/architecture/test_sdk_import_isolation.py::test_sdk_import_is_side_effect_free
+  - tests/integration/with_batteries/test_sdk_import_isolation_bundled_modules.py::test_sdk_import_is_side_effect_free
+  - tests/architecture/test_sdk_import_isolation.py::test_the_public_sdk_import_is_side_effect_free
   - tests/architecture/test_sdk_import_isolation.py::test_the_audit_sees_an_entry_point_forcing_settings
   - src/sandloom/core/tests/test_lazy_settings.py::test_import_does_not_validate_and_first_use_does
   - src/sandloom/core/tests/test_lazy_settings.py::test_an_invalid_environment_still_fails_at_the_entry_point
@@ -5005,12 +5864,12 @@ guarantees:
   - tests/sdk/test_sdk_l1_registration.py::test_example_modules_register_identically_through_l1
 - id: G-SDK-04
   statement: 'Generated code (sandloom new, every sandloom add generator) and every example file that imports
-    sandloom.sdk use only the 30 beginner names; an advanced name needs `# sandloom: advanced <reason>` on its
-    import (SANDLOOM-T009).'
+    sandloom.sdk use only the 26 beginner names (30 before KB-34 moved the domain atoms to generated stubs); an
+    advanced name needs `# sandloom: advanced <reason>` on its import (SANDLOOM-T009).'
   sources:
   - tests/fixtures/specs/public-api-1.0-spec.md#2.2 Modules
   tests:
-  - tests/sdk/test_sdk_generators.py::test_the_beginner_tier_is_the_30_names
+  - tests/sdk/test_sdk_generators.py::test_the_beginner_tier_is_the_26_names
   - tests/sdk/test_sdk_generators.py::test_generated_code_uses_only_the_beginner_tier
   - tests/sdk/test_sdk_generators.py::test_examples_importing_the_sdk_stay_in_the_beginner_tier
   - tests/sdk/test_sdk_generators.py::test_the_pin_reports_an_unmarked_advanced_name
@@ -5179,7 +6038,7 @@ guarantees:
   - tests/sdk/test_sdk_event_reader.py::test_validators_run_once_and_real_errors_are_raised
   - tests/sdk/test_sdk_event_reader.py::test_the_reader_returns_the_real_classes_and_construction_stays_strict
   - tests/sdk/test_sdk_schema_differential.py::test_every_refused_shape_raises_at_definition
-  - tests/sdk/test_sdk_schema_differential.py::test_every_bundled_event_is_in_the_closed_set
+  - tests/integration/with_batteries/test_sdk_schema_bundled_events.py::test_every_bundled_event_is_in_the_closed_set
   - tests/integration/test_review_hardening.py::test_enum_values_compare_as_json_values
   - tests/sdk/test_sdk_generated.py::test_an_incompatible_change_fails_before_anything_is_written
   - tests/sdk/test_sdk_generated.py::test_plan_generates_the_l1_module_files
@@ -5299,7 +6158,7 @@ guarantees:
   - tests/fixtures/specs/public-api-1.0-spec.md#5.8 `sandloom test`
   tests:
   - tests/sdk/test_sdk_generators.py::test_migration_drift_names_the_module_and_the_fix
-  - src/sandloom/core/tests/test_run_tests_cli.py::test_the_plan_of_the_framework_tree
+  - tests/integration/with_batteries/test_run_tests_cli_framework_plan.py::test_the_plan_of_the_framework_tree
 - id: G-AUTHZ-13
   statement: 'The authorization algebra is unchanged (spec §8.3), pinned by properties over random And /
     Or / Not trees of fixed-outcome, evaluation-counting atoms against an independent model of today''s
@@ -5317,6 +6176,25 @@ guarantees:
   - tests/laws/test_authz_algebra_laws.py::test_or_allows_on_a_genuine_allow_beside_an_indeterminate
   - tests/laws/test_authz_algebra_laws.py::test_evaluate_agrees_with_decide
   - tests/laws/test_authz_algebra_laws.py::test_the_known_order_dependence_is_kept
+- id: G-AUTHZ-14
+  statement: 'An access fact is identified by its owner module and its name: Entitled(name, owner=) accepts
+    only that module''s fact, registered in the process or described by that module''s bound <owner>.facts.v1,
+    and asks no other module''s facts contract, in a monolith and in a split alike; another module''s fact
+    of the same name (local, bound or faked) never satisfies it, an owner neither loaded nor bound is 501,
+    one bound but unreachable 503 with no fallback, both indeterminate under Not / Or; a missing or invalid
+    owner= fails when the policy is built (SANDLOOM-B038).'
+  sources:
+  - docs/operate/upgrade-1.0.md#Access facts are identified by owner and name
+  tests:
+  - tests/integration/test_fact_owner_identity.py::test_billing_deny_is_the_answer_while_rogue_allows
+  - tests/integration/test_fact_owner_identity.py::test_billing_absent_is_501_whatever_rogue_answers
+  - tests/integration/test_fact_owner_identity.py::test_billing_down_is_503_never_rogue
+  - tests/integration/test_fact_owner_identity.py::test_both_available_only_billing_is_asked
+  - tests/integration/test_fact_owner_identity.py::test_one_request_never_serves_rogue_answer_to_billing
+  - tests/integration/test_fact_owner_identity.py::test_owner_contract_describing_another_owner_is_ignored
+  - tests/integration/test_fact_owner_identity.py::test_negation_and_disjunction_never_allow
+  - tests/integration/test_fact_owner_identity.py::test_entitled_invalid_owner_fails_at_construction
+  - tests/integration/test_fact_owner_identity.py::test_fake_of_another_owner_does_not_satisfy_billing
 - id: G-SENS-07
   statement: 'Risk is a join: Requirement.risks() is the union over And / Or and empty under Not; a
     route''s resolved risk is the union of its sources (admin gates, @sensitive_effect dependencies,
@@ -5459,7 +6337,7 @@ capabilities:
   sources:
   - docs/modules/background/tasks.md
   tests:
-  - src/sandloom/core/tests/test_worker.py::test_worker_registers_loaded_module_tasks_and_beat_schedule
+  - tests/integration/with_batteries/test_worker_bundled_module_tasks.py::test_worker_registers_loaded_module_tasks_and_beat_schedule
   - src/sandloom/core/tests/test_worker.py::test_worker_without_identity_has_no_identity_tasks
   - src/sandloom/core/tests/test_worker.py::test_worker_honours_taskqueue_instance_env
   - src/sandloom/core/tests/test_worker.py::test_non_celery_taskqueue_is_rejected
@@ -5502,7 +6380,7 @@ capabilities:
   tests:
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_keys_generate_prints_a_usable_pair
   - src/sandloom/core/tests/test_asymmetric_jwt.py::test_keys_generate_writes_secrets_dir_files
-  - src/sandloom/core/tests/test_asymmetric_jwt.py::test_identity_declares_itself_the_token_issuer
+  - tests/integration/with_batteries/test_asymmetric_jwt_identity_issuer.py::test_identity_declares_itself_the_token_issuer
   - tests/split_conformance/test_split_conformance.py::test_identity_issues_asymmetric_tokens
 - id: C-AUTH-04
   statement: 'Emergency stop: block_user / unblock_user from sandloom.core.di plus identity''s platform-admin
@@ -5634,16 +6512,16 @@ capabilities:
   - src/sandloom/core/tests/test_service_rpc.py::test_core_get_service_prefers_local_over_remote_binding
   - src/sandloom/core/tests/test_service_rpc.py::test_get_service_degrades_explicitly_when_unavailable
   - src/sandloom/core/tests/test_service_rpc.py::test_get_service_reuses_the_remote_proxy_until_the_binding_changes
-  - src/sandloom/core/tests/test_contract_runtime.py::test_local_contributor_wins_over_remote_binding
+  - tests/integration/with_batteries/test_contract_runtime_identity_claims.py::test_local_contributor_wins_over_remote_binding
 - id: C-SPLIT-03
   statement: Every bundled module subset (and each module alone through create_app + lifespan) boots and
     becomes ready, refusing only with the documented ContractBindingError for a required consumed contract.
   sources:
   - docs/operate/topologies.md
   tests:
-  - src/sandloom/core/tests/test_module_subset.py::test_module_subset_boots_alone
+  - tests/integration/with_batteries/test_module_subset_bundled_modules.py::test_module_subset_boots_alone
   - src/sandloom/core/tests/test_module_subset.py::test_each_single_module_subset_is_ready
-  - src/sandloom/core/tests/test_module_subset.py::test_full_monolith_set_loads
+  - tests/integration/with_batteries/test_module_subset_bundled_modules.py::test_full_monolith_set_loads
   - src/sandloom_identity/tests/test_module_wiring.py::test_module_boots_alone
   - src/sandloom_tenancy/tests/test_module_wiring.py::test_module_boots_alone
   - src/sandloom_billing/tests/test_module_wiring.py::test_module_boots_alone
@@ -5676,10 +6554,10 @@ capabilities:
   - docs/operate/topologies.md
   - deploy/README.md#How the split works
   tests:
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_microservices_bindings_are_exactly_the_consumed_contracts
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_token_issuer_binds_every_remote_claims_contributor
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_microservices_bindings_are_exactly_the_consumed_contracts
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_token_issuer_binds_every_remote_claims_contributor
   - src/sandloom/core/tests/test_deploy_profiles.py::test_rpc_allowlist_is_derived_from_bindings
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_every_service_keys_its_responses_and_callers_pin_providers
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_every_service_keys_its_responses_and_callers_pin_providers
 - id: C-SPLIT-07
   statement: A token issuer deployed alone collects other modules' claims over RPC through their <module>.claims.v1
     binding; a critical remote contributor failure aborts minting with 503.
@@ -5687,7 +6565,7 @@ capabilities:
   - docs/modules/index.md#What you get by default, and what you declare
   - docs/operate/topologies.md
   tests:
-  - src/sandloom/core/tests/test_contract_runtime.py::test_identity_alone_collects_remote_claims
+  - tests/integration/with_batteries/test_contract_runtime_identity_claims.py::test_identity_alone_collects_remote_claims
   - src/sandloom/core/tests/test_contract_runtime.py::test_critical_remote_contributor_failure_is_503
 - id: C-RPC-01
   statement: 'RPC_TRANSPORT selects the shared outbound client: aiohttp (default, production) or httpx
@@ -5948,7 +6826,7 @@ capabilities:
   - docs/operate/topologies.md
   - docs/reference/cli.md
   tests:
-  - src/sandloom/core/tests/test_module_subset.py::test_module_subset_boots_alone
+  - tests/integration/with_batteries/test_module_subset_bundled_modules.py::test_module_subset_boots_alone
   - src/sandloom/core/tests/test_module_subset.py::test_each_single_module_subset_is_ready
   - src/sandloom/core/tests/test_module_subset.py::test_blacklist_excludes_module
   - src/sandloom/core/tests/test_module_subset.py::test_subset_whose_only_module_failed_is_not_ready
@@ -6039,8 +6917,8 @@ capabilities:
   - 'deploy/README.md#Runbook: moving a module''s data out of the monolith database'
   tests:
   - tests/extraction/test_extraction_e2e.py::test_monolith_to_microservices_with_data
-  - src/sandloom/core/tests/test_module_extraction.py::test_extract_crash_resume_verify_and_cleanup
-  - src/sandloom/core/tests/test_module_extraction.py::test_spec_owns_exactly_the_module_tables
+  - tests/integration/with_batteries/test_module_extraction.py::test_extract_crash_resume_verify_and_cleanup
+  - tests/integration/with_batteries/test_module_extraction.py::test_spec_owns_exactly_the_module_tables
 - id: C-MIGRATE-07
   statement: sandloom migrate ensure-outbox [--all-databases] --apply idempotently creates the shared core-infra
     tables for dev/repair.
@@ -6189,7 +7067,7 @@ capabilities:
   - 'docs/operate/operator-reference.md#Events: outbox relay and dead letters'
   tests:
   - src/sandloom/core/tests/test_outbox_relay_backoff.py::test_requeue_dead_returns_rows_to_pending
-  - src/sandloom/core/tests/test_admin_operations.py::test_outbox_requeue_is_audited_atomically_and_idempotent
+  - tests/integration/with_batteries/test_admin_operations.py::test_outbox_requeue_is_audited_atomically_and_idempotent
 - id: C-OPS-02
   statement: Delivered outbox rows older than OUTBOX_RETENTION_HOURS are purged by the relay on a time
     cadence and on demand by sandloom outbox purge.
@@ -6228,7 +7106,7 @@ capabilities:
   - docs/reference/cli.md
   - 'deploy/README.md#Rolling upgrades: contract compatibility'
   tests:
-  - src/sandloom/core/tests/test_contract_compat.py::test_committed_module_snapshots_match_registered_contracts
+  - tests/integration/with_batteries/test_contract_compat_bundled_modules.py::test_committed_module_snapshots_match_registered_contracts
   - src/sandloom/core/tests/test_contract_compat.py::test_cli_check_against_snapshot
 - id: C-OPS-06
   statement: sandloom backup plan lists every database and the security Redis to back up without secrets; sandloom
@@ -6238,7 +7116,7 @@ capabilities:
   - docs/operate/operator-reference.md#Backups & restore
   tests:
   - src/sandloom/core/tests/test_backup_cli.py::test_plan_covers_databases_and_security_redis_without_secrets
-  - src/sandloom/core/tests/test_backup_cli.py::test_verify_passes_for_a_current_restore_and_drops_the_scratch_db
+  - tests/integration/with_batteries/test_backup_cli_restore_checks.py::test_verify_passes_for_a_current_restore_and_drops_the_scratch_db
   - src/sandloom/core/tests/test_backup_cli.py::test_real_pg_dump_round_trip
 - id: C-OPS-07
   statement: sandloom backup reconcile-security and sandloom security audit-export re-derive blocks/revocations
@@ -6253,19 +7131,39 @@ capabilities:
   - src/sandloom/core/tests/test_security_recovery.py::test_short_outbox_retention_is_flagged_as_a_coverage_gap
 - id: C-OPS-08
   statement: sandloom security revoke-sessions | force-password-reset (--all|--tenant ORG|--user ID) apply
-    incident response in keyed, deduplicated batches through the owners' contracts; a forced reset refuses
-    password login until reset.
+    incident response in keyed, deduplicated batches through the owners' contracts (the claim map's issuer,
+    the tenant_ids owner), each method confirmed by describe before any side effect, a dry run included
+    (SANDLOOM-B039 / B040); the kernel revokes every access token itself for any issuer in one durable unit
+    (audit row, mark before commit, core.auth.tokens_revoked.v1 applied by every service), the issuer ends its
+    refresh sessions first, and the report names each kind (external IdP sessions not controlled, a new
+    sign-in still possible); a forced reset refuses password login until reset and is refused, with no audit
+    row and no mark, where the issuer has no passwords.
   sources:
   - docs/reference/cli.md
   - docs/operate/operator-reference.md#Security incident runbook (database leak / credential leak / key compromise)
   tests:
   - src/sandloom/core/tests/test_security_cli.py::test_apply_all_users_in_keyed_batches
-  - src/sandloom/core/tests/test_security_cli.py::test_tenant_targets_page_through_membership
+  - src/sandloom/core/tests/test_security_cli.py::test_tenant_targets_page_through_the_tenant_ids_owner
   - src/sandloom/core/tests/test_security_cli.py::test_missing_contract_is_an_explicit_error
   - src/sandloom_identity/tests/api/test_security_recovery_ops.py::test_forced_password_reset_refuses_password_login_until_reset
+  - src/sandloom_identity/tests/api/test_security_recovery_ops.py::test_end_sessions_reports_the_kinds_identity_ended
+  - src/sandloom/core/tests/test_security_operator.py::test_stateless_oidc_issuer_report_says_what_was_done
+  - src/sandloom/core/tests/test_security_operator.py::test_force_password_reset_without_passwords_is_refused_first
+  - src/sandloom/core/tests/test_security_operator.py::test_tenant_members_come_from_the_tenant_ids_owner
+  - src/sandloom/core/tests/test_security_operator.py::test_mono_and_split_give_the_same_report
+  - src/sandloom/core/tests/test_security_operator.py::test_split_call_refused_by_the_provider_names_the_missing_grant
+  - src/sandloom/core/tests/test_security_operator.py::test_an_incompatible_method_is_refused_before_anything
+  - src/sandloom/core/tests/test_security_operator.py::test_split_holds_the_issuer_to_its_refresh_sessions_declaration
+  - src/sandloom/core/tests/test_security_cli.py::test_a_reset_answering_a_dto_stops_before_the_next_side_effect
+  - src/sandloom/core/tests/test_security_cli.py::test_end_sessions_answering_an_int_is_not_read_as_not_applicable
+  - tests/integration/test_security_revocation_split.py::test_the_kernel_part_is_one_durable_unit_every_service_applies
+  - tests/integration/test_security_revocation_split.py::test_a_cli_process_without_the_issuer_revokes_durably
+  - tests/integration/test_security_revocation_split.py::test_a_reset_the_issuer_cannot_do_leaves_no_trace
+  - tests/integration/test_security_revocation_split.py::test_standard_identity_with_the_real_units
 - id: C-OPS-09
-  statement: sandloom config dump [--json] [--only PREFIXES] prints effective settings with each value's source
-    (env / dotenv / secrets_dir / default).
+  statement: sandloom config dump [--json] [--only PREFIXES] [--kernel-only] prints effective settings with
+    each value's source (env / dotenv / secrets_dir / default), the loaded modules' settings included
+    (G-CONFIG-15).
   sources:
   - docs/reference/cli.md
   - docs/operate/operator-reference.md#Preflight and effective configuration
@@ -6309,7 +7207,7 @@ capabilities:
   - docs/reference/cli.md
   tests:
   - src/sandloom/core/tests/test_static_cli_no_env.py::test_static_cli_runs_with_empty_environment
-  - src/sandloom/core/tests/test_static_cli_no_env.py::test_sandloom_check_runs_against_a_manifest_with_empty_environment
+  - tests/integration/with_batteries/test_static_cli_check_bundled_manifest.py::test_sandloom_check_runs_against_a_manifest_with_empty_environment
   - src/sandloom/core/tests/test_static_cli_no_env.py::test_importing_static_submodules_does_not_build_settings
 - id: C-OPS-14
   statement: SECRETS_DIR supplies any setting as a file named after its field (Docker/K8s file-based secrets).
@@ -6318,6 +7216,18 @@ capabilities:
   - docs/operate/operator-reference.md#Secrets management
   tests:
   - src/sandloom/core/tests/test_audit_and_secrets.py::test_secrets_dir_reads_file
+- id: C-OPS-15
+  statement: sandloom doctor's periodic section and /diagnostics/core's periodic block report, for each
+    loaded module whose taskqueue requirement asks for periodic, whether a beat holds the lease of this
+    composition; without one a required need fails and an optional one warns.
+  sources:
+  - docs/operate/operator-reference.md#Preflight and effective configuration
+  - docs/modules/batteries/identity.md
+  tests:
+  - src/sandloom/core/tests/test_doctor_periodic.py::test_no_beat_fails_a_required_need_and_warns_an_optional_one
+  - src/sandloom/core/tests/test_doctor_periodic.py::test_a_held_lease_is_ok_and_names_the_beat
+  - src/sandloom/core/tests/test_doctor_periodic.py::test_the_key_read_is_the_one_a_beat_of_this_composition_holds
+  - src/sandloom/core/tests/test_doctor_periodic.py::test_diagnostics_core_reports_the_periodic_needs
 - id: C-RISK-01
   statement: SANDLOOM_ACCEPTED_RISKS (JSON list or comma list) names accepted risk ids and checks consult settings.accepts_risk(id).
   sources:
@@ -6344,8 +7254,8 @@ capabilities:
   - docs/operate/topologies.md
   - deploy/README.md#How the split works
   tests:
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_microservices_db_per_service_and_bindings
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_microservices_bindings_are_exactly_the_consumed_contracts
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_microservices_db_per_service_and_bindings
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_microservices_bindings_are_exactly_the_consumed_contracts
   - src/sandloom/core/tests/test_deploy_profiles.py::test_gateway_routes_every_module_path_to_its_service
   - src/sandloom/core/tests/test_deploy_profiles.py::test_rpc_allowlist_is_derived_from_bindings
 - id: C-DEPLOY-03
@@ -6494,6 +7404,30 @@ capabilities:
   tests:
   - src/sandloom_identity/tests/api/test_security_recovery_ops.py::test_appointing_the_first_admin_grants_verifies_and_audits
   - src/sandloom_identity/tests/api/test_security_recovery_ops.py::test_appointing_twice_keeps_one_assignment
+  - src/sandloom/core/tests/test_admin_operator.py::test_grant_admin_reads_the_issuer_and_writes_the_roles_owner
+  - src/sandloom/core/tests/test_admin_operator.py::test_a_grant_dry_run_confirms_both_owners_and_writes_nothing
+  - src/sandloom/core/tests/test_admin_operator.py::test_create_and_invite_with_two_owners_are_refused_first
+  - src/sandloom/core/tests/test_admin_operator.py::test_mono_and_split_give_the_same_output
+- id: C-CONSOLE-05
+  statement: 'The admin console serves in front of the composition''s assigned token issuer, not a module
+    named identity: sandloom generate writes the issuer and the login entry that issuer declared on its
+    registration into admin-manifest.json and /admin/config.json serves them. No assigned issuer, an issuer
+    without a usable login entry, or a manifest without the issuer field is a 503 naming the fix; a login entry
+    that is not a route path of the application is refused at registration, at generate and by the console;
+    the issuer is never taken from the iss of a token (unverified input).'
+  sources:
+  - docs/admin-console/index.md
+  - docs/adr/0012-kernel-boundary.md#4. The admin battery
+  tests:
+  - src/sandloom/core/tests/test_console_issuer.py::test_the_assigned_issuer_and_its_declaration_reach_the_renderer
+  - src/sandloom/core/tests/test_console_issuer.py::test_only_the_map_assigns_the_issuer_not_a_module_claiming_it
+  - src/sandloom/core/tests/test_console_issuer.py::test_a_declaration_the_app_does_not_serve_is_refused
+  - src/sandloom/core/tests/test_console_issuer.py::test_a_login_entry_that_could_leave_the_app_is_refused
+  - src/sandloom_admin/tests/test_console.py::test_the_issuer_need_not_be_a_module_named_identity
+  - src/sandloom_admin/tests/test_console.py::test_no_assigned_issuer_is_a_configuration_error
+  - src/sandloom_admin/tests/test_console.py::test_a_manifest_without_the_issuer_field_fails_closed
+  - src/sandloom_admin/tests/test_console.py::test_an_issuer_without_a_usable_login_entry_is_named
+  - src/sandloom_admin/tests/test_console.py::test_a_forged_iss_changes_nothing
 - id: C-TEST-01
   statement: The sandloom.core.testing pytest plugin (-p sandloom.core.testing.plugin) loads .env.test before any
     settings import, honours a composition-root ini option and exposes the db/client/db_uow fixtures binding
@@ -6551,7 +7485,7 @@ capabilities:
   - docs/modules/background/tasks.md
   - deploy/README.md#Background work (Celery worker + beat)
   tests:
-  - src/sandloom/core/tests/test_worker.py::test_worker_registers_loaded_module_tasks_and_beat_schedule
+  - tests/integration/with_batteries/test_worker_bundled_module_tasks.py::test_worker_registers_loaded_module_tasks_and_beat_schedule
   - src/sandloom/core/tests/test_worker.py::test_worker_without_identity_has_no_identity_tasks
   - src/sandloom/core/tests/test_worker.py::test_discover_skips_modules_without_tasks
   - src/sandloom/core/tests/test_worker.py::test_real_composition_root_resolves_driver_built_app
@@ -6623,7 +7557,7 @@ capabilities:
   tests:
   - src/sandloom/core/tests/test_sagas_definition.py::test_kinds_default_around_the_pivot
   - src/sandloom/core/tests/test_sagas_definition.py::test_context_key_and_typed_result
-  - src/sandloom/core/tests/test_sagas_definition.py::test_a_matching_definition_builds
+  - tests/integration/with_batteries/test_sagas_definition_bundled_sagas.py::test_a_matching_definition_builds
   - src/sandloom/core/tests/test_sagas_recovery.py::test_status_reads_the_handle
 - id: C-SAGA-02
   statement: Operators inspect and drive sagas with sandloom sagas list|show|retry|park|resolve (actionable
@@ -6754,17 +7688,22 @@ capabilities:
   tests:
   - tests/sdk/test_sdk_generators.py::test_add_event_appends_and_refuses_an_unparsable_file
 - id: C-GEN-03
-  statement: 'sandloom add contract writes the provider in contracts.py and its DTO in the module''s own
-    schemas (the provider authors its DTOs; a second contract of the module joins the same schemas import), and
-    writes the stub and the DTO copy at once exactly as sandloom generate renders them (so a saga or caller in
-    the same scaffold boots); a generated stub imports ContractRef from its kernel home
-    sandloom.core.descriptors.contract_refs (no sandloom.sdk import, no advanced marker), names the generated
-    DTO copies, passes its Protocol, and is ruff format clean.'
+  statement: '`sandloom add contract` writes the provider in `contracts.py` and its DTO in the module''s own `schemas`
+    (the provider authors its DTOs; a second contract of the module joins the same `schemas` import), and
+    writes the stub and the DTO copy at once exactly as `sandloom generate` renders them (so a saga or
+    caller in the same scaffold boots), into the consuming package''s generated home:
+    `<module>/_generated/contracts/` for a module, `<app>.shared/contracts/` for an application. A generated
+    stub imports `ContractRef` and a DTO copy imports `dto_copy` from the public `sandloom.sdk.contracts`
+    with the `# sandloom: advanced` marker and no `sandloom.core` import, wherever it is written; the kernel
+    ships no generated stub or DTO copy. The stub names the generated DTO copies, passes its Protocol, and
+    is ruff format clean.'
   sources:
   - tests/fixtures/specs/public-api-1.0-spec.md#5.9 Generators
   tests:
   - tests/sdk/test_sdk_generators.py::test_add_contract_writes_the_generated_stub
   - tests/sdk/test_sdk_generated.py::test_a_generated_stub_is_ruff_formatted
+  - tests/sdk/test_sdk_generated.py::test_the_kernel_holds_no_generated_file
+  - tests/sdk/test_sdk_generated.py::test_an_application_stub_imports_the_public_home
 - id: C-GEN-04
   statement: 'sandloom add consumer writes a view from the producer schema (the tree or the exported file);
     without one it needs --field and marks the view unverified.'
@@ -6879,8 +7818,8 @@ capabilities:
   - deploy/README.md
   - docs/modules/background/tasks.md
   tests:
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_split_app_passes_the_framework_split_invariants
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_module_with_periodic_tasks_gets_its_worker_and_one_beat
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_a_split_app_passes_the_framework_split_invariants
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_a_module_with_periodic_tasks_gets_its_worker_and_one_beat
   - src/sandloom/core/tests/test_consumes_preflight.py::test_topology_read_records_a_missing_required_contract
 - id: C-DEPLOY-07
   statement: An sandloom new application splits into microservices with no code change. sandloom add deploy <module>...
@@ -6901,17 +7840,17 @@ capabilities:
   - docs/operate/split-into-services.md
   - deploy/README.md
   tests:
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_first_deploy_creates_the_profile_gateway_and_init_script
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_split_app_passes_the_framework_split_invariants
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_rerunning_is_idempotent
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_adding_a_module_is_incremental_and_keeps_hand_edits
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_hand_edit_inside_a_generated_block_is_refused_with_a_diff
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_the_framework_profile_is_the_generators_output
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_dev_env_covers_every_required_variable
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_root_level_module_gets_the_root_and_the_catch_all
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_first_deploy_creates_the_profile_gateway_and_init_script
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_a_split_app_passes_the_framework_split_invariants
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_rerunning_is_idempotent
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_adding_a_module_is_incremental_and_keeps_hand_edits
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_a_hand_edit_inside_a_generated_block_is_refused_with_a_diff
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_the_framework_profile_is_the_generators_output
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_dev_env_covers_every_required_variable
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_a_root_level_module_gets_the_root_and_the_catch_all
   - src/sandloom/core/tests/test_scaffold_deploy.py::test_two_services_claiming_root_level_paths_conflict
   - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_hand_written_catch_all_outside_the_block_is_refused
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_route_prefix_matches_only_its_own_segment
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_a_route_prefix_matches_only_its_own_segment
   - tests/e2e/test_app_split.py::test_an_sandloom_new_app_splits_into_microservices
 - id: C-DEPLOY-08
   statement: A microservices profile is checked against the split invariants the framework's own profile is pinned
@@ -6926,12 +7865,13 @@ capabilities:
   - docs/operate/split-into-services.md
   - deploy/AGENTS.md
   tests:
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_the_profile_passes_the_split_invariants_apps_are_checked_with
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_the_profile_passes_the_split_invariants_apps_are_checked_with
   - src/sandloom/core/tests/test_deploy_profiles.py::test_the_split_invariants_report_what_breaks_them
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_the_split_invariants_report_what_breaks_them
   - src/sandloom/core/tests/test_deploy_profiles.py::test_sandloom_test_checks_the_split_profile_of_a_project
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_every_service_boots_alone_with_its_bindings
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_the_checker_finds_a_root_route_the_gateway_drops
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_the_checker_samples_paths_that_collide_with_another_prefix
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_every_service_boots_alone_with_its_bindings
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_the_checker_finds_a_root_route_the_gateway_drops
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_the_checker_samples_paths_that_collide_with_another_prefix
 - id: C-DEPLOY-09
   statement: A service added to a running microservices stack gets its database although the Postgres
     volume exists (init-databases.sh runs only on an empty volume) - every generated migrate-<service>
@@ -6949,8 +7889,8 @@ capabilities:
   - src/sandloom/core/tests/test_migrate_creates_database.py::test_a_concurrent_caller_never_sees_an_uninitialized_database
   - src/sandloom/core/tests/test_migrate_creates_database.py::test_an_existing_database_and_a_non_postgres_url_are_left_alone
   - src/sandloom/core/tests/test_migrate_creates_database.py::test_upgrade_all_takes_the_create_databases_flag
-  - src/sandloom/core/tests/test_scaffold_deploy.py::test_a_service_added_later_creates_its_own_database
-  - src/sandloom/core/tests/test_deploy_profiles.py::test_microservices_db_per_service_and_bindings
+  - tests/integration/with_batteries/test_scaffold_deploy_with_bundled_modules.py::test_a_service_added_later_creates_its_own_database
+  - tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py::test_microservices_db_per_service_and_bindings
   - tests/e2e/test_app_split.py::test_an_sandloom_new_app_splits_into_microservices
 - id: C-TEST-13
   statement: sandloom test never aborts for want of parallel resources - -n auto is capped to the Redis database
@@ -6970,21 +7910,44 @@ capabilities:
   sources:
   - docs/reference/error-codes.md
   tests:
-  - src/sandloom/core/tests/test_run_tests_cli.py::test_the_plan_of_the_framework_tree
+  - tests/integration/with_batteries/test_run_tests_cli_framework_plan.py::test_the_plan_of_the_framework_tree
   - src/sandloom/core/tests/test_model_indexes_migrated.py::test_tables_created_by_reads_the_chain_revisions
   - src/sandloom/core/tests/test_model_indexes_migrated.py::test_no_index_duplicates_a_unique_prefix
   - src/sandloom/core/tests/test_model_indexes_migrated.py::test_a_tenant_key_without_tenant_id_is_reported
   - src/sandloom/core/tests/test_deploy_profiles.py::test_a_module_with_periodic_tasks_and_no_beat_is_reported
 - id: C-TEST-15
   statement: fake_contract(REF, impl) also serves the contract to kernel code that resolves it through the active
-    application (core.get_service - the billing and membership authz atoms), and fake_access_fact on the
-    subscription facts drives the live SubscriptionActive / Subscribed(of=Account.org(...)) atoms, with or without
-    billing loaded.
+    application (core.get_service - the generated billing and membership access atoms), so
+    fake_contract("billing.entitlements.v1", Fake()) drives the generated SubscriptionActive /
+    Subscribed(of=Account.org(...)) atoms with no billing loaded (ADR-0014 decision 15; fake_access_fact keeps
+    the generic fact-by-name stubbing).
   sources:
   - docs/reference/testing.md
   tests:
-  - src/sandloom/core/tests/test_testing_seams.py::test_fake_access_fact_drives_the_org_billing_atoms_without_billing
+  - src/sandloom/core/tests/test_testing_seams.py::test_fake_contract_drives_the_org_billing_atoms_without_billing
   - src/sandloom/core/tests/test_testing_seams.py::test_fake_contract_reaches_the_kernels_get_service
+- id: C-TEST-16
+  statement: 'override_settings(Model, ...) replaces a module''s declared settings for a test, nested overrides
+    restore in order, and it works with no application bound; validate_settings is the loader''s own
+    validation, context included.'
+  sources:
+  - docs/reference/sdk/testing.md
+  tests:
+  - src/sandloom/core/tests/test_module_settings.py::test_override_settings_nests_and_restores
+  - src/sandloom/core/tests/test_module_settings.py::test_override_settings_without_an_application
+  - src/sandloom/core/tests/test_module_settings.py::test_validate_settings_is_the_loaders_validation
+- id: C-TEST-17
+  statement: 'sandloom.core.testing.settings_gate.semantic_ratchet_problems(Model, baseline=, ceiling=) is a
+    module''s own semantic ratchet for its tests: a semantic setting outside the baseline, a baseline name that
+    left the semantic tier and a count over the ceiling are reported, so a module''s semantic setting cannot
+    slip in as ops unreviewed; billing runs it over BillingSettings.'
+  sources:
+  - docs/adr/0015-module-settings.md#5. Ratchets and completeness
+  - docs/reference/testing.md
+  tests:
+  - src/sandloom/core/tests/test_settings_gate.py::test_the_semantic_ratchet_helper
+  - src/sandloom/core/tests/test_settings_gate.py::test_a_semantic_name_that_is_no_field_is_flagged
+  - tests/integration/with_batteries/test_billing_semantic_ratchet.py::test_billing_keeps_its_own_semantic_ratchet
 - id: C-TENANT-10
   statement: The TenantScoped mixin declares no plain tenant_id index on a table whose primary key, unique constraint
     or unique index leads with tenant_id (that key serves the lookups), and keeps it otherwise.
@@ -7054,9 +8017,9 @@ capabilities:
   sources:
   - tests/fixtures/specs/public-api-1.0-spec.md#2.5 Zero kernel reads
   tests:
-  - tests/sdk/test_sdk_docs_wire.py::test_a_contract_prints_each_method_with_its_semantics
-  - tests/sdk/test_sdk_docs_wire.py::test_an_event_prints_its_fields_and_the_producers_notes
-  - tests/sdk/test_sdk_docs_wire.py::test_the_listings_name_every_stub_and_schema
+  - tests/integration/with_batteries/test_sdk_docs_wire_bundled_modules.py::test_a_contract_prints_each_method_with_its_semantics
+  - tests/integration/with_batteries/test_sdk_docs_wire_bundled_modules.py::test_an_event_prints_its_fields_and_the_producers_notes
+  - tests/integration/with_batteries/test_sdk_docs_wire_bundled_modules.py::test_the_listings_name_every_stub_and_schema
   - tests/sdk/test_sdk_docs_wire.py::test_an_app_shared_package_is_read_too
   - tests/sdk/test_sdk_docs_wire.py::test_every_bundled_contract_method_states_its_semantics
 - id: C-SDK-05
@@ -7135,6 +8098,15 @@ capabilities:
   - tests/sdk/test_sdk_generators.py::test_sandloom_add_runs_generate_at_the_end
   - tests/sdk/test_sdk_generators.py::test_add_contract_writes_the_generated_stub
   - src/sandloom/core/tests/test_quickstart.py::test_sandloom_new_writes_the_generated_files
+- id: C-GEN-16
+  statement: 'A third-party module''s admin.py screens reach the console''s manifest through the console''s
+    declared file, with no change to the kernel, and the console with identity serves identity''s screens out
+    of the box.'
+  sources:
+  - docs/admin-console/add-your-module.md
+  tests:
+  - tests/integration/generated_files/test_declared_generated_files.py::test_a_third_party_module_s_screens_reach_the_manifest
+  - tests/integration/generated_files/test_declared_generated_files.py::test_the_console_and_identity_out_of_the_box
 - id: C-MODULE-10
   statement: A route policy's atoms add the contracts they resolve to the module's derived consumes as optional
     requirements (SubscriptionActive / Credits the entitlements contract, Entitled the fact owner's facts.v1,
@@ -7166,8 +8138,8 @@ capabilities:
   - src/sandloom/core/tests/test_module_names.py::test_two_packages_providing_one_requested_name_are_refused
   - src/sandloom/core/tests/test_module_names.py::test_a_local_module_named_like_an_installed_one_is_refused
   - src/sandloom/core/tests/test_module_names.py::test_the_loader_refuses_an_ambiguous_module_before_loading_anything
-  - src/sandloom/core/tests/test_module_names.py::test_configuration_names_installed_modules_by_entry_point_name
-  - tests/sdk/test_sdk_module_names.py::test_the_sdk_owner_rule_agrees_with_the_kernel
+  - tests/integration/with_batteries/test_module_names_installed_standard_modules.py::test_configuration_names_installed_modules_by_entry_point_name
+  - tests/integration/with_batteries/test_sdk_module_names.py::test_the_sdk_owner_rule_agrees_with_the_kernel
 - id: C-MODULE-13
   statement: 'Distributions are layered and work installed alone: no module a distribution ships imports (module
     level, function-local or a constant-string dynamic import) a module of a distribution it does not depend on,
@@ -7185,7 +8157,7 @@ capabilities:
   - tests/architecture/test_distribution_imports.py::test_an_unshipped_first_party_module_is_caught
   - tests/architecture/test_distribution_imports.py::test_undeclared_third_party_is_caught_unless_optional
   - tests/integration/test_package_distributions.py::test_every_distribution_installs_and_runs_alone
-  - tests/architecture/test_archcheck_library.py::test_framework_imports_catch_from_sandloom_import_and_dynamic_aliases
+  - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_imports_catch_from_sandloom_import_and_dynamic_aliases
   - tests/architecture/test_archcheck_library.py::test_test_imports_is_a_whitelist
 - id: C-SDK-03
   statement: sandloom.sdk.tasks.shared_task is Celery's decorator typed with the task's signature (call, delay,
@@ -7303,18 +8275,18 @@ removed:
 
 issued:
   C-AUTH: 9
-  C-CONSOLE: 4
+  C-CONSOLE: 5
   C-DECL: 5
   C-DEPLOY: 9
   C-EFFECT: 2
   C-EVENT: 4
-  C-GEN: 15
+  C-GEN: 16
   C-INFRA: 12
   C-MIGRATE: 9
   C-MODULE: 13
   C-MSTORE: 4
   C-OBS: 8
-  C-OPS: 14
+  C-OPS: 15
   C-PROJ: 9
   C-RISK: 1
   C-ROUTE: 3
@@ -7323,18 +8295,18 @@ issued:
   C-SDK: 6
   C-SPLIT: 7
   C-TENANT: 10
-  C-TEST: 15
+  C-TEST: 17
   C-UNIT: 2
   C-WORKER: 6
   G-AUDIT: 2
-  G-AUTH: 19
-  G-AUTHZ: 13
+  G-AUTH: 26
+  G-AUTHZ: 14
   G-BILLING: 22
-  G-BLOCK: 7
+  G-BLOCK: 8
   G-CMD: 9
-  G-COMPAT: 7
-  G-CONFIG: 8
-  G-CONTRACT: 19
+  G-COMPAT: 8
+  G-CONFIG: 16
+  G-CONTRACT: 25
   G-DECL: 7
   G-EFFECT: 5
   G-EVENT: 14
@@ -7342,17 +8314,17 @@ issued:
   G-HTTP: 12
   G-IDEM: 18
   G-INBOX: 4
-  G-INFRA: 9
-  G-KERNEL: 13
+  G-INFRA: 12
+  G-KERNEL: 14
   G-MIGRATE: 12
   G-MODULE: 19
   G-MSTORE: 10
   G-OPCLASS: 7
-  G-OPS: 22
+  G-OPS: 24
   G-OUTBOX: 16
   G-PROFILE: 9
-  G-REVOKE: 24
-  G-RISK: 13
+  G-REVOKE: 27
+  G-RISK: 15
   G-RLS: 15
   G-ROUTE: 5
   G-RPC: 33
@@ -7831,6 +8803,17 @@ adr_sections:
     - G-SAGA-07
     - G-RISK-13
     Consequences of the amendment: informational
+    'Amendment (2026-11-09): driver availability, `periodic`, module requirements': informational
+    Context of the driver availability amendment: informational
+    Decisions of the driver availability amendment:
+    - G-INFRA-10
+    - G-INFRA-11
+    - G-INFRA-12
+    - G-OPS-23
+    - G-OPS-24
+    Consequences of the driver availability amendment: informational
+    Amendment (2026-11-11) for external driver dependencies:
+    - G-INFRA-10
   0010-public-api-1.0.md:
     Context: informational
     Decision: informational
@@ -7917,3 +8900,159 @@ adr_sections:
     Alternatives considered: informational
     Ledger mapping: informational
     Open questions: informational
+    "Amendment (2026-11-08): the generated consumer API": informational
+    "Context of the amendment": informational
+    "Decisions of the amendment": informational
+  # Accepted 2026-11-08 (tm kb-adrs-accept), not built yet: the decision headings are
+  # `planned` (planned_adrs names the waves); each PR of design/kernel-boundary/migration-plan.md
+  # maps the headings it implements to the ledger ids it adds or changes. ADR-0014 decision 4
+  # already maps to G-RISK-14, the accepted temporary risk of the legacy_tokens window.
+  0012-kernel-boundary.md:
+    "Context": informational
+    "Decision": informational
+    "1. What the kernel may name": planned
+    "2. One edge register, checked": planned
+    "3. The standard composition lives in `sandloom-standard`": planned
+    "4. The admin battery":
+    - G-KERNEL-14
+    - C-GEN-16
+    "5. Revocation: the kernel applies, the issuer ends its sessions":
+    - G-REVOKE-07
+    - G-REVOKE-25
+    - G-REVOKE-26
+    - G-REVOKE-27
+    - G-BLOCK-05
+    - G-BLOCK-08
+    "6. The CLI phase comes later": planned
+    "7. Status of the 46 judged rows": planned
+    "8. Mechanisms (one ledger for the four ADRs, adversarial A-8)": informational
+    "Alternatives considered": informational
+    "Consequences": informational
+    "Evidence": informational
+    "Fitness tests": informational
+  0013-contract-ownership.md:
+    "Context": informational
+    "Decision": informational
+    "1. Home rule":
+    - G-CONTRACT-25
+    "2. `consumes` is the single source of what a consumer requires":
+    - G-CONTRACT-20
+    "3. Expectation files and narrowing":
+    - G-CONTRACT-21
+    "4. No expectation is never a warning":
+    - G-COMPAT-08
+    "5. Provider absent where `generate` runs":
+    - G-CONTRACT-22
+    "6. Determinism without the project formatter":
+    - G-CONTRACT-23
+    "7. Provenance header":
+    - G-CONTRACT-22
+    "8. Collisions and copies":
+    - G-CONTRACT-23
+    "9. C5 leaves the kernel":
+    - G-CONTRACT-25
+    "10. Migration list":
+    - G-CONTRACT-25
+    - C-GEN-03
+    "11. When B2 is adopted": planned
+    "Mechanisms": informational
+    "Alternatives considered": informational
+    "Consequences": informational
+    "Evidence": informational
+    "Fitness tests": informational
+  0014-claims-trust-and-authorization-portability.md:
+    "Context": informational
+    "Decision, part (a): trust": informational
+    "1. The composition root assigns authorities; the kernel has no default":
+    - G-AUTH-20
+    - G-AUTH-21
+    "2. Mint: who may write a protected key":
+    - G-AUTH-20
+    "3. Read: one trusted view per verified token":
+    - G-AUTH-23
+    "4. `cpv` per key, with an issuer × verifier rollout and rollback matrix":
+    - G-RISK-14
+    - G-AUTH-24
+    "5. Sealed mint, service tokens, test tokens":
+    - G-AUTH-25
+    "6. Contract-name ownership for access-bearing contracts":
+    - G-CONTRACT-24
+    "7. Billing claims: option (c)":
+    - G-AUTH-20
+    - G-AUTH-22
+    "Decision, part (b): portability": informational
+    "8. Contract-anchored access checks": planned
+    "9. The equality invariant": planned
+    "10. The literal is the single metadata source": planned
+    "11. `Subscribed` keeps its parameters": planned
+    "12. Incompatible contract shape is an indeterminate, user input stays 422": planned
+    "13. Tenant kind from the assigned tenant authority": planned
+    "14. The live adapters: an approved exception, after equivalence":
+    - G-AUTHZ-05
+    "15. What else moves, and what stays": planned
+    "16. Separate changes, each with its own baseline": planned
+    "Amendment 2026-11-09: the `cpv` identity of an authority":
+    - G-AUTH-24
+    "Amendment 2026-11-09: W2+W3 review fixes (kb-rf-trust)":
+    - G-AUTH-26
+    "Amendment 2026-11-09: no claim value from the caller (kb-sec2-issuer)":
+    - G-AUTH-26
+    "Amendment 2026-11-09: KB-34, the kernel domain atoms are removed":
+    - G-AUTHZ-05
+    - G-AUTHZ-12
+    "Amendment 2026-11-09: the absent claim and declared fail-safe keys":
+    - G-AUTH-12
+    - G-AUTH-20
+    - G-AUTHZ-12
+    "Mechanisms": informational
+    "Alternatives considered": informational
+    "Consequences": informational
+    "Evidence": informational
+    "Fitness tests": informational
+  0015-module-settings.md:
+    "Context": informational
+    "Decision": informational
+    "1. Declaration on registration (D2a)":
+    - G-CONFIG-09
+    - C-TEST-16
+    "2. One source read per process":
+    - G-CONFIG-10
+    "3. Validation before `setup`, one check after loading":
+    - G-CONFIG-11
+    - G-CONFIG-12
+    "4. Risk namespaces":
+    - G-RISK-15
+    "5. Ratchets and completeness":
+    - G-CONFIG-02
+    - G-CONFIG-13
+    - C-TEST-17
+    "6. Env names":
+    - G-CONFIG-13
+    - G-CONFIG-12
+    "7. Static gate in `sandloom check` and `sandloom test`":
+    - G-CONFIG-13
+    "8. `config dump` and what \"activation\" means":
+    - G-CONFIG-15
+    "9. Refresh-session settings move to identity":
+    - G-CONFIG-14
+    "10. Password hashing stays a kernel mechanism (H1)": planned
+    "11. What moves":
+    - G-BILLING-18
+    - G-AUTH-19
+    - G-CONFIG-14
+    - C-CONSOLE-02
+    - G-CONFIG-16
+    "Mechanisms": informational
+    "Alternatives considered": informational
+    "Consequences": informational
+    "Evidence": informational
+    "Fitness tests": informational
+planned_adrs:
+  0012-kernel-boundary.md: 'design/kernel-boundary/migration-plan.md: W0 (KB-03 edge register, KB-06, KB-07,
+    KB-08 sandloom-standard, KB-09 revocation applier), W1 (KB-40), W2 (KB-41); CLI phase KB-60, KB-61'
+  0013-contract-ownership.md: 'design/kernel-boundary/migration-plan.md: W1 (KB-20), W2 (KB-21), W3 (KB-22),
+    W4 (KB-23)'
+  0014-claims-trust-and-authorization-portability.md: 'design/kernel-boundary/migration-plan.md: W1 (KB-10),
+    W2 (KB-11, KB-13), W3 (KB-12), W4 (KB-30), W5 (KB-31..KB-33, KB-35, KB-36), W6 (KB-34, KB-37), W7 (KB-38)'
+  0015-module-settings.md: 'design/kernel-boundary/migration-plan.md: W0 (KB-49 PoC gate), W1 (KB-50), W2 (KB-51,
+    KB-53, KB-54, KB-56), W3 (KB-52), W4 (KB-55)'

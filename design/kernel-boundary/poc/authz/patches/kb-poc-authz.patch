@@ -1,0 +1,2694 @@
+diff --git a/public_api_baseline.json b/public_api_baseline.json
+index 220ea3d..ac8630d 100644
+--- a/public_api_baseline.json
++++ b/public_api_baseline.json
+@@ -1118,6 +1118,7 @@
+     "ContractMethodRuntime": {
+       "kind": "class",
+       "members": [
++        "access_check",
+         "bind",
+         "decode_result",
+         "describe",
+@@ -1129,7 +1130,7 @@
+         "result_plan",
+         "risk"
+       ],
+-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, kind:POSITIONAL_OR_KEYWORD|Literal['read', 'command'], signature:POSITIONAL_OR_KEYWORD|inspect.Signature, annotations:POSITIONAL_OR_KEYWORD|dict[str, Any], returns:POSITIONAL_OR_KEYWORD|Any, idempotency_key:POSITIONAL_OR_KEYWORD|str | None=None, idempotency_scope:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), risk:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
++      "signature": "(name:POSITIONAL_OR_KEYWORD|str, kind:POSITIONAL_OR_KEYWORD|Literal['read', 'command'], signature:POSITIONAL_OR_KEYWORD|inspect.Signature, annotations:POSITIONAL_OR_KEYWORD|dict[str, Any], returns:POSITIONAL_OR_KEYWORD|Any, idempotency_key:POSITIONAL_OR_KEYWORD|str | None=None, idempotency_scope:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), risk:POSITIONAL_OR_KEYWORD|str | None=None, access_check:POSITIONAL_OR_KEYWORD|dict[str, Any] | None=None) -> None"
+     },
+     "ContractMethodSpec": {
+       "kind": "class",
+@@ -2569,6 +2570,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tenant_type",
+@@ -2628,6 +2630,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -2644,6 +2647,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -2660,6 +2664,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tenant_type",
+@@ -2678,6 +2683,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tenant_type",
+@@ -2830,6 +2836,9 @@
+     "AccessFact": {
+       "kind": "class",
+       "members": [
++        "atom",
++        "atom_describe",
++        "atom_otherwise",
+         "build_facts_contract",
+         "claim_key",
+         "claim_rule",
+@@ -2843,7 +2852,7 @@
+         "projection_reader",
+         "to_wire"
+       ],
+-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None) -> None"
++      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None, atom:POSITIONAL_OR_KEYWORD|str | None=None, atom_describe:POSITIONAL_OR_KEYWORD|str | None=None, atom_otherwise:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+     },
+     "Account": {
+       "kind": "class",
+@@ -2868,6 +2877,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -2896,6 +2906,23 @@
+       ],
+       "signature": "()"
+     },
++    "ClaimFactCheck": {
++      "kind": "class",
++      "members": [
++        "category",
++        "code",
++        "contracts",
++        "decide",
++        "describe",
++        "evaluate",
++        "mentions_resource",
++        "needs_request_session",
++        "org_params",
++        "risks",
++        "tier"
++      ],
++      "signature": "(of:KEYWORD_ONLY|Account=<builtins.object>) -> None"
++    },
+     "ClaimRule": {
+       "kind": "class",
+       "members": [
+@@ -2909,6 +2936,23 @@
+       ],
+       "signature": "(kind:POSITIONAL_OR_KEYWORD|str='truthy', values:POSITIONAL_OR_KEYWORD|frozenset[Any]=frozenset()) -> None"
+     },
++    "ContractCheck": {
++      "kind": "class",
++      "members": [
++        "category",
++        "code",
++        "contracts",
++        "decide",
++        "describe",
++        "evaluate",
++        "mentions_resource",
++        "needs_request_session",
++        "org_params",
++        "risks",
++        "tier"
++      ],
++      "signature": "(params:POSITIONAL_OR_KEYWORD|dict[str, Any], of:KEYWORD_ONLY|Account | None=None, org_param:KEYWORD_ONLY|str | None=None) -> None"
++    },
+     "Credits": {
+       "kind": "class",
+       "members": [
+@@ -2920,6 +2964,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tenant_type",
+@@ -2940,11 +2985,12 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+       ],
+-      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None) -> None"
++      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None, params:KEYWORD_ONLY|dict[str, Any] | None=None) -> None"
+     },
+     "EntitlementsAdapter": {
+       "kind": "class",
+@@ -2991,6 +3037,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_fact",
+         "org_params",
+         "risks",
+@@ -2998,6 +3045,16 @@
+       ],
+       "signature": "(key:POSITIONAL_OR_KEYWORD|str, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='features') -> None"
+     },
++    "From": {
++      "kind": "class",
++      "members": [
++        "account_id",
++        "account_type",
++        "org",
++        "subject_id"
++      ],
++      "signature": "()"
++    },
+     "MEMBERSHIP": {
+       "kind": "value"
+     },
+@@ -3030,6 +3087,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -3046,6 +3104,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -3063,6 +3122,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -3079,6 +3139,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -3095,6 +3156,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -3135,6 +3197,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -3151,6 +3214,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -3188,6 +3252,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tenant_type",
+@@ -3206,6 +3271,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tenant_type",
+@@ -3232,6 +3298,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_fact",
+         "org_params",
+         "risks",
+@@ -3239,6 +3306,10 @@
+       ],
+       "signature": "(key:POSITIONAL_OR_KEYWORD|str, used:POSITIONAL_OR_KEYWORD|int, of:KEYWORD_ONLY|Account=<builtins.object>, claim_key:KEYWORD_ONLY|str='limits') -> None"
+     },
++    "access_check": {
++      "kind": "function",
++      "signature": "(name:POSITIONAL_OR_KEYWORD|str, bind:KEYWORD_ONLY|dict[str, list[Any]], category:KEYWORD_ONLY|str='forbidden', values:KEYWORD_ONLY|dict[str, list[Any]] | None=None, risk:KEYWORD_ONLY|dict[str, dict[str, list[Any]]] | None=None, describe:KEYWORD_ONLY|str | None=None, witnesses_membership:KEYWORD_ONLY|dict[str, Any] | None=None) -> Callable[[Any], Any]"
++    },
+     "authorize": {
+       "kind": "function",
+       "signature": "(resource:POSITIONAL_OR_KEYWORD|Any, policy:POSITIONAL_OR_KEYWORD|Requirement, ctx:KEYWORD_ONLY|UserContext, request:KEYWORD_ONLY|Request | None=None, db:KEYWORD_ONLY|AsyncSession | None=None, status_code:KEYWORD_ONLY|int | None=None) -> None"
+@@ -3257,7 +3328,7 @@
+     },
+     "lookup_access_fact": {
+       "kind": "function",
+-      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str) -> AccessFact | None"
++      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str, owner:KEYWORD_ONLY|str | None=None) -> AccessFact | None"
+     },
+     "make_rebuild_gate": {
+       "kind": "function",
+@@ -3299,6 +3370,7 @@
+     "ContractMethodRuntime": {
+       "kind": "class",
+       "members": [
++        "access_check",
+         "bind",
+         "decode_result",
+         "describe",
+@@ -3310,7 +3382,7 @@
+         "result_plan",
+         "risk"
+       ],
+-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, kind:POSITIONAL_OR_KEYWORD|Literal['read', 'command'], signature:POSITIONAL_OR_KEYWORD|inspect.Signature, annotations:POSITIONAL_OR_KEYWORD|dict[str, Any], returns:POSITIONAL_OR_KEYWORD|Any, idempotency_key:POSITIONAL_OR_KEYWORD|str | None=None, idempotency_scope:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), risk:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
++      "signature": "(name:POSITIONAL_OR_KEYWORD|str, kind:POSITIONAL_OR_KEYWORD|Literal['read', 'command'], signature:POSITIONAL_OR_KEYWORD|inspect.Signature, annotations:POSITIONAL_OR_KEYWORD|dict[str, Any], returns:POSITIONAL_OR_KEYWORD|Any, idempotency_key:POSITIONAL_OR_KEYWORD|str | None=None, idempotency_scope:POSITIONAL_OR_KEYWORD|tuple[str, ...]=tuple(), risk:POSITIONAL_OR_KEYWORD|str | None=None, access_check:POSITIONAL_OR_KEYWORD|dict[str, Any] | None=None) -> None"
+     },
+     "ContractMethodSpec": {
+       "kind": "class",
+@@ -6016,6 +6088,9 @@
+     "AccessFact": {
+       "kind": "class",
+       "members": [
++        "atom",
++        "atom_describe",
++        "atom_otherwise",
+         "build_facts_contract",
+         "claim_key",
+         "claim_rule",
+@@ -6029,7 +6104,7 @@
+         "projection_reader",
+         "to_wire"
+       ],
+-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None) -> None"
++      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner_module:POSITIONAL_OR_KEYWORD|str, claim_key:POSITIONAL_OR_KEYWORD|str | None=None, projection_reader:POSITIONAL_OR_KEYWORD|ProjectionReader | None=None, live_service:POSITIONAL_OR_KEYWORD|str | None=None, live_resolver:POSITIONAL_OR_KEYWORD|LiveResolver | None=None, min_freshness:POSITIONAL_OR_KEYWORD|str='claim', default_mode:POSITIONAL_OR_KEYWORD|str='auto', deny_category:POSITIONAL_OR_KEYWORD|str | None=None, claim_rule:POSITIONAL_OR_KEYWORD|ClaimRule | Callable[[], ClaimRule] | None=None, atom:POSITIONAL_OR_KEYWORD|str | None=None, atom_describe:POSITIONAL_OR_KEYWORD|str | None=None, atom_otherwise:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
+     },
+     "Account": {
+       "kind": "class",
+@@ -6054,6 +6129,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -6106,6 +6182,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tenant_type",
+@@ -6126,11 +6203,12 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+       ],
+-      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None) -> None"
++      "signature": "(fact_name:POSITIONAL_OR_KEYWORD|str, category:KEYWORD_ONLY|str | None=None, code:KEYWORD_ONLY|str | None=None, mode:KEYWORD_ONLY|str | None=None, params:KEYWORD_ONLY|dict[str, Any] | None=None) -> None"
+     },
+     "EntitlementsAdapter": {
+       "kind": "class",
+@@ -6177,6 +6255,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_fact",
+         "org_params",
+         "risks",
+@@ -6204,6 +6283,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -6220,6 +6300,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -6237,6 +6318,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -6253,6 +6335,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -6269,6 +6352,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -6309,6 +6393,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -6325,6 +6410,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tier"
+@@ -6362,6 +6448,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tenant_type",
+@@ -6380,6 +6467,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_params",
+         "risks",
+         "tenant_type",
+@@ -6406,6 +6494,7 @@
+         "describe",
+         "evaluate",
+         "mentions_resource",
++        "needs_request_session",
+         "org_fact",
+         "org_params",
+         "risks",
+@@ -6431,7 +6520,7 @@
+     },
+     "lookup_access_fact": {
+       "kind": "function",
+-      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str) -> AccessFact | None"
++      "signature": "(ctx:POSITIONAL_OR_KEYWORD|AuthzContext, name:POSITIONAL_OR_KEYWORD|str, owner:KEYWORD_ONLY|str | None=None) -> AccessFact | None"
+     },
+     "make_rebuild_gate": {
+       "kind": "function",
+diff --git a/src/sandloom/core/archcheck/api10_rules.py b/src/sandloom/core/archcheck/api10_rules.py
+index b219108..abcb9ed 100644
+--- a/src/sandloom/core/archcheck/api10_rules.py
++++ b/src/sandloom/core/archcheck/api10_rules.py
+@@ -35,7 +35,9 @@ import json
+ import re
+ from collections.abc import Callable, Iterable, Iterator, Sequence
+ from pathlib import Path
++from typing import Any
+ 
++import sandloom.core.archcheck.atom_metadata as _atom_metadata
+ from sandloom.core.archcheck.analyzers import (
+     _const_str,
+     is_endpoint_decorator,
+@@ -56,6 +58,7 @@ SEVERITY: dict[str, str] = {
+     "event-view-compat": "error",
+     "contract-union-hint": "info",
+     "account-route-mismatch": "error",
++    "handwritten-access-check": "error",
+ }
+ 
+ 
+@@ -269,7 +272,9 @@ def _untagged_money_commands(
+ 
+ 
+ def _route_check(
+-    fn: ast.FunctionDef | ast.AsyncFunctionDef, admin_routers: set[str]
++    fn: ast.FunctionDef | ast.AsyncFunctionDef,
++    admin_routers: set[str],
++    atoms: dict[str, dict[str, Any]] | None = None,
+ ) -> tuple[bool, str | None]:
+     """``(tagged, hit)`` for an endpoint: whether a gate or marker carries its
+     risk, and the hand-rolled authority report of an untagged write route."""
+@@ -278,9 +283,12 @@ def _route_check(
+         return False, None
+     dec, method, router = endpoint
+     declared = _route_text(fn, dec)
++    nodes: list[ast.AST] = [dec, *fn.args.defaults]
++    nodes += [d for d in fn.args.kw_defaults if d is not None]
+     if (
+         router in admin_routers
+         or _ADMIN_GATE.search(declared)
++        or (atoms and _atom_metadata.admin_gate(nodes, atoms))
+         or re.search(r"\b(sensitive|public)\(", declared)
+     ):
+         return True, None
+@@ -313,6 +321,7 @@ def find_untagged_sensitive(file_path: Path) -> list[str]:
+     """
+     tree = parse_file(file_path)
+     admin_routers = _admin_routers(tree)
++    atoms = _atom_metadata.atom_literals(tree)
+     found: list[str] = []
+     for fn in ast.walk(tree):
+         if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
+@@ -322,7 +331,7 @@ def find_untagged_sensitive(file_path: Path) -> list[str]:
+             for d in _decorator_calls(fn)
+         )
+         found += _untagged_money_commands(fn, tagged)
+-        route_tagged, hit = _route_check(fn, admin_routers)
++        route_tagged, hit = _route_check(fn, admin_routers, atoms)
+         if hit is not None and not tagged:
+             found.append(hit)
+             continue
+@@ -555,6 +564,7 @@ def find_account_route_mismatches(file_path: Path) -> list[str]:
+     """
+     tree = parse_file(file_path)
+     org_params = _org_param_names(tree)
++    atoms = _atom_metadata.atom_literals(tree)
+     found: list[str] = []
+     for fn in ast.walk(tree):
+         if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
+@@ -564,17 +574,28 @@ def find_account_route_mismatches(file_path: Path) -> list[str]:
+             org_route = bool(in_path & org_params)
+             for root in nodes:
+                 found += _route_account_problems(
+-                    root, path, in_path | _query_params(fn), org_route
++                    root, path, in_path | _query_params(fn), org_route, atoms
+                 )
+     return sorted(set(found), key=_line_of)
+ 
+ 
+ def _route_account_problems(
+-    root: ast.AST, path: str, available: set[str], org_route: bool
++    root: ast.AST,
++    path: str,
++    available: set[str],
++    org_route: bool,
++    atoms: dict[str, dict[str, Any]] | None = None,
+ ) -> list[str]:
+     out: list[str] = []
+     for node in ast.walk(root):
+-        if _call_name(node) not in BILLING_ATOMS or not isinstance(node, ast.Call):
++        name = _call_name(node)
++        literal = (atoms or {}).get(name or "")
++        if literal is not None:
++            if not _atom_metadata.binds_account(literal):
++                continue
++        elif name not in BILLING_ATOMS:
++            continue
++        if not isinstance(node, ast.Call):
+             continue
+         of = _keyword(node, "of")
+         account = _account_call(of) if of is not None else None
+@@ -836,9 +857,16 @@ def per_file_rules() -> dict[str, Callable[[Path], list[str]]]:
+         "unsafe-tenant-query": find_unsafe_tenant_queries,
+         "contract-union-hint": find_contract_union_hints,
+         "account-route-mismatch": find_account_route_mismatches,
++        "handwritten-access-check": find_handwritten_access_checks,
+     }
+ 
+ 
++def find_handwritten_access_checks(file_path: Path) -> list[str]:
++    """A hand-written ``Requirement`` calling a declared access check with
++    other metadata than its declaration (PoC kb-poc-authz, answer #22)."""
++    return _atom_metadata.handwritten_access_checks(parse_file(file_path))
++
++
+ def iter_python(paths: Iterable[Path]) -> Iterator[Path]:
+     for path in paths:
+         if path.is_dir():
+diff --git a/src/sandloom/core/archcheck/atom_metadata.py b/src/sandloom/core/archcheck/atom_metadata.py
+new file mode 100644
+index 0000000..3d99917
+--- /dev/null
++++ b/src/sandloom/core/archcheck/atom_metadata.py
+@@ -0,0 +1,279 @@
++"""Static metadata of generated access atoms (PoC kb-poc-authz, H-20).
++
++The archcheck rules that used to recognise an atom by its class name
++(``OrgRole``, ``Credits``, ...) read the ``__sandloom_atom__`` literal that
++``sandloom generate`` writes into the atom's class instead: an imported name
++is resolved to its source file on ``sys.path`` (no import), the class's literal
++is read with ``ast.literal_eval``. A third-party atom with an organization
++bind or an admin risk is recognised by what it declares, not by its name.
++
++It also recognises a hand-written ``Requirement`` whose body calls a declared
++access check through ``Contract(REF)`` (owner answer #22): its tier, category
++and risk are compared with the declaration.
++"""
++
++from __future__ import annotations
++
++import ast
++import functools
++import sys
++from pathlib import Path
++from typing import Any
++
++ATOM_ATTR = "__sandloom_atom__"
++
++
++@functools.lru_cache(maxsize=512)
++def _module_file(module: str) -> Path | None:
++    rel = Path(*module.split("."))
++    for entry in sys.path:
++        if not entry:
++            continue
++        base = Path(entry)
++        for candidate in (base / f"{rel}.py", base / rel / "__init__.py"):
++            if candidate.is_file():
++                return candidate
++    return None
++
++
++def _class_literals(tree: ast.AST) -> dict[str, dict[str, Any]]:
++    out: dict[str, dict[str, Any]] = {}
++    for node in getattr(tree, "body", ()):
++        if not isinstance(node, ast.ClassDef):
++            continue
++        for item in node.body:
++            target = value = None
++            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
++                target, value = item.target.id, item.value
++            elif (
++                isinstance(item, ast.Assign)
++                and len(item.targets) == 1
++                and isinstance(item.targets[0], ast.Name)
++            ):
++                target, value = item.targets[0].id, item.value
++            if target != ATOM_ATTR or value is None:
++                continue
++            try:
++                literal = ast.literal_eval(value)
++            except ValueError:
++                continue
++            if isinstance(literal, dict) and literal:
++                out[node.name] = literal
++    return out
++
++
++@functools.lru_cache(maxsize=512)
++def _file_literals(path: Path) -> dict[str, dict[str, Any]]:
++    try:
++        return _class_literals(ast.parse(path.read_text(encoding="utf-8")))
++    except (OSError, SyntaxError, UnicodeDecodeError):
++        return {}
++
++
++def atom_literals(tree: ast.AST) -> dict[str, dict[str, Any]]:
++    """``{local name: literal}`` of the atoms a module defines or imports."""
++    found = dict(_class_literals(tree))
++    for node in getattr(tree, "body", ()):
++        if not isinstance(node, ast.ImportFrom) or not node.module or node.level:
++            continue
++        path = _module_file(node.module)
++        if path is None:
++            continue
++        literals = _file_literals(path)
++        for alias in node.names:
++            if alias.name in literals:
++                found[alias.asname or alias.name] = literals[alias.name]
++    return found
++
++
++def _kinds(literal: dict[str, Any]) -> set[str]:
++    binds = literal.get("binds") or {}
++    return {b[0] for b in binds.values() if isinstance(b, list) and b}
++
++
++def binds_org(literal: dict[str, Any]) -> str | None:
++    """The default organization parameter of an atom with an org bind."""
++    for bind in (literal.get("binds") or {}).values():
++        if isinstance(bind, list) and bind and bind[0] == "org":
++            return str(bind[1] or "org_id")
++    return None
++
++
++def binds_account(literal: dict[str, Any]) -> bool:
++    """An atom whose account is stated with ``of=`` (contract or claim atom)."""
++    return bool(_kinds(literal) & {"account_type", "account_id"}) or "fact" in literal
++
++
++def _call_params(call: ast.Call, literal: dict[str, Any]) -> dict[str, Any]:
++    names = [
++        a for a in literal.get("args") or [] if a not in (literal.get("binds") or {})
++    ]
++    params: dict[str, Any] = {}
++    for name, arg in zip(names, call.args, strict=False):
++        if isinstance(arg, ast.Constant):
++            params[name] = arg.value
++    for kw in call.keywords:
++        if kw.arg and isinstance(kw.value, ast.Constant):
++            params[kw.arg] = kw.value.value
++    return params
++
++
++def call_risks(call: ast.Call, literal: dict[str, Any]) -> set[str]:
++    """The risks an atom call carries by its declared value table."""
++    params = _call_params(call, literal)
++    return {
++        risk
++        for risk, conditions in (literal.get("risk") or {}).items()
++        if all(params.get(p) in values for p, values in conditions.items())
++    }
++
++
++def _name(node: ast.AST) -> str | None:
++    if isinstance(node, ast.Call):
++        node = node.func
++    if isinstance(node, ast.Name):
++        return node.id
++    if isinstance(node, ast.Attribute):
++        return node.attr
++    return None
++
++
++def admin_gate(nodes: list[ast.AST], atoms: dict[str, dict[str, Any]]) -> bool:
++    """A declared atom call with the ``admin`` risk among ``nodes``."""
++    for root in nodes:
++        for node in ast.walk(root):
++            lit = atoms.get(_name(node) or "") if isinstance(node, ast.Call) else None
++            if lit is not None and "admin" in call_risks(node, lit):  # type: ignore[arg-type]
++                return True
++    return False
++
++
++# --------------------------------------------------------------------------- #
++# hand-written Requirement calling a declared access check (answer #22)
++# --------------------------------------------------------------------------- #
++def _ref_literals(tree: ast.AST) -> dict[str, dict[str, dict[str, Any]]]:
++    """``{REF constant: {method: literal}}`` of the imported stubs that
++    declare access checks."""
++    ref_literals: dict[str, dict[str, dict[str, Any]]] = {}
++    for node in getattr(tree, "body", ()):
++        if not isinstance(node, ast.ImportFrom) or not node.module or node.level:
++            continue
++        path = _module_file(node.module)
++        if path is None:
++            continue
++        by_method = {
++            str(lit.get("method")): lit
++            for lit in _file_literals(path).values()
++            if "method" in lit
++        }
++        if not by_method:
++            continue
++        for alias in node.names:
++            if alias.name.isupper():  # the ContractRef constant
++                ref_literals[alias.asname or alias.name] = by_method
++    return ref_literals
++
++
++def _declared_methods(tree: ast.AST) -> dict[str, dict[str, dict[str, Any]]]:
++    """``{client name: {method: literal}}`` for ``x = Contract(REF)`` whose
++    stub declares access checks."""
++    ref_literals = _ref_literals(tree)
++    clients: dict[str, dict[str, dict[str, Any]]] = {}
++    for node in getattr(tree, "body", ()):
++        if (
++            isinstance(node, ast.Assign)
++            and isinstance(node.value, ast.Call)
++            and _name(node.value) == "Contract"
++            and node.value.args
++            and isinstance(node.value.args[0], ast.Name)
++            and node.value.args[0].id in ref_literals
++        ):
++            for target in node.targets:
++                if isinstance(target, ast.Name):
++                    clients[target.id] = ref_literals[node.value.args[0].id]
++    return clients
++
++
++_TIERS = {"TIER_CLAIM": 1, "TIER_RESOURCE": 2, "TIER_LIVE": 3}
++
++
++def _class_attr(cls: ast.ClassDef, name: str) -> Any:
++    for item in cls.body:
++        if (
++            isinstance(item, ast.Assign)
++            and len(item.targets) == 1
++            and isinstance(item.targets[0], ast.Name)
++            and item.targets[0].id == name
++        ):
++            value = item.value
++            if isinstance(value, ast.Constant):
++                return value.value
++            if isinstance(value, ast.Name):
++                return _TIERS.get(value.id, value.id)
++            if isinstance(value, ast.Attribute):
++                return value.attr.lower()
++    return None
++
++
++def handwritten_access_checks(tree: ast.AST) -> list[str]:
++    """``Line N: ...`` for each hand-written ``Requirement`` whose body calls
++    a declared access check with metadata that differs from the declaration
++    (tier, category, a declared risk the class does not state)."""
++    clients = _declared_methods(tree)
++    if not clients:
++        return []
++    out: list[str] = []
++    for cls in ast.walk(tree):
++        if not isinstance(cls, ast.ClassDef) or ATOM_ATTR in {
++            t.id
++            for item in cls.body
++            if isinstance(item, ast.AnnAssign | ast.Assign)
++            for t in (
++                [item.target] if isinstance(item, ast.AnnAssign) else item.targets
++            )
++            if isinstance(t, ast.Name)
++        }:
++            continue
++        for node in ast.walk(cls):
++            if not (
++                isinstance(node, ast.Call)
++                and isinstance(node.func, ast.Attribute)
++                and isinstance(node.func.value, ast.Name)
++                and node.func.attr in clients.get(node.func.value.id, {})
++            ):
++                continue
++            literal = clients[node.func.value.id][node.func.attr]
++            where = (
++                f"Line {cls.lineno}: {cls.name} calls the declared access check "
++                f"{literal['contract']}.{literal['method']}"
++            )
++            tier = _class_attr(cls, "tier")
++            if tier != literal.get("tier"):
++                out.append(f"{where} with tier {tier!r} (declared {literal['tier']})")
++            category = _class_attr(cls, "category")
++            if category != literal.get("category"):
++                out.append(
++                    f"{where} with category {category!r} (declared "
++                    f"{literal.get('category')!r})"
++                )
++            states_risk = any(
++                isinstance(item, ast.FunctionDef) and item.name == "risks"
++                for item in cls.body
++            )
++            if literal.get("risk") and not states_risk:
++                out.append(
++                    f"{where} but does not state its declared risk "
++                    f"{sorted(literal['risk'])} (risks())"
++                )
++            break
++    return out
++
++
++__all__ = [
++    "admin_gate",
++    "atom_literals",
++    "binds_account",
++    "binds_org",
++    "call_risks",
++    "handwritten_access_checks",
++]
+diff --git a/src/sandloom/core/archcheck/module_rules.py b/src/sandloom/core/archcheck/module_rules.py
+index b5b9108..a847160 100644
+--- a/src/sandloom/core/archcheck/module_rules.py
++++ b/src/sandloom/core/archcheck/module_rules.py
+@@ -31,7 +31,9 @@ from __future__ import annotations
+ import ast
+ from collections.abc import Iterable, Iterator, Sequence
+ from pathlib import Path
++from typing import Any
+ 
++import sandloom.core.archcheck.atom_metadata as _atom_metadata
+ from sandloom.core.archcheck.analyzers import (
+     HTTP_METHODS,
+     _const_str,
+@@ -62,6 +64,9 @@ ORG_IF_ORGANIZATION = frozenset(
+     {"Subscribed", "SubscriptionActive", "Credits", "Feature", "WithinLimit"}
+ )
+ _GATE_ATOMS = ORG_ATOMS | ORG_IF_ORGANIZATION
++#: PoC kb-poc-authz: the generated atoms (name -> literal) of the file being
++#: checked, read from their ``__sandloom_atom__`` (``atom_metadata``).
++_ATOMS: dict[str, dict[str, Any]] = {}
+ 
+ 
+ def _call_name(node: ast.AST) -> str | None:
+@@ -242,38 +247,52 @@ def _is_tenant_scope(node: ast.AST) -> bool:
+     return "TenantScope" in _names_called(node)
+ 
+ 
++def _atom_org_params(call: ast.AST, literal: dict[str, Any]) -> set[str]:
++    """The organisation parameter of a generated atom with an org bind
++    (``org_param=`` or the declaration's default), read from its literal."""
++    default = _atom_metadata.binds_org(literal)
++    if default is None or not isinstance(call, ast.Call):
++        return set()
++    return {_const_str(_keyword(call, "org_param")) or default}
++
++
++def _account_params(call: ast.Call) -> set[str]:
++    """Org params a billing-style atom reads through its ``of=`` account."""
++    account = _keyword(call, "of")
++    kind = _call_name(account) if account is not None else None
++    if kind in (None, "user"):
++        return set()
++    if kind == "org" and isinstance(account, ast.Call):
++        param = _keyword(account, "param")
++        if param is None:
++            return {"org_id"}
++        if _const_str(param) is not None:
++            return {str(_const_str(param))}
++    return {"<bound tenant>"}
++
++
+ def _org_params_of_gate(node: ast.AST) -> set[str]:
+     """Org path params an inline ``require(...)`` gate resolves from.
+ 
+     ``OrgRole`` always resolves an organisation; the billing atoms unless
+     their ``of=`` is ``Account.user()`` (``Account.org(param=None)`` and
+-    ``Account.bound_tenant()`` read only the header / bound tenant).
++    ``Account.bound_tenant()`` read only the header / bound tenant). A
++    generated atom is read from its literal (PoC kb-poc-authz).
+     """
+     params: set[str] = set()
+     for call in ast.walk(node):
+-        name = _call_name(call)
+-        if (
+-            not isinstance(call, ast.Call)
+-            or name not in ORG_ATOMS | ORG_IF_ORGANIZATION
+-        ):
++        if not isinstance(call, ast.Call):
+             continue
+-        if name == "OrgRole":
++        name = _call_name(call)
++        literal = _ATOMS.get(name or "")
++        if literal is not None:
++            params |= _atom_org_params(call, literal)
++            if _atom_metadata.binds_account(literal):
++                params |= _account_params(call)
++        elif name == "OrgRole":
+             params.add(_const_str(_keyword(call, "org_param")) or "org_id")
+-            continue
+-        account = _keyword(call, "of")
+-        kind = _call_name(account) if account is not None else None
+-        if kind in (None, "user"):
+-            continue
+-        if kind == "org" and isinstance(account, ast.Call):
+-            param = _keyword(account, "param")
+-            if param is None:
+-                params.add("org_id")
+-            elif _const_str(param) is not None:
+-                params.add(str(_const_str(param)))
+-            else:
+-                params.add("<bound tenant>")
+-        else:
+-            params.add("<bound tenant>")
++        elif name in ORG_IF_ORGANIZATION:
++            params |= _account_params(call)
+     return params
+ 
+ 
+@@ -398,6 +417,8 @@ def find_guard_order_problems(files: Sequence[Path]) -> list[Hit]:
+     hits: list[Hit] = []
+     for py, tree in _trees(files):
+         consts = _module_constants(tree)
++        _ATOMS.clear()
++        _ATOMS.update(_atom_metadata.atom_literals(tree))
+         for fn in ast.walk(tree):
+             if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
+                 continue
+diff --git a/src/sandloom/core/archcheck/runner.py b/src/sandloom/core/archcheck/runner.py
+index bd571dc..cfddda8 100644
+--- a/src/sandloom/core/archcheck/runner.py
++++ b/src/sandloom/core/archcheck/runner.py
+@@ -135,6 +135,10 @@ API10_RULES: dict[str, str] = {
+         "a route with an organization parameter gates billing with "
+         'of=Account.user() — use Account.org(param=...) or Account.user(reason="...")'
+     ),
++    "handwritten-access-check": (
++        "a hand-written Requirement calls a declared access check with other "
++        "tier, category or risk than its declaration — use the generated atom"
++    ),
+ }
+ 
+ 
+diff --git a/src/sandloom/core/cli/check.py b/src/sandloom/core/cli/check.py
+index d0d3bbe..35e645b 100644
+--- a/src/sandloom/core/cli/check.py
++++ b/src/sandloom/core/cli/check.py
+@@ -58,6 +58,8 @@ the framework's own lives in ``backend/``) and runs every analyzer of
+     contract-union-hint    (info) an ambiguous union uses codec 1
+     account-route-mismatch an organization route gates billing with
+                            of=Account.user() and no reason
++    handwritten-access-check a hand-written Requirement calls a declared
++                           access check with other tier, category or risk
+ 
+ Each violation prints as ``path:N: error[SANDLOOM-Cnnn rule]: message``;
+ ``sandloom explain <code>`` has the long form. A deliberate exception is waived
+diff --git a/src/sandloom/core/cli/generated.py b/src/sandloom/core/cli/generated.py
+index 32166b5..62e0ee4 100644
+--- a/src/sandloom/core/cli/generated.py
++++ b/src/sandloom/core/cli/generated.py
+@@ -274,11 +274,146 @@ def _declaration(ref: str, protocol: str, literal: str) -> str:
+     return f"{annotation} = {call}"
+ 
+ 
++def _py(value: Any) -> str:
++    """A JSON-like value as Python source (double-quoted strings)."""
++    if isinstance(value, dict):
++        inner = ", ".join(f"{json.dumps(str(k))}: {_py(v)}" for k, v in value.items())
++        return "{" + inner + "}"
++    if isinstance(value, (list, tuple)):
++        return "[" + ", ".join(_py(v) for v in value) + "]"
++    return _literal(value)
++
++
++def _atom_literal(contract: str, name: str, runtime: Any) -> dict[str, Any]:
++    """The ``__sandloom_atom__`` literal of ``runtime``'s access check."""
++    spec = runtime.access_check
++    literal: dict[str, Any] = {
++        "contract": contract,
++        "method": name,
++        "args": list(runtime.signature.parameters),
++        "binds": spec["bind"],
++        "tier": 3,
++        "category": spec.get("category", "forbidden"),
++    }
++    for key, target in (
++        ("values", "values"),
++        ("risk", "risk"),
++        ("describe", "describe"),
++        ("witnesses_membership", "witness"),
++    ):
++        if spec.get(key):
++            literal[target] = spec[key]
++    return literal
++
++
++def _render_atom(
++    contract: str,
++    name: str,
++    runtime: Any,
++    doc: str | None,
++    imports: _Imports,
++    resolver: _dto_copies.Resolver | None,
++    home: str,
++    marker: str | None,
++) -> str:
++    """A typed ``ContractCheck`` subclass for one ``access_check`` method
++    (PoC kb-poc-authz, PA-2)."""
++    spec = runtime.access_check
++    literal = _atom_literal(contract, name, runtime)
++    binds = spec["bind"]
++    kinds = {b[0] for b in binds.values()}
++    imports.need("typing", "Any")
++    imports.need("typing", "ClassVar")
++    imports.need(home, "ContractCheck", marker)
++    params = ["self"]
++    passed = []
++    values = spec.get("values") or {}
++    for pname, param in runtime.signature.parameters.items():
++        if pname in binds:
++            continue
++        if pname in values:
++            imports.need("typing", "Literal")
++            text = f"Literal[{', '.join(_literal(v) for v in values[pname])}]"
++        else:
++            text = render_annotation(runtime.annotations[pname], imports, resolver)
++        text = f"{pname}: {text}"
++        if param.default is not param.empty:
++            text += f" = {_literal(param.default)}"
++        params.append(text)
++        passed.append(pname)
++    keywords = []
++    if "org" in kinds:
++        default = next(b[1] for b in binds.values() if b[0] == "org")
++        params += ["*", f"org_param: str = {_literal(default)}"]
++        keywords.append("org_param=org_param")
++    if kinds & {"account_type", "account_id"}:
++        imports.need(home, "Account", marker)
++        params += (["*"] if "*" not in params else []) + ["of: Account"]
++        keywords.append("of=of")
++    call = "{" + ", ".join(f"{json.dumps(p)}: {p}" for p in passed) + "}"
++    doc_text = docstring(doc, "    ")
++    head = f"class {spec['name']}(ContractCheck):\n"
++    body = (doc_text + "\n\n") if doc_text else ""
++    body += f"    __sandloom_atom__: ClassVar[dict[str, Any]] = {_py(literal)}\n\n"
++    body += f"    def __init__({', '.join(params)}) -> None:\n"
++    body += f"        super().__init__({', '.join([call, *keywords])})\n"
++    return head + body
++
++
++def _render_claim_atom(
++    fact: Any,
++    otherwise: dict[str, Any] | None,
++    imports: _Imports,
++    home: str,
++    marker: str | None,
++) -> str:
++    """A typed ``ClaimFactCheck`` subclass for an owner's ``AccessFact`` that
++    names an ``atom`` (PoC kb-poc-authz)."""
++    imports.need("typing", "Any")
++    imports.need("typing", "ClassVar")
++    imports.need(home, "ClaimFactCheck", marker)
++    imports.need(home, "Account", marker)
++    literal: dict[str, Any] = {
++        "fact": fact.name,
++        "owner": fact.owner_module,
++        "claim_key": fact.claim_key,
++        "tier": 1,
++        "category": fact.deny_category or "forbidden",
++        "floor": fact.min_freshness,
++        "describe": fact.atom_describe or fact.atom,
++    }
++    if otherwise is not None:
++        literal["otherwise"] = otherwise
++    return (
++        f"class {fact.atom}(ClaimFactCheck):\n"
++        f'    """The owner\'s claim ``{fact.claim_key}`` under its provenance.\n\n'
++        f"    Fact ``{fact.name}`` of ``{fact.owner_module}``.\n"
++        '    """\n\n'
++        f"    __sandloom_atom__: ClassVar[dict[str, Any]] = {_py(literal)}\n\n"
++        "    def __init__(self, *, of: Account) -> None:\n"
++        "        super().__init__(of=of)\n"
++    )
++
++
++def _atom_home(resolver: _dto_copies.Resolver | None) -> tuple[str, str | None]:
++    dto_package = resolver.dto_package if resolver is not None else None
++    if dto_package is not None and dto_package.startswith(
++        _dto_copies.KERNEL_SHARED + "."
++    ):
++        return "sandloom.shared.authz.contract_check", None
++    return "sandloom.sdk.authz", "sandloom: advanced generated code"
++
++
+ def render_stub(
+-    contract: str, provider: Any, resolver: _dto_copies.Resolver | None = None
++    contract: str,
++    provider: Any,
++    resolver: _dto_copies.Resolver | None = None,
++    facts: Iterable[Any] = (),
+ ) -> str:
+     """The generated stub of contract ``contract`` provided by ``provider``
+-    (its DTOs imported from where ``resolver`` places them)."""
++    (its DTOs imported from where ``resolver`` places them); with the typed
++    atoms of its ``access_check`` methods and of the owner's ``facts`` that
++    name an ``atom`` (PoC kb-poc-authz)."""
+     _stem, protocol, ref = stub_names(contract)
+     imports = _Imports()
+     imports.need("typing", "Protocol")
+@@ -315,6 +450,24 @@ def render_stub(
+         body = f"{class_doc}\n\n{body}" if methods else class_doc
+     body = body or "    pass"
+     declaration = _declaration(ref, protocol, json.dumps(contract))
++    atoms: list[str] = []
++    literals: dict[str, dict[str, Any]] = {}
++    home, atom_marker = _atom_home(resolver)
++    for name, runtime in sorted(contract_schema(provider).methods.items()):
++        if runtime.access_check is None:
++            continue
++        method = getattr(provider, name, None)
++        doc = inspect.getdoc(method) if method is not None else None
++        literals[runtime.access_check["name"]] = _atom_literal(contract, name, runtime)
++        atoms.append(
++            _render_atom(
++                contract, name, runtime, doc, imports, resolver, home, atom_marker
++            )
++        )
++    for fact in sorted(facts, key=lambda f: f.atom):
++        otherwise = literals.get(fact.atom_otherwise) if fact.atom_otherwise else None
++        atoms.append(_render_claim_atom(fact, otherwise, imports, home, atom_marker))
++    tail = "".join(f"\n\n{atom}" for atom in atoms)
+     return (
+         f'{HEADER}"""Contract ``{contract}``: the typed stub callers import.\n\n'
+         f"Generated from ``{provider.__module__}.{provider.__qualname__}``.\n"
+@@ -322,10 +475,22 @@ def render_stub(
+         "from __future__ import annotations\n\n"
+         f"{imports.render()}\n\n\n"
+         f"class {protocol}(Protocol):\n{body}\n\n\n"
+-        f"{declaration}\n"
++        f"{declaration}\n{tail}"
+     )
+ 
+ 
++def atom_facts(facade: Any, contract: str) -> list[Any]:
++    """The access facts that name an ``atom`` generated next to ``contract``."""
++    listed = getattr(facade, "list_access_facts", None)
++    facts = listed() if callable(listed) else {}
++    return [
++        fact
++        for fact in facts.values()
++        if getattr(fact, "atom", None)
++        and getattr(fact, "live_service", None) == contract
++    ]
++
++
+ def _stub_methods(source: str) -> dict[str, str]:
+     """``{method: signature text}`` of the Protocol in a committed stub."""
+     try:
+@@ -517,11 +682,14 @@ def _contract_files(
+             continue
+         stem, _protocol, _ref = stub_names(provided.name)
+         path = shared_dir / "contracts" / f"{stem}.py"
++        facts = atom_facts(facade, provided.name)
+         try:
+-            content = render_stub(provided.name, impl, resolver)
++            content = render_stub(provided.name, impl, resolver, facts)
+         except _dto_copies.CopyError as exc:
+             refused.append(f"{provided.name}: {exc}")
+             continue
++        if "ContractCheck" in content or "ClaimFactCheck" in content:
++            content = format_dto(content, path)
+         stub = Generated(path, content, "SANDLOOM-T007")
+         stub.problems = stub_problems(stub.current, stub.content)
+         out.append(stub)
+@@ -539,7 +707,10 @@ def _contract_files(
+         # uses the same final names as the shared DTO module.
+         if not refused:
+             for stub, name, impl in pending_stubs:
+-                stub.content = render_stub(name, impl, resolver)
++                content = render_stub(name, impl, resolver, atom_facts(facade, name))
++                if "ContractCheck" in content or "ClaimFactCheck" in content:
++                    content = format_dto(content, stub.path)
++                stub.content = content
+                 stub.problems = stub_problems(stub.current, stub.content)
+     return out
+ 
+diff --git a/src/sandloom/core/contracts/compatibility.py b/src/sandloom/core/contracts/compatibility.py
+index 909c502..9fa80d9 100644
+--- a/src/sandloom/core/contracts/compatibility.py
++++ b/src/sandloom/core/contracts/compatibility.py
+@@ -394,6 +394,9 @@ def _compare_method(  # noqa: C901
+         )
+     if exp.get("idempotency_scope", []) != act.get("idempotency_scope", []):
+         report.errors.append(f"{where}: idempotency scope changed")
++    _compare_access_check(
++        where, exp.get("access_check"), act.get("access_check"), report
++    )
+     exp_params = list(exp.get("params") or ())
+     act_params = list(act.get("params") or ())
+     act_by_name = {str(p.get("name")): p for p in act_params}
+@@ -449,3 +452,28 @@ def _index_of(params: list[Mapping[str, Any]], name: str) -> int:
+         if param.get("name") == name:
+             return index
+     return -1
++
++
++def _compare_access_check(where: str, exp: Any, act: Any, report: CompatReport) -> None:
++    """PoC kb-poc-authz: an access check consumers were generated against may
++    be added, never removed, re-bound or lowered in risk."""
++    if not isinstance(exp, Mapping):
++        return
++    if not isinstance(act, Mapping):
++        report.errors.append(f"{where}: access check {exp.get('name')!r} removed")
++        return
++    for key in ("name", "bind", "category", "values", "witnesses_membership"):
++        if exp.get(key) != act.get(key):
++            report.errors.append(f"{where}: access check {key} changed")
++    exp_risk = exp.get("risk") or {}
++    act_risk = act.get("risk") or {}
++    for risk, conditions in exp_risk.items():
++        now = act_risk.get(risk)
++        if not isinstance(now, Mapping):
++            report.errors.append(f"{where}: access check risk {risk!r} removed")
++            continue
++        for param, values in conditions.items():
++            if param not in now or not set(values) <= set(now[param]):
++                report.errors.append(
++                    f"{where}: access check risk {risk!r} lowered for {param!r}"
++                )
+diff --git a/src/sandloom/core/error_codes.py b/src/sandloom/core/error_codes.py
+index 82edf20..d43d83c 100644
+--- a/src/sandloom/core/error_codes.py
++++ b/src/sandloom/core/error_codes.py
+@@ -630,6 +630,23 @@ a function also needs unscoped() (SANDLOOM-C015).
+ """,
+         docs="docs/modules/database/conventions.md",
+     ),
++    _landed(
++        "SANDLOOM-C032",
++        "handwritten-access-check",
++        "check",
++        "a hand-written Requirement calls a declared access check with other "
++        "metadata than its declaration",
++        "use the generated atom from the contract's stub, or give the class the "
++        "declared tier and category and state the declared risk in risks()",
++        """
++A provider declares an access check on a contract read method (access_check);
++the generated atom carries the declaration's tier, category and risk as a
++literal. A hand-written Requirement that calls the same method through
++Contract(REF) is recognised: a lower tier, another category or a declared risk
++the class does not state is an error, so a module cannot lower the risk of a
++route by writing its own atom (PoC kb-poc-authz, owner answer #22).
++""",
++    ),
+     # ------------------------------------------------------------- boot time
+     _entry(
+         "SANDLOOM-B001",
+diff --git a/src/sandloom/core/module_api/_schema.py b/src/sandloom/core/module_api/_schema.py
+index 4ab2b58..b3038f5 100644
+--- a/src/sandloom/core/module_api/_schema.py
++++ b/src/sandloom/core/module_api/_schema.py
+@@ -45,6 +45,9 @@ class ContractMethodRuntime:
+     idempotency_key: str | None = None
+     idempotency_scope: tuple[str, ...] = ()
+     risk: str | None = None
++    #: PoC kb-poc-authz: the method's ``access_check`` declaration (a JSON
++    #: value table), published in the describe document and the snapshot.
++    access_check: dict[str, Any] | None = None
+ 
+     def describe(self) -> dict[str, Any]:
+         """JSON-able schema published by the RPC describe endpoint."""
+@@ -66,6 +69,8 @@ class ContractMethodRuntime:
+             description["idempotency_scope"] = list(self.idempotency_scope)
+         if self.risk is not None:
+             description["risk"] = self.risk
++        if self.access_check is not None:
++            description["access_check"] = self.access_check
+         return description
+ 
+     @functools.cached_property
+@@ -277,4 +282,19 @@ def _method_runtime(
+         idempotency_key=spec.idempotency_key,
+         idempotency_scope=spec.idempotency_scope,
+         risk=spec.risk,
++        access_check=_access_check(attr),
+     )
++
++
++#: Set by ``sandloom.shared.authz.contract_check.access_check`` (read by name:
++#: the kernel core does not import the authorization package).
++_ACCESS_CHECK_ATTR = "__sandloom_access_check__"
++
++
++def _access_check(attr: Any) -> dict[str, Any] | None:
++    func = getattr(attr, "__func__", attr)
++    for candidate in (func, getattr(func, "__wrapped__", None)):
++        spec = getattr(candidate, _ACCESS_CHECK_ATTR, None)
++        if isinstance(spec, dict):
++            return spec
++    return None
+diff --git a/src/sandloom/core/rpc/readiness.py b/src/sandloom/core/rpc/readiness.py
+index 6bd0eb9..928ef44 100644
+--- a/src/sandloom/core/rpc/readiness.py
++++ b/src/sandloom/core/rpc/readiness.py
+@@ -13,6 +13,7 @@ from urllib.parse import quote
+ 
+ from fastapi import status
+ 
++import sandloom.core.rpc.proxy as _proxy
+ from sandloom.core import contract_compat
+ from sandloom.core.config.settings import settings as _global_settings
+ from sandloom.core.descriptors import HealthResult
+@@ -152,6 +153,8 @@ async def _probe_remote(
+             if failure is not None:
+                 failures[name] = failure
+             continue
++        if _K6_SEED and outcome.contract is not None:
++            _seed_describe(name, probes[name][0], outcome.contract)
+         drift = _token_lifetime_drift(cfg, outcome.contract)
+         if drift is not None:
+             failures[name] = {"config_drift": [drift]}
+@@ -177,6 +180,18 @@ async def _probe_remote(
+     return _probe_result(names, failures, unverified)
+ 
+ 
++#: PoC kb-poc-authz K6 switch (set by the PoC stand): the boot probe describes
++#: every remote binding and its document seeds the proxy's cache, so the first
++#: request does not describe again.
++_K6_SEED = False
++
++
++def _seed_describe(name: str, base_url: str, contract: dict[str, Any]) -> None:
++    described = _proxy._parse_remote_contract({"contract": contract})
++    if described is not None:
++        _proxy._remote_contracts.setdefault((base_url.rstrip("/"), name), described)
++
++
+ def _token_lifetime_drift(cfg: Any, contract: dict[str, Any] | None) -> str | None:
+     """A reason when the provider's access-token lifetime differs from ours.
+ 
+@@ -209,7 +224,7 @@ def _probe_targets(
+     probes: dict[str, _ProbeTarget] = {}
+     for service_name, binding in remote.items():
+         reach = reachability is None or service_name in reachability
+-        if not reach and service_name not in expectations:
++        if not reach and service_name not in expectations and not _K6_SEED:
+             continue
+         base_url = str(binding.get("base_url") or binding.get("url") or "").rstrip("/")
+         if not base_url:
+diff --git a/src/sandloom/sdk/authz.py b/src/sandloom/sdk/authz.py
+index b8b3466..9758708 100644
+--- a/src/sandloom/sdk/authz.py
++++ b/src/sandloom/sdk/authz.py
+@@ -7,15 +7,16 @@ Public API 1.0 (spec §2.2, Appendix C).
+ beginner: Credits, OrgRole, Owner, Subscribed, SubscriptionActive,
+     authorize_resource, require
+ advanced: ACTIVE_SUBSCRIPTION_STATUSES, AccessDecision, AccessDenied,
+-    AccessFact, Account, And, AuthzContext, Category, ClaimRule, ENTITLEMENTS,
+-    Entitled, EntitlementsAdapter, FactDenied, FactOwnerUnreachable,
+-    FactUnavailable, Feature, MEMBERSHIP, MODE_AUTO, MODE_CLAIM, MODE_LIVE,
+-    MODE_PROJECTION, MembershipAdapter, Not, Or, Perm, Permissions,
+-    PolicyIndeterminate, Requirement, Role, Roles, SOURCE_HTTP,
+-    SOURCE_INTERNAL, SOURCE_SYSTEM, SOURCE_TASK, TIER_CLAIM, TIER_LIVE,
+-    TIER_RESOURCE, WithinLimit, authorize, current_context, enforce,
+-    lookup_access_fact, make_rebuild_gate, register_authz_projection,
+-    register_live_adapter, resolve_fact, service_subject, system_subject
++    AccessFact, Account, And, AuthzContext, Category, ClaimFactCheck,
++    ClaimRule, ContractCheck, ENTITLEMENTS, Entitled, EntitlementsAdapter,
++    FactDenied, FactOwnerUnreachable, FactUnavailable, Feature, From,
++    MEMBERSHIP, MODE_AUTO, MODE_CLAIM, MODE_LIVE, MODE_PROJECTION,
++    MembershipAdapter, Not, Or, Perm, Permissions, PolicyIndeterminate,
++    Requirement, Role, Roles, SOURCE_HTTP, SOURCE_INTERNAL, SOURCE_SYSTEM,
++    SOURCE_TASK, TIER_CLAIM, TIER_LIVE, TIER_RESOURCE, WithinLimit,
++    access_check, authorize, current_context, enforce, lookup_access_fact,
++    make_rebuild_gate, register_authz_projection, register_live_adapter,
++    resolve_fact, service_subject, system_subject
+ docs: docs/reference/sdk/authz.md; signatures: sandloom docs <name>
+ .. end sandloom-reference
+ """
+@@ -75,6 +76,12 @@ from sandloom.shared.authz import (
+     service_subject,
+     system_subject,
+ )
++from sandloom.shared.authz.contract_check import (
++    ClaimFactCheck,
++    ContractCheck,
++    From,
++    access_check,
++)
+ from sandloom.shared.authz.facts import (
+     MODE_AUTO,
+     MODE_CLAIM,
+@@ -84,6 +91,10 @@ from sandloom.shared.authz.facts import (
+ 
+ __all__ = [
+     "ACTIVE_SUBSCRIPTION_STATUSES",
++    "ClaimFactCheck",
++    "ContractCheck",
++    "From",
++    "access_check",
+     "AccessDecision",
+     "AccessDenied",
+     "AccessFact",
+diff --git a/src/sandloom/shared/authz/account.py b/src/sandloom/shared/authz/account.py
+index bdbcfd4..c308b0e 100644
+--- a/src/sandloom/shared/authz/account.py
++++ b/src/sandloom/shared/authz/account.py
+@@ -27,6 +27,7 @@ from dataclasses import dataclass
+ from typing import Any, Literal
+ from uuid import UUID
+ 
++import sandloom.shared.authz.witness as _witness
+ from sandloom.core.di import settings
+ from sandloom.shared.authz._resolve import (
+     ContractUnavailable,
+@@ -151,6 +152,11 @@ def _memo(request: Any) -> dict[UUID, TenantKind] | None:
+ 
+ 
+ async def _is_member(ctx: AuthzContext, org_id: UUID) -> bool:
++    # K1 (PoC kb-poc-authz): the declared membership witness of a generated
++    # access check, when one is imported; else the legacy adapter slot.
++    witnessed = await _witness.witness_is_member(ctx, org_id)
++    if witnessed is not None:
++        return witnessed
+     adapter = get_live_adapter(MEMBERSHIP)
+     try:
+         service = resolve_contract(ctx, adapter.service)
+diff --git a/src/sandloom/shared/authz/algebra.py b/src/sandloom/shared/authz/algebra.py
+index 8098aff..cba77e0 100644
+--- a/src/sandloom/shared/authz/algebra.py
++++ b/src/sandloom/shared/authz/algebra.py
+@@ -119,6 +119,13 @@ class Requirement(abc.ABC):
+         """
+         return frozenset()
+ 
++    def needs_request_session(self) -> bool:
++        """True when evaluating this requirement may use the request's
++        database session (``ctx.db``): a resource loader, a projection-backed
++        fact. Default: any tier above claims (today's rule). PoC kb-poc-authz
++        K6: a contract check runs in its provider's own unit and says False."""
++        return self.tier > TIER_CLAIM
++
+     def risks(self) -> frozenset[str]:
+         """The framework risks a gate enforcing this requirement carries
+         (ADR-0009 item 6): ``{"admin"}`` for an admin role, else none. An
+@@ -171,6 +178,9 @@ class And(Requirement):
+     def mentions_resource(self) -> bool:
+         return any(p.mentions_resource() for p in self.parts)
+ 
++    def needs_request_session(self) -> bool:
++        return any(p.needs_request_session() for p in self.parts)
++
+     def org_params(self) -> frozenset[str]:
+         return frozenset().union(*(p.org_params() for p in self.parts))
+ 
+@@ -228,6 +238,9 @@ class Or(Requirement):
+     def mentions_resource(self) -> bool:
+         return any(p.mentions_resource() for p in self.parts)
+ 
++    def needs_request_session(self) -> bool:
++        return any(p.needs_request_session() for p in self.parts)
++
+     def org_params(self) -> frozenset[str]:
+         return frozenset().union(*(p.org_params() for p in self.parts))
+ 
+@@ -272,6 +285,9 @@ class Not(Requirement):
+     def mentions_resource(self) -> bool:
+         return self.inner.mentions_resource()
+ 
++    def needs_request_session(self) -> bool:
++        return self.inner.needs_request_session()
++
+     def org_params(self) -> frozenset[str]:
+         return self.inner.org_params()
+ 
+diff --git a/src/sandloom/shared/authz/atoms_fact.py b/src/sandloom/shared/authz/atoms_fact.py
+index b71cdc5..a5591c4 100644
+--- a/src/sandloom/shared/authz/atoms_fact.py
++++ b/src/sandloom/shared/authz/atoms_fact.py
+@@ -12,9 +12,10 @@ sibling atom still decides an ``And`` / ``Or`` before any fact resolution runs.
+ 
+ from __future__ import annotations
+ 
+-from typing import TYPE_CHECKING
++from typing import Any
+ 
+ from sandloom.shared.authz.algebra import TIER_LIVE, Requirement
++from sandloom.shared.authz.context import AuthzContext
+ from sandloom.shared.authz.facts import (
+     FactDenied,
+     FactOwnerUnreachable,
+@@ -25,9 +26,6 @@ from sandloom.shared.authz.facts import (
+ )
+ from sandloom.shared.authz.results import AccessDecision, Category
+ 
+-if TYPE_CHECKING:  # pragma: no cover - typing only
+-    from sandloom.shared.authz.context import AuthzContext
+-
+ 
+ class Entitled(Requirement):
+     """Subject satisfies the registered access fact ``fact_name``.
+@@ -52,8 +50,11 @@ class Entitled(Requirement):
+         category: str | None = None,
+         code: str | None = None,
+         mode: str | None = None,
++        params: dict[str, Any] | None = None,
+     ) -> None:
+         self.fact_name = fact_name
++        #: PoC kb-poc-authz PA-3: wire-safe parameters sent to the owner.
++        self.params = params
+         # Explicit override; None defers to the fact's deny_category.
+         self._explicit_category = category
+         self.category = category or Category.FORBIDDEN
+@@ -94,6 +95,15 @@ class Entitled(Requirement):
+                 ),
+                 failed_requirement=self.describe(),
+             )
++        if self.params is not None:
++            ctx = AuthzContext(
++                ctx.subject,
++                request=ctx.request,
++                db=ctx.db,
++                resource=self.params,
++                source=ctx.source,
++                core=ctx.core(),
++            )
+         try:
+             satisfied = await resolve_fact(fact, ctx, mode=self._mode)
+         except FactDenied as exc:
+diff --git a/src/sandloom/shared/authz/contract_check.py b/src/sandloom/shared/authz/contract_check.py
+new file mode 100644
+index 0000000..87b1402
+--- /dev/null
++++ b/src/sandloom/shared/authz/contract_check.py
+@@ -0,0 +1,450 @@
++"""Contract-anchored access checks (PoC kb-poc-authz, alternative PA-2).
++
++A provider marks ONE boolean read method of its contract with
++:func:`access_check`; ``sandloom generate`` writes a typed atom class next to
++the contract's stub, carrying the declaration as a literal
++(``__sandloom_atom__``); every such atom is evaluated by the one generic,
++domain-free :class:`ContractCheck` below. The kernel names no module,
++contract, method or role word: the literal does.
++
++Binding sources (:class:`From`) are the kernel's own concepts:
++
++* ``From.subject_id()`` — the authenticated principal's user id;
++* ``From.org(param=..., validate_against_token=...)`` — the organization from
++  the path/query parameter (the atom's ``org_param=``), else ``X-Tenant-Id``,
++  else the bound tenant (:func:`resolve_org_id`);
++* ``From.account_type()`` / ``From.account_id()`` — the billing account the
++  atom's required ``of=`` names (:func:`resolve_account`).
++
++Every other parameter of the method is a parameter of the atom (its
++constructor), passed through unchanged.
++
++Claim-tier atoms (:class:`ClaimFactCheck`) are generated from an owner's
++:class:`~sandloom.shared.authz.facts.AccessFact` that names an ``atom``: they
++read the owner's claim under its provenance, zero I/O, exactly like today's
++``Subscribed(of=Account.user())``.
++
++Separate changes behind PoC switches (each measured as its own run; the
++switch names are PoC-only, a real change would be unconditional):
++
++* ``KB_POC_K5`` — a bound provider that is down (transport failure, timeout,
++  provider 5xx) is an indeterminate 503 inside the algebra; an RPC
++  authentication failure stays an error.
++* ``KB_POC_WITNESS`` — an allowing check that declares
++  ``witnesses_membership`` records the membership in the request's
++  tenant-kind memo, so ``Account.bound_tenant()`` after ``OrgRole`` needs no
++  second membership call (owner answer #23).
++"""
++
++from __future__ import annotations
++
++import logging
++from typing import TYPE_CHECKING, Any, ClassVar
++from uuid import UUID
++
++import sandloom.shared.authz.facts as _facts
++import sandloom.shared.authz.witness as _witness
++from sandloom.shared.authz._resolve import (
++    ContractUnavailable,
++    resolve_contract,
++    resolve_org_id,
++)
++from sandloom.shared.authz.account import (
++    _MISSING,
++    Account,
++    _memo,
++    account_org_params,
++    require_account,
++    resolve_account,
++)
++from sandloom.shared.authz.algebra import TIER_CLAIM, TIER_LIVE, Requirement
++from sandloom.shared.authz.metrics import increment
++from sandloom.shared.authz.results import AccessDecision, Category, PolicyIndeterminate
++
++if TYPE_CHECKING:  # pragma: no cover - typing only
++    from collections.abc import Callable
++
++    from sandloom.shared.authz.context import AuthzContext
++
++#: Attribute ``access_check`` puts on the provider method.
++ACCESS_CHECK_ATTR = "__sandloom_access_check__"
++#: Attribute ``AccessFact(atom=...)`` claim classes and contract checks carry.
++ATOM_ATTR = "__sandloom_atom__"
++
++_logger = logging.getLogger("sandloom.access")
++#: PoC switches, set by the stand before the app starts (see module docstring).
++_K5 = False
++_WITNESS = False
++
++#: RPC failure codes that mean "the provider is down", never "untrusted".
++_DOWN_CODES = frozenset({"remote_service_unavailable", "rpc_timeout"})
++
++
++class From:
++    """Where an access check's argument comes from (the kernel's sources)."""
++
++    @staticmethod
++    def subject_id() -> list[Any]:
++        return ["subject"]
++
++    @staticmethod
++    def org(
++        *, param: str | None = "org_id", validate_against_token: bool = True
++    ) -> list[Any]:
++        return ["org", param, bool(validate_against_token)]
++
++    @staticmethod
++    def account_type() -> list[Any]:
++        return ["account_type"]
++
++    @staticmethod
++    def account_id() -> list[Any]:
++        return ["account_id"]
++
++
++_KINDS = frozenset({"subject", "org", "account_type", "account_id"})
++
++
++def access_check(
++    name: str,
++    *,
++    bind: dict[str, list[Any]],
++    category: str = Category.FORBIDDEN,
++    values: dict[str, list[Any]] | None = None,
++    risk: dict[str, dict[str, list[Any]]] | None = None,
++    describe: str | None = None,
++    witnesses_membership: dict[str, Any] | None = None,
++) -> Callable[[Any], Any]:
++    """Declare a boolean contract read method as the access check ``name``.
++
++    ``bind`` maps method parameters to :class:`From` sources; the method's
++    other parameters become the atom's own parameters (``values`` narrows one
++    to a closed set for typing, e.g. ``{"minimum": ["member", "admin",
++    "owner"]}``). ``risk`` is a value table: ``{"admin": {"minimum":
++    ["admin", "owner"]}}`` = the gate carries the ``admin`` risk when every
++    listed parameter has one of the listed values. ``describe`` is the 403
++    label, ``{param}`` placeholders allowed. ``witnesses_membership`` maps
++    the method's parameters to ``"org"``, ``"subject"`` or a constant: an
++    allowing call with the subject's id proves its membership of the
++    organization (tenant kind, owner answer #23).
++    """
++    if not isinstance(name, str) or not name.isidentifier() or not name[0].isupper():
++        raise ValueError(f"access_check name must be a class name, not {name!r}")
++    for arg, source in bind.items():
++        if not isinstance(source, list) or not source or source[0] not in _KINDS:
++            raise ValueError(f"access_check {name}: bind[{arg!r}] is not a From source")
++    spec: dict[str, Any] = {
++        "name": name,
++        "bind": {k: list(v) for k, v in bind.items()},
++        "category": category,
++    }
++    if values:
++        spec["values"] = {k: list(v) for k, v in values.items()}
++    if risk:
++        spec["risk"] = {r: {p: list(v) for p, v in c.items()} for r, c in risk.items()}
++    if describe:
++        spec["describe"] = describe
++    if witnesses_membership:
++        spec["witnesses_membership"] = dict(witnesses_membership)
++
++    def decorate(fn: Any) -> Any:
++        setattr(fn, ACCESS_CHECK_ATTR, spec)
++        return fn
++
++    return decorate
++
++
++def access_check_of(method: Any) -> dict[str, Any] | None:
++    """The :func:`access_check` declaration of a provider method, else ``None``."""
++    func = getattr(method, "__func__", method)
++    spec = getattr(func, ACCESS_CHECK_ATTR, None)
++    return spec if isinstance(spec, dict) else None
++
++
++def _resolve_service(ctx: AuthzContext, name: str, requirement: str) -> Any:
++    try:
++        return resolve_contract(ctx, name)
++    except ContractUnavailable as exc:
++        raise PolicyIndeterminate(
++            AccessDecision.error(
++                code="service_unavailable",
++                category=Category.POLICY_MISCONFIGURED,
++                http_status=501,
++                reason=f"contract {name!r} is not configured",
++                failed_requirement=requirement,
++                metadata={"service": name, "error": str(exc)},
++            )
++        ) from exc
++
++
++def _owner_unavailable(exc: Exception, contract: str, requirement: str) -> Exception:
++    return PolicyIndeterminate(
++        AccessDecision.error(
++            code="owner_unavailable",
++            category=Category.POLICY_MISCONFIGURED,
++            http_status=503,
++            reason=f"contract {contract!r} is unavailable",
++            failed_requirement=requirement,
++            metadata={"service": contract, "error": str(exc)},
++        )
++    )
++
++
++def _required(account: Account | None) -> Account:
++    if account is None:  # pragma: no cover - an account bind sets it in __init__
++        raise TypeError("an account-bound access check needs of=")
++    return account
++
++
++class ContractCheck(Requirement):
++    """The generic evaluator of a generated, contract-anchored atom.
++
++    A generated subclass sets ``__sandloom_atom__`` (``contract``, ``method``,
++    ``args`` in signature order, ``binds``, ``tier``, ``category``, ``risk``,
++    ``describe``, ``values``, ``witness``) and a typed ``__init__`` that calls
++    ``super().__init__(params, of=..., org_param=...)``.
++    """
++
++    __sandloom_atom__: ClassVar[dict[str, Any]] = {}
++    tier = TIER_LIVE
++
++    def __init_subclass__(cls, **kwargs: Any) -> None:
++        super().__init_subclass__(**kwargs)
++        atom = cls.__dict__.get(ATOM_ATTR)
++        if not isinstance(atom, dict) or not atom:
++            return
++        cls.tier = int(atom.get("tier", TIER_LIVE))
++        cls.category = str(atom.get("category", Category.FORBIDDEN))
++        witness = atom.get("witness")
++        if isinstance(witness, dict):
++            order = [a for a in atom["args"] if a in witness]
++            _witness.register_witness(
++                str(atom["contract"]), str(atom["method"]), witness, order
++            )
++
++    def __init__(
++        self,
++        params: dict[str, Any],
++        *,
++        of: Account | None = None,
++        org_param: str | None = None,
++    ) -> None:
++        atom = self.__sandloom_atom__
++        for name, allowed in (atom.get("values") or {}).items():
++            if params.get(name) not in allowed:
++                raise ValueError(
++                    f"{type(self).__name__} {name} must be one of "
++                    f"{', '.join(map(str, allowed))}"
++                )
++        self.params = params
++        self.org_param = org_param
++        kinds = {b[0] for b in atom.get("binds", {}).values()}
++        self.account: Account | None = None
++        if kinds & {"account_type", "account_id"}:
++            self.account = require_account(
++                _MISSING if of is None else of, type(self).__name__
++            )
++        self._args = tuple(atom.get("args", ()))
++        self._binds = dict(atom.get("binds", {}))
++        self._contract = str(atom.get("contract"))
++        self._method = str(atom.get("method"))
++
++    # -- wiring-time metadata (read by require(), create_app, archcheck) -----
++    def org_params(self) -> frozenset[str]:
++        found: set[str] = set()
++        for source in self._binds.values():
++            if source[0] == "org":
++                found.add(self.org_param or source[1] or "")
++        if self.account is not None:
++            found |= account_org_params(self.account)
++        return frozenset(p for p in found if p)
++
++    def contracts(self) -> frozenset[str]:
++        return frozenset({self._contract})
++
++    def needs_request_session(self) -> bool:
++        return False  # the provider runs the call in its own unit
++
++    def risks(self) -> frozenset[str]:
++        out = set()
++        for risk, conditions in (self.__sandloom_atom__.get("risk") or {}).items():
++            if all(self.params.get(p) in vals for p, vals in conditions.items()):
++                out.add(risk)
++        return frozenset(out)
++
++    def describe(self) -> str:
++        template = self.__sandloom_atom__.get("describe")
++        if isinstance(template, str):
++            return template.format(**self.params)
++        return type(self).__name__
++
++    # -- evaluation ----------------------------------------------------------
++    async def evaluate(self, ctx: AuthzContext) -> bool:
++        requirement = self.describe()
++        bound: dict[str, Any] = {}
++        account: tuple[str, UUID] | None = None
++        for arg, source in self._binds.items():
++            kind = source[0]
++            if kind == "subject":
++                bound[arg] = ctx.subject.user_id
++            elif kind == "org":
++                bound[arg] = resolve_org_id(
++                    ctx,
++                    org_param=self.org_param or source[1],
++                    requirement=requirement,
++                    validate_against_token=bool(source[2]),
++                )
++            else:
++                if account is None:
++                    account = await resolve_account(
++                        ctx, _required(self.account), requirement=requirement
++                    )
++                bound[arg] = account[0] if kind == "account_type" else account[1]
++        service = _resolve_service(ctx, self._contract, requirement)
++        args = [bound[a] if a in bound else self.params[a] for a in self._args]
++        if _K5:
++            try:
++                result = await getattr(service, self._method)(*args)
++            except Exception as exc:
++                if getattr(exc, "code", None) in _DOWN_CODES:
++                    # reported even when a sibling branch of an Or allows
++                    _logger.warning(
++                        "access check indeterminate: owner_unavailable (%s, %s)",
++                        requirement,
++                        self._contract,
++                    )
++                    increment(ctx.core(), "access_indeterminate_branch_total")
++                    raise _owner_unavailable(exc, self._contract, requirement) from exc
++                raise
++        else:
++            result = await getattr(service, self._method)(*args)
++        if result and _WITNESS:
++            self._witness(ctx, bound)
++        return bool(result)
++
++    def _witness(self, ctx: AuthzContext, bound: dict[str, Any]) -> None:
++        witness = self.__sandloom_atom__.get("witness")
++        if not isinstance(witness, dict):
++            return
++        org = user = None
++        for arg, source in witness.items():
++            if source == "org":
++                org = bound.get(arg)
++            elif source == "subject":
++                user = bound.get(arg)
++        memo = _memo(ctx.request)
++        if memo is not None and isinstance(org, UUID) and user == ctx.subject.user_id:
++            memo.setdefault(org, "organization")
++
++
++class ClaimFactCheck(Requirement):
++    """The generic evaluator of a generated claim-tier atom (an owner's
++    :class:`AccessFact` with ``atom=``): for ``Account.user()`` it reads the
++    owner's claim under its provenance, zero I/O (today's ``Subscribed``);
++    for an organization account it delegates to the owner's declared access
++    check ``otherwise`` (live, today's ``SubscriptionActive``)."""
++
++    __sandloom_atom__: ClassVar[dict[str, Any]] = {}
++    tier = TIER_CLAIM
++    _otherwise: ClassVar[type[ContractCheck] | None] = None
++
++    def __init_subclass__(cls, **kwargs: Any) -> None:
++        super().__init_subclass__(**kwargs)
++        atom = cls.__dict__.get(ATOM_ATTR)
++        if not isinstance(atom, dict) or not atom:
++            return
++        cls.category = str(atom.get("category") or Category.FORBIDDEN)
++        otherwise = atom.get("otherwise")
++        if isinstance(otherwise, dict):
++            cls._otherwise = type(  # a ContractCheck from the owner's literal
++                f"{cls.__name__}Live", (ContractCheck,), {ATOM_ATTR: otherwise}
++            )
++
++    def __init__(self, *, of: Account = _MISSING) -> None:
++        self.account = require_account(of, type(self).__name__)
++        if self.account.kind != "user":
++            self.tier = TIER_LIVE
++
++    def org_params(self) -> frozenset[str]:
++        return account_org_params(self.account)
++
++    def contracts(self) -> frozenset[str]:
++        atom = self.__sandloom_atom__
++        needed = {f"{atom['owner']}.facts.v1"}
++        if self.account.kind != "user" and self._otherwise is not None:
++            needed.add(str(self._otherwise.__sandloom_atom__["contract"]))
++        return frozenset(needed)
++
++    def describe(self) -> str:
++        return str(self.__sandloom_atom__.get("describe") or type(self).__name__)
++
++    def _indeterminate(self, code: str, reason: str, status: int) -> Exception:
++        return PolicyIndeterminate(
++            AccessDecision.error(
++                code=code,
++                category=Category.POLICY_MISCONFIGURED,
++                http_status=status,
++                reason=reason,
++                failed_requirement=self.describe(),
++            )
++        )
++
++    async def evaluate(self, ctx: AuthzContext) -> bool:
++        if self.account.kind != "user":
++            tenant_type, _tenant = await resolve_account(
++                ctx, self.account, requirement=self.describe()
++            )
++            if tenant_type != "user":
++                if self._otherwise is None:
++                    raise self._indeterminate(
++                        "no_live_check", "no organization check declared", 501
++                    )
++                return await self._otherwise({}, of=self.account).evaluate(ctx)
++        return await self._via_fact(ctx)
++
++    async def _via_fact(self, ctx: AuthzContext) -> bool:
++        atom = self.__sandloom_atom__
++        status = ctx.subject.claim(str(atom["claim_key"]))
++        try:
++            fact = await _facts.lookup_access_fact(
++                ctx, str(atom["fact"]), owner=str(atom["owner"])
++            )
++        except _facts.FactOwnerUnreachable as exc:
++            raise self._indeterminate("fact_owner_unavailable", str(exc), 503) from exc
++        if fact is None:
++            # The owner is neither local nor bound: nobody may vouch for the
++            # claim (today's kernel fell back to its own status list).
++            raise self._indeterminate(
++                "fact_unregistered",
++                f"access fact {atom['fact']!r}: its owner {atom['owner']!r} is "
++                "not deployed",
++                501,
++            )
++        if (
++            _facts._claim_trustworthy(fact, ctx)
++            or not ctx.subject.provenance_authoritative
++        ):
++            return fact.interpret_claim(status)
++        try:
++            return await _facts.resolve_fact(fact, ctx, mode=_facts.MODE_LIVE)
++        except _facts.FactDenied:
++            return False
++        except _facts.FactUnavailable as exc:
++            raise self._indeterminate(
++                "subscription_unverifiable",
++                f"claim not minted by {fact.owner_module!r} and no live check is "
++                f"available: {exc}",
++                503,
++            ) from exc
++
++
++__all__ = [
++    "ACCESS_CHECK_ATTR",
++    "ATOM_ATTR",
++    "Account",
++    "ClaimFactCheck",
++    "ContractCheck",
++    "From",
++    "access_check",
++    "access_check_of",
++]
+diff --git a/src/sandloom/shared/authz/deps.py b/src/sandloom/shared/authz/deps.py
+index 320eb50..82a5af3 100644
+--- a/src/sandloom/shared/authz/deps.py
++++ b/src/sandloom/shared/authz/deps.py
+@@ -118,8 +118,15 @@ def _denied(decision: AccessDecision, status_code: int | None) -> AccessDenied:
+     return AccessDenied(decision, status_code=override)
+ 
+ 
++#: PoC kb-poc-authz K6 switch (set by the PoC stand): ask the policy instead
++#: of its tier.
++_K6 = False
++
++
+ def _needs_db(policy: Requirement) -> bool:
+     """True when the policy may reach a resource/live atom that uses ``ctx.db``."""
++    if _K6:
++        return policy.needs_request_session()
+     return policy.tier > TIER_CLAIM
+ 
+ 
+diff --git a/src/sandloom/shared/authz/facts.py b/src/sandloom/shared/authz/facts.py
+index d005fcd..5a91938 100644
+--- a/src/sandloom/shared/authz/facts.py
++++ b/src/sandloom/shared/authz/facts.py
+@@ -196,6 +196,13 @@ class AccessFact:
+     #: factory returning one (rules that depend on the owner's settings); without
+     #: one, a ``claim_key`` means truthiness.
+     claim_rule: ClaimRule | Callable[[], ClaimRule] | None = None
++    #: PoC kb-poc-authz (PA-2): the typed claim class ``sandloom generate``
++    #: writes next to the stub of ``live_service`` (e.g. ``"Subscribed"``),
++    #: its 403/402 label, and the name of the owner's access check used for an
++    #: organization account (e.g. ``"SubscriptionActive"``).
++    atom: str | None = None
++    atom_describe: str | None = None
++    atom_otherwise: str | None = None
+ 
+     def __post_init__(self) -> None:
+         if self.min_freshness not in _RANK:
+@@ -465,9 +472,18 @@ def decode_evaluation(name: str, raw: Any) -> bool:
+ 
+ def _remote_live_resolver(name: str) -> LiveResolver:
+     async def resolve(service: Any, ctx: AuthzContext) -> bool:
+-        raw = await service.evaluate(
+-            name, subject_to_wire(ctx.subject), request_to_wire(ctx.request)
+-        )
++        params = getattr(ctx, "_resource", None)  # PoC PA-3: Entitled(params=)
++        if isinstance(params, dict):
++            raw = await service.evaluate(
++                name,
++                subject_to_wire(ctx.subject),
++                request_to_wire(ctx.request),
++                params,
++            )
++        else:
++            raw = await service.evaluate(
++                name, subject_to_wire(ctx.subject), request_to_wire(ctx.request)
++            )
+         return decode_evaluation(name, raw)
+ 
+     return resolve
+@@ -531,17 +547,20 @@ WELL_KNOWN_FACT_OWNERS = {
+ }
+ 
+ 
+-def fact_owner_contract(name: str) -> str:
++def fact_owner_contract(name: str, owner: str | None = None) -> str:
+     """The ``<owner>.facts.v1`` contract that publishes fact ``name``.
+ 
+-    The owner is the fact's first dotted segment (the lookup order of
++    The owner is ``owner`` when given (a generated claim class states it),
++    else the fact's first dotted segment (the lookup order of
+     :func:`lookup_access_fact`), except for :data:`WELL_KNOWN_FACT_OWNERS`.
+     """
+-    owner = WELL_KNOWN_FACT_OWNERS.get(name) or name.split(".", 1)[0]
++    owner = owner or WELL_KNOWN_FACT_OWNERS.get(name) or name.split(".", 1)[0]
+     return facts_contract_name(owner)
+ 
+ 
+-async def lookup_access_fact(ctx: AuthzContext, name: str) -> AccessFact | None:  # noqa: C901
++async def lookup_access_fact(  # noqa: C901
++    ctx: AuthzContext, name: str, *, owner: str | None = None
++) -> AccessFact | None:
+     """The fact ``name``: the local registration, else the owner's public one.
+ 
+     Order: ``core.get_access_fact(name)`` (owner co-deployed) → every bound
+@@ -569,7 +588,7 @@ async def lookup_access_fact(ctx: AuthzContext, name: str) -> AccessFact | None:
+     hit = cache.get(("fact", name))
+     if hit is not None and hit[0] > now:
+         return cast(AccessFact, hit[1])
+-    prefix = name.split(".", 1)[0]
++    prefix = owner or name.split(".", 1)[0]
+     owners.sort(key=lambda o: o != prefix)
+     failures: list[str] = []
+     for owner in owners:
+diff --git a/src/sandloom/shared/authz/facts_contract.py b/src/sandloom/shared/authz/facts_contract.py
+index 689bec7..e1e3222 100644
+--- a/src/sandloom/shared/authz/facts_contract.py
++++ b/src/sandloom/shared/authz/facts_contract.py
+@@ -76,8 +76,11 @@ class FactsContract:
+         name: str,
+         subject: dict[str, Any],
+         request: dict[str, Any] | None = None,
++        params: dict[str, Any] | None = None,
+     ) -> dict[str, Any]:
+-        """The owner's authoritative answer for fact ``name`` and ``subject``."""
++        """The owner's authoritative answer for fact ``name`` and ``subject``
++        (PoC kb-poc-authz PA-3: ``params`` reach the resolver as the
++        evaluation's resource)."""
+         fact = self._facts().get(name)
+         if fact is None:
+             return {"unavailable": f"access fact {name!r} is not owned here"}
+@@ -93,6 +96,14 @@ class FactsContract:
+             core=self._core,
+             source="internal",
+         )
++        if params is not None:  # PoC PA-3: the parameters as the resource
++            ctx = AuthzContext(
++                ctx.subject,
++                request=ctx.request,
++                resource=params,
++                core=self._core,
++                source="internal",
++            )
+         try:
+             value = await resolve_fact(fact, ctx, mode=mode)
+         except FactDenied as exc:
+diff --git a/src/sandloom/shared/authz/witness.py b/src/sandloom/shared/authz/witness.py
+new file mode 100644
+index 0000000..3ca7f2a
+--- /dev/null
++++ b/src/sandloom/shared/authz/witness.py
+@@ -0,0 +1,62 @@
++"""Declared membership witnesses (PoC kb-poc-authz, K1).
++
++A generated access check that declares ``witnesses_membership`` registers its
++contract method here when its class is defined; :func:`tenant_kind` asks it
++whether the caller is a member of a bound tenant, instead of a kernel-chosen
++membership contract. The real change would take the witness from the
++application-assigned tenant authority (decision C part (a)), not from import
++order.
++"""
++
++from __future__ import annotations
++
++from typing import TYPE_CHECKING, Any
++from uuid import UUID
++
++from sandloom.shared.authz._resolve import ContractUnavailable, resolve_contract
++
++if TYPE_CHECKING:  # pragma: no cover - typing only
++    from sandloom.shared.authz.context import AuthzContext
++
++#: contract name -> (method, argument plan, argument order)
++WITNESSES: dict[str, tuple[str, dict[str, Any], list[str]]] = {}
++
++
++def register_witness(
++    contract: str, method: str, plan: dict[str, Any], order: list[str]
++) -> None:
++    WITNESSES[contract] = (method, plan, order)
++
++
++def membership_witness() -> tuple[str, str, dict[str, Any], list[str]] | None:
++    """The one declared membership check (contract, method, plan, order), or
++    ``None``. Two different declared checks are ambiguous: none is used."""
++    if len(WITNESSES) != 1:
++        return None
++    contract, (method, plan, order) = next(iter(WITNESSES.items()))
++    return contract, method, plan, order
++
++
++async def witness_is_member(ctx: AuthzContext, org_id: UUID) -> bool | None:
++    """Ask the declared membership witness; ``None`` when none is declared."""
++    found = membership_witness()
++    if found is None:
++        return None
++    contract, method, plan, order = found
++    try:
++        service = resolve_contract(ctx, contract)
++    except ContractUnavailable:
++        return False  # no membership authority: the kind stays unknown
++    args: list[Any] = []
++    for arg in order:
++        source = plan[arg]
++        if source == "org":
++            args.append(org_id)
++        elif source == "subject":
++            args.append(ctx.subject.user_id)
++        else:
++            args.append(source)
++    return bool(await getattr(service, method)(*args))
++
++
++__all__ = ["WITNESSES", "membership_witness", "register_witness", "witness_is_member"]
+diff --git a/src/sandloom/shared/contracts/billing_entitlements_v1.py b/src/sandloom/shared/contracts/billing_entitlements_v1.py
+index a25432e..63f2bdf 100644
+--- a/src/sandloom/shared/contracts/billing_entitlements_v1.py
++++ b/src/sandloom/shared/contracts/billing_entitlements_v1.py
+@@ -6,10 +6,11 @@ Generated from ``sandloom_billing.contracts.EntitlementsContract``.
+ 
+ from __future__ import annotations
+ 
+-from typing import Any, Protocol
++from typing import Any, ClassVar, Protocol
+ from uuid import UUID
+ 
+ from sandloom.core.descriptors.contract_refs import ContractRef
++from sandloom.shared.authz.contract_check import Account, ClaimFactCheck, ContractCheck
+ 
+ 
+ class BillingEntitlementsV1(Protocol):
+@@ -39,6 +40,14 @@ class BillingEntitlementsV1(Protocol):
+         checks the balance atomically).
+         """
+ 
++    async def has_credits_at_least(
++        self, tenant_type: str, tenant_id: UUID, minimum: int
++    ) -> bool:
++        """True when the live credit balance is at least ``minimum`` (the
++        same read as ``get_credit_balance``). A gate, never a spend: to spend,
++        call ``billing.credits.v1.spend`` (it checks the balance atomically).
++        """
++
+     async def subscription_claims(
+         self, tenant_type: str, tenant_id: UUID
+     ) -> dict[str, Any]:
+@@ -52,3 +61,72 @@ class BillingEntitlementsV1(Protocol):
+ BILLING_ENTITLEMENTS_V1: ContractRef[BillingEntitlementsV1] = ContractRef(
+     "billing.entitlements.v1", BillingEntitlementsV1
+ )
++
++
++class SubscriptionActive(ContractCheck):
++    """True while a subscription grants access: active or trialing inside
++    its period, or ``past_due`` within the grace window (unless the
++    deployment denies on ``past_due``). False without a billing customer.
++    """
++
++    __sandloom_atom__: ClassVar[dict[str, Any]] = {
++        "contract": "billing.entitlements.v1",
++        "method": "check_subscription_active",
++        "args": ["tenant_type", "tenant_id"],
++        "binds": {"tenant_type": ["account_type"], "tenant_id": ["account_id"]},
++        "tier": 3,
++        "category": "payment_required",
++        "describe": "active subscription",
++    }
++
++    def __init__(self, *, of: Account) -> None:
++        super().__init__({}, of=of)
++
++
++class Credits(ContractCheck):
++    """True when the live credit balance is at least ``minimum`` (the
++    same read as ``get_credit_balance``). A gate, never a spend: to spend,
++    call ``billing.credits.v1.spend`` (it checks the balance atomically).
++    """
++
++    __sandloom_atom__: ClassVar[dict[str, Any]] = {
++        "contract": "billing.entitlements.v1",
++        "method": "has_credits_at_least",
++        "args": ["tenant_type", "tenant_id", "minimum"],
++        "binds": {"tenant_type": ["account_type"], "tenant_id": ["account_id"]},
++        "tier": 3,
++        "category": "payment_required",
++        "describe": "at least {minimum} credits",
++    }
++
++    def __init__(self, minimum: int, *, of: Account) -> None:
++        super().__init__({"minimum": minimum}, of=of)
++
++
++class Subscribed(ClaimFactCheck):
++    """The owner's claim ``subscription_status`` under its provenance.
++
++    Fact ``subscription.active`` of ``billing``.
++    """
++
++    __sandloom_atom__: ClassVar[dict[str, Any]] = {
++        "fact": "subscription.active",
++        "owner": "billing",
++        "claim_key": "subscription_status",
++        "tier": 1,
++        "category": "payment_required",
++        "floor": "claim",
++        "describe": "active subscription",
++        "otherwise": {
++            "contract": "billing.entitlements.v1",
++            "method": "check_subscription_active",
++            "args": ["tenant_type", "tenant_id"],
++            "binds": {"tenant_type": ["account_type"], "tenant_id": ["account_id"]},
++            "tier": 3,
++            "category": "payment_required",
++            "describe": "active subscription",
++        },
++    }
++
++    def __init__(self, *, of: Account) -> None:
++        super().__init__(of=of)
+diff --git a/src/sandloom/shared/contracts/tenancy_membership_v1.py b/src/sandloom/shared/contracts/tenancy_membership_v1.py
+index f9e16f0..69e2b06 100644
+--- a/src/sandloom/shared/contracts/tenancy_membership_v1.py
++++ b/src/sandloom/shared/contracts/tenancy_membership_v1.py
+@@ -6,10 +6,11 @@ Generated from ``sandloom_tenancy.contracts.MembershipReadContract``.
+ 
+ from __future__ import annotations
+ 
+-from typing import Protocol
++from typing import Any, ClassVar, Literal, Protocol
+ from uuid import UUID
+ 
+ from sandloom.core.descriptors.contract_refs import ContractRef
++from sandloom.shared.authz.contract_check import ContractCheck
+ from sandloom.shared.contracts.tenancy_dto import MemberState
+ 
+ 
+@@ -67,3 +68,32 @@ class TenancyMembershipV1(Protocol):
+ TENANCY_MEMBERSHIP_V1: ContractRef[TenancyMembershipV1] = ContractRef(
+     "tenancy.membership.v1", TenancyMembershipV1
+ )
++
++
++class OrgRole(ContractCheck):
++    """True when the user's role ranks at least ``minimum`` (``member`` <
++    ``admin`` < ``owner``). Live: a removal is seen at once, unlike the
++    token's ``tenant_ids`` claim.
++    """
++
++    __sandloom_atom__: ClassVar[dict[str, Any]] = {
++        "contract": "tenancy.membership.v1",
++        "method": "has_role_at_least",
++        "args": ["organization_id", "user_id", "minimum"],
++        "binds": {"organization_id": ["org", "org_id", False], "user_id": ["subject"]},
++        "tier": 3,
++        "category": "forbidden",
++        "values": {"minimum": ["member", "admin", "owner"]},
++        "risk": {"admin": {"minimum": ["admin", "owner"]}},
++        "describe": "organization role '{minimum}'",
++        "witness": {
++            "organization_id": "org",
++            "user_id": "subject",
++            "minimum": "member",
++        },
++    }
++
++    def __init__(
++        self, minimum: Literal["member", "admin", "owner"], *, org_param: str = "org_id"
++    ) -> None:
++        super().__init__({"minimum": minimum}, org_param=org_param)
+diff --git a/src/sandloom_billing/access.py b/src/sandloom_billing/access.py
+index 9e5a22b..1fc1756 100644
+--- a/src/sandloom_billing/access.py
++++ b/src/sandloom_billing/access.py
+@@ -150,6 +150,10 @@ SUBSCRIPTION_ACTIVE_FACT = AccessFact(
+     default_mode="auto",
+     # Same 402 as Subscribed / SubscriptionActive / Credits.
+     deny_category=Category.PAYMENT_REQUIRED,
++    # PoC kb-poc-authz: generated as a typed claim class next to the stub.
++    atom="Subscribed",
++    atom_describe="active subscription",
++    atom_otherwise="SubscriptionActive",
+ )
+ 
+ ORG_SUBSCRIPTION_ACTIVE_FACT = AccessFact(
+diff --git a/src/sandloom_billing/contracts.py b/src/sandloom_billing/contracts.py
+index e6e9ef6..63e7577 100644
+--- a/src/sandloom_billing/contracts.py
++++ b/src/sandloom_billing/contracts.py
+@@ -17,6 +17,7 @@ from uuid import UUID
+ from fastapi import HTTPException
+ 
+ from sandloom.sdk import command, contract, db
++from sandloom.sdk.authz import Category, From, access_check
+ from sandloom_billing.credits import CreditsService, ensure_tenant_matches
+ from sandloom_billing.entitlements import EntitlementsService
+ from sandloom_billing.exceptions import BillingError
+@@ -36,6 +37,12 @@ class EntitlementsContract:
+     ``fake_contract(BILLING_ENTITLEMENTS_V1, Fake())``.
+     """
+ 
++    @access_check(
++        "SubscriptionActive",
++        bind={"tenant_type": From.account_type(), "tenant_id": From.account_id()},
++        category=Category.PAYMENT_REQUIRED,
++        describe="active subscription",
++    )
+     async def check_subscription_active(
+         self, tenant_type: str, tenant_id: UUID
+     ) -> bool:
+@@ -54,6 +61,23 @@ class EntitlementsContract:
+             tenant_type, tenant_id, db()
+         )
+ 
++    @access_check(
++        "Credits",
++        bind={"tenant_type": From.account_type(), "tenant_id": From.account_id()},
++        category=Category.PAYMENT_REQUIRED,
++        describe="at least {minimum} credits",
++    )
++    async def has_credits_at_least(
++        self, tenant_type: str, tenant_id: UUID, minimum: int
++    ) -> bool:
++        """True when the live credit balance is at least ``minimum`` (the
++        same read as ``get_credit_balance``). A gate, never a spend: to spend,
++        call ``billing.credits.v1.spend`` (it checks the balance atomically)."""
++        balance = await EntitlementsService.get_credit_balance(
++            tenant_type, tenant_id, db()
++        )
++        return balance >= minimum
++
+     async def subscription_claims(
+         self, tenant_type: str, tenant_id: UUID
+     ) -> dict[str, Any]:
+diff --git a/src/sandloom_billing/contracts.snapshot.json b/src/sandloom_billing/contracts.snapshot.json
+index e6d3e67..6250428 100644
+--- a/src/sandloom_billing/contracts.snapshot.json
++++ b/src/sandloom_billing/contracts.snapshot.json
+@@ -123,9 +123,22 @@
+       }
+     },
+     "billing.entitlements.v1": {
+-      "hash": "f14fd7c0722a333eec8fdf851a5a8568",
++      "hash": "7377ba3c648288fa8a68825f24d0d0f6",
+       "methods": {
+         "check_subscription_active": {
++          "access_check": {
++            "bind": {
++              "tenant_id": [
++                "account_id"
++              ],
++              "tenant_type": [
++                "account_type"
++              ]
++            },
++            "category": "payment_required",
++            "describe": "active subscription",
++            "name": "SubscriptionActive"
++          },
+           "idempotency_key": null,
+           "kind": "read",
+           "params": [
+@@ -181,6 +194,56 @@
+             "t": "int"
+           }
+         },
++        "has_credits_at_least": {
++          "access_check": {
++            "bind": {
++              "tenant_id": [
++                "account_id"
++              ],
++              "tenant_type": [
++                "account_type"
++              ]
++            },
++            "category": "payment_required",
++            "describe": "at least {minimum} credits",
++            "name": "Credits"
++          },
++          "idempotency_key": null,
++          "kind": "read",
++          "params": [
++            {
++              "kind": "positional_or_keyword",
++              "name": "tenant_type",
++              "required": true,
++              "type": {
++                "k": "scalar",
++                "t": "str"
++              }
++            },
++            {
++              "kind": "positional_or_keyword",
++              "name": "tenant_id",
++              "required": true,
++              "type": {
++                "k": "scalar",
++                "t": "uuid"
++              }
++            },
++            {
++              "kind": "positional_or_keyword",
++              "name": "minimum",
++              "required": true,
++              "type": {
++                "k": "scalar",
++                "t": "int"
++              }
++            }
++          ],
++          "returns": {
++            "k": "scalar",
++            "t": "bool"
++          }
++        },
+         "subscription_claims": {
+           "idempotency_key": null,
+           "kind": "read",
+@@ -218,7 +281,7 @@
+       }
+     },
+     "billing.facts.v1": {
+-      "hash": "d7057ecaa2d2af00f979afa498e49208",
++      "hash": "16a005aeba93c72312ead76d98b05308",
+       "methods": {
+         "describe": {
+           "idempotency_key": null,
+@@ -288,6 +351,29 @@
+                   }
+                 ]
+               }
++            },
++            {
++              "kind": "positional_or_keyword",
++              "name": "params",
++              "required": false,
++              "type": {
++                "k": "union",
++                "of": [
++                  {
++                    "k": "dict",
++                    "key": {
++                      "k": "scalar",
++                      "t": "str"
++                    },
++                    "value": {
++                      "k": "any"
++                    }
++                  },
++                  {
++                    "k": "none"
++                  }
++                ]
++              }
+             }
+           ],
+           "returns": {
+diff --git a/src/sandloom_billing/module.snapshot.json b/src/sandloom_billing/module.snapshot.json
+index db558ca..106f0c2 100644
+--- a/src/sandloom_billing/module.snapshot.json
++++ b/src/sandloom_billing/module.snapshot.json
+@@ -13,6 +13,7 @@
+       "methods": [
+         "check_subscription_active",
+         "get_credit_balance",
++        "has_credits_at_least",
+         "subscription_claims"
+       ],
+       "name": "billing.entitlements.v1"
+diff --git a/src/sandloom_tenancy/contracts.py b/src/sandloom_tenancy/contracts.py
+index fc584db..3d5f5b9 100644
+--- a/src/sandloom_tenancy/contracts.py
++++ b/src/sandloom_tenancy/contracts.py
+@@ -23,6 +23,7 @@ from uuid import UUID
+ from sqlalchemy import and_, select
+ 
+ from sandloom.sdk import contract, db
++from sandloom.sdk.authz import From, access_check
+ from sandloom.sdk.contracts import contract_reads
+ from sandloom.sdk.infra import settings
+ from sandloom_tenancy.models import (
+@@ -76,6 +77,21 @@ class MembershipReadContract:
+         return await _role(organization_id, user_id) is not None
+ 
+     @contract.read(planned=True)
++    @access_check(
++        "OrgRole",
++        bind={
++            "organization_id": From.org(param="org_id", validate_against_token=False),
++            "user_id": From.subject_id(),
++        },
++        values={"minimum": ["member", "admin", "owner"]},
++        risk={"admin": {"minimum": ["admin", "owner"]}},
++        describe="organization role '{minimum}'",
++        witnesses_membership={
++            "organization_id": "org",
++            "user_id": "subject",
++            "minimum": "member",
++        },
++    )
+     async def has_role_at_least(
+         self, organization_id: UUID, user_id: UUID, minimum: str
+     ) -> bool:
+diff --git a/src/sandloom_tenancy/contracts.snapshot.json b/src/sandloom_tenancy/contracts.snapshot.json
+index 2cf1f38..9f7cf6e 100644
+--- a/src/sandloom_tenancy/contracts.snapshot.json
++++ b/src/sandloom_tenancy/contracts.snapshot.json
+@@ -30,7 +30,7 @@
+       }
+     },
+     "tenancy.membership.v1": {
+-      "hash": "fbf42e7650aa13c0878c442f6080d419",
++      "hash": "263d4bfe9b5ab0c653210bba1a2bf5fe",
+       "methods": {
+         "get_member_state": {
+           "idempotency_key": null,
+@@ -136,6 +136,41 @@
+           }
+         },
+         "has_role_at_least": {
++          "access_check": {
++            "bind": {
++              "organization_id": [
++                "org",
++                "org_id",
++                false
++              ],
++              "user_id": [
++                "subject"
++              ]
++            },
++            "category": "forbidden",
++            "describe": "organization role '{minimum}'",
++            "name": "OrgRole",
++            "risk": {
++              "admin": {
++                "minimum": [
++                  "admin",
++                  "owner"
++                ]
++              }
++            },
++            "values": {
++              "minimum": [
++                "member",
++                "admin",
++                "owner"
++              ]
++            },
++            "witnesses_membership": {
++              "minimum": "member",
++              "organization_id": "org",
++              "user_id": "subject"
++            }
++          },
+           "idempotency_key": null,
+           "kind": "read",
+           "params": [
+diff --git a/tests/architecture/test_api10_checks.py b/tests/architecture/test_api10_checks.py
+index 2d2c8eb..93f34d5 100644
+--- a/tests/architecture/test_api10_checks.py
++++ b/tests/architecture/test_api10_checks.py
+@@ -34,6 +34,7 @@ def test_every_api10_rule_has_its_appendix_a_code() -> None:
+         "event-view-compat": "SANDLOOM-C025",
+         "contract-union-hint": "SANDLOOM-C026",
+         "account-route-mismatch": "SANDLOOM-C027",
++        "handwritten-access-check": "SANDLOOM-C032",
+     }
+     assert set(API10_RULES) == set(codes) == set(a10.SEVERITY)
+     for rule, code in codes.items():
+diff --git a/tools/packaging/public-source.json b/tools/packaging/public-source.json
+index 649d6ee..acb05f3 100644
+--- a/tools/packaging/public-source.json
++++ b/tools/packaging/public-source.json
+@@ -1178,6 +1178,7 @@
+         "src/sandloom/core/archcheck/__init__.py",
+         "src/sandloom/core/archcheck/analyzers.py",
+         "src/sandloom/core/archcheck/api10_rules.py",
++        "src/sandloom/core/archcheck/atom_metadata.py",
+         "src/sandloom/core/archcheck/manifest.py",
+         "src/sandloom/core/archcheck/module_rules.py",
+         "src/sandloom/core/archcheck/runner.py",
+@@ -1895,6 +1896,7 @@
+         "src/sandloom/shared/authz/atoms_resource.py",
+         "src/sandloom/shared/authz/constants.py",
+         "src/sandloom/shared/authz/context.py",
++        "src/sandloom/shared/authz/contract_check.py",
+         "src/sandloom/shared/authz/deps.py",
+         "src/sandloom/shared/authz/enforce.py",
+         "src/sandloom/shared/authz/facts.py",
+@@ -1903,6 +1905,7 @@
+         "src/sandloom/shared/authz/metrics.py",
+         "src/sandloom/shared/authz/projection.py",
+         "src/sandloom/shared/authz/results.py",
++        "src/sandloom/shared/authz/witness.py",
+         "src/sandloom/shared/contracts/__init__.py",
+         "src/sandloom/shared/contracts/billing_credits_v1.py",
+         "src/sandloom/shared/contracts/billing_entitlements_v1.py",

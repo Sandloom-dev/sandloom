@@ -1,0 +1,38 @@
+"""Z-8 fixture: a third-party provider declaring two access checks.
+
+Names no kernel atom: ``ProjectRole`` binds an organization and carries the
+admin risk for ``lead``/``owner``; ``SeatsAvailable`` binds the billing account.
+"""
+
+from uuid import UUID
+
+from sandloom.sdk import contract
+from sandloom.sdk.authz import Category, From, access_check
+
+
+@contract("projects.roles.v1")
+class ProjectRoles:
+    """Roles inside an organization's projects (fixture)."""
+
+    @access_check(
+        "ProjectRole",
+        bind={"organization_id": From.org(param="org_id"), "user_id": From.subject_id()},
+        values={"level": ["viewer", "lead", "owner"]},
+        risk={"admin": {"level": ["lead", "owner"]}},
+        describe="project role '{level}'",
+    )
+    async def has_project_role(
+        self, organization_id: UUID, user_id: UUID, level: str
+    ) -> bool:
+        """True when the user holds at least ``level`` in the organization."""
+        return False
+
+    @access_check(
+        "SeatsAvailable",
+        bind={"tenant_type": From.account_type(), "tenant_id": From.account_id()},
+        category=Category.QUOTA_EXCEEDED,
+        describe="{seats} free seat(s)",
+    )
+    async def seats_available(self, tenant_type: str, tenant_id: UUID, seats: int) -> bool:
+        """True when the account still has ``seats`` free seats."""
+        return False

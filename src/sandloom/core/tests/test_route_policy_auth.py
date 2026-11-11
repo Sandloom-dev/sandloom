@@ -164,6 +164,13 @@ def test_create_app_refuses_an_unauthenticated_route(
     monkeypatch.setattr(app_factory, "_validate_and_index_routes", _with_bad_route)
     # set_active_core binds the whole runtime (core, registry, bus) in one call
     monkeypatch.setattr(app_factory, "set_active_core", lambda *_a, **_k: None)
+    # The claim-authorities step runs first and, with the batteries installed
+    # and no map (SANDLOOM-B035), would refuse before the route check.
+    monkeypatch.setattr(
+        app_factory._claim_authorities,
+        "install_claim_authorities",
+        lambda *_a, **_k: None,
+    )
     with pytest.raises(RoutePolicyError, match="POST /bad: no authenticator"):
         app_factory.create_app()
 
@@ -172,7 +179,9 @@ def test_every_platform_route_is_authenticated_or_public() -> None:
     """The composed batteries monolith resolves (create_app ran the check);
     the kernel's probes are the only public kernel routes, every other ops
     route is service-gated, the platform console is a user route."""
-    from sandloom.main import app
+    from sandloom.core.composition import load_composition_app
+
+    app = load_composition_app()
 
     kernel = {
         (m, r.path): resolve_route_policy(r, m)
@@ -196,51 +205,6 @@ def test_every_platform_route_is_authenticated_or_public() -> None:
         if path.startswith("/api/v1/platform/"):
             assert policy.auth == "user", (method, path)
     assert route_policy_problems(app.routes) == []
-
-
-def test_bundled_public_routes_are_exactly_the_reviewed_set() -> None:
-    """Independent oracle (spec §10.1): the hand-kept list of the platform's
-    public module routes; a new public route must be added here on purpose."""
-    from sandloom.main import app
-
-    expected = {
-        ("GET", "/api/v1/identity/setup-state"),
-        ("GET", "/auth/health"),
-        ("POST", "/auth/login"),
-        ("POST", "/auth/logout"),
-        ("POST", "/auth/refresh"),
-        ("POST", "/auth/register"),
-        ("POST", "/auth/request-password-reset"),
-        ("POST", "/auth/resend-verification"),
-        ("POST", "/auth/reset-password"),
-        ("POST", "/auth/sso/mfa"),
-        ("GET", "/auth/sso/providers"),
-        ("GET", "/auth/sso/{provider}/callback"),
-        ("GET", "/auth/sso/{provider}/redirect"),
-        ("POST", "/auth/verify-email"),
-        ("GET", "/api/v1/billing/plans"),
-        ("POST", "/api/v1/billing/webhooks/stripe"),
-    }
-    issuers = {
-        ("POST", "/auth/login"),
-        ("POST", "/auth/refresh"),
-        ("POST", "/auth/sso/mfa"),
-        ("GET", "/auth/sso/{provider}/callback"),
-    }
-    found: dict[tuple[str, str], Any] = {}
-    for route in app.routes:
-        if not getattr(route, "sandloom_module", None):
-            continue
-        for method in getattr(route, "methods", ()) or ():
-            policy = resolve_route_policy(route, method)
-            if policy.auth == "public" and method != "HEAD":
-                found[(method, route.path)] = policy
-    assert set(found) == expected
-    assert {k for k, p in found.items() if p.public and p.public.issues_tokens} == (
-        issuers
-    )
-    # a public route that reads a subject would be a contradiction
-    assert all(p.authenticators == () for p in found.values())
 
 
 def test_extraction_probe_declares_its_test_only_public_routes(

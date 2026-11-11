@@ -1,6 +1,7 @@
 ---
 name: sandloom-split-deploy
 description: Move Sandloom modules into their own services in the microservices profile — `sandloom add deploy` creates the profile and gateway in an `sandloom new` app or the framework, then derives services, own databases and migrate one-shots, SERVICE_BINDINGS / RPC_ALLOWED_CALLS, RPC and JWT key wiring, gateway routes and worker/beat; then keys, checks and data extraction. Use when asked to split an app into microservices, to extract or deploy a module as a separate service, or to make a new module reachable in the microservices profile.
+disable-model-invocation: true
 ---
 
 # Split modules into services

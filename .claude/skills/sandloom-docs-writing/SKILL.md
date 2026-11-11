@@ -1,5 +1,6 @@
 ---
 name: sandloom-docs-writing
+disable-model-invocation: true
 description: Write or rewrite a Sandloom documentation page under docs/, a README or landing text — entry, concept, tutorial, how-to, cookbook recipe, reference, troubleshooting — from its job, purpose, audience and level to a finished draft. Use when asked to write, rewrite or restructure a page, explain a concept, add a recipe or clean up Reference.
 hooks:
   PostToolUse:

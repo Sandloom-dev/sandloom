@@ -123,9 +123,46 @@
       }
     },
     "billing.entitlements.v1": {
-      "hash": "f14fd7c0722a333eec8fdf851a5a8568",
+      "hash": "06b3bd8fb80cfd0994a1f0afa174d174",
       "methods": {
         "check_subscription_active": {
+          "access_check": {
+            "bind": {
+              "tenant_id": [
+                "account_id"
+              ],
+              "tenant_type": [
+                "account_type"
+              ]
+            },
+            "category": "payment_required",
+            "claim": {
+              "absent_claim": "deny",
+              "category": "payment_required",
+              "claim_key": "subscription_status",
+              "claim_keys": [
+                "subscription_status"
+              ],
+              "describe": "active subscription",
+              "fact": "subscription.active",
+              "name": "Subscribed",
+              "owner": "billing",
+              "statuses": [
+                "active",
+                "canceled",
+                "expired",
+                "incomplete",
+                "incomplete_expired",
+                "none",
+                "past_due",
+                "paused",
+                "trialing",
+                "unpaid"
+              ]
+            },
+            "describe": "active subscription",
+            "name": "SubscriptionActive"
+          },
           "idempotency_key": null,
           "kind": "read",
           "params": [
@@ -179,6 +216,188 @@
           "returns": {
             "k": "scalar",
             "t": "int"
+          }
+        },
+        "has_credits_at_least": {
+          "access_check": {
+            "bind": {
+              "tenant_id": [
+                "account_id"
+              ],
+              "tenant_type": [
+                "account_type"
+              ]
+            },
+            "category": "payment_required",
+            "describe": "at least {minimum} credits",
+            "name": "Credits"
+          },
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_type",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "minimum",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "int"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "bool"
+          }
+        },
+        "has_feature": {
+          "access_check": {
+            "bind": {
+              "tenant_id": [
+                "account_id"
+              ],
+              "tenant_type": [
+                "account_type"
+              ]
+            },
+            "category": "forbidden",
+            "claim": {
+              "category": "forbidden",
+              "claim_key": "features",
+              "claim_keys": [
+                "features"
+              ],
+              "describe": "feature '{key}'",
+              "entry": "key",
+              "name": "Feature",
+              "read": "flag"
+            },
+            "describe": "feature '{key}'",
+            "name": "LiveFeature"
+          },
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_type",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "key",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "bool"
+          }
+        },
+        "is_within_limit": {
+          "access_check": {
+            "bind": {
+              "tenant_id": [
+                "account_id"
+              ],
+              "tenant_type": [
+                "account_type"
+              ]
+            },
+            "category": "quota_exceeded",
+            "claim": {
+              "below": "used",
+              "category": "quota_exceeded",
+              "claim_key": "limits",
+              "claim_keys": [
+                "limits"
+              ],
+              "describe": "within limit '{key}'",
+              "entry": "key",
+              "name": "WithinLimit",
+              "read": "limit"
+            },
+            "describe": "within limit '{key}'",
+            "name": "LiveWithinLimit"
+          },
+          "idempotency_key": null,
+          "kind": "read",
+          "params": [
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_type",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "tenant_id",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "uuid"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "key",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "str"
+              }
+            },
+            {
+              "kind": "positional_or_keyword",
+              "name": "used",
+              "required": true,
+              "type": {
+                "k": "scalar",
+                "t": "int"
+              }
+            }
+          ],
+          "returns": {
+            "k": "scalar",
+            "t": "bool"
           }
         },
         "subscription_claims": {

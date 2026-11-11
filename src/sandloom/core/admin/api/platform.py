@@ -28,10 +28,12 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from sandloom.core.auth.bearer import bearer_claims
+from sandloom.core.auth.claims_view import platform_admission, untrusted_reasons
 from sandloom.core.auth.verification import (
     assert_token_valid_now,
     ensure_token_not_revoked,
 )
+from sandloom.core.config.module_settings import declared_console
 from sandloom.core.descriptors.module_names import module_name as _module_name
 from sandloom.core.guard_order import authenticates
 from sandloom.core.idempotency import idempotency_guard
@@ -61,15 +63,10 @@ async def platform_operator(request: Request) -> None:
     except ValueError as exc:
         raise HTTPException(401, "Invalid token subject") from exc
     await ensure_token_not_revoked(request, claims)
-    sources, roles = claims.get("claims_sources"), claims.get("roles")
-    if (
-        not isinstance(sources, list)
-        or "identity" not in sources
-        or not isinstance(roles, list)
-        or "admin" not in roles
-        or "identity" in (claims.get("claims_sources_failed") or [])
-    ):
-        raise HTTPException(403, "Platform administrator role required")
+    # The one platform admission (ADR-0014 decision 3), shared with
+    # ``require_platform_admin``: ``roles`` counts only when it is in the
+    # token's trusted view; no module name is trusted.
+    platform_admission(claims.get("roles"), untrusted_reasons(claims))
 
 
 # ADR-0009 item 6: the platform console's operator gate carries the admin risk.
@@ -570,6 +567,9 @@ def _bindings(core: Any, details: dict[str, Any]) -> list[BindingView]:
         elif isinstance(failure, dict) and failure.get("contract_incompatible"):
             status = "incompatible"
             detail = safe_error("; ".join(map(str, failure["contract_incompatible"])))
+        elif isinstance(failure, dict) and failure.get("contract_unverified"):
+            status = "unverified"
+            detail = safe_error("; ".join(map(str, failure["contract_unverified"])))
         elif failure is not None:
             status = "unreachable"
             detail = safe_error(str(failure.get("error", "unreachable")))
@@ -600,17 +600,28 @@ _SAFE_SETTINGS = (
     "rpc_transport",
     "jwt_algorithm",
     "access_token_expire_minutes",
-    "refresh_token_expire_days",
     "auth_revocation_fail_closed",
     "password_hash_profile",
     "rate_limit_enabled",
     "trust_proxy_headers",
-    "billing_provider",
     "notifier_backend",
     "docs_enabled",
     "log_format",
     "log_level",
 )
+
+
+def _declared_settings(core: Any) -> list[tuple[str, Any]]:
+    """``(field name, value)`` of each non-secret setting the loaded modules
+    declare for this view (``console`` on their settings model, ADR-0015):
+    the view names no module's setting itself, so a module's row appears
+    exactly where the module is loaded."""
+    return [
+        (key, getattr(record.instance, key))
+        for record in core.module_settings.records()
+        for key in declared_console(record.model)
+        if key in record.model.model_fields
+    ]
 
 
 def _setting_text(value: Any) -> str:
@@ -741,14 +752,16 @@ def _runtime_routes(router: APIRouter, core: Any) -> None:
                     status=result.status,
                 )
             )
-        return SettingsView(
-            settings=[
-                SettingView(key=key, value=_setting_text(getattr(cfg, key, None)))
-                for key in _SAFE_SETTINGS
-                if hasattr(cfg, key)
-            ],
-            infrastructure=instances,
-        )
+        rows = [
+            SettingView(key=key, value=_setting_text(getattr(cfg, key, None)))
+            for key in _SAFE_SETTINGS
+            if hasattr(cfg, key)
+        ]
+        rows += [
+            SettingView(key=key, value=_setting_text(value))
+            for key, value in _declared_settings(core)
+        ]
+        return SettingsView(settings=rows, infrastructure=instances)
 
 
 __all__ = ["install", "platform_operator", "safe_error"]

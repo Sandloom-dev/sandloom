@@ -2,12 +2,14 @@
 
 from typing import Any
 
+from sandloom_identity.rbac import Roles
+
 RESOURCES: list[dict[str, Any]] = [
     {
         "name": "users",
         "audit": {"resource_type": "user", "id_field": "id"},
         "label": "Users",
-        "access": {"roles": ["admin"]},
+        "access": {"roles": [Roles.ADMIN]},
         "group": "Customers",
         "icon": "users",
         "list": {"path": "/api/v1/users", "method": "GET"},
@@ -103,7 +105,7 @@ RESOURCES: list[dict[str, Any]] = [
         "name": "roles",
         "audit": {"resource_type": "role", "id_field": "id"},
         "label": "Platform roles",
-        "access": {"roles": ["admin"]},
+        "access": {"roles": [Roles.ADMIN]},
         "group": "Access control",
         "icon": "shield",
         "list": {"path": "/api/v1/roles", "method": "GET"},
@@ -135,7 +137,7 @@ RESOURCES: list[dict[str, Any]] = [
     {
         "name": "permissions",
         "label": "Permissions",
-        "access": {"roles": ["admin"]},
+        "access": {"roles": [Roles.ADMIN]},
         "group": "Access control",
         "icon": "key",
         "list": {"path": "/api/v1/permissions", "method": "GET"},

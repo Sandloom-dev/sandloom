@@ -1,0 +1,10 @@
+version: 1
+source_root: stand
+modules_path: stand
+modules_package: ""
+kernel_package: sandloom
+public_api:
+  - sandloom.sdk
+  - sandloom.sdk.authz
+  - sandloom.sdk.contracts
+  - sandloom.sdk.web

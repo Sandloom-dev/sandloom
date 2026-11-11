@@ -119,7 +119,12 @@ def server_env(*, planner_opt: bool = False) -> dict[str, str]:
         # The stand's provider is a split-production process with the shared
         # HS256 secret (it never mints tokens); main refuses that since #51
         # unless explicitly accepted — as is a prod process without a relay.
-        "SANDLOOM_ACCEPTED_RISKS": "shared_hs_secret_split,relay_disabled",
+        # Tenancy requires an email notifier (SANDLOOM-B037): in prod the ``log``
+        # driver advertises no ``email`` feature unless ``log_notifier_in_prod``
+        # is accepted (the stand sends no mail).
+        "SANDLOOM_ACCEPTED_RISKS": (
+            "shared_hs_secret_split,relay_disabled,log_notifier_in_prod"
+        ),
         # The ``srv`` layer replays a POOL of requests prebuilt at warm-up
         # (each exactly once: the provider's nonce replay guard refuses a
         # repeat); a request is accepted while |now - iat| <= this window,
@@ -458,7 +463,7 @@ def decode_reply(raw: bytes) -> Any:
 
 
 async def _smoke() -> None:
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     async with app.router.lifespan_context(app):
         core = app.state.core

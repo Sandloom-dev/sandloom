@@ -1,0 +1,53 @@
+$ venv-pyd-2.14.1/bin/python -I p11_render.py
+pydantic 2.14.1 pydantic-core 2.50.1 ruff 0.17.1
+  billing_credits_v1.py                      673e30588756f55f (2209 bytes)
+  billing_entitlements_v1.py                 f2822d672ec23e24 (2267 bytes)
+  identity_contact_v1.py                     27717b1cae2a4a91 (1415 bytes)
+  identity_dto.py                            ba152dce2c523ab1 (1601 bytes)
+  identity_security_v1.py                    f8e9df12018453e9 (4920 bytes)
+  tenancy_dto.py                             3034c19b2d8c1ff2 (1428 bytes)
+  tenancy_membership_v1.py                   56fc5323c58a6869 (2886 bytes)
+all files: a3ab116700ac9823
+$ venv-pyd-2.14.3/bin/python -I p11_render.py
+pydantic 2.14.3 pydantic-core 2.50.4 ruff 0.17.1
+  billing_credits_v1.py                      673e30588756f55f (2209 bytes)
+  billing_entitlements_v1.py                 f2822d672ec23e24 (2267 bytes)
+  identity_contact_v1.py                     27717b1cae2a4a91 (1415 bytes)
+  identity_dto.py                            ba152dce2c523ab1 (1601 bytes)
+  identity_security_v1.py                    f8e9df12018453e9 (4920 bytes)
+  tenancy_dto.py                             3034c19b2d8c1ff2 (1428 bytes)
+  tenancy_membership_v1.py                   56fc5323c58a6869 (2886 bytes)
+all files: a3ab116700ac9823
+$ venv-pyd-2.13.5/bin/python -I p11_render.py
+pydantic 2.13.5 pydantic-core 2.46.5 ruff 0.17.1
+  billing_credits_v1.py                      673e30588756f55f (2209 bytes)
+  billing_entitlements_v1.py                 f2822d672ec23e24 (2267 bytes)
+  identity_contact_v1.py                     27717b1cae2a4a91 (1415 bytes)
+  identity_dto.py                            ba152dce2c523ab1 (1601 bytes)
+  identity_security_v1.py                    f8e9df12018453e9 (4920 bytes)
+  tenancy_dto.py                             3034c19b2d8c1ff2 (1428 bytes)
+  tenancy_membership_v1.py                   56fc5323c58a6869 (2886 bytes)
+all files: a3ab116700ac9823
+$ venv-pyd-2.14.3 + ruff 0.12.0: p11_render.py
+pydantic 2.14.3 pydantic-core 2.50.4 ruff 0.12.0
+  identity_dto.py                            ba152dce2c523ab1 (1601 bytes)
+  tenancy_dto.py                             3034c19b2d8c1ff2 (1428 bytes)
+all files: a3ab116700ac9823
+$ venv-pyd-2.14.3 + ruff 0.6.0: p11_render.py
+pydantic 2.14.3 pydantic-core 2.50.4 ruff 0.6.0
+  identity_dto.py                            ba152dce2c523ab1 (1601 bytes)
+  tenancy_dto.py                             3034c19b2d8c1ff2 (1428 bytes)
+all files: a3ab116700ac9823
+$ venv-pyd-2.14.3 without ruff: p11_render.py
+pydantic 2.14.3 pydantic-core 2.50.4 ruff absent
+  identity_dto.py                            40f3037df8d37dd0 (1600 bytes)
+  tenancy_dto.py                             57741c52e13a8ee9 (1427 bytes)
+all files: f764072885207f81
+$ venv-pyd-2.14.1 (ruff 0.17.1), consumer project ruff line-length = 100: p11_render.py
+  identity_dto.py                            ba152dce2c523ab1 (1601 bytes)
+  tenancy_dto.py                             3034c19b2d8c1ff2 (1428 bytes)
+all files: a3ab116700ac9823
+$ venv-pyd-2.14.1 (ruff 0.17.1), consumer project ruff line-length = 60: p11_render.py
+  identity_dto.py                            3dde854a8e90f1fc (1622 bytes)
+  tenancy_dto.py                             f9920092229f67a4 (1437 bytes)
+all files: 3af1075f56ecda95

@@ -9,17 +9,22 @@ One model behind three users:
 * ``sandloom test`` (``schema & deploy``) and the framework's own
   ``test_deploy_profiles`` check a profile against the split invariants
   (:func:`profile_problems`, SANDLOOM-T014): shared settings identical in every
-  process (one ``CACHE_URL``), signing material on the token issuer only, a
-  database and a migrate one-shot per service, the durable Streams bus,
-  bindings exactly the contracts consumed from another service (+ the
-  issuer's remote claims), ``RPC_ALLOWED_CALLS`` derived from them, per-service
-  RPC keys, liveness never fed by peers, and a gateway that routes every
+  process (one ``CACHE_URL``), one composition root for every process,
+  signing material on the token issuer only, a database and a migrate
+  one-shot per service, the durable Streams bus, bindings exactly the
+  contracts consumed from another service (+ the issuer's remote claims),
+  ``RPC_ALLOWED_CALLS`` derived from them, per-service RPC keys, liveness
+  never fed by peers, and a gateway that routes every
   module prefix to its service and never ``/_sandloom``, ``/diagnostics`` or
   ``/metrics``;
 * the boot check (:func:`boot_problems`): each HTTP service's
   ``SANDLOOM_MODULES`` booted alone with its own environment, as ``sandloom doctor``
   boots a process (settings, startup preflight, composition root, bound
-  contracts; no network), in a fresh interpreter per service.
+  contracts; no network), in a fresh interpreter per service; the booted
+  services then agree on the claim policy's ``legacy_tokens`` mode (one
+  mode per deployment) and, once none runs it, all stamp and check ``cpv``
+  (the adoption release gate, :func:`claims_mode_problems`; ADR-0014
+  decision 4).
 
 Module topology is read by loading the modules into a fresh, I/O-free facade
 (registration only), never by importing another module's code into the
@@ -42,9 +47,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
 from starlette.routing import compile_path
 
+from sandloom.core.config import module_settings as _ms
 from sandloom.core.descriptors.module_names import module_name as _module_name
+from sandloom.core.descriptors.module_names import resolve_module_names
 from sandloom.core.rpc_identity import allowlist_from_bindings
 from sandloom.core.signing_keys import (
     generate_private_key,
@@ -59,6 +67,8 @@ from sandloom.core.tasks.periodic import has_periodic_tasks
 PROFILE = "compose/microservices.yml"
 GATEWAY = Path("gateway") / "nginx.conf"
 CODE = "SANDLOOM-T014"
+#: The variable naming the composition root every process of a profile boots.
+COMPOSITION_ROOT = "SANDLOOM_COMPOSITION_ROOT"
 
 #: Settings identical in EVERY process of the profile (and so in the shared
 #: env anchor): a token minted by one service is verified by all, revocation
@@ -78,13 +88,11 @@ SHARED_KEYS: tuple[str, ...] = (
     "JWT_ISSUER",
     "JWT_AUDIENCE",
     "ACCESS_TOKEN_EXPIRE_MINUTES",
-    "REFRESH_TOKEN_EXPIRE_DAYS",
     "INTERNAL_API_TOKEN",
     "RPC_SERVICE_KEYS",
     "RPC_SERVICE_DH_KEYS",
     "RPC_ALLOWED_CALLS",
     "FRONTEND_URL",
-    "BILLING_DENY_ON_PAST_DUE",
     "NOTIFIER_BACKEND",
     "SMTP_HOST",
     "SMTP_PORT",
@@ -596,11 +604,13 @@ def profile_problems(
         problem("no HTTP service lists SANDLOOM_MODULES")
         return report
     _shared_settings(procs, problem)
+    _composition_root(procs, problem)
     for name, modules in http.items():
         report.topologies[name] = topo = service_topology(modules)
         if topo.error:
             problem(f"service {name!r} does not load: {topo.error}")
     _issuer_only(procs, report.topologies, problem)
+    _service_names(procs, problem)
     _databases_and_migrations(compose, http, problem)
     _bindings(compose, http, report, problem)
     _keys_and_probes(compose, http, problem)
@@ -617,21 +627,73 @@ def profile_problems(
     return report
 
 
+def _module_settings_of(entry: str) -> tuple[str, type[BaseModel] | None]:
+    """``(module name, its settings declaration)`` of a ``SANDLOOM_MODULES``
+    entry; ``None`` for a module that declares none or whose package does not
+    import (the topology check reports that)."""
+    try:
+        (path,) = resolve_module_names([entry])
+        return _module_name(path), _ms.declared_model(path)
+    except (ImportError, AttributeError, RuntimeError, SystemExit, ValueError):
+        return _module_name(entry), None
+
+
+def _module_shared(procs: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, str]]:
+    """``{shared env name: {process: owning module}}``: the settings each
+    loaded module declares identical in every process that loads it
+    (ADR-0015 decision 7). A process without the module is not held to them
+    and holds no value (D-B2, answer #25)."""
+    holders: dict[str, dict[str, str]] = {}
+    for name, svc in procs.items():
+        for entry in modules_of(svc):
+            module, model = _module_settings_of(entry)
+            if model is None:
+                continue
+            for key in _ms.declared_shared(model):
+                holders.setdefault(key, {})[name] = module
+    return holders
+
+
+def _same_everywhere(
+    key: str,
+    procs: Mapping[str, Mapping[str, Any]],
+    problem: Any,
+    *,
+    owner: str | None = None,
+) -> None:
+    values = {name: _env(svc).get(key) for name, svc in procs.items()}
+    missing = sorted(n for n, v in values.items() if v is None)
+    if missing:
+        where = (
+            f"every process that loads {owner} passes it (declared shared by "
+            "that module)"
+            if owner
+            else "shared settings live in the shared env anchor (x-common-env), "
+            "merged by every process"
+        )
+        problem(f"{key} is missing in {missing}: {where}")
+    elif len({json.dumps(v, sort_keys=True) for v in values.values()}) > 1:
+        seen = sorted(set(map(str, values.values())))
+        where = (
+            f"in every process that loads {owner}"
+            if owner
+            else "everywhere (keep it in x-common-env only)"
+        )
+        problem(
+            f"{key} differs between processes ({seen}): it must be identical {where}"
+        )
+
+
 def _shared_settings(procs: dict[str, dict[str, Any]], problem: Any) -> None:
     for key in SHARED_KEYS:
-        values = {name: _env(svc).get(key) for name, svc in procs.items()}
-        missing = sorted(n for n, v in values.items() if v is None)
-        if missing:
-            problem(
-                f"{key} is missing in {missing}: shared settings live in the "
-                "shared env anchor (x-common-env), merged by every process"
-            )
-        elif len({json.dumps(v, sort_keys=True) for v in values.values()}) > 1:
-            seen = sorted(set(map(str, values.values())))
-            problem(
-                f"{key} differs between processes ({seen}): it must be "
-                "identical everywhere (keep it in x-common-env only)"
-            )
+        _same_everywhere(key, procs, problem)
+    for key, holders in sorted(_module_shared(procs).items()):
+        _same_everywhere(
+            key,
+            {name: procs[name] for name in holders},
+            problem,
+            owner=" / ".join(sorted(set(holders.values()))),
+        )
     for name, svc in procs.items():
         env = _env(svc)
         if interpolate(env.get("ENVIRONMENT", "")) != "prod":
@@ -643,6 +705,29 @@ def _shared_settings(procs: dict[str, dict[str, Any]], problem: Any) -> None:
             problem(f"{name}: events cross services: EVENT_BUS_BACKEND=streams")
         if ":?" not in str(env.get("INTERNAL_API_TOKEN", "")):
             problem(f"{name}: INTERNAL_API_TOKEN must be required (${{...:?...}})")
+
+
+def _composition_root(procs: dict[str, dict[str, Any]], problem: Any) -> None:
+    """One composition root for the whole profile (ADR-0012 decision 3).
+
+    Every process (HTTP service, migrate one-shot, worker, beat) names the
+    same ``SANDLOOM_COMPOSITION_ROOT``, or none does (each then boots the
+    kernel's default): a migrate or worker on another root would migrate or
+    run a composition the API does not serve."""
+    roots = {
+        name: interpolate(_env(svc).get(COMPOSITION_ROOT, "")) or None
+        for name, svc in procs.items()
+    }
+    if len(set(roots.values())) > 1:
+        seen = {
+            root or "<unset>": sorted(n for n, r in roots.items() if r == root)
+            for root in set(roots.values())
+        }
+        problem(
+            f"{COMPOSITION_ROOT} differs between processes "
+            f"({dict(sorted(seen.items()))}): every process boots one "
+            "composition root (set it once in x-common-env)"
+        )
 
 
 def _issuer_only(
@@ -667,6 +752,38 @@ def _issuer_only(
                     f"{name}: {key} belongs to the token issuer's processes "
                     "only (a verify-only service must not be able to mint)"
                 )
+
+
+def _service_names(procs: dict[str, dict[str, Any]], problem: Any) -> None:
+    """Every process that consumes events names its deployment, uniquely.
+
+    ``SANDLOOM_SERVICE_NAME`` names the kernel's revocation applier group
+    (``sandloom:auth@tokens_revoked@<name>``, ADR-0012 decision 5): two
+    services with one name would share one group and each miss the other's
+    revocations. Replicas of one service share its name; a migrate one-shot
+    runs no consumers and is not counted.
+    """
+    seen: dict[str, list[str]] = {}
+    for name, svc in procs.items():
+        if process_kind(svc) == "migrate":
+            continue
+        value = str(
+            interpolate(str(_env(svc).get("SANDLOOM_SERVICE_NAME", "")))
+        ).strip()
+        if not value:
+            problem(
+                f"{name}: SANDLOOM_SERVICE_NAME is missing: it names the "
+                "revocation applier's consumer group on the shared bus"
+            )
+            continue
+        seen.setdefault(value, []).append(name)
+    for value, names in sorted(seen.items()):
+        if len(names) > 1:
+            problem(
+                f"SANDLOOM_SERVICE_NAME={value!r} is set in {sorted(names)}: each "
+                "service needs its own name, or they share one revocation "
+                "applier group and each misses the other's revocations"
+            )
 
 
 def _databases_and_migrations(
@@ -894,6 +1011,31 @@ def _gateway(
 # --------------------------------------------------------------------------- #
 
 
+def _profile_module_settings(
+    compose_text: str,
+) -> list[tuple[str, type[BaseModel]]]:
+    """``(module name, settings declaration)`` of each module the profile's
+    processes load, in first-use order; none for a text that is no compose
+    mapping."""
+    try:
+        yaml = importlib.import_module("yaml")  # optional: the check extra ships it
+    except ImportError:
+        return []
+    try:
+        compose = yaml.safe_load(compose_text)
+    except yaml.YAMLError:  # not a compose file: no module to read
+        return []
+    if not isinstance(compose, dict):
+        return []
+    seen: dict[str, type[BaseModel]] = {}
+    for svc in app_processes(compose).values():
+        for entry in modules_of(svc):
+            module, model = _module_settings_of(entry)
+            if model is not None:
+                seen.setdefault(module, model)
+    return list(seen.items())
+
+
 def dev_shell(compose_text: str) -> dict[str, str]:
     """Fresh random values for every variable the profile requires that a
     key generator can make (DEVELOPMENT / CI ONLY: written in plain text).
@@ -925,21 +1067,34 @@ def dev_shell(compose_text: str) -> dict[str, str]:
         "JWT_KID": "jwt-dev",
         "JWT_SECRET": secrets.token_hex(32),
         "INTERNAL_API_TOKEN": secrets.token_hex(32),
-        "TWOFA_ENCRYPTION_KEY": secrets.token_hex(32),
         "RPC_SERVICE_KEYS": json.dumps(
             {s: {f"{s}-dev": pem} for s, pem in sorted(callers.items())}
         ),
         "RPC_SERVICE_DH_KEYS": json.dumps(
             {s: {f"{s}-dh-dev": pem} for s, pem in sorted(dh.items())}
         ),
-        # A demo stack on the fake PSP (production chooses stripe).
-        "BILLING_PROVIDER": "fake",
     }
+    # What each module the profile loads declares for a development stack
+    # (a demo billing on the fake PSP, a fresh 2FA key; production chooses).
+    module_risks: list[str] = []
+    for module, model in _profile_module_settings(compose_text):
+        wanted = {
+            name: value
+            for name, value in _ms.declared_dev_env(model).items()
+            if name in required
+        }
+        fixed.update(wanted)
+        if wanted:
+            module_risks += [f"{module}.{r}" for r in _ms.declared_dev_risks(model)]
     for var in required:
         if var in fixed:
             shell[var] = fixed[var]
-    if "BILLING_PROVIDER" in shell:
-        shell["SANDLOOM_ACCEPTED_RISKS"] = "local_storage_in_prod,fake_psp_in_prod"
+    # A demo stack's accepted risks: local storage, the default log notifier
+    # standing in for mail a module requires (notification + email), and the
+    # risks of the modules whose development environment it set (billing's
+    # fake PSP).
+    risks = ["local_storage_in_prod", *module_risks, "log_notifier_in_prod"]
+    shell["SANDLOOM_ACCEPTED_RISKS"] = ",".join(risks)
     return shell
 
 
@@ -984,6 +1139,10 @@ _DOCTOR = (
     "'infra,migrations,consumers,rls,sagas']))\n"
 )
 
+#: The doctor check carrying a service's claim policy mode (``sandloom
+#: doctor``, section ``claims``).
+CLAIMS_CHECK = ("claims", "legacy_tokens")
+
 
 def boot_service(
     env: Mapping[str, str], *, python: str | None = None, pythonpath: str = ""
@@ -993,6 +1152,15 @@ def boot_service(
     network), in a fresh interpreter whose environment is exactly ``env``.
     Returns the failures (a doctor failure, or a consumed contract left
     unbound)."""
+    return _boot(env, python=python, pythonpath=pythonpath)[0]
+
+
+def _boot(
+    env: Mapping[str, str], *, python: str | None = None, pythonpath: str = ""
+) -> tuple[list[str], dict[str, Any] | None]:
+    """:func:`boot_service`'s failures and the service's claim policy mode
+    (the details of the doctor's ``claims/legacy_tokens`` check; ``None``:
+    the release reports none, it predates per-key ``cpv``)."""
     base = {k: os.environ[k] for k in ("PATH", "HOME", "LANG") if k in os.environ}
     if pythonpath:
         base["PYTHONPATH"] = pythonpath
@@ -1009,15 +1177,64 @@ def boot_service(
     try:
         report = json.loads(proc.stdout)
     except ValueError:
-        return [f"did not boot: {(proc.stderr or proc.stdout).strip()[-1500:]}"]
+        return [f"did not boot: {(proc.stderr or proc.stdout).strip()[-1500:]}"], None
     failures: list[str] = []
+    mode: dict[str, Any] | None = None
     for check in report.get("checks", []):
         status, section = check.get("status"), check.get("section")
+        if (section, check.get("name")) == CLAIMS_CHECK and status != "skip":
+            mode = dict(check.get("details") or {})
         if status == "fail" or (status == "warn" and section == "modules"):
             failures.append(
                 f"{section}/{check.get('name')}: {check.get('message') or check}"
             )
-    return failures
+    return failures, mode
+
+
+def claims_mode_problems(
+    modes: Mapping[str, Mapping[str, Any] | None],
+) -> dict[str, list[str]]:
+    """The claim policy across the booted services (ADR-0014 decision 4).
+
+    ``modes``: per service, the details of its doctor ``claims/legacy_tokens``
+    check (``None``: none reported, a release before per-key ``cpv``).
+
+    * **one mode per deployment:** every service passes the same
+      ``legacy_tokens`` (none, or the same ``until``): a profile whose
+      services disagree is refused, since a token one trusts another rejects;
+    * **the adoption release gate:** once a service runs without
+      ``legacy_tokens`` (stage 3, enforce), every service is at or above the
+      release that stamps and checks ``cpv``; one below it is refused.
+    """
+    out: dict[str, list[str]] = {}
+
+    def written(mode: Mapping[str, Any]) -> str | None:
+        return None if mode.get("mode") == "off" else str(mode.get("until"))
+
+    reported = {name: mode for name, mode in modes.items() if mode is not None}
+    settings_of = {name: written(mode) for name, mode in reported.items()}
+    if len(set(settings_of.values())) > 1:
+        seen = {
+            until or "<none>": sorted(n for n, u in settings_of.items() if u == until)
+            for until in set(settings_of.values())
+        }
+        text = (
+            f"legacy_tokens differs between services ({dict(sorted(seen.items()))}): "
+            "one mode per deployment, every service passes the same "
+            f"legacy_tokens or none ({CODE})"
+        )
+        for name in settings_of:
+            out.setdefault(name, []).append(text)
+    enforcing = sorted(n for n, until in settings_of.items() if until is None)
+    if enforcing:
+        for name in sorted(set(modes) - set(reported)):
+            out.setdefault(name, []).append(
+                f"reports no claim policy version: below the adoption release "
+                f"of per-key cpv, while {enforcing} run without legacy_tokens "
+                "(stage 3); upgrade it, or pass legacy_tokens everywhere until "
+                f"it is ({CODE})"
+            )
+    return out
 
 
 def boot_problems(
@@ -1032,6 +1249,7 @@ def boot_problems(
     compose = load_profile(deploy_dir / PROFILE)
     services = compose.get("services") or {}
     out: dict[str, list[str]] = {}
+    modes: dict[str, dict[str, Any] | None] = {}
     for name in http_services(compose):
         raw = _env(services[name])
         unset = sorted(
@@ -1046,7 +1264,11 @@ def boot_problems(
             out[name] = [f"the profile requires {unset}"]
             continue
         env = {k: interpolate(v, shell) for k, v in raw.items()}
-        out[name] = boot_service(env, python=python, pythonpath=pythonpath)
+        out[name], mode = _boot(env, python=python, pythonpath=pythonpath)
+        if mode is not None or not out[name]:  # a failed boot reports nothing
+            modes[name] = mode
+    for name, problems in claims_mode_problems(modes).items():
+        out[name].extend(problems)
     return out
 
 
@@ -1064,6 +1286,7 @@ __all__ = [
     "bindings_of",
     "boot_problems",
     "boot_service",
+    "claims_mode_problems",
     "dev_shell",
     "env_file_text",
     "expected_bindings",

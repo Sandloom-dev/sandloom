@@ -6,13 +6,22 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock
+from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import event
 
+from sandloom.sdk.contracts import contract_method
 from sandloom.sdk.infra import settings
 from sandloom.sdk.security import decode_token
-from sandloom.sdk.testing import revocation_mark_key, set_environment
+from sandloom.sdk.testing import (
+    bind_contract_session,
+    revocation_mark_key,
+    sealed_claims,
+    set_environment,
+)
+from sandloom_identity.claims import contribute_identity_claims
 from sandloom_identity.models.user import User
 from sandloom_identity.services.token_service import TokenService
 
@@ -36,23 +45,89 @@ async def test_access_token_carries_email_verified(
 
 
 async def test_unverified_user_and_contributors_cannot_override_identity() -> None:
+    """Identity hands the kernel's mint no claim value: ``email`` /
+    ``email_verified`` come from its own contributor, through the mint check
+    (which refuses another contributor writing them), and the token carries
+    what the check returned: nothing is written after it except ``sub`` and
+    ``token_type``."""
     user = Mock(spec=User)
     user.id = "00000000-0000-0000-0000-000000000001"
     user.email = "u@example.com"
     user.is_verified = False
+    checked = {"email": "u@example.com", "email_verified": False, "roles": ["r"]}
+    # The sealed merge result, here vouched for by the kernel test authority
+    # (what as_user stamps), so the verifier's view keeps it.
     core = SimpleNamespace(
-        collect_claims=AsyncMock(
-            return_value={"sub": "attacker", "email_verified": True, "roles": ["r"]}
-        )
+        collect_claims=AsyncMock(return_value=sealed_claims(checked))
     )
     db = AsyncMock()
     db.add = Mock()
     pair = await TokenService.create_tokens(user, db, core)  # type: ignore[arg-type]
+    call = core.collect_claims.await_args
+    # The issuer is identified by its own registered contributor, never a
+    # name; the user id and the issuer's session are all it is given.
+    assert call.args == (user.id, db)
+    assert call.kwargs == {"issuer": contribute_identity_claims}
     claims = decode_token(pair.access_token)
     assert claims is not None
     assert claims["sub"] == str(user.id)
-    assert claims["email_verified"] is False
-    assert claims["roles"] == ["r"]
+    assert {k: claims[k] for k in checked} == checked
+
+
+async def test_the_contributor_reads_the_issuer_fields_in_its_statement(
+    test_db: Any, make_user: Any
+) -> None:
+    """``email`` / ``email_verified`` ride the contributor's one statement:
+    an unverified user is ``False``, a row still pending in the issuer's
+    session is seen (autoflush), and a missing user still answers one row."""
+    contribute = contract_method(contribute_identity_claims)
+    unverified = await make_user("claims-unverified@example.com", verified=False)
+    pending = User(email="claims-pending@example.com", full_name="P", is_verified=True)
+    test_db.add(pending)
+    statements: list[str] = []
+
+    def _count(_conn: Any, _cursor: Any, sql: str, *_args: Any) -> None:
+        if sql.lstrip().upper().startswith("SELECT"):
+            statements.append(sql)
+
+    engine = test_db.bind.sync_engine
+    with bind_contract_session(test_db):
+        assert await contribute(unverified.id) == {
+            "roles": [],
+            "permissions": [],
+            "email": "claims-unverified@example.com",
+            "email_verified": False,
+        }
+        event.listen(engine, "before_cursor_execute", _count)
+        try:
+            seen = await contribute(pending.id)
+        finally:
+            event.remove(engine, "before_cursor_execute", _count)
+        missing = await contribute(uuid4())
+    assert seen["email"] == "claims-pending@example.com"
+    assert seen["email_verified"] is True
+    assert len(statements) == 1, statements  # one statement, no extra I/O
+    assert missing == {
+        "roles": [],
+        "permissions": [],
+        "email": None,
+        "email_verified": False,
+    }
+
+
+async def test_without_a_core_no_issuer_field_is_minted() -> None:
+    """No core, no check: the issuer's fields are never minted unchecked."""
+    user = Mock(spec=User)
+    user.id = "00000000-0000-0000-0000-000000000001"
+    user.email = "u@example.com"
+    user.is_verified = True
+    db = AsyncMock()
+    db.add = Mock()
+    pair = await TokenService.create_tokens(user, db)
+    claims = decode_token(pair.access_token)
+    assert claims is not None
+    assert "email" not in claims
+    assert "email_verified" not in claims
 
 
 async def test_revoke_sessions_uses_the_framework_mark(
@@ -96,22 +171,36 @@ async def test_auth_audit_ip_is_proxy_aware(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 async def test_twofa_key_is_mandatory_in_prod(monkeypatch: pytest.MonkeyPatch) -> None:
-    from sandloom_identity import register
+    from pydantic import SecretStr
+
+    from sandloom.sdk.testing import override_settings, validate_settings
+    from sandloom_identity.config import IdentitySettings
     from sandloom_identity.services import twofa_service
 
-    monkeypatch.setattr(settings, "twofa_encryption_key", None)
-    set_environment(monkeypatch, "dev")
-    assert twofa_service.twofa_configuration_error() is None
-    assert twofa_service._encrypt_secret("JBSWY3DPEHPK3PXP")  # dev fallback works
+    with override_settings(IdentitySettings, twofa_encryption_key=None):
+        set_environment(monkeypatch, "dev")
+        assert twofa_service.twofa_configuration_error() is None
+        assert twofa_service._encrypt_secret("JBSWY3DPEHPK3PXP")  # dev fallback works
 
-    set_environment(monkeypatch, "prod")
-    error = twofa_service.twofa_configuration_error()
-    assert error is not None and "TWOFA_ENCRYPTION_KEY" in error
-    with pytest.raises(RuntimeError, match="TWOFA_ENCRYPTION_KEY"):
-        twofa_service._encrypt_secret("JBSWY3DPEHPK3PXP")  # no JWT fallback
+        set_environment(monkeypatch, "prod")
+        error = twofa_service.twofa_configuration_error()
+        assert error is not None and "TWOFA_ENCRYPTION_KEY" in error
+        with pytest.raises(RuntimeError, match="TWOFA_ENCRYPTION_KEY"):
+            twofa_service._encrypt_secret("JBSWY3DPEHPK3PXP")  # no JWT fallback
 
-    with pytest.raises(SystemExit, match="TWOFA_ENCRYPTION_KEY"):
-        register(Mock())  # refused at registration, in every entry point
-
-    monkeypatch.setattr(settings, "twofa_encryption_key", "k" * 64)
-    assert twofa_service.twofa_configuration_error() is None
+    # refused by identity's own settings, before its setup, in every entry
+    # point (the loader validates the model at registration)
+    with pytest.raises(SystemExit, match="TWOFA_ENCRYPTION_KEY is required"):
+        validate_settings(IdentitySettings, {}, environment="prod")
+    with pytest.raises(SystemExit, match=r"TWOFA_ENCRYPTION_KEY\[0\] is too short"):
+        validate_settings(
+            IdentitySettings, {"TWOFA_ENCRYPTION_KEY": "short"}, environment="prod"
+        )
+    with override_settings(IdentitySettings, twofa_encryption_key=SecretStr("k" * 64)):
+        assert twofa_service.twofa_configuration_error() is None
+    strong = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
+    rotated = f"{strong},{strong[::-1]}"  # newest first, the old key kept
+    configured = validate_settings(
+        IdentitySettings, {"TWOFA_ENCRYPTION_KEY": rotated}, environment="prod"
+    )
+    assert configured.twofa_keys() == [strong, strong[::-1]]

@@ -11,12 +11,13 @@ This is part of the stable public API (``sandloom.core.descriptors``).
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal, cast
 
 from fastapi import APIRouter
 
+from sandloom.core.descriptors.derived_capabilities import derived_needs
 from sandloom.core.descriptors.module_names import module_name
 
 __all__ = [
@@ -31,6 +32,7 @@ __all__ = [
     "ModuleLoadSummary",
     "MigrationTargetError",
 ]
+# GenerationInput, GenerationModule: public through sandloom.sdk.module only.
 
 HealthStatus = Literal["ok", "degraded", "fail"]
 
@@ -50,6 +52,84 @@ class HealthResult:
 
 
 HealthCheck = Callable[[], Awaitable[HealthResult]]
+
+
+@dataclass(frozen=True)
+class GenerationModule:
+    """One loaded module as a generated file's renderer sees it: data, not the module.
+
+    ``package`` is its import name, ``name`` its module name, ``admin_resources``
+    the ``RESOURCES`` its ``admin.py`` declares (``None`` without one).
+    """
+
+    package: str
+    name: str
+    admin_resources: Any = None
+
+
+def login_entry_problem(value: object) -> str | None:
+    """Why ``value`` is not a login entry (``None``: it is one).
+
+    A login entry is a route path of this application ("/auth/login"): it
+    starts with one ``/`` and is not a URL, a scheme-relative reference, a
+    backslash form or anything with whitespace, control characters, a query or
+    a fragment. A client sends the operator's credentials there, so a value
+    that could leave the application is refused rather than normalised.
+    """
+    if not isinstance(value, str) or not value:
+        return "must be a non-empty route path such as '/auth/login'"
+    if (
+        not value.startswith("/")
+        or value.startswith("//")
+        or any(c in value for c in ("\\", "?", "#", ":", "@", "%"))
+        or any(c.isspace() or not c.isprintable() for c in value)
+        or any(part in ("..", ".") for part in value.split("/"))
+    ):
+        return (
+            "must be a route path of this application such as '/auth/login' (one "
+            "leading '/', no URL, scheme, host, query, fragment, escape, '..' "
+            "or whitespace)"
+        )
+    return None
+
+
+@dataclass(frozen=True)
+class GenerationIssuer:
+    """The composition's assigned token issuer as a generated file's renderer sees it.
+
+    ``package`` is the import path the ``claim_authorities`` map assigns as
+    ``issuer`` (never read from a token), ``name`` its module name and
+    ``login_entry`` the login route the issuer declared on its registration
+    (``define_module(login_entry=...)``; ``None``: it declared none). A
+    declaration the composition cannot honour is a ``ValueError`` of the
+    collector, never a silent ``None``.
+    """
+
+    package: str
+    name: str
+    login_entry: str | None = None
+    console_auth: Mapping[str, str] | None = None
+
+
+@dataclass(frozen=True)
+class GenerationInput:
+    """What ``sandloom generate`` hands a module's generated-file renderer.
+
+    Data of the composed app (ADR-0012 decision 4): its OpenAPI document, its
+    routes as ``(path, METHOD) -> the endpoint's Python module`` and every
+    loaded module in load order. A renderer imports no other module.
+    """
+
+    openapi: Mapping[str, Any]
+    routes: Mapping[tuple[str, str], str]
+    modules: tuple[GenerationModule, ...]
+    #: The map's assigned issuer (``None``: the composition assigns none).
+    issuer: GenerationIssuer | None = None
+
+
+#: Renders one module-declared generated file (its full text) from the
+#: composed app's data; a ``ValueError`` names the declaration to fix.
+GeneratedFileRenderer = Callable[[GenerationInput], str]
 
 
 @dataclass(frozen=True)
@@ -145,10 +225,88 @@ class ModuleDescriptor:
     # process that loads an issuer and refuses it (and JWT_SECRET) in every
     # other process: a verify-only service must not be able to mint.
     issues_tokens: bool = False
+    # Only read on an issuer: whether it holds refresh sessions that an
+    # emergency block (``core.auth.user_blocked.v1``) must end. ``True`` (the
+    # default) obliges a durable consumer of that channel; ``False`` declares
+    # a stateless issuer, verified at startup against its refresh routes,
+    # session tables and consumers (ADR-0012 decision 5, SANDLOOM-B035).
+    refresh_sessions: bool = True
+    # Only read on the issuer: the route path of its login endpoint, which a
+    # client of the composition (the admin console) is sent to. A path of this
+    # application ("/auth/login"), never a URL; ``None`` declares none and
+    # a console in front of this issuer is then a configuration error naming
+    # it (ADR-0012 decision 4, X4).
+    login_entry: str | None = None
+    # Files ``sandloom generate`` writes into the app's shared package for this
+    # module: file name -> renderer, checked by ``generate --check`` and
+    # ``sandloom test`` like every generated file (SANDLOOM-T016).
+    generated_files: dict[str, GeneratedFileRenderer] = field(
+        default_factory=lambda: cast(dict[str, GeneratedFileRenderer], {})
+    )
+
+    console_auth: Mapping[str, str] | None = None
+
+    def __post_init__(self) -> None:
+        if self.console_auth is not None:
+            auth = self.console_auth
+            paths = {"refresh", "logout", "me", "setup_state"}
+            if (
+                not isinstance(auth, Mapping)
+                or set(auth) - (paths | {"kind"})
+                or not isinstance(auth.get("kind"), str)
+                or auth.get("kind") not in {"password", "id_token"}
+                or any(login_entry_problem(auth[key]) for key in paths & set(auth))
+                or self.login_entry is None
+                or not self.issues_tokens
+            ):
+                raise ValueError(
+                    "console_auth requires an issuer login_entry, a kind "
+                    "(password or id_token), and valid optional "
+                    "refresh/logout/me/setup_state route paths"
+                )
+            if "refresh" in auth and not self.refresh_sessions:
+                raise ValueError("console_auth.refresh requires refresh_sessions=True")
+        if self.login_entry is None:
+            return
+        if not self.issues_tokens:
+            raise ValueError(
+                f"module {self.name!r} declares login_entry={self.login_entry!r} "
+                "but not issues_tokens=True: only the token issuer declares a "
+                "login entry"
+            )
+        problem = login_entry_problem(self.login_entry)
+        if problem:
+            raise ValueError(
+                f"module {self.name!r}: login_entry={self.login_entry!r} {problem}"
+            )
 
     def effective_capabilities(self) -> list[CapabilityRequirement]:
-        """Capabilities to preflight at load (the declared list)."""
-        return list(self.capabilities)
+        """Capabilities to preflight at load: the declared ones, plus what the
+        module's code shows it needs: ``taskqueue`` for a ``tasks`` submodule,
+        with the feature ``periodic`` for its beat hook
+        (``setup_periodic_tasks``).
+
+        A declaration wins: a derived need adds its features to every declared
+        requirement of the same capability and never changes its ``required``
+        or ``instance``; only a capability nothing declares is added, required,
+        on the ``default`` instance. Read from the module's files (no import),
+        so ``sandloom check`` (SANDLOOM-C033) still asks for the declaration.
+        """
+        effective = list(self.capabilities)
+        for need in derived_needs(self.name):
+            declared = [
+                i for i, r in enumerate(effective) if r.capability == need.capability
+            ]
+            if not declared:
+                effective.append(
+                    CapabilityRequirement(need.capability, features=need.features)
+                )
+                continue
+            for i in declared:
+                req = effective[i]
+                if not need.features <= req.features:
+                    effective[i] = replace(req, features=req.features | need.features)
+        return effective
 
     def migration_chain_key(self) -> str:
         """Key of this module's migration chain (version-table suffix)."""
@@ -249,6 +407,13 @@ class ModuleLoadSummary:
             "duplicates": list(self.duplicates),
             "explicit": list(self.explicit),
             "consumes": {k: [dict(e) for e in v] for k, v in self.consumes.items()},
+            # The token issuer's declaration (ADR-0012 decision 5), shown by
+            # /diagnostics/core (the console) and `sandloom doctor`.
+            "issuers": {
+                d.name: {"refresh_sessions": bool(getattr(d, "refresh_sessions", True))}
+                for d in self.loaded
+                if getattr(d, "issues_tokens", False)
+            },
             "success": self.success(),
         }
 

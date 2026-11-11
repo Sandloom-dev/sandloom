@@ -1,0 +1,463 @@
+{
+ "variant": "authzstand",
+ "topology": "split",
+ "cases": {
+  "control": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    },
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "role.admin": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    },
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "role.user": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires role 'admin'",
+      "code": "Role"
+     },
+     "rpc": []
+    },
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires role 'admin'",
+      "code": "Role"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "perm.admin": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    },
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "subscribed": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "GET /_sandloom/rpc/billing.facts.v1 200",
+      "POST /_sandloom/rpc/billing.facts.v1/describe 200"
+     ]
+    },
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "subactive": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "GET /_sandloom/rpc/billing.entitlements.v1 200",
+      "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+     ]
+    },
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+     ]
+    }
+   ]
+  },
+  "credits": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/billing.entitlements.v1/get_credit_balance 200"
+     ]
+    },
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/billing.entitlements.v1/get_credit_balance 200"
+     ]
+    }
+   ]
+  },
+  "role_or_credits.admin": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    },
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "role_or_credits.user": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/billing.entitlements.v1/get_credit_balance 200"
+     ]
+    },
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/billing.entitlements.v1/get_credit_balance 200"
+     ]
+    }
+   ]
+  },
+  "orgrole": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "GET /_sandloom/rpc/tenancy.membership.v1 200",
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+     ]
+    },
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+     ]
+    }
+   ]
+  },
+  "orgrole_and_subactive": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+      "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+     ]
+    },
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+      "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+     ]
+    }
+   ]
+  },
+  "orgrole_and_subactive.outsider": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires organization role 'admin'",
+      "code": "OrgRole"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+     ]
+    },
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires organization role 'admin'",
+      "code": "OrgRole"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+     ]
+    }
+   ]
+  },
+  "bound.control": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    },
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "bound.orgrole_and_subactive": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+      "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+     ]
+    },
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+      "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+     ]
+    }
+   ]
+  },
+  "bound.member": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires organization role 'admin'",
+      "code": "OrgRole"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+     ]
+    },
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires organization role 'admin'",
+      "code": "OrgRole"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+     ]
+    }
+   ]
+  },
+  "bound.admin_inactive": {
+   "expected_today": 402,
+   "runs": [
+    {
+     "status": 402,
+     "body": {
+      "detail": "requires active subscription",
+      "code": "SubscriptionActive"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+      "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+     ]
+    },
+    {
+     "status": 402,
+     "body": {
+      "detail": "requires active subscription",
+      "code": "SubscriptionActive"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+      "POST /_sandloom/rpc/billing.entitlements.v1/check_subscription_active 200"
+     ]
+    }
+   ]
+  },
+  "bound.outsider": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires organization role 'admin'",
+      "code": "OrgRole"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+     ]
+    },
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires organization role 'admin'",
+      "code": "OrgRole"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+     ]
+    }
+   ]
+  },
+  "bound.no_tenant": {
+   "expected_today": 400,
+   "runs": [
+    {
+     "status": 400,
+     "body": {
+      "detail": "X-Tenant-Id is required when the token grants multiple tenants",
+      "code": null
+     },
+     "rpc": []
+    },
+    {
+     "status": 400,
+     "body": {
+      "detail": "X-Tenant-Id is required when the token grants multiple tenants",
+      "code": null
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "or_sub_user.admin": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+     ]
+    },
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+     ]
+    }
+   ]
+  },
+  "not_member.admin": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires NOT organization role 'member'",
+      "code": "negation_failed"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+     ]
+    },
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires NOT organization role 'member'",
+      "code": "negation_failed"
+     },
+     "rpc": [
+      "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200"
+     ]
+    }
+   ]
+  }
+ }
+}

@@ -22,10 +22,10 @@ from uuid import UUID
 
 from sqlalchemy import and_, select
 
-from sandloom.core.module_api import contract_session
-from sandloom.sdk import contract
+from sandloom.sdk import contract, db
+from sandloom.sdk.authz import Category, From, access_check
 from sandloom.sdk.contracts import contract_reads
-from sandloom.sdk.infra import settings
+from sandloom_tenancy.config import tenancy_settings
 from sandloom_tenancy.models import (
     Organization,
     OrganizationMember,
@@ -77,12 +77,31 @@ class MembershipReadContract:
         return await _role(organization_id, user_id) is not None
 
     @contract.read(planned=True)
+    @access_check(
+        "OrgRole",
+        bind={
+            # Membership itself is the authority (the token's tenant allowlist
+            # may lag a fresh join): the organization is not checked against
+            # the token.
+            "organization_id": From.org(param="org_id", validate_against_token=False),
+            "user_id": From.subject_id(),
+        },
+        category=Category.FORBIDDEN,
+        values={"minimum": ["member", "admin", "owner"]},
+        risk={"admin": {"minimum": ["admin", "owner"]}},
+        describe="organization role '{minimum}'",
+        # Any role proves membership; tenant_kind asks with "member"
+        # (ADR-0014 decision 13).
+        witnesses_membership={"minimum": "member"},
+    )
     async def has_role_at_least(
         self, organization_id: UUID, user_id: UUID, minimum: str
     ) -> bool:
         """True when the user's role ranks at least ``minimum`` (``member`` <
         ``admin`` < ``owner``). Live: a removal is seen at once, unlike the
-        token's ``tenant_ids`` claim."""
+        token's ``tenant_ids`` claim. Its access check ``OrgRole(minimum)``
+        reads the organization from the request (``org_param=``, else
+        ``X-Tenant-Id``, else the bound tenant) and the caller's user id."""
         role = await _role(organization_id, user_id)
         return role is not None and role_at_least(role, minimum)
 
@@ -93,8 +112,9 @@ class MembershipReadContract:
         organization) and its last member-event ``version`` (``0`` when tenancy
         never issued one), read in one snapshot. What a projection's
         ``rebuild_from`` returns, and what a v1 consumer re-reads when an event
-        has no version (``sandloom.shared.membership``)."""
-        db = contract_session()
+        has no version (the rule is in the ``tenancy.member_*.v1`` event
+        descriptions)."""
+        session = db()
         member = and_(
             OrganizationMember.organization_id == organization_id,
             OrganizationMember.user_id == user_id,
@@ -117,7 +137,7 @@ class MembershipReadContract:
             )
             .scalar_subquery()
         )
-        row = (await db.execute(select(role, version))).one()
+        row = (await session.execute(select(role, version))).one()
         return MemberState(
             organization_id=organization_id,
             user_id=user_id,
@@ -131,7 +151,7 @@ class MembershipReadContract:
         (an error above ``TENANT_CLAIMS_MAX_ORGANIZATIONS``)."""
         reads = contract_reads()
         ids: list[UUID] = []
-        cap = settings.tenant_claims_max_organizations
+        cap = tenancy_settings().tenant_claims_max_organizations
         cursor = None
         while True:
             page = await reads.page(
@@ -155,16 +175,41 @@ class MembershipReadContract:
         """Member user ids of an organization (active or not), in id order,
         strictly after ``after``: keyset paging, at most 1000 per call (a
         larger ``limit`` is capped). Page until fewer than ``limit`` return."""
-        db = contract_session()
-        stmt = (
-            select(OrganizationMember.user_id)
-            .where(OrganizationMember.organization_id == organization_id)
-            .order_by(OrganizationMember.user_id)
-            .limit(max(1, min(limit, 1000)))
-        )
-        if after is not None:
-            stmt = stmt.where(OrganizationMember.user_id > after)
-        return list((await db.execute(stmt)).scalars())
+        return await _member_user_ids(organization_id, after, limit)
 
 
-__all__ = ["MembershipReadContract"]
+async def _member_user_ids(
+    organization_id: UUID, after: UUID | None, limit: int
+) -> list[UUID]:
+    session = db()
+    stmt = (
+        select(OrganizationMember.user_id)
+        .where(OrganizationMember.organization_id == organization_id)
+        .order_by(OrganizationMember.user_id)
+        .limit(max(1, min(limit, 1000)))
+    )
+    if after is not None:
+        stmt = stmt.where(OrganizationMember.user_id > after)
+    return list((await session.execute(stmt)).scalars())
+
+
+@contract("tenancy.security.v1")
+class TenancySecurityContract:
+    """Tenancy's operator contract (reserved to tenancy, SANDLOOM-B034).
+
+    ``sandloom security revoke-sessions --tenant ORG`` (and
+    ``force-password-reset --tenant``) asks the owner of the ``tenant_ids``
+    claim for the organization's members: tenancy in the standard map.
+    Confirmed by describe before the command acts; reads only.
+    """
+
+    async def list_member_user_ids(
+        self, organization_id: UUID, after: UUID | None, limit: int
+    ) -> list[UUID]:
+        """Member user ids of an organization (active or not), in id order,
+        strictly after ``after``: keyset paging, at most 1000 per call (a
+        larger ``limit`` is capped). Page until fewer than ``limit`` return."""
+        return await _member_user_ids(organization_id, after, limit)
+
+
+__all__ = ["MembershipReadContract", "TenancySecurityContract"]

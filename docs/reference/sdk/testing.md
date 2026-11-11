@@ -19,7 +19,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | --- | --- | --- |
 | [`as_user`](#as_user) | function | `(user_id, headers)` with a freshly minted access token. |
 | [`deliver`](#deliver) | async function | Deliver one event to every consumer of its channel; returns how many. |
-| [`fake_access_fact`](#fake_access_fact) | function | Answer the access fact `name` with `value` inside the block. |
+| [`fake_access_fact`](#fake_access_fact) | function | Answer the access fact `(owner, name)` with `value` inside the block; only a policy naming the same `owner` sees it. |
 | [`fake_contract`](#fake_contract) | function | Serve contract `ref` from `impl` for the block: |
 | [`published`](#published) | function | The events of `event`'s channel published by the code under test: |
 
@@ -56,12 +56,15 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`migration_chains`](#migration_chains) | function | The core chain plus the chain of every loaded module that has one. |
 | [`migration_drift`](#migration_drift) | function | How a module's migration chain at head differs from its models. |
 | [`MigrationChain`](#migrationchain) | class | One Alembic chain: the kernel's core chain or a module's own. |
+| [`mint_test_token`](#mint_test_token) | function | A signed test token from `data`, the test kit's replacement of a hand-assembled `create_access_token(data={...})`. |
 | [`model_tables`](#model_tables) | function | `{table: owning chain}` for every ORM table of the core and the loaded modules — the owner is the package that DECLARES the model. |
 | [`ModuleBootError`](#modulebooterror) | exception | The module started alone, but logged errors while doing so. |
 | [`ModuleRegistrationDraft`](#moduleregistrationdraft) | class | A buffer of one module's registrations, applied atomically on commit. |
+| [`ModuleSettingsError`](#modulesettingserror) | exception | A module's settings are invalid, or the loaded set is inconsistent. |
 | [`open_saga_harness`](#open_saga_harness) | function | The fixture body: point `default` at the test database, yield a harness. |
 | [`Outcome`](#outcome) | class | A normalized call outcome (comparable across the two paths). |
 | [`override_instance`](#override_instance) | function | Configure `capability`/`name` with `driver` + `options` in the block. |
+| [`override_settings`](#override_settings) | function | Testing: `settings_of(model)` returns a copy with `values` (field names) inside the block; the application's instance is untouched. |
 | [`probe`](#probe) | function | One readiness check: `True` once THIS spawn answers with its nonce. |
 | [`record_revocation_checks`](#record_revocation_checks) | function | Record the `sub` of every access-token revocation check. |
 | [`recording_uow`](#recording_uow) | function | Bind an in-memory UoW that records audits/events (unit tests). |
@@ -86,6 +89,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`run_sql`](#run_sql) | function | Run `sql` in its own committed transaction; the rows it returned. |
 | [`SagaHarness`](#sagaharness) | class | The `saga_harness` fixture's object (see the module docstring). |
 | [`SagaRun`](#sagarun) | class | What one `run()` / `drive()` observed. |
+| [`sealed_claims`](#sealed_claims) | function | The kernel test authority's sealed claims: what a test passes as `create_access_token(data, claims=...)` where the application passes the... |
 | [`served_rpc`](#served_rpc) | function | Serve `core`'s internal RPC routes (or `app`) on a loopback socket. |
 | [`set_environment`](#set_environment) | function | Run the rest of the test with `settings.environment == name`. |
 | [`SimulatedCrash`](#simulatedcrash) | exception | The process "died": the transition's UoW rolls back (not an Exception, so the step classification never sees it). |
@@ -93,6 +97,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`spawn_served`](#spawn_served) | function | Start `app` (`"module:attr"`) in a child serving on `port`'s socket. |
 | [`SpawnedServer`](#spawnedserver) | class | A child serving on a `ReservedPort`, identified by its nonce. |
 | [`SpawnedServerError`](#spawnedservererror) | exception | The spawned server exited, or its port is answered by another process. |
+| [`split_env`](#split_env) | function | Environment overlays for test processes with pinned RPC and EdDSA JWTs. |
 | [`stop_revocation_listener`](#stop_revocation_listener) | async function | Drop every per-process copy of a subject's state (test teardown). |
 | [`tables_created_by`](#tables_created_by) | function | Tables a chain's revisions create (`op.create_table(<name>, ...)`). |
 | [`temporary_database`](#temporary_database) | function | Create an empty database on the test server; yield its sync URL. |
@@ -100,6 +105,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`UNIQUE`](#unique) | constant |  |
 | [`upgrade_core_chain`](#upgrade_core_chain) | function | Apply the core chain (outbox / audit / inbox / command log) to `url`. |
 | [`use_security_cache`](#use_security_cache) | function | Resolve the kernel's revocation / block state to `provider`. |
+| [`validate_settings`](#validate_settings) | function | Testing: validate `model` exactly as the loader does before `setup`. |
 | [`wait_revocation_listener_subscribed`](#wait_revocation_listener_subscribed) | async function | Return once no per-process copy of a subject's state can be stale. |
 | [`worker_env_values`](#worker_env_values) | function | `dotenv_values(path)` (`None` dropped), the `SANDLOOM_TEST_<VAR>` overrides applied, rewritten for this worker. Missing file -> `{}` base. |
 
@@ -162,12 +168,14 @@ def fake_access_fact(
     name: str,
     value: bool | Callable[[Any], Any] = True,
     *,
+    owner: str,
     deny_category: str | None = None,
     core: Any = None,
 ) -> Iterator[None]
 ```
 
-Answer the access fact `name` with `value` inside the block.
+Answer the access fact `(owner, name)` with `value` inside the
+block; only a policy naming the same `owner` sees it.
 
 ### `fake_contract`
 
@@ -260,10 +268,8 @@ snapshot lists method, path, auth and policy of every route the module mounts
 checked. A module test pins its own:
 
 ```python
-def test_routes_are_approved() -> None:
-    from sandloom.main import app
-
-    assert_route_snapshot(app, "sandloom.notes")
+def test_routes_are_approved(sandloom_app: Any) -> None:
+    assert_route_snapshot(sandloom_app, "sandloom.notes")
 ```
 
 ### `bind_contract_session`
@@ -765,6 +771,26 @@ One Alembic chain: the kernel's core chain or a module's own.
 versions  (property)
 ```
 
+### `mint_test_token`
+
+```python
+def mint_test_token(
+    data: Mapping[str, Any],
+    expires_delta: int | None = None,
+    *,
+    claims_read_at: datetime | None = None,
+) -> str
+```
+
+A signed test token from `data`, the test kit's replacement of a
+hand-assembled `create_access_token(data={...})`.
+
+The envelope (`sub`, `token_type`, `auth_time`, `iat`, `exp`,
+...) is minted as given; every other key (`roles`, `tenant_ids`,
+`tenant_id`, `email`, an application claim) is the kernel test
+authority's sealed contribution (`sealed_claims`): trusted in a
+test composition only, with the provenance a test states checked.
+
 ### `model_tables`
 
 ```python
@@ -832,6 +858,19 @@ conflict preflight cannot foresee), the kernel is rewound to exactly its
 pre-apply state so a half-registered module leaves no orphan service,
 route or schema behind.
 
+### `ModuleSettingsError`
+
+```python
+class ModuleSettingsError(ConfigurationError)
+```
+
+A module's settings are invalid, or the loaded set is inconsistent.
+
+A `sandloom.core.config.common.ConfigurationError` (a
+`SystemExit`): the loader's per-module handler catches `Exception`
+only, so an optional module refuses the boot like a required one
+(ADR-0015 answer #29), with the kernel's message prefix and exit 1.
+
 ### `open_saga_harness`
 
 ```python
@@ -873,6 +912,19 @@ async with override_instance(core, "cache", driver="redis",
                              url=os.environ["CACHE_URL"]):
     ...
 ```
+
+### `override_settings`
+
+```python
+def override_settings(model: type[M], **values: Any) -> Iterator[M]
+```
+
+Testing: `settings_of(model)` returns a copy with `values` (field
+names) inside the block; the application's instance is untouched.
+
+Starts from the bound application's instance, else from the model's
+defaults. Usable in a fixture (`with override_settings(...): yield`)
+and nestable; process-wide, so threads and tasks see it too.
 
 ### `probe`
 
@@ -1513,6 +1565,27 @@ def assert_keys_derived(self) -> None
 
 Every command call carried `saga:<type>:<id>:<step>:do|undo`.
 
+### `sealed_claims`
+
+```python
+def sealed_claims(claims: Mapping[str, Any]) -> SealedClaims
+```
+
+The kernel test authority's sealed claims: what a test passes as
+`create_access_token(data, claims=...)` where the application passes
+the `collect_claims` result (a test that fakes `collect_claims`).
+
+Refused (SANDLOOM-R017) unless this process is a test composition: the
+`sandloom.sdk.testing` pytest plugin or the framework's harness is
+active (the kernel test authority exists nowhere else). Without a
+`claims_sources` of the caller's own, the test authority
+(`sandloom-test`) vouches for every claim; a test that states
+`claims_sources` (and `claims_sources_failed`) gets exactly that
+provenance checked against the composition's `claim_authorities`
+(parts 1 and 3 of the trusted view). A stated `cpv` is minted as
+given (a test of the view's policy versions); `cpv=None` mints none
+(a token of a release before `cpv`).
+
 ### `served_rpc`
 
 ```python
@@ -1613,6 +1686,39 @@ class SpawnedServerError(AssertionError)
 
 The spawned server exited, or its port is answered by another process.
 
+### `split_env`
+
+```python
+def split_env(
+    processes: Mapping[str, Sequence[str]],
+    urls: Mapping[str, str],
+    *,
+    issuer: str,
+    bindings: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
+) -> dict[str, dict[str, str]]
+```
+
+Environment overlays for test processes with pinned RPC and EdDSA JWTs.
+
+`processes` maps service ids to module import paths; `urls` maps the
+same ids to reserved HTTP addresses (for example `ReservedPort.url`).
+Each module belongs to one process. Registration is loaded to discover
+contracts; no servers start and no migrations run. Only `issuer` receives
+the JWT private key and a secret for its emailed tokens. Every process gets
+its own fresh Ed25519/X25519 RPC keys and the peers' public keys.
+
+By default each process binds every contract provided elsewhere. Pass
+`bindings={service: {contract: options}}` to select exact remote contracts
+and metadata such as `critical=False`; omitted services then bind nothing.
+URLs and service-id pins are derived and cannot be overridden. The RPC
+allowlist contains exactly those bindings. One process is also supported.
+
+Merge each returned overlay into the test's infrastructure environment:
+database, cache, broker, composition root and module-specific settings stay
+the caller's responsibility. Settings in the overlay must win over inherited
+variables, especially the empty JWT private key/secret on verify-only peers.
+These ephemeral keys are for tests, never deployment configuration.
+
 ### `stop_revocation_listener`
 
 ```python
@@ -1685,6 +1791,27 @@ Resolve the kernel's revocation / block state to `provider`.
 The revocation marks and the emergency block marks are read and written
 through `sandloom.core.infra.access.cache` at call time; for the rest of the
 test every such lookup (any instance name) returns `provider`.
+
+### `validate_settings`
+
+```python
+def validate_settings(
+    model: type[M],
+    env: Mapping[str, str] | None = None,
+    *,
+    environment: str | None = None,
+    accepted_risks: Iterable[str] | None = None,
+    package: str | None = None,
+) -> M
+```
+
+Testing: validate `model` exactly as the loader does before `setup`.
+
+`env` is the whole environment to read (no `.env`, no secrets);
+omitted, the process snapshot is read. `environment` (`"prod"`...) and
+`accepted_risks` (`<module>.<name>` ids) replace the kernel's in the
+validation context. Raises `ModuleSettingsError` with the message
+a boot would print.
 
 ### `wait_revocation_listener_subscribed`
 

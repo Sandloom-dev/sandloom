@@ -19,8 +19,13 @@ git clone https://github.com/Sandloom-dev/sandloom.git
 cd sandloom
 ```
 
-The checkout runs with its standard modules (identity, tenancy, billing), which
-`sandloom.main:app` composes from their installed `sandloom.modules` entry points.
+The checkout runs with its standard modules (identity, tenancy, billing). The standard
+composition root `sandloom_standard.main` composes them from their installed
+`sandloom.modules` entry points, with the claim authorities they need. Identity issues
+the tokens and writes `roles` and `permissions`, tenancy writes `tenant_ids`, and billing
+writes the subscription claims. The kernel's lean root `sandloom.main` assigns no
+authorities, so with identity installed it refuses to start (`SANDLOOM-B035`). Run
+every process from the standard root.
 
 ## Install dependencies
 
@@ -45,7 +50,18 @@ cp .env.example .env
 ```
 
 The four mandatory settings are `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`, and
-`JWT_SECRET`. The internal/ops endpoints (`/diagnostics/*`, `/contracts/*`,
+`JWT_SECRET`. The example sets `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main`, the
+root that `sandloom migrate`, `sandloom generate`, the worker and the other `sandloom`
+commands build; keep it. A checkout or worktree without a `.env` gets the lean root.
+Every command that builds the app then refuses with `SANDLOOM-B035`, `sandloom test`
+included. Its gates build the app, and the root `conftest.py` picks the standard root for
+the pytest suites. Export the variable there:
+
+```bash
+export SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main
+```
+
+The internal/ops endpoints (`/diagnostics/*`, `/contracts/*`,
 `/metrics`) stay closed (`404`) until you set
 `INTERNAL_API_TOKEN` — or, for local development only,
 `INTERNAL_ENDPOINTS_OPEN_IN_DEV=true`. Neither opens internal RPC, which takes
@@ -86,7 +102,7 @@ model.
 ## Run the API
 
 ```bash
-uv run uvicorn sandloom.main:app --reload   # API on :8000
+uv run uvicorn sandloom_standard.main:app --reload   # API on :8000
 ```
 
 Interactive API docs are served at `/docs` outside production (see

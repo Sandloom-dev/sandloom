@@ -1,0 +1,97 @@
+# contrast: the kb-guarantee-map lean wheel built at b8d8506 (before PR #70), same fixtures
+# command: <kb-gmap venv-redis>/bin/python run.py A-mono B-mono
+
+######## A-mono   kernel: <b8d8506 lean wheel>/sandloom
+== A monolith: test_identity, forged registered after it
+  A1 ADMIN, forged answers {}: mint 200 claims={"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": [], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  A1 ADMIN GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  A1 ADMIN GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  A1 ADMIN GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  A1 ADMIN GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  A1 USER, forged answers {}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": [], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  A1 USER GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  A1 USER GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  A1 USER GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  A1 USER GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  A2 USER, forged writes {"roles": ["admin"], "permissions": ["perm.poc.write"]}: mint 200 claims={"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": [], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  A2 USER GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  A2 USER GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  A2 USER GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  A2 USER GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  A2 USER, forged writes {"permissions": ["perm.poc.write"]}: mint 200 claims={"roles": [], "permissions": ["perm.poc.write"], "tenant_ids": [], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  A2 USER GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  A2 USER GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  A2 USER GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  A2 USER GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  A2 USER, forged writes {"claims_sources": ["identity"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": [], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  A2 USER GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  A2 USER GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  A2 USER GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  A2 USER GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  A2 USER, forged writes {"provenance_authoritative": false}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": [], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  A2 USER GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  A2 USER GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  A2 USER GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  A2 USER GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  A2 USER, forged writes {"user_id": "00000000-0000-4000-8000-0000000ad001"}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": [], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  A2 USER GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  A2 USER GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  A2 USER GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  A2 USER GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+  A2 USER, forged writes {"sub": "00000000-0000-4000-8000-0000000ad001"}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": [], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  A2 USER GET /api/v1/shop/role-admin: 403 {"detail":"requires role 'admin'","code":"Role"}
+  A2 USER GET /api/v1/shop/perm-write: 403 {"detail":"requires permission 'perm.poc.write'","code":"Perm"}
+  A2 USER GET /api/v1/shop/platform: 403 {"detail":"Platform administrator role required","code":null}
+  A2 USER GET /api/v1/platform/shop/services: 403 {"detail":"Platform administrator role required","code":null}
+== A4 test_identity critical and down
+  A4 ADMIN: mint 503 {"detail": "Token claims from 'test_identity' are unavailable; try again later", "code": null}
+
+######## B-mono   kernel: <b8d8506 lean wheel>/sandloom
+== B monolith
+  B0 grant USER T_A: 200 {"tenant_ids":["T_A"]}
+  B1 USER: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  B1 USER /shop/tenant no header: 200 {"tenant":"T_A"}
+  B1 USER /shop/tenant X-Tenant-Id T_A: 200 {"tenant":"T_A"}
+  B1 USER /shop/tenant X-Tenant-Id T_B: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  B1 USER /shop/tenant X-Tenant-Id T_FOREIGN: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  B1 USER /notes/items X-Tenant-Id T_A: 200 {"rls_tenant_setting":"T_A","bodies":["note of A"]}
+  B1 USER /notes/items X-Tenant-Id T_B: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  B2 no token /shop/tenant X-Tenant-Id T_A: 401 {"detail":"Not authenticated","code":null}
+  B2 ADMIN (no grant): mint 200 claims={"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": [], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  B2 ADMIN (no grant) /shop/tenant no header: 400 {"detail":"tenant context required","code":null}
+  B2 ADMIN (no grant) /shop/tenant X-Tenant-Id T_A: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  B2 ADMIN (no grant) /shop/tenant X-Tenant-Id T_B: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  B2 ADMIN (no grant) /shop/tenant X-Tenant-Id T_FOREIGN: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  B2 ADMIN (no grant) /notes/items X-Tenant-Id T_A: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  B2 ADMIN (no grant) /notes/items X-Tenant-Id T_B: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  B3 USER, forged writes {"tenant_id": "0f000000-0000-4000-8000-00000000000f"}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  B3 USER /shop/tenant no header: 200 {"tenant":"T_FOREIGN"}
+  B3 USER /shop/tenant X-Tenant-Id T_A: 200 {"tenant":"T_A"}
+  B3 USER /shop/tenant X-Tenant-Id T_B: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  B3 USER /shop/tenant X-Tenant-Id T_FOREIGN: 200 {"tenant":"T_FOREIGN"}
+  B3 USER /notes/items X-Tenant-Id T_A: 200 {"rls_tenant_setting":"T_A","bodies":["note of A"]}
+  B3 USER /notes/items X-Tenant-Id T_B: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  B3 USER, forged writes {"org_id": "0f000000-0000-4000-8000-00000000000f"}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  B3 USER /shop/tenant no header: 200 {"tenant":"T_FOREIGN"}
+  B3 USER /shop/tenant X-Tenant-Id T_A: 200 {"tenant":"T_A"}
+  B3 USER /shop/tenant X-Tenant-Id T_B: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  B3 USER /shop/tenant X-Tenant-Id T_FOREIGN: 200 {"tenant":"T_FOREIGN"}
+  B3 USER /notes/items X-Tenant-Id T_A: 200 {"rls_tenant_setting":"T_A","bodies":["note of A"]}
+  B3 USER /notes/items X-Tenant-Id T_B: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  B3 USER, forged writes {"tenant_ids": ["0f000000-0000-4000-8000-00000000000f"]}: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_A"], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  B3 USER /shop/tenant no header: 200 {"tenant":"T_A"}
+  B3 USER /shop/tenant X-Tenant-Id T_A: 200 {"tenant":"T_A"}
+  B3 USER /shop/tenant X-Tenant-Id T_B: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  B3 USER /shop/tenant X-Tenant-Id T_FOREIGN: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  B3 USER /notes/items X-Tenant-Id T_A: 200 {"rls_tenant_setting":"T_A","bodies":["note of A"]}
+  B3 USER /notes/items X-Tenant-Id T_B: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  B5 revoke USER T_A: 200 {"tenant_ids":[],"valid_after":1794135613}
+  B5 old token /shop/tenant X-Tenant-Id T_A: 401 {"detail":"Token has been revoked","code":null}
+  B5 old token /notes/items X-Tenant-Id T_A: 401 {"detail":"Token has been revoked","code":null}
+  B5 USER re-mint after revoke: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": [], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  B5 new token /shop/tenant X-Tenant-Id T_A: 403 {"detail":"tenant is not authorized by the access token","code":null}
+  B4 grant USER T_B: 200 {"tenant_ids":["T_B"]}
+  B4 USER before provider down: mint 200 claims={"roles": [], "permissions": [], "tenant_ids": ["T_B"], "claims_sources": ["forged", "grants", "test_identity"], "claims_sources_failed": []}
+  B4 USER, provider down (fault switch): mint 503 {"detail": "Token claims from 'grants' are unavailable; try again later", "code": null}
+  B4 token minted before the fault /shop/tenant X-Tenant-Id T_B: 200 {"tenant":"T_B"}
+  B4 USER, provider down + forged writes tenant_ids: mint 503 {"detail": "Token claims from 'grants' are unavailable; try again later", "code": null}

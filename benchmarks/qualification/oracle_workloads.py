@@ -472,7 +472,7 @@ def mixed(exp, variant):
                     APP,
                     "python",
                     "-c",
-                    "from benchsuite.mix import mint;print(mint(hours=24,tenant=True))",
+                    "from benchsuite.mix import mint;print(mint(hours=24,full=True))",
                 ]
             )
             entries = [

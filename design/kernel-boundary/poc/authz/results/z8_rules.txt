@@ -1,0 +1,17 @@
+### candidate
+guard-order (gate before TenantScope):
+   Line 23: a require(...) gate that needs an organisation is declared before TenantScope() (it runs with no tenant bound) (board)
+account-route-mismatch (C027):
+   Line 31: route '/orgs/{org_id}/seats' carries an organization parameter but SeatsAvailable(of=Account.user()) checks the caller's personal account — u
+untagged-sensitive (C022):
+   Line 53: route POST /orgs/{org_id}/notes (notes) refuses with 403 in its body and declares no risk — add sensitive("admin") (or "security") to its dep
+handwritten-access-check (C032): 
+   Line 60: CheapLead calls the declared access check projects.roles.v1.has_project_role with tier 1 (declared 3)
+   Line 60: CheapLead calls the declared access check projects.roles.v1.has_project_role but does not state its declared risk ['admin'] (risks())
+### base
+guard-order (gate before TenantScope):
+account-route-mismatch (C027):
+untagged-sensitive (C022):
+   Line 42: route POST /orgs/{org_id}/settings (settings) refuses with 403 in its body and declares no risk — add sensitive("admin") (or "security") to i
+   Line 53: route POST /orgs/{org_id}/notes (notes) refuses with 403 in its body and declares no risk — add sensitive("admin") (or "security") to its dep
+handwritten-access-check (C032): rule absent

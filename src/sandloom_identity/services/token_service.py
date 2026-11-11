@@ -14,9 +14,8 @@ from sqlalchemy.future import select
 from sandloom.sdk import record_audit
 from sandloom.sdk.infra import settings
 from sandloom.sdk.security import create_access_token, ensure_user_not_blocked
-from sandloom_identity.claims import (
-    contribute_identity_claims,
-)
+from sandloom_identity.claims import contribute_identity_claims
+from sandloom_identity.config import identity_settings
 from sandloom_identity.errors import CommittedHTTPError
 from sandloom_identity.models.refresh_token import RefreshToken
 from sandloom_identity.models.user import User
@@ -77,7 +76,6 @@ class TokenService:
         family_id: UUID | None = None,
         auth_time: datetime | None = None,
         block_checked: bool = False,
-        identity_claims: dict[str, Any] | None = None,
         claims_read_at: datetime | None = None,
     ) -> TokenPair:
         """Create access and refresh tokens for user.
@@ -106,11 +104,6 @@ class TokenService:
         path (password / SSO / 2FA login, refresh, password change).
         ``block_checked=True``: the caller already made that live check in
         this request (saves a second cache round trip).
-
-        ``identity_claims``: what ``contribute_identity_claims`` returns for
-        ``user``, already read in this session (the refresh CAS) — claims
-        collection then skips that query; identity is still stamped in
-        ``claims_sources``.
         """
         if not block_checked:
             await ensure_user_not_blocked(user.id)
@@ -123,34 +116,25 @@ class TokenService:
         # contributors run in that module's own Unit of Work, locally or over
         # RPC (SERVICE_BINDINGS ``<module>.claims.v1``). A critical contributor
         # failure raises ClaimsUnavailable (503) — never a reduced token.
-        extra_claims = (
-            await core.collect_claims(
-                user.id,
-                db,
-                issuer="identity",
-                precomputed=(
-                    {contribute_identity_claims: identity_claims}
-                    if identity_claims is not None
-                    else None
-                ),
-            )
+        # The issuer's own fields (``email``, ``email_verified``) come from
+        # identity's contributor in the same statement as its roles, through
+        # the same mint check: no claim value is handed to the mint. Without
+        # a core there is no check, so none of them is minted.
+        sealed = (
+            await core.collect_claims(user.id, db, issuer=contribute_identity_claims)
             if core
-            else {}
+            else None
         )
 
         # Create access token (token_type lets guards reject non-access JWTs).
-        # ``email_verified`` lets other modules (e.g. tenancy invitation accept)
-        # trust ``email`` only when the user proved ownership of the address.
-        claims: dict[str, Any] = {
-            **extra_claims,
-            "sub": str(user.id),
-            "email": user.email,
-            "email_verified": user.is_verified is True,
-            "token_type": "access",
-        }
+        # The envelope is identity's; every claim of the token is the sealed
+        # collect_claims result (the kernel refuses them anywhere else).
+        envelope: dict[str, Any] = {"sub": str(user.id), "token_type": "access"}
         if auth_time is not None:
-            claims["auth_time"] = int(auth_time.timestamp())
-        access_token = create_access_token(data=claims, claims_read_at=claims_read_at)
+            envelope["auth_time"] = int(auth_time.timestamp())
+        access_token = create_access_token(
+            data=envelope, claims=sealed, claims_read_at=claims_read_at
+        )
 
         # Create refresh token
         refresh_token_value = secrets.token_urlsafe(32)
@@ -162,9 +146,10 @@ class TokenService:
             auth_time=auth_time,
             token=RefreshTokenUtils.hash_token(refresh_token_value),
             expires_at=min(
-                datetime.now(UTC) + timedelta(days=settings.refresh_token_expire_days),
+                datetime.now(UTC)
+                + timedelta(days=identity_settings().refresh_token_expire_days),
                 (auth_time or datetime.now(UTC))
-                + timedelta(days=settings.max_session_days),
+                + timedelta(days=identity_settings().max_session_days),
             ),
         )
 
@@ -244,7 +229,7 @@ class TokenService:
         # A family without a trustworthy primary auth instant must sign in
         # again instead of acquiring a fresh lifetime on every refresh.
         if auth_time is None or now >= auth_time + timedelta(
-            days=settings.max_session_days
+            days=identity_settings().max_session_days
         ):
             await db.execute(
                 update(RefreshToken)
@@ -421,7 +406,7 @@ class TokenService:
         expired-token cleanup), never adds one.
         """
         cutoff_time = datetime.now(UTC) - timedelta(days=days_old)
-        ttl = timedelta(days=settings.refresh_token_expire_days)
+        ttl = timedelta(days=identity_settings().refresh_token_expire_days)
         return await cls._delete_tokens(
             db,
             and_(

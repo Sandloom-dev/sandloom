@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,22 @@ from sandloom.core.cli.project import generate_project
 from sandloom.sdk import Contract
 from sandloom.sdk.testing import fake_contract
 from tools.smoke import split_check
+
+
+@pytest.fixture(autouse=True)
+def _leave_no_probe_app_imported() -> Iterator[None]:
+    """A test that imports the generated ``probe`` app (the split smoke does)
+    leaves its package in ``sys.modules`` and its root on ``sys.path``; a later
+    test generating another ``probe`` app would then import the stale one
+    (SANDLOOM-T019 in ``test_project``). Restore both after each test."""
+    path = list(sys.path)
+    try:
+        yield
+    finally:
+        sys.path[:] = path
+        for name in [m for m in sys.modules if m == "probe" or m.startswith("probe.")]:
+            del sys.modules[name]
+
 
 BACKEND = Path(__file__).resolve().parents[2]
 SDK = BACKEND / "src" / "sandloom" / "sdk"
@@ -81,7 +98,7 @@ def test_add_module_lists_items_capped_and_tenant_scoped(tmp_path: Path) -> None
     package = root / "probe" / "modules" / "board"
     api = (package / "api.py").read_text()
     assert '@router.get("/items")\nasync def list_items(' in api
-    assert "limit: Annotated[int, Query(ge=1, le=100)]" in api
+    assert "Query(ge=1, le=100)" in api
     assert (
         "class BoardItem(TenantScoped, Base):"
         in (package / "models" / "item.py").read_text()
@@ -130,14 +147,14 @@ def test_add_module_in_the_framework_tree_is_wired_and_gets_the_kit(
     backend = tmp_path
     (backend / "src" / "sandloom").mkdir(parents=True)
     (backend / "pyproject.toml").write_text("[project]\nname = 'x'\n")
-    main = backend / "src" / "sandloom" / "main.py"
+    main = backend / "src" / "sandloom" / "local_modules.py"
     main.write_text('LOCAL_MODULES: list[str] = ["gadgets"]\n')
     (backend / ".env.example").write_text('SANDLOOM_MODULES=["sandloom_identity"]\n')
     where = add.Layout(
         modules_dir=backend / "src",
         modules_package="",
-        shared_dir=backend / "src" / "sandloom" / "shared",
-        shared_package="sandloom.shared",
+        shared_dir=None,
+        shared_package=None,
         source_root=backend / "src",
     )
     touched = add.add_module("gizmos", where)
@@ -156,8 +173,20 @@ def test_add_task_writes_an_idempotent_task_and_its_schedule(tmp_path: Path) -> 
     where = add.layout(root)
     created, note = add.add_task("notes", "purge", where, periodic="0 3 * * *")
     tasks = root / "probe" / "modules" / "notes" / "tasks.py"
-    assert created == [tasks]
-    add.add_task("notes", "rollup", where, periodic="*/15 * * * *")
+    init = tasks.parent / "__init__.py"
+    # The beat hook needs a driver that runs periodic jobs: declared in
+    # define_module, as `sandloom check` asks (SANDLOOM-C033).
+    assert created == [tasks, init]
+    assert (
+        'CapabilityRequirement("taskqueue", features=frozenset({"periodic"}))'
+        in init.read_text()
+    )
+    assert (
+        "from sandloom.sdk.module import CapabilityRequirement  # sandloom: advanced"
+        in (init.read_text())
+    )
+    created, _ = add.add_task("notes", "rollup", where, periodic="*/15 * * * *")
+    assert created == [tasks]  # declared once
     source = tasks.read_text()
     assert "from sandloom.sdk.tasks import cron, shared_task" in source
     assert "acks_late=True, reject_on_worker_lost=True" in source
@@ -169,6 +198,36 @@ def test_add_task_writes_an_idempotent_task_and_its_schedule(tmp_path: Path) -> 
         add.add_task("notes", "purge", where)
     with pytest.raises(add.GeneratorError, match="5 cron fields"):
         add.add_task("notes", "nightly", where, periodic="daily")
+
+
+def test_add_task_declares_the_task_queue(tmp_path: Path) -> None:
+    """A task without a schedule declares ``taskqueue``; a later schedule
+    turns it into the ``periodic`` requirement; a ``define_module`` with
+    comments inside is left to its author, with a note."""
+    root = _app(tmp_path, everything=False)
+    where = add.layout(root)
+    init = root / "probe" / "modules" / "notes" / "__init__.py"
+    created, note = add.add_task("notes", "reindex", where)
+    assert init in created and note is None
+    assert 'capabilities=["taskqueue"]' in init.read_text()
+    add.add_task("notes", "purge", where, periodic="0 3 * * *")
+    text = init.read_text()
+    assert '"taskqueue"' not in text.replace('CapabilityRequirement("taskqueue"', "")
+    assert 'features=frozenset({"periodic"})' in text
+
+    add.add_module("stats", where)
+    stats = root / "probe" / "modules" / "stats" / "__init__.py"
+    stats.write_text(
+        stats.read_text().replace(
+            'version="0.1.0", settings=StatsSettings',
+            'version="0.1.0",  # kept\n    settings=StatsSettings',
+        )
+    )
+    before = stats.read_text()
+    assert "# kept" in before
+    created, note = add.add_task("stats", "rollup", where)
+    assert stats not in created and stats.read_text() == before
+    assert note and 'capabilities=["taskqueue"]' in note and "SANDLOOM-C033" in note
 
 
 def test_add_event_appends_and_refuses_an_unparsable_file(tmp_path: Path) -> None:
@@ -261,6 +320,12 @@ def test_add_contract_writes_the_generated_stub(tmp_path: Path) -> None:
     assert "async def record(self, amount: int, operation_key: str) -> int: ..." in text
     assert "async def status(self) -> LookupStatus: ..." in text
     assert "from probe.shared.contracts.notes_dto import LookupStatus" in text
+    # An application's stub: the public home, marked advanced (C-GEN-03).
+    assert (
+        "from sandloom.sdk.contracts import ContractRef"
+        "  # sandloom: advanced generated code" in text
+    )
+    assert "sandloom.core" not in text
     assert (
         "NOTES_LOOKUP_V1: ContractRef[NotesLookupV1] = ContractRef(\n"
         '    "notes.lookup.v1", NotesLookupV1\n)' in text
@@ -268,6 +333,11 @@ def test_add_contract_writes_the_generated_stub(tmp_path: Path) -> None:
     copy = (root / "probe" / "shared" / "contracts" / "notes_dto.py").read_text()
     assert copy.startswith("# Generated by `sandloom generate`")
     assert '@dto_copy("probe.modules.notes.schemas:LookupStatus")' in copy
+    assert (
+        "from sandloom.sdk.contracts import dto_copy"
+        "  # sandloom: advanced generated code" in copy
+    )
+    assert "sandloom.core" not in copy
     # A second contract of the module reuses the file and the import.
     add.add_contract("notes", "ledger", add.layout(root))
     contracts = (package / "contracts.py").read_text()
@@ -278,6 +348,38 @@ def test_add_contract_writes_the_generated_stub(tmp_path: Path) -> None:
     copy = (root / "probe" / "shared" / "contracts" / "notes_dto.py").read_text()
     assert "class LookupStatus(BaseModel):" in copy
     assert "class LedgerStatus(BaseModel):" in copy
+
+
+def test_add_contract_in_a_module_tree_writes_the_module_local_home(
+    tmp_path: Path,
+) -> None:
+    """A tree of top-level module packages has no shared package: the stub and
+    the DTO copy of a contract the module provides go into the module's own
+    ``_generated/contracts/`` (ADR-0013 decision 1, C-GEN-03), and a saga of the
+    module imports them from there. The kernel gets none."""
+    backend = tmp_path
+    (backend / "src" / "sandloom").mkdir(parents=True)
+    (backend / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+    (backend / "src" / "sandloom" / "local_modules.py").write_text(
+        "LOCAL_MODULES: list[str] = []\n"
+    )
+    where = add.Layout(
+        modules_dir=backend / "src",
+        modules_package="",
+        shared_dir=None,
+        shared_package=None,
+        source_root=backend / "src",
+    )
+    add.add_module("tidy", where)
+    add.add_saga("tidy", "sweep", where)
+    home = backend / "src" / "tidy" / "_generated" / "contracts"
+    assert (home.parent / "__init__.py").read_text().startswith('"""Generated')
+    stub = (home / "tidy_sweep_ledger_v1.py").read_text()
+    assert "from sandloom.sdk.contracts import ContractRef" in stub
+    assert "sandloom.core" not in stub
+    sagas = (backend / "src" / "tidy" / "sagas.py").read_text()
+    assert "from tidy._generated.contracts.tidy_sweep_ledger_v1 import" in sagas
+    assert not (backend / "src" / "sandloom" / "shared").exists()
 
 
 def test_sandloom_add_runs_generate_at_the_end(tmp_path: Path) -> None:
@@ -348,15 +450,17 @@ def _tier_problems(paths: list[Path]) -> list[str]:
     ]
 
 
-def test_the_beginner_tier_is_the_30_names() -> None:
-    """27 names of the 1.0 spec, plus ``new_id`` and ``CreatedAt``: the id
+def test_the_beginner_tier_is_the_26_names() -> None:
+    """27 names of the 1.0 spec (26 since KB-34: 20 code and 6 testing), plus ``new_id`` and ``CreatedAt``: the id
     and timestamp idiom every generated model uses (owner, 2026-10-27), plus
     ``UtcDateTime``, the type SANDLOOM-C029 asks for on every other time
-    column (owner, 2026-11-05)."""
+    column (owner, 2026-11-05), less the four domain atoms (``Subscribed``,
+    ``SubscriptionActive``, ``Credits``, ``OrgRole``) that the consumer's
+    generated stub carries since KB-34: 20 code names and 6 testing ones."""
     beginner = api10_rules.beginner_names(SDK)
     code = beginner["sandloom.sdk"]
     testing = beginner["sandloom.sdk.testing"] | beginner["sandloom.sdk.testing.plugin"]
-    assert len(code) == 24 and len(testing) == 6
+    assert len(code) == 20 and len(testing) == 6
     assert {"new_id", "CreatedAt", "UtcDateTime"} <= code
 
 

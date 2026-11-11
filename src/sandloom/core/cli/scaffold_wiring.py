@@ -4,7 +4,7 @@
 LOCAL_MODULES, .env.example and the deploy profile". :func:`wire_module`
 does them:
 
-* **framework tree** (``src/sandloom/main.py`` defines ``LOCAL_MODULES``: the
+* **framework tree** (``src/sandloom/local_modules.py`` defines ``LOCAL_MODULES``: the
   checkout's modules no installed distribution registers): the module joins
   ``LOCAL_MODULES``, ``SANDLOOM_MODULES`` in ``.env.example`` and the monolith
   deploy profile;
@@ -46,8 +46,8 @@ from sandloom.sdk.testing.fixtures import *  # noqa: F403
 
 
 #: The module-author agent contract (AGENTS.md) the scaffold and ``sandloom new``
-#: ship. ``src/sandloom/AGENTS.md`` is a byte-equal copy for the framework
-#: tree (pinned by ``test_agent_context_budget.py``).
+#: ship. ``.claude/rules/module-author.md`` carries it for the framework tree
+#: below a ``paths:`` front matter (pinned by ``test_agent_context_budget.py``).
 MODULE_CONTRACT_PATH = Path(__file__).parent / "templates" / "module-AGENTS.md"
 #: First-line marker: an ancestor AGENTS.md carrying it already gives every
 #: module below it the contract, so the scaffold does not copy it again.
@@ -147,7 +147,7 @@ def wire_module(dotted: str, module_dir: Path) -> list[Path]:
     if root is None:
         return []
     edited: list[Path] = []
-    main = root / "src" / "sandloom" / "main.py"
+    main = root / "src" / "sandloom" / "local_modules.py"
     if _python_list_append(main, dotted):
         edited.append(main)
     edited += [

@@ -1,8 +1,9 @@
+import { identityConfig } from '../auth';
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import catalogManifest from '../fixtures/catalog-manifest.json' with { type: 'json' };
 import builtinManifest from '../../public/admin-manifest.json' with { type: 'json' };
-import { JORDAN, MockApi, RILEY, signIn } from './mock-api';
+import { JORDAN, MockApi, OPERATOR, RILEY, signIn } from './mock-api';
 
 async function expectAccessible(page: Page, label: string) {
   const results = await new AxeBuilder({ page })
@@ -218,7 +219,9 @@ test('organizations: platform admins see the directory but no tenant authority',
 });
 
 test('module configuration hides absent sections without rebuilding', async ({ page }) => {
-  await page.route('**/config.json', (route) => route.fulfill({ json: { modules: ['identity'] } }));
+  await page.route('**/config.json', (route) =>
+    route.fulfill({ json: { ...identityConfig, modules: ['identity'] } }),
+  );
   const api = new MockApi();
   await signIn(page, api);
   await expect(nav(page).getByRole('link', { name: 'Users' })).toBeVisible();
@@ -239,7 +242,9 @@ test('a new module gets list, create form and a typed-confirmation command from 
     }),
   );
   await page.route('**/config.json', (route) =>
-    route.fulfill({ json: { modules: ['identity', 'tenancy', 'billing', 'catalog'] } }),
+    route.fulfill({
+      json: { ...identityConfig, modules: ['identity', 'tenancy', 'billing', 'catalog'] },
+    }),
   );
   const api = new MockApi();
   await signIn(page, api);
@@ -298,7 +303,9 @@ test('tenant-scoped resources require an explicit tenant and isolate its data', 
     }),
   );
   await page.route('**/config.json', (route) =>
-    route.fulfill({ json: { modules: ['identity', 'tenancy', 'billing', 'catalog'] } }),
+    route.fulfill({
+      json: { ...identityConfig, modules: ['identity', 'tenancy', 'billing', 'catalog'] },
+    }),
   );
   const api = new MockApi();
   await signIn(page, api);
@@ -516,7 +523,9 @@ test('tenant scope survives create, detail, edit and cancel and resets the draft
     }),
   );
   await page.route('**/config.json', (route) =>
-    route.fulfill({ json: { modules: ['identity', 'tenancy', 'billing', 'catalog'] } }),
+    route.fulfill({
+      json: { ...identityConfig, modules: ['identity', 'tenancy', 'billing', 'catalog'] },
+    }),
   );
   const api = new MockApi();
   await signIn(page, api);
@@ -697,5 +706,48 @@ test('activity binds both resource type and the public audit identity, including
   await expect(page.getByRole('link', { name: /audit explorer/ }).first()).toHaveAttribute(
     'href',
     /f.resource_type=billing_subscription/,
+  );
+});
+
+test('a stateless OIDC issuer signs an operator in without identity endpoints', async ({
+  page,
+}) => {
+  const requests: string[] = [];
+  const access = `x.${Buffer.from(JSON.stringify({ sub: OPERATOR, roles: ['admin'], claims_sources: ['acme'], exp: Math.floor(Date.now() / 1000) + 300 })).toString('base64url')}.y`;
+  await page.route('**/config.json', (route) =>
+    route.fulfill({
+      json: {
+        modules: ['acme'],
+        issuer: 'acme',
+        login_entry: '/api/v1/acme/login',
+        console_auth: { kind: 'id_token', roles_owner: 'acme' },
+      },
+    }),
+  );
+  await page.route('**/admin-manifest.json', (route) =>
+    route.fulfill({ json: { version: 1, modules: ['acme'], resources: [] } }),
+  );
+  await page.route('**/api/v1/**', (route) => {
+    const path = new URL(route.request().url()).pathname;
+    requests.push(path);
+    if (path === '/api/v1/acme/login') {
+      expect(route.request().postDataJSON()).toEqual({ id_token: 'external-id-token' });
+      return route.fulfill({ json: { access_token: access } });
+    }
+    return route.fulfill({ json: [] });
+  });
+  await page.route('**/auth/**', (route) => {
+    requests.push(new URL(route.request().url()).pathname);
+    return route.abort();
+  });
+  await page.goto('/');
+  await expect(page.getByLabel('Identity token')).toBeVisible();
+  await expect(page.getByLabel('Password', { exact: true })).toHaveCount(0);
+  await page.getByLabel('Identity token').fill('external-id-token');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
+  expect(requests).toContain('/api/v1/acme/login');
+  expect(requests.some((path) => path.startsWith('/auth/') || path.includes('/identity/'))).toBe(
+    false,
   );
 });

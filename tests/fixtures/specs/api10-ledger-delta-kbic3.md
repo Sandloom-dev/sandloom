@@ -1,0 +1,28 @@
+# KB-IC-3: readiness for transient trouble, broker probe, billing reconciler (2026-11-09)
+
+Owner decision on module infrastructure dependencies
+(`design/kernel-boundary/owner-decision-infra-deps.md`), answers 1, 3 and 4.
+
+## Changed entries
+
+- G-OPS-03 (terminology): `/health` reports operational health. The existing
+  rule on required peers still applies to `/ready`.
+
+- G-OPS-23 (amended, enforced): `/ready`'s taskqueue term follows the loaded
+  modules' required taskqueue requirements, not a `tasks.py`; a request-path
+  use gates on the broker's reachability, a periodic-only use does not
+  (answer 3), an optional one is never probed; the `celery` driver's
+  `health()` is one bounded broker connection (answer 4). The KB-02 tests it
+  listed were rewritten in the same file under new names.
+
+## New entries
+
+- G-OPS-24 (new in KB-IC-3, amended by Billing operational readiness):
+  the `billing_reconciler` check in `/health` reports absent or overdue
+  progress and outstanding compensation failures. Each completed run records
+  its time. New checkout and portal effects require a completed run within
+  three 300-second periods. A web process restart grants no grace.
+- C-OPS-15 (new, enforced): `sandloom doctor`'s `periodic` section and
+  `/diagnostics/core`'s `periodic` block say whether a beat schedules each
+  module's periodic jobs; required fails, optional warns (answer 1:
+  identity's cleanup).

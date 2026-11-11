@@ -1,0 +1,93 @@
+# A19: can a third-party module (inventory) add its own access check without a kernel change?
+# Run in the lean venv (the `sandloom` wheel at b8d8506 only; see lean-install.txt):
+#   $ $S/venv-lean/bin/python -I a19_probe.py
+# FakeCore stands in for CoreFacade.get_access_fact (the local registration a module makes
+# with `core.register_access_fact(...)`, core/module_api/_registration.py:525-534); nothing
+# else is faked. Script, then output.
+
+----- a19_probe.py -----
+"""A19 probe: can a third-party module (inventory) add its own access check
+without a kernel change? Run with the lean venv's python, sandloom wheel only."""
+import asyncio
+import uuid
+
+from sandloom.sdk.authz import (
+    MODE_CLAIM, AccessFact, AuthzContext, Entitled, Requirement,
+    register_live_adapter,
+)
+from sandloom.shared.authz.facts import fact_owner_contract
+from sandloom.shared.authz.live_contracts import get_live_adapter
+from sandloom.shared.subject import UserContext
+
+
+class InventoryAdapter:
+    service = "inventory.stock.v1"
+
+    async def has_role_at_least(self, service, *, org_id, user_id, minimum, ctx):
+        return True
+
+
+print("1. register_live_adapter('inventory', ...):")
+try:
+    register_live_adapter("inventory", InventoryAdapter())
+except Exception as exc:  # noqa: BLE001
+    print("   ", type(exc).__name__, exc)
+
+print("2. register_live_adapter('membership', <adapter naming inventory.stock.v1>):")
+register_live_adapter("membership", InventoryAdapter())
+print("    membership slot now ->", get_live_adapter("membership").service)
+
+
+class InStock(Requirement):
+    async def evaluate(self, ctx):
+        return bool(ctx.subject.claim("stock_ok"))
+
+
+FACT = AccessFact(name="inventory.stock_available", owner_module="inventory",
+                  claim_key="stock_ok")
+
+
+class FakeCore:  # stands in for CoreFacade.get_access_fact (local registration)
+    def get_access_fact(self, name):
+        return FACT if name == FACT.name else None
+
+
+async def main():
+    subject = UserContext(user_id=uuid.uuid4(), stock_ok=True,
+                          claims_sources=["inventory"], claims_sources_failed=[])
+    ctx = AuthzContext(subject=subject, core=FakeCore())
+    print("3. custom Requirement subclass InStock().decide ->",
+          (await InStock().decide(ctx)).allowed)
+    d = await Entitled(FACT.name, mode=MODE_CLAIM).decide(ctx)
+    print("4. AccessFact + Entitled('inventory.stock_available', claim) ->",
+          d.allowed)
+    untrusted = UserContext(user_id=uuid.uuid4(), stock_ok=True,
+                            claims_sources=["identity"], claims_sources_failed=[])
+    d2 = await Entitled(FACT.name, mode=MODE_CLAIM).decide(
+        AuthzContext(subject=untrusted, core=FakeCore()))
+    print("   same claim, 'inventory' not in claims_sources ->", d2.allowed,
+          getattr(d2, "code", None))
+    print("5. fact_owner_contract('inventory.stock_available') ->",
+          fact_owner_contract("inventory.stock_available"))
+    print("   fact_owner_contract('stock.available') ->",
+          fact_owner_contract("stock.available"))
+    print("   fact_owner_contract('subscription.active') ->",
+          fact_owner_contract("subscription.active"))
+
+
+asyncio.run(main())
+
+----- output -----
+
+$ $S/venv-lean/bin/python -I $S/scripts/a19_probe.py
+1. register_live_adapter('inventory', ...):
+    ValueError unknown live adapter kind 'inventory'; expected ['entitlements', 'membership']
+2. register_live_adapter('membership', <adapter naming inventory.stock.v1>):
+    membership slot now -> inventory.stock.v1
+3. custom Requirement subclass InStock().decide -> True
+4. AccessFact + Entitled('inventory.stock_available', claim) -> True
+   same claim, 'inventory' not in claims_sources -> False fact_unavailable
+5. fact_owner_contract('inventory.stock_available') -> inventory.facts.v1
+   fact_owner_contract('stock.available') -> stock.facts.v1
+   fact_owner_contract('subscription.active') -> billing.facts.v1
+[exit 0]

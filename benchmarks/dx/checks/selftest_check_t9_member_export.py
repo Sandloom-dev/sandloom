@@ -102,7 +102,10 @@ def test_a_same_named_method_lends_no_gate(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "docstring",
-    ['Account.org(param="org_id")', 'Entitled("organization.subscription.active")'],
+    [
+        'Account.org(param="org_id")',
+        'Entitled("organization.subscription.active", owner="billing")',
+    ],
 )
 def test_org_forms_in_text_are_not_a_gate(tmp_path: Path, docstring: str) -> None:
     assert not _route(tmp_path, GATES["user"], docstring=docstring)
@@ -112,7 +115,7 @@ def test_org_forms_in_text_are_not_a_gate(tmp_path: Path, docstring: str) -> Non
     "gate",
     [
         'require(OrgRole("admin") | SubscriptionActive(of=Account.org(param=None)))',
-        'require(OrgRole("admin") | Entitled("organization.subscription.active"))',
+        'require(OrgRole("admin") | Entitled("organization.subscription.active", owner="billing"))',
     ],
 )
 def test_org_forms_in_an_alternative_are_not_a_gate(tmp_path: Path, gate: str) -> None:
@@ -122,7 +125,16 @@ def test_org_forms_in_an_alternative_are_not_a_gate(tmp_path: Path, gate: str) -
 def test_the_org_fact_passes(tmp_path: Path) -> None:
     assert _route(
         tmp_path,
-        'require(OrgRole("admin") & Entitled("organization.subscription.active"))',
+        'require(OrgRole("admin") & Entitled("organization.subscription.active", '
+        'owner="billing"))',
+    )
+
+
+def test_the_org_fact_of_another_owner_is_not_billing(tmp_path: Path) -> None:
+    assert not _route(
+        tmp_path,
+        'require(OrgRole("admin") & Entitled("organization.subscription.active", '
+        'owner="rogue"))',
     )
 
 

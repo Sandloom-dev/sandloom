@@ -1,0 +1,26 @@
+# Operator CLI without identity/tenancy (kb-guarantee-map). Script, then output.
+
+----- cli_without_identity.sh -----
+#!/bin/bash
+# Operator CLI paths that reach identity/tenancy, run with the sandloom wheel (+redis) only,
+# SANDLOOM_MODULES=[] (no identity, no tenancy), throwaway Postgres/Redis.
+G=$S/kb-gmap
+V=$G/venv-redis
+export DATABASE_URL=postgresql+asyncpg://gmap:gmap@127.0.0.1:48433/gmap CACHE_URL=redis://127.0.0.1:48380/5 BROKER_URL=redis://127.0.0.1:48380/6
+export JWT_SECRET=gmap-probe-not-a-real-secret-0123456789abcdef EVENT_BUS_BACKEND=memory SANDLOOM_MODULES='[]' OUTBOX_RELAY_ENABLED=off
+unset VIRTUAL_ENV
+cd $G/run
+run(){ echo "\$ sandloom $*"; $V/bin/sandloom "$@" <<<"Str0ng-probe-password-123" 2>&1 | grep -v '^\s*$' | grep -v 'WARNING\|^  File\|^    \|Traceback\|celery' | tail -4; echo "[exit ${PIPESTATUS[0]}]"; echo; }
+run admin create --email ops@example.test --password-stdin
+run admin list
+run security revoke-sessions --user 6f1d1c4e-1111-4111-8111-111111111111 --apply --reason probe-revoke --operator gmap
+run security revoke-sessions --tenant 6f1d1c4e-2222-4222-8222-222222222222 --reason probe-dry --operator gmap
+run security grant-admin --email ops@example.test --apply --reason probe-grant --operator gmap
+
+----- output -----
+$ sandloom admin create --email ops@example.test --password-stdin
+error: the identity module is not installed here: identity.security.v1 is neither local nor bound in SERVICE_BINDINGS
+[exit 1]
+
+$ sandloom admin list
+error: the identity module is not installed here: identity.security.v1 is neither local nor bound in SERVICE_BINDINGS

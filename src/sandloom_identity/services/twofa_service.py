@@ -19,6 +19,7 @@ from sandloom.sdk import record_audit
 from sandloom.sdk.data import WallClock
 from sandloom.sdk.effects import sensitive_effect
 from sandloom.sdk.infra import settings
+from sandloom_identity.config import identity_settings
 from sandloom_identity.events import (
     EventActor,
     TwoFABackupCodesRegeneratedEvent,
@@ -48,8 +49,7 @@ class TwoFASecretDecryptionError(RuntimeError):
 
 
 def _configured_twofa_keys() -> list[str]:
-    configured = settings.twofa_encryption_key or ""
-    return [k.strip() for k in configured.split(",") if k.strip()]
+    return identity_settings().twofa_keys()
 
 
 def twofa_configuration_error() -> str | None:

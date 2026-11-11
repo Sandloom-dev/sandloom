@@ -1,0 +1,86 @@
+{
+  "format": 3,
+  "module": "oidc_identity.modules.storefront",
+  "routes": [
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/storefront/manage",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/storefront/me",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/storefront/orgs/{org_id}/admin",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/storefront/orgs/{org_id}/subscribed",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/storefront/platform",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.guards.platform.require_platform_admin"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/storefront/subscribed",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/storefront/tenant",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    }
+  ]
+}

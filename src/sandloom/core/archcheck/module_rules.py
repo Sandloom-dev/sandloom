@@ -9,7 +9,10 @@ time. These look at a whole business module (its ``events.py``, its
   with ``register_event_schema``);
 * ``guard-order`` (SANDLOOM-C018) — an ``idempotency_guard`` or a gate that needs
   an organisation is not declared before the authentication / ``TenantScope()``
-  it relies on, where the order is visible in one route declaration;
+  it relies on, where the order is visible in one route declaration (an
+  ``APIRouter(...)`` or a ``module_router(...)``); a gate needs an organisation
+  when its atom's generated literal says so (:mod:`.atom_metadata`), whatever
+  the atom is called or where it comes from;
 * ``consumed-contracts`` (SANDLOOM-C019) — every literal ``get_service("x.y.vN")``
   is declared in ``consumes=`` (or provided by the module itself);
 * ``db-dependency-scope`` (SANDLOOM-C020) — ``Depends(get_db...)`` carries
@@ -17,7 +20,9 @@ time. These look at a whole business module (its ``events.py``, its
 * ``database-feature-forms`` (SANDLOOM-C030) — a ``sandloom.sdk.data`` form
   that needs a database feature (``Array``, ``fulltext_index``, ``matches``,
   ``json_path``, ``json_contains``, ``transaction_lock``) has its feature in
-  a ``CapabilityRequirement("database", features=...)`` of the module.
+  a ``CapabilityRequirement("database", features=...)`` of the module;
+* ``undeclared-capability`` (SANDLOOM-C033) — a ``tasks.py`` declares the
+  ``taskqueue`` capability, and its beat hook the feature ``periodic``.
 
 Each analyzer returns ``(file, "Line N: message")`` pairs. They only report
 what they can decide: an unresolvable name (a list built elsewhere, a channel
@@ -32,6 +37,7 @@ import ast
 from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 
+import sandloom.core.archcheck.atom_metadata as _atom_metadata
 from sandloom.core.archcheck.analyzers import (
     HTTP_METHODS,
     _const_str,
@@ -40,6 +46,11 @@ from sandloom.core.archcheck.analyzers import (
     parse_file,
 )
 from sandloom.core.descriptors.database_forms import DATABASE_FORM_FEATURES
+from sandloom.core.descriptors.derived_capabilities import (
+    PERIODIC_FEATURE,
+    PERIODIC_HOOK,
+    TASKQUEUE,
+)
 
 Hit = tuple[Path, str]
 
@@ -54,14 +65,8 @@ AUTH_NAMES = frozenset(
         "require_operator",
     }
 )
-#: ``require(...)`` atoms that always resolve an organisation (path param,
-#: ``X-Tenant-Id`` header, else the bound tenant).
-ORG_ATOMS = frozenset({"OrgRole"})
-#: Billing atoms that need an organisation unless ``of=Account.user()``.
-ORG_IF_ORGANIZATION = frozenset(
-    {"Subscribed", "SubscriptionActive", "Credits", "Feature", "WithinLimit"}
-)
-_GATE_ATOMS = ORG_ATOMS | ORG_IF_ORGANIZATION
+#: Calls that build a router whose ``dependencies=`` apply to its routes.
+_ROUTER_FACTORIES = frozenset({"APIRouter", "module_router"})
 
 
 def _call_name(node: ast.AST) -> str | None:
@@ -242,38 +247,44 @@ def _is_tenant_scope(node: ast.AST) -> bool:
     return "TenantScope" in _names_called(node)
 
 
-def _org_params_of_gate(node: ast.AST) -> set[str]:
+def _account_params(call: ast.Call) -> set[str]:
+    """Org params an atom reads through its ``of=`` account: none for
+    ``Account.user()``; ``Account.org(param=None)`` and
+    ``Account.bound_tenant()`` read only the header / bound tenant."""
+    account = _keyword(call, "of")
+    kind = _call_name(account) if account is not None else None
+    if kind in (None, "user"):
+        return set()
+    if kind == "org" and isinstance(account, ast.Call):
+        param = _keyword(account, "param")
+        if param is None:
+            return {"org_id"}
+        if _const_str(param) is not None:
+            return {str(_const_str(param))}
+    return {"<bound tenant>"}
+
+
+def _org_params_of_gate(
+    node: ast.AST, atoms: dict[str, _atom_metadata.AtomLiteral]
+) -> set[str]:
     """Org path params an inline ``require(...)`` gate resolves from.
 
-    ``OrgRole`` always resolves an organisation; the billing atoms unless
-    their ``of=`` is ``Account.user()`` (``Account.org(param=None)`` and
-    ``Account.bound_tenant()`` read only the header / bound tenant).
+    Read from the atom's generated literal, never from its name: an atom with
+    an organization bind resolves ``org_param=`` (else its declared default);
+    an atom with an account bind resolves its ``of=`` account.
     """
     params: set[str] = set()
     for call in ast.walk(node):
-        name = _call_name(call)
-        if (
-            not isinstance(call, ast.Call)
-            or name not in ORG_ATOMS | ORG_IF_ORGANIZATION
-        ):
+        if not isinstance(call, ast.Call):
             continue
-        if name == "OrgRole":
-            params.add(_const_str(_keyword(call, "org_param")) or "org_id")
+        literal = _atom_metadata.literal_of(call, atoms)
+        if literal is None:
             continue
-        account = _keyword(call, "of")
-        kind = _call_name(account) if account is not None else None
-        if kind in (None, "user"):
-            continue
-        if kind == "org" and isinstance(account, ast.Call):
-            param = _keyword(account, "param")
-            if param is None:
-                params.add("org_id")
-            elif _const_str(param) is not None:
-                params.add(str(_const_str(param)))
-            else:
-                params.add("<bound tenant>")
-        else:
-            params.add("<bound tenant>")
+        default = _atom_metadata.binds_org(literal)
+        if default is not None:
+            params.add(_const_str(_keyword(call, "org_param")) or default)
+        if _atom_metadata.binds_account(literal):
+            params |= _account_params(call)
     return params
 
 
@@ -355,7 +366,7 @@ def _router_items(
     for node in getattr(tree, "body", []):
         if (
             isinstance(node, ast.Assign)
-            and _call_name(node.value) == "APIRouter"
+            and _call_name(node.value) in _ROUTER_FACTORIES
             and any(isinstance(t, ast.Name) and t.id == router for t in node.targets)
         ):
             return _expand_items(_keyword(node.value, "dependencies"), consts)  # type: ignore[arg-type]
@@ -398,6 +409,7 @@ def find_guard_order_problems(files: Sequence[Path]) -> list[Hit]:
     hits: list[Hit] = []
     for py, tree in _trees(files):
         consts = _module_constants(tree)
+        atoms = _atom_metadata.atom_literals(tree, py)
         for fn in ast.walk(tree):
             if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
@@ -409,7 +421,7 @@ def find_guard_order_problems(files: Sequence[Path]) -> list[Hit]:
                 hits.extend(
                     (py, f"Line {dec.lineno}: {problem} ({fn.name})")
                     for problem in _route_order_problems(
-                        dec, fn, _router_items(tree, router, consts), consts
+                        dec, fn, _router_items(tree, router, consts), consts, atoms
                     )
                 )
     return hits
@@ -420,6 +432,7 @@ def _route_order_problems(
     fn: ast.FunctionDef | ast.AsyncFunctionDef,
     router_items: list[ast.AST] | None,
     consts: dict[str, ast.expr],
+    atoms: dict[str, _atom_metadata.AtomLiteral],
 ) -> list[str]:
     decorator_items = _expand_items(_keyword(dec, "dependencies"), consts)
     if decorator_items is None or router_items is None:
@@ -451,7 +464,7 @@ def _route_order_problems(
             node = _inline_constants(item, consts)
             if "require" not in _names_called(node):
                 continue
-            needed = _org_params_of_gate(node)
+            needed = _org_params_of_gate(node, atoms)
             if needed and not needed & path_params:
                 problems.append(
                     "a require(...) gate that needs an organisation is declared "
@@ -711,6 +724,145 @@ def find_database_feature_problems(files: Sequence[Path]) -> list[SeverityHit]:
 
 
 # --------------------------------------------------------------------------- #
+# undeclared-capability
+# --------------------------------------------------------------------------- #
+#: ``capability -> features`` a module declares; ``None`` when a declaration
+#: cannot be read statically (C030 reports it), so nothing is decided.
+_Declared = dict[str, set[str]] | None
+
+
+def _declared_entry(
+    item: ast.expr, constants: dict[str, ast.expr]
+) -> tuple[str, set[str]] | None:
+    """``(capability, features)`` of one ``capabilities=`` entry, or ``None``
+    when it cannot be read statically."""
+    if isinstance(item, ast.Name):
+        item = constants.get(item.id, item)
+    name = _const_str(item)
+    if name is not None:
+        return name, set()
+    if not (isinstance(item, ast.Call) and _call_name(item) == "CapabilityRequirement"):
+        return None
+    capability = _const_str(item.args[0]) if item.args else None
+    if capability is None:
+        capability = _const_str(_keyword(item, "capability"))
+    if capability is None:
+        return None
+    features = _keyword(item, "features")
+    if features is None and len(item.args) > 3:
+        features = item.args[3]
+    if features is None:
+        return capability, set()
+    found = _literal_strings(features)
+    return None if found is None else (capability, found)
+
+
+def _declared_capabilities(trees: dict[Path, ast.AST]) -> _Declared:
+    """What ``capabilities=`` of the module's ``define_module(...)`` (or
+    ``ModuleDescriptor(...)``) declares. ``None`` when there is no such call
+    or a declaration cannot be read: the check then decides nothing."""
+    declared: dict[str, set[str]] = {}
+    found = False
+    for tree in trees.values():
+        constants = _module_constants(tree)
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and _call_name(node) in {"define_module", "ModuleDescriptor"}
+            ):
+                continue
+            found = True
+            capabilities = _keyword(node, "capabilities")
+            if isinstance(capabilities, ast.Name):
+                capabilities = constants.get(capabilities.id, capabilities)
+            if capabilities is None:
+                continue
+            if not isinstance(capabilities, (ast.List, ast.Tuple)):
+                return None
+            for item in capabilities.elts:
+                entry = _declared_entry(item, constants)
+                if entry is None:
+                    return None
+                declared.setdefault(entry[0], set()).update(entry[1])
+    return declared if found else None
+
+
+def _first_definition_line(tree: ast.AST) -> int:
+    """The line of the first top-level ``def`` / ``class`` (decorators
+    included), where a waiver comment can go; 1 without one."""
+    for node in getattr(tree, "body", []):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            return min([node.lineno, *(d.lineno for d in node.decorator_list)])
+    return 1
+
+
+def find_undeclared_capabilities(module_dir: Path, files: Sequence[Path]) -> list[Hit]:
+    """``undeclared-capability``: a capability the module's code shows it
+    needs (the rules of :mod:`sandloom.core.descriptors.derived_capabilities`)
+    that its ``define_module(capabilities=[...])`` does not declare:
+
+    * a ``tasks.py`` (or ``tasks/`` package) without ``taskqueue``;
+    * a beat hook (``setup_periodic_tasks``) without the ``taskqueue``
+      feature ``periodic``.
+
+    The load preflight derives both anyway; the declaration is what readers
+    see. Only what is decidable is reported: an unreadable declaration (a
+    SANDLOOM-C030 finding) or a module without ``define_module`` /
+    ``ModuleDescriptor`` decides nothing, and the rule does not claim to find
+    every capability a module uses.
+    """
+    tasks = next(
+        (
+            p
+            for p in (module_dir / "tasks.py", module_dir / "tasks" / "__init__.py")
+            if p.is_file()
+        ),
+        None,
+    )
+    if tasks is None:
+        return []
+    try:
+        tasks_tree = parse_file(tasks)
+    except SyntaxError:
+        return []
+    declared = _declared_capabilities(dict(_trees(files)))
+    if declared is None:
+        return []
+    taskqueue = declared.get(TASKQUEUE)
+    hook = next(
+        (
+            node
+            for node in getattr(tasks_tree, "body", [])
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+            and node.name == PERIODIC_HOOK
+        ),
+        None,
+    )
+    shown = tasks.relative_to(module_dir).as_posix()
+    if hook is not None and (taskqueue is None or PERIODIC_FEATURE not in taskqueue):
+        return [
+            (
+                tasks,
+                f"Line {hook.lineno}: {PERIODIC_HOOK} schedules periodic jobs, "
+                f"which need the {TASKQUEUE} feature {PERIODIC_FEATURE!r}; declare "
+                "it in define_module: capabilities=[CapabilityRequirement("
+                f'"{TASKQUEUE}", features=frozenset({{"{PERIODIC_FEATURE}"}}))] '
+                "(required=False when the module works without its schedule)",
+            )
+        ]
+    if taskqueue is None:
+        return [
+            (
+                tasks,
+                f"Line {_first_definition_line(tasks_tree)}: the module has "
+                f"tasks ({shown}), which need the {TASKQUEUE} capability; "
+                f'declare it in define_module: capabilities=["{TASKQUEUE}"]',
+            )
+        ]
+    return []
+
+
+# --------------------------------------------------------------------------- #
 # db-dependency-scope
 # --------------------------------------------------------------------------- #
 def _db_dependency_name(node: ast.expr) -> str | None:
@@ -752,9 +904,9 @@ def find_unscoped_db_dependencies(file_path: Path) -> list[str]:
 __all__ = [
     "AUTH_NAMES",
     "HTTP_METHODS",
-    "ORG_ATOMS",
     "find_guard_order_problems",
     "find_database_feature_problems",
+    "find_undeclared_capabilities",
     "find_undeclared_contracts",
     "find_unregistered_event_channels",
     "find_unscoped_db_dependencies",

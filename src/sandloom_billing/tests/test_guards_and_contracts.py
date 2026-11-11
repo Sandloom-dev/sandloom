@@ -3,18 +3,58 @@
 import json
 import time
 import uuid
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from fastapi import APIRouter, Depends, HTTPException
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sandloom.sdk import Credits, SubscriptionActive, require
-from sandloom.shared.authz import Account
+from sandloom.sdk import require
+from sandloom.sdk.authz import (  # sandloom: advanced typed atoms of a contract
+    Account,
+    ContractCheck,
+)
 from sandloom_billing.psp import sign_stripe_payload
 from sandloom_billing.services import BillingService
 from sandloom_billing.tests.conftest import WEBHOOK_SECRET, make_user_headers
+
+
+class SubscriptionActive(ContractCheck):
+    """The consumer's typed atom of ``billing.entitlements.v1`` (what
+    ``sandloom generate`` writes beside a consumer's stub; billing is the
+    provider and has no stub of its own, so the test spells its metadata)."""
+
+    __sandloom_atom__: ClassVar[dict[str, Any]] = {
+        "contract": "billing.entitlements.v1",
+        "method": "check_subscription_active",
+        "args": ["tenant_type", "tenant_id"],
+        "binds": {"tenant_type": ["account_type"], "tenant_id": ["account_id"]},
+        "tier": 3,
+        "category": "payment_required",
+        "describe": "active subscription",
+    }
+
+    def __init__(self, *, of: Account) -> None:
+        super().__init__({}, of=of)
+
+
+class Credits(ContractCheck):
+    """The consumer's typed ``has_credits_at_least`` atom (see above)."""
+
+    __sandloom_atom__: ClassVar[dict[str, Any]] = {
+        "contract": "billing.entitlements.v1",
+        "method": "has_credits_at_least",
+        "args": ["tenant_type", "tenant_id", "minimum"],
+        "binds": {"tenant_type": ["account_type"], "tenant_id": ["account_id"]},
+        "tier": 3,
+        "category": "payment_required",
+        "describe": "at least {minimum} credits",
+    }
+
+    def __init__(self, minimum: int, *, of: Account) -> None:
+        super().__init__({"minimum": minimum}, of=of)
+
 
 # A consuming-domain router protected by the shared authz algebra (live atoms)
 _demo_router = APIRouter(prefix="/api/v1/_billing_guard_demo")
@@ -66,13 +106,11 @@ class TestSharedGuards:
         async_client: AsyncClient,
         test_db: AsyncSession,
         catalog,
-        monkeypatch: pytest.MonkeyPatch,
+        billing_config: Any,
     ):
-        from sandloom.sdk.infra import settings
-
         # An intent-less (PSP-created) subscription grants only under the
         # explicit policy (ADR-0003 open item 9).
-        monkeypatch.setattr(settings, "billing_grant_intentless_subscriptions", True)
+        billing_config(billing_grant_intentless_subscriptions=True)
         user_id, headers = make_user_headers()
         customer = await BillingService.get_or_create_customer(test_db, user_id=user_id)
         customer.stripe_customer_id = "cus_guarded"
@@ -97,6 +135,9 @@ class TestSharedGuards:
             content=body,
             headers={"Stripe-Signature": sign_stripe_payload(body, WEBHOOK_SECRET)},
         )
+        # The typed atom asks billing.entitlements.v1, which reads in its own
+        # unit: only committed rows are visible to it.
+        await test_db.commit()
         resp = await async_client.get(
             "/api/v1/_billing_guard_demo/premium", headers=headers
         )
@@ -113,6 +154,7 @@ class TestSharedGuards:
 
         customer = await BillingService.get_or_create_customer(test_db, user_id=user_id)
         await BillingService.add_credits(customer, 50, "guard-grant", test_db)
+        await test_db.commit()  # the contract reads in billing's own unit
         resp = await async_client.get(
             "/api/v1/_billing_guard_demo/spendy", headers=headers
         )

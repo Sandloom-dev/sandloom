@@ -106,8 +106,9 @@ await revoke_user_tokens_on_commit(user_id, reason="tenancy.member.removed", req
   `AUTH_REVOCATION_MARK_TTL_SECONDS` (at least the access-token lifetime;
   keep `ACCESS_TOKEN_EXPIRE_MINUTES` identical in every service). Delivery is
   at-least-once: the revocation is also written to the outbox
-  (`core.auth.tokens_revoked.v1`) and applied by identity's durable consumer
-  if the post-commit write fails (`auth_revocation_deferred_total`).
+  (`core.auth.tokens_revoked.v1`). When the post-commit write fails
+  (`auth_revocation_deferred_total`), the kernel's durable applier writes
+  it. Every service runs that applier, even one without identity.
 - **Emergency stop:** `block_user(user_id, reason=, actor_id=)` and
   `unblock_user(...)` (`sandloom.sdk.security`, inside a unit, audited). A block
   ends every session, also for tokens minted later; token issuers refuse a
@@ -150,7 +151,7 @@ route. The owner of the effect declares the risk once:
 
 | Risk | Declared by | Examples |
 | --- | --- | --- |
-| `admin` | the framework's admin gates | `require(Role("admin"))`, `require(OrgRole("admin"))`, `require_platform_admin`, tenancy's org-admin gate |
+| `admin` | the framework's admin gates, and a provider's `access_check` | `require(Role("admin"))`, `require_platform_admin`, tenancy's org-admin gate, `require(OrgRole("admin"))` (the generated `OrgRole` of `tenancy_membership_v1`: tenancy's `access_check` declares the `admin` risk, the kernel knows no role name) |
 | `money` | the effect owner | `@command(..., risk="money")` on a contract command; the `MoneyLedger` model mixin (names its unique operation-key column); `@sensitive_effect("money")` on an effect service |
 | `security` | the credential owner | `@sensitive_effect("security", step_up=300)` on credential-changing services |
 
@@ -220,9 +221,16 @@ failing critical contributor aborts minting (`ClaimsUnavailable`, `503`).
 Every token carries `claims_sources` and `claims_sources_failed`: trust a
 module's claim only if that module is in `claims_sources`. Identity stamps
 `auth_time`, carried unchanged through refresh.
-Each claim key has one owner. A second module writing a key another module
-wrote (identity's `roles`, say) aborts minting (`503`), local or remote. So
-does a contributor writing a reserved key. The kernel stamps the provenance:
+A protected claim comes only from the module the composition root assigns
+it: `create_app(claim_authorities={"roles": "sandloom_identity", ...})`.
+The rights, tenant and billing claims are always protected; so is every key
+the map names. A contributor that writes a protected claim it is not
+assigned, or a reserved key, is a violator. An optional violator loses its
+whole result and the login still succeeds; it is listed in
+`claims_sources_failed`. A critical violator refuses the mint (`503`) naming
+itself. Any other key keeps one writer per token. Startup refuses a map the
+composition cannot honour (`SANDLOOM-B035`). The kernel stamps the
+provenance:
 `claims_sources`, `claims_sources_failed`. It reads the subject's structure
 from the keys `sub`, `user_id`, `provenance_authoritative`, `claims`. Tenant
 binding reads `tenant_id` and `org_id`. It stamps the

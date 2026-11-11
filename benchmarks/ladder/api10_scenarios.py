@@ -249,18 +249,68 @@ async def scenario_lazyread(n: int) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # orggate (platform env)
 # --------------------------------------------------------------------------- #
+_USER_CUSTOMER = uuid.UUID("00000000-0000-4000-8000-0000000000e2")
+_ORG_CUSTOMER = uuid.UUID("00000000-0000-4000-8000-0000000000e1")
+
+
+async def _seed_subscriptions(common: Any, platform: Any) -> None:
+    """An active subscription for the platform user (the ``user_claims`` gate
+    reads it from the token's real ``subscription_status``) and for its
+    organization (the ``org_live`` gate reads it live). Idempotent."""
+    import asyncpg
+
+    conn = await asyncpg.connect(common.asyncpg_dsn())
+    try:
+        await conn.execute(
+            "INSERT INTO billing_products (id, name, type, is_active) VALUES"
+            " (951, 'Gate Team', 'subscription', true) ON CONFLICT DO NOTHING"
+        )
+        await conn.execute(
+            "INSERT INTO billing_prices (id, product_id, amount, currency,"
+            " recurring_interval, stripe_price_id) VALUES"
+            " (961, 951, 9900, 'USD', 'month', 'price_gate_team')"
+            " ON CONFLICT DO NOTHING"
+        )
+        for customer, user, org in (
+            (_USER_CUSTOMER, platform.USER, None),
+            (_ORG_CUSTOMER, None, platform.ORG),
+        ):
+            await conn.execute(
+                "INSERT INTO billing_customers (id, user_id, organization_id)"
+                " VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+                customer,
+                user,
+                org,
+            )
+            if not await conn.fetchval(
+                "SELECT 1 FROM billing_subscriptions WHERE customer_id = $1", customer
+            ):
+                await conn.execute(
+                    "INSERT INTO billing_subscriptions (customer_id, price_id,"
+                    " status, current_period_end, cancel_at_period_end, origin)"
+                    " VALUES ($1, 961, 'active', now() + interval '30 days',"
+                    " false, 'intent')",
+                    customer,
+                )
+    finally:
+        await conn.close()
+
+
 async def scenario_orggate(n: int) -> dict[str, Any]:
-    from benchsuite import common, platform
+    from benchsuite import common, compat, platform
 
     env = platform.server_env()
     env["DATABASE_URL"] = os.environ.get("PLATFORM_DATABASE_URL", env["DATABASE_URL"])
     os.environ.update(env)
+    await _seed_subscriptions(common, platform)
     from fastapi import APIRouter, Depends
 
     from sandloom.core.http.route_runtime import install_route_runtime
-    from sandloom.main import app
-    from sandloom.shared.authz import Subscribed, current_context, require
+    from sandloom_standard.main import app
+    from sandloom.shared.authz import current_context, require
     from sandloom.shared.authz.account import Account
+
+    Subscribed = compat.subscribed_atom()
 
     router = APIRouter(prefix="/a10gate", dependencies=[Depends(current_context)])
 
@@ -280,7 +330,7 @@ async def scenario_orggate(n: int) -> dict[str, Any]:
     life = await ladder._Lifespan(app).__aenter__()
     app.include_router(router)
     install_route_runtime(app.routes, app.state.core)
-    token = platform.token() if hasattr(platform, "token") else _platform_token(common)
+    token = platform.mint()  # the real mint: claims from the seeded database
     out: dict[str, Any] = {"scenario": "orggate", "n": n}
     try:
         for name, path in (
@@ -299,25 +349,6 @@ async def scenario_orggate(n: int) -> dict[str, Any]:
     finally:
         await life.aclose()
     return out
-
-
-def _platform_token(common: Any) -> str:
-    import jwt
-
-    from benchsuite import platform
-
-    now = int(time.time())
-    claims = {
-        "sub": str(platform.USER),
-        "token_type": "access",
-        "iat": now,
-        "nbf": now,
-        "exp": now + 3600,
-        "jti": uuid.uuid4().hex,
-        "subscription_status": "active",
-        "tenant_ids": [str(platform.ORG)],
-    }
-    return jwt.encode(claims, common.jwt_secret(), algorithm="HS256")
 
 
 # --------------------------------------------------------------------------- #

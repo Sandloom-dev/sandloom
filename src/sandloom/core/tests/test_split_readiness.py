@@ -8,13 +8,19 @@ Pins the review findings of the microservices profile:
 - a service whose modules all failed to load is never ready, and modules an
   operator lists explicitly in ``SANDLOOM_MODULES`` are required by default;
 - ``SERVICE_BINDINGS`` is validated strictly at startup.
+
+Each fixture's bindings have expectations (ADR-0013 decision 4: a remote
+contract with no expectation fails ``/ready`` with ``contract_unverified``,
+which ``test_contract_compat_expectations.py`` pins).
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import socket
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -25,6 +31,7 @@ from pydantic import ValidationError
 from sandloom.core.app_factory import ConfigurationError, enforce_configuration
 from sandloom.core.config.settings import Settings, settings
 from sandloom.core.descriptors import HealthResult
+from sandloom.core.drivers.bootstrap import build_infra_registry
 from sandloom.core.facade import CoreFacade
 from sandloom.core.loader import plugin_loader
 from sandloom.core.loader.plugin_loader import (
@@ -63,17 +70,29 @@ async def _client(app: FastAPI) -> httpx.AsyncClient:
     )
 
 
+def _expect(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *names: str) -> None:
+    """An expectation for each of ``names`` (``CONTRACT_SNAPSHOT_PATHS``)."""
+    snapshot = tmp_path / "contracts.snapshot.json"
+    contracts = {name: {"hash": f"h-{name}", "methods": {}} for name in names}
+    snapshot.write_text(json.dumps({"format": 1, "contracts": contracts}))
+    monkeypatch.setattr(settings, "contract_snapshot_paths", [str(snapshot)])
+
+
 def _ops_app(
     monkeypatch: pytest.MonkeyPatch,
     bindings: dict[str, dict[str, object]],
     *,
     loaded: list[str] | None = None,
     requested: list[str] | None = None,
+    expectations: Path | None = None,
 ) -> FastAPI:
     from sandloom.core.app_factory import _install_ops_endpoints
 
     app = FastAPI()
     core = CoreFacade(app=app)
+    # The registry create_app binds: identity registers tasks, so /ready also
+    # opens the default taskqueue (KB-02).
+    core.set_infra(build_infra_registry(InMemorySchemaRegistry(), load_plugins=False))
 
     async def ok() -> HealthResult:
         return HealthResult(status="ok")
@@ -81,6 +100,8 @@ def _ops_app(
     core.register_health_check("db", ok)
     core.loaded_modules = ["sandloom_identity"] if loaded is None else loaded
     monkeypatch.setattr(settings, "service_bindings", bindings)
+    if expectations is not None:
+        _expect(monkeypatch, expectations, *bindings)
     monkeypatch.setattr(settings, "health_cache_ttl_seconds", 0.0)
     monkeypatch.setattr(settings, "module_required", [])
     monkeypatch.setattr(
@@ -98,7 +119,7 @@ def _ops_app(
 # #2 — a down peer never fails liveness; readiness only when opted in
 # --------------------------------------------------------------------------- #
 async def test_down_peer_does_not_fail_health_or_ready_by_default(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     down = _closed_port_url()
     app = _ops_app(
@@ -107,6 +128,7 @@ async def test_down_peer_does_not_fail_health_or_ready_by_default(
             "billing.entitlements.v1": {"base_url": down},
             "billing.claims.v1": {"base_url": down, "critical": False},
         },
+        expectations=tmp_path,
     )
     async with await _client(app) as client:
         health = await client.get("/health")
@@ -117,7 +139,7 @@ async def test_down_peer_does_not_fail_health_or_ready_by_default(
 
 
 async def test_required_peer_down_fails_ready_but_never_health(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     down = _closed_port_url()
     app = _ops_app(
@@ -126,6 +148,7 @@ async def test_required_peer_down_fails_ready_but_never_health(
             "tenancy.membership.v1": {"base_url": down, "required": True},
             "billing.credits.v1": {"base_url": down},
         },
+        expectations=tmp_path,
     )
     async with await _client(app) as client:
         health = await client.get("/health")
@@ -158,7 +181,7 @@ class _SlowClient:
 
 
 async def test_required_probes_run_concurrently_capped_and_authenticated(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     from sandloom.core.contract_testing import rpc_settings
     from sandloom.core.rpc import readiness as rpc_readiness
@@ -182,13 +205,16 @@ async def test_required_probes_run_concurrently_capped_and_authenticated(
     )
     monkeypatch.setattr(settings, "service_probe_timeout_seconds", 0.75)
     monkeypatch.setattr(core, "settings", settings, raising=False)
+    _expect(monkeypatch, tmp_path, *settings.service_bindings)
 
     started = time.perf_counter()
     result = await check_remote_service_bindings(core)
     elapsed = time.perf_counter() - started
 
     assert result.status == "ok"
-    assert len(fake.calls) == 3  # the optional binding is not probed
+    # The optional binding is probed for its contract only (it has an
+    # expectation); its reachability never counts.
+    assert len(fake.calls) == 4
     assert elapsed < 0.6, f"probes ran sequentially ({elapsed:.2f}s)"
     by_url = {url.rsplit("/", 1)[1]: (hdrs, t) for url, hdrs, t in fake.calls}
     for hdrs, _ in by_url.values():

@@ -7,7 +7,7 @@ Installed into ``ladder.py`` (``ladder.py cg MIX``). Env:
   ``benchsuite.loadclient`` does), or an ``EXTRA`` key of this rung (requests
   measured outside the fixed mix catalog, e.g. ``export``: the helpdesk
   ticket export, a 100-row planner list behind ``Subscribed``);
-* ``LADDER_MIX_SVC`` — ``mono`` (``sandloom.main`` with ``mix.FULL_MODULES`` on
+* ``LADDER_MIX_SVC`` — ``mono`` (``sandloom_standard.main`` with ``mix.FULL_MODULES`` on
   ``DATABASE_URL``) or the split service owning the route, ``identity |
   tenancy | billing | apps`` (its modules as ``split_seed.SPLIT``, its
   database ``<LADDER_MIX_SPLIT_PREFIX>_<svc>`` on ``DATABASE_URL``'s server);
@@ -59,24 +59,19 @@ from typing import Any
 INTERNAL_TOKEN = "bench-internal-token-0123456789abcdef0123456789abcdef"
 
 
-def _extra(mix: Any) -> dict[str, tuple[tuple[str, str, str, str], dict[str, Any]]]:
+def _extra(mix: Any) -> dict[str, tuple[str, str, str, str]]:
     """Rung-only requests (NOT in ``mix.CATALOG``: the mix profiles stay fixed):
-    key -> (catalog entry, extra token claims)."""
+    key -> catalog entry. The token is always the seeded user's real mint
+    (``mix.mint``); a request needing more than its claims (``export`` gates on
+    the ORGANIZATION's live subscription) needs it in the seeded database."""
     return {
-        "export": (
-            ("GET", f"/api/v1/orgs/{mix.ORG}/tickets/export", "", "200"),
-            {"subscription_status": "active"},
-        ),
+        "export": ("GET", f"/api/v1/orgs/{mix.ORG}/tickets/export", "", "200"),
         # the taskboard with its optional filters (status + ILIKE prefix)
         "taskboard_filtered": (
-            (
-                "GET",
-                "/api/v1/taskboard/tasks?task_status=active&project_prefix=dev"
-                "&limit=50",
-                "",
-                "200",
-            ),
-            {},
+            "GET",
+            "/api/v1/taskboard/tasks?task_status=active&project_prefix=dev&limit=50",
+            "",
+            "200",
         ),
     }
 
@@ -160,11 +155,11 @@ def _svc_env(svc: str, prefix: str, bindings: dict[str, Any]) -> dict[str, str]:
     }
 
 
-#: a service process that is NOT measured: sandloom.main behind a counter of the
+#: a service process that is NOT measured: sandloom_standard.main behind a counter of the
 #: RPC requests it served (``GET /__rpc_count``)
 _SERVER = """
 import sys, uvicorn
-from sandloom.main import app
+from sandloom_standard.main import app
 n = [0]
 async def wrapped(scope, receive, send):
     if scope["type"] == "http":
@@ -264,21 +259,11 @@ async def _mix(ns: Any):
     key = os.environ["LADDER_MIX_KEY"]
     svc = os.environ.get("LADDER_MIX_SVC", "mono")
     role = os.environ.get("LADDER_MIX_ROLE", "caller")
-    extra_claims: dict[str, Any] = {}
     if key in mix.CATALOG:
         method, full, body_t, expect = mix.CATALOG[key]
     else:
-        (method, full, body_t, expect), extra_claims = _extra(mix)[key]
-    token = mix.mint(hours=24, tenant=True)
-    if extra_claims:
-        import jwt
-
-        claims = jwt.decode(token, options={"verify_signature": False})
-        token = jwt.encode(
-            {**claims, **extra_claims},
-            mix.common.jwt_secret(),
-            algorithm="HS256",
-        )
+        method, full, body_t, expect = _extra(mix)[key]
+    token = mix.mint(hours=24, full=True)
     if svc != "mono" and role == "provider":
         return await _provider_role(ns, svc, method, full, body_t, expect, token)
 
@@ -295,7 +280,7 @@ async def _mix(ns: Any):
         os.environ.update(_svc_env(svc, prefix, bindings))
 
     path, _, qs = full.partition("?")
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     try:
         from sandloom.core.unit_of_work.dispatch import drain_post_commit
@@ -373,7 +358,7 @@ async def _provider_role(
 
     prefix = os.environ["LADDER_MIX_SPLIT_PREFIX"]
     os.environ.update(_svc_env("tenancy", prefix, {}))
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     n = [0]
 

@@ -1,0 +1,65 @@
+# check_package_distributions.py at b8d8506 (throwaway worktree), trimmed
+# $S = a scratch directory outside the repository; $S/wt = `git worktree add --detach $S/wt b8d8506`
+# $TMP = the script's own temporary directory. Full log: 376 lines; kept: commands, checks, results
+# (dropped: uv progress, package lists, per-subcommand `--help` lines, dev-mode startup warnings).
+
+$ cd $S/wt && uv sync && uv run python tools/packaging/check_package_distributions.py --dist-dir ../dist
++ $S/wt/.venv/bin/python $S/wt/tools/packaging/sync_release.py
++ uv build --out-dir $TMP/wheels $S/wt/packages/sandloom
++ uv build --out-dir $TMP/wheels $S/wt/packages/sandloom-identity
++ uv build --out-dir $TMP/wheels $S/wt/packages/sandloom-tenancy
++ uv build --out-dir $TMP/wheels $S/wt/packages/sandloom-billing
++ uv build --out-dir $TMP/wheels $S/wt/packages/sandloom-admin
++ uv build --wheel --out-dir $TMP/direct/sandloom-tenancy $S/wt/packages/sandloom-tenancy
++ uv build --wheel --out-dir $TMP/direct/sandloom-billing $S/wt/packages/sandloom-billing
++ uv build --wheel --out-dir $TMP/direct/sandloom-identity $S/wt/packages/sandloom-identity
++ uv build --wheel --out-dir $TMP/direct/sandloom-admin $S/wt/packages/sandloom-admin
++ uv build --wheel --out-dir $TMP/direct/sandloom $S/wt/packages/sandloom
+Import layering OK across 5 distributions
++ uv venv $TMP/lean
++ uv venv $TMP/standard
++ uv venv $TMP/admin
++ uv pip install --compile-bytecode --python $TMP/admin/bin/python sandloom[admin] @ file://$TMP/wheels/sandloom-0.7.0a11-py3-none-any.whl $TMP/wheels/sandloom_identity-0.7.0a11-py3-none-any.whl $TMP/wheels/sandloom_admin-0.7.0a11-py3-none-any.whl
++ uv pip install --compile-bytecode --python $TMP/standard/bin/python sandloom[standard] @ file://$TMP/wheels/sandloom-0.7.0a11-py3-none-any.whl $TMP/wheels/sandloom_identity-0.7.0a11-py3-none-any.whl $TMP/wheels/sandloom_tenancy-0.7.0a11-py3-none-any.whl $TMP/wheels/sandloom_billing-0.7.0a11-py3-none-any.whl
++ $TMP/admin/bin/python -c from pathlib import Path; import sandloom_admin; console = Path(sandloom_admin.__file__).parent / 'console'; assert (console / 'index.html').is_file(); assert (console / 'third-party-licenses.txt').is_file(); assert not (console / 'admin-manifest.json').exists(); import sandloom.main as m; assert m.core.loaded_modules == ['sandloom_admin', 'sandloom_identity'], m.core.loaded_modules; assert any(getattr(r, 'path', '') == '/admin/{path:path}' for r in m.app.routes); print('admin console OK:', m.core.loaded_modules)
++ $TMP/standard/bin/python -c import redis, celery; import sandloom.main as m; assert type(m.app).__name__ == 'FastAPI'; assert m.core.loaded_modules == ['sandloom_billing', 'sandloom_identity', 'sandloom_tenancy'], m.core.loaded_modules; print('standard set OK:', m.core.loaded_modules)
+admin console OK: ['sandloom_admin', 'sandloom_identity']
+standard set OK: ['sandloom_billing', 'sandloom_identity', 'sandloom_tenancy']
++ $TMP/lean/bin/sandloom docs define_module
++ $TMP/lean/bin/sandloom version
++ $TMP/lean/bin/python -c import sandloom, sandloom.sdk, sandloom.core.drivers.bootstrap; import sandloom.core.drivers.redis_cache; import sandloom.core.drivers.celery_taskqueue; import sandloom.core.drivers.event_bus_driver; from sandloom.core.app_factory import create_app; assert type(create_app()).__name__ == 'FastAPI'; import sandloom.main as m; assert m.core.loaded_modules == []; print('lean sandloom OK: CLI, kernel factory, empty standard root')
++ $TMP/lean/bin/sandloom new probe_identity --with identity --dir $TMP/work
++ $TMP/lean/bin/sandloom new probe_tenancy --with tenancy --dir $TMP/work
++ $TMP/lean/bin/sandloom new probe_billing --with billing --dir $TMP/work
++ $TMP/lean/bin/sandloom new probe_identity_tenancy_billing --with identity,tenancy,billing --dir $TMP/work
++ $TMP/lean/bin/sandloom new probe --dir $TMP/work
+lean sandloom OK: CLI, kernel factory, empty standard root
+aiohttp 3.14.5 is not usable as the internal-RPC transport (internals_changed): aiohttp.client_proto.ResponseHandler.force_close() is missing. Outbound RPC falls back to httpx (requests keep working); see docs/operate/operator-reference.md 'Upgrading aiohttp'.
++ $TMP/lean/bin/sandloom docs sandloom.sdk.web
+Installed inspection OK: cold context, text/JSON graph and offline viewer
+ok: sandloom imported from the wheel ($TMP/lean/lib/python3.12/site-packages/sandloom/__init__.py)
+ok: not from the monorepo source tree
+ok: aiohttp 3.14.5 installed as a dependency, in [3.14.5, 3.15)
+ok: sandloom declares the aiohttp dependency
+ok: full aiohttp probe passes (clean)
+ok: the shared RPC client is the aiohttp transport
+ok: RPC call over aiohttp
+ok: a changed aiohttp internal is detected (internals_changed)
+ok: the shared RPC client falls back to httpx
+ok: RPC call over the fallback
+wheel RPC transport smoke: OK
+Created application 'probe' (55 files) at $TMP/work/probe
+All package distribution checks passed.
+uv run python tools/packaging/check_package_distributions.py --dist-dir   38.91s user 15.20s system 408% cpu 13.247 total
+
+# subcommands checked with --help in the lean venv: 26 lines (each a cold interpreter; a failure is listed and raises; none did)
+
+$ git -C $S/wt status --short   # after the run
+(empty)
+
+$ cat $S/dist/sha256.json   # the wheels every other transcript in this directory installs
+  "sandloom-0.7.0a11-py3-none-any.whl": "d4d05c4ff1e83275086b45d29bf0215d3e052e7ecadb39418c18b950e235ee64",
+  "sandloom_admin-0.7.0a11-py3-none-any.whl": "cbf185f9ef273d4f88a8dbba7a7a9a32967d4ce2ae0ffcc28d0afac009c55255",
+  "sandloom_billing-0.7.0a11-py3-none-any.whl": "c00417657cce53c6c40c7ffd6f5caa51fd4bde0d206c0fd252835bf29e7b95e6",
+  "sandloom_identity-0.7.0a11-py3-none-any.whl": "84e8663bfe988dbcdc1a9738457e2292e79938fde8a0fbeb27ddecee0c38762a",
+  "sandloom_tenancy-0.7.0a11-py3-none-any.whl": "40c10fed74edd259a5d780b87c6f8b929bcbbe37d474a826ec7ec5ee85ecc965",

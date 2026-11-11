@@ -1,0 +1,25 @@
+# Owner decisions before the ADRs (2026-11-08)
+
+Direction approved: A1 + B1/B4 + TA-1 + PA-2 + D2a/H1. PoC results accepted as the basis for the ADRs. The 14 decisions are accepted with these refinements. No new architectural subsystem without a failing existing mechanism.
+
+1. X1 — yes. Move the standard composition and the standard trust map into `sandloom-standard`. The clean kernel has no default authorities and no battery names. A user application can assign its own authorities without installing `sandloom-standard`. Check API, worker, beat, migrations, CLI and generated deployment entry points: all get one consistent composition.
+2. C-1 — yes, as an explicitly approved exception to public-API preservation. `register_live_adapter`, `EntitlementsAdapter`, `MembershipAdapter` may be replaced by `access_check` if the ability to plug in third-party implementations is kept. Removing the names only after the equivalence of the G-AUTHZ-05 scenarios is verified and the ledger, ADR, docs and migration guide are updated. The guarantee is not removed with the API.
+3. Billing — (c). The billing claims authority may be non-critical for minting. An absent value never means allow. Every consumer of a protected billing claim has a verifiable live fallback or returns indeterminate. Provider unavailable → 503; capability absent from the composition → 501. Money operations keep their freshness and atomicity requirements. Ordinary login must not break when billing is down.
+4. Yes. `Subscribed` without an installed or bound billing provider: 501 instead of 200 (fail-closed fix). Distinguish capability absent (501) from a subscription denial (402/403) and a temporary provider outage (503).
+5. Yes — loss of parameters not accepted. Keep `statuses=` and `claim_key=` in the generated `Subscribed`. Allowed values and the binding of `claim_key` to a trusted authority are defined by the provider's declaration; an arbitrary claim name must not bypass TA-1.
+6. Yes. The four domain names of the beginner API move to the generated consumer API. Amend ADR-0010 and record the exact new imports, migration, generation and typing check. The user-facing policy syntax does not change.
+7. Yes, refined. `tenant_kind` gets its data from the application-assigned tenant authority, not the old global adapter. `tenant_ids` alone does not prove a tenant is an organization: keep `personal / organization / canonical / unknown`, freshness rules and membership guarantees. No hidden RPC; optimising the third call is a separate change with proven equivalence.
+8. Yes. An incompatible shape of a declared access-check contract → indeterminate 501 inside the algebra, without bypassing `Or` and `Not`. A required remote contract gets a strict compatibility preflight. Invalid user input stays 422; user errors and service incompatibility are not mixed.
+9. Yes. `consumes` is the single source of truth for required methods. Compatibility checks names, arguments, DTOs, type constraints and wire compatibility. An updated consumer must not silently require a method missing from a compatible provider version.
+10. `cpv` per key — agreed; the unconditional "verifiers last" rule is not approved. Changing one key's authority must not reset trust in the others. The rollout order is confirmed by a separate old/new issuer × verifier matrix: first every verifier supports checking `cpv`, then the map changes safely, fail-closed on mismatch. No old verifiers that ignore the new trust policy may remain. The ADR includes rollout and rollback.
+11. Yes. The kernel applies durable revocation independently of identity. The consumer group is unique per independent deployment/service that must receive these events and stable across replicas of one service. Verify scaling, restart, replay, version change and cache failure. One group must never swallow events another deployment needs. A missing required applier never yields a green readiness.
+12. Yes, H1. The universal password-hashing mechanism stays in the kernel. Accounts, password policy, refresh sessions and recovery belong to identity. No identity-specific rules in the shared crypto implementation.
+13. Yes. `REFRESH_TOKEN_EXPIRE_DAYS` and `MAX_SESSION_DAYS` move to identity. General access-JWT verification, signing and revocation parameters stay in the kernel.
+14. Yes. Moving identity-specific CLI is a separate phase after ADR-A…D. Keep user commands where possible through the standard composition or a CLI extension, but no hard imports or identity names stay in the kernel.
+
+## Before implementation
+- Finish the PoC review and record commit SHAs, test results and measurements in the ADRs.
+- Fix the two known PA-2 limits: 422 → indeterminate 501 on contract incompatibility, and removal of the old domain atoms from the kernel.
+- Keep the parameters of public atoms and a real third-party provider capability in place of the old live adapters.
+- Close billing-without-celery packaging and every open silent-degradation scenario separately.
+- Prepare ADR-A…D and the register of 46 edges, then split the migration into small PRs with tests, a no-extra-I/O guarantee and comparative measurements.

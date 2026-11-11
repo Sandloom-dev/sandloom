@@ -73,6 +73,9 @@ _BASE = {
     "PRODUCTION_PROFILE": "multi_tenant_strict",
     "INFRA": _COMPLIANT_INFRA,
     "SECURITY_CACHE_INSTANCE": "security",
+    # prod selects the shared Streams bus: the revocation applier's group
+    # needs the service's name (ADR-0012 decision 5).
+    "SANDLOOM_SERVICE_NAME": "api",
 }
 
 

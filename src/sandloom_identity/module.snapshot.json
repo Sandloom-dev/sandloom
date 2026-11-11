@@ -1,4 +1,48 @@
 {
+  "capabilities": [
+    {
+      "capability": "cache",
+      "features": [],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    },
+    {
+      "capability": "database",
+      "features": [
+        "list_aggregates",
+        "transaction_locks"
+      ],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    },
+    {
+      "capability": "eventbus",
+      "features": [],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    },
+    {
+      "capability": "notification",
+      "features": [
+        "email"
+      ],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    },
+    {
+      "capability": "taskqueue",
+      "features": [
+        "periodic"
+      ],
+      "instance": "default",
+      "required": false,
+      "version": "v1"
+    }
+  ],
   "consumers": [
     {
       "bind_tenant_from": null,
@@ -10,17 +54,6 @@
       "name": "sessions@user_blocked",
       "required": true,
       "start_from": "earliest"
-    },
-    {
-      "bind_tenant_from": null,
-      "channel": "core.auth.tokens_revoked.v1",
-      "database": "default",
-      "dead_letter": false,
-      "durable": true,
-      "group": null,
-      "name": "sessions@tokens_revoked",
-      "required": true,
-      "start_from": "earliest"
     }
   ],
   "consumes": [],
@@ -28,18 +61,20 @@
     {
       "database": null,
       "methods": [
-        "account_standing",
+        "account_by_email",
+        "accounts_by_id",
         "appoint_platform_admin",
         "create_platform_admin",
+        "end_sessions",
         "find_user_id",
-        "list_platform_admins",
+        "is_platform_admin",
         "list_user_ids",
         "password_problem",
         "platform_admin_exists",
+        "platform_admin_ids",
         "record_admin_listing",
         "reissue_set_password",
         "require_password_reset",
-        "revoke_sessions",
         "set_password_token",
         "set_password_with_token",
         "take_over_platform_admin"
@@ -1348,7 +1383,64 @@
     }
   },
   "format": 1,
+  "issuer": {
+    "refresh_sessions": true
+  },
   "module": "sandloom_identity",
   "projections": [],
-  "sagas": []
+  "sagas": [],
+  "settings": {
+    "GITHUB_CLIENT_ID": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "GITHUB_CLIENT_SECRET": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "GOOGLE_CLIENT_ID": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "GOOGLE_CLIENT_SECRET": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "LINKEDIN_CLIENT_ID": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "LINKEDIN_CLIENT_SECRET": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "MAX_SESSION_DAYS": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "MICROSOFT_CLIENT_ID": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "MICROSOFT_CLIENT_SECRET": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "REFRESH_TOKEN_EXPIRE_DAYS": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "SSO_ALLOWED_REDIRECT_URIS": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "TELEGRAM_BOT_TOKEN": {
+      "legacy": true,
+      "tier": "ops"
+    },
+    "TWOFA_ENCRYPTION_KEY": {
+      "legacy": true,
+      "tier": "ops"
+    }
+  }
 }

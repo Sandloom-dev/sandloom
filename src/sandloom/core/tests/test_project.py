@@ -11,13 +11,36 @@ from __future__ import annotations
 import ast
 import json
 import re
+import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from sandloom.core.cli.project import generate_project
+
+
+def _forget_probe_app() -> None:
+    for name in [m for m in sys.modules if m == "probe" or m.startswith("probe.")]:
+        del sys.modules[name]
+
+
+@pytest.fixture(autouse=True)
+def _a_fresh_probe_app() -> Iterator[None]:
+    """Each test generates its own ``probe`` app in its own directory. A
+    ``probe`` package another test left in ``sys.modules`` (or this file's own
+    gate imports) would be imported instead of the generated one
+    (SANDLOOM-T019: ``probe.modules.gadgets`` cannot be imported), so none is
+    kept before or after a test."""
+    path = list(sys.path)
+    _forget_probe_app()
+    try:
+        yield
+    finally:
+        sys.path[:] = path
+        _forget_probe_app()
 
 
 def _read(root: Path, rel: str) -> str:
@@ -83,6 +106,50 @@ def test_with_batteries_orders_modules(tmp_path: Path) -> None:
     assert 'app_modules("shop.modules")' in asgi
 
 
+@pytest.mark.parametrize("app", ["shop", "a_rather_long_application_name_x"])
+def test_the_app_writes_its_claim_authorities(tmp_path: Path, app: str) -> None:
+    """ADR-0014: the generated root assigns the chosen batteries' claims, and
+    ``ruff format`` leaves the root as written (the app's own format gate)."""
+    generate_project(app, tmp_path, with_batteries=["billing", "identity"])
+    asgi = _read(tmp_path / app, f"{app}/asgi.py")
+    (assigned,) = [
+        node.value
+        for node in ast.parse(asgi).body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "CLAIM_AUTHORITIES"
+        and node.value is not None
+    ]
+    assert ast.literal_eval(assigned) == {
+        "issuer": "sandloom_identity",
+        "roles": "sandloom_identity",
+        "permissions": "sandloom_identity",
+        "email": "sandloom_identity",
+        "email_verified": "sandloom_identity",
+        "subscription_status": "sandloom_billing",
+        "plan_code": "sandloom_billing",
+        "features": "sandloom_billing",
+        "limits": "sandloom_billing",
+    }
+    assert "claim_authorities=CLAIM_AUTHORITIES" in asgi
+    formatted = subprocess.run(
+        [sys.executable, "-m", "ruff", "format", "--diff", "-"],
+        input=asgi,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert formatted.returncode == 0, formatted.stdout + formatted.stderr
+
+
+def test_an_app_without_batteries_assigns_no_claim(tmp_path: Path) -> None:
+    """No issuer, no authority: the map is empty, and still passed."""
+    generate_project("probe", tmp_path)
+    asgi = _read(tmp_path / "probe", "probe/asgi.py")
+    assert "CLAIM_AUTHORITIES: dict[str, str] = {}" in asgi
+    assert "claim_authorities=CLAIM_AUTHORITIES" in asgi
+
+
 def test_the_console_brings_identity_and_stays_off_in_production(
     tmp_path: Path,
 ) -> None:
@@ -95,6 +162,9 @@ def test_the_console_brings_identity_and_stays_off_in_production(
     compose = _read(root, "deploy/docker-compose.yml")
     assert "ADMIN_CONSOLE_ENABLED: ${ADMIN_CONSOLE_ENABLED:-false}" in compose
     assert "TWOFA_ENCRYPTION_KEY" in compose
+    # The switch is the console's declared setting: no console, no switch.
+    generate_project("plain", tmp_path)
+    assert "ADMIN_CONSOLE" not in _read(tmp_path / "plain", "deploy/docker-compose.yml")
 
 
 def test_apps_depend_on_sandloom_and_each_chosen_module_package(
@@ -420,6 +490,23 @@ def test_identity_apps_require_twofa_key(tmp_path: Path) -> None:
     generate_project("probe", tmp_path)
     plain = _compose(tmp_path / "probe")["services"]["app"]["environment"]
     assert "TWOFA_ENCRYPTION_KEY" not in plain
+
+
+def test_mail_apps_expose_a_real_notifier_and_name_the_demo_risk(
+    tmp_path: Path,
+) -> None:
+    """identity / tenancy require an email notifier: the app's compose passes the
+    smtp settings through and says what a mail-less demo accepts."""
+    for battery in ("identity", "tenancy"):
+        generate_project(f"shop_{battery}", tmp_path, with_batteries=[battery])
+        root = tmp_path / f"shop_{battery}"
+        env = _compose(root)["services"]["app"]["environment"]
+        for key in ("NOTIFIER_BACKEND", "SMTP_HOST", "SMTP_FROM", "SMTP_USE_TLS"):
+            assert key in env, (battery, key)
+        assert "log_notifier_in_prod" in _read(root, "deploy/docker-compose.yml")
+    generate_project("probe_nomail", tmp_path, with_batteries=["billing"])
+    plain = _compose(tmp_path / "probe_nomail")["services"]["app"]["environment"]
+    assert "NOTIFIER_BACKEND" not in plain
 
 
 def test_billing_apps_must_choose_a_psp(tmp_path: Path) -> None:
@@ -773,8 +860,8 @@ def test_generated_project_passes_its_own_tests(tmp_path: Path) -> None:
 
 def test_generated_project_ships_the_agent_contract(tmp_path: Path) -> None:
     """``sandloom new`` writes the 1.0 agent map at the project root (and a
-    CLAUDE.md importing it): the commands and the 30 beginner names (spec
-    §9.1); its modules inherit it instead of copying it."""
+    CLAUDE.md importing it): the commands and the 26 beginner names (the
+    20 of ``sandloom.sdk``, the 5 test helpers and the ``client`` fixture); its modules inherit it instead of copying it."""
     import sandloom.sdk
     import sandloom.sdk.testing
 

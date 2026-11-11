@@ -18,6 +18,7 @@ from typing import Any
 
 import sandloom.core.archcheck.analyzers as az
 import sandloom.core.archcheck.api10_rules as a10
+import sandloom.core.archcheck.generated_rules as gr
 import sandloom.core.archcheck.module_rules as mr
 from sandloom.core import error_codes
 from sandloom.core.archcheck.manifest import ArchRules
@@ -96,6 +97,8 @@ _CHECK_RULE_IDS: tuple[str, ...] = (
     "utc-datetime-columns",
     "database-feature-forms",
     "portable-sql",
+    "undeclared-capability",
+    "generated-reserved",
 )
 RULES: dict[str, str] = dict.fromkeys(_CHECK_RULE_IDS, "")
 
@@ -132,8 +135,12 @@ API10_RULES: dict[str, str] = {
         "discriminated type lets codec 2 apply"
     ),
     "account-route-mismatch": (
-        "a route with an organization parameter gates billing with "
+        "a route with an organization parameter gates an account atom with "
         'of=Account.user() — use Account.org(param=...) or Account.user(reason="...")'
+    ),
+    "handwritten-access-check": (
+        "a hand-written Requirement calls a declared access check with other "
+        "tier, category or risk than its declaration — use the generated atom"
     ),
 }
 
@@ -566,9 +573,13 @@ def _per_module_rules(rules: ArchRules, module: str) -> dict[str, PerFile]:
             p,
             rules.module_package(module),
             source_root=rules.source_root,
-            generated=rules.shared_dir
-            / "contracts"
-            / f"{module_name(rules.module_package(module))}_dto.py",
+            generated=(
+                rules.shared_dir
+                / "contracts"
+                / f"{module_name(rules.module_package(module))}_dto.py"
+                if rules.shared_dir is not None
+                else None
+            ),
         ),
     }
 
@@ -642,11 +653,11 @@ def _api10_tree_checks(rules: ArchRules, selected: set[str]) -> list[Violation]:
                     for level, d in a10.find_multi_store_waivers(py)
                 ]
     if "event-view-compat" in selected:
-        exported = rules.shared_dir / "events"
+        exported = rules.shared_dir / "events" if rules.shared_dir else None
         out += [
             Violation("event-view-compat", py, d, level)
             for level, py, d in a10.find_event_view_problems(
-                modules, exported if exported.is_dir() else None
+                modules, exported if exported and exported.is_dir() else None
             )
         ]
     return out
@@ -665,6 +676,14 @@ def _module_level_checks(
         ),
         "guard-order": lambda: mr.find_guard_order_problems(files),
         "consumed-contracts": lambda: mr.find_undeclared_contracts(files),
+        "undeclared-capability": lambda: mr.find_undeclared_capabilities(
+            module_dir, files
+        ),
+        "generated-reserved": lambda: gr.find_reserved_generated_problems(
+            module_dir,
+            rules.module_package(module),
+            [*files, *iter_module_test_files(rules, module)],
+        ),
     }
     for rule, check in checks.items():
         if rule not in selected:

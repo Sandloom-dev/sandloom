@@ -119,6 +119,9 @@ class ConsumerStatus:
     service: str | None = None
     lag: int | None = None
     pending: int | None = None
+    #: Age of the oldest entry the group has not acknowledged, as the bus last
+    #: observed it (``None``: the bus does not report it).
+    oldest_unacked_age_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -578,6 +581,9 @@ class ConsumerRuntime:
                     service=self._service,
                     lag=(stats or {}).get("lag"),
                     pending=(stats or {}).get("pending"),
+                    oldest_unacked_age_seconds=(stats or {}).get(
+                        "oldest_unacked_age_seconds"
+                    ),
                 )
             )
         statuses = tuple(status_items)

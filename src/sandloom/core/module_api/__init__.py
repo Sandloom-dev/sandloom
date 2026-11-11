@@ -96,6 +96,7 @@ Package layout (internal — import only from ``sandloom.core.module_api``)
 ``_provider``      ``contract_schema``, DTO checks, ``ContractProvider``
 """
 
+from sandloom.core.config.common import secret_problem
 from sandloom.core.descriptors import (
     BACKWARD,
     FORWARD,
@@ -119,6 +120,7 @@ from sandloom.core.module_api._context import (
 )
 from sandloom.core.module_api._define import AUTO, define_module
 from sandloom.core.module_api._errors import (
+    AccessUnknown,
     ContractArgumentError,
     ContractCallError,
     ContractCallInProgress,
@@ -151,6 +153,20 @@ from sandloom.core.module_api._registration import (
     ModuleRegistrationDraft,
 )
 from sandloom.core.module_api._schema import ContractMethodRuntime, ContractSchema
+from sandloom.core.module_api._settings import (
+    ModuleSettingsError,
+    RemovedSetting,
+    Risk,
+    SemanticSetting,
+    override_settings,
+    settings_of,
+    validate_settings,
+)
+
+# Not in ``__all__``: ``settings_of``'s error, a ``RuntimeError`` (no public home).
+from sandloom.core.module_api._settings import (
+    SettingsNotBoundError as SettingsNotBoundError,
+)
 from sandloom.core.module_api._spec import CONTRACT_SPEC_ATTR as CONTRACT_SPEC_ATTR
 from sandloom.core.module_api._spec import SESSION_PARAM_NAMES as SESSION_PARAM_NAMES
 from sandloom.core.module_api._spec import (
@@ -172,6 +188,7 @@ __all__ = [
     "ModuleAPI",
     "ModuleRegistrationDraft",
     "ModuleRegistrationConflict",
+    "AccessUnknown",
     "ContractArgumentError",
     "ContractCallError",
     "ContractMethodRuntime",
@@ -211,4 +228,13 @@ __all__ = [
     "local_step",
     "operation_key",
     "step",
+    # Module settings (ADR-0015)
+    "ModuleSettingsError",
+    "RemovedSetting",
+    "Risk",
+    "SemanticSetting",
+    "override_settings",
+    "secret_problem",
+    "settings_of",
+    "validate_settings",
 ]

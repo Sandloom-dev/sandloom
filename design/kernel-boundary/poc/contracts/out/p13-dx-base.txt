@@ -1,0 +1,43 @@
+$ sandloom add module alpha
+wrote src/alpha/module.snapshot.json
+wrote src/alpha/routes.snapshot.json
+wrote .sandloom/inspection.json
+generated files current (54 file(s))
+
+Next: `sandloom test` (the module's tests and every gate).
+[exit ]
+$ sandloom add module beta
+wrote .sandloom/inspection.json
+generated files current (57 file(s))
+
+Next: `sandloom test` (the module's tests and every gate).
+[exit ]
+$ sandloom add contract alpha quota
+  $S/poc-base/src/alpha/schemas.py
+  $S/poc-base/src/alpha/contracts.py
+wrote src/alpha/module.snapshot.json
+wrote src/alpha/contracts.snapshot.json
+wrote .sandloom/inspection.json
+generated files current (60 file(s))
+
+Next: `sandloom test` (the module's tests and every gate).
+[exit ]
+
+# edit src/beta/services.py: import ALPHA_QUOTA_V1 from sandloom.shared.contracts.alpha_quota_v1; quota = Contract(ALPHA_QUOTA_V1); quota_ready()
+$ sandloom generate
+wrote src/beta/module.snapshot.json
+wrote .sandloom/inspection.json
+generated files current (60 file(s))
+$ sandloom check (beta)
+[check done]
+$ ls src/beta
+__init__.py
+api.py
+events.py
+migrations
+models
+module.snapshot.json
+routes.snapshot.json
+schemas.py
+services.py
+tests

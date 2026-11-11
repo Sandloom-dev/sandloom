@@ -43,6 +43,7 @@ from sandloom.core.cli.dev.state import (
     save_state,
 )
 from sandloom.core.cli.project import generate_project
+from sandloom.core.composition import composition_root_name
 from sandloom.core.testing.machine import machine_id
 
 # --------------------------------------------------------------------------- #
@@ -956,6 +957,11 @@ def test_the_cli_prints_one_line_and_debug_shows_the_traceback(
         JWT_SECRET="x" * 64,
         ENVIRONMENT="dev",
         SANDLOOM_HOME=str(tmp_path / "home"),
+        # The stderr oracle below filters the human-readable log format.
+        LOG_FORMAT="text",
+        # stripped above with the other SANDLOOM_*: the child composes the
+        # root this run does (an issuer needs its trust map, SANDLOOM-B035)
+        SANDLOOM_COMPOSITION_ROOT=composition_root_name(),
     )
     entry = "import sys; from sandloom import main; main()"
 

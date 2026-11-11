@@ -10,6 +10,7 @@ environments warn. (``OUTBOX_RELAY_ENABLED=off`` is the accepted-risks list's
 from __future__ import annotations
 
 import logging
+from importlib.util import find_spec
 from types import SimpleNamespace
 from typing import Any
 
@@ -116,19 +117,30 @@ def test_window_risk_ids_are_registered_accepted_risks() -> None:
     assert gw.COMMAND_DEDUPE_BELOW_RETRY_HORIZON in accepted_risks.RISK_IDS
 
 
+_STRONG_KEY = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
+
+
 def test_create_app_refuses_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
-    from sandloom.core import app_factory
+    from sandloom.core.config import module_settings
     from sandloom.core.config.settings import settings
+    from sandloom.core.tests._root_support import create_root_app
 
     monkeypatch.setattr(settings, "contract_command_dedupe_ttl_seconds", 5)
     monkeypatch.setattr(settings, "environment", "prod")
+    # prod selects the shared Streams bus: name the service (ADR-0012 d. 5).
+    monkeypatch.setattr(settings, "sandloom_service_name", "api")
     # The bundled modules refuse prod without these while they register,
     # before the window check runs: satisfy them so this test sees its own.
-    monkeypatch.setattr(settings, "twofa_encryption_key", "9f1c4e7a" * 8)
+    # (identity's own settings read the process's source read: re-take it)
+    monkeypatch.setenv("TWOFA_ENCRYPTION_KEY", _STRONG_KEY)
+    monkeypatch.setattr(module_settings, "_PROCESS_SNAPSHOT", None)
+    # billing's own risk id is known only where billing is installed (a risk
+    # naming an unknown module is refused, also in the no-batteries venv).
+    billing = ["billing.fake_psp_in_prod"] if find_spec("sandloom_billing") else []
     monkeypatch.setattr(
         settings,
         "sandloom_accepted_risks",
-        [*settings.sandloom_accepted_risks, "fake_psp_in_prod"],
+        [*settings.sandloom_accepted_risks, *billing, "log_notifier_in_prod"],
     )
     with pytest.raises(gw.GuaranteeWindowError, match="command_dedupe"):
-        app_factory.create_app()
+        create_root_app()

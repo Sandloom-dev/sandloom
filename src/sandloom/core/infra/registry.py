@@ -19,23 +19,28 @@ A business module never touches this class directly — it asks the
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import inspect
 import logging
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from importlib import metadata
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.infra.capabilities import CapabilitySpec
 from sandloom.core.infra.config import (
     DEFAULT_INSTANCE,
+    KERNEL_INSTANCES,
     InfraConfig,
     InstanceConfig,
 )
 from sandloom.core.infra.contracts import InfraProvider
+
+if TYPE_CHECKING:
+    from sandloom.core.descriptors import CapabilityRequirement
 
 logger = logging.getLogger("sandloom.core.infra")
 
@@ -107,11 +112,37 @@ class DriverRegistration:
     # startup checks that an instance's URL names one of them and that a SQL
     # dialect renderer exists for it (SANDLOOM-B024). Empty for non-SQL drivers.
     sql_dialects: frozenset[str] = field(default_factory=frozenset)
+    # The top-level import names the driver needs at build time (``celery``,
+    # ``redis``) and how to install them. The preflight checks them with
+    # ``importlib.util.find_spec``: nothing imported, no network. A built-in
+    # driver is registered whether or not its package is installed, so this
+    # is how a registered driver is told from a usable one (SANDLOOM-B037).
+    requires: tuple[str, ...] = ()
+    install: str = ""
 
     def features_for(self, options: Mapping[str, Any]) -> frozenset[str]:
         if self.instance_features is None:
             return self.features
         return frozenset(self.instance_features(options)) & self.features
+
+
+def _install_fix(
+    capability: str,
+    name: str,
+    registration: DriverRegistration,
+    missing: tuple[str, ...],
+    features: frozenset[str] | None,
+) -> str:
+    """The fix for a driver that cannot run here: install what it needs, or
+    select another driver for the instance in ``INFRA``."""
+    install = registration.install or (
+        f"install {', '.join(missing)}" if missing else "reinstall the driver"
+    )
+    advertising = f" that advertises {sorted(features)}" if features else ""
+    return (
+        f"{install}, or select an installed {capability} driver{advertising} "
+        f"in INFRA[{capability!r}][{name!r}]"
+    )
 
 
 class InfraError(RuntimeError):
@@ -124,10 +155,16 @@ class InfraStartupError(InfraError):
     Raised by :meth:`InfraRegistry.aopen_all` in strict mode (production) so a
     database/cache/object-store the process cannot reach aborts the lifespan
     instead of letting the app serve traffic that will fail on first use.
+    ``sandloom_code`` is SANDLOOM-B037 when an instance failed because its
+    driver is not installed or cannot be imported, else unset.
     """
 
-    def __init__(self, message: str, *, fix: str | None = None) -> None:
+    def __init__(
+        self, message: str, *, fix: str | None = None, code: str | None = None
+    ) -> None:
         self.fix = fix
+        if code is not None:
+            self.sandloom_code = code
         super().__init__(message if fix is None else f"{message}\nFix: {fix}")
 
 
@@ -141,6 +178,8 @@ class CapabilityError(InfraError):
 
     def __init__(self, message: str, *, fix: str | None = None) -> None:
         self.fix = fix
+        # The message without the fix, for diagnostics that compose several.
+        self.reason = message
         super().__init__(message if fix is None else f"{message}\nFix: {fix}")
 
 
@@ -166,6 +205,81 @@ class InstanceNotConfiguredError(CapabilityError):
 
 class DriverNotRegisteredError(CapabilityError):
     """The instance names a driver that no plugin registered."""
+
+
+class DriverUnavailableError(CapabilityError):
+    """An instance's driver is registered and cannot run here (SANDLOOM-B037).
+
+    Its packages are not installed (found build-free, by ``find_spec``), or
+    building it failed to import a dependency. Carries what a diagnostic
+    names: the capability, the instance, the driver, the missing import names
+    and the install hint.
+    """
+
+    sandloom_code = "SANDLOOM-B037"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        fix: str | None = None,
+        capability: str = "",
+        instance: str = "",
+        driver: str = "",
+        missing: tuple[str, ...] = (),
+        install: str = "",
+    ) -> None:
+        self.capability = capability
+        self.instance = instance
+        self.driver = driver
+        self.missing = missing
+        self.install = install
+        # The text names its code wherever it surfaces (a module's load
+        # failure, a log line); ``reason`` stays untagged for composition.
+        super().__init__(f"{message} [SANDLOOM-B037]", fix=fix)
+        self.reason = message
+
+
+class CapabilityUnavailable(CapabilityError):
+    """A module requires a capability its composition cannot serve
+    (SANDLOOM-B037): every unmet required requirement of the module, each
+    naming the capability, instance, driver, the missing feature or package,
+    and the fix. The raised class also subclasses each underlying error's
+    class (:func:`_unavailable_class`)."""
+
+    sandloom_code = "SANDLOOM-B037"
+
+    def __init__(self, message: str, *, fix: str | None = None) -> None:
+        # Not a cause's own __init__ (DriverUnavailableError's would tag twice).
+        CapabilityError.__init__(self, message, fix=fix)
+
+
+_UNAVAILABLE_CLASSES: dict[frozenset[type], type[CapabilityUnavailable]] = {}
+
+
+def _unavailable_class(causes: tuple[type, ...]) -> type[CapabilityUnavailable]:
+    """:class:`CapabilityUnavailable`, also a subclass of each cause's class
+    (``FeatureUnsupportedError``, ``InstanceNotConfiguredError``, ...), so a
+    handler of the precise error keeps matching the aggregated refusal. The
+    code stays SANDLOOM-B037, first in the MRO."""
+    distinct = {c for c in causes if not issubclass(CapabilityUnavailable, c)}
+    # Keep the most derived: a base next to its subclass has no consistent MRO.
+    most_derived = [
+        c
+        for c in distinct
+        if not any(o is not c and issubclass(o, c) for o in distinct)
+    ]
+    bases = tuple(sorted(most_derived, key=lambda c: c.__qualname__))
+    key = frozenset(bases)
+    found = _UNAVAILABLE_CLASSES.get(key)
+    if found is None:
+        found = type(
+            "CapabilityUnavailable",
+            (CapabilityUnavailable, *bases),
+            {"__module__": __name__, "sandloom_code": "SANDLOOM-B037"},
+        )
+        _UNAVAILABLE_CLASSES[key] = found
+    return found
 
 
 class DriverConflictError(CapabilityError):
@@ -248,6 +362,11 @@ class InfraRegistry:
         # the loser's engine/pool (it would never be in _providers, so
         # aclose_all would miss it).
         self._build_lock = threading.Lock()
+        # (capability, instance) a validated requirement named: with
+        # KERNEL_INSTANCES and every explicit instance, what is in use.
+        self._requested: set[tuple[str, str]] = set()
+        # import name -> installed (find_spec answers once per process).
+        self._installed: dict[str, bool] = {}
 
     # ------------------------------------------------------------------ #
     # Capability registration
@@ -324,6 +443,8 @@ class InfraRegistry:
         instance_features: Callable[[Mapping[str, Any]], frozenset[str]] | None = None,
         capability_version: str | None = None,
         sql_dialects: frozenset[str] | set[str] | None = None,
+        requires: Iterable[str] = (),
+        install: str = "",
     ) -> None:
         """Register a driver for a capability (idempotent override).
 
@@ -333,7 +454,18 @@ class InfraRegistry:
         the spec's — so a driver cannot advertise a feature the contract does
         not define. ``capability_version`` is the contract version the driver
         was written for: another major version of the capability is refused.
+        ``requires`` are the top-level import names the driver needs and
+        ``install`` how to get them (``pip install 'sandloom[celery]'``).
         """
+        needed = tuple(requires)
+        dotted = [name for name in needed if not name or "." in name]
+        if dotted:
+            # find_spec of a dotted name imports its parent: only top-level
+            # names keep the availability check import-free.
+            raise ValueError(
+                f"Driver {capability}/{driver}: requires= takes top-level import "
+                f"names, got {dotted}"
+            )
         feats = frozenset(features or ())
         registered = self._capabilities.get(capability)
         if (
@@ -371,10 +503,119 @@ class InfraRegistry:
             config_schema=config_schema,
             instance_features=instance_features,
             sql_dialects=frozenset(sql_dialects or ()),
+            requires=needed,
+            install=install,
         )
 
     def has_driver(self, capability: str, driver: str) -> bool:
         return (capability, driver) in self._drivers
+
+    # ------------------------------------------------------------------ #
+    # Availability and use (build-free)
+    # ------------------------------------------------------------------ #
+    def _is_installed(self, name: str) -> bool:
+        """Whether the top-level import ``name`` can be found, without
+        importing it: ``find_spec`` reads the import path, it runs no package
+        code and opens no connection. Answered once per name and registry."""
+        known = self._installed.get(name)
+        if known is not None:
+            return known
+        try:
+            found = importlib.util.find_spec(name) is not None
+        except (ImportError, ValueError):
+            # A finder that refuses the name, or a module in sys.modules
+            # without a spec: either way it cannot be imported here.
+            found = False
+        self._installed[name] = found
+        return found
+
+    def missing_packages(
+        self, capability: str, name: str = DEFAULT_INSTANCE
+    ) -> tuple[str, ...]:
+        """The import names instance ``capability/name``'s driver needs and
+        this environment lacks, build-free; empty when the instance or its
+        driver is not configured (other checks say so)."""
+        cfg = self._config.get(capability, {}).get(name)
+        if cfg is None:
+            return ()
+        registration = self._drivers.get((capability, cfg.driver))
+        if registration is None:
+            return ()
+        return tuple(n for n in registration.requires if not self._is_installed(n))
+
+    def _unavailable(
+        self,
+        capability: str,
+        name: str,
+        *,
+        features: frozenset[str] | None = None,
+    ) -> DriverUnavailableError | None:
+        """A :class:`DriverUnavailableError` when the instance's driver lacks
+        installed packages, else ``None``. Build-free."""
+        missing = self.missing_packages(capability, name)
+        if not missing:
+            return None
+        cfg = self._config[capability][name]
+        registration = self._drivers[(capability, cfg.driver)]
+        packages = ", ".join(repr(n) for n in missing)
+        verb = "is" if len(missing) == 1 else "are"
+        return DriverUnavailableError(
+            f"{capability}/{name}: driver {cfg.driver!r} needs the package"
+            f"{'' if len(missing) == 1 else 's'} {packages}, which {verb} not "
+            "installed",
+            fix=_install_fix(capability, name, registration, missing, features),
+            capability=capability,
+            instance=name,
+            driver=cfg.driver,
+            missing=missing,
+            install=registration.install,
+        )
+
+    def _import_failure(
+        self,
+        capability: str,
+        name: str,
+        cfg: InstanceConfig,
+        registration: DriverRegistration,
+        exc: ImportError,
+    ) -> DriverUnavailableError:
+        """Building the driver failed to import a dependency: the packages it
+        names were found, a transitive one was not (or is broken)."""
+        missing = (exc.name.split(".", 1)[0],) if exc.name else ()
+        return DriverUnavailableError(
+            f"{capability}/{name}: driver {cfg.driver!r} cannot be built, an "
+            f"import failed: {exc}",
+            fix=_install_fix(capability, name, registration, missing, None),
+            capability=capability,
+            instance=name,
+            driver=cfg.driver,
+            missing=missing,
+            install=registration.install,
+        )
+
+    def in_use(self, capability: str, name: str = DEFAULT_INSTANCE) -> bool:
+        """Whether something requires instance ``capability/name``.
+
+        An instance ``INFRA`` names is in use (the operator selected it); so
+        is a synthesized one the kernel uses (:data:`KERNEL_INSTANCES`) or a
+        validated module requirement named. Any other synthesized instance is
+        not opened, probed or listed as failing: nothing would use it. An
+        instance that is not configured is not in use.
+        """
+        if self._config.get(capability, {}).get(name) is None:
+            return False
+        return not self._unused(capability, name)
+
+    def _unused(self, capability: str, name: str) -> bool:
+        """A configured, synthesized instance nothing requires: the one kind
+        :meth:`aopen_all` and :meth:`health_all` skip."""
+        cfg = self._config.get(capability, {}).get(name)
+        return (
+            cfg is not None
+            and cfg.implicit
+            and (capability, name) not in KERNEL_INSTANCES
+            and (capability, name) not in self._requested
+        )
 
     def set_config(self, config: InfraConfig) -> None:
         """Replace the configuration (clears any built providers)."""
@@ -518,7 +759,12 @@ class InfraRegistry:
                     "group) or pick a known driver",
                 )
             self._validate_options(capability, instance_cfg, registration)
-            provider = registration.factory(instance_cfg)
+            try:
+                provider = registration.factory(instance_cfg)
+            except ImportError as exc:
+                raise self._import_failure(
+                    capability, name, instance_cfg, registration, exc
+                ) from exc
             self._check_contract(capability, name, provider)
             if self._strict:
                 self._check_declared_features(
@@ -585,9 +831,13 @@ class InfraRegistry:
 
         Checks (no provider instantiated, no I/O): the capability has a spec,
         the version matches, an instance is configured, its driver is
-        registered, and the requested features are both defined by the spec and
-        declared by the driver. Used by the module preflight so a bad plugin's
-        ``factory`` can never run network code at startup.
+        registered, the requested features are both defined by the spec and
+        declared by the driver, and the packages the driver needs are
+        installed (``find_spec``: nothing imported; a missing one raises
+        :class:`DriverUnavailableError`, SANDLOOM-B037). Used by the module
+        preflight so a bad plugin's ``factory`` can never run network code at
+        startup. A requirement that passes marks its instance in use
+        (:meth:`in_use`).
         """
         spec = self._capabilities.get(capability)
         if spec is None:
@@ -637,6 +887,61 @@ class InfraRegistry:
                     fix=f"configure {capability}/{instance} with a driver that "
                     f"supports {sorted(missing)}",
                 )
+        unavailable = self._unavailable(capability, instance, features=features)
+        if unavailable is not None:
+            raise unavailable
+        self._requested.add((capability, instance))
+
+    def check_module_requirements(
+        self, module: str, requirements: Iterable[CapabilityRequirement]
+    ) -> list[tuple[CapabilityRequirement, Exception]]:
+        """Validate a module's capability requirements, build-free.
+
+        Every unmet REQUIRED requirement is refused at once with one
+        :class:`CapabilityUnavailable` (SANDLOOM-B037) naming the module and,
+        for each, the capability, the instance, its driver, the features asked
+        for, what is missing and the fix. Optional requirements that cannot
+        be met are returned for the caller to report; an unexpected error of
+        a required one propagates as it is.
+        """
+        unmet: list[tuple[str, CapabilityError]] = []
+        optional: list[tuple[CapabilityRequirement, Exception]] = []
+        for req in requirements:
+            try:
+                self.validate_requirement(
+                    req.capability,
+                    req.instance,
+                    features=req.features or None,
+                    version=req.version,
+                )
+            except CapabilityError as exc:
+                if req.required:
+                    unmet.append((self._describe_unmet(req, exc), exc))
+                else:
+                    optional.append((req, exc))
+            except Exception as exc:
+                if req.required:
+                    raise
+                optional.append((req, exc))
+        if unmet:
+            error = _unavailable_class(tuple(type(exc) for _text, exc in unmet))
+            raise error(
+                f"module {module!r} requires infrastructure this composition "
+                f"cannot serve [SANDLOOM-B037]: {'; '.join(t for t, _e in unmet)}",
+                fix="install or select what each requirement names; "
+                "`sandloom explain SANDLOOM-B037`",
+            )
+        return optional
+
+    def _describe_unmet(self, req: CapabilityRequirement, exc: CapabilityError) -> str:
+        cfg = self._config.get(req.capability, {}).get(req.instance)
+        where = [f"instance {req.instance!r}"]
+        if cfg is not None:
+            where.append(f"driver {cfg.driver!r}")
+        if req.features:
+            where.append(f"features {sorted(req.features)}")
+        fix = f"; fix: {exc.fix}" if exc.fix else ""
+        return f"capability {req.capability!r} ({', '.join(where)}): {exc.reason}{fix}"
 
     # ------------------------------------------------------------------ #
     # Contract / feature / config validation
@@ -736,14 +1041,19 @@ class InfraRegistry:
         mid-request in prod). Two checks, both build-free (no provider built, no
         engine/client/pool created, no I/O):
 
-        * the instance's driver is registered, and
-        * its options satisfy the driver/capability config schema.
+        * the instance's driver is registered,
+        * its options satisfy the driver/capability config schema, and
+        * for an instance ``INFRA`` names, the packages its driver needs are
+          installed (``find_spec``, nothing imported): the operator selected
+          it, so a driver that cannot run is refused (SANDLOOM-B037). A
+          synthesized default is checked when a requirement names it.
 
         Options are only validated for instances whose driver is registered and
         carries a schema; an instance without a schema is skipped (current
         behaviour) — :meth:`_validate_options` just instantiates the schema.
         """
         missing: list[str] = []
+        unavailable: list[DriverUnavailableError] = []
         for capability, instances in self._config.items():
             for name, cfg in instances.items():
                 registration = self._drivers.get((capability, cfg.driver))
@@ -753,6 +1063,23 @@ class InfraRegistry:
                 # Build-free: instantiates the config schema only — never the
                 # provider. Raises ConfigSchemaError with an actionable fix.
                 self._validate_options(capability, cfg, registration)
+                if not cfg.implicit:
+                    problem = self._unavailable(capability, name)
+                    if problem is not None:
+                        unavailable.append(problem)
+        if unavailable:
+            first = unavailable[0]
+            raise DriverUnavailableError(
+                "An instance selected in INFRA has a driver that cannot run here: "
+                + "; ".join(f"{u.reason} (fix: {u.fix})" for u in unavailable),
+                fix="install what the driver needs, or select an installed "
+                "driver in INFRA; `sandloom explain SANDLOOM-B037`",
+                capability=first.capability,
+                instance=first.instance,
+                driver=first.driver,
+                missing=tuple(n for u in unavailable for n in u.missing),
+                install=first.install,
+            )
         if missing:
             raise DriverNotRegisteredError(
                 "Configured infrastructure instances have no registered driver: "
@@ -765,11 +1092,17 @@ class InfraRegistry:
     # ------------------------------------------------------------------ #
     # Lifecycle
     # ------------------------------------------------------------------ #
-    async def health_all(self) -> dict[str, HealthResult]:
-        """Health-probe every configured instance (builds them as needed).
+    async def health_all(
+        self, *, skip: frozenset[str] = frozenset()
+    ) -> dict[str, HealthResult]:
+        """Health-probe every instance in use (builds them as needed).
 
         Keys are ``"<capability>:<name>"``. Every probe has its own bounded
         timeout; an unavailable instance cannot serially delay every probe.
+        A synthesized instance nothing requires (:meth:`in_use`) is neither
+        built nor probed; :meth:`describe` lists it as ``unused``. The
+        capabilities in ``skip`` are not probed at all (``/health`` skips the
+        taskqueue, whose reachability only readiness reads).
         """
 
         await self._close_retired()
@@ -791,7 +1124,9 @@ class InfraRegistry:
                 *(
                     probe(capability, name)
                     for capability, instances in self._config.items()
+                    if capability not in skip
                     for name in instances
+                    if not self._unused(capability, name)
                 )
             )
         )
@@ -814,42 +1149,81 @@ class InfraRegistry:
         ``fatal_at_startup = True`` (a security misconfiguration, e.g. an
         application role that could escape tenant RLS), which aborts startup
         in every environment.
+
+        A synthesized instance nothing requires (:meth:`in_use`) is skipped:
+        it is not built, so a driver nobody selected (Celery for an app
+        without task modules) can neither fail startup nor open a connection.
+        A driver whose packages are missing, or whose build fails to import a
+        dependency, fails as SANDLOOM-B037 naming the instance, the driver,
+        the missing package and the install hint.
         """
         failures: list[str] = []
+        unavailable = False
         await self._close_retired()
         for capability, instances in self._config.items():
             if capability == "eventbus":
                 continue
             for name in instances:
-                try:
-                    provider = self.provider(capability, name)
-                    await provider.aopen()
-                except Exception as exc:
-                    # A security misconfiguration (e.g. an application role
-                    # that could escape tenant RLS) aborts startup in every
-                    # environment, not only under strict (production) startup.
-                    if strict or getattr(exc, "fatal_at_startup", False):
-                        logger.error(
-                            "[infra] failed to open %s/%s",
-                            capability,
-                            name,
-                            exc_info=True,
-                        )
-                        failures.append(f"{capability}/{name}: {exc}")
-                    else:
-                        logger.warning(
-                            "[infra] error opening %s/%s",
-                            capability,
-                            name,
-                            exc_info=True,
-                        )
+                if self._unused(capability, name):
+                    logger.debug(
+                        "[infra] %s/%s is a synthesized default nothing requires: "
+                        "not opened",
+                        capability,
+                        name,
+                    )
+                    continue
+                failure = await self._open_one(capability, name, strict=strict)
+                if failure is not None:
+                    failures.append(failure[0])
+                    unavailable = unavailable or failure[1]
         if failures:
             raise InfraStartupError(
                 "Infrastructure failed to open at startup: " + "; ".join(failures),
-                fix="check the DSN/credentials/reachability of the failing "
+                fix=(
+                    "install what each SANDLOOM-B037 instance names; "
+                    if unavailable
+                    else ""
+                )
+                + "check the DSN/credentials/reachability of the failing "
                 "instance(s); the process will not serve traffic until every "
                 "configured instance opens (strict startup is on in production)",
+                code="SANDLOOM-B037" if unavailable else None,
             )
+
+    async def _open_one(
+        self, capability: str, name: str, *, strict: bool
+    ) -> tuple[str, bool] | None:
+        """Build and open one instance for :meth:`aopen_all`: ``None`` when
+        it opened or its failure is only logged, else ``(the failure, whether
+        the driver cannot run here)``."""
+        try:
+            problem = self._unavailable(capability, name)
+            if problem is not None:
+                raise problem
+            provider = self.provider(capability, name)
+            await provider.aopen()
+        except DriverUnavailableError as exc:
+            # An installation fact, not reachability: the message says what
+            # to install, a traceback adds nothing.
+            if not strict:
+                logger.warning("[infra] %s", exc)
+                return None
+            logger.error("[infra] %s", exc)
+            return f"{exc.reason} [SANDLOOM-B037] ({exc.fix})", True
+        except Exception as exc:
+            # A security misconfiguration (e.g. an application role that could
+            # escape tenant RLS) aborts startup in every environment, not only
+            # under strict (production) startup.
+            if not (strict or getattr(exc, "fatal_at_startup", False)):
+                logger.warning(
+                    "[infra] error opening %s/%s", capability, name, exc_info=True
+                )
+                return None
+            logger.error(
+                "[infra] failed to open %s/%s", capability, name, exc_info=True
+            )
+            return f"{capability}/{name}: {exc}", False
+        return None
 
     async def aclose_all(self) -> None:
         """Close every built provider (best-effort, never raises)."""
@@ -875,7 +1249,13 @@ class InfraRegistry:
     # Diagnostics
     # ------------------------------------------------------------------ #
     def describe(self) -> dict[str, Any]:
-        """Return a JSON-serializable snapshot for diagnostics endpoints."""
+        """Return a JSON-serializable snapshot for diagnostics endpoints.
+
+        Each instance says whether it was synthesized (``implicit``), whether
+        something requires it (``in_use``; a synthesized one nothing requires
+        carries ``status: "unused"`` and is never probed) and, build-free,
+        which packages its driver lacks (``missing_packages``).
+        """
         return {
             "capabilities": {
                 spec.name: {
@@ -895,6 +1275,14 @@ class InfraRegistry:
                     name: {
                         "driver": cfg.driver,
                         "built": (cap, name) in self._providers,
+                        "implicit": cfg.implicit,
+                        "in_use": self.in_use(cap, name),
+                        **({} if self.in_use(cap, name) else {"status": "unused"}),
+                        **(
+                            {"missing_packages": list(missing)}
+                            if (missing := self.missing_packages(cap, name))
+                            else {}
+                        ),
                         **(
                             {
                                 "features": sorted(
@@ -1000,6 +1388,21 @@ def _load_driver(registry: InfraRegistry, cfg: InstanceConfig) -> None:
             fix="install a version of the driver for this contract",
         )
     provider_class = cast("type[InfraProvider]", driver)
+    required_imports = provider_class.required_imports
+    install_hint = provider_class.install_hint
+    if (
+        not isinstance(required_imports, tuple)
+        or any(
+            not isinstance(name, str) or not name.isidentifier()
+            for name in required_imports
+        )
+        or not isinstance(install_hint, str)
+    ):
+        raise DriverLoadError(
+            f"Driver {key!r} declares invalid dependency metadata",
+            fix="set required_imports to a tuple of top-level import names "
+            "and install_hint to a string",
+        )
     registry.register_driver(
         cfg.capability,
         cfg.driver,
@@ -1007,6 +1410,8 @@ def _load_driver(registry: InfraRegistry, cfg: InstanceConfig) -> None:
         features=provider_class.supported_features,
         config_schema=provider_class.options_schema,
         instance_features=provider_class.features_for,
+        requires=required_imports,
+        install=install_hint,
     )
 
 
@@ -1042,6 +1447,8 @@ __all__ = [
     "FeatureUnsupportedError",
     "InstanceNotConfiguredError",
     "DriverNotRegisteredError",
+    "DriverUnavailableError",
+    "CapabilityUnavailable",
     "ConfigSchemaError",
     "ExperimentalCapabilityError",
     "TransactionalOutboxUnsupportedError",

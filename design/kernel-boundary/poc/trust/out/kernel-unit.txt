@@ -1,0 +1,79 @@
+_ test_legacy_token_keeps_authentication_and_loses_protected_claims[L1 no failed] _
+_______ test_no_owner_writes_a_reserved_key[False-claims_sources_failed] _______
+2026-11-08 14:37:38,303 [ERROR] sandloom.core.facade: claims contributor 'identity' wrote the claim 'claims_sources_failed' (a reserved claim); its whole contribution is dropped
+_______ test_no_owner_writes_a_reserved_key[True-claims_sources_failed] ________
+2026-11-08 14:37:38,561 [ERROR] sandloom.core.facade: claims contributor 'identity' wrote the claim 'claims_sources_failed' (a reserved claim); refusing to mint the token
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_legacy_token_keeps_authentication_and_loses_protected_claims[L1 no failed]
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_legacy_token_keeps_authentication_and_loses_protected_claims[L2 no provenance]
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_legacy_token_keeps_authentication_and_loses_protected_claims[L3 failed=[] no cpv]
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_current_token_from_the_authority_is_trusted
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_authority_absent_or_failed_is_a_definite_deny
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_unassigned_protected_key_is_a_definite_deny
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_skewed_issuer_map_is_untrusted
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_a_forged_untrusted_marker_in_the_token_is_overwritten
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_create_access_token_refuses_unsealed_protected_claims[data0]
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_create_access_token_refuses_unsealed_protected_claims[data1]
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_create_access_token_refuses_unsealed_protected_claims[data2]
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_create_access_token_refuses_unsealed_protected_claims[data3]
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_issuer_email_without_a_sealed_cpv_is_untrusted
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_spreading_a_sealed_result_is_refused
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_service_token_refuses_protected_claims[data0]
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_service_token_refuses_protected_claims[data1]
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_service_token_refuses_protected_claims[data2]
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_service_token_grants_nothing_and_is_current
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_test_authority_is_refused_outside_a_test_composition
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_test_authority_refused_in_a_production_composition
+PASSED src/sandloom/core/tests/test_claim_trust.py::test_kernel_registers_and_runs_the_revocation_applier
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_identity_alone_keeps_its_roles_and_gate
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_one_owners_contributors_still_merge
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_monolith_module_cannot_write_identitys_claims[False-roles]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_monolith_module_cannot_write_identitys_claims[False-permissions]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_monolith_module_cannot_write_identitys_claims[True-roles]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_monolith_module_cannot_write_identitys_claims[True-permissions]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_monolith_order_does_not_matter[False]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_monolith_order_does_not_matter[True]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_split_remote_owner_cannot_write_identitys_roles[False]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_split_remote_owner_cannot_write_identitys_roles[True]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_split_remote_owner_with_its_own_keys_still_contributes
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-aud]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-auth_time]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-claims]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-claims_sources]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-claims_sources_failed]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-cpv]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-email]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-email_verified]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-exp]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-iat]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-iat_us]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-iss]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-jti]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-nbf]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-org_id]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-provenance_authoritative]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-sub]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-tenant_id]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-token_type]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[False-user_id]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-aud]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-auth_time]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-claims]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-claims_sources]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-claims_sources_failed]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-cpv]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-email]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-email_verified]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-exp]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-iat]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-iat_us]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-iss]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-jti]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-nbf]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-org_id]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-provenance_authoritative]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-sub]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-tenant_id]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-token_type]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[True-user_id]
+PASSED src/sandloom/core/tests/test_claims_key_ownership.py::test_reserved_keys_cover_the_envelope_and_provenance
+============================== 73 passed in 2.77s ==============================

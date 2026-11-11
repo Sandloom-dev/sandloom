@@ -1,0 +1,16 @@
+## KB_POC_K6 off
+tier=1 get_db=False Subscribed(of=Account.user())
+tier=1 get_db=False Role('admin') & Subscribed(of=Account.user())
+tier=1 get_db=False Perm('x') | Subscribed(of=Account.user())
+tier=3 get_db=True  Subscribed(of=Account.bound_tenant())
+tier=3 get_db=True  SubscriptionActive(of=Account.user())
+tier=3 get_db=True  Role('admin') | Credits(10, of=Account.user())
+tier=3 get_db=True  OrgRole('admin') & SubscriptionActive(of=Account.bound_tenant())
+## KB_POC_K6=1
+tier=1 get_db=False Subscribed(of=Account.user())
+tier=1 get_db=False Role('admin') & Subscribed(of=Account.user())
+tier=1 get_db=False Perm('x') | Subscribed(of=Account.user())
+tier=3 get_db=True  Subscribed(of=Account.bound_tenant())
+tier=3 get_db=False SubscriptionActive(of=Account.user())
+tier=3 get_db=False Role('admin') | Credits(10, of=Account.user())
+tier=3 get_db=False OrgRole('admin') & SubscriptionActive(of=Account.bound_tenant())

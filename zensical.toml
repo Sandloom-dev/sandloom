@@ -236,6 +236,10 @@ Optional = [
     "adr/0009-route-policy-and-session-freshness.md",
     "adr/0010-public-api-1.0.md",
     "adr/0011-driver-api.md",
+    "adr/0012-kernel-boundary.md",
+    "adr/0013-contract-ownership.md",
+    "adr/0014-claims-trust-and-authorization-portability.md",
+    "adr/0015-module-settings.md",
 ]
 
 [project.markdown_extensions.admonition]
@@ -483,5 +487,9 @@ Contribute = [
         { "ADR-0009: Route Policy and Session Freshness" = "adr/0009-route-policy-and-session-freshness.md" },
         { "ADR-0010: Public API 1.0" = "adr/0010-public-api-1.0.md" },
         { "ADR-0011: The driver API" = "adr/0011-driver-api.md" },
+        { "ADR-0012: The Kernel Boundary" = "adr/0012-kernel-boundary.md" },
+        { "ADR-0013: Contract Ownership" = "adr/0013-contract-ownership.md" },
+        { "ADR-0014: Claims Trust and Authorization Portability" = "adr/0014-claims-trust-and-authorization-portability.md" },
+        { "ADR-0015: Module Settings" = "adr/0015-module-settings.md" },
     ] },
 ]

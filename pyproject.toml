@@ -11,6 +11,7 @@ dependencies = [
     "sandloom[standard,check,fast,sentry,sqlite]",
     "sandloom-billing",
     "sandloom-identity",
+    "sandloom-standard",
     "sandloom-tenancy",
 ]
 
@@ -70,6 +71,10 @@ editable = true
 path = "packages/sandloom-identity"
 editable = true
 
+[tool.uv.sources.sandloom-standard]
+path = "packages/sandloom-standard"
+editable = true
+
 [tool.uv.sources.sandloom-tenancy]
 path = "packages/sandloom-tenancy"
 editable = true
@@ -81,6 +86,9 @@ force-exclude = true
 extend-exclude = [
     "alembic",
     "src/*/migrations/versions",
+    # Consumer copies are laid out by `sandloom generate`, never by ruff
+    # (ADR-0013 decision 6).
+    "src/*/_generated",
 ]
 
 [tool.ruff.lint]
@@ -151,6 +159,7 @@ quote-style = "double"
 mypy_path = "src"
 files = [
     "src/",
+    "packages/sandloom-standard/src/",
 ]
 exclude = [
     ".venv/",

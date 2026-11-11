@@ -55,6 +55,9 @@ and one log line — WARNING when anything is still failing or escalated). The
 durable signal for alerting is the table itself (``reconcile_attempts``,
 ``followup_at``); the framework's Celery worker exports no Prometheus
 endpoint, so no counter is incremented here.
+
+The worker records completion in the existing durable run record. The
+operational check reads it alongside outstanding compensation failures.
 """
 
 from __future__ import annotations
@@ -68,7 +71,7 @@ from uuid import UUID
 from sqlalchemy import and_, case, func, select, update
 
 from sandloom.sdk.data import open_uow
-from sandloom.sdk.infra import settings
+from sandloom_billing.config import billing_settings
 from sandloom_billing.models import (
     INTENT_FAILED,
     INTENT_METADATA_KEY,
@@ -146,12 +149,11 @@ class IntentReconciler:
         batch: int = DEFAULT_BATCH,
     ) -> ReconcileReport:
         now = now or datetime.now(UTC)
+        cfg = billing_settings()
         if stale_after is None:
-            stale_after = timedelta(
-                minutes=settings.billing_intent_reconcile_after_minutes
-            )
+            stale_after = timedelta(minutes=cfg.billing_intent_reconcile_after_minutes)
         if max_attempts is None:
-            max_attempts = settings.billing_intent_reconcile_max_attempts
+            max_attempts = cfg.billing_intent_reconcile_max_attempts
         report = ReconcileReport()
         for candidate in await cls._stale_pending(
             now - stale_after, max_attempts, batch
@@ -488,6 +490,3 @@ def _owner_and_status(c: _Candidate) -> tuple[Any, ...]:
         OperationIntent.status == c.status,
         OperationIntent.psp_expired_at.is_(None),
     )
-
-
-__all__ = ["DEFAULT_BATCH", "IntentReconciler", "ReconcileReport"]

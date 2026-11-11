@@ -8,9 +8,11 @@ import asyncio
 import logging
 import time
 import weakref
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import cached_property
 from time import perf_counter as _perf_counter
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -58,6 +60,8 @@ from sandloom.core.rpc.wire import (
     _CONTRACT_HASH_HEADER,
     _CTX_HEADER,
     _NONCE_HEADER,
+    PROVIDER_DESCRIBE_KEY,
+    REFRESH_SESSIONS_DESCRIBE_KEY,
     _pack,
     _parse_codec,
     _unpack,
@@ -175,7 +179,7 @@ _describe_failed: dict[tuple[str, str], tuple[str, float]] = {}
 _DESCRIBE_FAILURE_TTL_SECONDS = 5.0
 
 
-def _parse_remote_contract(data: Any) -> _RemoteContract | None:
+def _parse_remote_contract(data: Any, service: str) -> _RemoteContract | None:
     contract = data.get("contract") if isinstance(data, dict) else None
     if not isinstance(contract, dict) or not isinstance(contract.get("hash"), str):
         return None
@@ -189,7 +193,7 @@ def _parse_remote_contract(data: Any) -> _RemoteContract | None:
                 continue
             descriptor = schema.get("returns")
             ret = (
-                contract_wire.annotation_from_descriptor(descriptor)
+                contract_wire.annotation_from_descriptor(descriptor, service)
                 if isinstance(descriptor, dict)
                 else Any
             )
@@ -204,7 +208,7 @@ def _parse_remote_contract(data: Any) -> _RemoteContract | None:
                         name=str(param.get("name")),
                         kind=str(param.get("kind") or "positional_or_keyword"),
                         annotation=(
-                            contract_wire.annotation_from_descriptor(type_desc)
+                            contract_wire.annotation_from_descriptor(type_desc, service)
                             if isinstance(type_desc, dict)
                             else Any
                         ),
@@ -702,7 +706,7 @@ class RemoteServiceProxy:
                 signer=signer,
             )
             described = (
-                _parse_remote_contract(_unpack(response.content))
+                _parse_remote_contract(_unpack(response.content), self._service_name)
                 if response.status_code == status.HTTP_200_OK
                 else None
             )
@@ -729,6 +733,74 @@ class RemoteServiceProxy:
         _describe_failed.pop(key, None)
         _remote_contracts[key] = described
         return described
+
+
+@dataclass(frozen=True)
+class ProviderDescription:
+    """A bound provider's describe answer, as an operator check reads it.
+
+    ``status``: the HTTP status of the authenticated answer (200: described);
+    ``methods``: the contract's methods; ``provider``: the import path of
+    the module that registered the contract (``None``: not stated);
+    ``code``: the refusal code of a non-200 answer; ``schemas``: each
+    method's described schema (params, returns), compared by the operator
+    check with the shape it calls; ``refresh_sessions``: that module's
+    ``refresh_sessions`` declaration (``None``: not stated).
+    """
+
+    status: int
+    methods: frozenset[str] = frozenset()
+    provider: str | None = None
+    code: str | None = None
+    schemas: Mapping[str, Any] = field(default_factory=dict)
+    refresh_sessions: bool | None = None
+
+
+async def describe_provider(proxy: RemoteServiceProxy) -> ProviderDescription:
+    """Describe ``proxy``'s contract once, strictly, at its bound provider.
+
+    The answer is accepted only when bound to the binding's pinned
+    ``service_id`` (the pair key): a response keyed by another service
+    raises the transport's binding error, never a description. A refusal
+    the provider could not key (it authenticates nothing) comes back with
+    its status and code. No cache, no fallback to an untyped decode: for
+    operator commands only (never on a request), which refuse before their
+    first side effect on anything but a confirmed description.
+    """
+    cfg = proxy._cfg
+    service = proxy._service_name
+    mac_key = _outbound_mac(cfg, proxy._provider_service, service)
+    headers, signer = _get_auth(service, cfg, mac_key, proxy._provider_service)
+    try:
+        response = await _bound_get(
+            proxy._http(),
+            f"{proxy._base_url}/_sandloom/rpc/{quote(service, safe='.')}",
+            headers,
+            proxy._timeout_seconds,
+            proxy._base_url,
+            proxy._provider_service,
+            cfg,
+            signer=signer,
+        )
+    except _RpcRefused as exc:
+        return ProviderDescription(status=exc.status_code, code=exc.code)
+    if response.status_code != status.HTTP_200_OK:
+        return ProviderDescription(status=response.status_code)
+    data = _unpack(response.content)
+    contract = data.get("contract") if isinstance(data, dict) else None
+    if not isinstance(contract, dict) or not isinstance(contract.get("methods"), dict):
+        raise RemoteServiceBadResponse(service, reason="malformed describe")
+    provider = contract.get(PROVIDER_DESCRIBE_KEY)
+    holds = contract.get(REFRESH_SESSIONS_DESCRIBE_KEY)
+    return ProviderDescription(
+        status=response.status_code,
+        methods=frozenset(str(name) for name in contract["methods"]),
+        provider=provider if isinstance(provider, str) else None,
+        schemas=MappingProxyType(
+            {str(name): spec for name, spec in contract["methods"].items()}
+        ),
+        refresh_sessions=holds if isinstance(holds, bool) else None,
+    )
 
 
 def remote_service_proxy(

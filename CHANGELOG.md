@@ -13,8 +13,681 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **`Authority(name, module=path)` must name the module's real name**
+  (kb-proto-operator-a, moved here by kb-w7-rev-b). The claim map keeps
+  `name` as the module's public name, so an `Authority(name, module=path)`
+  whose `name` is not the installed entry-point name (or, for a module loaded
+  by path, its last import segment) is now refused at startup
+  (SANDLOOM-B035). Upgrade: write the module's real name, e.g.
+  `Authority("identity", module="sandloom_identity")`.
+
+- **`identity.security.v1` drops `account_standing`, `list_platform_admins`
+  and `revoke_sessions`; `end_sessions` ends only identity's own sessions**
+  (kb-w7-rev-b, W7 reviews: owner decision 1 of 2026-11-09, no deprecated API).
+  The three methods and their DTOs (`AccountStanding`, `PlatformAdmin`) are
+  removed. `end_sessions` and `require_password_reset` now end identity's
+  refresh sessions and write its audit rows only: they no longer write a
+  revocation mark (the kernel's `sandloom security` unit revokes the access
+  tokens, once, after them), and `end_sessions` reports
+  `ended=["refresh_sessions"]`. Upgrade: call `end_sessions` (answer
+  `SessionsEnded{affected, ended}`) for `revoke_sessions`;
+  `account_by_email` plus the `roles` owner's `is_platform_admin` for
+  `account_standing`; `platform_admin_ids` joined with `accounts_by_id` for
+  `list_platform_admins`; drop the three names from `RPC_ALLOWED_CALLS`; run
+  `sandloom generate` (copies of `identity.security.v1` lose them). A caller
+  of `end_sessions` outside `sandloom security` that needs the access tokens
+  revoked calls `revoke_user_tokens_on_commit` itself
+  (`docs/operate/upgrade-1.0.md`).
+
+- **An operator owner's methods must have the shape the kernel calls**
+  (kb-w7-rev-b, owner decision 3 of 2026-11-09). `sandloom security` and
+  `sandloom admin` compare each `<owner>.security.v1` method's schema (local,
+  or the bound provider's live describe) with the shape they call it with
+  (`sandloom.core.cli.operator_owner.OPERATOR_METHOD_SHAPES`) before the first
+  side effect, a dry run included; an incompatible one is refused like a
+  missing one (SANDLOOM-B039, exit 1), expected against got. Upgrade: type an
+  owner's operator methods as the table says, e.g. `end_sessions(user_ids:
+  list[UUID], reason: str, operator: str, operation_key: str) ->
+  SessionsEnded` with a DTO `affected: int`, `ended: list[Literal[...]]`, not
+  `dict[str, Any]`; `require_password_reset(...) -> int`.
+
+- **An access fact is identified by its owner and its name** (KB-34k, owner
+  decision 2026-11-09, W5+W6 security review M2). `owner=` is a required
+  keyword of `Entitled`, `fake_access_fact` and `lookup_access_fact`: write
+  `Entitled("subscription.active", owner="billing")`,
+  `fake_access_fact(name, value, owner="billing")`. A missing owner is a
+  `TypeError` when the policy is built; `None`, an empty string or a
+  non-identifier raises `SANDLOOM-B038` (`InvalidFactOwner`, both a
+  `TypeError` and a `ValueError`). The lookup accepts only that module's fact
+  (its local registration, or its bound `<owner>.facts.v1`) and asks no other
+  module's facts contract: another module's fact of the same name never
+  satisfies the policy, an owner neither loaded nor bound is 501
+  `fact_unregistered`, an unreachable one 503 with no fallback, both
+  indeterminate under `Not` / `Or`. `Entitled.contracts()` names
+  `<owner>.facts.v1`, never one derived from the fact's first segment. The
+  request-local fact cache and the remote descriptor cache are keyed by owner
+  too. Upgrade: `docs/operate/upgrade-1.0.md`.
+- **Fail-safe claim keys are declared** (kb-rev56-keys, ADR-0014 decision 7,
+  edge B-N12). The kernel's `FAIL_SAFE_KEYS` (billing's four keys) is gone:
+  a key may come from a non-critical authority only when its local authority
+  declares it (`add_claims_contributor(fn, fail_safe=[...])`, billing does)
+  or the composition root does (`Authority(name, fail_safe=True)`, the only
+  declaration of an authority bound remotely `"critical": false`; the
+  standard root and `examples/oidc-identity` write it for billing). A
+  declared key, and every key an imported generated claim atom reads, is
+  protected even when the map does not name it; a claim atom imported after
+  `create_app` reading an unprotected key refuses the start (B035). A
+  contract whose implementation carries `@access_check` methods is
+  access-bearing in every process, a provider-only one included (B034).
+  Upgrade: `docs/operate/upgrade-1.0.md`.
+- **The kernel ships no domain atoms** (KB-34g, ADR-0014 decisions 8, 14,
+  15). `OrgRole`, `SubscriptionActive`, `Credits`, `Subscribed`, `Feature`,
+  `WithinLimit`, `ACTIVE_SUBSCRIPTION_STATUSES`, `register_live_adapter`,
+  `EntitlementsAdapter`, `MembershipAdapter`, `ENTITLEMENTS`, `MEMBERSHIP`,
+  `Roles` and `Permissions` leave `sandloom.sdk`, `sandloom.sdk.authz` and
+  `sandloom.shared.authz` with no alias; the atoms come from the consumer's
+  generated stub (`<app>.shared.contracts.billing_entitlements_v1`,
+  `..._tenancy_membership_v1`). The `sandloom.sdk` beginner tier is 20 names
+  (26 with the testing helpers and `client`). `WELL_KNOWN_FACT_OWNERS` is
+  gone: `Entitled(name, owner="billing")` names a fact whose name does not
+  start with its owner (only that module's fact is accepted), and
+  `fake_access_fact(..., owner=)` fakes it; `fake_access_fact` no longer
+  stands in for the entitlements contract (`fake_contract`). The archcheck
+  atom table is gone too: a class is an atom only by its generated literal,
+  and C034 follows a re-exported `ContractRef`. Upgrade:
+  `docs/operate/upgrade-1.0.md`.
+- **Tenant kind from the assigned tenant authority** (KB-31, KB-37, ADR-0014
+  decision 13, owner #7). `tenant_kind` (and so `Account.bound_tenant()`)
+  calls a tenant `organization` only when the membership witness of the
+  module the root assigned `tenant_ids` (`claim_authorities`) confirms the
+  caller's membership; the token's `tenant_ids` alone never does. The
+  witness is declared by the provider:
+  `@access_check(..., witnesses_membership={"minimum": "member"})` on a
+  boolean check binding one `From.org()` and one `From.subject_id()`
+  (tenancy's `has_role_at_least` declares it), read once at boot from the
+  composition's contract expectations. The membership live-adapter slot no
+  longer decides tenant kind. Without an assigned authority or a witness
+  the kind is `unknown`, `bound_tenant()` is indeterminate (403
+  `tenant_kind_unresolved`) and startup logs a WARNING naming each route
+  policy that uses it. **Upgrade:** a root that loads tenancy keeps working
+  (the standard map assigns it); a root without `claim_authorities`, or
+  with a replacement tenant authority, assigns `tenant_ids` and declares
+  the witness on the authority's contract, or states
+  `of=Account.org(...)` / `Account.user()`. An allowing witness check
+  (`OrgRole`) now records the membership for the request, so
+  `OrgRole("admin") & SubscriptionActive(of=Account.bound_tenant())` asks
+  2 calls instead of 3 (answer #23).
+- **The membership witness is part of the contract** (KB-31b, ADR-0014
+  decision 13). A route policy stating `Account.bound_tenant()` now adds the
+  assigned tenant authority's witness contract to its module's `consumes`
+  (optional, the witness method only; derived at boot, so
+  `module.snapshot.json`, the consumer copy and `sandloom add deploy` see it).
+  The generated atom literal carries `witnesses_membership`; the contract
+  schema refuses an unusable witness at registration (not first at boot); and
+  removing a witness or changing its values is an incompatible change
+  (SANDLOOM-T004). **Upgrade:** run `sandloom generate`; a provider that drops
+  or changes its witness ships a new contract version.
+- **A token issuer needs a critical claims contributor** (kb-proto-b035,
+  ADR-0014 decision 7). The issuer fields (`email`, `email_verified`) have no
+  other writer and no fallback, so the issuing process now refuses the boot
+  (SANDLOOM-B035) when the map's issuer registers no claims contributor or
+  registers it `critical=False`; before, it booted and minted tokens without
+  them (every invitation accept then failed closed). The B035 refusals of a
+  root with no map now name the booted root and lead with the map the
+  issuer's root must pass; one under a default map whose issuer is not
+  composed names that issuer instead of "issuer is None". An installed root
+  is suggested only when it registered its map under the new
+  `sandloom.composition_roots` entry point group (`sandloom-standard` does,
+  for `sandloom_identity`); `STANDARD_CLAIM_AUTHORITIES` now lives in
+  `sandloom_standard` and `sandloom_standard.main` still re-exports it. The
+  log redactor keeps `issues_tokens=True` / `False` readable. **Upgrade:**
+  register your issuer's contributor with
+  `add_claims_contributor(..., critical=True)`.
+
+- **`collect_claims` takes no claim value** (kb-sec2-issuer, ADR-0014
+  amendment "no claim value from the caller"). `precomputed=` and
+  `issuer_claims=` are removed from `CoreRuntime.collect_claims` and
+  `CoreFacade.collect_claims`, with no alias: passing either is a `TypeError`.
+  The signature is `collect_claims(user_id, issuer_session=None, *, issuer=None)`,
+  and every claim of the sealed result is what a registered contributor
+  returned in that pass. An `issuer_session` is now accepted only from the
+  token issuer `claim_authorities` names (SANDLOOM-R017 otherwise). Identity's
+  contributor returns `email` and `email_verified` itself, in its one
+  statement (a refresh still runs six), and
+  `TokenService.create_tokens(identity_claims=...)` is removed. `sandloom
+  check` (`kernel-handles`) now flags a module reaching `._facade` or
+  `.claims_contributors`. **Upgrade:** a token issuer of your own returns its
+  issuer fields (`email`, `email_verified`) from its own claims contributor
+  instead of passing `issuer_claims=`, and drops `precomputed=` (its
+  contributor runs in its session); a non-issuer module passes no
+  `issuer_session`. Nothing changes for a module that only contributes claims.
+- **The kernel ships no generated stub, DTO copy or event schema of a module**
+  (KB-22, ADR-0013 decisions 9 and 10; edges C1 to C5 fixed).
+  `sandloom.shared.contracts` (the stubs of `billing.credits.v1`,
+  `billing.entitlements.v1`, `identity.contact.v1`, `identity.security.v1`,
+  `tenancy.membership.v1` and the DTO copies `identity_dto`, `tenancy_dto`),
+  `sandloom/shared/events/*.json` and `sandloom.shared.membership` are deleted,
+  and `architecture_rules.yml` of a tree of top-level module packages names no
+  `shared_package`. A module keeps the stubs and DTO copies of the contracts it
+  `consumes` in its own `_generated/contracts/` package, and each producer's
+  event schema is in its `module.snapshot.json`; the `sandloom` wheel is the
+  same whatever a module changes. `sandloom.shared` keeps `authz`, `guards` and
+  `subject`. **Upgrade:** import a contract stub from your own generated home
+  (`<module>._generated.contracts.<x_y_v1>`; an application:
+  `<app>.shared.contracts.<x_y_v1>`), after listing the contract in
+  `define_module(consumes=[...])` and running `sandloom generate`. The member
+  event ordering rule (`member_event_action`, `refreshed_state_wins`) is stated
+  in the descriptions of the `tenancy.member_*.v1` events
+  (`sandloom docs tenancy.member_added.v1`): inline its 15 lines. A view of a
+  foreign channel is checked (SANDLOOM-C025) against the producer's
+  `module.snapshot.json` when no producer class or exported file is found, and
+  `sandloom docs <contract>` reads the installed provider. A stub and a DTO copy
+  import `ContractRef` / `dto_copy` from the public `sandloom.sdk.contracts`
+  wherever they are written (the kernel home clause of C-GEN-03 is gone).
+
 ### Security
 
+- **Operator commands check every answer, hold a split's issuer to its
+  `refresh_sessions` declaration, and revoke access tokens once**
+  (kb-w7-rev-b, W7 security review M1, M3, M4, L7). `sandloom security
+  revoke-sessions` / `force-password-reset` check each owner answer where
+  they read it (`operator_owner.answer_problem`), before the next side
+  effect: a `require_password_reset` answering a DTO, an `end_sessions`
+  answering a count (no longer read as "refresh sessions not applicable") or
+  a malformed page of targets stops with SANDLOOM-B039, the batch and the
+  `--operation-id` named, never a traceback; a resume replaying the stored
+  answer stops the same way and says how to go on (fix the owner, a new
+  operation id). The RPC describe answer states the registering module's
+  `refresh_sessions` declaration (additive, MAC-bound like the rest, read
+  from the loaded descriptors: no I/O), so a CLI process without the issuer
+  enforces it too: an issuer that declares refresh sessions and does not
+  report them ended fails the command after the kernel revoked the batch's
+  access tokens, and one whose `end_sessions` cannot report them is refused
+  before anything. Identity's `end_sessions` no longer writes a second
+  revocation mark (doubled marks and `core.auth.tokens_revoked.v1` records;
+  an issuer cache outage failed the batch before the kernel's unit).
+  `grant-admin` without an answer from the `roles` owner (a timeout, an
+  unreadable reply) or with an answer that is not a boolean says the outcome
+  is unknown and to check with `sandloom admin list`, never a traceback.
+
+- **`sandloom security grant-admin` and `sandloom admin create` / `invite` /
+  `list` ask the issuer and the `roles` owner, never half done**
+  (kb-proto-operator-b, owner decisions 3, 4, 7 of 2026-11-09, edge B-R4
+  fixed). The commands no longer call `identity.security.v1` by name: the
+  claim map's `issuer` answers the account side (`account_by_email`,
+  `accounts_by_id`, `password_problem`, `set_password_token`,
+  `set_password_with_token`, `reissue_set_password`) and the authority of
+  `roles` the role side (`is_platform_admin`, `platform_admin_ids`,
+  `appoint_platform_admin`, `record_admin_listing`), each confirmed by
+  describe before the first side effect, a dry run of `grant-admin` included
+  (SANDLOOM-B039 / B040, exit 1; `sandloom admin` now exits 1 for these
+  refusals). `grant-admin` (one write, on the `roles` owner) and `admin list`
+  (holders joined with the issuer's addresses; "at the provider" for an
+  issuer without passwords) work with two different owners; `admin create` and
+  `invite`, which make the account and its role in one unit, need one module
+  that is both and are refused before anything is read or written otherwise.
+  Identity gains `account_by_email`, `accounts_by_id` (DTO `OperatorAccount`),
+  `is_platform_admin` and `platform_admin_ids`; `account_standing` and
+  `list_platform_admins` stay one release. `SECURITY_CONTRACT` is gone from
+  `sandloom.core.cli.admin` and `sandloom.core.cli.security`. Upgrade: where
+  the commands run without identity, grant the new method names in
+  `RPC_ALLOWED_CALLS` for `identity.security.v1` (`account_by_email`,
+  `is_platform_admin`, `platform_admin_ids`, `accounts_by_id` besides the
+  ones already granted). examples/oidc-identity: acme_idp gains the lookup and
+  role methods (`grant-admin` works there; `admin create` is refused, no
+  password methods).
+
+- **`sandloom security revoke-sessions` / `force-password-reset` work with any
+  token issuer; access-token revocation is a platform guarantee**
+  (kb-proto-operator-a2, owner decision 1 of 2026-11-09, edge B-R5 fixed). The
+  commands ask the claim map's `issuer` (`<issuer>.security.v1`:
+  `end_sessions`, `require_password_reset`, `list_user_ids` for `--all`) and,
+  for `--tenant`, the owner of `tenant_ids` (`<owner>.security.v1`:
+  `list_member_user_ids`; tenancy registers `tenancy.security.v1`), each method
+  confirmed by describe before any side effect, a dry run with `--user`
+  included (SANDLOOM-B039 / B040, exit 1). The kernel then revokes every
+  access token of each batch itself, in one unit of the command's own process:
+  a durable claim of the batch, an audit row per user
+  (`core.security.tokens_revoked`), the mark written before commit and the
+  `core.auth.tokens_revoked.v1` record in the same outbox, which every
+  service's revocation applier applies to its own cache. No success is
+  printed before that unit commits; a cache or database failure stops with
+  the batch named and the `--operation-id` to resume. The issuer ends its own
+  refresh sessions first (identity: new `end_sessions` returning
+  `SessionsEnded{affected, ended}`; `revoke_sessions` stays one release); an
+  issuer loaded here that declares `refresh_sessions=True` and does not report
+  them fails the command. The report prints one line per kind (access tokens
+  revoked; refresh sessions ended or not applicable; external IdP sessions not
+  controlled; a new sign-in still possible: a revocation is not a block), and
+  `--json` gains `issuer`, `sessions` and `password_reset`.
+  `force-password-reset` with an issuer that has no passwords is refused with
+  no audit row and no mark. Upgrade: where the command runs in a process
+  without the issuer, bind `<issuer>.security.v1` in `SERVICE_BINDINGS`
+  (pinned to the issuer's service) and grant `end_sessions` (plus
+  `require_password_reset`, `list_user_ids`) in `RPC_ALLOWED_CALLS`; for
+  `--tenant`, bind and grant `tenancy.security.v1.list_member_user_ids` instead
+  of `tenancy.membership.v1`. The command's process needs its database (core
+  chain) for the kernel's unit. examples/oidc-identity names its issuer
+  `Authority("acme_idp", module=...)` and gives acme_idp `acme_idp.security.v1`
+  (`list_user_ids`, `end_sessions`; no password methods).
+
+- **`<m>.security.v1` is reserved to module `m`; operator owners are resolved
+  and confirmed** (kb-proto-operator-a, ADR-0012 decision 1, ADR-0013
+  decision 4 amended). Only module `m` registers `m.security.v1`
+  (SANDLOOM-B034); the kernel defines no shape for it and every contract rule
+  applies. The new resolver `sandloom.core.cli.operator_owner` reads the
+  candidate owner of an operator capability from the composition root's whole
+  claim-authority map (issuer: sessions, accounts, credentials, email lookup;
+  `roles` authority: platform-admin roles; `tenant_ids` authority: member
+  enumeration) and confirms each method by describe before the first side
+  effect, dry runs included: a missing owner, name, binding, method or
+  `RPC_ALLOWED_CALLS` grant refuses with SANDLOOM-B039, a binding to another
+  service than the owner's other bindings or a provider of another import path
+  with SANDLOOM-B040 (exit 1). The RPC describe answer states the registering
+  module's import path (`provider`). `ClaimAuthorities` keeps the declared
+  issuer (`declared_issuer`) and the authorities' public names (`names`) in a
+  process that does not load them. `Authority(name, module=path)` now keeps
+  `name` as the module's public name (the verifier's owner, the
+  `<m>.claims.v1` binding a split looks for); the standard map declares
+  `identity`, `tenancy` and `billing` this way (its stricter refusal is under
+  Breaking changes).
+
+- **SANDLOOM-C034 sees every spelling of a hand-written contract client**
+  (kb-rev56-c034, W5+W6 review M1). A ContractRef reached through a module
+  alias, a lowercase or star re-export, a local alias or a hand-written
+  `ContractRef(...)`, and a client built inline, under an annotation, in a
+  function or a class, through an aliased `Contract`, `OptionalContract.client()`,
+  a bound method, a constant `getattr` or a helper function (of the file or
+  imported from the package) are now compared with the declaration. The
+  `__sandloom_atom__` literal exempts a class only in a `_generated/` package.
+  A class defined after an import of the same name now shadows it, so a
+  hand-written `OrgRole` no longer counts as the generated admin gate
+  (SANDLOOM-C022). Upgrade: a hand-written Requirement that `sandloom check` now
+  reports states the declared `tier`, `category` and `risks()`, or uses the
+  generated atom.
+
+- **An unknown feature or limit is never a deny that `Not` turns into an
+  allow** (KB-33c, C-B5, G-AUTHZ-12). Billing has no per-plan features or
+  limits catalogue yet, and its `billing.entitlements.v1.has_feature` /
+  `is_within_limit` answered `False` for every organization. So
+  `Not(Feature(...))` and `~WithinLimit(...)` allowed. Both now raise the new
+  `AccessUnknown` (`sandloom.sdk.authz`, advanced), a 501 contract error
+  that reaches local and RPC callers as the same class. The generated atom
+  maps it to an indeterminate 501 `access_unknown` inside the algebra, so
+  `Not` never allows and `Or` allows only on another branch. With
+  `Account.user()` the atoms still read the claims with zero I/O. The
+  catalogue is a later task, and `Feature` / `WithinLimit` stay supported.
+  A provider with its own catalogue returns `True` / `False` and raises
+  `AccessUnknown` when it has no answer. Upgrade: an organization gate on
+  billing's `Feature` / `WithinLimit` that denied with 403 / 402 now answers
+  501. Gate it with a provider that has a catalogue.
+- **`Account.user()`: an absent features or limits claim is unknown, not a
+  deny** (KB-33d, an amendment of G-AUTHZ-12, ADR-0014 decision 15). This is
+  a behaviour change. Billing writes no `features` / `limits` claim (it has no
+  catalogue yet). The generated `Feature` / `WithinLimit` read the absent
+  claim as a deny, so `~Feature("x", of=Account.user())` allowed. They now
+  decide from the token in three ways, still with zero I/O:
+  - A present mapping is the complete entitlements snapshot. An entry it
+    lists decides, and an entry it does not list denies.
+  - The whole claim absent is an indeterminate 501 `access_unknown`. When
+    its authority failed at the mint it is 503 `claim_authority_failed`.
+  - A claim that is not a mapping, or an entry of the wrong type (a flag
+    that is not a boolean, a limit that is not an integer), is 501
+    `access_unknown`.
+
+  `Not` never allows on an unknown, and `Or` allows only on another branch.
+  A claim authority of `features` / `limits` writes the whole mapping or
+  none. The kernel atoms keep the old reading until KB-34 removes them.
+  Upgrade: a personal-account gate on billing's `Feature` / `WithinLimit`
+  that denied with 403 / 402 now answers 501 until a catalogue writes the
+  claims, and its `Not` no longer allows.
+- **`Subscribed(statuses=...)`: an absent subscription status is never a
+  deny that `Not` turns into an allow** (KB-33e, an amendment of
+  G-AUTHZ-12). Billing's generated `Subscribed` with explicit `statuses=`
+  (or another declared `claim_key=`) read the token's `subscription_status`
+  verbatim and denied when it was absent, without asking why. So
+  `~Subscribed(statuses=..., of=Account.user())` allowed when billing failed
+  at the mint. The verbatim read now follows the KB-33d rows, still with
+  zero I/O:
+  - A status present decides: among `statuses` allows, any other denies 402.
+  - Removed by the trusted view for a reason a refresh or a retry may change:
+    401 `token_policy_outdated` / 503 `claims_policy_mismatch`, as before.
+  - Absent because its authority failed at the mint: 503
+    `claim_authority_failed`.
+  - Absent otherwise (billing ran and wrote none, the view removed it as
+    unassigned or unvouched, a token without provenance), or a value that is
+    not a string: 501 `access_unknown`.
+
+  `Not` never allows on these, and `Or` allows only on another branch. The
+  default path (no `statuses=`) is unchanged: a status billing did not
+  vouch for is asked live, 503 without a live check. Upgrade: a
+  `Subscribed(statuses=..., of=Account.user())` gate on a token without the
+  claim answers 501 or 503 instead of 402.
+- **`Subscribed()`: a status the trusted view removed is never a deny that
+  `Not` turns into an allow** (KB-33f, G-AUTH-26, an amendment of
+  G-AUTHZ-12). On its default path (no `statuses=`), billing's generated
+  `Subscribed` read a `subscription_status` the view removed as outdated or
+  mismatch as an absent status and denied 402, so
+  `~Subscribed(of=Account.user())` allowed on an untrusted claim. The kernel
+  atom it replaces answered 401 / 503. Both paths now share one check, with
+  zero I/O and before the fact is looked up:
+  - Removed as outdated: 401 `token_policy_outdated`. Removed as mismatch:
+    503 `claims_policy_mismatch`.
+  - Removed for another reason (unassigned, another authority's digest)
+    while billing vouched for the token: 501 `access_unknown`.
+
+  Billing failed at the mint is still asked live (503 without a live check).
+  Otherwise billing's rule reads the claim, so an absent status from a
+  billing that ran (no customer) still denies 402. Upgrade: nothing; a
+  token minted before the claim policy now gets the 401 that one refresh
+  fixes, instead of a 402.
+- **`Subscribed()` and `Subscribed(statuses=...)` agree** (KB-33g, G-AUTH-12,
+  an amendment of G-AUTHZ-12). The owner's decision: `statuses=` changes
+  the accepted statuses, not the trust rules. Before, a user with no billing
+  customer (billing's `subscription_claims()` returns `{}`) was denied 402
+  by `Subscribed()` but got 501 from `Subscribed(statuses=...)`. Both reads
+  of billing's generated `Subscribed` for `Account.user()` now share one
+  trust rule, with zero I/O beyond billing's declarative rule for a present
+  status:
+  - Billing's own claim proven absent is billing's 402 on both. Proven means
+    the key is the fact's claim, the verifier's map assigns it to billing,
+    billing is in `claims_sources` and not in `claims_sources_failed`, the
+    token's `cpv` entry for the key is the digest the verifier accepts for
+    billing, and the view removed nothing. An absent key never matches a
+    status, so `statuses={"none"}` does not match it.
+  - A status present that billing vouched for decides: outside the accepted
+    statuses it denies 402.
+  - Billing failed at the mint: 503 `claim_authority_failed` on both. The
+    default read no longer asks billing live.
+  - No authority assigned for the key, another authority, billing not run,
+    no `cpv` or another policy's digest, a token without provenance, removed
+    by the view as unassigned or unvouched, another declared `claim_key=`,
+    or a value that is not a string: 501 `access_unknown` on both.
+  - The view's 401 `token_policy_outdated` / 503 `claims_policy_mismatch`
+    stay as they were.
+
+  `~Subscribed` allows only on a proven deny. `Not`, `Or` and `And` never
+  allow on an indeterminate. Features, limits and application claims are
+  unchanged. Upgrade: with billing failed at the mint, `Subscribed()`
+  answers 503 until the user signs in again instead of asking billing live.
+  An absent status on a token without provenance or `cpv` answers 501
+  instead of 402. A user with no billing customer gets 402 from
+  `Subscribed(statuses=...)` instead of 501.
+- **An absent claim is a deny only where its fact owner declares it**
+  (KB-33h, G-AUTH-12, G-AUTHZ-12). Provenance proves which authority ran at
+  the mint, not that a claim it did not write means "no". KB-33g read the
+  primary claim of any owner's `AccessFact(atom=...)`, proven absent, as that
+  owner's deny, so a third-party contributor that had not yet computed a
+  claim let `~Atom(of=Account.user())` allow. `AccessFact` gains
+  `absent_claim="unknown" | "deny"`, default `"unknown"`: a proven absence
+  is 501 `access_unknown`, and `Not` over it never allows. With `"deny"` it
+  is the fact's definite deny with the fact's own `deny_category`, only for
+  its primary claim, and only when every KB-33g provenance condition holds.
+  The field travels in the generated atom's literal, the contract's describe
+  document and the `<owner>.facts.v1` descriptor. A literal or descriptor
+  without it means `"unknown"`. A provider that withdraws `"deny"` fails the
+  contract compatibility check. Billing's `subscription.active` declares
+  `"deny"`, so `Subscribed` is unchanged. Upgrade: a module whose
+  `AccessFact(atom=...)` relied on the 402 / 403 for a user its contributor
+  wrote no claim for sets `absent_claim="deny"` if absence really means "no",
+  then runs `sandloom generate`. Consumers run `sandloom generate` to pick up
+  billing's declaration; until then a stub without the field answers 501
+  for a user with no billing customer.
+- **The mint issuer binding; claim atoms honour the trusted view** (kb-rf-trust,
+  ADR-0014 amendment "W2+W3 review fixes"). `collect_claims(precomputed=...)`
+  and `collect_claims(issuer_claims=...)` are accepted only when the `issuer=`
+  contributor's module is the `claim_authorities` issuer (short name and import
+  path); another authority, a same-named module or a process whose map names
+  no issuer gets SANDLOOM-R017 (it was a 503 or, for an authority's own keys,
+  accepted). `Subscribed`, `Feature` and `WithinLimit` answer the view's 401
+  `token_policy_outdated` / 503 `claims_policy_mismatch` instead of a definite
+  deny; a split verifier reads "authority failed at the mint" from the
+  verifier's map (503, not a deny `~` inverts). An installed `previous=`
+  module must carry its own name (SANDLOOM-B035); the verified-token cache
+  marker covers the owner names. `TenantScope` no longer answers a
+  `tenant_ids` grant the view dropped from a token it had parsed before.
+  Upgrade: nothing for an issuer that is the map's; a module that passed
+  `precomputed` / `issuer_claims` without being the issuer stops doing so.
+
+- **Sealed mint, service tokens, test tokens** (KB-12, ADR-0014 decision 5,
+  owner answer #13; SANDLOOM-R017). `collect_claims` returns a sealed,
+  read-only result, the only carrier of a token's protected claims (`roles`,
+  `permissions`, `tenant_ids`, `email`, `email_verified`, the billing claims
+  and every key of `claim_authorities`), tenant selectors (`tenant_id`,
+  `org_id`), provenance (`claims_sources`, `claims_sources_failed`) and
+  `cpv`. `create_access_token(data, claims=sealed)` refuses any of them in
+  `data`, an unsealed or spread result, and a `data` key overriding a sealed
+  claim. `collect_claims(issuer=...)` takes one of the issuer's own
+  registered claims contributors (the issuer is the module that registered
+  it, never a name); `precomputed` is accepted only with the issuer's
+  session, for its own contributors and keys the map assigns to it. New:
+  `create_service_token` (`sandloom.sdk.security`), a token that
+  authenticates and that every `Role`, `Perm`, platform and `TenantScope`
+  gate denies; `mint_test_token` and `sealed_claims` (`sandloom.sdk.testing`)
+  mint through the kernel test authority, which, like `as_user`, exists only
+  while the testing plugin or harness is active and refuses anywhere else.
+  **Upgrade:** (1) an issuer mints `create_access_token(data={"sub": ...,
+  "token_type": "access", "auth_time": ...}, claims=await
+  core.collect_claims(user_id, session, issuer=<its contributor function>,
+  ...))` instead of spreading the result into `data`, and passes
+  `issuer=<contributor>` where it passed `issuer="<module name>"`; (2) a
+  service or machine token that put no protected claim in `data` keeps
+  `create_access_token`, one that needs none of the user's rights uses
+  `create_service_token`; (3) a test that hand-assembled protected claims,
+  provenance or `cpv` for `create_access_token` uses
+  `mint_test_token({...})` (or `as_user(...)`), and a test faking
+  `collect_claims` returns `sealed_claims({...})`; a stated `claims_sources`
+  is checked against the composition's map, `cpv=None` mints a token
+  without `cpv`; (4) a script that ran `as_user` outside pytest mints
+  with `create_service_token`.
+- **Access-bearing contracts have one provider** (KB-13, ADR-0014
+  decision 6; edge A19 started; SANDLOOM-B034 widened). A contract the
+  authorization layer asks to decide access is registered in-process only
+  by the module its first segment names, or by the one the composition
+  root assigns with the new `create_app(access_providers={contract:
+  module})`, checked by import path (a namesake module from another path
+  is refused). Access-bearing means a key of `access_providers` or the
+  `service` of any adapter in the live-adapter table, a custom one
+  included; every other contract name keeps the first-registrant rule.
+  Remotely, `SERVICE_BINDINGS` pinned to the provider's `service_id` is
+  the assignment. Checked at boot only (before and after the module load,
+  and once more before the app serves), never on a request. **Upgrade:** a
+  module that serves another module's access-bearing contract in-process
+  (for example a replacement for `tenancy.membership.v1`, or the contract
+  of a custom live adapter) now refuses the boot with SANDLOOM-B034;
+  assign it in the composition root:
+  `create_app(..., access_providers={"tenancy.membership.v1": "acme_orgs"})`.
+- **One trusted view per verified token; one platform admission; per-key
+  `cpv`** (KB-11, ADR-0014 decisions 3 and 4, amended 2026-11-09; edges
+  B-S1, B-S2 fixed). `decode_token` reduces every verified access token
+  once, cached with it, to the claims the composition's map trusts: a
+  protected key counts only when its authority (current, or the one
+  `previous=` the map declares) is named by the token's per-key `cpv`
+  digest of `(key, assigned import path)` and ran at the mint
+  (`claims_sources`, not failed). `UserContext`, `Role`, `Perm`,
+  `TenantScope` and both platform gates read only the view.
+  `require_platform_admin` and the platform console's operator gate share
+  one admission: `roles: admin` from the authority the map assigns, never
+  from a source named `identity`. An untrusted key answers 401
+  `token_policy_outdated` where one refresh fixes it, 503
+  `claims_policy_mismatch` where issuer and verifier run different maps
+  (`Or` picks 401 > 503 > 501). A remote `<m>.claims.v1` answer now names
+  the module serving it; the issuer refuses one naming another module, or
+  none, for an authority of its map, so the pinned `service_id` proves the
+  service and the answer proves the module. New: `Authority(name,
+  module=, previous=)` and `LegacyClaimsTokens(until=)` in
+  `sandloom.sdk.app`, `create_app(legacy_tokens=...)`,
+  `UserContext.untrusted_claims`. **Upgrade:** (1) upgrade every service
+  providing a `<m>.claims.v1` before the token issuer; (2) tokens minted
+  before this release carry no `cpv`: without a compatibility window every
+  client refreshes once (401 `token_policy_outdated`); to roll out without
+  that, pass `legacy_tokens=LegacyClaimsTokens(until="<UTC time the last
+  old issuer stops>")` to `create_app` in every service of the profile,
+  then remove it once `until + ACCESS_TOKEN_EXPIRE_MINUTES +
+  JWT_LEEWAY_SECONDS` has passed (accepted risk G-RISK-14; it ends by
+  itself, is never extended, and is counted in
+  `claims_policy_legacy_tokens_total`); (3) a test minting a raw token with
+  `create_access_token` stamps the kernel test authority (`cpv` and
+  `claims_sources` of `sandloom.core.auth.claims_view.TEST_CPV` /
+  `TEST_AUTHORITY`) or uses `as_user` / `make_user_headers`, which do;
+  (4) to move a key to another authority, deploy
+  `Authority("<path>", previous=Authority("<name>", module="<old path>"))`
+  first (ADR-0014 decision 4).
+- **A consumer-only install is checked from its own expectations; no
+  expectation is never a warning** (KB-21, ADR-0013 decisions 3 and 4,
+  closes D4). The startup compatibility check now reads what a caller
+  expects of each remote contract from the `<stem>.describe.json` its
+  module ships beside the generated stub (`_generated/contracts/`, narrowed
+  to the methods its composed `consumes` lists), then
+  `CONTRACT_SNAPSHOT_PATHS`, then the provider's package; `<m>.claims.v1`
+  and `<m>.facts.v1` are held to the kernel's own schema. A required remote
+  contract with no expectation (or with a hand-edited one) used to be
+  logged as a WARNING and skipped, also under `CONTRACT_COMPAT_CHECK=strict`;
+  now `strict` refuses startup before any probe
+  (`ContractUnverifiedError`) and `ready` fails `/ready` with
+  `contract_unverified`. The expectations are resolved once at startup:
+  `/ready` reads no file, and a contract call sends the same requests as
+  before. **Upgrade:** a service whose `SERVICE_BINDINGS` names a contract
+  it has no expectation for (no consumer copy, no snapshot in its image,
+  no `CONTRACT_SNAPSHOT_PATHS` entry) now fails `/ready`: run
+  `sandloom generate` in the consuming module, ship the provider's
+  snapshot, or declare the client `optional=True`.
+- **A token issuer without claim authorities refuses the boot; the issuer's
+  fields pass the mint check; plan atoms answer 503 while billing is down**
+  (W1 review of KB-10). A composition that loads an `issues_tokens=True`
+  module with no `claim_authorities` map (the lean `sandloom.main` with
+  identity installed) now refuses at startup (`SANDLOOM-B035`) instead of
+  running an app whose every login is refused (503); a process with no
+  issuer still boots. `email` and `email_verified` are the map's issuer's:
+  a map that assigns them to another module (or names them without an
+  issuer) refuses the boot, a map with an issuer that names neither assigns
+  them to it, and identity writes them through the mint check
+  (`collect_claims(issuer_claims=...)`, new on `CoreFacade` and
+  `CoreRuntime`), never after it. `Feature` and `WithinLimit` on the user's
+  token answer indeterminate 503 when the claim's authority failed at the
+  mint (`claims_sources_failed`), so `Not` cannot invert it; a billing that
+  ran and granted nothing still denies. The resolved
+  `ClaimAuthorities` mappings are read-only.
+  **Upgrade:** run every process from a root with a map. In a framework
+  checkout or worktree without a `.env`, export
+  `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main` (`.env.example` sets
+  it), or `sandloom generate`, `sandloom migrate`, the gates of
+  `sandloom test` and the other commands that build the app refuse with
+  `SANDLOOM-B035` (the pytest suites pick the standard root in the root
+  `conftest.py`); run the API
+  as `uvicorn sandloom_standard.main:app`. An application root composing an
+  issuer passes `create_app(claim_authorities={...})` (`sandloom new` writes
+  it). A map entry giving `email`/`email_verified` to a module other than the
+  issuer is removed or given to the issuer.
+- **Claim authorities: the composition root says who may write each
+  protected token claim** (ADR-0014 decisions 1, 2, 7; KB-10). New
+  `create_app(claim_authorities={key: module, ..., "issuer": module},
+  default_claim_authorities=...)`: each protected claim (`roles`,
+  `permissions`, `tenant_ids`, `email`, `email_verified`,
+  `subscription_status`, `plan_code`, `features`, `limits` and every key the
+  map names) is kept at the mint only from its authority, the module loaded
+  from the assigned import path or its `<m>.claims.v1` binding; a module
+  merely named like it is not it. A contributor writing a protected claim it
+  is not assigned, or a reserved key (now also `cpv`), is a violator: an
+  optional one loses its whole result (`claims_sources_failed`, an ERROR log,
+  the counter `claims_contributor_violations_total`) and the login succeeds
+  with the authorities' values; a critical one refuses the mint (503) naming
+  itself. This replaces the "any foreign key refuses every mint with 503"
+  rule, so one buggy optional module no longer denies every login. Startup
+  refuses an assignment the composition cannot honour (`SANDLOOM-B035`, which
+  now covers both of the issuer's startup checks): in the issuing process an
+  authority neither loaded nor bound (a typo is named as one), loaded from
+  another path, loaded without a contributor, or non-critical for a claim
+  other than the four billing claims; an `issues_tokens=True` module that is
+  not the map's `issuer`, or the reverse. Billing stays non-critical, so a
+  billing outage still mints a login (its claims absent, the subscription
+  check escalating to the live fact). The kernel holds no default map:
+  `sandloom_standard.main` passes the standard one as
+  `default_claim_authorities`, kept only for the batteries in the
+  composition (loaded, or bound through `<m>.claims.v1`); `sandloom new`
+  writes the app's map (`CLAIM_AUTHORITIES`) into `<app>/asgi.py`.
+  `CoreFacade.claim_authorities` (new, read-only) is the resolved assignment;
+  it is made once, by `create_app`.
+  **Upgrade:** a root that composes identity (or any issuer whose critical
+  contributor writes `roles`) must assign the claims, or every mint refuses
+  with 503 and startup logs that no map is set: run `sandloom_standard.main`
+  (`SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main`, the shipped profiles
+  already do), or add to your own `asgi.py`
+  `create_app(..., claim_authorities={"issuer": "sandloom_identity", "roles":
+  "sandloom_identity", "permissions": "sandloom_identity", "email":
+  "sandloom_identity", "email_verified": "sandloom_identity", "tenant_ids":
+  "sandloom_tenancy", "subscription_status": "sandloom_billing", "plan_code":
+  "sandloom_billing", "features": "sandloom_billing", "limits":
+  "sandloom_billing"})`, keeping only the modules you compose. A custom
+  module that writes one of these claims is assigned it, or stops writing it;
+  a binding of a rights authority must not set `"critical": false`.
+- **The kernel applies durable token revocations in every service; the token
+  issuer must end its sessions on a block** (ADR-0012 decision 5). The durable
+  consumer of `core.auth.tokens_revoked.v1` moved from identity into the
+  kernel: every composition registers it as `auth@tokens_revoked` in its own
+  group, `sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME>`, so a mark
+  that failed after commit is re-applied in every service whether identity
+  is loaded there or not (identity's `sessions@tokens_revoked` is gone).
+  There is no fallback to the database identity: on a shared event bus
+  (`EVENT_BUS_BACKEND=streams|redis`, or `auto` in prod) a process without
+  `SANDLOOM_SERVICE_NAME` refuses to start in every entry point (app, worker,
+  `sandloom migrate`, the configured CLI commands) with
+  `INVALID_CONFIGURATION`, in every environment. The in-process memory bus
+  needs no name (group `…@local`). `/ready` now also fails, naming the
+  consumer, when the applier is needed and missing or not running, when the
+  oldest pending `core.auth.tokens_revoked.v1` / `core.auth.user_blocked.v1`
+  event is older than `ACCESS_TOKEN_EXPIRE_MINUTES`, or when one is
+  dead-lettered; a younger backlog stays ready, exported as
+  `sandloom_consumer_lag_seconds` and logged at WARNING above half the bound.
+  A module declared `issues_tokens=True` must register a durable consumer of
+  `core.auth.user_blocked.v1`, or declare
+  `define_module(..., refresh_sessions=False)` (new, recorded in
+  `module.snapshot.json`, shown by `sandloom doctor` and
+  `/diagnostics/core`); startup refuses an issuer with neither, and a
+  declaration contradicted by a refresh route, a session table or such a
+  consumer (`SANDLOOM-B035`). **Upgrade:** set `SANDLOOM_SERVICE_NAME` in
+  every process on a shared bus — the same value for all replicas of one
+  service, a different one for every other service (the shipped compose
+  profiles and `sandloom add deploy` already do; T014 refuses two services
+  of one profile with one name). A custom token issuer without a block
+  consumer adds one or declares `refresh_sessions=False`. Drop any operator
+  pin of the old `identity:sessions@tokens_revoked` group; its pending
+  entries are re-applied by the new group from the stream (idempotent).
+  Once every service runs this version, delete that group, which nothing
+  reads any more:
+  `redis-cli XGROUP DESTROY <EVENT_STREAM_PREFIX>core.auth.tokens_revoked.v1 identity:sessions@tokens_revoked`,
+  then `sandloom streams release-group core.auth.tokens_revoked.v1
+  identity:sessions@tokens_revoked` (operator reference, *The retired
+  identity group*).
+- **`SANDLOOM_SERVICE_NAME` now names a consumer group.** It used to be a
+  label only (consumer ids, the subscription inventory, diagnostics). It now
+  also names the kernel's revocation applier group,
+  `sandloom:auth@tokens_revoked@<SANDLOOM_SERVICE_NAME>`. **Upgrade:** two
+  services that shared one label now share one applier group, and each
+  misses part of the other's revocations. Give every service its own name,
+  the same for all its replicas. Within one profile SANDLOOM-T014 refuses a
+  shared name; across profiles nothing detects it at runtime (a recorded
+  gap of G-REVOKE-26).
+- **A shared event bus selected through `INFRA` now needs
+  `SANDLOOM_SERVICE_NAME` too.** The applier decided "shared bus" from
+  `EVENT_BUS_BACKEND` alone. With `INFRA={"eventbus": {"default": {"driver":
+  "streams"}}}` and `EVENT_BUS_BACKEND=auto` outside production, unnamed
+  services shared the group `…@local`, split revocations, and `/ready` stayed
+  green. The decision now follows the resolved driver of the `default`
+  eventbus instance (`INFRA` applied); every driver but `memory` is shared,
+  and an `INFRA` eventbus that cannot be merged counts as shared.
+  **Upgrade:** a process that selects Streams or Pub/Sub through `INFRA`
+  sets `SANDLOOM_SERVICE_NAME`, or it refuses to start.
+- **`/ready` counts revocation dead letters fail-closed.** A failed
+  dead-letter read made `/ready` report zero, and only the oldest 100 DLQ
+  entries of all groups were counted. Now the whole DLQ is counted for this
+  service's groups, paged, up to 10,000 entries. A failed read, or a longer
+  queue, is an unknown count, and an unknown count is not ready. The read
+  runs at most once per `HEALTH_CACHE_TTL_SECONDS` however many probes
+  arrive, and `sandloom_consumer_lag_seconds` returns to 0 once the backlog
+  clears.
 - **Identity's and billing's production refusals stop every process, not only
   the API.** identity without `TWOFA_ENCRYPTION_KEY` in prod, identity without
   `JWT_SECRET` (any environment; issuer-only with an asymmetric `JWT_ALGORITHM`),
@@ -68,9 +741,483 @@ website renders this same changelog.
   (`guardrails.is_secret_name`), and the log redactor keeps its broader
   substring markers on top. Lookup keys such as `operation_key`,
   `idempotency_key` and `dedupe_key` stay readable in logs and audit data.
+- **The admin console serves in front of the composition's assigned issuer,
+  not a module named `identity`** (KB-41, ADR-0012 decision 4, owner's X4).
+  `/admin/config.json` answered 503 unless the manifest listed a module
+  `identity`. It now reads the claim-authorities map's `issuer` and the login
+  entry that issuer declared on its registration, both written into
+  `admin-manifest.json` by `sandloom generate` (new `issuer` field:
+  `{"module", "login_entry"}`, `null` without an assigned issuer), and
+  serves `issuer` and `login_entry` in `config.json`. No issuer, or an issuer
+  that declares no login entry, is a 503 naming the fix (the console never
+  signs in through a guess); a login entry that is not a route path of the
+  application (a URL, `//host`, `..`, a query) is refused at registration,
+  at `sandloom generate` (the issuer's own package must serve it with `POST`)
+  and again by the console. The issuer is never taken from the `iss` of a
+  token, which is unverified input. Upgrade: declare
+  `define_module(..., issues_tokens=True, login_entry="/auth/login")` on your
+  token issuer (the bundled identity module does), then run
+  `sandloom generate` (or `sandloom admin export`) and restart. New public
+  API: `define_module(login_entry=)`, `ModuleDescriptor.login_entry` and
+  `sandloom.sdk.module.GenerationIssuer` (`GenerationInput.issuer`).
+  The console UI still requires the manifest to list `identity`
+  (a follow-up).
+
+### Added
+
+- **`ModuleAPI.claim_owner(key)`** (KB-proto-operator-b2). The public name of the
+  module the composition's `claim_authorities` assigns a protected claim key, or
+  `None`. Call it when a startup task runs, not from `setup` (the map is installed
+  after the modules register). The admin console's first-administrator check asks
+  `claim_owner("roles")`'s `<owner>.security.v1` (`platform_admin_exists`) and is
+  skipped, with a debug line, when there is no owner or it lacks the method.
+  `sandloom admin create --invite` and `admin invite` build the set-password link
+  on the composed application's served `set_password_page` route (the console names
+  it only while it serves it), else on `FRONTEND_URL`'s reset page, else refuse; no
+  setting name is read. The development start page names no module command.
+  `claim_owner` answers only a name the process can vouch for (declared in the map,
+  an installed distribution's, or a module loaded here from that path), never an
+  import path's last segment. The link page counts only when the module that serves
+  the console (`/admin`) mounted it; two routes of that name are refused before
+  anything is done. The console's first-administrator check holds the owner to
+  the shape it expects (no argument, a yes/no answer) and skips quietly, with the
+  debug line, when the provider is unreachable, withholds the grant or lacks the
+  method over RPC. `ADMIN_CONSOLE_ENABLED` is the console's declared deploy line:
+  `sandloom add deploy` writes it for the service that loads the console only, and
+  `sandloom new` only with `--with admin`; the starter environment of identity and
+  billing now equals their declared deploy lines (adds `REFRESH_TOKEN_EXPIRE_DAYS`
+  and `BILLING_DENY_ON_PAST_DUE`).
+
+- **`sandloom check` reads atom metadata** (ADR-0014, KB-32, H-20). The gate-order,
+  sensitive-route (C022) and account-route (C027) rules resolve an imported atom
+  name to the file that defines it and read its `__sandloom_atom__` literal, so a
+  third-party atom with an organization bind, an account bind or an admin risk is
+  recognised with no name in a list (`ORG_ATOMS`, `BILLING_ATOMS` and the
+  `require_org_role` pattern are gone; the kernel's own atoms are read through a
+  transitional table KB-34 deletes with them). The gate-order rule also reads
+  `module_router()` routes. New rule `handwritten-access-check`
+  ([SANDLOOM-C034](https://sandloom.dev/docs/reference/error-codes/#sandloom-c034)): a hand-written
+  class calling a declared access check with another tier, category or risk than its
+  declaration is an error. A hand-written `require_org_role`-style dependency is no
+  longer tagged by name: state `sensitive("admin")` on its routes.
+- **A provider down is an indeterminate 503 inside the algebra** (ADR-0014
+  K5, KB-35). A generated access check whose bound provider is unreachable,
+  fails or times out (`remote_service_unavailable`, `rpc_timeout`) is
+  indeterminate 503 `owner_unavailable`: `OrgRole("admin") |
+  SubscriptionActive(of=...)` with tenancy down allows only on a subscription
+  that allowed, `~OrgRole(...)` never allows. Each such branch logs a warning
+  on `sandloom.access` and counts `access_indeterminate_branch_total`, even
+  when a sibling allows. An RPC authentication or allowlist refusal
+  (`rpc_caller_forbidden`, `rpc_auth_*`, ...) stays an error. Before, the
+  outage escaped the algebra as an HTTP 503 even where another branch allowed.
+- **Per-atom request session; describe at boot** (ADR-0014 K6, KB-36).
+  `Requirement.needs_request_session()` (default: any tier above claims, as
+  before) decides whether `require()` opens a database session; a generated
+  contract check answers False (its provider runs in its own unit), so a
+  policy made of claims and contract checks opens none. The boot probe now
+  describes every remote binding, not only those with a known snapshot, and
+  seeds the RPC proxy's describe cache: one `GET` per binding at start, no
+  describe `GET` on a first request (also with `CONTRACT_COMPAT_CHECK=off`,
+  through `sandloom.core.rpc.describe_remote_bindings`). Nothing to change in
+  callers: a custom `Requirement` keeps the tier rule unless it overrides the
+  method.
+- **Contract-anchored access checks** (ADR-0014 decisions 8 to 12, KB-30).
+  A provider marks a boolean contract read with
+  `@access_check("OrgRole", bind={"organization_id": From.org(param="org_id"),
+  "user_id": From.subject_id()}, values=..., risk=..., category=...)`
+  (`sandloom.sdk.authz`, advanced); `sandloom generate` writes the typed atom
+  beside each consumer's stub (a `ContractCheck` subclass carrying the
+  declaration as a literal, and a `ClaimFactCheck` subclass for an owner's
+  `AccessFact(atom=...)` named with `claim=`), evaluated by one generic
+  kernel evaluator: the same provider method, arguments and unit as the
+  kernel atom, equal decisions and I/O mono and split (the authorization
+  stand is a CI count test). A literal the provider no longer matches is
+  indeterminate 501 `contract_mismatch` inside the algebra. The declaration
+  is part of the describe document and snapshot: removing, re-binding or
+  lowering the risk of one is incompatible (SANDLOOM-T004). Tenancy declares
+  `OrgRole` on `has_role_at_least`; billing declares `SubscriptionActive`,
+  `Credits` (the new read `has_credits_at_least`, the query of
+  `get_credit_balance`) and the claim atom `Subscribed`, whose `statuses=` and
+  `claim_key=` are bound to billing's declaration and which is 501 when
+  billing is neither loaded nor bound. The kernel atoms stay; nothing to
+  change in callers.
+- **`Feature` and `WithinLimit` as billing's generated atoms** (ADR-0014
+  decision 15, KB-33). A provider declares the claim atom of an access check
+  with `@claim_atom("Feature", claim_key="features", entry="key")` (and
+  `below="used"` for a limit) placed above `@access_check`
+  (`sandloom.sdk.authz`, advanced; evaluated by `ClaimReadCheck`). Billing
+  declares `Feature` and `WithinLimit` on the new reads
+  `billing.entitlements.v1.has_feature(tenant_type, tenant_id, key)` and
+  `is_within_limit(tenant_type, tenant_id, key, used)`. For `Account.user()`
+  the generated atom reads the claim with zero I/O and gives the kernel
+  atom's decisions where the token carries a well-formed claim (an absent or
+  malformed one is 501 since KB-33d, under Security). For an organization account it
+  asks billing live with its parameters, which now reach the owner over
+  internal RPC too. Billing's plans declare no features or limits yet, so
+  both reads answer `False`. The kernel atoms stay; nothing to change in
+  callers.
+- **Modules declare their own settings** (ADR-0015, KB-50).
+  `define_module(..., settings=InventorySettings)` (or
+  `api.declare_settings(InventorySettings)` in a hand-written `register`)
+  takes a plain pydantic `BaseModel` whose fields are aliased to their
+  environment names (`Field(alias="INVENTORY_RESERVE_TTL_SECONDS")`, secrets
+  as `SecretStr`); metadata are `ClassVar` class attributes holding
+  `SemanticSetting`, `Risk` and `RemovedSetting`, and production checks are
+  `model_validator`s reading `info.context` (`environment`, `accepts_risk`,
+  a read-only `kernel`, `module`). The model is validated from the process's
+  one read of the environment before anything else of the module registers
+  and before `setup`; an invalid value stops every entry point that builds
+  the composition with `INVALID_CONFIGURATION` and exit 1, an optional
+  module included (`ModuleSettingsError`, a `ConfigurationError`). After the
+  load pass one check refuses an environment name declared twice by the
+  kernel and a loaded module or by two loaded modules (`SANDLOOM-B036`), a
+  loaded module's removed setting at a live value, and in prod a near-miss of
+  any declared name; it logs a module's semantic setting weaker than its
+  profile value (`CONFIG OVERRIDE`, `sandloom_config_override_active`). Read
+  the values with `settings_of(InventorySettings)` inside a request, a task
+  or `setup`: a read at import raises, and the import audit fails it. New
+  advanced names: `settings_of`, `SemanticSetting`, `RemovedSetting`, `Risk`
+  (`sandloom.sdk.module`); `override_settings`, `validate_settings`,
+  `ModuleSettingsError` (`sandloom.sdk.testing`). The bundled modules keep
+  their settings in the kernel until their own ports (KB-52..KB-54), and a
+  module's risk id `<module>.<name>` is accepted by `SANDLOOM_ACCEPTED_RISKS`
+  once namespaced risks land (KB-51). **Upgrade:** nothing to change for an
+  existing module. A module that read the environment itself
+  (`os.environ`, its own `BaseSettings`) moves the fields onto a declared
+  model and reads them with `settings_of`; tests replace `setattr` on the
+  kernel settings with `with override_settings(Model, field=value):`.
+- **One source read per process.** The kernel `Settings` load now reads the
+  environment, `.env` (parsed once) and `SECRETS_DIR` through the same
+  snapshot the modules validate from, with the same precedence (environment >
+  `.env` > `SECRETS_DIR`) and decoding. `SECRETS_DIR` is no longer listed: a
+  file is looked up by the declared name in lower or upper case (`jwt_secret`
+  or `JWT_SECRET`), once per name. **Upgrade:** on a case-sensitive file
+  system, rename a secret file whose name mixes cases (`Jwt_Secret`) to the
+  lower- or upper-case name; nothing else changes.
+- **Accepted risks of a module are namespaced** (ADR-0015 decision 4, KB-51).
+  Kernel ids stay flat (`relay_disabled`); a module's id is
+  `<module>.<name>`, declared in its settings model (`Risk`) and accepted in
+  `SANDLOOM_ACCEPTED_RISKS` by that name (`kb_inventory.oversell_in_prod`).
+  After the modules load: the id of a loaded module is checked against what
+  it declares, and one it does not declare refuses the boot; the id of a
+  module installed, loaded or listed in `SANDLOOM_MODULES` but not loaded in
+  this process is inert and listed as "not applicable here" (so one
+  `SANDLOOM_ACCEPTED_RISKS` serves every service of a split with one image);
+  any other module name refuses, so a typo in a module or risk name never
+  passes silently. A flat id that is no kernel id is refused as before, and
+  names the namespaced replacement when the module that declares it is
+  installed. The accepted module risks are logged, counted in
+  `sandloom_accepted_risk_active{risk}` and reported by `tiers.diagnostics`.
+  There is no alias. **Upgrade:** none yet for the bundled modules: billing's
+  `fake_psp_in_prod` becomes `billing.fake_psp_in_prod` in one step with the
+  port of billing's settings (KB-52), whose notes carry the rename; a module
+  of your own that declares risks is accepted by `<module>.<name>`.
+- **`sandloom check` and `sandloom test` check the declared settings**
+  (ADR-0015 decision 7, KB-56; `SANDLOOM-B036`, new `SANDLOOM-T019`).
+  They import every module of the application and flag a name declared by
+  two modules (or a module and the kernel) whether or not they load
+  together, a new setting without the module's prefix (`INVENTORY_` for
+  `inventory`), a tier that `module.snapshot.json` does not record, and, per
+  service of the deploy profiles, a wrong module name in `SANDLOOM_MODULES`,
+  a variable set for a module the service does not load and a literal value
+  the declaration refuses. `sandloom generate` writes the new `settings`
+  record of `module.snapshot.json` (each name and its tier); names an existing
+  module already had when it first declared settings are recorded as
+  `legacy` and keep passing, a new module's unprefixed names are not
+  grandfathered. `sandloom.core.testing.settings_gate.semantic_ratchet_problems`
+  is a module's own semantic ratchet for its tests. **Upgrade:** a module
+  that declares settings runs `sandloom generate` once and commits the
+  snapshot; a new setting is named `<MODULE>_...`.
 
 ### Changed
 
+- **Starter, deploy, keys and skill text name no module** (KB-61, ADR-0012
+  decision 1). The deploy init script, the microservices profile template,
+  the `sandloom keys generate` hint, the `sandloom-split-deploy` skill and the
+  `split` recipe say "the module that issues tokens" or `<module>` where they
+  named `identity`. What `sandloom new --with` and the wizard offer (the
+  bundled packages, their env text, the recipes' contract examples) stays
+  the standard distribution's starter text, retained under ADR-0012. The CI
+  an app generated by `sandloom new` (and `examples/oidc-identity`) runs is
+  `sandloom test --ci --full`: a suite whose tests are all slow collected
+  nothing under `--ci` and pytest exited 5. **Upgrade:** none for existing
+  apps; change the step in your own `.github/workflows/ci.yml` the same way
+  when all your tests are marked slow.
+
+- **G-AUTHZ-05 restated over access checks** (KB-34a, ADR-0014 decision 14,
+  step 1). Who answers a live entitlement or membership check is the
+  consumer's configuration: a third-party provider's declared access checks
+  (the `SubscriptionActive`, `Credits` and `OrgRole` shapes) decide what the
+  kernel atoms decide on the same inputs (allow, deny, indeterminate 400 /
+  403 / 501, a provider down 503), in-process under `access_providers` and
+  over internal RPC through `SERVICE_BINDINGS`, and the root's assignment
+  chooses among candidate providers. The scenarios replace the
+  `register_live_adapter` tests; no API changes yet (the adapters go in a
+  later step).
+- **The kernel's tools read the modules' settings declarations; `config dump`
+  lists module settings** (KB-55; ADR-0015 decisions 8 and 11; edges B-C7, B-C8,
+  B-C9 and B-N8 fixed). A settings model may carry plain class attributes the
+  tools read: `console` (field names the admin console's settings view lists),
+  `shared` (env names identical in every process that loads the module: the
+  deploy-profile check SANDLOOM-T014 holds only those processes to them),
+  `backup` (secrets and what losing one costs, for `sandloom backup plan`),
+  `deploy` (the compose environment `sandloom add deploy` writes for a service
+  that loads the module), `dev_env` and `dev_risks` (what `sandloom keys
+  dev-env` sets). Billing and identity declare theirs; the kernel's deploy
+  scaffold, dev env, backup plan, platform settings view and docs generator no
+  longer name a module's setting. `/diagnostics/core` and `sandloom doctor` show
+  the loaded modules' accepted risks (a module's risk id that does not apply
+  in this process is listed as such), semantic overrides and tier counts
+  beside the kernel's, and doctor lists every module's refusal as one failed
+  check. `sandloom config dump` now also lists, per loaded module, the settings
+  it declares, each with its source and redaction, and shows a module's invalid
+  value as a diagnosed entry with exit 0 instead of exiting. It builds the
+  composition without serving it (no lifespan, no connection; measured:
+  about 2.5 s against 1.65 s with the three batteries). **Upgrade:**
+  `sandloom config dump --kernel-only` prints exactly what the command printed
+  before (the kernel's settings, no composition); the default `--json` output
+  gains module entries (with a `module` key) after the kernel's, and a
+  diagnosed one (`"source": "invalid"`). A module's own `deploy` lines replace
+  the kernel's former per-module env table: declare `deploy` on its settings model.
+
+- **Billing declares its own settings** (KB-52; ADR-0015). `BILLING_PROVIDER`,
+  `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `BILLING_DENY_ON_PAST_DUE`,
+  `BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS`, `BILLING_INTENT_RECONCILE_AFTER_MINUTES`,
+  `BILLING_INTENT_RECONCILE_MAX_ATTEMPTS` and
+  `BILLING_PORTAL_ATTRIBUTION_WINDOW_MINUTES` belong to `sandloom_billing`
+  (`BillingSettings`). Environment names, defaults and bounds are unchanged;
+  the Stripe keys are `SecretStr`. The kernel `Settings` no longer has them,
+  so `settings.billing_provider` and the others are gone (no alias): billing
+  reads its own with `settings_of(BillingSettings)`, and `ModulesConfig` is
+  deleted. Billing's two PSP checks are one production check of its settings,
+  run before its `setup` in every entry point: Stripe without both keys, and
+  the fake PSP in prod (the implicit default included) unless the risk is
+  accepted. A process that does not load billing no longer parses either: an
+  explicit `BILLING_PROVIDER=fake` in prod is no longer refused there. The
+  semantic setting `BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS` is billing's own
+  ratchet (the kernel's falls from 13 to 12, its ceiling from 15 to 14), the
+  removed settings `BILLING_FAKE_ALLOW_UNSIGNED_WEBHOOKS` and
+  `BILLING_ALLOW_FAKE_PSP_IN_PROD` are billing's, and the console settings view
+  lists `billing_provider` only where billing is loaded.
+  **Upgrade:** rename the accepted risk once, in `SANDLOOM_ACCEPTED_RISKS`
+  (`.env`, compose, CI): `fake_psp_in_prod` becomes `billing.fake_psp_in_prod`.
+  There is no alias: the flat id is refused at startup, naming the new one
+  where billing is installed. In a `compose/microservices.yml` run
+  `sandloom add deploy --refresh`: `BILLING_DENY_ON_PAST_DUE` moves from the
+  shared env to the billing service's (only billing reads it; other processes
+  read the rule through the access fact billing describes), and a service that
+  loads no billing must not set it (`SANDLOOM-T019`); delete the line from
+  `x-common-env` of a hand-kept profile. A module of your own that read a
+  `billing_*` or `stripe_*` kernel attribute reads it through billing's settings
+  model or its own environment. The generated tiers page no longer lists the
+  intentless-subscriptions setting or the risk (KB-55 reads declarations).
+
+- **Identity, tenancy and the admin console declare their own settings**
+  (KB-53, KB-54; ADR-0015). `TWOFA_ENCRYPTION_KEY`, the SSO client ids and
+  secrets, `TELEGRAM_BOT_TOKEN`, `SSO_ALLOWED_REDIRECT_URIS`,
+  `REFRESH_TOKEN_EXPIRE_DAYS` and `MAX_SESSION_DAYS` belong to
+  `sandloom_identity` (`IdentitySettings`); `TENANT_CLAIMS_MAX_ORGANIZATIONS`
+  to `sandloom_tenancy` (`TenancySettings`); `ADMIN_CONSOLE_ENABLED` and
+  `ADMIN_CONSOLE_DIST` to `sandloom_admin` (`AdminSettings`). Environment names,
+  defaults and bounds are unchanged. The kernel `Settings` no longer has these
+  fields, so `settings.twofa_encryption_key` and the others are gone (no alias):
+  a module reads its own with `settings_of(Model)`. A weak or missing
+  `TWOFA_ENCRYPTION_KEY` in production is now identity's own settings check, run
+  before its `setup` in every entry point: the message is unchanged apart from
+  the `module sandloom_identity:` prefix. The secrets are `SecretStr`. A process
+  that does not load identity (or tenancy, or the console) no longer parses or
+  validates its variables. New advanced name `sandloom.sdk.security.secret_problem`
+  (the strength rule `JWT_SECRET` uses) for a module's production check.
+  **Upgrade:** a module of your own that read one of these kernel attributes
+  reads it through the owning module's settings model or its own environment;
+  in a `compose/microservices.yml` run `sandloom add deploy --refresh`:
+  `REFRESH_TOKEN_EXPIRE_DAYS` moves from the shared env to the identity
+  service's, and a service that loads no identity must not set it
+  (`SANDLOOM-T019`). `sandloom admin create` / `invite` still choose the console
+  or the frontend link from `ADMIN_CONSOLE_ENABLED`, read from the process's
+  environment. The generated configuration reference lists the module settings;
+  the ops tier count falls by the 16 names that moved.
+  The production typo check of module settings also counts every loaded module,
+  one that declares no settings included, as the owner of its variable prefix.
+
+- **Deploy profiles and `sandloom new` / `sandloom add deploy` templates say how
+  required mail is sent** (kb-ic-6). Identity and tenancy require an email
+  notifier, so a prod stack on the default `log` driver already refuses to
+  start. `deploy/compose/monolith.yml`, `deploy/compose/microservices.yml`, the
+  microservices template and the compose file of an app with identity or
+  tenancy now document `NOTIFIER_BACKEND=smtp` with `SMTP_HOST` / `SMTP_FROM`
+  (an app's compose passes the `SMTP_*` settings through) and name the demo
+  choice: a stack without a mail server adds `log_notifier_in_prod` to
+  `SANDLOOM_ACCEPTED_RISKS`; no mail is delivered. Upgrade: a production stack
+  sets `NOTIFIER_BACKEND=smtp` and `SMTP_HOST`; a demo stack adds
+  `log_notifier_in_prod` (CI's microservices smoke does).
+- **Readiness and the taskqueue: transient trouble only, keyed on the
+  requirement** (owner decision on module infrastructure dependencies,
+  answers 3 and 4; KB-IC-3). `/ready`'s taskqueue term now follows each
+  loaded module's REQUIRED taskqueue requirement (declared or derived), not
+  the presence of a `tasks.py`. A module that uses the queue while serving
+  (no feature named, or `delay` / `idempotency_key`) makes `/ready` 503 when
+  its broker cannot be reached, naming the instance. A module that needs only
+  `periodic` keeps the web process ready during a broker outage: the worker
+  and beat run that work. The internal block lists such modules under
+  `background_modules`. An optional requirement is never probed. The internal
+  `taskqueue` block now holds per-instance results under `instances`, and
+  `instance` / `details` are gone from its top level. The `celery` driver's
+  `health()` now connects to the broker once per probe, bounded by
+  `HEALTH_CHECK_TIMEOUT_SECONDS` and with no retry; before, it always answered
+  `ok`. `/ready` caches it with the other probes, so the broker gets one
+  connection per TTL however many hits arrive. **Upgrade:** a deployment whose
+  `/ready` was 503 only because Celery was missing is now refused at startup
+  (kb-ic-1). A monitor reading `taskqueue.status` or `taskqueue.details` reads
+  `taskqueue.instances.<name>` instead.
+- **Billing watches that its intent reconciler runs** (KB-IC-3). A reachable
+  broker is not enough. Every completed run of `reconcile_operation_intents`
+  records its end in the new table `billing_reconciler_runs` (migration
+  `0012_billing`). The `billing_reconciler` health check fails when no run
+  completed within 15 minutes (three periods): `never_ran` means no worker or
+  no beat, and `overdue` means one of them, or the broker, stopped, or every
+  run fails. The check is part of `/health` and `/ready` in every process that
+  loads billing, after a 15-minute grace from process start in which it reads
+  nothing. **Upgrade:** run `sandloom migrate upgrade-all --apply`, and run a
+  worker and one beat wherever billing runs; in development without them,
+  `/ready` turns 503 on this check after 15 minutes.
+- **`sandloom doctor` has a `periodic` section, and `/diagnostics/core` a
+  `periodic` block** (KB-IC-3). For each loaded module whose taskqueue
+  requirement asks for `periodic`, they show whether a beat holds the lease
+  for this module set. If none does, a required need fails and an optional
+  one warns: identity's token cleanup is optional, and without it
+  `refresh_tokens` grows without bound (documented on the identity page).
+- **Modules declare the infrastructure their code needs; startup checks it,
+  also where it is only derived** (owner decision on module infrastructure
+  dependencies, item 2; kb-ic-2). The `taskqueue` capability has a new
+  feature `periodic`: the driver runs a module's periodic jobs at their
+  interval while the deployment runs (only `celery` advertises it; a driver
+  never gets it for supporting enqueue). `ModuleDescriptor.effective_capabilities()`
+  now adds what a module's code shows it needs, read without importing it: a
+  `tasks.py` needs `taskqueue`, its `setup_periodic_tasks` the feature
+  `periodic`. A declaration keeps its `required` and `instance` and only
+  gains the derived feature; a capability nothing declares is derived as
+  required. New `sandloom check` rule `undeclared-capability`
+  (SANDLOOM-C033) asks for the declaration, `sandloom add task` writes it,
+  and `module.snapshot.json` records the effective requirements
+  (`capabilities`). Billing declares `taskqueue` with `periodic` (its intent
+  reconciler must run); identity declares it optional (its token cleanup is
+  storage hygiene). Identity and tenancy now require `notification` with
+  `email`, so **a production deployment on the default `log` notifier refuses
+  them at startup** instead of logging verification, reset and invitation
+  mail nobody receives. Upgrade: configure a delivering notifier
+  (`NOTIFIER_BACKEND=smtp` and `SMTP_*`, or a driver package), or accept the
+  risk for a demo stack with `SANDLOOM_ACCEPTED_RISKS=log_notifier_in_prod`;
+  run `uv run sandloom generate`; declare `taskqueue` in each module with a
+  `tasks.py` (`sandloom check` names them). A module selected in
+  `SANDLOOM_MODULES` whose required capability is unmet now refuses startup
+  even when it is optional; one only discovered or defaulted is still skipped.
+
+- **The admin console's manifest is a file the console declares** (ADR-0012
+  decision 4). A module can declare files `sandloom generate` writes into the
+  app's shared package, `define_module(..., generates={"name": render})`:
+  `render(source) -> str` receives the composed app as data
+  (`sandloom.sdk.module.GenerationInput`: OpenAPI, routes, each loaded
+  module's `admin.py` resources), never a module, and `sandloom test` fails on
+  a stale file (SANDLOOM-T016, also for a name two modules declare). The
+  console declares `admin-manifest.json` this way: the kernel no longer gates
+  generation on the name `sandloom_admin` and no longer names the file, and
+  the manifest compiler and the resource schema moved from
+  `sandloom.core.admin` to `sandloom_admin.compiler` / `sandloom_admin.models`
+  (`sandloom.core.admin` keeps the platform operations API). The manifest's
+  bytes are unchanged. `sandloom admin export` renders the file the composed
+  console declares: its build-time composition must include `sandloom_admin`
+  (it fails, saying so, otherwise). New advanced names:
+  `GenerationInput`, `GenerationModule`, `ModuleDescriptor.generated_files`.
+  **Upgrade:** a build that runs `sandloom admin export` with a composition
+  that leaves the console out (an explicit `SANDLOOM_MODULES` subset, or a
+  composition root that does not compose `sandloom_admin`) adds
+  `sandloom_admin` to the composition of that build step; the running app's
+  composition does not change. SANDLOOM-T016's slug is now
+  `declared-generated-file` (it was `admin-manifest`): `sandloom explain
+  SANDLOOM-T016` and the code's docs anchor are unchanged.
+- **A module distribution holds copies of the contracts it consumes**
+  (ADR-0013, KB-20). In a tree of top-level module packages (the framework,
+  an ecosystem module repository), `sandloom generate` writes
+  `<module>/_generated/contracts/`: the stub, the DTO copies and
+  `<stem>.describe.json`, the provider's describe restricted to the methods
+  the module's `consumes` lists. The set is planned from the declarations
+  (module-level `Contract(REF)`, `define_module(consumes=[...])`) before the
+  app is composed, so a module may import a copy it has not generated yet;
+  `generate --check` fails when it differs from the composed `consumes`, and
+  an entry with no method list (a call through `core.get_service`,
+  `getattr` or a helper) is refused with SANDLOOM-T018 until
+  `ContractRequirement(name, methods=(...))` states it. `c = ref.client()`
+  in a function, tested against `None` and called, now resolves its methods.
+  Every generated stub and DTO copy starts with a provenance header
+  (`contract`, `fingerprint`, `provider`, `generator: format 2  digest …`);
+  DTO copies are laid out by the generator at 88 columns and never piped
+  through the project's ruff, so ruff's presence or `line-length` no longer
+  changes them. A provider not importable where `generate` runs keeps a
+  committed copy whose digest verifies and refuses an edited or missing one
+  (SANDLOOM-T018). Two contracts with one stub stem are refused in every
+  path. An application's shared package keeps copies only for the union of
+  its modules' `consumes` when every entry lists its methods (no example
+  changes). A field added to a closed (`extra="forbid"`) result DTO is
+  breaking against an expectation. Bundled stubs stay in `sandloom.shared`
+  until KB-22. Upgrade: run `uv run sandloom generate` (headers change; no
+  body changes).
+- **A module's `_generated/` is the generator's, end to end** (ADR-0013
+  decisions 1, 2, 5, 6; W1 review of KB-20). `sandloom check` refuses a file in
+  `<module>/_generated/` that `sandloom generate` did not write or that was
+  edited since, and an import of another module's `_generated` package
+  (static, relative or a constant dynamic import; new rule
+  `generated-reserved`, SANDLOOM-C032). Each `<stem>.describe.json` carries
+  the `digest` of its content (expectation `format` 2), so with the provider
+  not importable an edited expectation is refused like an edited stub
+  (SANDLOOM-T018). `sandloom generate` removes the copies of a contract the
+  module no longer consumes (`--check` reports them; an edited orphan is
+  refused). A module-level `x = Contract(REF)` that no file of the module
+  names again is refused naming the client (it consumed the contract for
+  nothing), and methods stated in `define_module(consumes=[...])` now cover
+  a call the derivation cannot resolve instead of being dropped. The
+  framework's `pyproject.toml` and the one `sandloom new` writes exclude
+  `_generated` from ruff. **Upgrade:** run `uv run sandloom generate` (each
+  committed `.describe.json` gains its `digest`); in an existing app, add
+  `"**/_generated"` to `[tool.ruff] extend-exclude`.
+- **`sandloom admin create` leaves the password rules to the provider.** The
+  kernel CLI no longer imports `sandloom_identity.password_policy` and has no
+  fallback 8–100 length rule of its own: identity's `password_problem` answer
+  over `identity.security.v1`, already asked at every attempt, is the only
+  check. The prompt no longer states a minimum length; a refused password
+  still gets identity's one-line reason. Command names are unchanged.
+- **The redundant-index check (SANDLOOM-T012) names no module's index.** The
+  kernel's list of known redundant indexes is gone (with
+  `sandloom.core.testing.static_checks.KNOWN_REDUNDANT`): a module keeps such an
+  index on purpose with `info={"sandloom_known_redundant": "<reason>"}` on the
+  `Index`, and holds the remove-only ratchet over it in its own tests. Identity
+  marks `ix_external_identities_provider` this way. The schema is unchanged.
+- **The standard composition root moved into a new distribution,
+  `sandloom-standard`** (ADR-0012 decision 3). `sandloom_standard.main` exposes
+  `app` and `core`: the kernel factory with every installed module, the same
+  composition `sandloom.main` built so far. `sandloom[standard]` installs it.
+  The Sandloom image (`deploy/docker/Dockerfile`: `ENV
+  SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main`, `CMD ...
+  sandloom_standard.main:app`), both shipped compose profiles and the
+  framework's `sandloom add deploy` name it, so the API, the Celery worker and
+  beat, `sandloom migrate` and the operator commands build one composition.
+  `sandloom.main` stays in `sandloom` as the lean kernel root and the default
+  when no root is configured; its behaviour is unchanged. Both roots take
+  their default module set from `sandloom.local_modules.default_modules()`, so
+  a framework checkout's `LOCAL_MODULES` (moved from `src/sandloom/main.py` to
+  `src/sandloom/local_modules.py`, where `sandloom add module` now writes) is
+  composed under either root. SANDLOOM-T014 now
+  refuses a microservices profile whose processes name different
+  `SANDLOOM_COMPOSITION_ROOT` values. The publishing tools release six
+  distributions. **Upgrade:** `pip install "sandloom[standard]"` keeps working
+  and pulls `sandloom-standard`. A deployment built on the Sandloom image or on
+  the shipped profiles gets the root with the new image; a deployment with its
+  own compose files, manifests or process commands sets
+  `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main` on every process (API,
+  worker, beat, migrate, operator commands) and serves
+  `sandloom_standard.main:app`, or keeps `sandloom.main` everywhere. Do not mix
+  roots in one deployment. Applications made with `sandloom new` keep their
+  `<app>.asgi` root and need no change.
 - **`unscoped()` takes an optional `reason=` and is never silent.** Every
   scope that disables tenant enforcement is counted in
   `sandloom_tenant_unscoped_total{caller}` by the module that entered it; the
@@ -78,11 +1225,120 @@ website renders this same changelog.
 - **`set_active_core` binds the whole runtime.** The core, its infrastructure
   registry and its event bus become the process defaults in one call, so the
   three accessors never point at different applications.
+- **`undigested` and `dto_copy` are public in `sandloom.sdk.contracts`**
+  (advanced; `dto_copy` is written by `sandloom generate` into the DTO
+  copies), and the
+  bundled billing, identity and tenancy modules import nothing from
+  `sandloom.core`: their contract methods and claims contributors read the
+  provider's session through `db()`, which inside a contract call is the
+  contract's own unit.
 - **`sandloom check: OK` says what it covers:** static rules only; `sandloom
   test` also boots the app and runs the tests.
+- **The kernel's module edges are one checked register (SANDLOOM-T017).**
+  Every place where shipped kernel code or the `sandloom` wheel names a module
+  (a module name, package, non-`core` channel, module setting or claim key, a
+  computed dynamic import outside the listed loader call sites, a generated
+  module file) is a row of `tests/architecture/kernel_edges.yml` with a current
+  status and a target (ADR-0012). `sandloom test` fails on an unrecorded edge,
+  on a `fixed` row whose edge is back, and on an `open` row whose edge is gone;
+  `uv run python tests/architecture/kernel_edges.py --report` prints the
+  counts. The scan also reads static imports (`from sandloom_billing import
+  x`), and a `fixed` row's anchor literal fails as that row's regression in
+  any kernel file, not only the one it was removed from. The register
+  replaces `kernel_module_imports_allowlist.json` and the literal scan of
+  `test_module_names.py`. Framework contributors only: nothing changes for
+  applications.
 
 ### Fixed
 
+- **The docs describe the final KB-34 behaviour** (kb-34-p8b). The ADR-0014,
+  authorization, security-model, billing, tenancy, testing and upgrade pages
+  state the absent-claim rows of KB-33g / KB-33h (`absent_claim="deny"` is a
+  `402`, the default `"unknown"` a `501`, billing failed at the mint a `503`)
+  and the declared fail-safe keys. The kernel text no longer names billing:
+  the `tenant_kind_unresolved` message says "no account to check" instead of
+  "no billing account to check", and the B034 explanation names generated
+  access atoms instead of live adapters. The beginner-tier test is named
+  `test_the_beginner_tier_is_the_26_names`.
+- **A module named by its import path is known by its module name, and the
+  platform bindings view says "unverified"** (KB-55). The risk-namespace rule
+  (ADR-0015 decision 4) read a `SANDLOOM_MODULES` entry such as `sandloom_billing`
+  by its last path segment, so an image naming the path knew a module
+  `sandloom_billing` and not `billing`; it now uses the module's name (the
+  entry point's, else the last segment). The admin platform view showed a
+  required contract with no expectation (`contract_unverified`) as an
+  unreachable peer; it shows `unverified` with the reason.
+
+- **Review fixes of waves 2 and 3** (KB-RF-ledger). The SANDLOOM-R017 fix text
+  and `docs/advanced/security-model.md` show the keyword-only mint,
+  `create_access_token(data=..., claims=...)`. `is_kernel_family` (the
+  generator's rule for contracts that get no consumer copy) matches only
+  `<m>.claims.v1` and `<m>.facts.v1`, the names the runtime reserves: a
+  `<m>.claims.v2` is an ordinary contract and gets its copy. Identity's tests
+  register the `sandloom_db_feature` marker, so `sandloom test identity` runs
+  alone. The ledger gains the entries of KB-13, KB-22, KB-41, KB-51, KB-53 and
+  KB-56 and maps the ADR-0013, ADR-0014 and ADR-0015 sections they built.
+  Edge B-C10 is open again with KB-60: `sandloom admin create` still reads the
+  declared `ADMIN_CONSOLE_ENABLED` by name, and the owner moved the composed
+  console-route test to the CLI phase.
+- **A replacement provider's DTOs decode into the consumer's generated copy on
+  the untyped path** (KB-23, I-06; contracts PoC section 3.3). A remote
+  `core.get_service(name)` call resolved a model or Enum result to the
+  consumer's copy only by the provider class's own `module:qualname`, so a
+  module that replaces a provider under the same contract name (`acme_orgs`
+  serving `tenancy.membership.v1` with its own `MemberState`) returned a plain
+  `dict`. A result that matches no copy by origin now resolves to the copy,
+  among those the consumer's stubs of that contract name in their signatures,
+  with the same wire shape (fields, types, constraints; not class names or
+  docstrings); two copies of one shape from different origins are told by class
+  name, else the result stays plain data. Decided once when the provider's
+  contract is described: no extra I/O, nothing on the call path; the typed path
+  (`Contract(REF)`) is unchanged.
+- **A registered driver whose package is missing no longer passes the
+  preflight; SANDLOOM-B037 names what is missing** (KB-IC-1). The built-in
+  `celery` taskqueue and `redis` cache drivers are registered whether or not
+  Celery or redis-py is installed, and `validate_requirement` read only their
+  metadata, so a module requiring `taskqueue` or `cache` loaded on plain
+  `sandloom` and failed later. A driver registration now lists the packages it
+  needs (`register_driver(..., requires=("celery",), install="pip install
+  'sandloom[celery]'")`; `redis` and `streams` event buses need `redis`), and
+  the preflight checks them with `importlib.util.find_spec`: nothing imported,
+  no connection. A module whose required capabilities cannot be met is refused
+  with one new boot code, SANDLOOM-B037 (`capability-unavailable`), listing
+  every unmet requirement with the module, capability, instance, driver,
+  features, the missing feature or package, and the fix (the install hint, or
+  another driver in `INFRA`). An instance `INFRA` selects on an uninstalled
+  driver refuses startup with the same code, and so does a dependency that
+  fails to import while a driver is built (strict, production startup).
+  A synthesized `default` instance nothing requires is no longer built,
+  opened or probed: an app without task modules starts in production without
+  Celery, `/diagnostics/infra` lists it with `status: "unused"`, and `/health`
+  skips an unused object store. The instances the kernel itself uses
+  (database, the revocation/security cache, the event bus) stay required.
+- **`sandloom-billing` and `sandloom-identity` boot on plain `sandloom`, without
+  Celery.** `sandloom.sdk.tasks` imported Celery at import, so a module whose
+  `tasks.py` uses the typed `shared_task` failed to load (`ModuleLoadError ...
+  No module named 'celery'`) unless the optional `sandloom[celery]` extra was
+  installed. Celery is now imported only where it is used: with Celery
+  installed the decorator is Celery's `shared_task` as before (worker and beat
+  unchanged); without it the task still runs inline and `delay` /
+  `apply_async` / `s` / `si`, and `cron(...)`, raise `TaskQueueNotInstalled`
+  naming the extra. `TaskQueueNotInstalled` is public (advanced): `from
+  sandloom.sdk.tasks import TaskQueueNotInstalled` to catch it, recorded in
+  `public_api_baseline.json` with the rest of `sandloom.sdk.tasks`. The package check boots each module wheel on plain
+  `sandloom` and probes `/health` and `/ready` (KB-01).
+- **`/ready` is no longer 200 when a module's tasks cannot be enqueued.** A
+  loaded module with a `tasks.py` (tasks or periodic tasks) on a process whose
+  default taskqueue cannot open (for the `celery` driver: Celery not
+  installed) used to look ready. `/ready` now opens the taskqueue while such a
+  module is loaded and answers 503 with `taskqueue_status: fail`; the internal
+  token also shows a `taskqueue` block naming the capability, the instance and
+  the modules with tasks. The probe shares the health cache
+  (`HEALTH_CACHE_TTL_SECONDS`). With no such module the taskqueue is not
+  probed (`taskqueue_status: unused`), and `/health` is unchanged.
+  **Upgrade:** a deployment that loads billing or identity without the
+  `celery` extra now reports not ready: install the extra, or leave the
+  module out of `SANDLOOM_MODULES`.
 - **`sandloom-identity` declares `argon2-cffi`, which its login service
   imports.** It installed only because the `sandloom` kernel requires it for
   its own password hashing. The packaging import check now refuses a module

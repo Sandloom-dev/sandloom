@@ -67,34 +67,6 @@ class AuthConfig(BaseModel):
         alias="ACCESS_TOKEN_EXPIRE_MINUTES",
         description=("Lifetime, in minutes, of newly issued access tokens."),
     )
-    refresh_token_expire_days: int = Field(
-        default=14,
-        alias="REFRESH_TOKEN_EXPIRE_DAYS",
-        description=(
-            "Lifetime, in days, of newly issued refresh tokens, bounded by the "
-            "absolute session lifetime."
-        ),
-    )
-    max_session_days: int = Field(
-        default=30,
-        ge=1,
-        le=365,
-        alias="MAX_SESSION_DAYS",
-        description=(
-            "Absolute session lifetime in days; refreshing a token does not "
-            "extend this deadline."
-        ),
-    )
-    tenant_claims_max_organizations: int = Field(
-        default=128,
-        ge=1,
-        le=10000,
-        alias="TENANT_CLAIMS_MAX_ORGANIZATIONS",
-        description=(
-            "Maximum organization memberships embedded in an access token; "
-            "excessive claims are refused rather than silently truncated."
-        ),
-    )
     # Lifetime of a token-revocation ("tokens valid after") mark. It must
     # outlive every access token minted before it by ANY service — not only the
     # writer's own ACCESS_TOKEN_EXPIRE_MINUTES (a split deployment where

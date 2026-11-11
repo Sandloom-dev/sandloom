@@ -3,14 +3,34 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Protocol
 
 import pytest
 
-from sandloom.sdk.errors import ContractCallError
+from sandloom.sdk.contracts import (
+    ContractRef,  # sandloom: advanced the owner's reserved contract
+)
+from sandloom.sdk.errors import (  # sandloom: advanced the failures a remote owner gives
+    ContractCallError,
+    RemoteServiceUnavailable,
+)
 from sandloom.sdk.testing import fake_contract
-from sandloom.shared.contracts.identity_security_v1 import IDENTITY_SECURITY_V1
 from sandloom_admin import startup as admin_setup
+
+
+class _Operator(Protocol):
+    async def platform_admin_exists(self) -> bool: ...
+
+
+#: The roles owner's reserved contract; the owner here is a module named
+#: ``people``, not identity: the check follows the composition's map.
+PEOPLE_SECURITY_V1: ContractRef[_Operator] = ContractRef(
+    "people.security.v1", _Operator
+)
+
+
+def _owner() -> str | None:
+    return "people"
 
 
 class _Security:
@@ -33,11 +53,11 @@ async def test_it_warns_once_without_an_administrator(
 ) -> None:
     security = _Security(exists=False)
     with (
-        fake_contract(IDENTITY_SECURITY_V1, security),
+        fake_contract(PEOPLE_SECURITY_V1, security),
         caplog.at_level(logging.WARNING),
     ):
-        await admin_setup.warn_without_admin()
-        await admin_setup.warn_without_admin()
+        await admin_setup.warn_without_admin(_owner)
+        await admin_setup.warn_without_admin(_owner)
     warnings = [
         r for r in caplog.records if "No platform administrator" in r.getMessage()
     ]
@@ -50,10 +70,10 @@ async def test_it_says_nothing_once_an_administrator_exists(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     with (
-        fake_contract(IDENTITY_SECURITY_V1, _Security(exists=True)),
+        fake_contract(PEOPLE_SECURITY_V1, _Security(exists=True)),
         caplog.at_level(logging.WARNING),
     ):
-        await admin_setup.warn_without_admin()
+        await admin_setup.warn_without_admin(_owner)
     assert "No platform administrator" not in caplog.text
 
 
@@ -62,20 +82,70 @@ async def test_a_failed_check_is_tried_again_at_the_next_start() -> None:
         async def platform_admin_exists(self) -> bool:
             raise RuntimeError("no table yet")
 
-    with fake_contract(IDENTITY_SECURITY_V1, _Down()), pytest.raises(RuntimeError):
-        await admin_setup.warn_without_admin()
+    with fake_contract(PEOPLE_SECURITY_V1, _Down()), pytest.raises(RuntimeError):
+        await admin_setup.warn_without_admin(_owner)
     assert admin_setup._warned is False
 
 
-def test_the_module_registers_the_check(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_the_module_registers_the_check_and_asks_the_roles_owner() -> None:
     tasks: list[Any] = []
+    asked: list[str] = []
 
     class _Api:
         def add_startup_task(self, task: Any, critical: bool = False) -> None:
             tasks.append((task, critical))
 
+        def claim_owner(self, key: str) -> str | None:
+            asked.append(key)
+            return "people"
+
     admin_setup.setup(_Api())  # type: ignore[arg-type]
-    assert tasks == [(admin_setup.warn_without_admin, False)]
+    ((task, critical),) = tasks
+    assert critical is False
+    security = _Security(exists=True)
+    with fake_contract(PEOPLE_SECURITY_V1, security):
+        await task()
+    assert asked == ["roles"] and security.calls == 1
+
+
+async def test_no_roles_owner_is_not_checked_and_not_a_crash(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.DEBUG):
+        await admin_setup.warn_without_admin(lambda: None)
+    assert "not made: no owner of roles" in caplog.text
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert admin_setup._warned is False
+
+
+async def test_an_owner_without_the_method_or_not_deployed_is_not_checked(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class _Without:
+        pass
+
+    with caplog.at_level(logging.DEBUG):
+        await admin_setup.warn_without_admin(_owner)  # not deployed
+        with fake_contract(PEOPLE_SECURITY_V1, _Without()):
+            await admin_setup.warn_without_admin(_owner)
+    assert caplog.text.count("not made") == 2
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert admin_setup._warned is False
+
+
+async def test_a_withheld_grant_is_not_checked(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class _Forbidden:
+        async def platform_admin_exists(self) -> bool:
+            raise ContractCallError("not allowed", status_code=403)
+
+    with (
+        fake_contract(PEOPLE_SECURITY_V1, _Forbidden()),
+        caplog.at_level(logging.DEBUG),
+    ):
+        await admin_setup.warn_without_admin(_owner)
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
 async def test_an_unreachable_database_is_not_a_traceback(
@@ -91,10 +161,89 @@ async def test_an_unreachable_database_is_not_a_traceback(
             )
 
     with (
-        fake_contract(IDENTITY_SECURITY_V1, _Unavailable()),
+        fake_contract(PEOPLE_SECURITY_V1, _Unavailable()),
         caplog.at_level(logging.DEBUG),
     ):
-        await admin_setup.warn_without_admin()
+        await admin_setup.warn_without_admin(_owner)
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert not any(r.exc_info for r in caplog.records)
     assert admin_setup._warned is False
+
+
+class _RemoteProxy:
+    """A remote binding's proxy: every name is a method (the provider's
+    describe decides), so a missing method is found only by calling it."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+        self.calls: list[str] = []
+
+    def __getattr__(self, name: str) -> Any:
+        async def call(*args: Any, **kwargs: Any) -> Any:
+            self.calls.append(name)
+            raise self.error
+
+        return call
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        RemoteServiceUnavailable("people.security.v1", reason="connection refused"),
+        RemoteServiceUnavailable(
+            "people.security.v1",
+            reason="this caller is not allowed",
+            code="rpc_caller_forbidden",
+        ),
+        ContractCallError("no such method", status_code=404),
+    ],
+    ids=["unreachable", "no-grant", "no-method"],
+)
+async def test_a_remote_owner_that_cannot_answer_is_not_a_failed_task(
+    caplog: pytest.LogCaptureFixture, error: Exception
+) -> None:
+    """Over RPC the proxy offers every name: an owner without the method, a
+    withheld grant or an unreachable provider is the quiet debug line, never
+    a failed startup task."""
+    proxy = _RemoteProxy(error)
+    with (
+        fake_contract(PEOPLE_SECURITY_V1, proxy),
+        caplog.at_level(logging.DEBUG),
+    ):
+        await admin_setup.warn_without_admin(_owner)
+    assert proxy.calls == ["platform_admin_exists"]
+    assert "first-administrator check not made" in caplog.text
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert admin_setup._warned is False
+
+
+async def test_another_shape_is_not_this_owners_answer(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The console's expectation: no argument, a yes/no answer. A method of
+    that name taking an argument is not called; an answer of another type is
+    not read as one."""
+
+    class _Asks:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def platform_admin_exists(self, tenant_id: str) -> bool:
+            self.calls += 1
+            return False
+
+    class _Counts:
+        async def platform_admin_exists(self) -> int:
+            return 0
+
+    asks = _Asks()
+    with caplog.at_level(logging.DEBUG):
+        with fake_contract(PEOPLE_SECURITY_V1, asks):
+            await admin_setup.warn_without_admin(_owner)
+        with fake_contract(PEOPLE_SECURITY_V1, _Counts()):
+            await admin_setup.warn_without_admin(_owner)
+    assert asks.calls == 0
+    assert "offers no platform_admin_exists()" in caplog.text
+    assert "answered int, not bool" in caplog.text
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert admin_setup.EXPECTED == {"platform_admin_exists": ((), bool)}

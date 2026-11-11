@@ -15,6 +15,12 @@ from sandloom.sdk.module import CapabilityRequirement, ContractRequirement
 from sandloom.sdk.testing import RegistrationSurface, registration_surface
 
 EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the shared tail
+    # ADR-0015: billing's declared settings, validated before ``setup``.
+    (
+        "declare_settings",
+        "sandloom_billing.config.BillingSettings",
+        "package='sandloom_billing'",
+    ),
     (
         "include_router",
         "router[GET /api/v1/platform/billing/customers, GET "
@@ -34,7 +40,7 @@ EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the s
         "POST /api/v1/platform/billing/customers/{record_id}/adjust-credits, PATCH "
         "/api/v1/platform/billing/products/{record_id}, GET "
         "/api/v1/platform/billing/payment-states, GET /api/v1/platform/billing/provider]",
-    )
+    ),
 ] + [
     # ADR-0003 split: ordinary reads (class P/R) and the always-strict
     # financial routes (class F) — same paths, same order.
@@ -106,7 +112,12 @@ EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the s
         "database=None",
     ),
     ("add_shutdown_task", "sandloom_billing.psp.close_psp_client"),
-    ("add_claims_contributor", "sandloom_billing.claims.contribute_billing_claims"),
+    # its four claim keys declared fail-safe (ADR-0014 decision 7, B-N12)
+    (
+        "add_claims_contributor",
+        "sandloom_billing.claims.contribute_billing_claims",
+        "fail_safe=tuple",
+    ),
     ("register_access_fact", "AccessFact('subscription.active')"),
     ("register_access_fact", "AccessFact('organization.subscription.active')"),
     # the declared reads of GET /subscription and GET /credits (planner)
@@ -117,6 +128,13 @@ EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the s
         "JoinRead('billing.balance.of_user')",
         "JoinRead('billing.balance.of_organization')",
         "JoinRead('billing.plan.of_price')",
+    ),
+    # the reconciler's operational criterion (G-OPS-24)
+    (
+        "register_health_check",
+        "'billing_reconciler'",
+        "ReconcilerHealthCheck",
+        "operational=True",
     ),
 ]
 
@@ -150,24 +168,27 @@ def test_registration_surface_is_pinned() -> None:
     assert descriptor.capabilities == [
         CapabilityRequirement("database"),
         CapabilityRequirement("eventbus"),
+        # The intent reconciler must run at its interval.
+        CapabilityRequirement("taskqueue", features=frozenset({"periodic"})),
     ]
     assert descriptor.consumes == [
         ContractRequirement(
             "tenancy.membership.v1",
             required=False,
             reason="organization billing context / org subscription fact",
+            methods=("get_member_state", "get_role", "has_role_at_least"),
         )
     ]
 
 
-def test_fake_psp_in_prod_refuses_registration(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A refused PSP configuration stops registration itself (not a lifespan
-    task), so every process that builds the composition refuses with it."""
+def test_billing_declares_its_settings_and_the_fake_psp_risk() -> None:
+    """The PSP refusal moved from ``setup`` to billing's settings (ADR-0015):
+    registration declares the model, whose production check the loader runs
+    before ``setup`` in every entry point (G-RISK-07)."""
     import sandloom_billing
-    import sandloom_billing.psp as psp
+    from sandloom_billing.config import BillingSettings
 
-    monkeypatch.setattr(psp, "psp_configuration_error", lambda _settings: "boom")
-    with pytest.raises(SystemExit, match="boom"):
-        registration_surface(sandloom_billing.register)
+    assert sandloom_billing.register.__dict__["sandloom_settings"] is BillingSettings
+    assert [r.id for r in BillingSettings.risks] == ["fake_psp_in_prod"]
+    surface = registration_surface(sandloom_billing.register)
+    assert surface.calls[0][0] == "declare_settings"

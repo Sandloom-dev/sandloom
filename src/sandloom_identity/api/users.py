@@ -13,6 +13,7 @@ from sandloom_identity.access import (
     user_has_admin_role,
 )
 from sandloom_identity.events import EventActor
+from sandloom_identity.rbac import Roles
 from sandloom_identity.schemas.rbac import RoleOut
 from sandloom_identity.schemas.user import UserOut, UserUpdate
 from sandloom_identity.services.role_service import RoleService
@@ -35,7 +36,7 @@ TOTAL_COUNT_HEADER = "X-Total-Count"
 @users_router.get(
     "/users",
     response_model=list[UserOut],
-    dependencies=[Depends(require(Role("admin")))],
+    dependencies=[Depends(require(Role(Roles.ADMIN)))],
 )
 async def list_users(
     db: DbSession,
@@ -127,7 +128,7 @@ async def update_user(
     "/users/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[
-        Depends(require(Role("admin"))),
+        Depends(require(Role(Roles.ADMIN))),
         Depends(admin_in_transaction),
     ],
 )

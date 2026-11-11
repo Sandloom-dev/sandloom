@@ -30,13 +30,13 @@ from sandloom.core.di import (
     TenantScope,
     UnsafeTenantOperationError,
     bind_tenant,
-    create_access_token,
     scoped,
     unscoped,
 )
 from sandloom.core.orm import TenantScoped
 from sandloom.core.tenant_context import configured_tenant_scope, current_tenant_id
 from sandloom.core.testing import reload_test_env
+from sandloom.core.testing.auth import mint_test_token
 
 
 class _Base(DeclarativeBase):
@@ -235,8 +235,8 @@ async def test_bulk_delete_scoped_to_bound_tenant(widgets) -> None:
 
 def test_header_cannot_override_token_tenant() -> None:
     token_tenant, requested_tenant = uuid.uuid4(), uuid.uuid4()
-    token = create_access_token(
-        data={
+    token = mint_test_token(
+        {
             "sub": str(uuid.uuid4()),
             "token_type": "access",
             "tenant_id": str(token_tenant),
@@ -257,8 +257,8 @@ def test_header_cannot_override_token_tenant() -> None:
 
 def test_header_can_select_tenant_from_token_allowlist() -> None:
     tenant_a, tenant_b = uuid.uuid4(), uuid.uuid4()
-    token = create_access_token(
-        data={
+    token = mint_test_token(
+        {
             "sub": str(uuid.uuid4()),
             "token_type": "access",
             "tenant_ids": [str(tenant_a), str(tenant_b)],
@@ -281,8 +281,8 @@ def test_tenant_ids_parse_is_memoised_per_verified_token(monkeypatch) -> None:
     from sandloom.core.http import tenant_scope as tenant_mod
 
     tenants = [uuid.uuid4() for _ in range(5)]
-    token = create_access_token(
-        data={
+    token = mint_test_token(
+        {
             "sub": str(uuid.uuid4()),
             "token_type": "access",
             "tenant_ids": [str(t) for t in tenants],
@@ -317,8 +317,8 @@ def test_malformed_signed_tenant_ids_entry_is_400_on_every_request() -> None:
     from sandloom.core.http import tenant_scope as tenant_mod
 
     good = uuid.uuid4()
-    token = create_access_token(
-        data={
+    token = mint_test_token(
+        {
             "sub": str(uuid.uuid4()),
             "token_type": "access",
             # The tenant_id claim would answer alone; the malformed grant entry

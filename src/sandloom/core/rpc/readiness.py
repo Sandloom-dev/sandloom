@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
@@ -13,6 +14,7 @@ from urllib.parse import quote
 
 from fastapi import status
 
+import sandloom.core.rpc.proxy as _proxy
 from sandloom.core import contract_compat
 from sandloom.core.config.settings import settings as _global_settings
 from sandloom.core.descriptors import HealthResult
@@ -116,15 +118,28 @@ _ProbeTarget = tuple[str, float, str | None]
 
 
 async def _probe_remote(
-    core: Any, *, reachability: set[str] | None, compat: bool
+    core: Any,
+    *,
+    reachability: set[str] | None,
+    compat: bool,
+    describe_all: bool = False,
 ) -> HealthResult:
     """Probe remote bindings for reachability and/or contract compatibility.
 
     ``reachability``: contracts whose unreachable peer is a failure (``None``
-    = every remote binding). ``compat``: also compare each binding that has an
-    expected snapshot (:mod:`sandloom.core.contract_compat`) with the provider's
-    live describe document — an incompatible provider is a failure, a peer
-    that cannot be reached is NOT (reachability is the other check's job).
+    = every remote binding). ``compat``: also compare each binding with what
+    this caller expects of it (:func:`contract_compat.resolve_expectations`,
+    resolved once at startup) against the provider's live describe document:
+    an incompatible provider is a failure, and so is a required contract
+    with no expectation (``contract_unverified``, ADR-0013 decision 4); a
+    peer that cannot be reached is NOT (reachability is the other check's job).
+    ``describe_all`` (the boot probe, ADR-0014 K6): also describe every other
+    remote binding, only to seed the proxy's describe cache; such a probe
+    never fails the result.
+
+    Every describe document a probe receives seeds the proxy's cache
+    (:func:`_seed_describe`), so the first call of the contract does not
+    describe it again on the request path.
     """
 
     cfg = core.settings
@@ -133,48 +148,99 @@ async def _probe_remote(
         for name, binding in cfg.service_bindings.items()
         if not core.service_registry.contains(name)
     }
-    expectations = (
-        contract_compat.expected_contracts(core, sorted(remote)) if compat else {}
-    )
+    plan = contract_compat.resolve_expectations(core, remote) if compat else None
+    expectations = plan.expectations if plan is not None else {}
     failures: dict[str, object] = {}
     unverified: dict[str, object] = {}
-    probes = _probe_targets(cfg, remote, reachability, expectations, failures)
+    probes = _probe_targets(
+        cfg, remote, reachability, expectations, failures, describe_all=describe_all
+    )
 
     names = sorted(probes)
     outcomes = await asyncio.gather(
         *(_probe_binding(name, *probes[name], cfg=cfg) for name in names)
     )
+    seed_only = {
+        name
+        for name in names
+        if not (reachability is None or name in reachability)
+        and name not in expectations
+    }
     for name, outcome in zip(names, outcomes, strict=True):
         reach = reachability is None or name in reachability
-        expectation = expectations.get(name)
+        expected = expectations.get(name, ())
         if outcome.failure is not None:
-            failure = _probe_failure(name, outcome, reach, expectation, probes[name][0])
+            failure = _probe_failure(name, outcome, reach, expected, probes[name][0])
             if failure is not None:
                 failures[name] = failure
             continue
+        if outcome.contract is not None:
+            _seed_describe(name, probes[name][0], outcome.contract)
+        if name in seed_only:
+            continue  # described only to seed the proxy's cache
         drift = _token_lifetime_drift(cfg, outcome.contract)
         if drift is not None:
             failures[name] = {"config_drift": [drift]}
             continue
-        if expectation is None:
+        if not expected:
             continue
         if outcome.contract is None:
             unverified[name] = ["the provider published no contract description"]
             continue
+        _compare(name, expected, outcome.contract, failures, unverified)
+    for name, reasons in (plan.unverified if plan is not None else {}).items():
+        entry = failures.get(name)
+        failures[name] = {
+            **(entry if isinstance(entry, dict) else {}),
+            "contract_unverified": list(reasons),
+        }
+    probed = [name for name in names if name not in seed_only]
+    return _probe_result(probed, failures, unverified)
+
+
+def _compare(
+    name: str,
+    expected: tuple[contract_compat.Expectation, ...],
+    actual: dict[str, Any],
+    failures: dict[str, object],
+    unverified: dict[str, object],
+) -> None:
+    """Hold the provider's describe document to every consumer's expectation."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    sources: list[str] = []
+    for expectation in expected:
         report = contract_compat.compare_contract(
-            name,
-            expectation.describe,
-            outcome.contract,
-            methods=expectation.methods,
+            name, expectation.describe, actual, methods=expectation.methods
         )
+        errors += [e for e in report.errors if e not in errors]
+        warnings += [w for w in report.warnings if w not in warnings]
         if report.errors:
-            failures[name] = {
-                "contract_incompatible": report.errors,
-                "expected_from": expectation.source,
-            }
-        if report.warnings:
-            unverified[name] = report.warnings
-    return _probe_result(names, failures, unverified)
+            sources.append(expectation.source)
+    if errors:
+        failures[name] = {
+            "contract_incompatible": errors,
+            "expected_from": sources[0] if len(sources) == 1 else sources,
+        }
+    if warnings:
+        unverified[name] = warnings
+
+
+def _seed_describe(name: str, base_url: str, contract: dict[str, Any]) -> None:
+    """Seed the proxy's describe cache with a probe's document (ADR-0014 K6).
+
+    The probe and the proxy fetch the same document (``GET
+    /_sandloom/rpc/<contract>``) through the same keyed binding, so the first
+    call of the contract finds it cached and makes no describe ``GET`` on the
+    request path. A later answer under another contract hash re-describes
+    as before.
+    """
+    described = _proxy._parse_remote_contract({"contract": contract}, name)
+    if described is None:
+        return
+    key = (base_url.rstrip("/"), name)
+    _proxy._remote_contracts[key] = described
+    _proxy._describe_failed.pop(key, None)
 
 
 def _token_lifetime_drift(cfg: Any, contract: dict[str, Any] | None) -> str | None:
@@ -199,17 +265,20 @@ def _probe_targets(
     cfg: Any,
     remote: dict[str, Any],
     reachability: set[str] | None,
-    expectations: dict[str, Any],
+    expectations: Mapping[str, Any],
     failures: dict[str, object],
+    *,
+    describe_all: bool = False,
 ) -> dict[str, _ProbeTarget]:
     """What to probe per remote binding (a binding without a URL that must be
-    reachable is recorded in ``failures`` instead)."""
+    reachable is recorded in ``failures`` instead). ``describe_all``: every
+    remote binding with a URL, not only those checked."""
     probe_cap = float(getattr(cfg, "service_probe_timeout_seconds", 1.0))
     default_timeout = float(cfg.service_rpc_timeout_seconds)
     probes: dict[str, _ProbeTarget] = {}
     for service_name, binding in remote.items():
         reach = reachability is None or service_name in reachability
-        if not reach and service_name not in expectations:
+        if not reach and service_name not in expectations and not describe_all:
             continue
         base_url = str(binding.get("base_url") or binding.get("url") or "").rstrip("/")
         if not base_url:
@@ -236,16 +305,16 @@ def _probe_failure(
     name: str,
     outcome: _ProbeOutcome,
     reach: bool,
-    expectation: Any,
+    expected: tuple[contract_compat.Expectation, ...],
     base_url: str,
 ) -> dict[str, object] | None:
     """The failure a failed probe records (``None``: it does not count)."""
-    if expectation is not None and outcome.not_served:
+    if expected and outcome.not_served:
         return {
             "contract_incompatible": [
                 f"{name}: not served by the provider at {base_url}"
             ],
-            "expected_from": expectation.source,
+            "expected_from": expected[0].source,
         }
     return outcome.failure if reach else None
 
@@ -299,18 +368,42 @@ async def check_remote_service_bindings(
     )
 
 
+async def describe_remote_bindings(core: Any) -> HealthResult:
+    """Describe every remote binding once, at boot, to seed the proxy's
+    describe cache (ADR-0014 K6): one ``GET`` per binding at start instead of
+    one on the first request of each contract. Checks nothing: an unreachable
+    peer is not a failure here, the first call describes it as before.
+    """
+    return await _probe_remote(
+        core, reachability=set(), compat=False, describe_all=True
+    )
+
+
 class ContractIncompatibleError(RuntimeError):
     """A reachable remote provider is incompatible with this caller's contract
     snapshot (``CONTRACT_COMPAT_CHECK=strict`` aborts startup with it)."""
 
 
-async def check_remote_contract_compat(core: Any) -> HealthResult:
-    """Compare every remote binding with its expected snapshot (no reachability).
+class ContractUnverifiedError(ContractIncompatibleError):
+    """A required remote contract has no expectation to check it against
+    (``CONTRACT_COMPAT_CHECK=strict`` aborts startup with it before any probe;
+    ADR-0013 decision 4)."""
 
-    The startup half of the rolling-upgrade guard: logs an incompatible
-    provider (``ready``) or raises :class:`ContractIncompatibleError`
-    (``strict``). An unreachable peer is only logged — it may simply start
-    later; readiness keeps re-checking.
+
+async def check_remote_contract_compat(core: Any) -> HealthResult:
+    """Compare every remote binding with its expectation (no reachability).
+
+    The startup half of the rolling-upgrade guard; it also describes every
+    other remote binding to seed the proxy's describe cache (ADR-0014 K6,
+    :func:`describe_remote_bindings` alone when the check is ``off``).
+    It resolves what this caller expects of each remote contract (read once
+    here; ``/ready`` reuses it). A required contract with no expectation is
+    refused before any probe under ``strict``
+    (:class:`ContractUnverifiedError`) and logged at ERROR under ``ready``,
+    whose ``/ready`` then fails with ``contract_unverified``.
+    An incompatible provider is logged (``ready``) or raises
+    :class:`ContractIncompatibleError` (``strict``). An unreachable peer is
+    only logged: it may simply start later; readiness keeps re-checking.
     """
     mode = _compat_mode(core)
     if mode == "off":
@@ -321,16 +414,17 @@ async def check_remote_contract_compat(core: Any) -> HealthResult:
         for name in core.settings.service_bindings
         if not core.service_registry.contains(name)
     )
-    known = contract_compat.expected_contracts(core, remote)
-    for name in remote:
-        if name not in known:
-            logger.warning(
-                "No contract snapshot for remote contract %s: its compatibility "
-                "is not checked (ship the provider module's package or set "
-                "CONTRACT_SNAPSHOT_PATHS)",
-                name,
-            )
-    result = await _probe_remote(core, reachability=set(), compat=True)
+    plan = contract_compat.resolve_expectations(core, remote)
+    for name, reasons in sorted(plan.unverified.items()):
+        logger.error("Remote contract %s cannot be checked: %s", name, reasons)
+    if plan.unverified and mode == "strict":
+        raise ContractUnverifiedError(
+            "remote contract(s) cannot be checked (no expectation): "
+            + "; ".join(r for reasons in plan.unverified.values() for r in reasons)
+        )
+    result = await _probe_remote(
+        core, reachability=set(), compat=True, describe_all=True
+    )
     details = result.details or {}
     unverified = details.get("contracts_unverified")
     for name, warnings_ in (unverified if isinstance(unverified, dict) else {}).items():

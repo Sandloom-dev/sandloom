@@ -9,12 +9,18 @@ from sandloom.sdk.module import CapabilityRequirement
 from sandloom.sdk.testing import registration_surface
 
 EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the shared tail
+    # ADR-0015: tenancy's declared settings, validated before ``setup``.
+    (
+        "declare_settings",
+        "sandloom_tenancy.config.TenancySettings",
+        "package='sandloom_tenancy'",
+    ),
     (
         "include_router",
         "router[GET /api/v1/platform/tenancy/organizations, GET "
         "/api/v1/platform/tenancy/organizations/{record_id}, GET "
         "/api/v1/platform/tenancy/members]",
-    )
+    ),
 ] + [
     (
         "include_router",
@@ -53,19 +59,19 @@ EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the s
         "register_event_schema",
         "'tenancy.member_added.v1'",
         "'MemberAdded'",
-        "mapping:46032824bbfa",
+        "mapping:039e7e850c0c",
     ),
     (
         "register_event_schema",
         "'tenancy.member_removed.v1'",
         "'MemberRemoved'",
-        "mapping:62aedfc91fa8",
+        "mapping:d5a34251fd5b",
     ),
     (
         "register_event_schema",
         "'tenancy.member_role_changed.v1'",
         "'MemberRoleChanged'",
-        "mapping:602f5701eb1c",
+        "mapping:f298b21448e1",
     ),
     (
         "register_event_schema",
@@ -112,6 +118,13 @@ EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the s
         "sandloom_tenancy.contracts.MembershipReadContract",
         "database=None",
     ),
+    # the operator contract: a tenant's members for ``sandloom security --tenant``
+    (
+        "register_service",
+        "'tenancy.security.v1'",
+        "sandloom_tenancy.contracts.TenancySecurityContract",
+        "database=None",
+    ),
     (
         "add_claims_contributor",
         "sandloom_tenancy.claims.tenancy_claims",
@@ -144,4 +157,6 @@ def test_registration_surface_is_pinned() -> None:
     assert descriptor.capabilities == [
         CapabilityRequirement("database"),
         CapabilityRequirement("eventbus"),
+        # Invitations are mailed: a notifier that cannot deliver email refuses.
+        CapabilityRequirement("notification", features=frozenset({"email"})),
     ]

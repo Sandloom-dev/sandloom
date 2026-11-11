@@ -8,6 +8,17 @@
 # renderers) from a dist-info written here from ``packages/*/pyproject.toml``.
 # Without them a module's events have no producer (B015) and a build with
 # renderers finds none (B024).
+#
+# The stand boots the STANDARD composition root (``sandloom_standard.main``, the
+# ``sandloom-standard`` package mounted from ``packages/sandloom-standard/src``):
+# the lean ``sandloom.main`` assigns no claim authorities, so a composition that
+# loads the token issuer refuses with SANDLOOM-B035. The rungs import
+# ``sandloom_standard.main`` directly; ``SANDLOOM_COMPOSITION_ROOT`` names the same
+# root for the kernel's own entry points. A prod-environment stand that loads
+# identity / tenancy needs an email notifier (SANDLOOM-B037): the stand sets the
+# ``log_notifier_in_prod`` accepted risk (the ``log`` driver delivers no mail; the
+# stand sends none). ``SANDLOOM_SERVICE_NAME`` names the process for the rungs that
+# read it (R0.rpc); override it from the caller's environment.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../../.." && pwd)
@@ -41,7 +52,9 @@ docker run --rm \
   -e CACHE_URL="$(fix "$CACHE_URL")" \
   -e BROKER_URL="$(fix "$BROKER_URL")" \
   -e CG_K="${CG_K:-200}" \
-  -e SANDLOOM_ACCEPTED_RISKS="${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod,shared_hs_secret_split,relay_disabled}" \
+  -e SANDLOOM_COMPOSITION_ROOT="${SANDLOOM_COMPOSITION_ROOT:-sandloom_standard.main}" \
+  -e SANDLOOM_SERVICE_NAME="${SANDLOOM_SERVICE_NAME:-ladder}" \
+  -e SANDLOOM_ACCEPTED_RISKS="${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod,shared_hs_secret_split,relay_disabled,log_notifier_in_prod}" \
   -e DB_RLS_MERGED_BEGIN="${DB_RLS_MERGED_BEGIN:-true}" \
   -e LADDER_S5_VARIANT="${LADDER_S5_VARIANT:-uow}" \
   -e LADDER_CG_GC="${LADDER_CG_GC:-}" \
@@ -50,10 +63,11 @@ docker run --rm \
   -e S5_APP_PASSWORD="${S5_APP_PASSWORD:-bench-app-local-password}" \
   -e RPC_STAND_COMMAND_POOL="${RPC_STAND_COMMAND_POOL:-$(( ${CG_K:-200} + 50 ))}" \
   -e RPC_STAND_ENVIRONMENT="${RPC_STAND_ENVIRONMENT:-prod}" \
-  -e PYTHONPATH=/w/src:/w/benchmarks:/w/meta \
+  -e PYTHONPATH=/w/src:/w/standard:/w/benchmarks:/w/meta \
   -v "$ROOT/src:/w/src:ro" \
   -v "$ROOT/benchmarks:/w/benchmarks:ro" \
   -v "$ROOT/migrations:/w/migrations:ro" \
+  -v "$ROOT/packages/sandloom-standard/src:/w/standard:ro" \
   -v "$META:/w/meta:ro" \
   -v "${CG_OUT:-/tmp}:/out" -e CG_ANNOTATE="${CG_ANNOTATE:-0}" -e CG_CACHESIM="${CG_CACHESIM:-0}" \
   -w /tmp \

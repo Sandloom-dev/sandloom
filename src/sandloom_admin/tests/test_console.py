@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import sys
 from collections.abc import AsyncIterator, Iterator
@@ -25,6 +26,8 @@ def config(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         environment=SimpleNamespace(value="dev"),
     )
     monkeypatch.setattr(api, "settings", values)
+    # the console's own declared settings (ADR-0015) read from the same stand-in
+    monkeypatch.setattr(api, "admin_settings", lambda: values)
     return values
 
 
@@ -50,6 +53,14 @@ def _manifest(package: Path, **overrides: object) -> None:
                 "version": 1,
                 "modules": ["identity", "core"],
                 "resources": [],
+                "issuer": {
+                    "module": "test_identity",
+                    "login_entry": "/auth/login",
+                    "console_auth": {
+                        "kind": "password",
+                        "roles_owner": "test_identity",
+                    },
+                },
                 **overrides,
             }
         )
@@ -188,6 +199,9 @@ async def test_the_manifest_comes_from_the_application(
     assert response.headers["cache-control"] == "no-store"
     assert (await client.get("/admin/config.json")).json() == {
         "modules": ["identity"],
+        "issuer": "test_identity",
+        "login_entry": "/auth/login",
+        "console_auth": {"kind": "password", "roles_owner": "test_identity"},
         "development": True,
     }
 
@@ -220,17 +234,83 @@ async def test_production_config_does_not_say_development(
     _manifest(package)
     config.environment = SimpleNamespace(value="prod")
     config.admin_console_enabled = True
-    assert (await client.get("/admin/config.json")).json() == {"modules": ["identity"]}
+    assert (await client.get("/admin/config.json")).json() == {
+        "modules": ["identity"],
+        "issuer": "test_identity",
+        "login_entry": "/auth/login",
+        "console_auth": {"kind": "password", "roles_owner": "test_identity"},
+    }
 
 
-async def test_the_console_needs_identity(
+async def test_the_issuer_need_not_be_a_module_named_identity(
     client: AsyncClient, application_package: tuple[Path, str]
 ) -> None:
+    """The console serves in front of whichever module the map assigns."""
     package, _ = application_package
     _manifest(package, modules=["billing"])
     response = await client.get("/admin/config.json")
+    assert response.status_code == 200
+    assert response.json()["issuer"] == "test_identity"
+
+
+async def test_no_assigned_issuer_is_a_configuration_error(
+    client: AsyncClient, application_package: tuple[Path, str]
+) -> None:
+    package, _ = application_package
+    _manifest(package, issuer=None)
+    response = await client.get("/admin/config.json")
     assert response.status_code == 503
-    assert "identity" in response.json()["detail"]
+    assert "claim_authorities" in response.json()["detail"]
+
+
+async def test_a_manifest_without_the_issuer_field_fails_closed(
+    client: AsyncClient, application_package: tuple[Path, str]
+) -> None:
+    """A manifest written before the field existed: nothing is assumed."""
+    package, _ = application_package
+    manifest = {"version": 1, "modules": ["identity", "core"], "resources": []}
+    (package / "admin-manifest.json").write_text(json.dumps(manifest))
+    assert (await client.get("/admin/config.json")).status_code == 503
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        None,
+        "",
+        "auth/login",
+        "//evil.example/login",
+        "https://evil.example/login",
+        "/auth/../login",
+        "/auth/login?next=//evil",
+        "/auth\\login",
+        7,
+    ],
+)
+async def test_an_issuer_without_a_usable_login_entry_is_named(
+    client: AsyncClient, application_package: tuple[Path, str], entry: object
+) -> None:
+    package, _ = application_package
+    _manifest(package, issuer={"module": "test_identity", "login_entry": entry})
+    response = await client.get("/admin/config.json")
+    assert response.status_code == 503
+    assert "test_identity" in response.json()["detail"]
+    assert "login_entry" in response.json()["detail"]
+
+
+async def test_a_forged_iss_changes_nothing(
+    client: AsyncClient, application_package: tuple[Path, str]
+) -> None:
+    """The issuer is the map's, never a token's ``iss`` (an unverified input)."""
+    package, _ = application_package
+    forged = "x." + base64.urlsafe_b64encode(b'{"iss":"identity"}').decode() + ".y"
+    headers = {"Authorization": f"Bearer {forged}"}
+    _manifest(package, issuer=None)
+    assert (await client.get("/admin/config.json", headers=headers)).status_code == 503
+    _manifest(package)
+    body = (await client.get("/admin/config.json", headers=headers)).json()
+    assert body["issuer"] == "test_identity"
+    assert body["login_entry"] == "/auth/login"
 
 
 async def test_a_newer_manifest_version_is_refused(
@@ -274,3 +354,79 @@ async def test_a_custom_build_without_files_says_so(
 async def test_it_stays_out_of_the_api_schema(client: AsyncClient) -> None:
     schema = (await client.get("/openapi.json")).json()
     assert not [path for path in schema.get("paths", {}) if path.startswith("/admin")]
+
+
+async def test_the_set_password_page_is_named_only_while_it_is_served(
+    config: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The operator commands build their link on the mounted route of that
+    name (``sandloom admin create --invite``); a console that is off mounts the
+    same path unnamed, so the link falls back to the frontend's reset page."""
+    monkeypatch.setattr(settings, "sandloom_modules", ["sandloom_admin"])
+
+    def named(application: object) -> list[str]:
+        return [
+            r.path
+            for r in application.routes  # type: ignore[attr-defined]
+            if getattr(r, "name", None) == api.LINK_PAGE_ROUTE
+        ]
+
+    served = create_app()
+    assert named(served) == ["/admin/set-password"]
+    async with AsyncClient(
+        transport=ASGITransport(app=served), base_url="http://test"
+    ) as http:
+        page = await http.get("/admin/set-password")
+        assert page.status_code == 200
+        assert "/admin/assets/" in page.text
+        assert "script-src 'self'" in page.headers["content-security-policy"]
+
+    config.environment = SimpleNamespace(value="prod")
+    off = create_app()
+    assert named(off) == []
+    async with AsyncClient(
+        transport=ASGITransport(app=off), base_url="http://test"
+    ) as http:
+        assert (await http.get("/admin/set-password")).status_code == 404
+
+
+async def test_stateless_oidc_console_config_has_no_invented_session_routes(
+    client: AsyncClient, application_package: tuple[Path, str]
+) -> None:
+    package, _ = application_package
+    _manifest(
+        package,
+        modules=["acme"],
+        issuer={
+            "module": "acme",
+            "login_entry": "/api/v1/acme/login",
+            "console_auth": {"kind": "id_token", "roles_owner": "grants"},
+        },
+    )
+    response = await client.get("/admin/config.json")
+    assert response.status_code == 200
+    assert response.json()["console_auth"] == {
+        "kind": "id_token",
+        "roles_owner": "grants",
+    }
+
+
+@pytest.mark.parametrize(
+    "auth",
+    [
+        None,
+        {"kind": "redirect", "roles_owner": "acme"},
+        {"kind": "password", "roles_owner": "acme", "me": "//evil/me"},
+    ],
+)
+async def test_missing_or_unsafe_console_auth_names_the_fix(
+    client: AsyncClient, application_package: tuple[Path, str], auth: object
+) -> None:
+    package, _ = application_package
+    _manifest(
+        package,
+        issuer={"module": "acme", "login_entry": "/login", "console_auth": auth},
+    )
+    response = await client.get("/admin/config.json")
+    assert response.status_code == 503
+    assert "console_auth" in response.json()["detail"]

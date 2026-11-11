@@ -65,9 +65,11 @@ redis = [
 celery = [
     "celery[redis]>=5.6.3,<6",
 ]
-# The batteries-included set: the three standard modules plus Redis and Celery.
+# The batteries-included set: the standard composition root
+# (sandloom_standard.main), the three standard modules, Redis and Celery.
 standard = [
     "sandloom[redis,celery]",
+    "sandloom-standard>=0.7.0a11,<0.8",
     "sandloom-identity>=0.7.0a11,<0.8",
     "sandloom-tenancy>=0.7.0a11,<0.8",
     "sandloom-billing>=0.7.0a11,<0.8",
@@ -130,14 +132,11 @@ path = "../../tools/packaging/package_build.py"
 "../../src/sandloom" = "sandloom"
 "../../migrations/core" = "sandloom/core/migrations/core_chain"
 
-# Repository-only agent files. `sandloom.shared` ships whole (DTOs, the
-# standard modules' generated stubs and event schemas, authz, guards): every
-# caller process imports it (SANDLOOM-C012).
+# Repository-only agent files. `sandloom.shared` ships whole (authz, guards,
+# subject): no generated stub, DTO copy or event schema of a module is in this
+# wheel, each module wheel carries its own (ADR-0013).
 [tool.sandloom.exclude]
-paths = [
-    "sandloom/AGENTS.md",
-    "sandloom/CLAUDE.md",
-]
+paths = []
 
 # Local builds (`uvx --from packages/sandloom`) rebuild when the sources change,
 # not only when this file does.

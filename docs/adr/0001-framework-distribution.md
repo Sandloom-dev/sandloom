@@ -268,6 +268,25 @@ party ships one. The text above records the earlier layout.
   `sandloom-vX.Y.Z` and `sandloom-<module>-vX.Y.Z`.
 
 
+**Update 2026-11-08: a sixth distribution, `sandloom-standard`** (ADR-0012
+decision 3, owner decision #1). The standard composition root moved out of the
+kernel into its own distribution; the text above records the earlier layout.
+
+- `sandloom-standard` ships the import package `sandloom_standard` (source in
+  `packages/sandloom-standard/src/`, outside the `src/` tree of the kernel and
+  the modules). `sandloom_standard.main` exposes `app` and `core`: the kernel
+  factory with every installed `sandloom.modules` entry point as the default
+  module set; the standard trust map joins it with ADR-0014. It registers no
+  module and depends on `sandloom` only.
+- `sandloom[standard]` depends on it. The image, the shipped compose profiles
+  and the framework's `sandloom add deploy` set
+  `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main`, so the API, the worker,
+  beat, `sandloom migrate` and the operator commands build one composition;
+  SANDLOOM-T014 refuses a profile whose processes name different roots.
+- `sandloom.main` stays in `sandloom` as the lean root: installed modules, no
+  authorities, and the kernel's default when no root is configured.
+- `check_package_distributions.py` builds and checks six distributions.
+
 ## Alternatives considered
 
 - **Single wheel with extras** (`sandloom-framework[identity,billing]`, one version

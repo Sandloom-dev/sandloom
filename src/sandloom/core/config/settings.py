@@ -16,6 +16,8 @@ import logging
 import os
 import re
 import threading
+from collections.abc import Mapping
+from contextvars import ContextVar
 from difflib import get_close_matches
 from typing import Any
 from urllib.parse import urlsplit
@@ -24,12 +26,15 @@ from pydantic import ValidationError
 from pydantic.functional_validators import field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
+    DotEnvSettingsSource,
+    EnvSettingsSource,
     PydanticBaseSettingsSource,
     SecretsSettingsSource,
     SettingsConfigDict,
 )
 
 from sandloom.core.config import accepted_risks as _risks
+from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.config.auth import AuthConfig
 from sandloom.core.config.cache import CacheConfig
 from sandloom.core.config.common import (
@@ -43,7 +48,6 @@ from sandloom.core.config.database import DatabaseConfig
 from sandloom.core.config.eventing import EventingConfig
 from sandloom.core.config.http import HttpConfig
 from sandloom.core.config.infra import InfraConfig
-from sandloom.core.config.modules import ModulesConfig
 from sandloom.core.config.observability import ObservabilityConfig
 from sandloom.core.config.password_params import (
     PasswordHashParams,
@@ -56,6 +60,63 @@ from sandloom.core.config.sagas import SagasConfig
 from sandloom.core.config.services import ServicesConfig
 from sandloom.core.config.tiers import REMOVED, removed_setting_problem
 from sandloom.core.config.trust import TrustConfig
+
+
+class _SnapshotEnv(EnvSettingsSource):
+    """pydantic-settings' environment source over the snapshot's copy."""
+
+    def __init__(
+        self,
+        settings_cls: type[BaseSettings],
+        snapshot: _module_settings.SourceSnapshot,
+    ) -> None:
+        self._snapshot = snapshot
+        super().__init__(settings_cls, case_sensitive=False)
+
+    def _load_env_vars(self) -> Mapping[str, str | None]:
+        return self._snapshot.env
+
+
+class _SnapshotDotEnv(DotEnvSettingsSource):
+    """pydantic-settings' ``.env`` source over the snapshot's one parse
+    (extras included, as the removed-setting and typo checks read them)."""
+
+    def __init__(
+        self,
+        settings_cls: type[BaseSettings],
+        snapshot: _module_settings.SourceSnapshot,
+    ) -> None:
+        self._snapshot = snapshot
+        super().__init__(settings_cls, env_file=None, case_sensitive=False)
+
+    def _load_env_vars(self) -> Mapping[str, str | None]:
+        return self._snapshot.dotenv
+
+
+class _SnapshotSecrets(EnvSettingsSource):
+    """``SECRETS_DIR`` through the snapshot: one lookup per declared alias,
+    the directory never listed; decoding stays pydantic-settings'."""
+
+    def __init__(
+        self,
+        settings_cls: type[BaseSettings],
+        snapshot: _module_settings.SourceSnapshot,
+    ) -> None:
+        self._snapshot = snapshot
+        super().__init__(settings_cls, case_sensitive=False)
+
+    def _load_env_vars(self) -> Mapping[str, str | None]:
+        return dict(
+            self._snapshot.secrets_for(_module_settings.env_names(self.settings_cls))
+        )
+
+
+#: The snapshot the process load validates from (set by ``_load_into`` for
+#: the one ``Settings()`` it builds; any other ``Settings()`` reads its own
+#: sources as before).
+_LOAD_SNAPSHOT: ContextVar[_module_settings.SourceSnapshot | None] = ContextVar(
+    "sandloom_settings_load_snapshot", default=None
+)
 
 
 def effective_secrets_dir(settings_cls: type[BaseSettings]) -> str | None:
@@ -97,7 +158,6 @@ def database_url_problem(name: str, value: str) -> str | None:
 
 class Settings(
     ObservabilityConfig,
-    ModulesConfig,
     HttpConfig,
     RpcConfig,
     AuthConfig,
@@ -135,6 +195,18 @@ class Settings(
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
+        snapshot = _LOAD_SNAPSHOT.get()
+        if snapshot is not None:
+            # The process load: the same three sources and precedence, over
+            # the one read every module validates from (ADR-0015 decision 2).
+            sources: tuple[PydanticBaseSettingsSource, ...] = (
+                init_settings,
+                _SnapshotEnv(settings_cls, snapshot),
+                _SnapshotDotEnv(settings_cls, snapshot),
+            )
+            if snapshot.secrets_dir is not None:
+                sources += (_SnapshotSecrets(settings_cls, snapshot),)
+            return sources
         if (
             isinstance(file_secret_settings, SecretsSettingsSource)
             and file_secret_settings.secrets_dir is None
@@ -202,7 +274,11 @@ class Settings(
     @model_validator(mode="after")
     def _known_accepted_risks(self) -> Settings:
         if _risks.unknown_ids(self.sandloom_accepted_risks):
-            raise ValueError(_risks.unknown_ids_message(self.sandloom_accepted_risks))
+            # A flat id that is no kernel id: where its module is installed the
+            # message names the namespaced replacement (error path only).
+            raise ValueError(
+                _module_settings.flat_risk_refusal(self.sandloom_accepted_risks)
+            )
         return self
 
     @model_validator(mode="before")
@@ -494,15 +570,6 @@ class Settings(
                         f"JWT_PREVIOUS_SECRETS[{idx}] is {problem}; previous "
                         "secrets must meet the same rules as JWT_SECRET"
                     )
-            if self.twofa_encryption_key:
-                for idx, key in enumerate(
-                    k.strip() for k in self.twofa_encryption_key.split(",")
-                ):
-                    if key and (problem := secret_problem(key)):
-                        raise ValueError(
-                            f"TWOFA_ENCRYPTION_KEY[{idx}] is {problem}; generate "
-                            "a random one (e.g. openssl rand -hex 32)"
-                        )
         if self.jwt_secret is not None and self.jwt_secret in self.jwt_previous_secrets:
             raise ValueError(
                 "JWT_PREVIOUS_SECRETS must not contain the current JWT_SECRET"
@@ -621,44 +688,6 @@ class Settings(
         return self
 
     @model_validator(mode="after")
-    def _billing_requirements(self) -> Settings:
-        """Fail fast when Stripe is selected but its keys are missing.
-
-        A misconfigured billing provider must not surface only at the first
-        webhook/charge in production — it aborts startup instead.
-        """
-        if (
-            self.environment == Environment.prod
-            and self.billing_provider == "fake"
-            and "billing_provider" in self.model_fields_set
-            and not self.accepts_risk("fake_psp_in_prod")
-        ):
-            # Only an EXPLICIT fake selection is rejected here: the kernel names
-            # no business module, so a deployment without billing keeps the
-            # field's default. The billing module's critical startup check
-            # rejects the implicit default when billing is actually loaded.
-            raise ValueError(
-                "BILLING_PROVIDER=fake is not allowed with ENVIRONMENT=prod: use "
-                "BILLING_PROVIDER=stripe (with STRIPE_SECRET_KEY and "
-                "STRIPE_WEBHOOK_SECRET) or, for a demo stack, "
-                'SANDLOOM_ACCEPTED_RISKS=["fake_psp_in_prod"]'
-            )
-        if self.billing_provider == "stripe":
-            missing = [
-                name
-                for name, val in {
-                    "STRIPE_SECRET_KEY": self.stripe_secret_key,
-                    "STRIPE_WEBHOOK_SECRET": self.stripe_webhook_secret,
-                }.items()
-                if not val
-            ]
-            if missing:
-                raise ValueError(
-                    f"BILLING_PROVIDER=stripe requires variables: {', '.join(missing)}"
-                )
-        return self
-
-    @model_validator(mode="after")
     def _storage_requirements(self) -> Settings:
         if self.storage_type == "local":
             # local directory
@@ -772,11 +801,27 @@ def _load_into(target: Settings) -> None:
     with _LOAD_LOCK:
         if type(target) is not _UnloadedSettings:
             return  # another thread loaded it
+        # One read of env > .env > SECRETS_DIR per process: the kernel
+        # validates from it here, every module's declared settings when it
+        # registers (ADR-0015 decision 2).
+        env_file = Settings.model_config.get("env_file")
+        snapshot = _module_settings.SourceSnapshot(
+            env_file=env_file if isinstance(env_file, str | os.PathLike) else None,
+            env_file_encoding=Settings.model_config.get("env_file_encoding"),
+            secrets_dir=effective_secrets_dir(Settings),
+        )
+        _module_settings.set_process_snapshot(snapshot)
+        token = _LOAD_SNAPSHOT.set(snapshot)
         try:
-            fresh = Settings()
+            # _env_file=None: pydantic-settings builds its default .env source
+            # before settings_customise_sources replaces it, and that source
+            # parses the file in its constructor (a second read).
+            fresh = Settings(_env_file=None)
         except ValidationError as e:
             # fail loudly and immediately: an invalid config is unacceptable
             raise SystemExit(f"{INVALID_CONFIGURATION}{_hint(e)}{e}") from e
+        finally:
+            _LOAD_SNAPSHOT.reset(token)
         for slot in _STATE_SLOTS:
             object.__setattr__(target, slot, object.__getattribute__(fresh, slot))
         object.__setattr__(target, "__class__", Settings)

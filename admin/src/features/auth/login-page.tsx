@@ -25,8 +25,9 @@ function useNoAdminYet(): boolean {
   const [none, setNone] = useState(false);
   useEffect(() => {
     let live = true;
+    if (!api.auth.setup_state) return;
     api
-      .request<{ has_admin?: unknown }>('/api/v1/identity/setup-state', {}, false)
+      .request<{ has_admin?: unknown }>(api.auth.setup_state, {}, false)
       .then((state) => {
         if (live) setNone(state.has_admin === false);
       })
@@ -74,7 +75,8 @@ interface Credentials {
  */
 export function LoginPage() {
   const noAdminYet = useNoAdminYet();
-  const ids = { email: useId(), password: useId(), otp: useId(), hint: useId() };
+  const ids = { email: useId(), password: useId(), otp: useId(), hint: useId(), token: useId() };
+  const auth = api.auth;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState('');
@@ -124,7 +126,29 @@ export function LoginPage() {
           <p className="mt-1 text-fg-muted">
             {pending ? `Signing in as ${pending.email}.` : 'Platform administrators only.'}
           </p>
-          {pending ? (
+          {auth.kind === 'id_token' ? (
+            <form
+              className="mt-5 flex flex-col gap-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setBusy(true);
+                setError(null);
+                void api
+                  .login({ id_token: field(event, 'id_token').trim() }, 'admin')
+                  .catch((failure: unknown) => {
+                    setError(errorMessage(failure, 'Could not sign in'));
+                    setBusy(false);
+                  });
+              }}
+            >
+              {error && <Alert message={error} />}
+              <Label htmlFor={ids.token}>Identity token</Label>
+              <Input id={ids.token} name="id_token" type="password" autoComplete="off" required />
+              <Button type="submit" variant="primary" size="lg" loading={busy}>
+                Sign in
+              </Button>
+            </form>
+          ) : pending ? (
             <form
               key="code"
               className="mt-5 flex flex-col gap-4"

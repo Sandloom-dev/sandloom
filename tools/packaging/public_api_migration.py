@@ -7,7 +7,8 @@ code, in three directions:
 
 1. **Unmapped kernel names.** Every public name of today's public modules
    (``public_api`` of ``architecture_rules.yml`` plus ``sandloom.shared.authz``,
-   ``sandloom.shared.guards.*``, ``sandloom.core.testing``, ``sandloom.core.contract_testing``)
+   ``sandloom.shared.guards.*``, ``sandloom.core.testing``,
+   ``sandloom.core.contract_testing``)
    has a row.
 2. **Unmapped kernel imports.** Every ``from sandloom.core… / sandloom.shared… import``
    in the bundled modules (identity, tenancy, billing) and ``examples/``
@@ -18,8 +19,8 @@ code, in three directions:
 
 Usage (from the repository root)::
 
-    uv run python tools/packaging/public_api_migration.py          # check; exit 1 on a finding
-    uv run python tools/packaging/public_api_migration.py --list   # print the resolved table
+    uv run python tools/packaging/public_api_migration.py
+    uv run python tools/packaging/public_api_migration.py --list
 
 ``tests/architecture/test_public_api_migration.py`` runs it in the suite
 until the migration is complete (spec §2.1).
@@ -49,7 +50,6 @@ EXTRA_PUBLIC = (
     "sandloom.shared.guards.auth",
     "sandloom.shared.guards.platform",
     "sandloom.shared.subject",
-    "sandloom.shared.membership",
     "sandloom.core.testing",
     "sandloom.core.contract_testing",
 )
@@ -103,22 +103,39 @@ H1_KERNEL_NAMES: dict[str, str] = {
     # The portable aggregate (2026-11-05, slice 10; no feature).
     "core.orm.aggregate_list": "sandloom.sdk.data",
     "shared.authz.Account": "sandloom.sdk.authz",
+    # Contract-anchored access checks (ADR-0014 decision 8, KB-30).
+    "shared.authz.access_check": "sandloom.sdk.authz",
+    "shared.authz.From": "sandloom.sdk.authz",
+    "shared.authz.ContractCheck": "sandloom.sdk.authz",
+    "shared.authz.ClaimFactCheck": "sandloom.sdk.authz",
+    # Claim atoms over a mapping claim (ADR-0014 decision 15, KB-33).
+    "shared.authz.claim_atom": "sandloom.sdk.authz",
+    "shared.authz.ClaimReadCheck": "sandloom.sdk.authz",
+    # A provider with no answer for an access check (KB-33c, C-B5).
+    "core.module_api.AccessUnknown": "sandloom.sdk.authz",
+    "shared.authz.AccessUnknown": "sandloom.sdk.authz",
     "core.di.current_service": "sandloom.sdk.web",
     "core.di.authorizes": "sandloom.sdk.web",
     # The kernel home of ContractRef (WS-A dbd87f6f): generated contract
     # stubs import it from there, sandloom.sdk.contracts re-exports it.
     "core.descriptors.contract_refs.ContractRef": "sandloom.sdk.contracts",
+    # Module-declared settings (ADR-0015, KB-50).
+    "core.module_api.settings_of": "sandloom.sdk.module",
+    "core.module_api.secret_problem": "sandloom.sdk.security",
+    "core.module_api.SemanticSetting": "sandloom.sdk.module",
+    "core.module_api.RemovedSetting": "sandloom.sdk.module",
+    "core.module_api.Risk": "sandloom.sdk.module",
+    "core.module_api.ModuleSettingsError": "sandloom.sdk.testing",
+    "core.module_api.override_settings": "sandloom.sdk.testing",
+    "core.module_api.validate_settings": "sandloom.sdk.testing",
+    "core.contract_testing.split_env": "sandloom.sdk.testing",
 }
 #: Kernel names that moved out of ``sandloom.shared.schemas`` (gone) on
 #: 2026-10-28, and the generated DTO copies' marker: kept where they are, no
 #: ``sandloom.sdk`` home (the DTOs themselves are generated copies in
-#: ``sandloom.shared.contracts``).
+#: each consumer's ``_generated`` package, ADR-0013).
 MOVED_KERNEL_NAMES: dict[str, str] = {
     "shared.subject.UserContext": "sandloom.shared.subject (the token subject)",
-    "shared.membership.MemberEventAction": "sandloom.shared.membership (consumer rule)",
-    "shared.membership.member_event_action": "sandloom.shared.membership (consumer rule)",
-    "shared.membership.member_event_version": "sandloom.shared.membership (consumer rule)",
-    "shared.membership.refreshed_state_wins": "sandloom.shared.membership (consumer rule)",
     "core.descriptors.contract_refs.dto_copy": "generated DTO copies (kernel home)",
 }
 #: H1 kernel names whose ``sandloom.sdk`` home has another name (``<module>.<name>``).

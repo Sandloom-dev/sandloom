@@ -39,7 +39,7 @@ role = await membership.get_role(org_id, user_id)   # no session argument
 | `is_member(organization_id, user_id)` | membership check |
 | `has_role_at_least(organization_id, user_id, minimum)` | live role-hierarchy check |
 | `list_user_organization_ids(user_id)` | active orgs a user belongs to |
-| `get_member_state(organization_id, user_id)` | `MemberState(role, version)` read in one statement — what a member-event consumer stores when it refreshes on a version-less event (rule in `sandloom.shared.membership`) |
+| `get_member_state(organization_id, user_id)` | `MemberState(role, version)` read in one statement — what a member-event consumer stores when it refreshes on a version-less event (the rule is in the `tenancy.member_*.v1` event descriptions) |
 
 Methods take **no session**: each call runs in tenancy's own read-only Unit of
 Work on tenancy's database, identically in-process and over internal RPC
@@ -49,6 +49,36 @@ Work on tenancy's database, identically in-process and over internal RPC
 `tenancy.claims.v1` (auto-registered, `critical=True`) contributes `tenant_ids`;
 if tenancy cannot answer, token issuance fails with `503` instead of minting a
 token without the allowlist.
+
+## Operator contract: `tenancy.security.v1`
+
+Tenancy's operator contract, reserved to tenancy (SANDLOOM-B034): only the
+module that holds the `tenant_ids` claim answers it. Its one method is a read:
+
+| Method | Purpose |
+| --- | --- |
+| `list_member_user_ids(organization_id, after, limit)` | an organization's member user ids (active or not), in id order, strictly after `after`; at most 1000 per call (a larger `limit` is capped) |
+
+Who calls it: `sandloom security revoke-sessions --tenant ORG` and
+`sandloom security force-password-reset --tenant ORG`. The kernel asks the
+owner of `tenant_ids` in the claim map for the members, page by page. In the
+standard map that owner is tenancy. The kernel then ends the members'
+sessions at the issuer and revokes their access tokens itself.
+
+The command confirms the method by describe before it acts, a dry run
+included. Its schema must be `(uuid, uuid | None, int) -> list[uuid]`.
+Otherwise the command refuses with SANDLOOM-B039 and does nothing.
+
+In one process the CLI calls it locally. In a split, the CLI may run in a
+service without tenancy. Bind `tenancy.security.v1` in `SERVICE_BINDINGS`,
+pinned to tenancy's `service_id`. Then grant the method to the calling
+service in tenancy's `RPC_ALLOWED_CALLS`:
+
+```python
+RPC_ALLOWED_CALLS = {"ops-cli": {"tenancy.security.v1": ["list_member_user_ids"]}}
+```
+
+See the [operator reference](../../operate/operator-reference.md).
 
 ## HTTP API
 
@@ -174,7 +204,16 @@ provides the fail-closed data isolation. They are complementary — tenancy is t
 *who*, tenant scoping is the *enforcement*. The JWT `tenant_ids` allowlist may
 lag membership changes only if the revocation store is unreachable; checks that
 must observe a removal with certainty use the live contract
-(`has_role_at_least` / `is_member`, or the shared `OrgRole` atom).
+(`has_role_at_least` / `is_member`, or the generated `OrgRole` atom).
+
+Tenancy declares `OrgRole` on `has_role_at_least` with `access_check`.
+`sandloom generate` writes it beside a consumer's stub. A route imports it from
+`<app>.shared.contracts.tenancy_membership_v1`; the kernel holds no `OrgRole`
+and no tenancy term.
+
+The same declaration marks `has_role_at_least` as the membership witness
+(`witnesses_membership={"minimum": "member"}`). The kernel calls a tenant
+`organization` only when this check confirms the caller's membership.
 
 
 ## Platform owner directory

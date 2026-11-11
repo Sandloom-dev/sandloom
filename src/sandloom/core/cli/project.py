@@ -242,7 +242,8 @@ filterwarnings = ["error::DeprecationWarning"]
 [tool.ruff]
 fix = true
 force-exclude = true
-extend-exclude = ["$app/modules/*/migrations"]
+# `_generated/` holds copies `sandloom generate` lays out itself (ADR-0013).
+extend-exclude = ["$app/modules/*/migrations", "**/_generated"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "C4", "UP", "C901"]
@@ -296,13 +297,17 @@ CRUD, events and cross-module calls:
 | routes | `module_router`, `public`, `CurrentUser` |
 | events | `Event`, `on` |
 | contracts | `contract`, `command`, `Contract` |
-| authorization | `require`, `Subscribed`, `SubscriptionActive`, `Credits`, |
-| | `OrgRole`, `Owner`, `authorize_resource` |
+| authorization | `require`, `Owner`, `authorize_resource` |
 | effects | `record_audit`, `on_commit` |
 | tests (`sandloom.sdk.testing`) | `client` (fixture), `as_user`, `published`, |
 | | `deliver`, `fake_contract`, `fake_access_fact` |
 
 Other SDK names are advanced: mark the import `# sandloom: advanced <reason>`.
+The billing and tenancy gates (`Subscribed`, `SubscriptionActive`, `Credits`,
+`OrgRole`) are not sdk names: `sandloom generate` writes them beside the
+consumer's contract stub, and a route imports them from
+`$app.shared.contracts.billing_entitlements_v1` or
+`$app.shared.contracts.tenancy_membership_v1`.
 Ids and times: `default=new_id` (UUIDv7) and `created_at: Mapped[CreatedAt]`
 (`clock_timestamp()`), so a list ordered by `created_at, id` never ties; any
 other time column is `UtcDateTime()` (SANDLOOM-C029).
@@ -600,8 +605,23 @@ from sandloom.sdk.app import app_modules, create_app  # sandloom: advanced app
 
 BUNDLED: list[str] = $bundled_json
 
+#: Who may write each protected token claim, and the module that issues
+#: tokens (ADR-0014): code, never a setting. A contributor writing a protected
+#: claim it is not assigned loses its whole result; startup refuses a map the
+#: composition cannot honour (`sandloom explain SANDLOOM-B035`).
+CLAIM_AUTHORITIES: dict[str, str] = $claim_authorities
+
 $create_app'''
 )
+
+
+def _dict_literal(mapping: dict[str, str]) -> str:
+    """``mapping`` as ``ruff format`` keeps it: ``{}``, else one entry per
+    line with the magic trailing comma."""
+    if not mapping:
+        return "{}"
+    lines = "".join(f'    "{key}": "{value}",\n' for key, value in mapping.items())
+    return "{\n" + lines + "}"
 
 
 def _create_app_call(app: str, width: int = 88) -> str:
@@ -610,14 +630,15 @@ def _create_app_call(app: str, width: int = 88) -> str:
     wrapped, then one argument per line, then the list exploded too."""
     title = f'title="{app}"'
     modules = f'default_modules=[*BUNDLED, *app_modules("{app}.modules")]'
+    authorities = "claim_authorities=CLAIM_AUTHORITIES"
     forms = [
-        f"app = create_app({title}, {modules})\n",
-        f"app = create_app(\n    {title}, {modules}\n)\n",
-        f"app = create_app(\n    {title},\n    {modules},\n)\n",
+        f"app = create_app({title}, {modules}, {authorities})\n",
+        f"app = create_app(\n    {title}, {modules}, {authorities}\n)\n",
+        f"app = create_app(\n    {title},\n    {modules},\n    {authorities},\n)\n",
     ]
     exploded = (
         f"app = create_app(\n    {title},\n    default_modules=[\n        *BUNDLED,\n"
-        f'        *app_modules("{app}.modules"),\n    ],\n)\n'
+        f'        *app_modules("{app}.modules"),\n    ],\n    {authorities},\n)\n'
     )
     forms.append(exploded)
     for form in forms:
@@ -820,10 +841,8 @@ x-app-env: &app-env
   # The weaker guarantees this stack accepts (logged at every start):
   # single-host local storage, persisted below — use a driver plugin for
   # replicas on hosts without a shared filesystem. A demo on the fake PSP adds
-  # fake_psp_in_prod (comma-separated).
+  # billing.fake_psp_in_prod (comma-separated).
   SANDLOOM_ACCEPTED_RISKS: $${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod}
-  # The optional admin console (sandloom-admin) is off in production by default.
-  ADMIN_CONSOLE_ENABLED: $${ADMIN_CONSOLE_ENABLED:-false}
   JWT_SECRET: $${JWT_SECRET:?set JWT_SECRET (openssl rand -hex 32)}
   INTERNAL_API_TOKEN: $${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN}
 
@@ -965,22 +984,63 @@ volumes:
 """
 )
 
-# Billing refuses the fake PSP in prod, so a batteries app must choose.
+# The starter environment of a bundled module ``sandloom new`` was asked for,
+# written before the package is installed (edge row B-N6): a copy of the
+# ``deploy`` lines its settings declare (``module_env``, what ``sandloom add
+# deploy`` writes from the installed package), kept equal to them by
+# ``tests/integration/with_batteries/test_starter_env_declared.py``.
 # identity refuses to start in prod without a dedicated 2FA encryption key.
-_IDENTITY_ENV = """\
-  # identity encrypts TOTP secrets with a dedicated key (comma-separated,
-  # newest first, for rotation) — required in prod.
-  TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?set TWOFA_ENCRYPTION_KEY \
-(openssl rand -hex 32)}
+_IDENTITY_ENV: tuple[str, ...] = (
+    "# identity encrypts TOTP secrets with a DEDICATED key (no JWT_SECRET",
+    "# fallback in prod); comma-separated, newest first, for rotation.",
+    "TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?set TWOFA_ENCRYPTION_KEY "
+    "(openssl rand -hex 32) - required when identity is loaded}",
+    "# Refresh-session lifetime: identity's setting (the issuer's sessions).",
+    "REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}",
+)
+
+# identity and tenancy REQUIRE an email notifier; the default log driver
+# delivers none, so in prod the app refuses to start on it.
+_NOTIFIER_ENV = """\
+  # identity / tenancy send mail (recovery, invitations) and REQUIRE an email
+  # notifier: with ENVIRONMENT=prod the default `log` driver (no mail) is
+  # refused at startup. Production: NOTIFIER_BACKEND=smtp with SMTP_HOST and
+  # SMTP_FROM (SMTP_USERNAME / SMTP_PASSWORD over SMTP_USE_TLS=true). A demo
+  # without mail adds log_notifier_in_prod to SANDLOOM_ACCEPTED_RISKS (mail is
+  # NOT delivered).
+  NOTIFIER_BACKEND: ${NOTIFIER_BACKEND:-log}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-25}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-}
+  SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
 """
 
-_BILLING_ENV = """\
-  # billing refuses the fake PSP in prod: choose explicitly.
-  BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake \
-with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod for demos)}
-  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
-  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
-"""
+# Billing refuses the fake PSP in prod, so a batteries app must choose.
+_BILLING_ENV: tuple[str, ...] = (
+    "# billing refuses the fake PSP in prod: the operator must choose.",
+    "BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or "
+    "fake with SANDLOOM_ACCEPTED_RISKS="
+    "local_storage_in_prod,billing.fake_psp_in_prod for demos)}",
+    "STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}",
+    "STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}",
+    "# Past-due policy: billing's setting (other services read it through the",
+    "# access fact billing describes, never from their own environment).",
+    "BILLING_DENY_ON_PAST_DUE: ${BILLING_DENY_ON_PAST_DUE:-false}",
+)
+# The console is off in production by default.
+_ADMIN_ENV: tuple[str, ...] = (
+    "# The admin console is off in production unless switched on here.",
+    "ADMIN_CONSOLE_ENABLED: ${ADMIN_CONSOLE_ENABLED:-false}",
+)
+
+
+def _env_text(lines: tuple[str, ...]) -> str:
+    """Declared ``deploy`` lines as the monolith profile's ``x-app-env``
+    entries (indented as ``sandloom add deploy`` indents them)."""
+    return "".join(f"  {line}\n" for line in lines)
+
 
 _CI_WORKFLOW = Template(
     """# CI for $app: architecture rules, lint and tests on every change.
@@ -1024,8 +1084,10 @@ jobs:
       - name: Install
         run: |
           uv sync
+      # --full: the slow tests run too (without it a suite of only slow tests
+      # collects nothing and pytest exits 5).
       - name: The gate (tests, ruff, mypy, sandloom check, generated files)
-        run: uv run sandloom test --ci
+        run: uv run sandloom test --ci --full
 """
 )
 
@@ -1292,6 +1354,19 @@ def generate_project(
     sandloom_modules = [*bundled, app_module]
     modules_json = json.dumps(sandloom_modules)
     bundled_json = json.dumps(bundled)
+    # The app's claim authorities (ADR-0014): who may write each protected
+    # token claim, for the bundled modules chosen; the app's own issuer or
+    # claims are added there by hand.
+    authority_keys = {
+        "identity": ("issuer", "roles", "permissions", "email", "email_verified"),
+        "tenancy": ("tenant_ids",),
+        "billing": ("subscription_status", "plan_code", "features", "limits"),
+    }
+    claim_authorities = {
+        key: f"sandloom_{name}"
+        for name in bundled
+        for key in authority_keys.get(name, ())
+    }
 
     root = parent_dir / app
     if root.exists():
@@ -1305,6 +1380,7 @@ def generate_project(
         "module": sample_module,
         "modules_json": modules_json,
         "bundled_json": bundled_json,
+        "claim_authorities": _dict_literal(claim_authorities),
         "create_app": _create_app_call(app),
         "framework_deps": "\n".join(f'    "{dep}",' for dep in framework_deps),
         "framework_distribution": ", ".join(
@@ -1320,8 +1396,10 @@ def generate_project(
         "quickstart_section": _quickstart_section(
             quickstart(app, sample_module)[1:], admin="admin" in bundled
         ),
-        "billing_env": (_IDENTITY_ENV if "identity" in bundled else "")
-        + (_BILLING_ENV if "billing" in bundled else ""),
+        "billing_env": (_env_text(_IDENTITY_ENV) if "identity" in bundled else "")
+        + (_NOTIFIER_ENV if {"identity", "tenancy"} & set(bundled) else "")
+        + (_env_text(_BILLING_ENV) if "billing" in bundled else "")
+        + (_env_text(_ADMIN_ENV) if "admin" in bundled else ""),
     }
     example_ctx = {
         **ctx,
@@ -1391,7 +1469,8 @@ def generate_project(
         shared_package=f"{app}.shared",
         source_root=root,
     )
-    created.extend(_add.add_module(sample_module, where))
+    # The starter can pass static checks before its first settings snapshot.
+    created.extend(_add.add_module(sample_module, where, with_settings=False))
     return created
 
 

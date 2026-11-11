@@ -1,0 +1,1085 @@
+"""The kernel-edge check (SANDLOOM-T017) over ``kernel_edges.yml``.
+
+ADR-0012 decisions 1, 2 and 7: shipped kernel code (``sandloom.core``,
+``sandloom.sdk``, ``sandloom.shared``, ``sandloom.main`` with its default set
+in ``sandloom.local_modules``; tests excluded) and the ``sandloom`` wheel name
+no module. Every place where they still do is one
+row of the register ``tests/architecture/kernel_edges.yml``, with a current
+status (``open``, ``fixed``, ``retained``: the code now) and a target
+(``fixed``, ``retained``, ``deferred``: the plan, which never decides the
+check).
+
+What the scan finds (a *finding*):
+
+* a string literal outside docstrings equal to a module name (discovered from
+  the source layout and the installed ``sandloom.modules`` entry points),
+  minus the protocol vocabulary (the platform role ``admin``);
+* a literal naming a module package: a discovered ``sandloom_<m>`` package
+  (or a dotted path inside one), any dotted ``sandloom_<x>.<y>`` path, or
+  ``sandloom.<m>`` for a discovered module name;
+* a literal contract or event channel (``<a>.<b>.v<n>``) whose first segment
+  is not ``core``;
+* a literal matching a declared module setting or claim key
+  (``vocabulary`` of the register);
+* a static import (``import x``, ``from x import y``, absolute) whose
+  module, or ``module.name``, matches one of the patterns above
+  (``static-import``): ``from sandloom_billing import x`` is a finding;
+* a dynamic import (``import_module``, ``__import__``, ``find_spec``,
+  ``resolve_name``) whose argument the check cannot resolve to a literal,
+  outside the listed loader call sites (I-02); a resolvable argument is a
+  literal and is matched as one;
+* a literal (or a static import) holding the anchor literal of a runtime row
+  whose ``current_status`` is ``fixed``, in any kernel file (``fixed-edge``
+  when no other pattern matches): the edge a row closed is found wherever it
+  comes back, not only in the anchored file;
+* class (c): a generated file in the ``sandloom`` wheel whose owner is not
+  the kernel (a ``sandloom generate`` stub or DTO copy, an event schema).
+
+The rules (by ``current_status``, never by ``target``):
+
+1. every finding maps to exactly one runtime row's anchors, else it fails
+   with the path, the pattern and the class it would have;
+2. a runtime row with ``current_status: fixed`` and evidence fails
+   (regression); a finding holding its anchor literal is its evidence in any
+   kernel file, so a fixed row needs a literal anchor (else it fails: a row
+   the scan cannot see cannot regress), except a finding an open or
+   retained row anchors in its own file by symbol or exact literal, which is
+   that row's. A ``local: true`` literal anchor (a shell script or compose
+   template the scan does not read, where a module name is any word of the
+   text) is evidence only in its own file: its literal is not matched in the
+   kernel's Python files, where the same word is anything else
+   (``rpc_identity``);
+3. a runtime row with ``current_status: open`` or ``retained`` and no
+   evidence fails ("set ``current_status: fixed``");
+4. a documentation row (a name only in a docstring or comment) needs no
+   finding and covers none: it is ``retained`` with an ADR id and a reason,
+   and its anchor file exists and holds the literal (else stale);
+5. a ``retained`` row without an ADR id and a reason fails.
+
+A row's *evidence* is a finding its anchors cover, or an anchor that still
+resolves: its file exists and holds the literal (``"x"`` quoted: the exact
+string literal; unquoted: the text), or defines the symbol. Listed loader
+call sites and ``not_edges`` entries only shrink: one that matches nothing
+fails.
+
+Run as a script for the report the PR description carries (rule 5 of the
+ADR)::
+
+    uv run python tests/architecture/kernel_edges.py --report [--base REF]
+    uv run python tests/architecture/kernel_edges.py --wheel dist/sandloom-*.whl
+
+Static only: the scan reads source and the wheel's file list, imports
+nothing it scans and opens no connection.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import fnmatch
+import re
+import subprocess
+import sys
+import tomllib
+import zipfile
+from collections import Counter
+from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass, field
+from importlib import metadata
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+CODE = "SANDLOOM-T017"
+REPO = Path(__file__).resolve().parents[2]
+SRC = REPO / "src"
+REGISTER = Path(__file__).resolve().parent / "kernel_edges.yml"
+#: The shipped kernel, relative to the ``sandloom`` package (ADR-0012, decision 1);
+#: ``local_modules.py`` holds the lean root's default module set.
+KERNEL = ("core", "sdk", "shared", "main.py", "local_modules.py")
+#: Where the composition text lives (starter, templates): reported apart.
+COMPOSITION_TEXT = ("sandloom/core/cli/templates/",)
+_ENTRY_POINT_GROUP = "sandloom.modules"
+_DYNAMIC_IMPORTS = frozenset(
+    {"import_module", "__import__", "find_spec", "resolve_name"}
+)
+_CHANNEL = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+\.v\d+")
+_DOTTED_PACKAGE = re.compile(r"(sandloom_\w+)(?:\.\w+)+")
+_GENERATED_HEADER = "# Generated by `sandloom generate`"
+_REPO_ROOT_SUFFIX = " (repository root)"
+
+CURRENT_STATUSES = ("open", "fixed", "retained")
+TARGETS = ("fixed", "retained", "deferred")
+KINDS = ("runtime", "documentation")
+
+#: The class and type a finding of each pattern would have.
+PATTERN_CLASS: Mapping[str, tuple[str, str]] = {
+    "module-name": ("b", "naming"),
+    "module-package": ("b", "import"),
+    "channel": ("b", "runtime_call"),
+    "setting": ("b", "configuration"),
+    "claim-key": ("b", "security_authority"),
+    "static-import": ("b", "import"),
+    "dynamic-import": ("b", "import"),
+    # The literal of a fixed row found outside the other patterns; the row's
+    # own class and type are in the regression message, which names the row.
+    "fixed-edge": ("b", "naming"),
+    "generated-file": ("c", "package"),
+}
+
+
+class RegisterError(ValueError):
+    """The register itself is malformed (a field missing or out of range)."""
+
+
+@dataclass(frozen=True)
+class Finding:
+    """One place where shipped kernel code or the wheel names a module."""
+
+    path: str  # relative to ``src`` (``sandloom/core/x.py``)
+    line: int
+    literal: str
+    pattern: str
+
+    @property
+    def klass(self) -> str:
+        """The class (a, b, c) a row covering this finding would have."""
+        return PATTERN_CLASS[self.pattern][0]
+
+    @property
+    def type(self) -> str:
+        """The type a row covering this finding would have."""
+        return PATTERN_CLASS[self.pattern][1]
+
+    @property
+    def scope(self) -> str:
+        """``composition_text`` for templates and starter text, else ``runtime``."""
+        return (
+            "composition_text" if self.path.startswith(COMPOSITION_TEXT) else "runtime"
+        )
+
+    def describe(self) -> str:
+        """``path:line: pattern 'literal' (class x, type y, scope z)``."""
+        return (
+            f"{self.path}:{self.line}: {self.pattern} {self.literal!r} "
+            f"(would be class {self.klass}, type {self.type}, scope {self.scope})"
+        )
+
+
+@dataclass(frozen=True)
+class Anchor:
+    """A row's pointer into the code: a path plus a literal or a symbol."""
+
+    path: str
+    literal: str | None = None
+    symbol: str | None = None
+    #: Evidence in its own file only, never matched in other kernel files.
+    local: bool = False
+
+    @property
+    def exact(self) -> str | None:
+        """The literal without quotes when it was written quoted (``'"x"'``)."""
+        lit = self.literal
+        if lit and len(lit) >= 2 and lit[0] == lit[-1] and lit[0] in "\"'":
+            return lit[1:-1]
+        return None
+
+    def file(self, src: Path) -> Path:
+        """The anchored file: under ``src`` unless marked repository root."""
+        if self.path.endswith(_REPO_ROOT_SUFFIX):
+            return src.parent / self.path.removesuffix(_REPO_ROOT_SUFFIX)
+        return src / self.path
+
+    def matches_path(self, path: str) -> bool:
+        """Whether a finding's path is this anchor's (globs allowed)."""
+        return fnmatch.fnmatchcase(path, self.path)
+
+    def __str__(self) -> str:
+        """The anchor as the check prints it (path plus literal or symbol)."""
+        what = (
+            f" literal {self.literal}"
+            if self.literal
+            else f" symbol {self.symbol}"
+            if self.symbol
+            else ""
+        )
+        return f"{self.path}{what}"
+
+
+@dataclass(frozen=True)
+class Row:
+    """One edge of the register."""
+
+    id: str
+    kind: str
+    klass: str
+    type: str
+    scope: str
+    current_status: str
+    target: str
+    adr: str | None
+    reason: str | None
+    anchors: tuple[Anchor, ...]
+    owner: tuple[str, ...] = ()
+    prs: tuple[str, ...] = ()
+
+    @property
+    def runtime(self) -> bool:
+        """Runtime rows cover findings; documentation rows never do."""
+        return self.kind == "runtime"
+
+
+@dataclass(frozen=True)
+class CallSite:
+    """A loader call site where a computed dynamic import is allowed."""
+
+    path: str
+    symbol: str
+    reason: str
+    row: str | None = None
+
+
+@dataclass(frozen=True)
+class NotEdge:
+    """A literal that matches a pattern but names no module (reviewed)."""
+
+    path: str
+    literal: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class Vocabulary:
+    """The module-owned settings (globs) and claim keys the scan matches,
+    and the kernel's protocol words it never reports."""
+
+    settings: tuple[str, ...] = ()
+    claim_keys: tuple[str, ...] = ()
+    protocol: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class Register:
+    """The parsed ``kernel_edges.yml``."""
+
+    rows: tuple[Row, ...]
+    call_sites: tuple[CallSite, ...]
+    not_edges: tuple[NotEdge, ...]
+    vocabulary: Vocabulary
+
+
+@dataclass
+class Outcome:
+    """What the check found: the problems (empty means it passes) and the
+    evidence per row, for the report."""
+
+    problems: list[str] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
+    evidence: dict[str, list[str]] = field(default_factory=dict)
+
+
+# --- the register --------------------------------------------------------------------
+
+
+def _tuple(value: Any) -> tuple[str, ...]:
+    """A YAML scalar or list as a tuple of strings (absent: empty)."""
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    return tuple(str(v) for v in value)
+
+
+def _anchor(raw: Mapping[str, Any], where: str) -> Anchor:
+    """One anchor of a row, refusing a missing path or both a literal and a symbol."""
+    if "path" not in raw:
+        raise RegisterError(f"{where}: an anchor needs a path")
+    literal, symbol = raw.get("literal"), raw.get("symbol")
+    if literal is not None and symbol is not None:
+        raise RegisterError(f"{where}: an anchor has a literal or a symbol, not both")
+    local = raw.get("local", False)
+    if not isinstance(local, bool) or (local and literal is None):
+        raise RegisterError(f"{where}: local is true or false, on a literal anchor")
+    return Anchor(
+        str(raw["path"]),
+        None if literal is None else str(literal),
+        None if symbol is None else str(symbol),
+        local,
+    )
+
+
+def parse_register(data: Mapping[str, Any]) -> Register:
+    """Build a :class:`Register` from the loaded YAML, refusing a malformed
+    row (unknown status, target or kind; no anchor)."""
+    rows: list[Row] = []
+    seen: set[str] = set()
+    for raw in data.get("edges") or ():
+        rid = str(raw.get("id", "?"))
+        if rid in seen:
+            raise RegisterError(f"row {rid}: duplicate id")
+        seen.add(rid)
+        kind = str(raw.get("kind", "runtime"))
+        status = str(raw.get("current_status"))
+        target = str(raw.get("target"))
+        if kind not in KINDS:
+            raise RegisterError(f"row {rid}: kind {kind!r} is not one of {KINDS}")
+        if status not in CURRENT_STATUSES:
+            raise RegisterError(
+                f"row {rid}: current_status {status!r} is not one of {CURRENT_STATUSES}"
+            )
+        if target not in TARGETS:
+            raise RegisterError(f"row {rid}: target {target!r} is not one of {TARGETS}")
+        anchors = tuple(_anchor(a, f"row {rid}") for a in (raw.get("anchors") or ()))
+        if not anchors:
+            raise RegisterError(f"row {rid}: a row needs at least one anchor")
+        rows.append(
+            Row(
+                id=rid,
+                kind=kind,
+                klass=str(raw.get("class")),
+                type=str(raw.get("type")),
+                scope=str(raw.get("scope", "runtime")),
+                current_status=status,
+                target=target,
+                adr=raw.get("adr"),
+                reason=raw.get("reason"),
+                anchors=anchors,
+                owner=_tuple(raw.get("owner")),
+                prs=_tuple(raw.get("prs")),
+            )
+        )
+    sites = tuple(
+        CallSite(
+            str(s["path"]), str(s["symbol"]), str(s.get("reason") or ""), s.get("row")
+        )
+        for s in data.get("loader_call_sites") or ()
+    )
+    not_edges = tuple(
+        NotEdge(str(n["path"]), str(n["literal"]), str(n.get("reason") or ""))
+        for n in data.get("not_edges") or ()
+    )
+    vocab = data.get("vocabulary") or {}
+    return Register(
+        rows=tuple(rows),
+        call_sites=sites,
+        not_edges=not_edges,
+        vocabulary=Vocabulary(
+            settings=_tuple(vocab.get("settings")),
+            claim_keys=_tuple(vocab.get("claim_keys")),
+            protocol=_tuple(vocab.get("protocol")),
+        ),
+    )
+
+
+def load_register(path: Path = REGISTER) -> Register:
+    """Read and parse the register file."""
+    return parse_register(yaml.safe_load(path.read_text(encoding="utf-8")) or {})
+
+
+# --- module names --------------------------------------------------------------------
+
+
+def discover_modules(src: Path = SRC) -> tuple[set[str], set[str]]:
+    """``(names, packages)`` of every business module: the source layout's
+    ``sandloom_*`` packages and every ``sandloom.modules`` entry point. A
+    module's name is its entry-point name, else its package without the
+    ``sandloom_`` prefix."""
+    packages = {
+        d.name
+        for d in src.iterdir()
+        if d.is_dir()
+        and d.name.startswith("sandloom_")
+        and (d / "__init__.py").exists()
+    }
+    names = {p.removeprefix("sandloom_") for p in packages}
+    for entry in metadata.entry_points(group=_ENTRY_POINT_GROUP):
+        top = entry.value.split(":")[0].split(".")[0].strip()
+        if top.startswith("sandloom_"):
+            packages.add(top)
+        names.add(entry.name)
+    return names, packages
+
+
+# --- the scan ------------------------------------------------------------------------
+
+
+def kernel_files(src: Path = SRC) -> list[Path]:
+    """The shipped kernel's Python files (tests and ``conftest.py`` excluded)."""
+    sandloom = src / "sandloom"
+    files: list[Path] = []
+    for part in KERNEL:
+        path = sandloom / part
+        if path.is_file():
+            files.append(path)
+        elif path.is_dir():
+            files.extend(sorted(path.rglob("*.py")))
+    return [
+        f
+        for f in files
+        if "tests" not in f.relative_to(sandloom).parts and f.name != "conftest.py"
+    ]
+
+
+def _docstring_nodes(tree: ast.AST) -> set[int]:
+    """The ids of every docstring constant (module, class, function), which the scan skips."""
+    ids: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(
+            node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
+        ):
+            body = node.body
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                ids.add(id(body[0].value))
+    return ids
+
+
+def _string_constants(tree: ast.Module) -> dict[str, str]:
+    """Module-level names bound exactly once to a string literal."""
+    values: dict[str, list[object]] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            targets, value = [node.target], node.value
+        else:
+            continue
+        literal = value.value if isinstance(value, ast.Constant) else None
+        for target in targets:
+            if isinstance(target, ast.Name):
+                values.setdefault(target.id, []).append(literal)
+    return {
+        name: bound[0]
+        for name, bound in values.items()
+        if len(bound) == 1 and isinstance(bound[0], str)
+    }
+
+
+def _call_name(node: ast.Call) -> str:
+    """The called name of a call (``f`` or ``x.f``), empty for anything else."""
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return ""
+
+
+def fixed_literals(register: Register) -> tuple[Anchor, ...]:
+    """The literal anchors of every runtime row whose ``current_status`` is
+    ``fixed``: the scan matches them in every kernel file (rule 2), except a
+    ``local`` one, evidence in its own file only."""
+    return tuple(
+        a
+        for r in register.rows
+        if r.runtime and r.current_status == "fixed"
+        for a in r.anchors
+        if a.literal and not a.local
+    )
+
+
+def holds_literal(anchor: Anchor, literal: str) -> bool:
+    """Whether a found literal holds an anchor's literal: equal to it when
+    the anchor is quoted, else containing it."""
+    assert anchor.literal is not None
+    exact = anchor.exact
+    return literal == exact if exact is not None else anchor.literal in literal
+
+
+@dataclass(frozen=True)
+class _Matcher:
+    names: frozenset[str]
+    packages: frozenset[str]
+    vocabulary: Vocabulary
+    fixed: tuple[Anchor, ...] = ()
+
+    def pattern(self, literal: str) -> str | None:
+        """The pattern a literal matches whole, if any; a fixed row's anchor
+        literal it holds is ``fixed-edge`` when nothing else matches."""
+        value = literal.strip()
+        if not value:
+            return None
+        if value in self.vocabulary.protocol:
+            return "fixed-edge" if self.fixed_hit(value) else None
+        found = self._pattern(value)
+        if found is None and self.fixed_hit(value):
+            return "fixed-edge"
+        return found
+
+    def fixed_hit(self, value: str) -> bool:
+        """Whether the value holds the anchor literal of a fixed row."""
+        return any(holds_literal(a, value) for a in self.fixed)
+
+    def _pattern(self, value: str) -> str | None:
+        """The pattern of a stripped, non-protocol literal."""
+        if value in self.names:
+            return "module-name"
+        first = value.split(".")[0]
+        if first in self.packages or _DOTTED_PACKAGE.fullmatch(value):
+            return "module-package"
+        if (
+            first == "sandloom"
+            and value.count(".") == 1
+            and value.split(".")[1] in self.names
+        ):
+            return "module-package"
+        if _CHANNEL.fullmatch(value) and first != "core":
+            return "channel"
+        if value in self.vocabulary.claim_keys:
+            return "claim-key"
+        upper = value.upper()
+        if any(fnmatch.fnmatchcase(upper, g.upper()) for g in self.vocabulary.settings):
+            return "setting"
+        return None
+
+
+def _imported(node: ast.Import | ast.ImportFrom) -> Iterator[str]:
+    """The dotted names an absolute static import names: each ``import x``,
+    and for ``from x import y`` both ``x`` and ``x.y`` (``y`` may be a
+    submodule). A relative import names its own package and yields nothing."""
+    if isinstance(node, ast.Import):
+        yield from (alias.name for alias in node.names)
+        return
+    if node.level or not node.module:
+        return
+    yield node.module
+    yield from (f"{node.module}.{a.name}" for a in node.names if a.name != "*")
+
+
+def scan_source(path: str, source: str, matcher: _Matcher) -> list[Finding]:
+    """Findings of one Python file: literals outside docstrings, static
+    imports (``static-import``) and dynamic imports (computed ones as
+    ``dynamic-import``)."""
+    tree = ast.parse(source, filename=path)
+    docstrings = _docstring_nodes(tree)
+    constants = _string_constants(tree)
+    found: list[Finding] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import | ast.ImportFrom):
+            # One finding per statement: the name holding a fixed row's
+            # literal if one does (its regression), else the first match.
+            matched = [n for n in _imported(node) if matcher.pattern(n)]
+            if matched:
+                name = next((n for n in matched if matcher.fixed_hit(n)), matched[0])
+                found.append(Finding(path, node.lineno, name, "static-import"))
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if id(node) in docstrings:
+                continue
+            pattern = matcher.pattern(node.value)
+            if pattern:
+                found.append(Finding(path, node.lineno, node.value, pattern))
+        elif isinstance(node, ast.Call) and _call_name(node) in _DYNAMIC_IMPORTS:
+            if not node.args:
+                continue
+            arg = node.args[0]
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                continue  # the literal itself is visited as a constant
+            if isinstance(arg, ast.Name) and arg.id in constants:
+                value = constants[arg.id]
+                pattern = matcher.pattern(value)
+                if pattern:
+                    found.append(Finding(path, node.lineno, value, pattern))
+                continue
+            found.append(Finding(path, node.lineno, ast.unparse(arg), "dynamic-import"))
+    return found
+
+
+def _wheel_excludes(src: Path) -> tuple[str, ...]:
+    """The paths ``packages/sandloom/pyproject.toml`` leaves out of the wheel."""
+    pyproject = src.parent / "packages" / "sandloom" / "pyproject.toml"
+    if not pyproject.exists():
+        return ()
+    data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    return tuple(
+        data.get("tool", {}).get("sandloom", {}).get("exclude", {}).get("paths", ())
+    )
+
+
+def wheel_entries_from_source(src: Path = SRC) -> Iterator[tuple[str, bytes]]:
+    """``(path, head)`` of every file the ``sandloom`` wheel ships, read from
+    the source tree (``src/sandloom`` minus the package's exclude list)."""
+    excludes = _wheel_excludes(src)
+    sandloom = src / "sandloom"
+    for path in sorted(sandloom.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        rel = path.relative_to(src).as_posix()
+        if rel in excludes:
+            continue
+        with path.open("rb") as handle:
+            yield rel, handle.read(256)
+
+
+def wheel_entries_from_wheel(wheel: Path) -> Iterator[tuple[str, bytes]]:
+    """``(path, head)`` of every file of a built wheel."""
+    with zipfile.ZipFile(wheel) as archive:
+        for info in archive.infolist():
+            if info.is_dir() or ".dist-info/" in info.filename:
+                continue
+            with archive.open(info) as handle:
+                yield info.filename, handle.read(256)
+
+
+def generated_owner(path: str, head: bytes) -> str | None:
+    """The module owning a generated file of the wheel, or ``None`` when the
+    file is not generated or the kernel owns it. A generated file is a
+    ``sandloom generate`` stub or DTO copy (its header) or an event schema
+    under ``events/``; its owner is the first segment of its name, whether or
+    not that module is installed."""
+    name = path.rsplit("/", 1)[-1]
+    generated = head.decode("utf-8", "replace").startswith(_GENERATED_HEADER) or (
+        "/events/" in path and name.endswith(".json")
+    )
+    if not generated:
+        return None
+    owner = re.split(r"[._]", name, maxsplit=1)[0]
+    return None if owner in ("core", "__init__") else owner
+
+
+def scan_wheel(entries: Iterable[tuple[str, bytes]]) -> list[Finding]:
+    """Class (c): every generated file of the wheel a module owns."""
+    return [
+        Finding(path, 0, path.rsplit("/", 1)[-1], "generated-file")
+        for path, head in entries
+        if generated_owner(path, head)
+    ]
+
+
+def matcher_for(register: Register, src: Path = SRC) -> _Matcher:
+    """The matcher of a register over a source tree: its modules, its
+    vocabulary and the literals of its fixed rows."""
+    names, packages = discover_modules(src)
+    return _Matcher(
+        frozenset(names),
+        frozenset(packages),
+        register.vocabulary,
+        fixed_literals(register),
+    )
+
+
+def scan(
+    register: Register,
+    src: Path = SRC,
+    *,
+    wheel: Iterable[tuple[str, bytes]] | None = None,
+) -> list[Finding]:
+    """Every finding of the shipped kernel's source and of its wheel (read
+    from ``wheel``, else from the source tree)."""
+    matcher = matcher_for(register, src)
+    found: list[Finding] = []
+    for file in kernel_files(src):
+        rel = file.relative_to(src).as_posix()
+        found.extend(scan_source(rel, file.read_text(encoding="utf-8"), matcher))
+    entries = wheel_entries_from_source(src) if wheel is None else wheel
+    found.extend(scan_wheel(entries))
+    return found
+
+
+# --- anchors -------------------------------------------------------------------------
+
+
+def _defines(node: ast.AST, name: str) -> bool:
+    """Whether a node defines ``name`` (class, function, assignment target)."""
+    if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+        return node.name == name
+    if isinstance(node, ast.Assign | ast.AnnAssign):
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        return any(isinstance(t, ast.Name) and t.id == name for t in targets)
+    return False
+
+
+def _symbol_span(tree: ast.AST, symbol: str) -> tuple[int, int] | None:
+    """The line span of a symbol defined in a module: a class, function,
+    assignment or annotated name, at any depth (``_f`` finds a method);
+    ``A.b`` looks for ``b`` inside the first definition of ``A``."""
+    node: ast.AST | None = tree
+    for part in symbol.split("."):
+        assert node is not None
+        node = next(
+            (n for n in ast.walk(node) if n is not node and _defines(n, part)), None
+        )
+        if node is None:
+            return None
+    assert isinstance(node, ast.stmt)
+    return (node.lineno, node.end_lineno or node.lineno)
+
+
+def _references(tree: ast.AST, symbol: str) -> bool:
+    """Whether the code uses the symbol's last name (``x.name``, ``name``)."""
+    name = symbol.rsplit(".", 1)[-1]
+    return any(
+        (isinstance(n, ast.Attribute) and n.attr == name)
+        or (isinstance(n, ast.Name) and n.id == name)
+        for n in ast.walk(tree)
+    )
+
+
+class _Sources:
+    """Reads and parses anchored files once."""
+
+    def __init__(self, src: Path) -> None:
+        """Start with nothing read; files are read and parsed on first use."""
+        self.src = src
+        self._text: dict[Path, str | None] = {}
+        self._tree: dict[Path, ast.Module | None] = {}
+        self._spans: dict[tuple[str, str], tuple[int, int] | None] = {}
+
+    def files(self, anchor: Anchor) -> list[Path]:
+        """The files an anchor names (a glob may name several)."""
+        base = anchor.file(self.src)
+        if any(c in anchor.path for c in "*?["):
+            return sorted(p for p in base.parent.glob(base.name) if p.is_file())
+        return [base] if base.is_file() else []
+
+    def text(self, path: Path) -> str | None:
+        """A file's text, ``None`` when it cannot be read (cached)."""
+        if path not in self._text:
+            try:
+                self._text[path] = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                self._text[path] = None
+        return self._text[path]
+
+    def tree(self, path: Path) -> ast.Module | None:
+        """A Python file's AST, ``None`` for other files or a syntax error (cached)."""
+        if path not in self._tree:
+            text = self.text(path)
+            try:
+                self._tree[path] = (
+                    ast.parse(text)
+                    if text is not None and path.suffix == ".py"
+                    else None
+                )
+            except SyntaxError:
+                self._tree[path] = None
+        return self._tree[path]
+
+    def span(self, path: str, symbol: str) -> tuple[int, int] | None:
+        """The anchored symbol's line span in ``path`` (cached)."""
+        key = (path, symbol)
+        if key not in self._spans:
+            tree = self.tree(self.src / path)
+            self._spans[key] = None if tree is None else _symbol_span(tree, symbol)
+        return self._spans[key]
+
+    def resolves(self, anchor: Anchor) -> bool:
+        """Whether the anchor still points at something: the file exists and
+        holds the literal (quoted: as a string literal in either quote
+        style) or defines the symbol; a path-only anchor needs the file."""
+        for path in self.files(anchor):
+            text = self.text(path)
+            if text is None:
+                continue
+            if anchor.symbol:
+                tree = self.tree(path)
+                if tree is not None and (
+                    _symbol_span(tree, anchor.symbol)
+                    or _references(tree, anchor.symbol)
+                ):
+                    return True
+            elif anchor.literal:
+                exact = anchor.exact
+                if exact is None:
+                    if anchor.literal in text:
+                        return True
+                elif f'"{exact}"' in text or f"'{exact}'" in text:
+                    return True
+            else:
+                return True
+        return False
+
+
+def covers(anchor: Anchor, finding: Finding, sources: _Sources) -> int:
+    """How specifically an anchor covers a finding, 0 for not at all. Same
+    path, and: the quoted literal equals it (4); the unquoted literal is
+    contained in it (3); the finding names the symbol or sits in its
+    definition (2); a path-only anchor covers the whole file (1)."""
+    if not anchor.matches_path(finding.path):
+        return 0
+    if anchor.literal:
+        exact = anchor.exact
+        if exact is not None:
+            return 4 if finding.literal == exact else 0
+        return 3 if anchor.literal in finding.literal else 0
+    if anchor.symbol:
+        if finding.literal == anchor.symbol.rsplit(".", 1)[-1]:
+            return 2
+        span = sources.span(finding.path, anchor.symbol)
+        return 2 if span is not None and span[0] <= finding.line <= span[1] else 0
+    return 1
+
+
+# --- the check -----------------------------------------------------------------------
+
+
+def _fix(text: str) -> str:
+    """A problem line: the code, the text and how to read more."""
+    return f"{CODE}: {text} (uv run sandloom explain {CODE})"
+
+
+def check(
+    register: Register,
+    src: Path = SRC,
+    *,
+    findings: list[Finding] | None = None,
+) -> Outcome:
+    """Apply rules 1-5 to the register and the scan's findings."""
+    outcome = Outcome()
+    found = scan(register, src) if findings is None else findings
+    outcome.findings = found
+    sources = _Sources(src)
+    runtime = [r for r in register.rows if r.runtime]
+    covered_by: dict[str, list[Finding]] = {r.id: [] for r in register.rows}
+    used_sites: set[CallSite] = set()
+    used_not_edges: set[NotEdge] = set()
+
+    for finding in found:
+        if finding.pattern == "dynamic-import":
+            sites = [
+                s
+                for s in register.call_sites
+                if fnmatch.fnmatchcase(finding.path, s.path)
+                and (span := sources.span(finding.path, s.symbol)) is not None
+                and span[0] <= finding.line <= span[1]
+            ]
+            if sites:
+                used_sites.update(sites)
+                continue
+            outcome.problems.append(
+                _fix(
+                    f"{finding.describe()}: a dynamic import whose argument the check "
+                    "cannot resolve, outside the listed loader call sites (I-02); "
+                    "import a literal, or list the call site with its reason"
+                )
+            )
+            continue
+        ignored = [
+            n
+            for n in register.not_edges
+            if fnmatch.fnmatchcase(finding.path, n.path)
+            and n.literal == finding.literal
+        ]
+        if ignored:
+            used_not_edges.update(ignored)
+            continue
+        # Rule 2 everywhere: a finding holding a fixed row's anchor literal is
+        # that row's evidence in any kernel file, not only the anchored one
+        # (a local anchor's in its own file only).
+        regressed = [
+            r
+            for r in runtime
+            if r.current_status == "fixed"
+            and any(
+                a.literal
+                and (not a.local or a.matches_path(finding.path))
+                and holds_literal(a, finding.literal)
+                for a in r.anchors
+            )
+        ]
+        # A finding an open or retained row anchors precisely in its own file
+        # (its symbol or exact literal, never a path-only anchor) is that
+        # row's: the kernel still names the module there for that row's
+        # reason (B-S1 closed the trust in the source name "identity", while
+        # the CLI scaffolding still names the identity module).
+        if regressed and not any(
+            r.current_status != "fixed"
+            and max((covers(a, finding, sources) for a in r.anchors), default=0) >= 2
+            for r in runtime
+        ):
+            for row in regressed:
+                covered_by[row.id].append(finding)
+            continue
+        ranked = {
+            r.id: max(covers(a, finding, sources) for a in r.anchors) for r in runtime
+        }
+        best = max(ranked.values(), default=0)
+        rows = [r for r in runtime if best and ranked[r.id] == best]
+        if not rows:
+            outcome.problems.append(
+                _fix(
+                    f"{finding.describe()}: no runtime row of kernel_edges.yml covers "
+                    "it; remove the name, or add a row with its anchors (rule 1)"
+                )
+            )
+        elif len(rows) > 1:
+            outcome.problems.append(
+                _fix(
+                    f"{finding.describe()}: covered by more than one row "
+                    f"({', '.join(r.id for r in rows)}); narrow their anchors (rule 1)"
+                )
+            )
+        else:
+            covered_by[rows[0].id].append(finding)
+
+    for row in register.rows:
+        if row.current_status == "retained" and not (row.adr and row.reason):
+            outcome.problems.append(
+                _fix(
+                    f"row {row.id} is retained without an ADR id and a reason (rule 5)"
+                )
+            )
+        resolved = [a for a in row.anchors if sources.resolves(a)]
+        evidence = [f.describe() for f in covered_by[row.id]] + [
+            f"anchor {a}" for a in resolved
+        ]
+        outcome.evidence[row.id] = evidence
+        if not row.runtime:
+            if row.current_status != "retained":
+                outcome.problems.append(
+                    _fix(
+                        f"documentation row {row.id} must be retained "
+                        f"(is {row.current_status}) (rule 4)"
+                    )
+                )
+            for anchor in row.anchors:
+                if not sources.resolves(anchor):
+                    outcome.problems.append(
+                        _fix(
+                            f"documentation row {row.id} is stale: {anchor} is gone; "
+                            "update or remove the row (rule 4)"
+                        )
+                    )
+            continue
+        if row.current_status == "fixed" and not any(a.literal for a in row.anchors):
+            outcome.problems.append(
+                _fix(
+                    f"row {row.id} is fixed without a literal anchor: the scan could "
+                    "not see the edge come back; anchor the edge's literal (rule 2)"
+                )
+            )
+        if row.current_status == "fixed" and evidence:
+            outcome.problems.append(
+                _fix(
+                    f"row {row.id} is fixed but the edge is back (regression, rule 2): "
+                    + "; ".join(evidence)
+                )
+            )
+        if row.current_status in ("open", "retained") and not evidence:
+            outcome.problems.append(
+                _fix(
+                    f"row {row.id} is {row.current_status} but nothing of it is left: "
+                    "set current_status: fixed (rule 3)"
+                )
+            )
+
+    outcome.problems.extend(
+        _fix(
+            f"loader call site {s.path} {s.symbol} has no dynamic import any more: "
+            "remove it (the list only shrinks)"
+        )
+        for s in register.call_sites
+        if s not in used_sites
+    )
+    outcome.problems.extend(
+        _fix(
+            f"not_edges entry {n.path} {n.literal!r} matches no finding: remove it "
+            "(the list only shrinks)"
+        )
+        for n in register.not_edges
+        if n not in used_not_edges
+    )
+    return outcome
+
+
+# --- the report ----------------------------------------------------------------------
+
+
+def _counts(rows: Iterable[Row], attr: str) -> str:
+    """``key: count`` pairs of one row attribute, sorted."""
+    counter = Counter(getattr(r, attr) for r in rows)
+    return ", ".join(f"{k}: {v}" for k, v in sorted(counter.items()))
+
+
+def _base_rows(base: str) -> dict[str, Row]:
+    """The register's rows at a git ref (empty when the ref has none)."""
+    try:
+        text = subprocess.run(
+            ["git", "show", f"{base}:tests/architecture/kernel_edges.yml"],
+            cwd=REPO,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    except subprocess.CalledProcessError:
+        return {}
+    return {r.id: r for r in parse_register(yaml.safe_load(text) or {}).rows}
+
+
+def report(register: Register, outcome: Outcome, base: Mapping[str, Row]) -> str:
+    """The counts by kind, class, type, scope, current status and target, and
+    the rows this change adds, fixes or retains against ``base``."""
+    rows = register.rows
+    lines = [
+        f"kernel edges ({CODE}): {len(rows)} rows, "
+        f"{len(outcome.findings)} findings, {len(outcome.problems)} problems",
+    ]
+    for attr, label in (
+        ("kind", "kind"),
+        ("klass", "class"),
+        ("type", "type"),
+        ("scope", "scope"),
+        ("current_status", "current status"),
+        ("target", "target"),
+    ):
+        lines.append(f"  by {label}: {_counts(rows, attr)}")
+    lines.append(
+        f"  loader call sites: {len(register.call_sites)}; not edges: {len(register.not_edges)}"
+    )
+    added = [r for r in rows if r.id not in base]
+    fixed = [
+        r
+        for r in rows
+        if r.current_status == "fixed"
+        and r.id in base
+        and base[r.id].current_status != "fixed"
+    ]
+    retained = [
+        r
+        for r in rows
+        if r.current_status == "retained"
+        and (r.id not in base or base[r.id].current_status != "retained")
+    ]
+    removed = [rid for rid in base if rid not in {r.id for r in rows}]
+    for label, items in (
+        ("added", [r.id for r in added]),
+        ("fixed", [r.id for r in fixed]),
+        ("retained", [r.id for r in retained]),
+        ("removed", removed),
+    ):
+        lines.append(
+            f"  {label} by this change: {', '.join(items) if items else 'none'}"
+        )
+    if outcome.problems:
+        lines.append("problems:")
+        lines.extend(f"  {p}" for p in outcome.problems)
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the check; ``--report`` prints the counts and the rows a change
+    adds, fixes or retains (against ``--base``, default ``HEAD``);
+    ``--wheel`` scans a built wheel for class (c) instead of the source."""
+    parser = argparse.ArgumentParser(description=f"kernel-edge check ({CODE})")
+    parser.add_argument("--report", action="store_true")
+    parser.add_argument("--base", default="HEAD")
+    parser.add_argument("--wheel", type=Path)
+    args = parser.parse_args(argv)
+    register = load_register()
+    findings = None
+    if args.wheel is not None:
+        findings = scan(register, wheel=wheel_entries_from_wheel(args.wheel))
+    outcome = check(register, findings=findings)
+    if args.report:
+        print(report(register, outcome, _base_rows(args.base)))
+    else:
+        print("\n".join(outcome.problems) or f"{CODE}: kernel edges match the register")
+    return 1 if outcome.problems else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -5,8 +5,9 @@ serving traffic and without changing anything::
 
     sandloom doctor                    # human report
     sandloom doctor --json             # machine-readable
-    sandloom doctor --skip consumers   # sections: config, modules, infra,
-                                  # migrations, consumers, rls, sagas
+    sandloom doctor --skip consumers   # sections: config, modules, claims,
+                                  # infra, periodic, migrations, consumers,
+                                  # rls, sagas
     sandloom doctor --timeout 10       # per-section budget (seconds)
 
 Sections (each check is ``ok`` / ``warn`` / ``fail`` / ``skip``):
@@ -17,12 +18,27 @@ Sections (each check is ``ok`` / ``warn`` / ``fail`` / ``skip``):
   ``ENVIRONMENT``, ops token, strict-profile problems from
   :func:`sandloom.core.production_profile.config_problems`); every active profile
   override — a semantic setting off its profile value or an accepted risk
-  (:func:`sandloom.core.config.tiers.active_overrides`).
+  (:func:`sandloom.core.config.tiers.active_overrides`), and the same for the
+  loaded modules' declared settings and risks
+  (:func:`check_module_settings`); the composition loads in collect mode
+  (ADR-0015 decision 8), so every module's refusal is one failed check.
 * **modules** — the composition root (``SANDLOOM_COMPOSITION_ROOT``) loads; which
   modules are loaded; required consumed contracts are bound.
+* **claims** — the claim policy's ``legacy_tokens`` compatibility mode
+  (ADR-0014 decision 4, accepted risk G-RISK-14): ``off``; ``on`` with its
+  ``until``, window end (``until + ACCESS_TOKEN_EXPIRE_MINUTES +
+  JWT_LEEWAY_SECONDS``) and time left (a warning); or ``ended`` with the
+  argument still written (a warning asking to remove it). The same state as
+  ``/diagnostics/core`` (``claims.legacy_tokens``), whose serving process
+  also counts the acceptances per key.
 * **infra** — every configured instance (databases, caches, object stores,
   task queue / broker, event bus) answers its health probe within the
-  timeout — the same probes as ``/diagnostics/infra``.
+  timeout — the same probes as ``/diagnostics/infra`` (the ``celery``
+  taskqueue's probe connects to its broker).
+* **periodic** — each loaded module whose taskqueue requirement asks for
+  ``periodic``: whether a beat schedules its jobs for this composition (the
+  beat's singleton lease is held). Missing for a required requirement fails;
+  for an optional one (identity's token cleanup) warns.
 * **migrations** — per database, the applied revision of the core chain and
   of each module chain vs the code's heads
   (:func:`sandloom.core.migrations.migrations.migration_status`; read-only
@@ -50,14 +66,19 @@ import argparse
 import asyncio
 import json
 import sys
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+import sandloom.core.auth.claims_view as _claims_view
+import sandloom.core.beat_lease as _beat_lease
 from sandloom.core.app_factory import configuration_problems
+from sandloom.core.claims import ClaimAuthorities
 from sandloom.core.cli.config import mask_url_credentials, redact_value
 from sandloom.core.cli.migrate import _hosting_databases
 from sandloom.core.composition import load_composition_core
+from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.config import tiers
 from sandloom.core.config.common import MULTI_TENANT_STRICT, strict_profile_active
 from sandloom.core.config.settings import settings
@@ -72,7 +93,9 @@ OK, WARN, FAIL, SKIP = "ok", "warn", "fail", "skip"
 SECTIONS = (
     "config",
     "modules",
+    "claims",
     "infra",
+    "periodic",
     "migrations",
     "consumers",
     "rls",
@@ -233,6 +256,45 @@ def check_overrides(report: Report, cfg: Any) -> None:
         )
 
 
+def _add_diagnosed(report: Report, diagnosed: list[_module_settings.Diagnosed]) -> None:
+    for item in diagnosed:
+        report.add(
+            "config",
+            f"module:{item.module}",
+            FAIL,
+            mask_url_credentials(item.message),
+        )
+
+
+def check_module_settings(report: Report, core: Any) -> None:
+    """What the loaded modules declare (ADR-0015): each semantic setting off
+    its profile value and each active accepted risk, as the kernel's
+    (:func:`check_overrides`), and the module-namespaced risk ids that do not
+    apply here (their module is not loaded in this process)."""
+    registry = getattr(core, "module_settings", None)
+    if registry is None:
+        return
+    cfg = settings
+    for item in registry.overrides:
+        loud = cfg.is_prod or item.kind != "weaker"
+        report.add(
+            "config",
+            f"override:{item.setting}",
+            WARN if loud else OK,
+            item.message(),
+            kind=item.kind,
+            profile=item.profile,
+        )
+    for risk_id in registry.risk_report.inert:
+        report.add(
+            "config",
+            f"risk:{risk_id}",
+            OK,
+            f"{risk_id} is not applicable here: its module is not loaded in "
+            "this process",
+        )
+
+
 # --------------------------------------------------------------- modules ----
 
 
@@ -245,6 +307,23 @@ def check_modules(report: Report, core: Any) -> None:
         f"{len(modules)} module(s) loaded: {', '.join(modules) or '-'}",
         modules=modules,
     )
+    for descriptor in getattr(core, "module_descriptors", []) or []:
+        if not getattr(descriptor, "issues_tokens", False):
+            continue
+        # The issuer's declaration (ADR-0012 decision 5): checked at startup
+        # (SANDLOOM-B035), shown here so an operator sees which applies.
+        holds = bool(getattr(descriptor, "refresh_sessions", True))
+        report.add(
+            "modules",
+            f"{descriptor.name} issues tokens",
+            OK,
+            "holds refresh sessions: a block ends them "
+            "(durable consumer of core.auth.user_blocked.v1)"
+            if holds
+            else "declares refresh_sessions=False: a stateless issuer "
+            "(no refresh sessions to end on a block)",
+            refresh_sessions=holds,
+        )
 
     registry = getattr(core, "service_registry", None)
     local = set(registry.list()) if registry is not None else set()
@@ -261,6 +340,47 @@ def check_modules(report: Report, core: Any) -> None:
                 "SERVICE_BINDINGS"
                 + ("" if req.required else " (optional: the module degrades)"),
             )
+
+
+# ---------------------------------------------------------------- claims ----
+
+
+def check_claims(report: Report, core: Any, cfg: Any = None) -> None:
+    """The ``legacy_tokens`` mode of the composition's claim policy (G-RISK-14).
+
+    ``details`` carry the state the deploy-profile boot check compares
+    between services (one mode per deployment, the adoption release gate)."""
+    cfg = settings if cfg is None else cfg
+    policy = getattr(core, "claim_authorities", None)
+    if not isinstance(policy, ClaimAuthorities):
+        report.add("claims", "legacy_tokens", SKIP, "no claim policy on this core")
+        return
+    state = _claims_view.legacy_tokens_state(
+        policy,
+        now=time.time(),
+        lifetime_seconds=cfg.access_token_expire_minutes * 60,
+        leeway_seconds=cfg.jwt_leeway_seconds,
+    )
+    details = {k: v for k, v in state.items() if k != "accepted"}
+    mode = state["mode"]
+    if mode == _claims_view.LEGACY_OFF:
+        status, message = OK, "off: a token without cpv gives no rights"
+    elif mode == _claims_view.LEGACY_ON:
+        status, message = (
+            WARN,
+            "compatibility mode ON (accepted risk G-RISK-14): tokens without "
+            f"cpv are trusted per key until {state['window_end']} "
+            f"({state['seconds_left']} s left; until={state['until']}); remove "
+            "legacy_tokens from the composition root after the window end",
+        )
+    else:
+        status, message = (
+            WARN,
+            f"the legacy_tokens window ended at {state['window_end']}: tokens "
+            "without cpv give no rights; remove legacy_tokens from the "
+            "composition root",
+        )
+    report.add("claims", "legacy_tokens", status, message, **details)
 
 
 # ----------------------------------------------------------------- infra ----
@@ -289,6 +409,75 @@ async def check_infra(report: Report, core: Any, timeout: float) -> None:  # noq
         if status == FAIL:
             message += f": {details.get('error') or result.status}"
         report.add("infra", key, status, message, **details)
+
+
+# -------------------------------------------------------------- periodic ----
+
+
+def _holder_identity(token: str) -> str:
+    """``<host>:<pid>`` of a lease token ``<fence>:<host>:<pid>:<nonce>``."""
+    parts = token.split(":")
+    return ":".join(parts[1:-1]) if len(parts) >= 4 else token
+
+
+async def check_periodic(report: Report, core: Any, budget: float) -> None:
+    """Whether a beat schedules the periodic jobs the loaded modules need.
+
+    Keyed on each module's effective taskqueue requirement with feature
+    ``periodic``. Without a beat, a required one fails and an optional one
+    warns (the module degrades without its jobs; its docs say how). The beat
+    is seen through its singleton lease for THIS composition (one cache read
+    per taskqueue instance). A held lease shows a beat schedules the jobs, not
+    that a worker runs them: a module that must know (billing's reconciler)
+    watches its own runs in its readiness check.
+    """
+    needs = _beat_lease.periodic_needs(
+        getattr(core, "module_descriptors", []) or [],
+        getattr(core, "loaded_modules", []) or [],
+    )
+    if not needs:
+        report.add(
+            "periodic", "periodic jobs", SKIP, "no loaded module needs periodic jobs"
+        )
+        return
+    if not hasattr(core, "cache"):
+        report.add("periodic", "periodic jobs", SKIP, "no cache capability bound")
+        return
+    for instance in sorted({need.instance for need in needs}):
+        state, value = await _beat_lease.read_beat_lease(
+            core, instance=instance, limit_seconds=budget
+        )
+        for need in (n for n in needs if n.instance == instance):
+            report.add(
+                "periodic",
+                f"{need.module} periodic jobs",
+                *_periodic_verdict(state, value, instance, required=need.required),
+                instance=instance,
+                required=need.required,
+            )
+
+
+def _periodic_verdict(
+    state: str, value: str | None, instance: str, *, required: bool
+) -> tuple[str, str]:
+    """``(status, message)`` of one module's periodic need."""
+    if state == "held":
+        return OK, (
+            f"a beat schedules them on taskqueue/{instance} (lease held by "
+            f"{_holder_identity(value or '')})"
+        )
+    if state == "unknown":
+        return WARN, value or "the beat lease cannot be read"
+    absent = f"no beat holds the lease of this module set on taskqueue/{instance}: "
+    if required:
+        return FAIL, absent + (
+            "they do not run (required: start a worker and one "
+            "`celery -A sandloom.core.worker beat`)"
+        )
+    return WARN, absent + (
+        "they do not run (optional: the module works without them and degrades "
+        "as its docs describe)"
+    )
 
 
 # ------------------------------------------------------------ migrations ----
@@ -537,23 +726,44 @@ async def run_doctor(  # noqa: C901
     if "config" not in skip:
         check_config(report, settings)
 
-    needs_core = set(SECTIONS) - {"config"} - skip
+    # The loaded modules' configuration (their overrides, accepted risks and
+    # refusals) is part of "config": it needs the composition too.
+    needs_core = set(SECTIONS) - skip
     if not needs_core:
         return report
     if core_loader is None:
         core_loader = load_composition_core
     try:
-        core = core_loader()
+        # Collect mode (ADR-0015 decision 8): a module's configuration refusal
+        # is listed, every module's, instead of the first one ending the run.
+        with _module_settings.collect_mode() as diagnosed:
+            core = core_loader()
     except BaseException as exc:  # SystemExit from a bad module too
         if isinstance(exc, KeyboardInterrupt):
             raise
-        report.add("modules", "composition_root", FAIL, _error(exc))
+        if not diagnosed:
+            report.add("modules", "composition_root", FAIL, _error(exc))
+        else:
+            _add_diagnosed(report, diagnosed)
+        return report
+    if diagnosed:
+        # A partial composition would be reported as if it were the one the
+        # deployment runs: stop at the refusals.
+        _add_diagnosed(report, diagnosed)
         return report
     try:
+        if "config" not in skip:
+            check_module_settings(report, core)
         if "modules" not in skip:
             check_modules(report, core)
+        if "claims" not in skip:
+            check_claims(report, core)
         if "infra" not in skip:
             await _guarded(report, "infra", lambda: check_infra(report, core, timeout))
+        if "periodic" not in skip:
+            await _guarded(
+                report, "periodic", lambda: check_periodic(report, core, timeout)
+            )
         if "migrations" not in skip:
             await _guarded(
                 report, "migrations", lambda: check_migrations(report, core, timeout)

@@ -1,0 +1,40 @@
+## a) committed copy present and unedited
+$ sandloom generate (tenancy absent)
+importable sandloom_tenancy: no
+wrote .sandloom/inspection.json
+warning[SANDLOOM-T015]: some interfaces are incomplete; graph/context report their scope
+generated files current (13 file(s))
+[exit 0]
+$ sandloom generate --check (tenancy absent)
+importable sandloom_tenancy: no
+generated files up to date (13 file(s))
+[exit 0]
+$ git status --short src/sandloom_billing/_generated/contracts
+(no change)
+
+## c) committed copy edited by hand (a field default changed)
+$ sandloom generate --check (tenancy absent)
+importable sandloom_tenancy: no
+src/sandloom_billing/_generated/contracts/tenancy_dto.py: error[SANDLOOM-T007]: incompatible change: committed copy of tenancy.membership.v1: hand-edited: digest 179ba8714ef94dd5 in the header, 5f320947b504774e of the body
+fix: a breaking contract change is a new version (.v2); sandloom explain SANDLOOM-T007
+[exit 1]
+$ sandloom generate (tenancy absent)
+importable sandloom_tenancy: no
+src/sandloom_billing/_generated/contracts/tenancy_dto.py: error[SANDLOOM-T007]: incompatible change: committed copy of tenancy.membership.v1: hand-edited: digest 179ba8714ef94dd5 in the header, 5f320947b504774e of the body
+fix: a breaking contract change is a new version (.v2); sandloom explain SANDLOOM-T007
+sandloom generate: nothing was written
+[exit 1]
+
+## b) no committed copy
+$ sandloom generate (tenancy absent)
+importable sandloom_tenancy: no
+src/sandloom_billing/_generated/contracts/tenancy_membership_v1.py: error[SANDLOOM-T007]: incompatible change: refused: sandloom_billing consumes tenancy.membership.v1; its provider (module 'tenancy') is not importable here and no copy is committed. Install the provider as a development dependency, or commit the copy generated where it is installed
+fix: a breaking contract change is a new version (.v2); sandloom explain SANDLOOM-T007
+sandloom generate: nothing was written
+[exit 1]
+$ ls src/sandloom_billing/_generated
+ls: src/sandloom_billing/_generated: No such file or directory
+
+## restore: provider importable again
+$ sandloom generate --check
+  .sandloom/inspection.json [SANDLOOM-T015] (differs)

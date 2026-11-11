@@ -45,6 +45,9 @@ class ContractMethodRuntime:
     idempotency_key: str | None = None
     idempotency_scope: tuple[str, ...] = ()
     risk: str | None = None
+    #: The method's ``access_check`` declaration (ADR-0014 decision 8), a
+    #: JSON value table published in the describe document and the snapshot.
+    access_check: dict[str, Any] | None = None
 
     def describe(self) -> dict[str, Any]:
         """JSON-able schema published by the RPC describe endpoint."""
@@ -66,6 +69,8 @@ class ContractMethodRuntime:
             description["idempotency_scope"] = list(self.idempotency_scope)
         if self.risk is not None:
             description["risk"] = self.risk
+        if self.access_check is not None:
+            description["access_check"] = self.access_check
         return description
 
     @functools.cached_property
@@ -266,6 +271,11 @@ def _method_runtime(
     if problem is not None:
         problems.append(f"{name}(return): {problem}")
         ok = False
+    access = _access_check(attr)
+    if access is not None:
+        ok = (
+            _access_check_problems(name, kind, access, params, returns, problems) and ok
+        )
     if not ok:
         return None
     return ContractMethodRuntime(
@@ -277,4 +287,115 @@ def _method_runtime(
         idempotency_key=spec.idempotency_key,
         idempotency_scope=spec.idempotency_scope,
         risk=spec.risk,
+        access_check=access,
     )
+
+
+#: Set by ``sandloom.shared.authz.contract_check.access_check`` (read by name:
+#: the contract runtime does not import the authorization package).
+_ACCESS_CHECK_ATTR = "__sandloom_access_check__"
+
+
+def _access_check(attr: Any) -> dict[str, Any] | None:
+    func = getattr(attr, "__func__", attr)
+    for candidate in (func, getattr(func, "__wrapped__", None)):
+        spec = getattr(candidate, _ACCESS_CHECK_ATTR, None)
+        if isinstance(spec, dict):
+            return spec
+    return None
+
+
+def _access_check_problems(
+    name: str,
+    kind: str,
+    access: Mapping[str, Any],
+    params: Sequence[inspect.Parameter],
+    returns: Any,
+    problems: list[str],
+) -> bool:
+    """An access check is a boolean read whose binds, values and risk name
+    its own parameters; every unbound parameter is the atom's own."""
+    where = f"{name}: access_check {access.get('name')!r}"
+    found = len(problems)
+    names = {p.name for p in params}
+    binds = set(access.get("bind") or {})
+    if kind != "read":
+        problems.append(f"{where} is declared on a command (a check is a read)")
+    if returns is not bool:
+        problems.append(f"{where} returns {returns!r}, not bool")
+    problems.extend(
+        f"{where} binds {arg!r}, which is not a parameter"
+        for arg in sorted(binds - names)
+    )
+    own = names - binds
+    problems.extend(
+        f"{where}: values names {arg!r}, not an unbound parameter"
+        for arg in sorted(set(access.get("values") or {}) - own)
+    )
+    problems.extend(
+        f"{where}: risk {risk!r} names {arg!r}, not an unbound parameter"
+        for risk, conditions in (access.get("risk") or {}).items()
+        for arg in sorted(set(conditions) - own)
+    )
+    problems.extend(
+        f"{where}: {param.name!r} is positional-only"
+        for param in params
+        if param.name not in binds and param.kind is param.POSITIONAL_ONLY
+    )
+    if "witnesses_membership" in access:
+        _witness_problems(where, access, own, problems)
+    claim = access.get("claim")
+    if isinstance(claim, Mapping) and "read" in claim:
+        # A claim atom over a mapping claim (claim_atom): its entry and its
+        # compared parameter are the check's own parameters.
+        problems.extend(
+            f"{where}: claim atom {field} names {claim[field]!r}, not an "
+            "unbound parameter"
+            for field in ("entry", "below")
+            if claim.get(field) is not None and claim[field] not in own
+        )
+    return len(problems) == found
+
+
+def _witness_problems(
+    where: str, access: Mapping[str, Any], own: set[str], problems: list[str]
+) -> None:
+    """A membership witness (ADR-0014 decision 13) binds one organization and
+    one subject, nothing else, and gives a declared JSON scalar for each of
+    its own parameters: the call the kernel makes to ask about membership
+    alone. Checked here, at registration and by ``sandloom generate``, not
+    first at boot."""
+    witness = access.get("witnesses_membership")
+    if not isinstance(witness, Mapping):
+        problems.append(f"{where}: witnesses_membership is not a mapping")
+        return
+    kinds = sorted(
+        str(source[0]) if isinstance(source, list) and source else "?"
+        for source in (access.get("bind") or {}).values()
+    )
+    if kinds != ["org", "subject"]:
+        problems.append(
+            f"{where}: a membership witness binds exactly one From.org() and one "
+            f"From.subject_id(), not {', '.join(kinds) or 'nothing'}"
+        )
+    given = {str(k) for k in witness}
+    problems.extend(
+        f"{where}: witnesses_membership names {arg!r}, not an unbound parameter"
+        for arg in sorted(given - own)
+    )
+    problems.extend(
+        f"{where}: witnesses_membership gives no value for {arg!r}"
+        for arg in sorted(own - given)
+    )
+    allowed = access.get("values") or {}
+    for arg, value in sorted(witness.items(), key=lambda item: str(item[0])):
+        if type(value) not in (str, int, bool):
+            problems.append(
+                f"{where}: witnesses_membership[{arg!r}] is {value!r}, not a JSON "
+                "scalar"
+            )
+        elif arg in allowed and value not in allowed[arg]:
+            problems.append(
+                f"{where}: witnesses_membership[{arg!r}] = {value!r} is not "
+                "among its declared values"
+            )

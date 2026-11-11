@@ -1,0 +1,250 @@
+batteries importable: []
+sandloom.shared.contracts importable: False
+__________ test_no_owner_writes_a_reserved_key[claims_sources_failed] __________
+2026-11-08 14:11:19,704 [ERROR] sandloom.core.facade: claims contributor 'sandloom_identity' wrote the reserved claim 'claims_sources_failed'; refusing to mint the token
+ERROR    sandloom.core.loader.plugin_loader:plugin_loader.py:473 [plugin_loader] Failed module sandloom_billing: No module named 'sandloom_billing'
+ERROR    sandloom.core.loader.plugin_loader:plugin_loader.py:473 [plugin_loader] Failed module sandloom_billing: No module named 'sandloom_billing'
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+    return io.open(self, mode, buffering, encoding, errors, newline)
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+    return io.open(self, mode, buffering, encoding, errors, newline)
+ERROR    sandloom.core.loader.plugin_loader:plugin_loader.py:473 [plugin_loader] Failed module sandloom_identity: No module named 'sandloom_identity'
+E     Left contains 11 more items, first extra item: 'deploy/compose/microservices.yml: service \'identity\' does not load: not loaded: [\'sandloom_identity\']; failed: ["sandloom_identity: No module named \'sandloom_identity\'"] (SANDLOOM-T014)'
+ERROR    sandloom.core.loader.plugin_loader:plugin_loader.py:473 [plugin_loader] Failed module sandloom_identity: No module named 'sandloom_identity'
+ERROR    sandloom.core.loader.plugin_loader:plugin_loader.py:473 [plugin_loader] Failed module sandloom_tenancy: No module named 'sandloom_tenancy'
+ERROR    sandloom.core.loader.plugin_loader:plugin_loader.py:473 [plugin_loader] Failed module sandloom_billing: No module named 'sandloom_billing'
+WARNING  sandloom.core.facade:_claims.py:470 claims contributor 'billing' failed; skipping
+E   assert {'identity': ...l_failed=1)']} == {'identity': ...'billing': []}
+E     {'tenancy': ["modules/composition_root: ModuleLoadError: Required modules failed: sandloom_tenancy: No module named 'sandloom_tenancy' (total_failed=1)"]} != {'tenancy': []}
+E     {'identity': ["modules/composition_root: ModuleLoadError: Required modules failed: sandloom_identity: No module named 'sandloom_identity' (total_failed=1)"]} != {'identity': []}
+E     {'billing': ["modules/composition_root: ModuleLoadError: Required modules failed: sandloom_billing: No module named 'sandloom_billing' (total_failed=1)"]} != {'billing': []}
+E   AssertionError: ['deploy/compose/microservices.yml: service \'identity\' does not load: not loaded: [\'sandloom_identity\']; failed: [...EY belongs to the token issuer's processes only (a verify-only service must not be able to mint) (SANDLOOM-T014)", ...]
+ERROR    sandloom.core.loader.plugin_loader:plugin_loader.py:473 [plugin_loader] Failed module sandloom_identity: No module named 'sandloom_identity'
+ERROR    sandloom.core.loader.plugin_loader:plugin_loader.py:473 [plugin_loader] Failed module sandloom_tenancy: No module named 'sandloom_tenancy'
+ERROR    sandloom.core.loader.plugin_loader:plugin_loader.py:473 [plugin_loader] Failed module sandloom_billing: No module named 'sandloom_billing'
+2026-11-08 14:11:30,548 [WARNING] sandloom.core.facade: claims contributor 'reports' failed; skipping
+E   AssertionError: error[SANDLOOM-T011]: the platform app mounts only 20 routes. Fix: sandloom.main's installed modules did not load; run `sandloom check`. (sandloom explain SANDLOOM-T011)
+E   sandloom.core.cli.scaffold_deploy.DeployError: service 'identity' (sandloom_identity) does not load: not loaded: ['sandloom_identity']; failed: ["sandloom_identity: No module named 'sandloom_identity'"]
+E     collected 0 items / 3 errors
+E     ============================== 3 errors in 0.63s ===============================
+E       architecture_rules.yml: error[SANDLOOM-C014 tenant-scoped-models]: stale tenant_scope_exempt entry 'billing_customers': no model with a tenant-like column declares that table any more — remove the entry
+E       architecture_rules.yml: error[SANDLOOM-C014 tenant-scoped-models]: stale tenant_scope_exempt entry 'billing_operation_intents': no model with a tenant-like column declares that table any more — remove the entry
+E       architecture_rules.yml: error[SANDLOOM-C014 tenant-scoped-models]: stale tenant_scope_exempt entry 'tenancy_invitations': no model with a tenant-like column declares that table any more — remove the entry
+E       architecture_rules.yml: error[SANDLOOM-C014 tenant-scoped-models]: stale tenant_scope_exempt entry 'tenancy_member_versions': no model with a tenant-like column declares that table any more — remove the entry
+E       architecture_rules.yml: error[SANDLOOM-C014 tenant-scoped-models]: stale tenant_scope_exempt entry 'tenancy_members': no model with a tenant-like column declares that table any more — remove the entry
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+    return io.open(self, mode, buffering, encoding, errors, newline)
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+    return io.open(self, mode, buffering, encoding, errors, newline)
+E       G-AUTH-17: enforcing test vanished — src/sandloom_identity/tests/services/test_password_rehash_on_login.py::test_failed_login_never_rehashes: file src/sandloom_identity/tests/services/test_password_rehash_on_login.py does not exist
+E       G-BILLING-04: enforcing test vanished — src/sandloom_billing/tests/test_operation_intents.py::test_failed_recheck_on_retry_never_revokes_an_issued_intent: file src/sandloom_billing/tests/test_operation_intents.py does not exist
+E       G-BILLING-10: enforcing test vanished — src/sandloom_billing/tests/test_operation_intents.py::test_a_failed_expire_is_counted_and_the_gate_remains_the_backstop: file src/sandloom_billing/tests/test_operation_intents.py does not exist
+E       G-BILLING-10: enforcing test vanished — src/sandloom_billing/tests/test_intent_reconcile.py::test_failed_compensation_is_persisted_and_retried: file src/sandloom_billing/tests/test_intent_reconcile.py does not exist
+E       G-BILLING-10: enforcing test vanished — src/sandloom_billing/tests/test_intent_reconcile.py::test_failed_compensation_retry_is_bounded: file src/sandloom_billing/tests/test_intent_reconcile.py does not exist
+  $PC/k-contracts/tests/sdk/test_sdk_portable_sql.py:76: SAWarning: Column 'people.id' is marked as a member of the primary key for table 'peopl
+FAILED src/sandloom/core/tests/test_contract_runtime.py::test_local_contributor_wins_over_remote_binding
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_identity_alone_keeps_its_roles_and_gate
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_monolith_order_does_not_matter
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_split_remote_owner_with_its_own_keys_still_contributes
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[aud]
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[auth_time]
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[claims]
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[claims_sources]
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[claims_sources_failed]
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[exp]
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[iat]
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[iat_us]
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[iss]
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[jti]
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[nbf]
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[org_id]
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[provenance_authoritative]
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[sub]
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[tenant_id]
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[token_type]
+FAILED src/sandloom/core/tests/test_claims_key_ownership.py::test_no_owner_writes_a_reserved_key[user_id]
+FAILED src/sandloom/core/tests/test_consumes_preflight.py::test_shipped_modules_declare_what_they_consume
+FAILED src/sandloom/core/tests/test_contract_compat.py::test_committed_module_snapshots_match_registered_contracts
+FAILED src/sandloom/core/tests/test_contract_compat.py::test_expectation_is_found_in_the_provider_package_without_importing_it
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[outbox/dead-identity]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[outbox/dead-tenancy]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[outbox/dead-billing]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[consumers-identity]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[consumers-tenancy]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[consumers-billing]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[projections-identity]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[projections-tenancy]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[projections-billing]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[contracts-identity]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[contracts-tenancy]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[contracts-billing]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[modules-identity]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[modules-tenancy]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[modules-billing]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[settings-identity]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[settings-tenancy]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_views_are_operator_only_and_leak_no_secrets[settings-billing]
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_runtime_views_describe_this_process
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_audit_is_keyset_paged_with_prefix_and_time_filters
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_outbox_requeue_is_audited_atomically_and_idempotent
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_stream_dlq_replay_targets_the_group_and_audits_first
+FAILED src/sandloom/core/tests/test_admin_operations.py::test_outbox_inspection_pages_past_200_without_requeue
+FAILED src/sandloom/core/tests/test_app_manifest.py::test_create_app_publishes_the_manifest
+FAILED src/sandloom/core/tests/test_deploy_profiles.py::test_microservices_db_per_service_and_bindings
+FAILED src/sandloom/core/tests/test_deploy_profiles.py::test_token_issuer_binds_every_remote_claims_contributor
+FAILED src/sandloom/core/tests/test_deploy_profiles.py::test_microservices_bindings_are_exactly_the_consumed_contracts
+FAILED src/sandloom/core/tests/test_asymmetric_jwt.py::test_identity_declares_itself_the_token_issuer
+FAILED src/sandloom/core/tests/test_deploy_profiles.py::test_periodic_task_modules_are_discovered
+FAILED src/sandloom/core/tests/test_deploy_profiles.py::test_every_service_keys_its_responses_and_callers_pin_providers
+FAILED src/sandloom/core/tests/test_deploy_profiles.py::test_the_profile_passes_the_split_invariants_apps_are_checked_with
+FAILED src/sandloom/core/tests/test_backup_cli.py::test_verify_passes_for_a_current_restore_and_drops_the_scratch_db
+FAILED src/sandloom/core/tests/test_backup_cli.py::test_verify_fails_when_a_chain_is_behind_its_head
+FAILED src/sandloom/core/tests/test_contract_runtime.py::test_identity_alone_collects_remote_claims
+FAILED src/sandloom/core/tests/test_contract_runtime.py::test_local_contributor_runs_in_its_own_uow_and_is_exposed
+FAILED src/sandloom/core/tests/test_backup_cli.py::test_verify_flags_orphan_rows_of_a_broken_restore
+FAILED src/sandloom/core/tests/test_backup_cli.py::test_restore_check_quotes_catalog_column_identifiers[False]
+FAILED src/sandloom/core/tests/test_backup_cli.py::test_restore_check_quotes_catalog_column_identifiers[True]
+FAILED src/sandloom/core/tests/test_guard_order.py::test_bundled_app_routes_pass
+FAILED src/sandloom/core/tests/test_deploy_profiles.py::test_every_service_boots_alone_with_its_bindings
+FAILED src/sandloom/core/tests/test_deploy_profiles.py::test_the_split_invariants_report_what_breaks_them[binding]
+FAILED src/sandloom/core/tests/test_ops_security_hardening.py::test_claims_provenance_from_registering_module
+FAILED src/sandloom/core/tests/test_loader_migrations_hardening.py::test_chain_collision_detected
+FAILED src/sandloom/core/tests/test_loader_migrations_hardening.py::test_loader_rejects_colliding_chain
+FAILED src/sandloom/core/tests/test_model_indexes_migrated.py::test_owners_come_from_the_declaring_package
+FAILED src/sandloom/core/tests/test_model_indexes_migrated.py::test_profiled_indexes_are_declared
+FAILED src/sandloom/core/tests/test_module_extraction.py::test_spec_owns_exactly_the_module_tables
+FAILED src/sandloom/core/tests/test_module_extraction.py::test_same_database_is_refused
+FAILED src/sandloom/core/tests/test_route_index.py::test_platform_app_resolution_is_identical_to_linear_scan
+FAILED src/sandloom/core/tests/test_route_policy_auth.py::test_bundled_public_routes_are_exactly_the_reviewed_set
+FAILED src/sandloom/core/tests/test_kernel_review_regressions.py::test_revocation_at_commit_covers_named_db_in_either_dependency_order[False]
+FAILED src/sandloom/core/tests/test_kernel_review_regressions.py::test_revocation_at_commit_covers_named_db_in_either_dependency_order[True]
+FAILED src/sandloom/core/tests/test_kernel_review_regressions.py::test_nested_http_request_has_independent_commit_authority[False]
+FAILED src/sandloom/core/tests/test_kernel_review_regressions.py::test_nested_http_request_has_independent_commit_authority[True]
+FAILED src/sandloom/core/tests/test_kernel_review_regressions.py::test_reused_session_does_not_keep_an_old_requests_authority_checksandloom tests: settings from .env.test (no .env needed). Start the test services first: docker compose -f deploy/compose/test.ym
+FAILED src/sandloom/core/tests/test_module_extraction.py::test_source_behind_head_is_refused
+FAILED src/sandloom/core/tests/test_module_extraction.py::test_shared_rows_stream_idempotently_and_detect_missing_keys
+FAILED src/sandloom/core/tests/test_module_names.py::test_the_installed_standard_modules_are_discovered
+FAILED src/sandloom/core/tests/test_module_names.py::test_configuration_names_installed_modules_by_entry_point_name
+FAILED src/sandloom/core/tests/test_module_subset.py::test_module_subset_boots_alone[named0-/api/v1/orgs-sandloom_identity-/auth]
+FAILED src/sandloom/core/tests/test_module_subset.py::test_module_subset_boots_alone[named1-/auth-sandloom_tenancy-/api/v1/orgs]
+FAILED src/sandloom/core/tests/test_module_subset.py::test_module_subset_boots_alone[named2-/api/v1/billing-sandloom_identity-/auth]
+FAILED src/sandloom/core/tests/test_module_subset.py::test_module_subset_boots_alone[named3-/api/v1/billing-sandloom_tenancy-/api/v1/orgs]
+FAILED src/sandloom/core/tests/test_module_subset.py::test_full_monolith_set_loads
+FAILED src/sandloom/core/tests/test_run_tests_cli.py::test_the_plan_of_the_framework_tree
+FAILED src/sandloom/core/tests/test_run_tests_cli.py::test_the_test_steps_run_in_a_seeded_random_order
+FAILED src/sandloom/core/tests/test_run_tests_cli.py::test_every_xdist_step_gets_the_redis_stride_default
+FAILED src/sandloom/core/tests/test_sagas_definition.py::test_unregistered_definition_has_no_type
+FAILED src/sandloom/core/tests/test_sagas_definition.py::test_a_matching_definition_builds
+FAILED src/sandloom/core/tests/test_sagas_definition.py::test_register_saga_buffers_and_the_loader_merges_consumes
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_first_deploy_creates_the_profile_gateway_and_init_script
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_split_app_passes_the_framework_split_invariants
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_root_level_module_gets_the_root_and_the_catch_all
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_the_checker_finds_a_root_route_the_gateway_drops
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_route_prefix_matches_only_its_own_segment[/shopping-home]
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_route_prefix_matches_only_its_own_segment[/shop-store]
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_route_prefix_matches_only_its_own_segment[/shop/-store]
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_route_prefix_matches_only_its_own_segment[/shop/hat-store]
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_route_prefix_matches_only_its_own_segment[/shopx-home]
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_route_prefix_matches_only_its_own_segment[/api/v1/probeordx-home]
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_route_prefix_matches_only_its_own_segment[/api/v1/probeord/ping-orders]
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_route_prefix_matches_only_its_own_segment[/api/v1/probeord-orders]
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_route_prefix_matches_only_its_own_segment[/-home]
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_route_prefix_matches_only_its_own_segment[/auth-home]
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_route_prefix_matches_only_its_own_segment[/auth/login-identity]
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_the_checker_samples_paths_that_collide_with_another_prefix
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_rerunning_is_idempotent
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_adding_a_module_is_incremental_and_keeps_hand_edits
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_deploy_patches_a_dockerignore_that_would_ship_the_env_file
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_service_added_later_creates_its_own_database
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_hand_edit_inside_a_generated_block_is_refused_with_a_diff
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_module_runs_in_one_service_only
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_a_module_with_periodic_tasks_gets_its_worker_and_one_beat
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_the_framework_profile_is_the_generators_output
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_dev_env_covers_every_required_variable
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_keys_dev_env_writes_a_new_private_file
+FAILED src/sandloom/core/tests/test_scaffold_deploy.py::test_refresh_preserves_an_older_profiles_runtime_anchor
+FAILED src/sandloom/core/tests/test_projections.py::test_start_projection_consumers_wires_and_delivers
+FAILED src/sandloom/core/tests/test_split_readiness.py::test_down_peer_does_not_fail_health_or_ready_by_default
+FAILED src/sandloom/core/tests/test_split_readiness.py::test_required_peer_down_fails_ready_but_never_health
+FAILED src/sandloom/core/tests/test_split_readiness.py::test_required_probes_run_concurrently_capped_and_authenticated
+FAILED src/sandloom/core/tests/test_redis_cache_bounded.py::test_lockout_branches_on_hung_redis[False]
+FAILED src/sandloom/core/tests/test_redis_cache_bounded.py::test_lockout_branches_on_hung_redis[True]
+FAILED src/sandloom/core/tests/test_worker.py::test_worker_registers_loaded_module_tasks_and_beat_schedule
+FAILED src/sandloom/core/tests/test_rpc_response_binding.py::test_provider_binds_call_describe_and_error_responses[fast-path]
+FAILED src/sandloom/core/tests/test_rpc_response_binding.py::test_provider_binds_call_describe_and_error_responses[router]
+FAILED src/sandloom/core/tests/test_rpc_response_binding.py::test_the_body_cap_413_echoes_the_nonce_unkeyed
+FAILED src/sandloom/core/tests/test_rpc_response_binding.py::test_proxy_against_a_real_provider[fast-path]
+FAILED src/sandloom/core/tests/test_rpc_response_binding.py::test_proxy_against_a_real_provider[router]
+FAILED src/sandloom/core/tests/test_sqlite_boot.py::test_the_platform_boots_on_sqlite_and_refuses_a_drifted_file
+FAILED src/sandloom/core/tests/test_sqlite_nested_units.py::test_saga_steps_run_on_the_sqlite_test_harness
+FAILED src/sandloom/core/tests/test_static_cli_no_env.py::test_sandloom_check_runs_against_a_manifest_with_empty_environment
+FAILED src/sandloom/core/tests/test_infra_review_20261022.py::test_reconfigured_providers_close_instead_of_being_orphaned
+FAILED src/sandloom/core/tests/test_infra_review_20261022.py::test_health_probes_are_bounded
+FAILED src/sandloom/core/tests/test_infra_review_20261022.py::test_strict_profile_checks_physical_redis_identity
+FAILED tests/sdk/test_sdk_schema_differential.py::test_every_bundled_event_is_in_the_closed_set
+FAILED tests/sdk/test_sdk_generated.py::test_the_framework_tree_stubs_keep_the_kernel_home
+FAILED tests/sdk/test_sdk_generated.py::test_an_application_stub_imports_the_public_home
+FAILED tests/architecture/test_admin_console_package.py::test_the_packaged_console_is_built_from_the_current_source
+FAILED tests/architecture/test_admin_console_package.py::test_the_packaged_console_loads_only_from_its_own_path
+FAILED tests/architecture/test_admin_console_package.py::test_the_source_export_lists_exactly_the_packaged_files
+FAILED tests/architecture/test_api10_checks.py::test_c022_bundled_operations_have_no_unreviewed_sensitive_effects
+FAILED tests/architecture/test_archcheck_library.py::test_framework_manifest_passes_every_rule
+FAILED tests/architecture/test_archcheck_library.py::test_framework_imports_catch_from_sandloom_import_and_dynamic_aliases
+FAILED tests/architecture/test_archcheck_library.py::test_test_imports_whitelist_runs_in_sandloom_check
+FAILED tests/architecture/test_kernel_import_contracts.py::test_kernel_import_contracts_are_kept
+FAILED tests/architecture/test_guarantee_ledger.py::test_ledger_is_green - As...
+FAILED tests/architecture/test_public_api_sdk.py::test_scanner_reports_no_unmapped_name
+FAILED tests/architecture/test_schema_on_a_second_database.py::test_the_schema_builds_on_sqlite[k-contracts]
+FAILED tests/architecture/test_ledger_static_pins.py::test_raw_environment_reads_only_go_down
+FAILED tests/architecture/test_lint_suppression_ratchet.py::test_noqa_counts_only_go_down
+FAILED tests/architecture/test_sdk_import_isolation.py::test_sdk_import_is_side_effect_free
+FAILED tests/architecture/test_lint_suppression_ratchet.py::test_kernel_function_local_imports_state_their_category
+FAILED tests/architecture/test_module_boundaries.py::test_analyzer_detects_violations_in_fixture_modules[boards]
+FAILED tests/architecture/test_module_boundaries.py::test_analyzer_detects_violations_in_fixture_modules[broken_module]
+FAILED tests/architecture/test_no_dialect_imports.py::test_the_module_list_is_not_empty
+FAILED tests/architecture/test_source_export.py::test_repository_selection_is_complete_and_safe
+FAILED tests/architecture/test_shared_purity.py::test_the_kernel_imports_no_business_module_beyond_the_allowlist
+FAILED tests/sdk/test_sdk_module_names.py::test_the_sdk_owner_rule_agrees_with_the_kernel
+ERROR src/sandloom/core/tests/test_batch_publish.py - ImportError while impor...
+ERROR src/sandloom/core/tests/test_before_commit.py - ImportError while impor...
+ERROR src/sandloom/core/tests/test_boot_configuration_checks.py - ImportError...
+ERROR src/sandloom/core/tests/test_claims_read_unit.py - ImportError while im...
+ERROR src/sandloom/core/tests/test_command_risk_parity.py - ImportError while...
+ERROR src/sandloom/core/tests/test_consumer_runtime.py - ImportError while im...
+ERROR src/sandloom/core/tests/test_contract_dto_locality.py - ImportError whi...
+ERROR src/sandloom/core/tests/test_db_in_contracts.py - ImportError while imp...
+ERROR src/sandloom/core/tests/test_event_consumers.py - ImportError while imp...
+ERROR src/sandloom/core/tests/test_idempotency_cache_instance.py - ImportErro...
+ERROR src/sandloom/core/tests/test_inmemory_bus_delivery.py - ImportError whi...
+ERROR src/sandloom/core/tests/test_pipelined_dispatch.py - ImportError while ...
+ERROR src/sandloom/core/tests/test_post_commit_dispatcher.py - ImportError wh...
+ERROR src/sandloom/core/tests/test_projection_watermarks_db.py - ImportError ...
+ERROR src/sandloom/core/tests/test_queue_claim_without_skip_locked.py - Impor...
+ERROR src/sandloom/core/tests/test_relay_batch_publish.py - ImportError while...
+ERROR src/sandloom/core/tests/test_revocation_windows.py - ImportError while ...
+ERROR src/sandloom/core/tests/test_rpc_intent_window.py - ImportError while i...
+ERROR src/sandloom/core/tests/test_rpc_keyed_binding.py - ImportError while i...
+ERROR src/sandloom/core/tests/test_saga_harness_with_client.py - ImportError ...
+ERROR src/sandloom/core/tests/test_sagas_cli.py - ImportError while importing...
+ERROR src/sandloom/core/tests/test_sagas_ops.py - ImportError while importing...
+ERROR src/sandloom/core/tests/test_sagas_protocol.py - ImportError while impo...
+ERROR src/sandloom/core/tests/test_sagas_recovery.py - ImportError while impo...
+ERROR src/sandloom/core/tests/test_streams_event_bus.py - ImportError while i...
+ERROR src/sandloom/core/tests/test_streams_split_identity.py - ImportError wh...
+ERROR src/sandloom/core/tests/test_tenant_rls_allowlist.py - ImportError whil...
+ERROR src/sandloom/core/tests/test_tenant_rls_paths.py - ImportError while im...
+ERROR src/sandloom/core/tests/test_testing_reset.py - ImportError while impor...
+ERROR src/sandloom/core/tests/test_testing_resources.py - ImportError while i...
+ERROR tests/sdk/test_sdk_docs_wire.py - ImportError while importing test modu...
+ERROR src/sandloom/core/tests/test_kernel_review_regressions.py::test_no_stored_record_depends_on_an_undigested_secret
+ERROR src/sandloom/core/tests/test_module_extraction.py::test_dry_run_writes_nothing
+ERROR src/sandloom/core/tests/test_module_extraction.py::test_apply_requires_stopped_writes
+ERROR src/sandloom/core/tests/test_module_extraction.py::test_live_writer_blocks_the_fence
+ERROR src/sandloom/core/tests/test_module_extraction.py::test_extract_crash_resume_verify_and_cleanup
+ERROR src/sandloom/core/tests/test_module_extraction.py::test_unfence_rolls_back_before_completion
+ERROR src/sandloom/core/tests/test_module_extraction.py::test_non_empty_target_is_refused
+ERROR src/sandloom/core/tests/test_kernel_review_regressions.py::test_domain_scope_separates_customers_but_replays_each_operation
+ERROR src/sandloom/core/tests/test_kernel_review_regressions.py::test_single_tenant_commands_use_one_key_inside_and_outside_uow
+ERROR src/sandloom/core/tests/test_kernel_review_regressions.py::test_dispatch_cancellation_after_commit_keeps_fallback_replay
+ERROR src/sandloom/core/tests/test_module_extraction.py::test_rls_target_role_is_refused_before_fencing
+= 163 failed, 5904 passed, 16 skipped, 1 xfailed, 14 warnings, 42 errors in 222.94s (0:03:42) =

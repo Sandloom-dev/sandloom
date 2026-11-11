@@ -6,6 +6,15 @@ type: how-to
 
 # Upgrading to Public API 1.0
 
+For tests that start several services, import `split_env` from
+`sandloom.sdk.testing`. `processes` maps service ids to modules; `urls` maps the
+same ids to reserved HTTP addresses. Pass the issuing service as `issuer`.
+Apply each returned overlay after the infrastructure environment. Only the
+issuer receives the JWT signing key and emailed-token secret; the overlays
+clear inherited issuer secrets from verification-only services. See the
+[testing reference](../reference/sdk/testing.md#split_env) for exact bindings and
+the settings you still supply.
+
 Public API 1.0 gives modules one namespace, `sandloom.sdk`, and a declarative
 form for routes, events and contracts. The migration replaces the earlier
 internal API without **compatibility aliases**: an old import path stops working and the error names
@@ -74,7 +83,8 @@ SANDLOOM-B003, SANDLOOM-B004, SANDLOOM-C016.
 ### Billing atoms name their account
 
 `Subscribed`, `SubscriptionActive`, `Credits`, `Feature` and `WithinLimit`
-take a required `of=` ([SANDLOOM-B017](../reference/error-codes.md#sandloom-b017)):
+take a required `of=` ([SANDLOOM-B017](../reference/error-codes.md#sandloom-b017));
+import them from the generated module (next section):
 
 | Old | New |
 | --- | --- |
@@ -91,6 +101,155 @@ An organization route with `of=Account.user()` needs a reason
 `/credits`, checkout and portal use the caller's personal account. A member of
 exactly one organization no longer gets that organization's account
 implicitly: pass `org_id`.
+
+### Billing and tenancy atoms leave the kernel
+
+The kernel holds no billing or tenancy semantics. `OrgRole`, `SubscriptionActive`,
+`Credits`, `Subscribed`, `Feature` and `WithinLimit` (and `LiveFeature` /
+`LiveWithinLimit`) are generated from the provider's declarations by
+`sandloom generate`. The name and the arguments stay; only the import changes,
+and there is no alias:
+
+| Name | Old import | New import |
+| --- | --- | --- |
+| `OrgRole` | `sandloom.sdk` | `<app>.shared.contracts.tenancy_membership_v1` |
+| `SubscriptionActive`, `Credits` | `sandloom.sdk` | `<app>.shared.contracts.billing_entitlements_v1` |
+| `Subscribed` | `sandloom.sdk` | `<app>.shared.contracts.billing_entitlements_v1` |
+| `Feature`, `WithinLimit` | `sandloom.sdk.authz` | `<app>.shared.contracts.billing_entitlements_v1` |
+
+A module distribution imports from `<module>._generated.contracts.<stem>`
+instead of `<app>.shared.contracts.<stem>`. The route's contract is part of the
+module's `consumes`, so `sandloom generate` writes the atoms the first time
+the import appears; run it, then `sandloom test`.
+
+```python
+from myapp.shared.contracts.billing_entitlements_v1 import SubscriptionActive
+from myapp.shared.contracts.tenancy_membership_v1 import OrgRole
+```
+
+The policy expression does not change:
+`require(OrgRole("admin") & SubscriptionActive(of=Account.bound_tenant()))`.
+`Account` stays in `sandloom.sdk.authz`.
+
+Removed from `sandloom.sdk`, `sandloom.sdk.authz` and `sandloom.shared.authz`
+with no replacement name:
+
+| Removed | Instead |
+| --- | --- |
+| `ACTIVE_SUBSCRIPTION_STATUSES` | billing's `AccessFact` declaration; `Subscribed(statuses=...)` names the statuses |
+| `WELL_KNOWN_FACT_OWNERS` | the module that registers an `AccessFact` is its owner (`owner_module`); the kernel keeps no table. Every `Entitled` names it: `Entitled("subscription.active", owner="billing")` (see [Access facts are identified by owner and name](#access-facts-are-identified-by-owner-and-name)) |
+| `register_live_adapter`, `EntitlementsAdapter`, `MembershipAdapter`, `ENTITLEMENTS`, `MEMBERSHIP` | `access_check` on the provider, `access_providers` / `SERVICE_BINDINGS` on the deployment ([ADR-0014](../adr/0014-claims-trust-and-authorization-portability.md)) |
+| the billing branch of `fake_access_fact` | `fake_contract(REF, Fake())` for the provider's contract; `fake_access_fact` keeps stubbing a fact by owner and name, `fake_access_fact(name, value, owner="billing")` |
+| `Roles`, `Permissions` | `sandloom_identity.rbac` in identity's own code; any other module writes the code string, e.g. `Perm("perm.users.read")` |
+
+**Custom adapters.** A project that called `register_live_adapter(ENTITLEMENTS,
+adapter)` or `register_live_adapter(MEMBERSHIP, adapter)` moves the decision to
+the provider. The module that owns the data declares an `access_check`
+(`@access_check("OrgRole", ...)` on its contract). The deployment binds that
+provider with `access_providers` (monolith) or `SERVICE_BINDINGS` (separate
+services). `sandloom generate` then writes the atom for every consumer: the
+check is typed, and its contract call shows in `consumes`.
+
+**Tests.** A test that needed the real billing or tenancy module to answer a
+gate serves the contract instead:
+
+```python
+with fake_contract(BILLING_ENTITLEMENTS_V1, FakeEntitlements()):
+    ...
+```
+
+**Behaviour change of `Feature` and `WithinLimit`.** The generated atoms are
+three-valued and fail closed:
+
+| Account | Token / source | Answer |
+| --- | --- | --- |
+| organization | no source to ask (billing not loaded or bound) | 501 `access_unknown` |
+| user | the claim map (`features` / `limits`) is present: a complete snapshot | allowed when the entry is on (or within the limit); an off or absent entry denies |
+| user | the whole claim is absent | 501 `access_unknown` |
+| user | the claim is absent because the authority failed when the token was minted | 503 |
+
+`Not(Feature(...))` never allows on an unknown answer. The kernel versions
+read a missing source as "off", so `~Feature("x", of=Account.user())` allowed
+on a token without the claim. If a route relied on that, write the claim (a
+mapping of every entitlement the account has) or expect the 501.
+
+Standard billing has no feature or limit catalogue yet. `Feature` and
+`WithinLimit` stay public capabilities for a third-party provider and for
+claims your own authority writes.
+
+`Subscribed()` and `Subscribed(statuses=...)` share one trust rule for
+`Account.user()`; `statuses=` changes the accepted statuses only:
+
+| The token | Answer |
+| --- | --- |
+| no `subscription_status`, billing ran at the mint and wrote none | `402`: billing's fact declares `absent_claim="deny"` (a fact without that declaration answers `501`) |
+| no `subscription_status` because billing failed at the mint | `503 claim_authority_failed` |
+| removed by the trusted view | `401 token_policy_outdated` / `503 claims_policy_mismatch` |
+| no source vouches for the key (billing did not run, no authority assigned) | `501 access_unknown` |
+
+The full table is in
+[Authorization](../modules/http/authorization.md#access-checks-declared-by-a-provider).
+
+**Fail-safe claim keys are declared, not built in.** The kernel no longer
+knows billing's keys (`subscription_status`, `plan_code`, `features`,
+`limits`). Only a key declared fail-safe may come from a non-critical
+authority ([ADR-0014](../adr/0014-claims-trust-and-authorization-portability.md)
+decision 7). A declared key is protected even when the map does not name
+it:
+
+- Billing declares its four keys itself; a monolith, or a process that loads
+  billing, needs no change.
+- An issuer that binds billing remotely with `"critical": false` declares
+  them in its composition root:
+  `"subscription_status": Authority("sandloom_billing", fail_safe=True)` for
+  each of the four (`from sandloom.sdk.app import Authority`). The standard
+  root does. Without it the issuing process refuses the boot
+  (`SANDLOOM-B035`, naming the entry to write).
+- Your own non-critical authority declares its keys:
+  `api.add_claims_contributor(fn, fail_safe=["loyalty_tier"])`. Declare only
+  a key whose every reader escalates or answers indeterminate when it is
+  absent. `roles`, `permissions`, `tenant_ids`, `email` and `email_verified`
+  are never fail-safe.
+
+A contract whose implementation carries `@access_check` methods is now
+access-bearing in every process, also where no consumer imported its
+generated atoms. Only the module its first segment names registers it, or
+the one `access_providers` assigns (`SANDLOOM-B034`).
+
+### Access facts are identified by owner and name
+
+An access fact is identified by the module that owns it and its name, never
+by its name alone. `owner=` is a required keyword wherever a fact is named:
+
+| Before | After |
+| --- | --- |
+| `Entitled("subscription.active")` | `Entitled("subscription.active", owner="billing")` |
+| `Entitled("organization.subscription.active")` | `Entitled("organization.subscription.active", owner="billing")` |
+| `Entitled(name, category=...)` | `Entitled(name, owner="<module>", category=...)` |
+| `fake_access_fact(name, value)` | `fake_access_fact(name, value, owner="<module>")` |
+| `lookup_access_fact(ctx, name)` | `lookup_access_fact(ctx, name, owner="<module>")` |
+
+`<module>` is the short name of the module that registers the fact, its
+`owner_module`. Billing owns its two facts, so they take `"billing"`. A
+missing `owner=` is Python's `TypeError` when the policy is built, at import.
+`None`, an empty string or a value that is not a module name raises
+`SANDLOOM-B038`.
+
+The policy accepts only that module's fact: registered in this process by
+that module, or described by that module's bound `<owner>.facts.v1`. It no
+longer accepts another module's fact of the same name, and it asks no other
+module's facts contract:
+
+| The owner module is | Answer |
+| --- | --- |
+| loaded or bound, and answers | its answer |
+| neither loaded nor bound (another module's fact of that name present or not) | 501 `fact_unregistered` |
+| bound but unreachable | 503 `fact_owner_unavailable`, no fallback |
+
+Both errors are indeterminate, so `~Entitled(...)` and `Not(...)` never turn
+them into an allow. A test that faked a fact by name names the owner the
+policy names: `fake_access_fact(name, True, owner="rogue")` does not satisfy
+`Entitled(name, owner="billing")`.
 
 ### Commands
 
@@ -151,6 +310,29 @@ the route declares `replay_safe(reason=...)` after review. Explicit
 
 See the [Testing reference](../reference/testing.md).
 
+### Operator contracts (`<m>.security.v1`)
+
+`identity.security.v1` keeps one way to do each thing; the methods that mixed
+the token issuer's and the `roles` owner's answers are gone. After the change,
+run `sandloom generate` (the copies of `identity.security.v1` lose them) and
+remove them from `RPC_ALLOWED_CALLS`.
+
+| Old | New |
+| --- | --- |
+| `revoke_sessions(user_ids, reason, operator, operation_key) -> int` | `end_sessions(...)`, answer `SessionsEnded{affected, ended}` (`.affected` is the old count) |
+| `account_standing(email) -> AccountStanding` | the issuer's `account_by_email(email) -> OperatorAccount` and the `roles` owner's `is_platform_admin(user_id)` |
+| `list_platform_admins() -> list[PlatformAdmin]` | the `roles` owner's `platform_admin_ids()` joined with the issuer's `accounts_by_id(ids)` |
+| `end_sessions` / `require_password_reset` revoking the users' access tokens | they end identity's refresh sessions only; `sandloom security revoke-sessions` / `force-password-reset` revoke the access tokens, once, after them. Another caller that needs the access tokens revoked calls `revoke_user_tokens_on_commit(user_id, reason=..., require_immediate=True)` (`sandloom.sdk.security`) |
+
+An owner module's operator methods must have the shape the kernel calls them
+with, or `sandloom security` / `sandloom admin` refuse before acting
+([SANDLOOM-B039](../reference/error-codes.md#sandloom-b039), expected
+against got). Type them with DTOs, not `dict[str, Any]`: for example
+`end_sessions(...) -> SessionsEnded` with `affected: int` and
+`ended: list[Literal["access_tokens", "refresh_sessions", "provider_sessions"]]`,
+and `require_password_reset(...) -> int`. The table is
+`sandloom.core.cli.operator_owner.OPERATOR_METHOD_SHAPES`.
+
 ## Low impact
 
 | Old | New |
@@ -158,6 +340,62 @@ See the [Testing reference](../reference/testing.md).
 | `Depends(get_current_user_id)` | `user: CurrentUser` (`user.user_id`); the function stays as `sandloom.sdk.web.current_user_id` |
 | function-local imports in modules | top-level imports ([SANDLOOM-C021](../reference/error-codes.md#sandloom-c021)); a marked optional dependency is allowed |
 | `routes.snapshot.json` regenerated by hand | regenerated by `sandloom generate` with a compatibility check |
+
+## Declare the console sign-in protocol
+
+An issuer used by the admin console now declares `console_auth` alongside
+`login_entry` on `define_module`. The bundled identity module declares its
+password form and refresh, logout, profile and setup-state routes. Applications
+using it only need to run `sandloom generate` and restart.
+
+A replacement issuer exchanging an external identity token declares
+`console_auth={"kind": "id_token"}`. The console presents an identity-token
+field and posts `{"id_token": ...}` to the declared `login_entry`. A stateless
+issuer can return only `access_token`; its JWT `exp` supplies the session's
+expiry. Without a refresh route the operator signs in again after expiry.
+Redirect-only sign-in has no supported callback protocol.
+
+The optional `refresh`, `logout`, `me` and `setup_state` values are route paths
+served by the issuer. Generation checks their ownership and HTTP methods:
+POST for refresh/logout, GET for me/setup-state. These paths use the
+console's payload conventions:
+
+Refresh and logout accept
+`{"refresh_token": ...}`; refresh returns `access_token`, `refresh_token` and
+`expires_in` (seconds).
+
+The optional me route returns a user profile with
+`full_name` and `email`; setup-state returns `{"has_admin": true}` or
+`{"has_admin": false}`.
+
+Password sign-in accepts `email`, `password` and an
+optional `otp`, and returns that token-pair shape. Declaring paths does not
+adapt arbitrary endpoint schemas. See
+[`define_module`](../reference/sdk/module.md#define_module) for the declaration.
+
+The composition's `roles` claim owner supplies the trusted UI roles source.
+When serving the admin console, a missing `console_auth` declaration or roles
+owner produces a configuration error naming the declaration to fix.
+
+## Check readiness and token rollout
+
+Use `/health/simple` for process liveness and `/ready` for traffic readiness.
+Billing reports reconciler failures in `/health`. New checkout and portal
+requests, including pending retries, need a completed run in the last 15
+minutes. Wait for the first completed run before sending checkout or portal
+traffic. An issued checkout can still return its stored URL after checking
+authorization and expiry. See the [Billing HTTP API](../modules/batteries/billing.md#http-api).
+
+The standard composition leaves `legacy_tokens` disabled. An existing
+deployment that needs its old access tokens can explicitly enable the timed
+rollout window. The window applies only to tokens with no `cpv` field.
+Follow the [issuer and verifier rollout](../adr/0014-claims-trust-and-authorization-portability.md#4-cpv-per-key-with-an-issuer-verifier-rollout-and-rollback-matrix).
+
+## Declare optional driver dependencies
+
+For external drivers with optional backend packages, declare `required_imports`
+and `install_hint` on the provider class. Sandloom reads the metadata from the
+selected entry point during preflight. See [Write a driver](../infrastructure/write-a-driver.md#2-publish-it-by-name).
 
 ## Verify
 

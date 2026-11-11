@@ -155,7 +155,7 @@ def _run() -> None:
                 a.python,
                 "-m",
                 "uvicorn",
-                "sandloom.main:app",
+                "sandloom_standard.main:app",
                 "--host",
                 "127.0.0.1",
                 "--port",

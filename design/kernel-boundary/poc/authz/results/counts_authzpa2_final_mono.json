@@ -1,0 +1,1259 @@
+{
+ "topology": "mono",
+ "m": 20,
+ "windows": {
+  "control first": {
+   "requests": 1,
+   "pg_statements_per_req": {},
+   "pg_sample": {},
+   "redis_commands_per_req": {
+    "db0": 3.0,
+    "db3": 2.0
+   },
+   "redis_sample": {
+    "db0": [
+     "PING",
+     "CLIENT",
+     "CLIENT"
+    ],
+    "db3": [
+     "SELECT",
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "control steady": {
+   "requests": 20,
+   "pg_statements_per_req": {},
+   "pg_sample": {},
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "role.admin first": {
+   "requests": 1,
+   "pg_statements_per_req": {},
+   "pg_sample": {},
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "role.admin steady": {
+   "requests": 20,
+   "pg_statements_per_req": {},
+   "pg_sample": {},
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "role.user first": {
+   "requests": 1,
+   "pg_statements_per_req": {},
+   "pg_sample": {},
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "role.user steady": {
+   "requests": 20,
+   "pg_statements_per_req": {},
+   "pg_sample": {},
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "perm.admin first": {
+   "requests": 1,
+   "pg_statements_per_req": {},
+   "pg_sample": {},
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "perm.admin steady": {
+   "requests": 20,
+   "pg_statements_per_req": {},
+   "pg_sample": {},
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "subscribed first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "postgres": 1.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "subscribed steady": {
+   "requests": 20,
+   "pg_statements_per_req": {},
+   "pg_sample": {},
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "subactive first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_consumer": 9.0
+   },
+   "pg_sample": {
+    "kb_consumer": [
+     "BEGIN;",
+     "select pg_catalog.version()",
+     "select current_schema()",
+     "show transaction isolation level",
+     "show standard_conforming_strings",
+     "ROLLBACK;",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "subactive steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_consumer": 3.0,
+    "postgres": 1.8
+   },
+   "pg_sample": {
+    "postgres": [
+     "CREATE INDEX ix_billing_credit_grants_customer_id ON billing_credit_grants (customer_id)"
+    ],
+    "kb_consumer": [
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "credits first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_consumer": 4.0,
+    "postgres": 5.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "UPDATE outbox_messages SET delivered_at=$1::TIMESTAMP WITHOUT TIME ZONE, last_error=$2::VARCHAR WHERE outbox_messages.id = ANY ($3::UUID[]) AND outbox_messages.",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT outbox_messages.id, outbox_messages.channel, outbox_messages.schema_version, outbox_messages.payload, outbox_messages.trace_id, outbox_messages.emitted_a",
+     "COMMIT;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;"
+    ],
+    "kb_consumer": [
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_customers.stripe_customer_id, billing_customers.user_id, billing_customers.organization_id ",
+     "SELECT billing_credit_balances.amount ",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "credits steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_consumer": 4.0,
+    "postgres": 22.3
+   },
+   "pg_sample": {
+    "postgres": [
+     "COMMIT;",
+     "BEGIN;",
+     "BEGIN;",
+     "BEGIN;",
+     "BEGIN;",
+     "BEGIN;",
+     "SELECT test_tcrit_72622b5e.name ",
+     "SELECT test_tcrit_72622b5e.name ",
+     "SELECT test_tcrit_72622b5e.name ",
+     "SELECT test_tcrit_72622b5e.name ",
+     "SELECT test_tcrit_72622b5e.name ",
+     "SELECT test_tcrit_72622b5e.id, test_tcrit_72622b5e.name, test_tcrit_72622b5e.tenant_id ",
+     "SELECT test_tcrit_72622b5e.id, test_tcrit_72622b5e.name, test_tcrit_72622b5e.tenant_id ",
+     "SELECT test_tcrit_72622b5e.id, test_tcrit_72622b5e.name, test_tcrit_72622b5e.tenant_id ",
+     "SELECT test_tcrit_72622b5e.id, test_tcrit_72622b5e.name, test_tcrit_72622b5e.tenant_id ",
+     "SELECT test_tcrit_72622b5e.id, test_tcrit_72622b5e.name, test_tcrit_72622b5e.tenant_id ",
+     "SELECT test_tcrit_72622b5e.name ",
+     "SELECT test_tcrit_72622b5e.name ",
+     "SELECT test_tcrit_72622b5e.name ",
+     "SELECT test_tcrit_72622b5e.name ",
+     "COMMIT;",
+     "COMMIT;"
+    ],
+    "kb_consumer": [
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_customers.stripe_customer_id, billing_customers.user_id, billing_customers.organization_id ",
+     "SELECT billing_credit_balances.amount ",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "role_or_credits.admin first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "postgres": 17.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT test_tcrit_72622b5e.name ",
+     "SELECT test_tcrit_72622b5e.id, test_tcrit_72622b5e.name, test_tcrit_72622b5e.tenant_id ",
+     "COMMIT;",
+     "COMMIT;",
+     "SELECT test_tcrit_72622b5e.id, test_tcrit_72622b5e.name, test_tcrit_72622b5e.tenant_id ",
+     "SELECT test_tcrit_72622b5e.name ",
+     "SELECT test_tcrit_72622b5e.name ",
+     "SELECT setval(CAST(format('%I.%I', schemaname, sequencename) AS regclass), start_value, false) FROM pg_sequences WHERE last_value IS NOT NULL AND CAST(format('%",
+     "COMMIT;",
+     "COMMIT;",
+     "SELECT test_tcrit_72622b5e.name ",
+     "COMMIT;",
+     "BEGIN;",
+     "BEGIN;",
+     "SELECT test_tcrit_72622b5e.name ",
+     "SELECT test_tcrit_72622b5e.name ",
+     "BEGIN;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "role_or_credits.admin steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "postgres": 1.3
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "role_or_credits.user first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_consumer": 4.0
+   },
+   "pg_sample": {
+    "kb_consumer": [
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_customers.stripe_customer_id, billing_customers.user_id, billing_customers.organization_id ",
+     "SELECT billing_credit_balances.amount ",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "role_or_credits.user steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_consumer": 4.0,
+    "postgres": 2.25
+   },
+   "pg_sample": {
+    "postgres": [
+     "INSERT INTO refresh_tokens (id, user_id, family_id, auth_time, token, expires_at, is_revoked, revoked_at) VALUES ($1::UUID, $2::UUID, $3::UUID, $4::TIMESTAMP WI",
+     "SELECT users.id, users.email, users.username, users.full_name, users.first_name, users.last_name, users.hashed_password, users.password_reset_nonce, users.passw"
+    ],
+    "kb_consumer": [
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_customers.stripe_customer_id, billing_customers.user_id, billing_customers.organization_id ",
+     "SELECT billing_credit_balances.amount ",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "orgrole first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_consumer": 3.0,
+    "postgres": 4.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT $1::INTEGER AS anon_1, count(*) AS count_1 ",
+     "DELETE FROM users",
+     "SELECT setval(CAST(format('%I.%I', schemaname, sequencename) AS regclass), start_value, false) FROM pg_sequences WHERE last_value IS NOT NULL AND CAST(format('%",
+     "COMMIT;"
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "orgrole steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_consumer": 3.0,
+    "postgres": 2.6
+   },
+   "pg_sample": {
+    "postgres": [
+     "DELETE FROM billing_customers",
+     "SELECT setval(CAST(format('%I.%I', schemaname, sequencename) AS regclass), start_value, false) FROM pg_sequences WHERE last_value IS NOT NULL AND CAST(format('%"
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "orgrole_and_subactive first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_consumer": 6.0,
+    "postgres": 11.0,
+    "sandloom_rls_app_0e32cec644": 3.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "COMMIT;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "COMMIT;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "COMMIT;",
+     "BEGIN;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, "
+    ],
+    "sandloom_rls_app_0e32cec644": [
+     "UPDATE outbox_messages SET id=$1 WHERE false",
+     "SELECT 1",
+     "COMMIT;"
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "orgrole_and_subactive steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_consumer": 6.0,
+    "postgres": 10.05,
+    "sandloom_rls_app_8ac68cbce8": 0.45
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "INSERT INTO saga_instances (id, saga_type, definition_version, saga_id, tenant_id, status, step_index, direction, resolving, attempt, last_outcome, step_first_a",
+     "INSERT INTO outbox_messages (id, channel, schema_version, payload, trace_id, emitted_at, delivery_attempts) SELECT * FROM unnest(CAST($1 AS UUID[]), CAST($2 AS ",
+     "COMMIT;",
+     "BEGIN;",
+     "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL",
+     "UPDATE outbox_messages SET delivered_at=$1::TIMESTAMP WITHOUT TIME ZONE, last_error=$2::VARCHAR WHERE outbox_messages.id = ANY ($3::UUID[]) AND outbox_messages.",
+     "BEGIN;",
+     "select pg_catalog.version()",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;"
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ],
+    "sandloom_rls_app_8ac68cbce8": [
+     "BEGIN;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "orgrole_and_subactive.outsider first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_consumer": 3.0,
+    "postgres": 8.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "DELETE FROM refresh_tokens",
+     "SELECT laws_saga_effects.method, laws_saga_effects.operation_key, laws_saga_effects.amount ",
+     "ROLLBACK;",
+     "DELETE FROM users",
+     "SELECT setval(CAST(format('%I.%I', schemaname, sequencename) AS regclass), start_value, false) FROM pg_sequences WHERE last_value IS NOT NULL AND CAST(format('%",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "COMMIT;",
+     "INSERT INTO saga_instances (id, saga_type, definition_version, saga_id, tenant_id, status, step_index, direction, resolving, attempt, last_outcome, step_first_a"
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "orgrole_and_subactive.outsider steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_consumer": 3.0,
+    "postgres": 5.65
+   },
+   "pg_sample": {
+    "postgres": [
+     "COMMIT;",
+     "INSERT INTO billing_prices (stripe_price_id, product_id, amount, currency, recurring_interval, credits) SELECT p0::VARCHAR, p1::INTEGER, p2::INTEGER, p3::VARCHA",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "COMMIT;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, "
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "bound.control first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "postgres": 4.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "COMMIT;",
+     "INSERT INTO billing_credit_balances (customer_id, amount) VALUES ($1::UUID, $2::BIGINT) ON CONFLICT (customer_id) DO NOTHING RETURNING billing_credit_balances.i",
+     "UPDATE outbox_messages SET delivered_at=$1::TIMESTAMP WITHOUT TIME ZONE, last_error=$2::VARCHAR WHERE outbox_messages.id = ANY ($3::UUID[]) AND outbox_messages.",
+     "SELECT billing_customers.id, billing_customers.stripe_customer_id, billing_customers.user_id, billing_customers.organization_id "
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "bound.control steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "postgres": 1.55
+   },
+   "pg_sample": {
+    "postgres": [
+     "SET LOCAL row_security = off"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "bound.orgrole_and_subactive first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_consumer": 9.0,
+    "postgres": 20.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "RELEASE SAVEPOINT sa_savepoint_3",
+     "COMMIT;",
+     "BEGIN",
+     "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = current_database()",
+     "SELECT tenancy_members.id, tenancy_members.organization_id, tenancy_members.user_id, tenancy_members.role, tenancy_members.created_at ",
+     "UPDATE outbox_messages SET delivered_at=$1::TIMESTAMP WITHOUT TIME ZONE, last_error=$2::VARCHAR WHERE outbox_messages.id = ANY ($3::UUID[]) AND outbox_messages.",
+     "INSERT INTO tenancy_member_versions (organization_id, user_id, version) VALUES ($1::UUID, $2::UUID, $3::BIGINT) ON CONFLICT (organization_id, user_id) DO UPDATE",
+     "COMMIT;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "BEGIN;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "SELECT tenancy_members.id, tenancy_members.organization_id, tenancy_members.user_id, tenancy_members.role, tenancy_members.created_at ",
+     "COMMIT;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = current_database()",
+     "SELECT tenancy_members.id, tenancy_members.organization_id, tenancy_members.user_id, tenancy_members.role, tenancy_members.created_at ",
+     "SELECT saga_steps.step ",
+     "UPDATE tenancy_members SET role=$1::VARCHAR WHERE tenancy_members.id = $2::UUID",
+     "UPDATE saga_instances SET saga_type=$1::VARCHAR, definition_version=$2::INTEGER, saga_id=$3::VARCHAR, tenant_id=$4::UUID, status=$5::VARCHAR, step_index=$6::INT"
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "bound.orgrole_and_subactive steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_consumer": 9.0,
+    "postgres": 18.1
+   },
+   "pg_sample": {
+    "postgres": [
+     "SAVEPOINT sa_savepoint_1",
+     "COMMIT;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "INSERT INTO tenancy_organizations (id, name, slug, owner_id, is_active) VALUES ($1::UUID, $2::VARCHAR, $3::VARCHAR, $4::UUID, $5::BOOLEAN) RETURNING tenancy_org",
+     "COMMIT;",
+     "BEGIN;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "RELEASE SAVEPOINT sa_savepoint_1",
+     "SELECT saga_steps.instance_id, saga_steps.step, saga_steps.direction, saga_steps.saga_type, saga_steps.tenant_id, saga_steps.status, saga_steps.outcome, saga_st",
+     "INSERT INTO tenancy_members (id, organization_id, user_id, role) VALUES ($1::UUID, $2::UUID, $3::UUID, $4::VARCHAR) RETURNING tenancy_members.created_at",
+     "COMMIT;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "SELECT tenancy_organizations.id, tenancy_organizations.name, tenancy_organizations.slug, tenancy_organizations.owner_id, tenancy_organizations.is_active, tenanc",
+     "COMMIT;",
+     "SET LOCAL row_security = off"
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "bound.member first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_consumer": 3.0,
+    "postgres": 8.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "UPDATE outbox_messages SET delivered_at=$1::TIMESTAMP WITHOUT TIME ZONE, last_error=$2::VARCHAR WHERE outbox_messages.id = ANY ($3::UUID[]) AND outbox_messages.",
+     "BEGIN;",
+     "SELECT tenancy_organizations.id, tenancy_organizations.name, tenancy_organizations.slug, tenancy_organizations.owner_id, tenancy_organizations.is_active, tenanc",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "SELECT users.id, users.email, users.username, users.full_name, users.first_name, users.last_name, users.hashed_password, users.password_reset_nonce, users.passw",
+     "INSERT INTO tenancy_member_versions (organization_id, user_id, version) VALUES ($1::UUID, $2::UUID, $3::BIGINT) ON CONFLICT (organization_id, user_id) DO UPDATE",
+     "COMMIT;"
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "bound.member steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_consumer": 3.0,
+    "postgres": 8.6
+   },
+   "pg_sample": {
+    "postgres": [
+     "COMMIT;",
+     "RELEASE SAVEPOINT sa_savepoint_1",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "ROLLBACK;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "COMMIT;",
+     "SELECT $1::INTEGER AS anon_1, count(*) AS count_1 ",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;"
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "bound.admin_inactive first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_consumer": 9.0,
+    "postgres": 27.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT coalesce(sum(laws_saga_effects.amount), $1::INTEGER) AS coalesce_1 ",
+     "SELECT setval(CAST(format('%I.%I', schemaname, sequencename) AS regclass), start_value, false) FROM pg_sequences WHERE last_value IS NOT NULL AND CAST(format('%",
+     "SET LOCAL lock_timeout = '30s'",
+     "INSERT INTO laws_saga_effects (method, operation_key, amount, refunds) VALUES ($1::VARCHAR, $2::VARCHAR, $3::INTEGER, $4::VARCHAR) RETURNING laws_saga_effects.i",
+     "SELECT pg_try_advisory_xact_lock($1, $2)",
+     "COMMIT;",
+     "UPDATE contract_command_log SET status=$1::VARCHAR, result=$2::VARCHAR, effects=$3::VARCHAR, expires_at=$4::TIMESTAMP WITHOUT TIME ZONE WHERE contract_command_l",
+     "COMMIT;",
+     "INSERT INTO http_idempotency_log (dedupe_key, scope, tenant_id, args_digest, status, result, created_at, expires_at) VALUES ($1::VARCHAR, $2::VARCHAR, $3::VARCH",
+     "SELECT $1::INTEGER AS anon_1, count(*) AS count_1 ",
+     "INSERT INTO saga_steps (instance_id, step, direction, saga_type, tenant_id, status, outcome, attempts, operation_key, first_attempt_at, last_attempt_at, last_du",
+     "DELETE FROM users",
+     "UPDATE http_idempotency_log SET status=$1::VARCHAR, result=$2::VARCHAR, expires_at=$3::TIMESTAMP WITHOUT TIME ZONE WHERE http_idempotency_log.dedupe_key = $4::V",
+     "UPDATE saga_instances SET saga_type=$1::VARCHAR, definition_version=$2::INTEGER, saga_id=$3::VARCHAR, tenant_id=$4::UUID, status=$5::VARCHAR, step_index=$6::INT",
+     "ROLLBACK;",
+     "COMMIT;",
+     "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL",
+     "SELECT setval(CAST(format('%I.%I', schemaname, sequencename) AS regclass), start_value, false) FROM pg_sequences WHERE last_value IS NOT NULL AND CAST(format('%",
+     "BEGIN;",
+     "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "COMMIT;",
+     "BEGIN;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "COMMIT;",
+     "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;"
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b002', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b002', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "bound.admin_inactive steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_consumer": 9.0,
+    "postgres": 15.2
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "COMMIT;",
+     "BEGIN;",
+     "SELECT pg_try_advisory_xact_lock($1, $2)",
+     "SELECT count(*) AS count_1 ",
+     "ROLLBACK;",
+     "SELECT twofa_secrets.id, twofa_secrets.user_id, twofa_secrets.secret, twofa_secrets.is_enabled, twofa_secrets.last_used_step, twofa_secrets.created_at, twofa_se",
+     "BEGIN;",
+     "INSERT INTO http_idempotency_log (dedupe_key, scope, tenant_id, args_digest, status, result, created_at, expires_at) VALUES ($1::VARCHAR, $2::VARCHAR, $3::VARCH",
+     "SELECT laws_saga_effects.method, laws_saga_effects.operation_key, laws_saga_effects.amount ",
+     "ROLLBACK;",
+     "UPDATE http_idempotency_log SET status=$1::VARCHAR, result=$2::VARCHAR, expires_at=$3::TIMESTAMP WITHOUT TIME ZONE WHERE http_idempotency_log.dedupe_key = $4::V",
+     "INSERT INTO audit_log (id, occurred_at, actor_id, actor_type, action, resource_type, resource_id, data, request_id, trace_id) SELECT * FROM unnest(CAST($1 AS UU",
+     "INSERT INTO twofa_secrets (id, user_id, secret, is_enabled, last_used_step, enabled_at) VALUES ($1::UUID, $2::UUID, $3::VARCHAR, $4::BOOLEAN, $5::BIGINT, $6::TI",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;"
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b002', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b002', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "bound.outsider first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_consumer": 3.0,
+    "postgres": 13.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN",
+     "INSERT INTO users (id, email, username, full_name, first_name, last_name, hashed_password, password_reset_nonce, password_reset_required, is_active, is_superuse",
+     "SELECT 1 FROM pg_extension WHERE extname = 'citext'",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "COMMIT;",
+     "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL",
+     "INSERT INTO saga_instances (id, saga_type, definition_version, saga_id, tenant_id, status, step_index, direction, resolving, attempt, last_outcome, step_first_a",
+     "BEGIN;",
+     "BEGIN;",
+     "INSERT INTO outbox_messages (id, channel, schema_version, payload, trace_id, emitted_at, delivery_attempts) SELECT * FROM unnest(CAST($1 AS UUID[]), CAST($2 AS ",
+     "COMMIT;",
+     "SELECT users.id, users.email, users.username, users.full_name, users.first_name, users.last_name, users.hashed_password, users.password_reset_nonce, users.passw",
+     "UPDATE outbox_messages SET delivered_at=$1::TIMESTAMP WITHOUT TIME ZONE, last_error=$2::VARCHAR WHERE outbox_messages.id = ANY ($3::UUID[]) AND outbox_messages."
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "bound.outsider steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_consumer": 3.0,
+    "postgres": 7.4
+   },
+   "pg_sample": {
+    "postgres": [
+     "UPDATE saga_instances SET saga_type=$1::VARCHAR, definition_version=$2::INTEGER, saga_id=$3::VARCHAR, tenant_id=$4::UUID, status=$5::VARCHAR, step_index=$6::INT",
+     "SELECT tenancy_members.role ",
+     "CREATE INDEX ix_outbox_messages_delivered ON outbox_messages (delivered_at) WHERE delivered_at IS NOT NULL",
+     "INSERT INTO outbox_messages (id, channel, schema_version, payload, trace_id, emitted_at, delivery_attempts) SELECT * FROM unnest(CAST($1 AS UUID[]), CAST($2 AS ",
+     "SELECT tenancy_members.id, tenancy_members.organization_id, tenancy_members.user_id, tenancy_members.role, tenancy_members.created_at ",
+     "COMMIT;",
+     ""
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "bound.no_tenant first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "postgres": 6.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "UPDATE outbox_messages SET delivered_at=$1::TIMESTAMP WITHOUT TIME ZONE, last_error=$2::VARCHAR WHERE outbox_messages.id = ANY ($3::UUID[]) AND outbox_messages.",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "CLOSE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD TEMP; RESET ALL",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "BEGIN;",
+     "COMMIT;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "bound.no_tenant steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "postgres": 1.75
+   },
+   "pg_sample": {
+    "postgres": [
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "or_sub_user.admin first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_consumer": 3.0,
+    "postgres": 9.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "COMMIT;",
+     "BEGIN;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "",
+     "CREATE UNIQUE INDEX ix_billing_products_stripe_product_id ON billing_products (stripe_product_id)",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "UPDATE billing_customers SET stripe_customer_id=$1::VARCHAR WHERE billing_customers.id = $2::UUID AND billing_customers.stripe_customer_id IS NULL RETURNING bil"
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "or_sub_user.admin steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_consumer": 3.0,
+    "postgres": 5.6
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT billing_credit_grants.id, billing_credit_grants.customer_id, billing_credit_grants.psp_session_id, billing_credit_grants.psp_payment_intent_id, billing_c",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "RELEASE SAVEPOINT sa_savepoint_2",
+     "COMMIT;",
+     "UPDATE billing_stripe_events SET status=$1::VARCHAR, note=$2::VARCHAR WHERE billing_stripe_events.event_id = $3::VARCHAR"
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "not_member.admin first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_consumer": 3.0,
+    "postgres": 13.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN",
+     "COMMIT;",
+     "INSERT INTO billing_customers (id, user_id) VALUES ('2f01c44e-74f6-4995-b5a6-0085d65b73f4', 'a4f8688d-034e-4464-aa22-f5665e62e5cb')",
+     "UPDATE billing_stripe_events SET status=$1::VARCHAR, note=$2::VARCHAR WHERE billing_stripe_events.event_id = $3::VARCHAR",
+     "SELECT count(*) FROM pg_stat_activity WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))",
+     "COMMIT",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "COMMIT;",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "SELECT billing_credit_balances.amount ",
+     "BEGIN;",
+     "INSERT INTO saga_steps (instance_id, step, direction, saga_type, tenant_id, status, attempts, operation_key, first_attempt_at) VALUES ($1::UUID, $2::VARCHAR, $3",
+     "SELECT count(*) AS count_1 "
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "not_member.admin steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_consumer": 3.0,
+    "postgres": 10.85
+   },
+   "pg_sample": {
+    "postgres": [
+     "COMMIT;",
+     "BEGIN;",
+     "BEGIN;",
+     "INSERT INTO billing_stripe_events (event_id, status) VALUES ($1::VARCHAR, $2::VARCHAR) ON CONFLICT (event_id) DO NOTHING RETURNING billing_stripe_events.id",
+     "BEGIN;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "SELECT saga_instances.id, saga_instances.saga_type, saga_instances.definition_version, saga_instances.saga_id, saga_instances.tenant_id, saga_instances.status, ",
+     "BEGIN;",
+     "SAVEPOINT sa_savepoint_3"
+    ],
+    "kb_consumer": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.25
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "subscribed.past_due first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "postgres": 7.0
+   },
+   "pg_sample": {
+    "postgres": [
+     "SELECT outbox_messages.id, outbox_messages.channel, outbox_messages.schema_version, outbox_messages.payload, outbox_messages.trace_id, outbox_messages.emitted_a",
+     "BEGIN;",
+     "",
+     "INSERT INTO saga_steps (instance_id, step, direction, saga_type, tenant_id, status, attempts, operation_key, first_attempt_at) VALUES ($1::UUID, $2::VARCHAR, $3",
+     "BEGIN;",
+     "COMMIT;",
+     "UPDATE outbox_messages SET delivered_at=$1::TIMESTAMP WITHOUT TIME ZONE, last_error=$2::VARCHAR WHERE outbox_messages.id = ANY ($3::UUID[]) AND outbox_messages."
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "subscribed.past_due steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "postgres": 2.6
+   },
+   "pg_sample": {
+    "postgres": [
+     "BEGIN;",
+     "INSERT INTO saga_steps (instance_id, step, direction, saga_type, tenant_id, status, attempts, operation_key, first_attempt_at) VALUES ($1::UUID, $2::VARCHAR, $3"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  }
+ }
+}

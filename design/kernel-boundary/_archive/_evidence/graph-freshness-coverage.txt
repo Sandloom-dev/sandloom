@@ -1,0 +1,78 @@
+# `sandloom graph` at b8d8506 in a throwaway worktree ($S/wt = git worktree add --detach $S/wt b8d8506,
+# `uv sync` there: sandloom, sandloom-billing, -identity, -tenancy editable; sandloom-admin not installed).
+# The working copy was not touched. $S = scratch directory.
+# throwaway worktree at b8d8506, before generate
+$ git log -1 --format="%h %cI" -- .sandloom/inspection.json
+80d4cc7 2026-11-07T15:59:44Z
+$ uv run sandloom graph --format text
+Sandloom architecture · declared model
+Freshness: not verified on this checkout
+
+billing: Billing module: monetization (plans, subscriptions, credits, Stripe).
+└─ 28 routes · 10 tables · provides billing.credits.v1, billing.entitlements.v1 · 7 events · calls tenancy
+identity: Identity module: users, JWT auth, RBAC, 2FA, SSO.
+└─ 49 routes · 9 tables · provides identity.contact.v1, identity.security.v1 · 15 events
+tenancy: Tenancy module: organizations, membership, invitations.
+└─ 17 routes · 4 tables · provides tenancy.membership.v1 · 12 events
+[exit 0]
+
+$ ls .sandloom/cache/
+ls: .sandloom/cache/: No such file or directory
+
+$ uv run sandloom generate
+sandloom.app: INTERNAL_API_TOKEN is unset: /metrics, /diagnostics, /contracts and /health details are disabled (404). Set the token, or INTERNAL_ENDPOINTS_OPEN_IN_DEV=true for local development.
+generated files current (51 file(s))
+[exit 0]   (`uv run sandloom generate --check` after it: "generated files up to date (51 file(s))", exit 0)
+
+$ git status --short
+
+$ ls .sandloom/cache/
+inspection-receipt.json
+
+$ uv run sandloom graph --format text
+Sandloom architecture · declared model
+Freshness: verified
+
+billing: Billing module: monetization (plans, subscriptions, credits, Stripe).
+└─ 28 routes · 10 tables · provides billing.credits.v1, billing.entitlements.v1 · 7 events · calls tenancy
+identity: Identity module: users, JWT auth, RBAC, 2FA, SSO.
+└─ 49 routes · 9 tables · provides identity.contact.v1, identity.security.v1 · 15 events
+tenancy: Tenancy module: organizations, membership, invitations.
+└─ 17 routes · 4 tables · provides tenancy.membership.v1 · 12 events
+[exit 0]
+
+# JSON (`uv run sandloom graph --format json --detail full --max-bytes 2000000`), before and after generate, summarised:
+$ python3 - <<EOF ... (inline summary of the two JSON files; counts below)
+data identical before/after generate: True
+freshness.state before: missing_receipt | after: verified
+freshness.basis: enumerated authoring source; not live deployment
+scope: {'kind': 'authoring_composition', 'module_ids': ['module:billing', 'module:identity', 'module:tenancy']}
+nodes by kind: {'capability': 3, 'consumer': 2, 'contract': 5, 'event': 36, 'module': 3}
+contract nodes: ['billing.credits.v1', 'billing.entitlements.v1', 'identity.contact.v1', 'identity.security.v1', 'tenancy.membership.v1']
+edges by kind: {'provides_contract': 5, 'requires_capability': 7, 'produces_event': 34, 'owns_consumer': 2, 'consumes_event': 2, 'requires_contract': 1}
+edge evidence_kind: {'registered_declaration': 51}
+hidden: {'edges': 0, 'nodes': 0} | unresolved: [] | cycles: []
+process_counts: {'route': 94, 'saga': 0}
+module_relations: [('optional_contract', 'module:billing', 'module:tenancy')]
+sync_coupling.basis: declared_requires | upper bound from declared contract requires; not measured calls
+nodes whose id names core: ['event:core.auth.tokens_revoked.v1', 'event:core.auth.user_blocked.v1']
+occurrences of 'claims.v1': 0
+occurrences of 'facts.v1': 0
+occurrences of 'tenant_ids': 0
+occurrences of 'claims_sources': 0
+occurrences of 'live_adapter': 0
+occurrences of 'TWOFA': 0
+occurrences of 'BILLING_PROVIDER': 0
+occurrences of 'sandloom_admin': 0
+occurrences of 'require_platform_admin': 60
+a route gated by require_platform_admin is shown as: GET /api/v1/platform/billing/balances policy.risk = {'admin': ['sandloom.shared.guards.platform.require_platform_admin']}
+
+# The working copy (read only): committed inspection index equals b8d8506; the receipt is local
+$ git diff --stat b8d8506 HEAD -- .sandloom
+(empty)
+$ git check-ignore -v .sandloom/cache/inspection-receipt.json
+.gitignore:37:**/.sandloom/cache/	.sandloom/cache/inspection-receipt.json
+$ ls -l .sandloom/cache/inspection-receipt.json
+Nov 7 18:58 .sandloom/cache/inspection-receipt.json
+$ git log -1 --format="%h %ci" b8d8506
+b8d8506 2026-11-07 22:19:32 +0000

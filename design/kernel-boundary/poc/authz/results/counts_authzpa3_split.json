@@ -1,0 +1,284 @@
+{
+ "topology": "split",
+ "m": 20,
+ "windows": {
+  "bound.orgrole_and_subactive first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 15.0
+   },
+   "pg_sample": {
+    "kb_provider": [
+     "BEGIN;",
+     "select pg_catalog.version()",
+     "select current_schema()",
+     "show transaction isolation level",
+     "show standard_conforming_strings",
+     "ROLLBACK;",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db0": 3.0,
+    "db3": 2.0
+   },
+   "redis_sample": {
+    "db0": [
+     "PING",
+     "CLIENT",
+     "CLIENT"
+    ],
+    "db3": [
+     "SELECT",
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 6.0,
+   "rpc_sample": [
+    "GET /_sandloom/rpc/pa3.facts.v1 200",
+    "POST /_sandloom/rpc/pa3.facts.v1/describe 200",
+    "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200",
+    "GET /_sandloom/rpc/tenancy.membership.v1 200",
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200"
+   ]
+  },
+  "bound.orgrole_and_subactive steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 9.0
+   },
+   "pg_sample": {
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 3.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200",
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200"
+   ]
+  },
+  "bound.member first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0
+   },
+   "pg_sample": {
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200"
+   ]
+  },
+  "bound.member steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0
+   },
+   "pg_sample": {
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200"
+   ]
+  },
+  "bound.admin_inactive first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 9.0
+   },
+   "pg_sample": {
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b002', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b002', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 3.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200",
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200"
+   ]
+  },
+  "bound.admin_inactive steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 9.0
+   },
+   "pg_sample": {
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b002', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b002', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT",
+     "BEGIN;",
+     "SELECT billing_customers.id, billing_subscriptions.id AS id_1, billing_subscriptions.customer_id, billing_subscriptions.price_id, billing_subscriptions.stripe_s",
+     "ROLLBACK;"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 3.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200",
+    "POST /_sandloom/rpc/tenancy.membership.v1/has_role_at_least 200",
+    "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200"
+   ]
+  },
+  "bound.outsider first": {
+   "requests": 1,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0
+   },
+   "pg_sample": {
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200"
+   ]
+  },
+  "bound.outsider steady": {
+   "requests": 20,
+   "pg_statements_per_req": {
+    "kb_provider": 3.0
+   },
+   "pg_sample": {
+    "kb_provider": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY; SELECT set_config('sandloom.tenant_id', '00000000-0000-4000-8000-00000000b001', true)",
+     "SELECT e.role FROM tenancy_members AS e JOIN tenancy_organizations AS j ON e.organization_id = j.id WHERE e.organization_id = $1 AND e.user_id = $2 AND j.is_act",
+     "COMMIT"
+    ]
+   },
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 1.0,
+   "rpc_sample": [
+    "POST /_sandloom/rpc/pa3.facts.v1/evaluate 200"
+   ]
+  },
+  "bound.no_tenant first": {
+   "requests": 1,
+   "pg_statements_per_req": {},
+   "pg_sample": {},
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  },
+  "bound.no_tenant steady": {
+   "requests": 20,
+   "pg_statements_per_req": {},
+   "pg_sample": {},
+   "redis_commands_per_req": {
+    "db3": 1.0
+   },
+   "redis_sample": {
+    "db3": [
+     "GET"
+    ]
+   },
+   "rpc_requests_per_req": 0.0,
+   "rpc_sample": []
+  }
+ }
+}

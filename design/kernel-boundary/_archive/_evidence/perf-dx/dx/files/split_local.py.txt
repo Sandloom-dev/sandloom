@@ -1,0 +1,57 @@
+"""Manual: run the generated microservices profile's two services as local
+processes (no documented non-Docker path). Env = the app's .env + the per-service
+env of deploy/compose/microservices.yml + the dev keys of deploy/.env.microservices,
+with JWT kept HS256 (no issuer in this app) and the dev DB/Redis."""
+import json, os, re, subprocess, sys, time, uuid, socket
+import jwt, yaml
+APP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dxquota")
+def dotenv(p):
+    out = {}
+    for line in open(p):
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1); out[k] = v.strip().strip("'\"")
+    return out
+base = dotenv(f"{APP}/.env"); keys = dotenv(f"{APP}/deploy/.env.microservices")
+compose = yaml.safe_load(open(f"{APP}/deploy/compose/microservices.yml"))
+def sub(v):
+    def rep(m):
+        d = m.group(2) or ""
+        return keys.get(m.group(1), d[2:] if d.startswith(":-") else "")
+    return re.sub(r"\$\{([A-Z0-9_]+)(:[-?][^}]*)?\}", rep, str(v))
+def env_of(svc, port):
+    e = {k: sub(v) for k, v in compose[f"x-{svc}-env"].items() if not k.startswith("<<")}
+    common = {k: sub(v) for k, v in compose["x-common-env"].items() if k in ("RPC_ALLOWED_CALLS", "RPC_SERVICE_KEYS", "RPC_SERVICE_DH_KEYS")}
+    e.update(common)
+    e.update({k: base[k] for k in ("DATABASE_URL", "CACHE_URL", "BROKER_URL", "JWT_SECRET", "JWT_ALGORITHM", "ENVIRONMENT")})
+    for k in ("JWT_PUBLIC_KEYS", "JWT_KID", "EVENT_BUS_BACKEND"):
+        e.pop(k, None)
+    e["SERVICE_BINDINGS"] = e["SERVICE_BINDINGS"].replace("http://quota:8000", f"http://127.0.0.1:{ports['quota']}")
+    e["SANDLOOM_ACCEPTED_RISKS"] = "shared_hs_secret_split"
+    return {**os.environ, **e}
+def free():
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
+ports = {"quota": free(), "reports": free()}
+procs = {}
+for svc in ("quota", "reports"):
+    procs[svc] = subprocess.Popen([sys.executable, "-m", "uvicorn", "dxquota.asgi:app", "--port", str(ports[svc]), "--log-level", "info"],
+        cwd=APP, env=env_of(svc, ports[svc]), stdout=open(f"{svc}.log", "wb"), stderr=subprocess.STDOUT)
+time.sleep(6)
+import urllib.request
+def call(svc, method, path, token, body=None):
+    req = urllib.request.Request(f"http://127.0.0.1:{ports[svc]}{path}", method=method,
+        data=json.dumps(body).encode() if body is not None else b"", headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req) as r: return r.status, r.read().decode()[:120]
+    except urllib.error.HTTPError as e: return e.code, e.read().decode()[:160]
+user, tenant = uuid.uuid4(), uuid.uuid4(); now = int(time.time())
+tok = jwt.encode({"sub": str(user), "token_type": "access", "iat": now, "exp": now + 600, "tenant_id": str(tenant), "tenant_ids": [str(tenant)]}, base["JWT_SECRET"], algorithm=base.get("JWT_ALGORITHM", "HS256"))
+try:
+    for t in ("a", "b"): print("quota item", call("quota", "POST", "/api/v1/quota/items", tok, {"title": t}))
+    print("reports export (2 items)", call("reports", "POST", "/api/v1/reports/exports", tok))
+    print("quota item", call("quota", "POST", "/api/v1/quota/items", tok, {"title": "c"}))
+    print("reports export (3 items)", call("reports", "POST", "/api/v1/reports/exports", tok))
+    procs["quota"].terminate(); procs["quota"].wait(5)
+    print("reports export (quota down)", call("reports", "POST", "/api/v1/reports/exports", tok))
+finally:
+    for p in procs.values(): p.terminate()

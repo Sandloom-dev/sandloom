@@ -27,7 +27,7 @@ To change how they behave, see [Customize a standard module](customize.md).
 | Module | Startup-critical | Provides | Publishes | Consumes |
 | --- | --- | --- | --- | --- |
 | [Identity](identity.md) | ✅ | `identity.claims.v1` (roles/permissions, critical), auth guards, token issuance | 15 `identity.*` events | every registered `<module>.claims.v1` at token mint |
-| [Tenancy](tenancy.md) | ❌ | `tenancy.membership.v1` (read-only), `tenancy.claims.v1` (`tenant_ids`, critical) | 9 `tenancy.*` events | — |
+| [Tenancy](tenancy.md) | ❌ | `tenancy.membership.v1` (read-only), `tenancy.claims.v1` (`tenant_ids`, critical), `tenancy.security.v1` (operator: `list_member_user_ids` for `sandloom security ... --tenant`) | 9 `tenancy.*` events | — |
 | [Billing](billing.md) | ❌ | `billing.entitlements.v1`, `billing.credits.v1`, `billing.claims.v1`; access facts `subscription.active`, `organization.subscription.active` | 5 `billing.*` events | `tenancy.membership.v1` |
 
 `<module>.claims.v1` contracts are registered automatically by
@@ -41,7 +41,7 @@ their operation key and are **not** atomic with the caller's transaction.
 
 These modules talk to each other only through versioned events and service
 contracts — never direct imports — exactly like the
-[isolation rules](../index.md) require. Your app calls their
-contracts through their stubs in `sandloom.shared.contracts` (shipped with
-`sandloom`, with the generated copies of their contract DTOs; `sandloom
-generate` also writes stubs and copies into the app's shared package).
+[isolation rules](../index.md) require. Your code calls their
+contracts through the stubs `sandloom generate` writes from the providers,
+with the copies of their contract DTOs: into your module's `_generated/`
+package, or into the app's shared package. `sandloom` itself ships none.

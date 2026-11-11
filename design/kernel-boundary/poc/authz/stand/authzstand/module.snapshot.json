@@ -1,0 +1,32 @@
+{
+  "capabilities": [],
+  "consumers": [],
+  "consumes": [
+    {
+      "methods": [
+        "check_subscription_active",
+        "has_credits_at_least"
+      ],
+      "name": "billing.entitlements.v1",
+      "required": true
+    },
+    {
+      "methods": [
+        "has_role_at_least"
+      ],
+      "name": "tenancy.membership.v1",
+      "required": true
+    },
+    {
+      "methods": [],
+      "name": "billing.facts.v1",
+      "required": false
+    }
+  ],
+  "contracts": [],
+  "events": {},
+  "format": 1,
+  "module": "authzstand",
+  "projections": [],
+  "sagas": []
+}

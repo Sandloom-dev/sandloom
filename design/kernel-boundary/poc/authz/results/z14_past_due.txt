@@ -1,0 +1,8 @@
+BILLING_DENY_ON_PAST_DUE=false mono authzstand: subscribed=200 subscribed.past_due=200
+BILLING_DENY_ON_PAST_DUE=false mono authzpa2: subscribed=200 subscribed.past_due=200
+BILLING_DENY_ON_PAST_DUE=false split authzstand: subscribed=200 subscribed.past_due=200
+BILLING_DENY_ON_PAST_DUE=false split authzpa2: subscribed=200 subscribed.past_due=200
+BILLING_DENY_ON_PAST_DUE=true mono authzstand: subscribed=200 subscribed.past_due=402
+BILLING_DENY_ON_PAST_DUE=true mono authzpa2: subscribed=200 subscribed.past_due=402
+BILLING_DENY_ON_PAST_DUE=true split authzstand: subscribed=200 subscribed.past_due=402
+BILLING_DENY_ON_PAST_DUE=true split authzpa2: subscribed=200 subscribed.past_due=402

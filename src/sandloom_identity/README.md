@@ -30,7 +30,8 @@ identity/
 ├── schemas/             # Pydantic DTO
 ├── services/            # auth, token, user, role, sso, twofa, reauth
 ├── migrations/          # собственная цепочка миграций модуля
-├── claims.py            # contribute_identity_claims (roles/permissions)
+├── claims.py            # contribute_identity_claims (roles/permissions, email/email_verified)
+├── rbac.py              # Permissions/Roles: коды ролей и прав; другие модули не импортируют, а пишут строки (`Perm("perm.users.read")`)
 ├── events.py            # события и их контракт
 ├── lockout.py           # per-account блокировка подбора
 ├── sessions.py          # revoke_sessions → identity.user_sessions_revoked.v1

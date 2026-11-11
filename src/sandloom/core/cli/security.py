@@ -1,10 +1,12 @@
 """``sandloom security`` — incident-response commands (leak / compromise runbook).
 
     sandloom security revoke-sessions (--all | --tenant ORG | --user ID ...)
-        end every session of the targets: refresh tokens revoked, access
-        tokens rejected from the next request
+        end every session of the targets: the kernel revokes their access
+        tokens (any issuer), the issuer ends what it holds itself (refresh
+        sessions); the output says kind by kind what was done
     sandloom security force-password-reset (--all | --tenant ORG | --user ID ...)
         refuse password sign-in until the reset flow, and end every session
+        (only where the issuer has passwords: refused otherwise)
     sandloom security audit-export --since T [--until T] [--action-prefix P]
                       [--database NAME ...] --output FILE
         the audit log of a time window as JSONL (sanitized metadata, no
@@ -17,18 +19,45 @@
 
 Every command is DRY-RUN by default (targets / rows counted, nothing changed);
 ``--apply`` acts and needs ``--reason``; in production also
-``--confirm-production``. Each applied action is audited: per affected user
-by identity (``identity.user.sessions_revoked`` /
-``identity.user.password_reset_required``, ``actor_type="operator"``) and the
-export itself (``core.security.audit_exported``).
+``--confirm-production``. Each applied action is audited: per affected user by
+the kernel (``core.security.tokens_revoked``) and by the issuer (identity:
+``identity.user.sessions_revoked`` / ``identity.user.password_reset_required``,
+``actor_type="operator"``), and the export itself
+(``core.security.audit_exported``).
 
-The session commands call the token issuer's ``identity.security.v1`` contract
-(local when identity is in this process, else through ``SERVICE_BINDINGS``
-with an ``RPC_ALLOWED_CALLS`` grant) in batches, each deduplicated on an
-operation key derived from ``--operation-id`` + the batch: re-running an
-interrupted command with the same ``--operation-id`` replays finished batches
-instead of repeating them. ``--tenant`` pages the members through
-``tenancy.membership.v1``.
+Who answers (:mod:`sandloom.core.cli.operator_owner`): the session commands ask
+the claim map's ``issuer`` (``<issuer>.security.v1``: ``end_sessions``,
+``require_password_reset`` for a reset, ``list_user_ids`` for ``--all``) and,
+for ``--tenant``, the owner of ``tenant_ids`` (``<owner>.security.v1``:
+``list_member_user_ids``). Each method is confirmed by describe before the
+first side effect, a dry run included; a missing one refuses (SANDLOOM-B039 /
+SANDLOOM-B040, exit status 1) and nothing is done. ``grant-admin`` asks two
+owners, both confirmed first (a dry run too): the issuer finds the account by
+address (``account_by_email``), the authority of ``roles`` grants the role
+(``appoint_platform_admin``), one write after every check; they may be
+different modules.
+
+What a session revocation guarantees (B-R5, a platform guarantee):
+
+* **Sandloom access tokens**: revoked by the kernel for every issuer, in the
+  command's own unit of work: one audit row per user, the revocation mark
+  written before commit (``require_immediate``) and the durable
+  ``core.auth.tokens_revoked.v1`` record in the same transaction's outbox,
+  which every service's revocation applier
+  (``sandloom:auth@tokens_revoked@<service>``) applies to its own cache. No
+  success is reported before that unit commits.
+* **Sandloom refresh sessions**: the issuer's, ended by its ``end_sessions``
+  before the kernel revokes the access tokens (so none is refreshed past
+  the mark); mandatory where the issuer declares ``refresh_sessions=True``.
+* **External identity-provider sessions**: not controlled, unless the issuer
+  says it ended them; the output says so.
+* **Revocation is not a block**: a new sign-in stays possible. To refuse it,
+  block the account (the kernel's ``block_user``).
+
+Batches are deduplicated on an operation key derived from ``--operation-id`` +
+the batch: re-running an interrupted command with the same ``--operation-id``
+replays finished batches (the issuer's commands replay their stored result,
+the kernel's part is claimed once per batch) instead of repeating them.
 """
 
 from __future__ import annotations
@@ -39,35 +68,44 @@ import hashlib
 import json
 import sys
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import sandloom.core.auth.revocation as _revocation
+import sandloom.core.cli.admin as _admin
+import sandloom.core.cli.operator_owner as _operator_owner
+import sandloom.core.di as _di
 import sandloom.core.migrations.migrations as _migrations
+from sandloom.core.auth.marks import RevocationUnavailableError
 from sandloom.core.cli._operator import (
     OperatorIntent,
     add_operator_arguments,
     operator_intent,
 )
+from sandloom.core.cli.operator_owner import OperatorOwner
 from sandloom.core.composition import load_composition_core
-from sandloom.core.module_api._service_registry import ServiceNotFound
+from sandloom.core.module_api._errors import ContractCallError
+from sandloom.core.rpc.errors import RemoteServiceBadResponse, RemoteServiceUnavailable
 from sandloom.core.unit_of_work import db_session
 from sandloom.core.unit_of_work.effects import record_audit
 from sandloom.core.unit_of_work.scope import _audit_store
 
-#: The token issuer's operator contract (provided by ``sandloom_identity``).
-SECURITY_CONTRACT = "identity.security.v1"
-#: Membership read contract used to resolve ``--tenant`` (``sandloom_tenancy``).
-MEMBERSHIP_CONTRACT = "tenancy.membership.v1"
 #: Audit action of an applied export.
 AUDIT_EXPORTED_ACTION = "core.security.audit_exported"
+#: Audit action, per user, of the kernel's access-token revocation.
+AUDIT_TOKENS_REVOKED_ACTION = "core.security.tokens_revoked"
+#: Durable claim scope (``consumer_inbox``) of a batch's kernel revocation:
+#: a re-run with the same operation id never revokes that batch again.
+REVOCATION_CLAIM = "sandloom-security@tokens_revoked"
 
-_COMMANDS = {
-    "revoke-sessions": "revoke_sessions",
-    "force-password-reset": "require_password_reset",
-}
+#: The kinds of session a revocation reports, in output order.
+SESSION_KINDS = ("access_tokens", "refresh_sessions", "provider_sessions")
+
+_RESET_COMMAND = "force-password-reset"
+_COMMANDS = ("revoke-sessions", _RESET_COMMAND)
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,15 +122,62 @@ class Targets:
         return f"{len(self.users)} listed user(s)"
 
 
+Pager = Callable[[uuid.UUID | None, int], Awaitable[Sequence[Any]]]
+
+
+@dataclass(frozen=True)
+class SessionPlan:
+    """The confirmed contracts of one session command (nothing called yet).
+
+    ``issuer``: the owner of the sessions; ``sessions``: its contract with
+    ``end_sessions``; ``credentials``: with ``require_password_reset``
+    (``force-password-reset`` only); ``pager``: the target enumeration of
+    ``--all`` / ``--tenant``; ``refresh_declared``: the issuer's
+    ``refresh_sessions`` declaration, read where it runs (its descriptor
+    here, its describe in a split): when ``True`` its ``end_sessions`` must
+    report ``refresh_sessions`` ended.
+    """
+
+    command: str
+    issuer: OperatorOwner
+    sessions: Any
+    credentials: Any = None
+    pager: Pager | None = None
+    pager_owner: OperatorOwner | None = None
+    refresh_declared: bool = True
+
+
 @dataclass(slots=True)
 class BulkResult:
     command: str
     targets: str
     applied: bool
     operation_id: str
+    issuer: str = ""
     batches: int = 0
     users: int = 0
     affected: int = 0
+    ended: set[str] = field(default_factory=set)
+
+    def session_kinds(self) -> dict[str, str]:
+        """What happened to each kind of session (the report)."""
+        if not self.applied:
+            return {
+                "access_tokens": "would_revoke",
+                "refresh_sessions": "issuer_reports",
+                "provider_sessions": "issuer_reports",
+                "sign_in": "still_possible",
+            }
+        return {
+            "access_tokens": "revoked",
+            "refresh_sessions": (
+                "ended" if "refresh_sessions" in self.ended else "not_applicable"
+            ),
+            "provider_sessions": (
+                "ended" if "provider_sessions" in self.ended else "not_controlled"
+            ),
+            "sign_in": "still_possible",
+        }
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -100,28 +185,184 @@ class BulkResult:
             "targets": self.targets,
             "applied": self.applied,
             "operation_id": self.operation_id,
+            "issuer": self.issuer,
             "batches": self.batches,
             "users": self.users,
             "affected": self.affected,
+            "sessions": self.session_kinds(),
+            "password_reset": (
+                ("required" if self.applied else "would_require")
+                if self.command == _RESET_COMMAND
+                else None
+            ),
         }
+
+    def lines(self) -> list[str]:
+        """The per-kind report, one line each (text output)."""
+        kinds = self.session_kinds()
+        who = self.issuer or "the issuer"
+        if not self.applied:
+            out = [
+                "  access tokens: would be revoked by the kernel (every issuer)",
+                "  refresh sessions, external IdP sessions: as "
+                f"{who}'s end_sessions reports",
+            ]
+        else:
+            out = [
+                "  access tokens revoked: the kernel's mark, durable "
+                "(core.auth.tokens_revoked.v1, applied by every service)",
+                f"  refresh sessions ended by {who}"
+                if kinds["refresh_sessions"] == "ended"
+                else f"  refresh sessions not applicable: {who} holds none",
+                f"  external IdP sessions ended by {who}"
+                if kinds["provider_sessions"] == "ended"
+                else "  external IdP sessions not controlled: end them at the IdP",
+            ]
+        if self.command == _RESET_COMMAND:
+            verb = "refused" if self.applied else "would be refused"
+            out.append(f"  password sign-in {verb} until a reset ({who})")
+        out.append(
+            "  new sign-in still possible: revocation is not a block (block the "
+            "account, the kernel's block_user, to refuse it)"
+        )
+        return out
 
 
 def _build_core() -> Any:
     return load_composition_core()
 
 
-def _service(core: Any, name: str) -> Any:
+def _reports_refresh(schema: Any) -> bool | None:
+    """Whether ``end_sessions``'s described answer can report
+    ``refresh_sessions`` (``None``: no schema to read)."""
+    if not isinstance(schema, Mapping):
+        return None
+    fields = (schema.get("returns") or {}).get("fields")
+    ended = (fields or {}).get("ended") if isinstance(fields, Mapping) else None
+    kinds = ((ended or {}).get("type") or {}).get("item") or {}
+    if kinds.get("k") != "literal":
+        return None
+    return "refresh_sessions" in (kinds.get("values") or ())
+
+
+async def plan_session_command(
+    core: Any, command: str, targets: Targets
+) -> SessionPlan:
+    """Confirm every capability ``command`` needs for ``targets``, or refuse
+    (SANDLOOM-B039 / B040, exit 1) before anything is done, a dry run too.
+
+    The issuer's ``refresh_sessions`` declaration is read where it runs (its
+    descriptor here, its describe in a split; not stated: ``True``, the
+    ``define_module`` default). An issuer that declares refresh sessions but
+    whose ``end_sessions`` cannot report them ended is refused here."""
+    credentials = None
+    if command == _RESET_COMMAND:
+        _, credentials = await _operator_owner.operator_contract(
+            core, "credentials", ["require_password_reset"], command=command
+        )
+    issuer = _operator_owner.operator_owner(core, "sessions", command=command)
+    confirmed = await _operator_owner.confirm_operator_contract(
+        core, issuer, ["end_sessions"]
+    )
+    sessions = confirmed.contract
+    refresh_declared = (
+        True if confirmed.refresh_sessions is None else confirmed.refresh_sessions
+    )
+    if (
+        refresh_declared
+        and _reports_refresh(confirmed.schemas.get("end_sessions")) is False
+    ):
+        raise _operator_owner.OperatorCapabilityUnavailable(
+            f"{command}: {issuer.label()} declares refresh_sessions=True, but "
+            f"{issuer.contract}.end_sessions cannot report 'refresh_sessions' "
+            "ended: nothing was done. Make it end the issuer's refresh sessions "
+            f"and report them, or declare define_module(..., refresh_sessions="
+            f"False) in {issuer.module} if it holds none"
+        )
+    pager: Pager | None = None
+    pager_owner: OperatorOwner | None = None
+    if targets.all_users:
+        pager_owner, accounts = await _operator_owner.operator_contract(
+            core, "accounts", ["list_user_ids"], command=command
+        )
+
+        def pager(after: uuid.UUID | None, limit: int) -> Awaitable[Sequence[Any]]:
+            return accounts.list_user_ids(after, limit)  # type: ignore[no-any-return]
+
+    elif targets.tenant is not None:
+        pager_owner, members = await _operator_owner.operator_contract(
+            core, "tenant_members", ["list_member_user_ids"], command=command
+        )
+        org = targets.tenant
+
+        def pager(after: uuid.UUID | None, limit: int) -> Awaitable[Sequence[Any]]:
+            return members.list_member_user_ids(org, after, limit)  # type: ignore[no-any-return]
+
+    return SessionPlan(
+        command=command,
+        issuer=issuer,
+        sessions=sessions,
+        credentials=credentials,
+        pager=pager,
+        pager_owner=pager_owner,
+        refresh_declared=refresh_declared,
+    )
+
+
+def _forbidden(exc: BaseException) -> bool:
+    """The provider's 403 of a caller its ``RPC_ALLOWED_CALLS`` does not list
+    (a domain 403 of the method itself is the provider's word, not a grant)."""
+    return (
+        isinstance(exc, RemoteServiceUnavailable)
+        and getattr(exc, "code", None) == "rpc_caller_forbidden"
+    )
+
+
+async def _call(
+    core: Any,
+    owner: OperatorOwner,
+    method: str,
+    call: Awaitable[Any],
+    *,
+    resume: str,
+) -> Any:
+    """``call``, with a 403 named as the missing grant and any other failure
+    as a resumable stop."""
     try:
-        return core.get_service(name)
-    except ServiceNotFound as exc:
+        return await call
+    except (ContractCallError, RemoteServiceUnavailable) as exc:
+        if _forbidden(exc):
+            raise _operator_owner.forbidden_refusal(core, owner, method) from exc
         raise SystemExit(
-            f"error: contract {name!r} is not available in this process — run the "
-            "command where its module is loaded, or bind it in SERVICE_BINDINGS"
+            f"error: {owner.command}: {owner.contract}.{method} failed "
+            f"({type(exc).__name__}: {getattr(exc, 'detail', exc)}); {resume}"
         ) from exc
 
 
+def _check_answer(
+    owner: OperatorOwner, method: str, answer: Any, *, where: str, then: str
+) -> None:
+    """Refuse (SANDLOOM-B039, exit 1, no traceback) an answer that is not
+    what ``method`` returns to the kernel, before the next side effect.
+    ``where``: the batch it answered; ``then``: what is done and how to go
+    on (an answer the owner stored for its operation key replays on a
+    resume: the same refusal, never a crash)."""
+    problem = _operator_owner.answer_problem(method, answer)
+    if problem is None:
+        return
+    raise _operator_owner.OperatorCapabilityUnavailable(
+        f"{owner.command}: {where}: {owner.label()}; {owner.contract}.{method} "
+        f"answered incompatibly ({problem}). {then}"
+    )
+
+
 async def iter_target_batches(
-    core: Any, targets: Targets, *, batch: int
+    core: Any,
+    plan: SessionPlan,
+    targets: Targets,
+    *,
+    batch: int,
+    operation_id: str = "",
 ) -> AsyncIterator[list[uuid.UUID]]:
     """The target user ids in batches of at most ``batch``."""
     if targets.users:
@@ -129,22 +370,32 @@ async def iter_target_batches(
         for start in range(0, len(ids), batch):
             yield ids[start : start + batch]
         return
+    if plan.pager is None or plan.pager_owner is None:
+        raise ValueError("targets without users need a confirmed pager")
+    method = "list_user_ids" if targets.all_users else "list_member_user_ids"
     after: uuid.UUID | None = None
-    if targets.all_users:
-        security = _service(core, SECURITY_CONTRACT)
-
-        def _page(after: uuid.UUID | None) -> Awaitable[list[uuid.UUID]]:
-            return security.list_user_ids(after, batch)  # type: ignore[no-any-return]
-
-    else:
-        membership = _service(core, MEMBERSHIP_CONTRACT)
-        org = targets.tenant
-
-        def _page(after: uuid.UUID | None) -> Awaitable[list[uuid.UUID]]:
-            return membership.list_member_user_ids(org, after, batch)  # type: ignore[no-any-return]
-
+    pages = 0
     while True:
-        page = [uuid.UUID(str(u)) for u in await _page(after)]
+        raw = await _call(
+            core,
+            plan.pager_owner,
+            method,
+            plan.pager(after, batch),
+            resume="re-run with the same --operation-id to resume",
+        )
+        pages += 1
+        _check_answer(
+            plan.pager_owner,
+            method,
+            raw,
+            where=f"page {pages} of the targets",
+            then=(
+                f"Batches before it are done: fix {plan.pager_owner.module}'s "
+                f"{method}, then re-run with --operation-id {operation_id} "
+                "(finished batches replay)"
+            ),
+        )
+        page = [uuid.UUID(str(u)) for u in raw]
         if not page:
             return
         yield page
@@ -161,6 +412,161 @@ def batch_operation_key(
     return f"sandloom-security:{command}:{operation_id}:{digest}"
 
 
+async def revoke_access_tokens(
+    ids: Sequence[uuid.UUID], *, command: str, intent: OperatorIntent, key: str
+) -> bool:
+    """The kernel's part: revoke every access token of ``ids``, any issuer.
+
+    One unit of work in this process's ``default`` database: a durable claim
+    of ``key`` (a re-run replays: ``False``), one audit row per user, and per
+    user the revocation mark written before commit (``require_immediate``:
+    an unreachable cache refuses and rolls back) with the durable
+    ``core.auth.tokens_revoked.v1`` record in the same outbox, which every
+    service's revocation applier applies to its own cache.
+    """
+    async with db_session() as session:
+        if not await _di.durable_inbox(REVOCATION_CLAIM).claim(session, key):
+            return False
+        for user_id in ids:
+            record_audit(
+                AUDIT_TOKENS_REVOKED_ACTION,
+                actor_id=None,
+                actor_type="operator",
+                resource_type="user",
+                resource_id=str(user_id),
+                data={
+                    "command": command,
+                    "operator": intent.operator,
+                    "reason": intent.reason,
+                    "operation_key": key,
+                },
+                required=True,
+            )
+        # Last fallible step: each mark is written before commit.
+        for user_id in ids:
+            await _revocation.revoke_user_tokens_on_commit(
+                user_id,
+                reason=f"operator ({intent.operator}): {intent.reason}",
+                require_immediate=True,
+            )
+    return True
+
+
+Revoker = Callable[..., Awaitable[bool]]
+
+
+def _answer_field(answer: Any, name: str) -> Any:
+    if isinstance(answer, Mapping):
+        return answer.get(name)
+    return getattr(answer, name, None)
+
+
+async def _apply_batch(
+    core: Any,
+    plan: SessionPlan,
+    ids: list[uuid.UUID],
+    intent: OperatorIntent,
+    *,
+    operation_id: str,
+    result: BulkResult,
+    revoke: Revoker,
+) -> int:
+    """Issuer first (its refresh sessions end before the mark), then the
+    kernel's revocation; how many users the issuer affected."""
+    command = plan.command
+    key = batch_operation_key(command, operation_id, ids)
+    resume = (
+        f"batches before {result.batches} are done; re-run with --operation-id "
+        f"{operation_id} to resume (finished batches replay)"
+    )
+    where = f"batch {result.batches} ({len(ids)} user(s))"
+
+    # A stored answer replays on a resume with the same operation id: it is
+    # refused again, never a crash, so the way on is a fixed owner and a
+    # new operation id (an applied reset or session end is applied again,
+    # which changes nothing it has not already changed).
+    def replay(method: str) -> str:
+        return (
+            f"{plan.issuer.module} may have applied {method} already; the "
+            f"access tokens of {where} are NOT revoked yet. This answer is "
+            "stored for the batch's operation key, so re-running with "
+            f"--operation-id {operation_id} replays it and stops here again: "
+            f"fix {plan.issuer.module}'s {method}, then re-run with a new "
+            "--operation-id (batches already done are applied again, harmlessly)"
+        )
+
+    reset: int | None = None
+    if plan.credentials is not None:
+        answered = await _call(
+            core,
+            plan.issuer,
+            "require_password_reset",
+            plan.credentials.require_password_reset(
+                ids, intent.reason, intent.operator, key
+            ),
+            resume=resume,
+        )
+        _check_answer(
+            plan.issuer,
+            "require_password_reset",
+            answered,
+            where=where,
+            then=replay("require_password_reset"),
+        )
+        reset = int(answered)
+    sessions_key = (
+        key
+        if plan.credentials is None
+        else batch_operation_key(f"{command}:end_sessions", operation_id, ids)
+    )
+    answer = await _call(
+        core,
+        plan.issuer,
+        "end_sessions",
+        plan.sessions.end_sessions(ids, intent.reason, intent.operator, sessions_key),
+        resume=resume,
+    )
+    _check_answer(
+        plan.issuer,
+        "end_sessions",
+        answer,
+        where=where,
+        then=replay("end_sessions"),
+    )
+    sessions_affected = int(_answer_field(answer, "affected"))
+    # A reset reports whose password it now requires; a revocation, whose
+    # sessions the issuer ended.
+    affected = sessions_affected if reset is None else reset
+    ended = {str(k) for k in _answer_field(answer, "ended")}
+    try:
+        await revoke(ids, command=command, intent=intent, key=key)
+    except RevocationUnavailableError as exc:
+        raise SystemExit(
+            f"error: {command}: batch {result.batches}: the access tokens of "
+            f"{len(ids)} user(s) are NOT revoked: the revocation store "
+            "(security cache) is unreachable, so the kernel's unit rolled back "
+            f"({exc}); {resume}"
+        ) from exc
+    except SystemExit:
+        raise
+    except Exception as exc:
+        raise SystemExit(
+            f"error: {command}: batch {result.batches}: the access tokens of "
+            f"{len(ids)} user(s) are NOT revoked: the kernel's unit failed "
+            f"({type(exc).__name__}: {exc}); {resume}"
+        ) from exc
+    if plan.refresh_declared and sessions_affected and "refresh_sessions" not in ended:
+        raise SystemExit(
+            f"error: {command}: {plan.issuer.label()} declares "
+            "refresh_sessions=True, but its end_sessions reported "
+            f"{sorted(ended) or 'nothing'} ended: its refresh sessions may "
+            "still mint tokens. The access tokens of the batch are revoked; "
+            f"fix {plan.issuer.module}'s end_sessions and {resume}"
+        )
+    result.ended |= ended & set(SESSION_KINDS)
+    return affected
+
+
 async def run_bulk(
     core: Any,
     command: str,
@@ -170,28 +576,41 @@ async def run_bulk(
     operation_id: str,
     batch: int = 500,
     progress: Callable[[str], None] | None = None,
+    revoke: Revoker | None = None,
 ) -> BulkResult:
-    """Dry-run (count) or apply ``command`` to ``targets`` batch by batch."""
-    method = _COMMANDS[command]
+    """Dry-run (count) or apply ``command`` to ``targets`` batch by batch.
+
+    Every capability is confirmed first (:func:`plan_session_command`), a
+    dry run included; nothing is done when one is missing. ``revoke`` is
+    the kernel's part (default :func:`revoke_access_tokens`).
+    """
+    if command not in _COMMANDS:
+        raise ValueError(f"unknown session command {command!r}")
+    plan = await plan_session_command(core, command, targets)
     result = BulkResult(
         command=command,
         targets=targets.describe(),
         applied=intent.apply,
         operation_id=operation_id,
+        issuer=plan.issuer.module,
     )
-    security = _service(core, SECURITY_CONTRACT) if intent.apply else None
-    async for ids in iter_target_batches(core, targets, batch=batch):
+    async for ids in iter_target_batches(
+        core, plan, targets, batch=batch, operation_id=operation_id
+    ):
         result.batches += 1
         result.users += len(ids)
-        if security is None:
+        if not intent.apply:
             continue
-        affected = await getattr(security, method)(
+        affected = await _apply_batch(
+            core,
+            plan,
             ids,
-            intent.reason,
-            intent.operator,
-            batch_operation_key(command, operation_id, ids),
+            intent,
+            operation_id=operation_id,
+            result=result,
+            revoke=revoke or revoke_access_tokens,
         )
-        result.affected += int(affected)
+        result.affected += affected
         if progress is not None:
             progress(f"batch {result.batches}: {affected}/{len(ids)} user(s)")
     return result
@@ -329,19 +748,27 @@ def _cmd_bulk(args: argparse.Namespace) -> int:
     )
     if args.json:
         print(json.dumps(result.as_dict(), indent=2))
-    elif result.applied:
-        print(
+        return 0
+    print(summary_line(result))
+    for line in result.lines():
+        print(line)
+    return 0
+
+
+def summary_line(result: BulkResult) -> str:
+    """The first line of a session command's text report."""
+    if result.applied:
+        return (
             f"{result.command}: {result.affected} user(s) affected of "
             f"{result.users} targeted ({result.targets}) in {result.batches} "
-            f"batch(es); operation id {result.operation_id}"
+            f"batch(es); issuer {result.issuer}; operation id {result.operation_id}"
         )
-    else:
-        print(
-            f"dry-run {result.command}: {result.users} user(s) targeted "
-            f"({result.targets}) in {result.batches} batch(es); re-run with "
-            f"--apply --reason ... (--operation-id {result.operation_id} to resume)"
-        )
-    return 0
+    return (
+        f"dry-run {result.command}: {result.users} user(s) targeted "
+        f"({result.targets}) in {result.batches} batch(es); issuer "
+        f"{result.issuer} confirmed; re-run with --apply --reason ... "
+        f"(--operation-id {result.operation_id} to resume)"
+    )
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
@@ -363,9 +790,20 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
 
 async def grant_admin(core: Any, email: str, intent: OperatorIntent) -> str:
-    """What happened, in one line; a missing user is the operator's next step."""
-    service = _service(core, SECURITY_CONTRACT)
-    standing = await service.account_standing(email)
+    """What happened, in one line; a missing user is the operator's next step.
+
+    Two owners, both confirmed before anything is read, a dry run included:
+    the issuer finds the account (``account_by_email``), the authority of
+    ``roles`` grants the role (``appoint_platform_admin``). One write, on
+    the roles owner, after every check: never half done.
+    """
+    owners = await _admin.admin_owners(
+        core,
+        "grant-admin",
+        issuer=["account_by_email"],
+        roles=["appoint_platform_admin"],
+    )
+    standing = await _admin.account_standing(core, owners, email, with_role=False)
     if standing is None:
         raise SystemExit(
             f"error: no user {email!r}: create the administrator with "
@@ -386,9 +824,44 @@ async def grant_admin(core: Any, email: str, intent: OperatorIntent) -> str:
             "administrator; re-run with --apply --reason ..."
         )
     # A fresh key per run: granting again after a revocation must act, not replay.
-    await service.appoint_platform_admin(
-        user_id, intent.reason, intent.operator, operation_key=uuid.uuid4().hex
-    )
+    try:
+        exists = await owners.roles.call(
+            core,
+            "appoint_platform_admin",
+            user_id,
+            intent.reason,
+            intent.operator,
+            uuid.uuid4().hex,
+        )
+    except ContractCallError as exc:
+        raise SystemExit(
+            f"error: grant-admin: {owners.roles.owner.contract} refused: "
+            f"{getattr(exc, 'detail', exc)}"
+        ) from exc
+    except (RemoteServiceUnavailable, RemoteServiceBadResponse) as exc:
+        # No answer (a timeout, a dropped connection, an unreadable reply):
+        # the grant may or may not have been written.
+        raise SystemExit(
+            f"error: grant-admin: {owners.roles.owner.contract}."
+            "appoint_platform_admin gave no answer "
+            f"({type(exc).__name__}: {getattr(exc, 'detail', exc)}), so the "
+            f"outcome is unknown: {email} may or may not be a platform "
+            "administrator now. Check with `uv run sandloom admin list`, and "
+            "re-run this command if it is not listed"
+        ) from exc
+    problem = _operator_owner.answer_problem("appoint_platform_admin", exists)
+    if problem is not None:
+        raise SystemExit(
+            f"error: grant-admin: {owners.roles.owner.label()}; "
+            f"{owners.roles.owner.contract}.appoint_platform_admin answered "
+            f"incompatibly ({problem}), so the outcome is unknown: check with "
+            f"`uv run sandloom admin list` whether {email} is listed"
+        )
+    if exists is False:
+        raise SystemExit(
+            f"error: grant-admin: {owners.roles.owner.label()} does not know user "
+            f"{user_id} ({email}); nothing was granted"
+        )
     return f"grant-admin: {email} ({user_id}) is a platform administrator"
 
 
@@ -421,7 +894,11 @@ def main(argv: list[str] | None = None) -> int:
         "--since", required=True, help="ISO 8601 (inclusive; UTC if naive)"
     )
     exp.add_argument("--until", default=None, help="ISO 8601 (exclusive)")
-    exp.add_argument("--action-prefix", default=None, help="e.g. auth. or identity.")
+    exp.add_argument(
+        "--action-prefix",
+        default=None,
+        help="only actions that start with it, e.g. core.security. or <module>.",
+    )
     exp.add_argument(
         "--database", action="append", default=[], help="instance (default: all)"
     )
@@ -446,12 +923,18 @@ def main(argv: list[str] | None = None) -> int:
 
 
 __all__ = [
-    "SECURITY_CONTRACT",
+    "AUDIT_TOKENS_REVOKED_ACTION",
+    "REVOCATION_CLAIM",
+    "SESSION_KINDS",
     "BulkResult",
+    "SessionPlan",
     "Targets",
     "batch_operation_key",
     "export_audit",
     "iter_target_batches",
     "main",
+    "plan_session_command",
+    "revoke_access_tokens",
     "run_bulk",
+    "summary_line",
 ]

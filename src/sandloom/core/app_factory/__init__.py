@@ -10,13 +10,18 @@ installed ``sandloom.modules`` entry point.
 """
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from fastapi import FastAPI
 
 import sandloom.core.admin.api.platform as _platform
+import sandloom.core.app_factory.access_providers as _access_providers
+import sandloom.core.app_factory.claim_authorities as _claim_authorities
+import sandloom.core.app_factory.revocation_applier as _applier
+import sandloom.core.app_factory.tenant_witness as _witness_consumes
 import sandloom.core.consumers.runtime as _runtime
 import sandloom.core.drivers.system_db as _system_db
+import sandloom.core.facade._tenant_witness as _tenant_witness
 import sandloom.core.guard_order as _guard_order
 import sandloom.core.http.route_index as _route_index
 import sandloom.core.http.route_runtime as _route_runtime
@@ -69,6 +74,7 @@ from sandloom.core.app_factory.pages import (
     _install_favicon,
     _install_start_page,
 )
+from sandloom.core.claims import Authority, LegacyClaimsTokens
 from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import ModuleLoadSummary
@@ -101,7 +107,9 @@ from sandloom.core.sagas import SystemChannel, install_sagas
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
 __all__ = [
+    "Authority",
     "ConfigurationError",
+    "LegacyClaimsTokens",
     "ContractDiffRequest",
     "DEVELOPMENT_DATABASE_RISK",
     "POST_COMMIT_DRAIN_TIMEOUT_SECONDS",
@@ -147,6 +155,10 @@ def create_app(
     default_modules: Sequence[str] = (),
     default_optional_modules: Sequence[str] = (),
     title: str = "Sandloom Framework",
+    claim_authorities: Mapping[str, str | Authority] | None = None,
+    default_claim_authorities: Mapping[str, str | Authority] | None = None,
+    legacy_tokens: LegacyClaimsTokens | None = None,
+    access_providers: Mapping[str, str] | None = None,
 ) -> FastAPI:
     """Build a fully wired Sandloom application (kernel + modules + ops API).
 
@@ -156,6 +168,33 @@ def create_app(
     alone. Every module is required unless named in
     ``default_optional_modules`` (defaulted lists only) or declared
     ``optional=True``.
+
+    ``claim_authorities`` assigns each protected claim key to the module that
+    is its authority, plus the token ``issuer`` (``{key: import path or
+    entry-point name}``; ADR-0014): the mint keeps a protected claim only from
+    its authority, and startup refuses an assignment the composition cannot
+    honour (SANDLOOM-B035). ``default_claim_authorities`` applies when
+    ``claim_authorities`` is not given and keeps only the entries whose module
+    is part of the composition (loaded, or bound through its
+    ``<m>.claims.v1``). With neither, no claim is assigned, and a composition
+    that loads a token issuer (``issues_tokens=True``) refuses the boot.
+    A value may be an ``Authority(name, previous=Authority(old, module=...))``
+    for one rollout of a key's authority. Every verifier reads protected
+    claims only through the trusted view of this map (per-key ``cpv``).
+
+    ``legacy_tokens=LegacyClaimsTokens(until="<UTC time>")`` is the bounded
+    compatibility mode of the initial ``cpv`` enablement (an accepted
+    temporary risk, G-RISK-14): written for one upgrade, never by default,
+    off by itself at ``until + ACCESS_TOKEN_EXPIRE_MINUTES +
+    JWT_LEEWAY_SECONDS``.
+
+    ``access_providers`` assigns an access-bearing contract to the module
+    that provides it in-process (``{contract: import path or entry-point
+    name}``; ADR-0014 decision 6): a contract a generated access check asks, or a key
+    of this map, is registered only by the module its first segment names
+    or by the one assigned here, checked by import path; anyone else refuses
+    the boot (SANDLOOM-B034). Remotely, ``SERVICE_BINDINGS`` is the
+    assignment. Every other contract keeps the first-registrant rule.
     """
     init_logging()  # ensure logging configured before modules import/log
     init_sentry()  # error reporting (no-op unless SENTRY_DSN set)
@@ -187,8 +226,14 @@ def create_app(
     # reuse it), so the CLI never migrates a different module set than it runs.
     apply_module_defaults(list(default_modules), list(default_optional_modules))
 
+    # ADR-0014 decision 6: an access-bearing contract is registered only by
+    # its provider (bound before the load, swept again after it).
+    _access_providers.install_access_providers(
+        core_facade, access_providers=access_providers, log=main_logger
+    )
     # Load modules; a failed required module must abort startup loudly.
     module_summary: ModuleLoadSummary = load_modules_with_summary(core_facade)
+    _access_providers.enforce_access_providers(core_facade, log=main_logger)
     application.state.module_summary = module_summary
     # Every model is declared now: each SQL database is one its driver serves,
     # and every partial index can be restricted there (B024, R015).
@@ -199,6 +244,40 @@ def create_app(
     warn_nested_units_join_caller(infra, main_logger)
     # The application manifest (spec §5.7), built from the load pass, no I/O.
     application.state.app_manifest = AppManifest.from_summary(module_summary)
+    # ADR-0012 decision 5: the kernel applies durable token revocations in
+    # every composition (its group is per deployment), and a token issuer
+    # ends its refresh sessions on a block or declares it holds none.
+    _applier.register_kernel_revocation_applier(core_facade, settings)
+    _applier.enforce_issuer_obligation(
+        module_summary.loaded,
+        core_facade.event_consumers,
+        application.state.app_manifest,
+        log=main_logger,
+    )
+    # ADR-0014 decisions 1, 2, 7: the root's claim authorities, verified
+    # against the composition, then applied by the mint check.
+    _claim_authorities.install_claim_authorities(
+        core_facade,
+        module_summary.loaded,
+        claim_authorities=claim_authorities,
+        default_claim_authorities=default_claim_authorities,
+        bindings=settings.service_bindings,
+        log=main_logger,
+        legacy_tokens=legacy_tokens,
+        lifetime_seconds=settings.access_token_expire_minutes * 60,
+        leeway_seconds=settings.jwt_leeway_seconds,
+        booted_root=settings.sandloom_composition_root,
+    )
+    # ADR-0014 decision 13: a route policy stating Account.bound_tenant()
+    # consumes the assigned tenant authority's witness (boot only, no I/O).
+    if _witness_consumes.add_witness_consumes(
+        core_facade,
+        module_summary,
+        core_facade.tenant_witness,
+        _tenant_witness.bound_tenant_routes(application),
+        log=main_logger,
+    ):
+        application.state.app_manifest = AppManifest.from_summary(module_summary)
     # Sagas (ADR-0008): check every registered definition against its
     # contracts, install the advance consumers and the timer sweep.
     saga_runtime = install_sagas(

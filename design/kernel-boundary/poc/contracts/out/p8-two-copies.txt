@@ -1,0 +1,10 @@
+$ PYTHONPATH=<shopmod + app, no acme> python run.py consumer
+find_spec('acme'): None
+copies of acme.schemas:Quota loaded: ['shopmod._generated.contracts.acme_dto.Quota', 'app.shared.contracts.acme_dto.Quota']
+copies of acme.schemas:Limit loaded: ['shopmod._generated.contracts.acme_dto.Limit', 'app.shared.contracts.acme_dto.Limit']
+shopmod v1 typed -> shopmod._generated.contracts.acme_dto.Quota | limit: shopmod._generated.contracts.acme_dto.Limit
+shopmod v2 typed -> shopmod._generated.contracts.acme_dto.QuotaV2 | limits[0]: shopmod._generated.contracts.acme_dto.Limit
+app v1 typed     -> app.shared.contracts.acme_dto.Quota | limit: app.shared.contracts.acme_dto.Limit
+shopmod v1 is shop copy: True | app v1 is app copy: True
+v1 Limit and v2 Limit are one class: True
+hand-written ContractRef('acme.quota.v1') -> shopmod._generated.contracts.acme_dto.Quota

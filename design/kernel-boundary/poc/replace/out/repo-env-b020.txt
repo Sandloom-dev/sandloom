@@ -1,0 +1,7 @@
+# repository environment (uv run; every bundled module package installed, kernel = checkout src/)
+# command: uv run python run.py A-squat
+######## A-squat   kernel: <checkout>/packages/editable/sandloom/sandloom
+    raise RuntimeError(f"{self.label} exited:\n{self.log.read_text()[-4000:]}")
+RuntimeError: A-squat exited:
+    raise AmbiguousModuleError(
+sandloom.core.descriptors.module_names.AmbiguousModuleError: SANDLOOM-B020: module name 'identity' is provided by the installed package sandloom-identity (sandloom_identity) and by the local module 'pocapp.modules.identity': uninstall the package or remove the local module (rename it) (`sandloom explain SANDLOOM-B020`)

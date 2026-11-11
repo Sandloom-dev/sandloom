@@ -22,7 +22,7 @@ performs no I/O.
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from sandloom.core.descriptors import ContractRequirement, ModuleDescriptor
@@ -95,6 +95,20 @@ class ContractUse:
 
 
 @dataclass(frozen=True)
+class CapabilityUse:
+    """An infrastructure capability a module needs: declared in
+    ``capabilities=`` or derived from its code
+    (:meth:`ModuleDescriptor.effective_capabilities`)."""
+
+    module: str
+    capability: str
+    instance: str = "default"
+    version: str = "v1"
+    features: tuple[str, ...] = ()
+    required: bool = True
+
+
+@dataclass(frozen=True)
 class SagaEntry:
     """A saga a module owns."""
 
@@ -158,11 +172,18 @@ class ModuleManifest:
     consumers: tuple[ConsumerEntry, ...] = ()
     contracts_provided: tuple[ContractEntry, ...] = ()
     contracts_consumed: tuple[ContractUse, ...] = ()
+    #: The capabilities it needs, declared or derived, by (capability, instance).
+    capabilities: tuple[CapabilityUse, ...] = ()
     sagas: tuple[SagaEntry, ...] = ()
     projections: tuple[ProjectionEntry, ...] = ()
     models: tuple[ModelEntry, ...] = ()
     chain: ChainEntry | None = None
     deviations: tuple[DeviationEntry, ...] = ()
+    #: The module mints access tokens (``issues_tokens=True``).
+    issues_tokens: bool = False
+    #: An issuer's declaration that it holds refresh sessions (``False``: a
+    #: stateless issuer, verified at startup; SANDLOOM-B035).
+    refresh_sessions: bool = True
 
 
 @dataclass(frozen=True)
@@ -202,6 +223,10 @@ class AppManifest:
     @property
     def contracts_consumed(self) -> tuple[ContractUse, ...]:
         return tuple(self._flat("contracts_consumed"))
+
+    @property
+    def capabilities(self) -> tuple[CapabilityUse, ...]:
+        return tuple(self._flat("capabilities"))
 
     @property
     def sagas(self) -> tuple[SagaEntry, ...]:
@@ -325,6 +350,24 @@ def _provided(module: str, draft: Any) -> tuple[ContractEntry, ...]:
     )
 
 
+def _capabilities(
+    module: str, descriptor: ModuleDescriptor
+) -> tuple[CapabilityUse, ...]:
+    """The module's effective capability requirements, sorted."""
+    out = [
+        CapabilityUse(
+            module=module,
+            capability=req.capability,
+            instance=req.instance or "default",
+            version=req.version,
+            features=tuple(sorted(req.features)),
+            required=bool(req.required),
+        )
+        for req in descriptor.effective_capabilities()
+    ]
+    return tuple(sorted(out, key=lambda c: (c.capability, c.instance)))
+
+
 def _consumed(
     module: str, consumes: Sequence[ContractRequirement | str]
 ) -> tuple[ContractUse, ...]:
@@ -415,6 +458,7 @@ def module_manifest(
         consumers=_consumers(name, draft),
         contracts_provided=_provided(name, draft),
         contracts_consumed=_consumed(name, descriptor.consumes),
+        capabilities=_capabilities(name, descriptor),
         sagas=_sagas(name, draft),
         projections=_projections(name, draft),
         models=_models(name, package),
@@ -424,11 +468,23 @@ def module_manifest(
             chain=descriptor.migrations_chain,
             path=descriptor.migrations_path,
         ),
+        issues_tokens=bool(getattr(descriptor, "issues_tokens", False)),
+        refresh_sessions=bool(getattr(descriptor, "refresh_sessions", True)),
     )
+
+
+def with_consumed(
+    entry: ModuleManifest, descriptor: ModuleDescriptor
+) -> ModuleManifest:
+    """``entry`` with its ``contracts_consumed`` read again from
+    ``descriptor.consumes``: a requirement the composition derives after the
+    load pass (the tenant authority's witness, ADR-0014 decision 13)."""
+    return replace(entry, contracts_consumed=_consumed(entry.name, descriptor.consumes))
 
 
 __all__ = [
     "AppManifest",
+    "CapabilityUse",
     "ChainEntry",
     "ConsumerEntry",
     "ContractEntry",
@@ -442,4 +498,5 @@ __all__ = [
     "RouteEntry",
     "SagaEntry",
     "module_manifest",
+    "with_consumed",
 ]

@@ -160,7 +160,7 @@ def main() -> int:
             "SANDLOOM_MODULES": (
                 '["sandloom_identity","sandloom_tenancy","sandloom_billing"]'
             ),
-            "SANDLOOM_COMPOSITION_ROOT": "sandloom.main",
+            "SANDLOOM_COMPOSITION_ROOT": "sandloom_standard.main",
             "INTERNAL_API_TOKEN": secrets.token_urlsafe(32),
             "SERVICE_BINDINGS": "{}",
             "EVENT_BUS_BACKEND": "memory",
@@ -203,7 +203,7 @@ def main() -> int:
                         str(ROOT / ".venv/bin/python"),
                         "-m",
                         "uvicorn",
-                        "sandloom.main:app",
+                        "sandloom_standard.main:app",
                         "--host",
                         "127.0.0.1",
                         "--port",
@@ -220,15 +220,15 @@ def main() -> int:
                             "Isolated backend exited; review the local acceptance log"
                         )
                     try:
-                        with urlopen(  # noqa: S310 - fixed loopback HTTP health endpoint
-                            env["SANDLOOM_ADMIN_API_TARGET"] + "/health", timeout=1
+                        with urlopen(  # noqa: S310 - fixed loopback HTTP readiness endpoint
+                            env["SANDLOOM_ADMIN_API_TARGET"] + "/ready", timeout=1
                         ) as response:
                             if response.status == 200:
                                 break
                     except (URLError, TimeoutError):
                         time.sleep(0.2)
                 else:
-                    raise RuntimeError("Isolated backend did not become healthy")
+                    raise RuntimeError("Isolated backend did not become ready")
                 result = subprocess.run(  # noqa: S603 - fixed local Playwright command
                     [
                         shutil.which("npx") or "/usr/bin/false",

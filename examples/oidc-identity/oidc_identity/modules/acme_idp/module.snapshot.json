@@ -1,0 +1,51 @@
+{
+  "capabilities": [
+    {
+      "capability": "database",
+      "features": [],
+      "instance": "default",
+      "required": true,
+      "version": "v1"
+    }
+  ],
+  "consumers": [],
+  "consumes": [],
+  "contracts": [
+    {
+      "database": null,
+      "methods": [
+        "account_by_email",
+        "accounts_by_id",
+        "appoint_platform_admin",
+        "end_sessions",
+        "is_platform_admin",
+        "list_user_ids",
+        "platform_admin_exists",
+        "platform_admin_ids"
+      ],
+      "name": "acme_idp.security.v1"
+    }
+  ],
+  "events": {},
+  "format": 1,
+  "issuer": {
+    "refresh_sessions": false
+  },
+  "module": "oidc_identity.modules.acme_idp",
+  "projections": [],
+  "sagas": [],
+  "settings": {
+    "ACME_IDP_ADMIN_GROUP": {
+      "tier": "ops"
+    },
+    "ACME_IDP_CLIENT_ID": {
+      "tier": "ops"
+    },
+    "ACME_IDP_ISSUER": {
+      "tier": "ops"
+    },
+    "ACME_IDP_JWKS_TTL_SECONDS": {
+      "tier": "ops"
+    }
+  }
+}

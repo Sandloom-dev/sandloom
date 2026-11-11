@@ -34,7 +34,7 @@ from sandloom_identity.contracts import (
     SecurityOperationsContract,
 )
 from sandloom_identity.events import BaseEvent
-from sandloom_identity.services import auth_service, twofa_service
+from sandloom_identity.services import auth_service
 
 EXPECTED_DESCRIPTOR = ModuleDescriptor(
     name="sandloom_identity",
@@ -45,8 +45,21 @@ EXPECTED_DESCRIPTOR = ModuleDescriptor(
         ),
         CapabilityRequirement("cache"),
         CapabilityRequirement("eventbus"),
+        # Account mail must be delivered; the token cleanup is optional.
+        CapabilityRequirement("notification", features=frozenset({"email"})),
+        CapabilityRequirement(
+            "taskqueue", features=frozenset({"periodic"}), required=False
+        ),
     ],
     issues_tokens=True,
+    login_entry="/auth/login",
+    console_auth={
+        "kind": "password",
+        "refresh": "/auth/refresh",
+        "logout": "/auth/logout",
+        "me": "/auth/me",
+        "setup_state": "/api/v1/identity/setup-state",
+    },
 )
 
 
@@ -79,7 +92,7 @@ def test_register_declares_the_identity_surface(sandloom_app: Any) -> None:
     ]
     assert len(draft.event_schemas) == len(producers) == 15
     # Critical: a failing contributor aborts minting (no privilege-less token).
-    assert draft.claims_contributors == [(contribute_identity_claims, True)]
+    assert draft.claims_contributors == [(contribute_identity_claims, True, ())]
     # Outside prod the 2FA key falls back to the JWT secret: no guard task.
     # Best-effort: the unknown-email timing equalizer's dummy argon2 hash is
     # made before serving. Critical: the declared reads (GET /auth/me) are
@@ -98,11 +111,15 @@ def test_register_declares_the_identity_surface(sandloom_app: Any) -> None:
         ]
     )
     assert draft.health == []
-    # The emergency block (core.auth.user_blocked.v1) ends refresh sessions;
-    # the durable applier writes revocation marks that failed after commit.
+    # identity holds refresh sessions (the declaration's default): its
+    # durable block consumer below is the issuer's obligation (SANDLOOM-B035).
+    assert descriptor.issues_tokens is True
+    assert descriptor.refresh_sessions is True
+    # The emergency block (core.auth.user_blocked.v1) ends refresh sessions
+    # (the issuer's obligation); the durable revocation applier is the
+    # kernel's, registered in every composition (ADR-0012 decision 5).
     assert [(c.channel, c.name, c.required) for c in draft.event_consumers] == [
         ("core.auth.user_blocked.v1", "sessions@user_blocked", True),
-        ("core.auth.tokens_revoked.v1", "sessions@tokens_revoked", True),
     ]
     assert draft.event_schema_objs == []
     assert draft.query_projections == []
@@ -111,20 +128,18 @@ def test_register_declares_the_identity_surface(sandloom_app: Any) -> None:
     assert draft.access_facts == []
 
 
-def test_missing_twofa_key_refuses_registration(
-    sandloom_app: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_missing_twofa_key_refuses_registration() -> None:
     """A missing TOTP key stops registration itself (not a lifespan task),
     so every process that builds the composition refuses with the reason;
-    nothing of the module is registered."""
-    monkeypatch.setattr(
-        twofa_service, "twofa_configuration_error", lambda: "TWOFA key missing"
-    )
-    draft = ModuleRegistrationDraft()
-    with pytest.raises(SystemExit, match="TWOFA key missing"):
-        register(ModuleAPI(sandloom_app.state.core, draft=draft))
-    assert draft.startup == []
-    assert draft.claims_contributors == []
+    nothing of the module is registered. The check is identity's own settings
+    model, validated before ``setup``; the subprocess matrix
+    (``test_boot_configuration_checks_module_refusals``) proves every entry
+    point."""
+    from sandloom.sdk.testing import validate_settings
+    from sandloom_identity.config import IdentitySettings
+
+    with pytest.raises(SystemExit, match="TWOFA_ENCRYPTION_KEY is required"):
+        validate_settings(IdentitySettings, {}, environment="prod")
 
 
 def test_missing_jwt_secret_refuses_registration(

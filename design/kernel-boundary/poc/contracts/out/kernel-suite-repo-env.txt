@@ -1,0 +1,37 @@
+# repository env (every module installed), `pytest src/sandloom/core/tests tests/sdk tests/architecture tests/laws -n 8 -p no:randomly`
+## base (ceb3d66)
+  $S/poc-base/tests/sdk/test_sdk_portable_sql.py:76: SAWarning: Column 'people.id' is marked as a member of the primary key for table 'people', but has no Python-side or server-side defa
+FAILED src/sandloom/core/tests/test_sqlite_nested_units.py::test_saga_steps_run_on_the_sqlite_test_harness
+= 1 failed, 6554 passed, 9 skipped, 1 xfailed, 18 warnings in 324.79s (0:05:24) =
+## candidate (B1 patch)
+E       src/sandloom_identity/contracts.py:290: error[SANDLOOM-C012 contract-dtos]: contract method 'account_standing' (return) uses AccountStanding imported from sandloom_identity.schemas.operator, which has no generated copy in identity_dto.py (callers import the copy): run `sandloom generate`
+E       src/sandloom_identity/contracts.py:303: error[SANDLOOM-C012 contract-dtos]: contract method 'list_platform_admins' (return) uses PlatformAdmin imported from sandloom_identity.schemas.operator, which has no generated copy in identity_dto.py (callers import the copy): run `sandloom generate`
+E       src/sandloom_identity/contracts.py:541: error[SANDLOOM-C012 contract-dtos]: contract method 'get_contact' (return) uses UserContact imported from sandloom_identity.schemas.contact, which has no generated copy in identity_dto.py (callers import the copy): run `sandloom generate`
+E       src/sandloom_identity/contracts.py:550: error[SANDLOOM-C012 contract-dtos]: contract method 'get_contacts' (return) uses UserContact imported from sandloom_identity.schemas.contact, which has no generated copy in identity_dto.py (callers import the copy): run `sandloom generate`
+E       src/sandloom_tenancy/contracts.py:88: error[SANDLOOM-C012 contract-dtos]: contract method 'get_member_state' (return) uses MemberState imported from sandloom_tenancy.schemas.membership, which has no generated copy in tenancy_dto.py (callers import the copy): run `sandloom generate`
+    assert errors == [], "\n".join(v.format(BACKEND) for v in errors)
+E   AssertionError: src/sandloom_identity/contracts.py:290: error[SANDLOOM-C012 contract-dtos]: contract method 'account_standing' (return) uses AccountStanding imported from sandloom_identity.schemas.operator, which has no generated copy in identity_dto.py (callers import the copy): run `sandloom g
+E     src/sandloom_identity/contracts.py:303: error[SANDLOOM-C012 contract-dtos]: contract method 'list_platform_admins' (return) uses PlatformAdmin imported from sandloom_identity.schemas.operator, which has no generated copy in identity_dto.py (callers import the copy): run `sandloom generate`
+E     src/sandloom_identity/contracts.py:541: error[SANDLOOM-C012 contract-dtos]: contract method 'get_contact' (return) uses UserContact imported from sandloom_identity.schemas.contact, which has no generated copy in identity_dto.py (callers import the copy): run `sandloom generate`
+E     src/sandloom_identity/contracts.py:550: error[SANDLOOM-C012 contract-dtos]: contract method 'get_contacts' (return) uses UserContact imported from sandloom_identity.schemas.contact, which has no generated copy in identity_dto.py (callers import the copy): run `sandloom generate`
+E     src/sandloom_tenancy/contracts.py:88: error[SANDLOOM-C012 contract-dtos]: contract method 'get_member_state' (return) uses MemberState imported from sandloom_tenancy.schemas.membership, which has no generated copy in tenancy_dto.py (callers import the copy): run `sandloom generate`sandloom tes
+  $S/poc-contracts/tests/sdk/test_sdk_portable_sql.py:76: SAWarning: Column 'people.id' is marked as a member of the primary key for table 'people', but has no Python-side or server-side
+FAILED src/sandloom/core/tests/test_split_readiness.py::test_required_probes_run_concurrently_capped_and_authenticated
+FAILED src/sandloom/core/tests/test_sqlite_nested_units.py::test_saga_steps_run_on_the_sqlite_test_harness
+FAILED src/sandloom/core/tests/test_static_cli_no_env.py::test_sandloom_check_runs_against_a_manifest_with_empty_environment
+FAILED tests/sdk/test_sdk_generated.py::test_the_framework_tree_stubs_keep_the_kernel_home
+FAILED tests/sdk/test_sdk_generated.py::test_an_application_stub_imports_the_public_home
+FAILED tests/architecture/test_archcheck_library.py::test_framework_manifest_passes_every_rule
+FAILED tests/architecture/test_kernel_import_contracts.py::test_kernel_import_contracts_are_kept
+FAILED tests/architecture/test_public_api_sdk.py::test_scanner_reports_no_unmapped_name
+FAILED tests/architecture/test_lint_suppression_ratchet.py::test_noqa_counts_only_go_down
+FAILED tests/architecture/test_lint_suppression_ratchet.py::test_kernel_function_local_imports_state_their_category
+FAILED tests/architecture/test_source_export.py::test_repository_selection_is_complete_and_safe
+ERROR src/sandloom/core/tests/test_contract_dto_locality.py - ImportError whi...
+ERROR tests/sdk/test_sdk_docs_wire.py - ImportError while importing test modu...
+= 11 failed, 6524 passed, 9 skipped, 1 xfailed, 18 warnings, 2 errors in 269.76s (0:04:29) =
+
+# C5 / B-B7: tests/integration/test_revocation_pipeline.py
+base: 21 passed in 6.66s
+candidate: 21 passed in 5.66s (diff: C5 inlined, MemberState from sandloom_tenancy.schemas.membership; no assert line changed)
+# module suites (tenancy member events + registration surface, billing, admin): base 347 passed; candidate 347 passed

@@ -14,6 +14,18 @@ search:
   status stays Proposed until the open items are closed)
 - **Supersedes:** —
 
+> **Note (2026-11-09, KB-34).** This ADR names the kernel's `OrgRole`,
+> `Subscribed`, `SubscriptionActive`, `Credits` atoms and the live adapters
+> (`register_live_adapter`) as they stood when it was written. They have left
+> the kernel: the atoms are generated from the owners' `access_check` and
+> `AccessFact` declarations and imported from the consumer's generated
+> contracts package, and the adapters are replaced by `access_providers` /
+> `SERVICE_BINDINGS` ([ADR-0014](0014-claims-trust-and-authorization-portability.md)
+> decisions 8 and 14). The calls, costs and operation classes below are
+> unchanged: the generated atoms call the same contract methods in the same
+> order. Read `OrgRole(...)` and `SubscriptionActive()` below as those generated
+> atoms.
+
 ## Context
 
 In a split deployment every organization-scoped request that a non-tenancy
@@ -24,8 +36,8 @@ service serves pays at least one synchronous internal RPC to
 | --- | --- | --- |
 | `billing/services/tenant_resolver.py` `resolve_tenant` | `get_role(org_id, user_id)` (+ `has_role_at_least` only for an unknown role) | every billing route with `org_id` |
 | same | `list_user_organization_ids(user_id)` | every billing route **without** `org_id` (personal vs single-org vs 422) |
-| `billing/access.py` fact `organization.subscription.active` | `get_role` | every `Entitled("organization.subscription.active")` gate |
-| `sandloom.shared.authz` `OrgRole(minimum)` atom | `get_role` / `has_role_at_least` via the live adapter | every route gated with `require(OrgRole(...))` |
+| `billing/access.py` fact `organization.subscription.active` | `get_role` | every `Entitled("organization.subscription.active", owner="billing")` gate |
+| `sandloom.shared.authz` `OrgRole(minimum)` atom (now generated from tenancy's `access_check`, see the note below) | `get_role` / `has_role_at_least` via the live adapter | every route gated with `require(OrgRole(...))` |
 | `examples/helpdesk` tickets | membership contract | per request |
 
 ### Cost today (main `1898eaa`)
@@ -994,7 +1006,7 @@ many-user / many-org mix with realistic think time (open item 6).
       minted before a price → unknown change, or before the deploy, keep the
       claim-cheap `Subscribed()` passing until the access token expires
       (`ACCESS_TOKEN_EXPIRE_MINUTES`). This is the documented limit of claim
-      gates; the live gates (`SubscriptionActive()`, `Entitled(...)` with
+      gates; the live gates (`SubscriptionActive()`, `Entitled(..., owner="billing")` with
       `min_freshness="live"`, the billing contracts) are authoritative and
       fail closed at once.
     - *Events.* `billing.subscription.created/updated/canceled.v1` carry the

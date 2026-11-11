@@ -158,7 +158,8 @@ SANDLOOM_COMPOSITION_ROOT=myapp.asgi sandloom admin export \
   --output /path/to/admin/public/admin-manifest.json --check
 ```
 
-Use a build-time composition containing all modules to be shown, even when
+Use a build-time composition containing all modules to be shown, and the console
+module `sandloom_admin` (the manifest is the file it declares), even when
 production splits them into separate processes. Export imports trusted app/module
 code and builds the app, but never enters its lifespan, opens database connections
 or starts consumers. It does not fetch production OpenAPI. Configure the usual

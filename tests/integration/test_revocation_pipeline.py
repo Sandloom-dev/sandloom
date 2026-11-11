@@ -5,7 +5,7 @@ The reviewer's scenarios (PR #45 follow-up), each against real PostgreSQL and
 
 (a) commit succeeds, the mark write fails and the process dies before its
     retry -> the committed ``core.auth.tokens_revoked.v1`` outbox row, applied
-    by identity's durable applier (at-least-once, idempotent), still revokes;
+    by the kernel's durable applier (at-least-once, idempotent), still revokes;
 (b) concurrent revocations of one user -> the mark never moves backwards;
 (c) a member removal racing a request that ALREADY passed the membership
     check -> that request completes (authorization is fresh at read time
@@ -31,19 +31,18 @@ import pytest
 from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from sandloom.core.app_factory.revocation_applier import apply_token_revocation
 from sandloom.core.auth import marks, revocation, tokens, verification
 from sandloom.core.config.settings import settings
 from sandloom.core.infra.contracts import portable_set_max
 from sandloom.core.module_api import bind_contract_session
 from sandloom.core.testing import InMemoryCache, committing_uow, make_user_headers
 from sandloom.core.testing.fixtures import *  # noqa: F403
-from sandloom.shared.contracts.tenancy_dto import MemberState
-from sandloom.shared.membership import member_event_action, refreshed_state_wins
-from sandloom_identity.sessions import apply_token_revocation
 from sandloom_tenancy import events
 from sandloom_tenancy.contracts import MembershipReadContract
 from sandloom_tenancy.models import ROLE_ADMIN, ROLE_MEMBER, OrganizationMember
 from sandloom_tenancy.schemas import OrganizationCreateIn
+from sandloom_tenancy.schemas.membership import MemberState
 from sandloom_tenancy.services import MembershipService, OrganizationService
 
 
@@ -140,7 +139,7 @@ async def test_a_crash_after_a_failed_mark_write_is_applied_from_the_outbox(
 
     pending = await _outbox(sessions, marks.TOKENS_REVOKED_CHANNEL)
     assert [e["payload"]["user_id"] for e in pending] == [str(sub)]
-    # The relay re-sends it (at-least-once): identity's applier, twice.
+    # The relay re-sends it (at-least-once): the kernel's applier, twice.
     await apply_token_revocation(None, pending[0])
     await apply_token_revocation(None, pending[0])
     assert await verification.is_token_revoked(old) is True
@@ -372,9 +371,26 @@ async def test_c_in_flight_request_completes_and_the_next_one_is_rejected(
 # --------------------------------------------------------------------------- #
 # (d) member events: redelivery, reordering, rolling upgrade
 # --------------------------------------------------------------------------- #
+def member_event_action(payload: dict[str, Any], stored_version: int | None) -> str:
+    """The ordering rule in the ``tenancy.member_*.v1`` event descriptions:
+    a version-less event refreshes; a versioned one applies when newer than the
+    stored version (or none is stored), else it is skipped."""
+    raw = payload.get("version")
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+        return "refresh"
+    if stored_version is None or raw > stored_version:
+        return "apply"
+    return "skip"
+
+
+def refreshed_state_wins(state: MemberState, stored_version: int | None) -> bool:
+    """A refreshed state is stored unless older than the stored one."""
+    return stored_version is None or state.version >= stored_version
+
+
 class _MemberProjection:
     """A reference consumer of the member events (what a read model does),
-    following :func:`sandloom.shared.membership.member_event_action`."""
+    following :func:`member_event_action`."""
 
     def __init__(self, refresh: Callable[..., Any]) -> None:
         self.rows: dict[tuple[str, str], tuple[str | None, int]] = {}

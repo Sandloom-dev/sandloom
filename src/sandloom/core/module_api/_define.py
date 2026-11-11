@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal, cast
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 import sandloom.core.descriptors as _descriptors
 from sandloom.core.descriptors.module_names import module_name as _module_name
@@ -101,6 +102,10 @@ def define_module(
     router: Any = AUTO,
     events: Any = AUTO,
     issues_tokens: bool = False,
+    refresh_sessions: bool = True,
+    login_entry: str | None = None,
+    console_auth: Mapping[str, str] | None = None,
+    settings: type[BaseModel] | None = None,
 ) -> Callable[[ModuleAPI], Any]:
     """Build a module's ``register(core)`` from declarations + conventions.
 
@@ -127,10 +132,16 @@ def define_module(
     ``capabilities`` accept requirement objects or plain strings
     (``"tenancy.membership.v1"`` / ``"cache"``). ``issues_tokens=True``
     marks the module as the access-token issuer (see
-    :attr:`~sandloom.core.descriptors.ModuleDescriptor.issues_tokens`). Submodules
+    :attr:`~sandloom.core.descriptors.ModuleDescriptor.issues_tokens`);
+    ``refresh_sessions=False`` declares such an issuer stateless (no refresh
+    sessions to end on a block, verified at startup: SANDLOOM-B035);
+    ``login_entry`` is the issuer's declared login route path (the admin
+    console's operator login, ADR-0012 decision 4). Submodules
     are imported lazily, inside ``register``, exactly like a hand-written one.
     Modules are REQUIRED by default (a failed load aborts startup, SANDLOOM-B001);
     ``optional=True`` declares one the process may run without.
+    ``settings=`` declares the module's settings model, validated before
+    anything else registers (``ModuleAPI.declare_settings``, ADR-0015).
     An explicit ``def register(core)`` keeps working unchanged.
     """
     pkg = package or _caller_package(1)
@@ -138,6 +149,10 @@ def define_module(
     short = _module_name(descriptor_name)
 
     def register(core: ModuleAPI) -> Any:
+        if settings is not None:
+            # Validated before anything else registers and before setup
+            # (ADR-0015): an invalid value refuses the boot.
+            core.declare_settings(settings, package=pkg)
         if router == AUTO:
             routers = _discover_routers(pkg)
         elif router is None:
@@ -178,9 +193,14 @@ def define_module(
                 for c in capabilities
             ],
             issues_tokens=issues_tokens,
+            refresh_sessions=refresh_sessions,
+            login_entry=login_entry,
+            console_auth=dict(console_auth) if console_auth is not None else None,
         )
 
     register.__qualname__ = register.__name__ = "register"
     register.__module__ = pkg
+    # Read by static tools (the settings gate): the declaration, no register run.
+    register.__dict__["sandloom_settings"] = settings
     register.__doc__ = f"Register the {short} module (declared via define_module)."
     return register

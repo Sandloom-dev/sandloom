@@ -194,7 +194,7 @@ def _asgi(app: Any, method: str, path: str, headers: list[tuple[bytes, bytes]]):
 async def _credits(ns: Any) -> Any:
     plat = _env()
     from sandloom.core.runtime import get_active_core
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     await _release_group_owners()
     life = await ns._Lifespan(app).__aenter__()
@@ -212,7 +212,7 @@ async def _credits(ns: Any) -> Any:
 async def _role(ns: Any) -> Any:
     plat = _env()
     from sandloom.core.unit_of_work.dispatch import drain_post_commit
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     await _release_group_owners()
     life = await ns._Lifespan(app).__aenter__()
@@ -244,7 +244,7 @@ async def _login(ns: Any, fast: bool, twofa: bool) -> Any:
     import pyotp
 
     from sandloom.core.unit_of_work.dispatch import drain_post_commit
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     if twofa:
         await _reset_totp_steps()
@@ -615,12 +615,15 @@ async def seed() -> None:
 
     from sandloom.core.auth.hashing import build_password_hasher
     from sandloom.core.config.password_params import PasswordHashParams
-    from sandloom_identity.services.twofa_service import _encrypt_secret
+    from sandloom_identity.services.twofa_service import _TWOFA_CRYPTO_INFO
+    from sandloom_identity.utils import CryptoUtils
     from benchsuite import common
 
     strong = build_password_hasher(PasswordHashParams(**STRONG_HASH)).hash(PASSWORD)
     fast = build_password_hasher(PasswordHashParams(**FAST_HASH)).hash(PASSWORD)
-    secret = _encrypt_secret(TWOFA_SECRET)
+    # the service's own helper reads identity settings, which a seed run (no app
+    # bound) does not have: same key list and info, built directly
+    secret = CryptoUtils(key=[TWOFA_KEY], info=_TWOFA_CRYPTO_INFO).encrypt(TWOFA_SECRET)
     users = [
         (LOGIN_USER, LOGIN_EMAIL, strong),
         (LOGIN_FAST_USER, LOGIN_FAST_EMAIL, fast),

@@ -3,7 +3,9 @@
 x-modules: &modules
   SANDLOOM_MODULES: '["sandloom_identity","sandloom_tenancy","sandloom_billing","benchsuite.bench"]'
   BILLING_PROVIDER: fake
-  SANDLOOM_ACCEPTED_RISKS: fake_psp_in_prod
+  # No mail server: the log notifier stands in for the email identity and
+  # tenancy require (mail is NOT delivered).
+  SANDLOOM_ACCEPTED_RISKS: billing.fake_psp_in_prod,log_notifier_in_prod
 
 services:
   broker:

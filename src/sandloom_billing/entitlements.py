@@ -15,6 +15,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sandloom.sdk.authz import AccessUnknown
 from sandloom_billing.models import BillingCustomer
 from sandloom_billing.services.billing_service import BillingService
 
@@ -59,6 +60,40 @@ class EntitlementsService:
         if customer is None:
             return 0
         return await BillingService.get_credit_balance(customer.id, db)
+
+    @classmethod
+    async def has_credits_at_least(
+        cls, tenant_type: str, tenant_id: UUID, minimum: int, db: AsyncSession
+    ) -> bool:
+        """``get_credit_balance(...) >= minimum``: the same queries, compared
+        in billing (``billing.entitlements.v1.has_credits_at_least``)."""
+        balance = await cls.get_credit_balance(tenant_type, tenant_id, db)
+        return balance >= minimum
+
+    @classmethod
+    async def plan_feature(cls, tenant_type: str, tenant_id: UUID, key: str) -> bool:
+        """Whether the account's plan enables the feature flag ``key``.
+
+        Billing keeps no per-plan feature catalogue yet: it cannot say yes
+        or no, so it raises :class:`AccessUnknown` (``Feature(of=...)`` is
+        indeterminate 501, never a deny that ``Not`` would turn into an
+        allow), with no read."""
+        raise AccessUnknown(
+            f"billing keeps no feature catalogue for its plans (feature {key!r})"
+        )
+
+    @classmethod
+    async def plan_limit_allows(
+        cls, tenant_type: str, tenant_id: UUID, key: str, used: int
+    ) -> bool:
+        """Whether ``used`` is strictly below the account's plan limit ``key``.
+
+        Billing keeps no per-plan limits catalogue yet: it raises
+        :class:`AccessUnknown` (``WithinLimit(of=...)`` is indeterminate
+        501, never a quota denial), with no read."""
+        raise AccessUnknown(
+            f"billing keeps no limits catalogue for its plans (limit {key!r})"
+        )
 
     @classmethod
     async def subscription_claims(

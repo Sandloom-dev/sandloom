@@ -65,6 +65,14 @@ can still supply it to security checks and audit handling.
 | `TwoFABackupCode` | `twofa_backup_codes` | 2FA recovery codes (hashed). |
 | `ExternalIdentity` | `external_identities` | SSO provider ↔ user link. |
 
+### Role and permission codes
+
+Identity owns the role and permission rows, so the well-known codes live in
+its own package, `sandloom_identity.rbac`: the classes `Roles` and
+`Permissions`. They are no longer in `sandloom.sdk.authz`. Another module never
+imports identity. It writes the code string in its policy, such as
+`require(Perm("perm.users.read"))`.
+
 ## HTTP API
 
 | Router | Prefix | Endpoints |
@@ -223,6 +231,21 @@ identity.user_sessions_revoked.v1   # {user_id, reason, tokens_valid_after}
   [Configuration Reference](../../reference/configuration.md). For OAuth2 provider
   setup, see the [SSO guide](sso.md).
 
+### Token cleanup (optional)
+
+Identity schedules two cleanup tasks. They delete refresh tokens that
+expired, and tokens revoked more than 30 days ago. They need a worker and one
+beat. Identity declares that taskqueue need as optional.
+
+Without the cleanup, identity stays correct: an expired or revoked token is
+refused on every use. What you lose is storage. The `refresh_tokens` table
+keeps one row per login and per refresh, and it grows without bound.
+
+`sandloom doctor` warns about it in its `periodic` section, and
+`/diagnostics/core` shows `"beat": "absent"`. Run the worker and beat, or
+delete old rows yourself: `expires_at` in the past, or `revoked_at` older
+than 30 days.
+
 ## How other modules use identity
 
 Identity exposes these service contracts:
@@ -230,7 +253,7 @@ Identity exposes these service contracts:
 | Contract | Purpose |
 | --- | --- |
 | `identity.contact.v1` | `get_contact(user_id)` and `get_contacts(user_ids)` return contact DTOs at send time; unknown users are omitted or return `None`. Batches are capped at 1000 IDs. |
-| `identity.security.v1` | Operator commands for session revocation, forced password resets and the first administrator (`sandloom admin create`, `sandloom admin invite`, `sandloom security grant-admin`), with durable command deduplication and required audit records. See the [operator reference](../../operate/operator-reference.md). |
+| `identity.security.v1` | Identity's operator contract as the claim map's issuer: `end_sessions` (its refresh sessions, reported kind by kind: `SessionsEnded`; the access tokens are the kernel's to revoke, after it), `require_password_reset`, `list_user_ids` for `sandloom security revoke-sessions` / `force-password-reset`, and the administrators (`sandloom admin create`, `invite`, `list`, `sandloom security grant-admin`) as both the issuer (`account_by_email`, `accounts_by_id`, the password and set-password-link methods) and the owner of `roles` (`is_platform_admin`, `platform_admin_ids`, `appoint_platform_admin`), plus `create_platform_admin` / `take_over_platform_admin`, which make the account and its role in one unit; with durable command deduplication and required audit records. See the [operator reference](../../operate/operator-reference.md). |
 | `identity.claims.v1` | The critical claims contributor, automatically exposed by the framework for token issuance across services. |
 
 Business modules use the generated typed contract stubs and DTOs, not identity's

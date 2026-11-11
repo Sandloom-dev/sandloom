@@ -4,7 +4,7 @@
 # A service added to a running stack later gets its database from its
 # migrate one-shot (sandloom migrate upgrade-all --apply --create-databases).
 #
-#   POSTGRES_MULTIPLE_DATABASES="sandloom_identity sandloom_tenancy sandloom_billing"
+#   POSTGRES_MULTIPLE_DATABASES="sandloom_<service_a> sandloom_<service_b>"
 #
 # Each service owns its own database (its module tables + its own transactional
 # outbox / audit / consumer inbox) — modules never share tables or FKs, so this
@@ -17,9 +17,9 @@ for db in ${POSTGRES_MULTIPLE_DATABASES:-}; do
 SELECT 'CREATE DATABASE "${db}"'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${db}')\gexec
 SQL
-    # citext backs case-insensitive emails (identity users, tenancy
-    # invitations), pg_trgm the admin user search index; create them as the
-    # superuser so migrations need no extra privilege.
+    # citext backs case-insensitive columns (emails, say), pg_trgm text-search
+    # indexes of the modules' tables; create them as the superuser so
+    # migrations need no extra privilege.
     psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$db" \
         -c 'CREATE EXTENSION IF NOT EXISTS citext' \
         -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm'

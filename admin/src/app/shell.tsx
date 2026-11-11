@@ -95,6 +95,7 @@ function UserMenu() {
   const { theme, setTheme } = useTheme();
   const me = useQuery({
     queryKey: ['me', api.snapshot?.subject],
+    enabled: api.auth.me !== undefined,
     queryFn: () => api.me(),
     staleTime: 60_000,
   });

@@ -1,0 +1,12 @@
+poc/authz/tests/test_laws_generated_atoms.py::test_generated_atoms_keep_value_and_order
+poc/authz/tests/test_laws_generated_atoms.py::test_generated_atoms_not_keeps_an_indeterminate
+poc/authz/tests/test_laws_generated_atoms.py::test_generated_atoms_fail_closed
+poc/authz/tests/test_laws_generated_atoms.py::test_a_raising_generated_atom_never_allows
+poc/authz/tests/test_laws_generated_atoms.py::test_absent_owner_is_indeterminate_501_even_negated
+PASSED ../../../../../../../../Users/admin/Documents/dev_projects/sandloom::test_value_and_evaluations_equal_the_documented_rule
+PASSED ../../../../../../../../Users/admin/Documents/dev_projects/sandloom::test_an_allow_holds_under_every_completion_of_the_indeterminate
+PASSED ../../../../../../../../Users/admin/Documents/dev_projects/sandloom::test_not_keeps_an_indeterminate
+PASSED ../../../../../../../../Users/admin/Documents/dev_projects/sandloom::test_or_allows_on_a_genuine_allow_beside_an_indeterminate
+PASSED ../../../../../../../../Users/admin/Documents/dev_projects/sandloom::test_evaluate_agrees_with_decide
+PASSED ../../../../../../../../Users/admin/Documents/dev_projects/sandloom::test_the_known_order_dependence_is_kept
+============================= 11 passed in 15.33s ==============================

@@ -1,0 +1,17 @@
+$ [venv-prov-N] provider.py --variant missing
+provider missing: methods ['get_member_state', 'has_role_at_least', 'is_member', 'list_member_user_ids', 'list_user_organization_ids']; MemberState sandloom_tenancy.schemas.membership:MemberState fields ['organization_id', 'role', 'user_id', 'version']; fingerprint d200dafa6e17537ce8b125b7ca2dbf29
+$ [venv-cons-base] consumer.py --compat strict --call get_role
+2026-11-08 13:54:04,346 [WARNING] sandloom.core.rpc: No contract snapshot for remote contract tenancy.membership.v1: its compatibility is not checked (ship the provider module's package or set CONTRACT_SNAPSHOT_PATHS)
+installed: ['sandloom-billing==0.7.0a11', 'sandloom==0.7.0a11']
+find_spec('sandloom_tenancy'): None
+find_spec('sandloom.shared.contracts'): ModuleSpec(name='sandloom.shared.contracts', loader=<_frozen_importlib_external.SourceFileLoader object at 0x10201f200>, origin='$PC/venv-cons-base/lib/python3.12/site-packages/sandloom/shared/contracts/__init__.py', submodule_search_locations=['$PC/venv-cons-base/lib/python3.12/site-packages/sandloom/shared/contracts'])
+loaded_modules: ['sandloom_billing']
+client: _TypedClient
+get_member_state -> sandloom.shared.contracts.tenancy_dto.MemberState: MemberState(organization_id=UUID('a6c056c8-df19-42c8-adf2-153e502a5112'), user_id=UUID('1a862ade-dbb1-49aa-8b5f-9073ed599eda'), role='admin', version=7)
+is billing's own copy: True
+core.get_service(name).get_member_state -> sandloom.shared.contracts.tenancy_dto.MemberState
+billing tenant_resolver._member_state -> sandloom.shared.contracts.tenancy_dto.MemberState version=7
+call get_role -> ServiceUnavailableInDeployment: 501: Service 'tenancy.membership.v1' is not available in this deployment (Method 'get_role' is not exposed by 'tenancy.membership.v1')
+expectation of tenancy.membership.v1: none
+startup compat (strict): ok {"probed": []}
+/ready services: ok {"probed": ["tenancy.membership.v1"]}

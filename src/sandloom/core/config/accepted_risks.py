@@ -2,7 +2,7 @@
 
 ``SANDLOOM_ACCEPTED_RISKS`` is a JSON list (or comma-separated string) of the
 stable risk ids registered in :data:`RISKS`. Each id names one weakening that
-the framework otherwise refuses in production (a fake PSP, a volatile event
+the framework otherwise refuses in production (a module's fake backend, a volatile event
 bus, argon2 parameters below the OWASP floor, …): the check that would refuse
 it consults :func:`accepts` instead of a boolean of its own, so the full list
 of weakenings a deployment runs with is one reviewable setting — the model is
@@ -10,13 +10,23 @@ Django's ``SILENCED_SYSTEM_CHECKS``.
 
 * An unknown id fails startup (the ``Settings`` validator): a typo never
   silently accepts nothing — or the wrong thing.
+* Kernel ids are flat (``relay_disabled``). A module's id is
+  ``<module>.<name>`` (``inventory.oversell_in_prod``), declared by the module
+  (``Risk`` in its settings model; ADR-0015 decision 4, owner answers #27,
+  #28). The ``Settings`` validator accepts the form only; the loader checks
+  the namespace once the modules are registered (:func:`classify_module_risks`):
+  a loaded module's id is checked against its declaration, a module known in
+  the deployment but not loaded here makes the id inert ("not applicable
+  here"), any other namespace is refused. A flat id that is not a kernel id is
+  refused, naming the namespaced replacement where the module is installed.
+  There is no compatibility alias.
 * Every accepted risk is logged as a WARNING at every start, counted in
   ``sandloom_accepted_risk_active{risk}`` (and ``sandloom_config_override_active`` with
   ``kind="accepted_risk"``), listed by ``/diagnostics/core``
   (``configuration.accepted_risks``) and by ``sandloom doctor``
   (:mod:`sandloom.core.config.tiers` reports them as overrides).
 * There is no other spelling: the former per-check booleans
-  (``BILLING_ALLOW_FAKE_PSP_IN_PROD``, …) are removed settings
+  (``STORAGE_ALLOW_LOCAL_IN_PROD``, …) are removed settings
   (``config_tiers.REMOVED``) and fail startup when set.
 
 Pure data + pure functions of a settings-like object: no I/O and no import of
@@ -25,8 +35,9 @@ Pure data + pure functions of a settings-like object: no I/O and no import of
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from dataclasses import dataclass
+import re
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from typing import Any
 
 
@@ -52,13 +63,6 @@ RISKS: tuple[Risk, ...] = (
         "experimental_capability",
         "An experimental capability in prod: its contract may change in any release.",
         "build_infra_registry (sandloom.core.drivers.bootstrap)",
-    ),
-    Risk(
-        "fake_psp_in_prod",
-        "BILLING_PROVIDER=fake with ENVIRONMENT=prod: fake checkout sessions, "
-        "no real payment (demo stacks).",
-        "Settings validator (BILLING_PROVIDER) and billing's critical startup "
-        "check (sandloom_billing.psp.psp_configuration_error)",
     ),
     Risk(
         "log_notifier_in_prod",
@@ -151,15 +155,126 @@ def risk(risk_id: str) -> Risk:
     return _BY_ID[risk_id]
 
 
+#: A module's risk id: ``<module>.<name>``, both lower-case identifiers.
+MODULE_RISK_ID = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
+
+
+def is_module_id(risk_id: str) -> bool:
+    """A well-formed ``<module>.<name>`` id (not necessarily a declared one)."""
+    return MODULE_RISK_ID.match(str(risk_id)) is not None
+
+
 def unknown_ids(ids: Iterable[str]) -> list[str]:
-    return sorted({str(i) for i in ids} - RISK_IDS)
+    """The ids that are neither a kernel id nor a well-formed module id.
+
+    A well-formed module id is checked after the modules load
+    (:func:`classify_module_risks`), never here: the kernel does not know the
+    modules when its ``Settings`` validates.
+    """
+    given = {str(i) for i in ids}
+    return sorted(given - RISK_IDS - {i for i in given if is_module_id(i)})
 
 
-def unknown_ids_message(ids: Iterable[str]) -> str:
-    return (
-        f"SANDLOOM_ACCEPTED_RISKS names unknown risk id(s) {unknown_ids(ids)}; "
+def unknown_ids_message(
+    ids: Iterable[str], replacements: Mapping[str, str] | None = None
+) -> str:
+    """The refusal for the ids :func:`unknown_ids` finds in ``ids``.
+
+    ``replacements`` maps a flat id to the namespaced id an installed module
+    now declares for it (:func:`replacement_ids`)."""
+    given = list(ids)
+    bad = unknown_ids(given)
+    message = (
+        f"SANDLOOM_ACCEPTED_RISKS names unknown risk id(s) {bad}; "
         f"known: {sorted(RISK_IDS)} (docs/reference/configuration-tiers.md)"
     )
+    moved = {i: r for i, r in (replacements or {}).items() if i in bad}
+    if moved:
+        message += "; " + ", ".join(
+            f"{old!r} is now {new!r}" for old, new in sorted(moved.items())
+        )
+    if [i for i in bad if i not in moved]:
+        message += (
+            "; a module's risk id is <module>.<name> (no flat spelling, no "
+            "alias: rename it once, see the upgrade notes in the CHANGELOG)"
+        )
+    return message
+
+
+def replacement_ids(
+    ids: Iterable[str], declared: Mapping[str, Sequence[Risk]]
+) -> dict[str, str]:
+    """``{flat id: <module>.<id>}`` for each flat id of ``ids`` that exactly
+    one installed module declares (``declared``: module name -> its risks)."""
+    out: dict[str, str] = {}
+    for flat in unknown_ids(ids):
+        if "." in flat:
+            continue
+        owners = sorted(
+            m for m, risks in declared.items() if any(r.id == flat for r in risks)
+        )
+        if len(owners) == 1:
+            out[flat] = f"{owners[0]}.{flat}"
+    return out
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleRiskReport:
+    """The module-namespaced ids of ``SANDLOOM_ACCEPTED_RISKS`` in one process."""
+
+    #: ids a loaded module declares: ``(<module>.<name>, its Risk)``.
+    active: tuple[tuple[str, Risk], ...] = ()
+    #: ids of a module known in the deployment but not loaded here: inert,
+    #: listed as "not applicable here".
+    inert: tuple[str, ...] = ()
+    #: refusals: the id of a loaded module that declares no such risk, or of
+    #: a namespace nobody in this deployment knows.
+    problems: tuple[str, ...] = ()
+
+
+def classify_module_risks(
+    accepted: Iterable[str],
+    *,
+    loaded: Mapping[str, Sequence[Risk]],
+    known: Callable[[], Iterable[str]],
+) -> ModuleRiskReport:
+    """Apply the namespace rule (owner answer #27) to the module ids of ``accepted``.
+
+    ``loaded``: every loaded module -> the risks it declares (a module with no
+    settings maps to ``()``). ``known``: asked once, only when an id names a
+    module that is not loaded, for the module names known in the deployment
+    (installed entry points, ``SANDLOOM_MODULES``). Kernel ids are not
+    looked at.
+    """
+    active: list[tuple[str, Risk]] = []
+    inert: list[str] = []
+    problems: list[str] = []
+    known_names: set[str] | None = None
+    for risk_id in sorted({str(i) for i in accepted if is_module_id(i)}):
+        ns, _, local = risk_id.partition(".")
+        if ns in loaded:
+            declared = {r.id.removeprefix(f"{ns}."): r for r in loaded[ns]}
+            if local in declared:
+                active.append((risk_id, replace(declared[local], id=risk_id)))
+            else:
+                problems.append(
+                    f"SANDLOOM_ACCEPTED_RISKS names {risk_id!r}, but module {ns} "
+                    f"declares no risk {local!r} (declared: "
+                    f"{sorted(f'{ns}.{d}' for d in declared)})"
+                )
+            continue
+        if known_names is None:
+            known_names = {str(n) for n in known()}
+        if ns in known_names:
+            inert.append(risk_id)
+        else:
+            problems.append(
+                f"SANDLOOM_ACCEPTED_RISKS names {risk_id!r}, but {ns!r} is not a "
+                "module installed, loaded or listed in SANDLOOM_MODULES in this "
+                f"deployment (known: {sorted(known_names)}): a typo in a module or "
+                "risk name is refused, never ignored"
+            )
+    return ModuleRiskReport(tuple(active), tuple(inert), tuple(problems))
 
 
 def _is_prod(cfg: Any) -> bool:
@@ -182,9 +297,16 @@ def in_effect(cfg: Any, risk_id: str) -> bool:
     return _is_prod(cfg) or _BY_ID[risk_id].outside_prod
 
 
-def diagnostics(cfg: Any) -> list[dict[str, object]]:
-    """``/diagnostics/core`` rows: one per accepted risk."""
-    return [
+def diagnostics(
+    cfg: Any, module_risks: ModuleRiskReport | None = None
+) -> list[dict[str, object]]:
+    """``/diagnostics/core`` rows: one per accepted risk.
+
+    ``module_risks``: the loader's classification of the module-namespaced ids
+    (``core.module_settings.risk_report``): a loaded module's id is a row like
+    a kernel one, an id of a module not loaded here is listed as not
+    applicable (``"applicable": false``)."""
+    rows: list[dict[str, object]] = [
         {
             "risk": risk_id,
             "weakens": _BY_ID[risk_id].weakens,
@@ -193,16 +315,40 @@ def diagnostics(cfg: Any) -> list[dict[str, object]]:
         }
         for risk_id in sorted(effective(cfg))
     ]
+    if module_risks is not None:
+        rows += [
+            {
+                "risk": risk_id,
+                "weakens": item.weakens,
+                "consulted_by": item.consulted_by,
+                "in_effect": _is_prod(cfg) or item.outside_prod,
+            }
+            for risk_id, item in module_risks.active
+        ]
+        rows += [
+            {
+                "risk": risk_id,
+                "applicable": False,
+                "note": "not applicable here: its module is not loaded in this process",
+            }
+            for risk_id in module_risks.inert
+        ]
+    return rows
 
 
 __all__ = [
+    "MODULE_RISK_ID",
     "RISKS",
     "RISK_IDS",
+    "ModuleRiskReport",
     "Risk",
     "accepts",
+    "classify_module_risks",
     "diagnostics",
     "effective",
     "in_effect",
+    "is_module_id",
+    "replacement_ids",
     "risk",
     "unknown_ids",
     "unknown_ids_message",

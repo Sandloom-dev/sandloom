@@ -9,11 +9,8 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
-from sandloom.sdk.authz import (  # sandloom: advanced a custom live entitlements adapter
-    ENTITLEMENTS,
-    register_live_adapter,
-)
-from sandloom.sdk.testing import as_user, published
+from helpdesk.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
+from sandloom.sdk.testing import as_user, fake_contract, published
 
 from ..events import TicketCreated, TicketStatusChanged
 
@@ -142,33 +139,17 @@ class TestTickets:
         assert resp.status_code == 402
 
         # Organization subscribed, personal not: allowed.
-        class _Entitlements:
-            """The default entitlements adapter, except that ``org`` (when
-            set) has an active subscription."""
+        class _Billing:
+            """``org`` has an active subscription, nobody else does."""
 
-            service = "billing.entitlements.v1"
+            async def check_subscription_active(
+                self, tenant_type: str, tenant_id: uuid.UUID
+            ) -> bool:
+                return tenant_type == "organization" and tenant_id == org_id
 
-            def __init__(self, org):
-                self.org = org
-
-            async def subscription_active(
-                self, service, *, tenant_type, tenant_id, ctx
-            ):
-                if self.org is not None and tenant_id == self.org:
-                    return tenant_type == "organization"
-                return bool(
-                    await service.check_subscription_active(tenant_type, tenant_id)
-                )
-
-            async def credit_balance(self, service, *, tenant_type, tenant_id, ctx):
-                return int(await service.get_credit_balance(tenant_type, tenant_id))
-
-        register_live_adapter(ENTITLEMENTS, _Entitlements(org_id))
-        try:
+        with fake_contract(BILLING_ENTITLEMENTS_V1, _Billing()):
             ok = await client.get(
                 f"/api/v1/orgs/{org_id}/tickets/export", headers=headers
             )
-        finally:
-            register_live_adapter(ENTITLEMENTS, _Entitlements(None))
         assert ok.status_code == 200, ok.text
         assert ok.json()["organization_id"] == str(org_id)

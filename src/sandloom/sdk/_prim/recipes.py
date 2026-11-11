@@ -18,12 +18,15 @@ import re
 _RECIPES: dict[str, tuple[str, str]] = {
     "org-gate": (
         "an organization route for paid admins, and its test",
-        """The gate runs before the handler. In tests, fake the membership
-contract and the subscription fact; no tenancy or billing data is needed.
+        """The gate runs before the handler. The atoms come from the
+providers' generated stubs (`sandloom generate`). In tests, fake the
+membership and entitlements contracts; no tenancy or billing data is needed.
 
     from fastapi import Depends
-    from sandloom.sdk import CurrentUser, OrgRole, SubscriptionActive, require
-    from sandloom.sdk.authz import Account  # sandloom: advanced billing account
+    from sandloom.sdk import CurrentUser, require
+    from sandloom.sdk.authz import Account  # sandloom: advanced account target
+    from <app>.shared.contracts.billing_entitlements_v1 import SubscriptionActive
+    from <app>.shared.contracts.tenancy_membership_v1 import OrgRole
 
     ORG = Account.org(param="org_id")
     PAID_ADMIN = require(OrgRole("admin") & SubscriptionActive(of=ORG))
@@ -40,8 +43,9 @@ is meant.
 
 Test (200 for an admin of a paid org, 403 for a member, 402 when unpaid):
 
-    from sandloom.sdk.testing import as_user, fake_access_fact, fake_contract
-    from sandloom.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
+    from sandloom.sdk.testing import as_user, fake_contract
+    from <app>.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
+    from <app>.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
 
     RANK = {"member": 1, "admin": 2, "owner": 3}
 
@@ -51,6 +55,11 @@ Test (200 for an admin of a paid org, 403 for a member, 402 when unpaid):
             role = self.roles.get((organization_id, user_id))
             return role is not None and RANK[role] >= RANK[minimum]
 
+    class Plan:  # the entitlements contract: only the method the gate asks
+        def __init__(self, active): self.active = active
+        async def check_subscription_active(self, tenant_type, tenant_id):
+            return self.active
+
     async def test_report(client):
         org = uuid4()
         admin, admin_h = as_user(tenant_id=org)
@@ -58,14 +67,14 @@ Test (200 for an admin of a paid org, 403 for a member, 402 when unpaid):
         url = f"/api/v1/<module>/orgs/{org}/report"
         roles = Roles({(org, admin): "admin", (org, member): "member"})
         with fake_contract(TENANCY_MEMBERSHIP_V1, roles):
-            with fake_access_fact("organization.subscription.active", True):
+            with fake_contract(BILLING_ENTITLEMENTS_V1, Plan(True)):
                 assert (await client.get(url, headers=admin_h)).status_code == 200
                 assert (await client.get(url, headers=member_h)).status_code == 403
-            with fake_access_fact("organization.subscription.active", False):
+            with fake_contract(BILLING_ENTITLEMENTS_V1, Plan(False)):
                 assert (await client.get(url, headers=admin_h)).status_code == 402
 
-A personal gate is `Subscribed(of=Account.user())`, faked with
-`fake_access_fact("subscription.active", ...)`.""",
+A personal gate is `Subscribed(of=Account.user())` (same stub): it reads the
+token's `subscription_status` claim with zero I/O.""",
     ),
     "retries": (
         "what a retried write returns, and how to test it",
@@ -150,10 +159,10 @@ the microservices profile (`deploy/compose/microservices.yml`), its
 gateway (`deploy/gateway/nginx.conf`) and the database init script from the
 framework's templates. Never hand-write them. One command per service:
 
-    uv run sandloom add deploy identity                  # service "identity"
-    uv run sandloom add deploy tenancy
-    uv run sandloom add deploy billing
-    uv run sandloom add deploy catalog orders --service shop
+    uv run sandloom add deploy catalog                   # service "catalog"
+    uv run sandloom add deploy orders
+    uv run sandloom add deploy shipping
+    uv run sandloom add deploy payments invoices --service finance
 
 Each service gets its own database, a migrate one-shot, its RPC keys, a
 worker for `tasks.py` and one beat for periodic tasks. Every run re-derives,
@@ -307,8 +316,9 @@ periodic-task`).''',
         '''A module calls another module only through its contract, never its
 code. `uv run sandloom docs contracts` lists the stubs; `uv run sandloom docs <name>`
 prints every method's signature and semantics (`sandloom docs
-billing.credits.v1`). The bundled modules' stubs import from
-`sandloom.shared.contracts.<name>`, your app's from `<app>.shared.contracts.<name>`
+billing.credits.v1`). The stubs import from
+`<app>.shared.contracts.<name>` in an application and from
+`<module>._generated.contracts.<name>` in a module distribution
 (`sandloom generate` writes them from the provider, with the copies of its DTOs
 the stub names: never edit one; a contract you never released may change
 freely: delete its stub and run `sandloom generate`).
@@ -323,7 +333,7 @@ Declare the caller at module level: `define_module` adds it to the module's
     from uuid import UUID
 
     from sandloom.sdk import Contract
-    from sandloom.shared.contracts.billing_credits_v1 import BILLING_CREDITS_V1
+    from <app>.shared.contracts.billing_credits_v1 import BILLING_CREDITS_V1
 
     credits = Contract(BILLING_CREDITS_V1)
 
@@ -380,7 +390,7 @@ Tests fake the provider: a class with the methods your code calls.
     from fastapi import HTTPException
 
     from sandloom.sdk.testing import as_user, fake_contract
-    from sandloom.shared.contracts.billing_credits_v1 import BILLING_CREDITS_V1
+    from <app>.shared.contracts.billing_credits_v1 import BILLING_CREDITS_V1
 
     URL = "/api/v1/<module>/exports"
 
@@ -482,7 +492,7 @@ can refill it:
         full_state,
         tombstone,
     )
-    from sandloom.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
+    from <app>.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
 
     from .models.member import Member
 
@@ -568,7 +578,7 @@ The page: one query on the projection, one billing call:
 
     from sandloom.sdk import Contract, db
     from sandloom.sdk.tenant import current_tenant_id  # sandloom: advanced the organization
-    from sandloom.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
+    from <app>.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
 
     from .models.member import Member
 
@@ -601,9 +611,9 @@ Tests deliver the events (in any order, twice) and fake both contracts:
 
     from sandloom.sdk.tenant import bind_tenant  # sandloom: advanced the organization
     from sandloom.sdk.testing import deliver, fake_contract
-    from sandloom.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
-    from sandloom.shared.contracts.tenancy_dto import MemberState
-    from sandloom.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
+    from <app>.shared.contracts.billing_entitlements_v1 import BILLING_ENTITLEMENTS_V1
+    from <app>.shared.contracts.tenancy_dto import MemberState
+    from <app>.shared.contracts.tenancy_membership_v1 import TENANCY_MEMBERSHIP_V1
 
     from ..projections import MEMBERS, MemberAdded, MemberRemoved, MemberRoleChanged
     from ..team import team_page
@@ -666,8 +676,10 @@ Tests deliver the events (in any order, twice) and fake both contracts:
         assert (await team(org))["members"] == {str(ann): "owner"}
 
 A gate on the plan itself is a route atom, not a projection:
-`require(SubscriptionActive(of=Account.org(param="org_id")))` (`sandloom docs
-recipe org-gate`).''',
+`require(SubscriptionActive(of=Account.org(param="org_id")))`, with
+`SubscriptionActive` imported from the generated
+`<app>.shared.contracts.billing_entitlements_v1` (`sandloom docs recipe
+org-gate`).''',
     ),
     "event-v2": (
         "roll your own event to v2: dual publish, move consumers, retire v1",

@@ -49,7 +49,8 @@ async def test_the_start_page_links_the_console_docs_and_health() -> None:
     page = response.text
     assert 'href="/admin/"' in page and 'href="/health"' in page
     assert ('href="/docs"' in page) is settings.docs_exposed
-    assert "uv run sandloom admin create" in page
+    # The kernel names no module command: the startup log carries it.
+    assert "startup log" in page and "sandloom admin" not in page
     assert "<script" not in page
 
 
@@ -60,6 +61,9 @@ async def test_without_the_console_there_is_no_console_link() -> None:
     response = await _get(app)
     assert response.status_code == 200
     assert "/admin/" not in response.text
+    assert (
+        "sandloom admin" not in response.text and "administrator" not in response.text
+    )
 
 
 @pytest.mark.asyncio
@@ -85,7 +89,9 @@ async def test_production_leaves_the_root_unrouted(
 
 
 def test_the_composed_app_serves_the_start_page_as_a_public_read() -> None:
-    from sandloom.main import app
+    from sandloom.core.composition import load_composition_app
+
+    app = load_composition_app()
 
     (route,) = [r for r in app.routes if getattr(r, "path", None) == "/"]
     policy = resolve_route_policy(route, "GET")

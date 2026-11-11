@@ -20,11 +20,6 @@ from sandloom.core.descriptors import (
 from sandloom.core.facade import CoreFacade
 from sandloom.core.loader import plugin_loader
 from sandloom.core.loader.plugin_loader import ModuleLoadError, _load_list
-from sandloom.core.migrations.migrations import (
-    MigrationDependencyError,
-    check_chain_collisions,
-    version_table_for,
-)
 from sandloom.core.migrations.urls import to_sync_url
 
 
@@ -200,19 +195,6 @@ def test_ambiguous_databases_require_explicit_target() -> None:
         desc.database_instances()
 
 
-def test_chain_collision_detected() -> None:
-    a = ModuleDescriptor(name="sandloom_billing", version="1", migrations_path="/x")
-    b = ModuleDescriptor(
-        name="myapp.modules.billing", version="1", migrations_path="/y"
-    )
-    with pytest.raises(MigrationDependencyError, match="alembic_version_billing"):
-        check_chain_collisions([a, b])
-    b.migrations_chain = "myapp_billing"
-    check_chain_collisions([a, b])
-    assert version_table_for(a) == "alembic_version_billing"  # back-compat
-    assert version_table_for(b) == "alembic_version_myapp_billing"
-
-
 def test_list_loading_rejects_a_descriptor_name_collision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -228,18 +210,6 @@ def test_list_loading_rejects_a_descriptor_name_collision(
     assert [d.name for d in summary.loaded] == ["x.shared"]
     failed = {f.name: f.error for f in summary.failed}
     assert "x.two" in failed and "x.shared" in failed["x.two"]
-
-
-def test_loader_rejects_colliding_chain(monkeypatch: pytest.MonkeyPatch) -> None:
-    summary = ModuleLoadSummary()
-    summary.loaded.append(
-        ModuleDescriptor(name="sandloom_billing", version="1", migrations_path="/x")
-    )
-    desc = ModuleDescriptor(
-        name="myapp.modules.billing", version="1", migrations_path="/y"
-    )
-    with pytest.raises(plugin_loader.ModuleRegistrationError, match="migration"):
-        plugin_loader._check_chain_collision(desc, summary)
 
 
 # --------------------------------------------------------------------------- #
@@ -331,12 +301,15 @@ def test_cli_uses_composition_root_module_set(
     monkeypatch.setenv(migrate.COMPOSITION_ROOT_ENV, "fake_root")
     assert migrate._load_core() is core
 
-    # The default root is sandloom.main, i.e. exactly create_app's resolution.
+    # Without the fake root: the suite's composition root (conftest.py: the
+    # standard root when it is installed, else the lean sandloom.main), i.e.
+    # exactly create_app's resolution of the default module set.
     monkeypatch.delenv(migrate.COMPOSITION_ROOT_ENV)
-    import sandloom.main
+    from sandloom.core.composition import load_composition_core
 
-    assert migrate._load_core() is sandloom.main.core
-    names = {d.name for d in sandloom.main.core.module_descriptors}
+    root_core = load_composition_core()
+    assert migrate._load_core() is root_core
+    names = {d.name for d in root_core.module_descriptors}
     from sandloom.core.descriptors.module_names import installed_modules
 
     standard = {m.path for m in installed_modules()}

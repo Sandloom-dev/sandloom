@@ -19,36 +19,47 @@ its ``operation_key`` and NOT atomic with the caller's transaction (saga).
 """
 
 from sandloom.sdk import define_module
-from sandloom.sdk.infra import settings
-from sandloom.sdk.module import ContractRequirement, ModuleAPI
+from sandloom.sdk.module import CapabilityRequirement, ContractRequirement, ModuleAPI
 
 from . import psp
 from .access import ORG_SUBSCRIPTION_ACTIVE_FACT, SUBSCRIPTION_ACTIVE_FACT
 from .claims import contribute_billing_claims
+from .config import BillingSettings
 from .services.operations import OPERATIONS
+from .services.reconciler_health import RECONCILER_HEALTH_CHECK, ReconcilerHealthCheck
 
 ENTITLEMENTS_SERVICE_V1 = "billing.entitlements.v1"
 CREDITS_SERVICE_V1 = "billing.credits.v1"
 FACTS_SERVICE_V1 = "billing.facts.v1"
 MEMBERSHIP_SERVICE_V1 = "tenancy.membership.v1"
 
+#: The claim keys billing writes, declared fail-safe (ADR-0014 decision 7,
+#: billing option (c)): every reader escalates or answers indeterminate when
+#: one is absent (the generated ``Subscribed`` escalates to the live fact or
+#: answers 503 when billing failed at the mint, ``Feature`` / ``WithinLimit``
+#: answer 501 / 503, ``plan_code`` grants nothing), so billing's contributor
+#: may be non-critical and a billing outage still mints a login. An issuer
+#: that binds billing remotely ``"critical": false`` reads the same
+#: declaration from its composition root
+#: (``Authority("sandloom_billing", fail_safe=True)``).
+BILLING_CLAIM_KEYS: tuple[str, ...] = (
+    "subscription_status",
+    "plan_code",
+    "features",
+    "limits",
+)
+
 
 def _setup(core: ModuleAPI) -> None:
     """Register billing's PSP client, claims, access facts and reads.
 
-    Raises ``SystemExit`` (the loader's configuration refusal) when the PSP
-    configuration is refused in this environment (the implicit fake PSP in
-    prod without the accepted risk ``fake_psp_in_prod``).
+    The PSP configuration (the fake PSP in prod without the accepted risk
+    ``billing.fake_psp_in_prod``, Stripe without its keys) is refused earlier,
+    by ``BillingSettings``: the loader validates the model before this setup
+    runs, so every process that builds the composition (the app, worker, beat,
+    ``sandloom migrate``, the operator CLIs) stops with the kernel's
+    INVALID_CONFIGURATION refusal before the PSP client is built.
     """
-    # Production must never run on the fake PSP (fake checkouts; forged-event
-    # risk). Refused here, at registration, so every process that builds the
-    # composition (the app, worker, beat, ``sandloom migrate``, the operator
-    # CLIs) stops with the kernel's INVALID_CONFIGURATION refusal before the
-    # PSP client is built.
-    config_error = psp.psp_configuration_error(settings)
-    if config_error is not None:
-        raise SystemExit(config_error)
-
     core.add_shutdown_task(psp.close_psp_client)
 
     # The PSP client is billing-INTERNAL (it can create checkout sessions and
@@ -57,17 +68,23 @@ def _setup(core: ModuleAPI) -> None:
     psp.install_psp_client(psp.build_psp_client())
 
     # Subscription/plan claims baked into minted access tokens.
-    core.add_claims_contributor(contribute_billing_claims)
+    core.add_claims_contributor(contribute_billing_claims, fail_safe=BILLING_CLAIM_KEYS)
 
-    # Configurable access facts: Entitled("subscription.active") (personal
-    # tenant; claim / live / auto per the ACCESS setting) and
-    # Entitled("organization.subscription.active") (request's org; live).
+    # Configurable access facts, owned by billing:
+    # Entitled("subscription.active", owner="billing") (personal tenant;
+    # claim / live / auto per the ACCESS setting) and
+    # Entitled("organization.subscription.active", owner="billing")
+    # (request's org; live).
     core.register_access_fact(SUBSCRIPTION_ACTIVE_FACT)
     core.register_access_fact(ORG_SUBSCRIPTION_ACTIVE_FACT)
 
     # Declared reads of GET /subscription and GET /credits (execution
     # planner; planned at startup, a schema error fails the boot).
     core.register_operations(*OPERATIONS)
+
+    core.register_health_check(
+        RECONCILER_HEALTH_CHECK, ReconcilerHealthCheck(), operational=True
+    )
 
 
 # Discovered (sandloom.sdk define_module): the routers of ``api.__all__``, the
@@ -76,7 +93,14 @@ def _setup(core: ModuleAPI) -> None:
 register = define_module(
     __name__,
     version="1.0.0",
-    capabilities=["database", "eventbus"],
+    capabilities=[
+        "database",
+        "eventbus",
+        # The intent reconciler (tasks.py) closes and escalates payment
+        # operations no request will close: it must run at its interval, so
+        # the task queue's driver must run periodic jobs, not only enqueue.
+        CapabilityRequirement("taskqueue", features=frozenset({"periodic"})),
+    ],
     consumes=[
         # Organization billing context. Optional: a personal-only deployment
         # (no tenancy anywhere) runs without it; when the token shows tenancy
@@ -86,9 +110,14 @@ register = define_module(
             MEMBERSHIP_SERVICE_V1,
             required=False,
             reason="organization billing context / org subscription fact",
+            # Called through core.get_service (services/tenant_resolver,
+            # access): stated, so the generated expectation holds tenancy to
+            # these methods only (ADR-0013 decision 2).
+            methods=("get_member_state", "get_role", "has_role_at_least"),
         ),
     ],
     setup=_setup,
+    settings=BillingSettings,
 )
 
 __all__ = [

@@ -1,29 +1,29 @@
 """Unit tests for the shared authorization algebra (no DB, no FastAPI).
 
 Exercises the pure predicate layer directly via AuthzContext.evaluate, including
-tier ordering / lazy resource loading and the inline `authorize` helper.
+tier ordering / lazy resource loading and the inline `authorize` helper. The
+billing atoms are the generated ones (``generated_atoms``, KB-34).
 """
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
 
 from sandloom.shared.authz import (
+    AccessFact,
     Account,
-    Credits,
-    Feature,
     Owner,
     Perm,
     Role,
-    Subscribed,
-    WithinLimit,
     authorize,
     require,
 )
 from sandloom.shared.authz.context import AuthzContext
+from sandloom.shared.authz.facts import ClaimRule
 from sandloom.shared.subject import UserContext
 
 pytestmark = pytest.mark.asyncio
@@ -44,7 +44,24 @@ def _subject(**overrides: object) -> UserContext:
     return UserContext(**data)  # type: ignore[arg-type]
 
 
+class _Core:
+    """Billing's ``subscription.active`` fact registered: the generated
+    ``Subscribed`` reads the claim under it (501 with no owner)."""
+
+    def get_access_fact(self, name: str) -> AccessFact | None:
+        return SUBSCRIPTION if name == SUBSCRIPTION.name else None
+
+
+SUBSCRIPTION = AccessFact(
+    name="subscription.active",
+    owner_module="billing",
+    claim_key="subscription_status",
+    claim_rule=ClaimRule.one_of({"active", "trialing"}),
+)
+
+
 def _ctx(subject: UserContext, **kw: object) -> AuthzContext:
+    kw.setdefault("core", _Core())
     return AuthzContext(subject, **kw)  # type: ignore[arg-type]
 
 
@@ -59,7 +76,13 @@ async def test_perm_and_role_membership() -> None:
     assert await Role("ops").evaluate(_ctx(s)) is False
 
 
-async def test_subscribed_feature_limit() -> None:
+async def test_subscribed_feature_limit(generated_atoms: SimpleNamespace) -> None:
+    atoms = generated_atoms
+    Subscribed, Feature, WithinLimit = (
+        atoms.Subscribed,
+        atoms.Feature,
+        atoms.WithinLimit,
+    )
     s = _subject(
         subscription_status="trialing", features={"export": True}, limits={"seats": 3}
     )
@@ -78,7 +101,7 @@ async def test_subscribed_feature_limit() -> None:
     assert (
         await WithinLimit("seats", used=3, of=Account.user()).evaluate(_ctx(s)) is False
     )
-    # absent limit fails closed
+    # an entry the (complete) limits mapping does not list fails closed
     assert (
         await WithinLimit("unknown", used=0, of=Account.user()).evaluate(_ctx(s))
         is False
@@ -88,7 +111,8 @@ async def test_subscribed_feature_limit() -> None:
 # -- combinators ---------------------------------------------------------------
 
 
-async def test_and_or_not() -> None:
+async def test_and_or_not(generated_atoms: SimpleNamespace) -> None:
+    Subscribed = generated_atoms.Subscribed
     s = _subject(
         roles={"admin"}, permissions={"post.write"}, subscription_status="active"
     )
@@ -182,8 +206,11 @@ async def test_require_rejects_resource_policy() -> None:
         require(Owner(lambda p: p.owner_id) | Role("admin"))
 
 
-async def test_require_allows_claim_and_live_policies() -> None:
+async def test_require_allows_claim_and_live_policies(
+    generated_atoms: SimpleNamespace,
+) -> None:
     # Claim and live (Credits) atoms need no resource -> require() accepts them.
+    atoms = generated_atoms
     assert callable(require(Perm("x")))
-    assert callable(require(Credits(10, of=Account.user())))
-    assert callable(require(Subscribed(of=Account.user()) & Role("admin")))
+    assert callable(require(atoms.Credits(10, of=Account.user())))
+    assert callable(require(atoms.Subscribed(of=Account.user()) & Role("admin")))

@@ -116,7 +116,7 @@ uv run python ladder/ladder.py calls R0.enc --n 1000
 uv run python ladder/ladder.py alloc R0.rpc --n 2000
 
 # 5. over a REAL loopback socket: caller CPU vs provider CPU per call
-#    (provider = uvicorn sandloom.main:app, one worker, with the stand env; the
+#    (provider = uvicorn sandloom_standard.main:app, one worker, with the stand env; the
 #    caller = RemoteServiceProxy on the shared pooled httpx client, conc 1)
 export LADDER_PG_CONTAINER=sandloom_postgres_test LADDER_REDIS_CONTAINER=sandloom_redis_test
 for r in R0 R2 R2q R3 R3o R3u R4 R4r; do
@@ -743,3 +743,100 @@ What the fixes did, and what is left:
   (object counts per op on both builds).
 
 Data: `ladder/results/cg_infra_agnostic_2026-11-05.json` (`after_fixes`).
+
+## E. Trusted claims view (KB-11, `claims_rungs.py`)
+
+What the per-key `cpv` and the trusted view cost on `Role`, `Perm`,
+`TenantScope`, `decode_token` and a mint, with no database and no network
+(an in-memory revocation cache), so the number is the authorization's own
+cost. One kernel process mints real tokens through `collect_claims` +
+`create_access_token`; the same file runs on a build before the view
+(`f8e1bb7^`: tokens without `cpv`) and after it. Rungs: `KRole` `KPerm`
+`KTen` (a cached token), `KRoleC` `KTenC` (a fresh token each op), `KDec`
+`KDecC` (`decode_token`), `KMintC` `KMint`, and the parts `KLoads` `KCtx`
+`KVerify` `KView` (`KView` needs the view).
+
+```bash
+LADDER_CG_GC=freeze CG_K=1000 ladder/cg/run_cg.sh \
+  KRole KPerm KTen KRoleC KTenC KDec KDecC KMintC KMint KVerify KView
+CG_K=20000 ladder/cg/run_cg.sh KLoads KCtx KDec   # small rungs need a large K
+```
+
+Run base and candidate each from its own checkout (`git worktree add`, the
+two stand files copied into the base). A rung under about 50 k Ir/op needs
+K of 20 000: at K = 200 the 1 M Ir of run-to-run noise is 5 k per op. The
+numbers of the KB-11 measurement are in
+`tests/fixtures/specs/api10-ledger-delta-kb11c.md`.
+
+## F. The cachegrind stand on the kernel-boundary architecture (kb-cg-stand)
+
+`ladder/cg/run_cg.sh` and the rungs boot the **standard** composition root
+(`sandloom_standard.main`, the `sandloom-standard` package), the root a
+deployment runs. The lean `sandloom.main` assigns no claim authorities and
+refuses a composition that loads the token issuer with `SANDLOOM-B035`; the
+rungs therefore import `sandloom_standard.main` (and the uvicorn stands target
+`sandloom_standard.main:app`). What the stand sets, and why:
+
+| what | where | why |
+|---|---|---|
+| `sandloom_standard.main` mounted (`packages/sandloom-standard/src` at `/w/standard`, on `PYTHONPATH`) and `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main` | `cg/run_cg.sh` | the standard root is not under `src/`; the variable names the same root for the kernel's own entry points |
+| `SANDLOOM_SERVICE_NAME` (default `ladder`) | `cg/run_cg.sh` | on a shared bus (the stand's `streams`) the kernel's durable revocation applier needs a service name for its consumer group; without it the app refuses to start. Override from the caller's environment |
+| `log_notifier_in_prod` in `SANDLOOM_ACCEPTED_RISKS` | `cg/run_cg.sh` default, `benchsuite.rpcstand.server_env` | identity and tenancy require a notifier with the `email` feature. In prod the `log` driver advertises none unless this risk is accepted (`SANDLOOM-B037`); the stand sends no mail. A rung that sets `ENVIRONMENT=dev` (the platform rungs) needs nothing |
+| the consumer's generated contract copy | `ladder/hot_paths.py` (`HCd`) | `sandloom.shared.contracts.tenancy_membership_v1` no longer exists; the rung reads `tenancy.membership.v1` through `sandloom_billing._generated.contracts.tenancy_membership_v1` |
+| the 2FA secret encrypted without a bound app | `ladder/write_login.py seed` | `sandloom_identity` settings are read from the application's bound settings; a seed run has no application, so it builds the same `CryptoUtils(key=[TWOFA_KEY], info=...)` directly |
+
+The image is unchanged (`cg/Dockerfile`); only mounts and environment moved.
+Seed once per database, from the repository root, with the root checkout's
+environment (`uv sync` installs `sandloom-standard` in dev mode):
+
+```bash
+export DATABASE_URL=... CACHE_URL=... BROKER_URL=...        # localhost URLs are fine
+PYTHONPATH=benchmarks:benchmarks/ladder uv run python -m benchsuite.setup_db
+PYTHONPATH=benchmarks:benchmarks/ladder uv run python -m benchsuite.platform seed
+PYTHONPATH=benchmarks:benchmarks/ladder uv run python benchmarks/ladder/write_login.py seed
+CG_K=200 benchmarks/ladder/cg/run_cg.sh R0.rpc WLlf HTr HCs HCd Pme HW7
+```
+
+Rungs by the question they answer (the M-ir row of the migration plan):
+
+| question | rungs |
+|---|---|
+| request | `WLlf` (login), `HTr` (refresh), `Pme`, `Porgs`, `Pmem` |
+| mint | `HTr` (access-token mint with claims), `WLlf` (login mint); the claims rungs of PR #118 when merged |
+| contract call | `R0.rpc` (RPC, in-process transport), `HCs` / `HCd` (local contract read) |
+| authz on the request path | `L6S5` (JWT + revocation + TenantScope + RLS + `Subscribed`), `HW7` (class-F route: strict revocation + durable idempotency), `Pme` (strict GET) |
+| write / command | `WLc` (credits spend), `HW7` |
+
+Measured on `arch/kernel-boundary` `c7658771` (aarch64 image `sandloom-ladder-cg:3.13`,
+K = 50, 2026-11-09), to show the stand runs; `WLc` K = 20:
+
+| rung | Ir/op |
+|---|---:|
+| `R0.rpc` | 2,145,104 |
+| `WLlf` | 13,903,566 |
+| `HTr` | 9,556,585 |
+| `HCs` | 1,380,116 |
+| `HCd` | 3,107,239 |
+| `Pme` | 2,982,154 |
+| `WLc` | 9,382,989 |
+
+**Tokens of the `benchsuite` stands (kb-cg-stand-b).** The sealed mint
+(ADR-0014 decision 5) keeps a protected claim only from the authority of the
+composition's map, and a bare HS256 JWT carries no `cpv` or provenance, so a
+hand-signed token is refused (401 `token_policy_outdated`, 402 on `Subscribed`).
+Every stand now mints through the real path, in its own process
+(`benchsuite/claims_mint.py`; no sealed-mint bypass):
+
+| stand | authority | token |
+|---|---|---|
+| S5 family (`L6S5*`, `HSbud`, `HW7`, the S5 / write servers; `SANDLOOM_MODULES=["benchsuite.bench"]`) | the `bench` module owns `tenant_ids` and `subscription_status`: `benchsuite.bench.claims.CLAIM_AUTHORITIES`, assigned by the stand's root `benchsuite/apps/sandloom_app.py` (`create_app(claim_authorities=...)`) | `s5.mint(tenant, subscription=, hours=)`: a kernel core with that map and the bench contributor, `collect_claims` + `create_access_token(claims=sealed)`; no database, no network |
+| platform and mix (`Pme`, `HTr`, `mix`, `server_bench`, `api10 orggate`, the example apps) | the standard map (identity, tenancy, billing) | `platform.mint()` / `mix.mint(hours, full=)`: the standard app of the stand's env is built and `collect_claims` reads the seeded user's roles, tenancy grant and subscription from its database; seed first (`python -m benchsuite.platform seed`, `mix seed|seed-full`) |
+
+The tenant is the token's `tenant_ids` grant (a single grant is the bound
+tenant); the mint refuses a `tenant_id` selector. `mix seed-full` also seeds
+the organization's active subscription (the helpdesk export gate is live), and
+`api10 orggate` seeds the user's and the organization's subscriptions itself.
+`mix.database_url()` is idempotent, so a process that already applied
+`server_env()` mints for the same database. The claims-tier rungs (`K*`,
+`ladder/claims_rungs.py`) cover the request-path authorization and the mint
+without a database.

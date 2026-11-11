@@ -1,0 +1,29 @@
+# T-9 L0: a token minted by the BASE wheel (ceb3d66+PR72), presented within its 15-minute life to the TA-1 and the TA-0 verifier (2026-11-08T14:40:18Z)
+
+######## legacy-base-mint   root=base   kernel: $SCRATCH/venv-base/lib/python3.12/site-packages/sandloom
+  base kernel claims: {"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": [], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": [], "cpv": null}
+## TA-1
+  T-9 L0 minted by the base (pre-change) kernel, ADMIN GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 L0 minted by the base (pre-change) kernel, ADMIN GET /api/v1/shop/role-admin: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-9 L0 minted by the base (pre-change) kernel, ADMIN GET /api/v1/shop/perm-write: 401 {"detail":"the access token predates the claim policy; refresh it (permission 'perm.poc.write')","code":"token_policy_outdated"}
+  T-9 L0 minted by the base (pre-change) kernel, ADMIN GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 L0 minted by the base (pre-change) kernel, ADMIN GET /api/v1/shop/not-role: 401 {"detail":"the access token predates the claim policy; refresh it (role 'admin')","code":"token_policy_outdated"}
+  T-9 L0 minted by the base (pre-change) kernel, ADMIN GET /api/v1/shop/platform: 401 {"detail":"token_policy_outdated","code":null}
+  T-9 L0 minted by the base (pre-change) kernel, ADMIN GET /api/v1/platform/shop/services: 401 {"detail":"token_policy_outdated","code":null}
+  T-9 after refresh (re-mint) ADMIN: mint 200 claims={"roles": ["admin"], "permissions": ["perm.poc.write"], "tenant_ids": [], "claims_sources": ["grants", "test_identity"], "claims_sources_failed": [], "cpv": "1:8264c48c7229"}
+  T-9 refreshed ADMIN GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 refreshed ADMIN GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-9 refreshed ADMIN GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-9 refreshed ADMIN GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 refreshed ADMIN GET /api/v1/shop/not-role: 403 {"detail":"requires NOT role 'admin'","code":"negation_failed"}
+  T-9 refreshed ADMIN GET /api/v1/shop/platform: 200 {"ok":"platform admin"}
+  T-9 refreshed ADMIN GET /api/v1/platform/shop/services: 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","category":"infrastructure"},{"id":"db","status":"ok","category":"infrastructure"},{"id":"eventbus","status":"ok","category":"infrastructure"},{"id":"infra...
+  T-9 log: sandloom.claims.trust: claim policy mismatch: a token minted under cpv=<none: legacy token> reached a process running cpv=1:8264c48c7229; its protected claims are untrusted (legacy token, or issuer and verifier run different claim_authorities) [request_id=1689b66e-dd06-4011-a6b8-924194190464]
+## TA-0
+  T-9 L0 minted by the base (pre-change) kernel, ADMIN GET /api/v1/shop/plain: 200 {"ok":"authenticated"}
+  T-9 L0 minted by the base (pre-change) kernel, ADMIN GET /api/v1/shop/role-admin: 200 {"ok":"role admin"}
+  T-9 L0 minted by the base (pre-change) kernel, ADMIN GET /api/v1/shop/perm-write: 200 {"ok":"perm.poc.write"}
+  T-9 L0 minted by the base (pre-change) kernel, ADMIN GET /api/v1/shop/role-or-always: 200 {"ok":"Role(admin) | always"}
+  T-9 L0 minted by the base (pre-change) kernel, ADMIN GET /api/v1/shop/not-role: 403 {"detail":"requires NOT role 'admin'","code":"negation_failed"}
+  T-9 L0 minted by the base (pre-change) kernel, ADMIN GET /api/v1/shop/platform: 200 {"ok":"platform admin"}
+  T-9 L0 minted by the base (pre-change) kernel, ADMIN GET /api/v1/platform/shop/services: 200 [{"id":"cache","status":"ok","category":"infrastructure"},{"id":"core","status":"ok","category":"infrastructure"},{"id":"db","status":"ok","category":"infrastructure"},{"id":"eventbus","status":"ok","category":"infrastructure"},{"id":"infra...

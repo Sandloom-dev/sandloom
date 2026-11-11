@@ -101,7 +101,7 @@ def write_profiles() -> None:
 
 
 def _token() -> str:
-    return mix.mint(hours=24, tenant=True)
+    return mix.mint(hours=24, full=True)
 
 
 def _baseline_path(out: str) -> str:
@@ -219,7 +219,7 @@ def _sb(
         PY,
         "ladder/server_bench.py",
         "--target",
-        "sandloom.main:app",
+        "sandloom_standard.main:app",
         "--env-file",
         envf,
         "--env",

@@ -1,19 +1,17 @@
 """Unified, claims-first authorization for Sandloom.
 
-A single composable algebra covers RBAC (``Role``/``Perm``), conditional access
-(``Subscribed``/``Feature``/``WithinLimit``/``Credits``) and resource ownership
-(``Owner``). Policies compose with ``& | ~`` and evaluate cheapest-tier first:
-claim checks (zero I/O) before resource loads before live service calls.
+A single composable algebra covers RBAC (``Role``/``Perm``), registered access
+facts (``Entitled``), resource ownership (``Owner``) and the access checks a
+provider declares (``access_check``: each consumer's generated stub carries its
+atoms, such as billing's ``Subscribed`` or tenancy's ``OrgRole``). Policies
+compose with ``& | ~`` and evaluate cheapest-tier first: claim checks (zero
+I/O) before resource loads before live service calls.
 
-Business modules import only from here — never a concrete backend or another
-business module. Example::
+Example::
 
     from sandloom.shared.authz import require, authorize_resource, Perm, Owner, Role
 
-    @router.post(
-        "/x",
-        dependencies=[Depends(require(Subscribed(of=Account.user()) & Perm("p.w")))],
-    )
+    @router.post("/x", dependencies=[Depends(require(Perm("p.w")))])
 
     @router.patch("/posts/{post_id}")
     async def update_post(
@@ -34,19 +32,18 @@ from sandloom.shared.authz.algebra import (
     Or,
     Requirement,
 )
-from sandloom.shared.authz.atoms_claims import (
-    ACTIVE_SUBSCRIPTION_STATUSES,
-    Feature,
-    Perm,
-    Role,
-    Subscribed,
-    WithinLimit,
-)
+from sandloom.shared.authz.atoms_claims import Perm, Role
 from sandloom.shared.authz.atoms_fact import Entitled
-from sandloom.shared.authz.atoms_live import Credits, OrgRole, SubscriptionActive
 from sandloom.shared.authz.atoms_resource import Owner
-from sandloom.shared.authz.constants import Permissions, Roles
+from sandloom.shared.authz.claim_read import ClaimReadCheck, claim_atom
 from sandloom.shared.authz.context import AuthzContext
+from sandloom.shared.authz.contract_check import (
+    AccessUnknown,
+    ClaimFactCheck,
+    ContractCheck,
+    From,
+    access_check,
+)
 from sandloom.shared.authz.deps import (
     authorize,
     authorize_resource,
@@ -70,13 +67,6 @@ from sandloom.shared.authz.facts import (
     FactUnavailable,
     lookup_access_fact,
     resolve_fact,
-)
-from sandloom.shared.authz.live_contracts import (
-    ENTITLEMENTS,
-    MEMBERSHIP,
-    EntitlementsAdapter,
-    MembershipAdapter,
-    register_live_adapter,
 )
 from sandloom.shared.authz.projection import (
     make_rebuild_gate,
@@ -103,15 +93,8 @@ __all__ = [
     # atoms
     "Perm",
     "Role",
-    "Subscribed",
-    "Feature",
-    "WithinLimit",
-    "Credits",
-    "SubscriptionActive",
-    "OrgRole",
     "Owner",
     "Entitled",
-    "ACTIVE_SUBSCRIPTION_STATUSES",
     # context
     "AuthzContext",
     # deps / entry points
@@ -130,6 +113,7 @@ __all__ = [
     # structured results
     "AccessDecision",
     "AccessDenied",
+    "AccessUnknown",
     "PolicyIndeterminate",
     "Category",
     # configurable resolution (facts)
@@ -140,16 +124,14 @@ __all__ = [
     "FactDenied",
     "resolve_fact",
     "lookup_access_fact",
-    # pluggable live-contract adapters (Credits / SubscriptionActive / OrgRole)
-    "register_live_adapter",
-    "EntitlementsAdapter",
-    "MembershipAdapter",
-    "ENTITLEMENTS",
-    "MEMBERSHIP",
+    # contract-anchored access checks (ADR-0014 decision 8)
+    "access_check",
+    "From",
+    "ContractCheck",
+    "ClaimFactCheck",
+    "ClaimReadCheck",
+    "claim_atom",
     # authorization projections
     "register_authz_projection",
     "make_rebuild_gate",
-    # vocabulary
-    "Permissions",
-    "Roles",
 ]

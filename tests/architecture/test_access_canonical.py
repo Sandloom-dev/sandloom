@@ -110,7 +110,6 @@ def test_canonical_entry_points_exported() -> None:
         "AccessDenied",
         "AccessFact",
         "Entitled",
-        "OrgRole",
     ):
         assert name in authz.__all__, (
             f"{name} missing from sandloom.shared.authz.__all__"

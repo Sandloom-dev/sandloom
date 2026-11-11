@@ -13,19 +13,18 @@ from sandloom.sdk.infra import settings
 from sandloom.sdk.module import CapabilityRequirement, ModuleAPI
 
 from .claims import contribute_identity_claims
+from .config import IdentitySettings
 from .consumers import revoke_refresh_tokens_on_block
-from .services import twofa_service
 from .services.auth_service import AuthService, drain_emails_on_shutdown
 from .services.operations import OPERATIONS
-from .sessions import apply_token_revocation
 
 
 def _setup(core: ModuleAPI) -> None:
     """Register identity's lifecycle, claims, reads and consumers.
 
-    Raises ``SystemExit`` (the loader's configuration refusal) when the
-    TOTP key configuration is unusable in this environment, or when
-    ``JWT_SECRET`` is unset (it keys identity's emailed tokens).
+    Raises ``SystemExit`` (the loader's configuration refusal) when
+    ``JWT_SECRET`` is unset (it keys identity's emailed tokens). The TOTP key
+    configuration is refused earlier, by ``IdentitySettings``.
     """
     # Production must encrypt TOTP secrets with a dedicated key: the JWT-derived
     # fallback ties 2FA secrets to the signing key's lifecycle (rotation would
@@ -33,9 +32,9 @@ def _setup(core: ModuleAPI) -> None:
     # registration, so every process that builds the composition (the app,
     # worker, beat, ``sandloom migrate``, the operator CLIs) stops with the
     # kernel's INVALID_CONFIGURATION refusal, not only the API's lifespan.
-    twofa_error = twofa_service.twofa_configuration_error()
-    if twofa_error is not None:
-        raise SystemExit(twofa_error)
+    # The check is IdentitySettings' production validator (config.py): the
+    # loader validates the model before this setup runs, so the refusal is the
+    # same ``INVALID_CONFIGURATION`` in every entry point.
 
     # identity keys its emailed tokens / fingerprints with JWT_SECRET, which
     # is optional in an asymmetric JWT deployment (issuer-only there). Refused
@@ -71,19 +70,9 @@ def _setup(core: ModuleAPI) -> None:
         dead_letter=False,  # a block must never be silently parked in a DLQ
     )
 
-    # Durable token-revocation applier: every revoke_user_tokens_on_commit
-    # (identity's own, tenancy's member removal, block_user — in any service)
-    # writes core.auth.tokens_revoked.v1 into its transaction; a mark that
-    # could not be written after commit (cache outage) is written here,
-    # redelivered until it succeeds — FOREVER (dead_letter=False: capped
-    # backoff, never the DLQ; only a malformed payload is dead-lettered, as
-    # CRITICAL). Idempotent (marks are monotonic).
-    core.register_event_consumer(
-        "core.auth.tokens_revoked.v1",
-        apply_token_revocation,
-        name="sessions@tokens_revoked",
-        dead_letter=False,
-    )
+    # The durable token-revocation applier (core.auth.tokens_revoked.v1) is
+    # the kernel's (ADR-0012 decision 5): every service applies every
+    # revocation in its own group, whether identity is loaded there or not.
 
     # Account emails are delivered in the background after commit: give the
     # in-flight ones a bounded chance to finish before the process stops.
@@ -101,11 +90,32 @@ register = define_module(
         ),
         "cache",
         "eventbus",
+        # Verification, password-reset and security mail (integrations): a
+        # notifier that cannot deliver email (the log driver in production)
+        # is refused at startup instead of logging mail nobody receives.
+        CapabilityRequirement("notification", features=frozenset({"email"})),
+        # The token cleanup (tasks.py) is storage hygiene: validity is checked
+        # on every use, so identity runs without a periodic driver (the
+        # refresh_tokens table then only grows).
+        CapabilityRequirement(
+            "taskqueue", features=frozenset({"periodic"}), required=False
+        ),
     ],
     # identity mints the access tokens: with an asymmetric JWT_ALGORITHM its
     # process holds JWT_PRIVATE_KEY, every other service only public keys.
     issues_tokens=True,
+    # The route the admin console signs an operator in through (the console
+    # reads it from the composition's assigned issuer, ADR-0012 decision 4).
+    login_entry="/auth/login",
+    console_auth={
+        "kind": "password",
+        "refresh": "/auth/refresh",
+        "logout": "/auth/logout",
+        "me": "/auth/me",
+        "setup_state": "/api/v1/identity/setup-state",
+    },
     setup=_setup,
+    settings=IdentitySettings,
 )
 
 __all__ = ["register"]

@@ -1,5 +1,6 @@
+import { identityClient } from './auth';
 import { describe, it, expect } from 'vitest';
-import { ApiClient, HttpError } from '../src/api/client';
+import { HttpError } from '../src/api/client';
 import { fetchListPage, type ListParams } from '../src/features/resources/data';
 import { fieldErrors } from '../src/features/resources/form-errors';
 import { parseManifest } from '../src/schema/manifest';
@@ -19,7 +20,7 @@ const params: ListParams = {
 const token = `x.${btoa(JSON.stringify({ sub: 'operator', roles: ['admin'], claims_sources: ['identity'] }))}.x`;
 
 async function client(handler: (path: string, options?: RequestInit) => Response) {
-  const api = new ApiClient(async (path, options) =>
+  const api = identityClient(async (path, options) =>
     path === '/auth/login'
       ? Response.json({ access_token: token, refresh_token: 'private', expires_in: 3600 })
       : path === '/auth/me'

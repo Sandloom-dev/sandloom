@@ -430,7 +430,9 @@ def test_outside_verified_fastapi_range_nothing_is_pruned(
 
 
 def test_create_app_prunes_every_marker() -> None:
-    from sandloom.main import app
+    from sandloom.core.composition import load_composition_app
+
+    app = load_composition_app()
 
     top_level = [
         sub.call

@@ -20,6 +20,7 @@ from typing import Any
 
 from prometheus_client import Counter
 
+import sandloom.core.config.module_settings as _module_settings
 import sandloom.core.eventing.event_bus as _event_bus
 import sandloom.core.facade._claims as _claims
 import sandloom.core.facade._registries as _registries
@@ -165,12 +166,21 @@ class CoreFacade(_ClaimsMixin, _RegistriesMixin):
     def add_shutdown_task(self, task: ShutdownTask) -> None:
         self._shutdown_tasks.append(task)
 
-    def register_health_check(self, name: str, fn: HealthCheck) -> None:
-        self._health_checks[name] = fn
+    def register_health_check(
+        self, name: str, fn: HealthCheck, *, operational: bool = False
+    ) -> None:
+        self._health_checks[name] = (fn, operational)
 
     @property
     def health_checks(self) -> dict[str, HealthCheck]:
-        return dict(self._health_checks)
+        return {name: fn for name, (fn, _) in self._health_checks.items()}
+
+    def _health_checks_for(self, *, operational: bool) -> dict[str, HealthCheck]:
+        return {
+            name: fn
+            for name, (fn, background) in self._health_checks.items()
+            if background == operational
+        }
 
     @property
     def startup_tasks(self) -> list[StartupTask]:
@@ -199,7 +209,11 @@ class CoreFacade(_ClaimsMixin, _RegistriesMixin):
         ``app.router.routes`` slicing): the kernel is never mutated until commit.
         """
         draft = ModuleRegistrationDraft()
+        draft.module_name = module_name
         api = ModuleAPI(self, draft=draft)
+        # The module's own settings are readable (settings_of) by its setup
+        # while the draft is still pending (ADR-0015 decision 3).
+        token = _module_settings.REGISTERING.set(draft.module_settings)
         try:
             yield api
         except Exception as exc:
@@ -208,6 +222,8 @@ class CoreFacade(_ClaimsMixin, _RegistriesMixin):
                     "Discarding partial registration of module %s", module_name
                 )
             raise
+        finally:
+            _module_settings.REGISTERING.reset(token)
         # Reached only on success: apply the whole draft atomically. The
         # registering module's name is visible while applying so contributions
         # (claims contributors) are attributed to their owner.
@@ -217,6 +233,15 @@ class CoreFacade(_ClaimsMixin, _RegistriesMixin):
             draft.commit(self)
         finally:
             self._registering_module = previous
+
+    @property
+    def module_settings(self) -> _module_settings.ModuleSettingsRegistry:
+        """The validated settings of the modules registered here (ADR-0015)."""
+        registry = self.__dict__.get("_module_settings")
+        if registry is None:
+            registry = _module_settings.ModuleSettingsRegistry()
+            self.__dict__["_module_settings"] = registry
+        return registry
 
     # -----------------
     # Infra accessors

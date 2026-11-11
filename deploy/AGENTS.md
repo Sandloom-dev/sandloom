@@ -16,14 +16,14 @@ refuses with a diff); edit outside the markers. The same command splits an
 `sandloom new` app (it creates the app's profile from the package's templates).
 Guide: `docs/operate/split-into-services.md`.
 
-## Invariants (pinned by `src/sandloom/core/tests/test_deploy_profiles.py`)
+## Invariants (pinned by `src/sandloom/core/tests/test_deploy_profiles.py`; with the bundled modules, `tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py`)
 
 `sandloom.core.testing.deploy_profile.profile_problems` checks them (SANDLOOM-T014) on
 this profile and, in `sandloom test`'s `schema & deploy` step, on an app's.
 
 - **Shared settings.** Security- and auth-relevant settings live in the
-  shared env anchor and are identical in every process: `JWT_*`, token
-  lifetimes, `INTERNAL_API_TOKEN`, notifier/SMTP, `BILLING_DENY_ON_PAST_DUE`.
+  shared env anchor and are identical in every process: `JWT_*`, the access-token
+  lifetime, `INTERNAL_API_TOKEN`, notifier/SMTP.
   - The exceptions are the issuer-only `JWT_PRIVATE_KEY` and `JWT_SECRET` on
     the identity processes of the microservices profile.
   - **`CACHE_URL` is shared by all services**: revocation marks, rate limits,
@@ -78,7 +78,9 @@ end, use skill `sandloom-split-deploy`.
 
 - `uv run sandloom add deploy --check` checks the profile
   invariants and boots every service alone;
-  `uv run pytest src/sandloom/core/tests/test_deploy_profiles.py -q` pins them.
+  `uv run pytest src/sandloom/core/tests/test_deploy_profiles.py
+  tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py -q`
+  pins them.
 - `src/sandloom/core/tests/test_module_boots_alone.py` checks that each module
   boots alone.
 - The split conformance matrix (`tests/split_conformance`, slow) checks

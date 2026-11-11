@@ -52,6 +52,14 @@ conventional submodules (`models`, `api`, `events`, `consumers`,
 --8<-- "docs/snippets/generated/module/demo/modules/board/__init__.py"
 ```
 
+In `settings.py`, `BOARD_DEFAULT_PAGE_SIZE` supplies the list limit when a
+request omits `limit`. Its default is 20. The setting and explicit `limit` values
+accept 1 through 100.
+
+```python
+--8<-- "docs/snippets/generated/module/demo/modules/board/settings.py"
+```
+
 An example table. `TenantScoped` adds the `tenant_id` column and filters
 every query by the bound tenant. Table names start with the module name.
 `created_at: Mapped[CreatedAt]` defaults to `clock_timestamp()`, not `now()`:

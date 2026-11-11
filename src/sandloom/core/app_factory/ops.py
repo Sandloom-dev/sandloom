@@ -3,9 +3,9 @@ and the contract endpoints."""
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
-from dataclasses import asdict
-from typing import Any
+from collections.abc import Awaitable, Callable, Iterable
+from dataclasses import asdict, dataclass
+from typing import Any, Generic, TypeVar
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import HTTPException
@@ -13,10 +13,15 @@ from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST
 from pydantic import BaseModel
 
+import sandloom.core.app_factory.revocation_applier as _applier
+import sandloom.core.auth.claims_view as _claims_view
 import sandloom.core.auth.revocation as _revocation
+import sandloom.core.beat_lease as _beat_lease
 import sandloom.core.contracts.validators as _validators
 import sandloom.core.route_policy as _route_policy
 from sandloom.core import planner as _planner
+from sandloom.core.app_factory.lifecycle import _capability_health
+from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.config import tiers
 from sandloom.core.config.settings import settings
 from sandloom.core.contracts import SchemaEntry
@@ -67,27 +72,31 @@ def _required_modules(core_facade: CoreFacade) -> list[str]:
     ]
 
 
-class _HealthCache:
+_T = TypeVar("_T")
+
+
+class _HealthCache(Generic[_T]):
     """Short-TTL, single-flight cache of the aggregated health probes.
 
     ``/health`` and ``/ready`` are public: without a cache every anonymous hit
     fans out to the database, cache, object store and remote RPC bindings — a
     cheap amplification lever. Results are reused for ``ttl`` seconds and
-    concurrent callers share one in-flight probe.
+    concurrent callers share one in-flight probe. Generic over the probe's
+    result (the revocation dead-letter read caches its own reading).
     """
 
     def __init__(
         self,
-        probe: Callable[[], Awaitable[dict[str, HealthResult]]],
+        probe: Callable[[], Awaitable[_T]],
         ttl: float,
     ) -> None:
         self._probe = probe
         self._ttl = ttl
-        self._value: dict[str, HealthResult] | None = None
+        self._value: _T | None = None
         self._at = 0.0
-        self._inflight: asyncio.Task[dict[str, HealthResult]] | None = None
+        self._inflight: asyncio.Task[_T] | None = None
 
-    async def get(self) -> dict[str, HealthResult]:
+    async def get(self) -> _T:
         now = time.monotonic()
         if self._ttl > 0 and self._value is not None and now - self._at < self._ttl:
             return self._value
@@ -102,10 +111,156 @@ class _HealthCache:
             if task.done() and self._inflight is task:
                 self._inflight = None
 
-    async def _refresh(self) -> dict[str, HealthResult]:
+    async def _refresh(self) -> _T:
         self._value = await self._probe()
         self._at = time.monotonic()
         return self._value
+
+
+#: Taskqueue features a process never uses to serve a request: a module that
+#: requires only these has its work run by the worker and beat processes
+#: (``periodic``: the beat schedules it, a worker runs it). A broker outage
+#: does not stop this process from serving, so it does not drop its readiness
+#: (owner decision on infrastructure dependencies, answer 3); the module's own
+#: check watches that the background work runs.
+BACKGROUND_TASKQUEUE_FEATURES = frozenset({"periodic"})
+
+
+@dataclass(frozen=True)
+class TaskqueueUse:
+    """How the loaded modules use the taskqueue, read from their requirements.
+
+    ``request_path``: instance -> the modules whose REQUIRED taskqueue
+    requirement this process uses while it serves (a feature beyond
+    :data:`BACKGROUND_TASKQUEUE_FEATURES`, or none named: enqueue is the
+    capability's contract). ``background``: the modules whose required
+    taskqueue requirement asks only for background features.
+    """
+
+    request_path: dict[str, list[str]]
+    background: list[str]
+
+
+def taskqueue_use(descriptors: Iterable[Any], loaded: Iterable[str]) -> TaskqueueUse:
+    """The taskqueue use of the ``loaded`` modules, from each descriptor's
+    effective requirements (declared, plus what the kernel derives). An
+    optional requirement never feeds readiness: the module degrades without
+    the queue, and ``sandloom doctor`` says so."""
+    names = set(loaded)
+    request_path: dict[str, list[str]] = {}
+    background: list[str] = []
+    for descriptor in descriptors:
+        if getattr(descriptor, "name", None) not in names:
+            continue
+        effective = getattr(descriptor, "effective_capabilities", None)
+        requirements = (
+            effective()
+            if callable(effective)
+            else getattr(descriptor, "capabilities", [])
+        )
+        for requirement in requirements:
+            if requirement.capability != "taskqueue" or not requirement.required:
+                continue
+            features = frozenset(requirement.features)
+            if features and features <= BACKGROUND_TASKQUEUE_FEATURES:
+                if descriptor.name not in background:
+                    background.append(descriptor.name)
+                continue
+            users = request_path.setdefault(requirement.instance or "default", [])
+            if descriptor.name not in users:
+                users.append(descriptor.name)
+    return TaskqueueUse(request_path=request_path, background=background)
+
+
+async def _taskqueue_health(core_facade: CoreFacade, instance: str) -> HealthResult:
+    """Open taskqueue ``instance`` and probe it.
+
+    The driver's ``health()`` probes its broker (for ``celery``: one bounded
+    broker connection); building the provider fails when the driver cannot
+    open. Bounded by ``HEALTH_CHECK_TIMEOUT_SECONDS`` like every other probe.
+    """
+    timeout = settings.health_check_timeout_seconds
+    try:
+        return await asyncio.wait_for(
+            _capability_health(core_facade, "taskqueue", name=instance),
+            timeout=timeout,
+        )
+    except TimeoutError:
+        return HealthResult(status="fail", details={"error": f"timeout > {timeout}s"})
+
+
+class _TaskqueueReadiness:
+    """The readiness term for the taskqueue (I-19, I-20: a configured
+    capability that is temporarily unavailable shows in the readiness of the
+    processes that use it).
+
+    Keyed on the loaded modules' REQUIRED taskqueue requirements, never on the
+    presence of a ``tasks.py``: while one of them uses the queue on the request
+    path, a taskqueue whose probe fails (an unreachable broker) makes the
+    process not ready, naming the capability and the instance. A module that
+    needs only background features (``periodic``) does not: this process does
+    not use the broker to serve, so a short broker outage keeps it ready. With
+    no request-path use the taskqueue is never probed. Readiness only:
+    ``/health`` never carries it. The probe shares the TTL / single-flight
+    cache of the other readiness probes, so a ``/ready`` hit adds no I/O of its
+    own: one probe per instance per TTL, however many hits arrive.
+    """
+
+    def __init__(self, core_facade: CoreFacade, *, ttl: float) -> None:
+        """Bind the core whose loaded modules and taskqueue are checked."""
+        self._core = core_facade
+        self._cache: _HealthCache[dict[str, HealthResult]] = _HealthCache(
+            self._probe, ttl=ttl
+        )
+        self._loaded: tuple[str, ...] | None = None
+        self._use = TaskqueueUse(request_path={}, background=[])
+
+    async def _probe(self) -> dict[str, HealthResult]:
+        instances = sorted(self.use().request_path)
+        results = await asyncio.gather(
+            *(_taskqueue_health(self._core, name) for name in instances)
+        )
+        return dict(zip(instances, results, strict=True))
+
+    def use(self) -> TaskqueueUse:
+        """The loaded modules' taskqueue use, read once per loaded set (fixed
+        once the app serves), not on every probe."""
+        loaded = tuple(self._core.loaded_modules)
+        if loaded != self._loaded:
+            self._use = taskqueue_use(self._core.module_descriptors, loaded)
+            self._loaded = loaded
+        return self._use
+
+    async def check(self) -> tuple[str, dict[str, object] | None]:
+        """``(status, internal block)``: ``ok`` / ``fail`` (the worst probe of
+        the instances used on the request path), or ``unused`` when no loaded
+        module uses the queue on the request path. No block when no loaded
+        module requires the taskqueue at all."""
+        use = self.use()
+        if not use.request_path:
+            if not use.background:
+                return "unused", None
+            return "unused", {
+                "capability": "taskqueue",
+                "status": "unused",
+                "task_modules": [],
+                "background_modules": list(use.background),
+                "instances": {},
+            }
+        results = await self._cache.get()
+        status = "ok" if all(r.status == "ok" for r in results.values()) else "fail"
+        return status, {
+            "capability": "taskqueue",
+            "status": status,
+            "task_modules": sorted(
+                {module for users in use.request_path.values() for module in users}
+            ),
+            "background_modules": list(use.background),
+            "instances": {
+                name: {"task_modules": list(use.request_path[name]), **asdict(result)}
+                for name, result in results.items()
+            },
+        }
 
 
 def _install_ops_endpoints(application: FastAPI, core_facade: CoreFacade) -> None:
@@ -139,9 +294,12 @@ def _failed_modules(application: FastAPI) -> list[str]:
 
 def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> None:
     """``/health/simple`` (liveness), ``/health`` and ``/ready``."""
+    health_ttl = float(getattr(settings, "health_cache_ttl_seconds", 3.0))
     health_cache = _HealthCache(
-        lambda: aggregate_health(core_facade),
-        ttl=float(getattr(settings, "health_cache_ttl_seconds", 3.0)),
+        lambda: aggregate_health(core_facade, operational=False), ttl=health_ttl
+    )
+    operational_cache = _HealthCache(
+        lambda: aggregate_health(core_facade, operational=True), ttl=health_ttl
     )
 
     async def _peer_probe() -> dict[str, HealthResult]:
@@ -153,6 +311,20 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
         _peer_probe, ttl=float(getattr(settings, "health_cache_ttl_seconds", 3.0))
     )
 
+    # The taskqueue feeds readiness ONLY, and only while a loaded module uses it.
+    taskqueue_readiness = _TaskqueueReadiness(
+        core_facade, ttl=float(getattr(settings, "health_cache_ttl_seconds", 3.0))
+    )
+    # The revocation / block consumers' backlog, dead letters and state
+    # (ADR-0012 decision 5, A9). The state and lag are the runtime's
+    # snapshot (no I/O); the dead-letter read shares the probes' TTL and
+    # single flight: one read per TTL however many /ready calls arrive.
+    revocation_probe = _applier.RevocationReadinessProbe(core_facade, settings)
+    revocation_dead_letters = _HealthCache(
+        revocation_probe.read_dead_letters,
+        ttl=float(getattr(settings, "health_cache_ttl_seconds", 3.0)),
+    )
+
     probe = _route_policy.public(reason="liveness / readiness probe (no caller)")
 
     @application.get("/health/simple", dependencies=[probe])
@@ -161,7 +333,10 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
 
     @application.get("/health", dependencies=[probe])
     async def health(request: Request) -> Response:  # pragma: no cover
-        results = await health_cache.get()
+        http, operational = await asyncio.gather(
+            health_cache.get(), operational_cache.get()
+        )
+        results = {**http, **operational}
         status = overall_status(results)
         # Public callers get statuses only; check details (which may contain
         # hostnames, paths, driver errors) require the internal token.
@@ -177,10 +352,14 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
         # Readiness = infrastructure health + required modules + at least one
         # business module when any was requested + every required
         # side-effect/projection subscription actively consuming + every
-        # remote binding explicitly marked ``"required": true``.
-        results, peers = await asyncio.gather(health_cache.get(), peer_cache.get())
+        # remote binding explicitly marked ``"required": true`` + a reachable
+        # taskqueue while a loaded module uses it on the request path.
+        results, peers, (taskqueue_status, taskqueue) = await asyncio.gather(
+            health_cache.get(), peer_cache.get(), taskqueue_readiness.check()
+        )
         status = overall_status(results)
         peers_status = overall_status(peers)
+        taskqueue_unavailable = taskqueue_status not in ("ok", "unused")
         required = _required_modules(core_facade)
         missing_required = [r for r in required if r not in core_facade.loaded_modules]
         # A process asked to serve modules but serving none (every module
@@ -204,6 +383,9 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
         await _revocation.reconcile_pending_revocations()
         revocations = _revocation.pending_revocations()
         revocations_pending = revocations["count"] > 0
+        revocation_consumers = await revocation_probe(
+            consumer_runtime, dead_letters=revocation_dead_letters.get
+        )
         relay: dict[str, Any] = {"enabled": False}
         local_relay = getattr(application.state, "relay_task", None)
         if local_relay is not None:
@@ -222,13 +404,18 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
             and not no_modules_loaded
             and not required_consumers_unavailable
             and not revocations_pending
+            and revocation_consumers.ready
             and not relay_unavailable
+            and not taskqueue_unavailable
         )
         body: dict[str, object] = {
             "status": "ok" if ready else "degraded",
             "health_status": status,
             "required_services_status": peers_status,
             "revocations_pending": revocations_pending,
+            # ``ok`` | ``fail`` | ``unused`` (no loaded module enqueues while serving).
+            "taskqueue_status": taskqueue_status,
+            "revocation_consumers_ready": revocation_consumers.ready,
         }
         # The deployment topology (module and consumer names) is internal:
         # only callers holding the internal token see it.
@@ -249,12 +436,77 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
                     "revocations_pending_oldest_seconds": round(
                         revocations["oldest_seconds"], 3
                     ),
+                    "revocation_consumers": {
+                        "reasons": list(revocation_consumers.reasons),
+                        "lag_seconds": {
+                            name: round(age, 3)
+                            for name, age in revocation_consumers.lag_seconds.items()
+                        },
+                        "dead_letters": dict(revocation_consumers.dead_letters),
+                    },
                     "required_services": asdict(peers["services"])
                     if "services" in peers
                     else None,
+                    "taskqueue": taskqueue,
                 }
             )
         return JSONResponse(status_code=200 if ready else 503, content=body)
+
+
+async def _periodic_diagnostics(core_facade: CoreFacade) -> list[dict[str, Any]]:
+    """Each loaded module needing periodic jobs, and whether a beat schedules
+    them for this composition (its singleton lease is held): one cache read
+    per taskqueue instance, only when an operator asks."""
+    needs = _beat_lease.periodic_needs(
+        core_facade.module_descriptors, core_facade.loaded_modules
+    )
+    beats: dict[str, dict[str, Any]] = {}
+    for instance in sorted({need.instance for need in needs}):
+        state, value = await _beat_lease.read_beat_lease(
+            core_facade,
+            instance=instance,
+            limit_seconds=settings.health_check_timeout_seconds,
+        )
+        if state == "unknown":
+            beats[instance] = {"beat": "unknown", "error": value}
+        else:
+            beats[instance] = {"beat": "scheduling" if state == "held" else "absent"}
+    return [
+        {
+            "module": need.module,
+            "instance": need.instance,
+            "required": need.required,
+            **beats[need.instance],
+        }
+        for need in needs
+    ]
+
+
+def _configuration_diagnostics(core_facade: CoreFacade) -> dict[str, object]:
+    """Profile, tiers, overrides and accepted risks: the kernel's, plus what
+    the loaded modules declare (ADR-0015): their module-namespaced risks, their
+    semantic settings off the profile value and their tier counts."""
+    registry = core_facade.module_settings
+    return tiers.diagnostics(
+        settings,
+        registry.risk_report,
+        registry.overrides,
+        _module_settings.module_tier_counts(registry.records()),
+    )
+
+
+def _claims_diagnostics(core_facade: CoreFacade) -> dict[str, Any]:
+    """The claim policy's ``legacy_tokens`` mode (G-RISK-14): on with its
+    window end and time left, ended, or off; and the acceptances counted."""
+    return {
+        "legacy_tokens": _claims_view.legacy_tokens_state(
+            core_facade.claim_authorities,
+            now=time.time(),
+            lifetime_seconds=settings.access_token_expire_minutes * 60,
+            leeway_seconds=settings.jwt_leeway_seconds,
+            metrics=core_facade.list_metrics(),
+        )
+    }
 
 
 def _saga_diagnostics(core_facade: CoreFacade) -> list[dict[str, Any]]:
@@ -288,10 +540,15 @@ def _install_diagnostics_endpoints(
         return {
             "modules": summary_block,
             # profile, tier counts and active overrides (sandloom.core.config.tiers)
-            "configuration": tiers.diagnostics(settings),
+            "configuration": _configuration_diagnostics(core_facade),
             "event_bus_metrics": get_event_bus_metrics(),
+            # the claim policy's legacy_tokens mode (ADR-0014, G-RISK-14)
+            "claims": _claims_diagnostics(core_facade),
             # registered saga definitions and versions (ADR-0008)
             "sagas": _saga_diagnostics(core_facade),
+            # modules needing periodic jobs, and whether a beat schedules them
+            # (an optional need without a beat: the module degrades)
+            "periodic": await _periodic_diagnostics(core_facade),
             # declared operations: the executor the kernel picked, and why
             "planner": {
                 "optimized_executor_enabled": bool(settings.planner_optimized_executor),

@@ -1,0 +1,14 @@
+PYTHONHASHSEED=0      default order: exit 0; modules [sandloom_billing,sandloom_identity,sandloom_tenancy]; digest b2f4f35ae641bd88 over 21 files
+PYTHONHASHSEED=12345  default order: exit 0; modules [sandloom_billing,sandloom_identity,sandloom_tenancy]; digest b2f4f35ae641bd88 over 21 files
+PYTHONHASHSEED=random default order: exit 0; modules [sandloom_billing,sandloom_identity,sandloom_tenancy]; digest b2f4f35ae641bd88 over 21 files
+PYTHONHASHSEED=0      reversed order: exit 0; modules [sandloom_tenancy,sandloom_identity,sandloom_billing]; digest b2f4f35ae641bd88 over 21 files
+PYTHONHASHSEED=999    reversed order: exit 0; modules [sandloom_tenancy,sandloom_identity,sandloom_billing]; digest b2f4f35ae641bd88 over 21 files
+
+$ sandloom generate --check   (GENERATOR_FORMAT patched 2 -> 3, declarations unchanged)
+generated files are stale: run `sandloom generate` (6 file(s)):
+  src/sandloom_admin/_generated/contracts/identity_security_v1.py [SANDLOOM-T007] (differs): generator change (format 2 -> 3), contract fingerprint unchanged (ed0385dfb659939804f7a8cfba941399)
+  src/sandloom_admin/_generated/contracts/identity_security_v1.describe.json [SANDLOOM-T004] (differs): generator change (format 2 -> 3), fingerprint ed0385dfb659939804f7a8cfba941399 unchanged
+  src/sandloom_admin/_generated/contracts/identity_dto.py [SANDLOOM-C012] (differs): generator change (format 2 -> 3), contract fingerprint unchanged (identity.security.v1 ed0385dfb659939804f7a8cfba941399)
+  src/sandloom_billing/_generated/contracts/tenancy_membership_v1.py [SANDLOOM-T007] (differs): generator change (format 2 -> 3), contract fingerprint unchanged (fbf42e7650aa13c0878c442f6080d419)
+  src/sandloom_billing/_generated/contracts/tenancy_membership_v1.describe.json [SANDLOOM-T004] (differs): generator change (format 2 -> 3), fingerprint fbf42e7650aa13c0878c442f6080d419 unchanged
+  src/sandloom_billing/_generated/contracts/tenancy_dto.py [SANDLOOM-C012] (differs): generator change (format 2 -> 3), contract fingerprint unchanged (tenancy.membership.v1 fbf42e7650aa13c0878c442f6080d419)

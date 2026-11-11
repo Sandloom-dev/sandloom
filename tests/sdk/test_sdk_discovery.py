@@ -13,13 +13,17 @@ import textwrap
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import pytest
 from fastapi import FastAPI
 
+from sandloom.core.cli.generated import render_stub
 from sandloom.core.facade import CoreFacade
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.testing import registration_surface
+from sandloom.sdk import contract
+from sandloom.sdk.authz import Category, From, access_check
 from sandloom.sdk.errors import (
     ConsumerDefinitionError,
     ContractDefinitionError,
@@ -226,18 +230,107 @@ def test_consumes_are_derived_and_merged_never_weaker(make_module: Any) -> None:
     ]
 
 
+def test_consumes_states_the_methods_of_an_unresolved_call(make_module: Any) -> None:
+    """A client passed to a helper derives no method list; the methods
+    stated in ``consumes=`` cover it (ADR-0013 decision 2) instead of being
+    dropped, and an entry stating none stays without a list."""
+    pkg = make_module(
+        {
+            "api.py": """
+                from sandloom.sdk import Contract
+                from sandloom.sdk.contracts import ContractRef
+
+                quota = Contract(ContractRef("stats.quota.v1"))
+
+                async def helper(client) -> None:
+                    await client.reserve(1, "k")
+
+                async def f() -> None:
+                    await helper(quota)
+            """
+        }
+    )
+    assert _surface(pkg).descriptor.consumes == [
+        ContractRequirement("stats.quota.v1", required=True, methods=())
+    ]
+    stated = _surface(
+        pkg,
+        consumes=[
+            ContractRequirement("stats.quota.v1", required=False, methods=("reserve",))
+        ],
+    ).descriptor.consumes
+    assert stated == [
+        ContractRequirement("stats.quota.v1", required=True, methods=("reserve",))
+    ]
+    unstated = _surface(
+        pkg, consumes=[ContractRequirement("stats.quota.v1", reason="gate")]
+    ).descriptor.consumes
+    assert unstated == [
+        ContractRequirement("stats.quota.v1", required=True, reason="gate", methods=())
+    ]
+
+
+@contract("billing.entitlements.v1")
+class _EntitlementsContract:
+    """The subscription check, declared as billing declares it (a fixture:
+    the kernel job has no battery installed)."""
+
+    @access_check(
+        "SubscriptionActive",
+        bind={"tenant_type": From.account_type(), "tenant_id": From.account_id()},
+        category=Category.PAYMENT_REQUIRED,
+        describe="active subscription",
+    )
+    async def check_subscription_active(
+        self, tenant_type: str, tenant_id: UUID
+    ) -> bool:
+        """True while a subscription grants access."""
+        return True
+
+
+@contract("tenancy.membership.v1")
+class _MembershipContract:
+    """The organization role check, declared as tenancy declares it."""
+
+    @access_check(
+        "OrgRole",
+        bind={
+            "organization_id": From.org(param="org_id", validate_against_token=False),
+            "user_id": From.subject_id(),
+        },
+        category=Category.FORBIDDEN,
+        values={"minimum": ["member", "admin", "owner"]},
+        risk={"admin": {"minimum": ["admin", "owner"]}},
+        describe="organization role '{minimum}'",
+    )
+    async def has_role_at_least(
+        self, organization_id: UUID, user_id: UUID, minimum: str
+    ) -> bool:
+        """True when the user's role ranks at least ``minimum``."""
+        return True
+
+
 def test_route_policies_add_the_contracts_their_atoms_call(make_module: Any) -> None:
     """A live or fact-backed gate needs its owner's contract in a split
     deployment: it joins the derived ``consumes`` (optional), so the
     preflight reports it unbound and ``sandloom add deploy`` binds it."""
+
     pkg = make_module(
         {
+            # the atoms are the generated ones: the contracts come from their literals
+            "entitlements_stub.py": render_stub(
+                "billing.entitlements.v1", _EntitlementsContract
+            ),
+            "membership_stub.py": render_stub(
+                "tenancy.membership.v1", _MembershipContract
+            ),
             "api.py": """
                 from fastapi import Depends
                 from sandloom.sdk import module_router
-                from sandloom.sdk.authz import (
-                    Account, Entitled, OrgRole, SubscriptionActive, require,
-                )
+                from sandloom.sdk.authz import Account, Entitled, require
+
+                from .entitlements_stub import SubscriptionActive
+                from .membership_stub import OrgRole
 
                 router = module_router()
                 PAID = SubscriptionActive(of=Account.org(param="org_id"))
@@ -251,11 +344,18 @@ def test_route_policies_add_the_contracts_their_atoms_call(make_module: Any) -> 
                 @router.get(
                     "/b",
                     dependencies=[
-                        Depends(require(Entitled("organization.subscription.active")))
+                        Depends(
+                            require(
+                                Entitled(
+                                    "organization.subscription.active",
+                                    owner="billing",
+                                )
+                            )
+                        )
                     ],
                 )
                 async def b() -> None: ...
-            """
+            """,
         }
     )
     consumes = {r.name: r for r in _surface(pkg).descriptor.consumes}

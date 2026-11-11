@@ -19,8 +19,9 @@ Public API 1.0 (spec §2.2, Appendix C).
 | --- | --- | --- |
 | [`apply_pending_revocation`](#apply_pending_revocation) | async function | Apply a `core.auth.tokens_revoked.v1` payload (durable applier body). |
 | [`block_user`](#block_user) | async function | Block `user_id` NOW: every authenticated request of theirs gets 401. |
-| [`ClaimsUnavailable`](#claimsunavailable) | exception | A CRITICAL claims contributor failed: the token must not be minted. |
+| [`ClaimsUnavailable`](#claimsunavailable) | exception | A CRITICAL claims contributor failed, or wrote a claim it may not write: the token must not be minted. |
 | [`create_access_token`](#create_access_token) | function | Create JWT access token via sandloom.core.auth (stable adapter). |
+| [`create_service_token`](#create_service_token) | function | A token that authenticates and grants no user rights (a service or a test client): no protected claim, tenant selector, provenance or `cp... |
 | [`decode_token`](#decode_token) | function | Decode JWT using sandloom.core.auth.tokens (stable adapter). |
 | [`decode_token_cached`](#decode_token_cached) | function | Per-request-cached JWT decode via sandloom.core.auth (stable adapter). |
 | [`ensure_token_not_revoked`](#ensure_token_not_revoked) | async function | Raise 401 when `claims` predate a revocation (503 on fail-closed outage). |
@@ -36,6 +37,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`revoke_user_tokens`](#revoke_user_tokens) | async function | Invalidate every access token issued to `user_id` up to now. |
 | [`revoke_user_tokens_on_commit`](#revoke_user_tokens_on_commit) | async function | Revoke `user_id`'s access tokens AFTER the current UoW commits. |
 | [`run_password_hashing`](#run_password_hashing) | async function | Run an argon2 hash/verify `fn(*args)` on the BOUNDED password pool. |
+| [`secret_problem`](#secret_problem) | function | Why `value` is not a production-grade secret (`None` if fine). |
 | [`SERVICE_PRINCIPAL_ID`](#service_principal_id) | constant |  |
 | [`subject_commit_check`](#subject_commit_check) | function | A `before_commit` check: is the request's bearer STILL valid now? |
 | [`unblock_user`](#unblock_user) | async function | Lift an emergency block (audited `auth.user.unblocked`, same rules). |
@@ -95,10 +97,12 @@ tokens on it, locally or in its own service.
 class ClaimsUnavailable(HTTPException)(owner: str) -> None
 ```
 
-A CRITICAL claims contributor failed: the token must not be minted.
+A CRITICAL claims contributor failed, or wrote a claim it may not
+write: the token must not be minted.
 
-Surfaces as `503` (retry later) — never a token silently missing
-security claims such as tenancy's `tenant_ids` allowlist.
+Surfaces as `503` (retry later) naming that contributor — never a token
+silently missing security claims such as tenancy's `tenant_ids`
+allowlist, nor one carrying another module's.
 
 ### `create_access_token`
 
@@ -108,14 +112,34 @@ def create_access_token(
     data: dict[str, Any],
     expires_delta: int | None = None,
     claims_read_at: datetime | None = None,
+    claims: SealedClaims | None = None,
 ) -> str
 ```
 
 Create JWT access token via sandloom.core.auth (stable adapter).
 
+`claims`: the sealed result of `collect_claims`, the only carrier of
+protected claims, provenance and `cpv`; `data` carries the envelope
+(`sub`, `token_type`, `auth_time`) and unprotected keys, and a
+protected key, provenance or `cpv` in it is refused (SANDLOOM-R017).
 `claims_read_at`: when the token's claims were read; a revocation
 committed after it revokes the token (its revocation instant starts there).
 Import at call-time so test patches against security are honored.
+
+### `create_service_token`
+
+```python
+def create_service_token(
+    *,
+    data: dict[str, Any],
+    expires_delta: int | None = None,
+) -> str
+```
+
+A token that authenticates and grants no user rights (a service or a
+test client): no protected claim, tenant selector, provenance or `cpv`
+in `data` (SANDLOOM-R017); every `Role`, `Perm`, platform and
+`TenantScope` gate denies it with 403.
 
 ### `decode_token`
 
@@ -291,6 +315,14 @@ Run an argon2 hash/verify `fn(*args)` on the BOUNDED password pool.
 
 See `sandloom.core.auth.hashing.run_password_hashing`
 (`PASSWORD_HASH_CONCURRENCY`): never the loop's default executor.
+
+### `secret_problem`
+
+```python
+def secret_problem(value: str, *, min_length: int = 32) -> str | None
+```
+
+Why `value` is not a production-grade secret (`None` if fine).
 
 ### `SERVICE_PRINCIPAL_ID`
 

@@ -1,4 +1,4 @@
-"""Platform-endpoint stand: the identity/tenancy/billing GETs of ``sandloom.main:app``.
+"""Platform-endpoint stand: the identity/tenancy/billing GETs of ``sandloom_standard.main:app``.
 
 Measures the per-request cost of the platform's own hot reads (``/auth/me``,
 ``/api/v1/orgs…``, ``/api/v1/billing/…``) in-process (ladder rungs ``P*``)
@@ -21,15 +21,12 @@ import shlex
 import shutil
 import subprocess
 import sys
-import time
 import uuid
-from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import asyncpg
-import jwt
 
-from benchsuite import common
+from benchsuite import claims_mint, common
 
 USER = uuid.UUID("00000000-0000-4000-8000-00000000a001")
 ORG = uuid.UUID("00000000-0000-4000-8000-00000000b001")
@@ -48,6 +45,8 @@ ENDPOINTS: dict[str, tuple[str, str]] = {
 def server_env() -> dict[str, str]:
     return {
         "ENVIRONMENT": "dev",
+        # the batteries are composed by the standard root (claim authorities)
+        "SANDLOOM_COMPOSITION_ROOT": "sandloom_standard.main",
         "SANDLOOM_MODULES": '["sandloom_identity", "sandloom_tenancy", "sandloom_billing"]',
         "LOG_LEVEL": "WARNING",
         "RATE_LIMIT_ENABLED": "false",
@@ -61,20 +60,9 @@ def server_env() -> dict[str, str]:
 
 
 def mint(hours: int = 6) -> str:
-    now = int(time.time())
-    claims: dict[str, Any] = {
-        "sub": str(USER),
-        "token_type": "access",
-        "iat": now,
-        "nbf": now,
-        "exp": now + hours * 3600,
-        "jti": uuid.uuid4().hex,
-        "email": "platform@example.com",
-        "email_verified": True,
-        "tenant_ids": [str(ORG)],
-        "claims_sources": ["identity", "tenancy", "billing"],
-    }
-    return jwt.encode(claims, common.jwt_secret(), algorithm="HS256")
+    """The seeded user's access token through the real mint
+    (``benchsuite.claims_mint``; see ``mix.mint``)."""
+    return claims_mint.mint_platform(USER, hours=hours, env=server_env())
 
 
 async def _ensure_database() -> None:
@@ -133,7 +121,7 @@ async def smoke() -> None:
     os.environ.update(server_env())
     import httpx
 
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     headers = {"Authorization": f"Bearer {mint()}"}
     async with app.router.lifespan_context(app):

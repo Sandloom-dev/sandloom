@@ -11,7 +11,7 @@ side (add / change role / remove) is deliberately NOT part of any contract.
 Contract semantics: the methods take NO session — every call runs in tenancy's
 own read-only Unit of Work on tenancy's database, identically in-process and
 over internal RPC (``SERVICE_BINDINGS``). The ``tenant_ids`` claims contributor
-is likewise exposed as ``tenancy.claims.v1`` so an identity service deployed
+is likewise exposed as ``tenancy.claims.v1`` so the token issuer deployed
 alone still mints tokens with the allowlist; it is critical, so if tenancy
 cannot answer, token issuance fails with 503 rather than minting a token
 without ``tenant_ids``.
@@ -41,7 +41,8 @@ membership cache / role claims safe. The member re-authenticates.
 
 Consumers of the member events apply ``version``-ed events with a version
 guard and REFRESH on a version-less one (an instance from before the upgrade)
-via ``get_member_state`` — see :mod:`sandloom.shared.membership`.
+via ``get_member_state`` — the ordering rule is in the descriptions of
+the ``tenancy.member_*.v1`` events.
 
 Member lifecycle events
 -----------------------
@@ -57,9 +58,10 @@ added within v1 (additive; older version-less events still validate).
 """
 
 from sandloom.sdk import define_module
-from sandloom.sdk.module import ModuleAPI
+from sandloom.sdk.module import CapabilityRequirement, ModuleAPI
 
 from .claims import tenancy_claims
+from .config import TenancySettings
 from .services.operations import OPERATIONS
 
 MEMBERSHIP_SERVICE_V1 = "tenancy.membership.v1"
@@ -75,13 +77,23 @@ def _setup(core: ModuleAPI) -> None:
 
 # Discovered (sandloom.sdk define_module): the routers of ``api.__all__``, the
 # producer classes of ``events`` and the read-only ``tenancy.membership.v1``
-# provider of ``contracts`` (never the full MembershipService: its write
-# methods would be callable by any module or internal RPC caller).
+# and ``tenancy.security.v1`` (operator: a tenant's members for
+# ``sandloom security ... --tenant``) providers of ``contracts`` (never the
+# full MembershipService: its write methods would be callable by any module or
+# internal RPC caller).
 register = define_module(
     __name__,
     version="1.0.0",
-    capabilities=["database", "eventbus"],
+    capabilities=[
+        "database",
+        "eventbus",
+        # Invitations are mailed (services/invitation_service): a notifier
+        # that cannot deliver email (the log driver in production) is refused
+        # at startup instead of logging invitations nobody receives.
+        CapabilityRequirement("notification", features=frozenset({"email"})),
+    ],
     setup=_setup,
+    settings=TenancySettings,
 )
 
 __all__ = ["register", "MEMBERSHIP_SERVICE_V1"]

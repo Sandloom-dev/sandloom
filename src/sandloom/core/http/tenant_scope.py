@@ -17,6 +17,7 @@ from typing import Any
 
 from fastapi import Depends, HTTPException, Request, status
 
+from sandloom.core.auth import claims_view as _claims_view
 from sandloom.core.auth.bearer import bearer_claims, bearer_token_and_claims
 from sandloom.core.auth.verification import ensure_token_not_revoked
 from sandloom.core.tenant_context import _current_tenant
@@ -49,7 +50,20 @@ def TenantScope(  # dependency factory, reads like a type
             await ensure_token_not_revoked(request, claims)
         else:
             claims = {}
-        tid = _resolve_tenant(request, header, claim_keys, claims, token)
+        try:
+            tid = _resolve_tenant(request, header, claim_keys, claims, token)
+        except HTTPException as exc:
+            # ADR-0014 decision 3: a grant the trusted view dropped because
+            # the token predates the claim policy is a refresh (401), and one
+            # issuer and verifier disagree on is a 503; never a denial.
+            policy_error = _grant_policy_error(claims)
+            if exc.status_code in (400, 403) and policy_error is not None:
+                raise policy_error from exc
+            raise
+        if tid is None and required:
+            policy_error = _grant_policy_error(claims)
+            if policy_error is not None:
+                raise policy_error
         if tid is None:
             if required:
                 raise HTTPException(
@@ -67,6 +81,13 @@ def TenantScope(  # dependency factory, reads like a type
     # Read by create_app's gate-order check (SANDLOOM-B007).
     _dep.__sandloom_binds_tenant__ = True  # type: ignore[attr-defined]
     return Depends(_dep)
+
+
+def _grant_policy_error(claims: dict[str, Any]) -> HTTPException | None:
+    """The 401 / 503 of a ``tenant_ids`` grant the trusted view removed for
+    a reason a refresh or a retry may change, else ``None``."""
+    reasons = _claims_view.untrusted_reasons(claims)
+    return _claims_view.outdated_or_mismatch(reasons.get("tenant_ids"))
 
 
 def _resolve_tenant(  # noqa: C901
@@ -142,7 +163,11 @@ _parsed_tenant_ids: dict[str, frozenset[uuid.UUID]] = {}
 
 
 def _granted_tenant_ids(values: Any, token: str | None) -> frozenset[uuid.UUID]:
-    if not isinstance(values, (list, tuple, set)):
+    # No grant in THESE claims: nothing, whatever the memo holds for the
+    # token. The trusted view drops ``tenant_ids`` from a token it trusted
+    # until then (the compatibility window's end), so the memo's earlier
+    # parse is no longer this token's grant (ADR-0014 decision 4).
+    if not values or not isinstance(values, (list, tuple, set)):
         return frozenset()
     if token is not None:
         cached = _parsed_tenant_ids.get(token)

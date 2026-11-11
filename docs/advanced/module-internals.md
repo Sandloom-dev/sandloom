@@ -12,7 +12,7 @@ as its own package or read a discovery error.
 
 ## The beginner tier
 
-Thirty names cover CRUD, events and cross-module calls. Generated code
+Twenty-six names (20 for code, 6 for tests) cover CRUD, events and cross-module calls. Generated code
 and the examples use only these (`sandloom test` checks it,
 [SANDLOOM-T009](../reference/error-codes.md#sandloom-t009)); any other name is advanced
 and its import line says why: `# sandloom: advanced <reason>`.
@@ -24,7 +24,7 @@ and its import line says why: `# sandloom: advanced <reason>`.
 | routes | `module_router`, `public`, `CurrentUser` |
 | events | `Event`, `on` |
 | contracts | `contract`, `command`, `Contract` |
-| authorization | `require`, `Subscribed`, `SubscriptionActive`, `Credits`, `OrgRole`, `Owner`, `authorize_resource` |
+| authorization | `require`, `Owner`, `authorize_resource`; the billing and tenancy atoms (`Subscribed`, `SubscriptionActive`, `Credits`, `OrgRole`) are generated beside the contract stub and imported from there, not from `sandloom.sdk` |
 | effects | `record_audit`, `on_commit` |
 | tests (`sandloom.sdk.testing`) | `client` (fixture), `as_user`, `published`, `deliver`, `fake_contract`, `fake_access_fact` |
 
@@ -134,10 +134,10 @@ packages `sandloom_identity`, `sandloom_tenancy` and `sandloom_billing`
 - **Isolation.** An installed module package is another module: an app
   module importing it, in any spelling, is
   [SANDLOOM-C001](../reference/error-codes.md#sandloom-c001). Talk to it
-  through its events and contracts. The standard modules' contract stubs, the
-  generated copies of their DTOs and their event schemas live in
-  `sandloom.shared` and ship with `sandloom` (SANDLOOM-C012: every caller
-  process imports them).
+  through its events and contracts. A module keeps the stubs and DTO copies of the
+  contracts it consumes in its own `_generated/` package, and its event
+  schemas in `module.snapshot.json`; `sandloom` ships none of them
+  (SANDLOOM-C012: a caller process imports the copy its own module holds).
 
 To ship a module of your own:
 
@@ -147,19 +147,24 @@ To ship a module of your own:
    its `architecture_rules.yml`, so `sandloom check` applies.
 2. Depend on a compatible framework range, `sandloom>=0.7.0a11,<0.8`, never an
    exact pin, and on no other module package.
-3. Author its contract DTOs in its own `schemas` module and ship the stubs and
-   DTO copies `sandloom generate` writes in a package every caller process
-   imports (SANDLOOM-C012), listed in the app's `CONTRACT_DTO_PACKAGES`; an
-   app composing the module also generates its own copies into `<app>.shared`.
+3. Author its contract DTOs in its own `schemas` module. `sandloom generate`
+   writes the stubs and DTO copies of the contracts it consumes into its own
+   `_generated/` package, which ships in its wheel (SANDLOOM-C012; list the
+   packages in the app's `CONTRACT_DTO_PACKAGES`); an app composing the
+   module also generates its own copies into `<app>.shared`.
 
 Then `pip install` it next to an app and add its name to `SANDLOOM_MODULES`.
 
 ## Generated files
 
-`sandloom generate` writes each module's snapshots and the contract stubs, DTO
-copies and event schemas that callers import. These generated files are the one
-stated exception to "a module edits nothing outside its package".
-[Generate contracts and snapshots](../ai/generate.md#what-is-generated) lists
+`sandloom generate` writes each module's snapshots. It also writes the contract
+stubs, DTO copies and event schemas that callers import. Beside each stub it
+writes the **access atoms** the provider declared with `access_check` and
+`AccessFact`, such as `OrgRole`. A route policy
+imports them from the same generated module as the stub. The kernel holds none
+of them ([ADR-0010](../adr/0010-public-api-1.0.md), amendment of 2026-11-09).
+These generated files are the one stated exception to "a module edits nothing
+outside its package". [Generate contracts and snapshots](../ai/generate.md#what-is-generated) lists
 every file and the compatibility check that runs before writing.
 
 ## Design rationale

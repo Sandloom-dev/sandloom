@@ -2,8 +2,9 @@
 
 ``Contract(REF)`` in module code resolves through the SDK's resolver, which
 ``fake_contract`` overrides. Kernel code resolves contracts through
-``core.get_service`` instead: the authorization atoms (``SubscriptionActive``,
-``Subscribed(of=Account.org(...))``, ``Credits``, ``OrgRole``), access facts
+``core.get_service`` instead: the generated authorization atoms
+(``SubscriptionActive``, ``Subscribed(of=Account.org(...))``, ``Credits``,
+``OrgRole``), access facts
 and the claims pipeline. :func:`override_service` covers that path for a
 block by shadowing ``get_service`` on the facade instance, so the request path
 of a real application is untouched (no lookup is added to ``get_service``).

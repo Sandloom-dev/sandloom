@@ -123,9 +123,10 @@ class NotesRead:
 ```
 
 `sandloom generate` writes a wire-shape copy of every such DTO, nested ones
-included, into the shared DTO package next to the stub
-(`<app>.shared.contracts.notes_dto`, `sandloom.shared.contracts.<module>_dto`
-for the standard modules), marked `@dto_copy("<module>:<class>")`; the stub
+included, into each consumer's generated package next to the stub
+(`<module>._generated.contracts.notes_dto` in a module,
+`<app>.shared.contracts.notes_dto` in an application; the kernel ships none),
+marked `@dto_copy("<module>:<class>")`; the stub
 names the copy. So every caller process imports the same generated class and
 needs nothing of the provider's package:
 
@@ -171,8 +172,8 @@ skip the local round trip entirely.
 
 then `if not await quota.may_create_item(): ...`.
 
-- **The reference comes from the generated stub** (`<app>.shared.contracts.<x_y_v1>`
-  or `sandloom.shared.contracts.<x_y_v1>`): the Protocol plus
+- **The reference comes from the generated stub** (`<module>._generated.contracts.<x_y_v1>`
+  in a module, `<app>.shared.contracts.<x_y_v1>` in an application): the Protocol plus
   `X_Y_V1: ContractRef[Protocol] = ContractRef("x.y.v1")`. `Contract(REF)`
   is typed as the Protocol, so mypy checks every call. The stub is a
   generated file written by `sandloom generate`; `sandloom test` fails on a
@@ -260,9 +261,14 @@ change is a new contract version, `x.y.v2`, provided alongside `.v1` until no
 caller uses `.v1`.
 
 At runtime a caller compares every bound remote provider's describe document
-with the snapshot shipped in the provider's package: an incompatible provider
+with what it expects: the `<stem>.describe.json` beside its own stub first
+(narrowed to the methods its `consumes` lists), then `CONTRACT_SNAPSHOT_PATHS`,
+then the snapshot shipped in the provider's package. An incompatible provider
 fails `/ready` with `contract_incompatible` (`CONTRACT_COMPAT_CHECK=ready`, the
-default; `strict` aborts startup; `off` checks reachability only).
+default; `strict` aborts startup; `off` checks reachability only). A required
+remote contract with no expectation fails `/ready` with `contract_unverified`
+and is refused at startup under `strict`: run `sandloom generate`, or make the
+client `optional=True`.
 `sandloom contracts check --against <snapshot|url>` reports breaking changes
 between releases.
 

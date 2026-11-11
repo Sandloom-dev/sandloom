@@ -4,7 +4,8 @@ C-AUTH-06, G-BILLING personal spend).
 Independent oracles (spec §10.1): the account a live atom asks billing about
 is read off a recording fake entitlements contract (what was ASKED, not what
 the kernel thinks it resolved); the membership authority is a fake contract
-that confirms exactly the organizations it was told about.
+that confirms exactly the organizations it was told about. The billing atoms
+are billing's generated ones (``generated_atoms``, KB-34).
 """
 
 from __future__ import annotations
@@ -18,43 +19,48 @@ import pytest
 
 from sandloom.core.config.settings import settings
 from sandloom.core.di import bind_tenant
+from sandloom.core.facade._tenant_witness import TenantWitness
 from sandloom.core.module_api._service_registry import ServiceUnavailableInDeployment
-from sandloom.shared.authz import (
-    Account,
-    Credits,
-    Feature,
-    PolicyIndeterminate,
-    Subscribed,
-    SubscriptionActive,
-    WithinLimit,
-)
+from sandloom.shared.authz import AccessFact, Account, PolicyIndeterminate
 from sandloom.shared.authz.account import (
     AuthzSubjectMissingError,
     resolve_account,
     tenant_kind,
 )
 from sandloom.shared.authz.context import AuthzContext
+from sandloom.shared.authz.facts import ClaimRule
 from sandloom.shared.subject import UserContext
 
 pytestmark = pytest.mark.asyncio
 
 ENT = "billing.entitlements.v1"
 MEM = "tenancy.membership.v1"
+#: The assigned tenant authority's membership witness (ADR-0014 decision 13).
+WITNESS = TenantWitness(
+    MEM,
+    "has_role_at_least",
+    ("organization_id", "user_id", "minimum"),
+    "organization_id",
+    "user_id",
+    {"minimum": "member"},
+    authority="tenancy",
+)
 
 
 class _Core:
     def __init__(self, members: set[UUID]) -> None:
         self.asked: list[tuple[str, UUID]] = []
         self.members = members
+        self.tenant_witness: TenantWitness | None = WITNESS
         core = self
 
         async def check_subscription_active(tt: str, tid: UUID) -> bool:
             core.asked.append((tt, tid))
             return True
 
-        async def get_credit_balance(tt: str, tid: UUID) -> int:
+        async def has_credits_at_least(tt: str, tid: UUID, minimum: int) -> bool:
             core.asked.append((tt, tid))
-            return 100
+            return minimum <= 100
 
         async def has_role_at_least(org: UUID, user: UUID, minimum: str) -> bool:
             return org in core.members
@@ -62,7 +68,7 @@ class _Core:
         self.services: dict[str, Any] = {
             ENT: SimpleNamespace(
                 check_subscription_active=check_subscription_active,
-                get_credit_balance=get_credit_balance,
+                has_credits_at_least=has_credits_at_least,
             ),
             MEM: SimpleNamespace(has_role_at_least=has_role_at_least),
         }
@@ -100,42 +106,68 @@ def _subject(user: UUID, tenants: list[UUID]) -> UserContext:
 # --------------------------------------------------------------------------- #
 # of= is required (SANDLOOM-B017)
 # --------------------------------------------------------------------------- #
-async def test_every_billing_atom_requires_of() -> None:
+async def test_every_billing_atom_requires_of(generated_atoms: SimpleNamespace) -> None:
+    atoms = generated_atoms
     makers = {
-        "Subscribed": lambda **kw: Subscribed(**kw),
-        "SubscriptionActive": lambda **kw: SubscriptionActive(**kw),
-        "Credits": lambda **kw: Credits(1, **kw),
-        "Feature": lambda **kw: Feature("export", **kw),
-        "WithinLimit": lambda **kw: WithinLimit("seats", 1, **kw),
+        "Subscribed": lambda **kw: atoms.Subscribed(**kw),
+        "SubscriptionActive": lambda **kw: atoms.SubscriptionActive(**kw),
+        "Credits": lambda **kw: atoms.Credits(1, **kw),
+        "Feature": lambda **kw: atoms.Feature("export", **kw),
+        "WithinLimit": lambda **kw: atoms.WithinLimit("seats", 1, **kw),
     }
     for name, make in makers.items():
-        with pytest.raises(AuthzSubjectMissingError) as exc:
+        # the generated signature makes of= keyword-only and required
+        with pytest.raises(TypeError, match="'of'"):
             make()
+        with pytest.raises(AuthzSubjectMissingError) as exc:
+            make(of="user")  # not an Account
         assert isinstance(exc.value, TypeError)
         assert exc.value.sandloom_code == "SANDLOOM-B017"
         message = str(exc.value)
         assert name in message and "Account.org(param=" in message, message
         assert "Account.user()" in message and "Account.bound_tenant()" in message
         with pytest.raises(AuthzSubjectMissingError):
-            make(of="user")  # not an Account
+            make(of=None)
         assert make(of=Account.user()) is not None
 
 
-async def test_the_personal_claims_check_stays_zero_io() -> None:
+class _FactsOnly:
+    """Billing's ``subscription.active`` registered and nothing else: no
+    service, no request, no database."""
+
+    def get_access_fact(self, name: str) -> AccessFact | None:
+        if name != "subscription.active":
+            return None
+        return AccessFact(
+            name=name,
+            owner_module="billing",
+            claim_key="subscription_status",
+            claim_rule=ClaimRule.one_of({"active", "trialing"}),
+        )
+
+
+async def test_the_personal_claims_check_stays_zero_io(
+    generated_atoms: SimpleNamespace,
+) -> None:
     from sandloom.shared.authz.algebra import TIER_CLAIM
 
+    Subscribed = generated_atoms.Subscribed
     atom = Subscribed(of=Account.user())
     assert atom.tier == TIER_CLAIM and atom.org_params() == frozenset()
     user = uuid4()
-    # no core, no request: answered from the claim alone
-    assert await atom.evaluate(AuthzContext(_subject(user, []))) is True
+    # no service, no request: answered from the claim alone
+    ctx = AuthzContext(_subject(user, []), core=_FactsOnly())
+    assert await atom.evaluate(ctx) is True
     assert Subscribed(of=Account.org()).tier > TIER_CLAIM
 
 
 # --------------------------------------------------------------------------- #
 # route shapes x tenant kinds
 # --------------------------------------------------------------------------- #
-async def test_route_shapes_resolve_the_stated_account_only() -> None:
+async def test_route_shapes_resolve_the_stated_account_only(
+    generated_atoms: SimpleNamespace,
+) -> None:
+    SubscriptionActive = generated_atoms.SubscriptionActive
     user, org, other = uuid4(), uuid4(), uuid4()
     core = _Core(members={org})
     subject = _subject(user, [org])
@@ -233,10 +265,13 @@ async def test_tenant_kind_is_authoritative_and_memoised() -> None:
     assert await tenant_kind(org, ctx=ctx2) == "unknown"
 
 
-async def test_no_resolution_returns_a_foreign_account() -> None:
+async def test_no_resolution_returns_a_foreign_account(
+    generated_atoms: SimpleNamespace,
+) -> None:
     """Property (spec §7.5): over random route shapes, bindings and kinds, an
     atom only ever asks about the caller's personal account or an
     organization the membership authority confirmed / the token grants."""
+    Credits = generated_atoms.Credits
     rng = random.Random(1729)
     for _ in range(300):
         user = uuid4()
@@ -280,12 +315,17 @@ async def test_no_resolution_returns_a_foreign_account() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Feature / WithinLimit for an organization: the owner's facts, live
+# Feature / WithinLimit for an organization: the owner's answer, live
 # --------------------------------------------------------------------------- #
-async def test_org_feature_and_limit_need_the_owners_fact() -> None:
+async def test_org_feature_and_limit_need_the_owners_fact(
+    generated_atoms: SimpleNamespace,
+) -> None:
+    """Billing's generated atoms: ``Account.user()`` reads the claims with
+    zero I/O; an organization asks billing's live check with the atom's
+    parameters, and without a provider of it is 501, never an allow."""
+    Feature, WithinLimit = generated_atoms.Feature, generated_atoms.WithinLimit
     user, org = uuid4(), uuid4()
     core = _Core(members={org})
-    core.facts = {}  # type: ignore[attr-defined]
     subject = UserContext(
         user_id=user,
         tenant_ids=[str(org)],
@@ -295,19 +335,40 @@ async def test_org_feature_and_limit_need_the_owners_fact() -> None:
     assert await Feature("export", of=Account.user()).evaluate(personal) is True
     assert await WithinLimit("seats", 2, of=Account.user()).evaluate(personal) is True
     org_ctx = AuthzContext(subject, request=_Req(path={"org_id": str(org)}), core=core)  # type: ignore[arg-type]
-    for atom in (
+    atoms = (
         Feature("export", of=Account.org()),
         WithinLimit("seats", 2, of=Account.org()),
-    ):
+    )
+    # billing's entitlements not served here: no owner answers
+    del core.services[ENT]
+    for atom in atoms:
         decision = await atom.decide(org_ctx)
-        assert not decision.allowed and decision.http_status == 501  # no fact
+        assert not decision.allowed and decision.indeterminate
+        assert decision.http_status == 501, decision.code  # no provider
+    # billing's live checks answer: asked once each, with the parameters
+    asked: list[tuple[Any, ...]] = []
+
+    async def has_feature(tt: str, tid: UUID, key: str) -> bool:
+        asked.append((tt, tid, key))
+        return True
+
+    async def is_within_limit(tt: str, tid: UUID, key: str, used: int) -> bool:
+        asked.append((tt, tid, key, used))
+        return used < 3
+
+    core.services[ENT] = SimpleNamespace(
+        has_feature=has_feature, is_within_limit=is_within_limit
+    )
+    for atom in atoms:
+        assert (await atom.decide(org_ctx)).allowed
+    assert asked == [("organization", org, "export"), ("organization", org, "seats", 2)]
 
 
 # --------------------------------------------------------------------------- #
 # billing's personal-spend check (spec §7.4)
 # --------------------------------------------------------------------------- #
 async def test_a_personal_spend_must_be_the_callers_own() -> None:
-    import sandloom.core.contract_context as cc
+    from sandloom.core.module_api._bootstrap import _isolated_uow_scope
     from sandloom.core.module_api._context import caller_user_id, stamp_caller
     from sandloom.core.unit_of_work.request import RequestScope, bind_request_scope
     from sandloom_billing.credits import CALLER_USER_INFO_KEY, ensure_tenant_matches
@@ -326,14 +387,12 @@ async def test_a_personal_spend_must_be_the_callers_own() -> None:
         assert caller_user_id() == alice
         stamp_caller(session)
     assert session.info[CALLER_USER_INFO_KEY] == alice
-    bound = cc._contract_session_var.set(session)
-    try:
+    # the contract runtime binds its unit as the only one: db() is it
+    with _isolated_uow_scope(session, "default"):
         ensure_tenant_matches("user", alice)
         with pytest.raises(Exception) as exc:
             ensure_tenant_matches("user", bob)
         assert type(exc.value).__name__ == "BillingTenantMismatchError"
-    finally:
-        cc._contract_session_var.reset(bound)
     # over RPC: the signed caller facts, bound as the call's request scope
     from sandloom.core.rpc.context import _caller_scope
 
@@ -343,8 +402,6 @@ async def test_a_personal_spend_must_be_the_callers_own() -> None:
     session.info = {}
     stamp_caller(session)
     assert session.info[CALLER_USER_INFO_KEY] is None
-    bound = cc._contract_session_var.set(session)
-    try:
+    # the contract runtime binds its unit as the only one: db() is it
+    with _isolated_uow_scope(session, "default"):
         ensure_tenant_matches("user", bob)
-    finally:
-        cc._contract_session_var.reset(bound)

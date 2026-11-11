@@ -16,8 +16,9 @@ from uuid import UUID
 
 from fastapi import HTTPException
 
-from sandloom.core.module_api import contract_session
-from sandloom.sdk import command, contract
+from sandloom.sdk import command, contract, db
+from sandloom.sdk.authz import Category, From, access_check, claim_atom
+from sandloom_billing.access import SUBSCRIPTION_ACTIVE_FACT
 from sandloom_billing.credits import CreditsService, ensure_tenant_matches
 from sandloom_billing.entitlements import EntitlementsService
 from sandloom_billing.exceptions import BillingError
@@ -37,14 +38,78 @@ class EntitlementsContract:
     ``fake_contract(BILLING_ENTITLEMENTS_V1, Fake())``.
     """
 
+    @access_check(
+        "SubscriptionActive",
+        bind={"tenant_type": From.account_type(), "tenant_id": From.account_id()},
+        category=Category.PAYMENT_REQUIRED,
+        describe="active subscription",
+        claim=SUBSCRIPTION_ACTIVE_FACT,
+    )
     async def check_subscription_active(
         self, tenant_type: str, tenant_id: UUID
     ) -> bool:
         """True while a subscription grants access: active or trialing inside
         its period, or ``past_due`` within the grace window (unless the
-        deployment denies on ``past_due``). False without a billing customer."""
+        deployment denies on ``past_due``). False without a billing customer.
+        Its access check ``SubscriptionActive(of=...)`` asks it live for the
+        account ``of=`` names (402 when it answers False)."""
         return await EntitlementsService.check_subscription_active(
-            tenant_type, tenant_id, contract_session()
+            tenant_type, tenant_id, db()
+        )
+
+    @access_check(
+        "Credits",
+        bind={"tenant_type": From.account_type(), "tenant_id": From.account_id()},
+        category=Category.PAYMENT_REQUIRED,
+        describe="at least {minimum} credits",
+    )
+    async def has_credits_at_least(
+        self, tenant_type: str, tenant_id: UUID, minimum: int
+    ) -> bool:
+        """True when the live credit balance is at least ``minimum`` (the
+        query of ``get_credit_balance``; False without a billing customer
+        unless ``minimum`` is 0 or less). A read for a gate, never a spend:
+        to spend, call ``billing.credits.v1.spend`` (atomic). Its access check
+        ``Credits(minimum, of=...)`` answers 402 when it is False."""
+        return await EntitlementsService.has_credits_at_least(
+            tenant_type, tenant_id, minimum, db()
+        )
+
+    @claim_atom("Feature", claim_key="features", entry="key")
+    @access_check(
+        "LiveFeature",
+        bind={"tenant_type": From.account_type(), "tenant_id": From.account_id()},
+        describe="feature '{key}'",
+    )
+    async def has_feature(self, tenant_type: str, tenant_id: UUID, key: str) -> bool:
+        """True when the account's plan enables the feature flag ``key``.
+        Billing keeps no per-plan feature catalogue yet: this raises
+        ``AccessUnknown`` (501), never a False it cannot vouch for. Its
+        claim atom ``Feature(key, of=...)`` reads the ``features`` claim for
+        ``Account.user()`` with no call and asks this method for an
+        organization account (indeterminate 501 while billing has no
+        catalogue; 403 when a source answers False)."""
+        return await EntitlementsService.plan_feature(tenant_type, tenant_id, key)
+
+    @claim_atom("WithinLimit", claim_key="limits", entry="key", below="used")
+    @access_check(
+        "LiveWithinLimit",
+        bind={"tenant_type": From.account_type(), "tenant_id": From.account_id()},
+        category=Category.QUOTA_EXCEEDED,
+        describe="within limit '{key}'",
+    )
+    async def is_within_limit(
+        self, tenant_type: str, tenant_id: UUID, key: str, used: int
+    ) -> bool:
+        """True when ``used`` is strictly below the account's plan limit
+        ``key``. Billing keeps no per-plan limits catalogue yet: this raises
+        ``AccessUnknown`` (501), never a False it cannot vouch for. Its claim
+        atom ``WithinLimit(key, used, of=...)`` reads the ``limits`` claim
+        for ``Account.user()`` with no call and asks this method for an
+        organization account (indeterminate 501 while billing has no
+        catalogue; quota exceeded when a source answers False)."""
+        return await EntitlementsService.plan_limit_allows(
+            tenant_type, tenant_id, key, used
         )
 
     async def get_credit_balance(self, tenant_type: str, tenant_id: UUID) -> int:
@@ -52,7 +117,7 @@ class EntitlementsContract:
         A read for display: to spend, call ``billing.credits.v1.spend`` (it
         checks the balance atomically)."""
         return await EntitlementsService.get_credit_balance(
-            tenant_type, tenant_id, contract_session()
+            tenant_type, tenant_id, db()
         )
 
     async def subscription_claims(
@@ -63,7 +128,7 @@ class EntitlementsContract:
         subscription) and ``plan_code`` (the plan's name, while access is
         granted). ``{}`` when the tenant has no billing customer."""
         return await EntitlementsService.subscription_claims(
-            tenant_type, tenant_id, contract_session()
+            tenant_type, tenant_id, db()
         )
 
 
@@ -112,7 +177,7 @@ class CreditsContract:
                 tenant_id,
                 amount,
                 operation_key,
-                contract_session(),
+                db(),
                 reason=reason,
             )
         except BillingError as exc:
@@ -129,5 +194,5 @@ class CreditsContract:
         except BillingError as exc:
             raise exc.to_http() from exc
         return await EntitlementsService.get_credit_balance(
-            tenant_type, tenant_id, contract_session()
+            tenant_type, tenant_id, db()
         )

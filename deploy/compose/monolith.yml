@@ -7,8 +7,9 @@
 #   STRIPE_SECRET_KEY=... STRIPE_WEBHOOK_SECRET=... \
 #     docker compose -f deploy/compose/monolith.yml up --build
 #
-# (demo stack without Stripe: BILLING_PROVIDER=fake
-# SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod)
+# (mail: identity and tenancy need NOTIFIER_BACKEND=smtp + SMTP_HOST + SMTP_FROM;
+# demo stack without Stripe and without a mail server: BILLING_PROVIDER=fake
+# SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod,log_notifier_in_prod)
 #
 # Same code, same image as the microservices profile — only configuration differs.
 
@@ -41,6 +42,9 @@ x-app-runtime: &app-runtime
 # the module list and the databases must agree everywhere.
 x-app-env: &app-env
   ENVIRONMENT: prod
+  # The standard composition root (the sandloom-standard distribution): the
+  # app, worker, beat and migrate one-shot build the same composition.
+  SANDLOOM_COMPOSITION_ROOT: sandloom_standard.main
   SHUTDOWN_BUDGET_SECONDS: ${SHUTDOWN_BUDGET_SECONDS:-30}
   EVENT_PAYLOAD_MAX_BYTES: ${EVENT_PAYLOAD_MAX_BYTES:-262144}
   EVENT_STREAM_RETENTION_SECONDS: ${EVENT_STREAM_RETENTION_SECONDS:-604800}
@@ -48,8 +52,8 @@ x-app-env: &app-env
   EVENT_STREAM_PREFIX: ${EVENT_STREAM_PREFIX:-}
   # The weaker guarantees this stack accepts (sandloom.core.config.accepted_risks; logged
   # at every start): demo single-host local storage, shared by every process
-  # (not multi-host HA). A demo without Stripe adds fake_psp_in_prod:
-  # SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod
+  # (not multi-host HA). A demo without Stripe adds billing.fake_psp_in_prod:
+  # SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod
   SANDLOOM_ACCEPTED_RISKS: ${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod}
   SANDLOOM_MODULES: '["sandloom_identity","sandloom_tenancy","sandloom_billing"]'
   # Labels consumer ids, the subscription inventory and diagnostics.
@@ -78,6 +82,12 @@ x-app-env: &app-env
   REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}
   FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
   BILLING_DENY_ON_PAST_DUE: ${BILLING_DENY_ON_PAST_DUE:-false}
+  # Mail. identity and tenancy REQUIRE an email notifier (notification +
+  # email), so with ENVIRONMENT=prod this stack refuses to start on the default
+  # `log` driver, which delivers no mail. Production: NOTIFIER_BACKEND=smtp with
+  # SMTP_HOST, SMTP_FROM, and SMTP_USERNAME / SMTP_PASSWORD over SMTP_USE_TLS=true.
+  # A demo that runs without mail adds log_notifier_in_prod to
+  # SANDLOOM_ACCEPTED_RISKS (mail is NOT delivered; the risk is logged at every start).
   NOTIFIER_BACKEND: ${NOTIFIER_BACKEND:-log}
   SMTP_HOST: ${SMTP_HOST:-}
   SMTP_PORT: ${SMTP_PORT:-25}
@@ -96,7 +106,7 @@ x-app-env: &app-env
   # in prod); comma-separated, newest first, for rotation.
   TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?set TWOFA_ENCRYPTION_KEY (openssl rand -hex 32) - required when identity is loaded}
   # Billing refuses the fake PSP in prod — the operator must choose.
-  BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod for demos)}
+  BILLING_PROVIDER: ${BILLING_PROVIDER:?set BILLING_PROVIDER (stripe, or fake with SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod for demos)}
   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
   STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
   # Internal endpoints (/_sandloom/rpc, /diagnostics, /metrics, /health details)

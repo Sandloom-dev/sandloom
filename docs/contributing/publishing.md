@@ -4,13 +4,17 @@ type: how-to
 
 # Publishing packages to PyPI
 
-Sandloom publishes five distributions through
+Sandloom publishes six distributions through
 [Release (PyPI)](https://github.com/Sandloom-dev/sandloom/actions/workflows/release.yml):
-`sandloom`, `sandloom-identity`, `sandloom-tenancy`, `sandloom-billing` and
-`sandloom-admin`.
+`sandloom`, `sandloom-standard`, `sandloom-identity`, `sandloom-tenancy`,
+`sandloom-billing` and `sandloom-admin`. `sandloom-standard` holds the standard
+composition root (`sandloom_standard.main`) that `sandloom[standard]` installs:
+release it before or together with a `sandloom` version whose `standard` extra
+requires it.
 Versions are independent. A manual run can select one package or `all` for a
 coordinated release. A per-package tag selects only that package.
-The current published alpha is `0.7.0a11` for all five packages. <!-- sandloom-release -->
+The current published alpha is `0.7.0a11` for the five packages released so far; <!-- sandloom-release -->
+`sandloom-standard` is new and publishes with the next coordinated release.
 
 ## Authentication and approval
 
@@ -30,8 +34,12 @@ first release:
 The GitHub `pypi` environment requires approval by `Maryarty`, including runs
 started by the owner. Administrator bypass is disabled. The owner may approve
 their own run because there is only one maintainer. Allowed deployment refs are
-`main` and the four tag patterns `sandloom-v*`, `sandloom-identity-v*`,
-`sandloom-tenancy-v*` and `sandloom-billing-v*`.
+`main` and the five tag patterns `sandloom-v*`, `sandloom-standard-v*`,
+`sandloom-identity-v*`, `sandloom-tenancy-v*` and `sandloom-billing-v*`.
+
+`sandloom-standard` is new. Before its first release, add its pending Trusted
+Publisher on PyPI, then add `sandloom-standard-v*` to the deployment refs of
+the `pypi` environment.
 
 The plan step also refuses publication from a feature branch or a tag whose
 commit is not reachable from `origin/main`. A tag must exactly match the selected
@@ -98,7 +106,7 @@ uv run python tools/checks/check_benchmark_dependencies.py --write
 
 <!-- sandloom-release --> The command above prepares the `0.7.0a11` release.
 The canonical current framework version is `packages/sandloom/pyproject.toml`.
-The helper updates all five package versions, compatible dependency floors,
+The helper updates all six package versions, compatible dependency floors,
 example manifests, scaffold requirements, CLI help and current documentation.
 It discovers package pins in source documentation; prose that describes the
 current release carries an inline `<!-- sandloom-release -->` marker.
@@ -134,8 +142,8 @@ git tag sandloom-v0.7.0a11
 git push origin sandloom-v0.7.0a11
 ```
 
-The other package prefixes are `sandloom-identity-v`, `sandloom-tenancy-v` and
-`sandloom-billing-v`. `sandloom-admin` releases through a coordinated manual run;
+The other package prefixes are `sandloom-standard-v`, `sandloom-identity-v`,
+`sandloom-tenancy-v` and `sandloom-billing-v`. `sandloom-admin` releases through a coordinated manual run;
 its tag and single-package choice need an entry in `release.yml`. Release a framework version before module versions that
 require it, or use one coordinated manual run. Each tag-triggered upload still
 requires the owner's environment approval.

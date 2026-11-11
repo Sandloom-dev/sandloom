@@ -247,6 +247,11 @@ async def contribute(self, user_id: Any) -> dict[str, Any]
 
 Merged claims of this module's contributors for `user_id`.
 
+The answer names, under `sandloom.core.claims.AUTHORITY_CLAIM`,
+the import path of the module registered under this owner: a remote
+issuer binds it to its map (the pinned `service_id` proves the
+service, this proves which module the service runs under the name).
+
 ### `core_from_request`
 
 ```python
@@ -348,7 +353,13 @@ def add_shutdown_task(self, task: ShutdownTask) -> None
 #### `CoreFacade.register_health_check`
 
 ```python
-def register_health_check(self, name: str, fn: HealthCheck) -> None
+def register_health_check(
+    self,
+    name: str,
+    fn: HealthCheck,
+    *,
+    operational: bool = False,
+) -> None
 ```
 
 #### `CoreFacade.health_checks`
@@ -387,6 +398,14 @@ as orphans in the contract inventory.
 
 This replaces snapshotting private kernel state (`service_registry._map`,
 `app.router.routes` slicing): the kernel is never mutated until commit.
+
+#### `CoreFacade.module_settings`
+
+```python
+module_settings  (property)
+```
+
+The validated settings of the modules registered here (ADR-0015).
 
 #### `CoreFacade.ensure_tracer`
 
@@ -482,10 +501,15 @@ async def collect_claims(
     user_id: Any,
     issuer_session: Any = None,
     *,
-    issuer: str | None = None,
-    precomputed: Mapping[Any, dict[str, Any] | None] | None = None,
-) -> dict[str, Any]
+    issuer: Callable[..., Any] | None = None,
+) -> SealedClaims
 ```
+
+The sealed claims of `user_id` for `create_access_token(data,
+claims=sealed)`; `issuer` is one of the minting module's own
+registered claims contributors. Every claim is a registered
+contributor's: no caller hands the mint a value. See
+`sandloom.core.facade.CoreFacade.collect_claims`.
 
 #### `CoreRuntime.get_access_fact`
 

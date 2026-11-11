@@ -1,0 +1,253 @@
+{
+ "variant": "authzpa2",
+ "topology": "mono",
+ "cases": {
+  "control": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "role.admin": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "role.user": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires role 'admin'",
+      "code": "Role"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "perm.admin": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "subscribed": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "subactive": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "credits": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "role_or_credits.admin": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "role_or_credits.user": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "orgrole": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "orgrole_and_subactive": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "orgrole_and_subactive.outsider": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires organization role 'admin'",
+      "code": "OrgRole"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "bound.control": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "bound.orgrole_and_subactive": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "bound.member": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires organization role 'admin'",
+      "code": "OrgRole"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "bound.admin_inactive": {
+   "expected_today": 402,
+   "runs": [
+    {
+     "status": 402,
+     "body": {
+      "detail": "requires active subscription",
+      "code": "SubscriptionActive"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "bound.outsider": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires organization role 'admin'",
+      "code": "OrgRole"
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "bound.no_tenant": {
+   "expected_today": 400,
+   "runs": [
+    {
+     "status": 400,
+     "body": {
+      "detail": "X-Tenant-Id is required when the token grants multiple tenants",
+      "code": null
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "or_sub_user.admin": {
+   "expected_today": 200,
+   "runs": [
+    {
+     "status": 200,
+     "body": {
+      "ok": true
+     },
+     "rpc": []
+    }
+   ]
+  },
+  "not_member.admin": {
+   "expected_today": 403,
+   "runs": [
+    {
+     "status": 403,
+     "body": {
+      "detail": "requires NOT organization role 'member'",
+      "code": "negation_failed"
+     },
+     "rpc": []
+    }
+   ]
+  }
+ }
+}

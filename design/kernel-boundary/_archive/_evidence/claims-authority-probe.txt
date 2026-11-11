@@ -1,0 +1,89 @@
+# Security authority probe: the kernel's real claims merge (CoreFacade._merge_claim_outcomes),
+# identity's mint composition (sandloom_identity/services/token_service.py:144-152, copied as
+# a dict literal), create_access_token and require_platform_admin, from the lean `sandloom`
+# wheel at b8d8506. Not a login: no database, contributors' outcomes are given directly to
+# the merge (step 2); step 1 sets CoreFacade._registering_module by hand to show owner
+# resolution. Script, then output.
+#   $ $S/venv-lean/bin/python -I claims_probe.py
+
+----- claims_probe.py -----
+"""Security-authority probe (lean wheel at b8d8506): the real merge, mint and
+platform-admin gate, composed by hand (no database, no login flow)."""
+import asyncio
+import os
+import uuid
+
+os.environ.update({
+    "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
+    "CACHE_URL": "redis://localhost:6379/0", "BROKER_URL": "redis://localhost:6379/1",
+    "JWT_SECRET": "claims-probe-not-a-real-secret-0123456789", "EVENT_BUS_BACKEND": "memory",
+    "SANDLOOM_MODULES": "[]",
+})
+import jwt  # noqa: E402
+from fastapi import FastAPI, HTTPException  # noqa: E402
+
+from sandloom.core.auth.tokens import create_access_token  # noqa: E402
+from sandloom.core.facade import CoreFacade  # noqa: E402
+from sandloom.shared.guards.platform import require_platform_admin  # noqa: E402
+from sandloom.shared.subject import UserContext  # noqa: E402
+
+facade = CoreFacade(app=FastAPI())
+
+
+async def inventory_claims(user_id):
+    return {}
+
+
+# 1. owner resolution (facade level; ModuleAPI.add_claims_contributor has no owner=)
+facade._registering_module = "shop.modules.identity"
+facade.add_claims_contributor(inventory_claims)
+facade._registering_module = "shop.modules.inventory"
+facade.add_claims_contributor(inventory_claims, owner="identity")
+facade._registering_module = None
+print("1. owners stamped:", [o for _f, _c, o in facade._claims_contributors])
+print("   identity.claims.v1 registered:", facade.service_registry.contains("identity.claims.v1"))
+
+# 2. the merge: plan order, later writer wins per key; provenance overwritten
+plan = [("identity", True, None, None), ("inventory", False, None, None)]
+outcomes = {
+    0: (True, {"roles": [], "permissions": []}),
+    1: (True, {"roles": ["admin"], "tenant_ids": [str(uuid.uuid4())],
+               "claims_sources": ["forged"], "jti": "chosen", "iat_us": 1}),
+}
+merged = facade._merge_claim_outcomes(plan, outcomes)
+print("2. merged:", {k: merged[k] for k in sorted(merged)})
+
+# 3. identity's mint (token_service.py:144-152 composition) + create_access_token
+uid = uuid.uuid4()
+claims = {**merged, "sub": str(uid), "email": "a@example.test",
+          "email_verified": True, "token_type": "access"}
+token = create_access_token(data=claims)
+decoded = jwt.decode(token, os.environ["JWT_SECRET"], algorithms=["HS256"],
+                     options={"verify_aud": False})
+print("3. minted keys kept from the contributor:",
+      {k: decoded[k] for k in ("roles", "tenant_ids", "claims_sources", "jti", "iat_us")})
+
+# 4. the platform-admin gate on that subject
+subject = UserContext(**decoded)
+
+
+async def gate(s):
+    try:
+        await require_platform_admin(s)
+        return "allowed"
+    except HTTPException as exc:
+        return f"{exc.status_code} {exc.detail}"
+
+print("4. require_platform_admin:", asyncio.run(gate(subject)))
+other = UserContext(user_id=uid, roles={"admin"}, claims_sources=["inventory"],
+                    claims_sources_failed=[])
+print("   roles={'admin'}, claims_sources=['inventory']:", asyncio.run(gate(other)))
+
+----- output -----
+1. owners stamped: ['identity', 'identity']
+   identity.claims.v1 registered: True
+2. merged: {'claims_sources': ['identity', 'inventory'], 'claims_sources_failed': [], 'iat_us': 1, 'jti': 'chosen', 'permissions': [], 'roles': ['admin'], 'tenant_ids': ['a2a0b0a5-f1e4-49fa-8348-73bd19349cdd']}
+3. minted keys kept from the contributor: {'roles': ['admin'], 'tenant_ids': ['a2a0b0a5-f1e4-49fa-8348-73bd19349cdd'], 'claims_sources': ['identity', 'inventory'], 'jti': 'chosen', 'iat_us': 1}
+4. require_platform_admin: allowed
+   roles={'admin'}, claims_sources=['inventory']: 403 Platform administrator role required
+[exit 0]

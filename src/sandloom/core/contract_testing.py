@@ -52,12 +52,14 @@ still applies on the provider side).
 from __future__ import annotations
 
 import json
+import secrets
 from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import cache
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 import httpx
@@ -65,6 +67,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+import sandloom.core.testing.boot as _boot
 from sandloom.core import rpc_binding, rpc_identity, rpc_pair_mac
 from sandloom.core.rpc import RemoteServiceProxy, RemoteServiceUnavailable, rpc_router
 from sandloom.core.rpc.client import _new_rpc_client
@@ -259,6 +262,138 @@ def rpc_env(
         for name, value in rpc_settings(
             service_id, peers=peers, allowed_calls=allowed_calls
         ).items()
+    }
+
+
+def _split_contract_owners(processes: Mapping[str, Sequence[str]]) -> dict[str, str]:
+    owners: dict[str, str] = {}
+    modules_seen: set[str] = set()
+    for service, modules in processes.items():
+        if (
+            not isinstance(service, str)
+            or rpc_binding.parse_descriptor(rpc_binding.descriptor("k1", service))
+            is None
+            or isinstance(modules, str)
+            or not modules
+        ):
+            raise ValueError("split_env needs nonempty service names and module lists")
+        if any(not isinstance(m, str) or not m for m in modules):
+            raise ValueError(f"invalid modules for {service!r}")
+        if modules_seen.intersection(modules) or len(set(modules)) != len(modules):
+            raise ValueError("a module must belong to exactly one process")
+        modules_seen.update(modules)
+        core, summary = _boot.load_topology(modules, exact=True)
+        if summary.failed or summary.skipped:
+            raise ValueError(
+                f"could not load modules for {service!r}: {summary.to_dict()}"
+            )
+        for contract in core.service_registry.list():
+            if contract in owners:
+                raise ValueError(f"contract {contract!r} has more than one provider")
+            owners[contract] = service
+    return owners
+
+
+def _split_bindings(
+    processes: Mapping[str, Sequence[str]],
+    urls: Mapping[str, str],
+    owners: Mapping[str, str],
+    bindings: Mapping[str, Mapping[str, Mapping[str, Any]]] | None,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    if bindings is not None and set(bindings) - set(processes):
+        raise ValueError("bindings name an unknown process")
+    result = {}
+    for service in processes:
+        selected = (
+            {name: {} for name, owner in owners.items() if owner != service}
+            if bindings is None
+            else bindings.get(service, {})
+        )
+        bound = {}
+        for contract, options in selected.items():
+            provider = owners.get(contract)
+            if provider is None or provider == service:
+                raise ValueError(
+                    f"{contract!r} is not a remote contract for {service!r}"
+                )
+            pin = {"base_url": urls[provider].rstrip("/"), "service_id": provider}
+            if any(
+                key in options and options[key] != value for key, value in pin.items()
+            ):
+                raise ValueError(f"binding {contract!r} overrides its provider pin")
+            bound[contract] = {**options, **pin}
+        result[service] = bound
+    return result
+
+
+def split_env(
+    processes: Mapping[str, Sequence[str]],
+    urls: Mapping[str, str],
+    *,
+    issuer: str,
+    bindings: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
+) -> dict[str, dict[str, str]]:
+    """Environment overlays for test processes with pinned RPC and EdDSA JWTs.
+
+    ``processes`` maps service ids to module import paths; ``urls`` maps the
+    same ids to reserved HTTP addresses (for example ``ReservedPort.url``).
+    Each module belongs to one process. Registration is loaded to discover
+    contracts; no servers start and no migrations run. Only ``issuer`` receives
+    the JWT private key and a secret for its emailed tokens. Every process gets
+    its own fresh Ed25519/X25519 RPC keys and the peers' public keys.
+
+    By default each process binds every contract provided elsewhere. Pass
+    ``bindings={service: {contract: options}}`` to select exact remote contracts
+    and metadata such as ``critical=False``; omitted services then bind nothing.
+    URLs and service-id pins are derived and cannot be overridden. The RPC
+    allowlist contains exactly those bindings. One process is also supported.
+
+    Merge each returned overlay into the test's infrastructure environment:
+    database, cache, broker, composition root and module-specific settings stay
+    the caller's responsibility. Settings in the overlay must win over inherited
+    variables, especially the empty JWT private key/secret on verify-only peers.
+    These ephemeral keys are for tests, never deployment configuration.
+    """
+    if not processes or issuer not in processes or set(processes) != set(urls):
+        raise ValueError("processes and urls must have the same ids, including issuer")
+    for url in urls.values():
+        parsed = urlsplit(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError(f"invalid process HTTP URL: {url!r}")
+    owners = _split_contract_owners(processes)
+    bound = _split_bindings(processes, urls, owners, bindings)
+    signing = {name: generate_private_key("EdDSA") for name in processes}
+    dh = {name: generate_x25519_key() for name in processes}
+    jwt_key = generate_private_key("EdDSA")
+    common = {
+        "JWT_ALGORITHM": "EdDSA",
+        "JWT_KID": "split-1",
+        "JWT_PUBLIC_KEYS": json.dumps({"split-1": public_pem(jwt_key)}),
+        "JWT_PREVIOUS_SECRETS": "[]",
+        "RPC_COMMANDS_REQUIRE_SIGNATURE": "on",
+        "RPC_KEY_ID": "k1",
+        "RPC_DH_KEY_ID": "k1",
+        "RPC_SERVICE_KEYS": json.dumps(
+            {s: {"k1": public_pem(k)} for s, k in signing.items()}
+        ),
+        "RPC_SERVICE_DH_KEYS": json.dumps(
+            {s: {"k1": x25519_public_pem(k)} for s, k in dh.items()}
+        ),
+        "RPC_ALLOWED_CALLS": json.dumps({s: sorted(b) for s, b in bound.items()}),
+    }
+    return {
+        service: {
+            **common,
+            "SANDLOOM_MODULES": json.dumps(list(modules)),
+            "SANDLOOM_SERVICE_NAME": service,
+            "RPC_SERVICE_ID": service,
+            "RPC_PRIVATE_KEY": private_pem(signing[service]),
+            "RPC_DH_PRIVATE_KEY": x25519_private_pem(dh[service]),
+            "JWT_PRIVATE_KEY": private_pem(jwt_key) if service == issuer else "",
+            "JWT_SECRET": secrets.token_urlsafe(32) if service == issuer else "",
+            "SERVICE_BINDINGS": json.dumps(bound[service]),
+        }
+        for service, modules in processes.items()
     }
 
 
@@ -485,4 +620,5 @@ __all__ = [
     "rpc_response_headers",
     "rpc_settings",
     "served_rpc",
+    "split_env",
 ]

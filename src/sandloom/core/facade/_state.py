@@ -88,18 +88,31 @@ class _FacadeState:
         # Startup phase per registration ("infra" | "modules" | "post").
         self._startup_phase: list[str] = []
         self._shutdown_tasks: list[ShutdownTask] = []
-        self._health_checks: dict[str, HealthCheck] = {}
+        self._health_checks: dict[str, tuple[HealthCheck, bool]] = {}
 
         # Token claims contributors (populated by modules; invoked at mint
         # time). Each is ``(fn, critical, owner)``: a critical contributor's
         # failure aborts minting instead of silently issuing a reduced-claims
         # token; ``owner`` is the short name of the module that registered it
         # (provenance stamped into ``claims_sources``).
-        self._claims_contributors: list[tuple[Any, bool, str | None]] = []
+        self._claims_contributors: list[
+            tuple[Any, bool, str | None, frozenset[str]]
+        ] = []
         # Contract ownership: service name -> registering module (full name),
         # and explicit per-contract database overrides.
         self._service_owners: dict[str, str] = {}
         self._service_databases: dict[str, str] = {}
+        # Access-bearing contract names (ADR-0014 decision 6): the root's
+        # access_providers (contract -> provider import path) and the reader
+        # of which names bear access, both bound by create_app; unbound (a
+        # bare facade) keeps the first-registrant rule for every name.
+        self._access_assignment: dict[str, str] = {}
+        self._access_classifier: Callable[[], frozenset[str]] | None = None
+        # Whether an implementation declares @access_check methods, and the
+        # contract names a registration attempt classified so (ADR-0014
+        # decision 6): kept even when the registration itself was refused.
+        self._access_declares: Callable[[Any], bool] | None = None
+        self._access_declared: set[str] = set()
         # claims owner (short name) -> full module name that registered it, so
         # a contributor runs on ITS module's database even when its
         # ``<owner>.claims.v1`` contract could not be registered.

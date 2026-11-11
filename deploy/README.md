@@ -42,8 +42,9 @@ TWOFA_ENCRYPTION_KEY=$(openssl rand -hex 32) BILLING_PROVIDER=stripe STRIPE_SECR
 docker compose --env-file deploy/.env.microservices \
   -f deploy/compose/microservices.yml up --build
 
-# Demo stack without Stripe (either profile)
-BILLING_PROVIDER=fake SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod ...
+# Demo stack without Stripe and without a mail server (either profile; mail is NOT delivered)
+BILLING_PROVIDER=fake \
+SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod,log_notifier_in_prod ...
 ```
 
 The microservices profile and `gateway/nginx.conf` are **generated** by `sandloom
@@ -78,7 +79,8 @@ startup.
 | `RPC_SERVICE_KEYS` | — | **required** (every process) | `{"<service>": {"<kid>": "<PEM>"}}` the callers' Ed25519 public keys |
 | `RPC_ALLOWED_CALLS` | — | fixed in the common env | the allowlist = each caller's `SERVICE_BINDINGS` (`sandloom keys allowlist`; pinned by `test_rpc_allowlist_is_derived_from_bindings`) |
 | `METRICS_TOKEN` | optional | optional | scrape-only credential for `/metrics` (must differ from `INTERNAL_API_TOKEN`); give it to Prometheus instead of the internal token |
-| `BILLING_PROVIDER` | **required** | **required** | `stripe` (+ `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) or `fake` together with `SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod` (demo only). There is no default: in prod billing rejects `fake` — even set explicitly — unless `SANDLOOM_ACCEPTED_RISKS` lists `fake_psp_in_prod`, and compose refuses to start without a choice |
+| `NOTIFIER_BACKEND`, `SMTP_HOST`, `SMTP_FROM` | **`smtp` + host + sender** for real mail | same | identity and tenancy require an email notifier (`notification` with feature `email`). The default `log` driver delivers no mail, so with `ENVIRONMENT=prod` startup refuses it (a named capability error) instead of logging recovery and invitation mail nobody receives. Production: `NOTIFIER_BACKEND=smtp`, `SMTP_HOST`, `SMTP_FROM`, and `SMTP_USERNAME` / `SMTP_PASSWORD` over `SMTP_USE_TLS=true` (the default; credentials without TLS are refused). A demo without a mail server adds `log_notifier_in_prod` to `SANDLOOM_ACCEPTED_RISKS` and **no mail is delivered** |
+| `BILLING_PROVIDER` | **required** | **required** | `stripe` (+ `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) or `fake` together with `SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod` (demo only). There is no default: in prod billing rejects `fake` — even set explicitly — unless `SANDLOOM_ACCEPTED_RISKS` lists `billing.fake_psp_in_prod`, and compose refuses to start without a choice |
 | `SANDLOOM_ACCEPTED_RISKS` | default `local_storage_in_prod` | default `local_storage_in_prod` | the ONE list of weaker guarantees a prod deployment accepts (JSON or comma list of risk ids; an unknown id fails startup). Each accepted risk is logged as a WARNING at every start, exported as `sandloom_accepted_risk_active{risk}` and listed by `/diagnostics/core` and `sandloom doctor`. The former booleans (`BILLING_ALLOW_FAKE_PSP_IN_PROD`, …) are removed settings: startup refuses them unless set to their inert value ([ADR-0006](../docs/adr/0006-accepted-risks.md)) |
 | `WEB_CONCURRENCY`, `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` | defaults 3 / 10 / 10 | defaults 2 / 5 / 5 | see *Sizing* |
 | `GUNICORN_KEEPALIVE` | default 75 | default 75 | idle keep-alive (s) of the HTTP workers; keep it ABOVE the idle timeout of any load balancer in front (see *Sizing*) |
@@ -90,12 +92,22 @@ startup.
 
 | `GC_FREEZE_AFTER_STARTUP`, `GC_THRESHOLDS`, `GC_METRICS_ENABLED` | framework defaults `true` / `2000,10,10` / `true` | same | gunicorn workers and the Celery worker freeze the startup heap after startup and raise 3.12's GC threshold0 (docs/operate/operator-reference.md → *Garbage collector tuning*); `false` / empty restores the interpreter default |
 | `OUTBOX_RETENTION_HOURS` | framework default 168 | same | the relay purges delivered outbox rows older than this (`0` = keep) |
-| `SANDLOOM_SERVICE_NAME` | `sandloom` / `sandloom-worker` / `sandloom-beat` | the service name (`identity`, …, `identity-worker`, `identity-beat`) | labels consumer ids, the subscription inventory and diagnostics |
+| `SANDLOOM_SERVICE_NAME` | `sandloom` / `sandloom-worker` / `sandloom-beat` | the service name (`identity`, …, `identity-worker`, `identity-beat`) | names the kernel's revocation applier group (`sandloom:auth@tokens_revoked@<name>`): required on a shared bus, distinct per service; also labels consumer ids, the subscription inventory and diagnostics |
 | `WORKER_CONCURRENCY` | default: CPU quota, max 2 | same | prefork children (see *Background work*) |
 | `WORKER_MAX_MEMORY_PER_CHILD` | default 200000 KiB | same | recycle a child above this RSS after its task |
 | `SANDLOOM_IMAGE` | default `sandloom:local` | same | the one image every process runs (built once) |
 | `GATEWAY_PORT`, `SANDLOOM_SUBNET`, `SANDLOOM_GATEWAY_IP`, `SANDLOOM_IP_RANGE` / `APP_PORT` | `APP_PORT` 2222 | 8080 / `172.28.0.0/24` / `172.28.0.10` / `172.28.0.128/25` | change them (plus `-p <project>`) to run two stacks on one host; `SANDLOOM_GATEWAY_IP` must lie in `SANDLOOM_SUBNET` but outside `SANDLOOM_IP_RANGE` (the dynamic-address pool), so change all three together |
-| `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_PREVIOUS_SECRETS` (monolith only), `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS`, `BILLING_DENY_ON_PAST_DUE`, `NOTIFIER_BACKEND`, `SMTP_*`, `FRONTEND_URL` | optional | optional | in the **common** env of both profiles: identical in every process |
+| `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_PREVIOUS_SECRETS` (monolith only), `ACCESS_TOKEN_EXPIRE_MINUTES`, `NOTIFIER_BACKEND`, `SMTP_*`, `FRONTEND_URL` | optional | optional | in the **common** env of both profiles: identical in every process |
+
+`REFRESH_TOKEN_EXPIRE_DAYS` is identity's setting (it sets the issuer's refresh
+sessions): the monolith passes it in the common env, the microservices profile
+only to the identity service (a service that does not load identity refuses it,
+SANDLOOM-T019).
+
+`BILLING_DENY_ON_PAST_DUE` is billing's setting (only billing reads it; other
+processes read the past-due rule through the access fact billing describes):
+the monolith passes it in the common env, the microservices profile only to the
+billing service (a service that does not load billing refuses it, SANDLOOM-T019).
 
 `BILLING_*` / `STRIPE_*` are passed to **every** process that loads billing
 (migrate, app, worker, beat): each one boots the same composition root, and
@@ -105,7 +117,7 @@ billing validates its PSP when the module loads.
 
 Every security/auth-relevant setting lives in the shared env anchor
 (`x-common-env` / `x-app-env`), never in a per-service block: a token minted by
-identity is verified by every service, so `JWT_*` / token lifetimes must match
+identity is verified by every service, so `JWT_*` / the access-token lifetime must match
 (the exceptions are the issuer-only `JWT_PRIVATE_KEY` / `JWT_SECRET` of the
 microservices profile, which only identity processes receive —
 `test_only_the_issuer_holds_signing_material`);
@@ -116,6 +128,19 @@ buckets, idempotency keys and the Streams bus live there; a per-service cache
 would accept a revoked token everywhere but on the service that revoked it.
 `test_deploy_profiles.py` pins all of this (same raw value in every process,
 same defaults in both profiles).
+
+### One composition root
+
+The image and both profiles boot the standard composition root,
+`sandloom_standard.main` (the `sandloom-standard` distribution, ADR-0012):
+the Dockerfile sets `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main` and serves
+`sandloom_standard.main:app`, and every process of a profile (migrate, app or
+service, worker, beat) names the same root in its shared env anchor, so the
+operator commands, the worker and the migrations act on the composition the API
+serves. The kernel's `sandloom.main` is the lean root (installed modules, no
+authorities) and the default when the variable is unset. SANDLOOM-T014 refuses a
+microservices profile whose processes name different roots;
+`test_deploy_profiles.py` pins both profiles and the image.
 
 ### Required modules
 
@@ -188,7 +213,8 @@ celery -A sandloom.core.worker beat   --loglevel=INFO --schedule=/tmp/celerybeat
 ```
 
 `sandloom.core.worker` boots the same composition root as the API
-(`SANDLOOM_COMPOSITION_ROOT`, default `sandloom.main`) with the process's `SANDLOOM_MODULES`,
+(`SANDLOOM_COMPOSITION_ROOT`: `sandloom_standard.main` in the image and both
+profiles; the kernel's default is the lean `sandloom.main`) with the process's `SANDLOOM_MODULES`,
 resolves the Celery app through the `taskqueue` capability
 (`SANDLOOM_WORKER_TASKQUEUE`, default `default`), imports `<module>.tasks` for every
 loaded module and connects each module's `setup_periodic_tasks(sender)` beat
@@ -316,7 +342,7 @@ task whose period elapsed during the failover runs once on takeover.
 | --- | --- | --- |
 | `/health/simple` | process is up | k8s `livenessProbe` (recommended), compose healthcheck |
 | `/health` | **local** infra (db, cache, storage, event bus, named instances, module checks) | dependency diagnostics; do not use as liveness |
-| `/ready` | `/health` + required modules loaded + ≥ 1 module when any was requested + required consumers subscribed + required peers reachable + every reachable bound provider compatible with this release's contract snapshot | k8s `readinessProbe` |
+| `/ready` | `/health` + required modules loaded + ≥ 1 module when any was requested + required consumers subscribed + required peers reachable + every reachable bound provider compatible with what this release expects of it, and an expectation for every required remote contract | k8s `readinessProbe` |
 
 Remote peers (`SERVICE_BINDINGS`) are **never** part of `/health`: restarting
 a service cannot fix its peer, and probing peers there turned one stopped
@@ -411,16 +437,21 @@ versioned interfaces, not assumed to match:
   (default `--as consumer`, needs the internal token) compares this build's
   expectations with a RUNNING provider.
 - **Runtime.** With `CONTRACT_COMPAT_CHECK=ready` (default) a caller resolves
-  the expected shape of each remote-bound contract from the provider module's
-  snapshot in its own image (the single framework image carries every module;
-  an image built from the per-module wheels must set `CONTRACT_SNAPSHOT_PATHS`
-  — a binding without any snapshot is logged at startup as unchecked) and
-  compares it
-  with the provider's live describe document (`GET /_sandloom/rpc/<contract>`):
+  at startup what it expects of each remote-bound contract: first the
+  `<stem>.describe.json` its own module ships beside the generated stub
+  (`<module>/_generated/contracts/`, written by `sandloom generate` and
+  narrowed to the methods its `consumes` lists), then `CONTRACT_SNAPSHOT_PATHS`,
+  then the provider module's snapshot in its image. `<m>.claims.v1` and
+  `<m>.facts.v1` are held to the kernel's own schema. It compares each with
+  the provider's live describe document (`GET /_sandloom/rpc/<contract>`):
   an incompatible provider fails `/ready` with a `contract_incompatible`
-  diagnostic naming each break — for every binding with a snapshot, `required`
-  or not (an unreachable non-required peer still never fails `/ready`), and is
-  logged at startup. `strict` also aborts startup when a reachable provider is
+  diagnostic naming each break — for every bound contract, `required` or not
+  (an unreachable non-required peer still never fails `/ready`), and is
+  logged at startup. A required contract with no expectation at all (or a
+  hand-edited one) is never a warning: `/ready` fails with
+  `contract_unverified`, and `strict` refuses startup before any probe (fix:
+  run `sandloom generate` in the consumer, or declare the contract
+  `optional=True`). `strict` also aborts startup when a reachable provider is
   incompatible; `off` disables the check. A peer that publishes no field
   information (pre-snapshot releases) yields warnings (`contracts_unverified`),
   not failures. Narrow the check to what a module really calls with
@@ -444,7 +475,8 @@ be reachable through the same gateway. CI runs it on every PR touching
 `backend/` or `deploy/` (`COMPOSE_PROJECT_NAME` selects another stack):
 
 ```bash
-BILLING_PROVIDER=fake SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,fake_psp_in_prod \
+BILLING_PROVIDER=fake \
+SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod,log_notifier_in_prod \
 JWT_SECRET=... INTERNAL_API_TOKEN=... TWOFA_ENCRYPTION_KEY=... \
 JWT_PRIVATE_KEY=... JWT_PUBLIC_KEYS=... JWT_KID=... \
 IDENTITY_RPC_PRIVATE_KEY=... BILLING_RPC_PRIVATE_KEY=... RPC_SERVICE_KEYS=... \
@@ -708,7 +740,7 @@ invitations, subscriptions, credits and in-flight events is extracted
 (status + JSON body, same ids) is identical, tables match by checksum, in-flight events are relayed exactly
 once by the new owner, and a credit-spend workload survives a SIGKILL of the
 billing service (no lost or double-spent credit, one ledger row and one event
-per spend). `src/sandloom/core/tests/test_module_extraction.py` covers the fence,
+per spend). `tests/integration/with_batteries/test_module_extraction.py` covers the fence,
 crash + resume, refusals, drop-source / unfence and the group transfer.
 
 ### Not covered: online (zero-downtime) extraction — future work

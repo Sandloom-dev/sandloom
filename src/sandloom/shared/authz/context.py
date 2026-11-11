@@ -50,10 +50,11 @@ class AuthzContext:
         #: Optional explicit CoreFacade (non-HTTP paths). When None, atoms fall
         #: back to ``request.app.state.core`` or the process-active core.
         self._core = core
-        #: Request-local cache of resolved access facts ((name, forced mode) ->
-        #: bool), so a policy referencing the same fact twice resolves it once,
-        #: while a forced mode is never served another mode's answer.
-        self.fact_cache: dict[tuple[str, str | None], bool] = {}
+        #: Request-local cache of resolved access facts ((owner, name, forced
+        #: mode) -> bool), so a policy referencing the same fact twice
+        #: resolves it once, while another owner's fact of the same name or a
+        #: forced mode is never served this one's answer.
+        self.fact_cache: dict[tuple[str, str, str | None], bool] = {}
 
     async def get_resource(self) -> Any:
         """Return the request resource, loading it once on first access.

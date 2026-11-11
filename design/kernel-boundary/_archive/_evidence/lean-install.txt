@@ -1,0 +1,77 @@
+# Lean install: the `sandloom` wheel alone (built at b8d8506, sha256 in package-distributions-check.txt)
+# in a fresh venv outside the repository. $S = scratch directory; run from $S/run-lean.
+# Environment for every command (no database or Redis is contacted):
+#   DATABASE_URL=postgresql+asyncpg://u:p@localhost/db CACHE_URL=redis://localhost:6379/0
+#   BROKER_URL=redis://localhost:6379/1 JWT_SECRET=<dummy> EVENT_BUS_BACKEND=memory
+# Trimmed: dev-mode startup warnings (ENVIRONMENT / INTERNAL_API_TOKEN unset).
+
+$ uv venv -q $S/venv-lean
+[exit 0]
+
+$ uv pip install -q --python $S/venv-lean/bin/python $S/dist/sandloom-0.7.0a11-py3-none-any.whl
+[exit 0]
+
+$ uv pip list (sandloom*, redis, celery)
+Using Python 3.13.12 environment at: $S/venv-lean
+sandloom                  0.7.0a11
+[exit 0]
+
+$ $S/venv-lean/bin/python -I -c import sandloom, sandloom.sdk; print(sandloom.__file__)
+$S/venv-lean/lib/python3.13/site-packages/sandloom/__init__.py
+[exit 0]
+
+$ sandloom --help | head -5
+usage: sandloom [-h]
+                {new,add,check,explain,docs,generate,test,context,graph,explore,migrate,projection,outbox,streams,keys,contracts,routes,admin,backup,security,sagas,config,doctor,dev,version} ...
+
+Sandloom framework CLI
+
+[exit 0]
+
+$ sandloom docs define_module | head -3
+sandloom.sdk.define_module(package: 'str | None' = None, /, *, version: 'str' = '0.1.0', optional: 'bool' = False, consumes: 'Sequence[Any]' = (), capabilities: 'Sequence[Any]' = (), depends_on: 'Sequence[str]' = (), migrations_database: 'str | None' = None, migrations_chain: 'str | None' = None, health_check: 'Any | None' = None, setup: 'Callable[[ModuleAPI], None] | None' = None, name: 'str | None' = None, router: 'Any' = 'auto', events: 'Any' = 'auto', issues_tokens: 'bool' = False) -> 'Callable[[ModuleAPI], Any]'
+  tier: beginner; docs: docs/reference/sdk/index.md
+  Build a module's ``register(core)`` from its declarations (spec §5.7).
+[exit 0]
+
+$ sandloom new probe --dir . > new.out
+[exit 0]
+Created application 'probe' (55 files) at $S/run-lean/probe
+"sandloom[redis,celery]>=0.7.0a11,<0.8"
+"sandloom[fast]"
+"sandloom[check,testing,sqlite]"
+
+$ $S/venv-lean/bin/python -I -c from sandloom.core.app_factory import create_app; app=create_app(); print(type(app).__name__, len(app.routes), 'routes')
+FastAPI 20 routes
+[exit 0]
+
+$ $S/venv-lean/bin/python -I -c import sandloom.main as m; print('default_modules()', m.default_modules()); print('loaded_modules', m.core.loaded_modules)
+default_modules() []
+loaded_modules []
+[exit 0]
+
+# module-owned artifacts present in the lean wheel
+
+$ $S/venv-lean/bin/python -I -c import pkgutil, sandloom.shared.contracts as c; print(sorted(n for _,n,_ in pkgutil.iter_modules(c.__path__)))
+['billing_credits_v1', 'billing_entitlements_v1', 'identity_contact_v1', 'identity_dto', 'identity_security_v1', 'tenancy_dto', 'tenancy_membership_v1']
+[exit 0]
+
+$ $S/venv-lean/bin/python -I -c from sandloom.shared.contracts.tenancy_dto import MemberState; from sandloom.shared.contracts.identity_security_v1 import IDENTITY_SECURITY_V1; print(MemberState.__module__, IDENTITY_SECURITY_V1)
+sandloom.shared.contracts.tenancy_dto ContractRef('identity.security.v1')
+[exit 0]
+
+$ $S/venv-lean/bin/python -I -c import importlib.resources as r; print(len([p for p in r.files('sandloom.shared.events').iterdir() if p.name.endswith('.json')]), 'event schemas')
+34 event schemas
+[exit 0]
+
+# kernel paths that name a module, with the module absent
+
+$ $S/venv-lean/bin/python -I -c from sandloom.core.cli.password_check import rules, IDENTITY_POLICY; print(IDENTITY_POLICY, rules())
+sandloom_identity.password_policy Rules(min_length=8, max_length=100, check=None)
+[exit 0]
+
+$ $S/venv-lean/bin/python -I -c from sandloom.shared.authz.live_contracts import get_live_adapter as g; print(g('entitlements').service, g('membership').service)
+billing.entitlements.v1 tenancy.membership.v1
+[exit 0]
+
+# A19 probe (same venv): a19-live-adapter-probe.txt

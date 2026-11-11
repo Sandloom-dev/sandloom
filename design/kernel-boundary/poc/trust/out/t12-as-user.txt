@@ -1,0 +1,3 @@
+# T-12: as_user in a test app (pytest + sandloom.sdk.testing.plugin, root pocapp.roots.ta1)
+tests/test_as_user.py::test_as_user_roles_pass_every_gate PASSED         [100%]
+========================= 1 passed, 1 warning in 0.45s =========================
