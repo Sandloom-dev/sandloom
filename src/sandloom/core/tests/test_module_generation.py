@@ -173,6 +173,7 @@ def test_add_module_generates_a_compliant_parseable_skeleton(tmp_path: Path) -> 
     rel = {p.relative_to(base).as_posix() for p in created}
     assert {
         "__init__.py",
+        "settings.py",
         "models/__init__.py",
         "models/item.py",
         "schemas.py",
@@ -208,12 +209,18 @@ def test_add_module_refuses_bad_names_and_overwrites(tmp_path: Path, bad: str) -
 
 
 _REGISTER_PROBE = """
+import asyncio
+from unittest.mock import AsyncMock, patch
+
 from fastapi import FastAPI
 
 from sandloom.core.descriptors import ModuleDescriptor
 from sandloom.core.facade import CoreFacade
+from sandloom.core.runtime import use_active_core
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 import gen_probe.widgets as module
+from gen_probe.widgets import api as routes
+from gen_probe.widgets.settings import WidgetsSettings
 
 core = CoreFacade(app=FastAPI())
 core.register_schema_registry(InMemorySchemaRegistry())
@@ -221,9 +228,16 @@ with core.module_registration("gen_probe.widgets") as api:
     desc = module.register(api)
 assert isinstance(desc, ModuleDescriptor), desc
 assert desc.name == "gen_probe.widgets", desc.name
+assert core.module_settings.get(WidgetsSettings).default_page_size == 37
 paths = {getattr(r, "path", "") for r in core.app.routes}
 assert "/api/v1/widgets/items" in paths, paths
 assert core.get_event_schema("widgets.item.created.v1") is not None
+with use_active_core(core), patch.object(routes.services, "list_items", new_callable=AsyncMock) as query:
+    asyncio.run(routes.list_items(user=None))
+    query.assert_awaited_once_with(limit=37)
+    query.reset_mock()
+    asyncio.run(routes.list_items(user=None, limit=5))
+    query.assert_awaited_once_with(limit=5)
 print("ok")
 """
 
@@ -249,7 +263,11 @@ def test_add_module_register_is_declarative(tmp_path: Path) -> None:
         source_root=tmp_path,
     )
     add.add_module("widgets", where)
-    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(tmp_path), *sys.path])}
+    env = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join([str(tmp_path), *sys.path]),
+        "WIDGETS_DEFAULT_PAGE_SIZE": "37",
+    }
     proc = subprocess.run(
         [sys.executable, "-c", _REGISTER_PROBE],
         cwd=Path(__file__).resolve().parents[4],

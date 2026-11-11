@@ -213,10 +213,48 @@ def _call(head: str, args: str) -> str:
     return f"{head}(\n{lines}{indent})"
 
 
-def _module_files(name: str) -> dict[str, str]:
+def _module_files(name: str, *, with_settings: bool) -> dict[str, str]:
     cls = camel(name)
     item = f"{cls}Item"
     files: dict[str, str] = {}
+    settings_import = ""
+    settings_argument = ""
+    settings_reader = ""
+    limit_parameter = "limit: Annotated[int, Query(ge=1, le=100)] = 20"
+    resolve_limit = ""
+    if with_settings:
+        settings_import = f"from .settings import {cls}Settings\n"
+        settings_argument = f", settings={cls}Settings"
+        settings_reader = (
+            "from sandloom.sdk.module import settings_of"
+            "  # sandloom: advanced module settings\n"
+        )
+        limit_parameter = "limit: Annotated[int | None, Query(ge=1, le=100)] = None"
+        resolve_limit = (
+            "    if limit is None:\n"
+            f"        limit = settings_of({cls}Settings).default_page_size\n"
+        )
+        page_size = _call(
+            "    default_page_size: int = Field",
+            f'default=20, ge=1, le=100, alias="{name.upper()}_DEFAULT_PAGE_SIZE"',
+        )
+        files["settings.py"] = f'''"""Settings for the {name} module.
+
+Keep environment aliases prefixed with ``{name.upper()}_``.
+Read validated settings at runtime with ``settings_of({cls}Settings)``
+from ``sandloom.sdk.module``.
+"""
+
+from pydantic import BaseModel, Field
+
+
+class {cls}Settings(BaseModel):
+{page_size}
+'''
+    init_settings_import = f"{settings_import}\n" if settings_import else ""
+    register = _call(
+        "register = define_module", f'__name__, version="0.1.0"{settings_argument}'
+    )
     files["__init__.py"] = f'''"""The {name} module.
 
 Everything it declares is discovered: routes in ``api.py``, events in
@@ -226,7 +264,7 @@ events and contracts.
 
 from sandloom.sdk import define_module
 
-register = define_module(__name__, version="0.1.0")
+{init_settings_import}{register}
 '''
     files["models/__init__.py"] = f'''"""The {name} tables.
 
@@ -342,10 +380,10 @@ from uuid import UUID
 from fastapi import HTTPException, Query
 
 from sandloom.sdk import CurrentUser, module_router
-
+{settings_reader}
 from . import services
 from .schemas import ItemIn, ItemOut
-
+{settings_import}
 router = module_router()
 
 
@@ -356,10 +394,10 @@ async def create_item(body: ItemIn, user: CurrentUser) -> ItemOut:
 
 @router.get("/items")
 async def list_items(
-    user: CurrentUser, limit: Annotated[int, Query(ge=1, le=100)] = 20
+    user: CurrentUser, {limit_parameter}
 ) -> list[ItemOut]:
     """A page of the tenant's items: ``le=`` caps what one request may load."""
-    return await services.list_items(limit=limit)
+{resolve_limit}    return await services.list_items(limit=limit)
 
 
 @router.get("/items/{{item_id}}")
@@ -566,7 +604,7 @@ def downgrade() -> None:
 '''
 
 
-def add_module(name: str, where: Layout) -> list[Path]:
+def add_module(name: str, where: Layout, *, with_settings: bool = True) -> list[Path]:
     """``sandloom add module <name>``: a new package; refuses an existing one.
 
     Also wires it where its project loads modules (``wire_module``: the
@@ -581,7 +619,7 @@ def add_module(name: str, where: Layout) -> list[Path]:
     target = where.module_dir(name)
     if target.exists():
         raise GeneratorError(f"{target} already exists")
-    files = _module_files(name)
+    files = _module_files(name, with_settings=with_settings)
     if where.framework_tree:
         files["tests/conftest.py"] = FRAMEWORK_TREE_CONFTEST
     if not contract_inherited(target.parent):

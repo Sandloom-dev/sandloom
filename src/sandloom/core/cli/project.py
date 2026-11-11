@@ -1469,7 +1469,8 @@ def generate_project(
         shared_package=f"{app}.shared",
         source_root=root,
     )
-    created.extend(_add.add_module(sample_module, where))
+    # The starter can pass static checks before its first settings snapshot.
+    created.extend(_add.add_module(sample_module, where, with_settings=False))
     return created
 
 

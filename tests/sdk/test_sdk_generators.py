@@ -98,7 +98,7 @@ def test_add_module_lists_items_capped_and_tenant_scoped(tmp_path: Path) -> None
     package = root / "probe" / "modules" / "board"
     api = (package / "api.py").read_text()
     assert '@router.get("/items")\nasync def list_items(' in api
-    assert "limit: Annotated[int, Query(ge=1, le=100)]" in api
+    assert "Query(ge=1, le=100)" in api
     assert (
         "class BoardItem(TenantScoped, Base):"
         in (package / "models" / "item.py").read_text()
@@ -219,11 +219,12 @@ def test_add_task_declares_the_task_queue(tmp_path: Path) -> None:
     stats = root / "probe" / "modules" / "stats" / "__init__.py"
     stats.write_text(
         stats.read_text().replace(
-            'define_module(__name__, version="0.1.0")',
-            'define_module(\n    __name__,\n    version="0.1.0",  # kept\n)',
+            'version="0.1.0", settings=StatsSettings',
+            'version="0.1.0",  # kept\n    settings=StatsSettings',
         )
     )
     before = stats.read_text()
+    assert "# kept" in before
     created, note = add.add_task("stats", "rollup", where)
     assert stats not in created and stats.read_text() == before
     assert note and 'capabilities=["taskqueue"]' in note and "SANDLOOM-C033" in note
