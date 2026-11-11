@@ -7,7 +7,8 @@ environment (Celery and redis-py installed) and leave the checks under test
 real:
 
 - **real infrastructure**: Postgres, Redis and the broker the suite runs on,
-  no stub at all: every subset is ready and every health check is ``ok``;
+  no stub at all: web readiness stays green and Billing reports missing
+  reconciler progress when no worker or beat is running;
 - **broker unreachable**: real database and cache, a broker nobody listens on:
   billing needs only ``periodic`` (the worker and beat run it), so the web
   process stays ready and the broker is not hidden by a stub;
@@ -28,6 +29,7 @@ The clean-venv version of the missing-driver lane, on plain ``sandloom``, is in
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
@@ -46,6 +48,8 @@ from _module_subset_matrix import (
     run_subset,
     subset_id,
 )
+
+from sandloom.core.testing.database import open_test_engine
 
 pytestmark = pytest.mark.subprocess_probe
 
@@ -133,18 +137,36 @@ def _lane(
     return run_matrix(run, subsets)
 
 
-def _all_checks_ok(run: SubsetRun) -> None:
+def _only_expected_health_failures(run: SubsetRun) -> None:
     checks = run.probe["health_checks"]
     assert checks, run.probe
     bad = {n: c for n, c in checks.items() if c["status"] != "ok"}
-    assert not bad, f"{run.subset}: {bad}"
+    assert set(bad) == ({"billing_reconciler"} if "billing" in run.subset else set()), (
+        f"{run.subset}: {bad}"
+    )
 
 
 def _billing_runs_in_the_background(run: SubsetRun) -> None:
     if "billing" in run.subset:
         block = run.probe["ready_body"]["taskqueue"]
         assert "sandloom_billing" in block["background_modules"], block
-        assert "billing_reconciler" in run.probe["health_checks"], run.probe
+        assert "billing_reconciler" not in run.probe["ready_body"]["health_checks"]
+        check = run.probe["health_checks"]["billing_reconciler"]
+        assert check["details"]["state"] == "never_ran", check
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _operational_probe_schema() -> None:
+    """Start with the normal test schema even when this matrix runs alone."""
+    from sandloom_standard.main import core
+
+    assert "sandloom_billing" in core.loaded_modules
+
+    async def create() -> None:
+        async with open_test_engine():
+            pass
+
+    asyncio.run(create())
 
 
 @pytest.fixture(scope="module")
@@ -221,8 +243,8 @@ def test_every_subset_is_ready_on_real_infrastructure(
 ) -> None:
     run = live_runs[subset]
     check_run(run, expected_unstubbed(subset), celery=True)
-    assert run.probe["health"] == 200 and run.probe["ready"] == 200
-    _all_checks_ok(run)
+    assert run.probe["ready"] == 200
+    _only_expected_health_failures(run)
     _billing_runs_in_the_background(run)
 
 
@@ -234,7 +256,7 @@ def test_an_unreachable_broker_does_not_unready_the_web_process(
     worker and beat, so the web process is ready with the broker down (KB-IC-3)."""
     run = broker_down_runs[subset]
     check_run(run, expected_unstubbed(subset), celery=True)
-    _all_checks_ok(run)
+    _only_expected_health_failures(run)
     assert run.probe["ready_body"]["taskqueue_status"] == "unused"
     _billing_runs_in_the_background(run)
 
@@ -251,9 +273,12 @@ def test_a_missing_redis_driver_is_refused_or_visible(
     if want.kind == "not_ready_cache":
         checks = run.probe["health_checks"]
         assert "redis" in checks["cache"]["details"]["error"], checks
-        assert {n for n, c in checks.items() if c["status"] != "ok"} == {"cache"}, (
-            checks
-        )
+        expected_failed = {"cache"}
+        if "billing" in subset:
+            expected_failed.add("billing_reconciler")
+        assert {
+            n for n, c in checks.items() if c["status"] != "ok"
+        } == expected_failed, checks
 
 
 @pytest.mark.parametrize("subset", SUBSETS, ids=subset_id)
@@ -273,7 +298,7 @@ def test_a_missing_celery_driver_refuses_billing_naming_periodic(
         assert "sandloom[celery]" in run.probe["message"], run.probe["message"]
     else:
         assert run.probe["health"] == 200 and run.probe["ready"] == 200
-        _all_checks_ok(run)
+        _only_expected_health_failures(run)
 
 
 @pytest.mark.parametrize("subset", SUBSETS, ids=subset_id)
@@ -287,4 +312,4 @@ def test_a_taskqueue_driver_without_periodic_refuses_billing(
     check_run(run, expected_unstubbed(subset, periodic=False), celery=True, names=names)
     if "billing" not in subset:
         assert run.probe["health"] == 200 and run.probe["ready"] == 200
-        _all_checks_ok(run)
+        _only_expected_health_failures(run)

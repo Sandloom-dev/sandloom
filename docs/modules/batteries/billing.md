@@ -190,27 +190,22 @@ retried. Failed PSP steps are bounded by
 `followup_at` for an operator. An `issued` intent is never touched. Details:
 [ADR-0003, "Intent reconciliation"](../../adr/0003-fewer-sync-rpc-membership-reads.md#intent-reconciliation-72).
 
-The reconciler needs a worker and one beat; billing checks that they run it.
-A reachable broker is not enough, because the broker can answer while no
-worker or beat is running:
+Deployment validation checks that the profile declares a worker and one beat
+on the same broker. Each completed reconciler run records its time in
+`billing_reconciler_runs`.
 
-- every completed run writes its end time to `billing_reconciler_runs`. A run
-  that raises writes nothing;
-- the `billing_reconciler` health check fails when no run completed in the
-  last 15 minutes (three periods). Its `state` says why: `never_ran` (no
-  worker or no beat), or `overdue` (the worker, the beat or the broker
-  stopped, or every run fails). The check is part of `/health` and `/ready`
-  in every process that loads billing, so those processes stop being ready;
-- a process waits 15 minutes after it starts before it judges
-  (`startup_grace`), because a fresh or restarted deployment has not run the
-  reconciler yet. In that time it reads nothing. After that it reads one row
-  per health TTL;
-- `sandloom doctor`'s `periodic` section fails when no beat holds the lease for
-  this module set.
+The `billing_reconciler` check makes `/health` return HTTP 503 for missing runs,
+overdue runs or unresolved compensation failures. The age limit is 15 minutes, or three
+scheduled periods. Restarting web does not refresh the heartbeat. Use the
+`periodic` section of `sandloom doctor` to check the beat lease. Check the
+worker's deployment status and logs when the lease is healthy and runs are
+missing.
 
-In development without a worker, `/ready` turns 503 on `billing_reconciler`
-after 15 minutes. Start `celery -A sandloom.core.worker worker -B`, or ignore
-that one check.
+`/health/simple` reports web liveness. `/ready` checks the web process and its
+serving dependencies. Read-only Billing requests can continue while the
+reconciler is stopped. New checkout and portal requests, including retries of pending intents,
+return HTTP 503 unless a reconciler run completed in the last 15 minutes. A retry of an already issued checkout can still return the stored URL
+after checking authorization and expiry.
 
 ## Webhooks
 

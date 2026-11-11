@@ -353,7 +353,13 @@ def add_shutdown_task(self, task: ShutdownTask) -> None
 #### `CoreFacade.register_health_check`
 
 ```python
-def register_health_check(self, name: str, fn: HealthCheck) -> None
+def register_health_check(
+    self,
+    name: str,
+    fn: HealthCheck,
+    *,
+    operational: bool = False,
+) -> None
 ```
 
 #### `CoreFacade.health_checks`

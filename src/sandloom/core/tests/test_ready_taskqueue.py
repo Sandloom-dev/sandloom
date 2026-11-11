@@ -160,6 +160,28 @@ async def _get(app: FastAPI, path: str, *, internal: bool = False) -> httpx.Resp
 # --------------------------------------------------- request-path use ----
 
 
+async def test_operational_failure_keeps_web_ready_and_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, core = _ops_app(monkeypatch, [], ttl=0)
+    calls = 0
+
+    async def unavailable() -> HealthResult:
+        nonlocal calls
+        calls += 1
+        return HealthResult(status="fail", details={"state": "overdue"})
+
+    core.register_health_check("scheduled_work", unavailable, operational=True)
+
+    assert (await _get(app, "/health/simple")).status_code == 200
+    assert (await _get(app, "/ready")).status_code == 200
+    assert calls == 0
+    response = await _get(app, "/health", internal=True)
+    assert response.status_code == 503
+    assert response.json()["checks"]["scheduled_work"]["details"]["state"] == "overdue"
+    assert calls == 1
+
+
 async def test_ready_fails_naming_the_taskqueue_when_its_broker_is_down(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

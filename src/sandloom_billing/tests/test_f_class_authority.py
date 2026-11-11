@@ -172,6 +172,7 @@ async def test_other_membership_change_during_the_psp_call_is_409(
 
 
 async def test_implicit_single_org_is_reverified_too(
+    fresh_reconciler: None,
     async_client: AsyncClient,
     test_db: AsyncSession,
     fake_psp: Any,

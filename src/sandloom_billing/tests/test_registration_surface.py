@@ -130,7 +130,12 @@ EXPECTED = [  # noqa: RUF005 - the expected surface reads as one list plus the s
         "JoinRead('billing.plan.of_price')",
     ),
     # the reconciler's operational criterion (G-OPS-24)
-    ("register_health_check", "'billing_reconciler'", "ReconcilerHealthCheck"),
+    (
+        "register_health_check",
+        "'billing_reconciler'",
+        "ReconcilerHealthCheck",
+        "operational=True",
+    ),
 ]
 
 

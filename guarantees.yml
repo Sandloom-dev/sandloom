@@ -5618,22 +5618,23 @@ guarantees:
   - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_the_connect_is_bounded_and_does_not_retry
   - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_the_provider_health_probes_its_broker
 - id: G-OPS-24
-  statement: Billing's intent reconciler is watched by its own run record, not by the broker. Every
-    completed run of reconcile_operation_intents records its end (a run that raises records nothing), and
-    the billing_reconciler health check, in /health and /ready of every process that loads billing,
-    fails as never_ran (no worker or no beat) or overdue when no run completed within
-    RECONCILE_MAX_SILENCE_SECONDS (three 300 s periods); during the first such interval after the process
-    starts it answers ok and reads nothing.
+  statement: Every completed Billing intent reconciler run writes its time. The billing_reconciler
+    check in /health reports missing or overdue progress and outstanding compensation failures.
+    It does not gate /ready or /health/simple. New checkout and portal effects require a
+    completed run in the last 900 seconds (three 300-second periods). Restarting web never
+    extends that window.
   sources:
   - docs/modules/batteries/billing.md
   - design/kernel-boundary/owner-decision-infra-deps.md
   tests:
   - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_each_completed_run_records_itself
   - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_a_run_that_raises_records_nothing
-  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_no_run_ever_recorded_fails_as_never_ran
   - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_a_run_older_than_the_allowed_interval_fails_as_overdue
-  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_a_process_waits_one_interval_before_judging_and_reads_nothing
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_restarting_the_web_process_never_grants_startup_grace
   - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_the_health_check_reads_the_recorded_run
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_fresh_progress_and_failed_compensations_are_reported_separately
+  - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_new_psp_effects_wait_for_reconciler_recovery
+  - src/sandloom/core/tests/test_ready_taskqueue.py::test_operational_failure_keeps_web_ready_and_live
   - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_billing_registers_the_reconciler_check
 
 - id: G-SAGA-01

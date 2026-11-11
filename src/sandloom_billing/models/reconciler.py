@@ -2,10 +2,9 @@
 
 One row per periodic job, written at the end of every completed run with the
 database's clock. Billing's ``billing_reconciler`` health check reads it: a
-run older than the allowed interval (or none at all) means no worker or no
-beat runs the reconciler, and the processes that load billing stop being
-ready (``sandloom_billing.services.intent_reconciler``). A global table: the
-reconciler is system work across tenants and the row holds no tenant data.
+run older than the allowed interval or a missing run degrades operational
+health and prevents new checkout and portal effects. The reconciler is system
+work across tenants and the row holds no tenant data.
 """
 
 from datetime import datetime

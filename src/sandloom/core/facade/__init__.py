@@ -166,12 +166,21 @@ class CoreFacade(_ClaimsMixin, _RegistriesMixin):
     def add_shutdown_task(self, task: ShutdownTask) -> None:
         self._shutdown_tasks.append(task)
 
-    def register_health_check(self, name: str, fn: HealthCheck) -> None:
-        self._health_checks[name] = fn
+    def register_health_check(
+        self, name: str, fn: HealthCheck, *, operational: bool = False
+    ) -> None:
+        self._health_checks[name] = (fn, operational)
 
     @property
     def health_checks(self) -> dict[str, HealthCheck]:
-        return dict(self._health_checks)
+        return {name: fn for name, (fn, _) in self._health_checks.items()}
+
+    def _health_checks_for(self, *, operational: bool) -> dict[str, HealthCheck]:
+        return {
+            name: fn
+            for name, (fn, background) in self._health_checks.items()
+            if background == operational
+        }
 
     @property
     def startup_tasks(self) -> list[StartupTask]:

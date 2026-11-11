@@ -1,19 +1,4 @@
-"""The intent reconciler's operational criterion (KB-IC-3; owner decision on
-infrastructure dependencies, answer 3).
-
-``broker ok`` is not enough: the broker can answer while no worker or no beat
-runs the reconciler. The criterion is the reconciler's own record:
-
-- every completed run records its end (``billing_reconciler_runs``); a run
-  that raises records nothing;
-- the ``billing_reconciler`` health check (``/health`` and ``/ready`` of every
-  process that loads billing) fails when no run completed within
-  ``RECONCILE_MAX_SILENCE_SECONDS`` (three periods): ``never_ran`` (no worker
-  or no beat) or ``overdue`` (they, or the broker, stopped, or every run
-  fails);
-- a process gives the reconciler one allowed interval after it starts, and
-  reads nothing in that time.
-"""
+"""Durable Billing operational health and compensation-dependent HTTP writes."""
 
 from __future__ import annotations
 
@@ -22,66 +7,57 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import delete, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from sandloom_billing.models import BillingReconcilerRun, OperationIntent
 from sandloom_billing.services import intent_reconciler
-from sandloom_billing.services.intent_reconciler import (
+from sandloom_billing.services.reconciler_health import (
     RECONCILE_INTERVAL_SECONDS,
     RECONCILE_MAX_SILENCE_SECONDS,
     RECONCILER_HEALTH_CHECK,
     ReconcilerHealthCheck,
     last_reconciler_run,
+    record_reconciler_run,
 )
 
 _NOW = datetime(2026, 11, 8, 12, 0, tzinfo=UTC)
 
 
-class _Clock:
-    """A monotonic clock the test moves."""
-
-    def __init__(self) -> None:
-        self.at = 1000.0
-
-    def __call__(self) -> float:
-        return self.at
-
-
 def _check(
-    clock: _Clock, last: tuple[datetime, int] | None, reads: list[int]
+    last: tuple[datetime, int] | None, *, failures: tuple[int, int] = (0, 0)
 ) -> ReconcilerHealthCheck:
     async def read() -> tuple[datetime, int] | None:
-        reads.append(1)
         return last
 
-    return ReconcilerHealthCheck(monotonic=clock, now=lambda: _NOW, read=read)
+    async def compensations() -> tuple[int, int]:
+        return failures
+
+    return ReconcilerHealthCheck(
+        now=lambda: _NOW, read=read, compensations=compensations
+    )
 
 
 def test_the_allowed_interval_is_three_periods() -> None:
     assert RECONCILE_MAX_SILENCE_SECONDS == 3 * RECONCILE_INTERVAL_SECONDS == 900.0
 
 
-async def test_a_process_waits_one_interval_before_judging_and_reads_nothing() -> None:
-    clock, reads = _Clock(), []
-    check = _check(clock, None, reads)
-
-    clock.at += RECONCILE_MAX_SILENCE_SECONDS - 1
-    result = await check()
-
-    assert result.status == "ok"
-    assert result.details["state"] == "startup_grace"
-    assert reads == []
+async def test_restarting_the_web_process_never_grants_startup_grace() -> None:
+    for _ in range(2):
+        result = await _check(None)()
+        assert result.status == "fail"
+        assert result.details["state"] == "never_ran"
+        assert "worker and beat" in result.details["error"]
 
 
-async def test_no_run_ever_recorded_fails_as_never_ran() -> None:
-    clock, reads = _Clock(), []
-    check = _check(clock, None, reads)
-
-    clock.at += RECONCILE_MAX_SILENCE_SECONDS + 1
-    result = await check()
-
+async def test_fresh_progress_and_failed_compensations_are_reported_separately() -> (
+    None
+):
+    result = await _check((_NOW, 1), failures=(2, 1))()
     assert result.status == "fail"
-    assert result.details["state"] == "never_ran"
-    assert "no worker or no beat" in result.details["error"]
-    assert reads == [1]
+    assert result.details["state"] == "running"
+    assert result.details["failed_compensations"] == 2
+    assert result.details["operator_followups"] == 1
 
 
 @pytest.mark.parametrize(
@@ -95,9 +71,7 @@ async def test_no_run_ever_recorded_fails_as_never_ran() -> None:
 async def test_a_run_older_than_the_allowed_interval_fails_as_overdue(
     age: float, status: str, state: str
 ) -> None:
-    clock, reads = _Clock(), []
-    check = _check(clock, (_NOW - timedelta(seconds=age), 7), reads)
-    clock.at += RECONCILE_MAX_SILENCE_SECONDS + 1
+    check = _check((_NOW - timedelta(seconds=age), 7))
 
     result = await check()
 
@@ -152,9 +126,7 @@ async def test_the_health_check_reads_the_recorded_run(
     """End to end on the database: a recorded run is ``running``."""
     from sandloom_billing import tasks
 
-    clock = _Clock()
-    check = ReconcilerHealthCheck(monotonic=clock)
-    clock.at += RECONCILE_MAX_SILENCE_SECONDS + 1
+    check = ReconcilerHealthCheck()
     assert (await check()).details["state"] == "never_ran"
 
     await tasks.reconcile_intents_once(fake_psp)
@@ -166,8 +138,67 @@ async def test_the_health_check_reads_the_recorded_run(
 
 
 def test_billing_registers_the_reconciler_check(sandloom_core: Any) -> None:
-    """Every process that loads billing carries the check in ``/health`` and
-    ``/ready`` (the kernel names no module: billing registers it)."""
+    """Billing contributes its check to operational health."""
     check = sandloom_core.health_checks.get(RECONCILER_HEALTH_CHECK)
 
     assert isinstance(check, ReconcilerHealthCheck)
+
+
+@pytest.mark.parametrize("outage", ["missing", "overdue"])
+async def test_new_psp_effects_wait_for_reconciler_recovery(
+    outage: str,
+    async_client: AsyncClient,
+    test_db: AsyncSession,
+    user_a: tuple[Any, dict[str, str]],
+    catalog: dict[str, Any],
+    fake_psp: Any,
+) -> None:
+    if outage == "missing":
+        await test_db.execute(delete(BillingReconcilerRun))
+    else:
+        await test_db.execute(
+            update(BillingReconcilerRun).values(
+                finished_at=datetime.now(UTC) - timedelta(seconds=901)
+            )
+        )
+    await test_db.commit()
+    _, headers = user_a
+    assert (await async_client.get("/health/simple")).status_code == 200
+    assert (await async_client.get("/api/v1/billing/plans")).status_code == 200
+
+    routes = (
+        ("checkout-session", {"price_id": catalog["pro_month"].id}),
+        ("customer-portal", {}),
+    )
+    for route, body in routes:
+        response = await async_client.post(
+            f"/api/v1/billing/{route}",
+            headers={**headers, "Idempotency-Key": f"stopped-{route}"},
+            json=body,
+        )
+        assert response.status_code == 503, response.text
+    assert not fake_psp.created_customers
+    assert not fake_psp.checkout_sessions
+
+    await record_reconciler_run(test_db)
+    await test_db.commit()
+    for route, body in routes:
+        response = await async_client.post(
+            f"/api/v1/billing/{route}",
+            headers={**headers, "Idempotency-Key": f"recovered-{route}"},
+            json=body,
+        )
+        assert response.status_code == 200, response.text
+    assert len(fake_psp.checkout_sessions) == 1
+
+    # A real outstanding record fails operational health even with a fresh run.
+    await test_db.execute(
+        update(OperationIntent)
+        .where(OperationIntent.operation == "checkout")
+        .values(status="revoked", reconcile_attempts=1, reconcile_error="test")
+    )
+    await test_db.commit()
+    check = await ReconcilerHealthCheck()()
+    assert check.status == "fail"
+    assert check.details["state"] == "running"
+    assert check.details["failed_compensations"] == 1

@@ -396,8 +396,16 @@ def add_shutdown_task(self, task: ShutdownTask) -> None
 #### `ModuleAPI.register_health_check`
 
 ```python
-def register_health_check(self, name: str, fn: HealthCheck) -> None
+def register_health_check(
+    self,
+    name: str,
+    fn: HealthCheck,
+    *,
+    operational: bool = False,
+) -> None
 ```
+
+Register a health probe. Operational probes feed /health only.
 
 #### `ModuleAPI.add_claims_contributor`
 

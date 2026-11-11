@@ -46,6 +46,7 @@ async def main():
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
             out["health"] = (await c.get("/health")).status_code
+            out["ready"] = (await c.get("/ready")).status_code
             r = await c.post("/auth/register", json={
                 "email": "lite@example.com", "password": "Lite-pass-0123456789!",
                 "full_name": "Lite"})
@@ -102,7 +103,8 @@ def test_the_platform_boots_on_sqlite_and_refuses_a_drifted_file(
     database = tmp_path / "platform.db"
     first = _result(_boot(tmp_path, database, ENVIRONMENT="test"))
     assert first == {
-        "health": 200,
+        "health": 503,
+        "ready": 200,
         "register": 202,
         "create_org": 201,
         "orgs": ["acme"],

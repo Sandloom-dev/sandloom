@@ -234,7 +234,7 @@ async def test_ready_answers_by_the_criteria(
     import sandloom.core.app_factory.ops as ops
     from sandloom.core.descriptors import HealthResult
 
-    async def _healthy(_core: Any) -> dict[str, HealthResult]:
+    async def _healthy(_core: Any, **_scope: Any) -> dict[str, HealthResult]:
         return {"core": HealthResult(status="ok")}
 
     monkeypatch.setattr(ops, "aggregate_health", _healthy)
@@ -282,7 +282,7 @@ def _ready_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     import sandloom.core.app_factory.ops as ops
     from sandloom.core.descriptors import HealthResult
 
-    async def _healthy(_core: Any) -> dict[str, HealthResult]:
+    async def _healthy(_core: Any, **_scope: Any) -> dict[str, HealthResult]:
         return {"core": HealthResult(status="ok")}
 
     monkeypatch.setattr(ops, "aggregate_health", _healthy)

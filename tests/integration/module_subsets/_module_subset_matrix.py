@@ -15,7 +15,8 @@ a taskqueue driver that does not advertise ``periodic``, an unreachable broker.
 
 An outcome is one of:
 
-- **ready**: boots, ``/health`` 200, ``/ready`` 200;
+- **ready**: boots, ``/ready`` 200. With Billing and no reconciler,
+  ``/health`` 503 and only the operational probe fails;
 - **not ready, taskqueue**: boots, ``/health`` 200, ``/ready`` 503 with
   ``taskqueue_status: fail``: a loaded module uses the taskqueue on the
   request path and its broker cannot be reached (KB-IC-3). No bundled module
@@ -115,7 +116,7 @@ _KEPT = ("PATH", "HOME", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT", "LANG", "LC_ALL"
 class Outcome:
     """What one subset is expected to do, or did."""
 
-    #: "ready" | "not_ready_taskqueue" | "not_ready_cache" | "refused"
+    #: "ready" | "ready_ops_degraded" | "not_ready_taskqueue" | "not_ready_cache" | "refused"
     kind: str
     taskqueue: str | None = None  # /ready's taskqueue_status
     refusal: str | None = None  # a PREDEFINED_REFUSALS key
@@ -152,6 +153,8 @@ def expected_unstubbed(
         return Outcome("refused", refusal="SANDLOOM-B037")
     if not redis:
         return Outcome("not_ready_cache")
+    if "billing" in subset:
+        return Outcome("ready_ops_degraded", taskqueue="unused")
     return Outcome("ready", taskqueue="unused")
 
 
@@ -210,9 +213,10 @@ else:
     async def probe():
         async with app.router.lifespan_context(app):
             stub = config.get("stub", "all")
+            operational = core._health_checks_for(operational=True)
             for name in list(core.health_checks):
                 if stub == "all" or name in stub:
-                    core.register_health_check(name, ok)
+                    core.register_health_check(name, ok, operational=name in operational)
             transport = httpx.ASGITransport(app=app)
             headers = {"X-Internal-Token": "module-subset-matrix-internal-token"}
             async with httpx.AsyncClient(
@@ -262,7 +266,15 @@ class SubsetRun:
             and probe["taskqueue"] == "fail"
         ):
             return Outcome("not_ready_taskqueue", taskqueue="fail")
-        cache = (probe.get("health_checks") or {}).get("cache", {})
+        checks = probe.get("health_checks", {})
+        failures = {name for name, result in checks.items() if result["status"] != "ok"}
+        if (
+            probe["health"] == 503
+            and probe["ready"] == 200
+            and failures == {"billing_reconciler"}
+        ):
+            return Outcome("ready_ops_degraded", taskqueue=probe["taskqueue"])
+        cache = checks.get("cache", {})
         if (
             probe["health"] == 503
             and probe["ready"] == 503

@@ -88,7 +88,7 @@ class _FacadeState:
         # Startup phase per registration ("infra" | "modules" | "post").
         self._startup_phase: list[str] = []
         self._shutdown_tasks: list[ShutdownTask] = []
-        self._health_checks: dict[str, HealthCheck] = {}
+        self._health_checks: dict[str, tuple[HealthCheck, bool]] = {}
 
         # Token claims contributors (populated by modules; invoked at mint
         # time). Each is ``(fn, critical, owner)``: a critical contributor's

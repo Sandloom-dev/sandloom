@@ -294,9 +294,12 @@ def _failed_modules(application: FastAPI) -> list[str]:
 
 def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> None:
     """``/health/simple`` (liveness), ``/health`` and ``/ready``."""
+    health_ttl = float(getattr(settings, "health_cache_ttl_seconds", 3.0))
     health_cache = _HealthCache(
-        lambda: aggregate_health(core_facade),
-        ttl=float(getattr(settings, "health_cache_ttl_seconds", 3.0)),
+        lambda: aggregate_health(core_facade, operational=False), ttl=health_ttl
+    )
+    operational_cache = _HealthCache(
+        lambda: aggregate_health(core_facade, operational=True), ttl=health_ttl
     )
 
     async def _peer_probe() -> dict[str, HealthResult]:
@@ -330,7 +333,10 @@ def _install_probe_endpoints(application: FastAPI, core_facade: CoreFacade) -> N
 
     @application.get("/health", dependencies=[probe])
     async def health(request: Request) -> Response:  # pragma: no cover
-        results = await health_cache.get()
+        http, operational = await asyncio.gather(
+            health_cache.get(), operational_cache.get()
+        )
+        results = {**http, **operational}
         status = overall_status(results)
         # Public callers get statuses only; check details (which may contain
         # hostnames, paths, driver errors) require the internal token.
