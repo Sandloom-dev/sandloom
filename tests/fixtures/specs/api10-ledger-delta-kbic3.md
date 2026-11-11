@@ -5,6 +5,9 @@ Owner decision on module infrastructure dependencies
 
 ## Changed entries
 
+- G-OPS-03 (terminology): `/health` reports operational health. The existing
+  rule on required peers still applies to `/ready`.
+
 - G-OPS-23 (amended, enforced): `/ready`'s taskqueue term follows the loaded
   modules' required taskqueue requirements, not a `tasks.py`; a request-path
   use gates on the broker's reachability, a periodic-only use does not
@@ -14,11 +17,11 @@ Owner decision on module infrastructure dependencies
 
 ## New entries
 
-- G-OPS-24 (new, enforced): billing's intent reconciler is watched by its
-  own run record; the `billing_reconciler` health check fails (`never_ran`,
-  `overdue`) after `RECONCILE_MAX_SILENCE_SECONDS` without a completed run,
-  after one interval of startup grace. This is the recorded "separate,
-  testable criterion" of answer 3.
+- G-OPS-24 (new in KB-IC-3, amended by Billing operational readiness):
+  the `billing_reconciler` check in `/health` reports absent or overdue
+  progress and outstanding compensation failures. Each completed run records
+  its time. New checkout and portal effects require a completed run within
+  three 300-second periods. A web process restart grants no grace.
 - C-OPS-15 (new, enforced): `sandloom doctor`'s `periodic` section and
   `/diagnostics/core`'s `periodic` block say whether a beat schedules each
   module's periodic jobs; required fails, optional warns (answer 1:
