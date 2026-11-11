@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   admin:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     services:
       postgres:
@@ -59,7 +59,9 @@ jobs:
       - run: npm test
       - run: npm run build-storybook
       - run: npm run audit
-      - run: npx playwright install --with-deps chromium
+      # Ubuntu 24.04 hosted runners provide the libraries used by headless Chromium.
+      # Playwright installs the browser version pinned by the npm lockfile.
+      - run: npx playwright install chromium
       # Main flows + axe accessibility checks in light and dark themes.
       - run: npm run test:browser
       - name: Owner console against the real backend
