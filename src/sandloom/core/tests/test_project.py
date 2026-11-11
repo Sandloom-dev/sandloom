@@ -227,8 +227,13 @@ def test_generated_app_installs_the_fast_extra(tmp_path: Path) -> None:
 def test_asgi_reuses_framework_factory(tmp_path: Path) -> None:
     generate_project("probe", tmp_path)
     asgi = _read(tmp_path / "probe", "probe/asgi.py")
-    # The kernel factory (sandloom.sdk.app; sandloom.main is the standard root).
-    assert "from sandloom.sdk.app import app_modules, create_app" in asgi
+    imports = {
+        alias.name
+        for node in ast.parse(asgi).body
+        if isinstance(node, ast.ImportFrom) and node.module == "sandloom.sdk.app"
+        for alias in node.names
+    }
+    assert {"app_modules", "create_app"} <= imports
     assert "sandloom.main" not in asgi
     assert "app = create_app(\n" in asgi and "default_modules=" in asgi
     assert 'title="probe"' in asgi  # the start page and the API docs name the app
