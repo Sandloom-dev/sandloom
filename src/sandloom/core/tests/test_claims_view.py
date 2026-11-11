@@ -256,6 +256,26 @@ def test_the_compatibility_window(
     assert ("roles" in out) is trusted
 
 
+@pytest.mark.parametrize(
+    "cpv",
+    [{"v": 999, "k": {}}, {}, None, "invalid"],
+    ids=["unknown-version", "missing-version", "null", "invalid-type"],
+)
+def test_present_cpv_cannot_use_the_compatibility_window(cpv: Any) -> None:
+    payload = token(sources=["identity"], digest_of=None, cpv=cpv)
+    valid_until, legacy_keys = view.apply_view(
+        payload,
+        policy(legacy_until=UNTIL),
+        now=NOW,
+        lifetime_seconds=LIFETIME,
+        leeway_seconds=LEEWAY,
+    )
+    assert "roles" not in payload
+    assert view.untrusted_reasons(payload)["roles"] == view.OUTDATED
+    assert valid_until == float("inf")
+    assert not legacy_keys
+
+
 def test_the_compatibility_view_expires_at_the_window_end() -> None:
     until, keys = view.apply_view(
         token(sources=["identity"], digest_of=None),
