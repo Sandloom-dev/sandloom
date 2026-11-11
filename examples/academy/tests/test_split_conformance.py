@@ -70,7 +70,7 @@ SETTLE_TIMEOUT = 45.0
 
 @cache
 def _test_app() -> Any:
-    from sandloom.sdk.testing import plugin
+    from sandloom.sdk.testing import plugin  # sandloom: advanced test setup in child
 
     # Set up the test authority in this child without loading the test suite.
     config = pytest.Config.fromdictargs(
