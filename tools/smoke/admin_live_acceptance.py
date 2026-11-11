@@ -220,15 +220,15 @@ def main() -> int:
                             "Isolated backend exited; review the local acceptance log"
                         )
                     try:
-                        with urlopen(  # noqa: S310 - fixed loopback HTTP health endpoint
-                            env["SANDLOOM_ADMIN_API_TARGET"] + "/health", timeout=1
+                        with urlopen(  # noqa: S310 - fixed loopback HTTP readiness endpoint
+                            env["SANDLOOM_ADMIN_API_TARGET"] + "/ready", timeout=1
                         ) as response:
                             if response.status == 200:
                                 break
                     except (URLError, TimeoutError):
                         time.sleep(0.2)
                 else:
-                    raise RuntimeError("Isolated backend did not become healthy")
+                    raise RuntimeError("Isolated backend did not become ready")
                 result = subprocess.run(  # noqa: S603 - fixed local Playwright command
                     [
                         shutil.which("npx") or "/usr/bin/false",
