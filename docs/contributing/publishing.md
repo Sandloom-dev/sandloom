@@ -13,8 +13,7 @@ release it before or together with a `sandloom` version whose `standard` extra
 requires it.
 Versions are independent. A manual run can select one package or `all` for a
 coordinated release. A per-package tag selects only that package.
-The current published alpha is `0.7.0a12` for the five packages released so far; <!-- sandloom-release -->
-`sandloom-standard` is new and publishes with the next coordinated release.
+The current coordinated alpha is `0.7.0a12` for all six packages. <!-- sandloom-release -->
 
 ## Authentication and approval
 
@@ -37,9 +36,9 @@ their own run because there is only one maintainer. Allowed deployment refs are
 `main` and the five tag patterns `sandloom-v*`, `sandloom-standard-v*`,
 `sandloom-identity-v*`, `sandloom-tenancy-v*` and `sandloom-billing-v*`.
 
-`sandloom-standard` is new. Before its first release, add its pending Trusted
-Publisher on PyPI, then add `sandloom-standard-v*` to the deployment refs of
-the `pypi` environment.
+For the first `sandloom-standard` release, configure its pending Trusted
+Publisher on PyPI. Its per-package tag also requires `sandloom-standard-v*`
+in the deployment refs of the `pypi` environment.
 
 The plan step also refuses publication from a feature branch or a tag whose
 commit is not reachable from `origin/main`. A tag must exactly match the selected
