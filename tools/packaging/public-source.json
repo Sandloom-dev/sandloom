@@ -2550,6 +2550,7 @@
         "tests/integration/test_module_settings_fixture.py",
         "tests/integration/test_operator_owner_standard.py",
         "tests/integration/test_security_revocation_split.py",
+        "tests/integration/test_driver_dependency_wheel.py",
         "tests/integration/test_package_distributions.py",
         "tests/integration/test_planned_reads_tenancy_mode.py",
         "tests/integration/test_platform_routes_strict.py",

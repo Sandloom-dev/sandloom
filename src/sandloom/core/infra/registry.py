@@ -1388,6 +1388,21 @@ def _load_driver(registry: InfraRegistry, cfg: InstanceConfig) -> None:
             fix="install a version of the driver for this contract",
         )
     provider_class = cast("type[InfraProvider]", driver)
+    required_imports = provider_class.required_imports
+    install_hint = provider_class.install_hint
+    if (
+        not isinstance(required_imports, tuple)
+        or any(
+            not isinstance(name, str) or not name.isidentifier()
+            for name in required_imports
+        )
+        or not isinstance(install_hint, str)
+    ):
+        raise DriverLoadError(
+            f"Driver {key!r} declares invalid dependency metadata",
+            fix="set required_imports to a tuple of top-level import names "
+            "and install_hint to a string",
+        )
     registry.register_driver(
         cfg.capability,
         cfg.driver,
@@ -1395,6 +1410,8 @@ def _load_driver(registry: InfraRegistry, cfg: InstanceConfig) -> None:
         features=provider_class.supported_features,
         config_schema=provider_class.options_schema,
         instance_features=provider_class.features_for,
+        requires=required_imports,
+        install=install_hint,
     )
 
 

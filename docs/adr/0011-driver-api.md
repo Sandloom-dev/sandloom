@@ -11,7 +11,8 @@ title: "ADR-0011: The driver API"
 - **Amends:** [ADR-0001](0001-framework-distribution.md) (how driver packages register)
   and [ADR-0010](0010-public-api-1.0.md) (a second public surface, not for modules)
 - **Research:** `design/driver-api/research.md`
-- **Amended:** 2026-11-05, the database capability; 2026-11-09, driver availability and `periodic` (see the amendments at the end)
+- **Amended:** Database capability (2026-11-05), driver availability and `periodic`
+  (2026-11-09), and external driver dependencies (2026-11-11)
 
 ## Context
 
@@ -334,3 +335,23 @@ the chosen driver gives it.
 - Not done, with the reasons in the owner decision: a dependency on Celery in a
   module wheel, an automatic memory fallback for Redis (a separate dev and test
   cache driver is KB-IC-5, refused in production), and a second worker system.
+
+## Amendment (2026-11-11) for external driver dependencies
+
+A driver package can declare `required_imports: ClassVar[tuple[str, ...]] = ()`
+and `install_hint: ClassVar[str] = ""` on its `InfraProvider` subclass. The
+entry-point loader passes those values to the existing driver's `requires`
+and `install` registration fields. Drivers with empty declarations need no
+changes. The driver's wheel declares package dependencies and extras. Business
+modules continue to declare capability requirements.
+
+The entry point must load before Sandloom reads its dependency declarations.
+Keep optional backend SDK imports inside the constructor or an operation.
+SANDLOOM-B022 covers entry-point load errors and invalid declarations,
+including dotted names. SANDLOOM-B037 covers a missing declared import in
+preflight and an import failure during provider construction. An import error
+raised in `aopen()` follows the startup policy for open failures.
+
+Preflight checks discoverability with `find_spec`. Conformance exercises the
+driver's operations against a test backend. The wheel test covers both paths
+for an independently installed notification driver.
