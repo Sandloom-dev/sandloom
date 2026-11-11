@@ -601,26 +601,29 @@ a module edits nothing here. ``SANDLOOM_MODULES`` selects a subset.
     uvicorn $app.asgi:app --reload
 """
 
-from sandloom.sdk.app import app_modules, create_app  # sandloom: advanced app
+from sandloom.sdk.app import (  # sandloom: advanced app
+    Authority,
+    app_modules,
+    create_app,
+)
 
 BUNDLED: list[str] = $bundled_json
-
+$billing_authority
 #: Who may write each protected token claim, and the module that issues
 #: tokens (ADR-0014): code, never a setting. A contributor writing a protected
 #: claim it is not assigned loses its whole result; startup refuses a map the
 #: composition cannot honour (`sandloom explain SANDLOOM-B035`).
-CLAIM_AUTHORITIES: dict[str, str] = $claim_authorities
+CLAIM_AUTHORITIES: dict[str, str | Authority] = $claim_authorities
 
 $create_app'''
 )
 
 
 def _dict_literal(mapping: dict[str, str]) -> str:
-    """``mapping`` as ``ruff format`` keeps it: ``{}``, else one entry per
-    line with the magic trailing comma."""
+    """Render a dictionary of Python expressions in Ruff's multiline format."""
     if not mapping:
         return "{}"
-    lines = "".join(f'    "{key}": "{value}",\n' for key, value in mapping.items())
+    lines = "".join(f'    "{key}": {value},\n' for key, value in mapping.items())
     return "{\n" + lines + "}"
 
 
@@ -1363,7 +1366,7 @@ def generate_project(
         "billing": ("subscription_status", "plan_code", "features", "limits"),
     }
     claim_authorities = {
-        key: f"sandloom_{name}"
+        key: "_BILLING_AUTHORITY" if name == "billing" else f'"sandloom_{name}"'
         for name in bundled
         for key in authority_keys.get(name, ())
     }
@@ -1380,6 +1383,12 @@ def generate_project(
         "module": sample_module,
         "modules_json": modules_json,
         "bundled_json": bundled_json,
+        "billing_authority": (
+            '\n_BILLING_AUTHORITY = Authority("billing", '
+            'module="sandloom_billing", fail_safe=True)\n'
+            if "billing" in bundled
+            else ""
+        ),
         "claim_authorities": _dict_literal(claim_authorities),
         "create_app": _create_app_call(app),
         "framework_deps": "\n".join(f'    "{dep}",' for dep in framework_deps),

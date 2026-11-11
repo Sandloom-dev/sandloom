@@ -323,6 +323,10 @@ billing.credits.v1`). The stubs import from
 the stub names: never edit one; a contract you never released may change
 freely: delete its stub and run `sandloom generate`).
 
+Generate the provider's contract stub before writing the consumer:
+
+    uv run sandloom generate
+
 Declare the caller at module level: `define_module` adds it to the module's
 `consumes`, and startup fails when a required provider is missing
 (SANDLOOM-B005). Here a route spends one credit of the organization per export:
@@ -972,12 +976,14 @@ def _recipe(name: str) -> str | None:
 
 
 _FILE = re.compile(r"^    # file: (\S+)\s*$")
-_COMMAND = re.compile(r"^    (uv run sandloom (?:add|migrate new) .+?)\s*$")
+_COMMAND = re.compile(
+    r"^    (uv run sandloom (?:generate|(?:add|migrate new) .+?))\s*$"
+)
 
 
 def recipe_parts(name: str) -> list[tuple[str, str, str]]:
     """The steps of recipe ``name`` in text order, placeholders unexpanded:
-    ``("command", "uv run sandloom add|migrate new ...", "")`` and ``("file",
+    ``("command", "uv run sandloom …", "")`` and ``("file",
     <path relative to the app's modules package>, <whole content>)`` for each
     ``# file: <path>`` block. What the recipes check runs in a generated
     application."""
