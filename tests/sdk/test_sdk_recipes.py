@@ -70,7 +70,11 @@ def test_the_recipes_check_runs_every_verified_recipe() -> None:
         for kind, command, _ in steps:
             if kind == "command":
                 assert command.startswith(
-                    ("uv run sandloom add ", "uv run sandloom migrate new ")
+                    (
+                        "uv run sandloom add ",
+                        "uv run sandloom migrate new ",
+                        "uv run sandloom generate ",
+                    )
                 )
 
 
@@ -83,7 +87,13 @@ def test_recipe_parts_keep_the_text_order() -> None:
     migrate = next(
         i for i, w in enumerate(order) if w.startswith("uv run sandloom migrate")
     )
-    assert model < migrate < order.index("<module>/projections.py")
+    generate = order.index("uv run sandloom generate tenancy billing")
+    assert model < migrate < generate < order.index("<module>/projections.py")
+
+    order = [what for _kind, what, _body in recipe_parts("call-contract")]
+    assert order.index("uv run sandloom generate billing") < order.index(
+        "<module>/exports.py"
+    )
 
 
 def test_the_split_recipe_commands_are_the_real_cli() -> None:

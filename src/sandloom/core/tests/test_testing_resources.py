@@ -106,7 +106,8 @@ def _index_client(url: str, index: int) -> Any:
 def scratch_index() -> Iterator[tuple[str, int, str]]:
     """One free Redis index claimed by a throw-away owner (released after)."""
     redis = pytest.importorskip("redis")
-    url = _redis_url()
+    # Leave DB 0 to new connections, which start there before SELECT.
+    url = resources._server_url(_redis_url())
     owner = f"resources-test-{uuid.uuid4().hex[:8]}"
     try:
         mapping = resources.allocate_worker_redis([url], 1, owner)

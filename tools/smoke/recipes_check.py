@@ -11,7 +11,8 @@ template or the CLI, never something to add here. In an empty directory:
 2. for every recipe with ``# file:`` blocks (``sandloom.sdk._prim.recipes.
    recipe_parts``): ``uv run sandloom add module <module>`` (and ``<consumer>``
    when the recipe names one), the recipe's own ``uv run sandloom add ...`` /
-   ``uv run sandloom migrate new ...`` lines in order, then each of its files,
+   ``uv run sandloom migrate new ...`` and ``uv run sandloom generate ...`` lines
+   in order, then each of its files,
    written verbatim with the placeholders filled in;
 3. ``uv run sandloom generate`` (the recipe files changed declarations after
    the last ``sandloom add``), then ``uv run sandloom test`` on the whole app:
@@ -231,7 +232,9 @@ class Runner:
         for name in names:
             self.step(f"recipe {name}", self.recipe, name, MODULES[name])
         self.step("uv run sandloom generate", self.sh, "uv run sandloom generate")
-        out = self.step("uv run sandloom test", self.sh, "uv run sandloom test", capture=True)
+        out = self.step(
+            "uv run sandloom test", self.sh, "uv run sandloom test", capture=True
+        )
         if "sandloom test: OK" not in out:
             raise RecipesError("sandloom test did not report OK")
         self.step("sandloom docs in the app", self.docs, names)

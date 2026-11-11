@@ -120,17 +120,27 @@ def test_the_app_writes_its_claim_authorities(tmp_path: Path, app: str) -> None:
         and node.target.id == "CLAIM_AUTHORITIES"
         and node.value is not None
     ]
-    assert ast.literal_eval(assigned) == {
+    assert isinstance(assigned, ast.Dict)
+    assert {
+        ast.literal_eval(key): value.id
+        if isinstance(value, ast.Name)
+        else ast.literal_eval(value)
+        for key, value in zip(assigned.keys, assigned.values, strict=True)
+    } == {
         "issuer": "sandloom_identity",
         "roles": "sandloom_identity",
         "permissions": "sandloom_identity",
         "email": "sandloom_identity",
         "email_verified": "sandloom_identity",
-        "subscription_status": "sandloom_billing",
-        "plan_code": "sandloom_billing",
-        "features": "sandloom_billing",
-        "limits": "sandloom_billing",
+        "subscription_status": "_BILLING_AUTHORITY",
+        "plan_code": "_BILLING_AUTHORITY",
+        "features": "_BILLING_AUTHORITY",
+        "limits": "_BILLING_AUTHORITY",
     }
+    assert (
+        '_BILLING_AUTHORITY = Authority("billing", module="sandloom_billing", fail_safe=True)'
+        in asgi
+    )
     assert "claim_authorities=CLAIM_AUTHORITIES" in asgi
     formatted = subprocess.run(
         [sys.executable, "-m", "ruff", "format", "--diff", "-"],
@@ -146,7 +156,7 @@ def test_an_app_without_batteries_assigns_no_claim(tmp_path: Path) -> None:
     """No issuer, no authority: the map is empty, and still passed."""
     generate_project("probe", tmp_path)
     asgi = _read(tmp_path / "probe", "probe/asgi.py")
-    assert "CLAIM_AUTHORITIES: dict[str, str] = {}" in asgi
+    assert "CLAIM_AUTHORITIES: dict[str, str | Authority] = {}" in asgi
     assert "claim_authorities=CLAIM_AUTHORITIES" in asgi
 
 
@@ -217,8 +227,13 @@ def test_generated_app_installs_the_fast_extra(tmp_path: Path) -> None:
 def test_asgi_reuses_framework_factory(tmp_path: Path) -> None:
     generate_project("probe", tmp_path)
     asgi = _read(tmp_path / "probe", "probe/asgi.py")
-    # The kernel factory (sandloom.sdk.app; sandloom.main is the standard root).
-    assert "from sandloom.sdk.app import app_modules, create_app" in asgi
+    imports = {
+        alias.name
+        for node in ast.parse(asgi).body
+        if isinstance(node, ast.ImportFrom) and node.module == "sandloom.sdk.app"
+        for alias in node.names
+    }
+    assert {"app_modules", "create_app"} <= imports
     assert "sandloom.main" not in asgi
     assert "app = create_app(\n" in asgi and "default_modules=" in asgi
     assert 'title="probe"' in asgi  # the start page and the API docs name the app
