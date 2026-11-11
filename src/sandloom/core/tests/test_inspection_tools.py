@@ -126,8 +126,22 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         shared_package="app.shared",
     )
     wire = {
-        "app/shared/contracts/stats_quota_v1.py": "from app.shared.contracts.stats_dto import Out\nclass Quota:\n    async def read(self) -> Out: ...\n",
-        "app/shared/contracts/stats_dto.py": 'from pydantic import BaseModel, Field\nclass Out(BaseModel):\n    next: "Out | None" = None\n    aliases: dict[str, list[int]] = Field(default_factory=dict)\n',
+        "app/shared/contracts/stats_quota_v1.py": (
+            "from app.shared.contracts.stats_dto import Out\n"
+            "from sandloom.sdk.authz import Account, ClaimFactCheck, ClaimReadCheck, ContractCheck\n"
+            "from sandloom.sdk.contracts import ContractRef\n"
+            "class Quota:\n"
+            "    async def read(self) -> Out: ...\n"
+            'STATS_QUOTA_V1 = ContractRef("stats.quota.v1", Quota)\n'
+        ),
+        "app/shared/contracts/stats_dto.py": (
+            "from pydantic import BaseModel, Field\n"
+            "from sandloom.sdk.contracts import dto_copy\n"
+            '@dto_copy("app.modules.stats:Out")\n'
+            "class Out(BaseModel):\n"
+            '    next: "Out | None" = None\n'
+            "    aliases: dict[str, list[int]] = Field(default_factory=dict)\n"
+        ),
         "app/shared/events/stats.changed.v1.json": encode(schema),
     }
     planned = [
@@ -594,15 +608,23 @@ def test_unknown_graph_variant_and_owner_escape_fail_closed(
     assert rc == 1 and json.loads(text)["diagnostics"][0]["kind"] == "unsafe_path"
 
 
+@pytest.mark.parametrize(
+    "import_line",
+    [
+        "from unknown_common.types import Value",
+        "from sandloom.sdk.contracts import dto_copy, ContractSchema as Value",
+        "from sandloom.sdk.authz import Category as Value",
+    ],
+)
 def test_schema_root_recursion_and_unknown_dto_dependency(
-    project: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+    project: SimpleNamespace, capsys: pytest.CaptureFixture[str], import_line: str
 ) -> None:
     (project.root / "app/shared/events/stats.changed.v1.json").write_text(
         '{"type":"object","properties":{"next":{"$ref":"#"}}}'
     )
     assert run(project, capsys, "context", "notes")[0] == 0
     dto = project.root / "app/shared/contracts/stats_dto.py"
-    dto.write_text("from unknown_common.types import Value\nclass Out: x: Value\n")
+    dto.write_text(f"{import_line}\nclass Out: x: Value\n")
     rc, text, _ = run(project, capsys, "context", "notes", "--format", "json")
     assert (
         rc == 1
