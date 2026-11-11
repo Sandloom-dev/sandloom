@@ -47,7 +47,8 @@ package's version in its `pyproject.toml`. Merging a PR never publishes packages
 ## Build and validation
 
 1. The plan validates the event, ref, package selection and versions.
-2. Full framework CI runs, including the compatibility matrix and heavy scenarios.
+2. Full framework CI covers the compatibility matrix and heavy scenarios. It
+   reuses qualifying green PR jobs for the exact source tree and runs the rest.
 3. The package workflow builds every wheel and standalone source archive, checks
    licenses, compares direct and rebuilt wheels, enforces import layering and
    tests clean framework-only and standard installations.
@@ -118,8 +119,9 @@ in required CI, before package validation and before a website build. It uses
 checked-in metadata, so builds need no PyPI request to determine a version.
 Module packages may still release independently: without `--version`, their
 recorded versions are retained and references use their own package metadata.
-A release PR describes its candidate version; deploy the site after the packages
-are published and verified. Merging alone neither publishes nor deploys.
+A release PR describes its candidate version. Successful publication from
+`main` triggers GitHub Pages after the GitHub Release is published. You can
+[deploy the site manually](website.md) after verifying the PyPI packages.
 
 After the owner merges the PR, open **Actions → Release (PyPI) → Run workflow**:
 

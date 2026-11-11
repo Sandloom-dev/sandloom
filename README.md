@@ -25,13 +25,13 @@ services with the same modules. Add identity, organizations or billing as needed
 [Quickstart](#quickstart) · [See architecture checks](#see-architecture-checks-in-action) ·
 [Documentation](docs/index.md) · [Examples](examples/README.md)
 
-> **Alpha:** `0.7.0a12` is available on PyPI. <!-- sandloom-release -->
+> **Alpha:** `0.7.0a12`. <!-- sandloom-release -->
 > [Release notes](https://sandloom.dev/docs/changelog/) ·
 > [Compatibility and stability](docs/contributing/versioning.md).
 
-The standard composition ships in its own package. Identity, Tenancy and Billing
-remain optional. Follow the [upgrade guide](docs/operate/upgrade-1.0.md) when
-updating an existing deployment.
+The standard composition ships in `sandloom-standard`. Install it with
+`sandloom[standard]` and see [how to boot it](docs/operate/loader-configuration.md#explicit-list).
+For existing deployments, see the [upgrade guide](docs/operate/upgrade.md).
 
 ## Why Sandloom
 
@@ -57,7 +57,7 @@ You need **Python 3.11+** (3.12 recommended) and
 [uv 0.13.4+](https://docs.astral.sh/uv/). For PostgreSQL and Redis, use
 **Docker with Compose**, or servers you already run (`sandloom dev up --services external`).
 
-Create a backend with one module from the published alpha. This example uses
+Create a backend with one module from the alpha. This example uses
 the framework without the optional identity, tenancy and billing packages:
 
 <!-- readme:quickstart:start -->

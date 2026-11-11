@@ -16,8 +16,11 @@ website renders this same changelog.
 ## [0.7.0a12]
 
 This alpha separates the lean kernel from the standard composition and its
-optional Identity, Tenancy and Billing packages. See the
-[upgrade guide](https://sandloom.dev/docs/operate/upgrade-1.0/) before updating an existing deployment.
+optional Identity, Tenancy and Billing packages. Install `sandloom[standard]`
+and use `sandloom_standard.main:app` to boot the standard root from your own
+manifest. Set `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main` for every
+process in that deployment. See the
+[upgrade guide](https://sandloom.dev/docs/operate/upgrade/) for the rollout.
 
 - External drivers declare optional Python dependencies and installation hints.
   Driver selection stays in `INFRA`, and startup validates the selected driver.
