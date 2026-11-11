@@ -5,7 +5,7 @@ An application has no copy of the framework's ``docs/``; these are the
 how-tos an agent in an app needs and would otherwise search the installed
 package for. A recipe is verified by running it in a generated application
 (``tools/smoke/recipes_check.py``, CI job ``app-recipes``): its ``uv run sandloom
-add|migrate new`` lines run in order and every ``# file: <path>`` block is
+add|migrate new|generate`` lines run in order and every ``# file: <path>`` block is
 written (``recipe_parts``), then ``sandloom test`` must pass. Placeholders:
 ``<app>``, ``<module>`` / ``<Module>`` (the module and its CamelCase name,
 whose scaffolded table is ``<Module>Item``), ``<consumer>`` / ``<Consumer>``.
@@ -325,7 +325,7 @@ freely: delete its stub and run `sandloom generate`).
 
 Generate the provider's contract stub before writing the consumer:
 
-    uv run sandloom generate
+    uv run sandloom generate billing
 
 Declare the caller at module level: `define_module` adds it to the module's
 `consumes`, and startup fails when a required provider is missing
@@ -476,6 +476,10 @@ The table, keyed by the tenant first, and its migration:
         deleted_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
 
     uv run sandloom migrate new <module> "members read model"
+
+Generate the contract stubs used by the projection and its route:
+
+    uv run sandloom generate tenancy billing
 
 The projection: views of the three v2 channels (every field the producer
 requires, plus the optional ones you read: a test delivers the view and it
@@ -976,9 +980,7 @@ def _recipe(name: str) -> str | None:
 
 
 _FILE = re.compile(r"^    # file: (\S+)\s*$")
-_COMMAND = re.compile(
-    r"^    (uv run sandloom (?:generate|(?:add|migrate new) .+?))\s*$"
-)
+_COMMAND = re.compile(r"^    (uv run sandloom (?:add|migrate new|generate) .+?)\s*$")
 
 
 def recipe_parts(name: str) -> list[tuple[str, str, str]]:
