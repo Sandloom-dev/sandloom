@@ -13,6 +13,19 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+## [0.7.0a12]
+
+This alpha separates the lean kernel from the standard composition and its
+optional Identity, Tenancy and Billing packages. See the
+[upgrade guide](https://sandloom.dev/docs/operate/upgrade-1.0/) before updating an existing deployment.
+
+- External drivers declare optional Python dependencies and installation hints.
+  Driver selection stays in `INFRA`, and startup validates the selected driver.
+- Billing reports background reconciliation health separately from HTTP readiness.
+  Operations that require compensation fail closed when reconciliation is unavailable.
+- Legacy access-token compatibility is disabled by default. When explicitly
+  enabled, the compatibility window only applies to tokens without `cpv`.
+
 ### Breaking changes
 
 - **`Authority(name, module=path)` must name the module's real name**

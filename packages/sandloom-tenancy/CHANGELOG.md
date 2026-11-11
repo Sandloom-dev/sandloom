@@ -7,6 +7,11 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+## [0.7.0a12]
+
+- Keep the existing `tenancy.membership.v1` wire schema in the coordinated
+  kernel-boundary release.
+
 ## [0.7.0a6] — 2026-11-01
 
 - Align the framework dependency floor with `sandloom>=0.7.0a6,<0.8`.
