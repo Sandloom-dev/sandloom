@@ -214,6 +214,8 @@ def _reading(
         return (found if isinstance(found, dict) else {}), False, _INF
     if _test_composition[0] and cpv == TEST_CPV:
         return None, True, _INF
+    if CPV_CLAIM in payload:
+        return None, False, _INF
     until = policy.legacy_until
     if until is None:
         return None, False, _INF
