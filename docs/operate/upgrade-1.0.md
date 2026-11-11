@@ -377,6 +377,26 @@ The composition's `roles` claim owner supplies the trusted UI roles source.
 When serving the admin console, a missing `console_auth` declaration or roles
 owner produces a configuration error naming the declaration to fix.
 
+## Check readiness and token rollout
+
+Use `/health/simple` for process liveness and `/ready` for traffic readiness.
+Billing reports reconciler failures in `/health`. New checkout and portal
+requests, including pending retries, need a completed run in the last 15
+minutes. Wait for the first completed run before sending checkout or portal
+traffic. An issued checkout can still return its stored URL after checking
+authorization and expiry. See the [Billing HTTP API](../modules/batteries/billing.md#http-api).
+
+The standard composition leaves `legacy_tokens` disabled. An existing
+deployment that needs its old access tokens can explicitly enable the timed
+rollout window. The window applies only to tokens with no `cpv` field.
+Follow the [issuer and verifier rollout](../adr/0014-claims-trust-and-authorization-portability.md#4-cpv-per-key-with-an-issuer-verifier-rollout-and-rollback-matrix).
+
+## Declare optional driver dependencies
+
+For external drivers with optional backend packages, declare `required_imports`
+and `install_hint` on the provider class. Sandloom reads the metadata from the
+selected entry point during preflight. See [Write a driver](../infrastructure/write-a-driver.md#2-publish-it-by-name).
+
 ## Verify
 
 ```bash

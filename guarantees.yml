@@ -5367,7 +5367,7 @@ guarantees:
   - src/sandloom/core/tests/test_module_subset.py::test_subset_whose_only_module_failed_is_not_ready
   - src/sandloom/core/tests/test_revocation_never_dead_lettered.py::test_ready_degrades_while_a_revocation_is_stuck_liveness_unaffected
 - id: G-OPS-03
-  statement: 'Peers never feed /health (liveness); a down peer fails only /ready and only when its SERVICE_BINDINGS
+  statement: 'Peers never feed /health (operational health); a down peer fails only /ready and only when its SERVICE_BINDINGS
     entry is required: true, with concurrent, capped, authenticated probes.'
   sources:
   - docs/operate/topologies.md
