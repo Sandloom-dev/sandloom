@@ -29,6 +29,7 @@ from sandloom.core.infra.registry import (
     ExperimentalCapabilityRefused,
     FeatureUnsupportedError,
     InfraRegistry,
+    InfraStartupError,
     ProviderContractError,
     load_selected_plugins,
 )
@@ -125,6 +126,54 @@ def test_an_unselected_package_is_never_imported(
         ],
     )
     load_selected_plugins(_strict(), _config())
+
+
+def test_a_missing_import_in_the_entry_point_is_b022(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failure = ModuleNotFoundError("missing backend", name="missing_backend")
+    _install(monkeypatch, drivers=[_entry("notification.x", failure)])
+
+    with pytest.raises(DriverLoadError, match="missing backend") as caught:
+        load_selected_plugins(_strict(), _config())
+
+    assert caught.value.sandloom_code == "SANDLOOM-B022"
+
+
+def test_a_dotted_required_import_is_b022(monkeypatch: pytest.MonkeyPatch) -> None:
+    class InvalidMetadata(_Notifier):
+        required_imports = ("backend.submodule",)
+
+    _install(monkeypatch, drivers=[_entry("notification.x", InvalidMetadata)])
+
+    with pytest.raises(DriverLoadError, match="top-level import names") as caught:
+        load_selected_plugins(_strict(), _config())
+
+    assert caught.value.sandloom_code == "SANDLOOM-B022"
+
+
+async def test_an_import_error_during_open_follows_startup_policy(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class BrokenOnOpen(_Notifier):
+        required_imports = ("json",)
+
+        async def aopen(self) -> None:
+            raise ModuleNotFoundError("missing transitive SDK", name="missing_sdk")
+
+    _install(monkeypatch, drivers=[_entry("notification.x", BrokenOnOpen)])
+    registry = _strict()
+    config = _config()
+    load_selected_plugins(registry, config)
+    registry.set_config(config)
+    registry.validate_requirement("notification")
+
+    await registry.aopen_all(strict=False)
+    assert "error opening notification/default" in caplog.text
+    with pytest.raises(InfraStartupError, match="missing transitive SDK") as caught:
+        await registry.aopen_all(strict=True)
+
+    assert getattr(caught.value, "sandloom_code", None) != "SANDLOOM-B037"
 
 
 def test_a_capability_in_another_package_loads_in_any_order(

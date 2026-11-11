@@ -84,6 +84,27 @@ uv add --editable ../sandloom-notify-file
 Sandloom imports the class only when `INFRA` selects its name. A package nothing selects
 runs no code, and the order of installed packages does not matter.
 
+Declare mandatory packages in `project.dependencies` and optional backend SDKs as
+package extras. The driver class can advertise an extra with `required_imports`,
+a tuple of top-level Python import names, and `install_hint`, the install command.
+Both attributes default to empty. Import optional SDKs inside the constructor or
+an operation to keep the entry point importable before the extra is installed.
+
+For example, add `smtp = ["aiosmtplib"]` under `[project.optional-dependencies]`
+in a package named `sandloom-notify-example`. Then declare
+`required_imports = ("aiosmtplib",)` and
+`install_hint = "pip install 'sandloom-notify-example[smtp]'"`.
+
+During preflight, Sandloom looks up the declared import names without building
+the driver. A missing declared import raises `SANDLOOM-B037` with the install
+hint when `INFRA` selects the instance or a module requires it. If the entry
+point itself fails to import, Sandloom raises `SANDLOOM-B022`.
+
+An import error raised by `aopen()` follows the startup policy for open failures.
+Strict startup aborts with an infrastructure startup error, and development startup
+logs the failure. The [conformance step](#4-check-it-against-the-contract) exercises
+the driver's operations against a test backend.
+
 ### 3. Select it with `INFRA`
 
 Put this in `.env` for the application and in `.env.test` for its tests. Everything other
@@ -261,7 +282,8 @@ driver of each instance. It needs `INTERNAL_API_TOKEN`
 | Error | Cause and fix |
 | --- | --- |
 | [SANDLOOM-B021](../reference/error-codes.md#sandloom-b021) | The selected name has two providers, or a package published a built-in's name. Uninstall one, or rename your driver. |
-| [SANDLOOM-B022](../reference/error-codes.md#sandloom-b022) | The selected driver failed to import, is not a subclass of the contract, has no `contract_version`, or was written for another major version. The message names which. |
+| [SANDLOOM-B022](../reference/error-codes.md#sandloom-b022) | The selected driver failed to import, is not a subclass of the contract, has no `contract_version`, or was written for another major version. It may also declare invalid dependency metadata. The message names the problem. |
+| [SANDLOOM-B037](../reference/error-codes.md#sandloom-b037) | A declared import for a selected or required driver is missing. Follow the install hint or select another installed driver in `INFRA`. |
 | `Configured infrastructure instances have no registered driver` | `INFRA` names a driver no installed package publishes. |
 | `ProviderContractError` | An instance reports other features than its class declares. |
 | `FeatureUnsupportedError` | A module requires a feature the driver does not advertise. |

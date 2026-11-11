@@ -8812,6 +8812,8 @@ adr_sections:
     - G-OPS-23
     - G-OPS-24
     Consequences of the driver availability amendment: informational
+    Amendment (2026-11-11) for external driver dependencies:
+    - G-INFRA-10
   0010-public-api-1.0.md:
     Context: informational
     Decision: informational
