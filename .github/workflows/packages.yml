@@ -54,9 +54,10 @@ jobs:
       - name: Sixteen module subsets boot (P2 wheels, P3 extras and repository)
         # KB-04 (I-19, A-B7): every subset of identity, tenancy, billing and
         # admin boots in clean venvs; the durations are the matrix's measure.
-        run: >-
-          uv run --locked pytest tests/integration/module_subsets
-          -p no:cacheprovider --no-cov --durations=0
+        run: |
+          docker compose -f deploy/compose/test.yml up -d --wait
+          uv run --locked pytest tests/integration/module_subsets \
+            -p no:cacheprovider --no-cov --durations=0
       - name: Validate PyPI descriptions
         if: ${{ inputs.artifact_name != '' }}
         env:

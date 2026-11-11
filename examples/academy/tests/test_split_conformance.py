@@ -30,6 +30,7 @@ import time
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from functools import cache
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -65,6 +66,24 @@ PROVIDED = {PAYMENTS: "payments.charges.v1", NOTIFICATIONS: "notifications.mail.
 SETTLED = ("completed", "compensated", "parked")
 STARTUP_TIMEOUT = 60.0
 SETTLE_TIMEOUT = 45.0
+
+
+@cache
+def _test_app() -> Any:
+    from sandloom.sdk.testing import plugin  # sandloom: advanced test setup in child
+
+    # Set up the test authority in this child without loading the test suite.
+    config = pytest.Config.fromdictargs(
+        {}, ["-c", os.devnull, "--noconftest", "--disable-plugin-autoload"]
+    )
+    plugin.pytest_configure(config)
+    from academy.asgi import app
+
+    return app
+
+
+async def served_app(scope: Any, receive: Any, send: Any) -> None:
+    await _test_app()(scope, receive, send)
 
 
 def _unavailable(reason: str) -> None:
@@ -190,7 +209,9 @@ def _env(base: dict[str, str], dep: Deployment, proc: Proc) -> dict[str, str]:
         "SAGA_RETRY_MAX_SECONDS": "1",
         "RATE_LIMIT_ENABLED": "false",
         "LOG_FORMAT": "text",
-        "PYTHONPATH": os.pathsep.join([str(APP), os.environ.get("PYTHONPATH", "")]),
+        "PYTHONPATH": os.pathsep.join(
+            [str(APP), str(APP / "tests"), os.environ.get("PYTHONPATH", "")]
+        ),
         "RPC_COMMANDS_REQUIRE_SIGNATURE": "on",
         "RPC_SERVICE_ID": proc.service_id,
         "RPC_PRIVATE_KEY": _keys(proc.service_id)[0],
@@ -298,7 +319,7 @@ def deployments(tmp_path_factory: pytest.TempPathFactory) -> Iterator[list[Deplo
                 with proc.log_path.open("wb") as log:
                     proc.served = spawn_served(
                         proc.listener,
-                        "academy.asgi:app",
+                        "test_split_conformance:served_app",
                         env=env,
                         label=proc.service_id,
                         cwd=APP,

@@ -89,6 +89,19 @@ class QuickstartError(Exception):
     pass
 
 
+# The smoke subprocesses use the same test authority as the pytest plugin.
+# Older published frameworks minted test tokens without this hook.
+_TEST_AUTHORITY = """\
+try:
+    from sandloom.core.auth.claims_view import enable_test_authority
+except ImportError:
+    pass
+else:
+    import pytest
+    enable_test_authority()
+"""
+
+
 class Runner:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
@@ -215,6 +228,7 @@ class Runner:
         ``.env``, outside the ``sandloom dev`` block (the last line wins)."""
         redis = self.args.redis_url.rstrip("/")
         base = self.args.redis_db_base
+        (self.cwd / "data").mkdir(exist_ok=True)
         lines = (
             "DATABASE_URL=sqlite+aiosqlite:///./data/app.db",
             f"CACHE_URL={redis}/{base}",
@@ -338,6 +352,27 @@ class Runner:
             print(f"installed release versions verified: {observed}")
 
     # ----------------------------------------------------------------- serve
+    def _test_server_env(self) -> dict[str, str]:
+        """Wrap the real composition in a scratch module for the HTTP probe."""
+        composition = self.python(
+            "from sandloom.core.composition import composition_root_name; "
+            "print(composition_root_name())"
+        ).splitlines()[-1]
+        directory = (self.work or self.cwd.parent) / "smoke-server"
+        directory.mkdir(exist_ok=True)
+        (directory / "sandloom_smoke_asgi.py").write_text(
+            "from importlib import import_module\n"
+            + _TEST_AUTHORITY
+            + f"app = import_module({composition!r}).app\n",
+            encoding="utf-8",
+        )
+        return {
+            "SANDLOOM_COMPOSITION_ROOT": "sandloom_smoke_asgi",
+            "PYTHONPATH": os.pathsep.join(
+                [str(directory), str(self.cwd), self.env.get("PYTHONPATH", "")]
+            ),
+        }
+
     def serve(self, command: str) -> None:
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
@@ -347,6 +382,7 @@ class Runner:
         env = {**self.env, "UVICORN_PORT": str(port), "UVICORN_HOST": "127.0.0.1"}
         if command.startswith("uv run sandloom dev run"):
             command = f"{command} --port {port} --no-reload"
+            env.update(self._test_server_env())
         print(f"$ {command}   (in {self.cwd}, UVICORN_PORT={port})", flush=True)
         # The server's output goes to a file (printed when it stops): the
         # standard modules' flow reads the verification link it logs.
@@ -479,7 +515,7 @@ class Runner:
 
     def round_trip(self, module: str) -> None:
         auth = self.python(
-            "import uuid\n"
+            _TEST_AUTHORITY + "import uuid\n"
             "from sandloom.sdk.testing import as_user\n"
             "print(as_user(tenant_id=uuid.uuid4())[1]['Authorization'])\n"
         ).splitlines()[-1]
