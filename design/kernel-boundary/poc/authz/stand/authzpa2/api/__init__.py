@@ -12,15 +12,15 @@ from uuid import UUID
 
 from fastapi import Depends
 
-from sandloom.sdk import module_router, require
-from sandloom.sdk.authz import Account, Perm, Role, current_context
-from sandloom.sdk.web import TenantScope
-from sandloom.shared.contracts.billing_entitlements_v1 import (
+from authzpa2._generated.contracts.billing_entitlements_v1 import (
     Credits,
     Subscribed,
     SubscriptionActive,
 )
-from sandloom.shared.contracts.tenancy_membership_v1 import OrgRole
+from authzpa2._generated.contracts.tenancy_membership_v1 import OrgRole
+from sandloom.sdk import module_router, require
+from sandloom.sdk.authz import Account, Perm, Role, current_context
+from sandloom.sdk.web import TenantScope
 
 router = module_router()
 

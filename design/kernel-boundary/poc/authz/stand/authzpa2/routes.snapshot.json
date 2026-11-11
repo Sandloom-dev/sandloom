@@ -1,0 +1,166 @@
+{
+  "format": 3,
+  "module": "authzpa2",
+  "routes": [
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/authzpa2/azs/bound/control",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/authzpa2/azs/bound/orgrole_and_subactive",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/authzpa2/azs/control",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/authzpa2/azs/credits",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/authzpa2/azs/not_member/{org_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/authzpa2/azs/orgrole/{org_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/authzpa2/azs/orgrole_and_subactive/{org_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/authzpa2/azs/orgrole_or_subactive_user/{org_id}",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/authzpa2/azs/perm",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/authzpa2/azs/role",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/authzpa2/azs/role_or_credits",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "risk": {
+          "admin": [
+            "sandloom.shared.authz.deps.require.<locals>._claims_guard"
+          ]
+        },
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/authzpa2/azs/subactive",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    },
+    {
+      "auth": "authenticated",
+      "method": "GET",
+      "path": "/api/v1/authzpa2/azs/subscribed",
+      "policy": {
+        "effect": "read",
+        "idempotency": "none",
+        "session": "live, re-check if a unit writes"
+      }
+    }
+  ]
+}

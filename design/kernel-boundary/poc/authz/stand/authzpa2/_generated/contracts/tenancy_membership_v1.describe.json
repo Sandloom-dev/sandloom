@@ -1,0 +1,89 @@
+{
+  "contract": "tenancy.membership.v1",
+  "describe": {
+    "hash": "02904ecc05fea4fac472695042e261c7",
+    "methods": {
+      "has_role_at_least": {
+        "access_check": {
+          "bind": {
+            "organization_id": [
+              "org",
+              "org_id",
+              false
+            ],
+            "user_id": [
+              "subject"
+            ]
+          },
+          "category": "forbidden",
+          "describe": "organization role '{minimum}'",
+          "name": "OrgRole",
+          "risk": {
+            "admin": {
+              "minimum": [
+                "admin",
+                "owner"
+              ]
+            }
+          },
+          "values": {
+            "minimum": [
+              "member",
+              "admin",
+              "owner"
+            ]
+          },
+          "witnesses_membership": {
+            "minimum": "member"
+          }
+        },
+        "idempotency_key": null,
+        "kind": "read",
+        "params": [
+          {
+            "kind": "positional_or_keyword",
+            "name": "organization_id",
+            "required": true,
+            "type": {
+              "k": "scalar",
+              "t": "uuid"
+            }
+          },
+          {
+            "kind": "positional_or_keyword",
+            "name": "user_id",
+            "required": true,
+            "type": {
+              "k": "scalar",
+              "t": "uuid"
+            }
+          },
+          {
+            "kind": "positional_or_keyword",
+            "name": "minimum",
+            "required": true,
+            "type": {
+              "k": "scalar",
+              "t": "str"
+            }
+          }
+        ],
+        "returns": {
+          "k": "scalar",
+          "t": "bool"
+        }
+      }
+    }
+  },
+  "digest": "3a674bf0f4c4a0c6",
+  "fingerprint": "02904ecc05fea4fac472695042e261c7",
+  "format": 2,
+  "generator_format": 2,
+  "methods": [
+    "has_role_at_least"
+  ],
+  "provider": {
+    "class": "sandloom_tenancy.contracts.MembershipReadContract",
+    "distribution": "sandloom-tenancy"
+  }
+}

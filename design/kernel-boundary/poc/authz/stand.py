@@ -15,7 +15,7 @@ Original docstring:
 
 Authorization baseline stand (tm kb-perf-dx-baseline).
 
-Measures, per policy, one authenticated GET of ``sandloom.main:app`` whose
+Measures, per policy, one authenticated GET of ``sandloom_standard.main:app`` whose
 route is guarded by ``require(policy)`` (module ``stand/authzstand``), in a
 monolith (identity + tenancy + billing + the stand in one process) and split
 (the stand + identity in this process, tenancy + billing in a uvicorn
@@ -66,6 +66,8 @@ ORG = uuid.UUID("00000000-0000-4000-8000-00000000b001")
 OUTSIDER = uuid.UUID("00000000-0000-4000-8000-00000000a0ff")
 MEMBER = uuid.UUID("00000000-0000-4000-8000-00000000a002")
 ORG2 = uuid.UUID("00000000-0000-4000-8000-00000000b002")
+REGULAR = uuid.UUID("00000000-0000-4000-8000-00000000a003")
+PASTDUE = uuid.UUID("00000000-0000-4000-8000-00000000a004")
 JWT_SECRET = "kb-perf-dx-stand-secret-0123456789abcdef0123456789abcdef"
 CONSUMER, PROVIDER = "consumer", "provider"
 #: module_router() mounts a module under /api/v1/<module>.
@@ -142,12 +144,14 @@ def _dsn_as(user: str | None) -> str:
 
 def _redis(db: int) -> str:
     base = os.environ.get("CACHE_URL", "redis://127.0.0.1:6379/3")
-    return re.sub(r"/\d+$", f"/{db}", base)
+    offset = int(os.environ.get("KB_REDIS_DB_OFFSET", "0"))
+    return re.sub(r"/\d+$", f"/{db + offset}", base)
 
 
 def _common_env() -> dict[str, str]:
     return {
         "ENVIRONMENT": "dev",
+        "SANDLOOM_COMPOSITION_ROOT": "sandloom_standard.main",
         "LOG_LEVEL": "WARNING",
         "RATE_LIMIT_ENABLED": "false",
         "DOCS_ENABLED": "false",
@@ -173,6 +177,7 @@ def consumer_env(topology: str, provider_url: str | None) -> dict[str, str]:
             **_common_env(),
             "SANDLOOM_MODULES": json.dumps(modules),
             "DATABASE_URL": _dsn_as(os.environ.get("KB_APP_DB_USER")),
+            "SERVICE_BINDINGS": "{}",
             "CACHE_URL": _redis(3),
             "BROKER_URL": _redis(4),
         }
@@ -216,7 +221,9 @@ def provider_env() -> dict[str, str]:
         # KB_PROVIDER_PYTHONPATH: a changed provider package shadowing the
         # installed one (a provider older or newer than the consumer's stub)
         "PYTHONPATH": os.pathsep.join(
-            filter(None, [os.environ.get("KB_PROVIDER_PYTHONPATH"), str(HERE / "stand")])
+            filter(
+                None, [os.environ.get("KB_PROVIDER_PYTHONPATH"), str(HERE / "stand")]
+            )
         ),
         "SANDLOOM_MODULES": json.dumps(modules),
         "DATABASE_URL": _dsn_as(os.environ.get("KB_PROVIDER_DB_USER")),
@@ -241,7 +248,7 @@ def start_provider(
         os.environ.get("KB_PROVIDER_PYTHON", sys.executable),
         "-m",
         "uvicorn",
-        "sandloom.main:app",
+        "sandloom_standard.main:app",
         "--host",
         "127.0.0.1",
         "--port",
@@ -274,27 +281,24 @@ def start_provider(
 # Tokens and in-process ASGI calls
 # --------------------------------------------------------------------------- #
 def mint(subject: str) -> str:
-    import jwt
+    from benchsuite import claims_mint
 
-    now = int(time.time())
-    sub = {"outsider": OUTSIDER, "member": MEMBER}.get(subject, USER)
-    status = "past_due" if subject == "pastdue" else "active"
-    claims: dict[str, Any] = {
-        "sub": str(sub),
-        "token_type": "access",
-        "iat": now,
-        "nbf": now,
-        "exp": now + 6 * 3600,
-        "jti": uuid.uuid4().hex,
-        "tenant_ids": [str(ORG), str(ORG2)],
-        "subscription_status": status,
-        "claims_sources": ["identity", "tenancy", "billing"],
-        "claims_sources_failed": [],
-    }
-    if subject == "admin":
-        claims["roles"] = ["admin"]
-        claims["permissions"] = ["perm.stand.read"]
-    return jwt.encode(claims, JWT_SECRET, algorithm="HS256")
+    user = {
+        "admin": USER,
+        "user": REGULAR,
+        "outsider": OUTSIDER,
+        "member": MEMBER,
+        "pastdue": PASTDUE,
+    }[subject]
+    # Mint from the seeded authority data, including its sealed cpv/provenance.
+    # A hand-built token is rejected as token_policy_outdated. The mint has
+    # its own process and loads all authorities even when the measured app
+    # reaches them over RPC (the authority's identity is topology-independent).
+    env = consumer_env("mono", None)
+    env["SANDLOOM_MODULES"] = json.dumps(
+        ["sandloom_identity", "sandloom_tenancy", "sandloom_billing"]
+    )
+    return claims_mint.mint_platform(user, hours=6, env=env)
 
 
 def make_op(
@@ -358,7 +362,10 @@ def _poc_switches() -> None:
     """Set the candidate's PoC switches (K5, K6, witness) from KB_POC_* before
     the app is built; the kernel itself reads no environment for them. A base
     tree has no such modules: nothing to set."""
-    flag = {k: os.environ.get(k) == "1" for k in ("KB_POC_K5", "KB_POC_K6", "KB_POC_WITNESS")}
+    flag = {
+        k: os.environ.get(k) == "1"
+        for k in ("KB_POC_K5", "KB_POC_K6", "KB_POC_WITNESS")
+    }
     try:
         import sandloom.shared.authz.contract_check as cc
     except ImportError:
@@ -375,16 +382,17 @@ def _poc_switches() -> None:
 async def build_app(topology: str, provider_url: str | None) -> tuple[Any, Lifespan]:
     os.environ.update(consumer_env(topology, provider_url))
     _poc_switches()
-    from sandloom.main import app
+    from sandloom_standard.main import app
 
     life = await Lifespan(app).__aenter__()
     return app, life
 
 
-def _ops(
-    app: Any, selected: list[str] | None, *, check: bool = True
-) -> dict[str, Any]:
-    tokens = {s: mint(s) for s in ("admin", "user", "outsider", "member", "pastdue")}
+def _ops(app: Any, selected: list[str] | None, *, check: bool = True) -> dict[str, Any]:
+    subjects = {
+        subj for cid, _, subj, _, _ in CASES if selected is None or cid in selected
+    }
+    tokens = {subject: mint(subject) for subject in subjects}
     return {
         cid: make_op(app, PREFIX + path, tokens[subj], extra, expect if check else None)
         for cid, path, subj, expect, extra in CASES
