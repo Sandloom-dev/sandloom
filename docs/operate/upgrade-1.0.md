@@ -6,6 +6,15 @@ type: how-to
 
 # Upgrading to Public API 1.0
 
+For tests that start several services, import `split_env` from
+`sandloom.sdk.testing`. `processes` maps service ids to modules; `urls` maps the
+same ids to reserved HTTP addresses. Pass the issuing service as `issuer`.
+Apply each returned overlay after the infrastructure environment. Only the
+issuer receives the JWT signing key and emailed-token secret; the overlays
+clear inherited issuer secrets from verification-only services. See the
+[testing reference](../reference/sdk/testing.md#split_env) for exact bindings and
+the settings you still supply.
+
 Public API 1.0 gives modules one namespace, `sandloom.sdk`, and a declarative
 form for routes, events and contracts. The migration replaces the earlier
 internal API without **compatibility aliases**: an old import path stops working and the error names

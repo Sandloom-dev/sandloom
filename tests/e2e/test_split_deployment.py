@@ -48,7 +48,6 @@ import httpx
 import jwt
 import pytest
 
-from sandloom.core.contract_testing import rpc_env
 from sandloom.core.testing import worker_env_values
 from sandloom.core.testing.served import (
     ReservedPort,
@@ -56,6 +55,7 @@ from sandloom.core.testing.served import (
     probe,
     spawn_served,
 )
+from sandloom.sdk.testing import split_env
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow]
 
@@ -239,42 +239,32 @@ def split(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
 
     port_a, port_b = ReservedPort(), ReservedPort()
     url_a, url_b = port_a.url, port_b.url
-    to_b = {"base_url": url_b, "service_id": "e2e-b"}
-    to_a = {"base_url": url_a, "service_id": "e2e-a"}
-    # B serves billing, A every other default module. A binds every billing
-    # contract; B binds the tenancy contracts it calls plus anything billing
-    # REQUIRES (derived, so a module that gains a required contract needs no
-    # edit here).
+    # Derive remote contracts and key distribution from each process's modules.
     from sandloom.core.descriptors.module_names import installed_modules
-    from sandloom.core.testing.boot import module_topology, provided_contracts
 
-    DEFAULT_MODULES = [m.path for m in installed_modules()]
-
-    modules_a = [m for m in DEFAULT_MODULES if m != "sandloom_billing"]
-    bindings_a: dict[str, Any] = dict.fromkeys(
-        sorted(provided_contracts(["sandloom_billing"])), to_b
+    modules_a = [m.path for m in installed_modules() if m.path != "sandloom_billing"]
+    wiring = split_env(
+        {"e2e-a": modules_a, "e2e-b": ["sandloom_billing"]},
+        {"e2e-a": url_a, "e2e-b": url_b},
+        issuer="e2e-a",
     )
-    bindings_a["billing.claims.v1"] = {**to_b, "critical": False}
-    wanted_b = {"tenancy.membership.v1", "tenancy.claims.v1"}
-    wanted_b |= module_topology("sandloom_billing").requires
-    bindings_b = dict.fromkeys(sorted(wanted_b), to_a)
-    allowed = {"e2e-a": sorted(bindings_a), "e2e-b": sorted(bindings_b)}
+    for values in wiring.values():
+        values["SANDLOOM_MODULES"] = json.dumps(
+            [*json.loads(values["SANDLOOM_MODULES"]), "e2e_probe"]
+        )
+    bindings_a = json.loads(wiring["e2e-a"]["SERVICE_BINDINGS"])
+    bindings_a["billing.claims.v1"]["critical"] = False
+    wiring["e2e-a"]["SERVICE_BINDINGS"] = json.dumps(bindings_a)
     env_a = _process_env(
         base,
         DATABASE_URL=_db_url(db_url, db_a),
-        SANDLOOM_SERVICE_NAME="e2e-a",
-        SANDLOOM_MODULES=json.dumps([*modules_a, "e2e_probe"]),
-        SERVICE_BINDINGS=json.dumps(bindings_a),
-        **rpc_env("e2e-a", peers=["e2e-b"], allowed_calls=allowed),
+        **wiring["e2e-a"],
     )
     env_b = _process_env(
         base,
         DATABASE_URL=_db_url(db_url, db_b),
-        SANDLOOM_SERVICE_NAME="e2e-b",
-        SANDLOOM_MODULES=json.dumps(["sandloom_billing", "e2e_probe"]),
         E2E_PROBE_CONSUME="1",
-        SERVICE_BINDINGS=json.dumps(bindings_b),
-        **rpc_env("e2e-b", peers=["e2e-a"], allowed_calls=allowed),
+        **wiring["e2e-b"],
     )
     _migrate(env_a)
     _migrate(env_b)

@@ -23,7 +23,7 @@ advanced: BootOutcome, Captured, ContractCase, ContractConformanceError,
     rpc_client_for, rpc_env, rpc_keys, rpc_proxy_for, rpc_request_headers,
     rpc_response_headers, rpc_settings, run_on_commit, run_sql, sealed_claims,
     served_rpc, set_environment, skip_unless_db_feature, spawn_served,
-    stop_revocation_listener, tables_created_by, temporary_database,
+    split_env, stop_revocation_listener, tables_created_by, temporary_database,
     upgrade_core_chain, use_security_cache, validate_settings,
     wait_revocation_listener_subscribed, worker_env_values
 docs: docs/reference/sdk/testing.md; signatures: sandloom docs <name>
@@ -48,6 +48,7 @@ from sandloom.core.contract_testing import (
     rpc_response_headers,
     rpc_settings,
     served_rpc,
+    split_env,
 )
 from sandloom.core.di import (
     bind_contract_session,
@@ -206,6 +207,7 @@ __all__ = [
     "set_environment",
     "skip_unless_db_feature",
     "spawn_served",
+    "split_env",
     "stop_revocation_listener",
     "tables_created_by",
     "temporary_database",

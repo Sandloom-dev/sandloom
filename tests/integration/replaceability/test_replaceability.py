@@ -60,14 +60,6 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 
-from sandloom.core.signing_keys import (
-    generate_private_key,
-    generate_x25519_key,
-    private_pem,
-    public_pem,
-    x25519_private_pem,
-    x25519_public_pem,
-)
 from sandloom.core.testing import worker_env_values
 from sandloom.core.testing.served import (
     ReservedPort,
@@ -76,6 +68,7 @@ from sandloom.core.testing.served import (
     probe,
     spawn_served,
 )
+from sandloom.sdk.testing import split_env
 
 pytestmark = [pytest.mark.integration, pytest.mark.e2e, pytest.mark.slow]
 
@@ -453,54 +446,17 @@ def split(
     Per-pair X25519 MACs, Ed25519 command signatures, ``service_id`` pins and
     the allowlist; EdDSA access tokens, whose private key only P1 holds.
     """
-    jwt_key = generate_private_key("EdDSA")
-    rpc = {s: generate_private_key("EdDSA") for s in ("p1", "p2")}
-    dh = {s: generate_x25519_key() for s in ("p1", "p2")}
     p1 = Proc("p1", P1_MODULES, {})
     p2 = Proc("p2", P2_MODULES, {})
-    bound = {
-        name: {"base_url": p2.url, "service_id": "p2", **extra}
-        for name, extra in bindings.items()
-    }
-    common = {
-        **_base_env(infra, users),
-        "JWT_ALGORITHM": "EdDSA",
-        "JWT_KID": "replace-1",
-        "JWT_PUBLIC_KEYS": json.dumps({"replace-1": public_pem(jwt_key)}),
-        "JWT_PREVIOUS_SECRETS": "[]",
-        "RPC_COMMANDS_REQUIRE_SIGNATURE": "on",
-        "RPC_KEY_ID": "k1",
-        "RPC_SERVICE_KEYS": json.dumps(
-            {s: {"k1": public_pem(k)} for s, k in rpc.items()}
-        ),
-        "RPC_ALLOWED_CALLS": json.dumps({"p1": sorted(bound)}),
-        "RPC_DH_KEY_ID": "d1",
-        "RPC_SERVICE_DH_KEYS": json.dumps(
-            {s: {"d1": x25519_public_pem(k)} for s, k in dh.items()}
-        ),
-        "SERVICE_RPC_TIMEOUT_SECONDS": "5",
-        **extra,
-    }
-    p1.env = {
-        **common,
-        "RPC_SERVICE_ID": "p1",
-        "SANDLOOM_SERVICE_NAME": "p1",
-        "RPC_PRIVATE_KEY": private_pem(rpc["p1"]),
-        "RPC_DH_PRIVATE_KEY": x25519_private_pem(dh["p1"]),
-        "JWT_PRIVATE_KEY": private_pem(jwt_key),
-        "JWT_SECRET": "",
-        "SERVICE_BINDINGS": json.dumps(bound),
-    }
-    p2.env = {
-        **common,
-        "RPC_SERVICE_ID": "p2",
-        "SANDLOOM_SERVICE_NAME": "p2",
-        "RPC_PRIVATE_KEY": private_pem(rpc["p2"]),
-        "RPC_DH_PRIVATE_KEY": x25519_private_pem(dh["p2"]),
-        "JWT_PRIVATE_KEY": "",
-        "JWT_SECRET": "",
-        "SERVICE_BINDINGS": "{}",
-    }
+    wiring = split_env(
+        {"p1": P1_MODULES, "p2": P2_MODULES},
+        {"p1": p1.url, "p2": p2.url},
+        issuer="p1",
+        bindings={"p1": bindings, "p2": {}},
+    )
+    common = {**_base_env(infra, users), "SERVICE_RPC_TIMEOUT_SECONDS": "5", **extra}
+    p1.env = {**common, **wiring["p1"]}
+    p2.env = {**common, **wiring["p2"]}
     return [p1, p2]
 
 

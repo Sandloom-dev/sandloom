@@ -1824,6 +1824,7 @@
         "src/sandloom/core/tests/test_served_app.py",
         "src/sandloom/core/tests/test_server_errors.py",
         "src/sandloom/core/tests/test_service_rpc.py",
+        "src/sandloom/core/tests/test_split_env.py",
         "src/sandloom/core/tests/test_split_readiness.py",
         "src/sandloom/core/tests/test_sql_dialect_renderers.py",
         "src/sandloom/core/tests/test_sqlite_boot.py",

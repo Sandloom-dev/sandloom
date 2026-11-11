@@ -74,6 +74,16 @@ CLAIM_AUTHORITIES = {
 - `acme_idp` declares `refresh_sessions=False`, so an emergency block needs no
   refresh-session consumer.
 
+Removing a tenant membership revokes all existing access tokens for that user.
+Because acme_idp keeps no refresh session, the client signs in at the external
+provider again. It exchanges the provider-issued `id_token` for a token with
+the remaining memberships.
+
+If your issuer keeps the provider's refresh token to renew without another
+sign-in, declare `refresh_sessions=True`. Register a durable consumer of
+`core.auth.user_blocked.v1` that ends those refresh sessions when the user is
+blocked. Otherwise, keep the stateless declaration and accept another sign-in.
+
 ## What the test proves
 
 In both topologies:

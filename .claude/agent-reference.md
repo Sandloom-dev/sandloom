@@ -74,7 +74,7 @@ Not listed (full suites, SBOM, UI): `uv run sandloom test <module>`, `admin/AGEN
 - architecture: uv run python tools/checks/check_architecture.py ; uv run python tools/packaging/check_public_api.py ; uv run pytest src/sandloom/core/tests/test_architecture.py -q
 
 **backend**: src/** tests/** tools/ci/** tools/smoke/** migrations/** packages/** tools/checks/** tools/packaging/*.py conftest.py architecture_rules.yml guarantees.yml .env.test
-- backend-static: uv run ruff check --no-fix src/ ; python3 tools/checks/check_secrets.py ; uv run ruff format --check src/ ; uv run mypy src/ ; uv run pytest tests/architecture/ -q --no-cov -p no:cacheprovider ; uv run python tools/checks/check_architecture.py ; uv run python tools/packaging/check_public_api.py
+- backend-static: uv run ruff check --no-fix src/ ; python3 tools/checks/check_secrets.py ; uv run ruff format --check src/ ; uv run mypy src/ ; uv run pytest tests/architecture/ -q --no-cov -p no:cacheprovider ; uv run python tools/checks/check_architecture.py ; uv run python tools/packaging/check_public_api.py ; uv run sandloom generate --check
 
 **deploy**: deploy/** .dockerignore
 - deploy-profiles: docker compose -f deploy/compose/monolith.yml config --quiet ; docker compose -f deploy/compose/microservices.yml config --quiet ; deploy/observability/check.sh

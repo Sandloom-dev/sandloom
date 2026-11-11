@@ -82,6 +82,10 @@
     "served_rpc": {
       "kind": "function",
       "signature": "(core:POSITIONAL_OR_KEYWORD|Any, app:POSITIONAL_OR_KEYWORD|Any=None, settings:POSITIONAL_OR_KEYWORD|Any=None) -> AsyncIterator[str]"
+    },
+    "split_env": {
+      "kind": "function",
+      "signature": "(processes:POSITIONAL_OR_KEYWORD|Mapping[str, Sequence[str]], urls:POSITIONAL_OR_KEYWORD|Mapping[str, str], issuer:KEYWORD_ONLY|str, bindings:KEYWORD_ONLY|Mapping[str, Mapping[str, Mapping[str, Any]]] | None=None) -> dict[str, dict[str, str]]"
     }
   },
   "sandloom.core.descriptors": {
@@ -5802,6 +5806,10 @@
     "spawn_served": {
       "kind": "function",
       "signature": "(port:POSITIONAL_OR_KEYWORD|ReservedPort, app:POSITIONAL_OR_KEYWORD|str, env:KEYWORD_ONLY|dict[str, str], log_level:KEYWORD_ONLY|str='warning', label:KEYWORD_ONLY|str='', popen_kwargs:VAR_KEYWORD|Any) -> SpawnedServer"
+    },
+    "split_env": {
+      "kind": "function",
+      "signature": "(processes:POSITIONAL_OR_KEYWORD|Mapping[str, Sequence[str]], urls:POSITIONAL_OR_KEYWORD|Mapping[str, str], issuer:KEYWORD_ONLY|str, bindings:KEYWORD_ONLY|Mapping[str, Mapping[str, Mapping[str, Any]]] | None=None) -> dict[str, dict[str, str]]"
     },
     "stop_revocation_listener": {
       "kind": "function",

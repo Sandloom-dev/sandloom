@@ -97,6 +97,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`spawn_served`](#spawn_served) | function | Start `app` (`"module:attr"`) in a child serving on `port`'s socket. |
 | [`SpawnedServer`](#spawnedserver) | class | A child serving on a `ReservedPort`, identified by its nonce. |
 | [`SpawnedServerError`](#spawnedservererror) | exception | The spawned server exited, or its port is answered by another process. |
+| [`split_env`](#split_env) | function | Environment overlays for test processes with pinned RPC and EdDSA JWTs. |
 | [`stop_revocation_listener`](#stop_revocation_listener) | async function | Drop every per-process copy of a subject's state (test teardown). |
 | [`tables_created_by`](#tables_created_by) | function | Tables a chain's revisions create (`op.create_table(<name>, ...)`). |
 | [`temporary_database`](#temporary_database) | function | Create an empty database on the test server; yield its sync URL. |
@@ -1684,6 +1685,39 @@ class SpawnedServerError(AssertionError)
 ```
 
 The spawned server exited, or its port is answered by another process.
+
+### `split_env`
+
+```python
+def split_env(
+    processes: Mapping[str, Sequence[str]],
+    urls: Mapping[str, str],
+    *,
+    issuer: str,
+    bindings: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
+) -> dict[str, dict[str, str]]
+```
+
+Environment overlays for test processes with pinned RPC and EdDSA JWTs.
+
+`processes` maps service ids to module import paths; `urls` maps the
+same ids to reserved HTTP addresses (for example `ReservedPort.url`).
+Each module belongs to one process. Registration is loaded to discover
+contracts; no servers start and no migrations run. Only `issuer` receives
+the JWT private key and a secret for its emailed tokens. Every process gets
+its own fresh Ed25519/X25519 RPC keys and the peers' public keys.
+
+By default each process binds every contract provided elsewhere. Pass
+`bindings={service: {contract: options}}` to select exact remote contracts
+and metadata such as `critical=False`; omitted services then bind nothing.
+URLs and service-id pins are derived and cannot be overridden. The RPC
+allowlist contains exactly those bindings. One process is also supported.
+
+Merge each returned overlay into the test's infrastructure environment:
+database, cache, broker, composition root and module-specific settings stay
+the caller's responsibility. Settings in the overlay must win over inherited
+variables, especially the empty JWT private key/secret on verify-only peers.
+These ephemeral keys are for tests, never deployment configuration.
 
 ### `stop_revocation_listener`
 

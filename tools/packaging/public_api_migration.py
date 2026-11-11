@@ -7,7 +7,8 @@ code, in three directions:
 
 1. **Unmapped kernel names.** Every public name of today's public modules
    (``public_api`` of ``architecture_rules.yml`` plus ``sandloom.shared.authz``,
-   ``sandloom.shared.guards.*``, ``sandloom.core.testing``, ``sandloom.core.contract_testing``)
+   ``sandloom.shared.guards.*``, ``sandloom.core.testing``,
+   ``sandloom.core.contract_testing``)
    has a row.
 2. **Unmapped kernel imports.** Every ``from sandloom.core… / sandloom.shared… import``
    in the bundled modules (identity, tenancy, billing) and ``examples/``
@@ -18,8 +19,8 @@ code, in three directions:
 
 Usage (from the repository root)::
 
-    uv run python tools/packaging/public_api_migration.py          # check; exit 1 on a finding
-    uv run python tools/packaging/public_api_migration.py --list   # print the resolved table
+    uv run python tools/packaging/public_api_migration.py
+    uv run python tools/packaging/public_api_migration.py --list
 
 ``tests/architecture/test_public_api_migration.py`` runs it in the suite
 until the migration is complete (spec §2.1).
@@ -127,6 +128,7 @@ H1_KERNEL_NAMES: dict[str, str] = {
     "core.module_api.ModuleSettingsError": "sandloom.sdk.testing",
     "core.module_api.override_settings": "sandloom.sdk.testing",
     "core.module_api.validate_settings": "sandloom.sdk.testing",
+    "core.contract_testing.split_env": "sandloom.sdk.testing",
 }
 #: Kernel names that moved out of ``sandloom.shared.schemas`` (gone) on
 #: 2026-10-28, and the generated DTO copies' marker: kept where they are, no
