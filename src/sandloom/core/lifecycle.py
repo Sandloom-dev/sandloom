@@ -174,17 +174,25 @@ def _inc_metric(core: CoreFacade, name: str) -> None:
         logger.debug("Failed to increment metric %s", name)
 
 
-async def aggregate_health(core: CoreFacade) -> dict[str, HealthResult]:
+async def aggregate_health(
+    core: CoreFacade, *, operational: bool | None = None
+) -> dict[str, HealthResult]:
     """Collect health results from core + module descriptors.
 
     Module descriptor health checks are namespaced as `mod:<module>` to avoid
     collisions with core-registered names.
     """
-    checks: list[tuple[str, Callable[[], Awaitable[HealthResult]]]] = list(
-        core.health_checks.items()
+    registered = (
+        core.health_checks
+        if operational is None
+        else core._health_checks_for(operational=operational)
     )
-    seen = {name for name, _ in checks}
-    for d in getattr(core, "module_descriptors", []):
+    checks: list[tuple[str, Callable[[], Awaitable[HealthResult]]]] = list(
+        registered.items()
+    )
+    seen = set(core.health_checks)
+    descriptors = () if operational else getattr(core, "module_descriptors", [])
+    for d in descriptors:
         if isinstance(d, ModuleDescriptor) and d.health_check:
             key = f"mod:{d.name}"
             if key in seen:

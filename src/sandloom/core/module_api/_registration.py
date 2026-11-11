@@ -67,7 +67,7 @@ class ModuleRegistrationDraft:
         self.service_databases: dict[str, str] = {}
         self.startup: list[tuple[Any, bool]] = []
         self.shutdown: list[Any] = []
-        self.health: list[tuple[str, Any]] = []
+        self.health: list[tuple[str, Any, bool]] = []
         self.event_schemas: list[tuple[str, str, dict[str, Any] | None]] = []
         self.event_schema_objs: list[Any] = []
         self.claims_contributors: list[tuple[Any, bool, tuple[str, ...]]] = []
@@ -119,8 +119,8 @@ class ModuleRegistrationDraft:
                 facade.add_startup_task(task, critical=critical)
             for shutdown_task in self.shutdown:
                 facade.add_shutdown_task(shutdown_task)
-            for hc_name, fn in self.health:
-                facade.register_health_check(hc_name, fn)
+            for hc_name, fn, operational in self.health:
+                facade.register_health_check(hc_name, fn, operational=operational)
             for contributor, critical, fail_safe in self.claims_contributors:
                 facade.add_claims_contributor(
                     contributor, critical=critical, fail_safe=fail_safe
@@ -182,7 +182,7 @@ class ModuleRegistrationDraft:
     def _preflight_health(self, facade: CoreFacade, errors: list[str]) -> None:
         live = facade.health_checks
         seen: set[str] = set()
-        for name, _fn in self.health:
+        for name, _fn, _operational in self.health:
             if name in seen or name in live:
                 errors.append(f"duplicate health check {name!r}")
             seen.add(name)
@@ -445,11 +445,14 @@ class ModuleAPI:
         else:
             self._facade.add_shutdown_task(task)
 
-    def register_health_check(self, name: str, fn: HealthCheck) -> None:
+    def register_health_check(
+        self, name: str, fn: HealthCheck, *, operational: bool = False
+    ) -> None:
+        """Register a health probe. Operational probes feed /health only."""
         if self._draft is not None:
-            self._draft.health.append((name, fn))
+            self._draft.health.append((name, fn, operational))
         else:
-            self._facade.register_health_check(name, fn)
+            self._facade.register_health_check(name, fn, operational=operational)
 
     # -- Token claims -----------------------------------------------------
     def add_claims_contributor(

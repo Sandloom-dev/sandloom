@@ -307,12 +307,9 @@ the chosen driver gives it.
    required, so dropping an unneeded probe never disables that requirement.
 6. **Readiness follows use.** `/ready` probes the taskqueue only for a module
    that uses the queue while serving. A module that needs only `periodic` keeps
-   the web process ready during a broker outage, since the worker and beat run
-   that work, but a guarantee it needs must still be met: billing's reconciler
-   records its runs, and its health check fails when none completed within the
-   allowed interval. The `celery` driver's `health()` is a bounded connection to the
-   broker behind the existing health TTL, so the broker gets one
-   probe per interval. `Celery.health() == ok` alone is not the criterion.
+   the web process ready during a broker outage. Billing reports reconciler
+   progress in `/health`. See the [Billing HTTP API](../modules/batteries/billing.md#http-api).
+   The Celery driver's `health()` probes broker reachability once per health TTL.
 7. **The install matrix has real lanes.** The sixteen module subsets are booted
    with stubbed probes (composition) and also with only the probe under test
    replaced: Celery and Redis installed with real services, a driver missing

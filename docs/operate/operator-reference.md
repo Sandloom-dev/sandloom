@@ -897,7 +897,7 @@ restore the interpreter's own behaviour exactly.
 - **Traces**: set `TRACING_URL` to your OTLP endpoint (TLS auto for https).
 - **Errors**: set `SENTRY_DSN` to enable Sentry reporting.
 - **Health**: `/health` (operational health, 503 when degraded),
-  `/health/simple` (process liveness), `/ready` (health + required modules +
+  `/health/simple` (process liveness), `/ready` (serving health + required modules +
   required consumer subscriptions + a reachable taskqueue broker while a
   loaded module requires the taskqueue on the request path, `taskqueue_status`;
   topology shown only with the internal token),
@@ -915,10 +915,14 @@ restore the interpreter's own behaviour exactly.
   | the module requires | a broker outage |
   |---|---|
   | the queue on the request path (no feature, or `delay`, `idempotency_key`) | `/ready` 503, `taskqueue_status: fail`, naming the instance |
-  | only `periodic` (billing) | the web process stays ready (`unused`; the internal block lists it under `background_modules`); the worker and beat run that work, and the module checks its own runs: billing's `billing_reconciler` check fails after 15 minutes without a run |
+  | only `periodic` (Billing) | the web process can stay ready. `taskqueue_status` is `unused`, and internal details list the module under `background_modules`. |
   | it optionally (identity's cleanup), or not at all | never probed |
 
-  `/health` never includes the taskqueue.
+  The taskqueue broker probe feeds `/ready`. An overdue or missing Billing
+  reconciler run makes `/health` return 503.
+  Unresolved compensation failures also degrade that probe. New checkout and
+  portal requests, including pending retries, need a run completed in the last
+  15 minutes. See the [Billing HTTP API](../modules/batteries/billing.md#http-api).
 - **Client IP**: behind a proxy set `TRUST_PROXY_HEADERS=true` and
   `TRUSTED_PROXY_IPS` (CIDRs); `X-Forwarded-For` is then walked right-to-left
   from a trusted peer. Rate limiting (sliding window) is always on in prod.

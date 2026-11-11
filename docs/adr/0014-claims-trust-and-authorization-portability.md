@@ -211,7 +211,9 @@ behind a verifier without `legacy_tokens` is never a supported state.
 
 The compatibility mode is an **explicitly accepted temporary security risk** (owner, 2026-11-08,
 after the Codex review of `787ca60`), recorded in the guarantee ledger as G-RISK-14: a bounded
-window of today's trust for tokens without `cpv`, with these protections:
+window of today's trust for tokens with no `cpv` field. A malformed `cpv` field or unsupported
+policy version cannot enter the window. The compatibility window has these
+protections:
 
 - **bounded to the actual transition, one token lifetime and the clock-skew allowance:** `until`
   is required, an absolute UTC time, set to the end of the actual transition (the last O issuer

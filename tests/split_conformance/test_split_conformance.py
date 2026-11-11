@@ -276,6 +276,11 @@ async def _seed_template(url: str) -> None:
         "recurring_interval, stripe_price_id) "
         "VALUES (1, 1, 1000, 'usd', 'month', 'price_conf_pro')",
     )
+    await _sql(
+        url,
+        "INSERT INTO billing_reconciler_runs (name, finished_at, runs) "
+        "VALUES ('reconcile_operation_intents', clock_timestamp(), 1)",
+    )
 
 
 async def _clone_databases(base_url: str, template: str, names: list[str]) -> None:
@@ -817,6 +822,18 @@ def _script() -> list[Step]:
             headers={"Idempotency-Key": "conf-checkout-404"},
             expect=404,
         ),
+        Step("billing-heartbeat-stale", B, action="billing-heartbeat-stale"),
+        Step("plans-without-reconciler", B, "GET", "/api/v1/billing/plans", expect=200),
+        Step(
+            "checkout-without-reconciler",
+            B,
+            "POST",
+            "/api/v1/billing/checkout-session",
+            {"price_id": 1, "org_id": "{org}"},
+            auth="a2",
+            headers={"Idempotency-Key": "conf-checkout-stale"},
+            expect=503,
+        ),
         Step(
             "checkout-owner-replay",  # same key: the stored response replays
             B,
@@ -825,6 +842,17 @@ def _script() -> list[Step]:
             {"price_id": 1, "org_id": "{org}"},
             auth="a2",
             headers={"Idempotency-Key": "conf-checkout-alice"},
+            expect=200,
+        ),
+        Step("billing-heartbeat-recovered", B, action="billing-heartbeat-recovered"),
+        Step(
+            "checkout-after-reconciler-recovery",
+            B,
+            "POST",
+            "/api/v1/billing/checkout-session",
+            {"price_id": 1, "org_id": "{org}"},
+            auth="a2",
+            headers={"Idempotency-Key": "conf-checkout-recovered"},
             expect=200,
         ),
         Step(
@@ -1246,6 +1274,17 @@ async def _action(step: Step, state: RunState, base_db_url: str) -> None:
             await _sql(
                 _db_url(base_db_url, proc.db_name),
                 "UPDATE users SET is_verified = true",
+            )
+    elif step.action in ("billing-heartbeat-stale", "billing-heartbeat-recovered"):
+        proc = dep.host(B)
+        if proc is not None:
+            age = 901 if step.action == "billing-heartbeat-stale" else 0
+            await _sql(
+                _db_url(base_db_url, proc.db_name),
+                "UPDATE billing_reconciler_runs "
+                "SET finished_at = clock_timestamp() - :age * interval '1 second' "
+                "WHERE name = 'reconcile_operation_intents'",
+                age=age,
             )
     elif step.action == "activate":
         proc = dep.host(B)

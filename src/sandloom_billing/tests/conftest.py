@@ -22,6 +22,7 @@ from sandloom_billing.models import (
     BillingPrice,
     BillingProduct,
 )
+from sandloom_billing.services.reconciler_health import record_reconciler_run
 
 WEBHOOK_SECRET = "whsec_test_secret"
 
@@ -143,7 +144,14 @@ def user_b() -> tuple[uuid.UUID, dict[str, Any]]:
 
 
 @pytest_asyncio.fixture
-async def catalog(test_db: AsyncSession) -> dict[str, Any]:
+async def fresh_reconciler(test_db: AsyncSession) -> None:
+    """Supply the completed run that checkout and portal require."""
+    await record_reconciler_run(test_db)
+    await test_db.commit()
+
+
+@pytest_asyncio.fixture
+async def catalog(test_db: AsyncSession, fresh_reconciler: None) -> dict[str, Any]:
     """Seed one subscription product and one one-time credit pack."""
     pro = BillingProduct(
         name="Pro", type=PRODUCT_TYPE_SUBSCRIPTION, stripe_product_id="prod_pro"

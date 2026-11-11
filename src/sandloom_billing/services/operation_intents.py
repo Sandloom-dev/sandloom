@@ -97,6 +97,7 @@ from sandloom_billing.psp import (
     StripeRequestRejected,
 )
 from sandloom_billing.services.billing_service import BillingService, CheckoutPlan
+from sandloom_billing.services.reconciler_health import require_reconciler_progress
 from sandloom_billing.services.tenant_resolver import TenantContext, reverify_authority
 
 #: The live-request index's own predicate (the model's literal SQL, so the
@@ -273,12 +274,14 @@ class OperationIntentService:
                 if price_id is not None
                 else None
             )
-            customer = await BillingService.ensure_tenant_customer(
-                ctx.tenant_type, ctx.tenant_id, db
-            )
             intent = None
             if hashed_key is not None:
                 intent = await cls._live_intent(db, ctx.user_id, operation, hashed_key)
+            if intent is None or intent.status != INTENT_ISSUED:
+                await require_reconciler_progress(db)
+            customer = await BillingService.ensure_tenant_customer(
+                ctx.tenant_type, ctx.tenant_id, db
+            )
             if intent is None:
                 intent = await cls._insert(
                     db,

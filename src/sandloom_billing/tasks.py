@@ -24,9 +24,9 @@ from sandloom.sdk.data import open_uow
 from sandloom.sdk.effects import run_async
 from sandloom.sdk.tasks import shared_task
 from sandloom_billing.psp import active_psp_client
-from sandloom_billing.services.intent_reconciler import (
+from sandloom_billing.services.intent_reconciler import IntentReconciler
+from sandloom_billing.services.reconciler_health import (
     RECONCILE_INTERVAL_SECONDS,
-    IntentReconciler,
     record_reconciler_run,
 )
 from sandloom_billing.services.webhook_service import purge_orphan_payment_states
