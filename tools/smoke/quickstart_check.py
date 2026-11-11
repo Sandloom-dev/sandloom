@@ -19,7 +19,7 @@ the CLI, never something to add here. The steps:
    right after ``uv sync``, the app's ``sandloom`` must be this checkout (the
    live tree of the editable sources, or files byte-identical to it): a
    stale cached build of the same version fails here;
-3. with the app running: ``GET /health`` answers 200, and a token minted
+3. with the app running: ``GET /ready`` answers 200, and a token minted
    with the testing kit (``sandloom.sdk.testing.as_user``, the app's own
    ``JWT_SECRET``) creates and reads an item of the added module;
 4. ``uv run sandloom test --ci`` (the generated app's CI gate) — also once on the
@@ -405,17 +405,17 @@ class Runner:
             if self.server.poll() is not None:
                 raise QuickstartError(f"the app exited ({self.server.returncode})")
             try:
-                status, body = self.http("GET", "/health")
+                status, body = self.http("GET", "/ready")
             except OSError as exc:
                 last = str(exc)
                 time.sleep(0.5)
                 continue
             if status == 200:
-                print(f"GET /health -> 200 {body[:200]}")
+                print(f"GET /ready -> 200 {body[:200]}")
                 return
             last = f"{status} {body[:300]}"
             time.sleep(0.5)
-        raise QuickstartError(f"GET /health never answered 200 (last: {last})")
+        raise QuickstartError(f"GET /ready never answered 200 (last: {last})")
 
     def stop_server(self) -> None:
         if self.server is None:
