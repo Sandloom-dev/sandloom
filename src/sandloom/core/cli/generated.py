@@ -1266,7 +1266,8 @@ def main(argv: list[str] | None = None) -> int:
         rules.source_root,
         shared_package=rules.shared_dto_package,
         modules=args.modules or None,
-        consumed_only=consumed_only,
+        # A named provider can publish its first stub before any caller exists.
+        consumed_only=consumed_only and not args.modules,
     ) + _consumer_plan(app, rules, planned, args.modules or None)
     if not args.modules:
         files += _agent_reference(rules.root)

@@ -978,10 +978,12 @@ jobs:
           ACME_IDP_ISSUER: https://idp.example.test
           ACME_IDP_CLIENT_ID: storefront-web
         run: |
-          db="mig_${{ matrix.app }}"
+          app="${{ matrix.app }}"
+          package="${app//-/_}"
+          db="mig_$package"
           psql -h localhost -p 5433 -U test_user -d sandloom_test -c "CREATE DATABASE $db"
           psql -h localhost -p 5433 -U test_user -d "$db" -c "CREATE EXTENSION IF NOT EXISTS citext"
-          export PYTHONPATH="$PWD" SANDLOOM_COMPOSITION_ROOT="${{ matrix.app }}.asgi"
+          export PYTHONPATH="$PWD" SANDLOOM_COMPOSITION_ROOT="$package.asgi"
           # Unset in .env.example (the tutorial app): every discovered module
           # (sed, not grep: no match is no error under bash -e).
           modules="$(sed -n 's/^SANDLOOM_MODULES=//p' .env.example)"
