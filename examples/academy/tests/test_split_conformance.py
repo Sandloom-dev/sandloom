@@ -70,10 +70,13 @@ SETTLE_TIMEOUT = 45.0
 
 @cache
 def _test_app() -> Any:
-    from sandloom.core.auth.claims_view import enable_test_authority
+    from sandloom.sdk.testing import plugin
 
-    # The served child does not run pytest's configuration hooks.
-    enable_test_authority()
+    # Set up the test authority in this child without loading the test suite.
+    config = pytest.Config.fromdictargs(
+        {}, ["-c", os.devnull, "--noconftest", "--disable-plugin-autoload"]
+    )
+    plugin.pytest_configure(config)
     from academy.asgi import app
 
     return app
