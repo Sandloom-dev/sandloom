@@ -24,6 +24,15 @@ from sandloom.core.cli.inspection.model import (
 
 RECEIPT_SCHEMA = "sandloom.inspection_receipt"
 
+# Public helpers emitted by the stub and DTO generators. Their wire definitions
+# are in the generated files, so the reader never needs to import the SDK.
+GENERATED_SDK_IMPORTS = {
+    "sandloom.sdk.contracts": frozenset({"ContractRef", "dto_copy"}),
+    "sandloom.sdk.authz": frozenset(
+        {"Account", "ClaimFactCheck", "ClaimReadCheck", "ContractCheck"}
+    ),
+}
+
 
 def _unique(pairs: list[tuple[str, Any]]) -> Doc:
     result: Doc = {}
@@ -354,6 +363,10 @@ class Reader:
                 name.split(".")[0] in sys.stdlib_module_names
                 or name.split(".")[0] == "pydantic"
                 or name == "sandloom.core.descriptors.contract_refs"
+                or all(
+                    alias.name in GENERATED_SDK_IMPORTS.get(name, ())
+                    for alias in node.names
+                )
             )
             if not (
                 name == shared or name.startswith(shared + ".") or allowed_external
