@@ -67,6 +67,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+import sandloom.core.testing.boot as _boot
 from sandloom.core import rpc_binding, rpc_identity, rpc_pair_mac
 from sandloom.core.rpc import RemoteServiceProxy, RemoteServiceUnavailable, rpc_router
 from sandloom.core.rpc.client import _new_rpc_client
@@ -265,8 +266,6 @@ def rpc_env(
 
 
 def _split_contract_owners(processes: Mapping[str, Sequence[str]]) -> dict[str, str]:
-    from sandloom.core.testing.boot import load_topology  # noqa: PLC0415 - cold: load registrations only when building a test topology
-
     owners: dict[str, str] = {}
     modules_seen: set[str] = set()
     for service, modules in processes.items():
@@ -283,7 +282,7 @@ def _split_contract_owners(processes: Mapping[str, Sequence[str]]) -> dict[str, 
         if modules_seen.intersection(modules) or len(set(modules)) != len(modules):
             raise ValueError("a module must belong to exactly one process")
         modules_seen.update(modules)
-        core, summary = load_topology(modules, exact=True)
+        core, summary = _boot.load_topology(modules, exact=True)
         if summary.failed or summary.skipped:
             raise ValueError(
                 f"could not load modules for {service!r}: {summary.to_dict()}"

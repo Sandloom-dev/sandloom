@@ -466,8 +466,8 @@ async def test_a_bound_tenant_policy_without_a_witness_is_reported(
     core = SimpleNamespace(app=app)
     with caplog.at_level(logging.WARNING, "sandloom.authz.tenant_witness"):
         report(core, None, "the tenant authority 'grants' declares no witness")
-    [record] = [r for r in caplog.records if "Account.bound_tenant()" in r.message]
-    assert "GET /reports" in record.message and "'grants'" in record.message
+    [record] = [r for r in caplog.records if "Account.bound_tenant()" in r.getMessage()]
+    assert "GET /reports" in record.getMessage() and "'grants'" in record.getMessage()
     caplog.clear()
     with caplog.at_level(logging.WARNING, "sandloom.authz.tenant_witness"):
         report(core, WITNESS, "")

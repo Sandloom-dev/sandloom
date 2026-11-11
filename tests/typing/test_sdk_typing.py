@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 HERE = Path(__file__).resolve().parent
-BACKEND = HERE.parents[2]
+BACKEND = HERE.parents[1]
 PROOFS = sorted(str(p) for p in (HERE / "proofs").glob("*.py"))
 
 pytestmark = pytest.mark.slow
