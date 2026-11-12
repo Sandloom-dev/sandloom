@@ -17,7 +17,18 @@ Guide: ``docs/infrastructure/write-a-driver.md``.
 
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.infra.capabilities import CapabilityRef, CapabilitySpec
-from sandloom.core.infra.contracts import InfraProvider, Notification, NotifierProvider
+from sandloom.core.infra.contracts import (
+    InfraProvider,
+    InvalidObjectKeyError,
+    Notification,
+    NotifierProvider,
+    ObjectContent,
+    ObjectStoreProvider,
+    ObjectTooLargeError,
+    UploadTooLargeError,
+    iter_object_chunks,
+    validate_object_key,
+)
 from sandloom.core.sql_alchemy.dbapi import (
     DBAPI_CAPABILITIES,
     DbapiAdapter,
@@ -47,5 +58,12 @@ __all__ = [
     "InfraProvider",
     "Notification",
     "NotifierProvider",
+    "InvalidObjectKeyError",
+    "ObjectContent",
+    "ObjectStoreProvider",
+    "ObjectTooLargeError",
+    "UploadTooLargeError",
+    "iter_object_chunks",
+    "validate_object_key",
     "register_dbapi_adapter",
 ]

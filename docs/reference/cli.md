@@ -12,7 +12,7 @@ has `--help`.
 
 ## Context and declared architecture
 
-Available in `sandloom>=0.7.0a12,<0.8`. <!-- sandloom-release -->
+Available in `sandloom>=0.7.0a13,<0.8`. <!-- sandloom-release -->
 
 | Command | What it does |
 | --- | --- |
@@ -62,7 +62,7 @@ work there too. Failed generation leaves the previous HTML intact and unopened.
 
 | Command | What it does |
 | --- | --- |
-| `sandloom new <app> [--with identity,tenancy,billing \| --no-batteries] [--module <name>] [--dir <path>] [--agents <a>,<b>]` | Generate a standalone, runnable application. `--agents` picks the coding agents it writes skills for ([Agent tooling](../ai/agent-tooling.md)). The app depends on `sandloom[redis,celery]>=0.7.0a12,<0.8` plus `sandloom-<module>>=0.7.0a12,<0.8` per `--with` module. `--framework-req`, `--framework-source {pypi,git,path}` and `--framework-path` choose where the framework comes from (`path`: editable sources for exactly those distributions). |
+| `sandloom new <app> [--with identity,tenancy,billing \| --no-batteries] [--module <name>] [--dir <path>] [--agents <a>,<b>]` | Generate a standalone, runnable application. `--agents` picks the coding agents it writes skills for ([Agent tooling](../ai/agent-tooling.md)). The app depends on `sandloom[redis,celery]>=0.7.0a13,<0.8` plus `sandloom-<module>>=0.7.0a13,<0.8` per `--with` module. `--framework-req`, `--framework-source {pypi,git,path}` and `--framework-path` choose where the framework comes from (`path`: editable sources for exactly those distributions). |
 | `sandloom new` (at a terminal) | The wizard. It asks what the flags leave open: the name, the standard modules, the coding agents, how to run PostgreSQL and Redis (Docker, servers you already run, or later) and whether to set the app up now. The setup runs `uv sync`, `generate`, `dev up` and the migrations; its output goes to `.sandloom/run/new-setup.log`. With the console it then asks the administrator's email and runs `admin create` on the terminal, which asks the password itself: the wizard never handles it. The summary says how to start the app and what to open, with help apart, and ends with a pinned `uvx` command that makes the same app without questions. Without a terminal, in CI or under a coding agent, nothing is asked. |
 | `sandloom new … [--no-git]` | A git repository with a first commit is the default; `--no-git` skips it. Inside an existing repository none is created and nothing is committed. The first commit runs no hook and is not signed (`--no-verify`, `-c commit.gpgsign=false`); without a git identity the repository stays uncommitted and the output says how to commit. |
 | `sandloom new … --services docker\|external\|none [--database-url URL] [--redis-url URL]` | How `--setup` runs PostgreSQL and Redis. `external` uses servers you already run (default URLs: `postgresql://$USER@127.0.0.1:5432/postgres`, `redis://127.0.0.1:6379`), checks them, creates the app's database and writes `.env` like `dev up --services external`. `none` creates the files only. |

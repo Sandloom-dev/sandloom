@@ -22,6 +22,7 @@ PACKAGES = (
     "sandloom-tenancy",
     "sandloom-billing",
     "sandloom-admin",
+    "sandloom-s3",
 )
 VERSION = re.compile(r"\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?")
 

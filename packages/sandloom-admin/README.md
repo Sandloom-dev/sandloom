@@ -18,7 +18,7 @@ framework for AI-driven development.
 ## Install
 
 ```bash
-uvx --from "sandloom[standard]==0.7.0a12" sandloom new myapp --with admin
+uvx --from "sandloom[standard]==0.7.0a13" sandloom new myapp --with admin
 ```
 
 Or add it to an existing application:

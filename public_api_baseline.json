@@ -2566,6 +2566,15 @@
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
+    "InvalidObjectKeyError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
     "LockStatement": {
       "kind": "class",
       "members": [
@@ -2600,6 +2609,37 @@
         "supported_features"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
+    "ObjectContent": {
+      "kind": "value"
+    },
+    "ObjectStoreProvider": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "aopen",
+        "capability",
+        "delete",
+        "features",
+        "features_for",
+        "from_config",
+        "get",
+        "health",
+        "options_schema",
+        "put",
+        "supported_features",
+        "url"
+      ],
+      "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
+    "ObjectTooLargeError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
     },
     "RowSecurity": {
       "kind": "class",
@@ -2645,12 +2685,29 @@
     "TENANT_SETTING": {
       "kind": "value"
     },
+    "UploadTooLargeError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "with_traceback"
+      ],
+      "signature": null
+    },
     "WRITE_LOCK_HELD": {
       "kind": "value"
+    },
+    "iter_object_chunks": {
+      "kind": "function",
+      "signature": "(data:POSITIONAL_OR_KEYWORD|ObjectContent, chunk_size:POSITIONAL_OR_KEYWORD|int) -> AsyncIterator[bytes]"
     },
     "register_dbapi_adapter": {
       "kind": "function",
       "signature": "(adapter:POSITIONAL_OR_KEYWORD|DbapiAdapter) -> None"
+    },
+    "validate_object_key": {
+      "kind": "function",
+      "signature": "(key:POSITIONAL_OR_KEYWORD|str) -> None"
     }
   },
   "sandloom.sdk": {

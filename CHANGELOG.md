@@ -13,6 +13,10 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+## [0.7.0a13]
+
+- Add the optional `sandloom-s3` distribution and align the local and S3 object store contracts.
+
 ## [0.7.0a12]
 
 This alpha separates the lean kernel from the standard composition and its

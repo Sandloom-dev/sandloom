@@ -1,6 +1,6 @@
 [project]
 name = "sandloom-standard"
-version = "0.7.0a12"
+version = "0.7.0a13"
 classifiers = ["Development Status :: 3 - Alpha"]
 description = "The standard Sandloom composition: the composition root that every process of a standard deployment boots."
 readme = "README.md"
@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 # distributions installed beside it (entry points), never a module's code.
 # `sandloom[standard]` installs it with the standard modules.
 dependencies = [
-    "sandloom>=0.7.0a12,<0.8",
+    "sandloom>=0.7.0a13,<0.8",
 ]
 
 # The root's claim-authority map, read (without building the app) only to

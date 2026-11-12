@@ -96,3 +96,17 @@ def test_infra_overlay_gives_a_replacement_driver_no_prior_options(
 
     assert instance.driver == "file"
     assert instance.options == {"path": "/m.log"}
+
+
+def test_flat_s3_settings_do_not_inherit_the_local_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "infra", {})
+    monkeypatch.setattr(settings, "storage_type", "s3")
+    monkeypatch.setattr(settings, "s3_bucket", "uploads")
+
+    instance = load_infra_config(settings)["objectstore"]["default"]
+
+    assert instance.driver == "s3"
+    assert instance.options["bucket"] == "uploads"
+    assert "path" not in instance.options
