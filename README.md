@@ -223,10 +223,11 @@ by changing connection settings. Select a notification driver with
 and selected through `INFRA`; startup checks validate module requirements
 against the configured capabilities and features.
 
-The current production stack is **PostgreSQL + Redis**, with SMTP and local or
-shared-volume files. Switching backend technology requires an implemented driver
-with the required features; PostgreSQL is currently the only supported relational
-backend. See the [infrastructure overview](docs/infrastructure/index.md).
+The standard production stack uses **PostgreSQL + Redis** and SMTP.
+For files, choose local storage on a persistent volume or install
+`sandloom-s3` for S3-compatible storage with signed download links.
+See [object store setup](docs/infrastructure/object-store.md#s3) and the
+[infrastructure overview](docs/infrastructure/index.md).
 
 ## From one process to services
 
