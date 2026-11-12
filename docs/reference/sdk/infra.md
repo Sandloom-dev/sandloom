@@ -33,7 +33,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`Notification`](#notification) | class | One outbound notification, independent of the delivery backend. |
 | [`Notifier`](#notifier) | class | What a module calls on `notifier()`. |
 | [`notifier`](#notifier_1) | function | Return the `NotifierProvider` for a named instance. |
-| [`ObjectStore`](#objectstore) | class | What a module calls on `objectstore()`. |
+| [`ObjectStore`](#objectstore) | class | Key-addressed objects in one configured store. |
 | [`objectstore`](#objectstore_1) | function | Return the `ObjectStoreProvider` for a named instance (the module-level twin of `CoreRuntime.objectstore`; spec §2.2). |
 | [`settings`](#settings) | settings object |  |
 | [`ShutdownTask`](#shutdowntask) | constant |  |
@@ -712,7 +712,22 @@ bound).
 class ObjectStore(Protocol)
 ```
 
-What a module calls on `objectstore()`.
+Key-addressed objects in one configured store.
+
+Keys are relative UTF-8 strings with nonempty slash-separated segments,
+at most 1024 bytes, with dot segments, backslashes and NUL excluded.
+Deployments using a filesystem also need filenames and key combinations
+representable on that filesystem.
+
+A complete put publishes one object and returns its key. A source read
+failure or size refusal preserves any previous object. Get returns bytes
+and raises FileNotFoundError when the backend reports a missing key.
+Delete succeeds when the key is absent. In a versioned store it removes
+the current object from ordinary reads. Older versions follow backend policy.
+
+Content type and metadata are available when the driver advertises
+`metadata`. A driver with `presigned_get` can issue a time-limited
+retrieval link without checking that the object exists.
 
 #### `ObjectStore.put`
 
@@ -720,7 +735,7 @@ What a module calls on `objectstore()`.
 async def put(
     self,
     key: str,
-    data: bytes | Any,
+    data: ObjectContent,
     *,
     content_type: str | None = None,
     metadata: Mapping[str, str] | None = None,

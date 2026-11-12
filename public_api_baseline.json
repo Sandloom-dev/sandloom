@@ -2625,8 +2625,10 @@
         "from_config",
         "get",
         "health",
+        "install_hint",
         "options_schema",
         "put",
+        "required_imports",
         "supported_features",
         "url"
       ],

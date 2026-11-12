@@ -46,9 +46,9 @@ jobs:
           save-cache: false
       - name: Install Sandloom and the external driver
         run: |
-          uv sync --frozen
+          uv sync --frozen --group packaging
           uv build packages/sandloom-s3 --out-dir "$RUNNER_TEMP/s3-dist"
-          uv pip install "$RUNNER_TEMP"/s3-dist/*.whl
+          uv pip install --reinstall --no-deps "$RUNNER_TEMP"/s3-dist/*.whl
       - name: Check external driver style
         run: |
           uv run --no-sync ruff check packages/sandloom-s3
@@ -111,7 +111,7 @@ jobs:
             -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e "S3_BUCKET=$SANDLOOM_S3_TEST_BUCKET" \
             chrislusf/seaweedfs@sha256:ccad23e18639c8b98cee17e7100b95830a06077b56d8e5b006d6dcf8ec5e94a0 \
             mini -dir=/data -ip.bind=0.0.0.0
-          curl --retry 20 --retry-connrefused --retry-delay 1 --silent --show-error \
+          curl --retry 20 --retry-all-errors --retry-delay 1 --max-time 5 --silent --show-error \
             "$SANDLOOM_S3_TEST_ENDPOINT" >/dev/null
           uv run --no-sync python - <<'PY'
           import os

@@ -86,7 +86,7 @@ Not listed (full suites, SBOM, UI): `uv run sandloom test <module>`, `admin/AGEN
 - examples: $BIN/sandloom test --ci --full ; $BIN/sandloom migrate upgrade-all --apply
 
 **packages**: src/** packages/** migrations/core/** LICENSE NOTICE tools/packaging/*.py
-- packages: uv run --locked python tools/packaging/check_package_distributions.py... ; docker compose -f deploy/compose/test.yml up -d --wait ; uv run --locked pytest tests/integration/module_subsets -p no:cachepr...
+- packages: uv run --locked --group packaging python tools/packaging/check_packag... ; docker compose -f deploy/compose/test.yml up -d --wait ; uv run --locked pytest tests/integration/module_subsets -p no:cachepr...
 
 ## 3. Kernel map (file · symbols; `grep -n '^def create_app' <file>`)
 
