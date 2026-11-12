@@ -26,7 +26,7 @@ code runs against any configured backend and in any deployment profile.
 | [Cache](cache.md) | fast shared data and counters | [`redis`](cache.md#redis) |
 | [Event bus](event-bus.md) | delivering events between modules | [`streams`](event-bus.md#streams), [`redis`](event-bus.md#redis), [`memory`](event-bus.md#memory) |
 | [Task queue](task-queue.md) | background work | [`celery`](task-queue.md#celery) |
-| [Object store](object-store.md) | files | [`local`](object-store.md#local) |
+| [Object store](object-store.md) | files | [`local`](object-store.md#local), optional [`s3`](object-store.md#s3) |
 | [Notifications](notifications.md) | email and other messages | [`log`](notifications.md#log), [`smtp`](notifications.md#smtp) |
 
 Each page shows what a module calls, and each driver's settings and limits.
