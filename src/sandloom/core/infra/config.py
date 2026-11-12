@@ -113,7 +113,6 @@ def _synthesize_defaults(settings: Settings) -> InfraConfig:
     eventbus_driver = _default_eventbus_driver(settings)
 
     objectstore_options: dict[str, Any] = {
-        "path": settings.storage_path,
         "max_upload_size_bytes": settings.max_upload_size_bytes,
     }
     if settings.storage_type == "s3":
@@ -123,6 +122,8 @@ def _synthesize_defaults(settings: Settings) -> InfraConfig:
             access_key_id=settings.s3_access_key_id,
             secret_access_key=settings.s3_secret_access_key,
         )
+    else:
+        objectstore_options["path"] = settings.storage_path
 
     synthesized: InfraConfig = {
         "database": {

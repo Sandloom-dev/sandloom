@@ -10,6 +10,7 @@ import logging
 from collections.abc import AsyncIterator, Callable, Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any, ClassVar, cast, get_args
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
@@ -30,11 +31,13 @@ from sandloom.driverkit import (
     TENANT_SETTING,
     ConflictInsert,
     HealthResult,
+    InvalidObjectKeyError,
     LockStatement,
     Notification,
     NotifierProvider,
     SqlDialect,
 )
+from sandloom.sdk.infra import ObjectStore
 
 _MARKER = "sandloom-conformance-marker"
 
@@ -864,9 +867,109 @@ class SqlDialectConformance:
             )
 
 
+class _ObjectStream:
+    def __init__(self, *chunks: bytes) -> None:
+        self._chunks = iter(chunks)
+
+    async def read(self, size: int = -1) -> bytes:
+        return next(self._chunks, b"")
+
+
+class _UnsizedObjectStream:
+    async def read(self) -> bytes:
+        return b"legacy"
+
+
+class _FailingObjectStream:
+    def __init__(self, store: ObjectStore, key: str) -> None:
+        self._store = store
+        self._key = key
+        self._started = False
+
+    async def read(self, size: int = -1) -> bytes:
+        if self._started:
+            _require(
+                await self._store.get(self._key) == b"original",
+                "partial upload stays hidden",
+            )
+            raise OSError("source failed")
+        self._started = True
+        return b"partial replacement"
+
+
+@pytest.mark.asyncio
+class ObjectStoreConformance:
+    """Portable object operations. Supply a store fixture using a test namespace."""
+
+    async def test_object_bytes_and_overwrite(self, store: ObjectStore) -> None:
+        key = f"conformance/{uuid4().hex}/object.bin"
+        await store.put(key, b"first")
+        try:
+            _require(await store.get(key) == b"first", "read returns stored bytes")
+            prefix, _, _ = key.rpartition("/")
+            with pytest.raises(FileNotFoundError):
+                await store.get(prefix)
+            await store.delete(prefix)
+            _require(
+                await store.get(key) == b"first", "deleting a prefix preserves objects"
+            )
+            await store.put(key, b"second")
+            _require(await store.get(key) == b"second", "put replaces the content")
+        finally:
+            await store.delete(key)
+        await store.delete(key)
+        with pytest.raises(FileNotFoundError):
+            await store.get(key)
+
+    async def test_object_failed_upload_preserves_previous_value(
+        self, store: ObjectStore
+    ) -> None:
+        key = f"conformance/{uuid4().hex}/previous.bin"
+        await store.put(key, b"original")
+        try:
+            with pytest.raises(OSError, match="source failed"):
+                await store.put(key, _FailingObjectStream(store, key))
+            _require(
+                await store.get(key) == b"original", "failed put preserves old data"
+            )
+        finally:
+            await store.delete(key)
+
+    async def test_object_invalid_keys(self, store: ObjectStore) -> None:
+        for key in (
+            "",
+            "/absolute",
+            "a//b",
+            "a/./b",
+            "a/../b",
+            "a\\b",
+            "a\x00b",
+            "é" * 513,
+        ):
+            with pytest.raises(InvalidObjectKeyError):
+                await store.put(key, b"test")
+            with pytest.raises(InvalidObjectKeyError):
+                await store.get(key)
+            with pytest.raises(InvalidObjectKeyError):
+                await store.delete(key)
+            with pytest.raises(InvalidObjectKeyError):
+                await store.url(key)
+
+    async def test_object_async_stream(self, store: ObjectStore) -> None:
+        key = f"conformance/{uuid4().hex}/stream.bin"
+        await store.put(key, _ObjectStream(b"first", b"second"))
+        try:
+            _require(await store.get(key) == b"firstsecond", "put reads all chunks")
+            await store.put(key, _UnsizedObjectStream())
+            _require(await store.get(key) == b"legacy", "legacy read() is accepted")
+        finally:
+            await store.delete(key)
+
+
 __all__ = [
     "JSON_PATH_DOCUMENT",
     "JSON_PATH_READS",
     "NotifierConformance",
+    "ObjectStoreConformance",
     "SqlDialectConformance",
 ]

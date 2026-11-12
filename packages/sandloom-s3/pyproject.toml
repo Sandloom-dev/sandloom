@@ -1,0 +1,28 @@
+[project]
+name = "sandloom-s3"
+version = "0.7.0a13"
+description = "S3-compatible object store driver for Sandloom"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+dependencies = [
+    "sandloom>=0.7.0a13,<0.8",
+    "anyio>=4,<5",
+    "boto3>=1.36,<2",
+    "botocore>=1.36,<2",
+    "pydantic>=2,<3",
+]
+
+[project.entry-points."sandloom.drivers"]
+"objectstore.s3" = "sandloom_s3:S3ObjectStore"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sandloom_s3"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/LICENSE", "/NOTICE", "/README.md", "/CHANGELOG.md", "/pyproject.toml"]

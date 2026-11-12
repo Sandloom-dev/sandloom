@@ -8,6 +8,10 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+## [0.7.0a13]
+
+- Add the optional `sandloom-s3` distribution and align the local and S3 object store contracts.
+
 ## [0.7.0a12]
 
 ### Changed

@@ -192,7 +192,7 @@ OBJECTSTORE_CAPABILITY = CapabilitySpec(
     name="objectstore",
     version="v1",
     provider_contract=ObjectStoreProvider,
-    features=frozenset(),
+    features=frozenset({"metadata", "presigned_get"}),
     description="Blob/file storage (key-addressed).",
 )
 

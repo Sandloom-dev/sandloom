@@ -5,16 +5,14 @@
 reused so the health check and callers refer to the same object; named instances
 get their own root path.
 
-``s3``/``gcs``/``yc`` are registered as known drivers that surface a clear
-"not implemented" error rather than silently mis-routing — the contract and
-config plumbing are ready for a real driver to be dropped in.
+Other object stores can register a provider through the ``sandloom.drivers``
+entry-point group. The separate ``sandloom-s3`` package registers ``objectstore.s3``.
 """
 
 from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -22,23 +20,8 @@ from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.drivers.filesystem_storage import Storage
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
-from sandloom.core.infra.contracts import ObjectStoreProvider
+from sandloom.core.infra.contracts import ObjectContent, ObjectStoreProvider
 from sandloom.core.infra.registry import FeatureUnsupportedError
-
-
-class _BytesReader:
-    """Adapts an in-memory ``bytes`` blob to the async-readable Storage expects."""
-
-    def __init__(self, data: bytes) -> None:
-        self._data = data
-        self._sent = False
-
-    async def read(self, size: int = -1) -> bytes:
-        if self._sent:
-            return b""
-        self._sent = True
-        return self._data
-
 
 #: Features the local (and any plug-compatible) object store supports.
 OBJECTSTORE_FEATURES: frozenset[str] = frozenset()
@@ -84,7 +67,7 @@ class LocalObjectStoreProvider(ObjectStoreProvider):
     async def put(
         self,
         key: str,
-        data: bytes | Any,
+        data: ObjectContent,
         *,
         content_type: str | None = None,
         metadata: Mapping[str, str] | None = None,
@@ -92,11 +75,7 @@ class LocalObjectStoreProvider(ObjectStoreProvider):
         # content_type/metadata have no place on a plain filesystem; cloud
         # drivers (S3/GCS) carry them. The key is sanitized by Storage (no
         # traversal, no symlink escape) before it touches the host path.
-        if isinstance(data, (bytes, bytearray)):
-            reader: Any = _BytesReader(bytes(data))
-        else:
-            reader = data
-        await self._storage.save(reader, key)
+        await self._storage.save(data, key)
         return key
 
     async def get(self, key: str) -> bytes:

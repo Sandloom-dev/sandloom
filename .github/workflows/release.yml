@@ -17,7 +17,7 @@ on:
         required: true
         default: all
         type: choice
-        options: [all, sandloom, sandloom-standard, sandloom-identity, sandloom-tenancy, sandloom-billing]
+        options: [all, sandloom, sandloom-standard, sandloom-identity, sandloom-tenancy, sandloom-billing, sandloom-s3]
       dry_run:
         description: "Validate and retain artifacts without uploading to PyPI"
         required: true

@@ -4,16 +4,16 @@ type: how-to
 
 # Publishing packages to PyPI
 
-Sandloom publishes six distributions through
+Sandloom publishes seven distributions through
 [Release (PyPI)](https://github.com/Sandloom-dev/sandloom/actions/workflows/release.yml):
 `sandloom`, `sandloom-standard`, `sandloom-identity`, `sandloom-tenancy`,
-`sandloom-billing` and `sandloom-admin`. `sandloom-standard` holds the standard
+`sandloom-billing`, `sandloom-admin` and `sandloom-s3`. `sandloom-standard` holds the standard
 composition root (`sandloom_standard.main`) that `sandloom[standard]` installs:
 release it before or together with a `sandloom` version whose `standard` extra
 requires it.
 Versions are independent. A manual run can select one package or `all` for a
 coordinated release. A per-package tag selects only that package.
-The current coordinated alpha is `0.7.0a12` for all six packages. <!-- sandloom-release -->
+The current coordinated alpha is `0.7.0a13` for all seven packages. <!-- sandloom-release -->
 
 ## Authentication and approval
 
@@ -36,9 +36,9 @@ their own run because there is only one maintainer. Allowed deployment refs are
 `main` and the five tag patterns `sandloom-v*`, `sandloom-standard-v*`,
 `sandloom-identity-v*`, `sandloom-tenancy-v*` and `sandloom-billing-v*`.
 
-For the first `sandloom-standard` release, configure its pending Trusted
-Publisher on PyPI. Its per-package tag also requires `sandloom-standard-v*`
-in the deployment refs of the `pypi` environment.
+Configure a pending Trusted Publisher for the first `sandloom-s3` release.
+Use a manual release from `main` and include the compatible framework wheel in
+the same run or publish the framework first.
 
 The plan step also refuses publication from a feature branch or a tag whose
 commit is not reachable from `origin/main`. A tag must exactly match the selected
@@ -79,7 +79,7 @@ before owner approval. Only this job receives `contents: write`; it has no
 PyPI token or OIDC permission and does no checkout, build or installation.
 
 A coordinated `all` release requires matching package versions and creates
-`v<version>` (for example `v0.7.0a12`). A single-package release creates <!-- sandloom-release -->
+`v<version>` (for example `v0.7.0a13`). A single-package release creates <!-- sandloom-release -->
 `<package>-v<version>`. Alpha, beta and release candidates are marked as
 GitHub prereleases. The tag must point to the manifest's exact source commit.
 Reruns can fill missing assets in a draft but never overwrite a tag or a
@@ -98,15 +98,15 @@ still stop publication. A successful PyPI upload does not need to be repeated.
 For a coordinated release, run this from the repository root:
 
 ```bash
-python tools/packaging/sync_release.py --version 0.7.0a12 --write
+python tools/packaging/sync_release.py --version 0.7.0a13 --write
 uv lock
 uv lock --project benchmarks
 uv run python tools/checks/check_benchmark_dependencies.py --write
 ```
 
-<!-- sandloom-release --> The command above prepares the `0.7.0a12` release.
+<!-- sandloom-release --> The command above prepares the `0.7.0a13` release.
 The canonical current framework version is `packages/sandloom/pyproject.toml`.
-The helper updates all six package versions, compatible dependency floors,
+The helper updates all seven package versions, compatible dependency floors,
 example manifests, scaffold requirements, CLI help and current documentation.
 It discovers package pins in source documentation; prose that describes the
 current release carries an inline `<!-- sandloom-release -->` marker.
@@ -125,7 +125,7 @@ A release PR describes its candidate version. Successful publication from
 
 After the owner merges the PR, open **Actions → Release (PyPI) → Run workflow**:
 
-- Select `main` and one package, or `all` for the coordinated `0.7.0a12` release. <!-- sandloom-release -->
+- Select `main` and one package, or `all` for the coordinated `0.7.0a13` release. <!-- sandloom-release -->
 - Leave **dry_run** checked for validation and artifacts without an upload.
 - For publication, uncheck **dry_run**. The workflow still validates first and
   stops at the `pypi` environment for owner approval before obtaining credentials.
@@ -139,13 +139,13 @@ environment. A real publication from a feature branch is refused.
 A per-package tag on a reviewed `main` commit requests that package's release:
 
 ```bash
-git tag sandloom-v0.7.0a12
-git push origin sandloom-v0.7.0a12
+git tag sandloom-v0.7.0a13
+git push origin sandloom-v0.7.0a13
 ```
 
 The other package prefixes are `sandloom-standard-v`, `sandloom-identity-v`,
 `sandloom-tenancy-v` and `sandloom-billing-v`. `sandloom-admin` releases through a coordinated manual run;
-its tag and single-package choice need an entry in `release.yml`. Release a framework version before module versions that
+its tag and single-package choice need an entry in `release.yml`. Select `sandloom-s3` or `all` in a manual run for the S3 driver. Release a framework version before packages that
 require it, or use one coordinated manual run. Each tag-triggered upload still
 requires the owner's environment approval.
 

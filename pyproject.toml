@@ -1,7 +1,7 @@
 # Development environment only; publish only packages/* (sandloom, sandloom-*).
 [project]
 name = "sandloom-dev"
-version = "0.7.0a12"
+version = "0.7.0a13"
 description = "Local development environment for the Sandloom monorepo"
 readme = "README.md"
 license = "Apache-2.0"
@@ -24,6 +24,8 @@ docs = [
 ]
 
 [dependency-groups]
+# Used by the wheel import-layer audit and the S3 endpoint suite.
+packaging = ["sandloom-s3"]
 dev = [
     "ruff==0.17.1",
     "mypy==2.4.0",
@@ -69,6 +71,10 @@ editable = true
 
 [tool.uv.sources.sandloom-identity]
 path = "packages/sandloom-identity"
+editable = true
+
+[tool.uv.sources.sandloom-s3]
+path = "packages/sandloom-s3"
 editable = true
 
 [tool.uv.sources.sandloom-standard]

@@ -32,13 +32,14 @@ module knows nothing concrete about (``"default"``, ``"analytics"``, …).
 from __future__ import annotations
 
 import abc
+import inspect
 import re
 import uuid
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, Self, TypeAlias
 
 from sandloom.core.contracts.uow import UnitOfWorkContract
 from sandloom.core.descriptors import HealthResult
@@ -1071,13 +1072,92 @@ async def portable_set_subject_state(
     )
 
 
+class InvalidObjectKeyError(ValueError):
+    """The key cannot identify an object in the configured namespace."""
+
+
+class UploadTooLargeError(ValueError):
+    """The upload exceeds the configured or backend limit."""
+
+
+class ObjectTooLargeError(ValueError):
+    """The object exceeds the configured buffered read limit."""
+
+
+def validate_object_key(key: str) -> None:
+    """Validate a portable relative key without rewriting it."""
+    try:
+        encoded = key.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise InvalidObjectKeyError("Object key must be valid UTF-8") from exc
+    if (
+        any(part in {"", ".", ".."} for part in key.split("/"))
+        or "\\" in key
+        or "\x00" in key
+        or len(encoded) > 1024
+    ):
+        raise InvalidObjectKeyError("Invalid object key")
+
+
+class ObjectReader(Protocol):
+    """Async input that returns up to size bytes and signals EOF with b''."""
+
+    async def read(self, size: int, /) -> bytes: ...
+
+
+class _UnsizedObjectReader(Protocol):
+    async def read(self) -> bytes: ...
+
+
+ObjectContent: TypeAlias = bytes | ObjectReader | _UnsizedObjectReader
+
+
+async def iter_object_chunks(
+    data: ObjectContent, chunk_size: int
+) -> AsyncIterator[bytes]:
+    """Read an upload, including legacy readers accepting no size argument."""
+    if isinstance(data, (bytes, bytearray)):
+        yield bytes(data)
+        return
+
+    read: Callable[..., Awaitable[bytes]] = data.read
+    try:
+        signature = inspect.signature(read)
+    except (TypeError, ValueError):
+        signature = None
+    if signature is not None:
+        try:
+            signature.bind(chunk_size)
+        except TypeError:
+            yield await read()
+            return
+    while chunk := await read(chunk_size):
+        yield chunk
+
+
 class ObjectStore(Protocol):
-    """What a module calls on ``objectstore()``."""
+    """Key-addressed objects in one configured store.
+
+    Keys are relative UTF-8 strings with nonempty slash-separated segments,
+    at most 1024 bytes, with dot segments, backslashes and NUL excluded.
+    Deployments using a filesystem also need filenames and key combinations
+    representable on that filesystem.
+
+    A complete put publishes one object and returns its key. A source read
+    failure or size refusal preserves any previous object. Get returns bytes
+    and raises FileNotFoundError when the backend reports a missing key.
+    Delete succeeds when the key is absent. In a versioned store it removes
+    the current object from ordinary reads. Older versions follow backend policy.
+
+    Content type and metadata are available when the driver advertises
+    ``metadata``. A driver with ``presigned_get`` can issue a time-limited
+    retrieval link without checking that the object exists.
+    """
 
     async def put(
         self,
         key: str,
-        data: bytes | Any,
+        data: ObjectContent,
         *,
         content_type: str | None = None,
         metadata: Mapping[str, str] | None = None,
@@ -1104,14 +1184,14 @@ class ObjectStoreProvider(InfraProvider, ObjectStore):
     async def put(
         self,
         key: str,
-        data: bytes | Any,
+        data: ObjectContent,
         *,
         content_type: str | None = None,
         metadata: Mapping[str, str] | None = None,
     ) -> str:
         """Store ``data`` (bytes or an async-readable stream) under ``key``.
 
-        Returns a backend locator for the stored object.
+        Returns the logical key. The object is published after the upload completes.
         """
 
     @abc.abstractmethod
@@ -1120,7 +1200,7 @@ class ObjectStoreProvider(InfraProvider, ObjectStore):
 
     @abc.abstractmethod
     async def delete(self, key: str) -> None:
-        """Remove the object stored under ``key``."""
+        """Remove the current object. An absent key succeeds."""
 
     @abc.abstractmethod
     async def url(self, key: str) -> str:

@@ -50,7 +50,7 @@ jobs:
         run: |
           args=()
           if [ -n "$DIST_ARTIFACT" ]; then args=(--dist-dir "$DIST_DIR"); fi
-          uv run --locked python tools/packaging/check_package_distributions.py "${args[@]}"
+          uv run --locked --group packaging python tools/packaging/check_package_distributions.py "${args[@]}"
       - name: Sixteen module subsets boot (P2 wheels, P3 extras and repository)
         # KB-04 (I-19, A-B7): every subset of identity, tenancy, billing and
         # admin boots in clean venvs; the durations are the matrix's measure.

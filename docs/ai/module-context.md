@@ -11,7 +11,7 @@ The agent opens the relevant files itself. Implementation bodies, whole source
 files, instruction documents and the SDK reference are not embedded in the map.
 
 !!! note "Package availability"
-    Available in `sandloom>=0.7.0a12,<0.8`. <!-- sandloom-release -->
+    Available in `sandloom>=0.7.0a13,<0.8`. <!-- sandloom-release -->
 
 ```bash
 uv run sandloom graph

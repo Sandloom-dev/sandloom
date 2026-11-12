@@ -1,0 +1,139 @@
+name: S3 object store conformance
+
+on:
+  pull_request:
+    branches: [main, arch/kernel-boundary]
+    paths:
+      - 'packages/sandloom-s3/**'
+      - 'src/sandloom/core/infra/**'
+      - 'src/sandloom/core/drivers/**'
+      - 'src/sandloom/core/tests/test_objectstore_replacement.py'
+      - 'src/sandloom/driverkit/**'
+      - 'src/sandloom/sdk/**'
+      - '.github/workflows/objectstore-s3.yml'
+      - 'uv.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  endpoint:
+    name: Object store conformance (${{ matrix.backend }})
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [minio, seaweedfs]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AWS_ACCESS_KEY_ID: sandloom-test
+      AWS_SECRET_ACCESS_KEY: sandloom-test-secret
+      AWS_DEFAULT_REGION: us-east-1
+      MINIO_TEST_ACCESS_KEY: sandloom-objectstore
+      MINIO_TEST_SECRET_KEY: sandloom-objectstore-test-secret
+      SANDLOOM_S3_TEST_DENIED_KEY: ${{ matrix.backend == 'minio' && 'private/denied.bin' || '' }}
+      SANDLOOM_S3_TEST_ENDPOINT: http://127.0.0.1:9000
+      SANDLOOM_S3_TEST_BUCKET: sandloom-conformance
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          save-cache: false
+      - name: Install Sandloom and the external driver
+        run: |
+          uv sync --frozen --group packaging
+          uv build packages/sandloom-s3 --out-dir "$RUNNER_TEMP/s3-dist"
+          uv pip install --reinstall --no-deps "$RUNNER_TEMP"/s3-dist/*.whl
+      - name: Check external driver style
+        run: |
+          uv run --no-sync ruff check packages/sandloom-s3
+          uv run --no-sync ruff format --check packages/sandloom-s3
+      - name: Start test services
+        run: docker compose -f deploy/compose/test.yml up -d --wait
+      - name: Start MinIO and provision the restricted test identity
+        if: matrix.backend == 'minio'
+        run: |
+          export GOBIN="$RUNNER_TEMP/s3-bin"
+          go install github.com/minio/minio@RELEASE.2025-04-22T22-12-26Z
+          go install github.com/minio/mc@RELEASE.2025-04-16T18-13-26Z
+          MINIO_ROOT_USER="$AWS_ACCESS_KEY_ID" MINIO_ROOT_PASSWORD="$AWS_SECRET_ACCESS_KEY" \
+            "$RUNNER_TEMP/s3-bin/minio" server --address 127.0.0.1:9000 \
+            "$RUNNER_TEMP/s3-data" >"$RUNNER_TEMP/minio.log" 2>&1 &
+          curl --retry 20 --retry-connrefused --retry-delay 1 --fail --silent \
+            "$SANDLOOM_S3_TEST_ENDPOINT/minio/health/ready"
+          uv run --no-sync python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          import boto3
+
+          bucket = os.environ["SANDLOOM_S3_TEST_BUCKET"]
+          client = boto3.client("s3", endpoint_url=os.environ["SANDLOOM_S3_TEST_ENDPOINT"])
+          client.create_bucket(Bucket=bucket)
+          client.put_object(
+              Bucket=bucket, Key=os.environ["SANDLOOM_S3_TEST_DENIED_KEY"], Body=b"private"
+          )
+          client.close()
+
+          policy = {
+              "Version": "2012-10-17",
+              "Statement": [
+                  {
+                      "Effect": "Allow",
+                      "Action": ["s3:ListBucket"],
+                      "Resource": [f"arn:aws:s3:::{bucket}"],
+                  },
+                  {
+                      "Effect": "Allow",
+                      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+                      "Resource": [f"arn:aws:s3:::{bucket}/conformance/*"],
+                  },
+              ],
+          }
+          (Path(os.environ["RUNNER_TEMP"]) / "s3-test-policy.json").write_text(json.dumps(policy))
+          PY
+          export MC_CONFIG_DIR="$RUNNER_TEMP/s3-mc"
+          "$GOBIN/mc" alias set s3-test "$SANDLOOM_S3_TEST_ENDPOINT" \
+            "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" >/dev/null
+          "$GOBIN/mc" admin user add s3-test "$MINIO_TEST_ACCESS_KEY" "$MINIO_TEST_SECRET_KEY"
+          "$GOBIN/mc" admin policy create s3-test objectstore-test "$RUNNER_TEMP/s3-test-policy.json"
+          "$GOBIN/mc" admin policy attach s3-test objectstore-test --user "$MINIO_TEST_ACCESS_KEY"
+      - name: Start SeaweedFS and wait for its test bucket
+        if: matrix.backend == 'seaweedfs'
+        run: |
+          docker run -d --name s3-test -p 127.0.0.1:9000:8333 \
+            -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e "S3_BUCKET=$SANDLOOM_S3_TEST_BUCKET" \
+            chrislusf/seaweedfs@sha256:ccad23e18639c8b98cee17e7100b95830a06077b56d8e5b006d6dcf8ec5e94a0 \
+            mini -dir=/data -ip.bind=0.0.0.0
+          curl --retry 20 --retry-all-errors --retry-delay 1 --max-time 5 --silent --show-error \
+            "$SANDLOOM_S3_TEST_ENDPOINT" >/dev/null
+          uv run --no-sync python - <<'PY'
+          import os
+          import boto3
+
+          client = boto3.client("s3", endpoint_url=os.environ["SANDLOOM_S3_TEST_ENDPOINT"])
+          client.get_waiter("bucket_exists").wait(
+              Bucket=os.environ["SANDLOOM_S3_TEST_BUCKET"],
+              WaiterConfig={"Delay": 1, "MaxAttempts": 30},
+          )
+          client.close()
+          PY
+      - name: Run object store conformance and SDK replacement tests
+        env:
+          AWS_ACCESS_KEY_ID: ${{ matrix.backend == 'minio' && env.MINIO_TEST_ACCESS_KEY || env.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ matrix.backend == 'minio' && env.MINIO_TEST_SECRET_KEY || env.AWS_SECRET_ACCESS_KEY }}
+        run: >-
+          uv run --no-sync pytest -n 2 --dist loadfile
+          src/sandloom/core/tests/test_objectstore_replacement.py
+          packages/sandloom-s3/tests
+      - name: Print endpoint logs on failure
+        if: failure()
+        run: |
+          if test -f "$RUNNER_TEMP/minio.log"; then cat "$RUNNER_TEMP/minio.log"; fi
+          if docker inspect s3-test >/dev/null 2>&1; then docker logs s3-test; fi

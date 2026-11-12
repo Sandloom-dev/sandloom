@@ -54,6 +54,7 @@ PACKAGES = (
     "sandloom-tenancy",
     "sandloom-billing",
     "sandloom-admin",
+    "sandloom-s3",
 )
 #: Module packages and their ``sandloom.modules`` entry-point names.
 MODULES = {
@@ -218,6 +219,12 @@ def _check_contents(package: str, wheel: Path) -> None:
         # The kernel and the standard composition root compose modules; they
         # register none.
         raise RuntimeError(f"{wheel.name}: registers a module, expected none")
+    if package == "sandloom-s3" and entry_points.get("sandloom.drivers") != {
+        "objectstore.s3": "sandloom_s3:S3ObjectStore"
+    }:
+        raise RuntimeError(
+            f"{wheel.name}: expected the objectstore.s3 driver entry point"
+        )
 
 
 def _entry_points(wheel: Path) -> dict[str, dict[str, str]]:
@@ -280,6 +287,7 @@ def check_layering(wheels: dict[str, Path]) -> None:
         first_party=[
             "sandloom",
             "sandloom_standard",
+            "sandloom_s3",
             *(path for _n, path in MODULES.values()),
         ],
         provides={"sandloom": KERNEL_PROVIDES},
@@ -461,7 +469,7 @@ def check_standard_install(temp: Path, wheels: dict[str, Path]) -> None:
     _run(
         "uv", "pip", "install", "--compile-bytecode", "--python", str(_python(venv)),
         f"sandloom[standard] @ {kernel.resolve().as_uri()}",
-        *(str(w) for p, w in wheels.items() if p not in ("sandloom", "sandloom-admin")),
+        *(str(w) for p, w in wheels.items() if p not in ("sandloom", "sandloom-admin", "sandloom-s3")),
     )  # fmt: skip
     _run(
         str(_python(venv)),
@@ -617,6 +625,25 @@ def check_admin_install(temp: Path, wheels: dict[str, Path]) -> None:
     )
 
 
+def check_s3_install(temp: Path, wheels: dict[str, Path]) -> None:
+    """Install the driver with the kernel wheel and load its entry point."""
+    venv = temp / "s3-driver"
+    _run("uv", "venv", str(venv))
+    _run(
+        "uv", "pip", "install", "--python", str(_python(venv)),
+        str(wheels["sandloom"]), str(wheels["sandloom-s3"]),
+    )  # fmt: skip
+    _run(
+        str(_python(venv)), "-c",
+        "from importlib.metadata import entry_points; "
+        "from sandloom.driverkit import ObjectStoreProvider; "
+        "(driver,) = entry_points(group='sandloom.drivers', name='objectstore.s3'); "
+        "assert issubclass(driver.load(), ObjectStoreProvider)",
+        cwd=temp,
+        env=_smoke_environment(),
+    )  # fmt: skip
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -643,11 +670,12 @@ def main(argv: list[str] | None = None) -> int:
         if not args.skip_install:
             # Independent clean environments: checked side by side; the first
             # failure (in this order) is raised once all of them finished.
-            with ThreadPoolExecutor(max_workers=3 + len(MODULES)) as pool:
+            with ThreadPoolExecutor(max_workers=4 + len(MODULES)) as pool:
                 checks = [
                     pool.submit(check_lean_install, temp, wheels["sandloom"]),
                     pool.submit(check_standard_install, temp, wheels),
                     pool.submit(check_admin_install, temp, wheels),
+                    pool.submit(check_s3_install, temp, wheels),
                     *(
                         pool.submit(check_plain_module_install, temp, wheels, p)
                         for p in MODULES

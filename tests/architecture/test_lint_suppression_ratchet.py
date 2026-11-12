@@ -44,7 +44,7 @@ RATCHETED_PREFIXES = ("ASYNC", "BLE", "S", "SIM", "RUF", "PERF", "PLC0415", "C90
 #: suppressions down; never raise one without a review argument.
 NOQA_BASELINE: dict[str, int] = {
     "ASYNC109": 19,
-    "ASYNC240": 2,
+    "ASYNC240": 1,
     "BLE001": 202,
     "C901": 79,
     "PERF401": 24,
