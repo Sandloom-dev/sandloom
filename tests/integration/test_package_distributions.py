@@ -3,7 +3,8 @@
 Runs ``tools/packaging/check_package_distributions.py`` (the CI ``packages``
 job): sdists and wheels of ``sandloom``, ``sandloom-standard``,
 ``sandloom-identity``, ``sandloom-tenancy``, ``sandloom-billing`` and
-``sandloom-admin``; the import layering across them (lazy imports included);
+``sandloom-admin`` and ``sandloom-s3``; the import layering across them (lazy
+imports included);
 ``pip install sandloom`` alone in a clean venv runs every ``sandloom``
 subcommand's ``--help``, ``sandloom docs <name>`` and ``sandloom new``;
 ``sandloom[standard]`` composes the modules by entry point from the standard
@@ -34,7 +35,18 @@ pytestmark = [
 
 def test_every_distribution_installs_and_runs_alone() -> None:
     done = subprocess.run(
-        [sys.executable, str(CHECK)],
+        [
+            "uv",
+            "run",
+            "--isolated",
+            "--locked",
+            "--group",
+            "packaging",
+            "--python",
+            sys.executable,
+            "python",
+            str(CHECK),
+        ],
         cwd=REPO,
         capture_output=True,
         text=True,
@@ -43,7 +55,7 @@ def test_every_distribution_installs_and_runs_alone() -> None:
     )
     output = done.stdout + done.stderr
     assert done.returncode == 0, output[-6000:]
-    assert "Import layering OK across 6 distributions" in output
+    assert "Import layering OK across 7 distributions" in output
     assert "lean sandloom OK" in output
     assert "standard set OK" in output
     assert "All package distribution checks passed." in output
