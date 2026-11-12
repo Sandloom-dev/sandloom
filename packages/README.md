@@ -107,10 +107,10 @@ Run from the repository root. Nothing here publishes packages:
 uv build packages/sandloom
 
 # All six, the same script CI runs (.github/workflows/packages.yml).
-uv run --locked python tools/packaging/check_package_distributions.py
+uv run --locked --group packaging python tools/packaging/check_package_distributions.py
 
 # Build and layering only (no network, no install).
-uv run --locked python tools/packaging/check_package_distributions.py --skip-install
+uv run --locked --group packaging python tools/packaging/check_package_distributions.py --skip-install
 ```
 
 The script:
