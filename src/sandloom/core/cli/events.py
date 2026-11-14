@@ -100,7 +100,7 @@ async def inbox_purge(
         raise SystemExit("error: --inbox-days must be > 0")
     if batch <= 0:
         raise SystemExit("error: --batch must be > 0")
-    problems = inbox_purge_problems(core.settings, days)
+    problems = inbox_purge_problems(core.event_bus.retention(), days)
     if problems and not force:
         raise SystemExit(f"error: {problems[0].message} (pass --force to purge anyway)")
     cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)

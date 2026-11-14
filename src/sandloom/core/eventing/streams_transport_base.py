@@ -21,6 +21,11 @@ from sandloom.core.infra.ports.eventbus import Retention
 
 logger = logging.getLogger("sandloom.core.eventing.transport")
 
+#: The ``streams`` driver's retention options when a configuration leaves them
+#: out: entries older than 7 days are trimmed, no length bound (``0``: none).
+DEFAULT_RETENTION_SECONDS = 7 * 24 * 60 * 60
+DEFAULT_MAX_LENGTH = 0
+
 
 def _stream_id_key(msg_id: str) -> tuple[int, int]:
     """Order Redis stream ids numerically (``"<ms>-<seq>"``)."""
@@ -102,15 +107,13 @@ class _StreamsTransportBase(TransportDefaults):
         # None): where a group lost to NOGROUP is recreated.
         self._last_delivered: dict[tuple[str, str], tuple[str, str | None]] = {}
         self._groups: set[tuple[str, str]] = set()
-        self._maxlen = int(
-            maxlen
-            if maxlen is not None
-            else getattr(settings, "event_stream_maxlen", 0) or 0
-        )
+        # Retention is the transport's own option (the ``streams`` driver's
+        # ``max_length`` / ``retention_seconds``), never a kernel setting.
+        self._maxlen = int(DEFAULT_MAX_LENGTH if maxlen is None else maxlen)
         self._retention_seconds = int(
-            retention_seconds
-            if retention_seconds is not None
-            else getattr(settings, "event_stream_retention_seconds", 0) or 0
+            DEFAULT_RETENTION_SECONDS
+            if retention_seconds is None
+            else retention_seconds
         )
         self._prefix = (
             prefix

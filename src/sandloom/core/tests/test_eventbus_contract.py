@@ -108,6 +108,61 @@ def test_streams_is_a_transport_provider_with_the_declared_features() -> None:
     assert isinstance(provider.retention(), Retention)
 
 
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        ({}, Retention(max_age_seconds=7 * 86400, max_length=None)),
+        (
+            {"retention_seconds": 3600, "max_length": 500},
+            Retention(max_age_seconds=3600, max_length=500),
+        ),
+        (
+            {"retention_seconds": 0, "max_length": 0},
+            Retention(max_age_seconds=None, max_length=None),
+        ),
+    ],
+)
+def test_retention_is_reported_from_the_streams_driver_options(
+    options: dict[str, Any], expected: Retention
+) -> None:
+    provider = StreamsEventBusProvider(
+        name="default", driver="streams", options=options, client_factory=_client
+    )
+    assert provider.retention() == expected
+
+
+def test_the_kernel_fills_the_retention_options_from_the_settings() -> None:
+    from types import SimpleNamespace
+
+    from sandloom.core.infra.config import (
+        InfraConfig,
+        InstanceConfig,
+        fill_driver_defaults,
+    )
+
+    cfg = InstanceConfig(
+        capability="eventbus", name="default", driver="streams", options={}
+    )
+    config: InfraConfig = {"eventbus": {"default": cfg}}
+    settings = SimpleNamespace(
+        cache_url="redis://x/0",
+        event_stream_retention_seconds=120,
+        event_stream_maxlen=9,
+    )
+    fill_driver_defaults(config, settings)
+    assert cfg.options["retention_seconds"] == 120
+    assert cfg.options["max_length"] == 9
+    own = InstanceConfig(
+        capability="eventbus",
+        name="x",
+        driver="streams",
+        options={"retention_seconds": 5},
+    )
+    fill_driver_defaults({"eventbus": {"x": own}}, settings)
+    assert own.options["retention_seconds"] == 5
+    assert own.options["max_length"] == 9
+
+
 def test_a_transport_provider_missing_a_required_operation_cannot_be_built() -> None:
     required = {
         "publish",

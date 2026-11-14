@@ -129,6 +129,20 @@ async def oldest_dlq_age_s(
     return oldest
 
 
+def _stream_retention_s(core: Any) -> float:
+    """The age bound of the event streams, as the bus's transport reports it
+    (``0``: unbounded, so :func:`purge_floor_seconds` refuses every purge).
+
+    A bus without a durable transport keeps nothing a rebuild could replay: only
+    the relay horizon and the dead letters bound the purge there, so the stream
+    term is one second (positive: it does not read as unbounded).
+    """
+    retention = core.event_bus.retention()
+    if retention is None:
+        return 1.0
+    return float(retention.max_age_seconds or 0)
+
+
 async def purge_floor(core: Any, descriptor: Any) -> PurgeFloor:
     """The purge floor of ``descriptor``'s projection in this deployment."""
     channels = tuple(descriptor.source_events)
@@ -137,7 +151,7 @@ async def purge_floor(core: Any, descriptor: Any) -> PurgeFloor:
         async with db_session(database) as session:
             dead = max(dead, await oldest_dead_outbox_age_s(session, channels))
     return PurgeFloor(
-        stream_retention_s=float(settings.event_stream_retention_seconds),
+        stream_retention_s=_stream_retention_s(core),
         relay_horizon_s=relay_retry_horizon_seconds(settings),
         oldest_dlq_age_s=await oldest_dlq_age_s(core, channels),
         oldest_dead_outbox_age_s=dead,

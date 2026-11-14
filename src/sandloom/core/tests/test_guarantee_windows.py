@@ -18,6 +18,7 @@ import pytest
 
 from sandloom.core import effects
 from sandloom.core import guarantee_windows as gw
+from sandloom.core.infra.ports.eventbus import Retention
 
 
 def _settings(**overrides: Any) -> SimpleNamespace:
@@ -28,7 +29,6 @@ def _settings(**overrides: Any) -> SimpleNamespace:
         "outbox_relay_max_attempts": 10,
         "outbox_relay_backoff_base_seconds": 2.0,
         "outbox_relay_backoff_max_seconds": 300.0,
-        "event_stream_retention_seconds": 7 * 86400,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -74,9 +74,19 @@ def test_command_ttl_below_the_relay_horizon() -> None:
 )
 def test_inbox_purge_window(retention: int, days: float, risky: bool) -> None:
     problems = gw.inbox_purge_problems(
-        _settings(event_stream_retention_seconds=retention), days
+        Retention(max_age_seconds=retention or None, max_length=None), days
     )
     assert _ids(problems) == ([gw.INBOX_PURGE_BELOW_REDELIVERY] if risky else [])
+
+
+def test_inbox_purge_window_of_a_bus_without_a_durable_transport() -> None:
+    assert gw.inbox_purge_problems(None, 365) == []
+
+
+def test_window_problems_take_the_retention_the_bus_reports() -> None:
+    week = Retention(max_age_seconds=7 * 86400, max_length=None)
+    problems = gw.guarantee_window_problems(_settings(), inbox_days=1, retention=week)
+    assert _ids(problems) == [gw.INBOX_PURGE_BELOW_REDELIVERY]
 
 
 def test_production_refuses_and_names_the_risk() -> None:

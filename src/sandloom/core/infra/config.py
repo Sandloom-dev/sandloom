@@ -325,6 +325,13 @@ _TRANSPORT_CLIENT_SETTINGS: dict[str, str] = {
     "health_check_interval_seconds": "cache_health_check_interval_seconds",
 }
 
+#: ``option -> setting``: the retention of a ``streams`` event bus's streams
+#: (until ``idk-config-defaults`` turns the settings into options).
+_STREAMS_RETENTION_SETTINGS: dict[str, str] = {
+    "retention_seconds": "event_stream_retention_seconds",
+    "max_length": "event_stream_maxlen",
+}
+
 
 def _fill(options: dict[str, Any], settings: Any, table: Mapping[str, str]) -> None:
     for option, setting in table.items():
@@ -351,6 +358,18 @@ def _fill_atomic_store_defaults(
             _fill(cfg.options, settings, _REDIS_CLIENT_SETTINGS)
 
 
+def _fill_eventbus_defaults(config: InfraConfig, settings: Any, cache_url: Any) -> None:
+    for cfg in (config.get("eventbus") or {}).values():
+        if cfg.driver in ("redis", "streams"):
+            # The volatile ``redis`` bus has no url: it runs over a broadcast
+            # instance (option ``broadcast``).
+            if cfg.name == DEFAULT_INSTANCE and cfg.driver == "streams":
+                _fill_url(cfg.options, "url", cache_url)
+            _fill(cfg.options, settings, _TRANSPORT_CLIENT_SETTINGS)
+            if cfg.driver == "streams":
+                _fill(cfg.options, settings, _STREAMS_RETENTION_SETTINGS)
+
+
 def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
     """Fill the options the built-in drivers read from the flat settings.
 
@@ -360,7 +379,8 @@ def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
     them out, so the drivers behave as before. ``redis`` caches get ``url``
     and the client bounds; ``redis`` / ``streams`` event buses the connect
     timeout and health-check interval, and the ``default`` one ``url`` too
-    (a named bus without one shares the default transport); ``celery`` task
+    (a named bus without one shares the default transport); ``streams`` buses
+    their ``retention_seconds`` and ``max_length``; ``celery`` task
     queues ``broker`` and ``backend``.
     """
     cache_url = getattr(settings, "cache_url", None)
@@ -381,13 +401,7 @@ def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
             _fill_url(cfg.options, "url", broadcast_url)
             _fill(cfg.options, settings, _TRANSPORT_CLIENT_SETTINGS)
     _fill_atomic_store_defaults(config, settings, broadcast_url)
-    for cfg in (config.get("eventbus") or {}).values():
-        if cfg.driver in ("redis", "streams"):
-            # The volatile ``redis`` bus has no url: it runs over a broadcast
-            # instance (option ``broadcast``).
-            if cfg.name == DEFAULT_INSTANCE and cfg.driver == "streams":
-                _fill_url(cfg.options, "url", cache_url)
-            _fill(cfg.options, settings, _TRANSPORT_CLIENT_SETTINGS)
+    _fill_eventbus_defaults(config, settings, cache_url)
     for cfg in (config.get("taskqueue") or {}).values():
         if cfg.driver == "celery":
             _fill_url(cfg.options, "broker", getattr(settings, "broker_url", None))

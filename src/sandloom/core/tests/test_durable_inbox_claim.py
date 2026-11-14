@@ -13,6 +13,7 @@ from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -25,6 +26,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from sandloom.core.infra.ports.eventbus import Retention
 from sandloom.core.sql_alchemy.durable_inbox import DurableConsumerInbox
 from sandloom.core.sql_alchemy.models.consumer_inbox import ConsumerInboxEntry
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
@@ -184,6 +186,15 @@ async def test_purge_with_limit_deletes_old_claims_in_bounded_batches(
     assert await _remaining(sessionmaker, "test@purge") == ["e3"]
 
 
+def _core_with_retention(uow: Any, retention_seconds: int) -> SimpleNamespace:
+    """A core whose durable bus reports ``retention_seconds`` (0: unbounded)."""
+    retention = Retention(max_age_seconds=retention_seconds or None, max_length=None)
+    return SimpleNamespace(
+        get_uow_factory=lambda _name: uow,
+        event_bus=SimpleNamespace(retention=lambda: retention),
+    )
+
+
 @pytest.mark.asyncio
 async def test_inbox_purge_cli_loops_batches_in_separate_units_of_work(
     sessionmaker: async_sessionmaker[AsyncSession],
@@ -205,8 +216,7 @@ async def test_inbox_purge_cli_loops_batches_in_separate_units_of_work(
             await self.session.commit()
             await self.session.close()
 
-    week = SimpleNamespace(event_stream_retention_seconds=7 * 86400)
-    core = SimpleNamespace(get_uow_factory=lambda _name: _Uow, settings=week)
+    core = _core_with_retention(_Uow, 7 * 86400)
     assert await inbox_purge(core, days=30, batch=2) == 5
     # 2 + 2 + 1: the short last batch ends the loop; each batch committed alone.
     assert units == 3
@@ -235,17 +245,12 @@ async def test_inbox_purge_inside_the_redelivery_window_is_refused(
             await self.session.commit()
             await self.session.close()
 
-    week = SimpleNamespace(event_stream_retention_seconds=7 * 86400)
-    core = SimpleNamespace(get_uow_factory=lambda _name: _Uow, settings=week)
+    core = _core_with_retention(_Uow, 7 * 86400)
     with pytest.raises(SystemExit, match="EVENT_STREAM_RETENTION_SECONDS"):
         await inbox_purge(core, days=7.5, batch=10)
     assert await _remaining(sessionmaker, "test@window") == ["e0"]
-    unbounded = SimpleNamespace(event_stream_retention_seconds=0)
     with pytest.raises(SystemExit, match="unbounded"):
-        await inbox_purge(
-            SimpleNamespace(get_uow_factory=lambda _name: _Uow, settings=unbounded),
-            days=365,
-        )
+        await inbox_purge(_core_with_retention(_Uow, 0), days=365)
     assert await inbox_purge(core, days=3, batch=10, force=True) >= 1
     assert await _remaining(sessionmaker, "test@window") == []
 

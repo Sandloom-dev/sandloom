@@ -12,6 +12,7 @@ from dataclasses import replace
 from functools import partial
 from typing import (
     Any,
+    cast,
 )
 
 from sandloom.core.config.settings import settings
@@ -44,6 +45,7 @@ from sandloom.core.infra.ports.eventbus import (
     EventTransportProvider,
     GroupOwner,
     PartialPublish,
+    Retention,
 )
 from sandloom.core.observability.metrics_utils import safe_inc
 
@@ -139,6 +141,10 @@ class StreamsEventBus(_StreamsDispatch):
     def transport(self) -> Any:
         """The durable transport (operator tooling: DLQ inspection/replay)."""
         return self._transport
+
+    def retention(self) -> Retention:
+        """What the transport keeps of a stream (``retention()`` of the driver)."""
+        return cast("Retention", self._transport.retention())
 
     @property
     def transport_features(self) -> frozenset[str]:

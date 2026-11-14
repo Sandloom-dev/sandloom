@@ -42,6 +42,7 @@ from sandloom.core.eventing.envelope import (
 )
 from sandloom.core.eventing.origin import envelope_origin
 from sandloom.core.eventing.subscriptions import SubscriptionHandle
+from sandloom.core.infra.ports.eventbus import Retention
 from sandloom.core.observability.guardrails import enforce_max_size
 from sandloom.core.observability.metrics_utils import safe_inc
 
@@ -107,6 +108,11 @@ class BaseEventBus(ABC, EventBusProtocol):
     def native_batch_publish(self) -> bool:
         """True when a batch publish is ONE transport round trip (not a loop)."""
         return False
+
+    def retention(self) -> Retention | None:
+        """What the bus's durable transport keeps of a stream; ``None`` for a
+        bus without one (a volatile bus retains nothing a consumer could replay)."""
+        return None
 
     def __init__(self, schema_registry: SchemaRegistryContract):
         self._schema_registry = schema_registry
