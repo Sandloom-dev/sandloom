@@ -3200,7 +3200,7 @@ guarantees:
   - src/sandloom_billing/tests/test_intent_reconcile.py::test_stale_pending_intent_without_a_psp_session_fails
   - src/sandloom_billing/tests/test_intent_reconcile.py::test_stale_pending_intent_paid_meanwhile_is_flagged_for_an_operator
   - src/sandloom_billing/tests/test_intent_reconcile.py::test_psp_lookup_outage_is_bounded_then_left_for_an_operator
-  - src/sandloom_billing/tests/test_intent_reconcile.py::test_reconcile_task_is_scheduled_and_acks_late
+  - src/sandloom_billing/tests/test_intent_reconcile.py::test_reconcile_task_is_scheduled_every_five_minutes
 - id: G-BILLING-10
   statement: A failed expire compensation is counted (billing_intent_expire_failed), recorded on the intent
     and retried by the reconciler; the refusal stands and the webhook gate remains the backstop.
@@ -4767,20 +4767,21 @@ guarantees:
   - src/sandloom/core/tests/test_infra_driver_availability.py::test_strict_startup_names_a_kernel_instance_whose_package_is_missing
 - id: G-INFRA-11
   statement: The taskqueue capability has the feature periodic, meaning the driver runs a module's periodic jobs at
-    their interval in at least one process while the deployment runs. A driver is never granted it for
-    supporting enqueue; only celery advertises it. A module's effective capabilities add what its code
-    shows (a tasks.py needs taskqueue, a beat hook the feature periodic) without relaxing a declaration, and
+    their cron slots in at least one process while the deployment runs. A driver is never granted it for
+    supporting send; only celery advertises it. A module's effective capabilities add what its code
+    shows (a tasks.py needs taskqueue, a @periodic task the feature periodic, an at_least_once task the
+    feature redelivery) without relaxing a declaration, and
     an undeclared derived capability is required; sandloom check asks for the declaration (SANDLOOM-C033).
   sources:
   - docs/adr/0011-driver-api.md
   - design/kernel-boundary/owner-decision-infra-deps.md
   tests:
-  - src/sandloom/core/tests/test_module_capability_derivation.py::test_tasks_derive_taskqueue_and_a_beat_hook_derives_periodic
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_tasks_derive_taskqueue_and_a_periodic_task_derives_periodic
   - src/sandloom/core/tests/test_module_capability_derivation.py::test_an_undeclared_derived_capability_is_required
   - src/sandloom/core/tests/test_module_capability_derivation.py::test_a_declaration_keeps_required_and_instance
   - src/sandloom/core/tests/test_module_capability_derivation.py::test_bundled_modules_need_what_the_decision_says
   - src/sandloom/core/tests/test_module_capability_derivation.py::test_periodic_is_a_taskqueue_feature_only_celery_advertises
-  - src/sandloom/core/tests/test_module_capability_derivation.py::test_an_enqueue_only_driver_cannot_serve_a_beat_hook
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_a_send_only_driver_cannot_serve_a_periodic_task
   - src/sandloom/core/tests/test_module_capability_derivation.py::test_the_c033_analyzer
   - tests/integration/module_subsets/test_module_subsets_infrastructure.py::test_a_taskqueue_driver_without_periodic_refuses_billing
 - id: G-INFRA-12

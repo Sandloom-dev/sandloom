@@ -94,8 +94,7 @@ from sandloom.core.config.settings import settings
 from sandloom.core.facade import CoreFacade
 from sandloom.core.loader.plugin_loader import load_modules_with_summary
 from sandloom.core.schema.registry import InMemorySchemaRegistry
-from sandloom.sdk.tasks import cron
-from sandloom.sdk._prim.tasks import TaskQueueNotInstalled, _UnqueuedTask
+from sandloom.core.tasks.registry import declared_task
 
 modules = json.loads(sys.argv[1])
 settings.module_load_entrypoints = False
@@ -105,24 +104,18 @@ core = CoreFacade(app=FastAPI())
 core.register_schema_registry(InMemorySchemaRegistry())
 summary = load_modules_with_summary(core)
 assert summary.success(), summary.to_dict()
-refused = {}
+declared = set()
 for module in modules:
     try:
         tasks = importlib.import_module(module + ".tasks")
     except ModuleNotFoundError:
         continue
-    for task in vars(tasks).values():
-        if isinstance(task, _UnqueuedTask):
-            try:
-                task.delay()
-            except TaskQueueNotInstalled as exc:
-                refused[task.name] = str(exc)
-try:
-    cron("0 3 * * *")
-except TaskQueueNotInstalled as exc:
-    refused["cron"] = str(exc)
+    for obj in vars(tasks).values():
+        name = getattr(obj, "name", None)
+        if isinstance(name, str) and declared_task(name) is not None:
+            declared.add(name)
 assert "celery" not in sys.modules
-print(json.dumps({"loaded": [d.name for d in summary.loaded], "refused": refused}))
+print(json.dumps({"loaded": [d.name for d in summary.loaded], "declared": sorted(declared)}))
 """
 
 
@@ -140,11 +133,11 @@ print(json.dumps({"loaded": [d.name for d in summary.loaded], "refused": refused
     ],
 )
 def test_a_module_with_tasks_loads_without_celery(module: str, task: str) -> None:
-    """KB-01: ``tasks.py`` on the typed ``shared_task`` loads on plain sandloom.
+    """KB-01: ``tasks.py`` on ``@task`` / ``@periodic`` loads on plain sandloom.
 
-    Celery is the optional extra; without it the subset still loads, every
-    enqueue (and a beat ``cron``) refuses with ``TaskQueueNotInstalled``
-    naming the extra, and Celery is never imported.
+    Celery is the optional extra; without it the subset still loads, the
+    module's tasks are declared (the driver is what needs the broker), and
+    Celery is never imported.
     """
     import json
     import subprocess
@@ -161,6 +154,4 @@ def test_a_module_with_tasks_loads_without_celery(module: str, task: str) -> Non
     assert done.returncode == 0, done.stderr[-3000:]
     result = json.loads(done.stdout.strip().splitlines()[-1])
     assert set(result["loaded"]) == set(modules)
-    assert task in result["refused"], result
-    for message in result["refused"].values():
-        assert "pip install 'sandloom[celery]'" in message
+    assert task in result["declared"], result

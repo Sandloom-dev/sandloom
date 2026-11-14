@@ -22,7 +22,8 @@ time. These look at a whole business module (its ``events.py``, its
   ``json_path``, ``json_contains``, ``transaction_lock``) has its feature in
   a ``CapabilityRequirement("database", features=...)`` of the module;
 * ``undeclared-capability`` (SANDLOOM-C033) — a ``tasks.py`` declares the
-  ``taskqueue`` capability, and its beat hook the feature ``periodic``.
+  ``taskqueue`` capability, a ``@periodic`` task the feature ``periodic`` and
+  an ``at_least_once`` task the feature ``redelivery``.
 
 Each analyzer returns ``(file, "Line N: message")`` pairs. They only report
 what they can decide: an unresolvable name (a list built elsewhere, a channel
@@ -48,8 +49,9 @@ from sandloom.core.archcheck.analyzers import (
 from sandloom.core.descriptors.database_forms import DATABASE_FORM_FEATURES
 from sandloom.core.descriptors.derived_capabilities import (
     PERIODIC_FEATURE,
-    PERIODIC_HOOK,
+    REDELIVERY_FEATURE,
     TASKQUEUE,
+    declared_features,
 )
 
 Hit = tuple[Path, str]
@@ -802,8 +804,7 @@ def find_undeclared_capabilities(module_dir: Path, files: Sequence[Path]) -> lis
     that its ``define_module(capabilities=[...])`` does not declare:
 
     * a ``tasks.py`` (or ``tasks/`` package) without ``taskqueue``;
-    * a beat hook (``setup_periodic_tasks``) without the ``taskqueue``
-      feature ``periodic``.
+    * a ``@periodic`` task without the ``taskqueue`` feature ``periodic``.
 
     The load preflight derives both anyway; the declaration is what readers
     see. Only what is decidable is reported: an unreadable declaration (a
@@ -829,25 +830,23 @@ def find_undeclared_capabilities(module_dir: Path, files: Sequence[Path]) -> lis
     if declared is None:
         return []
     taskqueue = declared.get(TASKQUEUE)
-    hook = next(
-        (
-            node
-            for node in getattr(tasks_tree, "body", [])
-            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-            and node.name == PERIODIC_HOOK
-        ),
-        None,
-    )
     shown = tasks.relative_to(module_dir).as_posix()
-    if hook is not None and (taskqueue is None or PERIODIC_FEATURE not in taskqueue):
+    missing = sorted(declared_features(tasks) - (taskqueue or frozenset()))
+    if missing:
+        reasons = {
+            PERIODIC_FEATURE: "@periodic schedules periodic jobs",
+            REDELIVERY_FEATURE: "at_least_once=True needs redelivery",
+        }
         return [
             (
                 tasks,
-                f"Line {hook.lineno}: {PERIODIC_HOOK} schedules periodic jobs, "
-                f"which need the {TASKQUEUE} feature {PERIODIC_FEATURE!r}; declare "
-                "it in define_module: capabilities=[CapabilityRequirement("
-                f'"{TASKQUEUE}", features=frozenset({{"{PERIODIC_FEATURE}"}}))] '
-                "(required=False when the module works without its schedule)",
+                f"Line {_first_definition_line(tasks_tree)}: "
+                f"{'; '.join(reasons[f] for f in missing)}, which need the "
+                f"{TASKQUEUE} {' and '.join(f'feature {f!r}' for f in missing)}; "
+                "declare them in define_module: "
+                f'capabilities=[CapabilityRequirement("{TASKQUEUE}", '
+                f"features=frozenset({set(missing)!r}))] "
+                "(required=False when the module works without them)",
             )
         ]
     if taskqueue is None:

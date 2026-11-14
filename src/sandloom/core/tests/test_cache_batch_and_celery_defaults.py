@@ -86,13 +86,13 @@ async def test_enqueue_never_subscribes_a_result_consumer() -> None:
     provider = celery_taskqueue.CeleryTaskQueueProvider(
         name="x", driver="celery", options={}, app=_App()
     )
-    assert await provider.enqueue("mod.task", {"a": 1}) == "task-1"
+    assert await provider.send("mod.task", b'{"a":1}', task_id="task-1") == "task-1"
     assert sent == [
         {
             "name": "mod.task",
             "kwargs": {"a": 1},
             "countdown": None,
-            "task_id": None,
+            "task_id": "task-1",
             "ignore_result": True,
             "retry": False,
         }

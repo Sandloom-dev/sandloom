@@ -43,7 +43,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`settings`](#settings) | settings object |  |
 | [`ShutdownTask`](#shutdowntask) | constant |  |
 | [`StartupTask`](#startuptask) | constant |  |
-| [`TaskQueue`](#taskqueue) | class | What a module calls on `taskqueue()`. |
+| [`TaskQueue`](#taskqueue) | class | What a module calls on `taskqueue()`: enqueue a task by its name. |
 | [`taskqueue`](#taskqueue_1) | function | Return the taskqueue instance `name` behind the kernel's layer. |
 | [`Timeout`](#timeout) | exception | The operation did not finish within its bound. The caller may retry. |
 | [`TooLarge`](#toolarge) | exception | A value, object or payload over a limit. |
@@ -883,7 +883,7 @@ StartupTask: UnionType
 class TaskQueue(Protocol)
 ```
 
-What a module calls on `taskqueue()`.
+What a module calls on `taskqueue()`: enqueue a task by its name.
 
 #### `TaskQueue.enqueue`
 
@@ -893,7 +893,7 @@ async def enqueue(
     task: str,
     payload: Mapping[str, Any],
     *,
-    delay_seconds: int | None = None,
+    delay: timedelta | None = None,
     idempotency_key: str | None = None,
 ) -> str
 ```

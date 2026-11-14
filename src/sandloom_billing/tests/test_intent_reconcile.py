@@ -541,22 +541,14 @@ async def test_retry_of_a_legacy_issued_checkout_uses_the_psp_default_lifetime(
 # --------------------------------------------------------------------------- #
 
 
-def test_reconcile_task_is_scheduled_and_acks_late() -> None:
+def test_reconcile_task_is_scheduled_every_five_minutes() -> None:
     from sandloom_billing import tasks
 
-    scheduled: list[tuple[float, Any, str]] = []
-
-    class _Sender:
-        def add_periodic_task(self, interval: float, sig: Any, name: str) -> None:
-            scheduled.append((interval, sig, name))
-
-    tasks.setup_periodic_tasks(_Sender())
-
-    [(interval, sig, _name)] = scheduled
-    assert sig.task == "sandloom_billing.tasks.reconcile_operation_intents"
-    assert 0 < interval <= 15 * 60
     task = tasks.reconcile_operation_intents
-    assert task.acks_late is True and task.reject_on_worker_lost is True
+    assert task.name == "sandloom_billing.tasks.reconcile_operation_intents"
+    assert task.cron == "*/5 * * * *"
+    assert 0 < task.max_interval.total_seconds() <= 15 * 60
+    assert task.id == "billing.reconcile-operation-intents"
 
 
 async def test_reconcile_task_body_reports_counts(

@@ -739,7 +739,8 @@ never checked against what you call.
         "does not declare",
         'declare it in define_module: capabilities=["taskqueue"] for a '
         'tasks.py, CapabilityRequirement("taskqueue", '
-        'features=frozenset({"periodic"})) for a beat hook (required=False '
+        'features=frozenset({"periodic"})) for a @periodic task and the feature '
+        '"redelivery" for an at_least_once one (required=False '
         "when the module works without its schedule), with CapabilityRequirement "
         "from sandloom.sdk.module",
         """
@@ -747,11 +748,13 @@ A module states the infrastructure it needs in define_module(capabilities=[...])
 and the deployment chooses the driver; startup checks that they match. Some
 needs are visible in the module's code, and the kernel derives them at load
 whether they are declared or not: a tasks.py (or tasks/ package), which the
-framework worker imports and runs, needs the taskqueue capability; a beat hook
-(setup_periodic_tasks) in it needs the taskqueue feature "periodic", a driver
-that runs the module's periodic jobs at their interval in at least one process
-while the deployment runs (a driver never has it for supporting enqueue alone;
-only celery advertises it today). This check asks for the declaration, so a
+framework worker imports and runs, needs the taskqueue capability; a
+@periodic task in it needs the taskqueue feature "periodic", a driver that
+runs the module's periodic jobs at their cron slots in at least one process
+while the deployment runs, and a task declared at_least_once=True needs the
+feature "redelivery", a driver that redelivers it when its worker dies (a
+driver never has either for supporting send alone; only celery advertises
+them today). This check asks for the declaration, so a
 reader, an agent and the module snapshot see the need where every other need
 is stated. A declaration decides required or optional: the derived need only
 adds its feature to it, and a capability nobody declared is derived as
@@ -2141,7 +2144,7 @@ reports breaking changes.
         "for a deployed one (each writes <service>-worker / <service>-beat); "
         "in a hand-written profile, add one beat per broker and a worker "
         "consuming it",
-        "A schedule (setup_periodic_tasks in <module>/tasks.py) runs only "
+        "A schedule (a @periodic task in <module>/tasks.py) runs only "
         "where a celery beat loads the module, and exactly one may: none "
         "and the task never runs, two and it runs twice. sandloom test's static "
         "schema & deploy step checks every deploy profile.",

@@ -24,7 +24,8 @@ import json
 import re
 from pathlib import Path
 
-from sandloom.core.tasks.periodic import PERIODIC_HOOK, has_periodic_tasks
+from sandloom.core.descriptors.derived_capabilities import PERIODIC_HOOK
+from sandloom.core.tasks.periodic import has_periodic_tasks
 
 _LOCAL_MODULES = re.compile(
     r"^(LOCAL_MODULES(?::\s*list\[str\])?\s*=\s*)(\[[^\]]*\])", re.MULTILINE

@@ -11,7 +11,7 @@ The driver reads no kernel setting (the kernel fills ``broker`` and
 ``backend`` from ``BROKER_URL`` / ``CACHE_URL``) and only publishes: enqueue
 dedupe (``idempotency_key``) is the kernel's taskqueue layer
 (:mod:`sandloom.core.tasks.queue`), which reserves a job id and hands it to
-:meth:`CeleryTaskQueueProvider.enqueue` as ``task_id``. A failure that provably
+:meth:`CeleryTaskQueueProvider.send` as ``task_id``. A failure that provably
 published nothing is :class:`InvalidArgument`; anything else may have reached
 the broker and is :class:`Unavailable` or :class:`Timeout` (spec 8.2).
 """
@@ -20,25 +20,33 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import importlib
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from copy import deepcopy
+from datetime import timedelta
 from typing import Any, Self, cast
+from urllib.parse import urlsplit
 
+import orjson
 from pydantic import BaseModel, ConfigDict, Field
 
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.drivers.celery_broker_probe import probe_broker
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
-from sandloom.core.infra.contracts import TaskQueueProvider
+from sandloom.core.infra.contracts import (
+    PeriodicSpec,
+    TaskQueueProvider,
+    TaskTable,
+)
 from sandloom.core.infra.errors import InvalidArgument, Timeout, Unavailable
 
 #: Features the Celery task-queue driver supports. ``periodic``: the worker
-#: connects each loaded module's beat hook and one beat per broker and module
-#: set runs it under a fenced lease (sandloom.core.worker, beat_lease); the
-#: only driver that advertises it today.
-CELERY_TASKQUEUE_FEATURES = frozenset({"delay", "idempotency_key", "periodic"})
+#: registers each periodic task of the table and one beat per broker and module
+#: set runs it under a fenced lease (sandloom.core.worker, beat_lease).
+#: ``redelivery``: an ``at_least_once`` task is registered ``acks_late`` and
+#: ``reject_on_worker_lost``.
+CELERY_TASKQUEUE_FEATURES = frozenset({"delay", "periodic", "redelivery"})
 
 
 class CeleryTaskQueueOptions(BaseModel):
@@ -64,7 +72,7 @@ class CeleryTaskQueueOptions(BaseModel):
 #: instance's options, and the ``(broker, backend)`` it was built from.
 _default_app: Any | None = None
 _default_app_urls: tuple[str, str | None] | None = None
-#: Threads that run the blocking broker publish of ``enqueue``.
+#: Threads that run the blocking broker publish of ``send``.
 ENQUEUE_EXECUTOR_THREADS = 4
 _executor: ThreadPoolExecutor | None = None
 _executor_pid: int | None = None
@@ -108,10 +116,73 @@ def get_default_app(broker: str, backend: str | None) -> Any:
     return _default_app
 
 
+def _cron_fields(cron: str) -> dict[str, str]:
+    minute, hour, day_of_month, month_of_year, day_of_week = cron.split()
+    return {
+        "minute": minute,
+        "hour": hour,
+        "day_of_month": day_of_month,
+        "month_of_year": month_of_year,
+        "day_of_week": day_of_week,
+    }
+
+
+def _celery_task_for(name: str, run: Callable[[str, bytes], None]) -> Any:
+    """The Celery task body of the declared task ``name``: its message's
+    keyword arguments are the payload object, which ``run`` (the kernel's
+    ``run_task``) turns back into the payload model."""
+
+    def body(**payload: Any) -> None:
+        run(name, orjson.dumps(payload))
+
+    body.__name__ = name.rsplit(".", 1)[-1]
+    return body
+
+
+def register_task_table(
+    app: Any, table: TaskTable, run: Callable[[str, bytes], None]
+) -> None:
+    """Register ``table`` on the Celery ``app``: one task per entry (queue
+    routing, ``acks_late`` and ``reject_on_worker_lost`` for ``at_least_once``)
+    and the beat schedule of the periodic entries. A message runs ``run(name,
+    payload)``. ``idk-worker-port`` moves this behind the driver's host."""
+    routes: dict[str, dict[str, str]] = dict(app.conf.task_routes or {})
+    for name, spec in table.tasks.items():
+        app.task(
+            name=name,
+            acks_late=spec.at_least_once,
+            reject_on_worker_lost=spec.at_least_once,
+            ignore_result=True,
+        )(_celery_task_for(name, run))
+        if spec.queue != "default":
+            routes[name] = {"queue": spec.queue}
+    if routes:
+        app.conf.task_routes = routes
+    periodic = tuple(table.periodic)
+    if periodic:
+        app.on_after_finalize.connect(
+            functools.partial(_add_periodic_tasks, periodic=periodic), weak=False
+        )
+
+
+def _add_periodic_tasks(
+    sender: Any, *, periodic: Sequence[PeriodicSpec], **_: Any
+) -> None:
+    # Celery loads only where the beat is assembled (a module-level import would not).
+    crontab = importlib.import_module("celery.schedules").crontab
+
+    for spec in periodic:
+        sender.add_periodic_task(
+            crontab(**_cron_fields(spec.cron)),
+            sender.signature(spec.task),
+            name=spec.id,
+        )
+
+
 class CeleryTaskQueueProvider(TaskQueueProvider):
     """A single Celery application instance."""
 
-    contract_version = 1
+    contract_version = 2
     supported_features = CELERY_TASKQUEUE_FEATURES
     options_schema = CeleryTaskQueueOptions
     required_imports = ("celery",)
@@ -132,42 +203,65 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         super().__init__(name=name, driver=driver, options=options)
         self._app = app
 
-    async def enqueue(
+    async def send(
         self,
         task: str,
-        payload: Mapping[str, Any],
+        payload: bytes,
         *,
-        delay_seconds: int | None = None,
-        idempotency_key: str | None = None,
-        task_id: str | None = None,
+        task_id: str,
+        delay: timedelta | None = None,
+        at_least_once: bool = False,
     ) -> str:
-        """Publish ``task`` once, under ``task_id`` when given (the broker's
-        job id; the kernel's taskqueue layer reserves it).
+        """Publish ``task`` once under ``task_id`` (the broker's job id; the
+        kernel's taskqueue layer chose it).
 
-        ``idempotency_key`` is served by the kernel's taskqueue layer, never
-        by the driver: passed here directly it is refused with
-        :class:`InvalidArgument` before anything is sent, so a caller that
-        bypasses the layer never publishes without the dedupe it asked for.
-        A failure that provably published nothing (the kwargs cannot be
+        ``payload`` is the JSON object of the task's payload: it becomes the
+        message's keyword arguments, which the worker's task of the same name
+        turns back into the payload model. ``at_least_once`` is the worker's
+        side (``acks_late`` and ``reject_on_worker_lost`` on the registered
+        task); a message carries nothing for it. A failure that provably
+        published nothing (the payload is not a JSON object or cannot be
         encoded, the task is unknown) is :class:`InvalidArgument`; anything
         else (connection drop, timeout, lost ack) may have reached the broker
         and is :class:`Unavailable` or :class:`Timeout`.
         """
-        if idempotency_key is not None:
+        if not isinstance(task, str) or not task:
             raise InvalidArgument(
-                "idempotency_key is served by the kernel's taskqueue layer "
-                "(sandloom.sdk.infra.taskqueue()), not by the driver",
+                "the task name must be a non-empty string",
                 capability="taskqueue",
                 instance=self.name,
             )
-        return await self._send(task, deepcopy(dict(payload)), delay_seconds, task_id)
+        try:
+            kwargs = orjson.loads(payload)
+        except orjson.JSONDecodeError as exc:
+            raise InvalidArgument(
+                "the task payload is not JSON",
+                capability="taskqueue",
+                instance=self.name,
+            ) from exc
+        if not isinstance(kwargs, dict):
+            raise InvalidArgument(
+                "the task payload must be a JSON object",
+                capability="taskqueue",
+                instance=self.name,
+            )
+        countdown: float | None = None
+        if delay is not None:
+            countdown = delay.total_seconds()
+            if countdown < 0:
+                raise InvalidArgument(
+                    "delay must not be negative",
+                    capability="taskqueue",
+                    instance=self.name,
+                )
+        return await self._send(task, kwargs, countdown, task_id)
 
     async def _send(
         self,
         task: str,
         payload: dict[str, Any],
-        delay_seconds: int | None,
-        task_id: str | None,
+        countdown: float | None,
+        task_id: str,
     ) -> str:
         # send_task is a synchronous broker round-trip; offload it so the event
         # loop is never blocked on network I/O — on a small dedicated executor
@@ -180,7 +274,7 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
             self._app.send_task,
             task,
             kwargs=payload,
-            countdown=delay_seconds,
+            countdown=countdown,
             task_id=task_id,
             ignore_result=True,
             retry=False,
@@ -228,6 +322,28 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
             ) from exc
         except Exception as exc:  # may have published: mapped, never swallowed
             raise _maybe_published(exc, self.name) from exc
+
+    async def isolation_identity(self) -> str | None:
+        """The broker this instance publishes to: scheme, host, port and path
+        of the ``broker`` option, never its credentials (a rotation must not
+        change the identity)."""
+        broker = self.options.get("broker")
+        if not isinstance(broker, str) or not broker:
+            return None
+        where = urlsplit(broker)
+        port = f":{where.port}" if where.port else ""
+        host = where.hostname or ""
+        return f"{self.driver}:{where.scheme}://{host}{port}{where.path}"
+
+    def register_task_table(
+        self, table: TaskTable, run: Callable[[str, bytes], None]
+    ) -> None:
+        """Register ``table`` on this instance's Celery app (the worker boot):
+        one task per entry (queue routing, ``acks_late`` and
+        ``reject_on_worker_lost`` for ``at_least_once``) and the beat schedule
+        of the periodic entries. A message runs ``run(name, payload)``.
+        Celery-only, until ``idk-worker-port`` moves it behind the host."""
+        register_task_table(self._app, table, run)
 
     async def health(self) -> HealthResult:
         """One bounded connection to this instance's broker
@@ -292,4 +408,5 @@ __all__ = [
     "CeleryTaskQueueOptions",
     "create_celery_taskqueue",
     "get_default_app",
+    "register_task_table",
 ]

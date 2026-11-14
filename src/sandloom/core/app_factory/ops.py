@@ -119,11 +119,12 @@ class _HealthCache(Generic[_T]):
 
 #: Taskqueue features a process never uses to serve a request: a module that
 #: requires only these has its work run by the worker and beat processes
-#: (``periodic``: the beat schedules it, a worker runs it). A broker outage
+#: (``periodic``: the beat schedules it, a worker runs it; ``redelivery``: the
+#: broker hands an ``at_least_once`` task to a worker again). A broker outage
 #: does not stop this process from serving, so it does not drop its readiness
 #: (owner decision on infrastructure dependencies, answer 3); the module's own
 #: check watches that the background work runs.
-BACKGROUND_TASKQUEUE_FEATURES = frozenset({"periodic"})
+BACKGROUND_TASKQUEUE_FEATURES = frozenset({"periodic", "redelivery"})
 
 
 @dataclass(frozen=True)

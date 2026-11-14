@@ -401,32 +401,25 @@ def test_workers_are_sized_and_health_checked(profile: str) -> None:
 
 
 def _modules_with_periodic_tasks() -> set[str]:
-    """Bundled modules whose ``tasks.py`` defines the beat hook (AST, no import)."""
-    import ast
-
-    from sandloom.core.worker import PERIODIC_HOOK
+    """Bundled modules whose ``tasks.py`` declares a ``@periodic`` task (AST, no
+    import)."""
+    from sandloom.core.descriptors.derived_capabilities import defines_periodic
 
     src = Path(__file__).resolve().parents[3]  # .../src (top-level modules)
-    found: set[str] = set()
-    for tasks in src.glob("*/tasks.py"):
-        tree = ast.parse(tasks.read_text())
-        if any(
-            isinstance(node, ast.FunctionDef) and node.name == PERIODIC_HOOK
-            for node in tree.body
-        ):
-            found.add(tasks.parent.name)
-    return found
+    return {
+        tasks.parent.name for tasks in src.glob("*/tasks.py") if defines_periodic(tasks)
+    }
 
 
 def test_periodic_task_modules_are_discovered() -> None:
     # Guards the scan below: billing (intent reconciler) and identity
-    # (token cleanup) both ship beat schedules.
+    # (token cleanup) both declare @periodic tasks.
     assert {"sandloom_billing", "sandloom_identity"} <= _modules_with_periodic_tasks()
 
 
 @pytest.mark.parametrize("profile", PROFILES)
 def test_every_periodic_task_set_has_exactly_one_beat(profile: str) -> None:
-    """Every module with ``setup_periodic_tasks`` that a profile serves has
+    """Every module with a ``@periodic`` task that a profile serves has
     exactly ONE beat loading it, a worker loading it on that beat's broker, and
     no two beats share a broker — so no schedule is missing or runs twice.
     Also a step of ``sandloom test`` (``schema & deploy``, SANDLOOM-T010)."""

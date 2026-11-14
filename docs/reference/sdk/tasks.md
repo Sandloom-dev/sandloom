@@ -7,7 +7,7 @@ description: "Reference of sandloom.sdk.tasks: every public name with its signat
 
 # `sandloom.sdk.tasks`
 
-Background tasks: a typed `shared_task` for `<module>/tasks.py`.
+Background tasks: `@task` and `@periodic` for `<module>/tasks.py`.
 
 Public API 1.0 (spec §2.2, Appendix C).
 
@@ -17,52 +17,58 @@ Public API 1.0 (spec §2.2, Appendix C).
 
 | Name | Kind | Summary |
 | --- | --- | --- |
-| [`cron`](#cron) | function | A beat schedule from a five-field cron expression (`"minute hour day-of-month month day-of-week"`, e.g. `"0 3 * * *"`): |
-| [`shared_task`](#shared_task) | function | `@shared_task` / `@shared_task(name=..., acks_late=True, ...)`. |
-| [`Task`](#task) | class | A registered task: call it inline, or enqueue it. |
-| [`TaskQueueNotInstalled`](#taskqueuenotinstalled) | exception | A task was enqueued, or a beat schedule built, in a process without Celery. |
+| [`PayloadlessTask`](#payloadlesstask) | class | A declared task that takes no payload. |
+| [`periodic`](#periodic) | function | `@periodic(cron="0 3 * * *", id="identity.cleanup")`: a task without a payload, sent at the slots of `cron` (five fields, UTC) while a sc... |
+| [`PeriodicTask`](#periodictask) | class | A task the scheduler sends at the slots of its cron expression. |
+| [`Task`](#task) | class | A declared task: call it inline, or enqueue it. |
+| [`task`](#task_1) | function | `@task` / `@task(queue=..., at_least_once=True)`. |
 
 ## Advanced names
 
-### `cron`
+### `PayloadlessTask`
 
 ```python
-def cron(expression: str) -> Any
+class PayloadlessTask(Protocol)
 ```
 
-A beat schedule from a five-field cron expression
-(`"minute hour day-of-month month day-of-week"`, e.g. `"0 3 * * *"`):
+A declared task that takes no payload.
+
+#### `PayloadlessTask.enqueue`
 
 ```python
-def setup_periodic_tasks(sender: Any, **kwargs: Any) -> None:
-    sender.add_periodic_task(cron("0 3 * * *"), purge.s(), name="m.purge")
-```
-
-Raises `TaskQueueNotInstalled` when Celery is not installed (a beat
-schedule only exists where Celery runs).
-
-### `shared_task`
-
-```python
-def shared_task(
-    fn: Callable[..., Any] | None = None,
-    /,
+async def enqueue(
+    self,
     *,
-    name: str | None = None,
-    acks_late: bool | None = None,
-    reject_on_worker_lost: bool | None = None,
-    **options: Any,
-) -> Any
+    delay: timedelta | None = None,
+    idempotency_key: str | None = None,
+) -> str
 ```
 
-`@shared_task` / `@shared_task(name=..., acks_late=True, ...)`.
+### `periodic`
 
-An idempotent, at-least-once task (redelivered when a worker dies) is
-`@shared_task(acks_late=True, reject_on_worker_lost=True)`; its body
-runs async work through `run_async(...)` with `open_uow()` blocks.
+```python
+def periodic(
+    *,
+    cron: str,
+    id: str,
+    queue: str = 'default',
+    at_least_once: bool = False,
+) -> Callable[[Callable[[], R]], PeriodicTask[R]]
+```
 
-Without Celery installed the function becomes a task that runs inline
-and refuses every enqueue with `TaskQueueNotInstalled`.
+`@periodic(cron="0 3 * * *", id="identity.cleanup")`: a task without a
+payload, sent at the slots of `cron` (five fields, UTC) while a
+scheduler runs. `id` is unique in the deployment. A run may repeat, so
+the body tolerates a second run. The module needs the taskqueue feature
+`periodic` (derived at load).
+
+### `PeriodicTask`
+
+```python
+class PeriodicTask(Protocol)
+```
+
+A task the scheduler sends at the slots of its cron expression.
 
 ### `Task`
 
@@ -70,49 +76,44 @@ and refuses every enqueue with `TaskQueueNotInstalled`.
 class Task(Protocol)
 ```
 
-A registered task: call it inline, or enqueue it.
+A declared task: call it inline, or enqueue it.
 
-#### `Task.delay`
-
-```python
-def delay(self, *args: P.args, **kwargs: P.kwargs) -> Any
-```
-
-#### `Task.s`
+#### `Task.enqueue`
 
 ```python
-def s(self, *args: Any, **kwargs: Any) -> Any
-```
-
-A signature (`sender.add_periodic_task(schedule, task.s())`).
-
-#### `Task.si`
-
-```python
-def si(self, *args: Any, **kwargs: Any) -> Any
-```
-
-#### `Task.apply_async`
-
-```python
-def apply_async(
+async def enqueue(
     self,
-    args: tuple[Any, ...] | None = None,
-    kwargs: dict[str, Any] | None = None,
-    **options: Any,
+    payload: P,
+    *,
+    delay: timedelta | None = None,
+    idempotency_key: str | None = None,
+) -> str
+```
+
+Send the task to the taskqueue; returns the task id.
+
+`delay` needs the taskqueue feature `delay`. With
+`idempotency_key` a repeat returns the first task id (a different
+payload under one key conflicts).
+
+### `task`
+
+```python
+def task(
+    fn: Callable[..., Any] | None = None,
+    /,
+    *,
+    queue: str = 'default',
+    at_least_once: bool = False,
 ) -> Any
 ```
 
-### `TaskQueueNotInstalled`
+`@task` / `@task(queue=..., at_least_once=True)`.
 
-```python
-class TaskQueueNotInstalled(RuntimeError)
-```
-
-A task was enqueued, or a beat schedule built, in a process without Celery.
-
-Calling the task inline still works; `delay` / `apply_async` / `s` /
-`si` and `cron` need the `sandloom[celery]` extra.
+`at_least_once=True` redelivers the task when its worker dies mid-run:
+only for a task whose second run is harmless (it needs the taskqueue
+feature `redelivery`, derived at load). Its effects still need a
+DB-atomic dedupe (`durable_inbox` or a UNIQUE operation key).
 
 ## Examples and related guides
 

@@ -2913,6 +2913,16 @@
       ],
       "signature": "() -> None"
     },
+    "PeriodicSpec": {
+      "kind": "class",
+      "members": [
+        "cron",
+        "id",
+        "queue",
+        "task"
+      ],
+      "signature": "(id:POSITIONAL_OR_KEYWORD|str, cron:POSITIONAL_OR_KEYWORD|str, task:POSITIONAL_OR_KEYWORD|str, queue:POSITIONAL_OR_KEYWORD|str='default') -> None"
+    },
     "PermissionDenied": {
       "kind": "class",
       "members": [
@@ -2973,6 +2983,45 @@
     },
     "TENANT_SETTING": {
       "kind": "value"
+    },
+    "TaskQueueProvider": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "aopen",
+        "capability",
+        "development_only",
+        "features",
+        "features_for",
+        "from_config",
+        "health",
+        "install_hint",
+        "isolation_identity",
+        "options_schema",
+        "performance_hints",
+        "raw_backend",
+        "required_imports",
+        "send",
+        "supported_features",
+        "test_isolation"
+      ],
+      "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
+    "TaskSpec": {
+      "kind": "class",
+      "members": [
+        "at_least_once",
+        "queue"
+      ],
+      "signature": "(queue:POSITIONAL_OR_KEYWORD|str='default', at_least_once:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+    },
+    "TaskTable": {
+      "kind": "class",
+      "members": [
+        "periodic",
+        "tasks"
+      ],
+      "signature": "(tasks:POSITIONAL_OR_KEYWORD|Mapping[str, TaskSpec], periodic:POSITIONAL_OR_KEYWORD|Sequence[PeriodicSpec]) -> None"
     },
     "Timeout": {
       "kind": "class",
@@ -3179,7 +3228,45 @@
       "signature": "()"
     },
     "TaskQueueConformance": {
-      "kind": "pending"
+      "kind": "class",
+      "members": [
+        "contract",
+        "feature_calls",
+        "health_timeout_seconds",
+        "known_task",
+        "leak_marker",
+        "make_failing_provider",
+        "make_provider",
+        "make_renamed_provider",
+        "operation_calls",
+        "protocol",
+        "provider",
+        "pytestmark",
+        "requires_feature",
+        "spec",
+        "test_harness_declared_behaviours_do_not_raise_unsupported",
+        "test_harness_declares_only_spec_features",
+        "test_harness_hints_name_only_operations",
+        "test_harness_implements_the_contract",
+        "test_harness_maps_backend_failures_to_infra_errors",
+        "test_harness_names_its_isolation_domain",
+        "test_harness_opens_and_closes_twice",
+        "test_harness_redacts_the_health_of_a_failing_backend",
+        "test_harness_reports_health_within_the_bound",
+        "test_harness_reports_the_features_it_declares",
+        "test_harness_states_development_only_as_a_bool",
+        "test_harness_states_the_contract_version",
+        "test_harness_undeclared_behaviours_raise_unsupported",
+        "test_send_errors_carry_the_dedupe_decision",
+        "test_send_marks_at_least_once_only_when_the_driver_redelivers",
+        "test_send_of_a_bad_task_name_raises_invalid_argument",
+        "test_send_of_an_unknown_task_raises_invalid_argument",
+        "test_send_refuses_a_payload_that_is_not_a_json_object",
+        "test_send_returns_the_task_id_it_was_given",
+        "test_send_with_a_delay_when_the_driver_declares_delay",
+        "unknown_task"
+      ],
+      "signature": "()"
     }
   },
   "sandloom.sdk": {
@@ -5926,32 +6013,32 @@
     }
   },
   "sandloom.sdk.tasks": {
-    "Task": {
+    "PayloadlessTask": {
       "kind": "class",
       "members": [
-        "apply_async",
-        "delay",
-        "s",
-        "si"
+        "enqueue"
       ],
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
-    "TaskQueueNotInstalled": {
+    "PeriodicTask": {
+      "kind": "class",
+      "members": [],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "Task": {
       "kind": "class",
       "members": [
-        "add_note",
-        "args",
-        "with_traceback"
+        "enqueue"
       ],
-      "signature": null
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
-    "cron": {
+    "periodic": {
       "kind": "function",
-      "signature": "(expression:POSITIONAL_OR_KEYWORD|str) -> Any"
+      "signature": "(cron:KEYWORD_ONLY|str, id:KEYWORD_ONLY|str, queue:KEYWORD_ONLY|str='default', at_least_once:KEYWORD_ONLY|bool=False) -> Callable[[Callable[[], R]], PeriodicTask[R]]"
     },
-    "shared_task": {
+    "task": {
       "kind": "function",
-      "signature": "(fn:POSITIONAL_ONLY|Callable[..., Any] | None=None, name:KEYWORD_ONLY|str | None=None, acks_late:KEYWORD_ONLY|bool | None=None, reject_on_worker_lost:KEYWORD_ONLY|bool | None=None, options:VAR_KEYWORD|Any) -> Any"
+      "signature": "(fn:POSITIONAL_ONLY|Callable[..., Any] | None=None, queue:KEYWORD_ONLY|str='default', at_least_once:KEYWORD_ONLY|bool=False) -> Any"
     }
   },
   "sandloom.sdk.tenant": {

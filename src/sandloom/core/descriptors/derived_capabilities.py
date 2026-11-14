@@ -6,9 +6,11 @@ any submodule:
 * a ``<module>.tasks`` submodule (``tasks.py`` or a ``tasks/`` package) needs
   the ``taskqueue`` capability: the framework worker imports it and runs its
   tasks;
-* a beat hook (:data:`PERIODIC_HOOK`) in it needs the ``taskqueue`` feature
-  ``periodic``: something must run the module's periodic jobs at their
-  interval while the deployment runs.
+* a ``@periodic`` task in it needs the ``taskqueue`` feature ``periodic``:
+  something must run the module's periodic jobs at their slots while the
+  deployment runs;
+* a task declared ``at_least_once=True`` needs the feature ``redelivery``:
+  the driver redelivers it when its worker dies.
 
 :meth:`sandloom.core.descriptors.ModuleDescriptor.effective_capabilities`
 merges these into the declared requirements, so the load preflight checks
@@ -28,26 +30,42 @@ from dataclasses import dataclass
 from pathlib import Path
 
 __all__ = [
+    "PERIODIC_DECORATOR",
     "PERIODIC_FEATURE",
     "PERIODIC_HOOK",
+    "REDELIVERY_FEATURE",
     "TASKQUEUE",
     "DerivedNeed",
+    "declared_features",
+    "defines_periodic",
     "defines_periodic_hook",
     "derived_needs",
     "loaded_package_locations",
     "tasks_source",
 ]
 
-#: The hook a module's ``tasks.py`` defines to schedule periodic tasks.
+#: The decorator that declares a periodic task in a module's ``tasks.py``.
+PERIODIC_DECORATOR = "periodic"
+
+#: The removed Celery beat hook. Nothing reads it any more: only the generator
+#: (``sandloom add task --periodic``) still writes it, until ``idk-task-adopt``
+#: moves that to ``@periodic`` and deletes this name and
+#: :func:`defines_periodic_hook`.
 PERIODIC_HOOK = "setup_periodic_tasks"
+
+#: The decorators that declare a task (``sandloom.sdk.tasks``).
+_TASK_DECORATORS = frozenset({"task", PERIODIC_DECORATOR})
 
 #: The capability a module with tasks needs.
 TASKQUEUE = "taskqueue"
 
-#: The ``taskqueue`` feature a module with a beat hook needs: its periodic
-#: jobs run at their interval in at least one process while the deployment
-#: runs. Never granted for supporting ``enqueue`` alone.
+#: The ``taskqueue`` feature a module with a ``@periodic`` task needs: its
+#: periodic jobs run at their slots in at least one process while the
+#: deployment runs. Never granted for supporting ``send`` alone.
 PERIODIC_FEATURE = "periodic"
+
+#: The ``taskqueue`` feature a module with an ``at_least_once`` task needs.
+REDELIVERY_FEATURE = "redelivery"
 
 
 @dataclass(frozen=True)
@@ -82,9 +100,36 @@ def tasks_source(locations: Iterable[str]) -> Path | None:
     return None
 
 
+def _decorator_calls(path: Path) -> list[tuple[str, ast.expr | None]]:
+    """``(decorator name, the call or None)`` of every decorator of a
+    module-level function of the file, by the name's last segment (``task``,
+    ``periodic``). An unreadable or unparsable file has none."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, UnicodeDecodeError, ValueError):
+        return []
+    found: list[tuple[str, ast.expr | None]] = []
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        for decorator in node.decorator_list:
+            call = decorator if isinstance(decorator, ast.Call) else None
+            target = call.func if call is not None else decorator
+            name = (
+                target.id
+                if isinstance(target, ast.Name)
+                else target.attr
+                if isinstance(target, ast.Attribute)
+                else None
+            )
+            if name in _TASK_DECORATORS:
+                found.append((name, call))
+    return found
+
+
 def defines_periodic_hook(path: Path) -> bool:
-    """Does the file define :data:`PERIODIC_HOOK` at module level? (AST; an
-    unreadable or unparsable file defines none.)"""
+    """Does the file define the removed :data:`PERIODIC_HOOK`? (AST; kept only
+    for the generator until ``idk-task-adopt``.)"""
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except (OSError, SyntaxError, UnicodeDecodeError, ValueError):
@@ -94,6 +139,28 @@ def defines_periodic_hook(path: Path) -> bool:
         and node.name == PERIODIC_HOOK
         for node in tree.body
     )
+
+
+def defines_periodic(path: Path) -> bool:
+    """Does the file declare a ``@periodic`` task at module level? (AST.)"""
+    return any(name == PERIODIC_DECORATOR for name, _ in _decorator_calls(path))
+
+
+def declared_features(path: Path) -> frozenset[str]:
+    """The ``taskqueue`` features the tasks of the file need: ``periodic`` for a
+    ``@periodic`` task, ``redelivery`` for ``at_least_once=True`` on any."""
+    features: set[str] = set()
+    for name, call in _decorator_calls(path):
+        if name == PERIODIC_DECORATOR:
+            features.add(PERIODIC_FEATURE)
+        if isinstance(call, ast.Call) and any(
+            kw.arg == "at_least_once"
+            and isinstance(kw.value, ast.Constant)
+            and kw.value.value is True
+            for kw in call.keywords
+        ):
+            features.add(REDELIVERY_FEATURE)
+    return frozenset(features)
 
 
 def _shown(path: Path, module: str) -> str:
@@ -106,19 +173,19 @@ def _shown(path: Path, module: str) -> str:
 
 def derived_needs(module: str) -> tuple[DerivedNeed, ...]:
     """What the imported package ``module``'s code needs from the
-    infrastructure: ``taskqueue`` when it has tasks, with ``periodic`` when
-    it has a beat hook. Imports nothing; a package that is not imported (or
-    a plain module) needs nothing derivable."""
+    infrastructure: ``taskqueue`` when it has tasks, with ``periodic`` for a
+    ``@periodic`` task and ``redelivery`` for an ``at_least_once`` one. Imports
+    nothing; a package that is not imported (or a plain module) needs nothing
+    derivable."""
     path = tasks_source(loaded_package_locations(module))
     if path is None:
         return ()
     shown = _shown(path, module)
-    if defines_periodic_hook(path):
-        return (
-            DerivedNeed(
-                TASKQUEUE,
-                frozenset({PERIODIC_FEATURE}),
-                f"{PERIODIC_HOOK} in {shown}",
-            ),
+    features = declared_features(path)
+    if features:
+        what = " and ".join(
+            f"{'@periodic' if f == PERIODIC_FEATURE else 'at_least_once'}"
+            for f in sorted(features)
         )
+        return (DerivedNeed(TASKQUEUE, features, f"{what} in {shown}"),)
     return (DerivedNeed(TASKQUEUE, frozenset(), shown),)

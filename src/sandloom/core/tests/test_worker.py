@@ -30,6 +30,11 @@ class _Provider:
     async def raw_backend(self) -> Any:
         return self._backend
 
+    def register_task_table(self, table: Any, run: Any) -> None:
+        from sandloom.core.drivers.celery_taskqueue import register_task_table
+
+        register_task_table(self._backend, table, run)
+
 
 class _Core:
     def __init__(self, backend: Any, modules: list[str]) -> None:
@@ -58,9 +63,11 @@ def test_worker_without_identity_has_no_identity_tasks() -> None:
     core = _Core(app, ["sandloom_tenancy"])
     worker.build_worker_app(core)
     app.finalize()
-    # (@shared_task binds already-imported tasks to every app, so only the
-    # beat hook — which the worker connects per loaded module — is checked.)
-    assert "cleanup_revoked_refresh_tokens_daily" not in (app.conf.beat_schedule or {})
+    # (the task table of each worker holds the loaded modules only; the
+    # schedule — built from that table — is checked.)
+    assert "identity.cleanup-revoked-refresh-tokens" not in (
+        app.conf.beat_schedule or {}
+    )
 
 
 def test_worker_honours_taskqueue_instance_env(

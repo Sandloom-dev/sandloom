@@ -97,9 +97,12 @@ register = define_module(
         "database",
         "eventbus",
         # The intent reconciler (tasks.py) closes and escalates payment
-        # operations no request will close: it must run at its interval, so
-        # the task queue's driver must run periodic jobs, not only enqueue.
-        CapabilityRequirement("taskqueue", features=frozenset({"periodic"})),
+        # operations no request will close: it must run at its cron slots and
+        # be redelivered when its worker dies (at_least_once), so the task
+        # queue's driver must run periodic jobs and redeliver, not only send.
+        CapabilityRequirement(
+            "taskqueue", features=frozenset({"periodic", "redelivery"})
+        ),
     ],
     consumes=[
         # Organization billing context. Optional: a personal-only deployment

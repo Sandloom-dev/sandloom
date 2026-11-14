@@ -2,7 +2,7 @@
 
 Pins D3: the worker is owned by the kernel (apps without ``identity`` still get
 one), its Celery app comes from the taskqueue capability (never constructed
-outside the driver), and module tasks / beat hooks are discovered from the
+outside the driver), and module tasks / periodic tasks are discovered from the
 LOADED module set only.
 
 Moved from ``sandloom/core/tests/test_worker.py`` (KB-05): these tests need
@@ -25,6 +25,11 @@ class _Provider:
 
     async def raw_backend(self) -> Any:
         return self._backend
+
+    def register_task_table(self, table: Any, run: Any) -> None:
+        from sandloom.core.drivers.celery_taskqueue import register_task_table
+
+        register_task_table(self._backend, table, run)
 
 
 class _Core:
@@ -52,7 +57,7 @@ def test_worker_registers_loaded_module_tasks_and_beat_schedule() -> None:
     assert core.requested == ["default"]
     app.finalize()
     assert "sandloom_identity.tasks.cleanup_expired_refresh_tokens" in app.tasks
-    # The identity beat hook ran on finalize and filled the schedule.
+    # The identity periodic tasks entered the schedule on finalize.
     schedule = app.conf.beat_schedule
-    assert "cleanup_revoked_refresh_tokens_daily" in schedule
-    assert "cleanup_expired_refresh_tokens_hourly" in schedule
+    assert "identity.cleanup-revoked-refresh-tokens" in schedule
+    assert "identity.cleanup-expired-refresh-tokens" in schedule
