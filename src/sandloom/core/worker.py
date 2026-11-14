@@ -51,7 +51,7 @@ import math
 import os
 import sys
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -382,6 +382,26 @@ def get_worker_app() -> Any:
     return _app
 
 
+def run_celery_command(argv: Sequence[str]) -> int:
+    """Run one Celery command (``["worker", ...]``, ``["beat", ...]``) bound to the
+    worker app and return its exit code.
+
+    ``Celery.start()`` calls the same CLI but discards its return value, so a
+    worker that died would exit 0 and its container would never restart.
+    """
+    # Celery loads only for the processes that run it: `sandloom worker check`
+    # boots nothing.
+    celery_cli = importlib.import_module("celery.bin.celery").celery
+    celery_cli.params[0].default = get_worker_app()
+    try:
+        # standalone_mode=False: click returns the exit code (``ctx.exit(code)``)
+        # instead of calling sys.exit.
+        code = celery_cli.main(args=list(argv), standalone_mode=False)
+    finally:
+        celery_cli.params[0].default = None
+    return code if isinstance(code, int) else 0
+
+
 def __getattr__(name: str) -> Any:
     # ``celery -A sandloom.core.worker`` looks up ``app`` (or ``celery``); building
     # lazily keeps a plain ``import sandloom.core.worker`` free of side effects.
@@ -407,6 +427,7 @@ __all__ = [
     "heartbeat_is_fresh",
     "install_heartbeat",
     "load_composition_core",
+    "run_celery_command",
 ]
 
 

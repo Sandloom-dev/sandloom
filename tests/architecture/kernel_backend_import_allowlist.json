@@ -18,7 +18,7 @@
     {"file": "core/testing/slots.py", "sdk": "psycopg2", "sites": 1, "removed_by": "stays: PostgreSQL test harness (design.md section 4); idk-ratchets-close makes the import lazy"},
     {"file": "core/testing/slots.py", "sdk": "redis", "sites": 1, "removed_by": "idk-test-harness"},
     {"file": "core/testing/workers.py", "sdk": "psycopg2", "sites": 2, "removed_by": "stays: PostgreSQL test harness (design.md section 4); idk-ratchets-close makes the import lazy"},
-    {"file": "core/worker.py", "sdk": "celery", "sites": 1, "removed_by": "idk-worker-port"},
+    {"file": "core/worker.py", "sdk": "celery", "sites": 2, "removed_by": "idk-worker-port"},
     {"file": "sdk/_prim/tasks.py", "sdk": "celery", "sites": 2, "removed_by": "idk-task-api"}
   ]
 }
