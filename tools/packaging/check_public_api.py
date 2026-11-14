@@ -135,7 +135,18 @@ def _public_names(obj: object) -> list[str]:
     explicit = getattr(obj, "__all__", None)
     if isinstance(explicit, (list, tuple)):
         return sorted({str(n) for n in explicit if not str(n).startswith("_")})
-    return sorted(n for n in dir(obj) if not n.startswith("_"))
+    names = {n for n in dir(obj) if not n.startswith("_")}
+    if getattr(obj, "_is_protocol", False):
+        # A Protocol's data members are bare annotations (``name: str``): not in
+        # ``dir()``, yet they are the contract an implementation must meet.
+        for klass in getattr(obj, "__mro__", ()):
+            if klass is not object and getattr(klass, "_is_protocol", False):
+                names |= {
+                    n
+                    for n in vars(klass).get("__annotations__", {})
+                    if not n.startswith("_")
+                }
+    return sorted(names)
 
 
 def _describe(obj: object) -> Descriptor:

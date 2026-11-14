@@ -18,12 +18,14 @@ from sandloom.core.infra.errors import Timeout, Unavailable
 from sandloom.core.tasks import enqueue
 from sandloom.core.tasks.queue import KernelTaskQueue
 from sandloom.core.testing import InMemoryCache
+from sandloom.core.tests.test_taskqueue_enqueue_layer import register_probe_task
 
 
 @pytest.fixture
 def provider(monkeypatch: pytest.MonkeyPatch):
     store = InMemoryCache()
-    monkeypatch.setattr(enqueue, "idempotency_cache", lambda: store)
+    monkeypatch.setattr(enqueue, "atomic_store", lambda role: store)
+    register_probe_task()
     app = Celery("mapping", broker="memory://", set_as_current=False)
     app.conf.task_default_queue = f"mapping-{uuid4().hex}"
     yield CeleryTaskQueueProvider(name="probe", driver="celery", options={}, app=app)
@@ -52,7 +54,7 @@ def _failing(monkeypatch, provider, exc: Exception) -> None:
 async def test_a_broker_failure_is_mapped(monkeypatch, provider, exc, mapped) -> None:
     _failing(monkeypatch, provider, exc)
     with pytest.raises(mapped) as error:
-        await provider.enqueue("probe.task", {"x": 1})
+        await provider.send("probe.task", b'{"x":1}', task_id="t-1")
     assert error.value.__cause__ is exc
     assert error.value.capability == "taskqueue"
     assert error.value.instance == "probe"

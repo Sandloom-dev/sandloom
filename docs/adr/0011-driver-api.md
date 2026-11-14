@@ -292,7 +292,7 @@ the chosen driver gives it.
 3. **A module's needs are declared and derived.** `capabilities=` states the
    required or optional capability, its instance and features. The loader adds
    what the code shows, read without importing it: a `tasks.py` needs
-   `taskqueue`, a beat hook the feature `periodic`. A derived feature never
+   `taskqueue`, a `@periodic` task the feature `periodic`. A derived feature never
    relaxes a declaration. `sandloom check` asks for the declaration
    (SANDLOOM-C033), and the runtime check stays the last line of defence.
 4. **A module whose required capability cannot be served is refused at

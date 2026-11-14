@@ -217,8 +217,8 @@ sandloom beat   --loglevel=INFO --schedule=/tmp/celerybeat-schedule
 profiles; the kernel's default is the lean `sandloom.main`) with the process's `SANDLOOM_MODULES`,
 resolves the Celery app through the `taskqueue` capability
 (`SANDLOOM_WORKER_TASKQUEUE`, default `default`), imports `<module>.tasks` for every
-loaded module and connects each module's `setup_periodic_tasks(sender)` beat
-hook. Run **exactly one beat** per broker (a second one stands by — see
+loaded module; the beat sends each module's `@periodic` tasks at their cron
+slots (UTC). Run **exactly one beat** per broker (a second one stands by — see
 "Beat singleton lease" below).
 
 **Sizing.** Celery's own default is one prefork child per *host* core, each a
@@ -246,7 +246,7 @@ orphan payment-state purge) ship periodic tasks, hence `identity-worker` /
 does not load its module.
 
 **One scheduler per task set.** A beat schedules exactly the
-`setup_periodic_tasks` of the modules in ITS `SANDLOOM_MODULES`, onto its own
+`@periodic` tasks of the modules in ITS `SANDLOOM_MODULES`, onto its own
 service's broker; the worker of the same service (same env anchor, same broker)
 is the only consumer. So there is exactly one beat per broker and per module
 with periodic tasks — no schedule runs twice, none is missing.

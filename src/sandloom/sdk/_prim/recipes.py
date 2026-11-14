@@ -197,16 +197,16 @@ Production keys come from `sandloom keys generate` (the JWT pair; `--purpose rpc
     "test-service-or-task": (
         "test code that calls db() outside a request: a service, a task body",
         '''`db()` is the session of the running unit. A request opens one; a
-test that calls a service, a Celery task or a script has none, and `db()`
+test that calls a service, a task or a script has none, and `db()`
 raises `UnitOfWorkRequiredError` (SANDLOOM-R002). In a test:
 
 - a service: request the `db_uow` fixture (the test's rolled-back session
   is the unit) and bind the tenant with `bind_tenant(...)` for a
   `TenantScoped` table (without one, an insert raises `MissingTenantError`);
-- a Celery task body: call the task from a plain `def` test (no running
-  loop), so it runs `run_async(...)` like the worker; its `open_uow()`
-  blocks COMMIT to the test database (request `db_engine`: it empties every
-  table before the test);
+- a task body: `await` the task in an `async def` test (a call runs the
+  function as written, in your process); its `open_uow()` blocks COMMIT to
+  the test database (request `db_engine`: it empties every table before the
+  test);
 - a consumer: `await deliver(Event(...))` drives the real consumer runtime.
 
 `<module>` is your module and `<Module>Item` the table `sandloom add module`
@@ -234,28 +234,31 @@ scaffolds. A service, and a task that runs it for one tenant:
 
     from uuid import UUID
 
+    from pydantic import BaseModel
+
     from sandloom.sdk.data import open_uow  # sandloom: advanced task unit
-    from sandloom.sdk.effects import run_async  # sandloom: advanced task body
-    from sandloom.sdk.tasks import shared_task  # sandloom: advanced tasks
+    from sandloom.sdk.tasks import task  # sandloom: advanced tasks
     from sandloom.sdk.tenant import bind_tenant  # sandloom: advanced the task's tenant
 
     from .stats import count_tenant_items
 
 
-    async def _count_items(tenant_id: UUID) -> int:
+    class CountItems(BaseModel):
+        """The task's payload: it travels as JSON, so it holds wire types."""
+
+        tenant_id: UUID
+
+
+    async def count_items_of(tenant_id: UUID) -> int:
         with bind_tenant(tenant_id):
             async with open_uow():
                 return await count_tenant_items()
 
 
-    @shared_task(
-        name="<app>.modules.<module>.tasks.count_items",
-        acks_late=True,
-        reject_on_worker_lost=True,
-    )
-    def count_items(tenant_id: str) -> int:
-        """Task arguments travel as JSON: the tenant id is a string."""
-        return run_async(_count_items(UUID(tenant_id)))
+    @task
+    async def count_items(payload: CountItems) -> None:
+        """Enqueue it with `await count_items.enqueue(CountItems(tenant_id=...))`."""
+        await count_items_of(payload.tenant_id)
 
     # file: <module>/tests/test_outside_a_request.py
     """A service and a task body, tested without a request."""
@@ -267,13 +270,12 @@ scaffolds. A service, and a task that runs it for one tenant:
 
     from sandloom.sdk import db
     from sandloom.sdk.data import open_uow  # sandloom: advanced the test's own unit
-    from sandloom.sdk.effects import run_async  # sandloom: advanced no running loop
     from sandloom.sdk.errors import UnitOfWorkRequiredError  # sandloom: advanced SANDLOOM-R002
     from sandloom.sdk.tenant import bind_tenant  # sandloom: advanced tenant rows
 
     from ..models.item import <Module>Item
     from ..stats import count_tenant_items
-    from ..tasks import count_items
+    from ..tasks import CountItems, count_items, count_items_of
 
 
     async def add_items(tenant: UUID, n: int) -> None:
@@ -296,16 +298,14 @@ scaffolds. A service, and a task that runs it for one tenant:
             db()
 
 
-    def test_the_task_body_runs_through_run_async(db_engine: Any) -> None:
+    async def test_the_task_body_runs_in_its_own_unit(db_engine: Any) -> None:
         tenant = uuid4()
+        async with open_uow():  # committed: the task reads it
+            await add_items(tenant, 3)
 
-        async def given() -> None:
-            async with open_uow():  # committed: the task reads it
-                await add_items(tenant, 3)
-
-        run_async(given())
-        assert count_items(str(tenant)) == 3
-        assert count_items(str(uuid4())) == 0
+        assert await count_items_of(tenant) == 3
+        assert await count_items_of(uuid4()) == 0
+        await count_items(CountItems(tenant_id=tenant))  # a call runs the body
 
 Cross-tenant work (a purge, a report over every tenant) runs in
 `with unscoped():` instead of `bind_tenant` (`sandloom docs recipe
@@ -829,11 +829,10 @@ with an alias: `via: str = Field(alias="channel")`.''',
     ),
     "periodic-task": (
         "a nightly task: sandloom add task --periodic, an idempotent body, the beat",
-        '''`sandloom add task --periodic` writes the task and its beat schedule
-(`setup_periodic_tasks`, which the framework worker connects). The body is
-at-least-once (`acks_late`: a task whose worker dies runs again), and the
-beat may fire while a previous run still works: make every run harmless to
-repeat (delete or update by a condition, upsert, or claim a
+        '''`sandloom add task --periodic` writes a `@periodic(cron=..., id=...)` task
+(the scheduler, `sandloom beat`, sends it at its cron slots). The scheduler
+may fire while a previous run still works, and a task can run twice (a worker
+dies, a slot is sent again): make every run harmless to repeat (delete or update by a condition, upsert, or claim a
 `durable_inbox` key). Work in short units, one `open_uow()` per batch.
 
     uv run sandloom add task <module> purge_old_items --periodic "0 3 * * *"
@@ -842,14 +841,12 @@ repeat (delete or update by a condition, upsert, or claim a
     """Background tasks of <module> (the framework worker imports this file)."""
 
     from datetime import UTC, datetime, timedelta
-    from typing import Any
 
     import sqlalchemy as sa
 
     from sandloom.sdk import db
     from sandloom.sdk.data import open_uow  # sandloom: advanced task unit
-    from sandloom.sdk.effects import run_async  # sandloom: advanced task body
-    from sandloom.sdk.tasks import cron, shared_task  # sandloom: advanced tasks
+    from sandloom.sdk.tasks import periodic  # sandloom: advanced tasks
     from sandloom.sdk.tenant import unscoped  # sandloom: advanced every tenant
 
     from .models.item import <Module>Item
@@ -869,7 +866,7 @@ repeat (delete or update by a condition, upsert, or claim a
         return len(ids)
 
 
-    async def _purge_old_items() -> int:
+    async def purge_in_batches() -> int:
         cutoff = datetime.now(UTC) - KEEP
         total = 0
         while True:
@@ -880,39 +877,26 @@ repeat (delete or update by a condition, upsert, or claim a
                 return total
 
 
-    @shared_task(
-        name="<app>.modules.<module>.tasks.purge_old_items",
-        acks_late=True,
-        reject_on_worker_lost=True,
-    )
-    def purge_old_items() -> int:
-        """At-least-once (acks_late): Celery redelivers it if a worker dies."""
-        return run_async(_purge_old_items())
-
-
-    def setup_periodic_tasks(sender: Any, **kwargs: Any) -> None:
-        """Beat hook: exactly one beat per deploy profile runs it (SANDLOOM-T010)."""
-        sender.add_periodic_task(
-            cron("0 3 * * *"), purge_old_items.s(), name="<module>.purge_old_items"
-        )
+    @periodic(cron="0 3 * * *", id="<module>.purge-old-items")
+    async def purge_old_items() -> None:
+        """Every day at 03:00 UTC."""
+        await purge_in_batches()
 
     # file: <module>/tests/test_tasks.py
     """The nightly purge: idempotent, committed per batch, scheduled."""
 
     from datetime import UTC, datetime, timedelta
     from typing import Any
-    from unittest.mock import MagicMock
     from uuid import uuid4
 
     import sqlalchemy as sa
 
     from sandloom.sdk import db
     from sandloom.sdk.data import open_uow  # sandloom: advanced the test's own unit
-    from sandloom.sdk.effects import run_async  # sandloom: advanced no running loop
     from sandloom.sdk.tenant import bind_tenant, unscoped  # sandloom: advanced tenants
 
     from ..models.item import <Module>Item
-    from ..tasks import purge_batch, purge_old_items, setup_periodic_tasks
+    from ..tasks import purge_batch, purge_in_batches, purge_old_items
 
     NOW = datetime.now(UTC)
     OLD = NOW - timedelta(days=40)
@@ -932,34 +916,30 @@ repeat (delete or update by a condition, upsert, or claim a
         assert await purge_batch(cutoff) == 0  # a repeated run is harmless
 
 
-    def test_the_task_commits_its_batches(db_engine: Any) -> None:
-        async def given() -> None:
-            async with open_uow():
-                await add_item(OLD)
-                await add_item(NOW)
+    async def test_the_task_commits_its_batches(db_engine: Any) -> None:
+        async with open_uow():
+            await add_item(OLD)
+            await add_item(NOW)
 
         async def left() -> int:
             async with open_uow():
                 with unscoped():
                     return len((await db().scalars(sa.select(<Module>Item.id))).all())
 
-        run_async(given())
-        assert purge_old_items() == 1
-        assert purge_old_items() == 0
-        assert run_async(left()) == 1
+        assert await purge_in_batches() == 1
+        assert await purge_in_batches() == 0
+        assert await left() == 1
 
 
-    def test_the_beat_runs_it_nightly() -> None:
-        sender = MagicMock()
-        setup_periodic_tasks(sender)
-        (call,) = sender.add_periodic_task.call_args_list
-        assert call.kwargs["name"] == "<module>.purge_old_items"
+    def test_it_runs_nightly() -> None:
+        assert purge_old_items.cron == "0 3 * * *"
+        assert purge_old_items.id == "<module>.purge-old-items"
 
 The beat: the monolith profile (`deploy/docker-compose.yml`) runs one beat
 for every module; `sandloom test` checks each profile has exactly one (SANDLOOM-T010).
 Split into services, `uv run sandloom add deploy <module> --service <svc>` gives
-the service its worker and, for periodic tasks, its one beat. Schedules use
-Celery's timezone (UTC unless configured).''',
+the service its worker and, for periodic tasks, its one beat. `cron` has five
+fields and is evaluated in UTC; `id` is unique in the deployment.''',
     ),
 }
 

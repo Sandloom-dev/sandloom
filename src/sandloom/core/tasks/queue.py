@@ -2,7 +2,7 @@
 
 A module enqueues through :class:`KernelTaskQueue`, never on the driver: the
 layer serves ``idempotency_key`` (:func:`sandloom.core.tasks.enqueue.enqueue_task`,
-G-TASK-03) and the driver only publishes. ``sandloom.sdk.infra.taskqueue()``,
+G-TASK-03) and the driver only sends. ``sandloom.sdk.infra.taskqueue()``,
 ``sandloom.core.di.taskqueue()`` and ``CoreRuntime.taskqueue()`` return it, and
 so does every resolution by capability name a module can make
 (:func:`module_facing`); the kernel's own facade (``CoreFacade.taskqueue``,
@@ -12,7 +12,10 @@ the worker) keeps the provider.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import timedelta
 from typing import Any, TypeVar, cast
+
+from pydantic import BaseModel
 
 from sandloom.core.infra import access as _access
 from sandloom.core.infra.capabilities import CapabilityRef
@@ -47,15 +50,15 @@ class KernelTaskQueue:
     async def enqueue(
         self,
         task: str,
-        payload: Mapping[str, Any],
+        payload: BaseModel | Mapping[str, Any] | None,
         *,
-        delay_seconds: int | None = None,
+        delay: timedelta | None = None,
         idempotency_key: str | None = None,
     ) -> str:
-        """Enqueue ``task`` (by registered name) with keyword ``payload``.
+        """Enqueue the declared task ``task`` (by name) with ``payload``.
 
-        ``delay_seconds`` schedules it for later. With ``idempotency_key``
-        (feature ``idempotency_key``), a successful repeat returns the
+        ``delay`` (feature ``delay``) schedules it for later. With
+        ``idempotency_key``, a successful repeat returns the
         original job id within the instance's replay window and different
         arguments conflict (409); a concurrent or ambiguous send fails closed
         (503 ``task_enqueue_uncertain``) instead of publishing again.
@@ -64,7 +67,7 @@ class KernelTaskQueue:
             self._provider,
             task,
             payload,
-            delay_seconds=delay_seconds,
+            delay=delay,
             idempotency_key=idempotency_key,
         )
 
@@ -82,7 +85,7 @@ def module_facing(capability: str, provider: Any) -> Any:
     Every module-facing resolution by capability name goes through here
     (``CoreRuntime.capability`` / ``require_capability``, DI ``Capability``,
     ``sandloom.sdk.infra.capability``): the raw provider's
-    ``enqueue(task_id=)`` would let a module publish under the job id of a
+    ``send(task_id=)`` would let a module publish under the job id of a
     pending dedupe reservation. No I/O: one wrapper object.
     """
     if capability == "taskqueue":

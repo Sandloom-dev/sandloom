@@ -17,8 +17,8 @@ This is the local/pre-push equivalent of ``.github/workflows/packages.yml``:
    composes the installed ``sandloom.modules`` entry points;
 5. each module wheel on plain ``sandloom`` (no Celery, no Redis client): the
    app boots with the module loaded, ``/health`` and ``/ready`` answer 200
-   over stubbed infrastructure probes, and enqueueing one of its tasks
-   refuses with ``TaskQueueNotInstalled`` (KB-01).
+   over stubbed infrastructure probes, and its ``tasks.py`` declares its
+   tasks without importing Celery (KB-01).
 
 ``--skip-install`` runs steps 1-2 only (no network).
 """
@@ -502,7 +502,7 @@ def check_standard_install(temp: Path, wheels: dict[str, Path]) -> None:
 PLAIN_MODULE_SMOKE = """
 import asyncio, importlib, importlib.util, sys
 import httpx
-from sandloom.sdk._prim.tasks import TaskQueueNotInstalled, _UnqueuedTask
+from sandloom.core.tasks.registry import declared_task
 module = sys.argv[1]
 try:
     import sandloom.main as m
@@ -531,43 +531,40 @@ responses = asyncio.run(probe())
 has_tasks = importlib.util.find_spec(module + ".tasks") is not None
 # A module that boots here has no unmet required taskqueue (B037 refuses one,
 # KB-IC-1), so readiness never probes the queue (KB-IC-3): "unused". Its
-# tasks still cannot be enqueued without Celery (checked below).
+# tasks are declared without Celery (checked below).
 expected = {"/health": 200, "/ready": 200}
 codes = {p: r.status_code for p, r in responses.items()}
 assert codes == expected, (codes, responses["/ready"].json())
 taskqueue = responses["/ready"].json()["taskqueue_status"]
 assert taskqueue == "unused", taskqueue
-refused = []
+declared = []
 if has_tasks:
     tasks = importlib.import_module(module + ".tasks")
     for task in vars(tasks).values():
-        if isinstance(task, _UnqueuedTask):
-            try:
-                task.delay()
-            except TaskQueueNotInstalled:
-                refused.append(task.name)
-            else:
-                raise AssertionError(f"{task.name}.delay() did not refuse")
-    assert refused, f"{module}.tasks registers no task"
+        name = getattr(task, "name", None)
+        if isinstance(name, str) and declared_task(name) is not None:
+            declared.append(name)
+    assert declared, f"{module}.tasks declares no task"
+assert "celery" not in sys.modules, "celery imported by a module's tasks"
 print(f"plain sandloom + {module} OK: {codes}, taskqueue {taskqueue}; "
-      f"enqueue refused: {len(refused)}")
+      f"tasks declared: {len(declared)}")
 """
 
 
 def check_plain_module_install(
     temp: Path, wheels: dict[str, Path], package: str
 ) -> None:
-    """One module wheel on plain ``sandloom``: boots, probes answer, enqueue refuses.
+    """One module wheel on plain ``sandloom``: boots, probes answer, tasks declare.
 
     ``/health`` and ``/ready`` are 200 (``taskqueue_status: unused``: a
     module that boots here uses no queue on the request path), and a task of
-    a module with a ``tasks.py`` refuses ``.delay()``. A module that requires a
-    capability whose driver is not installed here refuses to boot with
+    a module with a ``tasks.py`` declares its tasks without Celery. A module
+    that requires a capability whose driver is not installed here refuses to boot with
     SANDLOOM-B037 naming the extra (KB-IC-1), and nothing else.
 
     The module's own dependencies only (no ``sandloom`` extra): a module whose
-    ``tasks.py`` uses ``sandloom.sdk.tasks.shared_task`` must load without
-    Celery, and its tasks refuse to enqueue with ``TaskQueueNotInstalled``.
+    ``tasks.py`` uses ``sandloom.sdk.tasks`` must load and declare its tasks
+    without Celery.
     """
     venv = temp / f"plain-{package}"
     _run("uv", "venv", str(venv))

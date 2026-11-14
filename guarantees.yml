@@ -1429,7 +1429,7 @@ guarantees:
   - src/sandloom/core/tests/test_async_runner.py::test_shutdown_runs_cleanups_on_the_worker_loop_then_closes_it
 - id: G-TASK-05
   statement: Celery tasks store no result by default (task_ignore_result, also on driver-built apps, enqueue
-    subscribes no result consumer), the worker prefetches one message, and acks_late stays a per-task
+    subscribes no result consumer), the worker prefetches one message, and `at_least_once` stays a per-task
     opt-in.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
@@ -3188,7 +3188,7 @@ guarantees:
   - src/sandloom_billing/tests/test_subscription_intent_match.py::test_subscription_with_a_quantity_above_one_is_not_activated
   - src/sandloom_billing/tests/test_subscription_intent_match.py::test_credit_completion_for_another_price_than_its_intent_is_refused
 - id: G-BILLING-09
-  statement: 'The periodic reconciler (beat, acks_late) closes a pending intent older than BILLING_INTENT_RECONCILE_AFTER_MINUTES
+  statement: 'The periodic reconciler (a `@periodic` task every five minutes, declared `at_least_once`) closes a pending intent older than BILLING_INTENT_RECONCILE_AFTER_MINUTES
     by its PSP marker: no session -> failed, open session -> revoked + expired, completed -> revoked +
     followup_at; lookup/expire failures are persisted and bounded by BILLING_INTENT_RECONCILE_MAX_ATTEMPTS,
     then left to an operator.'
@@ -3200,7 +3200,7 @@ guarantees:
   - src/sandloom_billing/tests/test_intent_reconcile.py::test_stale_pending_intent_without_a_psp_session_fails
   - src/sandloom_billing/tests/test_intent_reconcile.py::test_stale_pending_intent_paid_meanwhile_is_flagged_for_an_operator
   - src/sandloom_billing/tests/test_intent_reconcile.py::test_psp_lookup_outage_is_bounded_then_left_for_an_operator
-  - src/sandloom_billing/tests/test_intent_reconcile.py::test_reconcile_task_is_scheduled_and_acks_late
+  - src/sandloom_billing/tests/test_intent_reconcile.py::test_reconcile_task_is_scheduled_every_five_minutes
 - id: G-BILLING-10
   statement: A failed expire compensation is counted (billing_intent_expire_failed), recorded on the intent
     and retried by the reconciler; the refusal stands and the webhook gate remains the backstop.
@@ -4767,20 +4767,21 @@ guarantees:
   - src/sandloom/core/tests/test_infra_driver_availability.py::test_strict_startup_names_a_kernel_instance_whose_package_is_missing
 - id: G-INFRA-11
   statement: The taskqueue capability has the feature periodic, meaning the driver runs a module's periodic jobs at
-    their interval in at least one process while the deployment runs. A driver is never granted it for
-    supporting enqueue; only celery advertises it. A module's effective capabilities add what its code
-    shows (a tasks.py needs taskqueue, a beat hook the feature periodic) without relaxing a declaration, and
+    their cron slots in at least one process while the deployment runs. A driver is never granted it for
+    supporting send; only celery advertises it. A module's effective capabilities add what its code
+    shows (a tasks.py needs taskqueue, a @periodic task the feature periodic, an at_least_once task the
+    feature redelivery) without relaxing a declaration, and
     an undeclared derived capability is required; sandloom check asks for the declaration (SANDLOOM-C033).
   sources:
   - docs/adr/0011-driver-api.md
   - design/kernel-boundary/owner-decision-infra-deps.md
   tests:
-  - src/sandloom/core/tests/test_module_capability_derivation.py::test_tasks_derive_taskqueue_and_a_beat_hook_derives_periodic
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_tasks_derive_taskqueue_and_a_periodic_task_derives_periodic
   - src/sandloom/core/tests/test_module_capability_derivation.py::test_an_undeclared_derived_capability_is_required
   - src/sandloom/core/tests/test_module_capability_derivation.py::test_a_declaration_keeps_required_and_instance
   - src/sandloom/core/tests/test_module_capability_derivation.py::test_bundled_modules_need_what_the_decision_says
   - src/sandloom/core/tests/test_module_capability_derivation.py::test_periodic_is_a_taskqueue_feature_only_celery_advertises
-  - src/sandloom/core/tests/test_module_capability_derivation.py::test_an_enqueue_only_driver_cannot_serve_a_beat_hook
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_a_send_only_driver_cannot_serve_a_periodic_task
   - src/sandloom/core/tests/test_module_capability_derivation.py::test_the_c033_analyzer
   - tests/integration/module_subsets/test_module_subsets_infrastructure.py::test_a_taskqueue_driver_without_periodic_refuses_billing
 - id: G-INFRA-12
@@ -6358,9 +6359,9 @@ capabilities:
   - src/sandloom/core/tests/test_streams_split_identity.py::test_group_lag_and_pending_are_reported
   - src/sandloom/core/tests/test_streams_split_identity.py::test_streams_cli_operations
 - id: C-EFFECT-01
-  statement: The framework worker (`sandloom worker`) boots the composition root, takes
-    its app from the taskqueue capability and imports <pkg>.tasks plus setup_periodic_tasks of every loaded
-    module.
+  statement: '`sandloom worker` and `sandloom beat` boot the composition root, import <pkg>.tasks of every
+    LOADED module only (skipping modules without tasks) and run the table derived from its `@task` / `@periodic`
+    declarations.'
   sources:
   - docs/modules/background/tasks.md
   tests:
@@ -7506,8 +7507,9 @@ capabilities:
   - src/sandloom/core/tests/test_testing_harness.py::test_bind_test_uow_targets_the_named_database
   - src/sandloom/core/tests/test_testing_harness.py::test_required_audit_without_uow_raises
 - id: C-WORKER-01
-  statement: '`sandloom worker` and `sandloom beat` boot the composition root and import <pkg>.tasks
-    (and setup_periodic_tasks) of every LOADED module only, skipping modules without tasks.'
+  statement: '`sandloom worker` and `sandloom beat` boot the composition root, import <pkg>.tasks of every
+    LOADED module only (skipping modules without tasks) and run the table derived from its `@task` / `@periodic`
+    declarations.'
   sources:
   - docs/modules/background/tasks.md
   - deploy/README.md#Background work (Celery worker + beat)
@@ -7991,9 +7993,9 @@ capabilities:
   tests:
   - tests/sdk/test_sdk_generators.py::test_add_module_in_the_framework_tree_is_wired_and_gets_the_kit
 - id: C-GEN-09
-  statement: sandloom add task <module> <name> [--periodic "<cron>"] writes an idempotent at-least-once task (acks_late,
-    reject_on_worker_lost, run_async with an open_uow block) that passes the app's static gates, registers a
-    periodic one in the module's setup_periodic_tasks, and wires the beat or prints the step.
+  statement: '`sandloom add task <module> <name> [--periodic "<cron>"]` writes an `async def` `@task` (or `@periodic(cron=,
+    id="<module>.<name, dashed>")`) with no payload and an `open_uow()` block, which passes the app''s static gates. A periodic
+    one also declares the taskqueue feature `periodic` and wires the beat or prints the step. It writes no `at_least_once`.'
   sources:
   - docs/modules/background/tasks.md
   tests:
@@ -8187,9 +8189,10 @@ capabilities:
   - tests/integration/with_batteries/test_archcheck_library_installed_modules.py::test_framework_imports_catch_from_sandloom_import_and_dynamic_aliases
   - tests/architecture/test_archcheck_library.py::test_test_imports_is_a_whitelist
 - id: C-SDK-03
-  statement: sandloom.sdk.tasks.shared_task is Celery's decorator typed with the task's signature (call, delay,
-    apply_async, s), so a task module type-checks under strict mypy with no project override; cron() builds a
-    beat schedule from a five-field expression.
+  statement: '`sandloom.sdk.tasks.task` and `periodic` declare a sync or async module-level function taking one
+    pydantic model or nothing, typed with its payload (inline call, `await task.enqueue(payload, delay=, idempotency_key=)`),
+    so a task module type-checks under strict mypy with no project override and imports no broker. `periodic`
+    takes a five-field UTC cron and an id unique in the process and exposes `max_interval`.'
   sources:
   - docs/modules/background/tasks.md
   tests:

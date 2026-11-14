@@ -1,7 +1,8 @@
 """IDEMPOTENCY_CACHE_INSTANCE — idempotency records on their own cache.
 
-* unset (default): ``idempotency_guard`` records and task-enqueue dedupe live
-  in the security cache (``SECURITY_CACHE_INSTANCE``), exactly as before;
+* unset (default): ``idempotency_guard`` records live in the security cache
+  (``SECURITY_CACHE_INSTANCE``), exactly as before (task-enqueue dedupe is in
+  the ``idempotency`` ``atomic_store``);
 * set: every reserve / replay / conflict / release lands in that instance and
   never in the security one, while revocation marks stay in the security
   cache; a ``fail_closed`` guard still answers 503 when it is down;
@@ -190,33 +191,34 @@ async def test_fail_closed_follows_the_idempotency_instance(
 # --------------------------------------------------------------------------- #
 # Task-enqueue dedupe and the contract-command cache fallback
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("instance", ["", "idempotency"])
-async def test_task_enqueue_dedupe_follows_the_setting(
-    caches: _Caches, monkeypatch: pytest.MonkeyPatch, instance: str
+async def test_task_enqueue_dedupe_lives_in_the_idempotency_atomic_store(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(settings, "idempotency_cache_instance", instance)
+    stores: dict[str, InMemoryCache] = {}
+    monkeypatch.setattr(
+        enqueue, "atomic_store", lambda role: stores.setdefault(role, InMemoryCache())
+    )
     sent: list[str] = []
 
-    async def send(task_id: str) -> str:
-        sent.append(task_id)
-        return task_id
+    async def send() -> str:
+        sent.append("sent")
+        return "task-1"
 
     kwargs: dict[str, Any] = {
         "namespace": "probe",
         "key": "op-1",
         "task": "probe.task",
-        "payload": {"x": 1},
-        "delay_seconds": None,
+        "payload": b'{"x":1}',
+        "delay": None,
         "ttl_seconds": 60,
+        "task_id": "task-1",
         "send": send,
     }
     first = await enqueue.enqueue_once(**kwargs)
     assert await enqueue.enqueue_once(**kwargs) == first
     assert len(sent) == 1
-    expected = instance or "security"
-    other = "security" if instance else "idempotency"
-    assert caches.keys(expected)
-    assert caches.keys(other) == []
+    assert sorted(stores) == ["idempotency"]
+    assert stores["idempotency"].store
 
 
 async def test_contract_command_cache_fallback_follows_the_setting(

@@ -17,7 +17,8 @@
     {
       "capability": "taskqueue",
       "features": [
-        "periodic"
+        "periodic",
+        "redelivery"
       ],
       "instance": "default",
       "required": true,

@@ -86,14 +86,32 @@ async def test_enqueue_never_subscribes_a_result_consumer() -> None:
     provider = celery_taskqueue.CeleryTaskQueueProvider(
         name="x", driver="celery", options={}, app=_App()
     )
-    assert await provider.enqueue("mod.task", {"a": 1}) == "task-1"
+    assert await provider.send("mod.task", b'{"a":1}', task_id="task-1") == "task-1"
     assert sent == [
         {
             "name": "mod.task",
             "kwargs": {"a": 1},
             "countdown": None,
-            "task_id": None,
+            "task_id": "task-1",
             "ignore_result": True,
             "retry": False,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_enqueue_carries_the_declared_queue_without_a_task_table() -> None:
+    """A producer that never registered the table (an API process) still
+    routes the message to the task's queue."""
+    sent: list[dict[str, Any]] = []
+
+    class _App:
+        def send_task(self, name: str, **options: Any) -> Any:
+            sent.append({"name": name, **options})
+            return type("R", (), {"id": "task-1"})()
+
+    provider = celery_taskqueue.CeleryTaskQueueProvider(
+        name="x", driver="celery", options={}, app=_App()
+    )
+    await provider.send("mod.task", b"{}", task_id="task-1", queue="slow")
+    assert sent[0]["queue"] == "slow"

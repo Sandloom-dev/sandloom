@@ -67,7 +67,13 @@ from sandloom.core.infra.ports.objectstore import (
     iter_object_chunks,
     validate_object_key,
 )
-from sandloom.core.infra.ports.taskqueue import TaskQueue, TaskQueueProvider
+from sandloom.core.infra.ports.taskqueue import (
+    PeriodicSpec,
+    TaskQueue,
+    TaskQueueProvider,
+    TaskSpec,
+    TaskTable,
+)
 
 
 @dataclass(frozen=True)
@@ -583,6 +589,9 @@ __all__ = [
     "iter_object_chunks",
     "validate_object_key",
     "TaskQueueProvider",
+    "TaskSpec",
+    "TaskTable",
+    "PeriodicSpec",
     "EventBusProvider",
     "NotifierProvider",
     "Notification",

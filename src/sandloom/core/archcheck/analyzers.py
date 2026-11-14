@@ -583,7 +583,7 @@ FORBIDDEN_INFRA_MODULES = frozenset(
     }
 )
 FORBIDDEN_FROM_CORE = frozenset({"get_db", "get_event_bus"})
-FORBIDDEN_FROM_DI = frozenset({"get_cache"})
+FORBIDDEN_FROM_DI = frozenset({"get_cache", "declare_task"})
 #: Concrete backend SDKs: reached only through a capability provider.
 FORBIDDEN_BACKEND_ROOTS = frozenset(
     {"motor", "pymongo", "neo4j", "temporalio", "kafka", "boto3", "redis", "celery"}

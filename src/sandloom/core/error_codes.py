@@ -739,7 +739,8 @@ never checked against what you call.
         "does not declare",
         'declare it in define_module: capabilities=["taskqueue"] for a '
         'tasks.py, CapabilityRequirement("taskqueue", '
-        'features=frozenset({"periodic"})) for a beat hook (required=False '
+        'features=frozenset({"periodic"})) for a @periodic task and the feature '
+        '"redelivery" for an at_least_once one (required=False '
         "when the module works without its schedule), with CapabilityRequirement "
         "from sandloom.sdk.module",
         """
@@ -747,11 +748,13 @@ A module states the infrastructure it needs in define_module(capabilities=[...])
 and the deployment chooses the driver; startup checks that they match. Some
 needs are visible in the module's code, and the kernel derives them at load
 whether they are declared or not: a tasks.py (or tasks/ package), which the
-framework worker imports and runs, needs the taskqueue capability; a beat hook
-(setup_periodic_tasks) in it needs the taskqueue feature "periodic", a driver
-that runs the module's periodic jobs at their interval in at least one process
-while the deployment runs (a driver never has it for supporting enqueue alone;
-only celery advertises it today). This check asks for the declaration, so a
+framework worker imports and runs, needs the taskqueue capability; a
+@periodic task in it needs the taskqueue feature "periodic", a driver that
+runs the module's periodic jobs at their cron slots in at least one process
+while the deployment runs, and a task declared at_least_once=True needs the
+feature "redelivery", a driver that redelivers it when its worker dies (a
+driver never has either for supporting send alone; only celery advertises
+them today). This check asks for the declaration, so a
 reader, an agent and the module snapshot see the need where every other need
 is stated. A declaration decides required or optional: the derived need only
 adds its feature to it, and a capability nobody declared is derived as
@@ -792,6 +795,32 @@ decided outside the package. Those are not proven statically; every route is
 classified independently at startup and the runtime checks apply.
 """,
         docs="docs/adr/0014-claims-trust-and-authorization-portability.md",
+    ),
+    _entry(
+        "SANDLOOM-C035",
+        "task-enqueue-ownership",
+        "check",
+        "a module enqueues a task by name that is not a string literal naming "
+        "one of its own tasks",
+        "enqueue your own task through the task object (`await my_task.enqueue("
+        "payload)`), or name it with a string literal under your package "
+        '(`taskqueue().enqueue("<package>.tasks.my_task", ...)`); for work in '
+        "another module, publish an event or call its contract",
+        """
+The kernel checks that the task name given to taskqueue().enqueue(name, ...)
+is declared somewhere in the process, never that the caller owns it. A module
+that enqueues another module's task by name runs that module's code with a
+payload of its choosing, around the module's own checks: the isolation every
+other crossing keeps (events, contracts, sagas) does not hold for it. sandloom
+check refuses a taskqueue().enqueue(...) call (on taskqueue(...) directly, on
+a name bound to it in the file, or under an aliased import) whose first
+argument is not a string literal starting with the calling module's own
+package. The task object of the module's own tasks.py (`await task.enqueue(
+payload)`) is the usual spelling and needs no name. Not seen: a queue handed
+over as an argument, or a name computed at run time; the kernel's enqueue
+still refuses a name no loaded module declares.
+""",
+        docs="docs/modules/background/tasks.md",
     ),
     # ------------------------------------------------------------- boot time
     _entry(
@@ -2153,7 +2182,7 @@ reports breaking changes.
         "for a deployed one (each writes <service>-worker / <service>-beat); "
         "in a hand-written profile, add one beat per broker and a worker "
         "consuming it",
-        "A schedule (setup_periodic_tasks in <module>/tasks.py) runs only "
+        "A schedule (a @periodic task in <module>/tasks.py) runs only "
         "where a celery beat loads the module, and exactly one may: none "
         "and the task never runs, two and it runs twice. sandloom test's static "
         "schema & deploy step checks every deploy profile.",

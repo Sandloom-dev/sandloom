@@ -18,12 +18,23 @@ from sandloom_billing.models import (
     OperationIntent,
 )
 
-RECONCILE_INTERVAL_SECONDS = 300.0
-RECONCILE_MAX_SILENCE_SECONDS = 3 * RECONCILE_INTERVAL_SECONDS
 RECONCILER_JOB = "reconcile_operation_intents"
 RECONCILER_HEALTH_CHECK = "billing_reconciler"
 
 RunRecord = tuple[datetime, int]
+
+
+def reconcile_max_silence_seconds() -> float:
+    """Three intervals of the reconciler: the silence after which it is overdue.
+
+    The interval is the declaration's own (``max_interval`` of the
+    ``@periodic`` cron in ``tasks.py``), so it cannot drift from the schedule.
+    ``tasks`` imports the reconciler, which imports this module: it is read on
+    use.
+    """
+    import sandloom_billing.tasks as tasks  # sandloom: allow module-local-imports cycle
+
+    return 3 * tasks.reconcile_operation_intents.max_interval.total_seconds()
 
 
 async def record_reconciler_run(db: AsyncSession) -> None:
@@ -72,7 +83,7 @@ async def require_reconciler_progress(db: AsyncSession) -> None:
     last = await _run_record(db)
     if (
         last is None
-        or not 0 <= _age(last, datetime.now(UTC)) <= RECONCILE_MAX_SILENCE_SECONDS
+        or not 0 <= _age(last, datetime.now(UTC)) <= reconcile_max_silence_seconds()
     ):
         raise HTTPException(
             status_code=503,
@@ -117,9 +128,10 @@ class ReconcilerHealthCheck:
     async def __call__(self) -> HealthResult:
         last = await self._read()
         failed, followups = await self._compensations()
+        max_silence = reconcile_max_silence_seconds()
         details: dict[str, object] = {
             "job": RECONCILER_JOB,
-            "max_silence_seconds": RECONCILE_MAX_SILENCE_SECONDS,
+            "max_silence_seconds": max_silence,
             "failed_compensations": failed,
             "operator_followups": followups,
         }
@@ -136,7 +148,7 @@ class ReconcilerHealthCheck:
             seconds_since_last_run=round(age, 1),
             runs=last[1],
         )
-        if not 0 <= age <= RECONCILE_MAX_SILENCE_SECONDS:
+        if not 0 <= age <= max_silence:
             details.update(
                 state="overdue" if age >= 0 else "clock_skew",
                 error=(

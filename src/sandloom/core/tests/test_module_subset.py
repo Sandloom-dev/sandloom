@@ -16,8 +16,6 @@ the extras (P3) in clean venvs (I-19, A-B7, KB-04), are in
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import pytest
 from fastapi import FastAPI
 
@@ -132,66 +130,28 @@ async def test_subset_whose_only_module_failed_is_not_ready(
     assert await _ready_status(core, monkeypatch) == 503
 
 
-def test_a_task_without_celery_runs_inline_and_refuses_to_enqueue(
+def test_a_task_declares_and_runs_inline_without_celery(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The decorated function keeps its name and body; every queue path refuses."""
+    """``@task`` imports no broker: with Celery absent the decorated function
+    keeps its name and body, and a ``tasks.py`` still loads."""
     import sys
 
-    from sandloom.sdk._prim.tasks import TaskQueueNotInstalled
-    from sandloom.sdk.tasks import shared_task
+    from sandloom.sdk.tasks import periodic, task
 
     monkeypatch.setitem(sys.modules, "celery", None)
 
-    @shared_task(name="probe.add", acks_late=True)
-    def add(a: int, b: int) -> int:
+    @task(at_least_once=True)
+    def add() -> int:
         """Add two numbers."""
-        return a + b
+        return 2 + 3
 
-    @shared_task
+    @periodic(cron="0 3 * * *", id="probe.subset.bare")
     def bare() -> str:
         return "ran"
 
-    assert add(2, 3) == 5
-    assert add.name == "probe.add"
+    assert add() == 5
+    assert add.name == f"{__name__}.add"
     assert add.__doc__ == "Add two numbers."
     assert bare() == "ran"
-    assert bare.name == f"{__name__}.bare"
-    enqueues: tuple[Callable[[], object], ...] = (
-        lambda: add.delay(1, 2),
-        lambda: add.apply_async((1, 2)),
-        lambda: add.s(1, 2),
-        lambda: add.si(1, 2),
-    )
-    for enqueue in enqueues:
-        with pytest.raises(
-            TaskQueueNotInstalled, match=r"'probe\.add'.*sandloom\[celery\]"
-        ):
-            enqueue()
-
-
-def test_with_celery_installed_the_decorator_is_celerys() -> None:
-    """Celery installed: the task is Celery's own (worker and beat unchanged).
-
-    Read through an app of its own, never through the proxy: evaluating it
-    resolves Celery's process-global current app, which an earlier test may
-    have left closed (its finalize then never registers the shared task).
-    """
-    celery = pytest.importorskip("celery")
-    from celery.local import Proxy
-
-    from sandloom.sdk.tasks import shared_task
-
-    @shared_task(name="probe.with_celery")
-    def probe() -> int:
-        return 1
-
-    assert issubclass(type(probe), Proxy)  # type(): no evaluation
-    app = celery.Celery("probe", broker="memory://", set_as_current=False)
-    try:
-        app.finalize()
-        task = app.tasks["probe.with_celery"]
-        assert task.name == "probe.with_celery"
-        assert task.run() == 1
-    finally:
-        app.close()
+    assert bare.id == "probe.subset.bare"
