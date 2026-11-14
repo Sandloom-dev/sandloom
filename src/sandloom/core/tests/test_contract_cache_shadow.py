@@ -37,6 +37,7 @@ from sandloom.core.contract_testing import (
 )
 from sandloom.core.facade import CoreFacade
 from sandloom.core.module_api import ContractCallError, contract_method
+from sandloom.core.testing._uow import InMemoryCache
 
 CONTRACT = "shadowdemo.membership.v1"
 EVENTS = {
@@ -710,3 +711,66 @@ async def test_off_path_never_reaches_the_bookkeeping(
             assert await proxy.get_role(org, user) == "admin"
     assert checks == [CONTRACT]  # exactly one constant-time check per read
     assert shadow._REQUEST.get() is None
+
+
+# --------------------------------------------------------------------------- #
+# the pub/sub listener starts only for a driver that really offers pub/sub
+# --------------------------------------------------------------------------- #
+class _NoPubSubCache(InMemoryCache):
+    """A cache driver that keeps the base ``raw_client`` (raises)."""
+
+
+class _PubSubStub:
+    async def subscribe(self, _channel: str) -> None:
+        return None
+
+    async def get_message(self, **_kw: Any) -> None:
+        await asyncio.sleep(0.01)
+
+    async def aclose(self) -> None:
+        return None
+
+
+class _PubSubClient:
+    def pubsub(self) -> _PubSubStub:
+        return _PubSubStub()
+
+
+class _PubSubCache(InMemoryCache):
+    async def raw_client(self) -> Any:
+        return _PubSubClient()
+
+
+@pytest.mark.asyncio
+async def test_no_listener_and_no_flush_loop_without_a_raw_client(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(shadow, "_cache_provider", lambda: _NoPubSubCache())
+    monkeypatch.setattr(shadow, "_no_pubsub_logged", False, raising=False)
+    monkeypatch.setattr(shadow, "_listener", None)
+    observer = _cache(Clock())
+    flushes: list[str] = []
+    monkeypatch.setattr(observer, "flush", flushes.append)
+    with caplog.at_level("INFO", logger=shadow.logger.name):
+        shadow._ensure_listener(observer)
+        shadow._ensure_listener(observer)
+    await asyncio.sleep(0.05)
+    assert shadow._listener is None
+    assert flushes == []
+    assert len([r for r in caplog.records if "no pub/sub" in r.getMessage()]) == 1
+
+
+@pytest.mark.asyncio
+async def test_listener_starts_for_a_driver_with_a_raw_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(shadow, "_cache_provider", lambda: _PubSubCache())
+    monkeypatch.setattr(shadow, "_listener", None)
+    observer = _cache(Clock())
+    shadow._ensure_listener(observer)
+    try:
+        assert shadow._listener is not None
+        await asyncio.sleep(0.05)
+        assert not shadow._listener[0].done()
+    finally:
+        await shadow.stop_listener()

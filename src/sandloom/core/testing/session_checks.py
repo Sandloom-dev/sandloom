@@ -24,7 +24,6 @@ from urllib.parse import parse_qs, urlsplit, urlunsplit
 
 import psycopg2  # type: ignore[import-untyped]
 import pytest
-import redis
 
 from sandloom.core.testing import connections, ownership, resources, workers
 from sandloom.core.testing.env import dev_up_hint
@@ -217,7 +216,7 @@ def cap_auto_workers(config: pytest.Config, requested: Any) -> Any:
                 room = resources.affordable_redis_workers(
                     urls, owner or ownership.current_owner()
                 )
-            except (redis.RedisError, OSError):  # reported again at session start
+            except resources.redis_errors():  # reported again at session start
                 return count
             if room < count:
                 fallback = room if room > 1 else 0

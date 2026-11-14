@@ -103,6 +103,13 @@ sqlite = [
 sentry = [
     "sentry-sdk>=2.72.0,<3",
 ]
+# Imported only when TRACING_URL is set (sandloom.core.observability.tracing):
+# the SDK and both OTLP exporters, gRPC and HTTP/protobuf.
+otel = [
+    "opentelemetry-sdk>=1.27,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.27,<2",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.27,<2",
+]
 
 [project.scripts]
 sandloom = "sandloom:main"

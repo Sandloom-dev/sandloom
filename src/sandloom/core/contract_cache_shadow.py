@@ -104,6 +104,7 @@ import sandloom.core.infra.access as _access
 import sandloom.core.tenant_context as _tenant_context
 from sandloom.core import contract_wire
 from sandloom.core.config.settings import settings
+from sandloom.core.infra.contracts import CacheProvider as _CacheProvider
 from sandloom.core.unit_of_work import dispatch as _unit_of_work_dispatch
 
 logger = logging.getLogger("sandloom.core.contract_cache_shadow")
@@ -839,13 +840,40 @@ def _cache_provider() -> Any:
     return _access.cache()
 
 
+_no_pubsub_logged = False
+
+
+def _offers_pubsub(provider: Any) -> bool:
+    """True when the cache driver really exposes a raw client for pub/sub.
+
+    ``CacheProvider.raw_client`` exists on every driver and raises
+    ``NotImplementedError`` unless the driver overrides it, so the attribute's
+    presence says nothing: compare it with the base default.
+    """
+    method = getattr(provider, "raw_client", None)
+    if method is None:
+        return False
+    return getattr(method, "__func__", method) is not _CacheProvider.raw_client
+
+
+def _note_no_pubsub(provider: Any) -> None:
+    global _no_pubsub_logged
+    if _no_pubsub_logged:
+        return
+    _no_pubsub_logged = True
+    logger.info(
+        "contract cache shadow: cache driver %r has no pub/sub client; "
+        "invalidation stays in-process and TTLs bound cross-process staleness",
+        getattr(provider, "driver", type(provider).__name__),
+    )
+
+
 async def _broadcast(messages: list[dict[str, Any]]) -> None:
     try:
         provider = _cache_provider()
-        raw_client = getattr(provider, "raw_client", None)
-        if raw_client is None:
+        if not _offers_pubsub(provider):
             return
-        client = await raw_client()
+        client = await provider.raw_client()
         for message in messages:
             await client.publish(INVALIDATION_CHANNEL, json.dumps(message))
     except Exception:  # lost broadcast: TTL bounds it (measured)
@@ -866,7 +894,8 @@ def _ensure_listener(observer: ShadowContractCache) -> None:
         provider = _cache_provider()
     except Exception:  # noqa: BLE001 - no cache: in-process invalidation only
         return
-    if getattr(provider, "raw_client", None) is None:
+    if not _offers_pubsub(provider):
+        _note_no_pubsub(provider)
         return
     stop = asyncio.Event()
     task = loop.create_task(
