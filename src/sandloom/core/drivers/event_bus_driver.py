@@ -9,7 +9,7 @@ calls with the application's schema registry. The resulting provider wraps an
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from functools import partial
 from typing import Any
 
@@ -24,7 +24,10 @@ from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.eventing.streams_transport import RedisStreamsTransport
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.core.infra.contracts import EventBusProvider
-from sandloom.core.infra.ports._base import health_failure_details
+from sandloom.core.infra.ports._base import (
+    health_failure_details,
+    isolated_redis_options,
+)
 from sandloom.core.infra.registry import DriverFactory
 
 
@@ -220,6 +223,13 @@ class RedisEventBusProvider(WrappedEventBusProvider):
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
 
+    @classmethod
+    def test_isolation(
+        cls, options: Mapping[str, Any], worker_id: str
+    ) -> Mapping[str, Any]:
+        """Another database index of the configured URL for each xdist worker."""
+        return isolated_redis_options(options, worker_id)
+
 
 class StreamsEventBusProvider(WrappedEventBusProvider):
     """``eventbus`` / ``streams``: the durable Redis Streams bus."""
@@ -227,6 +237,13 @@ class StreamsEventBusProvider(WrappedEventBusProvider):
     supported_features = EVENTBUS_DRIVER_FEATURES["streams"]
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
+
+    @classmethod
+    def test_isolation(
+        cls, options: Mapping[str, Any], worker_id: str
+    ) -> Mapping[str, Any]:
+        """Another database index of the configured URL for each xdist worker."""
+        return isolated_redis_options(options, worker_id)
 
 
 def make_event_bus_drivers(

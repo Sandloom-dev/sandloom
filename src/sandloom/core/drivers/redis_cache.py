@@ -47,7 +47,10 @@ from sandloom.core.infra.contracts import (
     parse_plain_decimal,
     parse_subject_state,
 )
-from sandloom.core.infra.ports._base import health_failure_details
+from sandloom.core.infra.ports._base import (
+    health_failure_details,
+    isolated_redis_options,
+)
 from sandloom.core.observability.driver_metrics import observe
 
 #: Redis / socket failures of cache operations (a caller's ValueError or
@@ -366,6 +369,13 @@ class RedisCacheProvider(CacheProvider):
     options_schema = RedisCacheOptions
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
+
+    @classmethod
+    def test_isolation(
+        cls, options: Mapping[str, Any], worker_id: str
+    ) -> Mapping[str, Any]:
+        """Another database index of the configured URL for each xdist worker."""
+        return isolated_redis_options(options, worker_id)
 
     @classmethod
     def from_config(cls, config: InstanceConfig) -> Self:
