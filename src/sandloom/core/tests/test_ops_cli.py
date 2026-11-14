@@ -17,6 +17,8 @@ from sandloom.core.cli import config as config_cli
 from sandloom.core.cli import doctor
 from sandloom.core.config.settings import Settings
 from sandloom.core.descriptors import ContractRequirement, ModuleDescriptor
+from sandloom.core.eventing.memory_transport import MemoryTransport
+from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.infra.ports.eventbus import GroupInfo
 from sandloom.core.migrations import migrations
 from sandloom.core.migrations.migrations import (
@@ -26,6 +28,7 @@ from sandloom.core.migrations.migrations import (
     migration_lock_holders,
 )
 from sandloom.core.migrations.urls import to_sync_url
+from sandloom.core.schema.registry import InMemorySchemaRegistry
 
 
 def _test_database_url() -> str:
@@ -313,7 +316,9 @@ class _Infra:
         self.closed = True
 
 
-class _Transport:
+class _Transport(MemoryTransport):
+    supported_features = frozenset({"inspection"})
+
     async def group_info(self, stream: str) -> list[GroupInfo]:
         return [GroupInfo("billing:seen", None, 0, None, 5000)]
 
@@ -335,7 +340,7 @@ def _core(**infra: _Result) -> Any:
             SimpleNamespace(channel="a.b.v1", group_name="billing:new", required=True),
         ],
         projection_registry=None,
-        event_bus=SimpleNamespace(transport=_Transport()),
+        event_bus=StreamsEventBus(InMemorySchemaRegistry(), _Transport()),
         settings=SimpleNamespace(production_profile="standard", is_prod=False),
     )
 

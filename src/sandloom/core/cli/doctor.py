@@ -83,6 +83,7 @@ from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.config import tiers
 from sandloom.core.config.common import MULTI_TENANT_STRICT, strict_profile_active
 from sandloom.core.config.settings import settings
+from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.migrations.migrations import migration_status
 from sandloom.core.production_profile import (
     config_problems,
@@ -568,9 +569,12 @@ async def check_consumers(
     if not consumers:
         report.add("consumers", "registered", SKIP, "no durable consumers registered")
         return
-    transport = getattr(getattr(core, "event_bus", None), "transport", None)
-    group_info = getattr(transport, "group_info", None)
-    if transport is None or group_info is None:
+    bus = getattr(core, "event_bus", None)
+    if isinstance(bus, StreamsEventBus) and "inspection" in bus.transport_features:
+        group_info = bus.transport.group_info
+    else:
+        group_info = None
+    if group_info is None:
         report.add(
             "consumers",
             "transport",

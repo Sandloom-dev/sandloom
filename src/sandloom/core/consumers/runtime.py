@@ -18,6 +18,7 @@ from sandloom.core.consumers.callbacks import (
     _side_effect_callback,
     subscribe_to_bus,
 )
+from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.eventing.subscriptions import SubscriptionState
 from sandloom.core.eventing.transport_base import service_name as _configured_service
 from sandloom.core.observability.metrics_utils import safe_inc
@@ -304,10 +305,10 @@ class ConsumerRuntime:
         transport error here is ignored — the connect path retries — but an
         ownership conflict aborts startup with an actionable message.
         """
-        transport = getattr(self._core.event_bus, "transport", None)
-        claim = getattr(transport, "claim_group_owner", None)
-        if claim is None:
-            return
+        bus = self._core.event_bus
+        if not isinstance(bus, StreamsEventBus):
+            return  # a volatile bus keeps no group ownership
+        claim = bus.transport.claim_group_owner
 
         conflicts: list[str] = []
         for record in self._records:

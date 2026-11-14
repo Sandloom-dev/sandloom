@@ -230,7 +230,7 @@ def test_the_kernel_builds_its_bus_per_shape() -> None:
         name="default", driver="memory", options={}, bus_instance=bus
     )
     assert build_event_bus(provider, schemas) is bus
-    assert bus.durable is False
+    assert "durable" not in bus.bus_features
 
     streams = StreamsEventBusProvider(
         name="default", driver="streams", options={}, client_factory=_client
@@ -238,7 +238,7 @@ def test_the_kernel_builds_its_bus_per_shape() -> None:
     durable = build_event_bus(streams, schemas)
     assert isinstance(durable, StreamsEventBus)
     assert durable.transport is streams
-    assert durable.durable is True
+    assert "durable" in durable.bus_features
     assert durable.native_batch_publish is True
 
 
@@ -250,7 +250,7 @@ def test_a_bus_over_a_transport_without_durable_is_not_durable() -> None:
         supported_features = frozenset({"inspection"})
 
     bus = StreamsEventBus(InMemorySchemaRegistry(), _Volatileish())
-    assert bus.durable is False
+    assert "durable" not in bus.bus_features
     assert bus.transport_features == frozenset({"inspection"})
     assert declared_features(MemoryTransport()) == MemoryTransport.supported_features
 

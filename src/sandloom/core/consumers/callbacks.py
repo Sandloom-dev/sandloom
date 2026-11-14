@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from sandloom.core.eventing.bus_base import BusFacts
 from sandloom.core.eventing.delivery import (
     START_FROM_EARLIEST,
     stream_start_id,
@@ -309,9 +310,10 @@ def _check_bus_can_host_consumer(bus: Any, channel: str, group: str) -> None:
     * in production any non-durable bus is refused.
     """
 
-    if getattr(bus, "durable", False):
+    facts = bus if isinstance(bus, BusFacts) else BusFacts()
+    if "durable" in facts.bus_features:
         return
-    in_process = bool(getattr(bus, "in_process", False))
+    in_process = facts.in_process
     if settings.is_prod:
         reason = "production requires a durable event bus (EVENT_BUS_BACKEND=streams)"
     elif in_process:

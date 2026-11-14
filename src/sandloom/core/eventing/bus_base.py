@@ -80,14 +80,19 @@ class EventBusProtocol(Protocol):
     async def close(self) -> None: ...
 
 
-class BaseEventBus(ABC, EventBusProtocol):
-    """
-    Abstract base class for event buses. Shared logic: schema validation,
-    payload-size limiting and the publish template.
+class BusFacts:
+    """The facts a kernel bus states about itself (spec 7: the bus's own facts
+    are attributes of the kernel's bus classes, read through this type, never
+    probed by name and never read off the transport).
+
+    A plain test bus is not a ``BusFacts``: kernel code treats it as the
+    plainest bus (no prevalidated publish, no batch, not in-process, not
+    durable). A test bus that needs a fact subclasses this.
     """
 
     #: The ``eventbus`` features the bus runs over: a durable bus carries its
-    #: transport's declared features, a volatile bus declares none.
+    #: transport's declared features (``"durable" in bus_features``), a
+    #: volatile bus declares none.
     bus_features: frozenset[str] = frozenset()
     #: ``publish_event`` accepts ``prevalidated=`` (post-commit dispatch).
     supports_prevalidated: bool = True
@@ -97,17 +102,16 @@ class BaseEventBus(ABC, EventBusProtocol):
     in_process: bool = False
     #: ``publish_event_batch`` is available (post-commit dispatch, relay).
     supports_batch_publish: bool = True
+    #: A batch publish is ONE transport round trip (the transport's
+    #: ``one_round_trip`` hint on ``publish_many``), not a loop.
+    native_batch_publish: bool = False
 
-    @property
-    def durable(self) -> bool:
-        """True when published events persist until a consumer group acks them
-        (the transport declares ``durable``)."""
-        return "durable" in self.bus_features
 
-    @property
-    def native_batch_publish(self) -> bool:
-        """True when a batch publish is ONE transport round trip (not a loop)."""
-        return False
+class BaseEventBus(BusFacts, ABC, EventBusProtocol):
+    """
+    Abstract base class for event buses. Shared logic: schema validation,
+    payload-size limiting and the publish template.
+    """
 
     def retention(self) -> Retention | None:
         """What the bus's durable transport keeps of a stream; ``None`` for a

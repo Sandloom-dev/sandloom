@@ -48,6 +48,7 @@ from sandloom.core.observability.metrics import outbox_oldest_pending_age_second
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.core.facade import CoreFacade
+import sandloom.core.eventing.bus_base as _bus_base
 import sandloom.core.eventing.envelope as _envelope
 from sandloom.core.config.settings import settings
 
@@ -564,9 +565,7 @@ def _batch_publish_capable(bus: Any) -> bool:
     would only widen a failure to the whole batch, so the relay keeps
     publishing row by row there.
     """
-    return getattr(bus, "native_batch_publish", False) is True and callable(
-        getattr(bus, "publish_event_batch", None)
-    )
+    return isinstance(bus, _bus_base.BaseEventBus) and bus.native_batch_publish
 
 
 _PUBLISH_MANY_SUPPORT: dict[type, bool] = {}

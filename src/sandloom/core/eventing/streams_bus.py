@@ -123,10 +123,11 @@ class StreamsEventBus(_StreamsDispatch):
         else:
             self._block_ms = self._BLOCK_MS
         # What the transport declares, read once: its class says it, nothing is
-        # probed. ``durable`` of the bus derives from it (``BaseEventBus``).
+        # probed. The bus's ``bus_features`` and ``native_batch_publish`` (the
+        # ``one_round_trip`` hint of ``publish_many``) are those declarations.
         self._features = declared_features(transport)
         self.bus_features = self._features
-        self._one_round_trip_batch = (
+        self.native_batch_publish = (
             performance_hint(transport, "publish_many") == "one_round_trip"
         )
         # (channel, group) -> inventory info heartbeated by the consume loop
@@ -154,15 +155,6 @@ class StreamsEventBus(_StreamsDispatch):
     @staticmethod
     def _is_pattern(channel: str) -> bool:
         return channel.endswith(".*")
-
-    @property
-    def native_batch_publish(self) -> bool:
-        """True when the transport appends a batch in one round trip.
-
-        The transport says so with the performance hint ``one_round_trip`` on
-        ``publish_many``; a looping default (the in-memory transport) does not.
-        """
-        return self._one_round_trip_batch
 
     async def _publish_to_transport(self, channel: str, message: EventEnvelope) -> None:
         await self._transport.publish(channel, message)

@@ -30,6 +30,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
+import sandloom.core.eventing.bus_base as _bus_base
 import sandloom.core.eventing.envelope as _envelope
 import sandloom.core.eventing.origin as _origin
 import sandloom.core.unit_of_work.request as _request
@@ -103,9 +104,7 @@ async def _publish_in_order(
 
 def _batch_capable(bus: Any) -> bool:
     """A framework bus with ``publish_event_batch`` (test doubles: per event)."""
-    return getattr(bus, "supports_batch_publish", False) is True and callable(
-        getattr(bus, "publish_event_batch", None)
-    )
+    return isinstance(bus, _bus_base.BaseEventBus) and bus.supports_batch_publish
 
 
 async def _publish_prefix(
@@ -142,7 +141,7 @@ async def _publish_prefix_with_origin(
     # Their payloads are the very snapshots this bus preflighted (channel and
     # size included), so the bus skips its size re-check too (PREFLIGHTED).
     prevalidated: bool | str = False
-    if getattr(bus, "supports_prevalidated", False):
+    if isinstance(bus, _bus_base.BusFacts) and bus.supports_prevalidated:
         prevalidated = _envelope.PREFLIGHTED
     if _batch_capable(bus):
         batch = [
@@ -674,7 +673,7 @@ async def _dispatch_pending_events(session: AsyncSession, *, wait: bool) -> None
     # transport (Redis Streams) is published by the background coalescer.
     events: tuple[_PendingEvent, ...] = tuple(pending)
     delivered_inline: tuple[_uuid.UUID, ...] = ()
-    if getattr(bus, "in_process", False):
+    if isinstance(bus, _bus_base.BusFacts) and bus.in_process:
         delivered_inline = tuple(await _publish_in_order(bus, events))
         if _cancelling():
             raise asyncio.CancelledError  # as on the wait=True path
