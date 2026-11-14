@@ -95,12 +95,27 @@ class _InstanceLike(Protocol):
     def options(self) -> Mapping[str, Any]: ...
 
 
+# redis-py is imported on first use: the driver module imports without it, and
+# the registry refuses the driver before it is built when it is missing
+# (SANDLOOM-B037). One accessor per module keeps each import name a literal.
 @cache
-def _redis_module(name: str) -> ModuleType:
-    """A ``redis`` module, imported on first use: the driver module imports
-    without redis-py, and the registry refuses the driver before it is built
-    when redis-py is missing (SANDLOOM-B037)."""
-    return importlib.import_module(name)
+def _exceptions() -> ModuleType:
+    return importlib.import_module("redis.exceptions")
+
+
+@cache
+def _asyncio_module() -> ModuleType:
+    return importlib.import_module("redis.asyncio")
+
+
+@cache
+def _retry_module() -> ModuleType:
+    return importlib.import_module("redis.asyncio.retry")
+
+
+@cache
+def _backoff_module() -> ModuleType:
+    return importlib.import_module("redis.backoff")
 
 
 @cache
@@ -108,7 +123,7 @@ def _backend_errors() -> tuple[type[BaseException], ...]:
     """What a Redis backend raises: redis-py's errors, socket errors, a timeout
     and an undecodable stored value. Nothing else is caught: any other
     exception is a driver bug and propagates (spec 2.1)."""
-    exceptions = _redis_module("redis.exceptions")
+    exceptions = _exceptions()
     return (exceptions.RedisError, OSError, TimeoutError, UnicodeDecodeError)
 
 
@@ -131,10 +146,10 @@ def _build_client(options: RedisAtomicStoreOptions) -> Any:
     raise within roughly ``(1 + retry_attempts) x socket_timeout_seconds``
     instead of hanging a request. Only connection errors are retried (a stale
     pooled socket after a failover), never a timeout."""
-    redis = _redis_module("redis.asyncio")
-    retry_module = _redis_module("redis.asyncio.retry")
-    backoff = _redis_module("redis.backoff")
-    exceptions = _redis_module("redis.exceptions")
+    redis = _asyncio_module()
+    retry_module = _retry_module()
+    backoff = _backoff_module()
+    exceptions = _exceptions()
     pool: Any = redis.BlockingConnectionPool.from_url(
         options.url,
         max_connections=options.max_connections,
@@ -177,7 +192,7 @@ async def _run_script(
     evalsha = client.evalsha
     try:
         return await evalsha(sha, len(keys), *keys, *args)
-    except _redis_module("redis.exceptions").NoScriptError:
+    except _exceptions().NoScriptError:
         await client.script_load(script)
         return await evalsha(sha, len(keys), *keys, *args)
 
@@ -339,7 +354,7 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
 
     def _failure(self, operation: str, exc: BaseException) -> InfraError:
         """The ``InfraError`` for a backend failure: its type, never its text."""
-        exceptions = _redis_module("redis.exceptions")
+        exceptions = _exceptions()
         what = f"atomic_store {self.name!r} {operation}: {type(exc).__name__}"
         kind: type[InfraError]
         if isinstance(
@@ -460,7 +475,7 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         failure is not a refusal and propagates."""
         try:
             reply = await client.config_get(_POLICY_SETTING)
-        except _redis_module("redis.exceptions").ResponseError:
+        except _exceptions().ResponseError:
             return None
         policy = reply.get(_POLICY_SETTING) if isinstance(reply, dict) else None
         return policy if isinstance(policy, str) else None
