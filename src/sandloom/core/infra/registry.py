@@ -1521,20 +1521,33 @@ def _vouched_detail(value: object) -> object:
     if isinstance(value, str):
         return value if _HEALTH_TOKEN.fullmatch(value) else _REDACTED
     if isinstance(value, Mapping):
-        return {str(k): _vouched_detail(v) for k, v in value.items()}
+        return _vouched_mapping(value)
     if isinstance(value, (list, tuple)):
         return [_vouched_detail(v) for v in value]
     return _REDACTED
 
 
+def _vouched_mapping(value: Mapping[Any, Any]) -> dict[str, object]:
+    """A details mapping whose keys pass as its values do: an entry whose key
+    is not one token (a URL, a host with credentials) becomes
+    ``"<redacted>": "<redacted>"``, its value unread."""
+    vouched: dict[str, object] = {}
+    for key, item in value.items():
+        if isinstance(key, str) and _HEALTH_TOKEN.fullmatch(key):
+            vouched[key] = _vouched_detail(item)
+        else:
+            vouched[_REDACTED] = _REDACTED
+    return vouched
+
+
 def _vouched_health(result: HealthResult) -> HealthResult:
     """A driver's health result with only what the registry can vouch for in
     its ``details`` (spec 2.4): numbers, booleans and single-token strings
-    pass; any other value becomes ``"<redacted>"``."""
+    pass, under single-token keys; any other value becomes ``"<redacted>"``,
+    any other key's entry ``"<redacted>": "<redacted>"``."""
     if not result.details:
         return result
-    details = {str(k): _vouched_detail(v) for k, v in result.details.items()}
-    return dataclasses.replace(result, details=details)
+    return dataclasses.replace(result, details=_vouched_mapping(result.details))
 
 
 def check_driver_class(

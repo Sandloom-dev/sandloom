@@ -12,7 +12,14 @@ from contextlib import suppress
 from tempfile import mkstemp
 
 from sandloom.core.config.settings import settings
-from sandloom.core.infra.errors import InvalidArgument, NotFound, TooLarge
+from sandloom.core.infra.errors import (
+    InfraError,
+    InvalidArgument,
+    NotFound,
+    PermissionDenied,
+    TooLarge,
+    Unavailable,
+)
 from sandloom.core.infra.ports.objectstore import (
     ObjectContent,
     iter_object_chunks,
@@ -20,6 +27,15 @@ from sandloom.core.infra.ports.objectstore import (
 )
 
 _CHUNK_SIZE = 1024 * 1024  # 1 MiB
+
+
+def _storage_error(exc: OSError) -> InfraError:
+    """The contract's error for a filesystem failure (spec 9). The message is
+    the error type only: ``str(exc)`` carries the host path."""
+    message = f"local storage failed: {type(exc).__name__}"
+    if isinstance(exc, PermissionError):
+        return PermissionDenied(message, capability="objectstore")
+    return Unavailable(message, capability="objectstore")
 
 
 class Storage:
@@ -64,15 +80,21 @@ class Storage:
         return candidate
 
     async def save(self, file: ObjectContent, filename: str) -> str:
-        """Stream to a temporary file and publish it atomically when complete."""
+        """Stream to a temporary file and publish it atomically when complete.
+
+        A filesystem failure raises ``PermissionDenied`` or ``Unavailable``
+        naming only its type; an error of the source itself propagates."""
         if self.type != "local":
             raise NotImplementedError(f"Storage type '{self.type}' not implemented.")
         full_path = self._resolve(filename)
         parent = os.path.dirname(full_path)
-        os.makedirs(parent, exist_ok=True)
         limit = getattr(self, "max_upload_size_bytes", 0) or 0
         written = 0
-        fd, temporary_path = mkstemp(dir=parent, prefix=".sandloom-upload-")
+        try:
+            os.makedirs(parent, exist_ok=True)
+            fd, temporary_path = mkstemp(dir=parent, prefix=".sandloom-upload-")
+        except OSError as exc:
+            raise _storage_error(exc) from exc
         try:
             with os.fdopen(fd, "wb") as target:
                 async for chunk in iter_object_chunks(file, _CHUNK_SIZE):
@@ -88,9 +110,18 @@ class Storage:
                         # The thread still owns target until the write completes.
                         await write
                         raise
-            os.replace(temporary_path, full_path)
+                    except OSError as exc:
+                        raise _storage_error(exc) from exc
+                try:
+                    await asyncio.to_thread(target.flush)
+                except OSError as exc:
+                    raise _storage_error(exc) from exc
+            try:
+                os.replace(temporary_path, full_path)
+            except OSError as exc:
+                raise _storage_error(exc) from exc
         finally:
-            with suppress(FileNotFoundError):
+            with suppress(OSError):
                 os.unlink(temporary_path)
         return full_path
 
@@ -102,10 +133,12 @@ class Storage:
             await asyncio.to_thread(os.remove, full_path)
         except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
             return
-        except PermissionError:
+        except PermissionError as exc:
             # Some filesystems return EPERM when unlink is attempted on a directory.
             if not await asyncio.to_thread(os.path.isdir, full_path):
-                raise
+                raise _storage_error(exc) from exc
+        except OSError as exc:
+            raise _storage_error(exc) from exc
 
     async def read(self, filename: str) -> bytes:
         """Return the stored object's bytes (rejecting traversal/symlink escape).
@@ -126,6 +159,8 @@ class Storage:
             fd = await asyncio.to_thread(os.open, full_path, flags)
         except (FileNotFoundError, NotADirectoryError) as exc:
             raise NotFound(filename, capability="objectstore") from exc
+        except OSError as exc:
+            raise _storage_error(exc) from exc
         try:
             fh = os.fdopen(fd, "rb")
         except IsADirectoryError as exc:
@@ -133,14 +168,19 @@ class Storage:
             raise NotFound(filename, capability="objectstore") from exc
         try:
             if not limit:
-                return await asyncio.to_thread(fh.read)
-            # One byte past the limit detects a file that grows after open.
-            data = await asyncio.to_thread(fh.read, limit + 1)
-            if len(data) > limit:
-                raise TooLarge(
-                    f"Stored object exceeds {limit} bytes (MAX_UPLOAD_SIZE_BYTES)",
-                    capability="objectstore",
-                )
-            return data
+                data = await asyncio.to_thread(fh.read)
+            else:
+                # One byte past the limit detects a file that grows after open.
+                data = await asyncio.to_thread(fh.read, limit + 1)
+        except IsADirectoryError as exc:
+            raise NotFound(filename, capability="objectstore") from exc
+        except OSError as exc:
+            raise _storage_error(exc) from exc
         finally:
             await asyncio.to_thread(fh.close)
+        if limit and len(data) > limit:
+            raise TooLarge(
+                f"Stored object exceeds {limit} bytes (MAX_UPLOAD_SIZE_BYTES)",
+                capability="objectstore",
+            )
+        return data

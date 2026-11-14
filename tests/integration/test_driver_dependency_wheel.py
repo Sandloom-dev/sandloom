@@ -16,7 +16,7 @@ pytestmark = [
 ]
 
 DRIVER = """\
-from sandloom.driverkit import NotifierProvider
+from sandloom.driverkit import NotifierProvider, Unsupported
 
 class WheelNotifier(NotifierProvider):
     contract_version = 2
@@ -27,7 +27,12 @@ class WheelNotifier(NotifierProvider):
     async def send(self, notification):
         from wheel_notifier_backend import deliver
 
+        if notification.channel not in self.features():
+            raise Unsupported(notification.channel, capability="notification")
         deliver(self.options["path"], notification.body)
+
+    async def isolation_identity(self):
+        return f"{self.driver}:{self.options['path']}"
 """
 
 BACKEND = """\

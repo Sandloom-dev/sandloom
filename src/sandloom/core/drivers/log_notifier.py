@@ -24,6 +24,7 @@ import hashlib
 import logging
 import re
 import sys
+import uuid
 from collections.abc import Mapping
 from typing import Any, Self, cast
 
@@ -113,6 +114,15 @@ class LogNotifierProvider(NotifierProvider):
 
     async def health(self) -> HealthResult:
         return HealthResult(status="ok")
+
+    async def isolation_identity(self) -> str | None:
+        """``<driver>:<process id>``: the log stream is this process's."""
+        return f"{self.driver}:{_PROCESS_ID}"
+
+
+#: This process's identity for :meth:`LogNotifierProvider.isolation_identity`
+#: (a random id, since a pid repeats across hosts).
+_PROCESS_ID = uuid.uuid4().hex
 
 
 _default: LogNotifierProvider | None = None
