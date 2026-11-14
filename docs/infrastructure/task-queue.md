@@ -14,14 +14,14 @@ covers writing tasks; this page covers what is underneath.
 ```python
 from sandloom.sdk.infra import taskqueue
 
-await taskqueue().enqueue(task, payload, delay_seconds=None, idempotency_key=None)
+await taskqueue().enqueue(task, payload, delay=None, idempotency_key=None)  # delay: timedelta
 ```
 
 ## Drivers
 
 ### `celery`
 
-Celery with a Redis broker. It supports the features `delay` and `idempotency_key`.
+Celery with a Redis broker. It supports the features `delay`, `periodic` and `redelivery`.
 
 | Option | Meaning |
 | --- | --- |
