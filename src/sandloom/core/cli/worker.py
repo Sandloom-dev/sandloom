@@ -20,6 +20,8 @@ composition root (``SANDLOOM_COMPOSITION_ROOT``) like the API, so the checks of
 from __future__ import annotations
 
 import argparse
+import importlib
+import math
 import sys
 from collections.abc import Sequence
 
@@ -27,20 +29,41 @@ import sandloom.core.worker as _worker
 
 #: ``--timeout`` default: the heartbeat is touched every 10 s, so 60 s is six misses.
 DEFAULT_CHECK_TIMEOUT_SECONDS = 60.0
+#: ``--timeout`` ceiling (one day): a larger one is a typo, ``inf`` never stale.
+MAX_CHECK_TIMEOUT_SECONDS = 86400.0
 
 
 def _exit_code(code: object) -> int:
     return code if isinstance(code, int) else 0
 
 
+def _run_celery(command: str, argv: Sequence[str]) -> int:
+    """Run one Celery command bound to the worker app and return its exit code.
+
+    ``Celery.start()`` calls the same CLI but discards its return value, so a
+    worker that died would exit 0 and its container would never restart.
+    """
+    # Imported here, by name: Celery loads only for the processes that run it
+    # (`sandloom worker check` boots nothing).
+    celery_cli = importlib.import_module("celery.bin.celery").celery
+    app = _worker.get_worker_app()
+    celery_cli.params[0].default = app
+    try:
+        # standalone_mode=False: click returns the exit code (``ctx.exit(code)``)
+        # instead of calling sys.exit.
+        return _exit_code(celery_cli.main(args=[command, *argv], standalone_mode=False))
+    finally:
+        celery_cli.params[0].default = None
+
+
 def _run_worker(argv: Sequence[str]) -> int:
     """The one call site of ``sandloom worker`` (today the Celery worker)."""
-    return _exit_code(_worker.get_worker_app().start(argv=["worker", *argv]))
+    return _run_celery("worker", argv)
 
 
 def _run_beat(argv: Sequence[str]) -> int:
     """The one call site of ``sandloom beat`` (today Celery beat)."""
-    return _exit_code(_worker.get_worker_app().start(argv=["beat", *argv]))
+    return _run_celery("beat", argv)
 
 
 def _check(timeout: float) -> tuple[bool, str]:
@@ -74,8 +97,11 @@ def _positive_seconds(raw: str) -> float:
         value = float(raw)
     except ValueError:
         value = 0.0
-    if not value > 0:
-        raise argparse.ArgumentTypeError(f"must be a positive number, got {raw!r}")
+    if not (math.isfinite(value) and 0 < value <= MAX_CHECK_TIMEOUT_SECONDS):
+        raise argparse.ArgumentTypeError(
+            f"must be a positive number of at most {MAX_CHECK_TIMEOUT_SECONDS:g} "
+            f"seconds, got {raw!r}"
+        )
     return value
 
 

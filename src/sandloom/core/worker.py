@@ -49,6 +49,7 @@ import inspect
 import logging
 import math
 import os
+import sys
 import time
 from collections.abc import Iterable
 from pathlib import Path
@@ -407,3 +408,14 @@ __all__ = [
     "install_heartbeat",
     "load_composition_core",
 ]
+
+
+if __name__ == "__main__":
+    # Tombstone, not an alias: ``python -m sandloom.core.worker healthcheck`` used to
+    # be the container probe. Importing the module and exiting 0 would turn a kept
+    # old probe into a liveness check that never fails: exit non-zero, run nothing.
+    sys.exit(
+        "sandloom.core.worker has no command line any more: use `sandloom worker` "
+        "(run the worker), `sandloom beat` (run the scheduler) or "
+        "`sandloom worker check` (the container probe)"
+    )

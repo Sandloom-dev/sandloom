@@ -42,7 +42,7 @@ import secrets
 import subprocess
 import sys
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -209,16 +209,43 @@ def app_processes(compose: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     }
 
 
-def process_kind(svc: Mapping[str, Any]) -> str:
-    """``migrate`` | ``worker`` | ``beat`` | ``http``."""
-    command = _command(svc)
-    if svc.get("restart") == "no" or "migrate" in command:
-        return "migrate"
-    if command[:2] == ["sandloom", "worker"]:
+#: The module the removed Celery commands named: ``celery -A sandloom.core.worker
+#: worker|beat`` and ``python -m sandloom.core.worker healthcheck``.
+LEGACY_WORKER_MODULE = "sandloom.core.worker"
+#: The fix every refusal of the old argv names.
+LEGACY_WORKER_FIX = (
+    "replace with `sandloom worker` / `sandloom beat` / `sandloom worker check`"
+)
+
+
+def command_kind(command: Sequence[str]) -> str | None:
+    """``worker`` | ``beat`` | ``legacy`` | ``None`` for a process ``command``.
+
+    ``sandloom worker check`` is the container probe, not a worker. ``legacy`` is
+    the removed argv (``celery -A sandloom.core.worker ...``, ``python -m
+    sandloom.core.worker``): it no longer starts anything, so it is neither a
+    worker nor a beat.
+    """
+    if command[:2] == ["sandloom", "worker"] and command[2:3] != ["check"]:
         return "worker"
     if command[:2] == ["sandloom", "beat"]:
         return "beat"
-    return "http"
+    words = " ".join(command).replace("=", " ").split()
+    for index, word in enumerate(words):
+        following = words[index + 1 : index + 2]
+        if word in {"-A", "--app", "-m"} and following == [LEGACY_WORKER_MODULE]:
+            return "legacy"
+        if word == f"-A{LEGACY_WORKER_MODULE}":
+            return "legacy"
+    return None
+
+
+def process_kind(svc: Mapping[str, Any]) -> str:
+    """``migrate`` | ``worker`` | ``beat`` | ``legacy`` | ``http``."""
+    command = _command(svc)
+    if svc.get("restart") == "no" or "migrate" in command:
+        return "migrate"
+    return command_kind(command) or "http"
 
 
 def http_services(compose: Mapping[str, Any]) -> dict[str, list[str]]:
@@ -935,7 +962,14 @@ _WORKER_HEALTHCHECK = ["CMD", "sandloom", "worker", "check"]
 
 def _workers(compose: Mapping[str, Any], problem: Any) -> None:
     for name, svc in app_processes(compose).items():
-        if process_kind(svc) != "worker":
+        kind = process_kind(svc)
+        if kind == "legacy":
+            problem(
+                f"{name}: runs the removed `celery -A {LEGACY_WORKER_MODULE}` / "
+                f"`python -m {LEGACY_WORKER_MODULE}` command: {LEGACY_WORKER_FIX}"
+            )
+            continue
+        if kind != "worker":
             continue
         if "WORKER_CONCURRENCY" not in _env(svc):
             problem(f"{name}: size the worker (WORKER_CONCURRENCY)")
@@ -1296,6 +1330,9 @@ __all__ = [
     "modules_of",
     "parse_env_file",
     "process_kind",
+    "command_kind",
+    "LEGACY_WORKER_FIX",
+    "LEGACY_WORKER_MODULE",
     "profile_problems",
     "required_variables",
     "gateway_prefixes",

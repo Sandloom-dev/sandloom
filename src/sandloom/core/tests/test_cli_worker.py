@@ -17,19 +17,26 @@ from sandloom.core.cli import worker as worker_cli
 
 
 class _FakeApp:
+    """Stands in for the worker app AND records what Celery's CLI is asked to run."""
+
     def __init__(self, result: object = None) -> None:
         self.argv: list[str] | None = None
         self.result = result
 
-    def start(self, argv: list[str]) -> object:
-        self.argv = argv
-        return self.result
 
+def _patch_app(monkeypatch: pytest.MonkeyPatch, app: Any) -> None:
+    from celery.bin.celery import celery as celery_cli
 
-def _patch_app(monkeypatch: pytest.MonkeyPatch, app: _FakeApp) -> None:
     import sandloom.core.worker as worker
 
     monkeypatch.setattr(worker, "get_worker_app", lambda: app)
+    if isinstance(app, _FakeApp):
+
+        def fake_main(*, args: list[str], standalone_mode: bool) -> object:
+            app.argv = args
+            return app.result
+
+        monkeypatch.setattr(celery_cli, "main", fake_main)
 
 
 def test_worker_runs_the_worker_with_its_options(
@@ -104,11 +111,22 @@ def test_check_follows_the_heartbeat(
     assert worker_cli.worker_main(["check", "--timeout", "10"]) == 1
 
 
-def test_check_timeout_must_be_positive(capsys: pytest.CaptureFixture[str]) -> None:
+@pytest.mark.parametrize(
+    "value", ["0", "-1", "inf", "-inf", "nan", "86401", "1e9", "x"]
+)
+def test_check_timeout_must_be_a_finite_positive_number(
+    value: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``inf`` / ``nan`` would make a dead worker's heartbeat count as fresh forever."""
     with pytest.raises(SystemExit) as exc:
-        worker_cli.worker_main(["check", "--timeout", "0"])
+        worker_cli.worker_main(["check", f"--timeout={value}"])
     assert exc.value.code == 2
     assert "positive number" in capsys.readouterr().err
+
+
+def test_check_timeout_accepts_the_ceiling() -> None:
+    assert worker_cli._positive_seconds("86400") == 86400.0
+    assert worker_cli._positive_seconds("0.5") == 0.5
 
 
 def _sandloom(*argv: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -156,3 +174,52 @@ def test_worker_check_is_registered_and_boots_nothing(tmp_path: Path) -> None:
         check=False,
     )
     assert loaded.stdout.split() == ["0", "False"], loaded.stderr
+
+
+def _celery_app_whose_worker_dies() -> Any:
+    """A real Celery app (memory broker, solo pool): its worker fails to start."""
+    from celery import Celery, bootsteps
+
+    app = Celery("dies", broker="memory://", set_as_current=False)
+    app.conf.broker_url = "memory://"
+    app.conf.worker_pool = "solo"
+
+    class Dies(bootsteps.StartStopStep):  # type: ignore[misc]
+        def start(self, parent: Any) -> None:
+            raise RuntimeError("the worker dies on start")
+
+    app.steps["worker"].add(Dies)
+    return app
+
+
+def test_a_worker_that_dies_exits_non_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Celery's ``app.start()`` drops the process exit code: ``sandloom worker``
+    must not report 0 for a worker that died (the container would not restart)."""
+    _patch_app(monkeypatch, _celery_app_whose_worker_dies())
+    code = worker_cli.worker_main(
+        ["--concurrency", "1", "--loglevel", "CRITICAL"],
+    )
+    assert code != 0
+
+
+def test_beat_binds_the_app_and_returns_the_exit_code(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Beat goes through the same call: Celery's CLI bound to the worker app, its
+    return value the process exit code."""
+    from celery.bin.celery import celery as celery_cli
+
+    app = _FakeApp()
+    _patch_app(monkeypatch, app)
+    seen: dict[str, Any] = {}
+
+    def fake_main(*, args: list[str], standalone_mode: bool) -> int:
+        seen.update(args=args, standalone=standalone_mode)
+        seen["bound"] = celery_cli.params[0].default
+        return 3
+
+    monkeypatch.setattr(celery_cli, "main", fake_main)
+    assert worker_cli.beat_main(["--schedule", str(tmp_path / "schedule")]) == 3
+    assert seen["args"][0] == "beat" and seen["standalone"] is False
+    assert seen["bound"] is app
+    assert celery_cli.params[0].default is None

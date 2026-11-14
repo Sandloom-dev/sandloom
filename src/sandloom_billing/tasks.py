@@ -1,4 +1,4 @@
-"""Billing background tasks (framework worker: ``celery -A sandloom.core.worker``).
+"""Billing background tasks (framework worker: ``sandloom worker``).
 
 ``reconcile_operation_intents`` (#72, ADR-0003 open items 7 and 15) closes the
 loose ends of the class-F operation intents that no request will close: stale
