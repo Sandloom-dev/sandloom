@@ -1,11 +1,12 @@
 name: SMTP notifier conformance
 
-# The `smtp` notifier is tier `beta` (spec 2.5) when this lane is green:
+# The `smtp` notifier is tier `beta` (spec 2.5), kept by this lane:
 # NotifierConformance runs against a real SMTP server (mailpit as a service
 # container) and reads the accepted message back through its HTTP API. An
-# in-process SMTP server does not count. Until the lane is green on main, the
-# registration in `sandloom.core.drivers.bootstrap` (BUILTIN_DRIVER_TIERS) says
-# `experimental`.
+# in-process SMTP server does not count. If this lane goes red on main, the
+# registration in `sandloom.core.drivers.bootstrap` (BUILTIN_DRIVER_TIERS) drops
+# back to `experimental`. `stable` additionally needs a STARTTLS + login lane
+# (mailpit here runs plain, without authentication).
 
 on:
   pull_request:

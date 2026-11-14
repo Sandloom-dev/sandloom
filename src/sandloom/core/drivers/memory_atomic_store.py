@@ -16,10 +16,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from sandloom.core.infra.ports.atomic_store import (
+from sandloom.driverkit import AtomicStoreProvider
+from sandloom.driverkit.atomic_store import (
     ATOMIC_STORE_PERFORMANCE_HINTS,
     DEFAULT_MAX_VALUE_BYTES,
-    AtomicStoreProvider,
     check_key,
     check_subject_state,
     check_ttl,

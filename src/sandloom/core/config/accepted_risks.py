@@ -105,7 +105,8 @@ RISKS: tuple[Risk, ...] = (
         "idempotency reservation (atomic_store) can vanish before its TTL, or a "
         "fence counter (lease) can vanish and a fence repeat.",
         "redis atomic_store and lease drivers, through the policy the registry "
-        "gives them (assume_allowed, sandloom.core.drivers.bootstrap)",
+        "builds both with (unverified_noeviction_allowed, "
+        "sandloom.core.drivers.bootstrap)",
     ),
     Risk(
         "unversioned_ddl_repair",

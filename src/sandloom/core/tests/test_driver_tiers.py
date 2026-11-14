@@ -54,6 +54,7 @@ class _Stable(_Notifier):
 
 class _StableLease(MemoryLeaseProvider):
     tier = "stable"
+    development_only = False  # a production stand-in; the memory lease is not one
 
 
 class _Unknown(_Notifier):
@@ -149,14 +150,14 @@ def test_every_builtin_row_has_a_tier_and_no_tier_is_orphaned() -> None:
     assert set(BUILTIN_DRIVER_TIERS) == rows
 
 
-def test_the_builtin_drivers_are_at_least_beta_and_smtp_waits_for_its_lane() -> None:
+def test_the_builtin_drivers_are_at_least_beta() -> None:
     registry = InfraRegistry(strict_capabilities=True)
     register_builtin_drivers(registry, InMemorySchemaRegistry())
     tiers = {
         f"{c}/{d}": registry.driver_tier(c, d) for c, d, *_rest in BUILTIN_DRIVER_ROWS
     }
-    # smtp is beta once .github/workflows/notification-smtp.yml is green on main.
-    assert tiers.pop("notification/smtp") == "experimental"
+    # smtp is beta: .github/workflows/notification-smtp.yml is green on main.
+    assert tiers["notification/smtp"] == "beta"
     assert set(tiers.values()) <= {"beta", "stable"}
 
 
@@ -266,7 +267,7 @@ def test_outside_production_an_experimental_driver_starts_silently(
     assert "below stable" not in caplog.text
 
 
-def test_smtp_selected_in_production_needs_the_risk_until_its_lane_is_green() -> None:
+def test_smtp_selected_in_production_is_beta_and_needs_no_risk() -> None:
     config = {
         "notification": {
             "default": InstanceConfig(
@@ -274,11 +275,10 @@ def test_smtp_selected_in_production_needs_the_risk_until_its_lane_is_green() ->
             )
         }
     }
-    with pytest.raises(ExperimentalDriverRefused, match="notification/default"):
-        build_infra_registry(InMemorySchemaRegistry(), settings=_prod(), config=config)
-    build_infra_registry(
-        InMemorySchemaRegistry(), settings=_prod("experimental_driver"), config=config
+    registry = build_infra_registry(
+        InMemorySchemaRegistry(), settings=_prod(), config=config
     )
+    assert registry.driver_tier("notification", "smtp") == "beta"
 
 
 # ---------------------------------------------------------------- diagnostics
@@ -401,12 +401,6 @@ def test_a_development_only_experimental_driver_gets_b022_not_b023(
     assert exc.value.sandloom_code == "SANDLOOM-B022"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="idk-tiersb: _check_driver_tiers_in_production (core/drivers/bootstrap.py) "
-    "does not skip development_only drivers yet; that file was claimed by "
-    "idk-lease. Drop this marker with the one-line skip.",
-)
 def test_a_synthesized_default_with_a_development_only_driver_gets_b022_not_b023(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -423,6 +417,26 @@ def test_a_synthesized_default_with_a_development_only_driver_gets_b022_not_b023
     }
     with pytest.raises(DevelopmentOnlyDriverRefused):
         build_infra_registry(InMemorySchemaRegistry(), settings=_prod(), config=config)
+
+
+def test_a_synthesized_stable_development_only_default_is_refused_with_b022(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A stable development_only default must not slip past the ``stable`` skip
+    # of the tier check: B022 comes before the tier is read. (A tier-less
+    # driver registers as experimental, covered by the test above.)
+    _install(monkeypatch, {"notification.dev": _DevStable})
+    _runtime_prod(monkeypatch)
+    config = {
+        "notification": {
+            "default": InstanceConfig(
+                "notification", "default", "dev", {}, implicit=True
+            )
+        }
+    }
+    with pytest.raises(DevelopmentOnlyDriverRefused) as exc:
+        build_infra_registry(InMemorySchemaRegistry(), settings=_prod(), config=config)
+    assert exc.value.sandloom_code == "SANDLOOM-B022"
 
 
 def test_provider_refuses_a_development_only_experimental_driver_with_b022(

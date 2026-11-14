@@ -4,9 +4,8 @@ The argument checks every driver makes first (so one key, TTL or value is
 refused the same way whatever the backend), the value domain of
 ``set_subject_state`` with its exact ranking, and the performance hints a
 driver declares. A driver package imports them from here, never from
-``sandloom.core`` (ADR-0016). The kernel's own drivers (``redis``, ``memory``)
-import the port directly, as their allowlist entries in
-``test_drivers_import_only_driverkit`` say; the names here are the port's own.
+``sandloom.core`` (ADR-0016); the kernel's own drivers (``redis``, ``memory``)
+import them from here too. The names here are the port's own.
 
 - :func:`check_key`, :func:`check_value`, :func:`check_ttl`: ``InvalidArgument``
   (``TooLarge`` for an oversized value; a TTL over ``MAX_TTL_SECONDS`` is

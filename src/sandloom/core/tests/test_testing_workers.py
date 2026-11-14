@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from sandloom.core.infra.ports._base import worker_redis_url
+from sandloom.core.infra.worker_isolation import worker_redis_url
 from sandloom.core.testing import redis_isolation, workers
 
 _REAL_ENSURE_DATABASE = workers.ensure_database
