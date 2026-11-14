@@ -304,3 +304,14 @@ class S3ObjectStore(ObjectStoreProvider):
             failed = type(cause or exc).__name__
             return HealthResult(status="fail", details={"error": failed})
         return HealthResult(status="ok")
+
+    async def isolation_identity(self) -> str | None:
+        """``<driver>:<endpoint>/<bucket>`` (AWS: ``aws-<region>`` for the
+        endpoint). The endpoint carries no user info (the options refuse it)."""
+        options = self._config
+        endpoint = (
+            str(options.endpoint_url).rstrip("/")
+            if options.endpoint_url
+            else f"aws-{options.region or 'default'}"
+        )
+        return f"{self.driver}:{endpoint}/{options.bucket}"

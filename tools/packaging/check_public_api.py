@@ -37,12 +37,16 @@ BASELINE_PATH = ROOT / "public_api_baseline.json"
 # import, and sandloom.driverkit, which is for driver packages.
 EXTRA_MODULES = (
     "sandloom.driverkit",
+    "sandloom.driverkit.testing",
     "sandloom.shared",
     "sandloom.shared.authz",
     "sandloom.shared.guards.auth",
     "sandloom.core.testing",
     "sandloom.core.contract_testing",
 )
+
+#: The kind of a public name listed in ``__all__`` that does not resolve yet.
+PENDING = "pending"
 
 Descriptor = dict[str, Any]
 ModuleSnapshot = dict[str, Descriptor]
@@ -152,7 +156,13 @@ def snapshot() -> Snapshot:
         module = importlib.import_module(mod_name)
         mod_snap: ModuleSnapshot = {}
         for name in _public_names(module):
-            obj = getattr(module, name)
+            try:
+                obj = getattr(module, name)
+            except AttributeError:
+                # A lazily resolved name its slice has not delivered yet
+                # (``sandloom.driverkit.testing``): pinned as pending.
+                mod_snap[name] = {"kind": PENDING}
+                continue
             # Skip re-exported submodules; we snapshot the named modules directly.
             if inspect.ismodule(obj):
                 continue
@@ -176,6 +186,11 @@ def _diff(baseline: Snapshot, current: Snapshot) -> list[str]:
             cur_desc = cur_mod.get(name)
             if cur_desc is None:
                 breaks.append(f"{mod_name}.{name}: symbol removed")
+                continue
+            if base_desc.get("kind") == PENDING:
+                continue  # delivering a pending name is additive
+            if cur_desc.get("kind") == PENDING:
+                breaks.append(f"{mod_name}.{name}: no longer resolves")
                 continue
             if cur_desc.get("kind") != base_desc.get("kind"):
                 breaks.append(

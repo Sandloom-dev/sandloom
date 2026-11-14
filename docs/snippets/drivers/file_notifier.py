@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from sandloom.driverkit import Notification, NotifierProvider
+from sandloom.driverkit import Notification, NotifierProvider, Unsupported
 
 
 class FileNotifier(NotifierProvider):
@@ -19,9 +19,13 @@ class FileNotifier(NotifierProvider):
         path = options.get("path")
         if not path:
             raise ValueError("the file notification driver needs a 'path' option")
-        self._path = Path(path)
+        self._path = Path(path).absolute()
 
     async def send(self, notification: Notification) -> None:
+        if notification.channel not in self.features():
+            raise Unsupported(
+                notification.channel, capability="notification", instance=self.name
+            )
         line = json.dumps(
             {
                 "channel": notification.channel,
@@ -31,6 +35,10 @@ class FileNotifier(NotifierProvider):
             }
         )
         await asyncio.to_thread(self._append, line)
+
+    async def isolation_identity(self) -> str:
+        # Two instances writing one file share it: the file names the store.
+        return f"{self.driver}:{self._path}"
 
     def _append(self, line: str) -> None:
         # Bodies can hold secret links: only the owner may read the file.
