@@ -23,8 +23,8 @@ from sandloom.core.eventing.transport_base import (
     DLQ_REASON_MAX_DELIVERIES,
     DLQ_REASON_SOURCE_MISSING,
     TARGET_GROUP_FIELD,
-    Delivery,
 )
+from sandloom.core.infra.ports.eventbus import Delivery
 from sandloom.core.observability.metrics_utils import safe_inc
 
 logger = logging.getLogger("sandloom.core.eventing.transport")
@@ -540,7 +540,6 @@ class _StreamsConsume(_StreamsGroups):
         await client.xack(self.key(delivery.stream), delivery.group, delivery.id)
         self._untrack(delivery.stream, delivery.group, (delivery.id,))
 
-    @property
     def renew_interval_seconds(self) -> float:
         """Renew live batches before Redis' dead-consumer idle threshold."""
         return max(0.001, self._min_idle_ms / 3000)

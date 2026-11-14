@@ -579,7 +579,7 @@ async def check_consumers(
             "transport (EVENT_BUS_BACKEND=streams reports groups and lag)",
         )
         return
-    infos: dict[str, list[dict[str, Any]]] = {}
+    infos: dict[str, list[Any]] = {}
     for channel, group, required in consumers:
         try:
             if channel not in infos:
@@ -589,7 +589,7 @@ async def check_consumers(
         except Exception as exc:  # noqa: BLE001 - reported
             report.add("consumers", f"{channel} -> {group}", FAIL, _error(exc))
             continue
-        info = next((g for g in infos[channel] if g.get("group") == group), None)
+        info = next((g for g in infos[channel] if g.group == group), None)
         name = f"{channel} -> {group}"
         if info is None:
             report.add(
@@ -599,7 +599,7 @@ async def check_consumers(
                 "group not created yet (the consumer has never subscribed)",
             )
             continue
-        lag, pending = info.get("lag"), info.get("pending")
+        lag, pending = info.lag, info.pending
         status = WARN if isinstance(lag, int) and lag >= lag_warn else OK
         report.add(
             "consumers",

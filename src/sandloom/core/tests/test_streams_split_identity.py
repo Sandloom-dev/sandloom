@@ -39,8 +39,12 @@ from sandloom.core.eventing.delivery import stream_start_id
 from sandloom.core.eventing.memory_transport import MemoryTransport
 from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.eventing.streams_transport import RedisStreamsTransport
-from sandloom.core.eventing.transport_base import GroupOwnershipError
 from sandloom.core.facade import CoreFacade
+from sandloom.core.infra.ports.eventbus import (
+    ConsumerInfo,
+    GroupOwnedElsewhere,
+    GroupOwner,
+)
 from sandloom.core.testing import reload_test_env
 from sandloom.core.tests._schemas import PermissiveSchemaRegistry
 
@@ -196,7 +200,7 @@ async def test_same_name_in_two_services_each_receive_every_event(
         await _wait_for(lambda: len(seen_a) == 20 and len(seen_b) == 20)
         assert sorted(seen_a, key=int) == [str(n) for n in range(20)]
         assert sorted(seen_b, key=int) == [str(n) for n in range(20)]
-        groups = {g["group"] for g in await a.transport.group_info(channel)}
+        groups = {g.group for g in await a.transport.group_info(channel)}
         assert groups == {
             "svc_a.notifications:notify",
             "svc_b.notifications:notify",
@@ -449,9 +453,9 @@ async def test_group_lag_and_pending_are_reported(
             await svc.transport.publish(channel, {"id": str(n), "payload": {}})  # type: ignore[typeddict-item]
         await svc.transport.consume(channel, group="g", consumer="c", count=1)
         (info,) = await svc.transport.group_info(channel)
-        assert info["group"] == "g"
-        assert info["pending"] == 1
-        assert info["lag"] in (3, None)  # None on Redis < 7
+        assert info.group == "g"
+        assert info.pending == 1
+        assert info.lag in (3, None)  # None on Redis < 7
     finally:
         await svc.close()
 
@@ -477,7 +481,7 @@ async def test_dlq_replay_reaches_only_the_failed_group(
         assert [d.envelope["id"] for d in failed] == ["e1"]  # left unacked
         assert await t.consume(channel, group="failing-group", consumer="c") == []
         (entry,) = await t.list_dlq(channel)
-        assert entry["group"] == "failing-group"
+        assert entry.group == "failing-group"
 
         assert await t.replay_dlq(channel) == 1
         # The healthy group must NOT see the replay (its non-durable handler
@@ -499,7 +503,7 @@ async def test_memory_dlq_replay_is_targeted_too() -> None:
         await t.ack(d)
     await t.consume("s.x.v1", group="bad", consumer="c")
     await t.consume("s.x.v1", group="bad", consumer="c")  # -> DLQ
-    assert (await t.list_dlq("s.x.v1"))[0]["group"] == "bad"
+    assert (await t.list_dlq("s.x.v1"))[0].group == "bad"
     assert await t.replay_dlq("s.x.v1", group="ok") == 0  # not ok's entry
     assert await t.replay_dlq("s.x.v1") == 1
     assert await t.consume("s.x.v1", group="ok", consumer="c") == []
@@ -526,7 +530,7 @@ async def test_inventory_lists_live_consumers_and_flags_starved_versions(
         _register(consumer_svc, "svc_c.mod", "demo.order.paid.v1", [])
         await consumer_svc.runtime_for().start()
         inventory = await producer_svc.transport.list_consumers()
-        assert [(e["stream"], e["group"], e["module"]) for e in inventory] == [
+        assert [(e.stream, e.group, e.module) for e in inventory] == [
             ("demo.order.paid.v1", "svc_c.mod:notify", "svc_c.mod")
         ]
         producer_svc.bus._AUDIENCE_DELAY_SECONDS = 0.05
@@ -596,13 +600,13 @@ async def test_prefix_namespaces_streams_and_groups(
     try:
         await svc.transport.ensure_group("demo.ns.v1", "g")
         await svc.transport.publish("demo.ns.v1", {"id": "1", "payload": {}})  # type: ignore[typeddict-item]
-        await svc.transport.claim_group_owner("demo.ns.v1", "g", {"module": "m"})
+        await svc.transport.claim_group_owner("demo.ns.v1", "g", GroupOwner("m", "d"))
         assert await raw_redis.exists(f"{prefix}demo.ns.v1") == 1
         assert await raw_redis.exists("demo.ns.v1") == 0
         assert await raw_redis.exists(f"{prefix}sandloom:group-owner:demo.ns.v1:g") == 1
-        with pytest.raises(GroupOwnershipError):
+        with pytest.raises(GroupOwnedElsewhere):
             await svc.transport.claim_group_owner(
-                "demo.ns.v1", "g", {"module": "other"}
+                "demo.ns.v1", "g", GroupOwner("other", "d")
             )
     finally:
         await svc.close()
@@ -626,9 +630,11 @@ async def test_streams_cli_operations(
         assert {g["group"] for g in groups} == {"a", "b"}
         assert await cli.streams_dlq_replay(svc.core, "demo.cli.v1", group="b") == 0
         assert await cli.streams_dlq_replay(svc.core, "demo.cli.v1", group="a") == 1
-        await t.claim_group_owner("demo.cli.v1", "a", {"module": "m", "database": "d"})
+        await t.claim_group_owner("demo.cli.v1", "a", GroupOwner("m", "d"))
         assert await cli.streams_release_group(svc.core, "demo.cli.v1", "a") is True
-        await t.register_consumer("demo.cli.v1", "a", {"module": "m"})
+        await t.register_consumer(
+            "demo.cli.v1", "a", ConsumerInfo("demo.cli.v1", "a", "m", "d")
+        )
         (entry,) = await cli.streams_consumers(svc.core)
         assert (entry["stream"], entry["group"]) == ("demo.cli.v1", "a")
     finally:
@@ -648,9 +654,9 @@ async def test_dlq_inspection_continues_without_replaying_or_deleting(
                 transport._dlq_key(channel), {"reason": "probe"}, id=f"{i + 1}-0"
             )
         first = await transport.list_dlq(channel, count=200)
-        second = await transport.list_dlq(channel, count=200, after=first[-1]["id"])
+        second = await transport.list_dlq(channel, count=200, after=first[-1].id)
         assert len(first) == 200 and len(second) == 3
-        assert len({r["id"] for r in first + second}) == 203
+        assert len({r.id for r in first + second}) == 203
         assert await raw_redis.xlen(transport._dlq_key(channel)) == 203
     finally:
         await svc.close()
@@ -661,5 +667,5 @@ async def test_memory_dlq_continuation_uses_numeric_stream_order() -> None:
     transport = MemoryTransport()
     transport._dlq["paging.v1"] = [(f"{i}-0", {}, 1, "group") for i in range(1, 13)]
     first = await transport.list_dlq("paging.v1", count=9)
-    second = await transport.list_dlq("paging.v1", after=first[-1]["id"])
-    assert [row["id"] for row in second] == ["10-0", "11-0", "12-0"]
+    second = await transport.list_dlq("paging.v1", after=first[-1].id)
+    assert [row.id for row in second] == ["10-0", "11-0", "12-0"]

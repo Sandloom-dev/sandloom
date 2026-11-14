@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.core.admin.api.platform import safe_error
+from sandloom.core.infra.ports.eventbus import DeadLetter
 from sandloom.core.sql_alchemy.models.audit import AuditLogEntry
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
 from sandloom.core.testing import make_user_headers
@@ -261,16 +262,17 @@ class _Transport:
         self.replays: list[dict[str, Any]] = []
         self.fail = False
 
-    async def list_dlq(self, stream: str, *, count: int = 100) -> list[dict[str, Any]]:
+    async def list_dlq(self, stream: str, *, count: int = 100) -> list[DeadLetter]:
         return [
-            {
-                "id": "1-0",
-                "group": "identity:probe@channel",
-                "event_id": "e-1",
-                "attempts": 5,
-                "reason": "max_deliveries",
-                "replayable": True,
-            }
+            DeadLetter(
+                id="1-0",
+                original_id=None,
+                group="identity:probe@channel",
+                event_id="e-1",
+                attempts=5,
+                reason="max_deliveries",
+                replayable=True,
+            )
         ]
 
     async def replay_dlq(

@@ -17,6 +17,7 @@ from sandloom.core.cli import config as config_cli
 from sandloom.core.cli import doctor
 from sandloom.core.config.settings import Settings
 from sandloom.core.descriptors import ContractRequirement, ModuleDescriptor
+from sandloom.core.infra.ports.eventbus import GroupInfo
 from sandloom.core.migrations import migrations
 from sandloom.core.migrations.migrations import (
     MIGRATION_LOCK_KEY,
@@ -313,8 +314,8 @@ class _Infra:
 
 
 class _Transport:
-    async def group_info(self, stream: str) -> list[dict[str, Any]]:
-        return [{"group": "billing:seen", "pending": 0, "lag": 5000}]
+    async def group_info(self, stream: str) -> list[GroupInfo]:
+        return [GroupInfo("billing:seen", None, 0, None, 5000)]
 
 
 def _core(**infra: _Result) -> Any:

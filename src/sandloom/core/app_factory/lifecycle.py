@@ -164,8 +164,13 @@ def _register_infra_lifecycle(
     async def close_infra() -> None:
         # Close registry-owned infrastructure: the event bus and any named
         # (non-default) database/cache/object-store instances. The shared
-        # default engine/cache are disposed by their own tasks above.
-        await infra.aclose_all()
+        # default engine/cache are disposed by their own tasks above. The bus
+        # closes first: the kernel built it over its provider (spec 7), which
+        # `aclose_all` then closes.
+        try:
+            await core_facade.event_bus.close()
+        finally:
+            await infra.aclose_all()
 
     # Flush after module/infra teardown so their final spans are included;
     # registration also covers cleanup after a failed startup.

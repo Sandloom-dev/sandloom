@@ -21,11 +21,12 @@ from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.drivers import redis_cache
 from sandloom.core.drivers.bootstrap import volatile_event_bus_allowed
-from sandloom.core.drivers.event_bus_driver import (
-    EventBusOptions,
-    make_event_bus_drivers,
-)
+from sandloom.core.drivers.event_bus_driver import make_streams_driver
 from sandloom.core.eventing.streams_bus import StreamsEventBus
+from sandloom.core.eventing.volatile_provider import (
+    VolatileBusOptions,
+    make_volatile_bus_drivers,
+)
 from sandloom.core.infra.config import (
     DEFAULT_INSTANCE,
     InstanceConfig,
@@ -63,11 +64,8 @@ def fresh_default(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def _streams_client(cfg: InstanceConfig) -> tuple[Any, Any]:
-    provider = make_event_bus_drivers(
-        InMemorySchemaRegistry(), volatile_allowed=volatile_event_bus_allowed
-    )["streams"](cfg)
-    transport = provider.bus()._transport
-    return provider, await transport._client()
+    provider = make_streams_driver()(cfg)
+    return provider, await provider._client()  # type: ignore[attr-defined]
 
 
 def _assert_bounded(client: Any, *, read_timeout: bool) -> None:
@@ -96,7 +94,7 @@ async def test_default_streams_bus_uses_the_bounded_default_transport() -> None:
         main = await redis_cache.get_default_client()
         assert client is not main  # never the cache client's short timeout
         # Shared, not private: the provider owns no client of its own.
-        assert provider._client is None
+        assert provider._owned_client is None
         await provider.aclose()  # shared: owned by the cache lifecycle
     finally:
         await redis_cache.close_default_client()
@@ -117,7 +115,7 @@ def _redis_bus(options: dict[str, Any], name: str = "side") -> Any:
     cfg = InstanceConfig(
         capability="eventbus", name=name, driver="redis", options=options
     )
-    return make_event_bus_drivers(
+    return make_volatile_bus_drivers(
         InMemorySchemaRegistry(), volatile_allowed=volatile_event_bus_allowed
     )["redis"](cfg)
 
@@ -131,7 +129,7 @@ def test_the_default_redis_bus_gets_no_url_it_uses_the_default_broadcast(
     monkeypatch.setattr(settings, "infra", {})
     options = load_infra_config(settings)["eventbus"][DEFAULT_INSTANCE].options
     assert "url" not in options
-    assert EventBusOptions.model_validate(options).broadcast == "default"
+    assert VolatileBusOptions.model_validate(options).broadcast == "default"
 
 
 def test_a_redis_bus_with_a_url_is_refused_and_says_where_the_url_goes() -> None:

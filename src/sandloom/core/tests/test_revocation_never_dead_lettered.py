@@ -187,7 +187,7 @@ async def test_streams_malformed_revocation_is_dead_lettered_at_once(
     finally:
         await bus.close()
     (entry,) = await transport.list_dlq(CHANNEL)
-    assert entry["attempts"] <= 1  # not retried: it can never apply
+    assert entry.attempts <= 1  # not retried: it can never apply
     assert marks._counter_value(malformed) == count_before + 1
     assert any(r.levelname == "CRITICAL" for r in caplog.records)
     assert marks.revocation_metrics_snapshot()["applied"] == before["applied"]
@@ -383,7 +383,7 @@ async def test_redis_streams_never_dead_letter_group_survives_the_old_budget(
         (poison,) = await transport.consume(stream, group=group, consumer=consumer)
         await transport.dead_letter(poison, reason=DLQ_REASON_POISON)
         (parked,) = await transport.list_dlq(stream)
-        assert parked["reason"] == DLQ_REASON_POISON
+        assert parked.reason == DLQ_REASON_POISON
     finally:
         await client.delete(stream, f"{stream}.dlq")
         await client.aclose()

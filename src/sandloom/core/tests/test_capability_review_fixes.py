@@ -86,7 +86,17 @@ def test_database_capability_has_audit_feature() -> None:
 
 
 def test_eventbus_capability_has_delivery_features() -> None:
-    assert {"durable", "at_least_once", "volatile"} <= EVENTBUS_CAPABILITY.features
+    assert {"durable", "shared", "wildcard_subscribe"} <= EVENTBUS_CAPABILITY.features
+    assert (
+        not {
+            "publish",
+            "subscribe",
+            "volatile",
+            "at_least_once",
+            "consumer_groups",
+        }
+        & EVENTBUS_CAPABILITY.features
+    )
 
 
 # --- P1: publish_event refuses a backend with no outbox --------------------

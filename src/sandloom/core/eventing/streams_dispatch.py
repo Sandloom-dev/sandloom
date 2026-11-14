@@ -21,7 +21,6 @@ from sandloom.core.eventing.streams_inventory import _StreamsInventory
 from sandloom.core.eventing.streams_lease import _BatchLease
 from sandloom.core.eventing.subscriptions import SubscriptionHandle
 from sandloom.core.eventing.transport_base import DLQ_REASON_POISON
-from sandloom.core.eventing.transport_capabilities import TransportCapability as Cap
 from sandloom.core.observability.metrics_utils import safe_inc
 
 logger = logging.getLogger("sandloom.core.eventing.event_bus")
@@ -57,22 +56,18 @@ class _StreamsDispatch(_StreamsInventory):
         self, channel: str, group: str, consumer: str
     ) -> _BatchLease | None:
         """The consume loop's lease keeper (None: the transport has no leases)."""
-        if Cap.LEASE_RENEWAL not in self._capabilities:
+        if "lease_renewal" not in self._features:
             return None
         return _BatchLease(
             self._transport.renew_pending,
-            self._transport.renew_interval_seconds,
+            self._transport.renew_interval_seconds(),
             consumer,
             partial(self._heartbeat, channel, group),
         )
 
     async def _ack_many(self, deliveries: list[Any]) -> None:
-        """Ack ``deliveries`` (one multi-id XACK when the transport batches)."""
-        if Cap.BATCH_ACK in self._capabilities:
-            await self._transport.ack_many(deliveries)
-            return
-        for delivery in deliveries:  # third-party transport without ack_many
-            await self._transport.ack(delivery)
+        """Ack ``deliveries`` (one round trip where the transport has ``ack_many``)."""
+        await self._transport.ack_many(deliveries)
 
     async def _dispatch_with_lease(
         self,

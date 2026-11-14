@@ -85,7 +85,7 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
     (
         "eventbus",
         "memory",
-        f"{_DRIVERS}.event_bus_driver:MemoryEventBusProvider",
+        "sandloom.core.eventing.volatile_provider:MemoryEventBusProvider",
         (),
         "",
         "",
@@ -93,7 +93,7 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
     (
         "eventbus",
         "redis",
-        f"{_DRIVERS}.event_bus_driver:RedisEventBusProvider",
+        "sandloom.core.eventing.volatile_provider:RedisEventBusProvider",
         _REDIS,
         _REDIS_INSTALL,
         "",
@@ -241,16 +241,21 @@ def _event_bus_build(
     driver: str,
     settings: Settings | None = None,
 ) -> DriverFactory:
-    """The build of an event bus driver: the bus needs the application's
-    schema registry, which ``from_config`` cannot reach, and the policy of
-    the registry's own ``settings``."""
+    """The build of an event bus driver. ``streams`` is a transport the kernel
+    builds its bus over; ``memory`` and ``redis`` are the kernel's volatile
+    buses, which need the application's schema registry (``from_config``
+    cannot reach it) and the policy of the registry's own ``settings``."""
 
     def build(cfg: InstanceConfig) -> InfraProvider:
         # Imported when an instance selects the driver, never at bootstrap.
-        event_bus_driver = importlib.import_module(
-            "sandloom.core.drivers.event_bus_driver"
-        )
-        factory: DriverFactory = event_bus_driver.make_event_bus_drivers(
+        if driver == "streams":
+            event_bus_driver = importlib.import_module(
+                "sandloom.core.drivers.event_bus_driver"
+            )
+            streams: DriverFactory = event_bus_driver.make_streams_driver()
+            return streams(cfg)
+        volatile = importlib.import_module("sandloom.core.eventing.volatile_provider")
+        factory: DriverFactory = volatile.make_volatile_bus_drivers(
             schema_registry,
             volatile_allowed=lambda: volatile_event_bus_allowed(settings),
         )[driver]

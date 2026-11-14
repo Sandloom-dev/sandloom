@@ -429,12 +429,12 @@ async def _channel_dead_letters(
     for _page in range(DLQ_MAX_PAGES):
         rows = list(await list_dlq(channel, count=DLQ_PAGE_SIZE, after=after) or ())
         for row in rows:
-            group = str(row.get("group"))
+            group = str(row.group)
             if group in groups:
                 counts[group] = counts.get(group, 0) + 1
         if len(rows) < DLQ_PAGE_SIZE:
             return counts, True
-        after = str(rows[-1].get("id"))
+        after = str(rows[-1].id)
     return counts, False
 
 

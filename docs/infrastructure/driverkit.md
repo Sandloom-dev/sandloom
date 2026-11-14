@@ -36,6 +36,9 @@ A breaking change is a new contract version ([versioning](../contributing/versio
 | `AtomicStoreProvider` | The contract of the kernel-facing `atomic_store` capability: the security marks and idempotency records. |
 | `LeaseProvider`, `Lease`, `LeaseHolder` | The contract of the kernel-facing `lease` capability, the fenced lease it grants and its current holder. |
 | `BroadcastProvider`, `BroadcastMessage`, `Subscription` | The contract of the kernel-facing `broadcast` capability (online, at most once), one received message and a live subscription. |
+| `EventTransportProvider`, `EventTransport` | The contract of an `eventbus` driver of the transport shape: the durable transport the kernel builds its bus over ([An eventbus driver](write-a-driver.md#an-eventbus-driver)). |
+| `Delivery`, `GroupOwner`, `Retention`, `DeadLetter`, `GroupInfo`, `StreamInfo`, `ConsumerInfo`, `EventEnvelope` | The value types of its operations. |
+| `PartialPublish`, `GroupOwnedElsewhere` | Raised by `publish_many` after a partial append (`published` holds the leading ids; `retryable` follows the cause) and by `claim_group_owner` for a group another module or database owns (an `AlreadyExists`, never retried). |
 | `Notification` | One outbound message: `channel`, `recipient`, `subject`, `body`, `data`, `dedupe_key`, `body_fields`. |
 | `InfraProvider` | The base of every contract. A driver sets `contract_version` (the integer major of its capability), `supported_features` and optionally `performance_hints` (speed claims such as `{"get_many": "one_round_trip"}`, never a feature), `development_only` (refused in production) and `options_schema`; it may override `features_for(options)`, `test_isolation(options, worker_id)`, `aopen()`, `health()`, `aclose()` and `isolation_identity()`. It never overrides `features()`. |
 | `HealthResult` | What `health()` returns. |

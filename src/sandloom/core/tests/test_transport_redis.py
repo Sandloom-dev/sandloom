@@ -124,7 +124,7 @@ async def test_malformed_entry_does_not_discard_healthy_batch(
     assert [d.envelope["id"] for d in batch] == ["healthy"]
     dead = await t.list_dlq(stream)
     assert len(dead) == 1
-    assert dead[0]["reason"] == "malformed_envelope"
+    assert dead[0].reason == "malformed_envelope"
 
 
 @pytest.mark.asyncio
@@ -367,8 +367,8 @@ async def test_dlq_replay_republishes_and_clears(redis_stream) -> None:
     # Budget exhausted -> DLQ.
     assert await t.consume(stream, group="g", consumer="c1") == []
     listed = await t.list_dlq(stream)
-    assert [entry["event_id"] for entry in listed] == ["poison"]
-    assert listed[0]["replayable"] is True
+    assert [entry.event_id for entry in listed] == ["poison"]
+    assert listed[0].replayable is True
 
     assert await t.replay_dlq(stream) == 1
     assert await client.xlen(f"{stream}.dlq") == 0
