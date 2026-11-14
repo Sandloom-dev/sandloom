@@ -446,11 +446,11 @@ REMOVED: tuple[RemovedSetting, ...] = (
         "revocation marks, blocks and RPC nonces are held in the `atomic_store` "
         'instance INFRA.atomic_store.security (a driver: "redis"; e.g. '
         'INFRA={"atomic_store": {"security": {"driver": "redis", "url": '
-        '"redis://..."}}}), no longer in a cache instance; the production '
-        "profile refuses a deployment without it. Upgrade: delete "
-        "SECURITY_CACHE_INSTANCE and move the INFRA cache entry it named to "
-        'INFRA["atomic_store"]["security"] (the same url, on a Redis that never '
-        "evicts)",
+        '"redis://..."}}}), no longer in a cache instance; every production '
+        "deployment, with any PRODUCTION_PROFILE, is refused at startup without "
+        "it. Upgrade: delete SECURITY_CACHE_INSTANCE and move the INFRA cache "
+        'entry it named to INFRA["atomic_store"]["security"] (the same url, on a '
+        "Redis that never evicts)",
     ),
     RemovedSetting(
         "IDEMPOTENCY_CACHE_INSTANCE",

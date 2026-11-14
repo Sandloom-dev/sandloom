@@ -872,7 +872,8 @@ The framework routes the second kind to the `atomic_store` instance
 `INFRA.atomic_store.security`: a durable key-value store with atomic
 operations that never evicts. Idempotency records can opt into their own
 instance, see below. Declare it on its own Redis. In production an absent
-instance is a startup refusal, and it is never built from the cache's options.
+instance is a startup refusal in every production deployment, whatever
+`PRODUCTION_PROFILE` is, and it is never built from the cache's options.
 Development builds one on the cache's Redis, outside production only:
 
 ```bash

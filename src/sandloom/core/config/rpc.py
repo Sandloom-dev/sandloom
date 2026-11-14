@@ -39,8 +39,8 @@ class RpcConfig(BaseModel):
         alias="RPC_REPLAY_GUARD",
         description=(
             "Shared RPC replay protection: local keeps only per-process "
-            "protection, commands also guards commands in the security cache, and "
-            "all guards every call there."
+            "protection, commands also guards commands in the security "
+            "atomic_store, and all guards every call there."
         ),
     )
     rpc_replay_cache_max_entries: int = Field(

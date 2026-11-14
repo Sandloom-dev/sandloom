@@ -254,7 +254,7 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `PASSWORD_HASH_MEMORY_KIB` | `int | None` | `None` | Argon2id memory cost per operation in KiB, overriding the selected profile; account for concurrent operations when sizing memory. |
 | `PASSWORD_HASH_PARALLELISM` | `int | None` | `None` | Argon2id parallelism overriding the selected profile; custom profiles require an explicit value. |
 | `RPC_AUTH_MAX_SKEW_SECONDS` | `int` | `60` | Maximum accepted timestamp difference in seconds for internal RPC authentication; also bounds nonce lifetime. |
-| `RPC_REPLAY_GUARD` | `Literal['local', 'commands', 'all']` | `'commands'` | Shared RPC replay protection: local keeps only per-process protection, commands also guards commands in the security cache, and all guards every call there. |
+| `RPC_REPLAY_GUARD` | `Literal['local', 'commands', 'all']` | `'commands'` | Shared RPC replay protection: local keeps only per-process protection, commands also guards commands in the security atomic_store, and all guards every call there. |
 | `RPC_REPLAY_CACHE_MAX_ENTRIES` | `int` | `200000` | Maximum live nonces in each process replay table; a full table fails closed. |
 | `RPC_REPLAY_CACHE_PER_CALLER_MAX_ENTRIES` | `int` | `100000` | Maximum live nonces one caller may occupy in the process replay table. |
 | `RPC_COMMANDS_REQUIRE_SIGNATURE` | `Literal['auto', 'on', 'all', 'off']` | `'auto'` | Ed25519 RPC signature policy: auto enables commands in production, on signs commands, all also signs reads, and off disables the extra signature requirement. |

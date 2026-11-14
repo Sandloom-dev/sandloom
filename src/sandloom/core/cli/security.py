@@ -544,8 +544,8 @@ async def _apply_batch(
         raise SystemExit(
             f"error: {command}: batch {result.batches}: the access tokens of "
             f"{len(ids)} user(s) are NOT revoked: the revocation store "
-            "(security cache) is unreachable, so the kernel's unit rolled back "
-            f"({exc}); {resume}"
+            "(the security atomic_store) is unreachable, so the kernel's unit "
+            f"rolled back ({exc}); {resume}"
         ) from exc
     except SystemExit:
         raise

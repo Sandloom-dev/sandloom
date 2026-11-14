@@ -7,7 +7,7 @@ type: concept
 # Cache
 
 A cache holds fast, shared data and counters. Never write security state through `cache()`:
-the framework keeps revocation marks and idempotency records in its own security cache instance.
+the framework keeps revocation marks and idempotency records in its own `atomic_store` instances (`INFRA.atomic_store.security`), not in the cache.
 
 ## What a module calls
 
