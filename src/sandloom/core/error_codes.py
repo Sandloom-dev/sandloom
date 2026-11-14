@@ -1127,13 +1127,25 @@ imported.
         "SANDLOOM-B023",
         "experimental-capability-refused",
         "boot",
-        "an experimental capability is configured in production",
+        "an experimental capability or an experimental driver is configured in "
+        "production",
         "remove it from INFRA, or accept the risk with "
-        'SANDLOOM_ACCEPTED_RISKS=["experimental_capability"]',
+        'SANDLOOM_ACCEPTED_RISKS=["experimental_capability"] (a capability) or '
+        '["experimental_driver"] (a driver)',
         """
 An experimental capability's contract may change in any release. Running one in
 production is a weakening, so the deployment accepts it by name and every start
 reports it.
+
+A driver has a tier (`sandloom doctor` and /diagnostics/infra show it):
+`experimental` implements the contract, `beta` passes its conformance kit in CI
+against the real service, `stable` adds reconnect after an outage and the auth
+options. An experimental driver in production is refused with this code unless
+SANDLOOM_ACCEPTED_RISKS has `experimental_driver`; a beta driver logs one
+startup warning; a stable one is silent. A `development_only` driver (`memory`)
+is refused in production whatever its tier, with no risk to accept
+(SANDLOOM-B022). A driver package states its tier with the class attribute
+`tier` (default `experimental`).
 """,
         docs="docs/reference/configuration.md",
     ),

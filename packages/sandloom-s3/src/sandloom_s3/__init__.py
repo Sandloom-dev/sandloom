@@ -106,6 +106,11 @@ class S3ObjectStore(ObjectStoreProvider):
     contract_version = 2
     supported_features = frozenset({"metadata", "presigned_get"})
     options_schema = S3Options
+    # Beta, the floor for a driver of this repository (spec 2.5): the lane
+    # .github/workflows/objectstore-s3.yml runs the conformance kit against a
+    # real S3 endpoint. An undeclared tier would be experimental, and production
+    # would refuse it unless the whole `experimental_driver` risk is accepted.
+    tier = "beta"
     # The SDK is imported inside the constructor path and operations, so the
     # entry point loads without it and preflight reports SANDLOOM-B037.
     required_imports = ("boto3",)
