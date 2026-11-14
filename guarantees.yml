@@ -5069,10 +5069,10 @@ guarantees:
   gap_size: S
 - id: G-RISK-03
   statement: Every registered risk documents what it weakens and which check consults it, and the registry
-    holds exactly the twelve ids log_notifier_in_prod, log_links_in_prod, local_storage_in_prod,
+    holds exactly the thirteen ids log_notifier_in_prod, log_links_in_prod, local_storage_in_prod,
     volatile_event_bus, unversioned_ddl_repair, weak_password_hash, shared_hs_secret_split, relay_disabled,
     command_dedupe_below_retry_horizon, saga_horizon_beyond_command_dedupe, experimental_capability,
-    development_database_in_prod.
+    experimental_driver, development_database_in_prod.
   sources:
   - docs/adr/0006-accepted-risks.md#Amendment (2026-10-25)
   - docs/adr/0006-accepted-risks.md#Consequences
@@ -5236,6 +5236,26 @@ guarantees:
   - tests/integration/test_settings_risk_namespaces.py::test_the_id_of_an_installed_module_this_service_does_not_load_is_inert
   - tests/integration/test_settings_risk_namespaces.py::test_an_accepted_module_risk_starts_and_is_logged
   - tests/integration/test_settings_risk_namespaces.py::test_without_the_risk_the_module_check_still_refuses_in_prod
+- id: G-RISK-16
+  statement: An experimental driver (a driver that declares no tier is experimental) is refused in production
+    (SANDLOOM-B023) unless the accepted risk experimental_driver lists it, at startup and again when a
+    provider is built, so a driver registered or an instance configured after startup does not bypass the
+    check; the capability risk experimental_capability does not accept it, a beta driver logs one startup
+    warning, a stable driver is silent, and outside production nothing is refused. A development-only driver
+    is refused with SANDLOOM-B022 whatever its tier or accepted risks.
+  sources:
+  - docs/adr/0006-accepted-risks.md#Amendment (2026-10-25)
+  tests:
+  - src/sandloom/core/tests/test_driver_tiers.py::test_an_experimental_driver_is_refused_in_production
+  - src/sandloom/core/tests/test_driver_tiers.py::test_the_risk_experimental_driver_lets_it_start_with_a_warning
+  - src/sandloom/core/tests/test_driver_tiers.py::test_the_capability_risk_does_not_accept_an_experimental_driver
+  - src/sandloom/core/tests/test_driver_tiers.py::test_a_beta_driver_logs_one_startup_warning_in_production
+  - src/sandloom/core/tests/test_driver_tiers.py::test_outside_production_an_experimental_driver_starts_silently
+  - src/sandloom/core/tests/test_driver_tiers.py::test_provider_refuses_an_experimental_driver_configured_after_boot
+  - src/sandloom/core/tests/test_driver_tiers.py::test_a_development_only_driver_is_refused_whatever_its_tier
+  - src/sandloom/core/tests/test_driver_tiers.py::test_a_development_only_experimental_driver_gets_b022_not_b023
+  - packages/sandloom-s3/tests/test_tier.py::test_production_starts_s3_without_an_accepted_risk
+  startup_checks: _check_driver_tiers_in_production at create_app / enforce_configuration
 - id: G-MIGRATE-01
   statement: Each module owns its own Alembic chain with version table alembic_version_<key>; chains are
     disjoint, together cover every ORM table, and reproduce the ORM schema exactly.
@@ -8325,7 +8345,7 @@ issued:
   G-OUTBOX: 16
   G-PROFILE: 9
   G-REVOKE: 27
-  G-RISK: 15
+  G-RISK: 16
   G-RLS: 15
   G-ROUTE: 5
   G-RPC: 33

@@ -34,12 +34,12 @@
       "reason": "slow, and it needs SANDLOOM_QUICKSTART_POSTGRES_URL, which no test lane sets: the quickstart jobs run the same scenario through tools/smoke/quickstart_check.py (PR CI deselects it with -m \"not slow\"; release validation runs slow tests)"
     },
     {
-      "test": "src/sandloom/core/tests/test_driverkit.py::TestTheShippedLogDriver::test_harness_maps_backend_failures_to_infra_errors",
+      "test": "src/sandloom/core/tests/test_driverkit.py::TestTheShippedLogDriver::test_harness_*",
       "reason": "the log notifier has no backend that can fail (it writes the process log), so it has no make_failing_provider; the same check runs on the guide driver and the broken drivers in this file"
     },
     {
-      "test": "src/sandloom/core/tests/test_driverkit.py::TestTheShippedLogDriver::test_harness_redacts_the_health_of_a_failing_backend",
-      "reason": "the log notifier has no backend that can fail (it writes the process log), so it has no make_failing_provider; the same check runs on the guide driver and the broken drivers in this file"
+      "test": "src/sandloom/core/tests/test_smtp_notifier_conformance.py::*",
+      "reason": "the smtp notifier's kit and its read-back test run against a real SMTP server (a mailpit service container, SANDLOOM_SMTP_TEST_HOST / SANDLOOM_SMTP_TEST_API, read back through mailpit's HTTP API) and no test lane provides one: the lane is .github/workflows/notification-smtp.yml"
     }
   ]
 }

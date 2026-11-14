@@ -40,7 +40,9 @@ from sandloom.core.infra.config import (
     InstanceConfig,
 )
 from sandloom.core.infra.ports._base import (
+    DRIVER_TIERS,
     CapabilitySpec,
+    DriverTier,
     InfraProvider,
     health_failure_details,
     version_major,
@@ -114,6 +116,11 @@ class DriverRegistration:
     # is how a registered driver is told from a usable one (SANDLOOM-B037).
     requires: tuple[str, ...] = ()
     install: str = ""
+    # How far the driver has been proven (spec 2.5): the registry, doctor,
+    # /diagnostics/infra and the production check read it here, never on the
+    # class. A built-in states it in ``register_driver(..., tier=)``, an entry
+    # point through its class attribute ``tier``.
+    tier: DriverTier = "experimental"
 
     def features_for(self, options: Mapping[str, Any]) -> frozenset[str]:
         """The features an instance with ``options`` declares, build-free:
@@ -331,6 +338,11 @@ class ExperimentalCapabilityRefused(CapabilityError):
     sandloom_code = "SANDLOOM-B023"
 
 
+class ExperimentalDriverRefused(ExperimentalCapabilityRefused):
+    """An ``experimental`` driver selected in production (SANDLOOM-B023), unless
+    the deployment accepts the risk ``experimental_driver`` (spec 2.5)."""
+
+
 class DatabaseFeatureMissing(FeatureUnsupportedError):
     """A module uses a ``sandloom.sdk.data`` form, or declares a database
     feature, that the database instance it runs on lacks (SANDLOOM-B033)."""
@@ -479,6 +491,7 @@ class InfraRegistry:
         install: str = "",
         build: DriverFactory | None = None,
         delivered_by: str = "",
+        tier: DriverTier = "experimental",
     ) -> None:
         """Register a driver for a capability (idempotent override).
 
@@ -497,8 +510,16 @@ class InfraRegistry:
         ``requires`` are the top-level import names the driver needs and
         ``install`` how to get them (``pip install 'sandloom[celery]'``).
         ``delivered_by`` names the slice that delivers a pre-registered target
-        not in this build yet, for the refusal when it is selected.
+        not in this build yet, for the refusal when it is selected. ``tier`` is
+        how far the driver has been proven (``experimental``, ``beta`` or
+        ``stable``, spec 2.5): production refuses an experimental one unless the
+        risk ``experimental_driver`` is accepted.
         """
+        if tier not in DRIVER_TIERS:
+            raise ValueError(
+                f"Driver {capability}/{driver}: tier= is one of "
+                f"{', '.join(DRIVER_TIERS)}, got {tier!r}"
+            )
         needed = tuple(requires)
         dotted = [name for name in needed if not name or "." in name]
         if dotted:
@@ -547,6 +568,7 @@ class InfraRegistry:
             requires=needed,
             install=install,
             delivered_by=delivered_by,
+            tier=tier,
         )
         if isinstance(factory, str):
             registration = dataclasses.replace(registration, target=factory)
@@ -604,6 +626,12 @@ class InfraRegistry:
 
     def has_driver(self, capability: str, driver: str) -> bool:
         return (capability, driver) in self._drivers
+
+    def driver_tier(self, capability: str, driver: str) -> DriverTier | None:
+        """The tier of a registered driver, read from its registration
+        (build-free: no class is imported); ``None`` when none is registered."""
+        registration = self._drivers.get((capability, driver))
+        return None if registration is None else registration.tier
 
     # ------------------------------------------------------------------ #
     # Availability and use (build-free)
@@ -854,6 +882,7 @@ class InfraRegistry:
                     "group) or pick a known driver",
                 )
             self._refuse_development_only(instance_cfg, registration)
+            self._refuse_experimental_driver(instance_cfg, registration)
             self._validate_options(capability, instance_cfg, registration)
             factory = registration.factory
             if factory is None:  # pragma: no cover - every row ends with one
@@ -1143,6 +1172,30 @@ class InfraRegistry:
             f"INFRA[{cfg.capability!r}][{cfg.name!r}]",
         )
 
+    @staticmethod
+    def _refuse_experimental_driver(
+        cfg: InstanceConfig, registration: DriverRegistration
+    ) -> None:
+        """An ``experimental`` driver is refused in production unless the risk
+        ``experimental_driver`` is accepted (spec 2.5, SANDLOOM-B023). The boot
+        check covers what is configured at startup; this one covers a driver
+        registered or an instance configured after it. Runs after
+        :meth:`_refuse_development_only`, so a development-only driver always
+        gets B022."""
+        if (
+            registration.tier != "experimental"
+            or not settings.is_prod
+            or settings.accepts_risk("experimental_driver")
+        ):
+            return
+        raise ExperimentalDriverRefused(
+            "Experimental drivers are configured in production: "
+            f"{cfg.capability}/{cfg.name} ({cfg.driver}) "
+            "(sandloom explain SANDLOOM-B023)",
+            fix="select a beta or stable driver in INFRA, or accept the risk with "
+            'SANDLOOM_ACCEPTED_RISKS=["experimental_driver"]',
+        )
+
     def _validate_options(
         self, capability: str, cfg: InstanceConfig, registration: DriverRegistration
     ) -> None:
@@ -1408,11 +1461,16 @@ class InfraRegistry:
                 for spec in self.capabilities()
             },
             "drivers": sorted(f"{c}/{d}" for (c, d) in self._drivers),
+            "driver_tiers": {
+                f"{c}/{d}": registration.tier
+                for (c, d), registration in sorted(self._drivers.items())
+            },
             "installed_driver_packages": installed_plugin_names(),
             "instances": {
                 cap: {
                     name: {
                         "driver": cfg.driver,
+                        "tier": self.driver_tier(cap, cfg.driver),
                         "built": (cap, name) in self._providers,
                         "implicit": cfg.implicit,
                         "in_use": self.in_use(cap, name),
@@ -1505,6 +1563,7 @@ def _load_driver(registry: InfraRegistry, cfg: InstanceConfig) -> None:
         provider_class,
         requires=provider_class.required_imports,
         install=provider_class.install_hint,
+        tier=provider_class.tier,
     )
 
 
@@ -1615,11 +1674,13 @@ def check_driver_class(
         )
         or not isinstance(install_hint, str)
         or not isinstance(provider_class.development_only, bool)
+        or provider_class.tier not in DRIVER_TIERS
     ):
         raise DriverLoadError(
             f"Driver {key!r} declares invalid dependency metadata",
             fix="set required_imports to a tuple of top-level import names, "
-            "install_hint to a string and development_only to a bool",
+            "install_hint to a string, development_only to a bool and tier to one "
+            f"of {', '.join(DRIVER_TIERS)}",
         )
     if spec is not None:
         unknown = frozenset(provider_class.supported_features) - spec.features
@@ -1717,6 +1778,7 @@ __all__ = [
     "DriverLoadError",
     "DevelopmentOnlyDriverRefused",
     "ExperimentalCapabilityRefused",
+    "ExperimentalDriverRefused",
     "installed_plugin_names",
     "load_selected_plugins",
 ]

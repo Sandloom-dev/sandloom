@@ -34,7 +34,8 @@ Sections (each check is ``ok`` / ``warn`` / ``fail`` / ``skip``):
 * **infra** — every configured instance (databases, caches, object stores,
   task queue / broker, event bus) answers its health probe within the
   timeout — the same probes as ``/diagnostics/infra`` (the ``celery``
-  taskqueue's probe connects to its broker).
+  taskqueue's probe connects to its broker). Each row names the driver and its
+  tier (``experimental``, ``beta``, ``stable``).
 * **periodic** — each loaded module whose taskqueue requirement asks for
   ``periodic``: whether a beat schedules its jobs for this composition (the
   beat's singleton lease is held). Missing for a required requirement fails;
@@ -402,10 +403,12 @@ async def check_infra(report: Report, core: Any, timeout: float) -> None:  # noq
     for key in sorted(results):
         result = results[key]
         capability, _, name = key.partition(":")
-        driver = described.get(capability, {}).get(name, {}).get("driver", "?")
+        row = described.get(capability, {}).get(name, {})
+        driver = row.get("driver", "?")
         details = dict(getattr(result, "details", None) or {})
+        details["tier"] = row.get("tier")
         status = OK if result.status == "ok" else FAIL
-        message = f"driver={driver}"
+        message = f"driver={driver} tier={row.get('tier') or '?'}"
         if status == FAIL:
             message += f": {details.get('error') or result.status}"
         report.add("infra", key, status, message, **details)

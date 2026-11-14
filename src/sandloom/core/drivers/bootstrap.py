@@ -8,6 +8,7 @@ and applies the merged configuration. Called once from ``create_app``.
 from __future__ import annotations
 
 import importlib
+import logging
 
 from sandloom.core.config.settings import Settings
 from sandloom.core.config.settings import settings as _default_settings
@@ -16,11 +17,12 @@ from sandloom.core.infra.capabilities import BUILTIN_CAPABILITIES
 from sandloom.core.infra.config import InfraConfig, InstanceConfig, load_infra_config
 from sandloom.core.infra.extra_capabilities import EXTRA_CAPABILITIES
 from sandloom.core.infra.fenced_lease import BEAT_INSTANCE
-from sandloom.core.infra.ports._base import InfraProvider
+from sandloom.core.infra.ports._base import DriverTier, InfraProvider
 from sandloom.core.infra.registry import (
     DriverFactory,
     DriverLoadError,
     ExperimentalCapabilityRefused,
+    ExperimentalDriverRefused,
     InfraRegistry,
     load_selected_plugins,
 )
@@ -29,6 +31,8 @@ from sandloom.core.infra.registry import (
 _REDIS: tuple[str, ...] = ("redis",)
 _REDIS_INSTALL = "pip install 'sandloom[redis]'"
 _DRIVERS = "sandloom.core.drivers"
+
+logger = logging.getLogger("sandloom.core.infra")
 
 
 #: Every built-in driver row of this wave (spec 1, "Registry files"):
@@ -186,6 +190,36 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
     ),
 )
 
+#: The tier of every built-in driver (spec 2.5): ``register_driver(..., tier=)``
+#: takes it from here, and a row of :data:`BUILTIN_DRIVER_ROWS` without an entry
+#: fails at bootstrap. This repository's drivers are at least ``beta``: a driver
+#: here is ``beta`` because its kit or conformance tests run in CI against the
+#: real service, ``stable`` once it also has the kit's reconnect-after-outage
+#: group and its auth options (none yet). ``smtp`` is ``experimental`` until
+#: ``.github/workflows/notification-smtp.yml`` (``NotifierConformance`` against a
+#: mailpit container) is green on main: then this entry becomes ``beta``.
+BUILTIN_DRIVER_TIERS: dict[tuple[str, str], DriverTier] = {
+    ("database", "sqlalchemy"): "beta",
+    ("cache", "redis"): "beta",
+    ("cache", "memory"): "beta",
+    ("objectstore", "local"): "beta",
+    ("taskqueue", "celery"): "beta",
+    ("eventbus", "memory"): "beta",
+    ("eventbus", "redis"): "beta",
+    ("eventbus", "streams"): "beta",
+    ("document_store", "memory"): "beta",
+    ("notification", "log"): "beta",
+    ("notification", "smtp"): "experimental",
+    ("atomic_store", "redis"): "beta",
+    ("atomic_store", "memory"): "beta",
+    ("atomic_store", "database"): "beta",
+    ("lease", "redis"): "beta",
+    ("lease", "memory"): "beta",
+    ("lease", "database"): "beta",
+    ("broadcast", "redis"): "beta",
+    ("broadcast", "memory"): "beta",
+}
+
 #: The SQLAlchemy dialect names the ``sqlalchemy`` database driver serves
 #: (``sqlalchemy_database.SQLALCHEMY_SQL_DIALECTS``; a test keeps them equal).
 #: Written here so the startup check (SANDLOOM-B024) imports no driver.
@@ -317,6 +351,7 @@ def register_builtin_drivers(
                 else None
             ),
             delivered_by=delivered_by,
+            tier=BUILTIN_DRIVER_TIERS[(capability, driver)],
         )
 
 
@@ -343,6 +378,7 @@ def build_infra_registry(
     # Fail fast on a configured instance whose driver was never registered.
     registry.validate()
     _refuse_experimental_in_production(registry, resolved_settings)
+    _check_driver_tiers_in_production(registry, resolved_settings)
     return registry
 
 
@@ -372,6 +408,43 @@ def _refuse_experimental_in_production(
             f"{', '.join(configured)} (sandloom explain SANDLOOM-B023)",
             fix="remove them from INFRA, or accept the risk with "
             'SANDLOOM_ACCEPTED_RISKS=["experimental_capability"]',
+        )
+
+
+def _check_driver_tiers_in_production(
+    registry: InfraRegistry, settings: Settings
+) -> None:
+    """A driver's tier decides what production does with it (spec 2.5): an
+    ``experimental`` one is refused unless the risk ``experimental_driver`` is
+    accepted (SANDLOOM-B023), a ``beta`` one logs one startup warning, a
+    ``stable`` one is silent. Every configured instance counts, a synthesized
+    ``default`` too: its driver was selected by the flat settings."""
+    if not settings.is_prod:
+        return
+    experimental: list[str] = []
+    beta: list[str] = []
+    for spec in registry.capabilities():
+        for name in registry.instances(spec.name):
+            cfg = registry.instance_config(spec.name, name)
+            tier = registry.driver_tier(spec.name, cfg.driver) if cfg else None
+            if cfg is None or tier is None or tier == "stable":
+                continue
+            row = f"{spec.name}/{name} ({cfg.driver})"
+            (experimental if tier == "experimental" else beta).append(row)
+    if experimental and not settings.accepts_risk("experimental_driver"):
+        raise ExperimentalDriverRefused(
+            "Experimental drivers are configured in production: "
+            f"{', '.join(experimental)} (sandloom explain SANDLOOM-B023)",
+            fix="select a beta or stable driver in INFRA, or accept the risk with "
+            'SANDLOOM_ACCEPTED_RISKS=["experimental_driver"]',
+        )
+    if experimental or beta:
+        logger.warning(
+            "[infra] drivers below stable run in production: %s",
+            ", ".join(
+                [f"{row} experimental" for row in experimental]
+                + [f"{row} beta" for row in beta]
+            ),
         )
 
 
