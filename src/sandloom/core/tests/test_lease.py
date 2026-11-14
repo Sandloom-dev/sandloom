@@ -22,7 +22,11 @@ import pytest_asyncio
 import redis.exceptions as redis_errors
 from sqlalchemy import Table, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers import database_lease, memory_lease, redis_lease
@@ -37,6 +41,7 @@ from sandloom.core.drivers.redis_lease import RedisLeaseProvider
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.errors import InfraError, InvalidArgument, PermissionDenied
 from sandloom.core.infra.ports.lease import Lease, LeaseHolder
+from sandloom.core.migrations.backup import LEASE_FENCE_OFFSET, lift_fences
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.sql_alchemy.models.lease import InfraLease
 from sandloom.driverkit.kits.lease import LeaseConformance
@@ -112,33 +117,37 @@ class TestDatabaseLeaseOnSqlite(LeaseConformance):
     test_a_second_provider_contends_for_the_same_name = None  # type: ignore[assignment]
 
 
+@pytest_asyncio.fixture
+async def pg_scratch_url() -> AsyncIterator[str]:
+    """A scratch PostgreSQL database holding ``infra_lease``, dropped after."""
+    if make_url(_PG_URL).get_backend_name() != "postgresql":
+        pytest.skip("the database lane is not PostgreSQL (the second-db lane)")
+    admin_url = make_url(_PG_URL)
+    scratch = f"lease_kit_{uuid.uuid4().hex[:10]}"
+    admin = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")
+    async with admin.connect() as conn:
+        await conn.execute(text(f'CREATE DATABASE "{scratch}"'))
+    url = admin_url.set(database=scratch).render_as_string(hide_password=False)
+    try:
+        await _create_table(url)
+        yield url
+    finally:
+        async with admin.connect() as conn:
+            await conn.execute(
+                text(f'DROP DATABASE IF EXISTS "{scratch}" WITH (FORCE)')
+            )
+        await admin.dispose()
+
+
 @pytest.mark.skipif(
     make_url(_PG_URL).get_backend_name() != "postgresql",
     reason="the database lane is not PostgreSQL (the second-db lane)",
 )
 class TestDatabaseLeaseOnPostgres(LeaseConformance):
-    @pytest_asyncio.fixture
-    async def scratch_url(self) -> AsyncIterator[str]:
-        admin_url = make_url(_PG_URL)
-        scratch = f"lease_kit_{uuid.uuid4().hex[:10]}"
-        admin = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")
-        async with admin.connect() as conn:
-            await conn.execute(text(f'CREATE DATABASE "{scratch}"'))
-        url = admin_url.set(database=scratch).render_as_string(hide_password=False)
-        try:
-            await _create_table(url)
-            yield url
-        finally:
-            async with admin.connect() as conn:
-                await conn.execute(
-                    text(f'DROP DATABASE IF EXISTS "{scratch}" WITH (FORCE)')
-                )
-            await admin.dispose()
-
     @pytest.fixture
-    def make_provider(self, scratch_url: str) -> Callable[[], DatabaseLeaseProvider]:
+    def make_provider(self, pg_scratch_url: str) -> Callable[[], DatabaseLeaseProvider]:
         return lambda: DatabaseLeaseProvider(
-            name="beat", driver="database", options={"url": scratch_url}
+            name="beat", driver="database", options={"url": pg_scratch_url}
         )
 
     @pytest.fixture
@@ -640,3 +649,95 @@ async def test_the_driver_options_reject_unknown_keys_and_bad_ttl() -> None:
     provider = MemoryLeaseProvider(name="b", driver="memory", options={})
     with pytest.raises(InvalidArgument):
         await provider.acquire("n", ttl_seconds=2, owner="o")
+
+
+# ------------------------------------------------- fences after a restore
+async def test_a_new_name_starts_above_the_highest_fence(tmp_path: Path) -> None:
+    url = f"sqlite+aiosqlite:///{tmp_path / 'fence.db'}"
+    await _create_table(url)
+    provider = DatabaseLeaseProvider(
+        name="beat", driver="database", options={"url": url}
+    )
+    await provider.aopen()
+    try:
+        first = await provider.acquire("a", ttl_seconds=30, owner="o")
+        assert first is not None
+        assert await provider.release(first)
+        second = await provider.acquire("a", ttl_seconds=30, owner="o")
+        assert second is not None
+        assert second.fence == first.fence + 1
+        other = await provider.acquire("b", ttl_seconds=30, owner="o")
+        assert other is not None
+        assert other.fence == second.fence + 1  # not 1: above every fence seen
+    finally:
+        await provider.aclose()
+
+
+async def test_lift_fences_lifts_releases_and_new_names_start_above(
+    pg_scratch_url: str,
+) -> None:
+    engine = create_async_engine(pg_scratch_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    provider = DatabaseLeaseProvider(
+        name="beat", driver="database", options={"url": pg_scratch_url}
+    )
+    try:
+        async with sessions() as session, session.begin():
+            await session.execute(
+                text(
+                    "INSERT INTO infra_lease (name, owner, token, expires_at, fence) "
+                    "VALUES ('held', 'a', 't1', now() + interval '1 hour', 5), "
+                    "('free', 'b', 't2', now() - interval '1 hour', 9)"
+                )
+            )
+        async with sessions() as session, session.begin():
+            dry = await lift_fences(session, apply=False)
+            assert [(x.name, x.fence_before, x.held) for x in dry] == [
+                ("free", 9, False),
+                ("held", 5, True),
+            ]
+        async with sessions() as session:
+            rows = await session.execute(text("SELECT fence FROM infra_lease"))
+            assert sorted(r[0] for r in rows) == [5, 9]  # a dry-run writes nothing
+        async with sessions() as session, session.begin():
+            applied = await lift_fences(session, apply=True)
+        assert [x.fence_after for x in applied] == [
+            9 + LEASE_FENCE_OFFSET,
+            5 + LEASE_FENCE_OFFSET,
+        ]
+        async with sessions() as session, session.begin():
+            after = await lift_fences(session, apply=False)
+        assert [(x.fence_before, x.held) for x in after] == [
+            (9 + LEASE_FENCE_OFFSET, False),
+            (5 + LEASE_FENCE_OFFSET, False),
+        ]
+        await provider.aopen()
+        fresh = await provider.acquire("never-seen", ttl_seconds=30, owner="o")
+        assert fresh is not None
+        assert fresh.fence > 9 + LEASE_FENCE_OFFSET  # a stale token cannot outrank it
+        reacquired = await provider.acquire("held", ttl_seconds=30, owner="o")
+        assert reacquired is not None
+        assert reacquired.fence == 5 + LEASE_FENCE_OFFSET + 1
+    finally:
+        await provider.aclose()
+        await engine.dispose()
+
+
+async def test_lift_fences_without_the_table_is_empty(pg_scratch_url: str) -> None:
+    engine = create_async_engine(pg_scratch_url)
+    try:
+        async with AsyncSession(engine) as session, session.begin():
+            await session.execute(text("DROP TABLE infra_lease"))
+            assert await lift_fences(session, apply=True) == []
+    finally:
+        await engine.dispose()
+
+
+async def test_lift_fences_refuses_a_non_positive_offset(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'x.db'}")
+    try:
+        async with AsyncSession(engine) as session:
+            with pytest.raises(ValueError, match="positive"):
+                await lift_fences(session, apply=True, offset=0)
+    finally:
+        await engine.dispose()
