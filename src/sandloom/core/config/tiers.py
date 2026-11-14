@@ -375,8 +375,8 @@ REMOVED: tuple[RemovedSetting, ...] = (
     RemovedSetting(
         "BEAT_LEASE_ENABLED",
         "0.8",
-        "the beat singleton lease is always on (BEAT_LEASE_CACHE_INSTANCE must "
-        "be a cache with the 'cas' feature)",
+        "the beat singleton lease is always on (it is held in the `lease` "
+        "instance INFRA.lease.beat)",
         inert=True,
     ),
     RemovedSetting(
@@ -445,6 +445,15 @@ REMOVED: tuple[RemovedSetting, ...] = (
         inert=[],
     ),
     RemovedSetting(
+        "BEAT_LEASE_CACHE_INSTANCE",
+        "1.0",
+        "the beat lease and the saga sweep are held in the `lease` instance "
+        'INFRA.lease.beat (a driver: "redis", "database"; e.g. '
+        'INFRA={"lease": {"beat": {"driver": "redis", "url": '
+        '"redis://..."}}}), no longer in a cache instance; absent, it is a '
+        "redis lease on CACHE_URL",
+    ),
+    RemovedSetting(
         "MODULE_FS_SCAN",
         "0.7",
         "modules are no longer packages under sandloom.*: list them in "
@@ -492,7 +501,6 @@ OPS: frozenset[str] = frozenset(
         "MIGRATION_LOCK_TIMEOUT_SECONDS",
         "BEAT_LEASE_TTL_SECONDS",
         "BEAT_LEASE_NAME",
-        "BEAT_LEASE_CACHE_INSTANCE",
         "GC_FREEZE_AFTER_STARTUP",
         "GC_THRESHOLDS",
         "GC_METRICS_ENABLED",

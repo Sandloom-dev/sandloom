@@ -18,6 +18,7 @@ from sandloom.core.drivers.bootstrap import (
     build_infra_registry,
     register_builtin_drivers,
 )
+from sandloom.core.drivers.memory_lease import MemoryLeaseProvider
 from sandloom.core.infra.capabilities import NOTIFICATION_CAPABILITY
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.contracts import Notification, NotifierProvider
@@ -48,6 +49,10 @@ class _Beta(_Notifier):
 
 
 class _Stable(_Notifier):
+    tier = "stable"
+
+
+class _StableLease(MemoryLeaseProvider):
     tier = "stable"
 
 
@@ -234,11 +239,16 @@ def test_a_beta_driver_logs_one_startup_warning_in_production(
 def test_a_stable_driver_is_silent_in_production(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    _install(monkeypatch, {"notification.steady": _Stable})
+    # The kernel adds the instance lease/beat when INFRA names none (a beta
+    # redis lease), so a production run that is silent names a stable one.
+    _install(
+        monkeypatch,
+        {"notification.steady": _Stable, "lease.steady": _StableLease},
+    )
+    config = _config("steady")
+    config["lease"] = {"beat": InstanceConfig("lease", "beat", "steady", {})}
     with caplog.at_level(logging.WARNING, logger="sandloom.core.infra"):
-        build_infra_registry(
-            InMemorySchemaRegistry(), settings=_prod(), config=_config("steady")
-        )
+        build_infra_registry(InMemorySchemaRegistry(), settings=_prod(), config=config)
     assert "below stable" not in caplog.text
 
 

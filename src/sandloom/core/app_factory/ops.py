@@ -16,8 +16,8 @@ from pydantic import BaseModel
 import sandloom.core.app_factory.revocation_applier as _applier
 import sandloom.core.auth.claims_view as _claims_view
 import sandloom.core.auth.revocation as _revocation
-import sandloom.core.beat_lease as _beat_lease
 import sandloom.core.contracts.validators as _validators
+import sandloom.core.infra.fenced_lease as _beat_lease
 import sandloom.core.route_policy as _route_policy
 from sandloom.core import planner as _planner
 from sandloom.core.app_factory.lifecycle import _capability_health

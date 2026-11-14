@@ -6,6 +6,7 @@ fence strictly greater than every earlier grant's for that name.
 - ``acquire`` grants the lease when nobody holds it (or the holder's lease
   expired), else answers ``None``; it never waits. ``ttl_seconds >= 3``;
   ``owner`` is a diagnostic label (``<host>:<pid>``), not an identity check.
+  A name is 1 to ``MAX_LEASE_NAME_LENGTH`` characters, an owner at most as long.
 - The fence grows across expiry, release and a backend restart within its
   durability class; ``renew`` keeps it.
 - ``renew`` extends to a fresh ``ttl_seconds`` only while ``lease.token`` still
@@ -16,7 +17,7 @@ fence strictly greater than every earlier grant's for that name.
 - Expiry is measured by the backend's clock; the holder treats the lease as
   lost at a local deadline measured from before the call that set it.
 
-Errors: ``InvalidArgument`` (TTL ``< 3``, empty name), ``Unavailable``,
+Errors: ``InvalidArgument`` (TTL ``< 3``, empty or too long name), ``Unavailable``,
 ``Timeout``. A lost lease is a result (``False``), never an exception.
 """
 
@@ -30,6 +31,8 @@ from sandloom.core.infra.ports._base import CapabilitySpec, InfraProvider
 
 #: The shortest lease ``acquire`` accepts, in seconds.
 MIN_LEASE_TTL_SECONDS = 3
+#: The longest lease name (and owner label) ``acquire`` accepts.
+MAX_LEASE_NAME_LENGTH = 255
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +106,7 @@ LEASE_CAPABILITY = CapabilitySpec(
 
 __all__ = [
     "LEASE_CAPABILITY",
+    "MAX_LEASE_NAME_LENGTH",
     "MIN_LEASE_TTL_SECONDS",
     "Lease",
     "LeaseHolder",

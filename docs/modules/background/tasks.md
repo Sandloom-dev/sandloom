@@ -140,7 +140,8 @@ every **loaded** module. Concurrency defaults from the CPU quota
 `sandloom worker check`.
 
 Run exactly one `beat` per broker. A second one stands by: beat schedules
-only while it holds a fenced cache lease (`BEAT_LEASE_*`), scoped per
+only while it holds a fenced lease (the `lease` instance `INFRA.lease.beat`;
+`BEAT_LEASE_TTL_SECONDS`, `BEAT_LEASE_NAME`), scoped per
 service. See `deploy/README.md` ("Beat singleton
 lease").
 

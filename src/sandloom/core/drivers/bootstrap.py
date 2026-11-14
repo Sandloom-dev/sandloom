@@ -16,6 +16,7 @@ from sandloom.core.contracts import SchemaRegistryContract
 from sandloom.core.infra.capabilities import BUILTIN_CAPABILITIES
 from sandloom.core.infra.config import InfraConfig, InstanceConfig, load_infra_config
 from sandloom.core.infra.extra_capabilities import EXTRA_CAPABILITIES
+from sandloom.core.infra.fenced_lease import BEAT_INSTANCE
 from sandloom.core.infra.ports._base import DriverTier, InfraProvider
 from sandloom.core.infra.registry import (
     DriverFactory,
@@ -152,7 +153,7 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
         f"{_DRIVERS}.redis_lease:RedisLeaseProvider",
         _REDIS,
         _REDIS_INSTALL,
-        "idk-lease",
+        "",
     ),
     (
         "lease",
@@ -160,7 +161,7 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
         f"{_DRIVERS}.memory_lease:MemoryLeaseProvider",
         (),
         "",
-        "idk-lease",
+        "",
     ),
     (
         "lease",
@@ -168,7 +169,7 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
         f"{_DRIVERS}.database_lease:DatabaseLeaseProvider",
         (),
         "",
-        "idk-lease",
+        "",
     ),
     (
         "broadcast",
@@ -257,6 +258,47 @@ def _event_bus_build(
     return build
 
 
+def unverified_noeviction_allowed(settings: Settings | None = None) -> bool:
+    """Whether ``never_evicts_check=assume`` may run: not in production unless
+    the risk ``unverified_noeviction`` is accepted. The kernel's policy, handed to
+    the Redis drivers whose correctness needs a server that never evicts (they
+    read no setting). ``settings`` are the ones the registry was built with (the
+    process settings when omitted)."""
+    resolved = settings or _default_settings
+    return not resolved.is_prod or resolved.accepts_risk("unverified_noeviction")
+
+
+def _redis_lease_build(settings: Settings | None = None) -> DriverFactory:
+    """The build of the ``redis`` lease driver: it states the policy on
+    ``never_evicts_check=assume`` (:func:`unverified_noeviction_allowed`)."""
+
+    def build(cfg: InstanceConfig) -> InfraProvider:
+        # Imported when an instance selects the driver, never at bootstrap.
+        module = importlib.import_module("sandloom.core.drivers.redis_lease")
+        factory: DriverFactory = module.make_redis_lease_factory(
+            assume_allowed=lambda: unverified_noeviction_allowed(settings)
+        )
+        return factory(cfg)
+
+    return build
+
+
+def with_default_beat_lease(config: InfraConfig) -> InfraConfig:
+    """``config`` with the instance ``lease.beat`` the kernel needs: when
+    ``INFRA`` names none, a ``redis`` lease on ``CACHE_URL`` (the shared Redis
+    of every deploy profile), marked implicit like the other defaults. It is
+    built on first use, never opened or probed for a process that holds no
+    lease."""
+    if BEAT_INSTANCE in (config.get("lease") or {}):
+        return config
+    default = InstanceConfig(
+        capability="lease", name=BEAT_INSTANCE, driver="redis", options={}
+    )
+    default.implicit = True
+    config.setdefault("lease", {})[BEAT_INSTANCE] = default
+    return config
+
+
 def register_builtin_drivers(
     registry: InfraRegistry,
     schema_registry: SchemaRegistryContract,
@@ -301,6 +343,8 @@ def register_builtin_drivers(
             build=(
                 _event_bus_build(schema_registry, driver, settings)
                 if capability == "eventbus"
+                else _redis_lease_build(settings)
+                if (capability, driver) == ("lease", "redis")
                 else None
             ),
             delivered_by=delivered_by,
@@ -317,7 +361,8 @@ def build_infra_registry(
 ) -> InfraRegistry:
     """Build the registry: drivers + plugins + configuration."""
     resolved_settings = settings or _default_settings
-    cfg = config or load_infra_config(resolved_settings)
+    cfg = with_default_beat_lease(config or load_infra_config(resolved_settings))
+    _fill_beat_lease_url(cfg, resolved_settings)
     # Strict in production: a driver cannot be registered for a capability with
     # no spec, and a built instance must report the features it declared.
     registry = InfraRegistry(strict_capabilities=True)
@@ -332,6 +377,14 @@ def build_infra_registry(
     _refuse_experimental_in_production(registry, resolved_settings)
     _check_driver_tiers_in_production(registry, resolved_settings)
     return registry
+
+
+def _fill_beat_lease_url(config: InfraConfig, settings: Settings) -> None:
+    """A ``redis`` lease without a ``url`` uses ``CACHE_URL`` (as the cache)."""
+    cache_url = getattr(settings, "cache_url", None)
+    for cfg in (config.get("lease") or {}).values():
+        if cfg.driver == "redis" and not cfg.options.get("url") and cache_url:
+            cfg.options["url"] = cache_url
 
 
 def _refuse_experimental_in_production(
@@ -412,7 +465,9 @@ __all__ = [
     "BUILTIN_DRIVER_ROWS",
     "SQLALCHEMY_SQL_DIALECTS",
     "register_builtin_drivers",
+    "with_default_beat_lease",
     "build_infra_registry",
+    "unverified_noeviction_allowed",
     "volatile_event_bus_allowed",
     "close_default_cache",
     "close_default_database",
