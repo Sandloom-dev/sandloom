@@ -234,6 +234,15 @@ class RedisEventBusProvider(WrappedEventBusProvider):
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
 
+    @classmethod
+    def test_isolation(
+        cls, options: Mapping[str, Any], worker_id: str
+    ) -> Mapping[str, Any]:
+        """The bus has no ``url`` (it is refused): the ``broadcast`` instance it
+        names isolates each xdist worker by channel prefix, so options pass
+        through; kept so every Redis driver exposes the same hook."""
+        return isolated_redis_options(options, worker_id)
+
     async def aopen(self) -> None:
         """Refuse a ``broadcast`` instance without ``pattern_subscribe``."""
         self._bus.check_broadcast()
