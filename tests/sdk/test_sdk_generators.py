@@ -188,11 +188,21 @@ def test_add_task_writes_an_idempotent_task_and_its_schedule(tmp_path: Path) -> 
     created, _ = add.add_task("notes", "rollup", where, periodic="*/15 * * * *")
     assert created == [tasks]  # declared once
     source = tasks.read_text()
-    assert "from sandloom.sdk.tasks import cron, shared_task" in source
-    assert "acks_late=True, reject_on_worker_lost=True" in source
-    assert source.count("def setup_periodic_tasks(") == 1
-    assert 'cron("0 3 * * *"), purge.s()' in source
-    assert 'cron("*/15 * * * *"), rollup.s()' in source
+    assert "from sandloom.sdk.tasks import periodic  # sandloom: advanced" in source
+    assert "async def purge() -> None:" in source
+    assert '@periodic(cron="0 3 * * *", id="notes.purge")' in source
+    assert '@periodic(cron="*/15 * * * *", id="notes.rollup")' in source
+    assert "setup_periodic_tasks" not in source and "shared_task" not in source
+    assert "run_async" not in source
+    # a plain task joins the existing sandloom.sdk.tasks import
+    add.add_task("notes", "reindex", where)
+    source = tasks.read_text()
+    assert (
+        "from sandloom.sdk.tasks import periodic, task  # sandloom: advanced" in source
+    )
+    assert source.count("from sandloom.sdk.tasks import") == 1
+    assert source.count("from sandloom.sdk.data import open_uow") == 1
+    assert "@task\nasync def reindex() -> None:" in source
     assert note and "sandloom add deploy" in note  # no microservices profile here
     with pytest.raises(add.GeneratorError, match="already defines"):
         add.add_task("notes", "purge", where)

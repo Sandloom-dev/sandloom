@@ -1,19 +1,19 @@
 ---
 title: Background tasks
-description: Celery tasks in a module, run_async with open_uow() units, enqueue deduplication, the worker and the beat lease.
+description: '@task and @periodic in a module, open_uow() units, Task.enqueue and its deduplication, the worker and the beat lease.'
 type: concept
 ---
 
 # Background tasks
 
-A **background task** is work that runs outside a request, in the Celery
+A **background task** is work that runs outside a request, in the framework's
 worker: a scheduled cleanup, a slow export, a retryable call to an outside
-service. A module declares its tasks with `@shared_task` (`sandloom.sdk.tasks`,
-typed) in its own `tasks.py` (`sandloom add task <module> <name>` writes one);
-the framework's worker boots the application and imports the tasks of every
-loaded module. A task body is synchronous, so it runs its
-async work with `run_async(coro)`, and inside that coroutine every database
-change happens in an explicit unit, `async with open_uow():`. A task has no
+service. A module declares its tasks with `@task` and `@periodic`
+(`sandloom.sdk.tasks`, typed) in its own `tasks.py` (`sandloom add task <module>
+<name>` writes one); the framework's worker boots the application and imports
+the tasks of every loaded module. A task is a module-level function, usually
+`async def`, that takes one pydantic model or nothing. Every database change
+in its body happens in an explicit unit, `async with open_uow():`. A task has no
 request around it: no session check, no automatic idempotency, no write
 admission across blocks. Its retries are made safe at the **effect** level,
 with an enqueue key, the durable inbox or a unique operation key.
@@ -22,13 +22,13 @@ with an enqueue key, the durable inbox or a unique operation key.
 
 | You get by default | You declare |
 | --- | --- |
-| The worker imports `<module>/tasks.py` of every loaded module | `@shared_task` functions in `tasks.py` (never a Celery app) |
-| One persistent event loop per worker process, with engine pools bound to it | `run_async(coro)` in the task body (never `asyncio.run`) |
+| The worker imports `<module>/tasks.py` of every loaded module | `@task` / `@periodic` functions in `tasks.py` (never a broker app) |
+| One persistent event loop per worker process, with engine pools bound to it | an `async def` body (never `asyncio.run`) |
 | Commit on success, rollback on any exception, effects dispatched after COMMIT, per block | `async with open_uow() as session:` around each unit of work |
-| No stored results; the worker prefetches one message | `ignore_result=False` only when you read a result |
-| At-most-once acknowledgement (the message is acked when the task starts) | `acks_late=True, reject_on_worker_lost=True` for an idempotent task |
-| Deduplicated enqueue retries when a key is given | `taskqueue().enqueue(task, payload, idempotency_key=...)` |
-| A beat scheduler that runs only while it holds a fenced lease | `setup_periodic_tasks(sender, **kwargs)` in `tasks.py` for schedules |
+| No stored results; the worker prefetches one message | nothing: a task returns nothing |
+| At-most-once acknowledgement (the message is acked when the task starts) | `@task(at_least_once=True)` for an idempotent task (the driver feature `redelivery`) |
+| Deduplicated enqueue retries when a key is given | `await task.enqueue(payload, idempotency_key=...)` |
+| A scheduler that runs only while it holds a fenced lease | `@periodic(cron=..., id=...)` in `tasks.py` for schedules |
 | Startup checks that the task queue's driver can serve the module | `capabilities=["taskqueue"]` in `define_module`, with the feature `periodic` for schedules (`sandloom add task` writes it) |
 
 ## How to use it
@@ -39,29 +39,34 @@ with an enqueue key, the durable inbox or a unique operation key.
 # <module>/tasks.py
 from uuid import UUID
 
+from pydantic import BaseModel
+
 from sandloom.sdk.data import open_uow
-from sandloom.sdk.effects import run_async
-from sandloom.sdk.tasks import shared_task
+from sandloom.sdk.tasks import task
 from sandloom.sdk.tenant import bind_tenant
 
 from . import services
 
 
-@shared_task(acks_late=True, reject_on_worker_lost=True)   # idempotent: at least once
-def close_stale_items(tenant_id: str) -> None:
-    run_async(_close_stale_items(UUID(tenant_id)))
+class CloseStaleItems(BaseModel):
+    tenant_id: UUID
 
 
-async def _close_stale_items(tenant_id: UUID) -> None:
-    with bind_tenant(tenant_id):
+@task(at_least_once=True)                       # idempotent: runs again if the worker dies
+async def close_stale_items(payload: CloseStaleItems) -> None:
+    with bind_tenant(payload.tenant_id):
         async with open_uow():
             await services.close_stale()          # uses db(); publishes, audits
 ```
 
-- **`run_async`, never `asyncio.run`.** The worker keeps one loop per
-  process (fresh after fork, engines disposed on it at shutdown), and engine
-  pools are bound to that loop. `run_async` refuses to run inside a running
-  loop; in async code, `await` the coroutine instead.
+- **A task is a function as written.** `await close_stale_items(payload)` runs
+  the body in your process (a sync `def` is called without `await`). The worker
+  runs an `async def` body on its one persistent loop (fresh after fork,
+  engines disposed on it at shutdown), so never `asyncio.run` inside a task. A
+  sync body runs directly in the worker process, outside any running loop.
+- **The name is the dotted path** of the function
+  (`<package>.tasks.close_stale_items`); there is no `name=`, and two tasks
+  with one name are refused at load.
 - **One `open_uow()` block per unit.** Inside it, `db()` is that unit's
   session, and `.publish()`, `record_audit(...)` and `on_commit(...)` work as
   in a request: the block commits when it exits normally and rolls back on
@@ -71,27 +76,34 @@ async def _close_stale_items(tenant_id: UUID) -> None:
 - **Tenancy.** A task has no bound tenant. Bind one with `bind_tenant(id)`
   for `TenantScoped` work; deliberate cross-tenant work goes inside
   `with unscoped():`.
-- **Pass ids, not objects.** Arguments are serialised by the broker; pass
-  strings and numbers, and load the rest inside the unit.
+- **Pass ids, not objects.** The payload is validated and serialised to JSON
+  before anything is sent. Its fields are wire types (ids, strings, numbers);
+  the task loads the rest inside the unit.
 
 ### Enqueue
 
-From code that holds a unit (a route, a consumer), enqueue through the task
-queue capability:
+From code that holds a unit (a route, a consumer), enqueue the task:
 
 ```python
-from sandloom.sdk.infra import taskqueue
+from datetime import timedelta
+
 from sandloom.sdk.effects import operation_key
 
-await taskqueue().enqueue(
-    "notes.close_stale_items",
-    {"tenant_id": str(tenant_id)},
+from .tasks import CloseStaleItems, close_stale_items
+
+await close_stale_items.enqueue(
+    CloseStaleItems(tenant_id=tenant_id),
     idempotency_key=operation_key("close-stale", tenant_id, day),
 )
 ```
 
-`enqueue(task, payload, *, delay_seconds=None, idempotency_key=None)` returns
-the job id. With a key:
+`enqueue(payload, *, delay=None, idempotency_key=None)` returns the job id.
+`delay` is a `timedelta` and needs a task queue driver with the feature `delay`
+(`Unsupported` otherwise, raised before anything is reserved). A task without
+a payload is enqueued without one. To enqueue a task of a module you do not
+import, send it by name through the capability:
+`await taskqueue().enqueue("<package>.tasks.<name>", {...}, idempotency_key=...)`
+(`sandloom.sdk.infra`). With a key:
 
 - a successful repeat within `dedupe_ttl_seconds` (driver option, default
   86400, maximum 604800) returns the original job id and publishes nothing;
@@ -115,7 +127,7 @@ event and enqueue from its consumer.
 
 ### Effect-level dedupe
 
-The broker may redeliver a message (a worker crash with `acks_late`, a lost
+The broker may redeliver a message (a worker crash under `at_least_once`, a lost
 acknowledgement), and enqueue dedupe expires. A task protects every
 irreversible effect with a dedupe record that commits in the effect's
 transaction. [Deduplicate effects](effect-deduplication.md#claim-an-effect-yourself)
@@ -133,8 +145,8 @@ sandloom worker check [--timeout SECONDS]   # the container healthcheck
 
 It boots the composition root named by `SANDLOOM_COMPOSITION_ROOT` (default
 `sandloom.main`; an app generated by `sandloom new` uses `<app>.asgi`), takes its
-Celery app from the task queue capability instance named by
-`SANDLOOM_WORKER_TASKQUEUE` (default `default`), and imports `<module>.tasks` of
+worker app from the task queue capability instance named by
+`SANDLOOM_WORKER_TASKQUEUE` (default `default`; the bundled `celery` driver), and imports `<module>.tasks` of
 every **loaded** module. Concurrency defaults from the CPU quota
 (`WORKER_CONCURRENCY` overrides); health checks use
 `sandloom worker check`.
@@ -144,8 +156,8 @@ only while it holds a fenced cache lease (`BEAT_LEASE_*`), scoped per
 service. See `deploy/README.md` ("Beat singleton
 lease").
 
-**A module's first periodic task needs a beat.** A schedule
-(`setup_periodic_tasks` in `tasks.py`) runs only where a beat loads the
+**A module's first periodic task needs a beat.** A `@periodic`
+task runs only where a beat loads the
 module, and exactly one may. In the microservices profile each service has
 its own `<service>-worker` and `<service>-beat`: `sandloom add task <m> <name>
 --periodic "<cron>"` adds the pair for a deployed module, and
@@ -154,20 +166,26 @@ periodic tasks. `sandloom test`'s static `schema & deploy` step fails a profile
 whose module has no beat, or two (SANDLOOM-T010).
 
 ```python
-from typing import Any
-
-from sandloom.sdk.tasks import cron
+from sandloom.sdk.tasks import periodic
 
 
-def setup_periodic_tasks(sender: Any, **kwargs: Any) -> None:
-    sender.add_periodic_task(cron("0 3 * * *"), purge.s(), name="notes.purge")
+@periodic(cron="0 3 * * *", id="notes.purge")
+async def purge() -> None:
+    ...
 ```
+
+`cron` is five fields, evaluated in UTC; `id` is unique in the deployment
+(a duplicate is refused at load). Each run may repeat or overlap another, so
+make the body harmless to run twice. A periodic task is also a function as
+written: `await purge()` runs it inline, and `purge.max_interval` is the
+longest gap between two of its slots.
 
 **A module with tasks declares the task queue.** The module states what it
 needs, and the deployment picks the driver. `tasks.py` needs the `taskqueue`
-capability. A schedule also needs its feature `periodic`: a driver that runs
-the module's periodic jobs at their interval while the deployment runs. A
-driver that can only enqueue does not have it; today only `celery` does. In
+capability. A `@periodic` task also needs the feature `periodic`: a driver that runs
+the module's periodic jobs at their slots while the deployment runs. An
+`at_least_once` task needs `redelivery`. A driver that can only enqueue has
+neither; today only `celery` does. In
 `define_module`, write
 `capabilities=[CapabilityRequirement("taskqueue", features=frozenset({"periodic"}))]`,
 with `CapabilityRequirement` from `sandloom.sdk.module`.
@@ -198,7 +216,7 @@ failure then aborts startup instead of degrading silently).
 | --- | --- |
 | [SANDLOOM-R002](../../reference/error-codes.md#sandloom-r002) | `db()`, `.publish()` or `record_audit` outside an `open_uow()` block |
 | [SANDLOOM-R001](../../reference/error-codes.md#sandloom-r001) | a `TenantScoped` query with no tenant bound |
-| [SANDLOOM-C004](../../reference/error-codes.md#sandloom-c004) | a Celery app or another backend client constructed in a module |
+| [SANDLOOM-C004](../../reference/error-codes.md#sandloom-c004) | a broker app or another backend client constructed in a module |
 | [SANDLOOM-C021](../../reference/error-codes.md#sandloom-c021) | a function-local import in `tasks.py` |
 | [SANDLOOM-C033](../../reference/error-codes.md#sandloom-c033) | `tasks.py` without `taskqueue` in `capabilities=`, or a schedule without `periodic` |
 | `TaskEnqueueConflict` / `TaskEnqueueUncertain` / `TaskEnqueueUnavailable` | the enqueue cases above |
@@ -211,8 +229,8 @@ failure then aborts startup instead of degrading silently).
       **replay-only** for the send, not exactly-once execution.
     - **Execution (G-TASK-04, G-TASK-05, C-WORKER-01 to 06).** One persistent
       loop per worker process; no stored results; prefetch one;
-      `acks_late` is a per-task opt-in. A task runs at most once by default
-      and at least once with `acks_late`; exactly-once **effect** comes only
+      `at_least_once` is a per-task opt-in. A task runs at most once by default
+      and at least once with `at_least_once=True`; exactly-once **effect** comes only
       from a dedupe record committed with the effect.
     - **Units.** Each `open_uow()` block has the commit semantics of every
       unit (G-UOW-01, G-UOW-04): `before_commit`, COMMIT, outbox dispatch,

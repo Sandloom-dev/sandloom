@@ -32,13 +32,11 @@ from pathlib import Path
 __all__ = [
     "PERIODIC_DECORATOR",
     "PERIODIC_FEATURE",
-    "PERIODIC_HOOK",
     "REDELIVERY_FEATURE",
     "TASKQUEUE",
     "DerivedNeed",
     "declared_features",
     "defines_periodic",
-    "defines_periodic_hook",
     "derived_needs",
     "loaded_package_locations",
     "tasks_source",
@@ -46,12 +44,6 @@ __all__ = [
 
 #: The decorator that declares a periodic task in a module's ``tasks.py``.
 PERIODIC_DECORATOR = "periodic"
-
-#: The removed Celery beat hook. Nothing reads it any more: only the generator
-#: (``sandloom add task --periodic``) still writes it, until ``idk-task-adopt``
-#: moves that to ``@periodic`` and deletes this name and
-#: :func:`defines_periodic_hook`.
-PERIODIC_HOOK = "setup_periodic_tasks"
 
 #: The decorators that declare a task (``sandloom.sdk.tasks``).
 _TASK_DECORATORS = frozenset({"task", PERIODIC_DECORATOR})
@@ -125,20 +117,6 @@ def _decorator_calls(path: Path) -> list[tuple[str, ast.expr | None]]:
             if name in _TASK_DECORATORS:
                 found.append((name, call))
     return found
-
-
-def defines_periodic_hook(path: Path) -> bool:
-    """Does the file define the removed :data:`PERIODIC_HOOK`? (AST; kept only
-    for the generator until ``idk-task-adopt``.)"""
-    try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-    except (OSError, SyntaxError, UnicodeDecodeError, ValueError):
-        return False
-    return any(
-        isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-        and node.name == PERIODIC_HOOK
-        for node in tree.body
-    )
 
 
 def defines_periodic(path: Path) -> bool:

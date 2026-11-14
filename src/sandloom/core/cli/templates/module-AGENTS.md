@@ -100,10 +100,10 @@ To talk to another module:
   (`sandloom.sdk.security`) as the last fallible step; `record_audit(...)` it, no PII.
 - **Side effects outside the database** (email, cache) go through
   `await on_commit(cb)`; a check that must hold at commit, `before_commit(cb)`.
-- **Celery tasks** (`sandloom add task`): `run_async(coro)` with `open_uow()`
-  blocks, never `asyncio.run`; idempotent: `@shared_task(acks_late=True,
-  reject_on_worker_lost=True)`; cross-tenant in `with unscoped():`. A periodic
-  task needs one beat per deploy profile (SANDLOOM-T010; `--periodic` wires it).
+- **Tasks** (`sandloom add task`; `@task`, `@periodic(cron=, id=)`): an `async def`
+  body with `open_uow()` blocks, never `asyncio.run`; `await task.enqueue(payload)`;
+  a run can repeat: make it harmless. A periodic task needs one beat per
+  profile (SANDLOOM-T010; `--periodic` wires it).
 
 ## Testing and gates (copy-paste examples: `reference/testing.md`)
 

@@ -225,7 +225,7 @@ services:
           memory: 512m
 
   # Exactly ONE beat per deployment: it schedules the periodic tasks the loaded
-  # modules declare (setup_periodic_tasks hooks).
+  # modules declare (@periodic tasks).
   beat:
     <<: *app-runtime
     image: *image
