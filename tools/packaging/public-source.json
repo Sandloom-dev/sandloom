@@ -1170,6 +1170,7 @@
         "packages/sandloom-s3/tests/test_endpoint.py",
         "packages/sandloom-s3/tests/test_error_mapping.py",
         "packages/sandloom-s3/tests/test_required_imports.py",
+        "packages/sandloom-s3/tests/test_tier.py",
         "packages/sandloom-standard/CHANGELOG.md",
         "packages/sandloom-standard/LICENSE",
         "packages/sandloom-standard/NOTICE",

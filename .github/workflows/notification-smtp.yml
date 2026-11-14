@@ -22,9 +22,12 @@ on:
     branches: [main]
     paths:
       - 'src/sandloom/core/drivers/smtp_notifier.py'
+      - 'src/sandloom/core/infra/**'
       - 'src/sandloom/core/tests/test_smtp_notifier_conformance.py'
       - 'src/sandloom/driverkit/**'
+      - 'src/sandloom/sdk/**'
       - '.github/workflows/notification-smtp.yml'
+      - 'uv.lock'
   workflow_dispatch:
 
 permissions:

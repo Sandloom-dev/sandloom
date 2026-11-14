@@ -22,6 +22,7 @@ from sandloom.core.infra.capabilities import NOTIFICATION_CAPABILITY
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.contracts import Notification, NotifierProvider
 from sandloom.core.infra.registry import (
+    DevelopmentOnlyDriverRefused,
     DriverLoadError,
     ExperimentalCapabilityRefused,
     ExperimentalDriverRefused,
@@ -298,3 +299,128 @@ def test_doctor_shows_the_tier_of_an_instance() -> None:
     (check,) = report.checks
     assert check.message == "driver=smtp tier=beta"
     assert check.details["tier"] == "beta"
+
+
+# ------------------------------------------------- the tier is checked at runtime
+class _DevStable(_Notifier):
+    development_only = True
+    tier = "stable"
+
+
+class _DevExperimental(_Notifier):
+    development_only = True
+
+
+def _runtime_prod(monkeypatch: pytest.MonkeyPatch, *risks: str) -> None:
+    """The settings ``provider()`` and ``validate()`` read are the registry's own."""
+    monkeypatch.setattr(
+        "sandloom.core.infra.registry.settings",
+        SimpleNamespace(
+            is_prod=True,
+            accepts_risk=lambda risk: risk in risks,
+            health_check_timeout_seconds=5,
+        ),
+    )
+
+
+def test_provider_refuses_an_experimental_driver_configured_after_boot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = _strict()
+    registry.register_driver("notification", "tried", _Beta, tier="beta")
+    registry.set_config(_config("tried"))
+    registry.validate()
+    _runtime_prod(monkeypatch)
+    assert isinstance(registry.provider("notification"), _Beta)
+    # Registered and configured once the boot check has run.
+    registry.register_driver("notification", "late", _Notifier)
+    registry.configure_instance(InstanceConfig("notification", "late", "late", {}))
+    with pytest.raises(ExperimentalDriverRefused, match="notification/late") as exc:
+        registry.provider("notification", "late")
+    assert exc.value.sandloom_code == "SANDLOOM-B023"
+    assert "experimental_driver" in str(exc.value.fix)
+
+
+def test_provider_lets_an_experimental_driver_run_with_the_risk_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = _strict()
+    registry.register_driver("notification", "late", _Notifier)
+    registry.set_config(_config("late"))
+    _runtime_prod(monkeypatch, "experimental_driver")
+    assert isinstance(registry.provider("notification"), _Notifier)
+
+
+def test_provider_runs_an_experimental_driver_outside_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = _strict()
+    registry.register_driver("notification", "late", _Notifier)
+    registry.set_config(_config("late"))
+    monkeypatch.setattr(
+        "sandloom.core.infra.registry.settings",
+        SimpleNamespace(is_prod=False, accepts_risk=lambda _risk: False),
+    )
+    assert isinstance(registry.provider("notification"), _Notifier)
+
+
+# ------------------------------------------------- development_only comes first
+def test_a_development_only_driver_is_refused_whatever_its_tier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install(monkeypatch, {"notification.dev": _DevStable})
+    _runtime_prod(monkeypatch, "experimental_driver")
+    with pytest.raises(DevelopmentOnlyDriverRefused) as exc:
+        build_infra_registry(
+            InMemorySchemaRegistry(),
+            settings=_prod("experimental_driver"),
+            config=_config("dev"),
+        )
+    assert exc.value.sandloom_code == "SANDLOOM-B022"
+
+
+def test_a_development_only_experimental_driver_gets_b022_not_b023(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install(monkeypatch, {"notification.dev": _DevExperimental})
+    _runtime_prod(monkeypatch)
+    with pytest.raises(DevelopmentOnlyDriverRefused) as exc:
+        build_infra_registry(
+            InMemorySchemaRegistry(), settings=_prod(), config=_config("dev")
+        )
+    assert exc.value.sandloom_code == "SANDLOOM-B022"
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="idk-tiersb: _check_driver_tiers_in_production (core/drivers/bootstrap.py) "
+    "does not skip development_only drivers yet; that file was claimed by "
+    "idk-lease. Drop this marker with the one-line skip.",
+)
+def test_a_synthesized_default_with_a_development_only_driver_gets_b022_not_b023(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # validate() skips an implicit instance's B022, so the tier check must not
+    # answer first with B023.
+    _install(monkeypatch, {"notification.dev": _DevExperimental})
+    _runtime_prod(monkeypatch)
+    config = {
+        "notification": {
+            "default": InstanceConfig(
+                "notification", "default", "dev", {}, implicit=True
+            )
+        }
+    }
+    with pytest.raises(DevelopmentOnlyDriverRefused):
+        build_infra_registry(InMemorySchemaRegistry(), settings=_prod(), config=config)
+
+
+def test_provider_refuses_a_development_only_experimental_driver_with_b022(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = _strict()
+    registry.register_driver("notification", "dev", _DevExperimental)
+    registry.set_config(_config("dev"))
+    _runtime_prod(monkeypatch)
+    with pytest.raises(DevelopmentOnlyDriverRefused):
+        registry.provider("notification")

@@ -40,6 +40,14 @@
     {
       "test": "src/sandloom/core/tests/test_driverkit.py::TestTheShippedLogDriver::test_harness_redacts_the_health_of_a_failing_backend",
       "reason": "the log notifier has no backend that can fail (it writes the process log), so it has no make_failing_provider; the same check runs on the guide driver and the broken drivers in this file"
+    },
+    {
+      "test": "src/sandloom/core/tests/test_smtp_notifier_conformance.py::TestSmtpNotifier::*",
+      "reason": "the smtp notifier's kit runs against a real SMTP server (a mailpit service container, SANDLOOM_SMTP_TEST_HOST / SANDLOOM_SMTP_TEST_API) and no test lane provides one: the lane is .github/workflows/notification-smtp.yml"
+    },
+    {
+      "test": "src/sandloom/core/tests/test_smtp_notifier_conformance.py::test_the_accepted_message_is_read_back_through_mailpit",
+      "reason": "it reads the accepted message back through mailpit's HTTP API (SANDLOOM_SMTP_TEST_API), which no test lane provides: the lane is .github/workflows/notification-smtp.yml"
     }
   ]
 }

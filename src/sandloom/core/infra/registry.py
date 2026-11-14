@@ -882,6 +882,7 @@ class InfraRegistry:
                     "group) or pick a known driver",
                 )
             self._refuse_development_only(instance_cfg, registration)
+            self._refuse_experimental_driver(instance_cfg, registration)
             self._validate_options(capability, instance_cfg, registration)
             factory = registration.factory
             if factory is None:  # pragma: no cover - every row ends with one
@@ -1169,6 +1170,30 @@ class InfraRegistry:
             "and tests only, and this is production",
             fix=f"select a production {cfg.capability} driver in "
             f"INFRA[{cfg.capability!r}][{cfg.name!r}]",
+        )
+
+    @staticmethod
+    def _refuse_experimental_driver(
+        cfg: InstanceConfig, registration: DriverRegistration
+    ) -> None:
+        """An ``experimental`` driver is refused in production unless the risk
+        ``experimental_driver`` is accepted (spec 2.5, SANDLOOM-B023). The boot
+        check covers what is configured at startup; this one covers a driver
+        registered or an instance configured after it. Runs after
+        :meth:`_refuse_development_only`, so a development-only driver always
+        gets B022."""
+        if (
+            registration.tier != "experimental"
+            or not settings.is_prod
+            or settings.accepts_risk("experimental_driver")
+        ):
+            return
+        raise ExperimentalDriverRefused(
+            "Experimental drivers are configured in production: "
+            f"{cfg.capability}/{cfg.name} ({cfg.driver}) "
+            "(sandloom explain SANDLOOM-B023)",
+            fix="select a beta or stable driver in INFRA, or accept the risk with "
+            'SANDLOOM_ACCEPTED_RISKS=["experimental_driver"]',
         )
 
     def _validate_options(

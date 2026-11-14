@@ -2263,7 +2263,8 @@
         "set_nx_get",
         "set_subject_state",
         "supported_features",
-        "test_isolation"
+        "test_isolation",
+        "tier"
       ],
       "signature": "(broken:KEYWORD_ONLY|bool=False) -> None"
     },
@@ -2565,7 +2566,8 @@
         "set",
         "set_subject_state",
         "supported_features",
-        "test_isolation"
+        "test_isolation",
+        "tier"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -2596,7 +2598,8 @@
         "required_imports",
         "subscribe",
         "supported_features",
-        "test_isolation"
+        "test_isolation",
+        "tier"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -2770,7 +2773,8 @@
         "performance_hints",
         "required_imports",
         "supported_features",
-        "test_isolation"
+        "test_isolation",
+        "tier"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -2824,7 +2828,8 @@
         "renew",
         "required_imports",
         "supported_features",
-        "test_isolation"
+        "test_isolation",
+        "tier"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -2873,7 +2878,8 @@
         "required_imports",
         "send",
         "supported_features",
-        "test_isolation"
+        "test_isolation",
+        "tier"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -2901,6 +2907,7 @@
         "required_imports",
         "supported_features",
         "test_isolation",
+        "tier",
         "url"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
@@ -6062,7 +6069,8 @@
         "set_nx_get",
         "set_subject_state",
         "supported_features",
-        "test_isolation"
+        "test_isolation",
+        "tier"
       ],
       "signature": "(broken:KEYWORD_ONLY|bool=False) -> None"
     },
