@@ -121,8 +121,9 @@ forbidden_modules =
 ; ----------------------------------------------- eventing speaks no transport
 ; ADR-0016 (design/infra-drivers/design.md, slice idk-ratchets): the delivery
 ; logic of sandloom.core.eventing sits above a transport and imports no
-; transport implementation, no driver and no backend SDK. The Redis half
-; (pub/sub, Streams) still lives in this package until idk-eventbus-move
+; transport implementation, no driver and no backend SDK. The volatile bus
+; (pubsub_bus) runs over the broadcast capability and is a delivery module. The
+; Redis Streams half still lives in this package until idk-eventbus-move
 ; moves it to core/drivers/redis_eventbus, so it is not a source here: the
 ; sources are the delivery modules, one by one (import-linter does not check a
 ; package against a forbidden module inside it, and the transport's own files
@@ -144,6 +145,7 @@ source_modules =
     sandloom.core.eventing.memory_bus
     sandloom.core.eventing.memory_transport
     sandloom.core.eventing.origin
+    sandloom.core.eventing.pubsub_bus
     sandloom.core.eventing.streams_bus
     sandloom.core.eventing.streams_dispatch
     sandloom.core.eventing.streams_inventory
@@ -152,7 +154,6 @@ source_modules =
     sandloom.core.eventing.transport_base
     sandloom.core.eventing.transport_capabilities
 forbidden_modules =
-    sandloom.core.eventing.pubsub_bus
     sandloom.core.eventing.streams_transport
     sandloom.core.eventing.streams_transport_base
     sandloom.core.eventing.streams_consume
@@ -259,13 +260,93 @@ forbidden_modules =
 allow_indirect_imports = true
 
 [importlinter:contract:kernel-never-imports-sdk]
-name = the kernel (sandloom.core, sandloom.shared) never imports sandloom.sdk or sandloom.driverkit (ADR-0010)
+name = the kernel (sandloom.core, sandloom.shared) never imports sandloom.sdk (ADR-0010)
 type = forbidden
 source_modules =
     sandloom.core
     sandloom.shared
 forbidden_modules =
     sandloom.sdk
+
+; The kernel never imports the driver door either, with one exception that is
+; ADR-0016's rule rather than a break of it: a built-in driver (sandloom.core.
+; drivers) imports only sandloom.driverkit, as a driver package does, so that
+; its file moves whole to a package (spec section 1). The sources are every
+; sandloom.core child but drivers (import-linter takes no exclusion of a
+; sub-package, and ignore_imports is refused, G-KERNEL-04): a new core child is
+; added here, as to the layers above, and tests/architecture keeps the layers
+; exhaustive.
+[importlinter:contract:kernel-never-imports-driverkit]
+name = the kernel (sandloom.core but its built-in drivers, sandloom.shared) never imports sandloom.driverkit (ADR-0010, ADR-0016)
+type = forbidden
+source_modules =
+    sandloom.shared
+    sandloom.core._internal
+    sandloom.core.admin
+    sandloom.core.app_factory
+    sandloom.core.archcheck
+    sandloom.core.async_runner
+    sandloom.core.auth
+    sandloom.core.beat_lease
+    sandloom.core.claims
+    sandloom.core.cli
+    sandloom.core.composition
+    sandloom.core.config
+    sandloom.core.consumers
+    sandloom.core.contract_cache_shadow
+    sandloom.core.contract_compat
+    sandloom.core.contract_context
+    sandloom.core.contract_testing
+    sandloom.core.contract_wire
+    sandloom.core.contracts
+    sandloom.core.cpu_quota
+    sandloom.core.descriptors
+    sandloom.core.di
+    sandloom.core.effects
+    sandloom.core.error_codes
+    sandloom.core.eventing
+    sandloom.core.exceptions
+    sandloom.core.facade
+    sandloom.core.gc_tuning
+    sandloom.core.guarantee_lattice
+    sandloom.core.guarantee_windows
+    sandloom.core.guard_order
+    sandloom.core.http
+    sandloom.core.idempotency
+    sandloom.core.infra
+    sandloom.core.ingress
+    sandloom.core.internal_auth
+    sandloom.core.lifecycle
+    sandloom.core.loader
+    sandloom.core.migrations
+    sandloom.core.module_api
+    sandloom.core.observability
+    sandloom.core.orm
+    sandloom.core.planner
+    sandloom.core.production_profile
+    sandloom.core.projections
+    sandloom.core.route_markers
+    sandloom.core.route_policy
+    sandloom.core.route_snapshots
+    sandloom.core.rpc
+    sandloom.core.rpc_binding
+    sandloom.core.rpc_identity
+    sandloom.core.rpc_pair_mac
+    sandloom.core.rpc_transport
+    sandloom.core.rpc_transport_compat
+    sandloom.core.runtime
+    sandloom.core.sagas
+    sandloom.core.schema
+    sandloom.core.signing_keys
+    sandloom.core.sql_alchemy
+    sandloom.core.tasks
+    sandloom.core.tenant
+    sandloom.core.tenant_context
+    sandloom.core.testing
+    sandloom.core.unit_of_work
+    sandloom.core.utils
+    sandloom.core.worker
+forbidden_modules =
     sandloom.driverkit
 
 [importlinter:contract:sdk-decl-l1]

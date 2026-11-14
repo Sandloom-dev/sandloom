@@ -150,6 +150,17 @@ def _synthesize_defaults(settings: Settings) -> InfraConfig:
                 options=objectstore_options,
             )
         },
+        # The kernel's fan-out (contract-cache shadow invalidation, the volatile
+        # event bus): Redis on CACHE_URL (fill_driver_defaults), opened only when
+        # one of them uses it.
+        "broadcast": {
+            DEFAULT_INSTANCE: InstanceConfig(
+                capability="broadcast",
+                name=DEFAULT_INSTANCE,
+                driver="redis",
+                options={},
+            )
+        },
         "taskqueue": {
             DEFAULT_INSTANCE: InstanceConfig(
                 capability="taskqueue",
@@ -325,6 +336,10 @@ def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
         if cfg.driver == "redis":
             _fill_url(cfg.options, "url", cache_url)
             _fill(cfg.options, settings, _REDIS_CLIENT_SETTINGS)
+    for cfg in (config.get("broadcast") or {}).values():
+        if cfg.driver == "redis":
+            _fill_url(cfg.options, "url", cache_url)
+            _fill(cfg.options, settings, _TRANSPORT_CLIENT_SETTINGS)
     for cfg in (config.get("eventbus") or {}).values():
         if cfg.driver in ("redis", "streams"):
             if cfg.name == DEFAULT_INSTANCE:

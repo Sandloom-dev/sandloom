@@ -106,19 +106,3 @@ async def test_named_streams_instance_client_is_bounded() -> None:
         _assert_bounded(client, read_timeout=True)
     finally:
         await provider.aclose()
-
-
-async def test_named_pubsub_instance_client_is_bounded_without_read_timeout() -> None:
-    """Pub/Sub ``listen`` idles indefinitely: no read timeout there."""
-    cfg = InstanceConfig(
-        capability="eventbus", name="side", driver="redis", options={"url": _URL}
-    )
-    provider = make_event_bus_drivers(
-        InMemorySchemaRegistry(), volatile_allowed=volatile_event_bus_allowed
-    )["redis"](cfg)
-    try:
-        client = await provider.bus()._client_factory()
-        _assert_bounded(client, read_timeout=False)
-        assert client.connection_pool.connection_kwargs.get("socket_timeout") is None
-    finally:
-        await provider.aclose()

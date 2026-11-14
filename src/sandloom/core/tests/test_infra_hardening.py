@@ -73,58 +73,28 @@ async def test_bounded_drain_cancels_hung_callback() -> None:
 # --- #2 subscribe starts a single listen loop ----------------------------------
 
 
-class _FakePubSub:
-    def __init__(self) -> None:
-        self.subscribed: list[str] = []
-
-    async def subscribe(self, *channels: str) -> None:
-        self.subscribed.extend(channels)
-
-    async def psubscribe(self, *channels: str) -> None:
-        self.subscribed.extend(channels)
-
-    async def close(self) -> None:
-        return None
-
-    async def listen(self):  # async generator
-        while True:
-            await asyncio.sleep(3600)
-            yield {}
-
-
-class _FakeRedis:
-    def __init__(self) -> None:
-        self._pubsub = _FakePubSub()
-
-    def pubsub(self) -> _FakePubSub:
-        return self._pubsub
-
-
 @pytest.mark.asyncio
-async def test_concurrent_subscribe_starts_one_listen_loop(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake = _FakeRedis()
+async def test_concurrent_subscribe_starts_one_listen_loop() -> None:
+    from sandloom.core.drivers.memory_broadcast import MemoryBroadcastProvider
 
-    async def _get_cache():
-        return fake
-
-    # The driver injects the client factory; construct the bus the same way.
-    bus = RedisEventBus(InMemorySchemaRegistry(), client_factory=_get_cache)
+    provider = MemoryBroadcastProvider(
+        name="default", driver="memory", options={"namespace": "hardening"}
+    )
+    bus = RedisEventBus(InMemorySchemaRegistry(), broadcast=provider)
 
     async def _noop(_msg) -> None:
         return None
 
-    # Race many first-subscribers: the task must be created exactly once.
-    await asyncio.gather(*(bus.subscribe(f"core.c{i}.v1", _noop) for i in range(8)))
+    # Race many first-subscribers of one channel: its task is created once.
+    await asyncio.gather(*(bus.subscribe("core.c.v1", _noop) for _ in range(8)))
 
     def _is_listen_loop(task: asyncio.Task) -> bool:
-        coro = task.get_coro()
-        return getattr(coro, "__qualname__", "") == "RedisEventBus._listen_loop"
+        return task.get_name() == "bus:core.c.v1"
 
     listen_loops = [t for t in asyncio.all_tasks() if _is_listen_loop(t)]
     assert len(listen_loops) == 1
     await bus.close()
+    await provider.aclose()
 
 
 # --- #4 operation-based cache --------------------------------------------------
