@@ -7,7 +7,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from sandloom.driverkit import Notification, NotifierProvider, Unsupported
+from sandloom.driverkit import (
+    Notification,
+    NotifierProvider,
+    Unavailable,
+    Unsupported,
+)
 
 
 class FileNotifier(NotifierProvider):
@@ -34,7 +39,15 @@ class FileNotifier(NotifierProvider):
                 "body": notification.body,
             }
         )
-        await asyncio.to_thread(self._append, line)
+        try:
+            await asyncio.to_thread(self._append, line)
+        except OSError as exc:
+            # The contract's error, naming only the type: str(exc) has the path.
+            raise Unavailable(
+                f"could not append: {type(exc).__name__}",
+                capability="notification",
+                instance=self.name,
+            ) from exc
 
     async def isolation_identity(self) -> str:
         # Two instances writing one file share it: the file names the store.

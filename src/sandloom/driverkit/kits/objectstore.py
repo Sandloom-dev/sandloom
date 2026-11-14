@@ -9,7 +9,12 @@ from uuid import uuid4
 
 import pytest
 
-from sandloom.core.infra.errors import InvalidArgument, NotFound, TooLarge
+from sandloom.core.infra.errors import (
+    InvalidArgument,
+    NotFound,
+    TooLarge,
+    Unsupported,
+)
 from sandloom.core.infra.ports.objectstore import (
     OBJECTSTORE_CAPABILITY,
     ObjectStore,
@@ -62,7 +67,8 @@ class ObjectStoreConformance(ProviderConformance[ObjectStoreProvider]):
     #: a larger ``put`` raises ``TooLarge`` and keeps the previous object.
     upload_limit_bytes: ClassVar[int | None] = None
     #: The driver's buffered read limit in bytes, when the test instance has
-    #: one below its upload limit: ``get`` of a larger object raises ``TooLarge``.
+    #: one: ``get`` of a larger object raises ``TooLarge``. When it is not
+    #: below the upload limit, override :meth:`place_oversized_object`.
     read_limit_bytes: ClassVar[int | None] = None
 
     def feature_calls(self, provider: ObjectStoreProvider) -> Mapping[str, Call]:
@@ -83,6 +89,15 @@ class ObjectStoreConformance(ProviderConformance[ObjectStoreProvider]):
             "get": partial(provider.get, key),
             "delete": partial(provider.delete, key),
         }
+
+    async def place_oversized_object(
+        self, provider: ObjectStoreProvider, key: str, data: bytes
+    ) -> None:
+        """Store ``data``, larger than :attr:`read_limit_bytes`, under ``key``
+        for the read-limit check. Default: ``provider.put``, for an instance
+        whose read limit is below its upload limit. Otherwise write it to the
+        backend directly, as an object placed out of band."""
+        await provider.put(key, data)
 
     async def read_metadata(
         self, provider: ObjectStoreProvider, key: str
@@ -189,19 +204,34 @@ class ObjectStoreConformance(ProviderConformance[ObjectStoreProvider]):
         if limit is None:
             pytest.skip("set read_limit_bytes to the test instance's read limit")
         key = _key("large.bin")
-        await provider.put(key, b"x" * (limit + 1))
+        await self.place_oversized_object(provider, key, b"x" * (limit + 1))
         try:
             with pytest.raises(TooLarge):
                 await provider.get(key)
         finally:
             await provider.delete(key)
 
-    async def test_object_metadata_round_trip(
-        self, provider: ObjectStoreProvider
-    ) -> None:
-        self.requires_feature(provider, "metadata")
+    async def test_object_metadata(self, provider: ObjectStoreProvider) -> None:
+        """``metadata`` is informational (spec 13.42): a driver that declares
+        it reads the content type and metadata back; one that does not
+        accepts them in ``put`` and drops them, never ``Unsupported``."""
         key = _key("typed.txt")
         stored = {"source": "conformance"}
+        if "metadata" not in provider.features():
+            try:
+                await provider.put(
+                    key, b"hello", content_type="text/plain", metadata=stored
+                )
+            except Unsupported as exc:
+                raise AssertionError(
+                    f"put with metadata raised Unsupported({exc.feature!r}): a "
+                    "driver without 'metadata' accepts and drops it"
+                ) from None
+            try:
+                require(await provider.get(key) == b"hello", "put stores the bytes")
+            finally:
+                await provider.delete(key)
+            return
         await provider.put(key, b"hello", content_type="text/plain", metadata=stored)
         try:
             try:

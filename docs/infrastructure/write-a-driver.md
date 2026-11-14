@@ -66,13 +66,18 @@ a file.
 - **`Notification.body_fields`** holds the values `body` was built from, for a driver that
   renders its own template. It is as sensitive as the body: never log it.
 
+A driver records metrics through `sandloom.driverkit.observe`:
+`counter(name, documentation, labelnames)` and `histogram(...)` return metrics on the
+kernel's registry. A driver imports no metrics registry and no settings of the kernel.
+
 `aclose` may be called twice. The `details` of `health()` carry only non-secret facts,
-such as the error type name. Never put the exception text there.
+such as the error type name, under keys that are single words too. Never put the exception
+text, a URL or a path there, as a value or as a key.
 
 `isolation_identity()` names the store behind the instance. It starts with the driver
-name and a colon (`file:/var/mail.log`, `s3:<endpoint>/<bucket>`). Two instances built
-from the same options return the same identity. It carries no credential. The default,
-`None`, means unknown, and the kit fails it.
+name and a colon (`file:/var/mail.log`, `s3:<endpoint>/<bucket>`). Two instances on one
+store return the same identity, whatever their instance names. It carries no credential.
+The default, `None`, means unknown, and the kit fails it.
 
 ### 2. Publish it by name
 
@@ -156,10 +161,10 @@ Every kit runs the same harness checks first, named `test_harness_*`:
 | version | Set `contract_version` to the integer major of the capability. |
 | features | Declare only features the capability defines; `features()` equals `features_for(options)`. |
 | hints | Name only the capability's operations in `performance_hints`. |
-| health | Set `development_only` to a bool. `health()` answers within the bound (5 seconds) and each `details` value is a number, a bool or one token. |
-| identity | Two providers from the same options return the same `isolation_identity()`, starting with `<driver>:`. |
+| health | Set `development_only` to a bool. `health()` answers within the bound (5 seconds), each `details` key is one token and each value a number, a bool or one token. |
+| identity | Two providers from the same options, and one under another instance name, return the same `isolation_identity()`, starting with `<driver>:`. |
 | features in use | A declared behaviour feature works; an undeclared one raises `Unsupported(feature)`. For `notification` each channel is such a feature. |
-| errors | A provider built to fail raises only `InfraError` subclasses. |
+| errors | A provider built to fail raises only `InfraError` subclasses, and no message shows the kit's `leak_marker`. |
 
 The capability's own tests follow. A skipped test means the check does not apply. The
 driver may advertise no channel, or you did not give the kit what it needs. Read the skip
@@ -168,9 +173,16 @@ reason rather than treating it as a pass.
 To check the error mapping and the health of a failing backend, override
 `make_failing_provider` too. Return a provider whose backend fails, such as one pointing at
 a closed port. Put the kit's `leak_marker` in its password, and the kit checks that
-`health()` does not show it. `ObjectStoreConformance` also reads `upload_limit_bytes` and
-`read_limit_bytes`, the limits of your test instance. A driver that declares `metadata`
-overrides `read_metadata(provider, key)` to read the content type and metadata back.
+neither `health()` nor an error message shows it. The identity check builds a provider
+under another instance name with your class's `from_config`; override
+`make_renamed_provider(provider, name)` if that cannot rebuild it.
+
+`ObjectStoreConformance` also reads `upload_limit_bytes` and `read_limit_bytes`, the
+limits of your test instance. When the read limit is not below the upload limit, override
+`place_oversized_object(provider, key, data)` to write the object to the backend directly.
+`metadata` is informational. A driver that declares it overrides
+`read_metadata(provider, key)` to read the content type and metadata back. A driver
+without it accepts them in `put` and drops them.
 
 A database driver for a new SQL database also ships a **SQL dialect renderer**. It
 writes the portable forms of `sandloom.sdk.data` in that database's SQL

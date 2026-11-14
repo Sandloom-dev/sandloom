@@ -150,6 +150,33 @@ def _describe(obj: object) -> Descriptor:
     return {"kind": "value"}
 
 
+#: The one module whose ``__all__`` may name what is not delivered yet: its
+#: ``_TABLE`` lists each kit with the slice that delivers it.
+PENDING_MODULE = "sandloom.driverkit.testing"
+
+
+def _may_be_pending(mod_name: str, module: object, name: str) -> bool:
+    table = getattr(module, "_TABLE", None)
+    return mod_name == PENDING_MODULE and isinstance(table, dict) and name in table
+
+
+def _newly_pending(baseline: Snapshot, current: Snapshot) -> list[str]:
+    """Names the baseline pins resolved that ``current`` pins pending: a
+    delivered kit that stopped resolving, which ``--update`` must not hide."""
+    found: list[str] = []
+    for mod_name, base_mod in baseline.items():
+        cur_mod = current.get(mod_name, {})
+        for name, base_desc in base_mod.items():
+            cur_desc = cur_mod.get(name)
+            if (
+                cur_desc is not None
+                and cur_desc.get("kind") == PENDING
+                and base_desc.get("kind") != PENDING
+            ):
+                found.append(f"{mod_name}.{name}")
+    return found
+
+
 def snapshot() -> Snapshot:
     result: Snapshot = {}
     for mod_name in _public_modules():
@@ -159,8 +186,11 @@ def snapshot() -> Snapshot:
             try:
                 obj = getattr(module, name)
             except AttributeError:
-                # A lazily resolved name its slice has not delivered yet
-                # (``sandloom.driverkit.testing``): pinned as pending.
+                # Only a kit of ``sandloom.driverkit.testing`` its slice has
+                # not delivered yet is pinned as pending; an unresolvable
+                # name anywhere else is a broken ``__all__``.
+                if not _may_be_pending(mod_name, module, name):
+                    raise
                 mod_snap[name] = {"kind": PENDING}
                 continue
             # Skip re-exported submodules; we snapshot the named modules directly.
@@ -220,6 +250,17 @@ def main(argv: list[str] | None = None) -> int:
     current = snapshot()
 
     if args.update:
+        if BASELINE_PATH.exists():
+            pinned = cast("Snapshot", json.loads(BASELINE_PATH.read_text()))
+            if regressed := _newly_pending(pinned, current):
+                print(
+                    "error: refusing to pin resolved name(s) as pending: "
+                    + ", ".join(regressed)
+                    + "\nThey resolved when the baseline was written: fix the "
+                    "import that stopped them, do not re-pin them.",
+                    file=sys.stderr,
+                )
+                return 1
         BASELINE_PATH.write_text(_dump(current), encoding="utf-8")
         print(f"baseline written: {BASELINE_PATH.relative_to(ROOT)}")
         return 0

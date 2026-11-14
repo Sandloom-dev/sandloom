@@ -37,6 +37,20 @@ class TestS3Endpoint(ObjectStoreConformance):
         options = _options()
         return lambda: S3ObjectStore(name="default", driver="s3", options=options)
 
+    @pytest.fixture
+    def make_failing_provider(self) -> Callable[[], ObjectStoreProvider]:
+        # A closed port (no live service) and the kit's secret as the secret
+        # key: no error message or health detail may show it.
+        options = {
+            "bucket": "kit-failing",
+            "region": "us-east-1",
+            "endpoint_url": "http://127.0.0.1:1",
+            "addressing_style": "path",
+            "access_key_id": "AKIAKITFAILING",
+            "secret_access_key": self.leak_marker,
+        }
+        return lambda: S3ObjectStore(name="default", driver="s3", options=options)
+
     async def read_metadata(
         self, provider: ObjectStoreProvider, key: str
     ) -> tuple[str | None, Mapping[str, str]]:

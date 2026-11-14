@@ -11,6 +11,7 @@ entry-point group. The separate ``sandloom-s3`` package registers ``objectstore.
 
 from __future__ import annotations
 
+import hashlib
 import os
 from collections.abc import Mapping
 from typing import Self, cast
@@ -69,7 +70,10 @@ class LocalObjectStoreProvider(ObjectStoreProvider):
     ) -> None:
         super().__init__(name=name, driver=driver, options=options)
         self._storage = storage
-        self._identity = f"{driver}:{os.path.abspath(storage.path)}"
+        # The root as Storage resolves it (a symlinked path names the same
+        # store), hashed: the identity is compared, never a host path to show.
+        root = os.path.realpath(storage.path).encode()
+        self._identity = f"{driver}:{hashlib.sha256(root).hexdigest()[:16]}"
 
     @property
     def storage(self) -> Storage:
@@ -103,7 +107,8 @@ class LocalObjectStoreProvider(ObjectStoreProvider):
         return HealthResult(status="ok")
 
     async def isolation_identity(self) -> str | None:
-        """``<driver>:<absolute root>``: two instances on one root share it."""
+        """``<driver>:<sha256 of the resolved root, 16 hex>``: two instances on
+        one root share it, and it shows no host path."""
         return self._identity
 
 

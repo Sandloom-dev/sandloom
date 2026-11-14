@@ -12,14 +12,16 @@ a failure names what to fix:
    equals ``features_for(options)``;
 4. ``performance_hints`` names only operations of the capability;
 5. ``development_only`` is a ``bool``; ``health()`` answers within the bound
-   and its ``details`` pass the redaction rule (spec 2.4), a failing backend's
-   included;
-6. ``isolation_identity()``: two providers built from the same options answer
-   equal, non-``None`` identities starting with ``<driver>:``;
+   and its ``details`` (keys and values) pass the redaction rule (spec 2.4),
+   a failing backend's included;
+6. ``isolation_identity()``: two providers built from the same options, and
+   one built under another instance name, answer equal, non-``None``
+   identities starting with ``<driver>:``;
 7. a declared behaviour feature's call does not raise ``Unsupported``, and an
    undeclared one's raises ``Unsupported(feature)``;
 8. a provider built to fail (``make_failing_provider``, optional) raises only
-   ``InfraError`` subclasses.
+   ``InfraError`` subclasses, whose messages do not show the secret in its
+   options (:attr:`ProviderConformance.leak_marker`).
 
 The kit itself is run against one broken driver per obligation in
 ``sandloom/core/tests/test_driverkit.py``.
@@ -36,6 +38,7 @@ import pytest
 import pytest_asyncio
 
 from sandloom.core.descriptors import HealthResult
+from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.errors import InfraError, Unsupported
 from sandloom.core.infra.ports._base import CapabilitySpec, InfraProvider
 
@@ -64,16 +67,21 @@ def check_contract_version(version: object, major: int | None) -> None:
 
 
 def unvouched_details(details: object, path: str = "details") -> list[str]:
-    """Every value of a health ``details`` the redaction rule refuses: a value
-    is ``None``, a bool, a number or one token; mappings and lists are read
-    the same way. Free text can carry a URL with credentials or a key."""
+    """Every key and value of a health ``details`` the redaction rule refuses:
+    a value is ``None``, a bool, a number or one token, a mapping's key is one
+    token; mappings and lists are read the same way. Free text can carry a URL
+    with credentials or a key. A refused key is named by its position, never
+    echoed."""
     if details is None or isinstance(details, (bool, int, float)):
         return []
     if isinstance(details, str):
         return [] if HEALTH_TOKEN.fullmatch(details) else [path]
     if isinstance(details, Mapping):
         found: list[str] = []
-        for key, value in details.items():
+        for index, (key, value) in enumerate(details.items()):
+            if not (isinstance(key, str) and HEALTH_TOKEN.fullmatch(key)):
+                found.append(f"{path} key #{index}")
+                continue
             found.extend(unvouched_details(value, f"{path}[{key!r}]"))
         return found
     if isinstance(details, (list, tuple)):
@@ -132,7 +140,7 @@ class ProviderConformance(Generic[P]):
     #: (``HEALTH_CHECK_TIMEOUT_SECONDS``, default 5).
     health_timeout_seconds: ClassVar[float] = 5.0
     #: A secret a failing provider's backend may carry (a password in its
-    #: options, say): no ``health()`` detail may show it.
+    #: options, say): no ``health()`` detail and no error message may show it.
     leak_marker: ClassVar[str] = "sandloom-kit-leak-7f3a"
 
     @pytest.fixture
@@ -166,6 +174,16 @@ class ProviderConformance(Generic[P]):
         built to fail: each must raise an ``InfraError``."""
         return {}
 
+    def make_renamed_provider(self, provider: P, name: str) -> P:
+        """An unopened provider of ``provider``'s driver and options under the
+        instance name ``name``: the isolation check requires the same identity
+        (it names the store, not the instance). Override when the driver's
+        ``from_config`` cannot rebuild it from its options."""
+        config = InstanceConfig(
+            provider.capability, name, provider.driver, dict(provider.options)
+        )
+        return type(provider).from_config(config)
+
     def requires_feature(self, provider: P, feature: str) -> None:
         """Skip the running group unless ``provider`` declares ``feature``."""
         if feature not in provider.features():
@@ -189,7 +207,8 @@ class ProviderConformance(Generic[P]):
         require(
             not refused,
             f"health() {', '.join(refused)} is not a number, a bool or one token: "
-            "carry an error type name, never str(exc), a URL or a key",
+            "carry an error type name, never str(exc), a URL or a key, as a key "
+            "or a value",
         )
         require(
             self.leak_marker not in repr(result.details),
@@ -299,12 +318,14 @@ class ProviderConformance(Generic[P]):
         self, make_provider: Callable[[], P]
     ) -> None:
         first, second = make_provider(), make_provider()
+        renamed = self.make_renamed_provider(first, f"{first.name}-kit-other")
         built = [first] if second is first else [first, second]
+        built.append(renamed)
         for one in built:
             await one.aopen()
         try:
             identities: list[str | None] = []
-            for one in (first, second):
+            for one in (first, second, renamed):
                 try:
                     identities.append(await one.isolation_identity())
                 except Exception as exc:
@@ -315,7 +336,7 @@ class ProviderConformance(Generic[P]):
         finally:
             for one in built:
                 await one.aclose()
-        identity, other = identities
+        identity, other, under_another_name = identities
         require(
             identity is not None,
             "isolation_identity() is None (unknown): name the backing store, "
@@ -330,6 +351,12 @@ class ProviderConformance(Generic[P]):
             identity == other,
             f"two providers built from the same options answer {identity!r} and "
             f"{other!r}: the identity names the store, not the instance",
+        )
+        require(
+            identity == under_another_name,
+            f"the instances {first.name!r} and {renamed.name!r} of one store "
+            f"answer {identity!r} and {under_another_name!r}: the identity names "
+            "the store, not the instance",
         )
 
     # -------------------------------------------------- 7. feature groups
@@ -383,7 +410,13 @@ class ProviderConformance(Generic[P]):
             for name, call in calls:
                 try:
                     await call()
-                except InfraError:
+                except InfraError as exc:
+                    require(
+                        self.leak_marker not in str(exc),
+                        f"{name} raised {type(exc).__name__} whose message shows "
+                        "the backend's secret: carry the error type or code, "
+                        "never the backend's text, a URL or a path",
+                    )
                     raised.append(name)
                 except Exception as exc:
                     raise AssertionError(

@@ -6,6 +6,7 @@ import asyncio
 import importlib.util
 import inspect
 import logging
+import sys
 from collections.abc import Callable, Mapping
 from contextlib import suppress
 from pathlib import Path
@@ -406,17 +407,63 @@ def test_a_kit_not_delivered_yet_names_its_slice() -> None:
     assert "LeaseConformance" in dir(sandloom.driverkit.testing)
 
 
-def test_the_api_baseline_pins_a_pending_kit_until_it_lands() -> None:
+def _api_gate() -> ModuleType:
     script = SNIPPET.parents[3] / "tools/packaging/check_public_api.py"
     spec = importlib.util.spec_from_file_location("check_public_api", script)
     assert spec is not None and spec.loader is not None
     api = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(api)
+    return api
+
+
+_LANDED = {"kind": "class", "members": ["a"], "signature": "()"}
+
+
+def test_the_api_baseline_pins_a_pending_kit_until_it_lands() -> None:
+    api = _api_gate()
     pending = {"m": {"Kit": {"kind": "pending"}}}
-    landed = {"m": {"Kit": {"kind": "class", "members": ["a"], "signature": "()"}}}
+    landed = {"m": {"Kit": _LANDED}}
     assert api._diff(pending, landed) == []
     assert api._diff(landed, pending) == ["m.Kit: no longer resolves"]
     assert api._diff(pending, {"m": {}}) == ["m.Kit: symbol removed"]
+
+
+def test_only_a_kit_of_driverkit_testing_is_pinned_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api_gate()
+    monkeypatch.setattr(api, "_public_modules", lambda: ["sandloom.driverkit.testing"])
+    kits = api.snapshot()["sandloom.driverkit.testing"]
+    assert kits["CacheConformance"] == {"kind": "pending"}
+    assert kits["ObjectStoreConformance"]["kind"] == "class"
+
+    forgotten = ModuleType("sandloom_api_gate_probe")
+    forgotten.__all__ = ["ghost"]  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, forgotten.__name__, forgotten)
+    monkeypatch.setattr(api, "_public_modules", lambda: [forgotten.__name__])
+    with pytest.raises(AttributeError, match="ghost"):
+        api.snapshot()
+
+
+def test_the_api_update_refuses_to_pin_a_resolved_name_pending(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    api = _api_gate()
+    baseline = tmp_path / "public_api_baseline.json"
+    pinned = api._dump({"m": {"Kit": _LANDED}})
+    baseline.write_text(pinned)
+    monkeypatch.setattr(api, "ROOT", tmp_path)
+    monkeypatch.setattr(api, "BASELINE_PATH", baseline)
+    monkeypatch.setattr(api, "snapshot", lambda: {"m": {"Kit": {"kind": "pending"}}})
+    assert api.main(["--update"]) == 1
+    assert baseline.read_text() == pinned
+    assert "m.Kit" in capsys.readouterr().err
+    monkeypatch.setattr(
+        api, "snapshot", lambda: {"m": {"Kit": _LANDED, "New": _LANDED}}
+    )
+    assert api.main(["--update"]) == 0
 
 
 @pytest.mark.parametrize(
@@ -428,19 +475,22 @@ def test_a_required_method_is_not_called_a_feature(spec: CapabilitySpec) -> None
 
 
 @pytest.mark.parametrize(
-    ("kit", "exempt"),
+    ("kit", "informational"),
     [
-        (NotifierConformance, frozenset()),
-        # ``metadata`` changes what put stores, not whether it runs: a driver
-        # without it accepts the content type and drops it (spec 9 lists no
-        # Unsupported("metadata")); its kit group runs only when declared.
-        (ObjectStoreConformance, frozenset({"metadata"})),
+        (NotifierConformance, {}),
+        # ``metadata`` is informational (spec 13.42): a driver without it
+        # accepts and drops it, which its kit check asserts instead of a call.
+        (ObjectStoreConformance, {"metadata": "test_object_metadata"}),
     ],
 )
-def test_each_behaviour_feature_has_its_call(kit: Any, exempt: frozenset[str]) -> None:
+def test_each_behaviour_feature_has_its_call(
+    kit: Any, informational: dict[str, str]
+) -> None:
     behaviours = {f for f, k in kit.spec.feature_kinds.items() if k == "behaviour"}
     calls = kit().feature_calls(_built(_kit_driver(kit)))
-    assert set(calls) == behaviours - exempt
+    assert set(calls) == behaviours - set(informational)
+    for check in informational.values():
+        assert callable(getattr(kit, check, None)), f"{kit.__name__} lacks {check}"
 
 
 # ----------------------------------------------------------------------- the kit
@@ -450,6 +500,16 @@ class TestTheGuideDriver(NotifierConformance):
         driver = _guide_module().FileNotifier
         return lambda: driver(
             name="default", driver="file", options={"path": str(tmp_path / "m.log")}
+        )
+
+    @pytest.fixture
+    def make_failing_provider(self, tmp_path: Path) -> Callable[[], NotifierProvider]:
+        # A directory that does not exist, named after the kit's secret: the
+        # error must carry neither the path nor the secret.
+        path = tmp_path / self.leak_marker / "m.log"
+        driver = _guide_module().FileNotifier
+        return lambda: driver(
+            name="default", driver="file", options={"path": str(path)}
         )
 
 
@@ -517,6 +577,9 @@ class _Store(ObjectStoreProvider):
         validate_object_key(key)
         if key not in _OBJECTS:
             raise NotFound("absent", capability="objectstore")
+        limit = self.options.get("read_limit")
+        if limit is not None and len(_OBJECTS[key]) > limit:
+            raise TooLarge("over the read limit", capability="objectstore")
         return _OBJECTS[key]
 
     async def delete(self, key: str) -> None:
@@ -585,6 +648,12 @@ class _Broken:
         async def health(self) -> HealthResult:
             return HealthResult(status="fail", details={"error": _LEAK})
 
+    class HealthWithAUrlKey(_Notifier):
+        async def health(self) -> HealthResult:
+            return HealthResult(
+                status="fail", details={"smtp://user:pw@mail.test:25": False}
+            )
+
     class HealthWithTheSecret(_Notifier):
         async def health(self) -> HealthResult:
             marker = NotifierConformance.leak_marker
@@ -606,6 +675,10 @@ class _Broken:
     class IdentityPerInstance(_Notifier):
         async def isolation_identity(self) -> str | None:
             return f"{self.driver}:{id(self)}"
+
+    class IdentityNamesTheInstance(_Notifier):
+        async def isolation_identity(self) -> str | None:
+            return f"{self.driver}:{self.name}"
 
     class RaisingIdentity(_Notifier):
         async def isolation_identity(self) -> str | None:
@@ -653,6 +726,10 @@ class _Broken:
         async def send(self, notification: Notification) -> None:
             return None
 
+    class FailingWithTheSecretInTheMessage(_Failing):
+        async def send(self, notification: Notification) -> None:
+            raise Unavailable(_LEAK, capability="notification")
+
     # the capabilities' own groups
     class RefusesADedupeKey(_Notifier):
         async def send(self, notification: Notification) -> None:
@@ -673,8 +750,28 @@ class _Broken:
             _OBJECTS[key] = b"".join([c async for c in iter_object_chunks(data, 64)])
             return key
 
+    class IgnoresItsReadLimit(_Store):
+        async def get(self, key: str) -> bytes:
+            validate_object_key(key)
+            if key not in _OBJECTS:
+                raise NotFound("absent", capability="objectstore")
+            return _OBJECTS[key]
+
     class MetadataWithoutAReader(_Store):
         supported_features = frozenset({"presigned_get", "metadata"})
+
+    class RefusesMetadataWithoutTheFeature(_Store):
+        async def put(
+            self,
+            key: str,
+            data: ObjectContent,
+            *,
+            content_type: str | None = None,
+            metadata: Mapping[str, str] | None = None,
+        ) -> str:
+            if metadata is not None:
+                raise Unsupported("metadata", capability="objectstore")
+            return await super().put(key, data, content_type=content_type)
 
 
 class _NotifierKit(NotifierConformance):
@@ -684,6 +781,7 @@ class _NotifierKit(NotifierConformance):
 class _StoreKit(ObjectStoreConformance):
     health_timeout_seconds = 0.2
     upload_limit_bytes = 16
+    read_limit_bytes = 12
 
 
 def _kit_driver(kit: Any) -> type[InfraProvider]:
@@ -702,7 +800,11 @@ async def _failures(
 ) -> set[str]:
     """Run every test of ``kit`` against ``driver`` as pytest would (a fresh
     opened provider per test), and answer the names of those that failed."""
-    options = {"limit": kit.upload_limit_bytes} if kit is _StoreKit else {}
+    options = (
+        {"limit": kit.upload_limit_bytes, "read_limit": kit.read_limit_bytes}
+        if kit is _StoreKit
+        else {}
+    )
 
     def make() -> Any:
         return _built(driver, **options)
@@ -782,6 +884,12 @@ _HARNESS = "test_harness_"
         ),
         (
             _NotifierKit,
+            _Broken.HealthWithAUrlKey,
+            None,
+            "reports_health_within_the_bound",
+        ),
+        (
+            _NotifierKit,
             _Broken.HealthWithTheSecret,
             None,
             "reports_health_within_the_bound",
@@ -797,6 +905,12 @@ _HARNESS = "test_harness_"
         (
             _NotifierKit,
             _Broken.IdentityPerInstance,
+            None,
+            "names_its_isolation_domain",
+        ),
+        (
+            _NotifierKit,
+            _Broken.IdentityNamesTheInstance,
             None,
             "names_its_isolation_domain",
         ),
@@ -838,6 +952,12 @@ _HARNESS = "test_harness_"
             _Broken.FailingThatSucceeds,
             "maps_backend_failures_to_infra_errors",
         ),
+        (
+            _NotifierKit,
+            _Notifier,
+            _Broken.FailingWithTheSecretInTheMessage,
+            "maps_backend_failures_to_infra_errors",
+        ),
     ],
     ids=lambda value: value.__name__ if isinstance(value, type) else None,
 )
@@ -865,7 +985,17 @@ async def test_each_harness_check_fails_exactly_its_broken_driver(
         (
             _StoreKit,
             _Broken.MetadataWithoutAReader,
-            "test_object_metadata_round_trip",
+            "test_object_metadata",
+        ),
+        (
+            _StoreKit,
+            _Broken.RefusesMetadataWithoutTheFeature,
+            "test_object_metadata",
+        ),
+        (
+            _StoreKit,
+            _Broken.IgnoresItsReadLimit,
+            "test_object_read_over_the_limit_is_too_large",
         ),
     ],
     ids=lambda value: value.__name__ if isinstance(value, type) else None,

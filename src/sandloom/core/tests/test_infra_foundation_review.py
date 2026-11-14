@@ -260,6 +260,30 @@ async def test_the_registry_drops_free_text_from_driver_health_details() -> None
     assert result.details["error"] == "<redacted>"
 
 
+class _ChattyKeys(_Notifier):
+    async def health(self) -> HealthResult:
+        return HealthResult(
+            status="fail",
+            details={
+                "smtp://user:s3cret-marker@mail.test:25": False,
+                "error": "ConnectionError",
+                "nested": {"redis://u:s3cret-marker@h:6379": 1, "ok": True},
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_the_registry_redacts_a_health_detail_keyed_by_free_text() -> None:
+    registry = _notifier_registry(_ChattyKeys)
+    result = (await registry.health_all())["notification:default"]
+    assert "s3cret-marker" not in repr(result)
+    assert result.details == {
+        "<redacted>": "<redacted>",
+        "error": "ConnectionError",
+        "nested": {"<redacted>": "<redacted>", "ok": True},
+    }
+
+
 @pytest.mark.asyncio
 async def test_the_redis_health_names_the_error_type() -> None:
     from sandloom.core.drivers.redis_cache import create_redis_cache
