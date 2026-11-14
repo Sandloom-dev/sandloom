@@ -23,6 +23,7 @@ from sandloom.core.consumers.runtime import ConsumerRuntimeSnapshot, ConsumerSta
 from sandloom.core.eventing.memory_transport import MemoryTransport
 from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.facade import CoreFacade
+from sandloom.core.infra.errors import Unsupported
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
 REVOKED = "core.auth.tokens_revoked.v1"
@@ -422,17 +423,50 @@ async def test_a_dead_letter_queue_longer_than_the_scan_is_unknown(
     assert (await probe(_Runtime(_status()))).ready
 
 
+@pytest.mark.parametrize(
+    "refusal",
+    [NotImplementedError(), Unsupported("dlq_ops", capability="eventbus")],
+    ids=["not_implemented", "unsupported"],
+)
 async def test_a_transport_without_dlq_inspection_has_none_to_count(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, refusal: Exception
 ) -> None:
     class _NoDlq(MemoryTransport):
         async def list_dlq(
             self, stream: str, *, count: int = 100, after: str | None = None
         ) -> list[dict[str, Any]]:
-            raise NotImplementedError
+            raise refusal
 
     probe = _probe_on(monkeypatch, _NoDlq())
     assert (await probe(_Runtime(_status()))).ready
+
+
+async def test_a_transport_not_declaring_dlq_ops_is_not_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Undeclared(_CountingDlq):
+        supported_features = frozenset({"durable"})
+
+    transport = _Undeclared()
+    probe = _probe_on(monkeypatch, transport)
+    assert (await probe(_Runtime(_status()))).ready
+    assert transport.calls == 0
+
+
+@pytest.mark.parametrize("answer", [None, (), "rows"], ids=["none", "tuple", "str"])
+async def test_a_dead_letter_read_that_is_not_a_list_is_unknown_not_empty(
+    monkeypatch: pytest.MonkeyPatch, answer: Any
+) -> None:
+    class _Odd(MemoryTransport):
+        async def list_dlq(
+            self, stream: str, *, count: int = 100, after: str | None = None
+        ) -> Any:
+            return answer
+
+    probe = _probe_on(monkeypatch, _Odd())
+    result = await probe(_Runtime(_status()))
+    assert not result.ready
+    assert any("could not be counted" in r for r in result.reasons)
 
 
 async def test_concurrent_ready_calls_share_one_dead_letter_read(

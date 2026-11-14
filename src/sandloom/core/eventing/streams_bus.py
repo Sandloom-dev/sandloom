@@ -1,4 +1,4 @@
-"""Durable event bus over a :class:`MessageTransport` (Redis Streams)."""
+"""Durable event bus over an ``EventTransport`` (Redis Streams)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import random
 import time
 import uuid
 from collections.abc import Sequence
+from dataclasses import replace
 from functools import partial
 from typing import (
     Any,
@@ -16,6 +17,7 @@ from typing import (
 from sandloom.core.config.settings import settings
 from sandloom.core.contracts import SchemaRegistryContract
 from sandloom.core.contracts.validators import validate_channel_name
+from sandloom.core.eventing.bus_base import BaseEventBus
 from sandloom.core.eventing.bus_metrics import _event_bus_metrics
 from sandloom.core.eventing.consumer_inbox import ConsumerInbox
 from sandloom.core.eventing.delivery import stream_start_id
@@ -32,14 +34,17 @@ from sandloom.core.eventing.envelope import (
 from sandloom.core.eventing.streams_dispatch import _StreamsDispatch
 from sandloom.core.eventing.subscriptions import SubscriptionHandle, SubscriptionState
 from sandloom.core.eventing.transport_base import (
-    TransportBatchError,
+    declared_features,
+    performance_hint,
     process_consumer_id,
 )
-from sandloom.core.eventing.transport_capabilities import (
-    TransportCapabilities,
-    transport_capabilities,
+from sandloom.core.eventing.volatile_provider import VolatileBusProvider
+from sandloom.core.infra.ports.eventbus import (
+    ConsumerInfo,
+    EventTransportProvider,
+    GroupOwner,
+    PartialPublish,
 )
-from sandloom.core.eventing.transport_capabilities import TransportCapability as Cap
 from sandloom.core.observability.metrics_utils import safe_inc
 
 logger = logging.getLogger("sandloom.core.eventing.event_bus")
@@ -58,7 +63,7 @@ def _default_consumer_group(callback: CallbackType) -> str:
 
 
 class StreamsEventBus(_StreamsDispatch):
-    """Durable event bus over a :class:`MessageTransport` (at-least-once).
+    """Durable event bus over an ``EventTransport`` (at-least-once).
 
     Unlike Pub/Sub, ``publish`` appends to a durable per-channel stream, so an
     event emitted while a consumer is offline is delivered when it returns. Each
@@ -69,8 +74,6 @@ class StreamsEventBus(_StreamsDispatch):
     Channels must be concrete (no ``prefix.*`` wildcard — a stream is addressed
     by exact name).
     """
-
-    durable = True
 
     _POLL_INTERVAL_SECONDS = 0.5
     # Server-side wait (XREADGROUP BLOCK) per idle consume; bounded so the loop
@@ -117,11 +120,15 @@ class StreamsEventBus(_StreamsDispatch):
             self._block_ms = max(1, int(poll_interval * 1000))
         else:
             self._block_ms = self._BLOCK_MS
-        # What the transport can do, resolved once (declared by its class,
-        # else probed from its methods: see ``transport_capabilities``).
-        self._capabilities = transport_capabilities(transport)
+        # What the transport declares, read once: its class says it, nothing is
+        # probed. ``durable`` of the bus derives from it (``BaseEventBus``).
+        self._features = declared_features(transport)
+        self.bus_features = self._features
+        self._one_round_trip_batch = (
+            performance_hint(transport, "publish_many") == "one_round_trip"
+        )
         # (channel, group) -> inventory info heartbeated by the consume loop
-        self._inventory_info: dict[tuple[str, str], dict[str, Any]] = {}
+        self._inventory_info: dict[tuple[str, str], ConsumerInfo] = {}
         # (channel, group) -> last observed {"lag", "pending", "observed_at"}
         self._group_stats: dict[tuple[str, str], dict[str, Any]] = {}
         # channel -> monotonic time of this process's last publish / audit
@@ -134,9 +141,9 @@ class StreamsEventBus(_StreamsDispatch):
         return self._transport
 
     @property
-    def transport_capabilities(self) -> TransportCapabilities:
-        """The optional transport features this bus uses."""
-        return self._capabilities
+    def transport_features(self) -> frozenset[str]:
+        """The ``eventbus`` features the transport declares."""
+        return self._features
 
     @staticmethod
     def _is_pattern(channel: str) -> bool:
@@ -146,10 +153,10 @@ class StreamsEventBus(_StreamsDispatch):
     def native_batch_publish(self) -> bool:
         """True when the transport appends a batch in one round trip.
 
-        ``MessageTransport.publish_many``'s default is a loop over
-        ``publish``: only an override (Redis Streams) counts as native.
+        The transport says so with the performance hint ``one_round_trip`` on
+        ``publish_many``; a looping default (the in-memory transport) does not.
         """
-        return Cap.NATIVE_BATCH_PUBLISH in self._capabilities
+        return self._one_round_trip_batch
 
     async def _publish_to_transport(self, channel: str, message: EventEnvelope) -> None:
         await self._transport.publish(channel, message)
@@ -165,18 +172,26 @@ class StreamsEventBus(_StreamsDispatch):
         failing its check stops the batch there (the events before it are
         still published, in order). The transport appends the batch atomically
         and in order (Redis Streams: ``MULTI``/``EXEC``); a transport failure
-        reports only the leading events it confirmed. A transport without
-        ``publish_many`` falls back to the sequential default.
+        reports only the leading events it confirmed (``PartialPublish``).
         """
-        if Cap.BATCH_PUBLISH not in self._capabilities:
-            return await super().publish_event_batch(events, prevalidated=prevalidated)
         items, error = self._prepare_batch(events, prevalidated)
         published = 0
         if items:
             try:
-                await self._transport.publish_many(items)
+                ids = await self._transport.publish_many(items)
+                if not isinstance(ids, list) or len(ids) != len(items):
+                    # A transport that confirms fewer (or other) ids than items
+                    # proves nothing appended: never report success. Nothing is
+                    # counted as published, so the relay retries the batch (a
+                    # duplicate, never a loss).
+                    got = len(ids) if isinstance(ids, list) else type(ids).__name__
+                    raise PartialPublish(
+                        f"publish_many returned {got} ids for {len(items)} items; "
+                        "the batch is not treated as published",
+                        retryable=True,
+                    )
                 published = len(items)
-            except TransportBatchError as exc:
+            except PartialPublish as exc:
                 published = min(len(exc.published), len(items))
                 error = exc
             except Exception as exc:  # noqa: BLE001 - third-party transport
@@ -235,7 +250,7 @@ class StreamsEventBus(_StreamsDispatch):
 
     async def _ensure_group(self, channel: str, group: str, start_from: Any) -> None:
         kwargs: dict[str, Any] = {}
-        if Cap.GROUP_START_ID in self._capabilities:
+        if "group_start_id" in self._features:
             kwargs["start_id"] = stream_start_id(start_from)
         await self._transport.ensure_group(channel, group, **kwargs)
 
@@ -246,15 +261,15 @@ class StreamsEventBus(_StreamsDispatch):
         *,
         group: str | None = None,
         start_from: Any = None,
-        owner: dict[str, Any] | None = None,
+        owner: GroupOwner | None = None,
     ) -> SubscriptionHandle:
         """Join ``channel`` under the durable consumer ``group``.
 
         ``owner`` (the module / database fingerprint) is checked against the
         group's recorded owner first -- a different deployment reusing the group
-        raises :class:`~sandloom.core.eventing.transport_base.GroupOwnershipError`.
+        raises :class:`~sandloom.core.infra.ports.eventbus.GroupOwnedElsewhere`.
         ``start_from`` only affects a group being CREATED
-        (see ``MessageTransport.ensure_group``).
+        (see ``EventTransport.ensure_group``).
         """
         if self._is_pattern(channel):
             raise ValueError(
@@ -263,16 +278,19 @@ class StreamsEventBus(_StreamsDispatch):
             )
         validate_channel_name(channel)
         grp = group or _default_consumer_group(callback)
-        if owner is not None and Cap.GROUP_OWNERSHIP in self._capabilities:
+        if owner is not None:
             await self._transport.claim_group_owner(channel, grp, owner)
         await self._ensure_group(channel, grp, start_from)
-        if (
-            getattr(callback, "sandloom_never_dead_letter", False)
-            and Cap.NEVER_DEAD_LETTER in self._capabilities
-        ):
+        if getattr(callback, "sandloom_never_dead_letter", False):
             self._transport.never_dead_letter(channel, grp)
         key = (channel, grp)
-        self._inventory_info[key] = {**(owner or {}), "channel": channel}
+        self._inventory_info[key] = ConsumerInfo(
+            stream=channel,
+            group=grp,
+            module=owner.module if owner is not None else "",
+            database=owner.database if owner is not None else "",
+            service=owner.service if owner is not None else None,
+        )
         await self._heartbeat(channel, grp)
 
         handle = SubscriptionHandle(partial(self._close_subscription, key, callback))
@@ -356,7 +374,7 @@ class StreamsEventBus(_StreamsDispatch):
         last_heartbeat = time.monotonic()
         failures = 0
         lease = self._batch_lease(channel, group, consumer)
-        blocking = Cap.BLOCKING_CONSUME in self._capabilities
+        blocking = "blocking_consume" in self._features
         while not self._stopped:
             if time.monotonic() - last_heartbeat >= self._HEARTBEAT_SECONDS:
                 last_heartbeat = time.monotonic()
@@ -402,7 +420,7 @@ class StreamsEventBus(_StreamsDispatch):
         # consumer's backlog can be reclaimed (XAUTOCLAIM) rather than stranded.
         info = self._inventory_info.get((channel, group))
         if info is not None:
-            info["consumer"] = consumer
+            self._inventory_info[(channel, group)] = replace(info, consumer=consumer)
         return consumer
 
     async def _read_deliveries(
@@ -475,3 +493,19 @@ class StreamsEventBus(_StreamsDispatch):
             self._subs.clear()
             self._subscription_handles.clear()
             self._tasks.clear()
+
+
+def build_event_bus(
+    provider: EventTransportProvider | VolatileBusProvider,
+    schema_registry: SchemaRegistryContract,
+) -> BaseEventBus:
+    """The kernel's bus for one ``eventbus`` provider (spec 7: two shapes).
+
+    A volatile provider (``memory``, ``redis``) hands over its own bus, which
+    that provider closes itself; any other is an ``EventTransportProvider``,
+    over which the kernel builds its durable bus. The caller closes a bus it
+    built over a transport (before the provider), never a volatile one.
+    """
+    if isinstance(provider, VolatileBusProvider):
+        return provider.bus()
+    return StreamsEventBus(schema_registry, provider)

@@ -16,6 +16,7 @@ import json
 import os
 import uuid
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -506,13 +507,13 @@ def test_source_behind_head_is_refused(databases: tuple[str, str]) -> None:
 
 async def test_group_owner_transfer_memory_transport() -> None:
     from sandloom.core.eventing.memory_transport import MemoryTransport
-    from sandloom.core.eventing.transport_base import GroupOwnershipError
+    from sandloom.core.infra.ports.eventbus import GroupOwnedElsewhere, GroupOwner
 
     src_id = database_identity_of_url("postgresql://db:5432/monolith")
     dst_id = database_identity_of_url("postgresql+asyncpg://u:p@billing-db/billing")
     t = MemoryTransport()
-    mine = {"module": "sandloom_billing", "database": src_id, "channel": "a.b.v1"}
-    other = {"module": "sandloom_identity", "database": src_id, "channel": "a.b.v1"}
+    mine = GroupOwner("sandloom_billing", src_id)
+    other = GroupOwner("sandloom_identity", src_id)
     await t.claim_group_owner("a.b.v1", "sandloom_billing:x", mine)
     await t.claim_group_owner("a.b.v1", "sandloom_identity:y", other)
 
@@ -533,9 +534,9 @@ async def test_group_owner_transfer_memory_transport() -> None:
     )
     assert moved == dry
     await t.claim_group_owner(
-        "a.b.v1", "sandloom_billing:x", {**mine, "database": dst_id}
+        "a.b.v1", "sandloom_billing:x", replace(mine, database=dst_id)
     )  # the new service claims it
-    with pytest.raises(GroupOwnershipError):
+    with pytest.raises(GroupOwnedElsewhere):
         await t.claim_group_owner(
             "a.b.v1", "sandloom_billing:x", mine
         )  # stale monolith
@@ -545,7 +546,7 @@ async def test_group_owner_transfer_memory_transport() -> None:
 async def test_group_owner_transfer_redis_transport() -> None:
     redis_asyncio = pytest.importorskip("redis.asyncio")
     from sandloom.core.eventing.streams_transport import RedisStreamsTransport
-    from sandloom.core.eventing.transport_base import GroupOwnershipError
+    from sandloom.core.infra.ports.eventbus import GroupOwnedElsewhere, GroupOwner
 
     values = worker_env_values(BACKEND / ".env.test")
     url = os.environ.get("SANDLOOM_TEST_CACHE_URL") or values.get("CACHE_URL")
@@ -565,16 +566,10 @@ async def test_group_owner_transfer_redis_transport() -> None:
     t = RedisStreamsTransport(client_factory=_factory, prefix=prefix)
     try:
         src_id, dst_id = "url:aaaa", "url:bbbb"
-        mine = {
-            "module": "sandloom_billing",
-            "database": src_id,
-            "channel": "billing.x.v1",
-        }
+        mine = GroupOwner("sandloom_billing", src_id)
         await t.claim_group_owner("billing.x.v1", "sandloom_billing:n@c", mine)
         listed = await t.list_group_owners()
-        assert listed == [
-            {"stream": "billing.x.v1", "group": "sandloom_billing:n@c", "owner": mine}
-        ]
+        assert listed == [("billing.x.v1", "sandloom_billing:n@c", mine)]
         moved = await transfer_group_owners(
             t,
             "sandloom_billing",
@@ -584,9 +579,9 @@ async def test_group_owner_transfer_redis_transport() -> None:
         )
         assert moved == ["billing.x.v1 sandloom_billing:n@c"]
         await t.claim_group_owner(
-            "billing.x.v1", "sandloom_billing:n@c", {**mine, "database": dst_id}
+            "billing.x.v1", "sandloom_billing:n@c", replace(mine, database=dst_id)
         )
-        with pytest.raises(GroupOwnershipError):
+        with pytest.raises(GroupOwnedElsewhere):
             await t.claim_group_owner("billing.x.v1", "sandloom_billing:n@c", mine)
         assert not await t.transfer_group_owner(
             "billing.x.v1", "sandloom_billing:n@c", expected=mine, owner=mine

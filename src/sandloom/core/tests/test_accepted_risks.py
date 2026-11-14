@@ -18,8 +18,8 @@ from sandloom.core.config.common import Environment
 from sandloom.core.config.settings import Settings, settings
 from sandloom.core.consumers.callbacks import VolatileBusError, subscribe_to_bus
 from sandloom.core.drivers.bootstrap import volatile_event_bus_allowed
-from sandloom.core.drivers.event_bus_driver import make_event_bus_drivers
 from sandloom.core.drivers.log_notifier import log_notifier_features
+from sandloom.core.eventing.volatile_provider import make_volatile_bus_drivers
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
@@ -86,7 +86,7 @@ def test_delegated_relay_needs_a_gunicorn_worker(
 def test_volatile_bus_driver_admitted_in_prod_by_the_risk(
     prod: pytest.MonkeyPatch,
 ) -> None:
-    drivers = make_event_bus_drivers(
+    drivers = make_volatile_bus_drivers(
         InMemorySchemaRegistry(), volatile_allowed=volatile_event_bus_allowed
     )
     cfg = InstanceConfig(capability="eventbus", name="side", driver="memory")

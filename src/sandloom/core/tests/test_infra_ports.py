@@ -85,11 +85,17 @@ def test_the_kernel_door_lists_the_kernel_facing_names() -> None:
 
 @pytest.mark.parametrize(
     ("name", "slice_"),
-    [("EventTransport", "idk-eventbus-contract"), ("WorkerHost", "idk-worker-port")],
+    [("WorkerHost", "idk-worker-port")],
 )
 def test_a_name_not_delivered_yet_names_its_slice(name: str, slice_: str) -> None:
     with pytest.raises(AttributeError, match=slice_):
         getattr(ports, name)
+
+
+def test_the_eventbus_transport_is_delivered() -> None:
+    from sandloom.core.infra.ports import eventbus
+
+    assert ports.EventTransport is eventbus.EventTransport
 
 
 def test_an_unknown_name_is_a_plain_attribute_error() -> None:

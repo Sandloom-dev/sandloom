@@ -13,6 +13,7 @@ the messaging layer keeps the console from importing the CLI (ADR-0007).
 from __future__ import annotations
 
 import uuid
+from dataclasses import asdict
 from typing import Any
 
 
@@ -69,11 +70,10 @@ def event_transport(core: Any) -> Any:
 async def streams_dlq_list(
     core: Any, channel: str, *, limit: int = 100, after: str | None = None
 ) -> list[Any]:
-    return list(
-        await event_transport(core).list_dlq(
-            channel, count=limit, **({"after": after} if after else {})
-        )
+    entries = await event_transport(core).list_dlq(
+        channel, count=limit, **({"after": after} if after else {})
     )
+    return [asdict(entry) for entry in entries]
 
 
 async def streams_dlq_replay(
@@ -89,13 +89,14 @@ async def streams_dlq_replay(
 
 
 async def streams_groups(core: Any, channel: str) -> list[dict[str, Any]]:
-    return list(await event_transport(core).group_info(channel))
+    return [asdict(group) for group in await event_transport(core).group_info(channel)]
 
 
 async def streams_consumers(
     core: Any, *, include_stale: bool = False
 ) -> list[dict[str, Any]]:
-    return list(await event_transport(core).list_consumers(include_stale=include_stale))
+    consumers = await event_transport(core).list_consumers(include_stale=include_stale)
+    return [asdict(consumer) for consumer in consumers]
 
 
 async def streams_release_group(core: Any, channel: str, group: str) -> bool:

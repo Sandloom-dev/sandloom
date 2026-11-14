@@ -51,7 +51,6 @@ def _default_layout() -> Iterator[None]:
 
 REDIS_DRIVERS: tuple[tuple[type[InfraProvider], str], ...] = (
     (redis_cache.RedisCacheProvider, "url"),
-    (event_bus_driver.RedisEventBusProvider, "url"),
     (event_bus_driver.StreamsEventBusProvider, "url"),
 )
 

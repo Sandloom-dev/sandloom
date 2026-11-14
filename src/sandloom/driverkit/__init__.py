@@ -11,13 +11,17 @@ registers it with
 business module may not import this package (SANDLOOM-C004), and the kernel
 never does. A module-facing contract joins it
 only with a kit in :mod:`sandloom.driverkit.testing`; the kernel-facing ones
-(``atomic_store``, ``lease``, ``broadcast``) are final and exported before
-their kits. A driver states its
+(``atomic_store``, ``lease``, ``broadcast``, the transport shape of ``eventbus``)
+are final and exported before their kits. A driver states its
 ``contract_version``, the integer major of its capability; another major is
 refused at load (SANDLOOM-B022). An operation raises only the errors of
 :mod:`sandloom.core.infra.errors` (:class:`InfraError` and its subclasses,
 re-exported here), mapping its backend's errors onto them. The kernel-facing
-contracts a driver package serves (``atomic_store``, ``lease``, ``broadcast``)
+contracts a driver package serves (``atomic_store``, ``lease``, ``broadcast``,
+and ``eventbus`` as an :class:`EventTransportProvider`: the typed durable
+transport the kernel builds its bus over, with :class:`Delivery`,
+:class:`GroupOwner`, :class:`Retention` and the other value types of its
+operations, :class:`PartialPublish` and :class:`GroupOwnedElsewhere`)
 are exported with their value types; a module never resolves them. A driver
 records metrics through :data:`observe` (an :class:`Observe`: ``counter`` and
 ``histogram`` return a :class:`DriverCounter` / :class:`DriverHistogram`), which
@@ -27,6 +31,7 @@ Guide: ``docs/infrastructure/write-a-driver.md``.
 """
 
 from sandloom.core.descriptors import HealthResult
+from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.infra.capabilities import CapabilityRef, CapabilitySpec
 from sandloom.core.infra.errors import (
     AlreadyExists,
@@ -47,6 +52,19 @@ from sandloom.core.infra.ports.broadcast import (
     Subscription,
 )
 from sandloom.core.infra.ports.database import UnitSession
+from sandloom.core.infra.ports.eventbus import (
+    ConsumerInfo,
+    DeadLetter,
+    Delivery,
+    EventTransport,
+    EventTransportProvider,
+    GroupInfo,
+    GroupOwnedElsewhere,
+    GroupOwner,
+    PartialPublish,
+    Retention,
+    StreamInfo,
+)
 from sandloom.core.infra.ports.lease import Lease, LeaseHolder, LeaseProvider
 from sandloom.core.infra.ports.notification import Notification, NotifierProvider
 from sandloom.core.infra.ports.objectstore import (
@@ -94,6 +112,18 @@ __all__ = [
     "AtomicStoreProvider",
     "BroadcastMessage",
     "BroadcastProvider",
+    "ConsumerInfo",
+    "DeadLetter",
+    "Delivery",
+    "EventEnvelope",
+    "EventTransport",
+    "EventTransportProvider",
+    "GroupInfo",
+    "GroupOwnedElsewhere",
+    "GroupOwner",
+    "PartialPublish",
+    "Retention",
+    "StreamInfo",
     "Lease",
     "LeaseHolder",
     "LeaseProvider",

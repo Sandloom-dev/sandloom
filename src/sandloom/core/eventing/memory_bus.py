@@ -42,9 +42,8 @@ class InMemoryEventBus(BaseEventBus):
     Tests that assert on side effects ``await bus.drain()`` first.
     """
 
-    #: Delivery guarantees (feature-detected by the consumer runtime): not
-    #: durable, but in-process — no other process can miss events.
-    durable = False
+    #: Not durable (it declares no ``durable``), but in-process: no other
+    #: process can miss events.
     in_process = True
 
     DEFAULT_MAX_DELIVERIES = 5

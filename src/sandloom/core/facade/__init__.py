@@ -108,6 +108,11 @@ class CoreFacade(_ClaimsMixin, _RegistriesMixin):
 
         return _event_bus.get_event_bus()
 
+    def _bound_event_bus(self) -> Any | None:
+        """The bus bound by ``set_event_bus`` only (kernel teardown): ``None``
+        when none was, never the bare-facade fallback ``event_bus`` returns."""
+        return self._event_bus
+
     def set_event_bus(self, bus: Any) -> None:
         """Bind the event bus instance this application owns."""
         self._event_bus = bus

@@ -82,6 +82,7 @@ from sandloom.core.drivers.bootstrap import (
     build_infra_registry,
 )
 from sandloom.core.eventing.core_events import register_core_event_schemas
+from sandloom.core.eventing.streams_bus import build_event_bus
 from sandloom.core.facade import CoreFacade
 from sandloom.core.guarantee_windows import enforce_guarantee_windows
 from sandloom.core.http.error_handlers import register_error_handlers
@@ -413,7 +414,7 @@ def _bind_infrastructure(
             "would be lost. Set EVENT_BUS_BACKEND=auto (or streams) to use the "
             "durable Redis Streams transport."
         )
-    bus = eventbus_provider.bus()
+    bus = build_event_bus(eventbus_provider, schema_registry_service)
     core_facade.set_event_bus(bus)
     # Bind the app-owned runtime (the core with its registry and bus, in one
     # call) so non-request callers (post-commit dispatch, relay helpers,

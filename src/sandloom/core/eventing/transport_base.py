@@ -1,21 +1,30 @@
-"""The durable message transport contract and its shared value types."""
+"""What the kernel's transports share: reliability knobs, the DLQ markers and
+the defaults of the operations every transport has.
+
+The contract itself is :class:`~sandloom.core.infra.ports.eventbus.EventTransport`
+(spec 7); :class:`TransportDefaults` implements the operations a transport may
+leave to a loop (``publish_many``, ``ack_many``) and the ``never_dead_letter``
+exemption the same way for the built-in transports.
+"""
 
 from __future__ import annotations
 
-import abc
 import os
 import socket
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar
+from collections.abc import Collection, Mapping, Sequence
 
 from prometheus_client import Counter
 
-from sandloom.core.eventing.envelope import EventEnvelope
-
-if TYPE_CHECKING:
-    from sandloom.core.eventing.transport_capabilities import TransportCapabilities
 from sandloom.core.config.settings import settings
+from sandloom.core.eventing.envelope import EventEnvelope
+from sandloom.core.infra.errors import Unsupported
+from sandloom.core.infra.ports._base import InfraProvider
+from sandloom.core.infra.ports.eventbus import (
+    Delivery,
+    EventTransport,
+    GroupOwner,
+    PartialPublish,
+)
 
 _METRIC_TARGETED_SKIPPED = Counter(
     "streams_targeted_replay_skipped_total",
@@ -24,21 +33,6 @@ _METRIC_TARGETED_SKIPPED = Counter(
 )
 
 
-class GroupOwnershipError(ValueError):
-    """A consumer group is already owned by a different module / database.
-
-    Two deployments sharing one consumer group split its events between them
-    (each sees only part of the stream), and with their exactly-once claims in
-    different databases an ``XAUTOCLAIM`` hand-over double-applies events. The
-    framework records the owner of every group it creates
-    (``sandloom:group-owner:<stream>:<group>``) and refuses a second owner. A
-    ``ValueError`` so the consumer runtime treats it as permanent (no retry).
-    """
-
-
-#: Fingerprint fields that must MATCH for two processes to share a group
-#: (replicas of one deployment). ``service`` / ``channel`` are informational.
-GROUP_OWNER_IDENTITY_FIELDS = ("module", "database")
 #: A subscription-inventory entry not refreshed for this long is stale.
 INVENTORY_STALE_SECONDS = 300.0
 #: Stream-entry field marking a DLQ replay meant for ONE consumer group only.
@@ -46,13 +40,10 @@ TARGET_GROUP_FIELD = "target_group"
 
 
 def _owner_conflict_message(
-    stream: str, group: str, existing: Mapping[str, Any], owner: Mapping[str, Any]
+    stream: str, group: str, existing: GroupOwner, owner: GroupOwner
 ) -> str:
-    def _fmt(fp: Mapping[str, Any]) -> str:
-        return " ".join(
-            f"{field}={fp.get(field)!r}"
-            for field in (*GROUP_OWNER_IDENTITY_FIELDS, "service")
-        )
+    def _fmt(fp: GroupOwner) -> str:
+        return f"module={fp.module!r} database={fp.database!r} service={fp.service!r}"
 
     return (
         f"consumer group {group!r} on stream {stream!r} is owned by "
@@ -66,10 +57,10 @@ def _owner_conflict_message(
     )
 
 
-def _owners_match(existing: Mapping[str, Any], owner: Mapping[str, Any]) -> bool:
-    return all(
-        existing.get(field) == owner.get(field) for field in GROUP_OWNER_IDENTITY_FIELDS
-    )
+def _owners_match(existing: GroupOwner, owner: GroupOwner) -> bool:
+    # ``module`` and ``database`` must MATCH for two processes to share a group
+    # (replicas of one deployment); ``service`` is informational.
+    return existing.module == owner.module and existing.database == owner.database
 
 
 # Default reliability knobs. A message delivered this many times without an ack
@@ -128,43 +119,42 @@ def retry_delay_ms(deliveries: int, *, base_ms: int, max_ms: int) -> int:
     return int(min(max_ms, base_ms * (2 ** (deliveries - 1))))
 
 
-class TransportBatchError(Exception):
-    """A :meth:`MessageTransport.publish_many` batch did not fully append.
+def declared_features(transport: EventTransport | InfraProvider) -> frozenset[str]:
+    """The ``eventbus`` features ``transport`` declares.
 
-    ``published`` holds the message ids of the LEADING items that were
-    appended before the failure (in order; empty when nothing — or nothing
-    known — was appended). The original error is the ``__cause__``. Items
-    after the first failure may or may not have been appended: callers treat
-    everything past ``published`` as undelivered and leave it to a retry
-    (at-least-once — a retried item may be a duplicate, never a loss).
+    A transport provider answers ``features()``; a bare transport (the
+    in-memory reference one, a test double) states ``supported_features`` on
+    its class. Nothing is probed from its methods.
+    """
+    if isinstance(transport, InfraProvider):
+        return transport.features()
+    declared: Collection[str] = getattr(type(transport), "supported_features", ())
+    return frozenset(declared)
+
+
+def performance_hint(
+    transport: EventTransport | InfraProvider, operation: str
+) -> str | None:
+    """The speed claim the transport's class makes about ``operation``."""
+    hints: Mapping[str, str] | None = getattr(
+        type(transport), "performance_hints", None
+    )
+    return None if hints is None else hints.get(operation)
+
+
+class TransportDefaults:
+    """The operations the built-in transports implement the same way.
+
+    ``publish_many`` and ``ack_many`` loop over their single forms (a transport
+    with a native batch overrides them and says ``one_round_trip`` in its
+    ``performance_hints``); ``never_dead_letter`` records the exempt groups.
     """
 
-    def __init__(self, published: Sequence[str], message: str) -> None:
-        super().__init__(message)
-        self.published: list[str] = list(published)
+    async def publish(self, stream: str, envelope: EventEnvelope) -> str:
+        raise NotImplementedError
 
-
-@dataclass(frozen=True, slots=True)
-class Delivery:
-    """One delivered message awaiting acknowledgement.
-
-    ``id`` is the transport-level delivery id used to ``ack``; ``envelope.id``
-    is the stable domain event id used for consumer-side dedupe.
-    """
-
-    id: str
-    stream: str
-    group: str
-    envelope: EventEnvelope
-
-
-class MessageTransport(abc.ABC):
-    """Consumer-group transport with explicit acknowledgement (at-least-once)."""
-
-    #: The optional features THIS class implements (see
-    #: :mod:`sandloom.core.eventing.transport_capabilities`). Read from the class
-    #: that sets it only — a subclass that does not redeclare it is probed.
-    capabilities: ClassVar[TransportCapabilities | None] = None
+    async def ack(self, delivery: Delivery) -> None:
+        raise NotImplementedError
 
     def never_dead_letter(self, stream: str, group: str) -> None:
         """Exempt ``(stream, group)`` from delivery-count dead-lettering.
@@ -172,7 +162,7 @@ class MessageTransport(abc.ABC):
         A failing delivery of that group is retried FOREVER with the capped
         backoff instead of moving to the DLQ after ``max_deliveries`` — for
         consumers whose events must never be silently parked (security
-        revocations). Only an explicit :meth:`dead_letter` (a handler raising
+        revocations). Only an explicit ``dead_letter`` (a handler raising
         :class:`~sandloom.core.eventing.delivery.PoisonEventError`) parks one.
         """
         exempt: set[tuple[str, str]] = self.__dict__.setdefault(
@@ -185,171 +175,50 @@ class MessageTransport(abc.ABC):
         exempt = self.__dict__.get("_never_dead_letter", set())
         return (stream, group) not in exempt
 
-    async def dead_letter(self, delivery: Delivery, *, reason: str) -> None:
-        """Move ``delivery`` to the DLQ NOW (a poison event) and ack it.
-
-        Default: unsupported (the delivery is left pending and redelivered).
-        """
-        raise NotImplementedError(f"{type(self).__name__} has no explicit DLQ")
-
-    @abc.abstractmethod
-    async def ensure_group(
-        self,
-        stream: str,
-        group: str,
-        *,
-        start_id: str = "0",
-    ) -> None:
-        """Idempotently create the consumer group for ``stream``.
-
-        ``start_id`` is where a NEW group starts (``"0"`` = all retained
-        entries, ``"$"`` = only new ones, ``"<ms>-0"`` = from a timestamp); an
-        existing group keeps its position. (The bus feature-detects the
-        keyword, so a transport with the bare ``(stream, group)`` signature
-        works too.)
-        """
-
-    async def claim_group_owner(
-        self, stream: str, group: str, owner: Mapping[str, Any]
-    ) -> None:
-        """Record/verify the owner fingerprint of ``(stream, group)``.
-
-        Raises :class:`GroupOwnershipError` when another module / database
-        already owns the group. Default: no ownership tracking.
-        """
-        return None
-
-    async def list_group_owners(self) -> list[dict[str, Any]]:
-        """Every recorded group owner: ``{"stream", "group", "owner"}`` dicts."""
-        return []
-
-    async def transfer_group_owner(
-        self,
-        stream: str,
-        group: str,
-        *,
-        expected: Mapping[str, Any],
-        owner: Mapping[str, Any],
-    ) -> bool:
-        """Replace the owner of ``(stream, group)`` iff it is still ``expected``.
-
-        Operator path after a module's data moved to another database
-        (``sandloom-migrate extract-module``). Default: no ownership tracking.
-        """
-        return False
-
-    async def group_info(self, stream: str) -> list[dict[str, Any]]:
-        """Consumer groups of ``stream`` with pending count and lag."""
-        return []
-
-    async def oldest_unacked_age_seconds(
-        self,
-        stream: str,
-        group: str,
-        *,
-        last_delivered_id: str | None,
-        pending: int | None,
-        lag: int | None,
-    ) -> float | None:
-        """Age of the oldest entry ``group`` has not acknowledged (0 = none).
-
-        The oldest pending (delivered, unacked) entry, else the first entry
-        after ``last_delivered_id``. Default ``None``: not measurable.
-        """
-        return None
-
-    async def register_consumer(
-        self, stream: str, group: str, info: Mapping[str, Any]
-    ) -> None:
-        """Record (heartbeat) a live subscription in the shared inventory."""
-        return None
-
-    async def list_consumers(
-        self, *, include_stale: bool = False
-    ) -> list[dict[str, Any]]:
-        """The subscription inventory (live entries unless ``include_stale``)."""
-        return []
-
-    @abc.abstractmethod
-    async def publish(self, stream: str, envelope: EventEnvelope) -> str:
-        """Append ``envelope`` to ``stream``; return the transport message id."""
-
     async def publish_many(
         self, items: Sequence[tuple[str, EventEnvelope]]
     ) -> list[str]:
         """Append every ``(stream, envelope)`` IN ORDER; return their ids.
 
-        Default: one :meth:`publish` each, stopping at the first failure.
-        Transports override it to append a whole batch in one round trip.
-        Any failure raises :class:`TransportBatchError` (``published`` = the
-        ids of the leading items known to be appended, the cause chained).
+        One :meth:`publish` each, stopping at the first failure with
+        :class:`PartialPublish` (``published`` = the ids of the leading items
+        appended, the cause chained).
         """
         ids: list[str] = []
         for stream, envelope in items:
             try:
                 ids.append(await self.publish(stream, envelope))
             except Exception as exc:
-                raise TransportBatchError(
+                raise partial_publish(
                     ids,
                     f"publish_many stopped at item {len(ids)} of {len(items)} "
                     f"(stream {stream!r}): {type(exc).__name__}: {exc}",
+                    exc,
                 ) from exc
         return ids
 
-    @abc.abstractmethod
-    async def consume(
-        self,
-        stream: str,
-        *,
-        group: str,
-        consumer: str,
-        count: int = 10,
-        block_ms: int | None = None,
-    ) -> list[Delivery]:
-        """Return up to ``count`` deliveries for ``(stream, group)``.
-
-        Unacknowledged deliveries are redelivered on a subsequent call (after
-        the transport's retry backoff) — a message is never dropped until it is
-        :meth:`ack`-ed or dead-lettered. Returns ``[]`` when nothing is due.
-        ``block_ms`` lets the call wait up to that long for a NEW message
-        instead of returning ``[]`` immediately (no busy polling).
-        """
-
-    @abc.abstractmethod
-    async def ack(self, delivery: Delivery) -> None:
-        """Acknowledge ``delivery`` so it is not redelivered."""
-
     async def ack_many(self, deliveries: Sequence[Delivery]) -> None:
-        """Acknowledge several deliveries (default: one :meth:`ack` each).
-
-        Transports override it to ack a consumed batch in one round trip.
-        """
+        """Acknowledge several deliveries, one :meth:`ack` each."""
         for delivery in deliveries:
             await self.ack(delivery)
 
-    async def list_dlq(
-        self, stream: str, *, count: int = 100, after: str | None = None
-    ) -> list[dict[str, Any]]:
-        """Return dead-lettered entries of ``stream`` (operator inspection)."""
-        raise NotImplementedError(f"{type(self).__name__} has no DLQ inspection")
+    async def renew_pending(
+        self, deliveries: Sequence[Delivery], consumer: str
+    ) -> None:
+        """Without ``lease_renewal`` a transport has nothing to renew."""
+        raise Unsupported("lease_renewal", capability="eventbus")
 
-    async def replay_dlq(
-        self,
-        stream: str,
-        *,
-        ids: list[str] | None = None,
-        count: int = 100,
-        group: str | None = None,
-    ) -> int:
-        """Re-publish dead-lettered entries to ``stream``; return how many.
+    def renew_interval_seconds(self) -> float:
+        raise Unsupported("lease_renewal", capability="eventbus")
 
-        A DLQ entry belongs to the ONE consumer group that kept failing it, so
-        the replay is TARGETED at that group: every other group acks the
-        replayed entry without running its handlers (they already processed
-        the event — a non-durable handler elsewhere would otherwise repeat its
-        side effect). ``group`` restricts the replay to entries dead-lettered by
-        that group. The envelope (and its stable id) is unchanged; the target
-        group gets a fresh delivery budget. Entries whose payload was lost
-        (``source_entry_missing``) cannot be replayed and are left in the DLQ.
-        """
-        raise NotImplementedError(f"{type(self).__name__} has no DLQ replay")
+
+def partial_publish(
+    published: Sequence[str], message: str, cause: BaseException
+) -> PartialPublish:
+    """A :class:`PartialPublish` whose ``retryable`` follows ``cause``.
+
+    An :class:`InfraError` cause says whether it is retryable; any other
+    exception is a backend fault the caller retries (a duplicate, never a loss).
+    """
+    retryable = getattr(cause, "retryable", True)
+    return PartialPublish(message, published=published, retryable=bool(retryable))

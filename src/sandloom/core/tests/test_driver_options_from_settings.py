@@ -15,8 +15,8 @@ import pytest
 
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers import celery_taskqueue, redis_cache
-from sandloom.core.drivers.event_bus_driver import EventBusOptions
 from sandloom.core.drivers.redis_cache import RedisCacheOptions
+from sandloom.core.eventing.volatile_provider import VolatileBusOptions
 from sandloom.core.infra.config import (
     DEFAULT_INSTANCE,
     InstanceConfig,
@@ -81,7 +81,7 @@ def test_a_named_instance_gets_what_it_leaves_out_and_keeps_what_it_says() -> No
     assert side["health_check_interval_seconds"] == (
         settings.cache_health_check_interval_seconds
     )
-    EventBusOptions.model_validate(side)
+    VolatileBusOptions.model_validate(side)
     assert config["eventbus"]["mem"].options == {}
     jobs = config["taskqueue"]["jobs"].options
     assert jobs == {"broker": "redis://b/2", "backend": settings.cache_url}

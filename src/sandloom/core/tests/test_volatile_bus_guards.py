@@ -16,9 +16,10 @@ from sandloom.core.drivers.bootstrap import (
     build_infra_registry,
     volatile_event_bus_allowed,
 )
-from sandloom.core.drivers.event_bus_driver import make_event_bus_drivers
+from sandloom.core.drivers.event_bus_driver import make_streams_driver
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.eventing.pubsub_bus import RedisEventBus
+from sandloom.core.eventing.volatile_provider import make_volatile_bus_drivers
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
@@ -71,7 +72,7 @@ async def test_memory_bus_allowed_in_dev_refused_in_prod(
 
 
 def test_driver_refuses_volatile_bus_in_prod(monkeypatch: pytest.MonkeyPatch) -> None:
-    drivers = make_event_bus_drivers(
+    drivers = make_volatile_bus_drivers(
         InMemorySchemaRegistry(), volatile_allowed=volatile_event_bus_allowed
     )
     monkeypatch.setattr(settings, "environment", Environment.prod)
@@ -85,7 +86,7 @@ def test_driver_refuses_volatile_bus_in_prod(monkeypatch: pytest.MonkeyPatch) ->
         cfg = InstanceConfig(capability="eventbus", name="side", driver=driver)
         assert drivers[driver](cfg).bus() is not None
     streams = InstanceConfig(capability="eventbus", name="side", driver="streams")
-    assert "durable" in drivers["streams"](streams).features()
+    assert "durable" in make_streams_driver()(streams).features()
 
 
 def _registry_for(resolved: Any) -> Any:

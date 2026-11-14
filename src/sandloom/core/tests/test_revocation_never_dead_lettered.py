@@ -22,7 +22,7 @@ import os
 import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -35,6 +35,8 @@ from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.eventing.memory_transport import MemoryTransport
 from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.eventing.transport_base import DLQ_REASON_POISON
+from sandloom.core.infra.errors import Unsupported
+from sandloom.core.infra.ports.eventbus import Delivery
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.testing import InMemoryAtomicStore
 
@@ -187,7 +189,7 @@ async def test_streams_malformed_revocation_is_dead_lettered_at_once(
     finally:
         await bus.close()
     (entry,) = await transport.list_dlq(CHANNEL)
-    assert entry["attempts"] <= 1  # not retried: it can never apply
+    assert entry.attempts <= 1  # not retried: it can never apply
     assert marks._counter_value(malformed) == count_before + 1
     assert any(r.levelname == "CRITICAL" for r in caplog.records)
     assert marks.revocation_metrics_snapshot()["applied"] == before["applied"]
@@ -383,10 +385,29 @@ async def test_redis_streams_never_dead_letter_group_survives_the_old_budget(
         (poison,) = await transport.consume(stream, group=group, consumer=consumer)
         await transport.dead_letter(poison, reason=DLQ_REASON_POISON)
         (parked,) = await transport.list_dlq(stream)
-        assert parked["reason"] == DLQ_REASON_POISON
+        assert parked.reason == DLQ_REASON_POISON
     finally:
         await client.delete(stream, f"{stream}.dlq")
         await client.aclose()
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [NotImplementedError(), Unsupported("dead_letter", capability="eventbus")],
+    ids=["not_implemented", "unsupported"],
+)
+async def test_a_transport_that_cannot_dead_letter_leaves_poison_pending(
+    refusal: Exception, caplog: pytest.LogCaptureFixture
+) -> None:
+    class _CannotDeadLetter(MemoryTransport):
+        async def dead_letter(self, delivery: Any, *, reason: str) -> None:
+            raise refusal
+
+    bus = StreamsEventBus(InMemorySchemaRegistry(), _CannotDeadLetter())
+    delivery = Delivery(stream=CHANNEL, group="g", id="1-0", envelope=cast(Any, {}))
+    with caplog.at_level("CRITICAL"):
+        await bus._dead_letter_poison(delivery)  # must not raise
+    assert "cannot dead-letter" in caplog.text
 
 
 def test_poison_error_is_public() -> None:

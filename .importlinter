@@ -152,7 +152,7 @@ source_modules =
     sandloom.core.eventing.streams_lease
     sandloom.core.eventing.subscriptions
     sandloom.core.eventing.transport_base
-    sandloom.core.eventing.transport_capabilities
+    sandloom.core.eventing.volatile_provider
 forbidden_modules =
     sandloom.core.eventing.streams_transport
     sandloom.core.eventing.streams_transport_base

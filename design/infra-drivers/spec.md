@@ -1304,7 +1304,8 @@ For the orchestrator's review; each departs from or details `design.md`.
     `Capability(...)`, `get_core().capability`) and a module's `CapabilityRequirement`, required
     or optional, are refused with SANDLOOM-B041. `eventbus` is kernel-facing but not marked: the
     kernel derives an `eventbus` requirement for modules that publish, and the facade's
-    `eventbus()` resolves it; `idk-eventbus-contract` decides whether it becomes kernel-only.
+    `eventbus()` resolves it; `idk-eventbus-contract` decided: it stays not `kernel_only`, because
+    both would be refused with SANDLOOM-B041 (recorded in the `ports/eventbus.py` docstring).
 40. **`CapabilitySpec.removed_features`** maps a previous major's feature name to its replacement;
     every unknown-feature refusal (driver load, requirement, resolve) names the replacement. A
     removed name is never a feature of the spec. The eventbus and taskqueue slices fill their
