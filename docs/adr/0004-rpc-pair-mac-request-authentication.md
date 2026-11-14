@@ -185,7 +185,7 @@ LP(x1..xn) = for each xi: uint32_be(len(xi)) || xi        (fixed arity n)
     (`503 rpc_replay_unavailable`) instead of evicting a live nonce; it is
     never rebuilt on reconfiguration.
   - Layer 2, `RPC_REPLAY_GUARD=commands` (default) or `all`: an atomic
-    `SET NX` with that TTL on the **security cache** (`SECURITY_CACHE_INSTANCE`,
+    `add` with that TTL on the **security store** (`INFRA.atomic_store.security`,
     shared by every replica and worker) for command calls (`commands`) or
     every call (`all`); `local` disables it. The shared key is a SHA-256 of
     `LP(provider, caller, nonce)` and lives a constant `3·skew` s — not

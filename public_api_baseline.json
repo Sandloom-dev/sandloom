@@ -2230,6 +2230,25 @@
       "kind": "callable",
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
+    "InMemoryAtomicStore": {
+      "kind": "class",
+      "members": [
+        "add",
+        "add_or_get",
+        "compare_and_delete",
+        "compare_and_set",
+        "delete",
+        "driver",
+        "features",
+        "get",
+        "health",
+        "isolation_identity",
+        "name",
+        "set",
+        "set_subject_state"
+      ],
+      "signature": "(broken:KEYWORD_ONLY|bool=False) -> None"
+    },
     "InMemoryCache": {
       "kind": "class",
       "members": [
@@ -2517,9 +2536,9 @@
       "kind": "function",
       "signature": "(url:POSITIONAL_OR_KEYWORD|str) -> None"
     },
-    "use_security_cache": {
+    "use_security_store": {
       "kind": "function",
-      "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch, provider:POSITIONAL_OR_KEYWORD|CacheProvider) -> CacheProvider"
+      "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch, store:POSITIONAL_OR_KEYWORD|AtomicStore) -> AtomicStore"
     },
     "wait_revocation_listener_subscribed": {
       "kind": "function",
@@ -6348,6 +6367,25 @@
       "kind": "callable",
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
+    "InMemoryAtomicStore": {
+      "kind": "class",
+      "members": [
+        "add",
+        "add_or_get",
+        "compare_and_delete",
+        "compare_and_set",
+        "delete",
+        "driver",
+        "features",
+        "get",
+        "health",
+        "isolation_identity",
+        "name",
+        "set",
+        "set_subject_state"
+      ],
+      "signature": "(broken:KEYWORD_ONLY|bool=False) -> None"
+    },
     "InMemoryCache": {
       "kind": "class",
       "members": [
@@ -6778,9 +6816,9 @@
       "kind": "function",
       "signature": "(url:POSITIONAL_OR_KEYWORD|str) -> None"
     },
-    "use_security_cache": {
+    "use_security_store": {
       "kind": "function",
-      "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch, provider:POSITIONAL_OR_KEYWORD|CacheProvider) -> CacheProvider"
+      "signature": "(monkeypatch:POSITIONAL_OR_KEYWORD|pytest.MonkeyPatch, store:POSITIONAL_OR_KEYWORD|AtomicStore) -> AtomicStore"
     },
     "validate_settings": {
       "kind": "function",

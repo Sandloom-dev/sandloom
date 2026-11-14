@@ -83,7 +83,6 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | --- | --- | --- | --- |
 | `PRODUCTION_PROFILE` | `Literal['standard', 'multi_tenant_strict']` | `'standard'` | Production trust profile: standard or multi_tenant_strict. The strict profile enforces tenant RLS, isolated security infrastructure and other startup guarantees. |
 | `SANDLOOM_ACCEPTED_RISKS` | `list[str]` | `[]` | Explicit production guarantee exceptions as a JSON list or comma-separated risk IDs; unknown IDs fail startup and accepted risks are reported. |
-| `SECURITY_CACHE_INSTANCE` | `str` | `'default'` | Named cache instance for security-critical revocation and block state, and by default idempotency records; use durable non-evicting Redis in production. |
 | `TENANCY_MODE` | `Literal['multi', 'single']` | `'multi'` | Tenant-binding mode: multi derives the current tenant; single consistently binds the canonical SINGLE_TENANT_ID without disabling tenant filters. |
 | `SINGLE_TENANT_ID` | `uuid.UUID | None` | `None` | Canonical tenant UUID required when TENANCY_MODE is single. |
 | `JWT_SECRET` | `str | None` | `None` | Shared secret for symmetric JWT signing and verification. In asymmetric mode only the token issuer uses it for emailed tokens; verifier-only services must leave it unset. |
@@ -217,7 +216,6 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `CONTRACT_CACHE_SHADOW_MAX_ENTRIES` | `int` | `100000` | Maximum entries retained by contract-cache shadow measurement. |
 | `CONTRACT_CACHE_SHADOW_REPORT_DIR` | `str | None` | `None` | Directory for contract-cache shadow counter snapshots at process exit; unset writes no report file. |
 | `CONTRACT_COMMAND_DEDUPE_TTL_SECONDS` | `int` | `86400` | Seconds a completed command-contract result remains replayable for its idempotency key; must cover configured saga and retry horizons. |
-| `IDEMPOTENCY_CACHE_INSTANCE` | `str` | `""` | Separate named cache for idempotency and task-enqueue records; empty uses SECURITY_CACHE_INSTANCE. Revocation and block state stays in the security cache. |
 | `DATABASE_SYSTEM_URL` | `str | None` | `None` | Separate privileged database login used only by framework cross-tenant work on the default database; never supplied to business-module sessions. |
 | `DB_CONNECT_TIMEOUT_SECONDS` | `float` | `5.0` | Maximum seconds to establish a database connection. |
 | `DB_RECONNECT_BASE_SECONDS` | `float` | `0.05` | Initial pool-wide backoff delay in seconds for new connections after transport failures; never retries statements. |

@@ -34,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from sandloom.core.auth import blocks, marks, revocation, tokens, verification
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers.redis_cache import RedisCacheProvider
+from sandloom.core.drivers.redis_atomic_store import RedisAtomicStoreProvider
 from sandloom.core.infra import access
 from sandloom.core.testing import bind_test_uow, reload_test_env, run_on_commit
 
@@ -74,28 +74,25 @@ def _redis_url() -> str:
 @pytest_asyncio.fixture
 async def redis_cache(
     monkeypatch: pytest.MonkeyPatch,
-) -> AsyncIterator[RedisCacheProvider]:
-    provider = RedisCacheProvider(
-        name="freshness", driver="redis", options={"url": _redis_url()}, shared=False
+) -> AsyncIterator[RedisAtomicStoreProvider]:
+    provider = RedisAtomicStoreProvider(
+        name="freshness", driver="redis", options={"url": _redis_url()}
     )
     try:
         await asyncio.wait_for(provider.get("sandloom:test:ping"), 5)
     except Exception:  # noqa: BLE001 - test Redis unreachable: skip
         await provider.aclose()
         pytest.skip("test Redis not reachable")
-    monkeypatch.setattr(access, "cache", lambda name="default": provider)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": provider)
     monkeypatch.setattr(settings, "auth_revocation_fail_closed", True)
     yield provider
     await provider.aclose()
 
 
-def _dead_cache() -> RedisCacheProvider:
+def _dead_cache() -> RedisAtomicStoreProvider:
     # Nothing listens on port 1: every command fails at once (connection refused).
-    return RedisCacheProvider(
-        name="dead",
-        driver="redis",
-        options={"url": "redis://127.0.0.1:1/0"},
-        shared=False,
+    return RedisAtomicStoreProvider(
+        name="dead", driver="redis", options={"url": "redis://127.0.0.1:1/0"}
     )
 
 
@@ -129,7 +126,7 @@ def _auth(sub: str) -> dict[str, str]:
 
 
 async def _write_mark_from_another_process(
-    provider: RedisCacheProvider, sub: str
+    provider: RedisAtomicStoreProvider, sub: str
 ) -> None:
     """Another process revokes ``sub`` (nothing is announced to this one)."""
     await provider.set(
@@ -143,7 +140,7 @@ async def _write_mark_from_another_process(
 # every request is strict
 # ---------------------------------------------------------------------------
 async def test_strict_default_sees_revocation_on_next_request(
-    redis_cache: RedisCacheProvider, probe: httpx.AsyncClient
+    redis_cache: RedisAtomicStoreProvider, probe: httpx.AsyncClient
 ) -> None:
     sub = str(uuid4())
     headers = _auth(sub)
@@ -223,7 +220,7 @@ async def _audit_rows(
 
 
 async def test_block_applies_on_next_request_even_on_budget_routes(
-    redis_cache: RedisCacheProvider,
+    redis_cache: RedisAtomicStoreProvider,
     probe: httpx.AsyncClient,
     audit_db: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -241,7 +238,7 @@ async def test_block_applies_on_next_request_even_on_budget_routes(
     # A token minted AFTER the block is blocked too.
     assert (await probe.get("/strict", headers=_auth(sub))).status_code == 401
     assert await blocks.is_user_blocked(sub) is True
-    client = await redis_cache.raw_client()
+    client = await redis_cache._client_obj()
     assert await client.ttl(marks.subject_key(sub)) == -1  # until unblocked
 
     async with audit_db() as session:
@@ -267,7 +264,7 @@ async def test_block_applies_on_next_request_even_on_budget_routes(
 
 
 async def test_unblock_lifts_the_mark_only_after_commit(
-    redis_cache: RedisCacheProvider, audit_db: async_sessionmaker[AsyncSession]
+    redis_cache: RedisAtomicStoreProvider, audit_db: async_sessionmaker[AsyncSession]
 ) -> None:
     """A rolled-back unblock leaves the user blocked (fail-safe, never unaudited)."""
     sub, admin = str(uuid4()), uuid4()
@@ -304,7 +301,7 @@ async def test_unblock_lifts_the_mark_only_after_commit(
 
 
 async def test_block_mark_is_written_last(
-    redis_cache: RedisCacheProvider,
+    redis_cache: RedisAtomicStoreProvider,
     audit_db: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -324,7 +321,9 @@ async def test_block_mark_is_written_last(
     assert await _audit_rows(audit_db, sub) == []
 
 
-async def test_block_requires_uow_and_reason(redis_cache: RedisCacheProvider) -> None:
+async def test_block_requires_uow_and_reason(
+    redis_cache: RedisAtomicStoreProvider,
+) -> None:
     from sandloom.core.unit_of_work.effects import AuditUnavailableError
 
     sub = str(uuid4())
@@ -341,7 +340,7 @@ async def test_block_write_outage_is_503_and_rolls_back_audit(
     from sandloom.core.http.error_handlers import http_status_of
 
     dead = _dead_cache()
-    monkeypatch.setattr(access, "cache", lambda name="default": dead)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": dead)
     sub = str(uuid4())
     try:
         async with audit_db() as session:
@@ -359,7 +358,7 @@ async def test_block_write_outage_is_503_and_rolls_back_audit(
 # Redis outage
 # ---------------------------------------------------------------------------
 async def test_redis_down_fail_closed(
-    redis_cache: RedisCacheProvider,
+    redis_cache: RedisAtomicStoreProvider,
     probe: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -367,7 +366,7 @@ async def test_redis_down_fail_closed(
     headers = _auth(sub)
     assert (await probe.get("/strict", headers=headers)).status_code == 200
     dead = _dead_cache()
-    monkeypatch.setattr(access, "cache", lambda name="default": dead)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": dead)
     try:
         # Freshness cannot be confirmed -> 503 on every authenticated route.
         assert (await probe.get("/strict", headers=headers)).status_code == 503
@@ -382,7 +381,7 @@ async def test_redis_down_fail_open_outside_prod(
     probe: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     dead = _dead_cache()
-    monkeypatch.setattr(access, "cache", lambda name="default": dead)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": dead)
     monkeypatch.setattr(settings, "auth_revocation_fail_closed", False)
     try:
         headers = _auth(str(uuid4()))
@@ -395,10 +394,12 @@ async def test_redis_down_fail_open_outside_prod(
 # ---------------------------------------------------------------------------
 # revocation mark TTL unchanged
 # ---------------------------------------------------------------------------
-async def test_revocation_mark_ttl_unchanged(redis_cache: RedisCacheProvider) -> None:
+async def test_revocation_mark_ttl_unchanged(
+    redis_cache: RedisAtomicStoreProvider,
+) -> None:
     sub = str(uuid4())
     assert await revocation.revoke_user_tokens(sub) is True
-    client = await redis_cache.raw_client()
+    client = await redis_cache._client_obj()
     ttl = await client.ttl(marks.subject_key(sub))
     expected = marks._revocation_ttl_seconds()
     assert expected >= 24 * 3600
@@ -413,14 +414,14 @@ _CHILD = textwrap.dedent(
     import asyncio, json, sys, time
     from sandloom.core.auth import verification
     from sandloom.core.infra import access
-    from sandloom.core.drivers.redis_cache import RedisCacheProvider
+    from sandloom.core.drivers.redis_atomic_store import RedisAtomicStoreProvider
 
     async def main():
         url, sub = sys.argv[1], sys.argv[2]
-        provider = RedisCacheProvider(
-            name="child", driver="redis", options={"url": url}, shared=False
+        provider = RedisAtomicStoreProvider(
+            name="child", driver="redis", options={"url": url}
         )
-        access.cache = lambda name="default": provider
+        access.atomic_store = lambda role="security": provider
         claims = {"sub": sub, "iat": int(time.time()) - 5}
         assert await verification.is_token_revoked(claims) is False
         print("READY", flush=True)
@@ -437,7 +438,7 @@ _CHILD = textwrap.dedent(
 
 
 async def test_revocation_in_one_process_invalidates_another(
-    redis_cache: RedisCacheProvider,
+    redis_cache: RedisAtomicStoreProvider,
 ) -> None:
     """The very next check in ANOTHER process sees the revocation (no copy,
     no broadcast to lose)."""
@@ -516,7 +517,7 @@ def test_budget_ignored_on_always_strict_routes() -> None:
 
 
 async def _revoked_from_elsewhere_is_seen_at_once(
-    redis_cache: RedisCacheProvider, probe: httpx.AsyncClient
+    redis_cache: RedisAtomicStoreProvider, probe: httpx.AsyncClient
 ) -> None:
     sub = str(uuid4())
     headers = _auth(sub)
@@ -527,38 +528,38 @@ async def _revoked_from_elsewhere_is_seen_at_once(
 
 
 async def test_budget_holds_at_decision_time_not_only_at_lookup(
-    redis_cache: RedisCacheProvider, probe: httpx.AsyncClient
+    redis_cache: RedisAtomicStoreProvider, probe: httpx.AsyncClient
 ) -> None:
     await _revoked_from_elsewhere_is_seen_at_once(redis_cache, probe)
 
 
 async def test_expired_copy_is_never_extended(
-    redis_cache: RedisCacheProvider, probe: httpx.AsyncClient
+    redis_cache: RedisAtomicStoreProvider, probe: httpx.AsyncClient
 ) -> None:
     await _revoked_from_elsewhere_is_seen_at_once(redis_cache, probe)
 
 
 async def test_invalidation_during_read_is_not_cached(
-    redis_cache: RedisCacheProvider, probe: httpx.AsyncClient
+    redis_cache: RedisAtomicStoreProvider, probe: httpx.AsyncClient
 ) -> None:
     await _revoked_from_elsewhere_is_seen_at_once(redis_cache, probe)
 
 
 async def test_invalidation_during_block_read_forces_live_mark_read(
-    redis_cache: RedisCacheProvider, probe: httpx.AsyncClient
+    redis_cache: RedisAtomicStoreProvider, probe: httpx.AsyncClient
 ) -> None:
     await _revoked_from_elsewhere_is_seen_at_once(redis_cache, probe)
 
 
 async def test_budget_bounds_staleness_when_broadcast_is_lost(
-    redis_cache: RedisCacheProvider, probe: httpx.AsyncClient
+    redis_cache: RedisAtomicStoreProvider, probe: httpx.AsyncClient
 ) -> None:
     """Nothing is broadcast any more, so nothing can be lost."""
     await _revoked_from_elsewhere_is_seen_at_once(redis_cache, probe)
 
 
 async def test_own_revocation_is_immediate_on_budget_route(
-    redis_cache: RedisCacheProvider, probe: httpx.AsyncClient
+    redis_cache: RedisAtomicStoreProvider, probe: httpx.AsyncClient
 ) -> None:
     sub = str(uuid4())
     headers = _auth(sub)
@@ -568,7 +569,7 @@ async def test_own_revocation_is_immediate_on_budget_route(
 
 
 async def test_only_a_drop_of_the_same_subject_discards_a_racing_read(
-    redis_cache: RedisCacheProvider, probe: httpx.AsyncClient
+    redis_cache: RedisAtomicStoreProvider, probe: httpx.AsyncClient
 ) -> None:
     """Another subject's revocation never affects this one; its own always does."""
     mine, other = str(uuid4()), str(uuid4())
@@ -580,7 +581,7 @@ async def test_only_a_drop_of_the_same_subject_discards_a_racing_read(
 
 
 async def test_copy_expiring_during_block_read_fails_closed_on_outage(
-    redis_cache: RedisCacheProvider,
+    redis_cache: RedisAtomicStoreProvider,
     probe: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -588,7 +589,7 @@ async def test_copy_expiring_during_block_read_fails_closed_on_outage(
     headers = _auth(str(uuid4()))
     assert (await probe.get("/strict", headers=headers)).status_code == 200
     dead = _dead_cache()
-    monkeypatch.setattr(access, "cache", lambda name="default": dead)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": dead)
     try:
         assert (await probe.get("/strict", headers=headers)).status_code == 503
     finally:
@@ -596,7 +597,7 @@ async def test_copy_expiring_during_block_read_fails_closed_on_outage(
 
 
 async def test_budget_fast_path_is_one_block_read(
-    redis_cache: RedisCacheProvider, monkeypatch: pytest.MonkeyPatch
+    redis_cache: RedisAtomicStoreProvider, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The authenticated hot path is ONE read of ONE key (G-REVOKE-21)."""
     from types import SimpleNamespace

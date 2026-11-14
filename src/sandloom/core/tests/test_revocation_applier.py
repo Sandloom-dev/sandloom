@@ -19,7 +19,11 @@ from fastapi import HTTPException
 
 from sandloom.core.app_factory.revocation_applier import apply_token_revocation
 from sandloom.sdk.security import ensure_token_not_revoked, revoke_user_tokens
-from sandloom.sdk.testing import InMemoryCache, revocation_mark_key, use_security_cache
+from sandloom.sdk.testing import (
+    InMemoryAtomicStore,
+    revocation_mark_key,
+    use_security_store,
+)
 
 
 def _reads_as_us(stored: str) -> int:
@@ -32,9 +36,9 @@ def _reads_as_us(stored: str) -> int:
 
 
 @pytest.fixture
-def mem_cache(monkeypatch: pytest.MonkeyPatch) -> InMemoryCache:
-    fake = InMemoryCache()
-    use_security_cache(monkeypatch, fake)
+def mem_cache(monkeypatch: pytest.MonkeyPatch) -> InMemoryAtomicStore:
+    fake = InMemoryAtomicStore()
+    use_security_store(monkeypatch, fake)
     return fake
 
 
@@ -46,7 +50,7 @@ def _envelope(user_id: str, valid_after: float) -> dict[str, Any]:
 
 
 async def test_applier_writes_the_pending_mark_once_the_cache_is_back(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     sub = str(uuid4())
     mark = time.time() + 2.0
@@ -68,7 +72,7 @@ async def test_applier_writes_the_pending_mark_once_the_cache_is_back(
 
 
 async def test_applier_never_moves_a_newer_mark_backwards(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     sub = str(uuid4())
     newer = time.time() + 60
@@ -363,7 +367,7 @@ def _group(name: str) -> str:
 
 
 async def test_three_replicas_and_two_deployments_on_one_bus(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     """Three replicas of ``api`` share its group (each event applied once
     there); ``billing`` on the same bus has its own group and also applies
@@ -401,7 +405,7 @@ async def test_three_replicas_and_two_deployments_on_one_bus(
 
 
 async def test_cache_failure_redelivers_then_applies_and_restart_replays_idempotently(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     """The cache fails while the applier runs: the delivery is retried (never
     dead-lettered) and applied once the cache is back. A restarted process
@@ -450,7 +454,7 @@ async def test_cache_failure_redelivers_then_applies_and_restart_replays_idempot
 
 
 async def test_a_channel_version_change_keeps_the_deployment_group(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     """The group names the deployment, not the channel version: during a roll
     to a ``.v2`` channel (dual-published) the same deployment group drains

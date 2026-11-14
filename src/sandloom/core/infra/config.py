@@ -89,19 +89,22 @@ class InstanceConfig:
 InfraConfig = dict[str, dict[str, InstanceConfig]]
 
 
+def _is_prod(settings: Any) -> bool:
+    environment = getattr(settings, "environment", None)
+    return (
+        environment == Environment.prod
+        if environment is not None
+        else bool(getattr(settings, "is_prod", False))
+    )
+
+
 def _default_eventbus_driver(settings: Any) -> str:
     """The ``default`` eventbus instance's driver from ``EVENT_BUS_BACKEND``."""
     driver = str(getattr(settings, "event_bus_backend", "auto") or "auto")
     if driver == "auto":
         # Production defaults to the DURABLE streams transport (at-least-once);
         # dev/test use the in-memory bus. Explicit EVENT_BUS_BACKEND wins.
-        environment = getattr(settings, "environment", None)
-        prod = (
-            environment == Environment.prod
-            if environment is not None
-            else bool(getattr(settings, "is_prod", False))
-        )
-        driver = "streams" if prod else "memory"
+        driver = "streams" if _is_prod(settings) else "memory"
     return driver
 
 
@@ -201,6 +204,20 @@ def _synthesize_defaults(settings: Settings) -> InfraConfig:
             )
         },
     }
+    if not _is_prod(settings):
+        # Development and tests only: the security store on the cache's Redis
+        # (url filled by fill_driver_defaults), so an app runs without INFRA.
+        # Never in production, where an absent INFRA.atomic_store.security is
+        # a startup refusal (production_profile.config_problems): the store of
+        # revocation marks is never built from the cache's options.
+        synthesized["atomic_store"] = {
+            "security": InstanceConfig(
+                capability="atomic_store",
+                name="security",
+                driver="redis",
+                options={},
+            )
+        }
     for instances in synthesized.values():
         for cfg in instances.values():
             cfg.implicit = True
@@ -321,6 +338,19 @@ def _fill_url(options: dict[str, Any], key: str, value: Any) -> None:
         options[key] = value
 
 
+def _fill_atomic_store_defaults(
+    config: InfraConfig, settings: Any, default_url: Any
+) -> None:
+    """The ``redis`` atomic_store instances get the client bounds only: the url
+    of an instance INFRA declares is its own (never the cache's); the
+    synthesized development one follows the resolved cache.default."""
+    for cfg in (config.get("atomic_store") or {}).values():
+        if cfg.driver == "redis":
+            if cfg.implicit:
+                _fill_url(cfg.options, "url", default_url)
+            _fill(cfg.options, settings, _REDIS_CLIENT_SETTINGS)
+
+
 def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
     """Fill the options the built-in drivers read from the flat settings.
 
@@ -350,6 +380,7 @@ def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
         if cfg.driver == "redis":
             _fill_url(cfg.options, "url", broadcast_url)
             _fill(cfg.options, settings, _TRANSPORT_CLIENT_SETTINGS)
+    _fill_atomic_store_defaults(config, settings, broadcast_url)
     for cfg in (config.get("eventbus") or {}).values():
         if cfg.driver in ("redis", "streams"):
             # The volatile ``redis`` bus has no url: it runs over a broadcast

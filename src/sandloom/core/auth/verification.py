@@ -122,15 +122,15 @@ async def is_token_revoked(claims: dict[str, Any]) -> bool:
 
 async def token_access_status(claims: dict[str, Any]) -> str:
     """``"ok"`` / ``"revoked"`` / ``"blocked"`` for an access token's claims:
-    one live cache ``GET`` of the subject-state record (it runs on every
-    authenticated request). On a cache outage ``AUTH_REVOCATION_FAIL_CLOSED``
+    one live security-store ``GET`` of the subject-state record (it runs on every
+    authenticated request). On a security store outage ``AUTH_REVOCATION_FAIL_CLOSED``
     decides: fail closed raises :class:`RevocationUnavailableError`, fail open
     logs and accepts the token."""
     sub = claims.get("sub")
     if not sub:
         return TOKEN_REVOKED
     try:
-        raw = await _access.security_cache().get(subject_key(str(sub)))
+        raw = await _access.atomic_store("security").get(subject_key(str(sub)))
     except Exception as exc:
         if settings.revocation_fail_closed:
             raise RevocationUnavailableError(

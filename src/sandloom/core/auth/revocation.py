@@ -40,10 +40,6 @@ from sandloom.core.auth.marks import (
 from sandloom.core.config.settings import settings
 from sandloom.core.eventing.delivery import PoisonEventError
 from sandloom.core.infra import access as _access
-from sandloom.core.infra.contracts import (
-    CacheProvider,
-    portable_set_subject_state,
-)
 from sandloom.core.unit_of_work.effects import publish_event
 from sandloom.core.unit_of_work.hooks import _ON_COMMIT_KEY, _savepoint_token, on_commit
 from sandloom.core.unit_of_work.request import (
@@ -73,18 +69,17 @@ async def revoke_user_tokens(user_id: Any, *, valid_after: float | None = None) 
     token minted by a path that skipped that check within the margin is
     rejected (the client refreshes again).
 
-    Takes effect immediately (a cache write, not part of the UoW). Tie it to a
+    Takes effect immediately (a security-store write, not part of the UoW). Tie it to a
     database change with ``await revoke_user_tokens_on_commit(uid, reason=...)``
     (``sandloom.core.di``) so a rolled-back change revokes nobody — and so a failed
     write is retried and then applied durably. Returns ``False`` (logged) when
-    the cache is unreachable.
+    the security store is unreachable.
 
     The mark NEVER moves backwards, even under concurrent revocations, and
-    never lifts a block: it is written with the cache's monotonic
-    ``set_subject_state`` (one atomic round trip on Redis; a read / ``add`` /
-    ``compare_and_set`` loop elsewhere that retries while the stored value
-    ranks below ours), so a concurrent lower mark can never overwrite a higher
-    one, a ``blocked`` record outranks it, and contention alone never fails a
+    never lifts a block: it is written with the store's monotonic
+    ``set_subject_state`` (one atomic operation of the driver), so a
+    concurrent lower mark can never overwrite a higher one, a ``blocked``
+    record outranks it, and contention alone never fails a
     revocation. When the stored mark is already at or past ours (a mark set
     into the future by an earlier revocation), the mark moves one microsecond
     past it: an issuer that saw the stored mark stamped its token there, from
@@ -141,8 +136,8 @@ async def _write_revocation(
     stored value's instant (a token minted next is stamped after it)."""
     _note_issue_floor(user_id, mark_us)
     try:
-        provider = _access.security_cache()
-    except Exception:  # cache outage must not break the action
+        provider = _access.atomic_store("security")
+    except Exception:  # security store outage must not break the action
         logger.error(
             "Could not record token revocation for subject %s", user_id, exc_info=True
         )
@@ -191,18 +186,14 @@ async def _record_revocation_mark(
     record without an identity, from an older producer) writes ``mark_us``
     unless the stored value covers it.
 
-    One read, then the cache's monotonic ``set_subject_state``: the value is
+    One read, then the store's monotonic ``set_subject_state``: the value is
     replaced only by a HIGHER ``after`` one, never over a ``blocked``
-    record, in a single atomic round trip on drivers with the
-    ``subject_state`` feature (Redis: a Lua script); duck-typed caches
-    without the op get the portable read / add / compare-and-set loop
-    (:func:`~sandloom.core.infra.contracts.portable_set_subject_state`).
+    record, in a single atomic operation of the driver.
     A concurrent writer that stored a higher value first wins, which covers
     ours: it was written after our read, so past every stamp we had to
     cover. Concurrent revocations therefore never fail each other and the
-    mark never moves backwards. Only a cache error (outage) fails
-    (``None``) — or a cache without ``compare_and_set``: a plain overwrite
-    could lower the mark or lift a block, so the write is refused (logged).
+    mark never moves backwards. Only a security store error (outage) fails
+    (``None``).
 
     Returns the value the record holds after the call, ``None`` on failure.
     """
@@ -225,14 +216,8 @@ async def _record_revocation_mark(
         else:
             target = mark_us if reading is None else max(mark_us, reading + 1)
             value = _format_revocation(target, tail)
-        own = getattr(type(provider), "set_subject_state", None)
-        if own is not None and own is not CacheProvider.set_subject_state:
-            stored = await provider.set_subject_state(key, value, ttl_seconds=ttl)
-        else:
-            stored = await portable_set_subject_state(
-                provider, key, value, ttl_seconds=ttl
-            )
-    except Exception:  # cache outage must not break the action
+        stored = await provider.set_subject_state(key, value, ttl_seconds=ttl)
+    except Exception:  # security store outage must not break the action
         logger.error(
             "Could not record token revocation for subject %s", user_id, exc_info=True
         )
@@ -318,7 +303,7 @@ async def revoke_user_tokens_on_commit(
       iff the change commits;
     * after commit the mark is written with ``AUTH_REVOCATION_WRITE_ATTEMPTS``
       attempts (exponential backoff from ``AUTH_REVOCATION_RETRY_BASE_SECONDS``);
-    * if every attempt fails (cache outage) it is logged, counted in
+    * if every attempt fails (security store outage) it is logged, counted in
       ``auth_revocation_deferred_total`` (alert on it), and the durable event
       is applied later by the session owner's consumer
       (:func:`apply_pending_revocation`; identity registers it), redelivered
@@ -425,7 +410,7 @@ async def revoke_user_tokens_on_commit(
 #: Durable revocations this process failed to apply, by subject: the instant
 #: (unix seconds) of the revoking change. Cleared when a later apply succeeds.
 #: Deliberately PER PROCESS (each gunicorn worker reports its own /ready and
-#: the ``livemax`` gauge aggregates them): what it reports is a cache outage,
+#: the ``livemax`` gauge aggregates them): what it reports is a security store outage,
 #: so the shared state it could live in is the very store that is down. An
 #: entry clears when this process's retry lands — or, since ANOTHER process
 #: may apply the delivery instead (a Streams reclaim hands an idle worker's
@@ -436,7 +421,7 @@ async def revoke_user_tokens_on_commit(
 _stuck_revocations: dict[str, float] = {}
 #: The mark (microseconds) each stuck subject still needs, for the reconcile.
 _stuck_marks: dict[str, int] = {}
-#: Most subjects one reconcile reads (each is one cache GET).
+#: Most subjects one reconcile reads (each is one security store GET).
 _RECONCILE_MAX_SUBJECTS = 64
 
 
@@ -513,7 +498,7 @@ async def apply_pending_revocation(payload: dict[str, Any]) -> None:
         logger.error(
             "Durable revocation of subject %s still pending (oldest pending "
             "revocation %.1f s old); retrying with capped backoff — revoked "
-            "tokens may be accepted where the cache is reachable",
+            "tokens may be accepted where the security store is reachable",
             user_id,
             age,
         )
@@ -532,13 +517,13 @@ async def reconcile_pending_revocations() -> None:
     Run by ``/ready`` before it reports :func:`pending_revocations` (a no-op
     while nothing is stuck). Reads each stuck subject's live mark (bounded to
     :data:`_RECONCILE_MAX_SUBJECTS` reads); an entry clears only when the
-    stored mark is at or after the one this process failed to write. A cache
+    stored mark is at or after the one this process failed to write. A security store
     error stops the reconcile: the outage the entries report is still on.
     """
     if not _stuck_marks:
         return
     try:
-        provider = _access.security_cache()
+        provider = _access.atomic_store("security")
         for subject in list(_stuck_marks)[:_RECONCILE_MAX_SUBJECTS]:
             raw = await provider.get(subject_key(subject))
             wanted = _stuck_marks.get(subject)

@@ -49,6 +49,11 @@ from sandloom.core.infra.contracts import (
     OutboxStore,
     parse_plain_decimal,
 )
+from sandloom.core.infra.errors import Unavailable
+from sandloom.core.infra.ports.atomic_store import (
+    check_subject_state,
+    subject_state_rank,
+)
 from sandloom.core.module_api import bind_contract_session
 from sandloom.core.sql_alchemy.outbox_store import (
     sql_alchemy_audit_store,
@@ -370,6 +375,100 @@ class InMemoryCache(CacheProvider):
         return HealthResult(status="fail" if self.broken else "ok")
 
 
+class InMemoryAtomicStore:
+    """Dict-backed ``atomic_store`` (every operation of the port) for unit tests.
+
+    TTLs are accepted and ignored. ``broken=True`` makes every operation raise
+    ``Unavailable`` (a security store outage). Install it for the kernel's
+    security duties with :func:`sandloom.core.testing.use_security_store`, or
+    where the code under test resolves ``atomic_store`` (for the idempotency
+    guard: ``monkeypatch.setattr(cache_store, "atomic_store", lambda role: mem)``,
+    ``sandloom.core.idempotency.cache_store``).
+    """
+
+    driver = "memory"
+    name = "memory"
+
+    def __init__(self, *, broken: bool = False) -> None:
+        self.store: dict[str, str] = {}
+        self.broken = broken
+
+    def _check(self) -> None:
+        if self.broken:
+            raise Unavailable("atomic store down", capability="atomic_store")
+
+    async def get(self, key: str) -> str | None:
+        self._check()
+        return self.store.get(key)
+
+    async def set(
+        self, key: str, value: str, *, ttl_seconds: int | None = None
+    ) -> None:
+        self._check()
+        self.store[key] = value
+
+    async def delete(self, key: str) -> None:
+        self._check()
+        self.store.pop(key, None)
+
+    async def add(
+        self, key: str, value: str, *, ttl_seconds: int | None = None
+    ) -> bool:
+        created, _ = await self.add_or_get(key, value, ttl_seconds=ttl_seconds)
+        return created
+
+    async def add_or_get(
+        self, key: str, value: str, *, ttl_seconds: int | None = None
+    ) -> tuple[bool, str | None]:
+        self._check()
+        current = self.store.get(key)
+        if current is not None:
+            return False, current
+        self.store[key] = value
+        return True, None
+
+    async def compare_and_set(
+        self, key: str, expected: str, value: str, *, ttl_seconds: int | None = None
+    ) -> bool:
+        self._check()
+        if self.store.get(key) != expected:
+            return False
+        self.store[key] = value
+        return True
+
+    async def compare_and_delete(self, key: str, expected: str) -> bool:
+        self._check()
+        if self.store.get(key) != expected:
+            return False
+        del self.store[key]
+        return True
+
+    async def set_subject_state(
+        self, key: str, value: str, *, ttl_seconds: int | None = None
+    ) -> str:
+        """The port's monotonic write: only a higher value (``blocked`` above
+        every ``after``, an instant compared as a decimal) replaces the stored
+        one; a stored value outside the domain is replaced."""
+        self._check()
+        check_subject_state(value)
+        current = self.store.get(key)
+        stored = subject_state_rank(current)
+        ours = subject_state_rank(value)
+        if current is not None and stored is not None and stored >= (ours or stored):
+            return current
+        self.store[key] = value
+        return value
+
+    def features(self) -> frozenset[str]:
+        return frozenset({"never_evicts"})
+
+    async def isolation_identity(self) -> str | None:
+        return f"memory:{id(self):x}"
+
+    async def health(self) -> HealthResult:
+        return HealthResult(status="fail" if self.broken else "ok")
+
+
 # --------------------------------------------------------------------------- #
 # The ``client`` fixture's request unit
 # --------------------------------------------------------------------------- #
@@ -439,6 +538,7 @@ def shared_request_unit(core: Any, session: Any) -> Iterator[None]:
 __all__ = [
     "Captured",
     "SharedRequestUnit",
+    "InMemoryAtomicStore",
     "InMemoryCache",
     "RecordingSession",
     "bind_test_uow",

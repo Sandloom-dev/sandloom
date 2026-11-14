@@ -4,10 +4,11 @@ Module tests may not import kernel internals (``sandloom check`` rule
 ``test-imports``); these helpers are the sanctioned way for a module's
 security tests to reach what they legitimately need:
 
-* :func:`use_security_cache` — make the subject-state records (access-token
-  revocations and emergency blocks) live in a given cache provider (e.g. an
-  :class:`~sandloom.core.testing.InMemoryCache`, ``broken=True`` for an outage);
-* :func:`revocation_mark_key` / :func:`block_mark_key` — the cache key of a
+* :func:`use_security_store` — make the subject-state records (access-token
+  revocations and emergency blocks) live in a given ``atomic_store`` (e.g. an
+  :class:`~sandloom.core.testing.InMemoryAtomicStore`, ``broken=True`` for an
+  outage);
+* :func:`revocation_mark_key` / :func:`block_mark_key` — the store key of a
   subject's state record (ADR-0009: one record holds both), to read, age or
   write it in a test; :func:`revoked_after_value` / :func:`blocked_value`
   build the two values (``block_user`` from ``sandloom.core.di`` is the real API);
@@ -40,24 +41,25 @@ from sandloom.core.infra import access
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import pytest
 
-    from sandloom.core.infra.contracts import CacheProvider
+    from sandloom.core.infra.ports.atomic_store import AtomicStore
 
 
-def use_security_cache(
-    monkeypatch: pytest.MonkeyPatch, provider: CacheProvider
-) -> CacheProvider:
-    """Resolve the kernel's revocation / block state to ``provider``.
+def use_security_store(
+    monkeypatch: pytest.MonkeyPatch, store: AtomicStore
+) -> AtomicStore:
+    """Resolve the kernel's revocation / block state to ``store``.
 
-    The revocation marks and the emergency block marks are read and written
-    through ``sandloom.core.infra.access.cache`` at call time; for the rest of the
-    test every such lookup (any instance name) returns ``provider``.
+    The revocation marks, the emergency block marks and the RPC nonces are read
+    and written through ``sandloom.core.infra.access.atomic_store`` at call
+    time; for the rest of the test every such lookup (any role) returns
+    ``store``.
     """
-    monkeypatch.setattr(access, "cache", lambda name="default": provider)
-    return provider
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": store)
+    return store
 
 
 def revocation_mark_key(user_id: Any) -> str:
-    """The cache key of ``user_id``'s subject-state record.
+    """The store key of ``user_id``'s subject-state record.
 
     A revocation is the value ``v1:after:<epoch seconds>`` (see
     :func:`revoked_after_value`): the subject's access tokens issued at or
@@ -68,7 +70,7 @@ def revocation_mark_key(user_id: Any) -> str:
 
 
 def block_mark_key(user_id: Any) -> str:
-    """The cache key of ``user_id``'s subject-state record (the block lives there).
+    """The store key of ``user_id``'s subject-state record (the block lives there).
 
     Writing :func:`blocked_value` to it blocks the subject on the very next
     authenticated request, exactly like a committed ``block_user`` (minus its
@@ -93,7 +95,7 @@ def record_revocation_checks(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     Wraps the kernel's single revocation lookup (the one every framework
     token guard reaches through the per-request memo): the returned list
-    grows by one subject per actual cache lookup, so a request whose guards
+    grows by one subject per actual security store lookup, so a request whose guards
     share the memo adds exactly one entry.
     """
     calls: list[str] = []
@@ -125,5 +127,5 @@ __all__ = [
     "revocation_mark_key",
     "revoked_after_value",
     "set_environment",
-    "use_security_cache",
+    "use_security_store",
 ]

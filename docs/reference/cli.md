@@ -333,10 +333,10 @@ is raw env).
   `AUTH_REVOCATION_WRITE_ATTEMPTS` / `AUTH_REVOCATION_RETRY_BASE_SECONDS`
   (revocation mark margin and retries; identical in every service),
   `TWOFA_ENCRYPTION_KEY` (required in prod with identity; comma list =
-  rotation), `SECURITY_CACHE_INSTANCE` (named cache for the subject-state
-  records and — by default — idempotency records),
-  `IDEMPOTENCY_CACHE_INSTANCE` (opt-in separate cache for idempotency
-  records; empty = the security cache). Every authenticated route reads the
+  rotation), `INFRA.atomic_store.security` (the store of the subject-state
+  records and — by default — idempotency records) and
+  `INFRA.atomic_store.idempotency` (opt-in separate store for idempotency
+  records; absent = the security store). Every authenticated route reads the
   session record live; there is no per-route revocation setting
   ([Route policy](../modules/http/route-policy.md)).
 - **Passwords.** `PASSWORD_HASH_CONCURRENCY` (argon2 pool; default

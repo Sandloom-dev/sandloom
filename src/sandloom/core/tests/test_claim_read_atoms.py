@@ -62,7 +62,7 @@ from sandloom.core.idempotency import cache_store as idempotency_cache_store
 from sandloom.core.module_api import contract_schema
 from sandloom.core.module_api._service_registry import ServiceUnavailableInDeployment
 from sandloom.core.rpc.errors import RemoteServiceUnavailable
-from sandloom.core.testing import InMemoryCache
+from sandloom.core.testing import InMemoryAtomicStore
 from sandloom.sdk import contract
 from sandloom.shared.authz import (
     AccessUnknown,
@@ -1015,7 +1015,7 @@ def acme(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
     allowed = {ACME_SVC: [ACME_CONTRACT]}
     for name, value in rpc_settings(ACME_SVC, allowed_calls=allowed).items():
         monkeypatch.setattr(settings, name, value)
-    monkeypatch.setattr(idempotency_cache_store, "cache", lambda *_a, **_k: _MEM)
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: _MEM)
     core = CoreFacade(app=FastAPI())
     core.database = lambda name="default": _Database()  # type: ignore[method-assign]
     core.register_service(ACME_CONTRACT, AcmePlansContract)
@@ -1024,7 +1024,7 @@ def acme(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
     sys.modules.pop(module.__name__, None)
 
 
-_MEM = InMemoryCache()
+_MEM = InMemoryAtomicStore()
 
 #: (policy, organization) -> (allowed, status, code) in both topologies.
 ACME_CASES: dict[str, tuple[Any, UUID, tuple[bool, int, str]]] = {

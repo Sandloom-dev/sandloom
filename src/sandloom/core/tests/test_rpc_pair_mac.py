@@ -990,10 +990,10 @@ async def test_shared_nonce_layer_catches_a_replay_on_another_process(
     caller: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from sandloom.core.infra import access
-    from sandloom.core.testing import InMemoryCache
+    from sandloom.core.testing import InMemoryAtomicStore
 
-    shared = InMemoryCache()
-    monkeypatch.setattr(access, "security_cache", lambda: shared)
+    shared = InMemoryAtomicStore()
+    monkeypatch.setattr(access, "atomic_store", lambda role: shared)
     rec = _Recorder()
     app = _provider_app(_provider_cfg(rpc_replay_guard="all"))
     assert await _proxy(app, rec).echo("v") == "r-v"
@@ -1013,7 +1013,7 @@ async def test_shared_nonce_layer_outage_fails_closed_in_prod_only(
         async def add(self, *_a: Any, **_k: Any) -> bool:
             raise ConnectionError("redis down")
 
-    monkeypatch.setattr(access, "security_cache", lambda: Down())
+    monkeypatch.setattr(access, "atomic_store", lambda role: Down())
     dev = _provider_app(_provider_cfg(rpc_replay_guard="all"))
     before = _rejected("fail_open")
     assert await _proxy(dev).echo("v") == "r-v"
@@ -1038,7 +1038,7 @@ async def test_commands_mode_uses_the_shared_layer_for_commands_only(
             calls.append(key)
             return True
 
-    monkeypatch.setattr(access, "security_cache", lambda: Spy())
+    monkeypatch.setattr(access, "atomic_store", lambda role: Spy())
     app = _provider_app(_provider_cfg(rpc_replay_guard="commands"))
     assert await _proxy(app).echo("v") == "r-v"  # a read
     assert calls == []
@@ -1624,10 +1624,10 @@ def test_r8_resizing_never_forgets_live_nonces() -> None:
 def commands_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     """Commands on the fake database dedupe through the (in-memory) cache."""
     from sandloom.core.idempotency import cache_store as idempotency_cache_store
-    from sandloom.core.testing import InMemoryCache
+    from sandloom.core.testing import InMemoryAtomicStore
 
-    mem = InMemoryCache()
-    monkeypatch.setattr(idempotency_cache_store, "cache", lambda name="default": mem)
+    mem = InMemoryAtomicStore()
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: mem)
     CHARGED.clear()
 
 

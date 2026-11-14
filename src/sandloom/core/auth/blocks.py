@@ -33,7 +33,6 @@ from sandloom.core.auth.marks import (
 )
 from sandloom.core.config.settings import settings
 from sandloom.core.infra import access as _access
-from sandloom.core.infra.contracts import CacheProvider, portable_set_subject_state
 from sandloom.core.unit_of_work.effects import publish_event, record_audit
 from sandloom.core.unit_of_work.hooks import on_commit
 
@@ -45,7 +44,7 @@ USER_BLOCKED_CHANNEL = "core.auth.user_blocked.v1"
 
 
 class BlockUnavailableError(RuntimeError):
-    """The emergency-block mark could not be written / removed (cache outage)."""
+    """The emergency-block mark could not be written / removed (store outage)."""
 
     http_status = 503
     detail = "Account security state temporarily unavailable"
@@ -54,10 +53,7 @@ class BlockUnavailableError(RuntimeError):
 async def _write_state(provider: Any, user_id: Any, value: str, ttl: int | None) -> str:
     """Monotonic write of the subject-state record (``set_subject_state``)."""
     key = subject_key(user_id)
-    own = getattr(type(provider), "set_subject_state", None)
-    if own is not None and own is not CacheProvider.set_subject_state:
-        return str(await provider.set_subject_state(key, value, ttl_seconds=ttl))
-    return await portable_set_subject_state(provider, key, value, ttl_seconds=ttl)
+    return str(await provider.set_subject_state(key, value, ttl_seconds=ttl))
 
 
 async def block_user(
@@ -78,7 +74,7 @@ async def block_user(
     (``auth.user.blocked``, actor + reason), the immediate token revocation
     and the event are all written BEFORE the mark, and the mark is the LAST
     step — a failure of any earlier step leaves no mark behind the rolled-back
-    audit (no block happens unaudited). A cache outage raises
+    audit (no block happens unaudited). A security store outage raises
     :class:`BlockUnavailableError` (503) and the UoW rolls the audit back.
     Call it as the last step of the request (the mark itself is not
     transactional).
@@ -113,9 +109,9 @@ async def block_user(
             database=database,
             require_immediate=True,
         )
-    except RevocationUnavailableError as exc:  # same cache: one 503 contract
+    except RevocationUnavailableError as exc:  # same store: one 503 contract
         raise BlockUnavailableError(
-            f"could not block user {user_id}: cache unavailable"
+            f"could not block user {user_id}: security store unavailable"
         ) from exc
     await publish_event(
         USER_BLOCKED_CHANNEL,
@@ -130,14 +126,14 @@ async def block_user(
     # publish would roll the audit back and leave a permanent, unaudited block.
     try:
         await _write_state(
-            _access.security_cache(),
+            _access.atomic_store("security"),
             user_id,
             _format_blocked(_seconds_to_us(blocked_at)),
             None,
         )
     except Exception as exc:  # surfaced as 503
         raise BlockUnavailableError(
-            f"could not block user {user_id}: cache unavailable"
+            f"could not block user {user_id}: security store unavailable"
         ) from exc
     logger.warning(
         "Emergency block of user %s by %s: %s", user_id, actor_id or "system", reason
@@ -158,7 +154,7 @@ async def unblock_user(
     revocation TTL) — never deleted, so every token issued before the unblock
     stays revoked and a concurrent writer is never overwritten blindly. A
     rolled-back unblock leaves the user blocked, never unblocked without an
-    audit row. Fail-safe: if the post-commit swap fails (cache outage) the
+    audit row. Fail-safe: if the post-commit swap fails (security store outage) the
     user stays blocked — logged as an error; run the unblock again.
     """
     reason = _require_reason(reason)
@@ -174,11 +170,11 @@ async def unblock_user(
 
     async def _lift() -> None:
         try:
-            await _swap_blocked_for_after(_access.security_cache(), user_id)
+            await _swap_blocked_for_after(_access.atomic_store("security"), user_id)
         except Exception:  # fail-safe: the user stays blocked
             logger.error(
                 "Unblock of user %s committed but the block mark could not be "
-                "deleted (cache unavailable); the user STAYS BLOCKED — run the "
+                "deleted (security store down); the user STAYS BLOCKED — run the "
                 "unblock again",
                 user_id,
                 exc_info=True,
@@ -216,8 +212,10 @@ async def _swap_blocked_for_after(provider: Any, user_id: Any) -> bool:
 
 
 async def is_user_blocked(user_id: Any) -> bool:
-    """Live read of the subject-state record (raises on a cache outage)."""
-    return state_is_blocked(await _access.security_cache().get(subject_key(user_id)))
+    """Live read of the subject-state record (raises on a security store outage)."""
+    return state_is_blocked(
+        await _access.atomic_store("security").get(subject_key(user_id))
+    )
 
 
 async def _read_issuance_marks(user_id: Any) -> bool:
@@ -225,9 +223,9 @@ async def _read_issuance_marks(user_id: Any) -> bool:
 
     One ``GET`` of the subject-state record: ``blocked`` refuses; an ``after``
     mark is remembered for this context so the token the issuer mints next is
-    stamped after it (:mod:`sandloom.core.auth.tokens`). Raises on a cache outage.
+    stamped after it (:mod:`sandloom.core.auth.tokens`). Raises on a store outage.
     """
-    provider = _access.security_cache()
+    provider = _access.atomic_store("security")
     mark_raw = await provider.get(subject_key(user_id))
     if state_is_blocked(mark_raw):
         return True
@@ -250,7 +248,7 @@ async def ensure_user_not_blocked(user_id: Any) -> None:
     token's claims. A live read of the subject-state record — never a cached
     copy — so the token minted next in this context is stamped after any
     revocation it saw. On a
-    cache outage ``AUTH_REVOCATION_FAIL_CLOSED`` decides, like the per-request
+    security store outage ``AUTH_REVOCATION_FAIL_CLOSED`` decides, like the per-request
     check: closed answers ``503``, open logs and lets the issuance proceed.
     """
     try:
