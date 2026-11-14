@@ -561,11 +561,18 @@ class InMemoryAtomicStore(*, broken: bool = False) -> None
 
 Dict-backed `atomic_store` (every operation of the port) for unit tests.
 
-TTLs are accepted and ignored. `broken=True` makes every operation raise
-`Unavailable` (a security store outage). Install it for the kernel's
-security duties with `sandloom.core.testing.use_security_store`, or
-where the code under test resolves `atomic_store` (for the idempotency
-guard: `monkeypatch.setattr(cache_store, "atomic_store", lambda role: mem)`,
+TTLs are modelled: a row written with `ttl_seconds` expires once `clock`
+(monotonic seconds; a test substitutes one it advances) reaches the
+deadline, as in the `memory` driver; a row seeded straight into `store`
+never expires. This stays a harness class beside the driver, not a layer
+over `sandloom.core.drivers.memory_atomic_store`, because the kernel
+import contract forbids `sandloom.core.testing` reaching
+`sandloom.driverkit` even indirectly. `broken=True` makes every
+operation raise `Unavailable` (a security store outage). Install it for
+the kernel's security duties with
+`sandloom.core.testing.use_security_store`, or where the code under
+test resolves `atomic_store` (for the idempotency guard:
+`monkeypatch.setattr(cache_store, "atomic_store", lambda role: mem)`,
 `sandloom.core.idempotency.cache_store`).
 
 #### `InMemoryAtomicStore.get`

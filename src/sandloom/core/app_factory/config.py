@@ -406,8 +406,8 @@ def warn_pair_mac_rpc(cfg: Any, log: logging.Logger) -> list[str]:
         )
     if not cfg.is_prod and cfg.rpc_replay_guard != "local":
         out.append(
-            "RPC nonce guard: the shared (security cache) layer FAILS OPEN "
-            "outside prod — a cache outage accepts a replay on another worker "
+            "RPC nonce guard: the shared (security store) layer FAILS OPEN "
+            "outside prod — a store outage accepts a replay on another worker "
             "or replica (prod fails closed)."
         )
     if not rpc_pair_mac.commands_require_signature(cfg):

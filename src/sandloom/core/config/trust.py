@@ -1,5 +1,5 @@
 """The deployment's trust model: access-fact modes, production profile,
-accepted risks, security caches and tenancy mode.
+accepted risks, the security store and tenancy mode.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pydantic_settings import NoDecode
 
 class TrustConfig(BaseModel):
     """The deployment's trust model: access-fact modes, production profile,
-    accepted risks, security caches and tenancy mode.
+    accepted risks, the security store and tenancy mode.
     """
 
     # Authorization access-fact resolution modes (per fact name). Maps an
