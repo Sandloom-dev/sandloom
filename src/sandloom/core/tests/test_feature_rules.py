@@ -102,10 +102,8 @@ def _registry(**config: InstanceConfig) -> InfraRegistry:
 
 
 def test_a_row_not_delivered_yet_is_refused_naming_its_slice() -> None:
-    registry = _registry(
-        security=InstanceConfig("atomic_store", "security", "database", {})
-    )
-    with pytest.raises(DriverLoadError, match="idk-atomic-store-db") as refused:
+    registry = _registry(default=InstanceConfig("cache", "default", "memory", {}))
+    with pytest.raises(DriverLoadError, match="idk-cache-contract") as refused:
         registry.validate()
     assert refused.value.sandloom_code == "SANDLOOM-B022"
 

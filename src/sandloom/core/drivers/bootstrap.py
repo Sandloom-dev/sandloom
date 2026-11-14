@@ -146,7 +146,7 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
         f"{_DRIVERS}.database_atomic_store:DatabaseAtomicStoreProvider",
         (),
         "",
-        "idk-atomic-store-db",
+        "",
     ),
     (
         "lease",

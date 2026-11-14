@@ -39,6 +39,7 @@ CORE_TABLES = {
     "saga_steps",
     "projection_watermarks",
     "infra_lease",
+    "infra_atomic_store",
 }
 
 

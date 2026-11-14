@@ -71,6 +71,7 @@ CORE_TABLES = (
     "saga_steps",
     "projection_watermarks",
     "infra_lease",
+    "infra_atomic_store",
 )
 #: What a restore adds to every ``infra_lease`` fence (see :func:`lift_fences`).
 #: A restored dump rewinds fences to the snapshot; the holders of the lost
