@@ -33,6 +33,12 @@ if TYPE_CHECKING:
 FeatureKind = Literal["behaviour", "guarantee"]
 FEATURE_KINDS: frozenset[str] = frozenset({"behaviour", "guarantee"})
 
+#: How far a driver has been proven (spec 2.5): ``experimental`` implements the
+#: contract; ``beta`` passes its kit in CI against the real service; ``stable``
+#: adds the kit's reconnect-after-outage group and its auth options.
+DriverTier = Literal["experimental", "beta", "stable"]
+DRIVER_TIERS: tuple[str, ...] = ("experimental", "beta", "stable")
+
 #: Maturity of a capability contract (see :attr:`CapabilitySpec.stability`).
 CapabilityStability = Literal["stable", "experimental"]
 _STABILITIES: frozenset[str] = frozenset({"stable", "experimental"})
@@ -185,6 +191,12 @@ class InfraProvider(abc.ABC):
     #: A driver for development and tests only (``memory``): refused in
     #: production, with no accepted risk to lift it (SANDLOOM-B022).
     development_only: ClassVar[bool] = False
+    #: How far this driver has been proven (spec 2.5), stated by an external
+    #: package: the registry copies it into the driver's registration when it
+    #: loads the entry point, and every reader (doctor, diagnostics, the
+    #: production check) reads the registration. A built-in states its tier in
+    #: ``register_driver(..., tier=)`` and ignores this attribute.
+    tier: ClassVar[DriverTier] = "experimental"
     #: Optional pydantic model validating an instance's options before building.
     options_schema: ClassVar[type[Any] | None] = None
     #: Top-level imports needed by the backend. The entry point must be
@@ -414,6 +426,8 @@ def isolated_redis_options(
 
 __all__ = [
     "DEFAULT_STRIDE",
+    "DRIVER_TIERS",
+    "DriverTier",
     "FEATURE_KINDS",
     "REDIS_SCHEMES",
     "CapabilitySpec",

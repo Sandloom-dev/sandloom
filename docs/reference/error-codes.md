@@ -82,7 +82,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B019`](#sandloom-b019) | `capability-replay` | boot | a token issuer, intent or money route has the wrong idempotency guard or an intent route a request session | active |
 | [`SANDLOOM-B021`](#sandloom-b021) | `driver-conflict` | boot | a selected driver or capability name has two providers | active |
 | [`SANDLOOM-B022`](#sandloom-b022) | `driver-load-failed` | boot | a selected driver or capability cannot be used | active |
-| [`SANDLOOM-B023`](#sandloom-b023) | `experimental-capability-refused` | boot | an experimental capability is configured in production | active |
+| [`SANDLOOM-B023`](#sandloom-b023) | `experimental-capability-refused` | boot | an experimental capability or an experimental driver is configured in production | active |
 | [`SANDLOOM-B024`](#sandloom-b024) | `sql-dialect-missing` | boot | a configured SQL database has no SQL dialect renderer, or its URL names a DBAPI SQLAlchemy does not know or a synchronous one | active |
 | [`SANDLOOM-B025`](#sandloom-b025) | `sql-dialect-incompatible` | boot | a SQL dialect renderer or DBAPI adapter of another contract version, or one that declares a feature or capability the kernel does not define or keeps to itself | active |
 | [`SANDLOOM-B026`](#sandloom-b026) | `row-security-missing` | boot | tenant_rls, system_url, require_system_channel or DATABASE_SYSTEM_URL on a database instance whose database has no row security, or a system channel on another database than its instance | active |
@@ -1135,7 +1135,7 @@ imported.
 
 ### SANDLOOM-B023
 
-**an experimental capability is configured in production**
+**an experimental capability or an experimental driver is configured in production**
 
 Slug: `experimental-capability-refused` · kind: boot · status: active
 
@@ -1145,7 +1145,17 @@ An experimental capability's contract may change in any release. Running one in
 production is a weakening, so the deployment accepts it by name and every start
 reports it.
 
-**Fix:** remove it from INFRA, or accept the risk with SANDLOOM_ACCEPTED_RISKS=["experimental_capability"]
+A driver has a tier (`sandloom doctor` and /diagnostics/infra show it):
+`experimental` implements the contract, `beta` passes its conformance kit in CI
+against the real service, `stable` adds reconnect after an outage and the auth
+options. An experimental driver in production is refused with this code unless
+SANDLOOM_ACCEPTED_RISKS has `experimental_driver`; a beta driver logs one
+startup warning; a stable one is silent. A `development_only` driver (`memory`)
+is refused in production whatever its tier, with no risk to accept
+(SANDLOOM-B022). A driver package states its tier with the class attribute
+`tier` (default `experimental`).
+
+**Fix:** remove it from INFRA, or accept the risk with SANDLOOM_ACCEPTED_RISKS=["experimental_capability"] (a capability) or ["experimental_driver"] (a driver)
 
 **More:** `docs/reference/configuration.md`
 
