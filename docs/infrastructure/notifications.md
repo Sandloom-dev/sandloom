@@ -39,4 +39,9 @@ Sends email through an SMTP server. Set `NOTIFIER_BACKEND=smtp` and the `SMTP_*`
 the [configuration reference](../reference/configuration.md#notifications). It supports the
 channel `email`.
 
+**Tier.** `experimental` until its conformance lane (`NotifierConformance` against a mailpit
+container, `.github/workflows/notification-smtp.yml`) is green on main, then `beta`. In
+production an experimental driver needs `experimental_driver` in `SANDLOOM_ACCEPTED_RISKS`
+([SANDLOOM-B023](../reference/error-codes.md#sandloom-b023)).
+
 To send through another service, [write a driver](write-a-driver.md).

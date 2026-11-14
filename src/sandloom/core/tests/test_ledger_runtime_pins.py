@@ -56,6 +56,7 @@ def test_accepted_risk_ids_are_pinned() -> None:
         "command_dedupe_below_retry_horizon",
         "development_database_in_prod",
         "experimental_capability",
+        "experimental_driver",
         "local_storage_in_prod",
         "log_links_in_prod",
         "log_notifier_in_prod",

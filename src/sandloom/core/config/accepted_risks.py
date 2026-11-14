@@ -65,6 +65,12 @@ RISKS: tuple[Risk, ...] = (
         "build_infra_registry (sandloom.core.drivers.bootstrap)",
     ),
     Risk(
+        "experimental_driver",
+        "An experimental driver in prod: it implements the contract, but its "
+        "conformance kit has not passed in CI against the real service.",
+        "build_infra_registry (sandloom.core.drivers.bootstrap)",
+    ),
+    Risk(
         "log_notifier_in_prod",
         "The log notifier advertises delivery channels in prod: mail and SMS "
         "nobody receives.",
