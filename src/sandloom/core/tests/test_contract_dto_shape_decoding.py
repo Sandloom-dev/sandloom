@@ -34,7 +34,7 @@ from sandloom.core.idempotency import cache_store as idempotency_cache_store
 from sandloom.core.module_api import contract_method
 from sandloom.core.rpc import RemoteServiceProxy, rpc_router
 from sandloom.core.rpc import proxy as rpc_proxy
-from sandloom.core.testing import InMemoryCache
+from sandloom.core.testing import InMemoryAtomicStore
 
 _SVC = "svc"
 _CONTRACT = "kb23orgs.membership.v1"
@@ -185,8 +185,8 @@ def _provider(
     allowed = {_SVC: [contract]}
     for name, value in rpc_settings(_SVC, allowed_calls=allowed).items():
         monkeypatch.setattr(settings, name, value)
-    mem = InMemoryCache()
-    monkeypatch.setattr(idempotency_cache_store, "cache", lambda name="default": mem)
+    mem = InMemoryAtomicStore()
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: mem)
     core = CoreFacade(app=FastAPI())
     core.database = lambda name="default": _FakeDatabase()  # type: ignore[method-assign]
     core.register_service(contract, impl)

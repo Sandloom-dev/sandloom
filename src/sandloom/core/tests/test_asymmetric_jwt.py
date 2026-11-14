@@ -360,6 +360,12 @@ def test_prod_split_deployment_refuses_a_shared_hs_secret() -> None:
         "JWT_SECRET": _STRONG,
         "SANDLOOM_ACCEPTED_RISKS": "billing.fake_psp_in_prod",
         "SANDLOOM_SERVICE_NAME": "api",  # prod's Streams bus (ADR-0012 d. 5)
+        # Production declares its security store on every profile (spec 4).
+        "INFRA": {
+            "atomic_store": {
+                "security": {"driver": "redis", "url": "redis://sec-redis:6379/0"}
+            }
+        },
     }
     problem = tokens.token_signing_problem
     monolith = _role_cfg(**env)

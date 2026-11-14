@@ -129,6 +129,16 @@ def test_create_app_refuses_in_production(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(settings, "environment", "prod")
     # prod selects the shared Streams bus: name the service (ADR-0012 d. 5).
     monkeypatch.setattr(settings, "sandloom_service_name", "api")
+    # Production declares its security store on every profile (spec 4).
+    monkeypatch.setattr(
+        settings,
+        "infra",
+        {
+            "atomic_store": {
+                "security": {"driver": "redis", "url": "redis://sec:6379/0"}
+            }
+        },
+    )
     # The bundled modules refuse prod without these while they register,
     # before the window check runs: satisfy them so this test sees its own.
     # (identity's own settings read the process's source read: re-take it)

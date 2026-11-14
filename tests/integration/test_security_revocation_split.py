@@ -53,7 +53,7 @@ from sandloom.core.contract_testing import (
 )
 from sandloom.core.facade import CoreFacade
 from sandloom.core.module_api import contract_method
-from sandloom.core.testing import InMemoryCache, committing_uow
+from sandloom.core.testing import InMemoryAtomicStore, committing_uow
 from sandloom.core.testing.fixtures import *  # noqa: F403
 
 IDP = "oidcapp.modules.acme_idp"
@@ -114,10 +114,10 @@ def sessions(db_engine: Any) -> async_sessionmaker[AsyncSession]:
 
 
 @pytest.fixture
-def cli_cache(monkeypatch: pytest.MonkeyPatch) -> InMemoryCache:
+def cli_cache(monkeypatch: pytest.MonkeyPatch) -> InMemoryAtomicStore:
     """The CLI process's security cache."""
-    fake = InMemoryCache()
-    monkeypatch.setattr(access, "cache", lambda name="default": fake)
+    fake = InMemoryAtomicStore()
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": fake)
     return fake
 
 
@@ -175,7 +175,7 @@ async def _rows(
 
 async def test_the_kernel_part_is_one_durable_unit_every_service_applies(
     sessions: async_sessionmaker[AsyncSession],
-    cli_cache: InMemoryCache,
+    cli_cache: InMemoryAtomicStore,
     cli_unit: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -197,8 +197,8 @@ async def test_the_kernel_part_is_one_durable_unit_every_service_applies(
 
     # Another service of the split, with its own cache: the relayed record,
     # applied by its revocation applier (at-least-once: twice), revokes there.
-    other = InMemoryCache()
-    monkeypatch.setattr(access, "cache", lambda name="default": other)
+    other = InMemoryAtomicStore()
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": other)
     assert not await verification.is_token_revoked(old[0])
     for envelope in outbox:
         await apply_token_revocation(None, envelope)
@@ -206,7 +206,7 @@ async def test_the_kernel_part_is_one_durable_unit_every_service_applies(
     assert all([await verification.is_token_revoked(c) for c in old])
 
     # A re-run of the operation replays: claimed once, nothing written again.
-    monkeypatch.setattr(access, "cache", lambda name="default": cli_cache)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": cli_cache)
     assert not await revoke_access_tokens(
         ids, command="revoke-sessions", intent=APPLY, key=key
     )
@@ -215,7 +215,7 @@ async def test_the_kernel_part_is_one_durable_unit_every_service_applies(
 
 async def test_a_cache_outage_refuses_and_commits_nothing(
     sessions: async_sessionmaker[AsyncSession],
-    cli_cache: InMemoryCache,
+    cli_cache: InMemoryAtomicStore,
     cli_unit: None,
 ) -> None:
     ids = [uuid.uuid4()]
@@ -279,7 +279,7 @@ def _cli_without_issuer(client: Any, provider: CoreFacade) -> Any:
 
 async def test_a_cli_process_without_the_issuer_revokes_durably(
     sessions: async_sessionmaker[AsyncSession],
-    cli_cache: InMemoryCache,
+    cli_cache: InMemoryAtomicStore,
     cli_unit: None,
     keyed: None,
 ) -> None:
@@ -304,7 +304,7 @@ async def test_a_cli_process_without_the_issuer_revokes_durably(
 @pytest.mark.parametrize("intent", [DRY, APPLY], ids=["dry-run", "apply"])
 async def test_a_reset_the_issuer_cannot_do_leaves_no_trace(
     sessions: async_sessionmaker[AsyncSession],
-    cli_cache: InMemoryCache,
+    cli_cache: InMemoryAtomicStore,
     cli_unit: None,
     keyed: None,
     intent: OperatorIntent,

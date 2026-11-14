@@ -49,21 +49,21 @@ tests:
               description: "The age gauge is exported only by the relay. Check OUTBOX_RELAY_ENABLED (auto = prod only) and the Gunicorn relay leader election in the app logs."
               runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#events-outbox-relay-and-dead-letters
 
-  - name: security cache errors page, other caches warn
+  - name: security store errors page, caches warn
     interval: 1m
     input_series:
-      - series: 'sandloom_cache_operation_errors_total{job="sandloom", exported_instance="security", operation="get"}'
+      - series: 'sandloom_atomic_store_operation_errors_total{job="sandloom", exported_instance="security", operation="get"}'
         values: '0+60x10'
       - series: 'sandloom_cache_operation_errors_total{job="sandloom", exported_instance="default", operation="get"}'
         values: '0+60x10'
     alert_rule_test:
       - eval_time: 6m
-        alertname: SandloomSecurityCacheErrors
+        alertname: SandloomSecurityStoreErrors
         exp_alerts:
           - exp_labels: {severity: page, job: sandloom, exported_instance: security}
             exp_annotations:
-              summary: "sandloom: security cache errors 1/s"
-              description: "The Redis holding revocation marks, blocks and idempotency records is unreachable or timing out: authenticated requests answer 503 (fail-closed) or skip revocation (fail-open)."
+              summary: "sandloom: security store errors 1/s"
+              description: "The atomic store holding revocation marks, blocks and idempotency records is unreachable or timing out: authenticated requests answer 503 (fail-closed) or skip revocation (fail-open)."
               runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#redis-cache-timeouts-pool-revocation-cache
       - eval_time: 6m
         alertname: SandloomCacheErrors

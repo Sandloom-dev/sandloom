@@ -61,6 +61,7 @@ from sandloom.driverkit import (
     PermissionDenied,
     Timeout,
     Unavailable,
+    observe,
 )
 from sandloom.driverkit.atomic_store import (
     ATOMIC_STORE_PERFORMANCE_HINTS,
@@ -70,6 +71,14 @@ from sandloom.driverkit.atomic_store import (
     check_subject_state,
     check_ttl,
     check_value,
+)
+
+#: Failed operations of the store (connection, timeout, server error), by
+#: instance and operation: the page-level alert on the security store reads it.
+atomic_store_operation_errors_total = observe.counter(
+    "sandloom_atomic_store_operation_errors_total",
+    "Atomic store operations that raised (connection, timeout, server error)",
+    ("instance", "operation"),
 )
 
 #: The accepted risk that lets ``never_evicts_check=assume`` run in production.
@@ -408,6 +417,7 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
     def _failure(self, operation: str, exc: BaseException) -> InfraError:
         """The ``InfraError`` for a backend failure: its type, never its text."""
         exceptions = _exceptions()
+        atomic_store_operation_errors_total.labels(self.name, operation).inc()
         what = f"atomic_store {self.name!r} {operation}: {type(exc).__name__}"
         kind: type[InfraError]
         if isinstance(

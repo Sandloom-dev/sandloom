@@ -1,10 +1,10 @@
 """Backup plan and restore verification (``sandloom backup plan|verify``, H-20).
 
 * :func:`build_backup_plan` — what must be backed up, per configured database
-  instance and per Redis endpoint (security cache, cache, broker, event bus),
+  instance and per Redis endpoint (security store, cache, broker, event bus),
   and how: ``pg_dump`` + PITR for PostgreSQL, AOF/RDB for Redis, and what a
   restore of each implies (``sandloom backup reconcile-security`` for the security
-  cache).
+  atomic_store).
 * :func:`verify_dump` — restore a ``pg_dump`` into a throw-away database on a
   scratch server, check that every migration chain the database hosts is at
   its head and run basic integrity checks, then drop it. A backup that was
@@ -22,7 +22,7 @@ import os
 import shlex
 import subprocess
 import uuid
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -161,24 +161,33 @@ def _postgres_item(
     )
 
 
+def _atomic_store_roles(atomic: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """``(url, role)`` of every Redis ``atomic_store`` instance."""
+    separate = "idempotency" in atomic
+    found: list[tuple[str, str]] = []
+    for name, inst in sorted(atomic.items()):
+        url = inst.options.get("url")
+        if inst.driver != "redis" or not isinstance(url, str) or not url:
+            continue
+        role = f"atomic_store:{name}"
+        if name == "security":
+            role += " [SECURITY: revocation marks, user blocks, RPC nonces"
+            role += "]" if separate else ", idempotency]"
+        elif name == "idempotency":
+            role += " [IDEMPOTENCY: guard / task-enqueue dedupe records]"
+        found.append((url, role))
+    return found
+
+
 def _redis_roles(config: Any, settings: Any) -> dict[str, list[str]]:
     """``{redis url: [role, ...]}`` across cache / eventbus / taskqueue."""
-    security = getattr(settings, "security_cache_instance", None) or "default"
-    idempotency = getattr(settings, "idempotency_cache_instance", None) or security
     roles: dict[str, list[str]] = {}
     for name, inst in sorted((config.get("cache") or {}).items()):
         url = inst.options.get("url")
         if not isinstance(url, str) or not url:
             continue
-        role = f"cache:{name}"
-        if name == security:
-            role += (
-                " [SECURITY: revocation marks, user blocks, idempotency]"
-                if idempotency == security
-                else " [SECURITY: revocation marks, user blocks]"
-            )
-        elif name == idempotency:
-            role += " [IDEMPOTENCY: guard / task-enqueue dedupe records]"
+        roles.setdefault(url, []).append(f"cache:{name}")
+    for url, role in _atomic_store_roles(config.get("atomic_store") or {}):
         roles.setdefault(url, []).append(role)
     for name, inst in sorted((config.get("eventbus") or {}).items()):
         if inst.driver not in ("streams", "redis"):

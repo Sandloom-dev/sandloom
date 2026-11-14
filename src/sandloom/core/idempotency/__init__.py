@@ -23,8 +23,8 @@ A FastAPI dependency cannot see the response, so the layer is split:
 * :class:`IdempotencyCaptureMiddleware` — captures the armed request's response
   and writes the terminal ``succeeded`` / ``failed`` record.
 
-Both reach the cache through the operation-based ``CacheProvider`` (never a raw
-client). ``fail_closed`` controls behavior when the cache is unavailable.
+Both reach the ``idempotency`` ``atomic_store`` instance (never a raw client).
+``fail_closed`` controls behavior when the store is unavailable.
 
 That cache form is **replay-only** (ADR-0005): its terminal record is written
 after ``COMMIT``, so a crash in between, or a ``COMMIT`` whose outcome the

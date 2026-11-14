@@ -33,7 +33,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`assert_route_snapshot`](#assert_route_snapshot) | function | Fail unless each module's routes equal its committed `routes.snapshot.json`. |
 | [`bind_contract_session`](#bind_contract_session) | function | Run contract calls in this block on `session` (TEST SEAM). |
 | [`bind_test_uow`](#bind_test_uow) | function | Bind `session` as the active UoW for `database` in this context. |
-| [`block_mark_key`](#block_mark_key) | function | The cache key of `user_id`'s subject-state record (the block lives there). |
+| [`block_mark_key`](#block_mark_key) | function | The store key of `user_id`'s subject-state record (the block lives there). |
 | [`boot_module_alone`](#boot_module_alone) | async function | `create_app` with only `module` loaded, then run its lifespan. |
 | [`BootOutcome`](#bootoutcome) | class | What booting one module alone did. |
 | [`capture_effects`](#capture_effects) | function | Record `publish_event` / `record_audit` and typed `Event.publish()` calls made from `modules`. |
@@ -50,6 +50,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`has_optimized_reads`](#has_optimized_reads) | function | Whether the planner's optimized executor can run on the database behind `bind` (an engine, sync or async): its DBAPI adapter runs raw sta... |
 | [`Headers`](#headers) | callable | dict() -> new empty dictionary dict(mapping) -> new dictionary initialized from a mapping object's     (key, value) pairs dict(iterable)... |
 | [`in_process_rpc_client`](#in_process_rpc_client) | function | An HTTP client whose requests hit `core`'s internal RPC routes in-process (authenticated and bound under `settings`, default the core's). |
+| [`InMemoryAtomicStore`](#inmemoryatomicstore) | class | Dict-backed `atomic_store` (every operation of the port) for unit tests. |
 | [`InMemoryCache`](#inmemorycache) | class | Dict-backed `CacheProvider` (incl. `cas` and an atomic `set_max`) for unit tests. |
 | [`keyed_rpc_settings`](#keyed_rpc_settings) | function | A copy of `cfg` keyed as `service_id` calling ITSELF. |
 | [`migrate_module`](#migrate_module) | function | Move `package`'s own chain in `url` to `revision`. |
@@ -74,7 +75,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`RegistrationSurface`](#registrationsurface) | class | What one `register(core)` call registered, in call order. |
 | [`reload_test_env`](#reload_test_env) | function | `load_dotenv(path, override=True)` then re-apply the worker rewrite. |
 | [`ReservedPort`](#reservedport) | class | A loopback port held by a listening socket owned by the test process. |
-| [`revocation_mark_key`](#revocation_mark_key) | function | The cache key of `user_id`'s subject-state record. |
+| [`revocation_mark_key`](#revocation_mark_key) | function | The store key of `user_id`'s subject-state record. |
 | [`route_policy`](#route_policy) | function | The policy the framework applies to `route` (resolved live). An app asserts deny-by-default with it: |
 | [`RoutePolicy`](#routepolicy) | class | What the framework applies to one route (ADR-0009). |
 | [`rpc_client_for`](#rpc_client_for) | function | (client, base_url) of the RPC path for `transport` (see module doc). |
@@ -104,7 +105,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`TestResourceOwnershipError`](#testresourceownershiperror) | exception | The test database / Redis index belongs to another run. |
 | [`UNIQUE`](#unique) | constant |  |
 | [`upgrade_core_chain`](#upgrade_core_chain) | function | Apply the core chain (outbox / audit / inbox / command log) to `url`. |
-| [`use_security_cache`](#use_security_cache) | function | Resolve the kernel's revocation / block state to `provider`. |
+| [`use_security_store`](#use_security_store) | function | Resolve the kernel's revocation / block state to `store`. |
 | [`validate_settings`](#validate_settings) | function | Testing: validate `model` exactly as the loader does before `setup`. |
 | [`wait_revocation_listener_subscribed`](#wait_revocation_listener_subscribed) | async function | Return once no per-process copy of a subject's state can be stale. |
 | [`worker_env_values`](#worker_env_values) | function | `dotenv_values(path)` (`None` dropped), the `SANDLOOM_TEST_<VAR>` overrides applied, rewritten for this worker. Missing file -> `{}` base. |
@@ -311,7 +312,7 @@ needs); nothing is dispatched to the event bus.
 def block_mark_key(user_id: Any) -> str
 ```
 
-The cache key of `user_id`'s subject-state record (the block lives there).
+The store key of `user_id`'s subject-state record (the block lives there).
 
 Writing `blocked_value` to it blocks the subject on the very next
 authenticated request, exactly like a committed `block_user` (minus its
@@ -551,6 +552,117 @@ def in_process_rpc_client(core: Any, settings: Any = None) -> httpx.AsyncClient
 
 An HTTP client whose requests hit `core`'s internal RPC routes
 in-process (authenticated and bound under `settings`, default the core's).
+
+### `InMemoryAtomicStore`
+
+```python
+class InMemoryAtomicStore(*, broken: bool = False) -> None
+```
+
+Dict-backed `atomic_store` (every operation of the port) for unit tests.
+
+TTLs are modelled: a row written with `ttl_seconds` expires once `clock`
+(monotonic seconds; a test substitutes one it advances) reaches the
+deadline, as in the `memory` driver; a row seeded straight into `store`
+never expires. This stays a harness class beside the driver, not a layer
+over `sandloom.core.drivers.memory_atomic_store`, because the kernel
+import contract forbids `sandloom.core.testing` reaching
+`sandloom.driverkit` even indirectly. `broken=True` makes every
+operation raise `Unavailable` (a security store outage). Install it for
+the kernel's security duties with
+`sandloom.core.testing.use_security_store`, or where the code under
+test resolves `atomic_store` (for the idempotency guard:
+`monkeypatch.setattr(cache_store, "atomic_store", lambda role: mem)`,
+`sandloom.core.idempotency.cache_store`).
+
+#### `InMemoryAtomicStore.get`
+
+```python
+async def get(self, key: str) -> str | None
+```
+
+#### `InMemoryAtomicStore.set`
+
+```python
+async def set(self, key: str, value: str, *, ttl_seconds: int | None = None) -> None
+```
+
+#### `InMemoryAtomicStore.delete`
+
+```python
+async def delete(self, key: str) -> None
+```
+
+#### `InMemoryAtomicStore.add`
+
+```python
+async def add(self, key: str, value: str, *, ttl_seconds: int | None = None) -> bool
+```
+
+#### `InMemoryAtomicStore.add_or_get`
+
+```python
+async def add_or_get(
+    self,
+    key: str,
+    value: str,
+    *,
+    ttl_seconds: int | None = None,
+) -> tuple[bool, str | None]
+```
+
+#### `InMemoryAtomicStore.compare_and_set`
+
+```python
+async def compare_and_set(
+    self,
+    key: str,
+    expected: str,
+    value: str,
+    *,
+    ttl_seconds: int | None = None,
+) -> bool
+```
+
+#### `InMemoryAtomicStore.compare_and_delete`
+
+```python
+async def compare_and_delete(self, key: str, expected: str) -> bool
+```
+
+#### `InMemoryAtomicStore.set_subject_state`
+
+```python
+async def set_subject_state(
+    self,
+    key: str,
+    value: str,
+    *,
+    ttl_seconds: int | None = None,
+) -> str
+```
+
+The port's monotonic write: only a higher value (`blocked` above
+every `after`, an instant compared as a decimal) replaces the stored
+one; a stored value outside the domain is replaced.
+
+#### `InMemoryAtomicStore.features`
+
+```python
+def features(self) -> frozenset[str]
+```
+
+#### `InMemoryAtomicStore.isolation_identity`
+
+```python
+async def isolation_identity(self) -> str | None
+```
+
+#### `InMemoryAtomicStore.health`
+
+```python
+async def health(self) -> HealthResult
+```
 
 ### `InMemoryCache`
 
@@ -952,7 +1064,7 @@ Record the `sub` of every access-token revocation check.
 
 Wraps the kernel's single revocation lookup (the one every framework
 token guard reaches through the per-request memo): the returned list
-grows by one subject per actual cache lookup, so a request whose guards
+grows by one subject per actual security store lookup, so a request whose guards
 share the memo adds exactly one entry.
 
 ### `recording_uow`
@@ -1098,7 +1210,7 @@ Release the port (idempotent). Do it after the last child stopped.
 def revocation_mark_key(user_id: Any) -> str
 ```
 
-The cache key of `user_id`'s subject-state record.
+The store key of `user_id`'s subject-state record.
 
 A revocation is the value `v1:after:<epoch seconds>` (see
 `revoked_after_value`): the subject's access tokens issued at or
@@ -1780,20 +1892,21 @@ def upgrade_core_chain(url: str) -> None
 
 Apply the core chain (outbox / audit / inbox / command log) to `url`.
 
-### `use_security_cache`
+### `use_security_store`
 
 ```python
-def use_security_cache(
+def use_security_store(
     monkeypatch: pytest.MonkeyPatch,
-    provider: CacheProvider,
-) -> CacheProvider
+    store: AtomicStore,
+) -> AtomicStore
 ```
 
-Resolve the kernel's revocation / block state to `provider`.
+Resolve the kernel's revocation / block state to `store`.
 
-The revocation marks and the emergency block marks are read and written
-through `sandloom.core.infra.access.cache` at call time; for the rest of the
-test every such lookup (any instance name) returns `provider`.
+The revocation marks, the emergency block marks and the RPC nonces are read
+and written through `sandloom.core.infra.access.atomic_store` at call
+time; for the rest of the test every such lookup (any role) returns
+`store`.
 
 ### `validate_settings`
 

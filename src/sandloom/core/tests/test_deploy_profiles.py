@@ -462,11 +462,11 @@ def test_redis_bus_is_persistent(profile: str) -> None:
 
 @pytest.mark.parametrize("profile", PROFILES)
 def test_idempotency_cache_opt_in_is_shared_and_durable(profile: str) -> None:
-    """IDEMPOTENCY_CACHE_INSTANCE is off by default; once enabled it (with
-    INFRA / SECURITY_CACHE_INSTANCE) is identical in every process, and its
-    Redis fsyncs every write and never evicts, like a security Redis."""
+    """INFRA (it carries INFRA.atomic_store.security and .idempotency) is
+    identical in every process, and a dedicated idempotency Redis fsyncs
+    every write and never evicts, like a security Redis."""
     procs = _app_processes(profile)
-    for key in ("IDEMPOTENCY_CACHE_INSTANCE", "SECURITY_CACHE_INSTANCE", "INFRA"):
+    for key in ("INFRA",):
         values = {name: svc["environment"].get(key) for name, svc in procs.items()}
         assert len(set(values.values())) == 1, f"{key} differs: {values}"
     services = _load(profile)["services"]

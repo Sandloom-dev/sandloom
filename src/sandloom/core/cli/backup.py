@@ -9,7 +9,7 @@
         integrity, drop it (exit 0 = the backup restores and is current)
     sandloom backup reconcile-security [--audit-export FILE ...] [--lift-stale-blocks]
                       [--apply [--confirm-production] --reason R] [--json]
-        after restoring the SECURITY cache from a snapshot: re-derive block
+        after restoring the security store from a snapshot: re-derive block
         and revocation marks from the audit log / outbox (dry-run by default;
         exit 0 = nothing missing / everything re-applied, 1 = action needed)
     sandloom backup fence-leases [--database NAME ...]
@@ -171,7 +171,7 @@ async def _audit_reconcile(report: Any, operator: str, reason: str) -> None:
             "core.security.marks_reconciled",
             actor_id=None,
             actor_type="operator",
-            resource_type="security_cache",
+            resource_type="security_store",
             resource_id=None,
             data={
                 "operator": operator,
@@ -208,7 +208,7 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
         mode = "applied" if report.applied else "dry-run"
         print(f"security-state reconciliation ({mode})")
         print(f"  blocked users (durable records): {report.blocked_users}")
-        print(f"  block marks missing from the cache: {len(report.missing_blocks)}")
+        print(f"  block marks missing from the store: {len(report.missing_blocks)}")
         for user in report.missing_blocks[:20]:
             print(f"    {user}")
         print(
@@ -217,7 +217,7 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
         )
         print(
             f"  revocations in the window: {report.revocations_seen}, "
-            f"missing/older in the cache: {len(report.missing_revocations)}"
+            f"missing/older in the store: {len(report.missing_revocations)}"
         )
         for line in report.failures:
             print(f"  FAILURE {line}")

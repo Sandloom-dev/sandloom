@@ -142,7 +142,6 @@ _CATEGORIES: dict[str, str] = {
     "JWT_SECRET": "Security & JWT",
     "PRODUCTION_PROFILE": "Security & JWT",
     "SANDLOOM_ACCEPTED_RISKS": "Security & JWT",
-    "SECURITY_CACHE_INSTANCE": "Security & JWT",
     "JWT_ALGORITHM": "Security & JWT",
     "ACCESS_TOKEN_EXPIRE_MINUTES": "Security & JWT",
     "REFRESH_TOKEN_EXPIRE_DAYS": "Security & JWT",

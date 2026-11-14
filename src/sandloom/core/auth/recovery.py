@@ -1,7 +1,7 @@
-"""Re-derive the security cache's subject-state records after a restore (H-20).
+"""Re-derive the security store's subject-state records after a restore (H-20).
 
-The security cache (``SECURITY_CACHE_INSTANCE``, else the default cache)
-holds one record per subject that is NOT in any database: the subject-state
+The security store (``INFRA.atomic_store.security``) holds one record per
+subject that is NOT in any database: the subject-state
 record ``sandloom:auth:subject:{user}`` (ADR-0009 item 13), either
 ``v1:blocked:<since>`` (no TTL, written by
 :func:`sandloom.core.auth.blocks.block_user`) or ``v1:after:<mark>`` (the access
@@ -21,7 +21,7 @@ change that caused them:
 * every ``revoke_user_tokens_on_commit`` writes ``core.auth.tokens_revoked.v1``
   into the outbox (kept ``OUTBOX_RETENTION_HOURS`` after delivery).
 
-:func:`reconcile_security_state` replays them onto the cache: the newest
+:func:`reconcile_security_state` replays them onto the security store: the newest
 audit event per user decides whether the user is blocked (a block and an
 unblock at the same instant resolve to BLOCKED — the safe side), and every
 revocation still inside the mark lifetime is re-applied with the monotonic
@@ -58,6 +58,7 @@ from sandloom.core.auth.marks import (
 )
 from sandloom.core.config.settings import settings
 from sandloom.core.infra import access as _access
+from sandloom.core.infra.ports.atomic_store import AtomicStore
 
 logger = logging.getLogger(__name__)
 
@@ -274,10 +275,8 @@ class ReconcileReport:
         }
 
 
-async def _get_many(provider: Any, keys: Sequence[str]) -> list[Any]:
-    get_many = getattr(provider, "get_many", None)
-    if get_many is not None:
-        return list(await get_many(list(keys)))
+async def _get_many(provider: AtomicStore, keys: Sequence[str]) -> list[Any]:
+    # One GET per key: accepted, this runs in the reconcile CLI, never on a request.
     return [await provider.get(key) for key in keys]
 
 
@@ -295,9 +294,9 @@ async def reconcile_security_state(  # noqa: C901
     window_start: datetime | None = None,
     oldest_revocation_record: datetime | None = None,
 ) -> ReconcileReport:
-    """Compare the security cache with the durable records; repair with ``apply``.
+    """Compare the security store with the durable records; repair with ``apply``.
 
-    Dry-run (``apply=False``) only reads the cache. With ``apply`` every
+    Dry-run (``apply=False``) only reads the store. With ``apply`` every
     missing ``blocked`` record is written (the block instant, like
     ``block_user``; it outranks any ``after`` value there), every revocation
     whose record does not cover it is re-written through
@@ -315,7 +314,7 @@ async def reconcile_security_state(  # noqa: C901
     gap = revocation_coverage_gap()
     if gap is not None:
         report.warnings.append(gap)
-    provider = _access.security_cache()
+    provider = _access.atomic_store("security")
     states = latest_block_states(block_events)
 
     users = sorted(states)
@@ -357,7 +356,9 @@ async def reconcile_security_state(  # noqa: C901
             if apply and not await _revocation.revoke_user_tokens(
                 user, valid_after=target
             ):
-                report.failures.append(f"revocation {user}: cache write failed")
+                report.failures.append(
+                    f"revocation {user}: security store write failed"
+                )
 
     if apply and (report.missing_blocks or report.missing_revocations):
         logger.warning(

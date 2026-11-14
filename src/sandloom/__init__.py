@@ -40,7 +40,7 @@ Subcommands:
     sandloom routes ...       per-module route snapshots (method, path, operation
                          class) and the route reference (sandloom.core.cli.routes)
     sandloom admin export     export the platform-owner UI manifest
-    sandloom backup ...       backup plan, restore verification, security-cache
+    sandloom backup ...       backup plan, restore verification, security-store
                          reconciliation after a restore (see sandloom.core.cli.backup)
     sandloom sagas ...        list / show / retry / park / resolve saga instances
                          (see sandloom.core.cli.sagas)

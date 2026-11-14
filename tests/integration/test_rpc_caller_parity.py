@@ -53,7 +53,7 @@ from sandloom.core.rpc import wire as rpc_wire
 from sandloom.core.rpc.errors import RemoteServiceBadResponse
 from sandloom.core.rpc.proxy import RemoteServiceProxy
 from sandloom.core.rpc_transport import HttpxRpcClient
-from sandloom.core.testing import InMemoryCache
+from sandloom.core.testing import InMemoryAtomicStore
 from sandloom.core.tests.test_contract_parity import _FakeDatabase
 from sandloom.core.unit_of_work import risk as _risk
 from sandloom.core.unit_of_work.hooks import on_commit
@@ -231,8 +231,8 @@ class Gate:
 def core(monkeypatch: pytest.MonkeyPatch) -> Iterator[CoreFacade]:
     from sandloom.core.config.settings import settings
 
-    cache = InMemoryCache()
-    monkeypatch.setattr(idempotency_cache_store, "cache", lambda name="default": cache)
+    cache = InMemoryAtomicStore()
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: cache)
     monkeypatch.setattr(rpc_proxy, "_remote_contracts", {})
     allowed = {_SVC: [MONEY, BILL, WRAP, GATE]}
     for name, value in rpc_settings(_SVC, allowed_calls=allowed).items():

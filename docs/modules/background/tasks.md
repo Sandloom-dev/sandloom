@@ -116,8 +116,9 @@ module's task name. With a key:
 - a dedupe store outage, or a cache without compare-and-set, raises
   `TaskEnqueueUnavailable` (503) and publishes nothing.
 
-The reservation lives in the shared `SECURITY_CACHE_INSTANCE`, scoped to the
-queue instance, the broker and the bound tenant; use a persistent,
+The reservation lives in the shared `idempotency` `atomic_store` instance
+(`INFRA.atomic_store.idempotency`, else the `security` one). It is scoped to
+the queue instance, the broker and the bound tenant. Use a persistent,
 non-evicting Redis. Without a key no dedupe store is used.
 
 An enqueue is not part of the unit's transaction. If the task must run only

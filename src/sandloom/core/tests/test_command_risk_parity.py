@@ -19,7 +19,7 @@ from sandloom.core.facade import CoreFacade
 from sandloom.core.idempotency import cache_store as idempotency_cache_store
 from sandloom.core.module_api import contract_method
 from sandloom.core.rpc import proxy as rpc_proxy
-from sandloom.core.testing import InMemoryCache
+from sandloom.core.testing import InMemoryAtomicStore
 from sandloom.core.tests.test_contract_parity import _FakeDatabase
 from sandloom.core.unit_of_work.request import RequestScope, bind_request_scope
 
@@ -60,8 +60,8 @@ class Wrapper:
 def core(monkeypatch: pytest.MonkeyPatch) -> Iterator[CoreFacade]:
     from sandloom.core.config.settings import settings
 
-    cache = InMemoryCache()
-    monkeypatch.setattr(idempotency_cache_store, "cache", lambda name="default": cache)
+    cache = InMemoryAtomicStore()
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: cache)
     allowed = {_SVC: [CONTRACT, WRAPPER]}
     for name, value in rpc_settings(_SVC, allowed_calls=allowed).items():
         monkeypatch.setattr(settings, name, value)

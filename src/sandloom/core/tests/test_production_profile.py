@@ -2,10 +2,10 @@
 
 * configuration: in prod the profile refuses every setting that leaves a layer
   of the multi-tenant trust model off (RLS per database, role verification,
-  fail-closed revocation, a separate security cache on its own Redis, the
+  fail-closed revocation, a separate security atomic_store on its own Redis, the
   contract compatibility check when split) and turns fail-closed revocation
   on; outside prod, or with ``standard``, nothing changes;
-* security-critical cache state goes to ``SECURITY_CACHE_INSTANCE``;
+* security-critical state goes to ``INFRA.atomic_store.security``;
 * at startup every ``TenantScoped`` table must carry the forced tenant policy
   (real PostgreSQL).
 """
@@ -26,18 +26,20 @@ from sandloom.core import production_profile
 from sandloom.core.app_factory import ConfigurationError, enforce_configuration
 from sandloom.core.auth import revocation, tokens
 from sandloom.core.config.common import strict_profile_active
-from sandloom.core.config.settings import Settings, settings
+from sandloom.core.config.settings import Settings
 from sandloom.core.idempotency import cache_store as idempotency_cache_store
 from sandloom.core.infra import access
 from sandloom.core.sql_alchemy.rls import enable_tenant_rls_statements
 from sandloom.core.sql_alchemy.tenant_rls import tenant_rls_coverage
-from sandloom.core.testing import reload_test_env
+from sandloom.core.testing import InMemoryAtomicStore, reload_test_env
 
 _STRONG = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
 _STRONG_2 = "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b"
 _COMPLIANT_INFRA = {
     "database": {"default": {"tenant_rls": True}},
-    "cache": {"security": {"driver": "redis", "url": "redis://sec-redis:6379/0"}},
+    "atomic_store": {
+        "security": {"driver": "redis", "url": "redis://sec-redis:6379/0"}
+    },
 }
 
 #: A configuration is refused at load (``Settings``) or at boot
@@ -72,7 +74,6 @@ _BASE = {
     "ENVIRONMENT": "prod",
     "PRODUCTION_PROFILE": "multi_tenant_strict",
     "INFRA": _COMPLIANT_INFRA,
-    "SECURITY_CACHE_INSTANCE": "security",
     # prod selects the shared Streams bus: the revocation applier's group
     # needs the service's name (ADR-0012 decision 5).
     "SANDLOOM_SERVICE_NAME": "api",
@@ -97,15 +98,11 @@ def test_compliant_strict_profile_starts_and_forces_fail_closed() -> None:
 
 def test_default_production_config_is_refused_with_every_reason() -> None:
     with pytest.raises(_REFUSED) as exc_info:
-        _settings(
-            INFRA={},
-            SECURITY_CACHE_INSTANCE="default",
-            AUTH_REVOCATION_FAIL_CLOSED="false",
-        )
+        _settings(INFRA={}, AUTH_REVOCATION_FAIL_CLOSED="false")
     message = str(exc_info.value)
     assert "PRODUCTION_PROFILE=multi_tenant_strict is not met" in message
     assert "database/default: tenant_rls is off" in message
-    assert "SECURITY_CACHE_INSTANCE is 'default'" in message
+    assert 'INFRA["atomic_store"]["security"] is not declared' in message
     assert "AUTH_REVOCATION_FAIL_CLOSED=false" in message
 
 
@@ -132,14 +129,28 @@ def test_default_production_config_is_refused_with_every_reason() -> None:
             {
                 "INFRA": {
                     **_COMPLIANT_INFRA,
-                    "cache": {"security": {"url": "redis://cache-redis:6379/5"}},
+                    "atomic_store": {
+                        "security": {
+                            "driver": "redis",
+                            "url": "redis://cache-redis:6379/5",
+                        }
+                    },
                 }
             },
-            "same Redis server as the default cache",
+            "atomic_store/security runs on the same Redis server as the default cache",
         ),
         (
-            {"SECURITY_CACHE_INSTANCE": "sessions"},
-            "SECURITY_CACHE_INSTANCE='sessions' is not declared",
+            {
+                "INFRA": {
+                    **_COMPLIANT_INFRA,
+                    "atomic_store": {"security": {"driver": "memory"}},
+                }
+            },
+            "uses the development-only memory driver",
+        ),
+        (
+            {"INFRA": {"database": {"default": {"tenant_rls": True}}}},
+            'INFRA["atomic_store"]["security"] is not declared',
         ),
         (
             {**_split_env(), "CONTRACT_COMPAT_CHECK": "off"},
@@ -198,61 +209,38 @@ def test_startup_role_check_has_no_shared_secret_opt_out_under_the_profile() -> 
 
 
 def test_profile_is_inert_outside_prod_and_for_standard() -> None:
-    dev = _settings(ENVIRONMENT="dev", INFRA={}, SECURITY_CACHE_INSTANCE="default")
+    dev = _settings(ENVIRONMENT="dev", INFRA={})
     assert not strict_profile_active(dev)
     assert dev.auth_revocation_fail_closed is None
+    # The standard profile adds no trust-model requirement (RLS stays off); the
+    # security store's declaration is a production refusal of every profile.
     standard = _settings(
-        PRODUCTION_PROFILE="standard", INFRA={}, SECURITY_CACHE_INSTANCE="default"
+        PRODUCTION_PROFILE="standard",
+        INFRA={"atomic_store": _COMPLIANT_INFRA["atomic_store"]},
     )
     assert not strict_profile_active(standard)
 
 
 # --------------------------------------------------------------------------- #
-# Security cache routing
+# Security store routing
 # --------------------------------------------------------------------------- #
-class _Recorder:
-    def __init__(self) -> None:
-        self.names: list[str] = []
-        self.store: dict[str, str] = {}
-
-    def __call__(self, name: str = "default") -> Any:
-        self.names.append(name)
-        return self
-
-    async def get(self, key: str) -> str | None:
-        return self.store.get(key)
-
-    async def add(self, key: str, value: str, ttl_seconds: int | None = None) -> bool:
-        if key in self.store:
-            return False
-        self.store[key] = value
-        return True
-
-    async def compare_and_set(
-        self, key: str, expected: str | None, value: str, ttl_seconds: int | None = None
-    ) -> bool:
-        if self.store.get(key) != expected:
-            return False
-        self.store[key] = value
-        return True
-
-
-async def test_security_state_uses_the_security_cache_instance(
+async def test_security_state_uses_the_security_atomic_store(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    recorder = _Recorder()
-    monkeypatch.setattr(access, "cache", recorder)
-    monkeypatch.setattr(idempotency_cache_store, "cache", recorder)
-    monkeypatch.setattr(settings, "security_cache_instance", "security")
-    assert access.security_cache_name() == "security"
+    roles: list[str] = []
+    mem = InMemoryAtomicStore()
+
+    def routed(role: str) -> InMemoryAtomicStore:
+        roles.append(role)
+        return mem
+
+    monkeypatch.setattr(access, "atomic_store", routed)
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", routed)
     await revocation.revoke_user_tokens(uuid.uuid4())
+    assert roles and set(roles) == {"security"}
+    roles.clear()
     await idempotency_cache_store._store_add("idem:k", "v", 60)
-    assert recorder.names and set(recorder.names) == {"security"}
-    # The default stays exactly `cache()` (no name) — backward compatible.
-    recorder.names.clear()
-    monkeypatch.setattr(settings, "security_cache_instance", "default")
-    await idempotency_cache_store._store_add("idem:k2", "v", 60)
-    assert recorder.names == ["default"]
+    assert roles == ["idempotency"]
 
 
 # --------------------------------------------------------------------------- #

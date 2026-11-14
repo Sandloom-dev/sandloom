@@ -316,21 +316,51 @@ def sandloom_core(sandloom_app: Any) -> Any:
     return sandloom_app.state.core
 
 
+async def _security_store_on_cache(stack: AsyncExitStack, core: Any, url: str) -> None:
+    """Point the implicit development ``security`` store at the test Redis too.
+
+    The synthesized ``atomic_store.security`` instance (no ``INFRA`` entry) is
+    built on the cache's Redis, taken from the settings snapshot — which names
+    another database than the test ``CACHE_URL`` where the shell exports a
+    ``CACHE_URL`` of its own (CI) or the app was imported before ``.env.test``
+    was loaded. A fixture that moves the ``cache`` instance onto the test URL
+    moves it along, so revocation marks, blocks and idempotency keys the app
+    writes land in the database the test reads and flushes. An instance the
+    configuration declares (``INFRA``) is left alone.
+    """
+    config = core.infra.instance_config("atomic_store", "security")
+    if config is None or not config.implicit or config.driver != "redis":
+        return
+    await stack.enter_async_context(
+        override_instance(
+            core,
+            "atomic_store",
+            "security",
+            driver=config.driver,
+            **{**config.options, "url": url},
+        )
+    )
+
+
 @pytest_asyncio.fixture
 async def sandloom_cache(sandloom_core: Any) -> AsyncIterator[Any]:
     """The app's ``default`` cache on the test ``CACHE_URL``, emptied first.
 
     Yields the ``CacheProvider`` the app itself resolves (``core.cache()``,
-    idempotency, rate limits, token revocation). The Redis database is
-    FLUSHDB'd before the test so keys never leak between tests — so
-    ``CACHE_URL`` must name a disposable test database. Also needed where the
-    app was imported before ``.env.test`` was loaded (its settings snapshot
-    names another cache), as in the framework's own suite.
+    rate limits). The Redis database is FLUSHDB'd before the test so keys
+    never leak between tests — so ``CACHE_URL`` must name a disposable test
+    database. Also needed where the app was imported before ``.env.test`` was
+    loaded (its settings snapshot names another cache), as in the framework's
+    own suite. The implicit development ``security`` store (revocation marks,
+    blocks, idempotency) follows it onto the same database.
     """
     driver = _configured_driver(sandloom_core, "cache", "redis")
-    async with override_instance(
-        sandloom_core, "cache", driver=driver, url=_required_env("CACHE_URL")
-    ) as registry:
+    url = _required_env("CACHE_URL")
+    async with AsyncExitStack() as stack:
+        registry = await stack.enter_async_context(
+            override_instance(sandloom_core, "cache", driver=driver, url=url)
+        )
+        await _security_store_on_cache(stack, sandloom_core, url)
         provider = registry.provider("cache")
         raw = getattr(provider, "raw_client", None)
         if raw is not None:
@@ -381,6 +411,7 @@ async def real_uow_client(
                     url=_required_env(env),
                 )
             )
+        await _security_store_on_cache(stack, sandloom_core, _required_env("CACHE_URL"))
         http = await stack.enter_async_context(
             httpx.AsyncClient(
                 transport=httpx.ASGITransport(

@@ -12,7 +12,7 @@ kernel internals such as ``sandloom.core._internal`` / ``sandloom.core.sql_alche
   revocation invalidation listener before warming a budgeted route's copy;
 * UoW helpers (:func:`bind_test_uow`, :func:`recording_uow`,
   :func:`committing_uow`, :func:`run_on_commit`, :func:`capture_effects`) and
-  :class:`InMemoryCache` for unit tests;
+  :class:`InMemoryCache` and :class:`InMemoryAtomicStore` for unit tests;
 * migration tests (:mod:`sandloom.core.testing.migrations`):
   :func:`temporary_database` (the ``scratch_database`` fixture),
   :func:`upgrade_core_chain`, :func:`migrate_module` and :func:`run_sql`;
@@ -34,7 +34,7 @@ kernel internals such as ``sandloom.core._internal`` / ``sandloom.core.sql_alche
   policy equal its committed ``routes.snapshot.json``; :func:`route_policy`
   reads the policy the framework applies to a route;
 * token-security seams (:mod:`sandloom.core.testing.security`):
-  :func:`use_security_cache`, :func:`revocation_mark_key`,
+  :func:`use_security_store`, :func:`revocation_mark_key`,
   :func:`block_mark_key`, :func:`record_revocation_checks`,
   :func:`stop_revocation_listener` and :func:`set_environment`;
 * :func:`boot_module_alone` — ``create_app`` + lifespan with ONLY one module
@@ -61,6 +61,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.core.testing._uow import (
         Captured,
+        InMemoryAtomicStore,
         InMemoryCache,
         RecordingSession,
         bind_test_uow,
@@ -121,7 +122,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         record_revocation_checks,
         revocation_mark_key,
         set_environment,
-        use_security_cache,
+        use_security_store,
     )
     from sandloom.core.testing.workers import (
         apply_worker_env,
@@ -131,6 +132,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 _EXPORTS: dict[str, str] = {
     "Captured": "sandloom.core.testing._uow",
+    "InMemoryAtomicStore": "sandloom.core.testing._uow",
     "InMemoryCache": "sandloom.core.testing._uow",
     "RecordingSession": "sandloom.core.testing._uow",
     "bind_test_uow": "sandloom.core.testing._uow",
@@ -181,7 +183,7 @@ _EXPORTS: dict[str, str] = {
     "record_revocation_checks": "sandloom.core.testing.security",
     "revocation_mark_key": "sandloom.core.testing.security",
     "set_environment": "sandloom.core.testing.security",
-    "use_security_cache": "sandloom.core.testing.security",
+    "use_security_store": "sandloom.core.testing.security",
     "apply_worker_env": "sandloom.core.testing.workers",
     "reload_test_env": "sandloom.core.testing.workers",
     "worker_env_values": "sandloom.core.testing.workers",
@@ -210,6 +212,7 @@ __all__ = [
     "SimulatedCrash",
     "open_saga_harness",
     "Headers",
+    "InMemoryAtomicStore",
     "InMemoryCache",
     "MigrationChain",
     "ModuleBootError",
@@ -254,7 +257,7 @@ __all__ = [
     "tables_created_by",
     "temporary_database",
     "upgrade_core_chain",
-    "use_security_cache",
+    "use_security_store",
     "wait_revocation_listener_subscribed",
     "worker_env_values",
 ]

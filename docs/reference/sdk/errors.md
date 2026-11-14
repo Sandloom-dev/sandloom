@@ -18,7 +18,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | Name | Kind | Summary |
 | --- | --- | --- |
 | [`AuditUnavailableError`](#auditunavailableerror) | exception | A `required` audit write could not be performed. |
-| [`BlockUnavailableError`](#blockunavailableerror) | exception | The emergency-block mark could not be written / removed (cache outage). |
+| [`BlockUnavailableError`](#blockunavailableerror) | exception | The emergency-block mark could not be written / removed (store outage). |
 | [`ConsumerDefinitionError`](#consumerdefinitionerror) | exception | An invalid `@on` consumer (SANDLOOM-B016). |
 | [`ContractArgumentError`](#contractargumenterror) | exception | The call's arguments do not bind to / validate against the signature (422). |
 | [`ContractCallError`](#contractcallerror) | exception | A contract call failed with a declared status — identical locally and over RPC. |
@@ -69,7 +69,7 @@ silently skip its audit trail.
 class BlockUnavailableError(RuntimeError)
 ```
 
-The emergency-block mark could not be written / removed (cache outage).
+The emergency-block mark could not be written / removed (store outage).
 
 ### `ConsumerDefinitionError`
 

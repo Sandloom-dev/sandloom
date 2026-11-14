@@ -69,7 +69,7 @@ by_name = ReadOperation(entity=BenchTenantItem, result=ItemOut, by=("name",))
 
 
 def _adapter(sandloom_core: Any) -> Any:
-    return sandloom_core.database("default").execution_adapter()
+    return sandloom_core.database("default").planner_adapter()
 
 
 async def _read(sandloom_core: Any, tenant: uuid.UUID | None, item_id: int) -> Any:
@@ -252,7 +252,9 @@ async def test_cancellation_at_each_phase(
 
 
 @BOTH
-async def test_cancellation_while_the_query_is_in_flight(s5: S5, sandloom_core: Any) -> None:
+async def test_cancellation_while_the_query_is_in_flight(
+    s5: S5, sandloom_core: Any
+) -> None:
     """The SELECT blocks SERVER-SIDE (table locked); the client gives up."""
     pid = await _clean(s5)
     lock = s5.admin.transaction()
@@ -415,7 +417,7 @@ async def test_plain_dbsession_routes_run_no_planner_code(
         (pa.SQLAlchemyExecutionAdapter, "compile"),
         (pa.SQLAlchemyExecutionAdapter, "lease"),
         (pa_units._Lease, "__aenter__"),
-        (SQLAlchemyDatabaseProvider, "execution_adapter"),
+        (SQLAlchemyDatabaseProvider, "planner_adapter"),
         (uow_scope, "read_only_scope"),
         (di, "_planner_reads"),
     ]

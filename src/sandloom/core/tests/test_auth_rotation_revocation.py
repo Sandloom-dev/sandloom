@@ -20,6 +20,7 @@ from starlette.testclient import TestClient
 
 from sandloom.core.auth import bearer, marks, revocation, tokens
 from sandloom.core.config.settings import Settings, settings
+from sandloom.core.testing import InMemoryAtomicStore
 from sandloom.core.testing.auth import mint_test_token
 
 _STRONG = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
@@ -35,58 +36,22 @@ def _settings(**env: Any) -> Settings:
     return Settings(_env_file=None, **{**_BASE_ENV, **env})  # type: ignore[call-arg]
 
 
-class _MemoryCache:
-    """Dict-backed stand-in for the cache capability (get/set only)."""
+class _MemoryCache(InMemoryAtomicStore):
+    """The security store (``InMemoryAtomicStore``) counting its reads."""
 
     def __init__(self, *, broken: bool = False) -> None:
-        self.store: dict[str, str] = {}
-        self.broken = broken
+        super().__init__(broken=broken)
         self.gets = 0
 
     async def get(self, key: str) -> str | None:
         self.gets += 1
-        if self.broken:
-            raise ConnectionError("cache down")
-        return self.store.get(key)
+        return await super().get(key)
 
     async def get_many(self, keys: list[str]) -> list[str | None]:
         """One round trip (like Redis MGET): counted as a single get."""
         self.gets += 1
-        if self.broken:
-            raise ConnectionError("cache down")
+        self._check()
         return [self.store.get(k) for k in keys]
-
-    async def set(
-        self, key: str, value: str, *, ttl_seconds: int | None = None
-    ) -> None:
-        if self.broken:
-            raise ConnectionError("cache down")
-        self.store[key] = value
-
-    async def add(
-        self, key: str, value: str, *, ttl_seconds: int | None = None
-    ) -> bool:
-        if self.broken:
-            raise ConnectionError("cache down")
-        if key in self.store:
-            return False
-        self.store[key] = value
-        return True
-
-    async def compare_and_set(
-        self,
-        key: str,
-        expected: str,
-        value: str,
-        *,
-        ttl_seconds: int | None = None,
-    ) -> bool:
-        if self.broken:
-            raise ConnectionError("cache down")
-        if self.store.get(key) != expected:
-            return False
-        self.store[key] = value
-        return True
 
 
 class _InterleavingCache(_MemoryCache):
@@ -103,7 +68,7 @@ def mem_cache(monkeypatch: pytest.MonkeyPatch) -> _MemoryCache:
     import sandloom.core.infra.access as access
 
     fake = _MemoryCache()
-    monkeypatch.setattr(access, "cache", lambda name="default": fake)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": fake)
     return fake
 
 
@@ -328,7 +293,7 @@ async def test_concurrent_revocations_never_move_the_mark_backwards(
     import sandloom.core.infra.access as access
 
     fake = _InterleavingCache()
-    monkeypatch.setattr(access, "cache", lambda name="default": fake)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": fake)
     key = f"{marks.SUBJECT_KEY_PREFIX}race"
     now = int(time.time())
     for existing in (None, marks._format_mark(marks._seconds_to_us(now - 500))):
@@ -422,7 +387,7 @@ async def test_revocation_outage_policy(monkeypatch: pytest.MonkeyPatch) -> None
     import sandloom.core.infra.access as access
 
     broken = _MemoryCache(broken=True)
-    monkeypatch.setattr(access, "cache", lambda name="default": broken)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": broken)
     token = _token(str(uuid.uuid4()))
     client = TestClient(_guarded_app())
     auth = {"Authorization": f"Bearer {token}"}
@@ -464,11 +429,11 @@ class _TtlRecordingCache(_MemoryCache):
         super().__init__()
         self.ttls: list[int | None] = []
 
-    async def add(
+    async def set_subject_state(
         self, key: str, value: str, *, ttl_seconds: int | None = None
-    ) -> bool:
+    ) -> str:
         self.ttls.append(ttl_seconds)
-        return await super().add(key, value, ttl_seconds=ttl_seconds)
+        return await super().set_subject_state(key, value, ttl_seconds=ttl_seconds)
 
 
 @pytest.fixture
@@ -476,7 +441,7 @@ def ttl_cache(monkeypatch: pytest.MonkeyPatch) -> _TtlRecordingCache:
     import sandloom.core.infra.access as access
 
     fake = _TtlRecordingCache()
-    monkeypatch.setattr(access, "cache", lambda name="default": fake)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": fake)
     return fake
 
 

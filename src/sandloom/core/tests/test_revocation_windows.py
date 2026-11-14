@@ -33,7 +33,7 @@ def mem_cache(monkeypatch: pytest.MonkeyPatch) -> _MemoryCache:
     import sandloom.core.infra.access as access
 
     fake = _MemoryCache()
-    monkeypatch.setattr(access, "cache", lambda name="default": fake)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": fake)
     return fake
 
 
@@ -182,13 +182,13 @@ class _FlakyCache(_MemoryCache):
         super().__init__()
         self.failures = failures
 
-    async def add(
+    async def set_subject_state(
         self, key: str, value: str, *, ttl_seconds: int | None = None
-    ) -> bool:
+    ) -> str:
         if self.failures > 0:
             self.failures -= 1
-            raise ConnectionError("cache blip")
-        return await super().add(key, value, ttl_seconds=ttl_seconds)
+            raise ConnectionError("store blip")
+        return await super().set_subject_state(key, value, ttl_seconds=ttl_seconds)
 
 
 async def test_on_commit_revocation_retries_a_transient_cache_failure(
@@ -198,7 +198,7 @@ async def test_on_commit_revocation_retries_a_transient_cache_failure(
     from sandloom.core.testing import recording_uow, run_on_commit
 
     fake = _FlakyCache(failures=2)
-    monkeypatch.setattr(access, "cache", lambda name="default": fake)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": fake)
     monkeypatch.setattr(
         settings, "auth_revocation_retry_base_seconds", 0.0, raising=False
     )
@@ -234,7 +234,7 @@ async def test_exhausted_retries_count_a_deferred_revocation(
     from sandloom.core.testing import recording_uow, run_on_commit
 
     broken = _MemoryCache(broken=True)
-    monkeypatch.setattr(access, "cache", lambda name="default": broken)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": broken)
     monkeypatch.setattr(
         settings, "auth_revocation_retry_base_seconds", 0.0, raising=False
     )

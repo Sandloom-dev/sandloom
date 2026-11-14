@@ -9,8 +9,7 @@ x-env: &env
   DATABASE_URL: postgresql+asyncpg://qualification_app:${APP_PASSWORD:?run prepare}@db:5432/qualification
   CACHE_URL: redis://cache:6379/0
   BROKER_URL: redis://cache:6379/2
-  SECURITY_CACHE_INSTANCE: security
-  INFRA: '{"database":{"default":{"tenant_rls":true}},"cache":{"security":{"driver":"redis","url":"redis://security:6379/0"}}}'
+  INFRA: '{"database":{"default":{"tenant_rls":true}},"atomic_store":{"security":{"driver":"redis","url":"redis://security:6379/0"}}}'
   JWT_SECRET: ${JWT_SECRET:?run prepare}
   TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?run prepare}
   INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?run prepare}

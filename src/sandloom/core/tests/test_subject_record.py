@@ -29,14 +29,20 @@ import pytest_asyncio
 
 from sandloom.core.auth import blocks, marks, revocation, tokens, verification
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers.redis_cache import RedisCacheProvider
+from sandloom.core.drivers.redis_atomic_store import RedisAtomicStoreProvider
 from sandloom.core.infra import access
 from sandloom.core.infra.contracts import (
     CacheProvider,
     parse_subject_state,
     portable_set_subject_state,
 )
-from sandloom.core.testing import InMemoryCache, recording_uow, run_on_commit
+from sandloom.core.infra.errors import InvalidArgument
+from sandloom.core.testing import (
+    InMemoryAtomicStore,
+    InMemoryCache,
+    recording_uow,
+    run_on_commit,
+)
 
 
 def _after(seconds: float) -> str:
@@ -56,7 +62,7 @@ def _claims(sub: str) -> dict[str, Any]:
 
 
 @pytest.fixture
-def mem_cache(monkeypatch: pytest.MonkeyPatch) -> InMemoryCache:
+def mem_cache(monkeypatch: pytest.MonkeyPatch) -> InMemoryAtomicStore:
     # The composed app registers the core event schemas on its bus
     # (block_user publishes core.auth.*): make it the active runtime.
     from sandloom.core import runtime
@@ -65,8 +71,8 @@ def mem_cache(monkeypatch: pytest.MonkeyPatch) -> InMemoryCache:
     app = load_composition_app()
 
     monkeypatch.setattr(runtime, "_process_core", app.state.core)
-    fake = InMemoryCache()
-    monkeypatch.setattr(access, "cache", lambda name="default": fake)
+    fake = InMemoryAtomicStore()
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": fake)
     monkeypatch.setattr(
         settings, "auth_revocation_clock_skew_seconds", 1.0, raising=False
     )
@@ -122,7 +128,7 @@ async def test_portable_writer_refuses_without_cas() -> None:
 # block / revocation / unblock semantics
 # --------------------------------------------------------------------------- #
 async def test_a_revocation_concurrent_with_a_block_never_unblocks(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     sub = str(uuid.uuid4())
     token = _claims(sub)
@@ -149,7 +155,7 @@ async def test_a_revocation_concurrent_with_a_block_never_unblocks(
 
 
 async def test_unblock_never_resurrects_pre_block_tokens(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     sub = str(uuid.uuid4())
     pre_block = _claims(sub)
@@ -172,7 +178,9 @@ async def test_unblock_never_resurrects_pre_block_tokens(
         )
 
 
-async def test_a_rolled_back_unblock_keeps_the_block(mem_cache: InMemoryCache) -> None:
+async def test_a_rolled_back_unblock_keeps_the_block(
+    mem_cache: InMemoryAtomicStore,
+) -> None:
     sub = str(uuid.uuid4())
     with recording_uow() as session:
         await blocks.block_user(sub, reason="leak", actor_id=None)
@@ -184,7 +192,7 @@ async def test_a_rolled_back_unblock_keeps_the_block(mem_cache: InMemoryCache) -
 
 
 async def test_a_corrupt_record_fails_closed_and_issuance_repairs_it(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     sub = str(uuid.uuid4())
     stale = _claims(sub)
@@ -197,12 +205,12 @@ async def test_a_corrupt_record_fails_closed_and_issuance_repairs_it(
     assert await verification.token_access_status(fresh) == verification.TOKEN_OK
 
 
-async def test_the_hot_path_reads_one_key(mem_cache: InMemoryCache) -> None:
+async def test_the_hot_path_reads_one_key(mem_cache: InMemoryAtomicStore) -> None:
     sub = str(uuid.uuid4())
     reads: list[str] = []
-    original = InMemoryCache.get
+    original = InMemoryAtomicStore.get
 
-    async def counting(self: InMemoryCache, key: str) -> str | None:
+    async def counting(self: InMemoryAtomicStore, key: str) -> str | None:
         reads.append(key)
         return await original(self, key)
 
@@ -215,15 +223,15 @@ async def test_the_hot_path_reads_one_key(mem_cache: InMemoryCache) -> None:
 # Redis: the fused op is one atomic Lua script with the same order
 # --------------------------------------------------------------------------- #
 @pytest_asyncio.fixture
-async def live() -> AsyncIterator[RedisCacheProvider]:
+async def live() -> AsyncIterator[RedisAtomicStoreProvider]:
     from sandloom.core.testing.workers import worker_env_values
 
     env_test = Path(__file__).resolve().parents[4] / ".env.test"
     url = os.getenv("CACHE_URL") or worker_env_values(env_test).get("CACHE_URL")
     if not url:
         pytest.skip("CACHE_URL not configured")
-    provider = RedisCacheProvider(
-        name="subject", driver="redis", options={"url": url}, shared=False
+    provider = RedisAtomicStoreProvider(
+        name="subject", driver="redis", options={"url": url}
     )
     try:
         await asyncio.wait_for(provider.get("sandloom:test:ping"), 5)
@@ -234,10 +242,12 @@ async def live() -> AsyncIterator[RedisCacheProvider]:
     await provider.aclose()
 
 
-async def test_redis_subject_state_order_and_ttl(live: RedisCacheProvider) -> None:
+async def test_redis_subject_state_order_and_ttl(
+    live: RedisAtomicStoreProvider,
+) -> None:
     assert live.performance_hints["set_subject_state"] == "one_round_trip"
     key = f"t:subject:{uuid.uuid4()}"
-    client = await live.raw_client()
+    client = await live._client_obj()
     assert await live.set_subject_state(key, _after(100.5), ttl_seconds=30) == (
         _after(100.5)
     )
@@ -255,13 +265,13 @@ async def test_redis_subject_state_order_and_ttl(live: RedisCacheProvider) -> No
     # a corrupt value is replaced
     await live.set(key, "1700000000")
     assert await live.set_subject_state(key, _after(0)) == _after(0)
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidArgument):
         await live.set_subject_state(key, "12")
     await live.delete(key)
 
 
 async def test_redis_concurrent_block_and_revocations_end_blocked(
-    live: RedisCacheProvider,
+    live: RedisAtomicStoreProvider,
 ) -> None:
     key = f"t:subject:{uuid.uuid4()}"
     values = [_after(1_700_000_000 + i) for i in range(200)] + [_blocked(5)]
@@ -274,7 +284,7 @@ async def test_redis_concurrent_block_and_revocations_end_blocked(
 
 
 async def test_redis_unblock_swaps_and_never_deletes(
-    live: RedisCacheProvider, monkeypatch: pytest.MonkeyPatch
+    live: RedisAtomicStoreProvider, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sub = str(uuid.uuid4())
     key = marks.subject_key(sub)
@@ -282,7 +292,7 @@ async def test_redis_unblock_swaps_and_never_deletes(
     assert await blocks._swap_blocked_for_after(live, sub) is True
     raw = await live.get(key)
     assert raw is not None and not marks.state_is_blocked(raw)
-    assert 0 < await (await live.raw_client()).ttl(key)
+    assert 0 < await (await live._client_obj()).ttl(key)
     # nothing to lift any more
     assert await blocks._swap_blocked_for_after(live, sub) is False
     await live.delete(key)

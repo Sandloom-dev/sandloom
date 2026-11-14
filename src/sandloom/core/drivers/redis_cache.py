@@ -896,6 +896,13 @@ class RedisCacheProvider(CacheProvider):
             raise RuntimeError("Redis INFO server returned no process identity")
         return identity
 
+    async def isolation_identity(self) -> str:
+        """``redis:<run_id>`` of the reached server, in the format of the Redis
+        atomic store's ``isolation_identity`` (spec 12): the strict profile
+        compares the two to refuse a store that shares the cache's server (and
+        so its eviction policy)."""
+        return f"redis:{await self.deployment_identity()}"
+
     async def aclose(self) -> None:
         if self._shared:
             # The shared process-wide client is closed via close_default_client

@@ -355,7 +355,7 @@ def mix_prepare(exp, variant):
         command([*cli, "FLUSHDB"])
         command([*cli, "SET", "sandloom:qualification:owner", "sandloom_perf_cb_mixfull"])
     infra = json.loads(env["INFRA"])
-    infra["cache"]["security"]["url"] = "redis://security:6379/5"
+    infra["atomic_store"]["security"]["url"] = "redis://security:6379/5"
     infra["eventbus"]["default"]["url"] = "redis://broker:6379/5"
     secrets = dict(
         line.split("=", 1)

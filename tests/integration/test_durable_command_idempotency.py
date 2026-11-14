@@ -58,7 +58,7 @@ from sandloom.core.module_api._context import caller_user_id
 from sandloom.core.rpc import install_service_rpc_routes
 from sandloom.core.rpc import wire as rpc_wire
 from sandloom.core.sql_alchemy.models.contract_command import ContractCommandRecord
-from sandloom.core.testing import InMemoryCache, committing_uow
+from sandloom.core.testing import InMemoryAtomicStore, committing_uow
 from sandloom.core.testing.fixtures import *  # noqa: F403
 from sandloom.core.testing.infra import override_instance, skip_unless_db_feature
 from sandloom.core.unit_of_work.hooks import on_commit
@@ -315,8 +315,8 @@ async def test_crash_after_commit_replays_and_never_reexecutes(
 
     monkeypatch.setattr(
         idempotency_cache_store,
-        "cache",
-        lambda name="default": InMemoryCache(broken=True),
+        "atomic_store",
+        lambda role: InMemoryAtomicStore(broken=True),
     )
 
     assert await svc.spend(10, "op-crash") == 90  # replayed

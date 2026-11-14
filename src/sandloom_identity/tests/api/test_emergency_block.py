@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.sdk.infra import settings
 from sandloom.sdk.security import block_user, unblock_user
-from sandloom.sdk.testing import InMemoryCache, run_on_commit, use_security_cache
+from sandloom.sdk.testing import InMemoryAtomicStore, run_on_commit, use_security_store
 from sandloom_identity.consumers import revoke_refresh_tokens_on_block
 from sandloom_identity.models.external_identity import ExternalIdentity, Provider
 from sandloom_identity.models.refresh_token import RefreshToken
@@ -222,7 +222,7 @@ async def test_issuer_block_check_on_cache_outage(
     from sandloom_identity.services.token_service import TokenService
 
     monkeypatch.setattr(settings, "auth_revocation_fail_closed", fail_closed)
-    use_security_cache(monkeypatch, InMemoryCache(broken=True))
+    use_security_store(monkeypatch, InMemoryAtomicStore(broken=True))
     if fail_closed:
         with pytest.raises(HTTPException) as exc:
             await TokenService.create_tokens(test_user, test_db)
