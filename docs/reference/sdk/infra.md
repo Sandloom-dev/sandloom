@@ -294,7 +294,7 @@ class CoreFacade(_ClaimsMixin, _RegistriesMixin)(
     app: FastAPI,
     settings_obj: Settings | None = None,
     service_registry: ServiceRegistry | None = None,
-    get_db: Callable[[], Awaitable[AsyncSession]] | Callable[[], AsyncGenerator[AsyncSession, None]] | None = None,
+    get_db: Callable[..., Awaitable[AsyncSession]] | Callable[..., AsyncGenerator[AsyncSession, None]] | None = None,
 ) -> None
 ```
 

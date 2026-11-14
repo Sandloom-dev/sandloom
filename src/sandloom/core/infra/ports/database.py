@@ -1,22 +1,26 @@
 """The ``database`` capability's spec (the relational paradigm; spec section 11).
 
 Its features and their kinds live here, beside the other capabilities' specs,
-with the provider ABC, so the slice that writes the database port
-(``idk-db-provider``) never edits :mod:`sandloom.core.infra.capabilities`,
-which only lists the specs. The stores the ABC returns (outbox, audit, command
-and request logs) stay in :mod:`sandloom.core.infra.contracts`, which
-re-exports the ABC, until that slice moves them.
+with the provider ABC and :class:`UnitSession`, the kernel's view of a unit's
+session that the stores and :meth:`DatabaseProvider.has_pending_changes` take.
+The stores the ABC returns (outbox, audit, command and request logs) are in
+:mod:`sandloom.core.infra.contracts`, which re-exports the ABC.
+
+The driver door may name SQLAlchemy types (the kernel's relational surface
+already does): ``MetaData`` below is imported for type checking only.
 """
 
 from __future__ import annotations
 
 import abc
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Protocol
 
 from sandloom.core.infra.ports._base import CapabilitySpec, FeatureKind, InfraProvider
 
 if TYPE_CHECKING:
+    from sqlalchemy import MetaData
+
     from sandloom.core.contracts.uow import UnitOfWorkContract
     from sandloom.core.infra.contracts import (
         AuditStore,
@@ -24,6 +28,24 @@ if TYPE_CHECKING:
         OutboxStore,
         RequestLogStore,
     )
+
+
+class UnitSession(Protocol):
+    """A unit's session, as the kernel sees it.
+
+    The object a unit of work (:class:`~sandloom.core.contracts.uow.UnitOfWorkContract`)
+    exposes as ``session`` and the stores of :class:`DatabaseProvider` write
+    through. The kernel only hands it from the unit to a store of the same
+    database, and asks the database whether it holds unflushed changes
+    (:meth:`DatabaseProvider.has_pending_changes`); the driver knows the
+    concrete type (an SQLAlchemy ``AsyncSession``, say) and a store narrows it.
+    """
+
+    async def flush(self) -> None:
+        """Write the session's pending changes inside its transaction."""
+
+    def in_transaction(self) -> bool:
+        """Whether the session has begun a transaction."""
 
 
 class DatabaseProvider(InfraProvider):
@@ -72,7 +94,7 @@ class DatabaseProvider(InfraProvider):
         """
         return None
 
-    def has_pending_changes(self, session: Any) -> bool:
+    def has_pending_changes(self, session: UnitSession) -> bool:
         """Whether ``session`` (a unit of this database) holds changes that
         its COMMIT would write although no write statement ran yet (an ORM
         identity map with unflushed changes). The commit hooks count them as
@@ -90,7 +112,7 @@ class DatabaseProvider(InfraProvider):
         return None
 
     async def ensure_model_schema(
-        self, metadata: Any = None, *, recreate: bool
+        self, metadata: MetaData | None = None, *, recreate: bool
     ) -> bool:
         """Build the schema of ``metadata`` (the mapped tables; ``None``: every
         table the driver's models map) when this
@@ -99,14 +121,6 @@ class DatabaseProvider(InfraProvider):
         it with ``recreate`` (SANDLOOM-B028). Called once at startup. False
         (the default): the migration chains own this database's schema."""
         return False
-
-    def execution_adapter(self) -> Any:
-        """PROTOTYPE: the execution-planner adapter of this database.
-
-        ``None`` (the default) means declared operations cannot run here; see
-        :class:`sandloom.core.planner.ExecutionAdapter`.
-        """
-        return None
 
 
 # The relational paradigm. ``features`` are its guarantee-set: a driver that
@@ -156,6 +170,9 @@ DATABASE_CAPABILITY = CapabilitySpec(
     name="database",
     version="v1",
     provider_contract=DatabaseProvider,
+    # Major 2 (spec 11): the stores take a ``UnitSession``, ``execution_adapter``
+    # left the contract; a driver states ``contract_version = 2``.
+    major=2,
     # ``tenant_rls``: the instance keeps PostgreSQL Row-Level Security session
     # settings in sync with the tenant context (opt-in per instance), so a
     # module can require RLS defense in depth for its tables.
@@ -174,4 +191,9 @@ DATABASE_CAPABILITY = CapabilitySpec(
 )
 
 
-__all__ = ["DATABASE_CAPABILITY", "DATABASE_RENDERER_FEATURES", "DatabaseProvider"]
+__all__ = [
+    "DATABASE_CAPABILITY",
+    "DATABASE_RENDERER_FEATURES",
+    "DatabaseProvider",
+    "UnitSession",
+]

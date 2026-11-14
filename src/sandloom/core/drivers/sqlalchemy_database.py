@@ -19,13 +19,14 @@ freshly built engine.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
 from collections.abc import Callable, Mapping
 from typing import Any, Self, cast
 
 from pydantic import BaseModel, ConfigDict, model_validator
-from sqlalchemy import event, exc, text
+from sqlalchemy import MetaData, event, exc, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -62,6 +63,7 @@ from sandloom.core.infra.contracts import (
     DatabaseProvider,
     OutboxStore,
     RequestLogStore,
+    UnitSession,
 )
 from sandloom.core.infra.ports._base import health_failure_details
 from sandloom.core.sql_alchemy.base import Base
@@ -242,7 +244,7 @@ def _pool_snapshot(pool: Any) -> dict[str, int] | None:
 class SQLAlchemyDatabaseProvider(DatabaseProvider):
     """A single SQLAlchemy-backed database instance."""
 
-    contract_version = 1
+    contract_version = 2
     supported_features = SQLALCHEMY_DB_FEATURES
     options_schema = SQLAlchemyDatabaseOptions
 
@@ -339,9 +341,9 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
     def command_log(self) -> CommandLogStore:
         return sql_alchemy_command_log_store()
 
-    def has_pending_changes(self, session: Any) -> bool:
+    def has_pending_changes(self, session: UnitSession) -> bool:
         """Unflushed ORM changes in ``session`` (COMMIT would flush them)."""
-        sync = getattr(session, "sync_session", session)
+        sync: Any = getattr(session, "sync_session", session)
         try:
             return not sync._is_clean()
         except AttributeError:  # not an ORM session
@@ -350,8 +352,10 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
     def request_log(self) -> RequestLogStore:
         return sql_alchemy_request_log_store()
 
-    def execution_adapter(self) -> Any:
-        """PROTOTYPE: the planner adapter of this instance (built once)."""
+    def execution_adapter(self) -> _planner_adapter.SQLAlchemyExecutionAdapter:
+        """The planner adapter of this instance (built once). Not part of the
+        ``database`` contract: the planner asks a driver for it
+        (:class:`sandloom.core.planner.PlannerDatabase`)."""
         adapter = getattr(self, "_execution_adapter", None)
         if adapter is None:
             adapter = self._execution_adapter = (
@@ -359,7 +363,9 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
             )
         return adapter
 
-    def contract_execution_adapter(self) -> Any:
+    def contract_execution_adapter(
+        self,
+    ) -> _planner_adapter.SQLAlchemyExecutionAdapter:
         """The planner adapter on the DEDICATED contract pool (built once).
 
         Declared reads run by a contract call lease from the contract pool,
@@ -462,7 +468,7 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
         return factory if callable(factory) else None
 
     async def ensure_model_schema(
-        self, metadata: Any = None, *, recreate: bool
+        self, metadata: MetaData | None = None, *, recreate: bool
     ) -> bool:
         """Build the schema of ``metadata`` here when this database takes its
         schema from the models (its renderer's ``schema_from_models``:
@@ -567,6 +573,13 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
             return HealthResult(status="fail", details=health_failure_details(exc))
         finally:
             await engine.dispose()
+
+    async def isolation_identity(self) -> str | None:
+        """``sqlalchemy:<sha256 of backend, host, port and database, 16 hex>``:
+        the store the URL names, never its credentials."""
+        url = self._engine.url
+        material = f"{url.get_backend_name()}|{url.host}|{url.port}|{url.database}"
+        return f"{self.driver}:{hashlib.sha256(material.encode()).hexdigest()[:16]}"
 
     async def release_pools(self) -> None:
         """Return this provider's pooled connections, keeping its engines

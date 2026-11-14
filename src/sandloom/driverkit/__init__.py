@@ -46,6 +46,7 @@ from sandloom.core.infra.ports.broadcast import (
     BroadcastProvider,
     Subscription,
 )
+from sandloom.core.infra.ports.database import UnitSession
 from sandloom.core.infra.ports.lease import Lease, LeaseHolder, LeaseProvider
 from sandloom.core.infra.ports.notification import Notification, NotifierProvider
 from sandloom.core.infra.ports.objectstore import (
@@ -117,6 +118,7 @@ __all__ = [
     "TaskQueueProvider",
     "TaskSpec",
     "TaskTable",
+    "UnitSession",
     "DriverCounter",
     "DriverHistogram",
     "Observe",

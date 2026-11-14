@@ -51,7 +51,7 @@ from sandloom.core.infra.ports.cache import (
     portable_set_max,
     portable_set_subject_state,
 )
-from sandloom.core.infra.ports.database import DatabaseProvider
+from sandloom.core.infra.ports.database import DatabaseProvider, UnitSession
 from sandloom.core.infra.ports.eventbus import EventBusProvider
 from sandloom.core.infra.ports.notification import (
     Notification,
@@ -86,7 +86,7 @@ class OutboxHandle:
     """
 
     id: uuid.UUID
-    raw: Any = None
+    raw: object | None = None
     trace_id: str | None = None
     emitted_at: datetime | None = None
 
@@ -157,7 +157,7 @@ class OutboxStore(abc.ABC):
     @abc.abstractmethod
     def enqueue(
         self,
-        session: Any,
+        session: UnitSession,
         channel: str,
         payload: Mapping[str, Any],
         schema_version: str,
@@ -347,7 +347,7 @@ class OutboxStore(abc.ABC):
 
     async def list_channel_since(
         self,
-        session: Any,
+        session: UnitSession,
         *,
         channel: str,
         since: datetime,
@@ -371,7 +371,7 @@ class AuditStore(abc.ABC):
 
     async def query(
         self,
-        session: Any,
+        session: UnitSession,
         *,
         skip: int,
         limit: int,
@@ -386,7 +386,7 @@ class AuditStore(abc.ABC):
 
     async def query_page(
         self,
-        session: Any,
+        session: UnitSession,
         *,
         limit: int,
         before: tuple[datetime, uuid.UUID] | None = None,
@@ -412,7 +412,7 @@ class AuditStore(abc.ABC):
     @abc.abstractmethod
     def record(
         self,
-        session: Any,
+        session: UnitSession,
         *,
         action: str,
         actor_id: uuid.UUID | None,
@@ -461,7 +461,7 @@ class CommandLogStore(abc.ABC):
     @abc.abstractmethod
     async def claim(
         self,
-        session: Any,
+        session: UnitSession,
         *,
         dedupe_key: str,
         contract: str,
@@ -480,7 +480,7 @@ class CommandLogStore(abc.ABC):
     @abc.abstractmethod
     async def complete(
         self,
-        session: Any,
+        session: UnitSession,
         *,
         dedupe_key: str,
         status: str,
@@ -529,7 +529,7 @@ class RequestLogStore(abc.ABC):
     @abc.abstractmethod
     async def claim(
         self,
-        session: Any,
+        session: UnitSession,
         *,
         dedupe_key: str,
         scope: str,
@@ -545,12 +545,12 @@ class RequestLogStore(abc.ABC):
 
     @abc.abstractmethod
     async def complete(
-        self, session: Any, *, dedupe_key: str, status: str, result: str | None
+        self, session: UnitSession, *, dedupe_key: str, status: str, result: str | None
     ) -> None:
         """Store the response on the claimed row (same transaction)."""
 
     @abc.abstractmethod
-    async def release(self, session: Any, *, dedupe_key: str) -> None:
+    async def release(self, session: UnitSession, *, dedupe_key: str) -> None:
         """Drop the claimed row (same transaction): the request's outcome is
         not to be replayed (a ``5xx`` the endpoint returned)."""
 
@@ -574,6 +574,7 @@ __all__ = [
     "ObjectStore",
     "TaskQueue",
     "DatabaseProvider",
+    "UnitSession",
     "RelationalProvider",
     "CacheProvider",
     "CacheContentionError",

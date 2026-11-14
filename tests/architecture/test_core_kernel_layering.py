@@ -175,7 +175,10 @@ def test_no_unbaselined_runtime_facade_import() -> None:
 # driver-agnostic and reach backends only through the capability registry.
 # Entries may be REMOVED, never added.
 DRIVER_IMPORT_ALLOWLIST = {
-    "_internal/db_provider.py",
+    # The test harness's reach into the built-in SQL driver (a disposable
+    # engine, a schema reset, the default pools): moved here from
+    # ``_internal/db_provider.py``, which no longer imports a driver.
+    "testing/_driver_seams.py",
     # The composition root builds the registry (sandloom.core.drivers.bootstrap).
     "app_factory/__init__.py",
     "app_factory/lifecycle.py",

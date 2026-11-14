@@ -58,7 +58,16 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Generic, Literal, NamedTuple, Protocol, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    Literal,
+    NamedTuple,
+    Protocol,
+    TypeVar,
+    runtime_checkable,
+)
 
 from sandloom.core.config.settings import settings
 from sandloom.core.tenant_context import (
@@ -659,23 +668,45 @@ class ReadUnit(Protocol):
         """End the unit (ROLLBACK of the read-only transaction, lease returned)."""
 
 
+@runtime_checkable
+class PlannerDatabase(Protocol):
+    """What a database driver adds to the ``database`` contract to run declared
+    operations: its :class:`ExecutionAdapter`. Not part of ``DatabaseProvider``
+    (spec 11); a database whose driver lacks it cannot run them here."""
+
+    def execution_adapter(self) -> ExecutionAdapter | None:
+        """The adapter of the regular pool; ``None``: no declared operations."""
+
+
+@runtime_checkable
+class PlannerContractDatabase(Protocol):
+    """A :class:`PlannerDatabase` with a dedicated pool for contract calls."""
+
+    def contract_execution_adapter(self) -> ExecutionAdapter | None:
+        """The adapter of the contract pool (``None``: use the regular one)."""
+
+
 def _adapter(core: CoreRuntime, database: str) -> ExecutionAdapter:
     provider = core.database(database)
-    get = getattr(provider, "execution_adapter", None)
-    adapter = get() if callable(get) else None
+    adapter = (
+        provider.execution_adapter() if isinstance(provider, PlannerDatabase) else None
+    )
     if adapter is None:
         raise PlanningError(
             f"database {database!r} (driver {getattr(provider, 'driver', '?')!r}) "
             "offers no execution adapter for declared operations"
         )
-    return adapter  # type: ignore[no-any-return]
+    return adapter
 
 
 def _contract_adapter(core: CoreRuntime, database: str) -> ExecutionAdapter:
     """The adapter on the database's dedicated CONTRACT pool (if it has one)."""
     provider = core.database(database)
-    get = getattr(provider, "contract_execution_adapter", None)
-    adapter = get() if callable(get) else None
+    adapter = (
+        provider.contract_execution_adapter()
+        if isinstance(provider, PlannerContractDatabase)
+        else None
+    )
     return adapter if adapter is not None else _adapter(core, database)
 
 
