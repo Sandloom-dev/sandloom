@@ -258,6 +258,7 @@ once, in the foundation, so the capability slices after it can run side by side.
 | 5 | `idk-test-harness` | 2 | parallel test isolation through the driverkit hook; no Redis import or protocol in `core/testing` outside a lazy allowlisted spot |
 | 6 | `idk-atomic-store` | 2 | contract, kit, `redis` and `memory` drivers (the Lua moves from the cache driver), eviction check, `isolation_identity` |
 | 7 | `idk-atomic-adopt` | 4, 6 | revocation, blocks, idempotency, enqueue dedupe, RPC replay onto `atomic_store`; the instance settings and production attestation through the port; guarantee texts updated |
+| 7b | `idk-atomic-store-db` | 7 | database-backed `atomic_store` (decision 3): logged table, `GREATEST`, CAS by `UPDATE … WHERE`, relay sweeper, `never_evicts`; an option, not the default |
 | 8 | `idk-cache-contract` | 7 | `cache` shrinks to module operations plus `windowed_counter`; rate limit and inbox use it; kit; `memory` cache driver (fulfils `kb-ic-5`); removal of `incr_window`, `incr_many`, `set_nx_get`, `set_max` from `sandloom.sdk.infra.Cache` in the API baseline and upgrade notes |
 | 9 | `idk-lease` | 2 | contract, kit, drivers; `FencedLease` over the port; beat lease and saga sweep on it; private `lock` removed |
 | 10 | `idk-broadcast` | 2, 0 | contract, kit, drivers; contract-cache shadow and the volatile bus use it |
@@ -295,39 +296,40 @@ The existing tasks fold in: `infra-cache-driver` waits for 8; `kb-ic-5` is deliv
 
 ## Questions for the owner
 
-Question 6 is decided. For the others the recommendation comes from
-[research-owner-questions.md](research-owner-questions.md); each waits for the owner's yes.
+**All decided 2026-11-14:** the owner accepted every recommendation below (question 6 as
+written). Evidence: [research-owner-questions.md](research-owner-questions.md). `idk-adr` turns
+them into ADR-0016.
 
-1. **`atomic_store` as its own kernel capability.** *Recommended: yes.* Folding the atomic
+1. **`atomic_store` as its own kernel capability.** *Decided: yes.* Folding the atomic
    operations into a "durable" cache is the case where the failure is silent (Laravel locks,
    django-ratelimit on a database cache); Redis itself advises a separate instance.
-2. **Redis and Celery out of the kernel wheel this wave.** *Recommended: yes*, released in lockstep
+2. **Redis and Celery out of the kernel wheel this wave.** *Decided: yes*, released in lockstep
    with the kernel, pinned `sandloom>=X.Y,<X.(Y+1)`, installed by the existing extras, drivers
    importing only `driverkit` (removes Airflow's main provider pain), and the release tooling made
    data-driven first (step of `idk-pkg-redis`). No shims.
-3. **Database-backed drivers.** *Recommended:* `lease` on the database, yes (a logged row with a
+3. **Database-backed drivers.** *Decided:* `lease` on the database, yes (a logged row with a
    fence, no advisory locks, which break under pgbouncer). `atomic_store` on the database, yes as an
    option with a stated price (+0.2–0.7 ms per authenticated request, double on writes), not the
    standard default; its own slice after `idk-atomic-store`, gated by the kit and the round-trip
    budget. `broadcast` and the task queue stay Redis and Celery.
-4. **The public task API.** *Recommended: yes*, Django-6-like: `@task`, `task.enqueue(payload,
+4. **The public task API.** *Decided: yes*, Django-6-like: `@task`, `task.enqueue(payload,
    delay=, idempotency_key=)`, a declarative `@periodic(cron=, id=)` replacing
    `setup_periodic_tasks(sender)`; periodic dedupe by `(id, slot)` under `lease` in the driver.
    Cheap: 5 tasks in 2 modules, the generator, 2 doc pages.
-5. **Escape hatches.** *Recommended: remove `raw_client`/`raw_backend` from the contracts and add no
+5. **Escape hatches.** *Decided: remove `raw_client`/`raw_backend` from the contracts and add no
    `native()` yet*: nothing outside the kernel and its tests uses them. A driver package may expose
    public attributes on its own class, documented as non-portable; C003 extends to the kernel.
 6. **Settings** — *decided 2026-11-14:* `CACHE_URL`, `BROKER_URL`, `SMTP_*`, `S3_*` become driver
    options in one step with upgrade notes, no aliases.
-7. **Driver tiers.** *Recommended: yes, through the B023 mechanism*: `tier` on the registration,
+7. **Driver tiers.** *Decided: yes, through the B023 mechanism*: `tier` on the registration,
    shown by `doctor`; an `experimental` driver in production needs the accepted risk
    `experimental_driver` (Kubernetes-style opt-in); `beta` warns; this repository's drivers are at
    least `beta` (kits against real services in CI).
-8. **Instance attestation.** *Recommended: a database store counts.* The production check guards
+8. **Instance attestation.** *Decided: a database store counts.* The production check guards
    against eviction (`production_profile.py:22-23,98-101`), not blast radius, so it becomes
    "declares `never_evicts` and differs from the evicting module cache by `isolation_identity()`";
    Redis keeps the `run_id` comparison and gains the missing `noeviction` check.
-9. **Worker command.** *Recommended: one step, no shim*: `sandloom worker`, `sandloom beat`,
+9. **Worker command.** *Decided: one step, no shim*: `sandloom worker`, `sandloom beat`,
    `sandloom worker check`; T010 and the deploy profile parse the new argv; `sandloom-celery` keeps a
    stable importable Celery app for `celery inspect` and Flower (the driver's native interface, not
    a shim).
