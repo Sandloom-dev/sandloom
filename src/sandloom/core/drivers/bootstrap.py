@@ -19,6 +19,7 @@ from sandloom.core.infra.extra_capabilities import EXTRA_CAPABILITIES
 from sandloom.core.infra.fenced_lease import BEAT_INSTANCE
 from sandloom.core.infra.ports._base import DriverTier, InfraProvider
 from sandloom.core.infra.registry import (
+    DevelopmentOnlyDriverRefused,
     DriverFactory,
     ExperimentalCapabilityRefused,
     ExperimentalDriverRefused,
@@ -129,7 +130,7 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
         f"{_DRIVERS}.redis_atomic_store:RedisAtomicStoreProvider",
         _REDIS,
         _REDIS_INSTALL,
-        "idk-atomic-store",
+        "",
     ),
     (
         "atomic_store",
@@ -137,7 +138,7 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
         f"{_DRIVERS}.memory_atomic_store:MemoryAtomicStoreProvider",
         (),
         "",
-        "idk-atomic-store",
+        "",
     ),
     (
         "atomic_store",
@@ -177,7 +178,7 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
         f"{_DRIVERS}.redis_broadcast:RedisBroadcastProvider",
         _REDIS,
         _REDIS_INSTALL,
-        "idk-broadcast",
+        "",
     ),
     (
         "broadcast",
@@ -185,7 +186,7 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
         f"{_DRIVERS}.memory_broadcast:MemoryBroadcastProvider",
         (),
         "",
-        "idk-broadcast",
+        "",
     ),
 )
 
@@ -194,9 +195,9 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
 #: fails at bootstrap. This repository's drivers are at least ``beta``: a driver
 #: here is ``beta`` because its kit or conformance tests run in CI against the
 #: real service, ``stable`` once it also has the kit's reconnect-after-outage
-#: group and its auth options (none yet). ``smtp`` is ``experimental`` until
+#: group and its auth options (none yet). ``smtp`` is ``beta`` since
 #: ``.github/workflows/notification-smtp.yml`` (``NotifierConformance`` against a
-#: mailpit container) is green on main: then this entry becomes ``beta``.
+#: mailpit container) is green on main.
 BUILTIN_DRIVER_TIERS: dict[tuple[str, str], DriverTier] = {
     ("database", "sqlalchemy"): "beta",
     ("cache", "redis"): "beta",
@@ -208,7 +209,7 @@ BUILTIN_DRIVER_TIERS: dict[tuple[str, str], DriverTier] = {
     ("eventbus", "streams"): "beta",
     ("document_store", "memory"): "beta",
     ("notification", "log"): "beta",
-    ("notification", "smtp"): "experimental",
+    ("notification", "smtp"): "beta",
     ("atomic_store", "redis"): "beta",
     ("atomic_store", "memory"): "beta",
     ("atomic_store", "database"): "beta",
@@ -283,6 +284,22 @@ def _redis_lease_build(settings: Settings | None = None) -> DriverFactory:
     return build
 
 
+def _atomic_store_build(settings: Settings | None = None) -> DriverFactory:
+    """The build of the ``redis`` atomic_store driver: it states the policy on
+    ``never_evicts_check=assume`` (:func:`unverified_noeviction_allowed`), the
+    same one the ``redis`` lease driver gets."""
+
+    def build(cfg: InstanceConfig) -> InfraProvider:
+        # Imported when an instance selects the driver, never at bootstrap.
+        module = importlib.import_module("sandloom.core.drivers.redis_atomic_store")
+        factory: DriverFactory = module.make_redis_atomic_store_factory(
+            assume_allowed=lambda: unverified_noeviction_allowed(settings)
+        )
+        return factory(cfg)
+
+    return build
+
+
 def with_default_beat_lease(config: InfraConfig) -> InfraConfig:
     """``config`` with the instance ``lease.beat`` the kernel needs: when
     ``INFRA`` names none, a ``redis`` lease on ``CACHE_URL`` (the shared Redis
@@ -345,6 +362,8 @@ def register_builtin_drivers(
                 if capability == "eventbus"
                 else _redis_lease_build(settings)
                 if (capability, driver) == ("lease", "redis")
+                else _atomic_store_build(settings)
+                if (capability, driver) == ("atomic_store", "redis")
                 else None
             ),
             delivered_by=delivered_by,
@@ -408,13 +427,19 @@ def _refuse_experimental_in_production(
         )
 
 
+def _is_development_only(registry: InfraRegistry, capability: str, driver: str) -> bool:
+    provider_class = registry.driver_class(capability, driver)
+    return provider_class is not None and bool(provider_class.development_only)
+
+
 def _check_driver_tiers_in_production(
     registry: InfraRegistry, settings: Settings
 ) -> None:
     """A driver's tier decides what production does with it (spec 2.5): an
     ``experimental`` one is refused unless the risk ``experimental_driver`` is
     accepted (SANDLOOM-B023), a ``beta`` one logs one startup warning, a
-    ``stable`` one is silent. Every configured instance counts, a synthesized
+    ``stable`` one is silent; a ``development_only`` one is refused first
+    (SANDLOOM-B022), whatever its tier. Every configured instance counts, a synthesized
     ``default`` too: its driver was selected by the flat settings."""
     if not settings.is_prod:
         return
@@ -426,6 +451,15 @@ def _check_driver_tiers_in_production(
             tier = registry.driver_tier(spec.name, cfg.driver) if cfg else None
             if cfg is None or tier is None or tier == "stable":
                 continue
+            if _is_development_only(registry, spec.name, cfg.driver):
+                # B022 whatever its tier, a synthesized ``default`` included
+                # (``validate`` skips an implicit instance's B022): never B023.
+                raise DevelopmentOnlyDriverRefused(
+                    f"{spec.name}/{name}: driver {cfg.driver!r} is for development "
+                    "and tests only, and this is production",
+                    fix=f"select a production {spec.name} driver in "
+                    f"INFRA[{spec.name!r}][{name!r}]",
+                )
             row = f"{spec.name}/{name} ({cfg.driver})"
             (experimental if tier == "experimental" else beta).append(row)
     if experimental and not settings.accepts_risk("experimental_driver"):
