@@ -17,12 +17,16 @@ import argparse
 import os
 import shlex
 import subprocess
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, ClassVar
 from urllib.parse import urlsplit
 
 import pytest
 from pydantic import BaseModel, Field
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from sandloom.core.cli._operator import add_operator_arguments, operator_intent
 from sandloom.core.config.settings import settings
@@ -239,64 +243,83 @@ def test_core_tables_equal_what_the_core_chain_creates() -> None:
     assert len(set(CORE_TABLES)) == len(CORE_TABLES)
 
 
-def _cli_database_url() -> str:
-    """The sync URL of the database the CLI's core writes (``default``)."""
+@pytest.fixture
+def lease_database(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """A database of its own (core chain, two leases) that the CLI's ``default``
+    points at: the shared test database is never written. Yields its sync URL."""
+    import sandloom.core.cli.backup as cli_backup
     import sandloom.core.migrations.migrations as migrations
+    from sandloom.core.sql_alchemy.uow import SQLAlchemyUnitOfWork
+    from sandloom.core.unit_of_work import _active_core_for, open_uow
 
-    url = migrations.resolve_database_sync_url("default")
-    return url.replace("+psycopg2", "")
+    with temporary_database(_server_url()) as url:
+        upgrade_core_chain(url)
+        run_sql(
+            url,
+            "INSERT INTO infra_lease (name, owner, token, expires_at, fence) VALUES "
+            "('held', 'a', 't1', now() + interval '1 hour', 5), "
+            "('free', 'b', 't2', now() - interval '1 hour', 9)",
+        )
+        async_url = make_url(url).set(drivername="postgresql+asyncpg")
+
+        @asynccontextmanager
+        async def _db_session(name: str = "default") -> AsyncIterator[Any]:
+            engine = create_async_engine(async_url)
+            sessions = async_sessionmaker(engine, expire_on_commit=False)
+            core, bus = _active_core_for(name)
+            try:
+                async with open_uow(
+                    core,
+                    name,
+                    factory=lambda: SQLAlchemyUnitOfWork(session_factory=sessions),
+                    bus=bus,
+                    wait=True,
+                ) as session:
+                    yield session
+            finally:
+                await engine.dispose()
+
+        monkeypatch.setattr(cli_backup, "db_session", _db_session)
+        monkeypatch.setattr(
+            migrations, "list_database_instances", lambda: {"default": url}
+        )
+        yield url
 
 
-def _seed_lease_rows() -> None:
-    url = _cli_database_url()
-    upgrade_core_chain(url)
-    run_sql(url, "DELETE FROM infra_lease")
-    run_sql(
-        url,
-        "INSERT INTO infra_lease (name, owner, token, expires_at, fence) VALUES "
-        "('held', 'a', 't1', now() + interval '1 hour', 5), "
-        "('free', 'b', 't2', now() - interval '1 hour', 9)",
-    )
-
-
-def _fences() -> list[tuple[str, int]]:
-    rows = run_sql(
-        _cli_database_url(), "SELECT name, fence FROM infra_lease ORDER BY name"
-    )
+def _fences(url: str) -> list[tuple[str, int]]:
+    rows = run_sql(url, "SELECT name, fence FROM infra_lease ORDER BY name")
     return [(str(n), int(f)) for n, f in rows]
 
 
 def test_fence_leases_command_is_dry_run_by_default(
-    capsys: pytest.CaptureFixture[str],
+    lease_database: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from sandloom.core.cli.backup import main
 
-    _seed_lease_rows()
     assert main(["fence-leases", "--json"]) == 0
     assert '"fence_before": 5' in capsys.readouterr().out
-    assert _fences() == [("free", 9), ("held", 5)]
+    assert _fences(lease_database) == [("free", 9), ("held", 5)]
     assert main(["fence-leases", "--database", "nope"]) == 2
     with pytest.raises(SystemExit, match="--reason"):
         main(["fence-leases", "--apply"])
-    assert _fences() == [("free", 9), ("held", 5)]
+    assert _fences(lease_database) == [("free", 9), ("held", 5)]
 
 
-def test_fence_leases_apply_bumps_and_audits_in_the_same_transaction() -> None:
+def test_fence_leases_apply_bumps_and_audits_in_the_same_transaction(
+    lease_database: str,
+) -> None:
     from sandloom.core.cli.backup import main
 
-    url = _cli_database_url()
-    _seed_lease_rows()
-    run_sql(url, "DELETE FROM audit_log WHERE action = 'core.lease.fences_bumped'")
     assert (
         main(["fence-leases", "--apply", "--reason", "restore", "--operator", "al"])
         == 0
     )
-    assert _fences() == [
+    assert _fences(lease_database) == [
         ("free", 9 + LEASE_FENCE_OFFSET),
         ("held", 5 + LEASE_FENCE_OFFSET),
     ]
     rows = run_sql(
-        url,
+        lease_database,
         "SELECT data FROM audit_log WHERE action = 'core.lease.fences_bumped'",
     )
     assert len(rows) == 1  # one bump, one audit row: a rerun is the operator's choice
