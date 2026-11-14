@@ -429,3 +429,17 @@ def test_the_memoised_database_features_follow_a_replaced_renderer(
     assert "list_aggregates" not in SQLAlchemyDatabaseProvider.features_for(options)
     monkeypatch.undo()
     assert "list_aggregates" in SQLAlchemyDatabaseProvider.features_for(options)
+
+
+def test_health_failure_details_name_the_missing_module_and_nothing_else() -> None:
+    from sandloom.core.infra.ports._base import health_failure_details
+
+    missing = ModuleNotFoundError("No module named 'redis'", name="redis")
+    assert health_failure_details(missing) == {
+        "error": "ModuleNotFoundError",
+        "missing_module": "redis",
+    }
+    leaky = ConnectionError("redis://user:secret@host:6379/0 refused")
+    assert health_failure_details(leaky) == {"error": "ConnectionError"}
+    odd = ImportError("x", name="has space/and slash")
+    assert health_failure_details(odd) == {"error": "ImportError"}

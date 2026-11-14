@@ -25,6 +25,7 @@ from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.eventing.streams_transport import RedisStreamsTransport
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.contracts import EventBusProvider
+from sandloom.core.infra.ports._base import health_failure_details
 from sandloom.core.infra.registry import DriverFactory
 
 
@@ -166,9 +167,7 @@ class WrappedEventBusProvider(EventBusProvider):
                 await client.ping()
             except Exception as exc:  # noqa: BLE001 - any failure is a failed probe
                 # The type only: the text can carry the broker URL.
-                return HealthResult(
-                    status="fail", details={"error": type(exc).__name__}
-                )
+                return HealthResult(status="fail", details=health_failure_details(exc))
         return HealthResult(status="ok")
 
     async def aclose(self) -> None:

@@ -44,6 +44,7 @@ from sandloom.core.infra.contracts import (
     parse_plain_decimal,
     parse_subject_state,
 )
+from sandloom.core.infra.ports._base import health_failure_details
 from sandloom.core.observability.metrics import cache_operation_errors_total
 
 #: Features the Redis cache driver supports.
@@ -792,7 +793,7 @@ class RedisCacheProvider(CacheProvider):
             return HealthResult(status="fail", details={"error": "no-pong"})
         except Exception as exc:  # noqa: BLE001 - any failure is a failed probe
             # The type only: a redis error text names the host (spec 2.4).
-            return HealthResult(status="fail", details={"error": type(exc).__name__})
+            return HealthResult(status="fail", details=health_failure_details(exc))
 
     async def deployment_identity(self) -> str:
         """Attest the reached Redis process, including through DNS aliases.

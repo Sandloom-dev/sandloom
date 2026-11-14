@@ -42,6 +42,7 @@ from sandloom.core.infra.config import (
 from sandloom.core.infra.ports._base import (
     CapabilitySpec,
     InfraProvider,
+    health_failure_details,
     version_major,
 )
 
@@ -1254,7 +1255,7 @@ class InfraRegistry:
                 # The type only: an exception text can carry a URL with
                 # credentials or a key (spec 2.4, health redaction).
                 result = HealthResult(
-                    status="fail", details={"error": type(exc).__name__}
+                    status="fail", details=health_failure_details(exc)
                 )
             return f"{capability}:{name}", result
 

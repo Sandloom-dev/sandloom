@@ -11,6 +11,7 @@ import sandloom.core.observability.unreachable as _unreachable
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult, ModuleDescriptor
 from sandloom.core.facade import CoreFacade
+from sandloom.core.infra.ports._base import health_failure_details
 from sandloom.core.observability import metrics as _m
 
 _start_span: Callable[[str], AbstractContextManager[object]] | None
@@ -214,9 +215,9 @@ async def aggregate_health(
                 status="fail", details={"error": f"timeout > {timeout}s"}
             )
         except Exception as exc:  # pragma: no cover  # noqa: BLE001 - any failure is a failed probe
-            # The type only: an exception text can carry a URL (spec 2.4).
+            # Type name and missing module, never the text (spec 2.4).
             return name, HealthResult(
-                status="fail", details={"error": type(exc).__name__}
+                status="fail", details=health_failure_details(exc)
             )
 
     # Run all checks concurrently: one slow dependency must not serialize

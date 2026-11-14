@@ -13,6 +13,7 @@ Every capability's contract (``ports/<capability>.py``) builds on these three:
 from __future__ import annotations
 
 import abc
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -288,3 +289,19 @@ __all__ = [
     "ProviderLifecycle",
     "version_major",
 ]
+
+
+#: A token a health detail may carry (spec 2.4): a type, driver or module name.
+_FAILURE_TOKEN = re.compile(r"[A-Za-z0-9_.:\-]{1,64}")
+
+
+def health_failure_details(exc: BaseException) -> dict[str, object]:
+    """The ``details`` of a failed probe (spec 2.4): the error type name, and
+    for an ``ImportError`` the missing module's name, an operator fact that
+    carries no secret. Never the exception text, which can hold a URL with
+    credentials or a key."""
+    details: dict[str, object] = {"error": type(exc).__name__}
+    missing = getattr(exc, "name", None) if isinstance(exc, ImportError) else None
+    if isinstance(missing, str) and _FAILURE_TOKEN.fullmatch(missing):
+        details["missing_module"] = missing
+    return details

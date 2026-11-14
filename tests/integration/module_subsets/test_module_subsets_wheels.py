@@ -214,7 +214,8 @@ def test_subset_on_plain_sandloom_p2_unstubbed(
     check_run(run, want, celery=False)
     if want.kind == "not_ready_cache":
         checks = run.probe["health_checks"]
-        assert "No module named 'redis'" in checks["cache"]["details"]["error"], checks
+        missing = str(checks["cache"]["details"].get("missing_module", ""))
+        assert missing.split(".")[0] == "redis", checks
         assert {n for n, c in checks.items() if c["status"] != "ok"} == {"cache"}, (
             checks
         )

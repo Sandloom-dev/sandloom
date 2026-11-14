@@ -211,7 +211,8 @@ class ProviderLifecycle(Protocol):
   value passes when it is `None`, a bool, a number or one token (`[A-Za-z0-9_.:-]{1,64}`: a type
   name, a driver name, `redis:<run_id>`); any other string becomes `"<redacted>"`, mappings and
   lists are filtered the same way. The kernel's own readers (`aggregate_health`, the capability
-  probes of `/health` and `/ready`) record a failure's type name only.
+  probes of `/health` and `/ready`) record a failure's type name only, plus `missing_module` (the
+  module name, one token) for an `ImportError`: an operator fact that carries no secret.
 - **`isolation_identity`.** An opaque string naming the failure and eviction domain of the backing
   store: two instances with the same identity share eviction and memory. It starts with the driver
   name and a colon, so two drivers never collide: Redis `redis:<run_id>` from `INFO server` (today

@@ -63,6 +63,7 @@ from sandloom.core.infra.contracts import (
     OutboxStore,
     RequestLogStore,
 )
+from sandloom.core.infra.ports._base import health_failure_details
 from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.sql_alchemy.command_log import sql_alchemy_command_log_store
 from sandloom.core.sql_alchemy.dbapi import (
@@ -563,7 +564,7 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
             return HealthResult(status="ok")
         except Exception as exc:  # noqa: BLE001 - any failure is a failed probe
             # The type only: a driver error text can carry the URL (spec 2.4).
-            return HealthResult(status="fail", details={"error": type(exc).__name__})
+            return HealthResult(status="fail", details=health_failure_details(exc))
         finally:
             await engine.dispose()
 
