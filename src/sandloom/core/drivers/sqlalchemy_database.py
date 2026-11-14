@@ -22,7 +22,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, Self, cast
 
 from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import event, exc, text
@@ -39,6 +39,7 @@ import sandloom.core.runtime as _runtime
 import sandloom.core.sql_alchemy.driver_compat as _driver_compat
 import sandloom.core.sql_alchemy.model_schema as _model_schema
 import sandloom.core.sql_alchemy.planner_adapter as _planner_adapter
+import sandloom.core.sql_alchemy.portable as _portable
 from sandloom.core.config.settings import settings
 from sandloom.core.contracts.uow import UnitOfWorkContract
 from sandloom.core.descriptors import HealthResult
@@ -62,6 +63,7 @@ from sandloom.core.infra.contracts import (
     OutboxStore,
     RequestLogStore,
 )
+from sandloom.core.infra.ports._base import health_failure_details
 from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.sql_alchemy.command_log import sql_alchemy_command_log_store
 from sandloom.core.sql_alchemy.dbapi import (
@@ -198,6 +200,23 @@ def sqlalchemy_db_features(options: Mapping[str, object]) -> frozenset[str]:
     return features
 
 
+#: ``features_for`` answers, keyed on the options it reads (the URL and the
+#: ``tenant_rls`` option), each with the URL's SQL dialect renderer it was
+#: computed with: a request's feature check reads it without parsing the URL,
+#: and a renderer registered or replaced since (another object) recomputes it.
+_FEATURES_MEMO: dict[tuple[str, object], tuple[object, frozenset[str]]] = {}
+#: URL -> its SQLAlchemy dialect name (``make_url`` once per URL).
+_DIALECT_OF_URL: dict[str, str] = {}
+#: Entries kept before a memo starts over (tests build many sqlite URLs).
+_MEMO_LIMIT = 256
+
+
+def _memo_put(memo: dict[Any, Any], key: Any, value: Any) -> None:
+    if len(memo) >= _MEMO_LIMIT:
+        memo.clear()
+    memo[key] = value
+
+
 def _pool_snapshot(pool: Any) -> dict[str, int] | None:
     """Occupancy of a QueuePool-like pool, or ``None`` without accounting."""
     try:
@@ -223,6 +242,38 @@ def _pool_snapshot(pool: Any) -> dict[str, int] | None:
 class SQLAlchemyDatabaseProvider(DatabaseProvider):
     """A single SQLAlchemy-backed database instance."""
 
+    contract_version = 1
+    supported_features = SQLALCHEMY_DB_FEATURES
+    options_schema = SQLAlchemyDatabaseOptions
+
+    @classmethod
+    def from_config(cls, config: InstanceConfig) -> Self:
+        return cast("Self", create_sqlalchemy_database(config))
+
+    @classmethod
+    def features_for(cls, options: Mapping[str, Any]) -> frozenset[str]:
+        """The base features, the URL's renderer features and ``tenant_rls``
+        when that option is on (:func:`sqlalchemy_db_features`). Memoised per
+        URL and ``tenant_rls`` option with the renderer it was computed with,
+        so the answer still follows the renderer registered for the URL's
+        dialect (another renderer object recomputes it)."""
+        url = str(options.get("url") or settings.database_url)
+        key = (url, options.get("tenant_rls", False))
+        try:
+            memo = _FEATURES_MEMO.get(key)
+        except TypeError:  # an unhashable option value: computed each time
+            return sqlalchemy_db_features(options) & SQLALCHEMY_DB_FEATURES
+        dialect = _DIALECT_OF_URL.get(url)
+        if dialect is None:
+            dialect = dialect_of_url(url)
+            _memo_put(_DIALECT_OF_URL, url, dialect)
+        renderer = _portable.sql_dialect(dialect)
+        if memo is not None and memo[0] is renderer:
+            return memo[1]
+        found = sqlalchemy_db_features(options) & SQLALCHEMY_DB_FEATURES
+        _memo_put(_FEATURES_MEMO, key, (renderer, found))
+        return found
+
     def __init__(
         self,
         *,
@@ -240,7 +291,6 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
         self._session_factory = session_factory
         # The shared process-wide engine is disposed by its owner, not here.
         self._owns_engine = owns_engine
-        self._features = sqlalchemy_db_features(options)
         # Dedicated pool for contract calls' own UoWs (built lazily on first
         # use). ``None`` from the factory = no separate pool for this backend.
         self._contract_engine_factory = contract_engine
@@ -261,9 +311,6 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
     @property
     def session_factory(self) -> async_sessionmaker[AsyncSession]:
         return self._session_factory
-
-    def features(self) -> frozenset[str]:
-        return self._features
 
     def outbox(self) -> OutboxStore:
         return sql_alchemy_outbox_store()
@@ -516,9 +563,8 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
                     await conn.execute(text("SELECT 1"))
             return HealthResult(status="ok")
         except Exception as exc:  # noqa: BLE001 - any failure is a failed probe
-            return HealthResult(
-                status="fail", details={"error": str(exc) or type(exc).__name__}
-            )
+            # The type only: a driver error text can carry the URL (spec 2.4).
+            return HealthResult(status="fail", details=health_failure_details(exc))
         finally:
             await engine.dispose()
 

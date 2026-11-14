@@ -25,6 +25,7 @@ from sandloom.core.drivers.bootstrap import (
     close_default_database,
 )
 from sandloom.core.facade import CoreFacade
+from sandloom.core.infra.ports._base import health_failure_details
 from sandloom.core.infra.registry import InfraRegistry
 from sandloom.core.lifecycle import (
     run_shutdown,
@@ -57,7 +58,8 @@ async def _capability_health(
         provider = core_facade.capability(capability, name)
         return cast(HealthResult, await provider.health())
     except Exception as exc:  # noqa: BLE001 - any provider failure is a failed probe
-        return HealthResult(status="fail", details={"error": str(exc)})
+        # The type only: an exception text can carry a URL (spec 2.4).
+        return HealthResult(status="fail", details=health_failure_details(exc))
 
 
 async def report_unreachable_database(core_facade: CoreFacade) -> None:

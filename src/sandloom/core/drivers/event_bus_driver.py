@@ -25,6 +25,7 @@ from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.eventing.streams_transport import RedisStreamsTransport
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.contracts import EventBusProvider
+from sandloom.core.infra.ports._base import health_failure_details
 from sandloom.core.infra.registry import DriverFactory
 
 
@@ -131,7 +132,15 @@ EVENTBUS_DRIVER_FEATURES: dict[str, frozenset[str]] = {
 
 
 class WrappedEventBusProvider(EventBusProvider):
-    """Adapts an EventBusProtocol instance to the infra provider contract."""
+    """Adapts an EventBusProtocol instance to the infra provider contract.
+
+    Each driver name is its own subclass declaring its features; the bus needs
+    the application's schema registry, so the registry builds them through
+    :func:`make_event_bus_drivers` rather than ``from_config``.
+    """
+
+    contract_version = 1
+    options_schema = EventBusOptions
 
     def __init__(
         self,
@@ -142,25 +151,14 @@ class WrappedEventBusProvider(EventBusProvider):
         bus_instance: Any,
         client: _LazyRedisClient | None = None,
         client_factory: Callable[[], Awaitable[Any]] | None = None,
-        features: frozenset[str] | None = None,
     ) -> None:
         super().__init__(name=name, driver=driver, options=options)
         self._bus = bus_instance
         self._client = client
         self._health_client_factory = client_factory
-        self._features = (
-            features
-            if features is not None
-            else EVENTBUS_DRIVER_FEATURES.get(
-                driver, frozenset({"publish", "subscribe"})
-            )
-        )
 
     def bus(self) -> Any:
         return self._bus
-
-    def features(self) -> frozenset[str]:
-        return self._features
 
     async def health(self) -> HealthResult:
         if self.driver != "memory" and self._health_client_factory is not None:
@@ -168,7 +166,8 @@ class WrappedEventBusProvider(EventBusProvider):
                 client = await self._health_client_factory()
                 await client.ping()
             except Exception as exc:  # noqa: BLE001 - any failure is a failed probe
-                return HealthResult(status="fail", details={"error": str(exc)})
+                # The type only: the text can carry the broker URL.
+                return HealthResult(status="fail", details=health_failure_details(exc))
         return HealthResult(status="ok")
 
     async def aclose(self) -> None:
@@ -180,6 +179,28 @@ class WrappedEventBusProvider(EventBusProvider):
         # is owned by the cache lifecycle.
         if self._client is not None:
             await self._client.aclose()
+
+
+class MemoryEventBusProvider(WrappedEventBusProvider):
+    """``eventbus`` / ``memory``: the in-process volatile bus."""
+
+    supported_features = EVENTBUS_DRIVER_FEATURES["memory"]
+
+
+class RedisEventBusProvider(WrappedEventBusProvider):
+    """``eventbus`` / ``redis``: the Redis Pub/Sub volatile bus."""
+
+    supported_features = EVENTBUS_DRIVER_FEATURES["redis"]
+    required_imports = ("redis",)
+    install_hint = "pip install 'sandloom[redis]'"
+
+
+class StreamsEventBusProvider(WrappedEventBusProvider):
+    """``eventbus`` / ``streams``: the durable Redis Streams bus."""
+
+    supported_features = EVENTBUS_DRIVER_FEATURES["streams"]
+    required_imports = ("redis",)
+    install_hint = "pip install 'sandloom[redis]'"
 
 
 def make_event_bus_drivers(
@@ -200,7 +221,7 @@ def make_event_bus_drivers(
 
     def _memory(cfg: InstanceConfig) -> WrappedEventBusProvider:
         _refuse_volatile_in_prod(cfg)
-        return WrappedEventBusProvider(
+        return MemoryEventBusProvider(
             name=cfg.name,
             driver=cfg.driver,
             options=dict(cfg.options),
@@ -210,7 +231,7 @@ def make_event_bus_drivers(
     def _redis(cfg: InstanceConfig) -> WrappedEventBusProvider:
         _refuse_volatile_in_prod(cfg)
         factory, closable = _redis_client_factory(cfg)
-        return WrappedEventBusProvider(
+        return RedisEventBusProvider(
             name=cfg.name,
             driver=cfg.driver,
             options=dict(cfg.options),
@@ -223,7 +244,7 @@ def make_event_bus_drivers(
         factory, closable = _redis_client_factory(
             cfg, read_timeout=_streams_read_timeout()
         )
-        return WrappedEventBusProvider(
+        return StreamsEventBusProvider(
             name=cfg.name,
             driver=cfg.driver,
             options=dict(cfg.options),
@@ -238,4 +259,11 @@ def make_event_bus_drivers(
     return {"memory": _memory, "redis": _redis, "streams": _streams}
 
 
-__all__ = ["WrappedEventBusProvider", "EventBusOptions", "make_event_bus_drivers"]
+__all__ = [
+    "EventBusOptions",
+    "MemoryEventBusProvider",
+    "RedisEventBusProvider",
+    "StreamsEventBusProvider",
+    "WrappedEventBusProvider",
+    "make_event_bus_drivers",
+]

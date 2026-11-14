@@ -119,6 +119,9 @@ def test_builtin_capabilities_are_specs() -> None:
         "taskqueue",
         "eventbus",
         "notification",
+        "atomic_store",
+        "lease",
+        "broadcast",
     }
     assert CACHE_CAPABILITY.provider_contract is CacheProvider
 

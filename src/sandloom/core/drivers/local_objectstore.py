@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from typing import Self, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -21,7 +22,6 @@ from sandloom.core.descriptors import HealthResult
 from sandloom.core.drivers.filesystem_storage import Storage
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.core.infra.contracts import ObjectContent, ObjectStoreProvider
-from sandloom.core.infra.registry import FeatureUnsupportedError
 
 #: Features the local (and any plug-compatible) object store supports.
 OBJECTSTORE_FEATURES: frozenset[str] = frozenset()
@@ -44,7 +44,20 @@ class LocalObjectStoreOptions(BaseModel):
 
 
 class LocalObjectStoreProvider(ObjectStoreProvider):
-    """Filesystem-backed object store."""
+    """Filesystem-backed object store.
+
+    It has no HTTP retrieval route, so it does not declare ``presigned_get``:
+    ``url()`` raises ``Unsupported("presigned_get")``. Serve objects through an
+    authenticated application endpoint using ``objectstore.get()``.
+    """
+
+    contract_version = 2
+    supported_features = OBJECTSTORE_FEATURES
+    options_schema = LocalObjectStoreOptions
+
+    @classmethod
+    def from_config(cls, config: InstanceConfig) -> Self:
+        return cast("Self", create_local_objectstore(config))
 
     def __init__(
         self,
@@ -60,9 +73,6 @@ class LocalObjectStoreProvider(ObjectStoreProvider):
     @property
     def storage(self) -> Storage:
         return self._storage
-
-    def features(self) -> frozenset[str]:
-        return OBJECTSTORE_FEATURES
 
     async def put(
         self,
@@ -83,14 +93,6 @@ class LocalObjectStoreProvider(ObjectStoreProvider):
 
     async def delete(self, key: str) -> None:
         await self._storage.delete(key)
-
-    async def url(self, key: str) -> str:
-        self._storage._resolve(key)
-        raise FeatureUnsupportedError(
-            "The local object store has no HTTP retrieval route",
-            fix="serve objects through an authenticated application endpoint "
-            "using objectstore.get(), or install a driver providing retrieval URLs",
-        )
 
     async def health(self) -> HealthResult:
         # Existence of the configured local root is sufficient liveness.

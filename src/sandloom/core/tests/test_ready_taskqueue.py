@@ -206,7 +206,8 @@ async def test_ready_fails_naming_the_taskqueue_when_its_broker_is_down(
     default = block["instances"]["default"]
     assert default["status"] == "fail"
     assert default["task_modules"] == [_ENQUEUES]
-    assert "broker redis://127.0.0.1:1 unreachable" in default["details"]["error"]
+    # The type only (spec 2.4): an exception text can carry a URL.
+    assert default["details"]["error"] == "BrokerUnreachableError"
 
 
 async def test_ready_stays_green_with_a_reachable_broker(
@@ -235,10 +236,8 @@ async def test_ready_fails_when_the_driver_cannot_open(
     internal = await _get(app, "/ready", internal=True)
 
     assert internal.status_code == 503
-    assert (
-        "celery"
-        in internal.json()["taskqueue"]["instances"]["default"]["details"]["error"]
-    )
+    instance = internal.json()["taskqueue"]["instances"]["default"]
+    assert instance["details"] == {"error": "DriverUnavailableError"}
 
 
 # ------------------------------------------------ background-only use ----

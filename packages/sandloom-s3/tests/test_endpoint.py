@@ -14,7 +14,7 @@ from sandloom_s3 import S3ObjectStore
 
 from sandloom.core.config.settings import settings
 from sandloom.core.tests._root_support import create_root_app
-from sandloom.driverkit import UploadTooLargeError
+from sandloom.driverkit import NotFound, PermissionDenied, TooLarge
 from sandloom.driverkit.testing import ObjectStoreConformance
 from sandloom.sdk.infra import ObjectStore, objectstore
 
@@ -67,7 +67,7 @@ class TestS3Endpoint(ObjectStoreConformance):
         key = f"conformance/{uuid4().hex}/bounded.bin"
         await store.put(key, b"original")
         try:
-            with pytest.raises(UploadTooLargeError, match="Upload exceeds"):
+            with pytest.raises(TooLarge, match="Upload exceeds"):
                 await store.put(key, b"x" * 1025)
             assert await store.get(key) == b"original"
         finally:
@@ -83,16 +83,18 @@ class TestS3Endpoint(ObjectStoreConformance):
         absent = f"conformance/{uuid4().hex}/absent.bin"
         denied = os.environ["SANDLOOM_S3_TEST_DENIED_KEY"]
 
-        with pytest.raises(FileNotFoundError) as missing:
+        with pytest.raises(NotFound) as missing:
             await store.get(absent)
         backend_error = missing.value.__cause__
         assert isinstance(backend_error, ClientError)
         assert backend_error.response["ResponseMetadata"]["HTTPStatusCode"] == 404
 
-        with pytest.raises(ClientError) as refused:
+        with pytest.raises(PermissionDenied) as refused:
             await store.get(denied)
-        assert refused.value.response["Error"]["Code"] == "AccessDenied"
-        assert refused.value.response["ResponseMetadata"]["HTTPStatusCode"] == 403
+        denied_error = refused.value.__cause__
+        assert isinstance(denied_error, ClientError)
+        assert denied_error.response["Error"]["Code"] == "AccessDenied"
+        assert denied_error.response["ResponseMetadata"]["HTTPStatusCode"] == 403
 
         async with httpx.AsyncClient() as client:
             response = await client.get(await store.url(denied))

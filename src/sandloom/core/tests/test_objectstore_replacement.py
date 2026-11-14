@@ -13,6 +13,7 @@ from sandloom.core.config.settings import settings
 from sandloom.core.drivers.local_objectstore import LocalObjectStoreProvider
 from sandloom.core.tests._root_support import create_root_app
 from sandloom.driverkit import (
+    NotFound,
     ObjectContent,
     ObjectStoreProvider,
     iter_object_chunks,
@@ -23,7 +24,8 @@ from sandloom.sdk.infra import ObjectStore, objectstore
 
 
 class MemoryObjectStore(ObjectStoreProvider):
-    contract_version = "v1"
+    contract_version = 2
+    supported_features = frozenset({"presigned_get"})
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -47,7 +49,7 @@ class MemoryObjectStore(ObjectStoreProvider):
         try:
             return self.objects[key]
         except KeyError as exc:
-            raise FileNotFoundError(key) from exc
+            raise NotFound(key, capability="objectstore") from exc
 
     async def delete(self, key: str) -> None:
         validate_object_key(key)

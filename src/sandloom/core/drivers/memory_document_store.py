@@ -37,14 +37,14 @@ class MemoryDocumentStoreProvider(DocumentStoreProvider):
     """Process-local documents per collection, plus one conditional-write
     store per projection name (``collection``)."""
 
+    contract_version = 1
+    supported_features = MEMORY_DOCUMENT_STORE_FEATURES
+
     def __init__(self, *, name: str, driver: str, options: Mapping[str, Any]) -> None:
         super().__init__(name=name, driver=driver, options=options)
         self._collections: dict[str, list[dict[str, Any]]] = {}
         self._projections: dict[str, MemoryDocumentStore] = {}
         self._ids = itertools.count(1)
-
-    def features(self) -> frozenset[str]:
-        return MEMORY_DOCUMENT_STORE_FEATURES
 
     # -- CRUD (DocumentStoreProvider) --------------------------------------
     async def insert(self, collection: str, document: Mapping[str, Any]) -> str:

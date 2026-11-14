@@ -16,7 +16,7 @@ import os
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from typing import Any
+from typing import Any, Self, cast
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -98,6 +98,16 @@ def get_default_app() -> Any:
 class CeleryTaskQueueProvider(TaskQueueProvider):
     """A single Celery application instance."""
 
+    contract_version = 1
+    supported_features = CELERY_TASKQUEUE_FEATURES
+    options_schema = CeleryTaskQueueOptions
+    required_imports = ("celery",)
+    install_hint = "pip install 'sandloom[celery]'"
+
+    @classmethod
+    def from_config(cls, config: InstanceConfig) -> Self:
+        return cast("Self", create_celery_taskqueue(config))
+
     def __init__(
         self,
         *,
@@ -108,9 +118,6 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
     ) -> None:
         super().__init__(name=name, driver=driver, options=options)
         self._app = app
-
-    def features(self) -> frozenset[str]:
-        return CELERY_TASKQUEUE_FEATURES
 
     async def enqueue(
         self,

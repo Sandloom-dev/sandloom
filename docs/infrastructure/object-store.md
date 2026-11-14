@@ -25,8 +25,10 @@ async def save_report(data: bytes) -> str:
 
 `put` accepts bytes or an asynchronous byte stream and returns the key after
 the upload completes. An interrupted input stream leaves the previous object
-available. `get` returns bytes and raises `FileNotFoundError` when the backend
-reports a missing key. `delete` succeeds if the object is already absent.
+available. `get` returns bytes and raises `NotFound` (from `sandloom.sdk.infra`)
+when the backend reports a missing key. `delete` succeeds if the object is
+already absent. A bad key raises `InvalidArgument`, a size over the limit
+`TooLarge`, and `url` without the `presigned_get` feature `Unsupported`.
 Call `objectstore(name="exports")` to select a named instance.
 
 ## Drivers

@@ -186,9 +186,13 @@ DOCUMENT_STORE_CAPABILITY = CapabilitySpec(
     # ``conditional_write`` + ``tenant_native``: the store may be a projection
     # target (version-guarded writes and tombstones, native tenancy; spec
     # §6.4, sandloom.core.projections.stores)
-    features=frozenset(
-        {"transactions", "aggregation", "indexes", "conditional_write", "tenant_native"}
-    ),
+    feature_kinds={
+        "transactions": "behaviour",
+        "aggregation": "behaviour",
+        "indexes": "behaviour",
+        "conditional_write": "behaviour",
+        "tenant_native": "guarantee",
+    },
     description="Document database (collections of JSON-like documents).",
 )
 
@@ -197,7 +201,12 @@ GRAPH_STORE_CAPABILITY = CapabilitySpec(
     version="v1",
     stability="experimental",
     provider_contract=GraphStoreProvider,
-    features=frozenset({"cypher", "gremlin", "transactions", "vector_index"}),
+    feature_kinds={
+        "cypher": "behaviour",
+        "gremlin": "behaviour",
+        "transactions": "behaviour",
+        "vector_index": "behaviour",
+    },
     description="Graph database (nodes/edges, graph queries).",
 )
 
@@ -206,7 +215,7 @@ WORKFLOW_CAPABILITY = CapabilitySpec(
     version="v1",
     stability="experimental",
     provider_contract=WorkflowProvider,
-    features=frozenset({"signal", "schedule"}),
+    feature_kinds={"signal": "behaviour", "schedule": "behaviour"},
     description="Durable, resumable long-running workflows.",
 )
 
@@ -215,7 +224,11 @@ SEARCH_CAPABILITY = CapabilitySpec(
     version="v1",
     stability="experimental",
     provider_contract=SearchProvider,
-    features=frozenset({"fulltext", "vector", "faceting"}),
+    feature_kinds={
+        "fulltext": "behaviour",
+        "vector": "behaviour",
+        "faceting": "behaviour",
+    },
     description="Full-text / vector search.",
 )
 
@@ -224,7 +237,7 @@ LOCK_CAPABILITY = CapabilitySpec(
     version="v1",
     stability="experimental",
     provider_contract=LockProvider,
-    features=frozenset({"ttl", "reentrant"}),
+    feature_kinds={"ttl": "behaviour", "reentrant": "behaviour"},
     description="Distributed locks.",
 )
 
@@ -233,7 +246,7 @@ SECRETS_CAPABILITY = CapabilitySpec(
     version="v1",
     stability="experimental",
     provider_contract=SecretsProvider,
-    features=frozenset({"rotate", "versioning"}),
+    feature_kinds={"rotate": "behaviour", "versioning": "behaviour"},
     description="Secret store.",
 )
 

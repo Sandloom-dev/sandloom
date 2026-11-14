@@ -18,13 +18,21 @@ import smtplib
 import ssl
 from collections.abc import Mapping
 from email.message import EmailMessage
-from typing import Any
+from typing import Any, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from sandloom.core.config.settings import settings
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.contracts import Notification, NotifierProvider
+from sandloom.core.infra.errors import (
+    InfraError,
+    InvalidArgument,
+    PermissionDenied,
+    Timeout,
+    Unavailable,
+    Unsupported,
+)
 from sandloom.core.observability.metrics_utils import safe_inc
 
 #: This driver delivers email and nothing else.
@@ -64,25 +72,32 @@ class SmtpNotifierOptions(NotifierOptions):
 class SmtpNotifierProvider(NotifierProvider):
     """Email notifier backed by ``smtplib`` (host/port/credentials from options)."""
 
-    contract_version = "v1"
+    contract_version = 2
     supported_features = NOTIFIER_SMTP_FEATURES
+    options_schema = SmtpNotifierOptions
+
+    @classmethod
+    def from_config(cls, config: InstanceConfig) -> Self:
+        return cast("Self", create_smtp_notifier(config))
 
     async def send(self, notification: Notification) -> None:
         if notification.channel != "email":
-            raise ValueError(
-                f"smtp notifier delivers 'email' only, got {notification.channel!r}; "
-                "configure a driver that advertises this channel"
+            raise Unsupported(
+                notification.channel, capability="notification", instance=self.name
             )
         message = EmailMessage()
         message["From"] = str(self.options.get("from_addr") or "no-reply@example.com")
         message["To"] = notification.recipient
         message["Subject"] = notification.subject
         message.set_content(notification.body)
-        await asyncio.to_thread(self._send_sync, message)
+        _refuse_cleartext_login_in_prod(self.options)
+        try:
+            await asyncio.to_thread(self._send_sync, message)
+        except Exception as exc:
+            raise _delivery_error(exc, self.name) from exc
         safe_inc("notifications_sent_total", {"channel": "email", "result": "sent"})
 
     def _send_sync(self, message: EmailMessage) -> None:
-        _refuse_cleartext_login_in_prod(self.options)
         host = str(self.options.get("host") or "localhost").strip()
         port = int(self.options.get("port") or 25)
         with smtplib.SMTP(host, port, timeout=10) as client:
@@ -93,6 +108,34 @@ class SmtpNotifierProvider(NotifierProvider):
             if username and password:
                 client.login(str(username), str(password))
             client.send_message(message)
+
+
+def _permanent(code: object) -> bool:
+    """A 5xx SMTP reply: the server will refuse the same message again."""
+    return isinstance(code, int) and 500 <= code < 600
+
+
+def _delivery_error(exc: Exception, instance: str) -> InfraError:
+    """The contract's error for an SMTP failure (spec 10): a permanent (5xx)
+    refusal is not retryable (``InvalidArgument``, ``PermissionDenied`` for
+    authentication), a transient (4xx) one or a lost connection is
+    ``Unavailable``. The message names the error type only: an SMTP reply
+    can echo the recipient."""
+    message = f"smtp delivery failed: {type(exc).__name__}"
+    kind: type[InfraError] = Unavailable
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        codes = [reply[0] for reply in exc.recipients.values()]
+        if not codes or any(_permanent(code) for code in codes):
+            kind = InvalidArgument
+    elif isinstance(exc, smtplib.SMTPAuthenticationError):
+        if _permanent(exc.smtp_code):
+            kind = PermissionDenied
+    elif isinstance(exc, (smtplib.SMTPSenderRefused, smtplib.SMTPDataError)):
+        if _permanent(exc.smtp_code):
+            kind = InvalidArgument
+    elif isinstance(exc, TimeoutError):
+        kind = Timeout
+    return kind(message, capability="notification", instance=instance)
 
 
 def _refuse_cleartext_login_in_prod(options: Mapping[str, Any]) -> None:

@@ -34,9 +34,7 @@ from sandloom.core.descriptors import CapabilityRequirement, ModuleDescriptor
 from sandloom.core.drivers import sqlalchemy_database as driver
 from sandloom.core.drivers.sql_dialects import POSTGRESQL, SQLITE, SqliteSql
 from sandloom.core.drivers.sqlalchemy_database import (
-    SQLALCHEMY_DB_FEATURES,
-    SQLAlchemyDatabaseOptions,
-    create_sqlalchemy_database,
+    SQLAlchemyDatabaseProvider,
     sqlalchemy_db_features,
 )
 from sandloom.core.facade import CoreFacade
@@ -546,10 +544,7 @@ def _core(url: str) -> CoreFacade:
     reg.register_driver(
         "database",
         "sqlalchemy",
-        create_sqlalchemy_database,
-        features=SQLALCHEMY_DB_FEATURES,
-        config_schema=SQLAlchemyDatabaseOptions,
-        instance_features=sqlalchemy_db_features,
+        SQLAlchemyDatabaseProvider,
     )
     core = CoreFacade(app=FastAPI())
     core.set_infra(reg)

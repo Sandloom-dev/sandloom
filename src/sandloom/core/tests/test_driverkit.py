@@ -55,7 +55,7 @@ def _guide_module() -> ModuleType:
 
 
 class _Notifier(NotifierProvider):
-    contract_version = "v1"
+    contract_version = 2
     supported_features = frozenset({"email"})
 
     async def send(self, notification: Notification) -> None:
@@ -181,7 +181,7 @@ def test_a_capability_in_another_package_loads_in_any_order(
 ) -> None:
     class Search(InfraProvider):
         capability = "vector_index"
-        contract_version = "v1"
+        contract_version = 1
 
     spec = CapabilitySpec(name="vector_index", version="v1", provider_contract=Search)
     _install(
@@ -238,11 +238,15 @@ class _NoVersion(NotifierProvider):
 
 
 class _OldVersion(_Notifier):
-    contract_version = "v2"
+    contract_version = 1
+
+
+class _StringVersion(_Notifier):
+    contract_version = "v2"  # type: ignore[assignment]
 
 
 class _Abstract(NotifierProvider):
-    contract_version = "v1"
+    contract_version = 2
 
 
 class _NotCallable(_Notifier):
@@ -255,7 +259,8 @@ class _NotCallable(_Notifier):
         (ImportError("no such backend"), "failed to import"),
         (object, "not a subclass"),
         (_NoVersion, "no contract_version"),
-        (_OldVersion, "written for v2"),
+        (_OldVersion, "written for contract_version 1"),
+        (_StringVersion, "integer major"),
         (_Abstract, "does not implement send"),
         (_NotCallable, "does not implement send"),
     ],
@@ -336,12 +341,19 @@ _NOTIFICATION_V1 = {"send": "(self, notification: 'Notification') -> 'None'"}
 
 def test_the_public_contract_changes_only_with_its_version() -> None:
     assert NOTIFICATION_CAPABILITY.version == "v1"
+    assert NOTIFICATION_CAPABILITY.major == 2
     abstract = sorted(NotifierProvider.__abstractmethods__)
     signatures = {
         name: str(inspect.signature(getattr(NotifierProvider, name)))
         for name in abstract
     }
     assert signatures == _NOTIFICATION_V1
+
+
+#: Kernel-facing contracts exported before their kit (PR #190 review, C4):
+#: the shared kit harness (idk-kit-harness) delivers these kits. Remove an
+#: entry when its kit lands; the test fails until you do.
+_KIT_PENDING = frozenset({"AtomicStoreProvider", "LeaseProvider", "BroadcastProvider"})
 
 
 def test_every_public_contract_has_a_kit() -> None:
@@ -353,6 +365,11 @@ def test_every_public_contract_has_a_kit() -> None:
     assert contracts
     for name in contracts:
         kit = name.removesuffix("Provider") + "Conformance"
+        if name in _KIT_PENDING:
+            assert kit not in sandloom.driverkit.testing.__all__, (
+                f"{kit} landed: drop {name} from _KIT_PENDING"
+            )
+            continue
         assert kit in sandloom.driverkit.testing.__all__, f"{name} has no kit: {kit}"
 
 
@@ -398,7 +415,7 @@ class _Broken:
     """The kit must fail these: a kit that passes everything proves nothing."""
 
     class WrongContract(InfraProvider):
-        contract_version = "v1"
+        contract_version = 2
 
     class UnknownFeature(_Notifier):
         supported_features = frozenset({"fax"})
@@ -409,6 +426,12 @@ class _Broken:
 
     class NoVersion(_NoVersion):
         supported_features = frozenset({"email"})
+
+    class StringVersion(_Notifier):
+        contract_version = "v2"  # type: ignore[assignment]
+
+    class OldMajor(_Notifier):
+        contract_version = 1
 
     class ClosesOnce(_Notifier):
         closed = False
@@ -428,6 +451,8 @@ def _built(cls: type[Any]) -> Any:
     [
         (_Broken.WrongContract, "test_implements_the_contract"),
         (_Broken.NoVersion, "test_states_the_contract_version"),
+        (_Broken.StringVersion, "test_states_the_contract_version"),
+        (_Broken.OldMajor, "test_states_the_contract_version"),
         (_Broken.UnknownFeature, "test_advertises_only_defined_features"),
         (_Broken.Drifting, "test_reports_the_features_it_declares"),
     ],
@@ -437,11 +462,8 @@ async def test_the_kit_fails_a_broken_driver(driver: type[Any], check: str) -> N
         await getattr(NotifierConformance(), check)(_built(driver))
 
 
-async def test_the_kit_accepts_a_compatible_minor_version() -> None:
-    class Minor(_Notifier):
-        contract_version = "v1.2"
-
-    await NotifierConformance().test_states_the_contract_version(_built(Minor))
+async def test_the_kit_accepts_the_capability_major() -> None:
+    await NotifierConformance().test_states_the_contract_version(_built(_Notifier))
 
 
 async def test_the_kit_gives_each_channel_a_recipient_of_its_kind() -> None:

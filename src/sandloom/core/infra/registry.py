@@ -19,9 +19,12 @@ A business module never touches this class directly — it asks the
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import importlib
 import importlib.util
 import inspect
 import logging
+import re
 import threading
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -30,14 +33,18 @@ from typing import TYPE_CHECKING, Any, cast
 
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
-from sandloom.core.infra.capabilities import CapabilitySpec
 from sandloom.core.infra.config import (
     DEFAULT_INSTANCE,
     KERNEL_INSTANCES,
     InfraConfig,
     InstanceConfig,
 )
-from sandloom.core.infra.contracts import InfraProvider
+from sandloom.core.infra.ports._base import (
+    CapabilitySpec,
+    InfraProvider,
+    health_failure_details,
+    version_major,
+)
 
 if TYPE_CHECKING:
     from sandloom.core.descriptors import CapabilityRequirement
@@ -53,23 +60,6 @@ CAPABILITIES_GROUP = "sandloom.capabilities"
 DriverFactory = Callable[[InstanceConfig], InfraProvider]
 
 
-def _major(version: str) -> int | None:
-    """Return the MAJOR component of a capability version string, or None.
-
-    Accepts ``"v1"``, ``"v1.2"`` or a bare integer (``"1"``); returns the
-    leading integer after an optional ``v`` prefix. Returns ``None`` when the
-    string is unparseable — callers then fall back to exact-string equality so
-    an odd version scheme can never be silently treated as compatible.
-    """
-    head = version.split(".", 1)[0].strip()
-    if head[:1] in ("v", "V"):
-        head = head[1:]
-    try:
-        return int(head)
-    except ValueError:
-        return None
-
-
 def versions_compatible(registered: str, required: str) -> bool:
     """True if ``required`` is satisfied by the ``registered`` spec version.
 
@@ -83,8 +73,8 @@ def versions_compatible(registered: str, required: str) -> bool:
     a declared feature, checked on its own (``supported_features``, the
     requirement's ``features``), never inferred from a version number.
     """
-    req_major = _major(required)
-    reg_major = _major(registered)
+    req_major = version_major(required)
+    reg_major = version_major(registered)
     if req_major is None or reg_major is None:
         return registered == required
     return req_major == reg_major
@@ -94,20 +84,25 @@ def versions_compatible(registered: str, required: str) -> bool:
 class DriverRegistration:
     """A registered driver: its factory plus build-free metadata.
 
-    ``features`` and ``config_schema`` are declared at registration so the
-    registry can preflight a requirement (and validate options) WITHOUT building
-    the provider — no engine/client/pool created, no network I/O. They are
-    driver-level: two drivers of the same capability may support different
-    features and take different config.
+    A driver is registered by its provider class (``provider_class``), or as a
+    lazy ``"module:Class"`` ``target`` imported only when an instance selects
+    it (the built-ins, as entry points are: ADR-0011 decision 2). The class
+    declares its features once (``features_for(options)``), its options schema
+    and its contract major; the registry reads them to preflight a requirement
+    WITHOUT building the provider: no engine/client/pool created, no network
+    I/O. A plain ``factory`` with no class (a test double) declares its
+    ``features`` here instead.
     """
 
-    factory: DriverFactory
+    factory: DriverFactory | None = None
     features: frozenset[str] = field(default_factory=frozenset)
     config_schema: type[Any] | None = None
-    # Optional per-instance narrowing: given an instance's options, the subset
-    # of ``features`` that instance actually advertises (e.g. ``tenant_rls``
-    # only when the option is on). Still build-free — options only, no I/O.
-    instance_features: Callable[[Mapping[str, Any]], frozenset[str]] | None = None
+    # The provider class, once known: features, schema and factory come from it.
+    provider_class: type[InfraProvider] | None = None
+    # ``"package.module:Class"``, imported when an instance selects the driver.
+    target: str | None = None
+    # The slice that delivers a pre-registered target not in this build yet.
+    delivered_by: str = ""
     # The SQLAlchemy dialect names a database driver serves (``postgresql``):
     # startup checks that an instance's URL names one of them and that a SQL
     # dialect renderer exists for it (SANDLOOM-B024). Empty for non-SQL drivers.
@@ -121,9 +116,14 @@ class DriverRegistration:
     install: str = ""
 
     def features_for(self, options: Mapping[str, Any]) -> frozenset[str]:
-        if self.instance_features is None:
-            return self.features
-        return frozenset(self.instance_features(options)) & self.features
+        """The features an instance with ``options`` declares, build-free:
+        what the class's ``features_for`` answers within its
+        ``supported_features`` (itself within the spec's features, checked at
+        load), so a driver never claims a feature it did not declare."""
+        cls = self.provider_class
+        if cls is not None:
+            return frozenset(cls.features_for(options)) & cls.supported_features
+        return self.features
 
 
 def _install_fix(
@@ -145,11 +145,16 @@ def _install_fix(
     )
 
 
-class InfraError(RuntimeError):
-    """Raised on registry misconfiguration (unknown driver/instance)."""
+class InfraRegistryError(RuntimeError):
+    """Raised on registry misconfiguration (unknown driver/instance).
+
+    A configuration problem found while selecting, loading or opening a
+    driver. The errors a capability OPERATION raises are another hierarchy,
+    :class:`sandloom.core.infra.errors.InfraError`.
+    """
 
 
-class InfraStartupError(InfraError):
+class InfraStartupError(InfraRegistryError):
     """One or more configured infra instances failed to open at startup.
 
     Raised by :meth:`InfraRegistry.aopen_all` in strict mode (production) so a
@@ -168,7 +173,7 @@ class InfraStartupError(InfraError):
         super().__init__(message if fix is None else f"{message}\nFix: {fix}")
 
 
-class CapabilityError(InfraError):
+class CapabilityError(InfraRegistryError):
     """Base for capability-resolution problems — carries an actionable hint.
 
     Diagnostic by design: AI agents and operators should be able to act on the
@@ -294,6 +299,32 @@ class DriverLoadError(CapabilityError):
     sandloom_code = "SANDLOOM-B022"
 
 
+class DevelopmentOnlyDriverRefused(DriverLoadError):
+    """A ``development_only`` driver selected in production (SANDLOOM-B022).
+
+    No accepted risk lifts it: a ``memory`` driver keeps its state in one
+    process, so nothing a deployment's guarantees rest on may run on it.
+    """
+
+
+class KernelOnlyCapabilityRefused(CapabilityError):
+    """A module resolved or required a kernel-facing capability
+    (``CapabilitySpec.kernel_only``: ``atomic_store``, ``lease``,
+    ``broadcast``), which only the kernel reaches (SANDLOOM-B041)."""
+
+    sandloom_code = "SANDLOOM-B041"
+
+
+def _refuse_kernel_only(spec: CapabilitySpec | None, who: str = "module code") -> None:
+    if spec is not None and spec.kernel_only:
+        raise KernelOnlyCapabilityRefused(
+            f"{who} cannot use capability {spec.name!r}: it is kernel-facing, "
+            "reached only by the kernel [SANDLOOM-B041]",
+            fix="use the module-facing API built on it (sandloom.sdk), or a "
+            "module-facing capability; `sandloom explain SANDLOOM-B041`",
+        )
+
+
 class ExperimentalCapabilityRefused(CapabilityError):
     """An experimental capability configured in production (SANDLOOM-B023)."""
 
@@ -382,6 +413,8 @@ class InfraRegistry:
         if existing is not None and (
             existing.provider_contract is not spec.provider_contract
             or existing.version != spec.version
+            or existing.major != spec.major
+            or existing.kernel_only != spec.kernel_only
         ):
             raise CapabilityConflictError(
                 f"Capability {spec.name!r} already registered as "
@@ -436,26 +469,35 @@ class InfraRegistry:
         self,
         capability: str,
         driver: str,
-        factory: DriverFactory,
+        factory: DriverFactory | type[InfraProvider] | str,
         *,
         features: frozenset[str] | set[str] | None = None,
         config_schema: type[Any] | None = None,
-        instance_features: Callable[[Mapping[str, Any]], frozenset[str]] | None = None,
         capability_version: str | None = None,
         sql_dialects: frozenset[str] | set[str] | None = None,
         requires: Iterable[str] = (),
         install: str = "",
+        build: DriverFactory | None = None,
+        delivered_by: str = "",
     ) -> None:
         """Register a driver for a capability (idempotent override).
 
-        ``features``/``config_schema`` are build-free metadata (see
-        :class:`DriverRegistration`). In strict mode the capability must already
-        have a registered spec, and any declared features must be a subset of
-        the spec's — so a driver cannot advertise a feature the contract does
-        not define. ``capability_version`` is the contract version the driver
+        ``factory`` is the driver's provider class, a lazy ``"module:Class"``
+        target (imported when an instance selects the driver, so registering
+        it imports nothing), or a plain factory. A class declares its features
+        (``supported_features`` / ``features_for``), options schema and
+        integer ``contract_version`` once, and the registry checks it like an
+        external driver (SANDLOOM-B022); ``build`` replaces its
+        ``from_config`` where the factory needs what the class cannot reach.
+        A plain factory has no class: ``features``/``config_schema`` are its
+        build-free metadata. In strict mode the capability must already have
+        a registered spec, and a plain factory's features must be a subset of
+        the spec's. ``capability_version`` is the contract version the driver
         was written for: another major version of the capability is refused.
         ``requires`` are the top-level import names the driver needs and
         ``install`` how to get them (``pip install 'sandloom[celery]'``).
+        ``delivered_by`` names the slice that delivers a pre-registered target
+        not in this build yet, for the refusal when it is selected.
         """
         needed = tuple(requires)
         dotted = [name for name in needed if not name or "." in name]
@@ -490,22 +532,75 @@ class InfraRegistry:
             if unknown:
                 raise FeatureUnsupportedError(
                     f"Driver {capability}/{driver} declares feature(s) "
-                    f"{sorted(unknown)} not defined by capability {capability!r} "
-                    f"(known: {sorted(spec.features)})",
+                    f"{spec.unknown_features_hint(unknown)} not defined by "
+                    f"capability {capability!r} (known: {sorted(spec.features)})",
                     fix="add the feature to the CapabilitySpec or drop it",
                 )
         key = (capability, driver)
         if key in self._drivers:
             logger.debug("[infra] overriding driver %s/%s", capability, driver)
-        self._drivers[key] = DriverRegistration(
-            factory=factory,
+        registration = DriverRegistration(
+            factory=build,
             features=feats,
             config_schema=config_schema,
-            instance_features=instance_features,
             sql_dialects=frozenset(sql_dialects or ()),
             requires=needed,
             install=install,
+            delivered_by=delivered_by,
         )
+        if isinstance(factory, str):
+            registration = dataclasses.replace(registration, target=factory)
+        elif isinstance(factory, type):
+            registration = self._with_class(capability, driver, registration, factory)
+        else:
+            registration = dataclasses.replace(registration, factory=factory)
+        self._drivers[key] = registration
+
+    def _with_class(
+        self,
+        capability: str,
+        driver: str,
+        registration: DriverRegistration,
+        provider_class: object,
+    ) -> DriverRegistration:
+        """``registration`` completed from its checked provider class."""
+        checked = check_driver_class(
+            f"{capability}.{driver}", provider_class, self._capabilities.get(capability)
+        )
+        return dataclasses.replace(
+            registration,
+            provider_class=checked,
+            factory=registration.factory or checked.from_config,
+            config_schema=checked.options_schema or registration.config_schema,
+        )
+
+    def _registration(self, capability: str, driver: str) -> DriverRegistration | None:
+        """The registration of ``capability/driver`` with its class loaded.
+
+        A lazy target is imported here, the first time an instance selecting
+        it needs the driver's declaration (options, features, a build), and
+        checked like an entry point (SANDLOOM-B022). ``None`` when no such
+        driver is registered.
+        """
+        registration = self._drivers.get((capability, driver))
+        if registration is None or registration.target is None:
+            return registration
+        if registration.provider_class is not None:
+            return registration
+        loaded = self._with_class(
+            capability,
+            driver,
+            registration,
+            _import_target(capability, driver, registration),
+        )
+        self._drivers[(capability, driver)] = loaded
+        return loaded
+
+    def driver_class(self, capability: str, driver: str) -> type[InfraProvider] | None:
+        """The provider class of a registered driver (importing a lazy target),
+        ``None`` for an unknown driver or a plain factory."""
+        registration = self._registration(capability, driver)
+        return registration.provider_class if registration is not None else None
 
     def has_driver(self, capability: str, driver: str) -> bool:
         return (capability, driver) in self._drivers
@@ -687,7 +782,7 @@ class InfraRegistry:
         cfg = self._config.get(capability, {}).get(name)
         if cfg is None:
             return None
-        registration = self._drivers.get((capability, cfg.driver))
+        registration = self._registration(capability, cfg.driver)
         if registration is None:
             return None
         return registration.features_for(cfg.options)
@@ -718,7 +813,7 @@ class InfraRegistry:
         cfg = self._config.get(capability, {}).get(instance)
         if cfg is None:
             return None
-        registration = self._drivers.get((capability, cfg.driver))
+        registration = self._registration(capability, cfg.driver)
         if registration is None:
             return None
         return registration.features_for(cfg.options)
@@ -747,7 +842,7 @@ class InfraRegistry:
                     fix=f"add INFRA[{capability!r}][{name!r}] or request a "
                     "configured instance",
                 )
-            registration = self._drivers.get((capability, instance_cfg.driver))
+            registration = self._registration(capability, instance_cfg.driver)
             if registration is None:
                 self._check_experimental_driver(capability, instance_cfg.driver)
                 known = sorted(d for (c, d) in self._drivers if c == capability)
@@ -758,9 +853,16 @@ class InfraRegistry:
                     f"'{capability}.{instance_cfg.driver}' in the 'sandloom.drivers' "
                     "group) or pick a known driver",
                 )
+            self._refuse_development_only(instance_cfg, registration)
             self._validate_options(capability, instance_cfg, registration)
+            factory = registration.factory
+            if factory is None:  # pragma: no cover - every row ends with one
+                raise DriverLoadError(
+                    f"Driver {capability}/{instance_cfg.driver} has no factory",
+                    fix="register the driver with its provider class",
+                )
             try:
-                provider = registration.factory(instance_cfg)
+                provider = factory(instance_cfg)
             except ImportError as exc:
                 raise self._import_failure(
                     capability, name, instance_cfg, registration, exc
@@ -796,8 +898,11 @@ class InfraRegistry:
         explicit ``contract`` (beyond the spec's) is also checked. This is the
         path behind ``CoreFacade.require_capability`` and the module preflight.
         A ``version`` (from a ``CapabilityRef``) must match the spec's major.
+        A kernel-only capability is refused (SANDLOOM-B041): the kernel
+        reaches one through :meth:`provider`.
         """
         spec = self._capabilities.get(capability)
+        _refuse_kernel_only(spec)
         if (
             version is not None
             and spec is not None
@@ -846,6 +951,7 @@ class InfraRegistry:
                 fix="install the package that declares it (the 'sandloom.capabilities' "
                 "entry-point group) and configure it in INFRA",
             )
+        _refuse_kernel_only(spec)
         if version is not None and not versions_compatible(spec.version, version):
             raise FeatureUnsupportedError(
                 f"Capability {capability!r} is {spec.version}, but incompatible "
@@ -874,10 +980,12 @@ class InfraRegistry:
             if unknown:
                 raise FeatureUnsupportedError(
                     f"Capability {capability!r} (v{spec.version}) defines no "
-                    f"feature(s) {sorted(unknown)}; known: {sorted(spec.features)}",
+                    f"feature(s) {spec.unknown_features_hint(unknown)}; known: "
+                    f"{sorted(spec.features)}",
                     fix="drop the unknown feature(s) or upgrade the contract",
                 )
-            advertised = registration.features_for(cfg.options)
+            loaded = self._registration(capability, cfg.driver)
+            advertised = (loaded or registration).features_for(cfg.options)
             missing = features - advertised
             if missing:
                 raise FeatureUnsupportedError(
@@ -906,6 +1014,12 @@ class InfraRegistry:
         """
         unmet: list[tuple[str, CapabilityError]] = []
         optional: list[tuple[CapabilityRequirement, Exception]] = []
+        requirements = list(requirements)
+        for req in requirements:
+            # Required or optional: asking for one is the refusal (B041).
+            _refuse_kernel_only(
+                self._capabilities.get(req.capability), f"module {module!r}"
+            )
         for req in requirements:
             try:
                 self.validate_requirement(
@@ -993,7 +1107,8 @@ class InfraRegistry:
             if unknown:
                 raise FeatureUnsupportedError(
                     f"Capability {capability!r} (v{spec.version}) defines no "
-                    f"feature(s) {sorted(unknown)}; known: {sorted(spec.features)}",
+                    f"feature(s) {spec.unknown_features_hint(unknown)}; known: "
+                    f"{sorted(spec.features)}",
                     fix="drop the unknown feature(s) or upgrade the capability "
                     "contract",
                 )
@@ -1007,6 +1122,26 @@ class InfraRegistry:
                 fix=f"configure {capability}/{name} with a driver that supports "
                 f"{sorted(missing)}",
             )
+
+    @staticmethod
+    def _refuse_development_only(
+        cfg: InstanceConfig, registration: DriverRegistration
+    ) -> None:
+        """A ``development_only`` driver is refused in production, with no
+        accepted risk to lift it (spec 2.3, SANDLOOM-B022)."""
+        provider_class = registration.provider_class
+        if (
+            provider_class is None
+            or not provider_class.development_only
+            or not settings.is_prod
+        ):
+            return
+        raise DevelopmentOnlyDriverRefused(
+            f"{cfg.capability}/{cfg.name}: driver {cfg.driver!r} is for development "
+            "and tests only, and this is production",
+            fix=f"select a production {cfg.capability} driver in "
+            f"INFRA[{cfg.capability!r}][{cfg.name!r}]",
+        )
 
     def _validate_options(
         self, capability: str, cfg: InstanceConfig, registration: DriverRegistration
@@ -1056,12 +1191,14 @@ class InfraRegistry:
         unavailable: list[DriverUnavailableError] = []
         for capability, instances in self._config.items():
             for name, cfg in instances.items():
-                registration = self._drivers.get((capability, cfg.driver))
+                registration = self._registration(capability, cfg.driver)
                 if registration is None:
                     missing.append(f"{capability}/{name} (driver={cfg.driver!r})")
                     continue
                 # Build-free: instantiates the config schema only — never the
                 # provider. Raises ConfigSchemaError with an actionable fix.
+                if not cfg.implicit:
+                    self._refuse_development_only(cfg, registration)
                 self._validate_options(capability, cfg, registration)
                 if not cfg.implicit:
                     problem = self._unavailable(capability, name)
@@ -1113,9 +1250,12 @@ class InfraRegistry:
                 result = await asyncio.wait_for(
                     provider.health(), timeout=settings.health_check_timeout_seconds
                 )
+                result = _vouched_health(result)
             except Exception as exc:  # noqa: BLE001 - any failure is a failed probe
+                # The type only: an exception text can carry a URL with
+                # credentials or a key (spec 2.4, health redaction).
                 result = HealthResult(
-                    status="fail", details={"error": str(exc) or type(exc).__name__}
+                    status="fail", details=health_failure_details(exc)
                 )
             return f"{capability}:{name}", result
 
@@ -1137,7 +1277,7 @@ class InfraRegistry:
         Symmetric to :meth:`aclose_all`, invoked at startup so a driver that
         must warm a connection pool / handshake a client up front does so before
         the process serves traffic, instead of lazily on the first request. The
-        event bus is excluded — it owns its own connect lifecycle.
+        event bus is opened like every other capability.
 
         ``strict`` (the production default, wired in ``create_app``) turns a
         per-instance open failure into an aborted startup: a configured database
@@ -1161,8 +1301,6 @@ class InfraRegistry:
         unavailable = False
         await self._close_retired()
         for capability, instances in self._config.items():
-            if capability == "eventbus":
-                continue
             for name in instances:
                 if self._unused(capability, name):
                     logger.debug(
@@ -1260,6 +1398,7 @@ class InfraRegistry:
             "capabilities": {
                 spec.name: {
                     "version": spec.version,
+                    "major": spec.major,
                     "contract": spec.provider_contract.__name__,
                     "features": sorted(spec.features),
                     "description": spec.description,
@@ -1357,11 +1496,59 @@ def _load_driver(registry: InfraRegistry, cfg: InstanceConfig) -> None:
             "driver name, selected in INFRA",
         )
     driver = _load_plugin(entry, f"Driver {key!r}")
-    spec = registry.capability_spec(cfg.capability)
+    provider_class = check_driver_class(
+        key, driver, registry.capability_spec(cfg.capability)
+    )
+    registry.register_driver(
+        cfg.capability,
+        cfg.driver,
+        provider_class,
+        requires=provider_class.required_imports,
+        install=provider_class.install_hint,
+    )
+
+
+#: A health detail string the registry passes on: one token (an error type
+#: name, a driver name, ``no-pong``, ``redis:<run_id>``). Anything else is
+#: free text that may carry a URL, a host with credentials or a key.
+_HEALTH_TOKEN = re.compile(r"[A-Za-z0-9_.:\-]{1,64}")
+_REDACTED = "<redacted>"
+
+
+def _vouched_detail(value: object) -> object:
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value if _HEALTH_TOKEN.fullmatch(value) else _REDACTED
+    if isinstance(value, Mapping):
+        return {str(k): _vouched_detail(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_vouched_detail(v) for v in value]
+    return _REDACTED
+
+
+def _vouched_health(result: HealthResult) -> HealthResult:
+    """A driver's health result with only what the registry can vouch for in
+    its ``details`` (spec 2.4): numbers, booleans and single-token strings
+    pass; any other value becomes ``"<redacted>"``."""
+    if not result.details:
+        return result
+    details = {str(k): _vouched_detail(v) for k, v in result.details.items()}
+    return dataclasses.replace(result, details=details)
+
+
+def check_driver_class(
+    key: str, driver: object, spec: CapabilitySpec | None
+) -> type[InfraProvider]:
+    """``driver`` as a provider class, checked as every driver is, built-ins
+    included (SANDLOOM-B022): a subclass of the capability's contract that
+    implements every abstract method, states the integer ``contract_version``
+    of the capability's major, declares only the spec's features and valid
+    dependency metadata."""
     contract = spec.provider_contract if spec else InfraProvider
     if not (isinstance(driver, type) and issubclass(driver, contract)):
         raise DriverLoadError(
-            f"{entry.value} is not a subclass of {contract.__name__}",
+            f"Driver {key!r} ({driver!r}) is not a subclass of {contract.__name__}",
             fix=f"point the entry point at a {contract.__name__} subclass",
         )
     missing = sorted(
@@ -1375,16 +1562,33 @@ def _load_driver(registry: InfraRegistry, cfg: InstanceConfig) -> None:
             f"Driver {key!r} does not implement {', '.join(missing)}",
             fix="implement every abstract method of the contract",
         )
+    major = spec.major if spec is not None else None
+    if spec is not None and major is None:
+        raise DriverLoadError(
+            f"Driver {key!r} cannot load: capability {spec.name!r} has no integer "
+            f"major (version {spec.version!r}, no major stated), so no "
+            "contract_version can be checked against it",
+            fix="give the CapabilitySpec a version such as 'v1' or an explicit major",
+        )
     written_for = getattr(driver, "contract_version", None)
+    example = major if major is not None else 1
     if written_for is None:
         raise DriverLoadError(
             f"Driver {key!r} declares no contract_version",
-            fix='add a class attribute, for example contract_version = "v1"',
+            fix=f"add a class attribute, for example contract_version = {example}",
         )
-    if spec is not None and not versions_compatible(spec.version, written_for):
+    if not isinstance(written_for, int) or isinstance(written_for, bool):
         raise DriverLoadError(
-            f"Driver {key!r} was written for {written_for}, and the capability is "
-            f"{spec.version}",
+            f"Driver {key!r} declares contract_version {written_for!r}: it is the "
+            "integer major of the capability contract (a string such as 'v1' is "
+            "a driver written before contract majors were integers)",
+            fix=f"install a version of the driver written for contract_version = "
+            f"{example}",
+        )
+    if spec is not None and major is not None and written_for != major:
+        raise DriverLoadError(
+            f"Driver {key!r} was written for contract_version {written_for}, and "
+            f"the capability {spec.name!r} is {major}",
             fix="install a version of the driver for this contract",
         )
     provider_class = cast("type[InfraProvider]", driver)
@@ -1397,22 +1601,61 @@ def _load_driver(registry: InfraRegistry, cfg: InstanceConfig) -> None:
             for name in required_imports
         )
         or not isinstance(install_hint, str)
+        or not isinstance(provider_class.development_only, bool)
     ):
         raise DriverLoadError(
             f"Driver {key!r} declares invalid dependency metadata",
-            fix="set required_imports to a tuple of top-level import names "
-            "and install_hint to a string",
+            fix="set required_imports to a tuple of top-level import names, "
+            "install_hint to a string and development_only to a bool",
         )
-    registry.register_driver(
-        cfg.capability,
-        cfg.driver,
-        provider_class.from_config,
-        features=provider_class.supported_features,
-        config_schema=provider_class.options_schema,
-        instance_features=provider_class.features_for,
-        requires=required_imports,
-        install=install_hint,
-    )
+    if spec is not None:
+        unknown = frozenset(provider_class.supported_features) - spec.features
+        if unknown:
+            raise FeatureUnsupportedError(
+                f"Driver {key!r} declares feature(s) "
+                f"{spec.unknown_features_hint(unknown)} not defined by capability "
+                f"{spec.name!r} (known: {sorted(spec.features)})",
+                fix="add the feature to the CapabilitySpec or drop it",
+            )
+    return provider_class
+
+
+def _import_target(
+    capability: str, driver: str, registration: DriverRegistration
+) -> object:
+    """Import a pre-registered ``"module:Class"`` target (SANDLOOM-B022 when
+    it cannot be: a slice not delivered yet names itself)."""
+    target = registration.target or ""
+    module_name, _, attribute = target.partition(":")
+    key = f"{capability}.{driver}"
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        if exc.name == module_name and registration.delivered_by:
+            raise DriverLoadError(
+                f"Driver {key!r} is pre-registered for {registration.delivered_by}, "
+                f"which delivers {module_name}; this build does not have it yet",
+                fix=f"select another {capability} driver in INFRA[{capability!r}] "
+                f"until {registration.delivered_by} lands",
+            ) from exc
+        raise DriverLoadError(
+            f"Driver {key!r} ({target}) failed to import: {exc!r}",
+            fix="fix the installation, or select another driver in INFRA",
+        ) from exc
+    except Exception as exc:
+        raise DriverLoadError(
+            f"Driver {key!r} ({target}) failed to import: {exc!r}",
+            fix="fix the installation, or select another driver in INFRA",
+        ) from exc
+    found = getattr(module, attribute, None)
+    if found is None and registration.delivered_by:
+        raise DriverLoadError(
+            f"Driver {key!r} is pre-registered for {registration.delivered_by}, "
+            f"which delivers {target}; this build does not have it yet",
+            fix=f"select another {capability} driver in INFRA[{capability!r}] "
+            f"until {registration.delivered_by} lands",
+        )
+    return found
 
 
 def load_selected_plugins(registry: InfraRegistry, config: InfraConfig) -> None:
@@ -1436,9 +1679,10 @@ def installed_plugin_names() -> list[str]:
 
 __all__ = [
     "versions_compatible",
+    "check_driver_class",
     "InfraRegistry",
     "InstanceSnapshot",
-    "InfraError",
+    "InfraRegistryError",
     "CapabilityError",
     "UnknownCapabilityError",
     "CapabilityConflictError",
@@ -1458,6 +1702,7 @@ __all__ = [
     "DRIVERS_GROUP",
     "DriverConflictError",
     "DriverLoadError",
+    "DevelopmentOnlyDriverRefused",
     "ExperimentalCapabilityRefused",
     "installed_plugin_names",
     "load_selected_plugins",

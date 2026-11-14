@@ -149,9 +149,9 @@ async def test_portable_set_max_gives_up_only_on_a_livelock(
 ) -> None:
     """A writer that keeps resetting the key LOWER (non-monotonic) is the only
     way to exhaust the safety bound."""
-    import sandloom.core.infra.contracts as contracts
+    import sandloom.core.infra.ports.cache as cache_port
 
-    monkeypatch.setattr(contracts, "SET_MAX_MAX_ROUNDS", 5)
+    monkeypatch.setattr(cache_port, "SET_MAX_MAX_ROUNDS", 5)
 
     class _Resetting(_AdversarialCache):
         async def compare_and_set(self, *a: Any, **kw: Any) -> bool:
@@ -316,7 +316,7 @@ async def live() -> AsyncIterator[RedisCacheProvider]:
 
 
 async def test_redis_set_max_semantics_and_ttl(live: RedisCacheProvider) -> None:
-    assert "set_max" in live.features()
+    assert live.performance_hints["set_max"] == "one_round_trip"
     key = f"t:setmax:{uuid.uuid4()}"
     client = await live.raw_client()
     assert await live.set_max(key, "100.5", ttl_seconds=30) == "100.5"

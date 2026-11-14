@@ -15,8 +15,8 @@ from sandloom.core.descriptors import HealthResult
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.contracts import CacheProvider
 from sandloom.core.infra.registry import (
-    InfraError,
     InfraRegistry,
+    InfraRegistryError,
 )
 
 
@@ -99,7 +99,7 @@ def test_resolves_and_caches_instances() -> None:
 
 def test_unknown_instance_raises() -> None:
     reg = _registry_with_fake()
-    with pytest.raises(InfraError):
+    with pytest.raises(InfraRegistryError):
         reg.provider("cache", "does-not-exist")
 
 
@@ -113,7 +113,7 @@ def test_unknown_driver_raises() -> None:
             }
         }
     )
-    with pytest.raises(InfraError):
+    with pytest.raises(InfraRegistryError):
         reg.provider("cache", "default")
 
 

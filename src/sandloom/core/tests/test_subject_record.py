@@ -235,7 +235,7 @@ async def live() -> AsyncIterator[RedisCacheProvider]:
 
 
 async def test_redis_subject_state_order_and_ttl(live: RedisCacheProvider) -> None:
-    assert "subject_state" in live.features()
+    assert live.performance_hints["set_subject_state"] == "one_round_trip"
     key = f"t:subject:{uuid.uuid4()}"
     client = await live.raw_client()
     assert await live.set_subject_state(key, _after(100.5), ttl_seconds=30) == (

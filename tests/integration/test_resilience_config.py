@@ -6,7 +6,7 @@ import pytest
 
 from sandloom.core.config.settings import Settings
 from sandloom.core.infra.config import InstanceConfig
-from sandloom.core.infra.registry import InfraError, InfraRegistry
+from sandloom.core.infra.registry import InfraRegistry, InfraRegistryError
 from sandloom.sdk.testing import validate_settings
 from sandloom_billing.config import BillingSettings
 
@@ -90,7 +90,7 @@ def test_registry_validate_rejects_unknown_driver() -> None:
             }
         }
     )
-    with pytest.raises(InfraError, match="no registered driver"):
+    with pytest.raises(InfraRegistryError, match="no registered driver"):
         reg.validate()
 
 
@@ -98,7 +98,7 @@ def test_build_infra_registry_validates() -> None:
     from sandloom.core.drivers.bootstrap import build_infra_registry
     from sandloom.core.schema.registry import InMemorySchemaRegistry
 
-    with pytest.raises(InfraError):
+    with pytest.raises(InfraRegistryError):
         build_infra_registry(
             InMemorySchemaRegistry(),
             config={

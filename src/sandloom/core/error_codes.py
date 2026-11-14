@@ -1113,9 +1113,13 @@ A built-in cannot be replaced silently: another behaviour is another name.
         """
 INFRA selected a driver or capability whose package failed to import, whose entry
 point is not a subclass of the capability's contract (or not a `CapabilitySpec`),
-which declares no `contract_version`, or which was written for another major version.
-A driver that cannot load cannot serve, so startup stops with the cause. An
-unselected package is never imported.
+which declares no `contract_version` or declares one that is not the integer major
+of the capability (a string such as "v1" is a driver written before majors were
+integers; another integer is a driver for another major), or whose capability states
+no readable major. A driver marked `development_only` (the `memory` drivers) is
+refused in production, with no accepted risk to lift it. A driver that cannot load
+cannot serve, so startup stops with the cause. An unselected package is never
+imported.
 """,
         docs="docs/infrastructure/write-a-driver.md",
     ),
@@ -1666,6 +1670,27 @@ one process, that the local contract was registered from that import path. A
 mismatch refuses the command with exit status 1 and nothing done.
 """,
         "docs/operate/operator-reference.md",
+    ),
+    _entry(
+        "SANDLOOM-B041",
+        "kernel-capability-refused",
+        "boot",
+        "module code resolved or required a kernel-facing capability "
+        "(atomic_store, lease, broadcast)",
+        "use the module-facing API built on it (sandloom.sdk: cache, "
+        "idempotency_guard, the event bus through the outbox), or a "
+        "module-facing capability",
+        """
+A kernel-facing capability (its CapabilitySpec says kernel_only) serves the
+kernel's own guarantees: the security marks and idempotency records
+(atomic_store), the beat and sweep leases (lease), the contract-cache shadow and
+the volatile bus (broadcast). Its keys and channels are the kernel's, so a module
+that reached it could forge or clear a security mark or steal a lease. The kernel
+reaches it through the registry's provider door; a module's CapabilityRef,
+Capability(...) dependency, get_core().capability(...) or CapabilityRequirement
+naming it is refused, the requirement when the module loads.
+""",
+        "docs/adr/0016-kernel-ports-and-driver-packages.md",
     ),
     _entry(
         "SANDLOOM-B020",
@@ -2249,6 +2274,7 @@ EXCEPTION_CODES: dict[str, str] = {
     "DriverConflictError": "SANDLOOM-B021",
     "DriverLoadError": "SANDLOOM-B022",
     "ExperimentalCapabilityRefused": "SANDLOOM-B023",
+    "KernelOnlyCapabilityRefused": "SANDLOOM-B041",
     "IncompatibleSqlDialect": "SANDLOOM-B025",
     "InvalidDbapiAdapter": "SANDLOOM-B025",
     "RowSecurityUnavailable": "SANDLOOM-B026",

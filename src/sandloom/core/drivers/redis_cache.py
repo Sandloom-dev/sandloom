@@ -31,7 +31,8 @@ import asyncio
 import hashlib
 import logging
 from collections.abc import Mapping, Sequence
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Self, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -43,13 +44,26 @@ from sandloom.core.infra.contracts import (
     parse_plain_decimal,
     parse_subject_state,
 )
+from sandloom.core.infra.ports._base import health_failure_details
 from sandloom.core.observability.metrics import cache_operation_errors_total
 
-#: Features the Redis cache driver supports (the fused / batch ops are one
-#: round trip).
-REDIS_CACHE_FEATURES = frozenset(
-    {"cas", "get_many", "set_many"}
-    | {"incr_window", "incr_many", "set_nx_get", "set_max", "subject_state"}
+#: Features the Redis cache driver supports.
+REDIS_CACHE_FEATURES = frozenset({"cas"})
+
+#: The batch and fused operations the Redis driver does in one round trip.
+REDIS_CACHE_PERFORMANCE_HINTS = MappingProxyType(
+    dict.fromkeys(
+        (
+            "get_many",
+            "set_many",
+            "incr_window",
+            "incr_many",
+            "set_nx_get",
+            "set_max",
+            "set_subject_state",
+        ),
+        "one_round_trip",
+    )
 )
 
 
@@ -267,6 +281,17 @@ async def close_default_client() -> None:
 class RedisCacheProvider(CacheProvider):
     """A single Redis cache instance."""
 
+    contract_version = 1
+    supported_features = REDIS_CACHE_FEATURES
+    performance_hints = REDIS_CACHE_PERFORMANCE_HINTS
+    options_schema = RedisCacheOptions
+    required_imports = ("redis",)
+    install_hint = "pip install 'sandloom[redis]'"
+
+    @classmethod
+    def from_config(cls, config: InstanceConfig) -> Self:
+        return cast("Self", create_redis_cache(config))
+
     def __init__(
         self,
         *,
@@ -341,9 +366,6 @@ class RedisCacheProvider(CacheProvider):
             self._client = _build_client(url)
             self._client_loop = loop
         return self._client
-
-    def features(self) -> frozenset[str]:
-        return REDIS_CACHE_FEATURES
 
     async def raw_client(self) -> Any:
         """Redis exposes its client for transport-level needs (pub/sub)."""
@@ -770,7 +792,8 @@ class RedisCacheProvider(CacheProvider):
                 return HealthResult(status="ok")
             return HealthResult(status="fail", details={"error": "no-pong"})
         except Exception as exc:  # noqa: BLE001 - any failure is a failed probe
-            return HealthResult(status="fail", details={"error": str(exc)})
+            # The type only: a redis error text names the host (spec 2.4).
+            return HealthResult(status="fail", details=health_failure_details(exc))
 
     async def deployment_identity(self) -> str:
         """Attest the reached Redis process, including through DNS aliases.

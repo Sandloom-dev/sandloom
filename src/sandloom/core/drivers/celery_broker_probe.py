@@ -78,8 +78,8 @@ async def probe_broker(app: Any, *, limit_seconds: float | None = None) -> Healt
     ``limit_seconds`` (default ``HEALTH_CHECK_TIMEOUT_SECONDS``); ``fail`` when
     it does not answer in time. A refused or dropped connection raises
     :class:`BrokerUnreachableError`, which every health reader turns into a
-    failed probe carrying its message (``_capability_health``,
-    ``InfraRegistry.health_all``).
+    failed probe carrying its type name, never its text (``_capability_health``,
+    ``InfraRegistry.health_all``; spec 2.4).
 
     The blocking connect runs in a worker thread, so the event loop never
     waits on the broker; the connect and socket timeouts end that thread

@@ -7,66 +7,206 @@ and applies the merged configuration. Called once from ``create_app``.
 
 from __future__ import annotations
 
-import sandloom.core.drivers.redis_cache as _redis_cache
-import sandloom.core.drivers.sqlalchemy_database as _sqlalchemy_database
+import importlib
+
 from sandloom.core.config.settings import Settings
 from sandloom.core.config.settings import settings as _default_settings
 from sandloom.core.contracts import SchemaRegistryContract
-from sandloom.core.drivers.celery_taskqueue import (
-    CELERY_TASKQUEUE_FEATURES,
-    CeleryTaskQueueOptions,
-    create_celery_taskqueue,
-)
-from sandloom.core.drivers.event_bus_driver import (
-    EVENTBUS_DRIVER_FEATURES,
-    EventBusOptions,
-    make_event_bus_drivers,
-)
-from sandloom.core.drivers.local_objectstore import (
-    OBJECTSTORE_FEATURES,
-    LocalObjectStoreOptions,
-    create_local_objectstore,
-)
-from sandloom.core.drivers.log_notifier import (
-    create_log_notifier,
-    log_notifier_features,
-)
-from sandloom.core.drivers.memory_document_store import (
-    MEMORY_DOCUMENT_STORE_FEATURES,
-    create_memory_document_store,
-)
-from sandloom.core.drivers.redis_cache import (
-    REDIS_CACHE_FEATURES,
-    RedisCacheOptions,
-    create_redis_cache,
-)
-from sandloom.core.drivers.smtp_notifier import (
-    NOTIFIER_SMTP_FEATURES,
-    NotifierOptions,
-    SmtpNotifierOptions,
-    create_smtp_notifier,
-)
-from sandloom.core.drivers.sqlalchemy_database import (
-    SQLALCHEMY_DB_FEATURES,
-    SQLALCHEMY_SQL_DIALECTS,
-    SQLAlchemyDatabaseOptions,
-    create_sqlalchemy_database,
-    sqlalchemy_db_features,
-)
 from sandloom.core.infra.capabilities import BUILTIN_CAPABILITIES
-from sandloom.core.infra.config import InfraConfig, load_infra_config
+from sandloom.core.infra.config import InfraConfig, InstanceConfig, load_infra_config
 from sandloom.core.infra.extra_capabilities import EXTRA_CAPABILITIES
+from sandloom.core.infra.ports._base import InfraProvider
 from sandloom.core.infra.registry import (
+    DriverFactory,
     ExperimentalCapabilityRefused,
     InfraRegistry,
     load_selected_plugins,
 )
 
-#: The import name and the extra of the redis-py client (cache, redis and
-#: streams event buses).
-_REDIS_REQUIRES: tuple[str, ...] = ("redis",)
+#: The import name and the extra of the redis-py client.
+_REDIS: tuple[str, ...] = ("redis",)
 _REDIS_INSTALL = "pip install 'sandloom[redis]'"
-_REDIS_EVENTBUS_DRIVERS = frozenset({"redis", "streams"})
+_DRIVERS = "sandloom.core.drivers"
+
+
+#: Every built-in driver row of this wave (spec 1, "Registry files"):
+#: ``(capability, driver, "module:Class", requires, install, delivered_by)``.
+#: Each is a lazy target, imported only when an instance selects it, and its
+#: class is checked like an external driver's. ``delivered_by`` names the slice
+#: that delivers a target this build does not have yet: selecting it is refused
+#: (SANDLOOM-B022) with that name.
+BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...] = (
+    (
+        "database",
+        "sqlalchemy",
+        f"{_DRIVERS}.sqlalchemy_database:SQLAlchemyDatabaseProvider",
+        (),
+        "",
+        "",
+    ),
+    (
+        "cache",
+        "redis",
+        f"{_DRIVERS}.redis_cache:RedisCacheProvider",
+        _REDIS,
+        _REDIS_INSTALL,
+        "",
+    ),
+    (
+        "cache",
+        "memory",
+        f"{_DRIVERS}.memory_cache:MemoryCacheProvider",
+        (),
+        "",
+        "idk-cache-contract",
+    ),
+    (
+        "objectstore",
+        "local",
+        f"{_DRIVERS}.local_objectstore:LocalObjectStoreProvider",
+        (),
+        "",
+        "",
+    ),
+    (
+        "taskqueue",
+        "celery",
+        f"{_DRIVERS}.celery_taskqueue:CeleryTaskQueueProvider",
+        ("celery",),
+        "pip install 'sandloom[celery]'",
+        "",
+    ),
+    (
+        "eventbus",
+        "memory",
+        f"{_DRIVERS}.event_bus_driver:MemoryEventBusProvider",
+        (),
+        "",
+        "",
+    ),
+    (
+        "eventbus",
+        "redis",
+        f"{_DRIVERS}.event_bus_driver:RedisEventBusProvider",
+        _REDIS,
+        _REDIS_INSTALL,
+        "",
+    ),
+    (
+        "eventbus",
+        "streams",
+        f"{_DRIVERS}.event_bus_driver:StreamsEventBusProvider",
+        _REDIS,
+        _REDIS_INSTALL,
+        "",
+    ),
+    # The only non-relational driver of 1.0: in-memory, a projection target.
+    (
+        "document_store",
+        "memory",
+        f"{_DRIVERS}.memory_document_store:MemoryDocumentStoreProvider",
+        (),
+        "",
+        "",
+    ),
+    ("notification", "log", f"{_DRIVERS}.log_notifier:LogNotifierProvider", (), "", ""),
+    (
+        "notification",
+        "smtp",
+        f"{_DRIVERS}.smtp_notifier:SmtpNotifierProvider",
+        (),
+        "",
+        "",
+    ),
+    (
+        "atomic_store",
+        "redis",
+        f"{_DRIVERS}.redis_atomic_store:RedisAtomicStoreProvider",
+        _REDIS,
+        _REDIS_INSTALL,
+        "idk-atomic-store",
+    ),
+    (
+        "atomic_store",
+        "memory",
+        f"{_DRIVERS}.memory_atomic_store:MemoryAtomicStoreProvider",
+        (),
+        "",
+        "idk-atomic-store",
+    ),
+    (
+        "atomic_store",
+        "database",
+        f"{_DRIVERS}.database_atomic_store:DatabaseAtomicStoreProvider",
+        (),
+        "",
+        "idk-atomic-store-db",
+    ),
+    (
+        "lease",
+        "redis",
+        f"{_DRIVERS}.redis_lease:RedisLeaseProvider",
+        _REDIS,
+        _REDIS_INSTALL,
+        "idk-lease",
+    ),
+    (
+        "lease",
+        "memory",
+        f"{_DRIVERS}.memory_lease:MemoryLeaseProvider",
+        (),
+        "",
+        "idk-lease",
+    ),
+    (
+        "lease",
+        "database",
+        f"{_DRIVERS}.database_lease:DatabaseLeaseProvider",
+        (),
+        "",
+        "idk-lease",
+    ),
+    (
+        "broadcast",
+        "redis",
+        f"{_DRIVERS}.redis_broadcast:RedisBroadcastProvider",
+        _REDIS,
+        _REDIS_INSTALL,
+        "idk-broadcast",
+    ),
+    (
+        "broadcast",
+        "memory",
+        f"{_DRIVERS}.memory_broadcast:MemoryBroadcastProvider",
+        (),
+        "",
+        "idk-broadcast",
+    ),
+)
+
+#: The SQLAlchemy dialect names the ``sqlalchemy`` database driver serves
+#: (``sqlalchemy_database.SQLALCHEMY_SQL_DIALECTS``; a test keeps them equal).
+#: Written here so the startup check (SANDLOOM-B024) imports no driver.
+SQLALCHEMY_SQL_DIALECTS = frozenset({"postgresql", "sqlite"})
+
+
+def _event_bus_build(
+    schema_registry: SchemaRegistryContract, driver: str
+) -> DriverFactory:
+    """The build of an event bus driver: the bus needs the application's
+    schema registry, which ``from_config`` cannot reach."""
+
+    def build(cfg: InstanceConfig) -> InfraProvider:
+        # Imported when an instance selects the driver, never at bootstrap.
+        event_bus_driver = importlib.import_module(
+            "sandloom.core.drivers.event_bus_driver"
+        )
+        factory: DriverFactory = event_bus_driver.make_event_bus_drivers(
+            schema_registry
+        )[driver]
+        return factory(cfg)
+
+    return build
 
 
 def register_builtin_drivers(
@@ -74,87 +214,44 @@ def register_builtin_drivers(
 ) -> None:
     """Register every capability spec and driver shipped with core.
 
-    The built-in five come with drivers; the EXTRA capabilities (document_store,
-    graph_store, workflow, search, lock, secrets) are registered as known specs
-    and ship no production driver — a plugin supplies one (document_store has
-    the in-memory ``memory`` driver). This makes them discoverable and
-    gives precise diagnostics, while keeping them unusable until configured.
+    Every row of :data:`BUILTIN_DRIVER_ROWS` is a lazy ``"module:Class"``
+    target: registering imports no driver module, an instance that selects a
+    driver imports its class, and the class declares its features, options
+    schema and contract major once (SANDLOOM-B022 on a mismatch). The EXTRA
+    capabilities (document_store, graph_store, workflow, search, lock, secrets)
+    are registered as known specs and ship no production driver — a plugin
+    supplies one (document_store has the in-memory ``memory`` driver).
     """
     for spec in (*BUILTIN_CAPABILITIES, *EXTRA_CAPABILITIES):
         registry.register_capability(spec)
     # "database" is the single canonical name for the SQL/transactional database
     # capability — used throughout the public API (DbSession, Database(name),
     # CapabilityRequirement("database"), migrations). There is no second name.
-    registry.register_driver(
-        "database",
-        "sqlalchemy",
-        create_sqlalchemy_database,
-        features=SQLALCHEMY_DB_FEATURES,
-        config_schema=SQLAlchemyDatabaseOptions,
-        instance_features=sqlalchemy_db_features,
-        sql_dialects=SQLALCHEMY_SQL_DIALECTS,
-    )
-    # Drivers whose client is an extra declare it (requires=, install=): the
-    # preflight then tells a registered driver from a usable one, build-free
-    # (SANDLOOM-B037). The rest use the standard library or base dependencies.
-    registry.register_driver(
-        "cache",
-        "redis",
-        create_redis_cache,
-        features=REDIS_CACHE_FEATURES,
-        config_schema=RedisCacheOptions,
-        requires=_REDIS_REQUIRES,
-        install=_REDIS_INSTALL,
-    )
-    registry.register_driver(
-        "objectstore",
-        "local",
-        create_local_objectstore,
-        features=OBJECTSTORE_FEATURES,
-        config_schema=LocalObjectStoreOptions,
-    )
-    registry.register_driver(
-        "taskqueue",
-        "celery",
-        create_celery_taskqueue,
-        features=CELERY_TASKQUEUE_FEATURES,
-        config_schema=CeleryTaskQueueOptions,
-        requires=("celery",),
-        install="pip install 'sandloom[celery]'",
-    )
-    for driver_name, factory in make_event_bus_drivers(schema_registry).items():
-        # The redis and streams buses are redis-py clients; memory needs none.
-        client = driver_name in _REDIS_EVENTBUS_DRIVERS
+    for (
+        capability,
+        driver,
+        target,
+        requires,
+        install,
+        delivered_by,
+    ) in BUILTIN_DRIVER_ROWS:
         registry.register_driver(
-            "eventbus",
-            driver_name,
-            factory,
-            features=EVENTBUS_DRIVER_FEATURES.get(driver_name),
-            config_schema=EventBusOptions,
-            requires=_REDIS_REQUIRES if client else (),
-            install=_REDIS_INSTALL if client else "",
+            capability,
+            driver,
+            target,
+            # A driver whose client is an extra declares it: the preflight
+            # tells a registered driver from a usable one, build-free
+            # (SANDLOOM-B037).
+            requires=requires,
+            install=install,
+            sql_dialects=SQLALCHEMY_SQL_DIALECTS if driver == "sqlalchemy" else None,
+            build=(
+                _event_bus_build(schema_registry, driver)
+                if capability == "eventbus"
+                else None
+            ),
+            delivered_by=delivered_by,
         )
-    # The only non-relational driver of 1.0: in-memory, a projection target.
-    registry.register_driver(
-        "document_store",
-        "memory",
-        create_memory_document_store,
-        features=MEMORY_DOCUMENT_STORE_FEATURES,
-    )
-    registry.register_driver(
-        "notification",
-        "log",
-        create_log_notifier,
-        features=log_notifier_features(),
-        config_schema=NotifierOptions,
-    )
-    registry.register_driver(
-        "notification",
-        "smtp",
-        create_smtp_notifier,
-        features=NOTIFIER_SMTP_FEATURES,
-        config_schema=SmtpNotifierOptions,
-    )
 
 
 def build_infra_registry(
@@ -209,17 +306,19 @@ async def close_default_database() -> None:
     Lets a composition root tear the default down at shutdown without
     importing a concrete driver itself.
     """
-
-    await _sqlalchemy_database.close_default_engine()
+    driver = importlib.import_module("sandloom.core.drivers.sqlalchemy_database")
+    await driver.close_default_engine()
 
 
 async def close_default_cache() -> None:
     """Close the process-wide default cache client (driver-owned)."""
-
-    await _redis_cache.close_default_client()
+    driver = importlib.import_module("sandloom.core.drivers.redis_cache")
+    await driver.close_default_client()
 
 
 __all__ = [
+    "BUILTIN_DRIVER_ROWS",
+    "SQLALCHEMY_SQL_DIALECTS",
     "register_builtin_drivers",
     "build_infra_registry",
     "close_default_cache",
