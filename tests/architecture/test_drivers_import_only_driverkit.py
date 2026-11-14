@@ -150,11 +150,23 @@ SEEDED: dict[str, frozenset[str]] = {
             "sandloom.core.observability.metrics_utils",
         }
     ),
+    _D + "memory_atomic_store.py": frozenset(
+        {
+            "sandloom.core.infra.ports.atomic_store",
+        }
+    ),
     _D + "memory_document_store.py": frozenset(
         {
             "sandloom.core.infra.config",
             "sandloom.core.infra.extra_capabilities",
             "sandloom.core.projections.stores",
+        }
+    ),
+    _D + "redis_atomic_store.py": frozenset(
+        {
+            "sandloom.core.descriptors",
+            "sandloom.core.infra.errors",
+            "sandloom.core.infra.ports.atomic_store",
         }
     ),
     _D + "redis_cache.py": frozenset(

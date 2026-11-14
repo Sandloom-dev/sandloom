@@ -43,6 +43,7 @@ website renders this same changelog.
 - The pytest plugin and `sandloom.core.testing` no longer import `redis` at load time: an app without the `redis` extra can run its tests.
 - Add the `sandloom[otel]` extra with the OpenTelemetry SDK and the OTLP gRPC and HTTP exporters that tracing uses.
 - Correct the driver docs: the `objectstore` contract and `ObjectStoreConformance` are public in `sandloom.driverkit`.
+- Add the `atomic_store` drivers and kit (idk-atomic-store, ADR-0016). `sandloom.driverkit.testing.AtomicStoreConformance` checks atomicity under 50 concurrent callers, exact decimal ranking in `set_subject_state` and expired keys as absent. The `redis` driver runs the existing Lua scripts one round trip each, adds `add_or_get`, and refuses a server whose `maxmemory-policy` is not `noeviction` on `aopen` and in `health`; the option `never_evicts_check=assume` skips only a refused `CONFIG GET` and in production needs the new accepted risk `unverified_noeviction`. The `memory` driver is `development_only` and declares `never_evicts` only. No kernel caller uses them yet (idk-atomic-adopt).
 
 ## [0.7.0a13]
 

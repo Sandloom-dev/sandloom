@@ -37,6 +37,7 @@ BASELINE_PATH = ROOT / "public_api_baseline.json"
 # import, and sandloom.driverkit, which is for driver packages.
 EXTRA_MODULES = (
     "sandloom.driverkit",
+    "sandloom.driverkit.atomic_store",
     "sandloom.driverkit.testing",
     "sandloom.shared",
     "sandloom.shared.authz",
