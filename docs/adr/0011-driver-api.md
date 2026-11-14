@@ -12,7 +12,8 @@ title: "ADR-0011: The driver API"
   and [ADR-0010](0010-public-api-1.0.md) (a second public surface, not for modules)
 - **Research:** `design/driver-api/research.md`
 - **Amended:** Database capability (2026-11-05), driver availability and `periodic`
-  (2026-11-09), and external driver dependencies (2026-11-11)
+  (2026-11-09), external driver dependencies (2026-11-11), and by
+  [ADR-0016](0016-kernel-ports-and-driver-packages.md) (2026-11-14: decisions 1 and 6)
 
 ## Context
 
@@ -352,3 +353,23 @@ raised in `aopen()` follows the startup policy for open failures.
 Preflight checks discoverability with `find_spec`. Conformance exercises the
 driver's operations against a test backend. The wheel test covers both paths
 for an independently installed notification driver.
+
+## Amendment (2026-11-14) by ADR-0016: three doors
+
+[ADR-0016](0016-kernel-ports-and-driver-packages.md) amends two decisions of
+this record.
+
+- **Decision 1** becomes three doors. The module door (`sandloom.sdk.infra`)
+  and the driver door (`sandloom.driverkit`) stay. A kernel door,
+  `sandloom.core.infra.ports`, holds the Protocols only the kernel calls
+  (`atomic_store`, `lease`, `broadcast`, the event transport, the worker host).
+  Modules never see it. The kernel calls no `raw_*` method and reads no provider
+  attribute a Protocol does not declare. `taskqueue` is the one capability whose
+  module-facing contract a kernel layer serves above the driver.
+- **Decision 6** holds, with `objectstore` public: `ObjectStoreProvider` and
+  `ObjectStoreConformance` are exported. The other contracts become public with
+  their kits, as the `infra-drivers` slices deliver them.
+
+The rest of ADR-0016 (the error hierarchy, features versus performance hints,
+the uniform kit harness, driver tiers, the `sandloom-redis` and
+`sandloom-celery` packages) builds on decisions 2 to 9 without changing them.
