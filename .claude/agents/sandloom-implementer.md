@@ -30,12 +30,22 @@ subagent): pass no actor on tm calls.
   admin, examples).
 - Never hand-edit what `sandloom generate` writes (`sandloom/shared/contracts/*`,
   `sandloom/shared/events/*.json`, `module.snapshot.json`): run it.
-- One simple command per call in a worktree: no `for` loop, `source`, `&&`
-  chain or heredoc around `git`, since the worktree isolation check refuses
-  them. Temp files, logs and helper scripts live in `.agent-tmp/` inside
-  your own worktree (gitignored), never outside it. Several steps or
-  multi-line Python: Write a file into `.agent-tmp/` and run it with one
-  command; no heredoc.
+- One plain command per Bash call, run from your worktree. The worktree
+  isolation check refuses any command it cannot verify: a heredoc
+  (`cat > f <<EOF`, `python3 - <<EOF`), a `;` / `&&` chain or pipe that
+  includes `git`, `git -C`, `cd … &&`, `source`, a `for` loop. So:
+  - change code with Edit (one Edit per place) and create files with Write,
+    never with a heredoc or a Python replace script;
+  - `git` alone in its call: `git status --short`, `git diff --stat`,
+    `git log --oneline -3`;
+  - do not Write into `.agent-tmp/`: tm's claim guard refuses it (it is not
+    in your area). Logs go there by shell redirect (`> .agent-tmp/x.log`).
+- A file outside your area that you must change (a test of the code you
+  change): `task_update` with the full area plus that file, before the edit.
+- tm calls (`task_update`, `task_checkpoint`, `task_done`) go in a response
+  of their own, never beside a Bash call: a tm call its hook changes voids
+  auto mode's review of the other calls ("no verdict"). A call that comes
+  back "no verdict": issue it again alone, once.
 
 ## Checks
 - Run the tests of what you touched plus every test that references the
@@ -43,24 +53,31 @@ subagent): pass no actor on tm calls.
   (`uv run sandloom test <module>`, `generate`, `check`). Never
   `sandloom test --full`: the orchestrator runs it once per wave. Never a
   serial `pytest -q`.
-- Other agents test at the same time: export your own
+- Other agents test at the same time: pass your own
   `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`,
-  `SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER` (your alias) before
-  any test run.
+  `SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER` (your alias) in the
+  same command, `env SANDLOOM_TEST_OWNER=<alias> … uv run pytest … -q`: no
+  env file, no `source`.
 - Never run `ruff check` on the whole repository: pyproject has `fix = true`.
   Lint the paths you changed, or pass `--no-fix`.
 - A failure prints a code: `uv run sandloom explain <code>`. A name's
   signature: `uv run sandloom docs <name>`.
-- A run longer than a minute or two goes in the background
-  (`run_in_background`); wait for its notification, no `until` / `sleep`
-  polling loops.
+- A long check runs in the foreground with the Bash `timeout` raised (up to
+  600000 ms), its output filtered to failures and the summary. You have no
+  Monitor and `sleep` is blocked, so never start a run in the background
+  only to wait for it.
 
 ## Tokens: keep the context small
 - Test and lint output: failures and the summary only (`-q`, then
   `grep -E '^(FAILED|ERROR|E )' -A6 | head -60`).
-- Never print a whole snapshot, baseline, JSON schema or log. Read a file
-  once, whole, or find the lines with `grep -n`; do not re-read ranges with
-  `sed -n` after each edit, trust your Edit results.
+- Never print a whole snapshot, baseline, JSON schema or log. Do not re-read
+  ranges with `sed -n` after each edit: trust your Edit results.
+- Whatever you read stays in context and is re-sent on every later turn, so
+  read only what you need. A file over ~200 lines (tests, kits, docs pages,
+  `spec.md`): `grep -n` for the symbol or heading first, then `Read` with
+  `offset`/`limit` around it. Never `cat` / `cat -n` a whole file and never
+  `Read` a big one without a range. A small file: once, whole. The spec
+  sections your brief names, by those line numbers only.
 - Before opening a registry, CI config or kernel entry point, read the matching
   section of `.claude/agent-reference.md` (registry formats and commands, CI by
   path, `file:line` kernel map, plan index).

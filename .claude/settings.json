@@ -9,6 +9,15 @@
             "command": "tm hook claude-code"
           }
         ]
+      },
+      {
+        "matcher": "^(Agent|Task)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/agent_model_guard.py\""
+          }
+        ]
       }
     ],
     "PostToolUse": [
