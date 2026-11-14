@@ -178,7 +178,7 @@ Procedures: the [runbook](../operate/runbook.md) and the
 
 ```bash
 uv run uvicorn <app>.asgi:app --reload                         # API on :8000 (needs .env)
-uv run celery -A sandloom.core.worker worker|beat --loglevel=INFO   # background tasks
+uv run sandloom worker                                          # background tasks (and: sandloom beat)
 ```
 
 ## Framework dependency sources

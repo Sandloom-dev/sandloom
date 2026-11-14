@@ -5388,7 +5388,7 @@ guarantees:
   - src/sandloom/core/tests/test_internal_auth.py::test_metrics_token_unlocks_only_metrics
   - src/sandloom/core/tests/test_internal_auth.py::test_disabled_in_prod_without_token
 - id: G-OPS-05
-  statement: Workers are health-checked by `python -m sandloom.core.worker healthcheck`, which fails when the
+  statement: Workers are health-checked by `sandloom worker check`, which fails when the
     heartbeat written on the worker timer is stale; every deploy profile's worker uses it and is sized
     from the CPU quota.
   sources:
@@ -5396,7 +5396,7 @@ guarantees:
   - deploy/README.md#Background work (Celery worker + beat)
   tests:
   - src/sandloom/core/tests/test_worker.py::test_heartbeat_freshness
-  - src/sandloom/core/tests/test_worker.py::test_healthcheck_cli
+  - src/sandloom/core/tests/test_cli_worker.py::test_check_follows_the_heartbeat
   - src/sandloom/core/tests/test_worker.py::test_heartbeat_step_runs_on_the_worker_timer
   - src/sandloom/core/tests/test_deploy_profiles.py::test_workers_are_sized_and_health_checked
 - id: G-OPS-06
@@ -6331,7 +6331,7 @@ capabilities:
   - src/sandloom/core/tests/test_streams_split_identity.py::test_group_lag_and_pending_are_reported
   - src/sandloom/core/tests/test_streams_split_identity.py::test_streams_cli_operations
 - id: C-EFFECT-01
-  statement: The framework Celery worker (celery -A sandloom.core.worker) boots the composition root, takes
+  statement: The framework worker (`sandloom worker`) boots the composition root, takes
     its app from the taskqueue capability and imports <pkg>.tasks plus setup_periodic_tasks of every loaded
     module.
   sources:
@@ -7479,7 +7479,7 @@ capabilities:
   - src/sandloom/core/tests/test_testing_harness.py::test_bind_test_uow_targets_the_named_database
   - src/sandloom/core/tests/test_testing_harness.py::test_required_audit_without_uow_raises
 - id: C-WORKER-01
-  statement: '`celery -A sandloom.core.worker worker|beat` boots the composition root and imports <pkg>.tasks
+  statement: '`sandloom worker` and `sandloom beat` boot the composition root and import <pkg>.tasks
     (and setup_periodic_tasks) of every LOADED module only, skipping modules without tasks.'
   sources:
   - docs/modules/background/tasks.md

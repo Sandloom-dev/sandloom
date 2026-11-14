@@ -57,15 +57,15 @@ See
 
 ## Background work
 
-The `worker` and `beat` services run the framework's Celery entrypoint for any
+The `worker` and `beat` services run the framework's task commands for any
 application:
 
 ```bash
-celery -A sandloom.core.worker worker --loglevel=INFO
-celery -A sandloom.core.worker beat   --loglevel=INFO
+sandloom worker --loglevel=INFO
+sandloom beat   --loglevel=INFO
 ```
 
-`sandloom.core.worker` boots your application (`SANDLOOM_COMPOSITION_ROOT`, set to
+Both boot your application (`SANDLOOM_COMPOSITION_ROOT`, set to
 `<app>.asgi` in the profile) with the process's modules and imports the `tasks.py`
 of each loaded module. Run **exactly one beat** per broker. See
 [Background tasks](../modules/background/tasks.md).

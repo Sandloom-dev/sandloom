@@ -23,7 +23,7 @@ What you get is runnable and testable out of the box:
   lint and tests on every change
 * ``Dockerfile`` / ``.dockerignore`` — production image (non-root, gunicorn)
 * ``deploy/docker-compose.yml`` — monolith profile (one-shot migrate + app +
-  Celery worker + beat via ``sandloom.core.worker``)
+  Celery worker + beat via ``sandloom worker`` and ``sandloom beat``)
 
 Usage:
     sandloom new myapp                              # minimal app + sample module
@@ -436,8 +436,8 @@ docker compose -f deploy/docker-compose.yml up --build
 ```
 
 The `migrate` service runs `sandloom migrate upgrade-all --apply` to completion
-before the app starts; `worker` / `beat` run the framework Celery entrypoint
-(`celery -A sandloom.core.worker worker|beat`), which registers the `tasks.py` of
+before the app starts; `worker` / `beat` run the framework task commands
+(`sandloom worker`, `sandloom beat`), which register the `tasks.py` of
 every loaded module.
 
 ## Deploy as microservices (no code change)
@@ -934,7 +934,7 @@ services:
     <<: *app-runtime
     build: *app-build
     volumes: ["app_data:/app/data"]
-    command: ["celery", "-A", "sandloom.core.worker", "worker", "--loglevel=INFO"]
+    command: ["sandloom", "worker", "--loglevel=INFO"]
     environment:
       <<: *app-env
       SANDLOOM_COMPOSITION_ROOT: $app.asgi
@@ -960,7 +960,7 @@ services:
     <<: *app-runtime
     build: *app-build
     volumes: ["app_data:/app/data"]
-    command: ["celery", "-A", "sandloom.core.worker", "beat", "--loglevel=INFO",
+    command: ["sandloom", "beat", "--loglevel=INFO",
               "--schedule=/tmp/celerybeat-schedule"]
     environment:
       <<: *app-env

@@ -3,8 +3,8 @@
 Run the worker / beat for ANY Sandloom application — with or without the bundled
 ``identity`` module::
 
-    celery -A sandloom.core.worker worker --loglevel=INFO
-    celery -A sandloom.core.worker beat --loglevel=INFO
+    sandloom worker --loglevel=INFO
+    sandloom beat --loglevel=INFO
 
 How the worker app is assembled (no backend is constructed here):
 
@@ -49,7 +49,6 @@ import inspect
 import logging
 import math
 import os
-import sys
 import time
 from collections.abc import Iterable
 from pathlib import Path
@@ -79,7 +78,7 @@ MAX_DEFAULT_WORKER_CONCURRENCY = 2
 WORKER_MAX_MEMORY_ENV = "WORKER_MAX_MEMORY_PER_CHILD"
 #: Recycle a prefork child after this many tasks.
 WORKER_MAX_TASKS_ENV = "WORKER_MAX_TASKS_PER_CHILD"
-#: Liveness heartbeat file (``python -m sandloom.core.worker healthcheck``).
+#: Liveness heartbeat file (``sandloom worker check``).
 HEARTBEAT_FILE_ENV = "WORKER_HEARTBEAT_FILE"
 DEFAULT_HEARTBEAT_FILE = "/tmp/sandloom-worker-heartbeat"  # noqa: S108 - default liveness file; WORKER_HEARTBEAT_FILE overrides
 HEARTBEAT_INTERVAL_SECONDS = 10.0
@@ -155,7 +154,7 @@ async def dispose_worker_infra() -> None:
     core = _teardown_core
     if core is None or not hasattr(core, "shutdown_tasks"):
         return
-    from sandloom.core.lifecycle import run_shutdown  # noqa: PLC0415 - cold: `python -m sandloom.core.worker healthcheck` imports this module and must stay cheap; the relational stack loads only in a booted worker
+    from sandloom.core.lifecycle import run_shutdown  # noqa: PLC0415 - cold: `sandloom worker check` imports this module and must stay cheap; the relational stack loads only in a booted worker
 
     await run_shutdown(core)
 
@@ -244,11 +243,11 @@ def install_heartbeat(app: Any, path: str | None = None) -> None:
 
     The timer runs in the worker's main process event machinery, so the file
     goes stale when the worker is wedged or dead — not merely when a child is
-    busy. ``python -m sandloom.core.worker healthcheck`` checks its age without
+    busy. ``sandloom worker check`` checks its age without
     booting the app (no broker round-trip, no second copy of the composition
     root inside the container's memory limit, unlike ``celery inspect ping``).
     """
-    from celery import bootsteps  # noqa: PLC0415 - cold: `python -m sandloom.core.worker healthcheck` runs without Celery; only the worker boot assembles bootsteps
+    from celery import bootsteps  # noqa: PLC0415 - cold: `sandloom worker check` runs without Celery; only the worker boot assembles bootsteps
 
     if getattr(app, "_sandloom_heartbeat_installed", False):
         return  # one heartbeat step per app, however often it is assembled
@@ -323,7 +322,7 @@ def verify_worker_infra(core: Any) -> None:
         for p in providers
         if "tenant_rls" in p.features() and hasattr(p, "verify_tenant_rls")
     ]
-    from sandloom.core.production_profile import enforce_runtime  # noqa: PLC0415 - cold: `python -m sandloom.core.worker healthcheck` imports this module and must stay cheap; the relational stack loads only in a booted worker
+    from sandloom.core.production_profile import enforce_runtime  # noqa: PLC0415 - cold: `sandloom worker check` imports this module and must stay cheap; the relational stack loads only in a booted worker
 
     # A database that takes its schema from the models (SQLite) is built or
     # checked here too, never recreated: a worker refuses one whose tables
@@ -408,23 +407,3 @@ __all__ = [
     "install_heartbeat",
     "load_composition_core",
 ]
-
-
-def main(argv: list[str] | None = None) -> int:
-    """``python -m sandloom.core.worker healthcheck`` → 0 when the heartbeat is fresh.
-
-    Deliberately boots nothing (no composition root, no broker): a container
-    healthcheck must be cheap and must not double the worker's memory.
-    """
-    args = list(sys.argv[1:] if argv is None else argv)
-    if args[:1] != ["healthcheck"]:
-        print("usage: python -m sandloom.core.worker healthcheck", file=sys.stderr)
-        return 2
-    if heartbeat_is_fresh():
-        return 0
-    print(f"worker heartbeat {heartbeat_path()} missing or stale", file=sys.stderr)
-    return 1
-
-
-if __name__ == "__main__":  # pragma: no cover - container healthcheck entry
-    raise SystemExit(main())

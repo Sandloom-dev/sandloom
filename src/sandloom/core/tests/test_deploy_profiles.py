@@ -262,12 +262,12 @@ def test_the_image_boots_the_standard_composition_root() -> None:
 def test_worker_and_beat_use_framework_entrypoint(profile: str) -> None:
     services = _load(profile)["services"]
     commands = {n: s.get("command") for n, s in services.items()}
-    workers = [n for n, c in commands.items() if c and "worker" in c and "celery" in c]
-    beats = [n for n, c in commands.items() if c and "beat" in c and "celery" in c]
+    workers = [n for n, c in commands.items() if c and c[:2] == ["sandloom", "worker"]]
+    beats = [n for n, c in commands.items() if c and c[:2] == ["sandloom", "beat"]]
     assert workers and beats
     for name in workers + beats:
         cmd = commands[name]
-        assert cmd[:3] == ["celery", "-A", "sandloom.core.worker"], (name, cmd)
+        assert cmd[:1] == ["sandloom"], (name, cmd)
     assert not any(
         "sandloom_identity.tasks" in json.dumps(c) for c in commands.values()
     )
@@ -381,8 +381,7 @@ def test_workers_are_sized_and_health_checked(profile: str) -> None:
     workers = {
         n: s
         for n, s in services.items()
-        if s.get("command")
-        and s["command"][:4] == ["celery", "-A", "sandloom.core.worker", "worker"]
+        if s.get("command") and s["command"][:2] == ["sandloom", "worker"]
     }
     assert workers
     for name, svc in workers.items():
@@ -391,13 +390,7 @@ def test_workers_are_sized_and_health_checked(profile: str) -> None:
         assert int(env["DB_POOL_SIZE"]) <= 2 and int(env["DB_MAX_OVERFLOW"]) <= 2, name
         hc = svc["healthcheck"]
         assert not hc.get("disable"), name
-        assert hc["test"] == [
-            "CMD",
-            "python",
-            "-m",
-            "sandloom.core.worker",
-            "healthcheck",
-        ]
+        assert hc["test"] == ["CMD", "sandloom", "worker", "check"]
         limit = svc["deploy"]["resources"]["limits"]["memory"]
         assert limit.endswith("m") and int(limit[:-1]) >= 512, (name, limit)
         per_child_kib = int(env["WORKER_MAX_MEMORY_PER_CHILD"])
@@ -702,7 +695,7 @@ def _process_count(svc: dict[str, Any], env: dict[str, str]) -> int:
     from sandloom.core.worker import MAX_DEFAULT_WORKER_CONCURRENCY
 
     command = svc.get("command") or []
-    if command[:4] == ["celery", "-A", "sandloom.core.worker", "worker"]:
+    if command[:2] == ["sandloom", "worker"]:
         raw = env.get("WORKER_CONCURRENCY", "")
         return int(raw) if raw else MAX_DEFAULT_WORKER_CONCURRENCY
     if "beat" in command:

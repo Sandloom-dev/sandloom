@@ -284,9 +284,9 @@ def _processes(profile: Path) -> tuple[set[str], _Procs, _Procs]:
             continue
         broker = _interpolate(env.get("BROKER_URL", ""))
         command = [str(part) for part in (svc.get("command") or [])]
-        if command[:4] == ["celery", "-A", "sandloom.core.worker", "worker"]:
+        if command[:2] == ["sandloom", "worker"]:
             workers[name] = (broker, modules)
-        elif command[:4] == ["celery", "-A", "sandloom.core.worker", "beat"]:
+        elif command[:2] == ["sandloom", "beat"]:
             beats[name] = (broker, modules)
         else:
             served |= modules

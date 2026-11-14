@@ -839,7 +839,7 @@ Before tuning, the Oracle 2-vCPU stand spent 6–14% of CPU in GC, at
 - **gunicorn worker:** applied by the `post_worker_init` hook (`sandloom.core.cli.gunicorn_conf`)
   when the app reports `lifespan.startup.complete`, so the freeze includes
   pools and consumers and happens before the worker accepts a connection.
-- **Celery worker:** applied by `sandloom.core.worker` in the parent before the pool
+- **Celery worker:** applied by `sandloom worker` in the parent before the pool
   forks (`worker_init`); children inherit the frozen heap and the thresholds.
 - **Never in `create_app`:** tests and a plain `uvicorn sandloom.main:app` run
   untuned. A custom server entry point applies it with

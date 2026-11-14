@@ -50,7 +50,7 @@ src/sandloom/
                        #   plugin, fixtures, UoW test helpers)
   core/sagas/          #   saga runtime (ADR-0008): registry checks, step
                        #   protocol, outcome table, timer sweep, operator ops
-  core/worker.py       #   Celery worker/beat entrypoint
+  core/worker.py       #   `sandloom worker` / `sandloom beat` code (Celery today)
   core/infra/  # infrastructure plugin layer: capability contracts, the
                # InfraRegistry, built-in drivers, config — see
                # Capabilities & Infrastructure

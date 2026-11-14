@@ -214,9 +214,9 @@ def process_kind(svc: Mapping[str, Any]) -> str:
     command = _command(svc)
     if svc.get("restart") == "no" or "migrate" in command:
         return "migrate"
-    if command[:4] == ["celery", "-A", "sandloom.core.worker", "worker"]:
+    if command[:2] == ["sandloom", "worker"]:
         return "worker"
-    if command[:4] == ["celery", "-A", "sandloom.core.worker", "beat"]:
+    if command[:2] == ["sandloom", "beat"]:
         return "beat"
     return "http"
 
@@ -930,7 +930,7 @@ def _keys_and_probes(
     _workers(compose, problem)
 
 
-_WORKER_HEALTHCHECK = ["CMD", "python", "-m", "sandloom.core.worker", "healthcheck"]
+_WORKER_HEALTHCHECK = ["CMD", "sandloom", "worker", "check"]
 
 
 def _workers(compose: Mapping[str, Any], problem: Any) -> None:
@@ -941,9 +941,7 @@ def _workers(compose: Mapping[str, Any], problem: Any) -> None:
             problem(f"{name}: size the worker (WORKER_CONCURRENCY)")
         hc = svc.get("healthcheck") or {}
         if hc.get("disable") or hc.get("test") != _WORKER_HEALTHCHECK:
-            problem(
-                f"{name}: health-check the worker (sandloom.core.worker healthcheck)"
-            )
+            problem(f"{name}: health-check the worker (sandloom worker check)")
 
 
 def _misroutes(

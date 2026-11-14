@@ -193,7 +193,7 @@ x-http-env: &http-env
   # outbox (its own database).
   OUTBOX_RELAY_ENABLED: auto
 
-# Celery worker sizing (sandloom.core.worker): the child count comes from the
+# Celery worker sizing (`sandloom worker`): the child count comes from the
 # container CPU quota (capped); every child opens its own small DB pool.
 x-worker-env: &worker-env
   # Recycle a child that grew past this resident size (KiB) after its task.

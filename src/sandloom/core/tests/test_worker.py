@@ -177,13 +177,10 @@ def test_heartbeat_freshness(tmp_path: Path) -> None:
     assert not worker.heartbeat_is_fresh(str(beat), now=beat.stat().st_mtime + 120)
 
 
-def test_healthcheck_cli(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    beat = tmp_path / "hb"
-    monkeypatch.setenv(worker.HEARTBEAT_FILE_ENV, str(beat))
-    assert worker.main(["healthcheck"]) == 1
-    beat.touch()
-    assert worker.main(["healthcheck"]) == 0
-    assert worker.main([]) == 2
+def test_the_old_healthcheck_entry_is_gone() -> None:
+    """``python -m sandloom.core.worker healthcheck`` became ``sandloom worker check``
+    (``test_cli_worker``); no shim keeps the old one."""
+    assert not hasattr(worker, "main")
 
 
 def test_heartbeat_step_runs_on_the_worker_timer(tmp_path: Path) -> None:
