@@ -100,11 +100,10 @@ the concept page with the full detail.
   the post-commit value, stays valid. A replay counts any covering mark
   written after a commit as applied. It lifts only past an early mark whose
   post-commit write was lost. The TTL is set only when the
-  value is written; an existing equal/later value keeps its own TTL. A
-  security cache driver without `compare_and_set` is refused for these
-  writes (the write fails → retried / durable applier, `503` for
-  `require_immediate`): a plain overwrite could lower the mark or lift a
-  block.
+  value is written; an existing equal/later value keeps its own TTL. The
+  security store's `set_subject_state` is atomic in every driver. A plain
+  overwrite can never lower the mark or lift a block. A store error fails the
+  write (retried / durable applier, `503` for `require_immediate`).
 - **Revocation durability: the commit → access-stops window.**
   `revoke_user_tokens_on_commit(user_id, reason=...)` ties a revocation to a
   database change. It always writes `core.auth.tokens_revoked.v1` into the
@@ -836,9 +835,9 @@ profile's problems in its `config` section):
 | app role is not superuser / `BYPASSRLS` / table owner / system-role member (existing role verification) | database driver at startup (API + worker) | `TenantRLSConfigError` |
 | every `TenantScoped` table carries RLS **enabled + forced** and its `<table>_tenant_isolation` policy | critical startup task (API + worker) | `ProductionProfileError` naming each table and the fix (`enable_tenant_rls(op, table)`) |
 | `AUTH_REVOCATION_FAIL_CLOSED` not `false` (turned **on** when unset) | boot check (`enforce_configuration`) | refuses to start |
-| `SECURITY_CACHE_INSTANCE` names a declared cache instance on a **different Redis server** than the default cache | boot check (`enforce_configuration`) | refuses to start |
-| `IDEMPOTENCY_CACHE_INSTANCE`, when set (opt-in) to another instance than the security one, names a declared cache instance on a **different Redis server** than the default cache (same server as the security cache: warning) | boot check (`enforce_configuration`) | refuses to start |
-| the security cache — and a separate idempotency cache — reach a different Redis **process** than the default cache (`INFO server` identity) | critical startup task | `ProductionProfileError` |
+| `INFRA["atomic_store"]["security"]` is declared (never built from the cache's options or from `memory`) on a **different Redis server** than the default cache | boot check (`enforce_configuration`) | refuses to start |
+| `INFRA["atomic_store"]["idempotency"]`, when declared (opt-in), is on a **different Redis server** than the default cache (same server as the security store: warning) | boot check (`enforce_configuration`) | refuses to start |
+| the security store — and a separate idempotency store — declare `never_evicts` and `shared`, and differ from the default cache by `isolation_identity()` (Redis: the `run_id` of the reached process; a `None` or raising identity fails) | critical startup task | `ProductionProfileError` |
 | split (`SERVICE_BINDINGS` set): `CONTRACT_COMPAT_CHECK` not `off` | boot check (`enforce_configuration`) | refuses to start |
 | split (`SERVICE_BINDINGS` set): asymmetric JWT — `JWT_ALGORITHM` EdDSA / RS256 / ES256, `JWT_PRIVATE_KEY` on the issuer only, `JWT_PUBLIC_KEYS` everywhere; the accepted risk `shared_hs_secret_split` refused | boot check (`enforce_configuration`) | refuses to start |
 | a process loading no token issuer (split even without bindings) on an HS secret; a verify-only process holding `JWT_PRIVATE_KEY` / `JWT_SECRET` | kernel startup role check (`token_signing_problem`, no opt-out under the profile) | refuses to serve |
@@ -867,17 +866,25 @@ Two kinds of state live in Redis:
   blocks, `idempotency_guard` reservations / replay records: losing one re-admits a revoked token or re-executes a
   request. Sync contract commands do not depend on it — their dedupe is
   durable in the provider database (`contract_command_log`); only the cache
-  fallback for a database without that log goes through the security cache.
+  fallback for a database without that log goes through the idempotency store.
 
-The framework routes the second kind to `SECURITY_CACHE_INSTANCE` (default
-`default`, i.e. shared; idempotency records can opt into their own instance,
-see below). Map it to its own Redis:
+The framework routes the second kind to the `atomic_store` instance
+`INFRA.atomic_store.security`: a durable key-value store with atomic
+operations that never evicts. Idempotency records can opt into their own
+instance, see below. Declare it on its own Redis. In production an absent
+instance is a startup refusal in every production deployment, whatever
+`PRODUCTION_PROFILE` is, and it is never built from the cache's options.
+Development builds one on the cache's Redis, outside production only:
 
 ```bash
-INFRA='{"cache": {"security": {"driver": "redis", "url": "rediss://:<pw>@security-redis:6379/0"}}}'
-SECURITY_CACHE_INSTANCE=security
+INFRA='{"atomic_store": {"security": {"driver": "redis", "url": "rediss://:<pw>@security-redis:6379/0"}}}'
 CACHE_URL=redis://cache-redis:6379/0        # best-effort cache (may evict)
 ```
+
+`SECURITY_CACHE_INSTANCE` and `IDEMPOTENCY_CACHE_INSTANCE` are removed. A
+leftover one fails startup with this note. To upgrade, delete the setting.
+Then move the `INFRA["cache"]` entry it named to
+`INFRA["atomic_store"]["security"]` (`["idempotency"]`), keeping its URL.
 
 Recommended configuration of the security Redis:
 
@@ -890,17 +897,17 @@ Recommended configuration of the security Redis:
   endpoint) or self-hosted Redis + Sentinel. The built-in `redis` driver takes
   a single URL: put Sentinel behind a failover-aware endpoint (the managed
   primary endpoint, or a TCP proxy / HAProxy that tracks the Sentinel master),
-  or install a Sentinel-aware cache driver package. Redis
+  or install a Sentinel-aware atomic_store driver package. Redis
   Cluster is not supported by the built-in driver (no cluster client ships);
-- the same `SECURITY_CACHE_INSTANCE` and URL in **every** service (revocation
+- the same `INFRA.atomic_store.security` URL in **every** service (revocation
   marks written by one service must be read by all of them), like `CACHE_URL`
   today; the built-in driver reads from the URL it is given, so point it at
   the primary, not a read replica.
 
-**Separate idempotency cache (opt-in).** `IDEMPOTENCY_CACHE_INSTANCE`
-(default empty) moves the idempotency records — `idempotency_guard`
+**Separate idempotency store (opt-in).** `INFRA.atomic_store.idempotency`
+(absent: the `security` instance) holds the idempotency records — `idempotency_guard`
 reservations / replay records, task-enqueue dedupe and the cache fallback of
-contract-command dedupe — out of the security cache into their own instance;
+contract-command dedupe — in their own instance instead of the security one;
 revocation marks, blocks and the RPC replay guard stay where they are. It
 exists for latency, not isolation: on a security Redis with
 `appendfsync always` the idempotency writes' fsyncs queue the revocation-mark
@@ -911,8 +918,7 @@ persistence (never weaker), backups, HA, the same name and URL in every
 service. `fail_closed=True` guards fail closed on it exactly as before.
 
 ```bash
-INFRA='{"cache": {"security": {...}, "idempotency": {"driver": "redis", "url": "rediss://:<pw>@idempotency-redis:6379/0"}}}'
-IDEMPOTENCY_CACHE_INSTANCE=idempotency
+INFRA='{"atomic_store": {"security": {...}, "idempotency": {"driver": "redis", "url": "rediss://:<pw>@idempotency-redis:6379/0"}}}'
 ```
 
 ## Idempotency
@@ -921,7 +927,7 @@ IDEMPOTENCY_CACHE_INSTANCE=idempotency
 write's status, never its body; no guard replays a body to an anonymous
 caller. Keys are scoped per caller and tenant; reservations carry an owner
 token and every transition is a compare-and-set. Money and irreversible
-operations use `fail_closed=True` (a cache outage is `503`); exactly-once
+operations use `fail_closed=True` (an idempotency store outage is `503`); exactly-once
 *effects* use a durable inbox.
 
 A valid access token's revocation and emergency-block state is checked before

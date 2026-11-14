@@ -60,15 +60,17 @@ x-app-env: &app-env
   SANDLOOM_SERVICE_NAME: sandloom
   DATABASE_URL: postgresql+asyncpg://sandloom:sandloom@db:5432/sandloom
   CACHE_URL: redis://redis:6379/0
+  # The security store (revocation marks, blocks, RPC nonces, idempotency
+  # records): the persistent, non-evicting `redis` service below. The strict
+  # production profile wants its own Redis (docs/advanced/security-model.md).
+  INFRA: '{"atomic_store": {"security": {"driver": "redis", "url": "redis://redis:6379/0"}}}'
   BROKER_URL: redis://redis:6379/1
   # Opt-in (off by default): idempotency records (idempotency_guard, task
-  # enqueue dedupe) on their own Redis instead of the security cache, so their
+  # enqueue dedupe) on their own Redis instead of the security store, so their
   # fsyncs never queue the hot revocation-mark reads (deploy/README.md ->
   # "Separate idempotency Redis"). Enable together with the idempotency-redis
-  # service below, identically in EVERY process; merge the "idempotency" entry
-  # into an existing INFRA instead of replacing it:
-  # INFRA: '{"cache": {"idempotency": {"driver": "redis", "url": "redis://idempotency-redis:6379/0"}}}'
-  # IDEMPOTENCY_CACHE_INSTANCE: idempotency
+  # service below, identically in EVERY process; replace the INFRA above:
+  # INFRA: '{"atomic_store": {"security": {"driver": "redis", "url": "redis://redis:6379/0"}, "idempotency": {"driver": "redis", "url": "redis://idempotency-redis:6379/0"}}}'
   # Every listed module is REQUIRED (MODULE_REQUIRED empty + explicit
   # SANDLOOM_MODULES): one that fails to import aborts startup.
   # Auth / notifier / past-due settings: same names and defaults as the
@@ -297,7 +299,7 @@ services:
           cpus: "1.0"
           memory: 512m
 
-  # Opt-in idempotency Redis (see the IDEMPOTENCY_CACHE_INSTANCE note in the
+  # Opt-in idempotency Redis (see the INFRA.atomic_store.idempotency note in the
   # shared env above). Same persistence as a security Redis — fsync every
   # write, never evict: a lost reservation re-runs a mutation. Never relax it
   # to appendfsync everysec.

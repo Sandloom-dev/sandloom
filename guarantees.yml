@@ -383,8 +383,8 @@ guarantees:
 - id: G-PROFILE-01
   statement: With ENVIRONMENT=prod and PRODUCTION_PROFILE=multi_tenant_strict, boot refuses (enforce_configuration)
     TENANCY_MODE other than multi, any database instance without tenant_rls, AUTH_REVOCATION_FAIL_CLOSED=false,
-    and a SECURITY_CACHE_INSTANCE that is 'default', undeclared, or on the same Redis server as the default
-    cache — listing every reason.
+    and an INFRA.atomic_store.security that is undeclared, a memory driver, or on the same Redis server as
+    the default cache — listing every reason.
   sources:
   - docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
   - docs/modules/database/multi-tenancy.md
@@ -429,40 +429,45 @@ guarantees:
     create_app's lifespan or of the Celery worker boot (removing either call site would stay green).
   gap_size: S
 - id: G-PROFILE-06
-  statement: Under the strict profile startup attests via INFO server identity that the security cache
-    (and a separate idempotency cache) reach a different Redis process than the default cache, failing
-    with ProductionProfileError on the same process or when identity cannot be read.
+  statement: Under the strict profile startup attests that the security atomic_store (and a separate idempotency
+    atomic_store) declare never_evicts and shared and differ from the default cache by isolation_identity()
+    (on Redis the run_id of the reached process), failing with ProductionProfileError on the same identity
+    or when an identity is None or cannot be read; a real Redis cache reports redis:<run_id>, so the
+    same Redis server as the security store is refused.
   sources:
   - docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
   - docs/modules/database/multi-tenancy.md
   tests:
-  - src/sandloom/core/tests/test_infra_review_20261022.py::test_strict_profile_checks_physical_redis_identity
-  - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_strict_runtime_attests_the_idempotency_redis_process
-  gap: The 'Cannot attest separate ... Redis processes' failure (deployment_identity raising) has no test.
-  gap_size: S
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_strict_runtime_attests_each_instance_apart_from_the_cache
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_strict_profile_attests_real_redis_identity
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_an_unknown_or_failing_identity_fails_attestation
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_a_cache_without_an_identity_fails_attestation
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_a_security_store_must_declare_never_evicts_and_shared
 - id: G-PROFILE-07
-  statement: Under the strict profile an IDEMPOTENCY_CACHE_INSTANCE set to another instance than the security
-    cache must be declared and on a different Redis server than the default cache (refused otherwise),
-    sharing the security Redis is only a warning, and leaving it unset keeps the previous behaviour.
+  statement: Under the strict profile an INFRA.atomic_store.idempotency, when declared, must be on a different
+    Redis server than the default cache and not the memory driver (refused otherwise), sharing the security
+    Redis is only a warning, and leaving it undeclared makes the security instance hold the records.
   sources:
   - docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
   - docs/advanced/security-model.md#Security-critical vs best-effort cache
   tests:
-  - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_strict_profile_refuses_an_unsafe_idempotency_instance
-  - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_strict_profile_warns_when_sharing_the_security_redis
-  - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_strict_profile_accepts_a_separate_idempotency_redis
-  - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_strict_profile_default_is_unchanged
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_strict_profile_refuses_an_unsafe_idempotency_instance
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_strict_profile_warns_when_sharing_the_security_redis
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_strict_profile_accepts_a_separate_idempotency_redis
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_strict_profile_default_is_unchanged
 - id: G-PROFILE-08
-  statement: Security-critical state (revocation marks, blocks, idempotency records) is written through
-    SECURITY_CACHE_INSTANCE, never plain cache(); idempotency records move to IDEMPOTENCY_CACHE_INSTANCE
-    when set while revocation marks stay in the security cache.
+  statement: Security-critical state (revocation marks, blocks, RPC nonces, idempotency records) is written through
+    the atomic_store instance of its role (security, idempotency), never plain cache(); idempotency records
+    move to INFRA.atomic_store.idempotency when declared while revocation marks stay in the security store;
+    an absent (or memory-driver) INFRA.atomic_store.security is refused at startup in every production
+    deployment, whatever the PRODUCTION_PROFILE, and is never built from the cache's options.
   sources:
   - docs/advanced/security-model.md#Security-critical vs best-effort cache
   - docs/modules/database/multi-tenancy.md
   tests:
-  - src/sandloom/core/tests/test_production_profile.py::test_security_state_uses_the_security_cache_instance
-  - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_revocation_marks_stay_in_the_security_cache
-  - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_reserve_replay_conflict_release_use_the_idempotency_instance
+  - src/sandloom/core/tests/test_production_profile.py::test_security_state_uses_the_security_atomic_store
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_revocation_marks_stay_in_the_security_role
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_guard_records_live_in_the_idempotency_role
 - id: G-PROFILE-09
   statement: Under the strict profile a split deployment (SERVICE_BINDINGS set) is refused with CONTRACT_COMPAT_CHECK=off
     or a shared HS secret (the accepted risk shared_hs_secret_split is refused), and a process loading
@@ -1197,16 +1202,16 @@ guarantees:
   - src/sandloom/core/tests/test_contract_runtime.py::test_command_commits_and_requires_idempotency_key
 - id: G-CMD-09
   statement: 'Without a database command log (no command_idempotency feature) command dedupe falls back
-    to the cache, fail-closed: a cache outage raises ContractIdempotencyUnavailable (503) and the method
-    does not run; the fallback follows IDEMPOTENCY_CACHE_INSTANCE.'
+    to the idempotency atomic_store instance, fail-closed: an outage of that store raises ContractIdempotencyUnavailable
+    (503) and the method does not run.'
   sources:
   - docs/modules/between/contracts.md
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - src/sandloom/core/tests/test_service_rpc.py::test_command_contract_fails_closed_when_the_store_is_down
-  - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_contract_command_cache_fallback_follows_the_setting
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_contract_command_cache_fallback_uses_the_idempotency_role
 - id: G-IDEM-01
-  statement: 'Cache-form idempotency_guard replays a successful response (same status/body, Idempotent-Replay:
+  statement: 'Cache-form idempotency_guard (reserved with one atomic add_or_get on the idempotency atomic_store) replays a successful response (same status/body, Idempotent-Replay:
     true) without re-running the endpoint.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
@@ -1246,7 +1251,7 @@ guarantees:
   - src/sandloom/core/tests/test_durable_idempotency_guard.py::test_same_key_other_request_is_422
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_guard_requires_key
 - id: G-IDEM-05
-  statement: 'Every cache-guard transition is a compare-and-set on the reserving request''s owner token:
+  statement: 'Every cache-guard transition is an atomic_store compare_and_set / compare_and_delete on the reserving request''s owner token:
     an expired owner can neither release nor finalise over a retry''s reservation.'
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
@@ -1277,7 +1282,7 @@ guarantees:
   - src/sandloom/core/tests/test_idempotency_record_format.py::test_an_old_reader_replays_a_new_record_status_only_never_re_executes
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_corrupt_record_does_not_block_key
 - id: G-IDEM-08
-  statement: With fail_closed=True a cache outage answers 503 (never a possible duplicate); the default
+  statement: With fail_closed=True an idempotency store outage answers 503 (never a possible duplicate); the default
     fail-open guard lets the request through.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
@@ -1285,7 +1290,7 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_fail_closed_returns_503_on_cache_outage
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_fail_open_allows_on_cache_outage
-  - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_fail_closed_follows_the_idempotency_instance
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_fail_closed_follows_the_idempotency_instance
 - id: G-IDEM-09
   statement: 'idempotency_guard(durable=True) claims its record in the request''s DbSession UoW and commits
     it with the response: a retry replays the stored response and the effect runs once; a rolled-back
@@ -1345,17 +1350,18 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_security_review_regressions.py::test_replay_checks_live_auth_before_cache_lookup
 - id: G-IDEM-16
-  statement: Cache-guard records live in SECURITY_CACHE_INSTANCE unless IDEMPOTENCY_CACHE_INSTANCE moves
-    them (with task-enqueue dedupe and the command cache fallback); revocation marks never move, and the
-    strict profile refuses an idempotency instance that is not its own durable Redis.
+  statement: Cache-guard records live in the atomic_store instance INFRA.atomic_store.idempotency (the security
+    instance when it is not declared), with task-enqueue dedupe and the command cache fallback; revocation
+    marks never move, and the strict profile refuses an idempotency instance that is not its own durable
+    Redis.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   - docs/modules/database/multi-tenancy.md
   tests:
-  - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_default_keeps_guard_records_in_the_security_cache
-  - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_reserve_replay_conflict_release_use_the_idempotency_instance
-  - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_revocation_marks_stay_in_the_security_cache
-  - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_strict_profile_refuses_an_unsafe_idempotency_instance
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_an_absent_idempotency_instance_is_the_security_one
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_guard_records_live_in_the_idempotency_role
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_revocation_marks_stay_in_the_security_role
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_strict_profile_refuses_an_unsafe_idempotency_instance
 - id: G-IDEM-17
   statement: 'The automatic guard (user writes carrying Idempotency-Key, with no explicit guard, no_idempotency
     or operation intent) always replays the status only, for a DbSession write and for an ordinary write through
@@ -1375,7 +1381,7 @@ guarantees:
   - tests/integration/test_automatic_idempotency.py::test_a_lazy_db_write_gets_the_durable_status_replay
 - id: G-IDEM-18
   statement: 'A write route without a request unit, or whose request unit''s database keeps no durable request log,
-    gets the fail-closed in-flight form of the automatic guard: a concurrent duplicate is 409, a cache outage 503,
+    gets the fail-closed in-flight form of the automatic guard: a concurrent duplicate is 409, an idempotency store outage 503,
     and nothing is stored.'
   sources:
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
@@ -2058,18 +2064,16 @@ guarantees:
   - src/sandloom/core/tests/test_revocation_windows.py::test_tokens_minted_later_in_the_revoking_request_stay_valid
   - src/sandloom/core/tests/test_revocation_windows.py::test_a_later_change_from_a_slower_clock_revokes_a_token_stamped_past_a_higher_mark
 - id: G-REVOKE-03
-  statement: The revocation mark is written with the cache's atomic set_max and never moves backwards;
-    a revocation that finds the stored mark at or past its own instant writes it one microsecond further,
-    above every token an issuer stamped past it; concurrent revocations of one subject all succeed and end
-    at the maximum or a few microseconds past it; a security cache with neither set_max nor cas is refused
-    for revocation writes.
+  statement: The revocation mark is written with the security atomic_store's set_subject_state and never moves
+    backwards; a revocation that finds the stored mark at or past its own instant writes it one microsecond
+    further, above every token an issuer stamped past it; concurrent revocations of one subject all succeed
+    and end at the maximum or a few microseconds past it.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   - docs/advanced/security-model.md#Authentication
   tests:
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_revocation_mark_never_moves_backwards
   - src/sandloom/core/tests/test_cache_set_max.py::test_concurrent_revocations_all_succeed_and_keep_the_max
-  - src/sandloom/core/tests/test_cache_set_max.py::test_revocation_refuses_a_cache_without_set_max_or_cas
   - tests/integration/test_revocation_pipeline.py::test_b_concurrent_revocations_on_real_redis_keep_the_highest_mark
   - src/sandloom/core/tests/test_revocation_windows.py::test_a_later_change_from_a_slower_clock_revokes_a_token_stamped_past_a_higher_mark
 - id: G-REVOKE-04
@@ -2231,14 +2235,14 @@ guarantees:
   see:
   - G-REVOKE-24
 - id: G-REVOKE-19
-  statement: Revocation marks and blocks are read and written only through SECURITY_CACHE_INSTANCE and
-    never move to IDEMPOTENCY_CACHE_INSTANCE.
+  statement: Revocation marks and blocks are read and written only through the security atomic_store instance
+    and never move to the idempotency one.
   sources:
   - docs/advanced/security-model.md#Security-critical vs best-effort cache
   - docs/reference/cli.md
   tests:
-  - src/sandloom/core/tests/test_production_profile.py::test_security_state_uses_the_security_cache_instance
-  - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_revocation_marks_stay_in_the_security_cache
+  - src/sandloom/core/tests/test_production_profile.py::test_security_state_uses_the_security_atomic_store
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_revocation_marks_stay_in_the_security_role
 - id: G-REVOKE-21
   statement: 'Every authenticated route reads the subject-state record sandloom:auth:subject:{id} live, with one
     GET memoised per request (no route-level freshness setting, no per-process copy); a revoked or blocked
@@ -2376,7 +2380,7 @@ guarantees:
 - id: G-BLOCK-02
   statement: block_user must run in a unit of work with a reason, writes a required audit (auth.user.blocked)
     and writes the block value of the subject-state record LAST (after audit, immediate revocation and event);
-    a cache outage raises BlockUnavailableError (503) and the audit rolls back.
+    a security store outage raises BlockUnavailableError (503) and the audit rolls back.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   - docs/advanced/security-model.md#Authentication
@@ -2387,7 +2391,7 @@ guarantees:
   - src/sandloom/core/tests/test_revocation_freshness.py::test_block_write_outage_is_503_and_rolls_back_audit
 - id: G-BLOCK-03
   statement: unblock_user (audited auth.user.unblocked) replaces the block value of the subject-state record
-    with after:<now+skew> by compare-and-set only after its unit of work commits (on_commit); a rolled-back
+    with after:<now+skew> by the security atomic_store's compare_and_set only after its unit of work commits (on_commit); a rolled-back
     or failed unblock leaves the user blocked.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
@@ -2400,7 +2404,7 @@ guarantees:
 - id: G-BLOCK-04
   statement: Every bundled token issuer (password login, password+2FA login, SSO and SSO second-factor
     completion, refresh exchange) calls ensure_user_not_blocked live before any side effect (no token,
-    no refresh rotation, SSO state not consumed), answering 401 'Account blocked'; a cache outage follows
+    no refresh rotation, SSO state not consumed), answering 401 'Account blocked'; a security store outage follows
     AUTH_REVOCATION_FAIL_CLOSED.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
@@ -2426,8 +2430,8 @@ guarantees:
   - src/sandloom_identity/tests/api/test_emergency_block.py::test_block_ends_sessions_on_commit
 - id: G-BLOCK-06
   statement: 'One subject-state record: v1:blocked:<us> (no TTL) outranks every v1:after:<us>, so a revocation
-    never unblocks; the Redis writer is one Lua script, the portable writer a compare-and-set loop that refuses
-    to run on a store without CAS.'
+    never unblocks; every atomic_store driver writes it atomically in set_subject_state (the Redis one is a single
+    Lua script, a loop of compare-and-set lives inside the drivers that need one).'
   sources:
   - docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks
   tests:
@@ -3924,8 +3928,8 @@ guarantees:
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_one_caller_cannot_take_the_whole_nonce_table
 - id: G-RPC-08
   statement: With RPC_REPLAY_GUARD=commands (default) command calls (all calls with `all`) are also claimed
-    by an atomic SET NX on the security cache under a collision-free key with a constant 3*skew TTL, so
-    a replay landing on another process/replica is refused; a cache outage fails closed in prod and open
+    by an atomic add on the security atomic_store under a collision-free key with a constant 3*skew TTL, so
+    a replay landing on another process/replica is refused; a security store outage fails closed in prod and open
     outside it.
   sources:
   - docs/adr/0004-rpc-pair-mac-request-authentication.md#Replay
@@ -4750,8 +4754,8 @@ guarantees:
     a registered driver whose package is missing is not usable. An instance INFRA selects on such a driver,
     and a driver whose dependency fails to import while it is built (strict, production startup), stops
     startup with SANDLOOM-B037 naming the capability, instance, driver, missing package and install hint.
-    An instance nothing requires and the kernel does not use (database, revocation and security cache,
-    event bus) is not built, opened or probed.
+    An instance nothing requires and the kernel does not use (database, atomic_store, event bus)
+    is not built, opened or probed.
   sources:
   - docs/adr/0011-driver-api.md
   - design/kernel-boundary/owner-decision-infra-deps.md
@@ -5568,9 +5572,9 @@ guarantees:
   - tests/integration/with_batteries/test_backup_cli_restore_checks.py::test_verify_flags_orphan_rows_of_a_broken_restore
   - src/sandloom/core/tests/test_backup_cli.py::test_operator_guard_rails
 - id: G-OPS-19
-  statement: After a security-cache restore from a stale snapshot, sandloom backup reconcile-security re-derives
+  statement: After a security-store restore from a stale snapshot, sandloom backup reconcile-security re-derives
     block and revocation marks from durable records so no blocked user is re-enabled and no newer mark
-    in the cache is lowered.
+    in the security store is lowered.
   sources:
   - 'docs/operate/operator-reference.md#Restoring: the order, and the traffic gate'
   - docs/operate/operator-reference.md#Backups & restore
@@ -6329,14 +6333,14 @@ capabilities:
   - G-PROFILE-01
   - G-PROFILE-09
 - id: C-TENANT-08
-  statement: Security-critical cache state can be routed to its own Redis with SECURITY_CACHE_INSTANCE,
-    and idempotency records optionally to another with IDEMPOTENCY_CACHE_INSTANCE (default empty = follows
-    the security cache).
+  statement: Security-critical state is routed to its own Redis through the atomic_store instance
+    INFRA.atomic_store.security, and idempotency records optionally to another through
+    INFRA.atomic_store.idempotency (absent = follows the security instance).
   sources:
   - docs/advanced/security-model.md#Security-critical vs best-effort cache
   tests:
-  - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_unset_follows_the_security_cache
-  - src/sandloom/core/tests/test_idempotency_cache_instance.py::test_default_keeps_guard_records_in_the_security_cache
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_an_absent_idempotency_instance_is_the_security_one
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_guard_records_live_in_the_idempotency_role
 - id: C-TENANT-09
   statement: A deliberately global table with a tenant_id column can be exempted from the tenant-scoped-models
     rule via tenant_scope_exempt in architecture_rules.yml with a written reason.

@@ -33,6 +33,7 @@ from test_s5_secure_read import (  # noqa: F401 - fixtures
 from test_write_stand import W, w  # noqa: F401 - fixtures
 
 from benchsuite import common
+from sandloom.core.infra import access
 
 #: the S5 stack (FORCEd RLS, app role, counting proxy) of the request variant
 on_s5 = pytest.mark.parametrize("s5", ["uow"], indirect=True)
@@ -56,9 +57,10 @@ async def test_budgeted_route_serves_like_the_strict_one(s5: S5) -> None:
 @pytest.mark.asyncio
 @on_s5
 async def test_every_authenticated_read_reads_one_subject_record_get(
-    s5: S5, sandloom_core: Any, monkeypatch: pytest.MonkeyPatch
+    s5: S5, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client = await sandloom_core.cache().raw_client()
+    # the subject record lives on the security atomic_store (its own client)
+    client = await access.atomic_store("security")._client_obj()  # type: ignore[attr-defined]
     sent: list[str] = []
     original = client.execute_command
 

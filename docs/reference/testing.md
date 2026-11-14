@@ -83,7 +83,7 @@ uv run sandloom test --plan      # print the steps; --no-gates: tests only; -n N
 | assert that a failed request rolled back, or that something happened after commit (`on_commit` effects, delivered events) | `real_uow_client` | real request units on the test database: commit on success, rollback on error. Committed rows are emptied before the next test. Never combine it with `client` in one test |
 | call a service directly (no HTTP) that publishes or audits | `db_uow` | `db` bound as the unit: `publish()`, `record_audit` and `db()` land in the test transaction |
 | a unit test without a database | `recording_uow()` (helper) | records `.events` and `.audits` in memory |
-| the cache (idempotency, rate limits, the subject record) | `sandloom_cache` | the `default` cache on the test Redis, flushed first |
+| the cache (idempotency, rate limits, the subject record) | `sandloom_cache` | the `default` cache on the test Redis, flushed first; the implicit development `security` store (subject record, idempotency) is moved onto the same Redis database |
 | the app or its core | `sandloom_app`, `sandloom_core` | session-scoped |
 | a saga run with faked contracts | `saga_harness` | see [Sagas](../modules/between/sagas.md) |
 

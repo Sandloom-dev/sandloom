@@ -38,7 +38,7 @@ from sandloom.core.module_api import contract_method
 from sandloom.core.rpc import RemoteServiceProxy, rpc_router
 from sandloom.core.rpc import proxy as rpc_proxy
 from sandloom.core.rpc import wire as rpc_wire
-from sandloom.core.testing import InMemoryCache
+from sandloom.core.testing import InMemoryAtomicStore
 
 #: This process's RPC identity: the proxy calls the core itself as ``svc``.
 _SVC = "svc"
@@ -243,8 +243,8 @@ def core(monkeypatch: pytest.MonkeyPatch) -> Iterator[CoreFacade]:
     allowed = {_SVC: ["demo.codec.v1"]}
     for name, value in rpc_settings(_SVC, allowed_calls=allowed).items():
         monkeypatch.setattr(settings, name, value)
-    mem = InMemoryCache()
-    monkeypatch.setattr(idempotency_cache_store, "cache", lambda name="default": mem)
+    mem = InMemoryAtomicStore()
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: mem)
     facade = CoreFacade(app=FastAPI())
     facade.database = lambda name="default": _FakeDatabase()  # type: ignore[method-assign]
     facade.register_service("demo.codec.v1", Catalog)

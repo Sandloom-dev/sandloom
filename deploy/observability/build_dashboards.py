@@ -787,7 +787,7 @@ def security() -> Board:
     b = Board(
         "sandloom-security",
         "Sandloom / Revocation & security",
-        "Token revocation / block checks, the security cache, rate limiting and "
+        "Token revocation / block checks, the security store, rate limiting and "
         "idempotency. Most panels should be flat zero.",
         ["security", "auth"],
     )
@@ -873,6 +873,18 @@ def security() -> Board:
         thresholds=[(0, "green"), (60, "yellow"), (300, "red")],
     )
     b.row("Cache & rate limiting")
+    b.ts(
+        "Atomic store operation errors / s",
+        [
+            (
+                f"sum by (exported_instance, operation) (rate(sandloom_atomic_store_operation_errors_total{{{J}}}[$__rate_interval]))",
+                "{{exported_instance}} {{operation}}",
+            )
+        ],
+        unit="ops",
+        desc="The security and idempotency stores (`INFRA.atomic_store`): the "
+        "metric's `instance` label is scraped as `exported_instance`.",
+    )
     b.ts(
         "Cache operation errors / s",
         [

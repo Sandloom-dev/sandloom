@@ -22,6 +22,7 @@ from sandloom.core.module_api import contract_method
 from sandloom.core.rpc import RemoteServiceProxy, install_service_rpc_routes
 from sandloom.core.rpc import proxy as rpc_proxy
 from sandloom.core.rpc.wire import _CTX_HEADER, _pack, _unb64, _unpack
+from sandloom.core.testing import InMemoryAtomicStore
 
 _Responder = Callable[[str, bytes, dict[str, str]], httpx.Response]
 
@@ -341,46 +342,6 @@ async def test_rpc_server_hides_itself_from_a_request_without_credentials() -> N
     assert token.status_code == 404
 
 
-class _MemCache:
-    """Minimal in-memory CacheProvider surface (incl. CAS) for idempotency."""
-
-    def __init__(self) -> None:
-        self.store: dict[str, str] = {}
-
-    async def get(self, key: str) -> str | None:
-        return self.store.get(key)
-
-    async def set(
-        self, key: str, value: str, *, ttl_seconds: int | None = None
-    ) -> None:
-        self.store[key] = value
-
-    async def add(
-        self, key: str, value: str, *, ttl_seconds: int | None = None
-    ) -> bool:
-        if key in self.store:
-            return False
-        self.store[key] = value
-        return True
-
-    async def delete(self, key: str) -> None:
-        self.store.pop(key, None)
-
-    async def compare_and_set(
-        self, key: str, expected: str, value: str, *, ttl_seconds: int | None = None
-    ) -> bool:
-        if self.store.get(key) != expected:
-            return False
-        self.store[key] = value
-        return True
-
-    async def compare_and_delete(self, key: str, expected: str) -> bool:
-        if self.store.get(key) != expected:
-            return False
-        del self.store[key]
-        return True
-
-
 @pytest.mark.asyncio
 async def test_rpc_proxy_retries_transport_errors_under_a_fresh_nonce(
     monkeypatch: pytest.MonkeyPatch,
@@ -594,7 +555,9 @@ async def test_rpc_errors_inside_provider_are_not_masked_as_404_or_422(
     """Lookup failure -> 404, binding failure -> 422, provider errors -> 500/own."""
     from sandloom.core.idempotency import cache_store as idempotency_cache_store
 
-    monkeypatch.setattr(idempotency_cache_store, "cache", lambda: _MemCache())
+    monkeypatch.setattr(
+        idempotency_cache_store, "atomic_store", lambda role: InMemoryAtomicStore()
+    )
 
     class Denied(Exception):
         http_status = 403
@@ -673,8 +636,8 @@ async def test_command_contract_is_deduped_by_the_framework_locally_and_over_rpc
     from sandloom.core.idempotency import cache_store as idempotency_cache_store
     from sandloom.core.module_api import ContractIdempotencyConflict
 
-    mem = _MemCache()
-    monkeypatch.setattr(idempotency_cache_store, "cache", lambda: mem)
+    mem = InMemoryAtomicStore()
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: mem)
     _CountingLedger._calls.clear()
     app, core, log = _provider_app()
     core.register_service("demo.ledger.v1", _CountingLedger)
@@ -719,12 +682,11 @@ async def test_command_contract_fails_closed_when_the_store_is_down(
 ) -> None:
     from sandloom.core.idempotency import cache_store as idempotency_cache_store
     from sandloom.core.module_api import ContractIdempotencyUnavailable
-    from sandloom.core.testing import InMemoryCache
 
     monkeypatch.setattr(
         idempotency_cache_store,
-        "cache",
-        lambda name="default": InMemoryCache(broken=True),
+        "atomic_store",
+        lambda role: InMemoryAtomicStore(broken=True),
     )
     _CountingLedger._calls.clear()
     app, core, log = _provider_app()

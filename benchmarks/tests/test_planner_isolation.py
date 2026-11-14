@@ -143,7 +143,7 @@ async def test_read_only_executor_transactions_refuse_for_update(
 ) -> None:
     """Even through the executor primitives, FOR UPDATE cannot run in a
     planner transaction (READ ONLY): refused, the connection invalidated."""
-    adapter = sandloom_core.database("default").execution_adapter()
+    adapter = sandloom_core.database("default").planner_adapter()
     pid = await _clean(s5)
     with pytest.raises(DBAPIError, match="read-only"):
         async with adapter.session(_ctx(A)) as session:
@@ -201,7 +201,7 @@ async def test_general_executor_transaction_isolation_is_explicit(
     the server default is (fast path) or is not (pinned per checkout)."""
     from sqlalchemy import text
 
-    adapter = sandloom_core.database("default").execution_adapter()
+    adapter = sandloom_core.database("default").planner_adapter()
     saved = adapter._statement_default
     adapter._statement_default = server_default_is_rc
     try:

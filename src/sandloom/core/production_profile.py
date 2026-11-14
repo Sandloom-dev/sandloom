@@ -16,14 +16,15 @@ layers silently off. In ``ENVIRONMENT=prod`` it requires:
    guarantee;
 3. ``AUTH_REVOCATION_FAIL_CLOSED`` not disabled (it is then forced on): a
    revocation-store outage rejects tokens instead of accepting revoked ones;
-4. security-critical cache state (revocation marks, user blocks, idempotency
-   records — contract-command dedupe is already durable in the provider
-   database) on its own cache instance
-   (``SECURITY_CACHE_INSTANCE``) whose Redis server differs from the
-   best-effort cache's — an evicting cache can never drop a revocation mark;
-   when ``IDEMPOTENCY_CACHE_INSTANCE`` moves the idempotency records out, that
-   instance must meet the same requirement (declared, its own Redis server,
-   attested at startup);
+4. security-critical state (revocation marks, user blocks, RPC nonces,
+   idempotency records; contract-command dedupe is already durable in the
+   provider database) in a declared ``INFRA.atomic_store.security`` instance
+   (never built from the cache's options or from memory) whose server differs
+   from the best-effort cache's: it declares ``never_evicts`` and ``shared``,
+   and at startup its ``isolation_identity()`` must differ from the module
+   cache's (a ``None`` or raising identity fails). When
+   ``INFRA.atomic_store.idempotency`` moves the idempotency records out, that
+   instance meets the same requirement;
 5. split deployments (``SERVICE_BINDINGS`` set): the contract compatibility
    check on (``CONTRACT_COMPAT_CHECK`` not ``off``) and asymmetric token
    signing (``JWT_ALGORITHM`` EdDSA / RS256 / ES256: ``JWT_PRIVATE_KEY`` on
@@ -80,26 +81,98 @@ def _database_instances(infra: Mapping[str, Any]) -> dict[str, Mapping[str, Any]
     return instances
 
 
-def _separate_cache_problems(
-    cfg: Any, caches: object, name: str, setting: str
-) -> list[str]:
-    """``name`` is declared with a url on a Redis server other than ``default``'s."""
-    declared = caches.get(name) if isinstance(caches, Mapping) else None
-    if not isinstance(declared, Mapping) or not declared.get("url"):
-        return [f'{setting}={name!r} is not declared with a url in INFRA["cache"]']
+def _cache_default_url(cfg: Any, infra: Mapping[str, Any]) -> object:
+    caches = infra.get("cache") or {}
     default_opts = caches.get("default") if isinstance(caches, Mapping) else None
-    default_url = (
-        default_opts.get("url")
-        if isinstance(default_opts, Mapping) and default_opts.get("url")
-        else getattr(cfg, "cache_url", None)
+    if isinstance(default_opts, Mapping) and default_opts.get("url"):
+        return default_opts.get("url")
+    return getattr(cfg, "cache_url", None)
+
+
+def _atomic_instance(infra: Mapping[str, Any], role: str) -> Mapping[str, Any] | None:
+    declared = infra.get("atomic_store") or {}
+    options = declared.get(role) if isinstance(declared, Mapping) else None
+    if isinstance(options, Mapping) and options.get("driver"):
+        return options
+    return None
+
+
+def _memory_store_problem(role: str) -> str:
+    return (
+        f'INFRA["atomic_store"]["{role}"] uses the development-only memory '
+        "driver: it is lost on restart and not shared between replicas"
     )
-    if _server(declared.get("url")) == _server(default_url):
+
+
+_SECURITY_STORE_UNDECLARED = (
+    'INFRA["atomic_store"]["security"] is not declared: revocation marks, '
+    "user blocks, RPC nonces and idempotency records need a durable, "
+    "non-evicting atomic_store instance on its own server, e.g. "
+    'INFRA={"atomic_store": {"security": {"driver": "redis", "url": '
+    '"redis://security-redis:6379/0"}}} (SECURITY_CACHE_INSTANCE and '
+    "IDEMPOTENCY_CACHE_INSTANCE are removed)"
+)
+
+
+def atomic_store_security_problem(cfg: Any) -> str | None:
+    """The production refusal of spec section 4, on every profile: the security
+    state needs a declared ``INFRA.atomic_store.security`` that is not the
+    development-only memory driver (development and test get an implicit
+    instance; production never does)."""
+    infra = getattr(cfg, "infra", None) or {}
+    security = _atomic_instance(infra, "security")
+    if security is None:
+        return _SECURITY_STORE_UNDECLARED
+    if str(security.get("driver")) == "memory":
+        return _memory_store_problem("security")
+    return None
+
+
+def _atomic_instance_problems(
+    cfg: Any, infra: Mapping[str, Any], role: str, options: Mapping[str, Any]
+) -> list[str]:
+    """``atomic_store/<role>`` runs on a driver that can hold security state, and
+    a Redis one on a server other than the module cache's."""
+    driver = str(options.get("driver"))
+    if driver == "memory":
+        return [_memory_store_problem(role)]
+    server = _server(options.get("url"))
+    if (
+        driver == "redis"
+        and server is not None
+        and server == _server(_cache_default_url(cfg, infra))
+    ):
         return [
-            f"cache/{name} runs on the same Redis server as the default cache; "
-            "eviction / maxmemory policies are per server, so it must be a "
-            "separate (noeviction, replicated) Redis"
+            f"atomic_store/{role} runs on the same Redis server as the "
+            "default cache; eviction / maxmemory policies are per server, so "
+            "it must be a separate (noeviction, replicated) Redis"
         ]
     return []
+
+
+def _atomic_store_problems(
+    cfg: Any, infra: Mapping[str, Any], warnings: list[str]
+) -> list[str]:
+    """The security-critical state (revocation marks, user blocks, RPC nonces
+    and idempotency records) lives in ``INFRA.atomic_store.security`` (and
+    ``.idempotency`` when it moves the records), declared: never built from the
+    cache's options or from memory."""
+    security = _atomic_instance(infra, "security")
+    if security is None:
+        return [_SECURITY_STORE_UNDECLARED]
+    problems = _atomic_instance_problems(cfg, infra, "security", security)
+    idem = _atomic_instance(infra, "idempotency")
+    if idem is not None:
+        problems += _atomic_instance_problems(cfg, infra, "idempotency", idem)
+        idem_server = _server(idem.get("url"))
+        if idem_server is not None and idem_server == _server(security.get("url")):
+            warnings.append(
+                "atomic_store/idempotency runs on the same Redis server as "
+                "atomic_store/security: idempotency writes still queue the "
+                "revocation-mark reads on one Redis thread; give it its own "
+                "Redis or drop it"
+            )
+    return problems
 
 
 def config_problems(cfg: Any) -> tuple[list[str], list[str]]:  # noqa: C901
@@ -129,49 +202,7 @@ def config_problems(cfg: Any) -> tuple[list[str], list[str]]:  # noqa: C901
                 "(Row-Level Security on every tenant table, app role without "
                 "BYPASSRLS / ownership; see docs/advanced/security-model.md)"
             )
-    security = str(getattr(cfg, "security_cache_instance", "default") or "default")
-    caches = infra.get("cache") or {}
-    if security == "default":
-        errors.append(
-            "SECURITY_CACHE_INSTANCE is 'default': revocation marks, user blocks "
-            "and idempotency records share the best-effort cache — declare a "
-            'separate instance, e.g. INFRA={"cache": {"security": {"driver": '
-            '"redis", "url": "redis://security-redis:6379/0"}}} and '
-            "SECURITY_CACHE_INSTANCE=security"
-        )
-    else:
-        errors += _separate_cache_problems(
-            cfg, caches, security, "SECURITY_CACHE_INSTANCE"
-        )
-    idem = str(getattr(cfg, "idempotency_cache_instance", "") or "")
-    if idem and idem != security:
-        if idem == "default":
-            errors.append(
-                "IDEMPOTENCY_CACHE_INSTANCE is 'default': idempotency records "
-                "would live in the best-effort (evicting) cache — declare a "
-                'separate instance, e.g. INFRA={"cache": {"idempotency": '
-                '{"driver": "redis", "url": "redis://idempotency-redis:6379/0"}}} '
-                "and IDEMPOTENCY_CACHE_INSTANCE=idempotency, or unset it to keep "
-                "them in the security cache"
-            )
-        else:
-            errors += _separate_cache_problems(
-                cfg, caches, idem, "IDEMPOTENCY_CACHE_INSTANCE"
-            )
-            idem_opts = caches.get(idem) if isinstance(caches, Mapping) else None
-            sec_opts = caches.get(security) if isinstance(caches, Mapping) else None
-            if (
-                isinstance(idem_opts, Mapping)
-                and isinstance(sec_opts, Mapping)
-                and _server(idem_opts.get("url")) is not None
-                and _server(idem_opts.get("url")) == _server(sec_opts.get("url"))
-            ):
-                warnings.append(
-                    f"cache/{idem} runs on the same Redis server as "
-                    f"cache/{security}: idempotency writes still queue the "
-                    "revocation-mark reads on one Redis thread — point "
-                    "IDEMPOTENCY_CACHE_INSTANCE at its own Redis or unset it"
-                )
+    errors += _atomic_store_problems(cfg, infra, warnings)
     if getattr(cfg, "service_bindings", None):
         if getattr(cfg, "contract_compat_check", "ready") == "off":
             errors.append(
@@ -273,36 +304,54 @@ async def enforce_runtime(core: Any) -> None:
             "cover every tenant table: " + "; ".join(problems)
         )
     # Distinct host strings do not establish distinct Redis servers: DNS
-    # aliases and proxies can resolve both URLs to the same Redis process.
-    security_name = cfg.security_cache_instance
-    await _attest_separate_from_default(core, security_name, "security")
-    idem_name = getattr(cfg, "idempotency_cache_instance", "") or ""
-    if idem_name and idem_name != security_name:
-        await _attest_separate_from_default(core, idem_name, "idempotency")
+    # aliases and proxies can resolve both URLs to the same process, so each
+    # instance names its own failure and eviction domain (isolation_identity).
+    await _attest_separate_from_default(core, "security")
+    if core.infra.instance_config("atomic_store", "idempotency") is not None:
+        await _attest_separate_from_default(core, "idempotency")
 
 
-async def _attest_separate_from_default(core: Any, name: str, kind: str) -> None:
-    """Cache instance ``name`` reaches a different Redis process than ``default``."""
+async def _attest_separate_from_default(core: Any, role: str) -> None:
+    """``atomic_store/<role>`` declares ``never_evicts`` and ``shared`` and
+    differs from the module cache by ``isolation_identity()``.
+
+    A ``None`` or raising identity fails: an unknown domain is not attested.
+    """
     try:
-        provider = core.infra.provider("cache", name)
+        store = core.infra.provider("atomic_store", role)
         default = core.infra.provider("cache", "default")
-        identity = await provider.deployment_identity()
-        default_identity = await default.deployment_identity()
+        identity = await store.isolation_identity()
+        default_identity = await default.isolation_identity()
     except Exception as exc:
         raise ProductionProfileError(
-            f"Cannot attest separate {kind} Redis processes; permit INFO server "
-            "for both cache credentials and check their reachability"
+            f"Cannot attest the {role} atomic_store apart from the default cache: "
+            "its isolation_identity() failed; check both instances' "
+            "reachability and credentials"
         ) from exc
+    if not identity or not default_identity:
+        raise ProductionProfileError(
+            f"Cannot attest the {role} atomic_store apart from the default cache: "
+            "a driver returned no isolation identity"
+        )
+    missing = sorted({"never_evicts", "shared"} - set(store.features()))
+    if missing:
+        raise ProductionProfileError(
+            f"The {role} atomic_store driver does not declare {missing}: "
+            "revocation marks and idempotency records need a store that is "
+            "shared and never evicts"
+        )
     if identity == default_identity:
         raise ProductionProfileError(
-            f"{kind.capitalize()} cache and default cache reached the same Redis "
-            "process; configure separate Redis processes/instances (different DB "
-            "indexes or DNS aliases do not isolate eviction policies)"
+            f"The {role} atomic_store and the default cache share one failure "
+            "domain (same isolation identity); configure separate servers "
+            "(different DB indexes or DNS aliases do not isolate eviction "
+            "policies)"
         )
 
 
 __all__ = [
     "ProductionProfileError",
+    "atomic_store_security_problem",
     "config_problems",
     "enforce_runtime",
     "tenant_scoped_tables",

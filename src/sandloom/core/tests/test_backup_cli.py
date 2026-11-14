@@ -106,16 +106,19 @@ def test_plan_covers_databases_and_security_redis_without_secrets(
                     "url": "postgresql+asyncpg://u:s3cret@db2:5432/analytics",
                 }
             },
-            "cache": {"security": {"driver": "redis", "url": "redis://:pw@sec:6379/0"}},
+            "atomic_store": {
+                "security": {"driver": "redis", "url": "redis://:pw@sec:6379/0"}
+            },
         },
     )
-    monkeypatch.setattr(settings, "security_cache_instance", "security")
     items = build_backup_plan(settings, (), [_KeyedModule])
     text = format_plan(items)
     names = {(i.kind, i.name) for i in items}
     assert ("postgres", "default") in names
     assert ("postgres", "analytics") in names
-    security = [i for i in items if i.kind == "redis" and "cache:security" in i.name]
+    security = [
+        i for i in items if i.kind == "redis" and "atomic_store:security" in i.name
+    ]
     assert len(security) == 1
     assert security[0].criticality == "critical"
     assert any("reconcile-security" in step for step in security[0].restore)

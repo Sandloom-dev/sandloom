@@ -168,7 +168,7 @@ infrastructure tables. See [Migrations](../modules/database/migrations.md) and
 | `sandloom worker [--queues Q[,Q...]] [--concurrency N] [--loglevel L]` | Run a task worker for the loaded modules (every deploy profile's `<service>-worker`). `--queues` defaults to the default queue, `--concurrency` to `WORKER_CONCURRENCY`, else the CPU quota; `--loglevel` defaults to `INFO`. It boots the composition root like the API, and exits with the worker's exit code (non-zero when the worker dies). Replaces `celery -A sandloom.core.worker worker`. |
 | `sandloom beat [--loglevel L] [--schedule PATH]` | Run the scheduler. It schedules only while it holds the singleton lease: a second one stands by, so run one per broker and module set. `--schedule` is the scheduler's state file (default `celerybeat-schedule` in the working directory; containers pass `/tmp/celerybeat-schedule`). Replaces `celery -A sandloom.core.worker beat`. |
 | `sandloom worker check [--timeout SECONDS]` | The worker's container healthcheck: exit 0 when its heartbeat file is younger than `--timeout` (default 60, at most 86400), 1 when missing or stale. Boots nothing: no composition root, no broker. Replaces `python -m sandloom.core.worker healthcheck`. |
-| `sandloom backup plan \| verify <dump> \| reconcile-security \| fence-leases` | What to back up per database and Redis endpoint; restore a dump into a scratch database and check it; re-derive blocks and revocation marks after a security-cache restore; lift every fence of the `database` lease driver (`infra_lease`) after a restore of a PostgreSQL database, in one transaction with its audit row (dry-run by default; `fence-leases` and `verify` refuse a database that is not PostgreSQL). |
+| `sandloom backup plan \| verify <dump> \| reconcile-security \| fence-leases` | What to back up per database and Redis endpoint; restore a dump into a scratch database and check it; re-derive blocks and revocation marks after a security-store restore; lift every fence of the `database` lease driver (`infra_lease`) after a restore of a PostgreSQL database, in one transaction with its audit row (dry-run by default; `fence-leases` and `verify` refuse a database that is not PostgreSQL). |
 | `sandloom keys generate [--alg EdDSA\|RS256\|ES256] [--purpose jwt\|rpc\|rpc-dh] [--service S] [--kid K] [--out-dir DIR]` | Generate an access-token signing pair, or a service's internal-RPC keys. |
 | `sandloom keys allowlist` | Derive `RPC_ALLOWED_CALLS` from `SERVICE_BINDINGS`. |
 | `sandloom keys dev-env [--deploy-dir D] [--out F]` | DEVELOPMENT / CI ONLY: a compose `--env-file` with fresh keys for every variable the microservices profile requires. |
@@ -333,10 +333,10 @@ is raw env).
   `AUTH_REVOCATION_WRITE_ATTEMPTS` / `AUTH_REVOCATION_RETRY_BASE_SECONDS`
   (revocation mark margin and retries; identical in every service),
   `TWOFA_ENCRYPTION_KEY` (required in prod with identity; comma list =
-  rotation), `SECURITY_CACHE_INSTANCE` (named cache for the subject-state
-  records and — by default — idempotency records),
-  `IDEMPOTENCY_CACHE_INSTANCE` (opt-in separate cache for idempotency
-  records; empty = the security cache). Every authenticated route reads the
+  rotation), `INFRA.atomic_store.security` (the store of the subject-state
+  records and — by default — idempotency records) and
+  `INFRA.atomic_store.idempotency` (opt-in separate store for idempotency
+  records; absent = the security store). Every authenticated route reads the
   session record live; there is no per-route revocation setting
   ([Route policy](../modules/http/route-policy.md)).
 - **Passwords.** `PASSWORD_HASH_CONCURRENCY` (argon2 pool; default

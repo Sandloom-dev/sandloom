@@ -778,8 +778,8 @@ Neither is implemented; until then plan a maintenance window per module.
 - A shared multi-tenant SaaS should run with
   `PRODUCTION_PROFILE=multi_tenant_strict`: the process then refuses to start
   unless Row-Level Security is on for every database (and covers every tenant
-  table), revocation fails closed, security-critical cache state has its own
-  non-evicting Redis (`SECURITY_CACHE_INSTANCE`) and, when split, the contract
+  table), revocation fails closed, security-critical state has its own
+  non-evicting Redis (`INFRA.atomic_store.security`) and, when split, the contract
   compatibility check is on. The full contract, the Redis HA recommendations
   and the mapping of named cache instances are in
   `docs/advanced/security-model.md` → *Production profile*. The compose
@@ -809,7 +809,7 @@ Neither is implemented; until then plan a maintenance window per module.
 ### Separate idempotency Redis (opt-in)
 
 By default `idempotency_guard` reservations / replay records and task-enqueue
-dedupe records live in the security cache (`SECURITY_CACHE_INSTANCE`) next to
+dedupe records live in the `security` atomic store (`INFRA.atomic_store.security`) next to
 the revocation marks every authenticated request reads. On a security Redis
 that fsyncs every write (`appendfsync always`, single-threaded), the
 idempotency `SET NX` fsyncs queue those reads and dominate the p99 of guarded
@@ -819,8 +819,7 @@ weakening any guarantee:
 
 ```yaml
 # shared env (identical in EVERY process)
-INFRA: '{"cache": {"security": {...}, "idempotency": {"driver": "redis", "url": "redis://idempotency-redis:6379/0"}}}'
-IDEMPOTENCY_CACHE_INSTANCE: idempotency
+INFRA: '{"atomic_store": {"security": {...}, "idempotency": {"driver": "redis", "url": "redis://idempotency-redis:6379/0"}}}'
 
 # service
 idempotency-redis:
@@ -833,13 +832,13 @@ idempotency-redis:
 Both compose profiles carry this block commented out. Give it the same
 persistence, `noeviction`, backups and HA as the security Redis — never
 `appendfsync everysec` (a lost reservation re-executes a mutation).
-Revocation marks, blocks and the RPC replay guard stay in the security cache;
+Revocation marks, blocks and the RPC replay guard stay in the security store;
 `fail_closed=True` guards answer `503` when the idempotency Redis is down,
 exactly as they did for the security one. Under
 `PRODUCTION_PROFILE=multi_tenant_strict` the instance must be declared in
-`INFRA["cache"]` on a Redis server other than the default cache's (attested
-at startup); sharing the security Redis's server only warns (it removes no
-contention). Leave it unset to keep today's behaviour.
+`INFRA["atomic_store"]` on a Redis server other than the default cache's
+(attested at startup through `isolation_identity()`); sharing the security Redis's server only warns (it removes no
+contention). Leave it unset and the `security` instance holds them.
 
 ## Optional admin UI
 

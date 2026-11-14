@@ -29,7 +29,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`generate_private_key`](#generate_private_key) | function | A fresh private key for `algorithm` (`sandloom keys generate`). |
 | [`generate_x25519_key`](#generate_x25519_key) | function |  |
 | [`has_internal_access`](#has_internal_access) | function | Non-raising variant: True when the caller may see internal details. |
-| [`is_user_blocked`](#is_user_blocked) | async function | Live read of the subject-state record (raises on a cache outage). |
+| [`is_user_blocked`](#is_user_blocked) | async function | Live read of the subject-state record (raises on a security store outage). |
 | [`password_hasher`](#password_hasher) | function | A fresh argon2id `PasswordHasher` with the CONFIGURED parameters (`PASSWORD_HASH_PROFILE` / `_TIME_COST` / `_MEMORY_KIB` / `_PARALLELISM`... |
 | [`private_pem`](#private_pem) | function |  |
 | [`public_pem`](#public_pem) | function | The SubjectPublicKeyInfo PEM of a key (or of a private key's public half). |
@@ -80,7 +80,7 @@ Must run inside a Unit of Work: the audit record
 (`auth.user.blocked`, actor + reason), the immediate token revocation
 and the event are all written BEFORE the mark, and the mark is the LAST
 step — a failure of any earlier step leaves no mark behind the rolled-back
-audit (no block happens unaudited). A cache outage raises
+audit (no block happens unaudited). A security store outage raises
 `BlockUnavailableError` (503) and the UoW rolls the audit back.
 Call it as the last step of the request (the mark itself is not
 transactional).
@@ -184,7 +184,7 @@ call it before minting or rotating anything — and before collecting the
 token's claims. A live read of the subject-state record — never a cached
 copy — so the token minted next in this context is stamped after any
 revocation it saw. On a
-cache outage `AUTH_REVOCATION_FAIL_CLOSED` decides, like the per-request
+security store outage `AUTH_REVOCATION_FAIL_CLOSED` decides, like the per-request
 check: closed answers `503`, open logs and lets the issuance proceed.
 
 ### `generate_private_key`
@@ -217,7 +217,7 @@ Non-raising variant: True when the caller may see internal details.
 async def is_user_blocked(user_id: Any) -> bool
 ```
 
-Live read of the subject-state record (raises on a cache outage).
+Live read of the subject-state record (raises on a security store outage).
 
 ### `password_hasher`
 
@@ -381,7 +381,7 @@ The `blocked` value is replaced only AFTER the UoW commits
 revocation TTL) — never deleted, so every token issued before the unblock
 stays revoked and a concurrent writer is never overwritten blindly. A
 rolled-back unblock leaves the user blocked, never unblocked without an
-audit row. Fail-safe: if the post-commit swap fails (cache outage) the
+audit row. Fail-safe: if the post-commit swap fails (security store outage) the
 user stays blocked — logged as an error; run the unblock again.
 
 ### `x25519_private_pem`

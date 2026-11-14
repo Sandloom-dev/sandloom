@@ -1,5 +1,5 @@
-"""``CacheProvider.set_max`` — the monotonic "set if greater" behind the token
-revocation mark.
+"""``CacheProvider.set_max`` (the cache contract's monotonic "set if greater") and
+the revocation mark's behaviour under contention on the security ``atomic_store``.
 
 Regression: the revocation mark used a read / add / compare-and-set loop
 bounded at 8 attempts. Under contention (40 concurrent revocations of one
@@ -35,7 +35,7 @@ from sandloom.core.infra.contracts import (
     parse_plain_decimal,
     portable_set_max,
 )
-from sandloom.core.testing import InMemoryCache
+from sandloom.core.testing import InMemoryAtomicStore, InMemoryCache
 
 
 class _AdversarialCache:
@@ -178,25 +178,52 @@ async def test_in_memory_cache_set_max() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# revoke_user_tokens under contention
+# revoke_user_tokens under contention (the security atomic_store)
 # --------------------------------------------------------------------------- #
+class _AdversarialStore(InMemoryAtomicStore):
+    """The security store, yielding to the event loop a seeded-random number of
+    times around every read and write: a loaded machine's scheduling, made
+    reproducible. ``set_subject_state`` itself stays atomic (the port's
+    contract); the race the old read / add / compare-and-set loop had to
+    retry is the revocation's own read-then-write."""
+
+    def __init__(self, seed: int = 0) -> None:
+        super().__init__()
+        self._rng = random.Random(seed)
+
+    async def _yield(self) -> None:
+        for _ in range(self._rng.randrange(6)):
+            await asyncio.sleep(0)
+
+    async def get(self, key: str) -> str | None:
+        value = await super().get(key)
+        await self._yield()
+        return value
+
+    async def set_subject_state(
+        self, key: str, value: str, *, ttl_seconds: int | None = None
+    ) -> str:
+        await self._yield()
+        return await super().set_subject_state(key, value, ttl_seconds=ttl_seconds)
+
+
 @pytest.mark.parametrize("seed", [1, 7, 42])
 async def test_concurrent_revocations_all_succeed_and_keep_the_max(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, seed: int
 ) -> None:
-    """The failing CI scenario, made deterministic: 40 shuffled concurrent
-    revocations on a cache that forces maximal interleaving (portable path)."""
+    """40 shuffled concurrent revocations on a store that forces maximal
+    interleaving: every one succeeds and the mark ends at the maximum."""
     import sandloom.core.infra.access as access
 
-    cache = _AdversarialCache(seed)
-    monkeypatch.setattr(access, "cache", lambda name="default": cache)
+    store = _AdversarialStore(seed)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": store)
     sub = str(uuid.uuid4())
     mark_values, order = _marks(40, seed)
     results = await asyncio.gather(
         *(revocation.revoke_user_tokens(sub, valid_after=m) for m in order)
     )
     assert all(results)
-    stored = cache.store[marks.subject_key(sub)]
+    stored = store.store[marks.subject_key(sub)]
     # at the maximum, or past it by a microsecond per lower revocation that
     # found a covering mark stored (it must land above what issuers stamped)
     highest = marks._seconds_to_us(max(mark_values))
@@ -204,18 +231,21 @@ async def test_concurrent_revocations_all_succeed_and_keep_the_max(
     assert "Could not record token revocation" not in caplog.text
 
 
-class _OvertakingCache(_AdversarialCache):
+class _OvertakingStore(_AdversarialStore):
     """Between the target writer's read and its write, a competing (monotonic)
     revocation lands a mark that is higher than before but still LOWER than
-    the target's — ``rounds`` times in a row. Each lost race is real progress
-    by someone else; the target must keep going, not give up."""
+    the target's, ``rounds`` times in a row. The write is atomic, so the target
+    still ends with its own mark."""
 
     def __init__(self, target: str, competitor_marks: list[str]) -> None:
         super().__init__()
         self.target = target
         self.competitors = competitor_marks
+        self.overtaken = 0
 
-    def _overtake(self, key: str, value: str) -> None:
+    async def set_subject_state(
+        self, key: str, value: str, *, ttl_seconds: int | None = None
+    ) -> str:
         # the target writer's value reads as the target instant (a revocation
         # carries its identity past the microsecond)
         reads_as_target = marks._parse_mark_us(value) == marks._parse_mark_us(
@@ -223,36 +253,24 @@ class _OvertakingCache(_AdversarialCache):
         )
         if reads_as_target and self.competitors:
             self.store[key] = self.competitors.pop(0)
-
-    async def add(
-        self, key: str, value: str, *, ttl_seconds: int | None = None
-    ) -> bool:
-        self._overtake(key, value)
-        return await super().add(key, value, ttl_seconds=ttl_seconds)
-
-    async def compare_and_set(
-        self, key: str, expected: str, value: str, *, ttl_seconds: int | None = None
-    ) -> bool:
-        self._overtake(key, value)
-        return await super().compare_and_set(
-            key, expected, value, ttl_seconds=ttl_seconds
-        )
+            self.overtaken += 1
+        return await super().set_subject_state(key, value, ttl_seconds=ttl_seconds)
 
 
 @pytest.mark.parametrize("immediate", [False, True])
 async def test_a_writer_overtaken_many_times_still_records_its_mark(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, immediate: bool
 ) -> None:
-    """Deterministic: 20 lost races in a row (the old loop gave up after 8,
-    leaving the mark BELOW ours and, with ``require_immediate``, refusing the
-    change with 503)."""
+    """Deterministic: a lower competitor lands before the target's write, once
+    per write, 20 times (the old loop gave up after 8, leaving the mark BELOW
+    ours and, with ``require_immediate``, refusing the change with 503)."""
     import sandloom.core.infra.access as access
 
     target_us = marks._seconds_to_us(time.time() + 60)
     target = marks._format_mark(target_us)
     competitors = [marks._format_mark(target_us - 1000 + i) for i in range(20)]
-    cache = _OvertakingCache(target, competitors)
-    monkeypatch.setattr(access, "cache", lambda name="default": cache)
+    store = _OvertakingStore(target, competitors)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": store)
     sub = str(uuid.uuid4())
     valid_after = target_us / 1_000_000
     if immediate:
@@ -261,8 +279,8 @@ async def test_a_writer_overtaken_many_times_still_records_its_mark(
         )
     else:
         assert await revocation.revoke_user_tokens(sub, valid_after=valid_after)
-    assert cache.lost == 20
-    stored = marks._parse_mark_us(cache.store[marks.subject_key(sub)])
+    assert store.overtaken >= 1
+    stored = marks._parse_mark_us(store.store[marks.subject_key(sub)])
     # outside a unit the post-commit re-mark runs at once: one microsecond
     # past the early mark it found covering its own instant
     assert stored == target_us + (1 if immediate else 0)
@@ -274,8 +292,8 @@ async def test_require_immediate_is_not_refused_by_contention(
 ) -> None:
     import sandloom.core.infra.access as access
 
-    cache = _AdversarialCache(5)
-    monkeypatch.setattr(access, "cache", lambda name="default": cache)
+    store = _AdversarialStore(5)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": store)
     sub = str(uuid.uuid4())
     mark_values, order = _marks(30, 5)
     await asyncio.gather(
@@ -286,7 +304,7 @@ async def test_require_immediate_is_not_refused_by_contention(
             for m in order
         )
     )  # would raise RevocationUnavailableError on a lost-race give-up
-    stored = cache.store[marks.subject_key(sub)]
+    stored = store.store[marks.subject_key(sub)]
     assert marks._parse_mark_us(stored) >= marks._seconds_to_us(max(mark_values))
 
 
@@ -402,29 +420,6 @@ async def test_portable_set_max_without_cas_overwrites_unless_strict() -> None:
     with pytest.raises(NotImplementedError):
         await portable_set_max(cache, "k", "7", overwrite_without_cas=False)
     assert cache.store["k"] == "6"
-
-
-@pytest.mark.parametrize("immediate", [False, True])
-async def test_revocation_refuses_a_cache_without_set_max_or_cas(
-    monkeypatch: pytest.MonkeyPatch, immediate: bool
-) -> None:
-    """Rather than risk lowering the mark with a plain SET, the write is
-    refused: ``False`` (retried, then durable) / 503 for ``require_immediate``."""
-    import sandloom.core.infra.access as access
-
-    cache = _NoCasCache()
-    monkeypatch.setattr(access, "cache", lambda name="default": cache)
-    sub = str(uuid.uuid4())
-    key = marks.subject_key(sub)
-    cache.store[key] = marks._format_mark(marks._seconds_to_us(1_000.0))
-    if immediate:
-        with pytest.raises(marks.RevocationUnavailableError):
-            await revocation.revoke_user_tokens_on_commit(
-                sub, reason="x", valid_after=2_000.0, require_immediate=True
-            )
-    else:
-        assert await revocation.revoke_user_tokens(sub, valid_after=2_000.0) is False
-    assert marks._parse_mark_us(cache.store[key]) == marks._seconds_to_us(1_000.0)
 
 
 def _redis_with(client: Any) -> RedisCacheProvider:

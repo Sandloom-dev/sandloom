@@ -10,8 +10,9 @@
 # Labels: queries aggregate `by (job)` so one rule works for the monolith and
 # for every service of the microservices profile. The cache metrics' own
 # `instance` label is scraped as `exported_instance` (honor_labels: false).
-# `exported_instance="security"` matches SECURITY_CACHE_INSTANCE=security
-# (docs/advanced/security-model.md) — rename it if yours differs.
+# `exported_instance="security"` matches the atomic_store instance
+# INFRA.atomic_store.security (docs/advanced/security-model.md); an
+# `idempotency` instance is matched too.
 
 groups:
   - name: sandloom-outbox
@@ -139,20 +140,20 @@ groups:
 
   - name: sandloom-security
     rules:
-      - alert: SandloomSecurityCacheErrors
-        expr: sum by (job, exported_instance) (rate(sandloom_cache_operation_errors_total{exported_instance="security"}[5m])) > 0.1
+      - alert: SandloomSecurityStoreErrors
+        expr: sum by (job, exported_instance) (rate(sandloom_atomic_store_operation_errors_total{exported_instance=~"security|idempotency"}[5m])) > 0.1
         labels:
           severity: page
         annotations:
-          summary: "{{ $labels.job }}: security cache errors {{ $value | humanize }}/s"
+          summary: "{{ $labels.job }}: security store errors {{ $value | humanize }}/s"
           description: >-
-            The Redis holding revocation marks, blocks and idempotency records
-            is unreachable or timing out: authenticated requests answer 503
+            The atomic store holding revocation marks, blocks and idempotency
+            records is unreachable or timing out: authenticated requests answer 503
             (fail-closed) or skip revocation (fail-open).
           runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#redis-cache-timeouts-pool-revocation-cache
 
       - alert: SandloomCacheErrors
-        expr: sum by (job, exported_instance) (rate(sandloom_cache_operation_errors_total{exported_instance!="security"}[5m])) > 0.1
+        expr: sum by (job, exported_instance) (rate(sandloom_cache_operation_errors_total[5m])) > 0.1
         labels:
           severity: warning
         annotations:
@@ -189,7 +190,7 @@ groups:
           severity: page
         annotations:
           summary: "{{ $labels.job }}: the durable revocation applier cannot write marks"
-          description: Revoked tokens may still be accepted. Fix the security cache; the event is redelivered until written.
+          description: Revoked tokens may still be accepted. Fix the security store; the event is redelivered until written.
           runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#secrets-management
 
       - alert: SandloomRevocationImmediateRefused

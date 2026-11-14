@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from typing import Literal, TypeVar, cast
 
-from sandloom.core.config.settings import settings
 from sandloom.core.infra.active import get_active_infra
 from sandloom.core.infra.capabilities import CapabilityRef
 from sandloom.core.infra.contracts import (
@@ -48,57 +47,6 @@ def cache(name: str = "default") -> Cache:
     if not isinstance(provider, CacheProvider):  # pragma: no cover - defensive
         raise TypeError(f"cache instance {name!r} is not a CacheProvider")
     return provider
-
-
-def security_cache_name() -> str:
-    """Name of the cache instance holding security-critical state.
-
-    ``SECURITY_CACHE_INSTANCE`` (default ``default``): access-token revocation
-    marks, emergency user blocks, the RPC replay guard and — unless
-    ``IDEMPOTENCY_CACHE_INSTANCE`` moves them (:func:`idempotency_cache_name`)
-    — idempotency records (``idempotency_guard``, task-enqueue dedupe) live
-    there. Contract COMMANDS are deduped durably in
-    the provider's database (``contract_command_log``); only the cache fallback
-    for a database without that log goes through this instance. Point it at
-    a separate, non-evicting Redis so a best-effort cache filling up
-    (``allkeys-lru``) can never evict a revocation mark or an idempotency
-    reservation — the ``multi_tenant_strict`` production profile requires that.
-    """
-    try:
-        name = getattr(settings, "security_cache_instance", None)
-    except Exception:  # noqa: BLE001 - settings unavailable (static tooling)
-        name = None
-    return str(name) if name else "default"
-
-
-def security_cache() -> CacheProvider:
-    """The ``CacheProvider`` for security-critical state (see above)."""
-    name = security_cache_name()
-    return cast("CacheProvider", cache() if name == "default" else cache(name))
-
-
-def idempotency_cache_name() -> str:
-    """Name of the cache instance holding idempotency records.
-
-    ``IDEMPOTENCY_CACHE_INSTANCE`` when set (opt-in), else the security cache
-    (:func:`security_cache_name`) exactly as before. It holds
-    ``idempotency_guard`` reservations / replays, task-enqueue dedupe records
-    and the cache fallback of contract-command dedupe — never revocation
-    marks or blocks, which stay in the security cache. A separate instance
-    must be as durable as the security one (non-evicting, fsync'd): losing a
-    reservation re-runs a mutation.
-    """
-    try:
-        name = getattr(settings, "idempotency_cache_instance", None)
-    except Exception:  # noqa: BLE001 - settings unavailable (static tooling)
-        name = None
-    return str(name) if name else security_cache_name()
-
-
-def idempotency_cache() -> CacheProvider:
-    """The ``CacheProvider`` for idempotency records (see above)."""
-    name = idempotency_cache_name()
-    return cast("CacheProvider", cache() if name == "default" else cache(name))
 
 
 def notifier(name: str = "default") -> Notifier:
@@ -177,11 +125,7 @@ __all__ = [
     "lease",
     "cache",
     "capability",
-    "idempotency_cache",
-    "idempotency_cache_name",
     "notifier",
     "objectstore",
-    "security_cache",
-    "security_cache_name",
     "taskqueue",
 ]

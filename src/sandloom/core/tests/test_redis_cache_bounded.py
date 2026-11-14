@@ -219,10 +219,13 @@ async def test_revocation_branches_on_hung_redis(
     hung_redis_url: str, monkeypatch: pytest.MonkeyPatch, fail_closed: bool
 ) -> None:
     from sandloom.core.auth import marks, verification
+    from sandloom.core.drivers.redis_atomic_store import RedisAtomicStoreProvider
     from sandloom.core.infra import access
 
-    provider = _provider(hung_redis_url)
-    monkeypatch.setattr(access, "cache", lambda name="default": provider)
+    provider = RedisAtomicStoreProvider(
+        name="bounded", driver="redis", options={"url": hung_redis_url}
+    )
+    monkeypatch.setattr(access, "atomic_store", lambda role: provider)
     monkeypatch.setattr(settings, "auth_revocation_fail_closed", fail_closed)
     claims = {"sub": str(uuid4()), "iat": int(time.time())}
     start = time.monotonic()
@@ -251,12 +254,13 @@ async def test_idempotency_branches_on_hung_redis(
     import httpx
 
     from sandloom.core import idempotency
+    from sandloom.core.drivers.redis_atomic_store import RedisAtomicStoreProvider
     from sandloom.core.idempotency import cache_store as idempotency_cache_store
 
-    provider = _provider(hung_redis_url)
-    monkeypatch.setattr(
-        idempotency_cache_store, "cache", lambda name="default": provider
+    provider = RedisAtomicStoreProvider(
+        name="bounded", driver="redis", options={"url": hung_redis_url}
     )
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: provider)
     app = FastAPI()
 
     @app.post(

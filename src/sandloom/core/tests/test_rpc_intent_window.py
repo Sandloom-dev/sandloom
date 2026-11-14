@@ -27,7 +27,7 @@ from sandloom.core.facade import CoreFacade
 from sandloom.core.idempotency import cache_store as idempotency_cache_store
 from sandloom.core.module_api import contract_method
 from sandloom.core.rpc import proxy as rpc_proxy
-from sandloom.core.testing import InMemoryCache
+from sandloom.core.testing import InMemoryAtomicStore
 from sandloom.core.tests.test_contract_parity import _FakeDatabase
 from sandloom.core.unit_of_work.intent import (
     IntentState,
@@ -70,8 +70,8 @@ class Gate:
 def core(monkeypatch: pytest.MonkeyPatch) -> Iterator[CoreFacade]:
     from sandloom.core.config.settings import settings
 
-    cache = InMemoryCache()
-    monkeypatch.setattr(idempotency_cache_store, "cache", lambda name="default": cache)
+    cache = InMemoryAtomicStore()
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: cache)
     monkeypatch.setattr(rpc_proxy, "_remote_contracts", {})
     for name, value in rpc_settings(_SVC, allowed_calls={_SVC: [CONTRACT]}).items():
         monkeypatch.setattr(settings, name, value)

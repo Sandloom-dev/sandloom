@@ -34,9 +34,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sandloom.core.app_factory.revocation_applier import apply_token_revocation
 from sandloom.core.auth import marks, revocation, tokens, verification
 from sandloom.core.config.settings import settings
-from sandloom.core.infra.contracts import portable_set_max
 from sandloom.core.module_api import bind_contract_session
-from sandloom.core.testing import InMemoryCache, committing_uow, make_user_headers
+from sandloom.core.testing import InMemoryAtomicStore, committing_uow, make_user_headers
 from sandloom.core.testing.fixtures import *  # noqa: F403
 from sandloom_tenancy import events
 from sandloom_tenancy.contracts import MembershipReadContract
@@ -56,11 +55,11 @@ def sessions(db_engine: Any) -> async_sessionmaker[AsyncSession]:
 
 
 @pytest.fixture
-def mem_cache(monkeypatch: pytest.MonkeyPatch) -> InMemoryCache:
+def mem_cache(monkeypatch: pytest.MonkeyPatch) -> InMemoryAtomicStore:
     import sandloom.core.infra.access as access
 
-    fake = InMemoryCache()
-    monkeypatch.setattr(access, "cache", lambda name="default": fake)
+    fake = InMemoryAtomicStore()
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": fake)
     return fake
 
 
@@ -117,7 +116,7 @@ async def _org_with_member(
 # --------------------------------------------------------------------------- #
 async def test_a_crash_after_a_failed_mark_write_is_applied_from_the_outbox(
     sessions: async_sessionmaker[AsyncSession],
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
     fast_retries: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -149,7 +148,7 @@ async def test_a_crash_after_a_failed_mark_write_is_applied_from_the_outbox(
 
 async def test_a_applier_redelivery_while_the_cache_is_still_down(
     sessions: async_sessionmaker[AsyncSession],
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
     fast_retries: None,
 ) -> None:
     sub = uuid.uuid4()
@@ -166,7 +165,7 @@ async def test_a_applier_redelivery_while_the_cache_is_still_down(
 
 async def test_a_immediate_removal_needs_no_applier_after_a_crash(
     sessions: async_sessionmaker[AsyncSession],
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
     fast_retries: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -236,15 +235,30 @@ async def test_b_concurrent_revocations_on_real_redis_keep_the_highest_mark(
     assert highest <= stored_us <= highest + len(mark_values)
 
 
-class _InterleavingCache(InMemoryCache):
-    """Pauses the FIRST writer between its read and its write until the second
-    writer has finished — the race the PORTABLE ``set_max`` (add /
-    compare-and-set loop, drivers without the fused op) must win."""
+async def test_the_cache_fixture_moves_the_implicit_security_store_onto_its_redis(
+    sandloom_core: Any, sandloom_cache: Any
+) -> None:
+    """The development ``security`` store is built from the settings snapshot's
+    cache URL, which names another Redis database than the test ``CACHE_URL``
+    where the shell exports its own (CI). ``sandloom_cache`` moves it along: a
+    mark written through the store is what the test reads back from (and
+    flushes with) the cache."""
+    import sandloom.core.infra.access as access
 
-    async def set_max(
-        self, key: str, value: str, *, ttl_seconds: int | None = None
-    ) -> str:
-        return await portable_set_max(self, key, value, ttl_seconds=ttl_seconds)
+    config = sandloom_core.infra.instance_config("atomic_store", "security")
+    assert config is not None and config.driver == "redis"
+    cache_config = sandloom_core.infra.instance_config("cache")
+    assert cache_config is not None
+    assert config.options["url"] == cache_config.options["url"]
+    key = f"adopt-regression:{uuid.uuid4()}"
+    await access.atomic_store("security").set(key, "v1", ttl_seconds=60)
+    assert await sandloom_cache.get(key) == "v1"
+
+
+class _InterleavingCache(InMemoryAtomicStore):
+    """Pauses the FIRST writer between its read and its write until the second
+    writer has finished — the read-then-write race the store's atomic
+    ``set_subject_state`` must win."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -269,7 +283,7 @@ async def test_b_interleaved_revocations_never_regress(
     import sandloom.core.infra.access as access
 
     cache = _InterleavingCache()
-    monkeypatch.setattr(access, "cache", lambda name="default": cache)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": cache)
     sub = str(uuid.uuid4())
     base = time.time()
     if seed is not None:  # an existing older mark: the CAS (not add) branch
@@ -298,7 +312,7 @@ async def test_b_interleaved_revocations_never_regress(
 
 
 async def test_b_late_applier_after_a_newer_on_commit_revocation(
-    sessions: async_sessionmaker[AsyncSession], mem_cache: InMemoryCache
+    sessions: async_sessionmaker[AsyncSession], mem_cache: InMemoryAtomicStore
 ) -> None:
     """Two revocations of one user commit; the OLDER one's durable event is
     applied last (redelivery): the newer mark stays."""
@@ -571,7 +585,7 @@ async def _accepted_until_rejected(claims: dict[str, Any], deadline: float) -> f
 
 async def test_window_default_path_lasts_until_the_applier_runs(
     sessions: async_sessionmaker[AsyncSession],
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
     fast_retries: None,
 ) -> None:
     """BEFORE (default path): outage during the commit, cache back, applier
@@ -598,7 +612,7 @@ async def test_window_default_path_lasts_until_the_applier_runs(
 
 async def test_window_immediate_path_is_zero_or_the_change_is_refused(
     sessions: async_sessionmaker[AsyncSession],
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
     fast_retries: None,
 ) -> None:
     """AFTER (``require_immediate``, member removal): during the outage the

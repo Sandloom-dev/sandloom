@@ -122,10 +122,10 @@ async def test_contract_waiting_on_callers_row_lock_fails_fast(
     provider: SQLAlchemyDatabaseProvider, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from sandloom.core.idempotency import cache_store as idempotency_cache_store
-    from sandloom.core.testing import InMemoryCache
+    from sandloom.core.testing import InMemoryAtomicStore
 
-    mem = InMemoryCache()
-    monkeypatch.setattr(idempotency_cache_store, "cache", lambda name="default": mem)
+    mem = InMemoryAtomicStore()
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: mem)
     async with provider.engine.begin() as conn:
         await conn.execute(
             text(

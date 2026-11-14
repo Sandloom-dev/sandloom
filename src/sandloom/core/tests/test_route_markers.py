@@ -47,7 +47,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sandloom.core import route_markers
 from sandloom.core.auth import marks, revocation, tokens
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers.redis_cache import RedisCacheProvider
+from sandloom.core.drivers.redis_atomic_store import RedisAtomicStoreProvider
 from sandloom.core.infra import access
 from sandloom.core.route_markers import (
     is_marker,
@@ -460,16 +460,16 @@ def _redis_url() -> str:
 @pytest_asyncio.fixture
 async def redis_cache(
     monkeypatch: pytest.MonkeyPatch,
-) -> AsyncIterator[RedisCacheProvider]:
-    provider = RedisCacheProvider(
-        name="markers", driver="redis", options={"url": _redis_url()}, shared=False
+) -> AsyncIterator[RedisAtomicStoreProvider]:
+    provider = RedisAtomicStoreProvider(
+        name="markers", driver="redis", options={"url": _redis_url()}
     )
     try:
         await asyncio.wait_for(provider.get("sandloom:test:ping"), 5)
     except Exception:  # noqa: BLE001 - test Redis unreachable: skip
         await provider.aclose()
         pytest.skip("test Redis not reachable")
-    monkeypatch.setattr(access, "cache", lambda name="default": provider)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": provider)
     monkeypatch.setattr(settings, "auth_revocation_fail_closed", True)
     yield provider
     await provider.aclose()
@@ -509,7 +509,7 @@ def _statuses(answers: list[Any]) -> dict[str, int]:
 
 
 async def test_differential_strict_budgeted_revoked_blocked(
-    redis_cache: RedisCacheProvider,
+    redis_cache: RedisAtomicStoreProvider,
 ) -> None:
     plain_app, pruned_app = _probe_app(), _pruned_probe()
     calls: list[int] = []

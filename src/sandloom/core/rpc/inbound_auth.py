@@ -322,19 +322,19 @@ _shared_nonce_warned: list[bool] = []
 async def _shared_nonce(
     cfg: Any, provider: str, caller: str, nonce: str, ttl: int
 ) -> None:
-    """``SET NX`` the nonce in the security cache (every replica / worker).
+    """``SET NX`` the nonce in the security store (every replica / worker).
 
-    A repeat is ``rpc_auth_replayed``; a cache outage fails closed in prod
+    A repeat is ``rpc_auth_replayed``; a security store outage fails closed in prod
     (``503 rpc_replay_unavailable``) and open elsewhere (counted, logged once).
     """
 
     try:
-        created = await _access.security_cache().add(
+        created = await _access.atomic_store("security").add(
             rpc_pair_mac.shared_replay_key(provider, caller, nonce),
             "1",
             ttl_seconds=ttl,
         )
-    except Exception as exc:  # any cache failure
+    except Exception as exc:  # any security store failure
         if getattr(cfg, "is_prod", False):
             raise rpc_pair_mac.AuthError(
                 503,

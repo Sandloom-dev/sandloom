@@ -11,6 +11,7 @@ from starlette.testclient import TestClient
 from sandloom.core.config.settings import settings
 from sandloom.core.di import idempotency_guard
 from sandloom.core.http.middlewares import register_middlewares
+from sandloom.core.testing import InMemoryAtomicStore
 
 
 def test_body_size_limit_rejects_oversized(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -58,33 +59,20 @@ def test_docs_exposed_property(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _restore_cache_singleton() -> Any:
-    """Save/restore the driver's default cache client so tests don't leak it."""
-    import sandloom.core.drivers.redis_cache as redis_cache
+    """Save/restore the idempotency store seam so tests don't leak it."""
+    from sandloom.core.idempotency import cache_store
 
-    saved = redis_cache._default_client
+    saved = cache_store.atomic_store
     yield
-    redis_cache._default_client = saved
+    cache_store.atomic_store = saved
 
 
-class _FakeRedis:
-    """Minimal GET / SET NX EX semantics for idempotency tests."""
+class _FakeRedis(InMemoryAtomicStore):
+    """The idempotency ``atomic_store`` double (``_store`` is its dict)."""
 
-    def __init__(self) -> None:
-        self._store: dict[str, str] = {}
-
-    async def get(self, name: str) -> str | None:
-        return self._store.get(name)
-
-    async def set(
-        self, name: str, value: str, nx: bool = False, ex: int | None = None
-    ) -> bool | None:
-        if nx and name in self._store:
-            return None
-        self._store[name] = value
-        return True
-
-    async def delete(self, name: str) -> int:
-        return 1 if self._store.pop(name, None) is not None else 0
+    @property
+    def _store(self) -> dict[str, str]:
+        return self.store
 
 
 def _idempotency_app(fake: _FakeRedis, *, counter: dict[str, int]) -> FastAPI:
@@ -94,11 +82,10 @@ def _idempotency_app(fake: _FakeRedis, *, counter: dict[str, int]) -> FastAPI:
     register_error_handlers(app)
     register_middlewares(app)
 
-    # Inject the fake at the driver's single construction seam: di.cache()'s
-    # default provider returns this client.
-    import sandloom.core.drivers.redis_cache as redis_cache
+    # Inject the fake at the idempotency store's seam.
+    from sandloom.core.idempotency import cache_store
 
-    redis_cache._default_client = fake  # type: ignore[assignment]
+    cache_store.atomic_store = lambda role: fake  # type: ignore[assignment]
 
     @app.post("/charge", dependencies=[Depends(idempotency_guard(scope="charge"))])
     async def _charge() -> dict[str, Any]:
@@ -238,9 +225,9 @@ def test_idempotency_rejects_key_reused_with_different_body() -> None:
     app = FastAPI()
     register_error_handlers(app)
     register_middlewares(app)
-    import sandloom.core.drivers.redis_cache as redis_cache
+    from sandloom.core.idempotency import cache_store
 
-    redis_cache._default_client = fake  # type: ignore[assignment]
+    cache_store.atomic_store = lambda role: fake  # type: ignore[assignment]
 
     @app.post("/op", dependencies=[Depends(idempotency_guard(scope="op"))])
     async def _op(payload: dict[str, Any]) -> dict[str, Any]:
@@ -265,9 +252,9 @@ def test_idempotency_failed_attempt_allows_retry() -> None:
     app = FastAPI()
     register_error_handlers(app)
     register_middlewares(app)
-    import sandloom.core.drivers.redis_cache as redis_cache
+    from sandloom.core.idempotency import cache_store
 
-    redis_cache._default_client = fake  # type: ignore[assignment]
+    cache_store.atomic_store = lambda role: fake  # type: ignore[assignment]
 
     @app.post("/flaky", dependencies=[Depends(idempotency_guard(scope="flaky"))])
     async def _flaky() -> dict[str, str]:
@@ -297,21 +284,35 @@ def test_idempotency_guard_requires_key() -> None:
 
 
 class _TtlRecordingRedis(_FakeRedis):
-    """Records the EX (ttl) used for every SET, keyed by name + state."""
+    """Records the TTL used for every write, keyed by the record's state."""
 
     def __init__(self) -> None:
         super().__init__()
         self.ttls: list[tuple[str, int | None]] = []
 
-    async def set(
-        self, name: str, value: str, nx: bool = False, ex: int | None = None
-    ) -> bool | None:
-        ok = await super().set(name, value, nx=nx, ex=ex)
-        if ok:
-            import json
+    def _note(self, value: str, ttl: int | None) -> None:
+        import json
 
-            state = json.loads(value).get("state")
-            self.ttls.append((state, ex))
+        self.ttls.append((json.loads(value).get("state"), ttl))
+
+    async def add_or_get(
+        self, key: str, value: str, *, ttl_seconds: int | None = None
+    ) -> tuple[bool, str | None]:
+        created, existing = await super().add_or_get(
+            key, value, ttl_seconds=ttl_seconds
+        )
+        if created:
+            self._note(value, ttl_seconds)
+        return created, existing
+
+    async def compare_and_set(
+        self, key: str, expected: str, value: str, *, ttl_seconds: int | None = None
+    ) -> bool:
+        ok = await super().compare_and_set(
+            key, expected, value, ttl_seconds=ttl_seconds
+        )
+        if ok:
+            self._note(value, ttl_seconds)
         return ok
 
 
@@ -336,21 +337,12 @@ def test_idempotency_pending_reservation_uses_short_ttl() -> None:
     assert by_state["succeeded"] == 24 * 60 * 60
 
 
-class _BrokenRedis:
-    """A cache client whose every op fails (simulates an outage)."""
-
-    async def set(self, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError("cache down")
-
-    async def get(self, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError("cache down")
-
-
 def _pay_app(*, fail_closed: bool) -> FastAPI:
     app = FastAPI()
-    import sandloom.core.drivers.redis_cache as redis_cache
+    from sandloom.core.idempotency import cache_store
 
-    redis_cache._default_client = _BrokenRedis()  # type: ignore[assignment]
+    broken = InMemoryAtomicStore(broken=True)
+    cache_store.atomic_store = lambda role: broken  # type: ignore[assignment]
 
     @app.post(
         "/pay",
@@ -384,9 +376,9 @@ def _capture_app(fake: _FakeRedis) -> FastAPI:
     app = FastAPI()
     register_error_handlers(app)
     register_middlewares(app)
-    import sandloom.core.drivers.redis_cache as redis_cache
+    from sandloom.core.idempotency import cache_store
 
-    redis_cache._default_client = fake  # type: ignore[assignment]
+    cache_store.atomic_store = lambda role: fake  # type: ignore[assignment]
     return app
 
 

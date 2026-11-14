@@ -35,9 +35,8 @@ _STRICT = {
     "PRODUCTION_PROFILE": "multi_tenant_strict",
     "INFRA": {
         "database": {"default": {"tenant_rls": True}},
-        "cache": {"security": {"driver": "redis", "url": "redis://sec:6379/0"}},
+        "atomic_store": {"security": {"driver": "redis", "url": "redis://sec:6379/0"}},
     },
-    "SECURITY_CACHE_INSTANCE": "security",
 }
 _PROFILE_ENV: dict[str, dict[str, Any]] = {
     "dev": {"ENVIRONMENT": "dev"},
@@ -58,7 +57,6 @@ SEMANTIC_BASELINE = frozenset(
         "PRODUCTION_PROFILE",
         "TENANCY_MODE",
         "database.tenant_rls",
-        "SECURITY_CACHE_INSTANCE",
         "AUTH_REVOCATION_FAIL_CLOSED",
         "RPC_COMMANDS_REQUIRE_SIGNATURE",
         "RPC_REPLAY_GUARD",
@@ -68,7 +66,7 @@ SEMANTIC_BASELINE = frozenset(
         "SMTP_USE_TLS",
     }
 )
-SEMANTIC_BASELINE_COUNT = 12
+SEMANTIC_BASELINE_COUNT = 11
 #: Total semantic settings (baseline + ADR-argued). Only goes down.
 SEMANTIC_COUNT_CEILING = 14
 

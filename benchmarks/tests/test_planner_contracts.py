@@ -138,7 +138,9 @@ CASES = [
 
 
 @pytest.mark.parametrize("s5", ["plan", "planopt"], indirect=True)
-async def test_planned_contract_conforms_local_vs_rpc(s5: S5, sandloom_core: Any) -> None:
+async def test_planned_contract_conforms_local_vs_rpc(
+    s5: S5, sandloom_core: Any
+) -> None:
     planned, _ = _register(sandloom_core)
     await assert_contract_conformance(
         sandloom_core,
@@ -157,7 +159,10 @@ async def test_planned_contract_answers_like_the_uow_contract(
     s5: S5, sandloom_core: Any
 ) -> None:
     planned_name, uow_name = _register(sandloom_core)
-    planned, uow = sandloom_core.get_service(planned_name), sandloom_core.get_service(uow_name)
+    planned, uow = (
+        sandloom_core.get_service(planned_name),
+        sandloom_core.get_service(uow_name),
+    )
     for tenant, item in ((A, A_ID), (A, B_ID), (B, B_ID), (B, A_ID)):
         with bind_tenant(tenant):
             assert await planned.get(item) == await uow.get(item)
@@ -180,7 +185,7 @@ async def test_planned_contract_reads_use_the_contract_pool(
     planned_name, _ = _register(sandloom_core)
     planned = sandloom_core.get_service(planned_name)
     provider = sandloom_core.database("default")
-    contract_adapter = provider.contract_execution_adapter()
+    contract_adapter = provider.planner_adapter(contract=True)
     assert contract_adapter.engine is not provider.engine
     seen: list[str] = []
 
@@ -223,7 +228,9 @@ class _Flaky(httpx.AsyncBaseTransport):
         return await self._inner.handle_async_request(request)
 
 
-def _remote(sandloom_core: Any, name: str, failures: list[Exception], caller: Any = None):
+def _remote(
+    sandloom_core: Any, name: str, failures: list[Exception], caller: Any = None
+):
     """A proxy to ``name`` served in-process; ``caller`` = the caller's
     settings (default: the process settings, keyed as :data:`SVC`).
 
@@ -238,7 +245,9 @@ def _remote(sandloom_core: Any, name: str, failures: list[Exception], caller: An
     app.state.core = sandloom_core
     app.include_router(rpc.rpc_router(sandloom_core))
     transport = _Flaky(app, failures)
-    client = httpx.AsyncClient(transport=transport, base_url="http://sandloom-conformance")
+    client = httpx.AsyncClient(
+        transport=transport, base_url="http://sandloom-conformance"
+    )
     proxy = rpc.RemoteServiceProxy(
         service_name=name,
         binding={"base_url": "http://sandloom-conformance", "service_id": SVC},

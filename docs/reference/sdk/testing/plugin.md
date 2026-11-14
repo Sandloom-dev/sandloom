@@ -226,11 +226,12 @@ def sandloom_cache(sandloom_core: Any) -> AsyncIterator[Any]
 The app's `default` cache on the test `CACHE_URL`, emptied first.
 
 Yields the `CacheProvider` the app itself resolves (`core.cache()`,
-idempotency, rate limits, token revocation). The Redis database is
-FLUSHDB'd before the test so keys never leak between tests — so
-`CACHE_URL` must name a disposable test database. Also needed where the
-app was imported before `.env.test` was loaded (its settings snapshot
-names another cache), as in the framework's own suite.
+rate limits). The Redis database is FLUSHDB'd before the test so keys
+never leak between tests — so `CACHE_URL` must name a disposable test
+database. Also needed where the app was imported before `.env.test` was
+loaded (its settings snapshot names another cache), as in the framework's
+own suite. The implicit development `security` store (revocation marks,
+blocks, idempotency) follows it onto the same database.
 
 ### `sandloom_core`
 

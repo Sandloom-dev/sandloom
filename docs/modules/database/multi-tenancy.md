@@ -245,7 +245,7 @@ for the exact guarantees, residual risks and the architectural options.
 `PRODUCTION_PROFILE=multi_tenant_strict` (production only) makes the trust
 model non-optional: `tenant_rls` and role verification on every database, the
 tenant policy on every `TenantScoped` table (a startup check), fail-closed
-revocation, `SECURITY_CACHE_INSTANCE` on a separate Redis, and the contract
+revocation, `INFRA.atomic_store.security` on a separate Redis, and the contract
 compatibility check when split. See
 [the security model](../../advanced/security-model.md).
 
