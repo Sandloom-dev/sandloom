@@ -2987,6 +2987,9 @@
       "kind": "function",
       "signature": "(data:POSITIONAL_OR_KEYWORD|ObjectContent, chunk_size:POSITIONAL_OR_KEYWORD|int) -> AsyncIterator[bytes]"
     },
+    "observe": {
+      "kind": "value"
+    },
     "register_dbapi_adapter": {
       "kind": "function",
       "signature": "(adapter:POSITIONAL_OR_KEYWORD|DbapiAdapter) -> None"

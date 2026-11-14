@@ -18,7 +18,10 @@ refused at load (SANDLOOM-B022). An operation raises only the errors of
 :mod:`sandloom.core.infra.errors` (:class:`InfraError` and its subclasses,
 re-exported here), mapping its backend's errors onto them. The kernel-facing
 contracts a driver package serves (``atomic_store``, ``lease``, ``broadcast``)
-are exported with their value types; a module never resolves them.
+are exported with their value types; a module never resolves them. A driver
+records metrics through :data:`observe` (``counter``, ``histogram``), which
+registers them in the kernel's registry: a driver imports no kernel setting
+and no ``prometheus_client`` registry (:mod:`sandloom.driverkit.metrics`).
 Guide: ``docs/infrastructure/write-a-driver.md``.
 """
 
@@ -50,6 +53,7 @@ from sandloom.core.infra.ports.objectstore import (
     iter_object_chunks,
     validate_object_key,
 )
+from sandloom.core.observability.driver_metrics import observe
 from sandloom.core.sql_alchemy.dbapi import (
     DBAPI_CAPABILITIES,
     DbapiAdapter,
@@ -98,6 +102,7 @@ __all__ = [
     "ObjectContent",
     "ObjectStoreProvider",
     "iter_object_chunks",
+    "observe",
     "validate_object_key",
     "register_dbapi_adapter",
 ]

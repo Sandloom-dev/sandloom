@@ -190,6 +190,15 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
 SQLALCHEMY_SQL_DIALECTS = frozenset({"postgresql", "sqlite"})
 
 
+def volatile_event_bus_allowed() -> bool:
+    """Whether a volatile event bus (``memory``, ``redis``) may be built: not
+    in production unless the risk ``volatile_event_bus`` is accepted. The
+    kernel's policy, handed to the event bus drivers (they read no setting)."""
+    return not _default_settings.is_prod or _default_settings.accepts_risk(
+        "volatile_event_bus"
+    )
+
+
 def _event_bus_build(
     schema_registry: SchemaRegistryContract, driver: str
 ) -> DriverFactory:
@@ -202,7 +211,7 @@ def _event_bus_build(
             "sandloom.core.drivers.event_bus_driver"
         )
         factory: DriverFactory = event_bus_driver.make_event_bus_drivers(
-            schema_registry
+            schema_registry, volatile_allowed=volatile_event_bus_allowed
         )[driver]
         return factory(cfg)
 
@@ -321,6 +330,7 @@ __all__ = [
     "SQLALCHEMY_SQL_DIALECTS",
     "register_builtin_drivers",
     "build_infra_registry",
+    "volatile_event_bus_allowed",
     "close_default_cache",
     "close_default_database",
 ]

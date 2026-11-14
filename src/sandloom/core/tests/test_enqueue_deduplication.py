@@ -1,3 +1,6 @@
+"""Enqueue dedupe (G-TASK-03) in the kernel's taskqueue layer above the
+celery driver: the layer reserves the job id, the driver only publishes."""
+
 from __future__ import annotations
 
 import asyncio
@@ -13,7 +16,9 @@ from sandloom.core.di import (
     TaskEnqueueUncertain,
 )
 from sandloom.core.drivers.celery_taskqueue import CeleryTaskQueueProvider
+from sandloom.core.infra.errors import InvalidArgument, Unsupported
 from sandloom.core.tasks import enqueue
+from sandloom.core.tasks.queue import KernelTaskQueue
 from sandloom.core.testing import InMemoryCache
 from sandloom.core.testing.workers import worker_env_values
 
@@ -29,8 +34,18 @@ def queue(monkeypatch: pytest.MonkeyPatch):
     provider = CeleryTaskQueueProvider(
         name="probe", driver="celery", options={}, app=app
     )
-    yield provider, app, store
+    yield _Layered(provider), app, store
     app.close()
+
+
+class _Layered(KernelTaskQueue):
+    """The kernel layer, with the provider's options reachable for a test."""
+
+    __slots__ = ()
+
+    @property
+    def options(self) -> dict[str, object]:
+        return self._provider.options  # type: ignore[return-value]
 
 
 async def test_successful_retries_publish_one_real_message(queue) -> None:
@@ -51,9 +66,8 @@ async def test_invalid_serializer_payload_never_leaves_pending_reservation(
     queue,
 ) -> None:
     provider, app, _store = queue
-    from kombu.exceptions import EncodeError
 
-    with pytest.raises(EncodeError):
+    with pytest.raises(InvalidArgument):
         await provider.enqueue(
             "probe.task", {"bad": object()}, idempotency_key="invalid-key"
         )
@@ -122,10 +136,11 @@ async def test_unserializable_payload_releases_the_reservation(queue) -> None:
     from kombu.exceptions import EncodeError
 
     provider, app, _store = queue
-    with pytest.raises(EncodeError):
+    with pytest.raises(InvalidArgument) as error:
         await provider.enqueue("probe.task", {"x": {1, 2}}, idempotency_key="key")
+    assert isinstance(error.value.__cause__, EncodeError)
     # Before: the key stayed "pending" -> every retry 503 task_enqueue_uncertain.
-    with pytest.raises(EncodeError):
+    with pytest.raises(InvalidArgument):
         await provider.enqueue("probe.task", {"x": {1, 2}}, idempotency_key="key")
     task_id = await provider.enqueue("probe.task", {"x": [1, 2]}, idempotency_key="key")
     assert task_id
@@ -145,8 +160,9 @@ async def test_deterministic_send_error_releases_the_reservation(
         raise NotRegistered("probe.task")
 
     monkeypatch.setattr(app, "send_task", unknown)
-    with pytest.raises(NotRegistered):
+    with pytest.raises(InvalidArgument) as error:
         await provider.enqueue("probe.task", {"x": 1}, idempotency_key="key")
+    assert isinstance(error.value.__cause__, NotRegistered)
     monkeypatch.setattr(app, "send_task", original)
     assert await provider.enqueue("probe.task", {"x": 1}, idempotency_key="key")
 
@@ -258,3 +274,65 @@ async def test_replay_window_expires_on_real_redis(queue, monkeypatch) -> None:
             assert conn.SimpleQueue(app.conf.task_default_queue).qsize() == 2
     finally:
         await store.aclose()
+
+
+async def test_the_driver_refuses_a_key_it_cannot_dedupe(queue) -> None:
+    """A caller that bypasses the kernel layer never publishes undeduplicated."""
+    layered, app, _ = queue
+    provider = layered._provider
+    with pytest.raises(InvalidArgument, match="kernel's taskqueue layer"):
+        await provider.enqueue("probe.task", {"x": 1}, idempotency_key="key")
+    with app.connection_for_read() as conn:
+        assert conn.SimpleQueue(app.conf.task_default_queue).qsize() == 0
+
+
+async def test_a_driver_without_the_feature_is_refused_before_reserving(
+    queue, monkeypatch
+) -> None:
+    layered, _, store = queue
+    monkeypatch.setattr(layered._provider, "features", lambda: frozenset({"delay"}))
+    with pytest.raises(Unsupported):
+        await layered.enqueue("probe.task", {}, idempotency_key="key")
+    assert store.store == {}  # nothing reserved
+
+
+async def test_an_ambiguous_driver_error_keeps_the_key_pending(
+    queue, monkeypatch
+) -> None:
+    """Unavailable / Timeout (8.2) may have published: the key stays pending."""
+    from sandloom.core.infra.errors import Timeout, Unavailable
+
+    layered, _, _ = queue
+    for error in (Unavailable, Timeout):
+
+        async def maybe_sent(*_args, _error=error, **_kwargs):
+            raise _error("lost", capability="taskqueue")
+
+        monkeypatch.setattr(layered._provider, "enqueue", maybe_sent)
+        key = f"key-{error.__name__}"
+        for _ in range(2):
+            with pytest.raises(TaskEnqueueUncertain):
+                await layered.enqueue("probe.task", {}, idempotency_key=key)
+
+
+async def test_too_large_releases_the_reservation(queue, monkeypatch) -> None:
+    from sandloom.core.infra.errors import TooLarge
+
+    layered, _, _ = queue
+    original = layered._provider.enqueue
+
+    async def too_large(*_args, **_kwargs):
+        raise TooLarge("payload over the broker's limit", capability="taskqueue")
+
+    monkeypatch.setattr(layered._provider, "enqueue", too_large)
+    with pytest.raises(TooLarge):
+        await layered.enqueue("probe.task", {}, idempotency_key="key")
+    monkeypatch.setattr(layered._provider, "enqueue", original)
+    assert await layered.enqueue("probe.task", {}, idempotency_key="key")
+
+
+async def test_a_payload_without_canonical_form_reserves_nothing(queue) -> None:
+    layered, _, store = queue
+    with pytest.raises(InvalidArgument, match="canonical form"):
+        await layered.enqueue("probe.task", {"bad": object()}, idempotency_key="key")
+    assert store.store == {}

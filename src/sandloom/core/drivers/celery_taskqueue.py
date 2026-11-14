@@ -6,6 +6,14 @@ Celery app from ``options['broker']`` / ``options['backend']``. The kernel only
 depends on the abstract :class:`TaskQueueProvider` — modules never import Celery
 directly. The framework worker (``sandloom.core.worker``) consumes the SAME app,
 resolved through the registry, so enqueue and execution share one namespace.
+
+The driver reads no kernel setting (the kernel fills ``broker`` and
+``backend`` from ``BROKER_URL`` / ``CACHE_URL``) and only publishes: enqueue
+dedupe (``idempotency_key``) is the kernel's taskqueue layer
+(:mod:`sandloom.core.tasks.queue`), which reserves a job id and hands it to
+:meth:`CeleryTaskQueueProvider.enqueue` as ``task_id``. A failure that provably
+published nothing is :class:`InvalidArgument`; anything else may have reached
+the broker and propagates unchanged.
 """
 
 from __future__ import annotations
@@ -17,17 +25,14 @@ from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from typing import Any, Self, cast
-from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.drivers.celery_broker_probe import probe_broker
-from sandloom.core.effects import RECORD_TTL_SECONDS
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.core.infra.contracts import TaskQueueProvider
-from sandloom.core.tasks.enqueue import TaskNotSent, enqueue_once
+from sandloom.core.infra.errors import InvalidArgument
 
 #: Features the Celery task-queue driver supports. ``periodic``: the worker
 #: connects each loaded module's beat hook and one beat per broker and module
@@ -40,7 +45,9 @@ class CeleryTaskQueueOptions(BaseModel):
     """Config-shape schema for the ``celery`` task-queue driver.
 
     The driver reads ``broker`` (message broker URL) and ``backend`` (result
-    backend URL); both are optional (default to ``BROKER_URL`` / ``CACHE_URL``).
+    backend URL); the kernel fills both from ``BROKER_URL`` / ``CACHE_URL``
+    when the configuration leaves them out. ``dedupe_ttl_seconds`` is the
+    replay window of the kernel's enqueue dedupe for this instance.
     ``extra="forbid"`` rejects a typo'd key at startup.
     """
 
@@ -48,11 +55,15 @@ class CeleryTaskQueueOptions(BaseModel):
 
     broker: str | None = None
     backend: str | None = None
-    dedupe_ttl_seconds: int = Field(default=RECORD_TTL_SECONDS, ge=1, le=604800)
+    #: The kernel's record TTL (``RECORD_TTL_SECONDS``, one day), written out:
+    #: the driver imports no kernel module (test_replay_limits keeps them equal).
+    dedupe_ttl_seconds: int = Field(default=24 * 60 * 60, ge=1, le=604800)
 
 
-#: Process-wide ``default`` Celery app, built lazily from settings.
+#: Process-wide ``default`` Celery app, built lazily from the ``default``
+#: instance's options, and the ``(broker, backend)`` it was built from.
 _default_app: Any | None = None
+_default_app_urls: tuple[str, str | None] | None = None
 #: Threads that run the blocking broker publish of ``enqueue``.
 ENQUEUE_EXECUTOR_THREADS = 4
 _executor: ThreadPoolExecutor | None = None
@@ -83,15 +94,17 @@ def _apply_framework_defaults(app: Any) -> Any:
     return app
 
 
-def get_default_app() -> Any:
-    """Return the process-wide ``default`` Celery app (built once)."""
-    global _default_app
+def get_default_app(broker: str, backend: str | None) -> Any:
+    """Return the process-wide ``default`` Celery app (built once, from the
+    ``default`` instance's ``broker`` and ``backend``)."""
+    global _default_app, _default_app_urls
     if _default_app is None:
         from celery import Celery  # local import: optional heavy dependency  # noqa: PLC0415 - cold: Celery is imported only by the worker and the celery taskqueue driver
 
         _default_app = _apply_framework_defaults(
-            Celery("project", broker=settings.broker_url, backend=settings.cache_url)
+            Celery("project", broker=broker, backend=backend)
         )
+        _default_app_urls = (broker, backend)
     return _default_app
 
 
@@ -126,45 +139,35 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         *,
         delay_seconds: int | None = None,
         idempotency_key: str | None = None,
+        task_id: str | None = None,
     ) -> str:
-        payload = deepcopy(dict(payload))
-        # A serializer error is a definite pre-send failure. Detect it before
-        # enqueue_once reserves a durable "possibly sent" key; that reservation
-        # must be retained only for genuinely ambiguous broker failures.
-        from kombu.serialization import dumps  # type: ignore[import-untyped]  # noqa: PLC0415 - cold: Celery is imported only by the worker and the celery taskqueue driver
+        """Publish ``task`` once, under ``task_id`` when given (the broker's
+        job id; the kernel's taskqueue layer reserves it).
 
-        serializer = (
-            getattr(getattr(self._app, "conf", None), "task_serializer", None) or "json"
-        )
-        dumps(payload, serializer=serializer)
+        ``idempotency_key`` is served by the kernel's taskqueue layer, never
+        by the driver: passed here directly it is refused with
+        :class:`InvalidArgument` before anything is sent, so a caller that
+        bypasses the layer never publishes without the dedupe it asked for.
+        A failure that provably published nothing (the kwargs cannot be
+        encoded, the task is unknown) is :class:`InvalidArgument`; anything
+        else (connection drop, timeout, lost ack) may have reached the broker
+        and propagates unchanged.
+        """
         if idempotency_key is not None:
-            options = CeleryTaskQueueOptions.model_validate(self.options)
-            broker = urlsplit(options.broker or settings.broker_url)
-            # Credential rotation must not open a new dedupe namespace.
-            namespace = repr(
-                (self.name, broker.scheme, broker.hostname, broker.port, broker.path)
+            raise InvalidArgument(
+                "idempotency_key is served by the kernel's taskqueue layer "
+                "(sandloom.sdk.infra.taskqueue()), not by the driver",
+                capability="taskqueue",
+                instance=self.name,
             )
-            return await enqueue_once(
-                namespace=namespace,
-                key=idempotency_key,
-                task=task,
-                payload=payload,
-                delay_seconds=delay_seconds,
-                ttl_seconds=options.dedupe_ttl_seconds,
-                send=lambda task_id: self._send(
-                    task, payload, delay_seconds, task_id, classify=True
-                ),
-            )
-        return await self._send(task, payload, delay_seconds, None)
+        return await self._send(task, deepcopy(dict(payload)), delay_seconds, task_id)
 
     async def _send(
         self,
         task: str,
-        payload: Mapping[str, Any],
+        payload: dict[str, Any],
         delay_seconds: int | None,
         task_id: str | None,
-        *,
-        classify: bool = False,
     ) -> str:
         # send_task is a synchronous broker round-trip; offload it so the event
         # loop is never blocked on network I/O — on a small dedicated executor
@@ -176,27 +179,25 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         send = functools.partial(
             self._app.send_task,
             task,
-            kwargs=dict(payload),
+            kwargs=payload,
             countdown=delay_seconds,
             task_id=task_id,
             ignore_result=True,
             retry=False,
         )
-        if classify:
-            send = functools.partial(self._send_classified, send, dict(payload))
         result = await asyncio.get_running_loop().run_in_executor(
-            _enqueue_executor(), send
+            _enqueue_executor(), functools.partial(self._send_classified, send, payload)
         )
         return str(getattr(result, "id", result))
 
     def _send_classified(self, send: Any, kwargs: dict[str, Any]) -> Any:
-        """``send`` with provably pre-broker failures raised as TaskNotSent.
+        """``send`` with provably pre-broker failures raised as InvalidArgument.
 
         The kwargs are encoded with the app's task serializer first (what
         kombu does before any network write); kombu's own encode errors and
         an unknown task from ``send_task`` are pre-broker too. Everything else
         (connection drop, timeout, lost ack, any I/O error) may have reached
-        the broker and propagates unchanged — the caller keeps the dedupe key
+        the broker and propagates unchanged — the kernel keeps the dedupe key
         pending.
         """
         from celery.exceptions import NotRegistered  # noqa: PLC0415 - cold: Celery is imported only by the worker and the celery taskqueue driver
@@ -204,17 +205,27 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
             ContentDisallowed,
             EncodeError,
         )
-        from kombu.serialization import dumps  # noqa: PLC0415 - cold: Celery is imported only by the worker and the celery taskqueue driver
+        from kombu.serialization import dumps  # type: ignore[import-untyped]  # noqa: PLC0415 - cold: Celery is imported only by the worker and the celery taskqueue driver
 
-        serializer = str(self._app.conf.task_serializer or "json")
+        serializer = str(
+            getattr(getattr(self._app, "conf", None), "task_serializer", None) or "json"
+        )
         try:
             dumps(kwargs, serializer=serializer)
         except Exception as exc:  # nothing was sent
-            raise TaskNotSent(f"task kwargs cannot be encoded: {exc}") from exc
+            raise InvalidArgument(
+                f"task kwargs cannot be encoded ({type(exc).__name__})",
+                capability="taskqueue",
+                instance=self.name,
+            ) from exc
         try:
             return send()
         except (EncodeError, ContentDisallowed, NotRegistered) as exc:
-            raise TaskNotSent(f"{type(exc).__name__}: {exc}") from exc
+            raise InvalidArgument(
+                f"task not published ({type(exc).__name__})",
+                capability="taskqueue",
+                instance=self.name,
+            ) from exc
 
     async def health(self) -> HealthResult:
         """One bounded connection to this instance's broker
@@ -228,16 +239,25 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
 
 
 def create_celery_taskqueue(cfg: InstanceConfig) -> CeleryTaskQueueProvider:
-    """Driver factory for ``taskqueue`` capability / ``celery`` driver."""
-    broker = str(cfg.options.get("broker") or settings.broker_url)
-    backend = str(cfg.options.get("backend") or settings.cache_url)
+    """Driver factory for ``taskqueue`` capability / ``celery`` driver.
 
-    if (
-        cfg.name == DEFAULT_INSTANCE
-        and broker == settings.broker_url
-        and backend == settings.cache_url
+    The ``default`` instance uses the process-wide default app (built from its
+    options the first time); a named instance, or a ``default`` one whose
+    broker or backend differ from the default app's, builds its own.
+    """
+    options = CeleryTaskQueueOptions.model_validate(cfg.options)
+    if not options.broker:
+        raise ValueError(
+            f"celery taskqueue instance {cfg.name!r} needs the 'broker' option "
+            "(the kernel fills it from BROKER_URL)"
+        )
+    # No backend: no result backend (the framework stores no task result).
+    broker, backend = options.broker, options.backend
+
+    if cfg.name == DEFAULT_INSTANCE and (
+        _default_app is None or _default_app_urls == (broker, backend)
     ):
-        app = get_default_app()
+        app = get_default_app(broker, backend)
     else:
         from celery import Celery  # local import: optional heavy dependency  # noqa: PLC0415 - cold: Celery is imported only by the worker and the celery taskqueue driver
 

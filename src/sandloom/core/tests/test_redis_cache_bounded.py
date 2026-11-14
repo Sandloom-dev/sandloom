@@ -26,7 +26,7 @@ from fastapi import Depends, FastAPI, HTTPException
 
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers import redis_cache
-from sandloom.core.drivers.redis_cache import RedisCacheProvider
+from sandloom.core.drivers.redis_cache import RedisCacheOptions, RedisCacheProvider
 
 #: Generous wall-clock bound (the configured timeout is 0.5s): a regression to
 #: an unbounded client hangs until the outer ``wait_for`` guard instead.
@@ -82,7 +82,15 @@ async def _elapsed_raise(coro: Any) -> tuple[float, BaseException]:
 # Client construction
 # --------------------------------------------------------------------------- #
 def test_client_is_bounded() -> None:
-    client = redis_cache._build_client("redis://127.0.0.1:6399/0")
+    """The kernel fills the bounds from the CACHE_* settings into the
+    instance's options; the driver builds its client from them."""
+    from sandloom.core.infra.config import load_infra_config
+
+    filled = load_infra_config(settings)["cache"]["default"].options
+    options = RedisCacheOptions.model_validate(
+        {**filled, "url": "redis://127.0.0.1:6399/0"}
+    )
+    client = redis_cache._build_client(options)
     pool = client.connection_pool
     kwargs = pool.connection_kwargs
     assert type(pool).__name__ == "BlockingConnectionPool"
@@ -112,7 +120,12 @@ async def test_transport_client_has_no_read_timeout(
     monkeypatch.setattr(redis_cache, "_default_client", None)
     monkeypatch.setattr(redis_cache, "_default_client_origin", None)
     monkeypatch.setattr(redis_cache, "_default_transport", {})
-    monkeypatch.setattr(redis_cache.settings, "cache_url", "redis://127.0.0.1:6399/0")
+    monkeypatch.setattr(redis_cache, "_default_built_from", None)
+    monkeypatch.setattr(
+        redis_cache,
+        "_default_options",
+        RedisCacheOptions(url="redis://127.0.0.1:6399/0"),
+    )
     try:
         main = await redis_cache.get_default_client()
         transport = await redis_cache.get_default_transport_client()
@@ -395,14 +408,17 @@ async def test_concurrent_transport_rebuild_after_loop_change_builds_one(
         return client
 
     old_main, old_transport = _Client(), _Client()
+    options = RedisCacheOptions(url="redis://127.0.0.1:6399/0")
     monkeypatch.setattr(redis_cache, "_build_client", _build)
     monkeypatch.setattr(redis_cache, "build_transport_client", _build)
+    monkeypatch.setattr(redis_cache, "_default_options", options)
+    monkeypatch.setattr(redis_cache, "_default_built_from", options)
     monkeypatch.setattr(redis_cache, "_default_client", old_main)
     monkeypatch.setattr(
         redis_cache, "_default_client_origin", (old_main, object())
     )  # built on another (gone) loop
     monkeypatch.setattr(
-        redis_cache, "_default_transport", {None: (old_main, old_transport)}
+        redis_cache, "_default_transport", {(None, options): (old_main, old_transport)}
     )
     first, second = await asyncio.gather(
         redis_cache.get_default_transport_client(),

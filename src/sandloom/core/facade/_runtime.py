@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from sandloom.core.config.settings import Settings
+from sandloom.core.tasks.queue import KernelTaskQueue
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.core.claims import SealedClaims
@@ -92,7 +93,9 @@ class CoreRuntime:
         return self._facade.objectstore(name)
 
     def taskqueue(self, name: str = "default") -> Any:
-        return self._facade.taskqueue(name)
+        # Module code enqueues through the kernel's layer (enqueue dedupe),
+        # never on the driver.
+        return KernelTaskQueue(self._facade.taskqueue(name))
 
     def notifier(self, name: str = "default") -> Any:
         return self._facade.notifier(name)

@@ -55,7 +55,6 @@ from sandloom.core.infra.access import (
     capability,
     notifier,
     objectstore,
-    taskqueue,
 )
 from sandloom.core.infra.capabilities import CapabilityRef
 from sandloom.core.infra.contracts import (
@@ -90,6 +89,7 @@ from sandloom.core.tasks.enqueue import (
     TaskEnqueueUnavailable,
     TaskEnqueueUncertain,
 )
+from sandloom.core.tasks.queue import taskqueue
 from sandloom.core.tenant import (
     MissingTenantError,
     TenantMismatchError,

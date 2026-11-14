@@ -42,15 +42,23 @@ class _FakeClient:
 def fake_redis(monkeypatch: pytest.MonkeyPatch) -> list[_FakeClient]:
     built: list[_FakeClient] = []
 
-    def _build(url: str) -> _FakeClient:
+    def _build(options: redis_cache.RedisCacheOptions) -> _FakeClient:
         client = _FakeClient()
         built.append(client)
         return client
 
     monkeypatch.setattr(redis_cache, "_build_client", _build)
+    _fresh_default(monkeypatch, "redis://example.invalid/0")
+    return built
+
+
+def _fresh_default(monkeypatch: pytest.MonkeyPatch, url: str) -> None:
     monkeypatch.setattr(redis_cache, "_default_client", None)
     monkeypatch.setattr(redis_cache, "_default_client_origin", None)
-    return built
+    monkeypatch.setattr(redis_cache, "_default_built_from", None)
+    monkeypatch.setattr(
+        redis_cache, "_default_options", redis_cache.RedisCacheOptions(url=url)
+    )
 
 
 def test_default_client_is_rebuilt_on_a_new_loop(fake_redis: list[_FakeClient]) -> None:
@@ -114,9 +122,7 @@ def test_real_redis_client_survives_two_loops(monkeypatch: pytest.MonkeyPatch) -
     url = _test_cache_url()
     if not url:
         pytest.skip("no test CACHE_URL configured")
-    monkeypatch.setattr(redis_cache.settings, "cache_url", url)
-    monkeypatch.setattr(redis_cache, "_default_client", None)
-    monkeypatch.setattr(redis_cache, "_default_client_origin", None)
+    _fresh_default(monkeypatch, url)
 
     async def roundtrip() -> None:
         client = await redis_cache.get_default_client()

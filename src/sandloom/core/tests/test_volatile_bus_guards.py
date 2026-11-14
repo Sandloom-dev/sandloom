@@ -12,6 +12,7 @@ from sandloom.core.consumers.callbacks import (
     VolatileBusError,
     subscribe_to_bus,
 )
+from sandloom.core.drivers.bootstrap import volatile_event_bus_allowed
 from sandloom.core.drivers.event_bus_driver import make_event_bus_drivers
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.eventing.pubsub_bus import RedisEventBus
@@ -67,7 +68,9 @@ async def test_memory_bus_allowed_in_dev_refused_in_prod(
 
 
 def test_driver_refuses_volatile_bus_in_prod(monkeypatch: pytest.MonkeyPatch) -> None:
-    drivers = make_event_bus_drivers(InMemorySchemaRegistry())
+    drivers = make_event_bus_drivers(
+        InMemorySchemaRegistry(), volatile_allowed=volatile_event_bus_allowed
+    )
     monkeypatch.setattr(settings, "environment", Environment.prod)
     for driver in ("memory", "redis"):
         cfg = InstanceConfig(capability="eventbus", name="side", driver=driver)

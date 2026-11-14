@@ -166,9 +166,9 @@ def _synthesize_defaults(settings: Settings) -> InfraConfig:
                 capability="eventbus",
                 name=DEFAULT_INSTANCE,
                 driver=eventbus_driver,
-                # No url: the redis/streams drivers then share the bounded
-                # default transport client on CACHE_URL (a url would make them
-                # build a private client). A named instance may set its own.
+                # fill_driver_defaults gives a redis/streams default bus the
+                # url CACHE_URL; the default bus shares the bounded default
+                # transport client on it. A named instance may set its own.
                 options={},
             )
         },
@@ -277,14 +277,75 @@ def eventbus_driver(settings: Any, instance: str = DEFAULT_INSTANCE) -> str | No
     return found.driver if found is not None else None
 
 
+#: ``option -> setting``: the bounds of a ``redis`` cache client, filled from
+#: the ``CACHE_*`` settings when an instance leaves them out.
+_REDIS_CLIENT_SETTINGS: dict[str, str] = {
+    "socket_timeout_seconds": "cache_socket_timeout_seconds",
+    "socket_connect_timeout_seconds": "cache_socket_connect_timeout_seconds",
+    "health_check_interval_seconds": "cache_health_check_interval_seconds",
+    "max_connections": "cache_max_connections",
+    "pool_timeout_seconds": "cache_pool_timeout_seconds",
+    "retry_attempts": "cache_retry_attempts",
+}
+
+#: ``option -> setting``: the bounds of a ``redis`` / ``streams`` event bus
+#: client (its read timeout is the bus's own).
+_TRANSPORT_CLIENT_SETTINGS: dict[str, str] = {
+    "socket_connect_timeout_seconds": "cache_socket_connect_timeout_seconds",
+    "health_check_interval_seconds": "cache_health_check_interval_seconds",
+}
+
+
+def _fill(options: dict[str, Any], settings: Any, table: Mapping[str, str]) -> None:
+    for option, setting in table.items():
+        value = getattr(settings, setting, None)
+        if value is not None:
+            options.setdefault(option, value)
+
+
+def _fill_url(options: dict[str, Any], key: str, value: Any) -> None:
+    if not options.get(key) and value:
+        options[key] = value
+
+
+def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
+    """Fill the options the built-in drivers read from the flat settings.
+
+    A driver reads no kernel setting (ADR-0016): what it used to take from
+    ``CACHE_URL``, ``BROKER_URL`` and the ``CACHE_*`` client bounds, the
+    kernel puts into its instance's options when the configuration leaves
+    them out, so the drivers behave as before. ``redis`` caches get ``url``
+    and the client bounds; ``redis`` / ``streams`` event buses the connect
+    timeout and health-check interval, and the ``default`` one ``url`` too
+    (a named bus without one shares the default transport); ``celery`` task
+    queues ``broker`` and ``backend``.
+    """
+    cache_url = getattr(settings, "cache_url", None)
+    for cfg in (config.get("cache") or {}).values():
+        if cfg.driver == "redis":
+            _fill_url(cfg.options, "url", cache_url)
+            _fill(cfg.options, settings, _REDIS_CLIENT_SETTINGS)
+    for cfg in (config.get("eventbus") or {}).values():
+        if cfg.driver in ("redis", "streams"):
+            if cfg.name == DEFAULT_INSTANCE:
+                _fill_url(cfg.options, "url", cache_url)
+            _fill(cfg.options, settings, _TRANSPORT_CLIENT_SETTINGS)
+    for cfg in (config.get("taskqueue") or {}).values():
+        if cfg.driver == "celery":
+            _fill_url(cfg.options, "broker", getattr(settings, "broker_url", None))
+            _fill_url(cfg.options, "backend", cache_url)
+
+
 def load_infra_config(settings: Settings) -> InfraConfig:
-    """Return the fully merged infrastructure configuration."""
+    """Return the fully merged infrastructure configuration, the built-in
+    drivers' options filled from the flat settings (:func:`fill_driver_defaults`)."""
     config = _synthesize_defaults(settings)
     raw = getattr(settings, "infra", None)
     if raw:
         if not isinstance(raw, Mapping):
             raise InfraConfigError("INFRA must be a JSON object")
         _overlay(config, raw)
+    fill_driver_defaults(config, settings)
     return config
 
 
@@ -293,6 +354,7 @@ __all__ = [
     "KERNEL_INSTANCES",
     "database_instance_url",
     "eventbus_driver",
+    "fill_driver_defaults",
     "InstanceConfig",
     "InfraConfig",
     "InfraConfigError",

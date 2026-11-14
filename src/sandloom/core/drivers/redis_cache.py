@@ -3,15 +3,19 @@
 This driver is the SOLE constructor of Redis cache clients — including the
 process-wide ``default`` one (:func:`get_default_client`), so "infrastructure
 is constructed only inside the driver layer" holds. The single test/ops
-injection seam is :func:`get_default_client` (patch it to inject a fake). Named
-instances own their own client connected from ``options['url']``.
+injection seam is :func:`get_default_client` (patch it to inject a fake). The
+``default`` instance uses that process-wide client, built from its options
+(:func:`configure_default_client`); named instances own their own client
+connected from ``options['url']``.
 
-Every cache client is BOUNDED (``CACHE_*`` settings): socket + connect
-timeouts, TCP keepalive, a periodic health check, a blocking pool capped at
-``CACHE_MAX_CONNECTIONS`` and a connection-error-only retry. An unreachable or
-hung Redis therefore makes an operation RAISE within roughly
-``(1 + CACHE_RETRY_ATTEMPTS) x CACHE_SOCKET_TIMEOUT_SECONDS`` instead of
-hanging the request, so the callers' fail-open / fail-closed branches run.
+The driver reads no kernel setting: every value comes from the instance's
+options (:class:`RedisCacheOptions`), which the kernel fills from the
+``CACHE_*`` settings when the configuration leaves them out. Every cache client
+is BOUNDED: socket + connect timeouts, TCP keepalive, a periodic health check,
+a blocking pool capped at ``max_connections`` and a connection-error-only
+retry. An unreachable or hung Redis therefore makes an operation RAISE within
+roughly ``(1 + retry_attempts) x socket_timeout_seconds`` instead of hanging
+the request, so the callers' fail-open / fail-closed branches run.
 
 The event-bus transport must not share that client: blocking reads
 (``XREADGROUP BLOCK``, pub/sub ``listen``) legitimately wait longer than the
@@ -34,9 +38,8 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import Any, Self, cast
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.core.infra.contracts import (
@@ -45,7 +48,15 @@ from sandloom.core.infra.contracts import (
     parse_subject_state,
 )
 from sandloom.core.infra.ports._base import health_failure_details
-from sandloom.core.observability.metrics import cache_operation_errors_total
+from sandloom.core.observability.driver_metrics import observe
+
+#: Redis / socket failures of cache operations (a caller's ValueError or
+#: TypeError is not counted), by instance and operation.
+cache_operation_errors_total = observe.counter(
+    "sandloom_cache_operation_errors_total",
+    "Cache operations that raised (connection, timeout, server error)",
+    ("instance", "operation"),
+)
 
 #: Features the Redis cache driver supports.
 REDIS_CACHE_FEATURES = frozenset({"cas"})
@@ -70,26 +81,54 @@ REDIS_CACHE_PERFORMANCE_HINTS = MappingProxyType(
 class RedisCacheOptions(BaseModel):
     """Config-shape schema for the ``redis`` cache driver.
 
-    The driver only reads ``url`` (falling back to ``CACHE_URL`` when omitted);
-    ``extra="forbid"`` rejects an unknown key (e.g. ``ur1`` for ``url``) at
-    startup instead of silently building the flat default.
+    ``url`` is the Redis DSN; the bounds are those of the client (see the
+    module docstring). The kernel fills ``url`` and every bound left out from
+    the ``CACHE_*`` settings, so the defaults here only apply to a provider
+    built outside the kernel. ``extra="forbid"`` rejects an unknown key (e.g.
+    ``ur1`` for ``url``) at startup instead of silently building the default.
     """
 
-    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True, frozen=True)
 
     url: str | None = None
+    socket_timeout_seconds: float = Field(default=0.5, gt=0)
+    socket_connect_timeout_seconds: float = Field(default=0.5, gt=0)
+    health_check_interval_seconds: int = Field(default=30, ge=0)
+    max_connections: int = Field(default=64, ge=1)
+    pool_timeout_seconds: float = Field(default=1.0, gt=0)
+    retry_attempts: int = Field(default=1, ge=0, le=5)
 
 
 logger = logging.getLogger(__name__)
 
-#: Process-wide ``default`` cache client, built lazily from ``CACHE_URL``.
+#: Process-wide ``default`` cache client, built lazily from
+#: :data:`_default_options`.
 _default_client: Any | None = None
 #: ``(client, loop)`` of the default client THIS driver built — a redis.asyncio
 #: client (and its pool) is bound to the event loop it first ran on.
 _default_client_origin: tuple[Any, asyncio.AbstractEventLoop] | None = None
-#: ``read timeout -> (paired default client, transport client)`` — see
-#: :func:`get_default_transport_client`.
-_default_transport: dict[float | None, tuple[Any, Any]] = {}
+#: Options of the ``default`` instance (:func:`configure_default_client`).
+_default_options: RedisCacheOptions | None = None
+#: The options the driver-built default client was built from.
+_default_built_from: RedisCacheOptions | None = None
+#: ``(read timeout, options) -> (paired default client, transport client)`` —
+#: see :func:`get_default_transport_client`.
+_default_transport: dict[tuple[float | None, RedisCacheOptions], tuple[Any, Any]] = {}
+
+
+def configure_default_client(
+    options: RedisCacheOptions, *, replace: bool = True
+) -> None:
+    """Set the options the process-wide ``default`` client is built from.
+
+    The ``default`` cache instance sets them when it is built (``replace``);
+    the ``default`` event bus instance sets them only when nothing has
+    (``replace=False``). A default client built from other options is
+    rebuilt on its next use.
+    """
+    global _default_options
+    if _default_options is None or (replace and options != _default_options):
+        _default_options = options
 
 
 def _running_loop() -> asyncio.AbstractEventLoop | None:
@@ -108,49 +147,64 @@ async def _close_quietly(client: Any) -> None:
         logger.debug("stale redis client close failed", exc_info=True)
 
 
-def client_options() -> dict[str, Any]:
-    """Bounded-client connection options from the ``CACHE_*`` settings."""
+def client_options(options: RedisCacheOptions) -> dict[str, Any]:
+    """Bounded-client connection options from an instance's ``options``."""
     from redis.asyncio.retry import Retry  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
     from redis.backoff import FullJitterBackoff  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
     from redis.exceptions import ConnectionError as RedisConnectionError  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
 
     return {
-        "socket_timeout": float(settings.cache_socket_timeout_seconds),
-        "socket_connect_timeout": float(settings.cache_socket_connect_timeout_seconds),
+        "socket_timeout": float(options.socket_timeout_seconds),
+        "socket_connect_timeout": float(options.socket_connect_timeout_seconds),
         "socket_keepalive": True,
-        "health_check_interval": int(settings.cache_health_check_interval_seconds),
+        "health_check_interval": int(options.health_check_interval_seconds),
         # Retry ONLY connection errors (a stale pooled socket after a Redis
         # restart / failover) — never timeouts, which would multiply the bound.
         "retry": Retry(
             FullJitterBackoff(cap=0.1, base=0.01),
-            int(settings.cache_retry_attempts),
+            int(options.retry_attempts),
             supported_errors=(RedisConnectionError,),
         ),
     }
 
 
-def _build_client(url: str) -> Any:
+def _url_of(options: RedisCacheOptions) -> str:
+    if not options.url:
+        raise ValueError(
+            "redis cache instance has no 'url' option (the kernel fills it from "
+            "CACHE_URL; a provider built by hand passes it)"
+        )
+    return options.url
+
+
+def _build_client(options: RedisCacheOptions) -> Any:
     """A bounded cache client: timeouts, keepalive, capped BLOCKING pool.
 
     When every pooled connection is busy a caller waits up to
-    ``CACHE_POOL_TIMEOUT_SECONDS`` for one, then gets a ``ConnectionError``
-    (never an unbounded pile-up of sockets).
+    ``pool_timeout_seconds`` for one, then gets a ``ConnectionError`` (never an
+    unbounded pile-up of sockets).
     """
     import redis.asyncio as redis  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
 
     pool: Any = redis.BlockingConnectionPool.from_url(
-        url,
-        max_connections=int(settings.cache_max_connections),
-        timeout=float(settings.cache_pool_timeout_seconds),
+        _url_of(options),
+        max_connections=int(options.max_connections),
+        timeout=float(options.pool_timeout_seconds),
         encoding="utf-8",
         decode_responses=True,
-        **client_options(),
+        **client_options(options),
     )
     redis_cls: Any = redis.Redis  # (stubs predate ``from_pool``)
     return redis_cls.from_pool(pool)
 
 
-def build_transport_client(url: str, *, read_timeout: float | None = None) -> Any:
+def build_transport_client(
+    url: str,
+    *,
+    read_timeout: float | None = None,
+    socket_connect_timeout_seconds: float = 0.5,
+    health_check_interval_seconds: int = 30,
+) -> Any:
     """A client for event-bus transport reads.
 
     Connect timeout, TCP keepalive and periodic health check like the cache
@@ -166,9 +220,9 @@ def build_transport_client(url: str, *, read_timeout: float | None = None) -> An
         encoding="utf-8",
         decode_responses=True,
         socket_timeout=read_timeout,
-        socket_connect_timeout=float(settings.cache_socket_connect_timeout_seconds),
+        socket_connect_timeout=float(socket_connect_timeout_seconds),
         socket_keepalive=True,
-        health_check_interval=int(settings.cache_health_check_interval_seconds),
+        health_check_interval=int(health_check_interval_seconds),
     )
 
 
@@ -206,49 +260,74 @@ async def get_default_client() -> Any:
     ran on, so when the running loop differs from the one the cached client
     was built on (each pytest-asyncio test gets its own loop; a CLI may call
     ``asyncio.run`` twice) the stale client is closed best-effort and a fresh
-    one is built — no "Event loop is closed" on the next call. A client
-    injected by assigning ``_default_client`` directly is never replaced.
+    one is built — no "Event loop is closed" on the next call. So is a client
+    built from options other than :func:`configure_default_client` set last.
+    A client injected by assigning ``_default_client`` directly is never
+    replaced.
     """
-    global _default_client, _default_client_origin
+    global _default_client, _default_client_origin, _default_built_from
     loop = _running_loop()
     if (
         _default_client is not None
         and _default_client_origin is not None
         and _default_client_origin[0] is _default_client
-        and loop is not None
-        and _default_client_origin[1] is not loop
+        and (
+            (loop is not None and _default_client_origin[1] is not loop)
+            or _default_built_from is not _default_options
+        )
     ):
         stale, _default_client, _default_client_origin = _default_client, None, None
         await _close_quietly(stale)
     if _default_client is None:
-        _default_client = _build_client(settings.cache_url)
+        options = _default_options
+        if options is None:
+            raise RuntimeError(
+                "the default redis cache client has no options: the kernel sets "
+                "them when it builds the default cache instance "
+                "(configure_default_client)"
+            )
+        _default_client = _build_client(options)
+        _default_built_from = options
         _default_client_origin = (_default_client, loop) if loop is not None else None
     return _default_client
 
 
-async def get_default_transport_client(read_timeout: float | None = None) -> Any:
+async def get_default_transport_client(
+    read_timeout: float | None = None, options: RedisCacheOptions | None = None
+) -> Any:
     """Client for the default event-bus transport (blocking reads allowed).
 
     Resolves :func:`get_default_client` (the single injection seam): an
     injected / patched client is returned as is, while the driver-built
-    default gets a sibling client on the same URL (one per ``read_timeout``,
+    default gets a sibling client (one per ``read_timeout`` and ``options``,
     see :func:`build_transport_client`) — a blocking ``XREADGROUP`` / pub-sub
     ``listen`` must not trip the cache's short socket timeout. The sibling
-    follows the default's loop affinity.
+    connects to ``options.url`` with its connect timeout and health check
+    (the default client's options when ``None``) and follows the default's
+    loop affinity.
     """
 
     main = await get_default_client()
     origin = _default_client_origin
     if origin is None or origin[0] is not main:
         return main  # injected / patched: share it
-    paired = _default_transport.get(read_timeout)
+    own = options if options is not None else _default_built_from
+    if own is None:  # pragma: no cover - set whenever the driver built main
+        return main
+    key = (read_timeout, own)
+    paired = _default_transport.get(key)
     if paired is not None and paired[0] is main:
         return paired[1]
     # Check, build and publish with no await in between: a concurrent caller
     # then finds this sibling instead of building (and leaking) its own. The
     # stale sibling is closed only after the replacement is published.
-    transport = build_transport_client(settings.cache_url, read_timeout=read_timeout)
-    _default_transport[read_timeout] = (main, transport)
+    transport = build_transport_client(
+        _url_of(own),
+        read_timeout=read_timeout,
+        socket_connect_timeout_seconds=own.socket_connect_timeout_seconds,
+        health_check_interval_seconds=own.health_check_interval_seconds,
+    )
+    _default_transport[key] = (main, transport)
     if paired is not None:
         await _close_quietly(paired[1])
     return transport
@@ -362,8 +441,7 @@ class RedisCacheProvider(CacheProvider):
             stale, self._client = self._client, None
             await _close_quietly(stale)
         if self._client is None:
-            url = str(self.options.get("url") or settings.cache_url)
-            self._client = _build_client(url)
+            self._client = _build_client(RedisCacheOptions.model_validate(self.options))
             self._client_loop = loop
         return self._client
 
@@ -836,9 +914,14 @@ def _note_error(instance: str, operation: str, exc: BaseException) -> None:
 
 
 def create_redis_cache(cfg: InstanceConfig) -> RedisCacheProvider:
-    """Driver factory for ``cache`` capability / ``redis`` driver."""
-    url = str(cfg.options.get("url") or settings.cache_url)
-    shared = cfg.name == DEFAULT_INSTANCE and url == settings.cache_url
+    """Driver factory for ``cache`` capability / ``redis`` driver.
+
+    The ``default`` instance uses the process-wide default client, built from
+    its options; a named instance builds its own.
+    """
+    shared = cfg.name == DEFAULT_INSTANCE
+    if shared:
+        configure_default_client(RedisCacheOptions.model_validate(cfg.options))
     return RedisCacheProvider(
         name=cfg.name,
         driver=cfg.driver,
@@ -852,6 +935,7 @@ __all__ = [
     "RedisCacheOptions",
     "create_redis_cache",
     "client_options",
+    "configure_default_client",
     "get_default_client",
     "build_transport_client",
     "get_default_transport_client",
