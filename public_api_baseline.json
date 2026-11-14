@@ -2263,7 +2263,8 @@
         "set_nx_get",
         "set_subject_state",
         "supported_features",
-        "test_isolation"
+        "test_isolation",
+        "tier"
       ],
       "signature": "(broken:KEYWORD_ONLY|bool=False) -> None"
     },
@@ -2565,7 +2566,8 @@
         "set",
         "set_subject_state",
         "supported_features",
-        "test_isolation"
+        "test_isolation",
+        "tier"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -2596,7 +2598,8 @@
         "required_imports",
         "subscribe",
         "supported_features",
-        "test_isolation"
+        "test_isolation",
+        "tier"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -2770,7 +2773,8 @@
         "performance_hints",
         "required_imports",
         "supported_features",
-        "test_isolation"
+        "test_isolation",
+        "tier"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -2824,7 +2828,8 @@
         "renew",
         "required_imports",
         "supported_features",
-        "test_isolation"
+        "test_isolation",
+        "tier"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -2873,7 +2878,8 @@
         "required_imports",
         "send",
         "supported_features",
-        "test_isolation"
+        "test_isolation",
+        "tier"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -2901,6 +2907,7 @@
         "required_imports",
         "supported_features",
         "test_isolation",
+        "tier",
         "url"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
@@ -3082,12 +3089,174 @@
       "signature": "(key:POSITIONAL_OR_KEYWORD|str) -> None"
     }
   },
+  "sandloom.driverkit.atomic_store": {
+    "ATOMIC_STORE_PERFORMANCE_HINTS": {
+      "kind": "value"
+    },
+    "DEFAULT_MAX_VALUE_BYTES": {
+      "kind": "value"
+    },
+    "MAX_KEY_BYTES": {
+      "kind": "value"
+    },
+    "MAX_SUBJECT_STATE_CHARS": {
+      "kind": "value"
+    },
+    "MAX_TTL_SECONDS": {
+      "kind": "value"
+    },
+    "SUBJECT_STATE_RANKS": {
+      "kind": "value"
+    },
+    "check_key": {
+      "kind": "function",
+      "signature": "(key:POSITIONAL_OR_KEYWORD|object, instance:KEYWORD_ONLY|str | None=None) -> str"
+    },
+    "check_subject_state": {
+      "kind": "function",
+      "signature": "(value:POSITIONAL_OR_KEYWORD|object, instance:KEYWORD_ONLY|str | None=None) -> str"
+    },
+    "check_ttl": {
+      "kind": "function",
+      "signature": "(ttl_seconds:POSITIONAL_OR_KEYWORD|object, instance:KEYWORD_ONLY|str | None=None) -> int"
+    },
+    "check_value": {
+      "kind": "function",
+      "signature": "(value:POSITIONAL_OR_KEYWORD|object, limit:KEYWORD_ONLY|int=1048576, instance:KEYWORD_ONLY|str | None=None) -> str"
+    },
+    "parse_subject_state": {
+      "kind": "function",
+      "signature": "(raw:POSITIONAL_OR_KEYWORD|str | None) -> tuple[str, Decimal] | None"
+    },
+    "subject_state_rank": {
+      "kind": "function",
+      "signature": "(raw:POSITIONAL_OR_KEYWORD|str | None) -> tuple[int, Decimal] | None"
+    }
+  },
   "sandloom.driverkit.testing": {
     "AtomicStoreConformance": {
-      "kind": "pending"
+      "kind": "class",
+      "members": [
+        "contract",
+        "feature_calls",
+        "health_timeout_seconds",
+        "leak_marker",
+        "let_expire",
+        "make_evicting_assume_provider",
+        "make_evicting_provider",
+        "make_failing_provider",
+        "make_provider",
+        "make_renamed_provider",
+        "operation_calls",
+        "protocol",
+        "provider",
+        "pytestmark",
+        "requires_feature",
+        "spec",
+        "test_a_key_is_gone_after_its_ttl",
+        "test_a_key_outside_the_contract_is_invalid",
+        "test_a_losing_write_never_shortens_the_ttl",
+        "test_a_subject_state_over_its_bound_is_too_large",
+        "test_a_ttl_outside_the_bounds_is_invalid",
+        "test_a_value_over_the_limit_is_too_large",
+        "test_absent_key_reads_none",
+        "test_add_creates_only_an_absent_key",
+        "test_add_or_get_creates_then_reports_the_holder",
+        "test_add_or_get_over_an_expired_key_creates",
+        "test_add_over_an_expired_key_creates",
+        "test_compare_and_delete_by_a_stale_owner_fails",
+        "test_compare_and_delete_on_an_expired_key_is_false",
+        "test_compare_and_delete_races_have_one_winner",
+        "test_compare_and_set_on_an_expired_key_is_false",
+        "test_compare_and_set_races_have_one_winner",
+        "test_compare_and_set_swaps_only_on_the_expected_value",
+        "test_compare_and_set_without_a_ttl_removes_the_old_one",
+        "test_concurrent_add_or_gets_have_one_creator",
+        "test_concurrent_adds_have_one_winner",
+        "test_concurrent_subject_state_writers_end_at_the_maximum",
+        "test_harness_declared_behaviours_do_not_raise_unsupported",
+        "test_harness_declares_only_spec_features",
+        "test_harness_hints_name_only_operations",
+        "test_harness_implements_the_contract",
+        "test_harness_maps_backend_failures_to_infra_errors",
+        "test_harness_names_its_isolation_domain",
+        "test_harness_opens_and_closes_twice",
+        "test_harness_redacts_the_health_of_a_failing_backend",
+        "test_harness_reports_health_within_the_bound",
+        "test_harness_reports_the_features_it_declares",
+        "test_harness_states_development_only_as_a_bool",
+        "test_harness_states_the_contract_version",
+        "test_harness_undeclared_behaviours_raise_unsupported",
+        "test_never_evicts_the_driver_refuses_an_evicting_backend",
+        "test_never_evicts_the_refusal_holds_when_the_operator_vouches",
+        "test_set_get_overwrite_delete",
+        "test_set_subject_state_over_an_expired_key_writes",
+        "test_shared_two_providers_of_one_store_see_each_other",
+        "test_subject_state_blocked_outranks_after",
+        "test_subject_state_compares_numbers_not_text",
+        "test_subject_state_equal_instants_keep_the_stored_value",
+        "test_subject_state_ignores_a_lower_instant",
+        "test_subject_state_ranks_instants_past_the_15th_digit",
+        "test_subject_state_refuses_a_value_outside_the_domain",
+        "test_subject_state_replaces_a_corrupt_stored_value",
+        "test_values_round_trip_exactly",
+        "value_limit_bytes"
+      ],
+      "signature": "()"
     },
     "BroadcastConformance": {
-      "kind": "pending"
+      "kind": "class",
+      "members": [
+        "contract",
+        "delivery_seconds",
+        "feature_calls",
+        "health_timeout_seconds",
+        "interrupt_connections",
+        "leak_marker",
+        "make_failing_provider",
+        "make_provider",
+        "make_renamed_provider",
+        "operation_calls",
+        "payload_limit_bytes",
+        "protocol",
+        "provider",
+        "pytestmark",
+        "quiet_seconds",
+        "requires_feature",
+        "spec",
+        "test_a_channel_must_be_a_non_empty_string",
+        "test_a_live_subscriber_receives_a_message",
+        "test_a_message_carries_its_bytes_unchanged",
+        "test_a_message_matching_two_channels_arrives_once",
+        "test_a_pattern_and_a_name_share_one_subscription",
+        "test_a_pattern_matches_every_channel_with_its_prefix",
+        "test_a_payload_at_the_limit_is_accepted_and_one_byte_more_is_too_large",
+        "test_a_read_that_times_out_loses_nothing",
+        "test_a_second_provider_from_the_same_options_receives",
+        "test_a_subscriber_that_does_not_read_gets_everything_or_unavailable",
+        "test_a_subscriber_that_joins_later_gets_nothing_published_before",
+        "test_aclose_ends_the_iteration",
+        "test_an_outage_raises_unavailable_and_a_resubscribe_works",
+        "test_every_live_subscriber_receives_the_message",
+        "test_harness_declared_behaviours_do_not_raise_unsupported",
+        "test_harness_declares_only_spec_features",
+        "test_harness_hints_name_only_operations",
+        "test_harness_implements_the_contract",
+        "test_harness_maps_backend_failures_to_infra_errors",
+        "test_harness_names_its_isolation_domain",
+        "test_harness_opens_and_closes_twice",
+        "test_harness_redacts_the_health_of_a_failing_backend",
+        "test_harness_reports_health_within_the_bound",
+        "test_harness_reports_the_features_it_declares",
+        "test_harness_states_development_only_as_a_bool",
+        "test_harness_states_the_contract_version",
+        "test_harness_undeclared_behaviours_raise_unsupported",
+        "test_messages_of_one_publisher_arrive_in_order",
+        "test_one_subscription_serves_several_channels",
+        "test_publishing_with_no_subscriber_succeeds",
+        "test_the_declared_payload_limit_is_at_least_one_mebibyte"
+      ],
+      "signature": "()"
     },
     "CacheConformance": {
       "kind": "pending"
@@ -6149,7 +6318,8 @@
         "set_nx_get",
         "set_subject_state",
         "supported_features",
-        "test_isolation"
+        "test_isolation",
+        "tier"
       ],
       "signature": "(broken:KEYWORD_ONLY|bool=False) -> None"
     },

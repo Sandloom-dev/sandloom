@@ -152,9 +152,6 @@
     "docs/infrastructure/own-capability.md": {
       "K3": 2
     },
-    "docs/infrastructure/write-a-driver.md": {
-      "P8": 1
-    },
     "docs/modules/background/effect-deduplication.md": {
       "P6": 1,
       "P7": 1

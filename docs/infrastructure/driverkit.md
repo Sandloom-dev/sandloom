@@ -46,6 +46,24 @@ A breaking change is a new contract version ([versioning](../contributing/versio
 | `DBAPI_CAPABILITIES` | Every capability of a `DbapiAdapter`. A driver package may claim `read_only_policy` and `reconnect_backoff`; `merged_begin`, `raw_executor` and `connection_recovery` are the kernel's own (SANDLOOM-B025). |
 | `register_dbapi_adapter` | Registers an adapter for the DBAPI it names, replacing the one Sandloom ships; call it before the first engine is built. |
 
+## `sandloom.driverkit.atomic_store`
+
+The argument checks and the subject-state value domain every `atomic_store` driver shares,
+so one key, TTL or value is refused the same way whatever the backend. They are the
+kernel port's own functions, re-exported:
+
+| Name | What it is |
+| --- | --- |
+| `check_key`, `check_value`, `check_ttl` | Call them first in every operation. `InvalidArgument` for a key, value type or TTL outside the contract (a TTL is 1 to `MAX_TTL_SECONDS`, 10 years), `TooLarge` for a value over the limit you pass. |
+| `check_subject_state`, `parse_subject_state`, `subject_state_rank` | The domain of `set_subject_state` (`v1:after:<decimal>` / `v1:blocked:<decimal>`) and its exact ranking: every `blocked` above every `after`, within a kind the instant compared as a decimal, never a float or text. A value over `MAX_SUBJECT_STATE_CHARS` is `TooLarge`, and a stored one that long is corrupt without being matched. |
+| `MAX_KEY_BYTES`, `DEFAULT_MAX_VALUE_BYTES`, `MAX_TTL_SECONDS`, `MAX_SUBJECT_STATE_CHARS`, `SUBJECT_STATE_RANKS`, `ATOMIC_STORE_PERFORMANCE_HINTS` | The bounds, the kind ranks and the performance hints a driver declares. |
+
+A reply lost after a command ran is `Unavailable`: the error model has no "may have happened"
+class. A driver therefore never re-sends `add`, `add_or_get`, `compare_and_set` or
+`compare_and_delete` itself. Run twice they would answer `False` or the caller's own value to the
+caller that won. A driver may re-send the idempotent ones only: `get`, `set`, `delete`,
+`set_subject_state`.
+
 ## `sandloom.driverkit.testing`
 
 Each provider kit is a pytest class with one test per obligation. Subclass it and
@@ -60,7 +78,6 @@ a name raises `AttributeError` naming the work that delivers it:
 <!-- lookup -->
 
 - `AtomicStoreConformance`
-- `BroadcastConformance`
 - `CacheConformance`
 - `DatabaseProviderConformance`
 - `EventTransportConformance`
@@ -69,6 +86,7 @@ a name raises `AttributeError` naming the work that delivers it:
 
 | Name | What it is |
 | --- | --- |
+| `BroadcastConformance` | The kit of a `broadcast` driver; point `make_provider` at a test backend. It publishes on channels of its own. Set `payload_limit_bytes` to the limit the driver declares (at least 1 MiB). Override `interrupt_connections(provider)` to cut the provider's connections, as an outage would, to run the outage group. `delivery_seconds` and `quiet_seconds` set the waits. |
 | `NotifierConformance` | The kit of a `notification` driver. Override `recipients` for your test backend. Each channel is a behaviour feature: an undeclared channel raises `Unsupported(channel)`. |
 | `ObjectStoreConformance` | The kit of an `objectstore` driver; point `make_provider` at a test namespace. Set `upload_limit_bytes` and `read_limit_bytes` to the test instance's limits. A driver declaring `metadata` overrides `read_metadata(provider, key)` to read them back. |
 | `SqlDialectConformance` | A pytest class for a SQL dialect renderer. Subclass it and set `renderer` and `dialect`. It compiles each form the renderer writes, the optional `prefix_pattern` / `prefix_match` pair included. A renderer declaring `json_path` overrides `read_json_paths(document, paths)` to run it on the database; one stating `aware_times` overrides `read_aware_time(value)` to read an aware time back from it. |

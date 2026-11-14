@@ -148,6 +148,16 @@ override the `make_provider` fixture to return a new, unopened provider. Each ob
 its own test, so a failure names what to fix. The kit needs `pytest` and `pytest-asyncio`.
 It sends real messages: point it at a test backend.
 
+State how far the kit has proven the driver with the class attribute `tier`.
+The default is `experimental`: the driver implements the contract. A `beta` driver passes
+its kit in CI against the real service. Past that, `stable` adds reconnect after an outage
+and the auth options. The registry copies the tier into the driver's registration when it loads the
+entry point. `sandloom doctor` and `/diagnostics/infra` show it.
+
+In production an `experimental` driver is refused unless `SANDLOOM_ACCEPTED_RISKS` lists
+`experimental_driver` ([SANDLOOM-B023](../reference/error-codes.md#sandloom-b023)).
+A `beta` driver logs one startup warning.
+
 ```python title="tests/test_conformance.py"
 --8<-- "docs/snippets/drivers/test_file_notifier.py"
 ```

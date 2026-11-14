@@ -36,6 +36,7 @@ The one list of weaker guarantees a deployment accepts, e.g. `SANDLOOM_ACCEPTED_
 | Risk id | Weakens | Consulted by |
 | --- | --- | --- |
 | `experimental_capability` | An experimental capability in prod: its contract may change in any release. | build_infra_registry (sandloom.core.drivers.bootstrap) |
+| `experimental_driver` | An experimental driver in prod: it implements the contract, but its conformance kit has not passed in CI against the real service. | build_infra_registry (sandloom.core.drivers.bootstrap) |
 | `log_notifier_in_prod` | The log notifier advertises delivery channels in prod: mail and SMS nobody receives. | log notifier driver features (sandloom.core.drivers.log_notifier) |
 | `log_links_in_prod` | NOTIFIER_LOG_LINKS=true in prod: password-reset and verification links land in the logs, where anyone who reads them can use them. | Settings validator (NOTIFIER_LOG_LINKS) |
 | `local_storage_in_prod` | Local-filesystem object storage in prod: no replication, lost with the container. | local object-store driver (sandloom.core.drivers.local_objectstore) |
@@ -47,6 +48,7 @@ The one list of weaker guarantees a deployment accepts, e.g. `SANDLOOM_ACCEPTED_
 | `relay_disabled` | OUTBOX_RELAY_ENABLED=off in a prod app process: no relay retries the outbox, so delivery degrades from at-least-once to the post-commit dispatch alone (a failed dispatch is never retried). | app startup check (sandloom.core.app_factory.outbox_relay_problem) |
 | `command_dedupe_below_retry_horizon` | CONTRACT_COMMAND_DEDUPE_TTL_SECONDS below the outbox relay's redelivery horizon in prod: a command retried after its dedupe record expired runs a second time. | app startup check (sandloom.core.guarantee_windows.enforce_guarantee_windows) |
 | `saga_horizon_beyond_command_dedupe` | A saga command step can be retried or resolved later than CONTRACT_COMMAND_DEDUPE_TTL_SECONDS after its first attempt in prod: a late retry after the dedupe record expired runs the step twice. | app startup check (sandloom.core.guarantee_windows.enforce_guarantee_windows) |
+| `unverified_noeviction` | never_evicts_check=assume on a Redis atomic_store in prod: the driver cannot read maxmemory-policy, so an operator vouches that the server never evicts; if it does, a revocation mark or an idempotency reservation can vanish before its TTL. | redis atomic_store driver (sandloom.core.drivers.redis_atomic_store), through the policy the registry gives it (assume_allowed) |
 
 ## Removed settings
 
