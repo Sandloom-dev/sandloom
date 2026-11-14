@@ -1,0 +1,67 @@
+# C035 fixtures (idk-task-apib): data, not importable.
+#
+# Each "# === <verdict>: <name>" section is one module file of the package
+# ``c035app`` (written as ``c035app/<name>.py``). ``bad`` sections must be
+# reported by SANDLOOM-C035 (task-enqueue-ownership), ``ok`` sections must not.
+
+# === bad: literal_of_another_module
+from sandloom.sdk.infra import taskqueue
+
+
+async def go():
+    await taskqueue().enqueue("billing.tasks.charge", {})
+
+# === bad: variable_name
+from sandloom.sdk.infra import taskqueue
+
+
+async def go(name):
+    await taskqueue().enqueue(name, {})
+
+# === bad: fstring_name
+from sandloom.sdk.infra import taskqueue
+
+
+async def go(other):
+    await taskqueue().enqueue(f"c035app.tasks.{other}", {})
+
+# === bad: bound_queue
+from sandloom.sdk.infra import taskqueue
+
+queue = taskqueue("default")
+
+
+async def go():
+    await queue.enqueue("other.tasks.job", {})
+
+# === bad: aliased_import
+from sandloom.sdk.infra import taskqueue as tq
+
+
+async def go():
+    await tq().enqueue("other.tasks.job", {})
+
+# === bad: package_prefix_lookalike
+from sandloom.sdk.infra import taskqueue
+
+
+async def go():
+    await taskqueue().enqueue("c035app_evil.tasks.job", {})
+
+# === ok: own_literal
+from sandloom.sdk.infra import taskqueue
+
+
+async def go():
+    await taskqueue().enqueue("c035app.tasks.mine", {}, idempotency_key="k")
+
+# === ok: own_task_object
+from c035app.tasks import mine
+
+
+async def go():
+    await mine.enqueue()
+
+# === ok: not_a_taskqueue
+async def go(bus):
+    await bus.enqueue("anything.at.all")

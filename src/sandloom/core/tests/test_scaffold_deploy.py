@@ -67,7 +67,11 @@ _MODULES = {
         "from sandloom.sdk import define_module\n\n"
         'register = define_module(__name__, version="0.1.0")\n'
     ),
-    "probecron/tasks.py": ("def setup_periodic_tasks(sender, **kwargs):\n    pass\n"),
+    "probecron/tasks.py": (
+        "from sandloom.sdk.tasks import periodic\n\n\n"
+        '@periodic(cron="0 * * * *", id="probecron.tick")\n'
+        "async def tick() -> None:\n    return None\n"
+    ),
     # Root-level routes ("/" and a catch-all "/{slug}"), and a second module
     # claiming a root-level path too.
     "probehome/__init__.py": (

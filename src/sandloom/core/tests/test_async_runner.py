@@ -142,6 +142,12 @@ def test_build_worker_app_wires_loop_hooks_and_engine_disposal() -> None:
         def raw_backend(self) -> Celery:
             return self._app
 
+        def features(self) -> frozenset[str]:
+            return frozenset({"delay", "periodic", "redelivery"})
+
+        def register_task_table(self, table: object, run: object) -> None:
+            pass
+
     class _Core:
         loaded_modules: list[str] = []
 

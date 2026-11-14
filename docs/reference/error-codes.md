@@ -61,6 +61,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C032`](#sandloom-c032) | `generated-reserved` | check | a hand-written file in a module's _generated/ package, or an import of another module's _generated package | active |
 | [`SANDLOOM-C033`](#sandloom-c033) | `undeclared-capability` | check | a module's code needs an infrastructure capability its define_module does not declare | active |
 | [`SANDLOOM-C034`](#sandloom-c034) | `handwritten-access-check` | check | a hand-written Requirement calls a declared access check with other tier, category or risk than its declaration | active |
+| [`SANDLOOM-C035`](#sandloom-c035) | `task-enqueue-ownership` | check | a module enqueues a task by name that is not a string literal naming one of its own tasks | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
 | [`SANDLOOM-B003`](#sandloom-b003) | `financial-guard` | boot | a class F route used a response-storing or fail-open guard (retired) | retired (never reused) |
@@ -721,11 +722,13 @@ A module states the infrastructure it needs in define_module(capabilities=[...])
 and the deployment chooses the driver; startup checks that they match. Some
 needs are visible in the module's code, and the kernel derives them at load
 whether they are declared or not: a tasks.py (or tasks/ package), which the
-framework worker imports and runs, needs the taskqueue capability; a beat hook
-(setup_periodic_tasks) in it needs the taskqueue feature "periodic", a driver
-that runs the module's periodic jobs at their interval in at least one process
-while the deployment runs (a driver never has it for supporting enqueue alone;
-only celery advertises it today). This check asks for the declaration, so a
+framework worker imports and runs, needs the taskqueue capability; a
+@periodic task in it needs the taskqueue feature "periodic", a driver that
+runs the module's periodic jobs at their cron slots in at least one process
+while the deployment runs, and a task declared at_least_once=True needs the
+feature "redelivery", a driver that redelivers it when its worker dies (a
+driver never has either for supporting send alone; only celery advertises
+them today). This check asks for the declaration, so a
 reader, an agent and the module snapshot see the need where every other need
 is stated. A declaration decides required or optional: the derived need only
 adds its feature to it, and a capability nobody declared is derived as
@@ -735,7 +738,7 @@ a SANDLOOM-C030 finding). It does not claim to find every capability a module
 uses: a module that reaches one another way declares it itself, and the
 startup check stays the last line of defence.
 
-**Fix:** declare it in define_module: capabilities=["taskqueue"] for a tasks.py, CapabilityRequirement("taskqueue", features=frozenset({"periodic"})) for a beat hook (required=False when the module works without its schedule), with CapabilityRequirement from sandloom.sdk.module
+**Fix:** declare it in define_module: capabilities=["taskqueue"] for a tasks.py, CapabilityRequirement("taskqueue", features=frozenset({"periodic"})) for a @periodic task and the feature "redelivery" for an at_least_once one (required=False when the module works without its schedule), with CapabilityRequirement from sandloom.sdk.module
 
 **More:** `docs/modules/background/tasks.md`
 
@@ -769,6 +772,31 @@ classified independently at startup and the runtime checks apply.
 **Fix:** use the generated atom (sandloom generate writes it beside your stub), or state the declared tier, category and risks() on your class
 
 **More:** `docs/adr/0014-claims-trust-and-authorization-portability.md`
+
+### SANDLOOM-C035
+
+**a module enqueues a task by name that is not a string literal naming one of its own tasks**
+
+Slug: `task-enqueue-ownership` · kind: check · status: active
+
+**What happened and why it matters**
+
+The kernel checks that the task name given to taskqueue().enqueue(name, ...)
+is declared somewhere in the process, never that the caller owns it. A module
+that enqueues another module's task by name runs that module's code with a
+payload of its choosing, around the module's own checks: the isolation every
+other crossing keeps (events, contracts, sagas) does not hold for it. sandloom
+check refuses a taskqueue().enqueue(...) call (on taskqueue(...) directly, on
+a name bound to it in the file, or under an aliased import) whose first
+argument is not a string literal starting with the calling module's own
+package. The task object of the module's own tasks.py (`await task.enqueue(
+payload)`) is the usual spelling and needs no name. Not seen: a queue handed
+over as an argument, or a name computed at run time; the kernel's enqueue
+still refuses a name no loaded module declares.
+
+**Fix:** enqueue your own task through the task object (`await my_task.enqueue(payload)`), or name it with a string literal under your package (`taskqueue().enqueue("<package>.tasks.my_task", ...)`); for work in another module, publish an event or call its contract
+
+**More:** `docs/modules/background/tasks.md`
 
 ## Startup refusals (`create_app`, `sandloom check --boot`)
 
@@ -2279,7 +2307,7 @@ Slug: `periodic-tasks-need-a-beat` · kind: test · status: active
 
 **What happened and why it matters**
 
-A schedule (setup_periodic_tasks in &lt;module>/tasks.py) runs only where a celery beat loads the module, and exactly one may: none and the task never runs, two and it runs twice. sandloom test's static schema & deploy step checks every deploy profile.
+A schedule (a @periodic task in &lt;module>/tasks.py) runs only where a celery beat loads the module, and exactly one may: none and the task never runs, two and it runs twice. sandloom test's static schema & deploy step checks every deploy profile.
 
 **Fix:** give the module's service its worker and beat: `sandloom add deploy <module> --service <name>` for an undeployed module, `sandloom add task <module> <name> --periodic "<cron>"` or `sandloom add deploy --refresh` for a deployed one (each writes &lt;service>-worker / &lt;service>-beat); in a hand-written profile, add one beat per broker and a worker consuming it
 

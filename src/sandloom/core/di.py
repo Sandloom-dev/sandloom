@@ -89,6 +89,8 @@ from sandloom.core.tasks.enqueue import (
     TaskEnqueueUncertain,
 )
 from sandloom.core.tasks.queue import capability, taskqueue
+from sandloom.core.tasks.registry import DeclaredPeriodic, DeclaredTask
+from sandloom.core.tasks.registry import declare as _declare_task
 from sandloom.core.tenant import (
     MissingTenantError,
     TenantMismatchError,
@@ -115,6 +117,25 @@ from sandloom.core.unit_of_work.hooks import before_commit, on_commit
 from sandloom.core.unit_of_work.versioning import publish_event_versions
 
 _T = TypeVar("_T")
+
+
+def declare_task(
+    function: Callable[..., Any],
+    *,
+    queue: str,
+    at_least_once: bool,
+    cron: str | None = None,
+    periodic_id: str | None = None,
+) -> tuple[DeclaredTask, DeclaredPeriodic | None]:
+    """Register a ``@task`` / ``@periodic`` declaration (the bridge
+    ``sandloom.sdk.tasks`` calls; not a public name, so not in ``__all__``)."""
+    return _declare_task(
+        function,
+        queue=queue,
+        at_least_once=at_least_once,
+        cron=cron,
+        periodic_id=periodic_id,
+    )
 
 
 def _get_facade(request: Request) -> CoreFacade:

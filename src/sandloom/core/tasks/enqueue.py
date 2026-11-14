@@ -1,14 +1,21 @@
 """Fail-closed enqueue deduplication, independent of the broker's task IDs.
 
 The kernel layer above the taskqueue driver (G-TASK-03): :func:`enqueue_task`
-serves ``idempotency_key`` on any driver that declares the feature, and the
-driver only publishes under the job id reserved here.
+checks what it can know without the broker, serves ``idempotency_key`` on any
+driver (through the ``idempotency`` ``atomic_store``, failing closed without
+one) and only then calls the driver's ``send`` under a task id the kernel
+chose.
+
+Order, so that a refusal never leaves a dedupe key behind (a pending key has
+no TTL): the task name is declared, the payload validates and serialises to
+JSON, the ``delay`` is valid and the instance has the feature ``delay``; then
+the key is reserved (``enqueue_once``); then ``send``.
 
 A pending reservation never expires automatically: a publisher crash or lost
 broker acknowledgement is ambiguous. Reconcile the broker before deleting it.
 Only a send that provably never reached the broker is released at once — the
 driver raised :class:`~sandloom.core.infra.errors.InvalidArgument` (the payload
-cannot be encoded, the task is unknown) or
+cannot be carried, the task is unknown) or
 :class:`~sandloom.core.infra.errors.TooLarge` — so a corrected retry with the
 same key is not stuck. Anything else the driver raises (``Unavailable``,
 ``Timeout``, a connection error, a lost acknowledgement) may have published:
@@ -20,18 +27,19 @@ not deduplicate broker redelivery or make task effects exactly once.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
-from copy import deepcopy
-from typing import Any, Protocol, cast
-from urllib.parse import urlsplit
+from datetime import timedelta
+from typing import Any
 from uuid import uuid4
 
 import orjson
 from fastapi import HTTPException
+from pydantic import BaseModel
 
 from sandloom.core.effects import RECORD_TTL_SECONDS, canonical_digest
-from sandloom.core.infra.access import idempotency_cache
+from sandloom.core.infra.access import atomic_store
 from sandloom.core.infra.contracts import TaskQueueProvider
 from sandloom.core.infra.errors import InvalidArgument, TooLarge, Unsupported
+from sandloom.core.tasks.registry import declared_task, encode_payload
 from sandloom.core.tenant_context import current_tenant_id_optional
 
 
@@ -64,10 +72,10 @@ class TaskEnqueueUncertain(HTTPException):
 #: Driver errors that mean nothing was published: the reservation is released.
 NOT_PUBLISHED: tuple[type[Exception], ...] = (InvalidArgument, TooLarge)
 
-#: The longest ``delay_seconds`` an enqueue accepts: 30 days. A broker holds a
+#: The longest ``delay`` an enqueue accepts: 30 days. A broker holds a
 #: delayed message in memory or a visibility window; a longer schedule belongs
 #: in a periodic task or the module's own table.
-MAX_DELAY_SECONDS = 30 * 24 * 60 * 60
+MAX_DELAY = timedelta(days=30)
 
 
 async def enqueue_once(  # noqa: C901
@@ -75,12 +83,13 @@ async def enqueue_once(  # noqa: C901
     namespace: str,
     key: str,
     task: str,
-    payload: Mapping[str, Any],
-    delay_seconds: int | None,
+    payload: bytes,
+    delay: timedelta | None,
     ttl_seconds: int,
-    send: Callable[[str], Awaitable[str]],
+    task_id: str,
+    send: Callable[[], Awaitable[str]],
 ) -> str:
-    """Reserve ``key``, call ``send(job_id)`` once, record what it returned.
+    """Reserve ``key``, call ``send()`` once under ``task_id``, record what it returned.
 
     ``send`` raising one of :data:`NOT_PUBLISHED` releases the reservation and
     re-raises it; any other error keeps the key pending
@@ -90,22 +99,14 @@ async def enqueue_once(  # noqa: C901
         raise ValueError("Task idempotency key must contain 1 to 200 characters")
     tenant = str(current_tenant_id_optional())
     cache_key = "sandloom:task-enqueue:" + canonical_digest([namespace, tenant, key])
-    try:
-        fingerprint = canonical_digest([task, dict(payload), delay_seconds])
-    except Exception as exc:
-        # Checked before reserving (a pending key has no TTL).
-        raise InvalidArgument(
-            f"task payload has no canonical form ({type(exc).__name__})",
-            capability="taskqueue",
-        ) from exc
-    task_id = uuid4().hex
+    fingerprint = canonical_digest(
+        [task, payload.decode(), None if delay is None else delay.total_seconds()]
+    )
     pending = orjson.dumps(
         {"state": "pending", "fp": fingerprint, "id": task_id}
     ).decode()
     try:
-        store = idempotency_cache()
-        if "cas" not in store.features():
-            raise TaskEnqueueUnavailable()
+        store = atomic_store("idempotency")
         created = await store.add(cache_key, pending)  # no TTL on ambiguous sends
         if not created:
             record = orjson.loads(await store.get(cache_key) or "null")
@@ -121,7 +122,7 @@ async def enqueue_once(  # noqa: C901
     except Exception as exc:
         raise TaskEnqueueUnavailable() from exc
     try:
-        job_id = await send(task_id)
+        job_id = await send()
     except NOT_PUBLISHED as exc:
         # Deterministic, pre-broker failure: nothing was published, so the
         # reservation is released (owner-checked) and the error surfaces.
@@ -147,102 +148,90 @@ async def enqueue_once(  # noqa: C901
         raise TaskEnqueueUncertain(task_id) from exc
 
 
-class _PublishesUnderJobId(Protocol):
-    """A taskqueue driver that declares ``idempotency_key``: its ``enqueue``
-    publishes under the job id the kernel reserved (``task_id``)."""
-
-    async def enqueue(
-        self,
-        task: str,
-        payload: Mapping[str, Any],
-        *,
-        delay_seconds: int | None = None,
-        task_id: str | None = None,
-    ) -> str: ...
-
-
-def dedupe_namespace(provider: TaskQueueProvider) -> str:
+async def dedupe_namespace(provider: TaskQueueProvider) -> str:
     """The dedupe namespace of a taskqueue instance.
 
-    Its name and its broker's location (scheme, host, port, path of the
-    ``broker`` option, never the credentials: a rotation must not open a new
-    namespace); its name and driver for a driver without a ``broker``.
+    Its name and the driver's isolation identity (the broker it publishes to,
+    never a credential: a rotation must not open a new namespace), so two
+    brokers that share an idempotency store never share a namespace. A driver
+    without an identity falls back to its name.
     """
-    broker = provider.options.get("broker")
-    if isinstance(broker, str) and broker:
-        where = urlsplit(broker)
-        return repr(
-            (provider.name, where.scheme, where.hostname, where.port, where.path)
+    identity = await provider.isolation_identity()
+    return repr((provider.name, identity or provider.driver))
+
+
+def _check_delay(provider: TaskQueueProvider, delay: object) -> timedelta | None:
+    """What the layer knows about ``delay`` without the broker (spec 8.1)."""
+    if delay is None:
+        return None
+    if not isinstance(delay, timedelta) or not timedelta(0) <= delay <= MAX_DELAY:
+        raise InvalidArgument(
+            f"delay must be a timedelta from 0 to {MAX_DELAY}",
+            capability="taskqueue",
+            instance=provider.name,
         )
-    return repr((provider.name, provider.driver))
+    if "delay" not in provider.features():
+        raise Unsupported("delay", capability="taskqueue", instance=provider.name)
+    return delay
 
 
-def _check_before_reserving(
-    provider: TaskQueueProvider, task: object, delay_seconds: object
-) -> None:
-    """What the layer knows without the broker (spec 8.1, 13.29)."""
+async def enqueue_task(
+    provider: TaskQueueProvider,
+    task: str,
+    payload: BaseModel | Mapping[str, Any] | None,
+    *,
+    delay: timedelta | None = None,
+    idempotency_key: str | None = None,
+) -> str:
+    """Enqueue ``task`` on ``provider``, deduplicated by ``idempotency_key``.
+
+    Before anything is reserved or sent (spec 8.1): ``task`` must be a name
+    declared in this process (:class:`InvalidArgument` otherwise), ``payload``
+    must validate against the task's model and encode to JSON
+    (:class:`InvalidArgument`), ``delay`` must be ``None`` or a ``timedelta``
+    in ``[0, MAX_DELAY]`` (:class:`InvalidArgument`) and needs the instance's
+    feature ``delay`` (:class:`Unsupported`): a refusal leaves no pending key
+    behind. Then, with a key, :func:`enqueue_once` reserves the task id (the
+    ``idempotency`` ``atomic_store``: without one the enqueue is refused,
+    :class:`TaskEnqueueUnavailable`); then the driver's ``send``.
+    """
     if not isinstance(task, str) or not task:
         raise InvalidArgument(
             "the task name must be a non-empty string",
             capability="taskqueue",
             instance=provider.name,
         )
-    if delay_seconds is None:
-        return
-    if (
-        not isinstance(delay_seconds, int)
-        or isinstance(delay_seconds, bool)
-        or not 0 <= delay_seconds <= MAX_DELAY_SECONDS
-    ):
+    declared = declared_task(task)
+    if declared is None:
         raise InvalidArgument(
-            f"delay_seconds must be an int from 0 to {MAX_DELAY_SECONDS}",
+            f"task {task!r} is not declared: its module's tasks.py must be loaded",
             capability="taskqueue",
             instance=provider.name,
         )
-    if "delay" not in provider.features():
-        raise Unsupported("delay", capability="taskqueue", instance=provider.name)
+    body = encode_payload(declared, payload)
+    checked_delay = _check_delay(provider, delay)
+    task_id = uuid4().hex
 
-
-async def enqueue_task(
-    provider: TaskQueueProvider,
-    task: str,
-    payload: Mapping[str, Any],
-    *,
-    delay_seconds: int | None = None,
-    idempotency_key: str | None = None,
-) -> str:
-    """Enqueue ``task`` on ``provider``, deduplicated by ``idempotency_key``.
-
-    Without a key the driver publishes once. With one, the instance must
-    declare the feature ``idempotency_key`` (refused with
-    :class:`Unsupported` before anything is reserved otherwise), the payload
-    is snapshotted, and :func:`enqueue_once` reserves a job id the driver
-    publishes under (its ``enqueue(..., task_id=)``).
-
-    Before anything is reserved or published (spec 8.1), ``task`` must be a
-    non-empty name, ``delay_seconds`` ``None`` or an ``int`` in
-    ``[0, MAX_DELAY_SECONDS]`` (:class:`InvalidArgument` otherwise), and a
-    delay needs the instance's feature ``delay`` (:class:`Unsupported`): a
-    refusal leaves no pending key behind.
-    """
-    _check_before_reserving(provider, task, delay_seconds)
-    if idempotency_key is None:
-        return await provider.enqueue(task, payload, delay_seconds=delay_seconds)
-    if "idempotency_key" not in provider.features():
-        raise Unsupported(
-            "idempotency_key", capability="taskqueue", instance=provider.name
+    async def send() -> str:
+        return await provider.send(
+            task,
+            body,
+            task_id=task_id,
+            delay=checked_delay,
+            at_least_once=declared.at_least_once,
+            queue=declared.queue,
         )
-    snapshot = deepcopy(dict(payload))
+
+    if idempotency_key is None:
+        return await send()
     ttl = provider.options.get("dedupe_ttl_seconds") or RECORD_TTL_SECONDS
-    publisher = cast("_PublishesUnderJobId", provider)
     return await enqueue_once(
-        namespace=dedupe_namespace(provider),
+        namespace=await dedupe_namespace(provider),
         key=idempotency_key,
         task=task,
-        payload=snapshot,
-        delay_seconds=delay_seconds,
+        payload=body,
+        delay=checked_delay,
         ttl_seconds=int(ttl),
-        send=lambda task_id: publisher.enqueue(
-            task, snapshot, delay_seconds=delay_seconds, task_id=task_id
-        ),
+        task_id=task_id,
+        send=send,
     )

@@ -13,13 +13,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sandloom_billing.models import BillingReconcilerRun, OperationIntent
 from sandloom_billing.services import intent_reconciler
 from sandloom_billing.services.reconciler_health import (
-    RECONCILE_INTERVAL_SECONDS,
-    RECONCILE_MAX_SILENCE_SECONDS,
     RECONCILER_HEALTH_CHECK,
     ReconcilerHealthCheck,
     last_reconciler_run,
+    reconcile_max_silence_seconds,
     record_reconciler_run,
 )
+from sandloom_billing.tasks import reconcile_operation_intents
+
+#: The reconciler's own interval, read from its ``@periodic`` declaration.
+RECONCILE_INTERVAL_SECONDS = reconcile_operation_intents.max_interval.total_seconds()
+RECONCILE_MAX_SILENCE_SECONDS = reconcile_max_silence_seconds()
 
 _NOW = datetime(2026, 11, 8, 12, 0, tzinfo=UTC)
 
@@ -40,6 +44,17 @@ def _check(
 
 def test_the_allowed_interval_is_three_periods() -> None:
     assert RECONCILE_MAX_SILENCE_SECONDS == 3 * RECONCILE_INTERVAL_SECONDS == 900.0
+
+
+def test_the_interval_derives_from_the_periodic_declaration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No second constant: the schedule's cron is the one source."""
+    assert reconcile_operation_intents.cron == "*/5 * * * *"
+    monkeypatch.setattr(
+        reconcile_operation_intents, "max_interval", timedelta(minutes=1)
+    )
+    assert reconcile_max_silence_seconds() == 180.0
 
 
 async def test_restarting_the_web_process_never_grants_startup_grace() -> None:

@@ -923,7 +923,7 @@ class TaskQueueProvider(InfraProvider):
     # major 2: each driver class states contract_version = 2, the ABC does not (13.37)
     async def send(
         self, task: str, payload: bytes, *, task_id: str, delay: timedelta | None = None,
-        at_least_once: bool = False,
+        at_least_once: bool = False, queue: str = "default",
     ) -> str: ...
     def worker_host(self) -> WorkerHost: ...     # added by idk-worker-port, see below
 
@@ -969,6 +969,9 @@ the Celery-only halves of `core/worker.py`, `core/beat_lease.py`, `core/async_ru
 
 - `send` publishes one message under the given `task_id` (the broker's job id), at most once per
   call. It never retries a publish on its own.
+- `queue` is the queue the task declares (`@task(queue=...)`); the kernel layer passes it from the
+  declared task on every enqueue, so an enqueue from a process that never booted the worker table
+  still lands in the declared queue. A driver sends to `queue` (the default queue needs no routing).
 - **Error classes carry the dedupe decision** (G-TASK-03). `InvalidArgument` (unknown task,
   serialisation refused) and `TooLarge` mean nothing was published: the kernel releases the
   reservation (today `TaskNotSent`, `enqueue.py:38`). `Unavailable` and `Timeout` mean the publish
@@ -1006,8 +1009,11 @@ the Celery-only halves of `core/worker.py`, `core/beat_lease.py`, `core/async_ru
 needs the `idempotency` `atomic_store`, and fails closed without one).
 **Performance hints.** none.
 
-**Kit (`TaskQueueConformance`).** From `idk-task-api`: `send` of an unknown task raises
-`InvalidArgument`; `delay` group and its absence (`Unsupported`); the error classes of `send`. From
+**Kit (`TaskQueueConformance`).** From `idk-task-api`: `send` carries `queue`; `delay` group and its
+absence (`Unsupported`); the error classes of `send`; `send` of an unknown task raises
+`InvalidArgument`, a group optional for a driver that cannot reject at send (a broker such as Celery
+accepts any task name; the kernel rejects an undeclared task before it reserves a key, so nothing is
+published and no key is left). From
 `idk-worker-port`: `send` then the host runs the task once with the payload (a sync and an async
 task); an unknown task runs nothing; a delayed task does not run before its delay; the host's loop is
 one per process; a scheduler with a cron `* * * * *` sends once per slot while holding the lease, a

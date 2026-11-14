@@ -54,6 +54,12 @@ from sandloom.core.infra.ports.objectstore import (
     iter_object_chunks,
     validate_object_key,
 )
+from sandloom.core.infra.ports.taskqueue import (
+    PeriodicSpec,
+    TaskQueueProvider,
+    TaskSpec,
+    TaskTable,
+)
 from sandloom.core.sql_alchemy.dbapi import (
     DBAPI_CAPABILITIES,
     DbapiAdapter,
@@ -107,6 +113,10 @@ __all__ = [
     "NotifierProvider",
     "ObjectContent",
     "ObjectStoreProvider",
+    "PeriodicSpec",
+    "TaskQueueProvider",
+    "TaskSpec",
+    "TaskTable",
     "DriverCounter",
     "DriverHistogram",
     "Observe",

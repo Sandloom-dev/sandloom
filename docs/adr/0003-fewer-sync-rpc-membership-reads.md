@@ -556,7 +556,8 @@ Tests: `test_reconciler_scopes_every_write_to_the_intents_customer`,
 
 `billing.tasks.reconcile_operation_intents` (Celery beat, every 5 min;
 `@shared_task(acks_late=True, reject_on_worker_lost=True)` — it is
-idempotent) runs `IntentReconciler`
+idempotent; superseded by the task API, ADR-0016: now a `@periodic` task
+declared `at_least_once`) runs `IntentReconciler`
 (`billing/services/intent_reconciler.py`). It closes the two loose ends no
 request closes, using ONLY the existing `pending`-guarded transitions:
 

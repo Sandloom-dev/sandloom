@@ -1,9 +1,10 @@
 """Enqueue dedupe (G-TASK-03) in the kernel's taskqueue layer above the
-celery driver: the layer reserves the job id, the driver only publishes."""
+celery driver: the layer reserves the job id, the driver only sends."""
 
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -21,12 +22,14 @@ from sandloom.core.tasks import enqueue
 from sandloom.core.tasks.queue import KernelTaskQueue
 from sandloom.core.testing import InMemoryCache
 from sandloom.core.testing.workers import worker_env_values
+from sandloom.core.tests.test_taskqueue_enqueue_layer import register_probe_task
 
 
 @pytest.fixture
 def queue(monkeypatch: pytest.MonkeyPatch):
     store = InMemoryCache()
-    monkeypatch.setattr(enqueue, "idempotency_cache", lambda: store)
+    monkeypatch.setattr(enqueue, "atomic_store", lambda role: store)
+    register_probe_task()
     # Not the process's current app: closing it deregisters it, and a closed
     # current app would swallow every later shared_task (NotRegistered).
     app = Celery("dedupe", broker="memory://", set_as_current=False)
@@ -129,23 +132,30 @@ async def test_uncertain_broker_ack_is_not_republished(queue, monkeypatch) -> No
         assert conn.SimpleQueue(app.conf.task_default_queue).qsize() == 1
 
 
-async def test_unserializable_payload_releases_the_reservation(queue) -> None:
-    """A send that provably never reached the broker (the payload cannot be
-    encoded) must not leave the key pending forever: the reservation is
-    released, so a corrected retry with the same key is published."""
-    from kombu.exceptions import EncodeError
-
-    provider, app, _store = queue
-    with pytest.raises(InvalidArgument) as error:
-        await provider.enqueue("probe.task", {"x": {1, 2}}, idempotency_key="key")
-    assert isinstance(error.value.__cause__, EncodeError)
-    # Before: the key stayed "pending" -> every retry 503 task_enqueue_uncertain.
-    with pytest.raises(InvalidArgument):
-        await provider.enqueue("probe.task", {"x": {1, 2}}, idempotency_key="key")
+async def test_unserializable_payload_reserves_nothing(queue) -> None:
+    """A payload that does not serialise is refused by the layer before the
+    key is reserved, so a corrected retry with the same key is published."""
+    provider, app, store = queue
+    for _ in range(2):
+        with pytest.raises(InvalidArgument):
+            await provider.enqueue("probe.task", {"x": object()}, idempotency_key="key")
+        assert store.store == {}
     task_id = await provider.enqueue("probe.task", {"x": [1, 2]}, idempotency_key="key")
     assert task_id
     with app.connection_for_read() as conn:
         assert conn.SimpleQueue(app.conf.task_default_queue).qsize() == 1
+
+
+async def test_the_driver_refuses_a_payload_that_is_not_a_json_object(queue) -> None:
+    layered, app, _ = queue
+    provider = layered._provider
+    for body in (b"not json", b"[1, 2]", b'"text"'):
+        with pytest.raises(InvalidArgument):
+            await provider.send("probe.task", body, task_id="t-1")
+    with pytest.raises(InvalidArgument):
+        await provider.send("", b"{}", task_id="t-1")
+    with app.connection_for_read() as conn:
+        assert conn.SimpleQueue(app.conf.task_default_queue).qsize() == 0
 
 
 async def test_deterministic_send_error_releases_the_reservation(
@@ -257,7 +267,7 @@ async def test_replay_window_expires_on_real_redis(queue, monkeypatch) -> None:
     store = RedisCacheProvider(
         name="enqueue", driver="redis", options={"url": env["CACHE_URL"]}, shared=False
     )
-    monkeypatch.setattr(enqueue, "idempotency_cache", lambda: store)
+    monkeypatch.setattr(enqueue, "atomic_store", lambda role: store)
     provider, app, _ = queue
     provider.options["dedupe_ttl_seconds"] = 1
     try:
@@ -276,24 +286,31 @@ async def test_replay_window_expires_on_real_redis(queue, monkeypatch) -> None:
         await store.aclose()
 
 
-async def test_the_driver_refuses_a_key_it_cannot_dedupe(queue) -> None:
-    """A caller that bypasses the kernel layer never publishes undeduplicated."""
-    layered, app, _ = queue
-    provider = layered._provider
-    with pytest.raises(InvalidArgument, match="kernel's taskqueue layer"):
-        await provider.enqueue("probe.task", {"x": 1}, idempotency_key="key")
-    with app.connection_for_read() as conn:
-        assert conn.SimpleQueue(app.conf.task_default_queue).qsize() == 0
-
-
-async def test_a_driver_without_the_feature_is_refused_before_reserving(
+async def test_a_driver_without_features_still_serves_idempotency_keys(
     queue, monkeypatch
 ) -> None:
-    layered, _, store = queue
-    monkeypatch.setattr(layered._provider, "features", lambda: frozenset({"delay"}))
-    with pytest.raises(Unsupported):
+    """``idempotency_key`` is the kernel layer's, on every driver."""
+    layered, app, _ = queue
+    monkeypatch.setattr(layered._provider, "features", lambda: frozenset())
+    first = await layered.enqueue("probe.task", {}, idempotency_key="key")
+    assert await layered.enqueue("probe.task", {}, idempotency_key="key") == first
+    assert _published(app) == 1
+
+
+async def test_without_an_idempotency_store_nothing_is_published(
+    queue, monkeypatch
+) -> None:
+    """A key needs the ``idempotency`` ``atomic_store``; without one the
+    enqueue fails closed."""
+    layered, app, _ = queue
+
+    def missing(role):
+        raise RuntimeError("no atomic_store")
+
+    monkeypatch.setattr(enqueue, "atomic_store", missing)
+    with pytest.raises(TaskEnqueueUnavailable):
         await layered.enqueue("probe.task", {}, idempotency_key="key")
-    assert store.store == {}  # nothing reserved
+    assert _published(app) == 0
 
 
 async def test_an_ambiguous_driver_error_keeps_the_key_pending(
@@ -308,7 +325,7 @@ async def test_an_ambiguous_driver_error_keeps_the_key_pending(
         async def maybe_sent(*_args, _error=error, **_kwargs):
             raise _error("lost", capability="taskqueue")
 
-        monkeypatch.setattr(layered._provider, "enqueue", maybe_sent)
+        monkeypatch.setattr(layered._provider, "send", maybe_sent)
         key = f"key-{error.__name__}"
         for _ in range(2):
             with pytest.raises(TaskEnqueueUncertain):
@@ -319,21 +336,21 @@ async def test_too_large_releases_the_reservation(queue, monkeypatch) -> None:
     from sandloom.core.infra.errors import TooLarge
 
     layered, _, _ = queue
-    original = layered._provider.enqueue
+    original = layered._provider.send
 
     async def too_large(*_args, **_kwargs):
         raise TooLarge("payload over the broker's limit", capability="taskqueue")
 
-    monkeypatch.setattr(layered._provider, "enqueue", too_large)
+    monkeypatch.setattr(layered._provider, "send", too_large)
     with pytest.raises(TooLarge):
         await layered.enqueue("probe.task", {}, idempotency_key="key")
-    monkeypatch.setattr(layered._provider, "enqueue", original)
+    monkeypatch.setattr(layered._provider, "send", original)
     assert await layered.enqueue("probe.task", {}, idempotency_key="key")
 
 
 async def test_a_payload_without_canonical_form_reserves_nothing(queue) -> None:
     layered, _, store = queue
-    with pytest.raises(InvalidArgument, match="canonical form"):
+    with pytest.raises(InvalidArgument, match="refused"):
         await layered.enqueue("probe.task", {"bad": object()}, idempotency_key="key")
     assert store.store == {}
 
@@ -357,44 +374,57 @@ async def test_a_bad_task_name_reserves_nothing(queue, task) -> None:
 
 @pytest.mark.parametrize(
     "delay",
-    ["5", 5.0, True, -1, enqueue.MAX_DELAY_SECONDS + 1, 10**12, float("inf")],
+    [
+        "5",
+        5,
+        5.0,
+        True,
+        timedelta(seconds=-1),
+        enqueue.MAX_DELAY + timedelta(seconds=1),
+        timedelta(days=10**6),
+    ],
 )
 async def test_a_bad_delay_reserves_nothing(queue, delay) -> None:
     layered, app, store = queue
-    with pytest.raises(InvalidArgument, match="delay_seconds"):
-        await layered.enqueue(
-            "probe.task", {}, delay_seconds=delay, idempotency_key="key"
-        )
+    with pytest.raises(InvalidArgument, match="delay"):
+        await layered.enqueue("probe.task", {}, delay=delay, idempotency_key="key")
+    assert store.store == {}
+    assert _published(app) == 0
+
+
+async def test_an_unknown_task_reserves_nothing(queue) -> None:
+    layered, app, store = queue
+    with pytest.raises(InvalidArgument, match="not declared"):
+        await layered.enqueue("probe.nobody", {}, idempotency_key="key")
     assert store.store == {}
     assert _published(app) == 0
 
 
 async def test_the_delay_cap_and_zero_are_accepted(queue) -> None:
     layered, app, _ = queue
-    assert enqueue.MAX_DELAY_SECONDS == 30 * 24 * 60 * 60
-    await layered.enqueue("probe.task", {}, delay_seconds=0, idempotency_key="a")
+    assert enqueue.MAX_DELAY == timedelta(days=30)
+    await layered.enqueue("probe.task", {}, delay=timedelta(0), idempotency_key="a")
     await layered.enqueue(
-        "probe.task", {}, delay_seconds=enqueue.MAX_DELAY_SECONDS, idempotency_key="b"
+        "probe.task", {}, delay=enqueue.MAX_DELAY, idempotency_key="b"
     )
     assert _published(app) == 2
 
 
 async def test_a_delay_without_the_feature_reserves_nothing(queue, monkeypatch) -> None:
     layered, app, store = queue
-    monkeypatch.setattr(
-        layered._provider, "features", lambda: frozenset({"idempotency_key"})
-    )
+    monkeypatch.setattr(layered._provider, "features", lambda: frozenset())
+    delay = timedelta(seconds=5)
     with pytest.raises(Unsupported, match="delay"):
-        await layered.enqueue("probe.task", {}, delay_seconds=5, idempotency_key="k")
+        await layered.enqueue("probe.task", {}, delay=delay, idempotency_key="k")
     assert store.store == {}
     # Without a key the same refusal holds: nothing is published.
     with pytest.raises(Unsupported, match="delay"):
-        await layered.enqueue("probe.task", {}, delay_seconds=5)
+        await layered.enqueue("probe.task", {}, delay=delay)
     assert _published(app) == 0
 
 
 async def test_a_bad_delay_without_a_key_publishes_nothing(queue) -> None:
     layered, app, _ = queue
-    with pytest.raises(InvalidArgument, match="delay_seconds"):
-        await layered.enqueue("probe.task", {}, delay_seconds=10**12)
+    with pytest.raises(InvalidArgument, match="delay"):
+        await layered.enqueue("probe.task", {}, delay=timedelta(days=10**6))
     assert _published(app) == 0

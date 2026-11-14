@@ -38,7 +38,7 @@ identity/
 ├── integrations.py      # OAuth-клиенты и отправка писем (notifier)
 ├── password_policy.py
 ├── utils.py             # токены email/сброса, хэши, шифрование
-└── tasks.py             # @shared_task для воркера фреймворка (sandloom worker)
+└── tasks.py             # @task / @periodic для воркера фреймворка (sandloom worker)
 ```
 
 ## API Endpoints

@@ -283,8 +283,8 @@ class ModuleDescriptor:
     def effective_capabilities(self) -> list[CapabilityRequirement]:
         """Capabilities to preflight at load: the declared ones, plus what the
         module's code shows it needs: ``taskqueue`` for a ``tasks`` submodule,
-        with the feature ``periodic`` for its beat hook
-        (``setup_periodic_tasks``).
+        with the feature ``periodic`` for a ``@periodic`` task and
+        ``redelivery`` for an ``at_least_once`` one.
 
         A declaration wins: a derived need adds its features to every declared
         requirement of the same capability and never changes its ``required``

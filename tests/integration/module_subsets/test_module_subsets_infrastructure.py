@@ -62,27 +62,28 @@ DEAD_BROKER = "redis://127.0.0.1:1/1"
 
 FAKE_DRIVER = "fakeq"
 FAKE_DRIVER_MODULE = '''\
-"""A taskqueue driver that enqueues and nothing else: no ``periodic``."""
+"""A taskqueue driver that sends and nothing else: no ``periodic``."""
 
-from collections.abc import Mapping
-from typing import Any
+from datetime import timedelta
 
 from sandloom.core.infra.contracts import TaskQueueProvider
 
 
 class NoPeriodicQueue(TaskQueueProvider):
-    contract_version = 1
-    supported_features = frozenset({"delay"})
+    contract_version = 2
+    supported_features = frozenset({"delay", "redelivery"})
 
-    async def enqueue(
+    async def send(
         self,
         task: str,
-        payload: Mapping[str, Any],
+        payload: bytes,
         *,
-        delay_seconds: int | None = None,
-        idempotency_key: str | None = None,
+        task_id: str,
+        delay: timedelta | None = None,
+        at_least_once: bool = False,
+        queue: str = "default",
     ) -> str:
-        return "fakeq-1"
+        return task_id
 '''
 
 

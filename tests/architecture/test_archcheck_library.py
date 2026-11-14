@@ -68,6 +68,7 @@ def test_rule_ids_are_stable() -> None:
         "utc-datetime-columns",  # infra-agnostic: times read back in UTC
         "database-feature-forms",  # infra-agnostic: feature forms declared
         "undeclared-capability",  # tasks declare taskqueue / periodic (C033)
+        "task-enqueue-ownership",  # a module enqueues only its own tasks (C035)
         "portable-sql",  # infra-agnostic: SQL every database runs alike
         "generated-reserved",  # ADR-0013: _generated/ is the generator's (C032)
     } | {

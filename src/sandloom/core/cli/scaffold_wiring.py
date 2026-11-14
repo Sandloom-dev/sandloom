@@ -24,7 +24,7 @@ import json
 import re
 from pathlib import Path
 
-from sandloom.core.tasks.periodic import PERIODIC_HOOK, has_periodic_tasks
+from sandloom.core.tasks.periodic import has_periodic_tasks
 
 _LOCAL_MODULES = re.compile(
     r"^(LOCAL_MODULES(?::\s*list\[str\])?\s*=\s*)(\[[^\]]*\])", re.MULTILINE
@@ -176,7 +176,6 @@ __all__ = [
     "api_cheatsheet",
     "contract_inherited",
     "module_contract",
-    "PERIODIC_HOOK",
     "has_periodic_tasks",
     "project_root",
     "wire_module",

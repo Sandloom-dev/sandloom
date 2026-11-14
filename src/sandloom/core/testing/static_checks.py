@@ -58,7 +58,7 @@ from sandloom.core.descriptors import MigrationTargetError
 from sandloom.core.migrations.migrations import list_database_instances
 from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.sql_alchemy.portable import dialect_of_url, schema_from_models
-from sandloom.core.tasks.periodic import PERIODIC_HOOK, has_periodic_tasks
+from sandloom.core.tasks.periodic import has_periodic_tasks
 from sandloom.core.tenant import TenantScoped
 from sandloom.core.testing.database import (
     GLOBAL_UNIQUE_INFO,
@@ -306,7 +306,7 @@ def periodic_beat_problems(
     """One compose profile's beats against its modules' periodic tasks.
 
     ``periodic`` defaults to the served modules whose ``tasks.py`` defines
-    ``setup_periodic_tasks``.
+    a ``@periodic`` task.
     """
     served, beats, workers, legacy = _processes(profile)
     wanted = (
@@ -335,7 +335,7 @@ def periodic_beat_problems(
         owners = sorted(n for n, (_, mods) in beats.items() if module in mods)
         if len(owners) != 1:
             problems.append(
-                f"{where}: {module} has periodic tasks ({PERIODIC_HOOK}) and "
+                f"{where}: {module} has periodic tasks (@periodic) and "
                 f"needs exactly one beat, got {owners or 'none'}. Fix: in the "
                 "microservices profile `sandloom add deploy --refresh` (an undeployed "
                 "module: `sandloom add deploy <module> --service <name>`) writes its "

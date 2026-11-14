@@ -20,18 +20,21 @@ How the worker app is assembled (no backend is constructed here):
    _drivers``), and the enqueue side (``core.taskqueue().enqueue``) and this
    worker therefore share one app, broker and task namespace.
 3. **Discover module tasks** — for every LOADED module ``<pkg>`` the worker
-   imports ``<pkg>.tasks`` if it exists. A module declares tasks with Celery's
-   app-agnostic ``@shared_task`` (it never builds or imports an app), and may
-   expose ``setup_periodic_tasks(sender, **kwargs)`` which is connected to the
-   app's ``on_after_finalize`` so ``beat`` schedules it.
+   imports ``<pkg>.tasks`` if it exists. A module declares tasks with
+   ``@task`` and ``@periodic`` of ``sandloom.sdk.tasks`` (it never builds or
+   imports an app); the kernel derives the
+   :class:`~sandloom.core.infra.ports.taskqueue.TaskTable` from the
+   declarations, registers one Celery task per entry (it runs
+   :func:`sandloom.core.tasks.registry.run_task`) and adds each periodic entry
+   to the app's beat schedule (``on_after_finalize``).
 
 A module that is not in ``SANDLOOM_MODULES`` contributes no tasks, so a split
 deployment runs one worker per service with that service's module set.
 
-4. **One event loop per worker process** — task bodies are synchronous, so
-   they run coroutines through ``sandloom.core.di.run_async`` (never
-   ``asyncio.run``): the async engine pools are per-process and loop-bound, so
-   a fresh loop per task breaks the pool on the 2nd task. The worker wires
+4. **One event loop per worker process** — an ``async def`` task body runs
+   through ``sandloom.core.di.run_async`` (never ``asyncio.run``), a sync body
+   directly: the async engine pools are per-process and loop-bound, so a fresh
+   loop per task breaks the pool on the 2nd task. The worker wires
    ``worker_process_init`` (fresh loop after fork) and
    ``worker_process_shutdown`` (dispose the engines/caches on that loop, then
    close it) — see :mod:`sandloom.core.async_runner`.
@@ -62,16 +65,15 @@ from sandloom.core.composition import COMPOSITION_ROOT_ENV, CompositionRootError
 from sandloom.core.composition import load_composition_core as _load_root_core
 from sandloom.core.config.common import strict_profile_active
 from sandloom.core.gc_tuning import install_celery_hooks as install_celery_gc_hooks
-from sandloom.core.tasks import periodic as _periodic
+from sandloom.core.infra.registry import CapabilityUnavailable
+from sandloom.core.tasks.registry import build_task_table, run_task
 
 logger = logging.getLogger(__name__)
 
 #: Logical taskqueue instance whose app the worker consumes (default ``default``).
 TASKQUEUE_INSTANCE_ENV = "SANDLOOM_WORKER_TASKQUEUE"
-#: Submodule of a business module that holds its ``@shared_task`` functions.
+#: Submodule of a business module that holds its ``@task`` functions.
 TASKS_SUBMODULE = "tasks"
-#: Optional hook in ``<pkg>.tasks`` that registers periodic (beat) tasks.
-PERIODIC_HOOK = _periodic.PERIODIC_HOOK
 #: Prefork children (default: cgroup CPUs, capped at MAX_DEFAULT_WORKER_CONCURRENCY).
 WORKER_CONCURRENCY_ENV = "WORKER_CONCURRENCY"
 MAX_DEFAULT_WORKER_CONCURRENCY = 2
@@ -103,8 +105,9 @@ def load_composition_core(root_name: str | None = None) -> Any:
         raise WorkerConfigurationError(str(exc)) from exc
 
 
-def _resolve_celery_app(core: Any, instance: str) -> Any:
-    """Return the Celery app backing taskqueue ``instance`` (driver-built)."""
+def _resolve_celery_app(core: Any, instance: str) -> tuple[Any, Any]:
+    """Return ``(provider, app)``: taskqueue ``instance`` and the Celery app
+    backing it (driver-built)."""
     provider = core.taskqueue(instance)
     backend = provider.raw_backend()
     if inspect.isawaitable(backend):
@@ -120,7 +123,7 @@ def _resolve_celery_app(core: Any, instance: str) -> Any:
             f"{getattr(provider, 'driver', '?')!r}) is not backed by a Celery "
             "app; the framework worker needs the `celery` taskqueue driver"
         )
-    return backend
+    return provider, backend
 
 
 def discover_task_modules(module_names: Iterable[str]) -> list[ModuleType]:
@@ -216,18 +219,18 @@ def configure_worker_sizing(app: Any, env: dict[str, str] | None = None) -> None
 def configure_worker_reliability(app: Any) -> None:
     """Framework delivery defaults of the worker's Celery app.
 
-    - ``task_ignore_result=True``: a task stores no result unless it opts out
-      (``@shared_task(ignore_result=False)``) — the framework never reads
-      results, and each stored one is a backend write + TTL key;
+    - ``task_ignore_result=True``: a task stores no result — the framework
+      never reads results, and each stored one is a backend write + TTL key;
     - ``worker_prefetch_multiplier=1``: a child reserves one message at a
       time, so a long task does not strand a prefetched backlog behind it (and
       a crashed child loses at most its own message's ack).
 
     ``acks_late`` stays OFF globally (Celery's at-most-once default: a task is
-    acked when it starts). An IDEMPOTENT task should opt in to at-least-once
-    with ``@shared_task(acks_late=True, reject_on_worker_lost=True)``: it is
-    acked only after it finished, and redelivered if the worker process dies
-    mid-task — only safe when running it twice is harmless.
+    acked when it starts). An IDEMPOTENT task opts in to at-least-once with
+    ``@task(at_least_once=True)``: it is registered ``acks_late`` and
+    ``reject_on_worker_lost``, acked only after it finished, and redelivered if
+    the worker process dies mid-task — only safe when running it twice is
+    harmless.
     """
     conf = app.conf
     conf.task_ignore_result = True
@@ -347,13 +350,43 @@ def verify_worker_infra(core: Any) -> None:
     asyncio.run(_run())
 
 
+def check_task_table_features(table: Any, provider: Any, instance: str) -> None:
+    """Refuse a task table the instance's driver cannot serve (SANDLOOM-B037).
+
+    The load-time derivation reads ``at_least_once=True`` only as a literal; the
+    table is what really runs. A task with ``at_least_once`` needs the feature
+    ``redelivery`` and a periodic one ``periodic``: without them the worker would
+    start and silently run at most once, or never schedule.
+    """
+    features = provider.features()
+    missing: dict[str, list[str]] = {}
+    for name, spec in table.tasks.items():
+        if spec.at_least_once and "redelivery" not in features:
+            missing.setdefault("redelivery", []).append(name)
+    for entry in table.periodic:
+        if "periodic" not in features:
+            missing.setdefault("periodic", []).append(entry.id)
+    if not missing:
+        return
+    detail = "; ".join(
+        f"feature {feature!r} for {', '.join(sorted(names))}"
+        for feature, names in sorted(missing.items())
+    )
+    raise CapabilityUnavailable(
+        f"taskqueue instance {instance!r} (driver {provider.driver!r}) lacks "
+        f"{detail}: the loaded modules' tasks need it",
+        fix="select in INFRA a taskqueue driver that advertises the feature, "
+        "or remove at_least_once / the @periodic task",
+    )
+
+
 def build_worker_app(core: Any | None = None, *, instance: str | None = None) -> Any:
     """Assemble the worker's Celery app for the loaded module set."""
     global _teardown_core
     core = core if core is not None else load_composition_core()
     verify_worker_infra(core)
     name = instance or os.getenv(TASKQUEUE_INSTANCE_ENV) or "default"
-    app = _resolve_celery_app(core, name)
+    provider, app = _resolve_celery_app(core, name)
     _teardown_core = core
     configure_worker_sizing(app)
     configure_worker_reliability(app)
@@ -362,12 +395,10 @@ def build_worker_app(core: Any | None = None, *, instance: str | None = None) ->
     install_celery_gc_hooks()
     async_runner.add_loop_cleanup(dispose_worker_infra)
     async_runner.install_celery_hooks()
-    for module in discover_task_modules(list(core.loaded_modules)):
-        hook = getattr(module, PERIODIC_HOOK, None)
-        if callable(hook):
-            # weak=False: the hook is a module-level function, but a strong ref
-            # keeps it alive regardless of how the module is reloaded.
-            app.on_after_finalize.connect(hook, weak=False)
+    modules = discover_task_modules(list(core.loaded_modules))
+    table = build_task_table(m.__name__ for m in modules)
+    check_task_table_features(table, provider, name)
+    provider.register_task_table(table, run_task)
     return app
 
 
@@ -412,11 +443,11 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "COMPOSITION_ROOT_ENV",
-    "PERIODIC_HOOK",
     "TASKQUEUE_INSTANCE_ENV",
     "TASKS_SUBMODULE",
     "WorkerConfigurationError",
     "build_worker_app",
+    "check_task_table_features",
     "configure_worker_reliability",
     "configure_worker_sizing",
     "default_worker_concurrency",
