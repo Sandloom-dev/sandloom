@@ -10,6 +10,9 @@ pgbouncer transaction pooling):
   expires_at = now() + ttl, fence = infra_lease.fence + 1 WHERE
   infra_lease.expires_at <= now() RETURNING fence``; a held name updates
   nothing and returns no row;
+  A name seen for the first time starts at ``max(fence) + 1`` over the table, not
+  at 1: after :func:`lift_fences` (a database restore) a name the dump never held
+  starts above the lifted offset, so a stale holder's token cannot outrank it;
 - **renew** / **release**: ``UPDATE ... WHERE name AND token AND expires_at >
   now()`` (an expired lease is not held); release sets ``expires_at = now()``.
 
@@ -31,6 +34,7 @@ import hashlib
 import time
 import uuid
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -45,12 +49,13 @@ from sqlalchemy import (
     bindparam,
     func,
     select,
+    text,
     update,
 )
 from sqlalchemy import exc as sa_exc
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from sandloom.driverkit import (
     HealthResult,
@@ -80,6 +85,11 @@ _TABLE = Table(
     Column("expires_at", DateTime(timezone=True), nullable=False),
     Column("fence", BigInteger, nullable=False),
 )
+
+
+def _first_fence() -> Any:
+    """``max(fence) + 1`` over the table: the fence of a name never seen before."""
+    return func.coalesce(select(func.max(_TABLE.c.fence)).scalar_subquery(), 0) + 1
 
 
 class _Clock:
@@ -272,7 +282,11 @@ class DatabaseLeaseProvider(LeaseProvider):
             upsert = postgresql.insert(_TABLE)
         statement = (
             upsert.values(
-                name=name, owner=owner, token=token, expires_at=expires, fence=1
+                name=name,
+                owner=owner,
+                token=token,
+                expires_at=expires,
+                fence=_first_fence(),
             )
             .on_conflict_do_update(
                 index_elements=[_TABLE.c.name],
@@ -332,4 +346,69 @@ class DatabaseLeaseProvider(LeaseProvider):
         return LeaseHolder(owner=str(rows[0][0]), fence=int(rows[0][1]))
 
 
-__all__ = ["DatabaseLeaseOptions", "DatabaseLeaseProvider"]
+#: What a restore adds to every ``infra_lease`` fence (see :func:`lift_fences`).
+#: A restored dump rewinds fences to the snapshot; the holders of the lost
+#: window kept tokens above it. The offset must exceed the acquisitions of one
+#: lease name between the snapshot and the restore (10**12: never reached).
+LEASE_FENCE_OFFSET = 10**12
+
+
+@dataclass(frozen=True, slots=True)
+class FencedLease:
+    name: str
+    fence_before: int
+    fence_after: int
+    held: bool  # unexpired in the restored data (released by the bump)
+
+
+async def lift_fences(
+    session: AsyncSession, *, apply: bool, offset: int = LEASE_FENCE_OFFSET
+) -> list[FencedLease]:
+    """After restoring a database: lift every ``infra_lease`` fence by ``offset``
+    and release every lease, so no holder of the lost window can outrank one.
+
+    The driver issues ``fence + 1`` on every acquire and keeps the row after
+    release to keep the counter. A restore to an older point rewinds it: a stale
+    holder could then present a fence the restored counter reissues, and a
+    fenced write of a new holder would not outrank it. The rows are NOT dropped
+    (the next acquire would start at 1), and a name first acquired later starts
+    above the lifted maximum (see the module docstring). The caller owns the
+    transaction: the bump commits with it (the CLI writes its audit row in the
+    same one). PostgreSQL only. A database without the table yields ``[]``.
+    Dry-run unless ``apply``; running it twice lifts twice.
+    """
+    if offset < 1:
+        raise ValueError("the fence offset must be positive")
+    if session.get_bind().dialect.name != "postgresql":
+        raise ValueError("lift_fences needs PostgreSQL")
+    exists = await session.execute(
+        text("SELECT to_regclass('infra_lease') IS NOT NULL")
+    )
+    if not exists.scalar_one():
+        return []
+    selected = select(
+        _TABLE.c.name, _TABLE.c.fence, _TABLE.c.expires_at > func.now()
+    ).order_by(_TABLE.c.name)
+    rows = (await session.execute(selected.with_for_update())).all()
+    if apply and rows:
+        await session.execute(
+            update(_TABLE).values(fence=_TABLE.c.fence + offset, expires_at=func.now())
+        )
+    return [
+        FencedLease(
+            name=str(name),
+            fence_before=int(fence),
+            fence_after=int(fence) + offset,
+            held=bool(held),
+        )
+        for name, fence, held in rows
+    ]
+
+
+__all__ = [
+    "LEASE_FENCE_OFFSET",
+    "DatabaseLeaseOptions",
+    "DatabaseLeaseProvider",
+    "FencedLease",
+    "lift_fences",
+]

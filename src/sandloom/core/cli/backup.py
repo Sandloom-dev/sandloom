@@ -31,6 +31,7 @@ import asyncio
 import json
 import sys
 from typing import Any
+from urllib.parse import urlsplit
 
 import sandloom.core.migrations.migrations as _migrations
 from sandloom.core.auth.recovery import (
@@ -43,12 +44,11 @@ from sandloom.core.auth.recovery import (
 from sandloom.core.cli._operator import add_operator_arguments, operator_intent
 from sandloom.core.composition import load_composition_core
 from sandloom.core.config.settings import settings
+from sandloom.core.drivers.database_lease import LEASE_FENCE_OFFSET, lift_fences
 from sandloom.core.migrations.backup import (
-    LEASE_FENCE_OFFSET,
     build_backup_plan,
     command_restorer,
     database_chains,
-    fence_leases,
     format_plan,
     verify_dump,
 )
@@ -90,6 +90,13 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         return 2
     core = _build_core()
     server = args.server_url or _migrations.resolve_database_sync_url(args.database)
+    if _not_postgres(server):
+        print(
+            "error: backup verify needs a PostgreSQL server (pg_restore, psql); "
+            f"database {args.database!r} is not on one",
+            file=sys.stderr,
+        )
+        return 2
     report = verify_dump(
         args.dump,
         server_url=server,
@@ -218,8 +225,51 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
     return 0 if report.clean else 1
 
 
+def _not_postgres(url: str) -> bool:
+    return not urlsplit(url).scheme.startswith("postgres")
+
+
+async def _fence_database(
+    name: str, *, apply: bool, operator: str, reason: str
+) -> list[dict[str, Any]]:
+    """Lift the fences of one database in one transaction; with ``apply`` the
+    audit row commits with the bump (a failed audit rolls the bump back)."""
+    async with db_session(name) as session:
+        fenced = await lift_fences(session, apply=apply)
+        if apply and fenced:
+            record_audit(
+                "core.lease.fences_bumped",
+                actor_id=None,
+                actor_type="operator",
+                resource_type="infra_lease",
+                resource_id=None,
+                data={
+                    "operator": operator,
+                    "reason": reason,
+                    "database": name,
+                    "offset": LEASE_FENCE_OFFSET,
+                    "leases": [f.name for f in fenced],
+                    "max_fence_before": max(f.fence_before for f in fenced),
+                    "max_fence_after": max(f.fence_after for f in fenced),
+                },
+                required=True,
+            )
+    return [
+        {
+            "name": f.name,
+            "fence_before": f.fence_before,
+            "fence_after": f.fence_after,
+            "held": f.held,
+        }
+        for f in fenced
+    ]
+
+
 def _cmd_fence_leases(args: argparse.Namespace) -> int:
     intent = operator_intent(args)
+    # The core first (like reconcile-security): a command that cannot build it
+    # fails here, before any database is written.
+    _build_core()
     instances = _migrations.list_database_instances()
     names = args.database or sorted(instances)
     unknown = [n for n in names if n not in instances]
@@ -229,20 +279,25 @@ def _cmd_fence_leases(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
-    report: dict[str, list[dict[str, Any]]] = {}
-    for name in names:
-        fenced = fence_leases(instances[name], apply=intent.apply)
-        report[name] = [
-            {
-                "name": f.name,
-                "fence_before": f.fence_before,
-                "fence_after": f.fence_after,
-                "held": f.held,
-            }
-            for f in fenced
-        ]
-        if intent.apply and fenced:
-            asyncio.run(_audit_fence(name, fenced, intent.operator, intent.reason))
+    foreign = [n for n in names if _not_postgres(instances[n])]
+    if foreign:
+        print(
+            "error: fence-leases needs PostgreSQL; database instance(s) "
+            f"{', '.join(foreign)} are not (a Redis lease: see the restore "
+            "note in docs/operate/operator-reference.md)",
+            file=sys.stderr,
+        )
+        return 2
+
+    async def _run() -> dict[str, list[dict[str, Any]]]:
+        report: dict[str, list[dict[str, Any]]] = {}
+        for name in names:
+            report[name] = await _fence_database(
+                name, apply=intent.apply, operator=intent.operator, reason=intent.reason
+            )
+        return report
+
+    report = asyncio.run(_run())
     if args.json:
         print(json.dumps({"applied": intent.apply, "databases": report}, indent=2))
         return 0
@@ -257,21 +312,6 @@ def _cmd_fence_leases(args: argparse.Namespace) -> int:
                 f"{lease['fence_after']}{held}"
             )
     return 0
-
-
-async def _audit_fence(
-    database: str, fenced: list[Any], operator: str, reason: str
-) -> None:
-    async with db_session(database):
-        record_audit(
-            "core.lease.fences_bumped",
-            actor_id=None,
-            actor_type="operator",
-            resource_type="infra_lease",
-            resource_id=None,
-            data={"operator": operator, "reason": reason, "leases": len(fenced)},
-            required=True,
-        )
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -59,11 +59,6 @@ CORE_TABLES = (
     "projection_watermarks",
     "infra_lease",
 )
-#: What a restore adds to every ``infra_lease`` fence (see :func:`fence_leases`).
-#: A restored dump rewinds fences to the snapshot; the holders of the lost
-#: window kept tokens above it. The offset must exceed the acquisitions of one
-#: lease name between the snapshot and the restore (10**12: never reached).
-LEASE_FENCE_OFFSET = 10**12
 #: Version table of the core chain.
 CORE_VERSION_TABLE = "alembic_version"
 #: Prefix of the scratch databases :func:`verify_dump` creates (and drops).
@@ -635,58 +630,6 @@ def verify_dump(
         return report
 
 
-@dataclass(frozen=True, slots=True)
-class FencedLease:
-    name: str
-    fence_before: int
-    fence_after: int
-    held: bool  # unexpired in the restored data (released by the bump)
-
-
-def fence_leases(
-    url: str, *, apply: bool, offset: int = LEASE_FENCE_OFFSET
-) -> list[FencedLease]:
-    """After restoring a database: lift every ``infra_lease`` fence by ``offset``
-    and release every lease, so no holder of the lost window can outrank one.
-
-    The ``database`` lease driver issues ``fence + 1`` on every acquire and keeps
-    the row after release to keep the counter. A restore to an older point
-    rewinds it: a stale holder could then present a fence the restored counter
-    reissues, and a fenced write of a new holder would not outrank it. The rows
-    are NOT dropped (the next acquire would start at 1). A database without the
-    table yields ``[]``. Dry-run unless ``apply``; running it twice lifts twice.
-    """
-    if offset < 1:
-        raise ValueError("the fence offset must be positive")
-    conn = _connect(url, autocommit=False)
-    try:
-        if not _table_exists(conn, "infra_lease"):
-            return []
-        rows = _rows(
-            conn,
-            "SELECT name, fence, expires_at > now() FROM infra_lease "
-            "ORDER BY name FOR UPDATE",
-        )
-        if apply and rows:
-            _rows(
-                conn,
-                "UPDATE infra_lease SET fence = fence + %s, expires_at = now()",
-                (offset,),
-            )
-        conn.commit()
-    finally:
-        conn.close()
-    return [
-        FencedLease(
-            name=str(name),
-            fence_before=int(fence),
-            fence_after=int(fence) + offset,
-            held=bool(held),
-        )
-        for name, fence, held in rows
-    ]
-
-
 def database_chains(
     database: str, descriptors: Sequence[ModuleDescriptor]
 ) -> list[tuple[str, str, str]]:
@@ -696,9 +639,7 @@ def database_chains(
 
 __all__ = [
     "CORE_TABLES",
-    "LEASE_FENCE_OFFSET",
     "CheckResult",
-    "FencedLease",
     "PlanItem",
     "VerifyReport",
     "build_backup_plan",
@@ -706,7 +647,6 @@ __all__ = [
     "command_restorer",
     "database_chains",
     "dump_format",
-    "fence_leases",
     "format_plan",
     "scratch_database",
     "verify_dump",

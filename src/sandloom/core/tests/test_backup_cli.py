@@ -26,14 +26,13 @@ from pydantic import BaseModel, Field
 
 from sandloom.core.cli._operator import add_operator_arguments, operator_intent
 from sandloom.core.config.settings import settings
+from sandloom.core.drivers.database_lease import LEASE_FENCE_OFFSET
 from sandloom.core.migrations.backup import (
     CORE_TABLES,
     CORE_VERSION_TABLE,
-    LEASE_FENCE_OFFSET,
     build_backup_plan,
     command_restorer,
     dump_format,
-    fence_leases,
     format_plan,
     verify_dump,
 )
@@ -240,63 +239,91 @@ def test_core_tables_equal_what_the_core_chain_creates() -> None:
     assert len(set(CORE_TABLES)) == len(CORE_TABLES)
 
 
-def test_fence_leases_lift_fences_and_release_leases() -> None:
-    with temporary_database(_server_url()) as url:
-        upgrade_core_chain(url)
-        run_sql(
-            url,
-            "INSERT INTO infra_lease (name, owner, token, expires_at, fence) VALUES "
-            "('held', 'a', 't1', now() + interval '1 hour', 5), "
-            "('free', 'b', 't2', now() - interval '1 hour', 9)",
-        )
-        dry = fence_leases(url, apply=False)
-        assert [(x.name, x.fence_before, x.held) for x in dry] == [
-            ("free", 9, False),
-            ("held", 5, True),
-        ]
-        assert [x.fence_before for x in fence_leases(url, apply=False)] == [9, 5]
-        applied = fence_leases(url, apply=True)
-        assert [x.fence_after for x in applied] == [
-            9 + LEASE_FENCE_OFFSET,
-            5 + LEASE_FENCE_OFFSET,
-        ]
-        after = fence_leases(url, apply=False)
-        assert [(x.fence_before, x.held) for x in after] == [
-            (9 + LEASE_FENCE_OFFSET, False),
-            (5 + LEASE_FENCE_OFFSET, False),
-        ]
+def _cli_database_url() -> str:
+    """The sync URL of the database the CLI's core writes (``default``)."""
+    import sandloom.core.migrations.migrations as migrations
+
+    url = migrations.resolve_database_sync_url("default")
+    return url.replace("+psycopg2", "")
 
 
-def test_fence_leases_without_the_table_is_empty() -> None:
-    with temporary_database(_server_url()) as url:
-        assert fence_leases(url, apply=True) == []
+def _seed_lease_rows() -> None:
+    url = _cli_database_url()
+    upgrade_core_chain(url)
+    run_sql(url, "DELETE FROM infra_lease")
+    run_sql(
+        url,
+        "INSERT INTO infra_lease (name, owner, token, expires_at, fence) VALUES "
+        "('held', 'a', 't1', now() + interval '1 hour', 5), "
+        "('free', 'b', 't2', now() - interval '1 hour', 9)",
+    )
 
 
-def test_fence_leases_refuses_a_non_positive_offset() -> None:
-    with pytest.raises(ValueError, match="positive"):
-        fence_leases("postgresql://x/y", apply=True, offset=0)
+def _fences() -> list[tuple[str, int]]:
+    rows = run_sql(
+        _cli_database_url(), "SELECT name, fence FROM infra_lease ORDER BY name"
+    )
+    return [(str(n), int(f)) for n, f in rows]
 
 
 def test_fence_leases_command_is_dry_run_by_default(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from sandloom.core.cli.backup import main
+
+    _seed_lease_rows()
+    assert main(["fence-leases", "--json"]) == 0
+    assert '"fence_before": 5' in capsys.readouterr().out
+    assert _fences() == [("free", 9), ("held", 5)]
+    assert main(["fence-leases", "--database", "nope"]) == 2
+    with pytest.raises(SystemExit, match="--reason"):
+        main(["fence-leases", "--apply"])
+    assert _fences() == [("free", 9), ("held", 5)]
+
+
+def test_fence_leases_apply_bumps_and_audits_in_the_same_transaction() -> None:
+    from sandloom.core.cli.backup import main
+
+    url = _cli_database_url()
+    _seed_lease_rows()
+    run_sql(url, "DELETE FROM audit_log WHERE action = 'core.lease.fences_bumped'")
+    assert (
+        main(["fence-leases", "--apply", "--reason", "restore", "--operator", "al"])
+        == 0
+    )
+    assert _fences() == [
+        ("free", 9 + LEASE_FENCE_OFFSET),
+        ("held", 5 + LEASE_FENCE_OFFSET),
+    ]
+    rows = run_sql(
+        url,
+        "SELECT data FROM audit_log WHERE action = 'core.lease.fences_bumped'",
+    )
+    assert len(rows) == 1  # one bump, one audit row: a rerun is the operator's choice
+    data = rows[0][0]
+    assert data["operator"] == "al"
+    assert data["reason"] == "restore"
+    assert data["offset"] == LEASE_FENCE_OFFSET
+    assert sorted(data["leases"]) == ["free", "held"]
+    assert data["max_fence_before"] == 9
+    assert data["max_fence_after"] == 9 + LEASE_FENCE_OFFSET
+
+
+def test_fence_leases_and_verify_refuse_a_database_that_is_not_postgresql(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
 ) -> None:
     import sandloom.core.migrations.migrations as migrations
     from sandloom.core.cli.backup import main
 
-    with temporary_database(_server_url()) as url:
-        upgrade_core_chain(url)
-        run_sql(
-            url,
-            "INSERT INTO infra_lease (name, owner, token, expires_at, fence) "
-            "VALUES ('x', 'a', 't', now() + interval '1 hour', 3)",
-        )
-        monkeypatch.setattr(
-            migrations, "list_database_instances", lambda: {"default": url}
-        )
-        assert main(["fence-leases", "--json"]) == 0
-        assert '"fence_before": 3' in capsys.readouterr().out
-        assert fence_leases(url, apply=False)[0].fence_before == 3
-        assert main(["fence-leases", "--database", "nope"]) == 2
-        with pytest.raises(SystemExit, match="--reason"):
-            main(["fence-leases", "--apply"])
-        assert fence_leases(url, apply=False)[0].fence_before == 3
+    monkeypatch.setattr(
+        migrations,
+        "list_database_instances",
+        lambda: {"default": "sqlite+aiosqlite:///x.db"},
+    )
+    assert main(["fence-leases"]) == 2
+    assert "needs PostgreSQL" in capsys.readouterr().err
+    dump = _fake_dump(tmp_path)
+    assert main(["verify", str(dump), "--server-url", "sqlite:///x.db"]) == 2
+    assert "needs a PostgreSQL" in capsys.readouterr().err
