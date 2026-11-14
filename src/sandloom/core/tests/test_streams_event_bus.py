@@ -1,4 +1,4 @@
-"""StreamsEventBus: durable at-least-once delivery over a MessageTransport.
+"""StreamsEventBus: durable at-least-once delivery over an EventTransport.
 
 Uses MemoryTransport + a patched in-memory cache (for the dedupe inbox) so the
 test is hermetic and deterministic. Proves: a subscriber receives published
@@ -356,7 +356,11 @@ async def test_durable_consumer_dedupes_redelivery_without_cache_inbox(
 class _LeasedTransport(MemoryTransport):
     """MemoryTransport with the Redis transport's lease surface."""
 
-    renew_interval_seconds = 0.02
+    #: Lease renewal is declared, as the Redis transport declares it.
+    supported_features = MemoryTransport.supported_features | {"lease_renewal"}
+
+    def renew_interval_seconds(self) -> float:
+        return 0.02
 
     def __init__(self) -> None:
         super().__init__()

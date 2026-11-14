@@ -237,7 +237,7 @@ async def test_aopen_all_opens_the_event_bus() -> None:
 
     class Bus(InfraProvider):
         capability = "eventbus"
-        contract_version = 1
+        contract_version = 2
 
         async def aopen(self) -> None:
             opened.append(self.name)

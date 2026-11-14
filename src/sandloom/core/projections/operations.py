@@ -27,6 +27,7 @@ from typing import Any
 
 from sandloom.core.config.settings import settings
 from sandloom.core.effects import relay_retry_horizon_seconds
+from sandloom.core.infra.errors import Unsupported
 from sandloom.core.projections.descriptors import (
     ProjectionConsumerDescriptor,
     ProjectionRebuildResult,
@@ -119,10 +120,10 @@ async def oldest_dlq_age_s(
     for channel in channels:
         try:
             entries = await transport.list_dlq(channel, count=1000)
-        except NotImplementedError:
+        except (NotImplementedError, Unsupported):
             return 0.0
         for entry in entries:
-            ms = _stream_entry_ms(entry.get("original_id") or entry.get("id"))
+            ms = _stream_entry_ms(entry.original_id or entry.id)
             if ms is not None:
                 oldest = max(oldest, (now_ms - ms) / 1000.0)
     return oldest

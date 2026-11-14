@@ -65,6 +65,16 @@ NOT_DRIVER_PACKAGES: dict[str, str] = {
     ),
 }
 
+#: Kernel-internal providers a row of ``BUILTIN_DRIVER_ROWS`` targets that are
+#: not drivers: the volatile-bus shape of ``eventbus`` (``memory``, ``redis``,
+#: spec 7) is the kernel's own bus behind the capability, in ``core/eventing``,
+#: and implements no transport. It is not exported from the driverkit, so a
+#: driver package cannot be written against it. Permanent by design: the
+#: volatile buses stay in the kernel, no later slice moves them to a package.
+KERNEL_INTERNAL: frozenset[str] = frozenset(
+    {"sandloom.core.eventing.volatile_provider"}
+)
+
 KERNEL = "sandloom.core"
 DRIVERKIT = "sandloom.driverkit"
 #: What a dynamic ``import_module`` / ``__import__`` (a non-literal name) counts as.
@@ -110,15 +120,11 @@ SEEDED: dict[str, frozenset[str]] = {
     ),
     _D + "event_bus_driver.py": frozenset(
         {
-            "sandloom.core.contracts",
             "sandloom.core.descriptors",
             "sandloom.core.drivers.redis_cache",
-            "sandloom.core.eventing.memory_bus",
-            "sandloom.core.eventing.pubsub_bus",
             "sandloom.core.eventing.streams_bus",
             "sandloom.core.eventing.streams_transport",
             "sandloom.core.infra.config",
-            "sandloom.core.infra.contracts",
             "sandloom.core.infra.ports._base",
             "sandloom.core.infra.registry",
         }
@@ -335,7 +341,7 @@ def _row_modules() -> set[str]:
 def builtin_driver_files() -> list[Path]:
     """Every built-in driver module this checkout has."""
     files = {p for p in DRIVERS.glob("*.py") if p.name not in NOT_DRIVERS}
-    for module in _row_modules():
+    for module in _row_modules() - KERNEL_INTERNAL:
         base = SRC.joinpath(*module.split("."))
         for candidate in (base.with_suffix(".py"), base / "__init__.py"):
             if candidate.is_file() and candidate.name not in NOT_DRIVERS:

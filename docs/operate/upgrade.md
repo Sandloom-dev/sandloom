@@ -73,6 +73,24 @@ The `database` contract is major 2. Update a driver package that implements it
 | Raw sessions only through an engine of your own | `session_factory`, a property answering a callable that yields a session of the instance (or `None`) |
 | `OutboxStore`, `AuditStore`, `CommandLogStore`, `RequestLogStore` imported from `sandloom.core.infra.contracts` | Import them from `sandloom.core.infra.ports.database`, where they now live (`contracts` re-exports them for kernel code) |
 
+## Upgrading an event bus driver to contract major 2
+
+The `eventbus` contract is major 2: the `streams` transport is a typed
+`EventTransportProvider` ([Write a driver](../infrastructure/write-a-driver.md#an-eventbus-driver))
+and `memory` and `redis` are the kernel's own volatile buses. A driver or module that names
+a feature of the previous vocabulary is refused at load, and the refusal names the
+replacement. There is no alias.
+
+| Before | After |
+| --- | --- |
+| `publish`, `subscribe` in a requirement or a driver's features | Drop them: every driver has both operations |
+| `volatile` | Drop it: a volatile bus declares no `durable` |
+| `at_least_once`, `consumer_groups` | `durable` |
+| `durable`, `wildcard_subscribe` | Unchanged (`wildcard_subscribe` is the volatile buses' only) |
+| `EventBusProvider.bus()` and flags read with `getattr` | `EventTransportProvider` and its declared features: `shared`, `blocking_consume`, `group_start_id`, `lease_renewal`, `dlq_ops`, `inspection`, `inventory` |
+| `GroupOwnershipError`, `TransportBatchError` | `GroupOwnedElsewhere` (an `AlreadyExists`), `PartialPublish` (an `InfraError`; `published` and `retryable`) |
+| Group owners, DLQ entries, group and inventory records as `dict`s | `GroupOwner`, `DeadLetter`, `GroupInfo`, `StreamInfo`, `ConsumerInfo` (`sandloom.driverkit`) |
+
 ## Upgrading from 0.7.0a4 to 0.7.0a5
 
 This alpha changes infrastructure extension APIs. Update the framework and

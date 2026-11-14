@@ -200,7 +200,7 @@ def _extract_module(core: CoreFacade, args: argparse.Namespace) -> int:  # noqa:
         moved = asyncio.run(_transfer()) if transport is not None else []
         verb = "transferred" if args.apply else "would transfer"
         for pair in moved:
-            print(f"  streams group owner {verb}: {pair} -> {target_id}")
+            print(f"  streams group owner {verb}: {pair}: {source_id} -> {target_id}")
         if not moved:
             print("  streams group owners: none recorded for this module/database")
     return 0

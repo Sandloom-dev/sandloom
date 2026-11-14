@@ -73,7 +73,7 @@ import os
 import tempfile
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from alembic import command
@@ -1277,23 +1277,28 @@ async def transfer_group_owners(
         return []
     short = _module_name(module)
     moved: list[str] = []
-    for entry in await lister():
-        owner = entry.get("owner") or {}
-        if owner.get("module") not in (module, short):
+    for stream, group, owner in await lister():
+        if owner.module not in (module, short):
             continue
-        if owner.get("database") != source_identity:
+        if owner.database != source_identity:
             continue
-        stream, group = str(entry["stream"]), str(entry["group"])
         if apply:
-            new_owner = {
-                **owner,
-                "database": target_identity,
-                "transferred_from": source_identity,
-            }
+            new_owner = replace(owner, database=target_identity)
             if not await transfer(stream, group, expected=owner, owner=new_owner):
                 raise ExtractionError(
                     f"group {group} on {stream}: owner changed concurrently"
                 )
+            # The owner record keeps three fields (spec 7): the old database
+            # is not stored with it, so the transfer is logged here.
+            logger.warning(
+                "streams group owner transferred: stream=%s group=%s module=%s "
+                "database %s -> %s",
+                stream,
+                group,
+                owner.module,
+                source_identity,
+                target_identity,
+            )
         moved.append(f"{stream} {group}")
     return moved
 

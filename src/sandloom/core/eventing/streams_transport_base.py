@@ -14,9 +14,10 @@ from sandloom.core.eventing.transport_base import (
     _DEFAULT_RETRY_BASE_MS,
     _DEFAULT_RETRY_MAX_MS,
     _RECLAIM_INTERVAL_SECONDS,
-    MessageTransport,
+    TransportDefaults,
     retry_delay_ms,
 )
+from sandloom.core.infra.ports.eventbus import Retention
 
 logger = logging.getLogger("sandloom.core.eventing.transport")
 
@@ -54,7 +55,7 @@ def _as_int(value: Any) -> int | None:
         return None
 
 
-class _StreamsTransportBase(MessageTransport):
+class _StreamsTransportBase(TransportDefaults):
     """Construction, key namespacing and single-entry reads.
 
     The bottom layer of the Redis Streams transport (``RedisStreamsTransport``).
@@ -152,6 +153,13 @@ class _StreamsTransportBase(MessageTransport):
 
     def _owner_key(self, stream: str, group: str) -> str:
         return f"{self._prefix}sandloom:group-owner:{stream}:{group}"
+
+    def retention(self) -> Retention:
+        """What this transport keeps of a stream (``None``: unbounded)."""
+        return Retention(
+            max_age_seconds=self._retention_seconds or None,
+            max_length=self._maxlen or None,
+        )
 
     def _retry_delay(self, deliveries: int) -> int:
         return retry_delay_ms(

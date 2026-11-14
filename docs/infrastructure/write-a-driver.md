@@ -16,9 +16,11 @@ as an email API or a Google Cloud Storage store. Use it also for a
 
 **Do not use it** for business logic: that is a [module](../modules/create.md). A contract is
 public only with a conformance kit, so the `cache` and `taskqueue` contracts are not
-available yet. The `notification` and `objectstore` contracts are. The `database` and
-`eventbus` backends carry the transaction and delivery guarantees and are not open to drivers
-([why](database.md#the-relational-paradigm)).
+available yet. The `notification` and `objectstore` contracts are. The `database` backend
+carries the transaction guarantees and is not open to drivers
+([why](database.md#the-relational-paradigm)). An `eventbus` driver is an
+[`EventTransportProvider`](#an-eventbus-driver). It is kernel-facing: its conformance
+kit is pending (`idk-eventbus-kit`) and it is not yet a public contract.
 
 !!! note "Version"
     This guide targets `sandloom==0.7.0a13`. <!-- sandloom-release -->
@@ -193,6 +195,52 @@ limits of your test instance. When the read limit is not below the upload limit,
 `metadata` is informational. A driver that declares it overrides
 `read_metadata(provider, key)` to read the content type and metadata back. A driver
 without it accepts them in `put` and drops them.
+
+#### An eventbus driver
+
+!!! warning "Kernel-facing; the conformance kit is pending"
+    This section describes the contract the kernel's bus runs over. Its conformance kit
+    is pending (`idk-eventbus-kit`) and it is not yet a public contract. Mapping backend
+    errors to `Unavailable` and `Timeout` is pending with the kit. Until then a driver
+    raises them itself, and the kernel does not translate a backend exception.
+
+An `eventbus` driver of the transport shape states `contract_version = 2` and
+subclasses `EventTransportProvider` (`sandloom.driverkit`), an abstract base class. It is
+the durable transport the kernel builds its bus over. The kernel keeps schema validation,
+payload limits and the bus logic. The driver keeps the entries.
+
+It implements every operation below. A driver that leaves one out cannot be
+instantiated; the operations behind a feature default to `Unsupported(feature)`, and a
+driver that declares the feature overrides them. `publish_many` returns one id per item
+(the bus refuses any other count).
+
+- `publish` and `publish_many`. A failed batch raises `PartialPublish`, which carries
+  the ids appended before the failure.
+- `ensure_group`, `consume`, `ack` and `ack_many`.
+- `dead_letter` and `never_dead_letter`.
+- Group ownership. `claim_group_owner` raises `GroupOwnedElsewhere` for a second
+  `(module, database)`.
+- `retention()`, and the operations of the features below.
+
+| Feature | Kind | Operations |
+|---|---|---|
+| `durable` | guarantee | entries survive a transport restart within its durability class and a consumer crash; delivery is at least once |
+| `shared` | guarantee | every process of the deployment sees the same streams and groups |
+| `blocking_consume` | behaviour | `consume(block_ms=)` waits server-side |
+| `group_start_id` | behaviour | `ensure_group(start_id=)` other than `"0"` |
+| `lease_renewal` | behaviour | `renew_pending`, `renew_interval_seconds` |
+| `dlq_ops` | behaviour | `list_dlq`, `replay_dlq` |
+| `inspection` | behaviour | `group_info`, `stream_info`, `oldest_unacked_age_seconds` |
+| `inventory` | behaviour | `register_consumer`, `list_consumers`, `forget_consumer` |
+
+`publish_many` and `ack_many` say `one_round_trip` in `performance_hints` when each is one
+round trip.
+
+The names of the previous major are gone, with no alias. A module or driver that names
+`publish`, `subscribe`, `volatile`, `at_least_once` or `consumer_groups` is refused at
+load, and the refusal names the replacement. The last two become `durable`; the first
+three are dropped. The `memory` and `redis` buses are the kernel's own volatile buses,
+not a driver shape.
 
 #### A database driver
 

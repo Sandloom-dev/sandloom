@@ -2705,6 +2705,21 @@
       ],
       "signature": "(table:POSITIONAL_OR_KEYWORD|_DMLTableArgument)"
     },
+    "ConsumerInfo": {
+      "kind": "class",
+      "members": [
+        "consumer",
+        "database",
+        "group",
+        "last_delivered_id",
+        "last_seen",
+        "module",
+        "service",
+        "stale",
+        "stream"
+      ],
+      "signature": "(stream:POSITIONAL_OR_KEYWORD|str, group:POSITIONAL_OR_KEYWORD|str, module:POSITIONAL_OR_KEYWORD|str, database:POSITIONAL_OR_KEYWORD|str, service:POSITIONAL_OR_KEYWORD|str | None=None, consumer:POSITIONAL_OR_KEYWORD|str | None=None, last_delivered_id:POSITIONAL_OR_KEYWORD|str | None=None, last_seen:POSITIONAL_OR_KEYWORD|float | None=None, stale:POSITIONAL_OR_KEYWORD|bool=False) -> None"
+    },
     "DBAPI_CAPABILITIES": {
       "kind": "value"
     },
@@ -2731,6 +2746,29 @@
       ],
       "signature": "()"
     },
+    "DeadLetter": {
+      "kind": "class",
+      "members": [
+        "attempts",
+        "event_id",
+        "group",
+        "id",
+        "original_id",
+        "reason",
+        "replayable"
+      ],
+      "signature": "(id:POSITIONAL_OR_KEYWORD|str, original_id:POSITIONAL_OR_KEYWORD|str | None, group:POSITIONAL_OR_KEYWORD|str | None, event_id:POSITIONAL_OR_KEYWORD|str | None, attempts:POSITIONAL_OR_KEYWORD|int, reason:POSITIONAL_OR_KEYWORD|str, replayable:POSITIONAL_OR_KEYWORD|bool) -> None"
+    },
+    "Delivery": {
+      "kind": "class",
+      "members": [
+        "envelope",
+        "group",
+        "id",
+        "stream"
+      ],
+      "signature": "(id:POSITIONAL_OR_KEYWORD|str, stream:POSITIONAL_OR_KEYWORD|str, group:POSITIONAL_OR_KEYWORD|str, envelope:POSITIONAL_OR_KEYWORD|EventEnvelope) -> None"
+    },
     "DriverCounter": {
       "kind": "class",
       "members": [
@@ -2756,6 +2794,129 @@
         "observe"
       ],
       "signature": "(name:POSITIONAL_OR_KEYWORD|str, documentation:POSITIONAL_OR_KEYWORD|str, labelnames:POSITIONAL_OR_KEYWORD|tuple[str, ...], buckets:POSITIONAL_OR_KEYWORD|tuple[float, ...] | None) -> None"
+    },
+    "EventEnvelope": {
+      "kind": "class",
+      "members": [
+        "clear",
+        "copy",
+        "fromkeys",
+        "get",
+        "items",
+        "keys",
+        "pop",
+        "popitem",
+        "setdefault",
+        "update",
+        "values"
+      ],
+      "signature": null
+    },
+    "EventTransport": {
+      "kind": "class",
+      "members": [
+        "ack",
+        "ack_many",
+        "claim_group_owner",
+        "consume",
+        "dead_letter",
+        "ensure_group",
+        "forget_consumer",
+        "group_info",
+        "group_owner",
+        "list_consumers",
+        "list_dlq",
+        "list_group_owners",
+        "never_dead_letter",
+        "oldest_unacked_age_seconds",
+        "publish",
+        "publish_many",
+        "register_consumer",
+        "release_group_owner",
+        "renew_interval_seconds",
+        "renew_pending",
+        "replay_dlq",
+        "retention",
+        "stream_info",
+        "transfer_group_owner"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "EventTransportProvider": {
+      "kind": "class",
+      "members": [
+        "ack",
+        "ack_many",
+        "aclose",
+        "aopen",
+        "capability",
+        "claim_group_owner",
+        "consume",
+        "dead_letter",
+        "development_only",
+        "ensure_group",
+        "features",
+        "features_for",
+        "forget_consumer",
+        "from_config",
+        "group_info",
+        "group_owner",
+        "health",
+        "install_hint",
+        "isolation_identity",
+        "list_consumers",
+        "list_dlq",
+        "list_group_owners",
+        "never_dead_letter",
+        "oldest_unacked_age_seconds",
+        "options_schema",
+        "performance_hints",
+        "publish",
+        "publish_many",
+        "register_consumer",
+        "release_group_owner",
+        "renew_interval_seconds",
+        "renew_pending",
+        "replay_dlq",
+        "required_imports",
+        "retention",
+        "stream_info",
+        "supported_features",
+        "test_isolation",
+        "tier",
+        "transfer_group_owner"
+      ],
+      "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
+    "GroupInfo": {
+      "kind": "class",
+      "members": [
+        "consumers",
+        "group",
+        "lag",
+        "last_delivered_id",
+        "pending"
+      ],
+      "signature": "(group:POSITIONAL_OR_KEYWORD|str, consumers:POSITIONAL_OR_KEYWORD|int | None, pending:POSITIONAL_OR_KEYWORD|int | None, last_delivered_id:POSITIONAL_OR_KEYWORD|str | None, lag:POSITIONAL_OR_KEYWORD|int | None) -> None"
+    },
+    "GroupOwnedElsewhere": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "GroupOwner": {
+      "kind": "class",
+      "members": [
+        "database",
+        "module",
+        "service"
+      ],
+      "signature": "(module:POSITIONAL_OR_KEYWORD|str, database:POSITIONAL_OR_KEYWORD|str, service:POSITIONAL_OR_KEYWORD|str | None=None) -> None"
     },
     "HealthResult": {
       "kind": "class",
@@ -2939,6 +3100,16 @@
       ],
       "signature": "() -> None"
     },
+    "PartialPublish": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, published:KEYWORD_ONLY|Sequence[str]=tuple(), retryable:KEYWORD_ONLY|bool=True, capability:KEYWORD_ONLY|str='eventbus', instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
     "PeriodicSpec": {
       "kind": "class",
       "members": [
@@ -2958,6 +3129,14 @@
         "with_traceback"
       ],
       "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "Retention": {
+      "kind": "class",
+      "members": [
+        "max_age_seconds",
+        "max_length"
+      ],
+      "signature": "(max_age_seconds:POSITIONAL_OR_KEYWORD|int | None, max_length:POSITIONAL_OR_KEYWORD|int | None) -> None"
     },
     "RowSecurity": {
       "kind": "class",
@@ -3002,6 +3181,15 @@
         "wall_clock"
       ],
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "StreamInfo": {
+      "kind": "class",
+      "members": [
+        "last_entry_age_seconds",
+        "last_id",
+        "length"
+      ],
+      "signature": "(length:POSITIONAL_OR_KEYWORD|int, last_id:POSITIONAL_OR_KEYWORD|str | None, last_entry_age_seconds:POSITIONAL_OR_KEYWORD|float | None) -> None"
     },
     "Subscription": {
       "kind": "class",

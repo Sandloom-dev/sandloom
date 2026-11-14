@@ -59,7 +59,7 @@ from sandloom.core.infra.ports.database import (
     RequestLogStore,
     UnitSession,
 )
-from sandloom.core.infra.ports.eventbus import EventBusProvider
+from sandloom.core.infra.ports.eventbus import EventTransportProvider
 from sandloom.core.infra.ports.notification import (
     Notification,
     NotificationChannel,
@@ -114,7 +114,7 @@ __all__ = [
     "TaskSpec",
     "TaskTable",
     "PeriodicSpec",
-    "EventBusProvider",
+    "EventTransportProvider",
     "NotifierProvider",
     "Notification",
     "NotificationChannel",

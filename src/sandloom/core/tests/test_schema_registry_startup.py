@@ -90,3 +90,95 @@ async def test_startup_task_is_critical_and_strict_in_prod(
             await task()
     else:
         await task()
+
+
+# -- close_infra: only a bound durable bus is closed here ---------------------
+
+
+class _TeardownCore:
+    """A facade whose bound bus is fixed; its ``event_bus`` (the global
+    fallback, or a raise in production) must never be read by teardown."""
+
+    def __init__(self, bound: Any) -> None:
+        self._bound = bound
+        self.shutdown: dict[str, Any] = {}
+
+    def add_startup_task(self, fn: Any, **_kwargs: Any) -> None:
+        pass
+
+    def add_shutdown_task(self, fn: Any) -> None:
+        self.shutdown[fn.__name__] = fn
+
+    def _bound_event_bus(self) -> Any:
+        return self._bound
+
+    @property
+    def event_bus(self) -> Any:
+        raise AssertionError("teardown must not read the fallback event bus")
+
+
+def _close_infra(core: _TeardownCore, calls: list[str]) -> Any:
+    async def aclose_all() -> None:
+        calls.append("infra")
+
+    app_factory._register_infra_lifecycle(
+        core,  # type: ignore[arg-type]
+        InMemorySchemaRegistry(),
+        SimpleNamespace(aclose_all=aclose_all),  # type: ignore[arg-type]
+    )
+    return core.shutdown["close_infra"]
+
+
+@pytest.mark.asyncio
+async def test_a_startup_that_never_bound_a_bus_closes_only_the_infra() -> None:
+    calls: list[str] = []
+    await _close_infra(_TeardownCore(None), calls)()
+    assert calls == ["infra"]
+
+
+@pytest.mark.asyncio
+async def test_a_bound_durable_bus_closes_before_its_provider() -> None:
+    from sandloom.core.eventing.memory_transport import MemoryTransport
+    from sandloom.core.eventing.streams_bus import StreamsEventBus
+
+    calls: list[str] = []
+
+    class _Bus(StreamsEventBus):
+        async def close(self) -> None:
+            calls.append("bus")
+
+    bus = _Bus(InMemorySchemaRegistry(), MemoryTransport())
+    await _close_infra(_TeardownCore(bus), calls)()
+    assert calls == ["bus", "infra"]
+
+
+@pytest.mark.asyncio
+async def test_a_failing_bus_close_still_closes_the_infra() -> None:
+    from sandloom.core.eventing.memory_transport import MemoryTransport
+    from sandloom.core.eventing.streams_bus import StreamsEventBus
+
+    calls: list[str] = []
+
+    class _Bus(StreamsEventBus):
+        async def close(self) -> None:
+            raise RuntimeError("close failed")
+
+    bus = _Bus(InMemorySchemaRegistry(), MemoryTransport())
+    with pytest.raises(RuntimeError, match="close failed"):
+        await _close_infra(_TeardownCore(bus), calls)()
+    assert calls == ["infra"]
+
+
+@pytest.mark.asyncio
+async def test_a_volatile_bus_is_left_to_its_provider() -> None:
+    from sandloom.core.eventing.memory_bus import InMemoryEventBus
+
+    calls: list[str] = []
+
+    class _Volatile(InMemoryEventBus):
+        async def close(self) -> None:
+            calls.append("bus")
+
+    bus = _Volatile(InMemorySchemaRegistry())
+    await _close_infra(_TeardownCore(bus), calls)()
+    assert calls == ["infra"]

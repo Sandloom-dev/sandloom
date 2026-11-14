@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 import time
+from dataclasses import replace
 from typing import (
     Any,
 )
@@ -13,8 +14,7 @@ from typing import (
 from prometheus_client import Counter, Gauge
 
 from sandloom.core.eventing.bus_base import BaseEventBus
-from sandloom.core.eventing.transport_capabilities import TransportCapabilities
-from sandloom.core.eventing.transport_capabilities import TransportCapability as Cap
+from sandloom.core.infra.ports.eventbus import ConsumerInfo, GroupInfo
 
 logger = logging.getLogger("sandloom.core.eventing.event_bus")
 
@@ -61,8 +61,8 @@ class _StreamsInventory(BaseEventBus):
     """Inventory heartbeat, lag / pending / age gauges, publish audience check."""
 
     _transport: Any
-    _capabilities: TransportCapabilities
-    _inventory_info: dict[tuple[str, str], dict[str, Any]]
+    _features: frozenset[str]
+    _inventory_info: dict[tuple[str, str], ConsumerInfo]
     _group_stats: dict[tuple[str, str], dict[str, Any]]
     _last_published: dict[str, float]
     _audience_checked: dict[str, float]
@@ -77,7 +77,7 @@ class _StreamsInventory(BaseEventBus):
         Delayed slightly so the sibling versions of a dual-publish (written
         back-to-back) are all recorded before the starvation check looks.
         """
-        if Cap.LIST_CONSUMERS not in self._capabilities:
+        if "inventory" not in self._features:
             return
         now = time.monotonic()
         window = self._AUDIENCE_CHECK_SECONDS
@@ -102,7 +102,7 @@ class _StreamsInventory(BaseEventBus):
         ``publish_event_versions`` until every consumer has migrated).
         Best-effort and never raises: diagnostics must not fail a publish.
         """
-        if Cap.LIST_CONSUMERS not in self._capabilities:
+        if "inventory" not in self._features:
             return
         now = time.monotonic()
         window = self._AUDIENCE_CHECK_SECONDS
@@ -112,9 +112,9 @@ class _StreamsInventory(BaseEventBus):
             return
         if not consumers:
             return  # no inventory at all (not populated by any consumer yet)
-        streams: dict[str, dict[str, Any]] = {}
+        streams: dict[str, ConsumerInfo] = {}
         for entry in consumers:
-            streams.setdefault(str(entry.get("stream")), entry)
+            streams.setdefault(entry.stream, entry)
         if channel not in streams:
             _METRIC_NO_CONSUMERS.labels(channel=channel).inc()
             logger.warning(
@@ -138,9 +138,9 @@ class _StreamsInventory(BaseEventBus):
                 "consumers starve. Dual-publish both versions "
                 "(publish_event_versions) until every consumer migrated.",
                 channel,
-                entry.get("group"),
-                entry.get("module"),
-                entry.get("service"),
+                entry.group,
+                entry.module,
+                entry.service,
                 stream,
             )
 
@@ -149,20 +149,12 @@ class _StreamsInventory(BaseEventBus):
         stats = self._group_stats.get((channel, group))
         return dict(stats) if stats is not None else None
 
-    async def _observe_oldest_age(
-        self, channel: str, group: str, item: dict[str, Any]
-    ) -> None:
+    async def _observe_oldest_age(self, channel: str, group: str) -> None:
         """Refresh the group's oldest-unacked age (one extra command / beat)."""
-        if Cap.OLDEST_UNACKED_AGE not in self._capabilities:
+        if "inspection" not in self._features:
             return
         try:
-            age = await self._transport.oldest_unacked_age_seconds(
-                channel,
-                group,
-                last_delivered_id=item.get("last_delivered_id"),
-                pending=item.get("pending"),
-                lag=item.get("lag"),
-            )
+            age = await self._transport.oldest_unacked_age_seconds(channel, group)
         except Exception:  # diagnostics only
             logger.debug("oldest-unacked age probe failed", exc_info=True)
             return
@@ -178,16 +170,16 @@ class _StreamsInventory(BaseEventBus):
         NOGROUP there instead of at ``"$"`` (see the Streams transport).
         """
         info = self._inventory_info.get((channel, group))
-        groups: list[dict[str, Any]] = []
-        if Cap.GROUP_INFO in self._capabilities:
+        groups: list[GroupInfo] = []
+        if "inspection" in self._features:
             try:
                 groups = await self._transport.group_info(channel)
             except Exception:  # noqa: BLE001 - diagnostics only
                 groups = []
         for item in groups:
-            if item.get("group") != group:
+            if item.group != group:
                 continue
-            lag, pending = item.get("lag"), item.get("pending")
+            lag, pending = item.lag, item.pending
             self._group_stats[(channel, group)] = {
                 "lag": lag,
                 "pending": pending,
@@ -197,10 +189,11 @@ class _StreamsInventory(BaseEventBus):
                 _GAUGE_GROUP_LAG.labels(stream=channel, group=group).set(lag)
             if pending is not None:
                 _GAUGE_GROUP_PENDING.labels(stream=channel, group=group).set(pending)
-            await self._observe_oldest_age(channel, group, item)
-            if info is not None and item.get("last_delivered_id"):
-                info["last_delivered_id"] = str(item["last_delivered_id"])
-        if info is not None and Cap.REGISTER_CONSUMER in self._capabilities:
+            await self._observe_oldest_age(channel, group)
+            if info is not None and item.last_delivered_id:
+                info = replace(info, last_delivered_id=item.last_delivered_id)
+                self._inventory_info[(channel, group)] = info
+        if info is not None and "inventory" in self._features:
             try:
                 await self._transport.register_consumer(channel, group, info)
             except Exception:  # diagnostics only

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Mapping
+from dataclasses import asdict
 from typing import Any
 
 import orjson
@@ -17,9 +18,15 @@ from sandloom.core.eventing.streams_transport_base import (
 )
 from sandloom.core.eventing.transport_base import (
     INVENTORY_STALE_SECONDS,
-    GroupOwnershipError,
     _owner_conflict_message,
     _owners_match,
+)
+from sandloom.core.infra.ports.eventbus import (
+    ConsumerInfo,
+    GroupInfo,
+    GroupOwnedElsewhere,
+    GroupOwner,
+    StreamInfo,
 )
 
 logger = logging.getLogger("sandloom.core.eventing.transport")
@@ -186,12 +193,11 @@ class _StreamsGroups(_StreamsTransportBase):
                 raise
         self._groups.add(key)
 
-    async def group_info(self, stream: str) -> list[dict[str, Any]]:
+    async def group_info(self, stream: str) -> list[GroupInfo]:
         """Groups of ``stream``: pending, lag (Redis >= 7), last-delivered id."""
         client = await self._client()
-        info: list[dict[str, Any]] = []
+        info: list[GroupInfo] = []
         for g in await self._xinfo_groups(client, stream):
-            lag = g.get("lag")
             known = self._last_delivered.get((stream, str(g.get("name"))))
             last_delivered = g.get("last-delivered-id")
             if last_delivered and (known is None or known[0] != str(last_delivered)):
@@ -200,17 +206,19 @@ class _StreamsGroups(_StreamsTransportBase):
                     None,
                 )
             info.append(
-                {
-                    "group": str(g.get("name")),
-                    "consumers": _as_int(g.get("consumers")),
-                    "pending": _as_int(g.get("pending")),
-                    "last_delivered_id": g.get("last-delivered-id"),
-                    "lag": _as_int(lag),
-                }
+                GroupInfo(
+                    group=str(g.get("name")),
+                    consumers=_as_int(g.get("consumers")),
+                    pending=_as_int(g.get("pending")),
+                    last_delivered_id=(
+                        None if last_delivered is None else str(last_delivered)
+                    ),
+                    lag=_as_int(g.get("lag")),
+                )
             )
         return info
 
-    async def stream_info(self, stream: str) -> dict[str, Any]:
+    async def stream_info(self, stream: str) -> StreamInfo:
         """Length and newest entry id/age of ``stream`` (diagnostics)."""
         client = await self._client()
         key = self.key(stream)
@@ -229,24 +237,31 @@ class _StreamsGroups(_StreamsTransportBase):
                 age = max(0.0, time.time() - int(last_id.split("-", 1)[0]) / 1000)
             except ValueError:
                 age = None
-        return {"length": length, "last_id": last_id, "last_entry_age_seconds": age}
+        return StreamInfo(length=length, last_id=last_id, last_entry_age_seconds=age)
 
-    async def oldest_unacked_age_seconds(
-        self,
-        stream: str,
-        group: str,
-        *,
-        last_delivered_id: str | None,
-        pending: int | None,
-        lag: int | None,
-    ) -> float | None:
-        """At most one O(1)/O(log N) command: ``XPENDING`` summary or ``XRANGE``.
+    async def oldest_unacked_age_seconds(self, stream: str, group: str) -> float | None:
+        """``XINFO GROUPS`` plus at most one O(1)/O(log N) command.
 
         Entry ids carry their append time (``<ms>-<seq>``), so the age of the
-        oldest unacknowledged entry needs no payload read.
+        oldest unacknowledged entry needs no payload read: the ``XPENDING``
+        summary, else the first entry after the group's last delivered id.
         """
         client = await self._client()
         key = self.key(stream)
+        found = next(
+            (
+                g
+                for g in await self._xinfo_groups(client, stream)
+                if str(g.get("name")) == group
+            ),
+            None,
+        )
+        if found is None:
+            return None
+        pending = _as_int(found.get("pending"))
+        lag = _as_int(found.get("lag"))
+        last = found.get("last-delivered-id")
+        last_delivered_id = None if last is None else str(last)
         oldest: str | None = None
         if pending:
             summary = await client.xpending(key, group)
@@ -267,12 +282,29 @@ class _StreamsGroups(_StreamsTransportBase):
         return max(0.0, time.time() - appended_ms / 1000)
 
     # -- ownership + inventory ---------------------------------------------
+    @staticmethod
+    def _owner_from(raw: Any) -> GroupOwner | None:
+        """The owner a stored marker records (``None``: corrupt or foreign)."""
+        if not isinstance(raw, dict):
+            return None
+        service = raw.get("service")
+        return GroupOwner(
+            module=str(raw.get("module") or ""),
+            database=str(raw.get("database") or ""),
+            service=None if service is None else str(service),
+        )
+
+    @staticmethod
+    def _owner_marker(stream: str, owner: GroupOwner) -> str:
+        """The stored form: the owner plus its stream (it makes a key splittable)."""
+        return orjson.dumps({**asdict(owner), "channel": stream}).decode()
+
     async def claim_group_owner(
-        self, stream: str, group: str, owner: Mapping[str, Any]
+        self, stream: str, group: str, owner: GroupOwner
     ) -> None:
         client = await self._client()
         key = self._owner_key(stream, group)
-        value = orjson.dumps(dict(owner)).decode()
+        value = self._owner_marker(stream, owner)
         for _ in range(2):
             if await client.set(key, value, nx=True):
                 return
@@ -280,63 +312,57 @@ class _StreamsGroups(_StreamsTransportBase):
             if raw is None:
                 continue  # released concurrently: retry the claim once
             try:
-                existing = orjson.loads(raw)
+                existing = self._owner_from(orjson.loads(raw))
             except Exception:  # noqa: BLE001 - corrupt marker: re-own it
                 await client.set(key, value)
                 return
-            if not isinstance(existing, dict) or _owners_match(existing, owner):
+            if existing is None or _owners_match(existing, owner):
                 return
-            raise GroupOwnershipError(
-                _owner_conflict_message(stream, group, existing, owner)
+            raise GroupOwnedElsewhere(
+                _owner_conflict_message(stream, group, existing, owner),
+                capability="eventbus",
             )
 
-    async def group_owner(self, stream: str, group: str) -> dict[str, Any] | None:
+    async def group_owner(self, stream: str, group: str) -> GroupOwner | None:
         client = await self._client()
         raw = await client.get(self._owner_key(stream, group))
         if raw is None:
             return None
         try:
-            parsed = orjson.loads(raw)
+            return self._owner_from(orjson.loads(raw))
         except Exception:  # noqa: BLE001 - corrupt record reads as absent
             return None
-        return parsed if isinstance(parsed, dict) else None
 
     async def release_group_owner(self, stream: str, group: str) -> bool:
         """Forget the owner of ``(stream, group)`` (operator, after a move)."""
         client = await self._client()
         return bool(await client.delete(self._owner_key(stream, group)))
 
-    async def list_group_owners(self) -> list[dict[str, Any]]:
+    async def list_group_owners(self) -> list[tuple[str, str, GroupOwner]]:
         client = await self._client()
         marker = f"{self._prefix}sandloom:group-owner:"
-        out: list[dict[str, Any]] = []
+        out: list[tuple[str, str, GroupOwner]] = []
         async for raw_key in client.scan_iter(match=f"{marker}*", count=500):
             key = raw_key.decode() if isinstance(raw_key, bytes) else str(raw_key)
             raw = await client.get(key)
             if raw is None:
                 continue
             try:
-                owner = orjson.loads(raw)
+                stored = orjson.loads(raw)
             except Exception:  # noqa: BLE001, S112 - corrupt marker: not listed
                 continue
-            if not isinstance(owner, dict):
+            owner = self._owner_from(stored)
+            if owner is None:
                 continue
             rest = key[len(marker) :]
-            stream = str(owner.get("channel") or "")
+            stream = str(stored.get("channel") or "")
             if not stream or not rest.startswith(f"{stream}:"):
                 stream, _, _ = rest.partition(":")
-            out.append(
-                {"stream": stream, "group": rest[len(stream) + 1 :], "owner": owner}
-            )
-        return sorted(out, key=lambda e: (e["stream"], e["group"]))
+            out.append((stream, rest[len(stream) + 1 :], owner))
+        return sorted(out, key=lambda e: (e[0], e[1]))
 
     async def transfer_group_owner(
-        self,
-        stream: str,
-        group: str,
-        *,
-        expected: Mapping[str, Any],
-        owner: Mapping[str, Any],
+        self, stream: str, group: str, *, expected: GroupOwner, owner: GroupOwner
     ) -> bool:
         client = await self._client()
         key = self._owner_key(stream, group)
@@ -344,10 +370,10 @@ class _StreamsGroups(_StreamsTransportBase):
         if raw is None:
             return False
         try:
-            current = orjson.loads(raw)
+            current = self._owner_from(orjson.loads(raw))
         except Exception:  # noqa: BLE001 - corrupt record never matches
             return False
-        if current != dict(expected):
+        if current != expected:
             return False
         # Compare-and-set: only if the marker still holds what we read.
         script = (
@@ -355,15 +381,20 @@ class _StreamsGroups(_StreamsTransportBase):
             "redis.call('SET', KEYS[1], ARGV[2]) return 1 end return 0"
         )
         old = raw.decode() if isinstance(raw, bytes) else str(raw)
-        new = orjson.dumps(dict(owner)).decode()
+        new = self._owner_marker(stream, owner)
         return bool(await client.eval(script, 1, key, old, new))
 
     async def register_consumer(
-        self, stream: str, group: str, info: Mapping[str, Any]
+        self, stream: str, group: str, info: ConsumerInfo
     ) -> None:
         client = await self._client()
-        entry = {**dict(info), "stream": stream, "group": group}
-        entry["last_seen"] = time.time()
+        entry = {
+            **asdict(info),
+            "stream": stream,
+            "group": group,
+            "last_seen": time.time(),
+        }
+        entry.pop("stale")
         await client.hset(
             f"{self._prefix}{self.INVENTORY_KEY}",
             f"{stream}|{group}",
@@ -372,11 +403,11 @@ class _StreamsGroups(_StreamsTransportBase):
 
     async def list_consumers(
         self, *, include_stale: bool = False
-    ) -> list[dict[str, Any]]:
+    ) -> list[ConsumerInfo]:
         client = await self._client()
         raw = await client.hgetall(f"{self._prefix}{self.INVENTORY_KEY}")
         cutoff = time.time() - INVENTORY_STALE_SECONDS
-        entries: list[dict[str, Any]] = []
+        entries: list[ConsumerInfo] = []
         for value in (raw or {}).values():
             try:
                 entry = orjson.loads(value)
@@ -384,11 +415,27 @@ class _StreamsGroups(_StreamsTransportBase):
                 continue
             if not isinstance(entry, dict):
                 continue
-            stale = float(entry.get("last_seen", 0) or 0) < cutoff
-            entry["stale"] = stale
-            if include_stale or not stale:
-                entries.append(entry)
-        entries.sort(key=lambda e: (str(e.get("stream")), str(e.get("group"))))
+            seen = float(entry.get("last_seen", 0) or 0)
+            stale = seen < cutoff
+            if not (include_stale or not stale):
+                continue
+            service = entry.get("service")
+            consumer = entry.get("consumer")
+            last = entry.get("last_delivered_id")
+            entries.append(
+                ConsumerInfo(
+                    stream=str(entry.get("stream") or ""),
+                    group=str(entry.get("group") or ""),
+                    module=str(entry.get("module") or ""),
+                    database=str(entry.get("database") or ""),
+                    service=None if service is None else str(service),
+                    consumer=None if consumer is None else str(consumer),
+                    last_delivered_id=None if last is None else str(last),
+                    last_seen=seen,
+                    stale=stale,
+                )
+            )
+        entries.sort(key=lambda e: (e.stream, e.group))
         return entries
 
     async def forget_consumer(self, stream: str, group: str) -> bool:

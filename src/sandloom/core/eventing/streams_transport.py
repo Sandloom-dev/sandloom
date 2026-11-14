@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import Mapping, Sequence
+from types import MappingProxyType
+from typing import Any, ClassVar
 
 import orjson
 from prometheus_client import Counter
@@ -15,9 +16,9 @@ from sandloom.core.eventing.streams_consume import _StreamsConsume
 from sandloom.core.eventing.transport_base import (
     DLQ_REASON_MAX_DELIVERIES,
     TARGET_GROUP_FIELD,
-    TransportBatchError,
+    partial_publish,
 )
-from sandloom.core.eventing.transport_capabilities import TransportCapability
+from sandloom.core.infra.ports.eventbus import DeadLetter
 from sandloom.core.observability.metrics_utils import safe_inc
 
 logger = logging.getLogger("sandloom.core.eventing.transport")
@@ -68,7 +69,22 @@ class RedisStreamsTransport(_StreamsConsume):
       stream names in the API stay logical (unprefixed).
     """
 
-    capabilities = frozenset(TransportCapability)
+    #: The ``eventbus`` features of this transport (spec 7).
+    supported_features: ClassVar[frozenset[str]] = frozenset(
+        {
+            "durable",
+            "shared",
+            "blocking_consume",
+            "group_start_id",
+            "lease_renewal",
+            "dlq_ops",
+            "inspection",
+            "inventory",
+        }
+    )
+    performance_hints: ClassVar[Mapping[str, str]] = MappingProxyType(
+        {"publish_many": "one_round_trip", "ack_many": "one_round_trip"}
+    )
 
     # -- publish + retention -------------------------------------------------
     async def publish(self, stream: str, envelope: EventEnvelope) -> str:
@@ -97,8 +113,8 @@ class RedisStreamsTransport(_StreamsConsume):
             try:
                 return [await self.publish(stream, envelope)]
             except Exception as exc:
-                raise TransportBatchError(
-                    [], f"XADD to {stream!r} failed: {type(exc).__name__}: {exc}"
+                raise partial_publish(
+                    [], f"XADD to {stream!r} failed: {type(exc).__name__}: {exc}", exc
                 ) from exc
         client = await self._client()
         keys: dict[str, None] = {}
@@ -114,18 +130,20 @@ class RedisStreamsTransport(_StreamsConsume):
                         pipe.xadd(key, fields)
                 results = await pipe.execute(raise_on_error=False)
         except Exception as exc:
-            raise TransportBatchError(
+            raise partial_publish(
                 [],
                 f"MULTI/EXEC of {len(items)} XADD(s) failed: "
                 f"{type(exc).__name__}: {exc}",
+                exc,
             ) from exc
         ids: list[str] = []
         for result in results:
             if isinstance(result, BaseException):
-                raise TransportBatchError(
+                raise partial_publish(
                     ids,
                     f"XADD {len(ids)} of {len(items)} failed in EXEC: "
                     f"{type(result).__name__}: {result}",
+                    result,
                 ) from result
             ids.append(str(result))
         for key in keys:
@@ -165,14 +183,14 @@ class RedisStreamsTransport(_StreamsConsume):
     # -- DLQ ----------------------------------------------------------------
     async def list_dlq(
         self, stream: str, *, count: int = 100, after: str | None = None
-    ) -> list[dict[str, Any]]:
+    ) -> list[DeadLetter]:
         client = await self._client()
         entries = await client.xrange(
             self._dlq_key(stream),
             count=count,
             **({"min": f"({after}"} if after else {}),
         )
-        listed: list[dict[str, Any]] = []
+        listed: list[DeadLetter] = []
         for dlq_id, fields in entries or []:
             fields = fields if isinstance(fields, dict) else {}
             event_id: Any = None
@@ -182,16 +200,18 @@ class RedisStreamsTransport(_StreamsConsume):
                     event_id = orjson.loads(data).get("id")
                 except Exception:  # noqa: BLE001 - diagnostics only
                     event_id = None
+            original = fields.get("original_id")
+            owner_group = fields.get("group")
             listed.append(
-                {
-                    "id": str(dlq_id),
-                    "original_id": fields.get("original_id"),
-                    "group": fields.get("group"),
-                    "event_id": event_id,
-                    "attempts": int(fields.get("attempts", 0) or 0),
-                    "reason": fields.get("reason", DLQ_REASON_MAX_DELIVERIES),
-                    "replayable": data is not None,
-                }
+                DeadLetter(
+                    id=str(dlq_id),
+                    original_id=None if original is None else str(original),
+                    group=None if owner_group is None else str(owner_group),
+                    event_id=None if event_id is None else str(event_id),
+                    attempts=int(fields.get("attempts", 0) or 0),
+                    reason=str(fields.get("reason", DLQ_REASON_MAX_DELIVERIES)),
+                    replayable=data is not None,
+                )
             )
         return listed
 
@@ -199,7 +219,7 @@ class RedisStreamsTransport(_StreamsConsume):
         self,
         stream: str,
         *,
-        ids: list[str] | None = None,
+        ids: Sequence[str] | None = None,
         count: int = 100,
         group: str | None = None,
     ) -> int:

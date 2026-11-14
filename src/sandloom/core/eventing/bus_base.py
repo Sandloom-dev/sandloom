@@ -85,8 +85,9 @@ class BaseEventBus(ABC, EventBusProtocol):
     payload-size limiting and the publish template.
     """
 
-    #: True when published events persist until a consumer group acks them.
-    durable: bool = False
+    #: The ``eventbus`` features the bus runs over: a durable bus carries its
+    #: transport's declared features, a volatile bus declares none.
+    bus_features: frozenset[str] = frozenset()
     #: ``publish_event`` accepts ``prevalidated=`` (post-commit dispatch).
     supports_prevalidated: bool = True
     #: ``prevalidated=PREFLIGHTED`` skips every check (see ``publish_event``).
@@ -95,6 +96,12 @@ class BaseEventBus(ABC, EventBusProtocol):
     in_process: bool = False
     #: ``publish_event_batch`` is available (post-commit dispatch, relay).
     supports_batch_publish: bool = True
+
+    @property
+    def durable(self) -> bool:
+        """True when published events persist until a consumer group acks them
+        (the transport declares ``durable``)."""
+        return "durable" in self.bus_features
 
     @property
     def native_batch_publish(self) -> bool:
