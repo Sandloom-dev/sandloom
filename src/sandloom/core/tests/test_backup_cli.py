@@ -25,15 +25,16 @@ from urllib.parse import urlsplit
 
 import pytest
 from pydantic import BaseModel, Field
+from sqlalchemy import Table
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from sandloom.core.cli._operator import add_operator_arguments, operator_intent
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers.database_lease import LEASE_FENCE_OFFSET
 from sandloom.core.migrations.backup import (
     CORE_TABLES,
     CORE_VERSION_TABLE,
+    LEASE_FENCE_OFFSET,
     build_backup_plan,
     command_restorer,
     dump_format,
@@ -350,3 +351,20 @@ def test_fence_leases_and_verify_refuse_a_database_that_is_not_postgresql(
     dump = _fake_dump(tmp_path)
     assert main(["verify", str(dump), "--server-url", "sqlite:///x.db"]) == 2
     assert "takes its schema from the models" in capsys.readouterr().err
+
+
+def test_lease_table_matches_the_driver() -> None:
+    """The restore bump writes the table of the ``database`` lease driver: every
+    column it names exists in the driver's table and the model, with the same
+    type, nullability and key."""
+    from sandloom.core.drivers.database_lease import _TABLE as driver_table
+    from sandloom.core.migrations.backup import _LEASE_TABLE
+    from sandloom.core.sql_alchemy.models.lease import InfraLease
+
+    model_table: Table = InfraLease.__table__  # type: ignore[assignment]
+    assert _LEASE_TABLE.name == driver_table.name == model_table.name
+    for column in _LEASE_TABLE.columns:
+        for other in (driver_table.c[column.name], model_table.c[column.name]):
+            assert type(column.type) is type(other.type), column.name
+            assert column.nullable == other.nullable, column.name
+            assert column.primary_key == other.primary_key, column.name

@@ -43,12 +43,13 @@ from sandloom.core.auth.recovery import (
 from sandloom.core.cli._operator import add_operator_arguments, operator_intent
 from sandloom.core.composition import load_composition_core
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers.database_lease import LEASE_FENCE_OFFSET, lift_fences
 from sandloom.core.migrations.backup import (
+    LEASE_FENCE_OFFSET,
     build_backup_plan,
     command_restorer,
     database_chains,
     format_plan,
+    lift_fences,
     verify_dump,
 )
 from sandloom.core.sql_alchemy.portable import dialect_of_url, schema_from_models

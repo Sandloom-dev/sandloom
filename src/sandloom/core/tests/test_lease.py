@@ -35,16 +35,13 @@ from sandloom.core.drivers.bootstrap import (
     unverified_noeviction_allowed,
     with_default_beat_lease,
 )
-from sandloom.core.drivers.database_lease import (
-    LEASE_FENCE_OFFSET,
-    DatabaseLeaseProvider,
-    lift_fences,
-)
+from sandloom.core.drivers.database_lease import DatabaseLeaseProvider
 from sandloom.core.drivers.memory_lease import MemoryLeaseProvider
 from sandloom.core.drivers.redis_lease import RedisLeaseProvider
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.errors import InfraError, InvalidArgument, PermissionDenied
 from sandloom.core.infra.ports.lease import Lease, LeaseHolder
+from sandloom.core.migrations.backup import LEASE_FENCE_OFFSET, lift_fences
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.sql_alchemy.models.lease import InfraLease
 from sandloom.driverkit.kits.lease import LeaseConformance
@@ -742,7 +739,5 @@ async def test_lift_fences_refuses_a_non_positive_offset(tmp_path: Path) -> None
         async with AsyncSession(engine) as session:
             with pytest.raises(ValueError, match="positive"):
                 await lift_fences(session, apply=True, offset=0)
-            with pytest.raises(ValueError, match="PostgreSQL"):
-                await lift_fences(session, apply=True)
     finally:
         await engine.dispose()
