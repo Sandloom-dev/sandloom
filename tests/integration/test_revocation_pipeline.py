@@ -235,6 +235,26 @@ async def test_b_concurrent_revocations_on_real_redis_keep_the_highest_mark(
     assert highest <= stored_us <= highest + len(mark_values)
 
 
+async def test_the_cache_fixture_moves_the_implicit_security_store_onto_its_redis(
+    sandloom_core: Any, sandloom_cache: Any
+) -> None:
+    """The development ``security`` store is built from the settings snapshot's
+    cache URL, which names another Redis database than the test ``CACHE_URL``
+    where the shell exports its own (CI). ``sandloom_cache`` moves it along: a
+    mark written through the store is what the test reads back from (and
+    flushes with) the cache."""
+    import sandloom.core.infra.access as access
+
+    config = sandloom_core.infra.instance_config("atomic_store", "security")
+    assert config is not None and config.driver == "redis"
+    cache_config = sandloom_core.infra.instance_config("cache")
+    assert cache_config is not None
+    assert config.options["url"] == cache_config.options["url"]
+    key = f"adopt-regression:{uuid.uuid4()}"
+    await access.atomic_store("security").set(key, "v1", ttl_seconds=60)
+    assert await sandloom_cache.get(key) == "v1"
+
+
 class _InterleavingCache(InMemoryAtomicStore):
     """Pauses the FIRST writer between its read and its write until the second
     writer has finished — the read-then-write race the store's atomic

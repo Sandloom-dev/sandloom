@@ -124,7 +124,9 @@ async def test_deferred_raiseload_is_preserved(s5: S5, sandloom_core: Any):
     try:
         with pytest.raises(InvalidRequestError, match="raiseload"):
             await execute_one(
-                sandloom_core.runtime_view(), ReadOperation(_Deferred, _SecretOut), {"id": 1}
+                sandloom_core.runtime_view(),
+                ReadOperation(_Deferred, _SecretOut),
+                {"id": 1},
             )
     finally:
         await s5.admin.execute("DROP TABLE planner_production_deferred")
@@ -153,7 +155,9 @@ async def test_root_discriminator_is_preserved_without_subclasses(
     try:
         with pytest.raises(AssertionError, match="polymorphic_identity"):
             await execute_one(
-                sandloom_core.runtime_view(), ReadOperation(_Polymorphic, _IdOut), {"id": 1}
+                sandloom_core.runtime_view(),
+                ReadOperation(_Polymorphic, _IdOut),
+                {"id": 1},
             )
     finally:
         await s5.admin.execute("DROP TABLE planner_production_polymorphic")
@@ -290,7 +294,7 @@ async def test_read_only_is_enforced_even_without_tenant_rls(s5: S5):
 async def test_cancel_during_normal_lease_return_invalidates(
     s5: S5, sandloom_core: Any, monkeypatch
 ):
-    adapter = sandloom_core.database("default").execution_adapter()
+    adapter = sandloom_core.database("default").planner_adapter()
     lease = adapter.lease()
     connection, raw = await lease.__aenter__()
     closing = asyncio.Event()
@@ -323,7 +327,7 @@ async def test_cancel_during_normal_lease_return_invalidates(
 async def test_read_unit_setup_failure_releases_its_lease(
     s5: S5, sandloom_core: Any, monkeypatch
 ):
-    adapter = sandloom_core.database("default").execution_adapter()
+    adapter = sandloom_core.database("default").planner_adapter()
     unit = adapter.read_unit()
 
     def fail(*args):
@@ -346,7 +350,7 @@ async def test_read_unit_setup_failure_releases_its_lease(
 async def test_failed_checkout_cannot_terminate_a_previously_returned_connection(
     s5: S5, sandloom_core: Any, monkeypatch
 ):
-    adapter = sandloom_core.database("default").execution_adapter()
+    adapter = sandloom_core.database("default").planner_adapter()
     unit = adapter.read_unit()
     ctx = ExecutionContext("default", A, True)
     optimized = adapter.compile(get_tenant_item, optimized=True)

@@ -44,7 +44,7 @@ A2 = A_ID + 1  # the /s5plan2 partner row of A_ID (tenant A)
 
 
 def _adapter(sandloom_core: Any) -> Any:
-    return sandloom_core.database("default").execution_adapter()
+    return sandloom_core.database("default").planner_adapter()
 
 
 class _Computed(BaseModel):
