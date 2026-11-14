@@ -1112,13 +1112,19 @@ class DatabaseProvider(InfraProvider):
     def command_log(self) -> CommandLogStore | None: ...   # command_idempotency
     def request_log(self) -> RequestLogStore | None: ...   # http_idempotency
     def has_pending_changes(self, session: UnitSession) -> bool: ...
+    @property
+    def session_factory(self) -> Callable[[], AsyncSession] | None: ...   # default None; get_db's source
+    def planner_adapter(self, *, contract: bool = False) -> ExecutionAdapter | None: ...   # default None
     async def ensure_model_schema(self, metadata: MetaData | None = None, *, recreate: bool) -> bool: ...
 ```
 
-- `execution_adapter()` (:687) goes; `session: Any` becomes a kernel Protocol of a unit's session
-  (`UnitSession`, written by `idk-db-provider`; it does not exist yet) and `metadata: Any`
-  SQLAlchemy `MetaData` (the driver door may name SQLAlchemy types; the kernel's relational surface
-  already does).
+- `execution_adapter()` (:687) becomes the declared `planner_adapter(*, contract=False)`
+  (`ExecutionAdapter`, moved to `ports/database.py`, with the four stores and `OutboxHandle`; no
+  runtime probe in the planner); `session: Any` becomes a kernel Protocol of a unit's session
+  (`UnitSession`) and `metadata: Any` SQLAlchemy `MetaData` (the driver door may name SQLAlchemy
+  types; the kernel's relational surface already does).
+- `session_factory` is the declared raw-session factory of an instance; `get_db` (signature
+  unchanged) takes the `default` instance's of the active core, so an `INFRA`-overridden URL wins.
 - A store method answers `None` exactly when its feature is not declared; the kit checks the pair.
 - `_internal/db_provider.py` stops importing driver internals.
 
@@ -1311,6 +1317,10 @@ For the orchestrator's review; each departs from or details `design.md`.
     metadata=...)` succeeds on one that does not.
 43. **The smtp mailpit kit lane and smtp `isolation_identity`** (`smtp:<host>:<port>`) belong to
     `idk-tiers`.
+44. **The `sqlalchemy` `isolation_identity` is `sqlalchemy:<sha256, 16 hex>`**, not 2.4's
+    `database:<system identifier>/<db>`: the hash keeps credentials out of the string. Its material
+    is the backend, host, the `host` query parameter, port and database; the absolute path of a
+    SQLite file; a per-instance marker for `:memory:`.
 
 ## 14. Open for the owner
 

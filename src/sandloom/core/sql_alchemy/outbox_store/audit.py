@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import and_, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.core.infra.contracts import (
     AuditStore,
+    UnitSession,
 )
 from sandloom.core.sql_alchemy import effect_rows
 from sandloom.core.sql_alchemy.models.audit import AuditLogEntry
@@ -47,7 +49,7 @@ class SQLAlchemyAuditStore(AuditStore):
 
     async def query(
         self,
-        session: Any,
+        session: UnitSession,
         *,
         skip: int,
         limit: int,
@@ -62,7 +64,7 @@ class SQLAlchemyAuditStore(AuditStore):
             stmt = stmt.where(AuditLogEntry.actor_id == actor_id)
         if resource_id is not None:
             stmt = stmt.where(AuditLogEntry.resource_id == resource_id)
-        rows = await session.scalars(
+        rows = await cast("AsyncSession", session).scalars(
             stmt.order_by(AuditLogEntry.occurred_at.desc(), AuditLogEntry.id)
             .offset(skip)
             .limit(limit)
@@ -71,7 +73,7 @@ class SQLAlchemyAuditStore(AuditStore):
 
     async def query_page(
         self,
-        session: Any,
+        session: UnitSession,
         *,
         limit: int,
         before: tuple[datetime, uuid.UUID] | None = None,
@@ -113,12 +115,14 @@ class SQLAlchemyAuditStore(AuditStore):
                 )
             )
         newest_first = (AuditLogEntry.occurred_at.desc(), AuditLogEntry.id.desc())
-        rows = await session.scalars(stmt.order_by(*newest_first).limit(limit))
+        rows = await cast("AsyncSession", session).scalars(
+            stmt.order_by(*newest_first).limit(limit)
+        )
         return [_audit_row(row) for row in rows]
 
     def record(
         self,
-        session: Any,
+        session: UnitSession,
         *,
         action: str,
         actor_id: uuid.UUID | None,

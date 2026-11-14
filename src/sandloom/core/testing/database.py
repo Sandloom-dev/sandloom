@@ -54,13 +54,13 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 import sandloom.core.sql_alchemy.models
 import sandloom.core.sql_alchemy.models.audit  # noqa: F401
-from sandloom.core._internal.db_provider import (
-    build_disposable_engine,
-    schema_reset_for,
-)
 from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.sql_alchemy.nesting import pin_test_host
 from sandloom.core.sql_alchemy.portable import is_plain_index
+from sandloom.core.testing._driver_seams import (
+    build_disposable_engine,
+    schema_reset_for,
+)
 from sandloom.core.testing.connections import (
     TEST_ENGINE_MAX_OVERFLOW,
     TEST_ENGINE_POOL_SIZE,

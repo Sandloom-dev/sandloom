@@ -60,6 +60,19 @@ migration guide, not the general package-upgrade procedure.
 If the upgrade fails, capture the error code, package versions and a redacted
 reproduction for [support](../help.md).
 
+## Upgrading a database driver to contract major 2
+
+The `database` contract is major 2. Update a driver package that implements it
+([Write a driver](../infrastructure/write-a-driver.md#a-database-driver)):
+
+| Before | After |
+| --- | --- |
+| `contract_version = 1` | `contract_version = 2` |
+| `session: Any` in your stores and `has_pending_changes` | `session: UnitSession` (`sandloom.driverkit`); narrow it inside your store |
+| `execution_adapter()` and `contract_execution_adapter()` on the provider | `planner_adapter(self, *, contract=False)`, answering `None` where the database cannot run declared operations |
+| Raw sessions only through an engine of your own | `session_factory`, a property answering a callable that yields a session of the instance (or `None`) |
+| `OutboxStore`, `AuditStore`, `CommandLogStore`, `RequestLogStore` imported from `sandloom.core.infra.contracts` | Import them from `sandloom.core.infra.ports.database`, where they now live (`contracts` re-exports them for kernel code) |
+
 ## Upgrading from 0.7.0a4 to 0.7.0a5
 
 This alpha changes infrastructure extension APIs. Update the framework and

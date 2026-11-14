@@ -40,7 +40,7 @@ untouched = Table(
 
 @pytest.fixture
 async def engine(scratch_db: str) -> AsyncIterator[Any]:  # noqa: F811
-    from sandloom.core._internal.db_provider import build_disposable_engine
+    from sandloom.core.testing._driver_seams import build_disposable_engine
 
     eng = build_disposable_engine(scratch_db, pool_size=1, max_overflow=1)
     try:

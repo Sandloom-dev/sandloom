@@ -44,10 +44,16 @@ from datetime import timedelta
 from typing import Any, cast
 
 from sqlalchemy import Table
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.core.contracts.uow import UnitOfWorkContract
 from sandloom.core.effects import PENDING, DedupeBusy, DedupeRecordSpec
-from sandloom.core.infra.contracts import CommandClaim, RequestLogBusy, RequestLogStore
+from sandloom.core.infra.contracts import (
+    CommandClaim,
+    RequestLogBusy,
+    RequestLogStore,
+    UnitSession,
+)
 from sandloom.core.sql_alchemy.dedupe_log import RelationalDedupeLog
 from sandloom.core.sql_alchemy.models.http_idempotency import (
     HttpIdempotencyRecord,
@@ -98,7 +104,7 @@ class SQLAlchemyRequestLogStore(RequestLogStore):
 
     async def claim(
         self,
-        session: Any,
+        session: UnitSession,
         *,
         dedupe_key: str,
         scope: str,
@@ -106,6 +112,7 @@ class SQLAlchemyRequestLogStore(RequestLogStore):
         fingerprint: str,
         ttl_seconds: int,
     ) -> CommandClaim:
+        db = cast("AsyncSession", session)  # the SQL driver's unit session
         try_lock = optional_lock_statement_for(
             session,
             (ADVISORY_NAMESPACE, advisory_key(dedupe_key)),
@@ -115,9 +122,9 @@ class SQLAlchemyRequestLogStore(RequestLogStore):
         if try_lock is not None:
             # autoflush off, like the claim: a flush of the caller's pending
             # objects here would surface the caller's own errors in the guard.
-            with session.no_autoflush:
+            with db.no_autoflush:
                 locked = (
-                    await session.execute(try_lock.statement, try_lock.parameters)
+                    await db.execute(try_lock.statement, try_lock.parameters)
                 ).scalar()
             if not locked:
                 raise RequestLogBusy(dedupe_key)
@@ -144,7 +151,7 @@ class SQLAlchemyRequestLogStore(RequestLogStore):
         return CommandClaim(claim.outcome, status=claim.status, result=claim.result)
 
     async def complete(
-        self, session: Any, *, dedupe_key: str, status: str, result: str | None
+        self, session: UnitSession, *, dedupe_key: str, status: str, result: str | None
     ) -> None:
         await REQUEST_LOG.complete(
             session,
@@ -154,7 +161,7 @@ class SQLAlchemyRequestLogStore(RequestLogStore):
             now=_utc_naive_now(),
         )
 
-    async def release(self, session: Any, *, dedupe_key: str) -> None:
+    async def release(self, session: UnitSession, *, dedupe_key: str) -> None:
         await REQUEST_LOG.release(session, {"dedupe_key": dedupe_key})
 
     async def purge_expired(self, uow_factory: Any, *, limit: int) -> int:
