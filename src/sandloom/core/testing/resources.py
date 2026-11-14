@@ -37,6 +37,7 @@ framework.
 
 from __future__ import annotations
 
+import importlib
 import time
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -45,11 +46,6 @@ from urllib.parse import urlsplit, urlunsplit
 
 import psycopg2  # type: ignore[import-untyped]
 from psycopg2 import sql
-
-try:
-    import redis
-except ImportError:  # the redis extra is optional: only a Redis URL needs it
-    redis = None  # type: ignore[assignment]
 
 from sandloom.core.testing.ownership import (
     DB_LAST_USED_SETTING,
@@ -164,12 +160,27 @@ def _text(value: Any) -> str:
 SCANNER_CLIENT_NAME = "sandloom-test-resources"
 
 
+def _redis() -> Any:
+    """The redis client module, imported on first use; ``None`` without the extra.
+
+    Not at import: this module is part of the pytest plugin, and an application
+    on memory drivers runs its tests with no redis client installed.
+    """
+    try:
+        redis = importlib.import_module("redis")  # the optional extra, by name
+    except ImportError:
+        return None
+    return redis
+
+
 def redis_errors() -> tuple[type[Exception], ...]:
     """What a failed Redis call raises (``OSError`` alone without the extra)."""
+    redis = _redis()
     return (OSError,) if redis is None else (redis.RedisError, OSError)
 
 
 def _connect_redis(url: str) -> Any:
+    redis = _redis()
     if redis is None:
         raise ImportError(
             "Redis test resources need the redis extra: pip install 'sandloom[redis]'"
@@ -192,6 +203,7 @@ def _connect_redis(url: str) -> Any:
 
 
 def _database_count(client: Any) -> int:
+    redis = _redis()
     try:
         reply = client.config_get("databases")
         return int(reply.get("databases") or reply.get(b"databases") or 16)

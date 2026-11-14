@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from sandloom.core.testing import workers
+from sandloom.core.infra.ports._base import worker_redis_url
+from sandloom.core.testing import redis_isolation, workers
 
 _REAL_ENSURE_DATABASE = workers.ensure_database
 BASE = {
@@ -30,8 +31,8 @@ def _fresh_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
         monkeypatch.delenv(workers.OVERRIDE_PREFIX + var, raising=False)
     # Nor the run's own worker-index layout (the pre-push hook runs with
     # SANDLOOM_TEST_REDIS_DB_STRIDE=auto): these tests use fake base indexes.
-    monkeypatch.delenv(workers.REDIS_STRIDE_ENV, raising=False)
-    monkeypatch.delenv(workers.REDIS_MAP_ENV, raising=False)
+    monkeypatch.delenv(redis_isolation.REDIS_STRIDE_ENV, raising=False)
+    monkeypatch.delenv(redis_isolation.REDIS_MAP_ENV, raising=False)
     monkeypatch.setattr(workers, "_applied", {})
     monkeypatch.setattr(workers, "ensure_database", created.append)
     yield created
@@ -89,10 +90,8 @@ def test_url_helpers_keep_everything_but_the_name_or_index() -> None:
     assert workers.worker_database_url(
         workers.worker_database_url(url, "gw3"), "gw3"
     ) == workers.worker_database_url(url, "gw3")
-    assert workers.worker_redis_url("redis://:pw@h:1", 0, 16) == "redis://:pw@h:1/16"
-    assert workers.worker_redis_url("rediss://h:1/3?x=1", 1, 16) == (
-        "rediss://h:1/35?x=1"
-    )
+    assert worker_redis_url("redis://:pw@h:1", 0, 16) == "redis://:pw@h:1/16"
+    assert worker_redis_url("rediss://h:1/3?x=1", 1, 16) == ("rediss://h:1/35?x=1")
 
 
 def test_reload_test_env_reapplies_the_worker_rewrite(
@@ -105,7 +104,7 @@ def test_reload_test_env_reapplies_the_worker_rewrite(
     monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw4")
     # The expected index below assumes the default stride (16); the pre-push
     # hook sets a smaller one for its own run.
-    monkeypatch.delenv(workers.REDIS_STRIDE_ENV, raising=False)
+    monkeypatch.delenv(redis_isolation.REDIS_STRIDE_ENV, raising=False)
     workers.reload_test_env(env_file)
     assert os.environ["DATABASE_URL"].endswith("/sandloom_test_gw4")
     workers.reload_test_env(env_file)  # a second module re-loading the file
@@ -204,13 +203,13 @@ def test_auto_stride_uses_the_controllers_allocation() -> None:
     """``SANDLOOM_TEST_REDIS_DB_STRIDE=auto``: each worker takes its allocated
     index per base index (equal bases stay equal, distinct ones distinct)."""
     mapping = {14: [40, 41], 15: [7, 99]}
-    raw = workers.format_redis_map(mapping)
-    assert workers.parse_redis_map(raw) == mapping
+    raw = redis_isolation.format_redis_map(mapping)
+    assert redis_isolation.parse_redis_map(raw) == mapping
     env = {
         **BASE,
         "PYTEST_XDIST_WORKER": "gw1",
-        workers.REDIS_STRIDE_ENV: "auto",
-        workers.REDIS_MAP_ENV: raw,
+        redis_isolation.REDIS_STRIDE_ENV: "auto",
+        redis_isolation.REDIS_MAP_ENV: raw,
     }
     out = workers.rewrite_for_worker(env, env)
     assert out["CACHE_URL"] == "redis://localhost:6380/99"
@@ -219,10 +218,14 @@ def test_auto_stride_uses_the_controllers_allocation() -> None:
 
 
 def test_auto_stride_without_an_allocation_fails_loudly() -> None:
-    env = {**BASE, "PYTEST_XDIST_WORKER": "gw0", workers.REDIS_STRIDE_ENV: "auto"}
+    env = {
+        **BASE,
+        "PYTEST_XDIST_WORKER": "gw0",
+        redis_isolation.REDIS_STRIDE_ENV: "auto",
+    }
     with pytest.raises(RuntimeError, match="SANDLOOM_TEST_REDIS_WORKER_DBS"):
         workers.rewrite_for_worker(env, env)
-    env[workers.REDIS_MAP_ENV] = workers.format_redis_map({15: [7]})
+    env[redis_isolation.REDIS_MAP_ENV] = redis_isolation.format_redis_map({15: [7]})
     with pytest.raises(RuntimeError, match="base index 14"):
         workers.rewrite_for_worker(env, env)  # BROKER_URL's /14 has none
 

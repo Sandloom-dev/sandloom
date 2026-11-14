@@ -329,7 +329,7 @@ def test_auto_workers_fall_back_when_redis_indexes_are_short(
 ) -> None:
     """``sandloom test`` (``-n auto``) runs fewer workers, or serially, instead of
     aborting the session when Redis has too few free indexes."""
-    from sandloom.core.testing import connections, session_checks, workers
+    from sandloom.core.testing import connections, redis_isolation, session_checks
 
     values = {
         "DATABASE_URL": "postgresql://x/y",
@@ -337,7 +337,7 @@ def test_auto_workers_fall_back_when_redis_indexes_are_short(
     }
     monkeypatch.setattr(session_checks, "run_values", lambda _config: values)
     monkeypatch.setattr(connections, "affordable_workers", lambda n, _db: n)
-    monkeypatch.setattr(workers, "redis_auto", lambda: True)
+    monkeypatch.setattr(redis_isolation, "redis_auto", lambda: True)
     monkeypatch.setattr(
         resources, "affordable_redis_workers", lambda _urls, _owner: room
     )
