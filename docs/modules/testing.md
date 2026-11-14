@@ -249,9 +249,24 @@ with exit code 4 (the pre-push hook then falls back to a serial run).
 A driver says which database an instance uses in one run per worker. A provider
 implements `test_isolation(options, worker_id)` and returns the options of that
 worker's instance. The Redis drivers move the database index of their URL. The
-default returns the options unchanged, which is right for `memory`. An
-application on memory drivers needs no Redis client to run its tests: the
-harness touches Redis only when the client is installed.
+default returns the options unchanged, which is right for `memory`.
+
+The harness calls the hook of the default cache (`CACHE_URL`) and of every named
+instance in `INFRA` that has its own `url`. It calls it once per instance and
+claims each URL the hook returns. The layout is the harness's: the fixed stride
+or the `auto` allocation. It hands the layout to the drivers before the hooks
+run, so a hook and the harness give one answer.
+
+One URL is not asked of a driver yet. The harness moves `BROKER_URL` itself,
+with the same layout, because the Celery task queue has no `test_isolation`
+hook until `idk-worker-port` adds it. Nothing else in the harness rewrites a URL.
+
+An application on memory drivers needs no Redis client to run its tests. In a
+process that cannot import `redis`, the harness rewrites, claims, allocates and
+resets no Redis index, `auto` included. A test of a run on a memory cache driver
+belongs to the cache contract work (`idk-cache-contract`, `idk-config-defaults`):
+it needs settings that accept non-redis URLs. Today's harness test runs with
+Redis URLs in `.env.test` that nothing connects to.
 
 In the framework tree the benchmark security suite (`benchmarks/tests`) is a
 separate CI job (`benchmarks-security`: it needs a superuser connection for its

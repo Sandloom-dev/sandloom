@@ -24,7 +24,10 @@ from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.eventing.streams_transport import RedisStreamsTransport
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.core.infra.contracts import EventBusProvider
-from sandloom.core.infra.ports._base import health_failure_details
+from sandloom.core.infra.ports._base import (
+    health_failure_details,
+    isolated_redis_options,
+)
 from sandloom.core.infra.registry import DriverFactory
 
 
@@ -225,7 +228,7 @@ class RedisEventBusProvider(WrappedEventBusProvider):
         cls, options: Mapping[str, Any], worker_id: str
     ) -> Mapping[str, Any]:
         """Another database index of the configured URL for each xdist worker."""
-        return _redis_cache.isolated_redis_options(options, worker_id)
+        return isolated_redis_options(options, worker_id)
 
 
 class StreamsEventBusProvider(WrappedEventBusProvider):
@@ -240,7 +243,7 @@ class StreamsEventBusProvider(WrappedEventBusProvider):
         cls, options: Mapping[str, Any], worker_id: str
     ) -> Mapping[str, Any]:
         """Another database index of the configured URL for each xdist worker."""
-        return _redis_cache.isolated_redis_options(options, worker_id)
+        return isolated_redis_options(options, worker_id)
 
 
 def make_event_bus_drivers(

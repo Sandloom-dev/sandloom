@@ -1589,6 +1589,7 @@
         "src/sandloom/core/testing/plugin.py",
         "src/sandloom/core/testing/registration.py",
         "src/sandloom/core/testing/redis_isolation.py",
+        "src/sandloom/core/testing/redis_urls.py",
         "src/sandloom/core/testing/resources.py",
         "src/sandloom/core/testing/routes.py",
         "src/sandloom/core/testing/sagas.py",

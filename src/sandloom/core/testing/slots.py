@@ -58,7 +58,7 @@ from sandloom.core.testing.machine import (
     machine_id,
     short_hash,
 )
-from sandloom.core.testing.redis_isolation import redis_client_installed
+from sandloom.core.testing.redis_urls import is_redis_url, redis_client_installed
 
 SLOT_HELD_ENV = "SANDLOOM_TEST_SLOT_HELD"
 OWNER_ENV = "SANDLOOM_TEST_OWNER"
@@ -173,7 +173,7 @@ def _resources() -> Any:
 
 def _claim_redis_bases(urls: dict[str, str], owner: str) -> dict[str, str]:
     """New base indexes for this owner, one per distinct base index."""
-    plain = [u for u in urls.values() if u.startswith(("redis://", "rediss://"))]
+    plain = [u for u in urls.values() if is_redis_url(u)]
     if not plain or not redis_client_installed():
         return {}  # no Redis URL, or no client: this run reaches no Redis
     import redis  # noqa: PLC0415 - optional: the redis extra; only a slot with Redis URLs needs it

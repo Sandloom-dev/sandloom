@@ -18,11 +18,13 @@ test configuration (``.env.test`` / the shell):
   mapping in ``SANDLOOM_TEST_REDIS_WORKER_DBS`` (``<base>=<i0>,<i1>,…;…``). Use it
   on a Redis shared with other runs, whose markers break any fixed layout.
 
-The Redis half lives in :mod:`sandloom.core.testing.redis_isolation` (standard
-library only, so an application with no Redis installed never needs a Redis
-client to run its tests); it is the harness's twin of the drivers'
-``test_isolation(options, worker_id)`` hook, which the Redis drivers implement
-for the instance options.
+The Redis half lives in :mod:`sandloom.core.testing.redis_isolation`, imported
+only by a process that can reach a Redis (the client is installed and a Redis
+setting is present): an application on memory drivers never loads it and needs
+no client to run its tests. It asks the driver of each configured instance (the
+default cache, every named ``INFRA`` instance with a ``url``) through
+``InfraProvider.test_isolation(options, worker_id)``, except ``BROKER_URL``,
+which has no driver to ask until ``idk-worker-port``.
 
 Without xdist (no ``PYTEST_XDIST_WORKER``) nothing changes.
 
@@ -55,23 +57,20 @@ from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import dotenv_values, load_dotenv
 
-import sandloom.core.testing.redis_isolation as _redis_isolation
-from sandloom.core.testing.redis_isolation import (
-    DEFAULT_REDIS_STRIDE,
-    REDIS_MAP_ENV,
-    REDIS_STRIDE_AUTO,
-    REDIS_STRIDE_ENV,
-    format_redis_map,
-    mapped_redis_url,
-    parse_redis_map,
-    redis_auto,
-    worker_redis_url,
+from sandloom.core.testing.redis_urls import (
+    FLAT_VARS,
+    INFRA_VAR,
+    is_redis_url,
+    redis_client_installed,
+    redis_isolation,
 )
 
 WORKER_ENV = "PYTEST_XDIST_WORKER"
 #: The settings each worker gets its own instance of.
 DATABASE_VARS = ("DATABASE_URL",)
-REDIS_VARS = ("CACHE_URL", "BROKER_URL")
+REDIS_VARS = FLAT_VARS
+#: ``INFRA`` (JSON): its named instances with a ``url`` are isolated too.
+ISOLATED_VARS = (*DATABASE_VARS, *REDIS_VARS, INFRA_VAR)
 #: ``SANDLOOM_TEST_<VAR>`` wins over ``.env.test`` for these settings.
 OVERRIDE_PREFIX = "SANDLOOM_TEST_"
 OVERRIDABLE_VARS = (*DATABASE_VARS, *REDIS_VARS)
@@ -147,16 +146,16 @@ def rewrite_for_worker(
     wid, number = worker_id(env), worker_number(env)
     if wid is None or number is None:
         return {}
-    mapping = _redis_isolation.redis_url_mapping(env)
     out: dict[str, str] = {}
     for var in DATABASE_VARS:
         url = values.get(var)
         if url:
             out[var] = worker_database_url(url, wid)
-    for var in REDIS_VARS:
-        url = values.get(var)
-        if url and _redis_isolation.is_redis_url(url):
-            out[var] = _redis_isolation.isolated_redis_url(url, number, env, mapping)
+    has_redis_setting = INFRA_VAR in values or any(
+        is_redis_url(values.get(var) or "") for var in REDIS_VARS
+    )
+    if has_redis_setting and redis_client_installed():
+        out.update(redis_isolation().rewrite_redis(values, env, wid, number))
     return out
 
 
@@ -172,7 +171,7 @@ def apply_worker_env(
     env = os.environ if environ is None else environ
     pending = {
         var: env[var]
-        for var in (*DATABASE_VARS, *REDIS_VARS)
+        for var in ISOLATED_VARS
         if env.get(var) and _applied.get(var) != env[var]
     }
     changed = rewrite_for_worker(pending, env)
@@ -351,17 +350,9 @@ def _ensure_sqlite_file(url: str) -> None:
 
 
 __all__ = [
-    "DEFAULT_REDIS_STRIDE",
-    "REDIS_MAP_ENV",
-    "REDIS_STRIDE_AUTO",
-    "REDIS_STRIDE_ENV",
     "WORKER_ENV",
     "apply_worker_env",
     "ensure_database",
-    "format_redis_map",
-    "mapped_redis_url",
-    "parse_redis_map",
-    "redis_auto",
     "reload_test_env",
     "rewrite_for_worker",
     "sqlite_file",
@@ -369,5 +360,4 @@ __all__ = [
     "worker_env_values",
     "worker_id",
     "worker_number",
-    "worker_redis_url",
 ]

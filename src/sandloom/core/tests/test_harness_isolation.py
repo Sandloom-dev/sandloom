@@ -14,10 +14,13 @@
 
 from __future__ import annotations
 
+import importlib.util
+import json
 import os
 import subprocess
 import sys
 import textwrap
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -25,9 +28,26 @@ import pytest
 
 from sandloom.core.drivers import event_bus_driver, redis_cache
 from sandloom.core.infra.ports._base import InfraProvider
-from sandloom.core.testing import redis_isolation, workers
+from sandloom.core.testing import (
+    ownership,
+    redis_isolation,
+    redis_urls,
+    session_checks,
+    workers,
+)
+from sandloom.driverkit import testing_isolation as isolation
 
 pytestmark = pytest.mark.subprocess_probe
+
+
+@pytest.fixture(autouse=True)
+def _default_layout() -> Iterator[None]:
+    """The layout is process state the harness sets: each test starts and ends
+    on the default one."""
+    isolation.set_worker_layout()
+    yield
+    isolation.set_worker_layout()
+
 
 REDIS_DRIVERS: tuple[tuple[type[InfraProvider], str], ...] = (
     (redis_cache.RedisCacheProvider, "url"),
@@ -45,7 +65,7 @@ def test_redis_driver_hook_moves_the_database_index(
     isolated = driver.test_isolation(options, worker)
     number = int(worker[2:])
     assert isolated[key] == (
-        f"redis://cache.internal:6379/{3 + redis_isolation.DEFAULT_REDIS_STRIDE * (number + 1)}"
+        f"redis://cache.internal:6379/{3 + isolation.DEFAULT_STRIDE * (number + 1)}"
     )
     assert isolated["pool"] == 5
     assert options[key] == "redis://cache.internal:6379/3"  # the input is not mutated
@@ -55,7 +75,6 @@ def test_redis_driver_hook_moves_the_database_index(
 def test_redis_driver_hook_matches_the_harness_layout(
     driver: type[InfraProvider], key: str
 ) -> None:
-    assert redis_cache.TEST_WORKER_DB_STRIDE == redis_isolation.DEFAULT_REDIS_STRIDE
     base = "redis://127.0.0.1:6380/1"
     for number in (0, 3, 9):
         env = {workers.WORKER_ENV: f"gw{number}"}
@@ -86,7 +105,7 @@ def test_redis_driver_hook_ignores_a_worker_id_that_is_not_gw_n() -> None:
 
 def test_hook_keys_name_the_options_holding_a_url() -> None:
     options = {"broker": "redis://h/1", "backend": "redis://h/0", "other": "x"}
-    isolated = redis_cache.isolated_redis_options(
+    isolated = isolation.isolated_redis_options(
         options, "gw1", keys=("broker", "backend")
     )
     assert isolated == {
@@ -106,14 +125,6 @@ def test_memory_defaults_keep_their_options() -> None:
     assert Plain.test_isolation(options, "gw4") is options
 
 
-def test_driverkit_exposes_the_helper_to_driver_packages() -> None:
-    from sandloom.driverkit import testing_isolation
-
-    assert (
-        testing_isolation.isolated_redis_options is redis_cache.isolated_redis_options
-    )
-
-
 def test_auto_layout_is_the_harness_only(monkeypatch: pytest.MonkeyPatch) -> None:
     """Under ``auto`` the controller's mapping decides; the harness rewrites
     ``CACHE_URL`` from it, the hook keeps its fixed layout."""
@@ -126,6 +137,124 @@ def test_auto_layout_is_the_harness_only(monkeypatch: pytest.MonkeyPatch) -> Non
     assert rewritten == {"CACHE_URL": "redis://h/41"}
 
 
+# ---- the harness calls the hook (one layout, named instances) ------------
+
+INFRA = json.dumps(
+    {
+        "cache": {"sessions": {"driver": "redis", "url": "redis://h:6380/3"}},
+        "eventbus": {"fanout": {"driver": "streams", "url": "redis://h:6380/5"}},
+        "objectstore": {"exports": {"driver": "local", "path": "./exports"}},
+    }
+)
+
+
+def test_a_named_instance_url_is_moved_by_the_harness() -> None:
+    values = {"CACHE_URL": "redis://h:6380/0", "INFRA": INFRA}
+    env = {workers.WORKER_ENV: "gw1"}
+    out = workers.rewrite_for_worker(values, env)
+    assert out["CACHE_URL"] == "redis://h:6380/32"
+    infra = json.loads(out["INFRA"])
+    assert infra["cache"]["sessions"]["url"] == "redis://h:6380/35"
+    assert infra["eventbus"]["fanout"]["url"] == "redis://h:6380/37"
+    assert infra["objectstore"] == {"exports": {"driver": "local", "path": "./exports"}}
+
+
+def test_a_named_instance_url_is_claimed(monkeypatch: pytest.MonkeyPatch) -> None:
+    claimed: list[str] = []
+    monkeypatch.setattr(ownership, "claim_redis", claimed.append)
+    values = {"CACHE_URL": "redis://h:6380/0", "INFRA": INFRA}
+    out = workers.rewrite_for_worker(values, {workers.WORKER_ENV: "gw2"})
+    ownership.claim_test_resources({**values, **out})
+    assert "redis://h:6380/48" in claimed  # CACHE_URL
+    assert "redis://h:6380/51" in claimed  # cache instance "sessions"
+    assert "redis://h:6380/53" in claimed  # eventbus instance "fanout"
+
+
+def test_apply_worker_env_moves_infra_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Applying twice never shifts twice (gw0: 1 -> 17, not 33)."""
+    env = {
+        workers.WORKER_ENV: "gw0",
+        "CACHE_URL": "redis://h/0",
+        "INFRA": json.dumps(
+            {"cache": {"s": {"driver": "redis", "url": "redis://h/1"}}}
+        ),
+    }
+    monkeypatch.setattr(workers, "_applied", {})
+    workers.apply_worker_env(env, create_database=False)
+    workers.apply_worker_env(env, create_database=False)
+    assert json.loads(env["INFRA"])["cache"]["s"]["url"] == "redis://h/17"
+    assert env["CACHE_URL"] == "redis://h/16"
+
+
+@pytest.mark.parametrize(("driver", "key"), REDIS_DRIVERS)
+@pytest.mark.parametrize("stride", ["", "32", "7"])
+def test_hook_is_the_harness_under_any_stride(
+    driver: type[InfraProvider], key: str, stride: str
+) -> None:
+    base = "redis://127.0.0.1:6380/1"
+    for number in (0, 3):
+        env = {workers.WORKER_ENV: f"gw{number}"}
+        if stride:
+            env[redis_isolation.REDIS_STRIDE_ENV] = stride
+        harness = workers.rewrite_for_worker({"CACHE_URL": base}, env)["CACHE_URL"]
+        # the harness handed its layout to the drivers before this call
+        assert driver.test_isolation({key: base}, f"gw{number}")[key] == harness
+    if stride:
+        assert harness == f"redis://127.0.0.1:6380/{1 + int(stride) * 4}"
+
+
+@pytest.mark.parametrize(("driver", "key"), REDIS_DRIVERS)
+def test_hook_is_the_harness_under_auto(driver: type[InfraProvider], key: str) -> None:
+    base = "redis://127.0.0.1:6380/1"
+    for number in (0, 2):
+        env = {
+            workers.WORKER_ENV: f"gw{number}",
+            redis_isolation.REDIS_STRIDE_ENV: "auto",
+            redis_isolation.REDIS_MAP_ENV: "1=70,71,72",
+        }
+        harness = workers.rewrite_for_worker({"CACHE_URL": base}, env)["CACHE_URL"]
+        assert harness == f"redis://127.0.0.1:6380/{70 + number}"
+        assert driver.test_isolation({key: base}, f"gw{number}")[key] == harness
+
+
+def _no_redis_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    real = importlib.util.find_spec
+
+    def find_spec(name: str, *args: Any) -> Any:
+        return None if name.partition(".")[0] == "redis" else real(name, *args)
+
+    monkeypatch.setattr(importlib.util, "find_spec", find_spec)
+
+
+def test_auto_without_a_client_skips_redis_entirely(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _no_redis_client(monkeypatch)
+    env = {
+        workers.WORKER_ENV: "gw1",
+        redis_isolation.REDIS_STRIDE_ENV: "auto",  # no mapping: nothing allocated it
+    }
+    values = {
+        "DATABASE_URL": "sqlite+aiosqlite:///./x.db",
+        "CACHE_URL": "redis://h/0",
+        "BROKER_URL": "redis://h/1",
+        "INFRA": INFRA,
+    }
+    out = workers.rewrite_for_worker(values, env)
+    assert set(out) == {"DATABASE_URL"}
+    assert redis_urls.redis_urls(values) == []
+    assert session_checks.worker_targets(values, 2)[1]["CACHE_URL"] == "redis://h/0"
+    session_checks.allocate_worker_redis(values, 2)  # no client: nothing to allocate
+
+
+def test_auto_without_a_redis_url_needs_no_mapping() -> None:
+    env = {workers.WORKER_ENV: "gw0", redis_isolation.REDIS_STRIDE_ENV: "auto"}
+    out = workers.rewrite_for_worker(
+        {"DATABASE_URL": "sqlite+aiosqlite:///./x.db"}, env
+    )
+    assert set(out) == {"DATABASE_URL"}
+
+
 # ---- no redis importable -------------------------------------------------
 
 _BLOCKER = '''\
@@ -134,10 +263,26 @@ import importlib.abc
 import sys
 
 
+sys.redis_import_attempts = []
+
+
 class _NoRedis(importlib.abc.MetaPathFinder):
     def find_spec(self, name, path, target=None):
         if name.partition(".")[0] != "redis":
             return None
+        frame = sys._getframe(1)
+        probe = False  # importlib.util.find_spec("redis") asks, it does not import
+        importer = None
+        while frame is not None:
+            code = frame.f_code
+            probe = probe or (
+                code.co_name == "find_spec" and "util" in code.co_filename
+            )
+            if importer is None and "importlib" not in code.co_filename and "frozen" not in code.co_filename:
+                importer = f"{code.co_filename}:{frame.f_lineno}"
+            frame = frame.f_back
+        if not probe:
+            sys.redis_import_attempts.append(f"{name} from {importer}")
         raise ModuleNotFoundError(f"No module named {name!r} (blocked)", name=name)
 
 
@@ -193,9 +338,9 @@ def test_env_is_isolated_per_worker_without_redis():
     worker = _worker()
     assert worker.startswith("gw")
     assert os.environ["DATABASE_URL"].endswith(f"_{worker}.db")
-    offset = 16 * (int(worker[2:]) + 1)
-    assert os.environ["CACHE_URL"] == f"redis://127.0.0.1:1/{offset}"
-    assert os.environ["BROKER_URL"] == f"redis://127.0.0.1:1/{1 + offset}"
+    # no client: this process reaches no Redis, so no URL is rewritten or claimed
+    assert os.environ["CACHE_URL"] == "redis://127.0.0.1:1/0"
+    assert os.environ["BROKER_URL"] == "redis://127.0.0.1:1/1"
 
 
 def test_the_second_test_runs_too():
@@ -203,9 +348,32 @@ def test_the_second_test_runs_too():
 
 
 def test_redis_client_never_loaded():
+    import importlib
     import sys
 
     assert "redis" not in sys.modules
+    # the modules a memory-only app's run touches, imported with the client
+    # refused: none of them may try to import it at module level
+    for name in (
+        "sandloom.core.testing.resources",
+        "sandloom.core.testing.ownership",
+        "sandloom.core.testing.slots",
+        "sandloom.core.testing.session_checks",
+        "sandloom.core.cli.dev.services",
+    ):
+        importlib.import_module(name)
+    assert sys.redis_import_attempts == []
+
+
+def test_no_redis_module_of_the_harness_loaded():
+    import sys
+
+    for name in (
+        "sandloom.core.testing.redis_isolation",
+        "sandloom.core.drivers.redis_cache",
+        "sandloom.core.drivers.bootstrap",
+    ):
+        assert name not in sys.modules, name
 """
 
 
@@ -239,4 +407,4 @@ def test_an_app_with_no_redis_runs_its_tests_in_parallel(tmp_path: Path) -> None
     )
     out = proc.stdout + proc.stderr
     assert proc.returncode == 0, out[-3000:]
-    assert "3 passed" in out, out[-1500:]
+    assert "4 passed" in out, out[-1500:]

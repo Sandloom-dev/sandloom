@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from sandloom.core.testing.workers import mapped_redis_url
+from sandloom.core.infra.ports._base import mapped_redis_url
 
 
 def test_replacement_workers_get_the_spares_then_a_shared_slot(

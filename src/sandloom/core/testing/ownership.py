@@ -57,7 +57,12 @@ import psycopg2  # type: ignore[import-untyped]
 from psycopg2 import errors, sql
 
 from sandloom.core.testing.machine import checkout_root, machine_id
-from sandloom.core.testing.redis_isolation import is_redis_url, redis_client_installed
+from sandloom.core.testing.redis_urls import (
+    INFRA_VAR,
+    infra_redis_urls,
+    is_redis_url,
+    redis_client_installed,
+)
 
 OWNER_ENV = "SANDLOOM_TEST_OWNER"
 TAKEOVER_ENV = "SANDLOOM_TEST_TAKE_OWNERSHIP"
@@ -369,7 +374,8 @@ async def flush_owned_redis(client: Any, *, owner: str | None = None) -> None:
 
 
 def claim_test_resources(values: Mapping[str, str]) -> None:
-    """Claim ``DATABASE_URL`` / ``CACHE_URL`` / ``BROKER_URL`` of ``values``."""
+    """Claim ``DATABASE_URL`` / ``CACHE_URL`` / ``BROKER_URL`` of ``values``, and
+    the Redis URL of every named instance ``INFRA`` declares."""
     database = values.get("DATABASE_URL") or ""
     if database:
         claim_database(database)
@@ -377,6 +383,8 @@ def claim_test_resources(values: Mapping[str, str]) -> None:
         url = values.get(var) or ""
         if url:
             claim_redis(url)
+    for url in infra_redis_urls(values.get(INFRA_VAR)):
+        claim_redis(url)
 
 
 __all__ = [

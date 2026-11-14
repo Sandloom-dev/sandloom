@@ -16,14 +16,25 @@ database index moved for the worker::
 ``keys`` names the options holding a Redis URL (``("broker", "backend")`` for a
 task queue). A ``worker_id`` that is not ``gw<N>`` returns the options as given.
 
-The harness applies the same layout to ``CACHE_URL`` / ``BROKER_URL`` before any
-setting is read (:mod:`sandloom.core.testing.redis_isolation`, also the layout of
-the shared-Redis ``auto`` mode, which only the harness knows).
+The layout (how far each worker's index moves, the shared-Redis ``auto``
+allocation) is the test harness's: it computes it from its own configuration
+and hands it over with :func:`set_worker_layout` before it calls a hook, so a
+driver reads no environment. The harness calls the hook of every configured
+instance of a driver; a driver package needs no pytest plugin for it.
 """
 
-from sandloom.core.drivers.redis_cache import (
-    TEST_WORKER_DB_STRIDE,
+from sandloom.core.infra.ports._base import (
+    DEFAULT_STRIDE,
+    WorkerLayout,
     isolated_redis_options,
+    set_worker_layout,
+    worker_layout,
 )
 
-__all__ = ["TEST_WORKER_DB_STRIDE", "isolated_redis_options"]
+__all__ = [
+    "DEFAULT_STRIDE",
+    "WorkerLayout",
+    "isolated_redis_options",
+    "set_worker_layout",
+    "worker_layout",
+]
