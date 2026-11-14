@@ -36,6 +36,7 @@ The one list of weaker guarantees a deployment accepts, e.g. `SANDLOOM_ACCEPTED_
 | Risk id | Weakens | Consulted by |
 | --- | --- | --- |
 | `experimental_capability` | An experimental capability in prod: its contract may change in any release. | build_infra_registry (sandloom.core.drivers.bootstrap) |
+| `experimental_driver` | An experimental driver in prod: it implements the contract, but its conformance kit has not passed in CI against the real service. | build_infra_registry (sandloom.core.drivers.bootstrap) |
 | `log_notifier_in_prod` | The log notifier advertises delivery channels in prod: mail and SMS nobody receives. | log notifier driver features (sandloom.core.drivers.log_notifier) |
 | `log_links_in_prod` | NOTIFIER_LOG_LINKS=true in prod: password-reset and verification links land in the logs, where anyone who reads them can use them. | Settings validator (NOTIFIER_LOG_LINKS) |
 | `local_storage_in_prod` | Local-filesystem object storage in prod: no replication, lost with the container. | local object-store driver (sandloom.core.drivers.local_objectstore) |

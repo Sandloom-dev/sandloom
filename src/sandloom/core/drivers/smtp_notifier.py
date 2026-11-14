@@ -80,6 +80,12 @@ class SmtpNotifierProvider(NotifierProvider):
     def from_config(cls, config: InstanceConfig) -> Self:
         return cast("Self", create_smtp_notifier(config))
 
+    async def isolation_identity(self) -> str | None:
+        """``smtp:<host>:<port>``: the server the mail goes through, whatever
+        the instance's name; no credential."""
+        host = str(self.options.get("host") or "localhost").strip().lower()
+        return f"smtp:{host}:{int(self.options.get('port') or 25)}"
+
     async def send(self, notification: Notification) -> None:
         if notification.channel != "email":
             raise Unsupported(
