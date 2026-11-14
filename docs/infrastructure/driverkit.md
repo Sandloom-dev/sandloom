@@ -11,8 +11,8 @@ The API a [driver package](write-a-driver.md) implements. Most code should use
 package ([SANDLOOM-C004](../reference/error-codes.md#sandloom-c004)), and the kernel never imports
 it. It ships inside `sandloom`.
 
-A contract is public only with a conformance kit, so `cache`, `objectstore` and
-`taskqueue` are not here yet. A breaking change is a new contract version
+A contract is public only with a conformance kit, so `cache` and `taskqueue` are not here
+yet. `notification` and `objectstore` are. A breaking change is a new contract version
 ([versioning](../contributing/versioning.md)).
 
 ## `sandloom.driverkit`
@@ -20,6 +20,11 @@ A contract is public only with a conformance kit, so `cache`, `objectstore` and
 | Name | What it is |
 | --- | --- |
 | `NotifierProvider` | The contract of the `notification` capability: implement `async send(notification)`. |
+| `ObjectStoreProvider` | The contract of the `objectstore` capability: implement `async put(key, data, *, content_type, metadata)`, `get(key)`, `delete(key)` and `url(key)`. Keys are logical names, never filesystem paths. |
+| `ObjectContent` | What `put` accepts as `data`: bytes or an async byte stream. |
+| `validate_object_key` | Raises `InvalidObjectKeyError` when a key is not a portable relative key. Call it first in every operation that takes a key. |
+| `iter_object_chunks` | Reads an upload, bytes or stream, in chunks of the size you give. |
+| `InvalidObjectKeyError`, `UploadTooLargeError`, `ObjectTooLargeError` | What a driver raises for a bad key, an upload over its limit and a stored object over its read limit. |
 | `Notification` | One outbound message: `channel`, `recipient`, `subject`, `body`, `data`, `dedupe_key`, `body_fields`. |
 | `InfraProvider` | The base of every contract. A driver sets `contract_version`, `supported_features` and optionally `options_schema`; it may override `features_for(options)`, `aopen()`, `health()` and `aclose()`. |
 | `HealthResult` | What `health()` returns. |
@@ -35,6 +40,7 @@ A contract is public only with a conformance kit, so `cache`, `objectstore` and
 | Name | What it is |
 | --- | --- |
 | `NotifierConformance` | A pytest class with one test per obligation. Subclass it and override the `make_provider` fixture, and `recipients` for your test backend. It needs `pytest` and `pytest-asyncio`. |
+| `ObjectStoreConformance` | A pytest class for an `objectstore` driver. Subclass it and override the `store` fixture to return a provider that uses a test namespace. It needs `pytest` and `pytest-asyncio`. |
 | `SqlDialectConformance` | A pytest class for a SQL dialect renderer. Subclass it and set `renderer` and `dialect`. It compiles each form the renderer writes, the optional `prefix_pattern` / `prefix_match` pair included. A renderer declaring `json_path` overrides `read_json_paths(document, paths)` to run it on the database; one stating `aware_times` overrides `read_aware_time(value)` to read an aware time back from it. |
 | `JSON_PATH_DOCUMENT` | The JSON text `read_json_paths` stores, numbers as written. |
 | `JSON_PATH_READS` | What `json_path` must read at each path of `JSON_PATH_DOCUMENT`: the scalar's JSON text as stored. |

@@ -10,13 +10,14 @@ type: how-to
 [capability](index.md), selected by configuration,
 with no change to business modules or to the kernel.
 
-**Use it** for a `notification` backend that Sandloom does not ship, such as an email
-API, or for a [capability of your own](own-capability.md).
+**Use it** for a `notification` or `objectstore` backend that Sandloom does not ship, such
+as an email API or a Google Cloud Storage store. Use it also for a
+[capability of your own](own-capability.md).
 
 **Do not use it** for business logic: that is a [module](../modules/create.md). A contract is
-public only with a conformance kit, so the `cache`, `objectstore` and `taskqueue`
-contracts are not available yet. The `database` and `eventbus` backends carry the
-transaction and delivery guarantees and are not open to drivers
+public only with a conformance kit, so the `cache` and `taskqueue` contracts are not
+available yet. The `notification` and `objectstore` contracts are. The `database` and
+`eventbus` backends carry the transaction and delivery guarantees and are not open to drivers
 ([why](database.md#the-relational-paradigm)).
 
 !!! note "Version"

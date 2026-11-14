@@ -44,8 +44,12 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import psycopg2  # type: ignore[import-untyped]
-import redis
 from psycopg2 import sql
+
+try:
+    import redis
+except ImportError:  # the redis extra is optional: only a Redis URL needs it
+    redis = None  # type: ignore[assignment]
 
 from sandloom.core.testing.ownership import (
     DB_LAST_USED_SETTING,
@@ -160,7 +164,16 @@ def _text(value: Any) -> str:
 SCANNER_CLIENT_NAME = "sandloom-test-resources"
 
 
+def redis_errors() -> tuple[type[Exception], ...]:
+    """What a failed Redis call raises (``OSError`` alone without the extra)."""
+    return (OSError,) if redis is None else (redis.RedisError, OSError)
+
+
 def _connect_redis(url: str) -> Any:
+    if redis is None:
+        raise ImportError(
+            "Redis test resources need the redis extra: pip install 'sandloom[redis]'"
+        )
     client = redis.Redis.from_url(
         _server_url(url),
         socket_connect_timeout=5,

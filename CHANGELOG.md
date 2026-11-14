@@ -13,6 +13,12 @@ website renders this same changelog.
 
 ## [Unreleased]
 
+- Fix the contract cache shadow listener: it now starts only for a cache driver that offers pub/sub, so a driver without a raw client no longer flushes the shadow cache every few seconds.
+- A missing `boto3` for the `sandloom-s3` driver now fails preflight with SANDLOOM-B037 and the install hint, not SANDLOOM-B022.
+- The pytest plugin and `sandloom.core.testing` no longer import `redis` at load time: an app without the `redis` extra can run its tests.
+- Add the `sandloom[otel]` extra with the OpenTelemetry SDK and the OTLP gRPC and HTTP exporters that tracing uses.
+- Correct the driver docs: the `objectstore` contract and `ObjectStoreConformance` are public in `sandloom.driverkit`.
+
 ## [0.7.0a13]
 
 - Add the optional `sandloom-s3` distribution and align the local and S3 object store contracts.

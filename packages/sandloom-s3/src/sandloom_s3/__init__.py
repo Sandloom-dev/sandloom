@@ -7,10 +7,7 @@ from functools import partial
 from tempfile import SpooledTemporaryFile
 from typing import Any, Literal, cast
 
-import boto3
 from anyio import Lock, to_thread
-from botocore.config import Config
-from botocore.exceptions import BotoCoreError, ClientError
 from pydantic import (
     AnyHttpUrl,
     BaseModel,
@@ -69,6 +66,10 @@ class S3ObjectStore(ObjectStoreProvider):
     contract_version = "v1"
     supported_features = frozenset({"metadata", "presigned_get"})
     options_schema = S3Options
+    # The SDK is imported inside the constructor path and operations, so the
+    # entry point loads without it and preflight reports SANDLOOM-B037.
+    required_imports = ("boto3",)
+    install_hint = "pip install sandloom-s3"
 
     def __init__(self, *, name: str, driver: str, options: Mapping[str, Any]) -> None:
         super().__init__(name=name, driver=driver, options=options)
@@ -77,6 +78,9 @@ class S3ObjectStore(ObjectStoreProvider):
         self._client_lock = Lock()
 
     def _connect(self) -> Any:
+        import boto3
+        from botocore.config import Config
+
         options = self._config
         return boto3.session.Session().client(
             "s3",
@@ -160,6 +164,8 @@ class S3ObjectStore(ObjectStoreProvider):
         client = await self._backend()
 
         def read() -> bytes:
+            from botocore.exceptions import ClientError
+
             try:
                 result = client.get_object(Bucket=self._config.bucket, Key=key)
             except ClientError as exc:
@@ -197,6 +203,11 @@ class S3ObjectStore(ObjectStoreProvider):
         )
 
     async def health(self) -> HealthResult:
+        from botocore.exceptions import (
+            BotoCoreError,
+            ClientError,
+        )
+
         try:
             client = await self._backend()
             await to_thread.run_sync(
