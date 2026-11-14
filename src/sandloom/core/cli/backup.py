@@ -9,7 +9,7 @@
         integrity, drop it (exit 0 = the backup restores and is current)
     sandloom backup reconcile-security [--audit-export FILE ...] [--lift-stale-blocks]
                       [--apply [--confirm-production] --reason R] [--json]
-        after restoring the security store (INFRA.atomic_store.security) from a snapshot: re-derive block
+        after restoring the security store from a snapshot: re-derive block
         and revocation marks from the audit log / outbox (dry-run by default;
         exit 0 = nothing missing / everything re-applied, 1 = action needed)
     sandloom backup fence-leases [--database NAME ...]
