@@ -689,7 +689,7 @@ async def _l5e():
     return op, life.aclose
 
 
-@rung("KG0", "one subject-record GET as the live check does it (security cache)")
+@rung("KG0", "one subject-record GET as the live check does it (security store)")
 async def _kg0():
     _s5_env("uow")
     from sandloom.core.auth.marks import subject_key
@@ -699,7 +699,7 @@ async def _kg0():
     key = subject_key("00000000-0000-4000-8000-00000000c0de")
 
     async def op(_i: int):
-        return await access.security_cache().get(key)
+        return await access.atomic_store("security").get(key)
 
     return op, life.aclose
 

@@ -97,6 +97,37 @@ def _atomic_instance(infra: Mapping[str, Any], role: str) -> Mapping[str, Any] |
     return None
 
 
+def _memory_store_problem(role: str) -> str:
+    return (
+        f'INFRA["atomic_store"]["{role}"] uses the development-only memory '
+        "driver: it is lost on restart and not shared between replicas"
+    )
+
+
+_SECURITY_STORE_UNDECLARED = (
+    'INFRA["atomic_store"]["security"] is not declared: revocation marks, '
+    "user blocks, RPC nonces and idempotency records need a durable, "
+    "non-evicting atomic_store instance on its own server, e.g. "
+    'INFRA={"atomic_store": {"security": {"driver": "redis", "url": '
+    '"redis://security-redis:6379/0"}}} (SECURITY_CACHE_INSTANCE and '
+    "IDEMPOTENCY_CACHE_INSTANCE are removed)"
+)
+
+
+def atomic_store_security_problem(cfg: Any) -> str | None:
+    """The production refusal of spec section 4, on every profile: the security
+    state needs a declared ``INFRA.atomic_store.security`` that is not the
+    development-only memory driver (development and test get an implicit
+    instance; production never does)."""
+    infra = getattr(cfg, "infra", None) or {}
+    security = _atomic_instance(infra, "security")
+    if security is None:
+        return _SECURITY_STORE_UNDECLARED
+    if str(security.get("driver")) == "memory":
+        return _memory_store_problem("security")
+    return None
+
+
 def _atomic_instance_problems(
     cfg: Any, infra: Mapping[str, Any], role: str, options: Mapping[str, Any]
 ) -> list[str]:
@@ -104,10 +135,7 @@ def _atomic_instance_problems(
     a Redis one on a server other than the module cache's."""
     driver = str(options.get("driver"))
     if driver == "memory":
-        return [
-            f'INFRA["atomic_store"]["{role}"] uses the development-only memory '
-            "driver: it is lost on restart and not shared between replicas"
-        ]
+        return [_memory_store_problem(role)]
     server = _server(options.get("url"))
     if (
         driver == "redis"
@@ -131,14 +159,7 @@ def _atomic_store_problems(
     cache's options or from memory."""
     security = _atomic_instance(infra, "security")
     if security is None:
-        return [
-            'INFRA["atomic_store"]["security"] is not declared: revocation marks, '
-            "user blocks, RPC nonces and idempotency records need a durable, "
-            "non-evicting atomic_store instance on its own server, e.g. "
-            'INFRA={"atomic_store": {"security": {"driver": "redis", "url": '
-            '"redis://security-redis:6379/0"}}} (SECURITY_CACHE_INSTANCE and '
-            "IDEMPOTENCY_CACHE_INSTANCE are removed)"
-        ]
+        return [_SECURITY_STORE_UNDECLARED]
     problems = _atomic_instance_problems(cfg, infra, "security", security)
     idem = _atomic_instance(infra, "idempotency")
     if idem is not None:
@@ -330,6 +351,7 @@ async def _attest_separate_from_default(core: Any, role: str) -> None:
 
 __all__ = [
     "ProductionProfileError",
+    "atomic_store_security_problem",
     "config_problems",
     "enforce_runtime",
     "tenant_scoped_tables",

@@ -26,8 +26,11 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, ValidationError
 
 from sandloom.core import idempotency, production_profile
+from sandloom.core.app_factory.config import configuration_problems
 from sandloom.core.auth import revocation
-from sandloom.core.config.settings import Settings
+from sandloom.core.config.settings import Settings, settings
+from sandloom.core.drivers.redis_atomic_store import RedisAtomicStoreProvider
+from sandloom.core.drivers.redis_cache import RedisCacheProvider
 from sandloom.core.idempotency import cache_store as idempotency_cache_store
 from sandloom.core.idempotency import replay as idempotency_replay
 from sandloom.core.infra import access
@@ -36,6 +39,7 @@ from sandloom.core.migrations import backup
 from sandloom.core.tasks import enqueue
 from sandloom.core.testing import InMemoryAtomicStore, make_user_headers
 from sandloom.core.tests.test_production_profile import (
+    _BASE,
     _COMPLIANT_INFRA,
     _REFUSED,
     _settings,
@@ -335,6 +339,40 @@ def test_strict_profile_default_is_unchanged() -> None:
     assert production_profile.config_problems(_settings()) == ([], [])
 
 
+# --------------------------------------------------------------------------- #
+# The production refusal holds on every profile (spec section 4)
+# --------------------------------------------------------------------------- #
+_STANDARD = {"PRODUCTION_PROFILE": "standard"}
+
+
+def test_standard_profile_prod_without_a_security_store_is_refused() -> None:
+    with pytest.raises(_REFUSED, match="atomic_store.*security.*is not declared"):
+        _settings(**_STANDARD, INFRA={})
+
+
+def test_standard_profile_prod_with_the_memory_security_store_is_refused() -> None:
+    infra = {"atomic_store": {"security": {"driver": "memory"}}}
+    with pytest.raises(_REFUSED, match="development-only memory driver"):
+        _settings(**_STANDARD, INFRA=infra)
+
+
+def test_standard_profile_prod_with_a_declared_security_store_boots() -> None:
+    cfg = _settings(**_STANDARD, INFRA=_COMPLIANT_INFRA)
+    assert cfg.production_profile == "standard"
+
+
+def test_the_refusal_is_reported_once_under_the_strict_profile() -> None:
+    cfg = Settings(_env_file=None, **{**_BASE, "INFRA": {}})  # type: ignore[call-arg]
+    undeclared = [p for p in configuration_problems(cfg) if "is not declared" in p]
+    assert len(undeclared) == 1
+
+
+def test_development_and_test_keep_the_implicit_security_store() -> None:
+    for environment in ("dev", "test"):
+        cfg = _settings(ENVIRONMENT=environment, **_STANDARD, INFRA={})
+        assert load_infra_config(cfg)["atomic_store"]["security"].implicit
+
+
 @pytest.mark.parametrize(
     ("idempotency_options", "reason"),
     [
@@ -469,6 +507,42 @@ async def test_a_cache_without_an_identity_fails_attestation(
         await production_profile.enforce_runtime(core)
 
 
+async def test_strict_profile_attests_real_redis_identity(
+    no_rls_problems: None,
+) -> None:
+    """The real classes on the test Redis: the cache and the Redis atomic store
+    name their server alike (``redis:<run_id>``), so a store on the cache's
+    server is refused, and a store whose server differs is attested (spec 12)."""
+    url = settings.cache_url
+    store = RedisAtomicStoreProvider(
+        name="security", driver="redis", options={"url": url}
+    )
+    cache = RedisCacheProvider(
+        name="default", driver="redis", options={"url": url}, shared=False
+    )
+    try:
+        identity = await store.isolation_identity()
+        assert identity is not None and identity.startswith("redis:")
+        assert await cache.isolation_identity() == identity
+
+        providers: dict[tuple[str, str], Any] = {
+            ("cache", "default"): cache,
+            ("atomic_store", "security"): store,
+        }
+        core = _runtime_core(_settings(), providers, {"security"})
+        with pytest.raises(
+            production_profile.ProductionProfileError,
+            match="share one failure domain",
+        ):
+            await production_profile.enforce_runtime(core)
+
+        providers[("cache", "default")] = _Provider("redis:another-server")
+        await production_profile.enforce_runtime(core)
+    finally:
+        await store.aclose()
+        await cache.aclose()
+
+
 @pytest.mark.parametrize("missing", ["never_evicts", "shared"])
 async def test_a_security_store_must_declare_never_evicts_and_shared(
     no_rls_problems: None, missing: str
@@ -481,6 +555,23 @@ async def test_a_security_store_must_declare_never_evicts_and_shared(
     core = _runtime_core(_settings(), providers, {"security"})
     with pytest.raises(production_profile.ProductionProfileError, match=missing):
         await production_profile.enforce_runtime(core)
+
+
+async def test_the_in_memory_store_expires_a_row_after_its_ttl() -> None:
+    now = [100.0]
+    mem = InMemoryAtomicStore()
+    mem.clock = lambda: now[0]
+    assert await mem.add("k", "v", ttl_seconds=10)
+    assert await mem.get("k") == "v"
+    now[0] = 109.9
+    assert await mem.add_or_get("k", "w", ttl_seconds=10) == (False, "v")
+    now[0] = 110.0
+    assert await mem.get("k") is None
+    assert await mem.add("k", "w", ttl_seconds=10)  # free again after expiry
+    await mem.set("forever", "v")
+    now[0] = 10_000.0
+    assert await mem.get("forever") == "v"
+    assert await mem.get("k") is None
 
 
 def test_backup_plan_labels_the_idempotency_redis() -> None:

@@ -40,6 +40,7 @@ from sandloom.core.auth.marks import (
 from sandloom.core.config.settings import settings
 from sandloom.core.eventing.delivery import PoisonEventError
 from sandloom.core.infra import access as _access
+from sandloom.core.infra.ports.atomic_store import AtomicStore
 from sandloom.core.unit_of_work.effects import publish_event
 from sandloom.core.unit_of_work.hooks import _ON_COMMIT_KEY, _savepoint_token, on_commit
 from sandloom.core.unit_of_work.request import (
@@ -151,7 +152,7 @@ async def _write_revocation(
 
 
 async def _record_revocation_mark(
-    provider: Any,
+    provider: AtomicStore,
     user_id: Any,
     mark_us: int,
     *,

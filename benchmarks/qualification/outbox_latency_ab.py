@@ -143,7 +143,6 @@ def main():
             "INFRA",
             "DATABASE_URL",
             "DATABASE_SYSTEM_URL",
-            "SECURITY_CACHE_INSTANCE",
             "PRODUCTION_PROFILE",
             "WEB_CONCURRENCY",
             "AUTH_REVOCATION_FAIL_CLOSED",

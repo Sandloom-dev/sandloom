@@ -212,7 +212,12 @@ def test_profile_is_inert_outside_prod_and_for_standard() -> None:
     dev = _settings(ENVIRONMENT="dev", INFRA={})
     assert not strict_profile_active(dev)
     assert dev.auth_revocation_fail_closed is None
-    standard = _settings(PRODUCTION_PROFILE="standard", INFRA={})
+    # The standard profile adds no trust-model requirement (RLS stays off); the
+    # security store's declaration is a production refusal of every profile.
+    standard = _settings(
+        PRODUCTION_PROFILE="standard",
+        INFRA={"atomic_store": _COMPLIANT_INFRA["atomic_store"]},
+    )
     assert not strict_profile_active(standard)
 
 

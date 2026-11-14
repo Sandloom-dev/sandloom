@@ -58,6 +58,7 @@ from sandloom.core.auth.marks import (
 )
 from sandloom.core.config.settings import settings
 from sandloom.core.infra import access as _access
+from sandloom.core.infra.ports.atomic_store import AtomicStore
 
 logger = logging.getLogger(__name__)
 
@@ -274,7 +275,8 @@ class ReconcileReport:
         }
 
 
-async def _get_many(provider: Any, keys: Sequence[str]) -> list[Any]:
+async def _get_many(provider: AtomicStore, keys: Sequence[str]) -> list[Any]:
+    # One GET per key: accepted, this runs in the reconcile CLI, never on a request.
     return [await provider.get(key) for key in keys]
 
 

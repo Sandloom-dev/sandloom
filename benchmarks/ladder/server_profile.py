@@ -64,11 +64,10 @@ def server_env(variant: str) -> dict[str, str]:
             "PRODUCTION_PROFILE": "multi_tenant_strict",
             "SANDLOOM_MODULES": '["sandloom_identity", "benchsuite.bench"]',
             "MODULE_REQUIRED": '["sandloom_identity", "benchsuite.bench"]',
-            "SECURITY_CACHE_INSTANCE": "security",
             "INFRA": json.dumps(
                 {
                     "database": {"default": {"tenant_rls": True}},
-                    "cache": {
+                    "atomic_store": {
                         "security": {
                             "driver": "redis",
                             "url": os.environ["SECURITY_CACHE_URL"],

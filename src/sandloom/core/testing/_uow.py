@@ -32,7 +32,8 @@ post-commit dispatch a real UoW performs (events stay in the outbox / record).
 from __future__ import annotations
 
 import sys
-from collections.abc import AsyncIterator, Iterator, Mapping
+import time
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from types import ModuleType
@@ -378,11 +379,18 @@ class InMemoryCache(CacheProvider):
 class InMemoryAtomicStore:
     """Dict-backed ``atomic_store`` (every operation of the port) for unit tests.
 
-    TTLs are accepted and ignored. ``broken=True`` makes every operation raise
-    ``Unavailable`` (a security store outage). Install it for the kernel's
-    security duties with :func:`sandloom.core.testing.use_security_store`, or
-    where the code under test resolves ``atomic_store`` (for the idempotency
-    guard: ``monkeypatch.setattr(cache_store, "atomic_store", lambda role: mem)``,
+    TTLs are modelled: a row written with ``ttl_seconds`` expires once ``clock``
+    (monotonic seconds; a test substitutes one it advances) reaches the
+    deadline, as in the ``memory`` driver; a row seeded straight into ``store``
+    never expires. This stays a harness class beside the driver, not a layer
+    over :mod:`sandloom.core.drivers.memory_atomic_store`, because the kernel
+    import contract forbids ``sandloom.core.testing`` reaching
+    ``sandloom.driverkit`` even indirectly. ``broken=True`` makes every
+    operation raise ``Unavailable`` (a security store outage). Install it for
+    the kernel's security duties with
+    :func:`sandloom.core.testing.use_security_store`, or where the code under
+    test resolves ``atomic_store`` (for the idempotency guard:
+    ``monkeypatch.setattr(cache_store, "atomic_store", lambda role: mem)``,
     ``sandloom.core.idempotency.cache_store``).
     """
 
@@ -392,24 +400,48 @@ class InMemoryAtomicStore:
     def __init__(self, *, broken: bool = False) -> None:
         self.store: dict[str, str] = {}
         self.broken = broken
+        #: Monotonic seconds; a test substitutes a clock it advances.
+        self.clock: Callable[[], float] = time.monotonic
+        #: ``key -> (value, deadline)`` of the rows written with a TTL.
+        self._deadlines: dict[str, tuple[str, float]] = {}
 
     def _check(self) -> None:
         if self.broken:
             raise Unavailable("atomic store down", capability="atomic_store")
 
+    def _live(self, key: str) -> str | None:
+        """The live value of ``key``; a row past its deadline is dropped."""
+        dated = self._deadlines.get(key)
+        if dated is not None:
+            value, deadline = dated
+            if self.store.get(key) != value:  # rewritten without a TTL since
+                del self._deadlines[key]
+            elif self.clock() >= deadline:
+                del self._deadlines[key]
+                self.store.pop(key, None)
+        return self.store.get(key)
+
+    def _write(self, key: str, value: str, ttl_seconds: int | None) -> None:
+        self.store[key] = value
+        if ttl_seconds:
+            self._deadlines[key] = (value, self.clock() + ttl_seconds)
+        else:
+            self._deadlines.pop(key, None)
+
     async def get(self, key: str) -> str | None:
         self._check()
-        return self.store.get(key)
+        return self._live(key)
 
     async def set(
         self, key: str, value: str, *, ttl_seconds: int | None = None
     ) -> None:
         self._check()
-        self.store[key] = value
+        self._write(key, value, ttl_seconds)
 
     async def delete(self, key: str) -> None:
         self._check()
         self.store.pop(key, None)
+        self._deadlines.pop(key, None)
 
     async def add(
         self, key: str, value: str, *, ttl_seconds: int | None = None
@@ -421,26 +453,26 @@ class InMemoryAtomicStore:
         self, key: str, value: str, *, ttl_seconds: int | None = None
     ) -> tuple[bool, str | None]:
         self._check()
-        current = self.store.get(key)
+        current = self._live(key)
         if current is not None:
             return False, current
-        self.store[key] = value
+        self._write(key, value, ttl_seconds)
         return True, None
 
     async def compare_and_set(
         self, key: str, expected: str, value: str, *, ttl_seconds: int | None = None
     ) -> bool:
         self._check()
-        if self.store.get(key) != expected:
+        if self._live(key) != expected:
             return False
-        self.store[key] = value
+        self._write(key, value, ttl_seconds)
         return True
 
     async def compare_and_delete(self, key: str, expected: str) -> bool:
         self._check()
-        if self.store.get(key) != expected:
+        if self._live(key) != expected:
             return False
-        del self.store[key]
+        await self.delete(key)
         return True
 
     async def set_subject_state(
@@ -451,12 +483,12 @@ class InMemoryAtomicStore:
         one; a stored value outside the domain is replaced."""
         self._check()
         check_subject_state(value)
-        current = self.store.get(key)
+        current = self._live(key)
         stored = subject_state_rank(current)
         ours = subject_state_rank(value)
         if current is not None and stored is not None and stored >= (ours or stored):
             return current
-        self.store[key] = value
+        self._write(key, value, ttl_seconds)
         return value
 
     def features(self) -> frozenset[str]:

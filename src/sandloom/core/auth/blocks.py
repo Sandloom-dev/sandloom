@@ -33,6 +33,7 @@ from sandloom.core.auth.marks import (
 )
 from sandloom.core.config.settings import settings
 from sandloom.core.infra import access as _access
+from sandloom.core.infra.ports.atomic_store import AtomicStore
 from sandloom.core.unit_of_work.effects import publish_event, record_audit
 from sandloom.core.unit_of_work.hooks import on_commit
 
@@ -50,7 +51,9 @@ class BlockUnavailableError(RuntimeError):
     detail = "Account security state temporarily unavailable"
 
 
-async def _write_state(provider: Any, user_id: Any, value: str, ttl: int | None) -> str:
+async def _write_state(
+    provider: AtomicStore, user_id: Any, value: str, ttl: int | None
+) -> str:
     """Monotonic write of the subject-state record (``set_subject_state``)."""
     key = subject_key(user_id)
     return str(await provider.set_subject_state(key, value, ttl_seconds=ttl))
@@ -190,7 +193,7 @@ async def unblock_user(
     await on_commit(_lift, database=database)
 
 
-async def _swap_blocked_for_after(provider: Any, user_id: Any) -> bool:
+async def _swap_blocked_for_after(provider: AtomicStore, user_id: Any) -> bool:
     """Replace a ``blocked`` record by ``after:<now + skew>`` (compare-and-set).
 
     Retries while another writer changes the record and it is still
