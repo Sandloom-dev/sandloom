@@ -64,6 +64,11 @@ class TaskEnqueueUncertain(HTTPException):
 #: Driver errors that mean nothing was published: the reservation is released.
 NOT_PUBLISHED: tuple[type[Exception], ...] = (InvalidArgument, TooLarge)
 
+#: The longest ``delay_seconds`` an enqueue accepts: 30 days. A broker holds a
+#: delayed message in memory or a visibility window; a longer schedule belongs
+#: in a periodic task or the module's own table.
+MAX_DELAY_SECONDS = 30 * 24 * 60 * 60
+
 
 async def enqueue_once(  # noqa: C901
     *,
@@ -172,6 +177,32 @@ def dedupe_namespace(provider: TaskQueueProvider) -> str:
     return repr((provider.name, provider.driver))
 
 
+def _check_before_reserving(
+    provider: TaskQueueProvider, task: object, delay_seconds: object
+) -> None:
+    """What the layer knows without the broker (spec 8.1, 13.29)."""
+    if not isinstance(task, str) or not task:
+        raise InvalidArgument(
+            "the task name must be a non-empty string",
+            capability="taskqueue",
+            instance=provider.name,
+        )
+    if delay_seconds is None:
+        return
+    if (
+        not isinstance(delay_seconds, int)
+        or isinstance(delay_seconds, bool)
+        or not 0 <= delay_seconds <= MAX_DELAY_SECONDS
+    ):
+        raise InvalidArgument(
+            f"delay_seconds must be an int from 0 to {MAX_DELAY_SECONDS}",
+            capability="taskqueue",
+            instance=provider.name,
+        )
+    if "delay" not in provider.features():
+        raise Unsupported("delay", capability="taskqueue", instance=provider.name)
+
+
 async def enqueue_task(
     provider: TaskQueueProvider,
     task: str,
@@ -187,7 +218,14 @@ async def enqueue_task(
     :class:`Unsupported` before anything is reserved otherwise), the payload
     is snapshotted, and :func:`enqueue_once` reserves a job id the driver
     publishes under (its ``enqueue(..., task_id=)``).
+
+    Before anything is reserved or published (spec 8.1), ``task`` must be a
+    non-empty name, ``delay_seconds`` ``None`` or an ``int`` in
+    ``[0, MAX_DELAY_SECONDS]`` (:class:`InvalidArgument` otherwise), and a
+    delay needs the instance's feature ``delay`` (:class:`Unsupported`): a
+    refusal leaves no pending key behind.
     """
+    _check_before_reserving(provider, task, delay_seconds)
     if idempotency_key is None:
         return await provider.enqueue(task, payload, delay_seconds=delay_seconds)
     if "idempotency_key" not in provider.features():

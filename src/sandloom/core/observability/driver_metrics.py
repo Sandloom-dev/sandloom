@@ -12,8 +12,15 @@ Declaring a metric registers it at once (in memory, no I/O), so the series
 exists from the driver's import on, as a kernel metric does; a clash with an
 existing series raises then. A registry installed later is picked up on the
 next use. Recording never raises: a metric that cannot be registered in the
-current registry is logged once and records nothing, so a metric never breaks
-the operation that records it.
+current registry, a wrong label count or name, a negative increment or a
+labelled metric recorded without labels is logged once per metric and records
+nothing, so a metric never breaks the operation that records it (a driver
+records inside the ``except`` block of the backend's error).
+
+The kernel's own metrics register first: ``sandloom.core.drivers`` and
+``sandloom.driverkit`` import :mod:`sandloom.core.observability.metrics`
+before any driver declares, so a driver metric clashing with a kernel series
+raises at the driver's declaration, never at the kernel's import.
 """
 
 from __future__ import annotations
@@ -68,12 +75,42 @@ class _Unrecorded:
 _UNRECORDED = _Unrecorded()
 
 
+class _Child:
+    """A labelled child whose ``inc`` / ``observe`` never raise."""
+
+    __slots__ = ("_child", "_metric")
+
+    def __init__(self, metric: DriverMetric, child: Any) -> None:
+        self._metric = metric
+        self._child = child
+
+    def inc(self, amount: float = 1.0) -> None:
+        try:
+            self._child.inc(amount)
+        except Exception:  # noqa: BLE001 - a metric never breaks the recorded operation
+            self._metric._misused("inc")
+
+    def observe(self, amount: float) -> None:
+        try:
+            self._child.observe(amount)
+        except Exception:  # noqa: BLE001 - a metric never breaks the recorded operation
+            self._metric._misused("observe")
+
+
 class DriverMetric:
     """One metric a driver declared; resolves to the kernel registry's metric."""
 
     kind: ClassVar[str] = ""
 
-    __slots__ = ("_bound", "_failed", "buckets", "documentation", "labelnames", "name")
+    __slots__ = (
+        "_bound",
+        "_failed",
+        "_warned",
+        "buckets",
+        "documentation",
+        "labelnames",
+        "name",
+    )
 
     def __init__(
         self,
@@ -88,6 +125,19 @@ class DriverMetric:
         self.buckets = buckets
         self._bound: tuple[Any, Any] | None = None
         self._failed: Any | None = None
+        self._warned = False
+
+    def _misused(self, call: str) -> None:
+        """Log a failed recording once per metric; never raise."""
+        if self._warned:
+            return
+        self._warned = True
+        logger.warning(
+            "driver metric %s: %s failed and recorded nothing (logged once)",
+            self.name,
+            call,
+            exc_info=True,
+        )
 
     def _build(self, registry: Any) -> Any:
         if self.kind == "counter":
@@ -133,8 +183,13 @@ class DriverMetric:
             return _UNRECORDED
 
     def labels(self, *values: str, **labels: str) -> Any:
-        """The child for these label values (``inc`` / ``observe`` on it)."""
-        return self._metric().labels(*values, **labels)
+        """The child for these label values (``inc`` / ``observe`` on it);
+        a wrong count or name records nothing (logged once)."""
+        try:
+            return _Child(self, self._metric().labels(*values, **labels))
+        except Exception:  # noqa: BLE001 - a metric never breaks the recorded operation
+            self._misused("labels")
+            return _UNRECORDED
 
 
 class DriverCounter(DriverMetric):
@@ -145,7 +200,10 @@ class DriverCounter(DriverMetric):
 
     def inc(self, amount: float = 1.0) -> None:
         """Add ``amount`` (a counter without labels)."""
-        self._metric().inc(amount)
+        try:
+            self._metric().inc(amount)
+        except Exception:  # noqa: BLE001 - a metric never breaks the recorded operation
+            self._misused("inc")
 
 
 class DriverHistogram(DriverMetric):
@@ -156,7 +214,10 @@ class DriverHistogram(DriverMetric):
 
     def observe(self, amount: float) -> None:
         """Record one observation (a histogram without labels)."""
-        self._metric().observe(amount)
+        try:
+            self._metric().observe(amount)
+        except Exception:  # noqa: BLE001 - a metric never breaks the recorded operation
+            self._misused("observe")
 
 
 class Observe:
@@ -234,7 +295,13 @@ class Observe:
                     "help text, labels or buckets"
                 )
             metric = cls(name, documentation, labels, buckets)
-            metric._bind(_current_registry())
+            try:
+                metric._bind(_current_registry())
+            except ValueError as exc:
+                raise ValueError(
+                    f"metric {name!r} clashes with a series already registered "
+                    f"(a kernel metric or another driver's): {exc}"
+                ) from exc
             self._declared[name] = metric
         return metric
 

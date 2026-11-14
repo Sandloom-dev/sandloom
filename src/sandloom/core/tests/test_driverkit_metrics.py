@@ -143,6 +143,68 @@ def test_recording_never_raises(own_registry: CollectorRegistry) -> None:
     assert later.get_sample_value(f"{name}_total", {"op": "get"}) is None
 
 
+def test_a_wrong_recording_never_raises_and_logs_once(
+    own_registry: CollectorRegistry, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Recording runs inside a driver's ``except`` block: a wrong label count,
+    wrong label names, a negative increment or a labelled metric recorded
+    without labels must not replace the backend's error."""
+    name = _name("misuse")
+    counter = Observe().counter(name, "Misused by a driver", ("instance", "op"))
+    histogram = Observe().histogram(_name("misuse_h"), "Misused", ("op",))
+    with caplog.at_level("WARNING", logger=driver_metrics.__name__):
+        counter.labels("a").inc()  # one value for two labels
+        counter.labels(instance="a", operation="get").inc()  # wrong name
+        counter.labels("a", "get").inc(-1)  # a counter only goes up
+        counter.inc()  # labelled: needs labels
+        histogram.observe(0.1)  # labelled: needs labels
+        histogram.labels("get").observe("slow")  # type: ignore[arg-type]
+    assert own_registry.get_sample_value(
+        f"{name}_total", {"instance": "a", "op": "get"}
+    ) in (None, 0.0)
+    logged = [r for r in caplog.records if name in r.getMessage()]
+    assert len(logged) == 1  # once per metric, not once per call
+    # A correct recording still counts.
+    counter.labels("a", "get").inc()
+    assert (
+        own_registry.get_sample_value(f"{name}_total", {"instance": "a", "op": "get"})
+        == 1.0
+    )
+
+
+def test_a_clash_names_the_metric() -> None:
+    name = _name("named")
+    Observe().counter(name, "First")
+    with pytest.raises(ValueError, match=name):
+        Observe().counter(name, "Second")
+
+
+def test_the_kernel_metrics_register_before_any_driver() -> None:
+    """A driver (package or built-in) importing first never makes the kernel
+    fail on its own metrics' import: they are registered before the driver
+    declares, so a clash raises at the driver's declaration."""
+    for first in ("sandloom.driverkit", "sandloom.core.drivers.redis_cache"):
+        code = (
+            "import importlib, sys\n"
+            f"importlib.import_module({first!r})\n"
+            "assert 'sandloom.core.observability.metrics' in sys.modules\n"
+            "from sandloom.core.observability.driver_metrics import Observe\n"
+            "try:\n"
+            "    Observe().counter('sandloom_rate_limit_rejected_total', 'x')\n"
+            "except ValueError as exc:\n"
+            "    assert 'sandloom_rate_limit_rejected_total' in str(exc), exc\n"
+            "else:\n"
+            "    raise AssertionError('no clash raised')\n"
+            "import sandloom.core.observability.metrics\n"
+            "print('ok')\n"
+        )
+        out = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=False
+        )
+        assert out.returncode == 0, (first, out.stderr[-2000:])
+        assert out.stdout.strip() == "ok"
+
+
 def test_the_redis_cache_driver_records_through_the_hook() -> None:
     from sandloom.core.drivers import redis_cache
 

@@ -13,7 +13,7 @@ dedupe (``idempotency_key``) is the kernel's taskqueue layer
 (:mod:`sandloom.core.tasks.queue`), which reserves a job id and hands it to
 :meth:`CeleryTaskQueueProvider.enqueue` as ``task_id``. A failure that provably
 published nothing is :class:`InvalidArgument`; anything else may have reached
-the broker and propagates unchanged.
+the broker and is :class:`Unavailable` or :class:`Timeout` (spec 8.2).
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from sandloom.core.descriptors import HealthResult
 from sandloom.core.drivers.celery_broker_probe import probe_broker
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.core.infra.contracts import TaskQueueProvider
-from sandloom.core.infra.errors import InvalidArgument
+from sandloom.core.infra.errors import InvalidArgument, Timeout, Unavailable
 
 #: Features the Celery task-queue driver supports. ``periodic``: the worker
 #: connects each loaded module's beat hook and one beat per broker and module
@@ -151,7 +151,7 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         A failure that provably published nothing (the kwargs cannot be
         encoded, the task is unknown) is :class:`InvalidArgument`; anything
         else (connection drop, timeout, lost ack) may have reached the broker
-        and propagates unchanged.
+        and is :class:`Unavailable` or :class:`Timeout`.
         """
         if idempotency_key is not None:
             raise InvalidArgument(
@@ -197,8 +197,8 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         kombu does before any network write); kombu's own encode errors and
         an unknown task from ``send_task`` are pre-broker too. Everything else
         (connection drop, timeout, lost ack, any I/O error) may have reached
-        the broker and propagates unchanged — the kernel keeps the dedupe key
-        pending.
+        the broker and is raised as :class:`Unavailable` / :class:`Timeout`,
+        the original as its cause — the kernel keeps the dedupe key pending.
         """
         from celery.exceptions import NotRegistered  # noqa: PLC0415 - cold: Celery is imported only by the worker and the celery taskqueue driver
         from kombu.exceptions import (  # type: ignore[import-untyped]  # noqa: PLC0415 - cold: Celery is imported only by the worker and the celery taskqueue driver
@@ -226,6 +226,8 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
                 capability="taskqueue",
                 instance=self.name,
             ) from exc
+        except Exception as exc:  # noqa: BLE001 - may have published: mapped, never swallowed
+            raise _maybe_published(exc, self.name) from exc
 
     async def health(self) -> HealthResult:
         """One bounded connection to this instance's broker
@@ -236,6 +238,18 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
 
     async def raw_backend(self) -> Any:
         return self._app
+
+
+def _maybe_published(exc: Exception, instance: str) -> Unavailable | Timeout:
+    """A broker failure after the kwargs encoded (spec 8.2): ``Timeout`` for
+    any ``TimeoutError`` (builtin / ``socket.timeout``, redis-py's, by name so
+    no client is imported), ``Unavailable`` for the rest (kombu's
+    ``OperationalError``, a dropped connection, a lost ack). Either may have
+    reached the broker: the kernel keeps the dedupe key pending."""
+    detail = f"task publish failed ({type(exc).__name__}); it may have been published"
+    if any(cls.__name__ == "TimeoutError" for cls in type(exc).__mro__):
+        return Timeout(detail, capability="taskqueue", instance=instance)
+    return Unavailable(detail, capability="taskqueue", instance=instance)
 
 
 def create_celery_taskqueue(cfg: InstanceConfig) -> CeleryTaskQueueProvider:

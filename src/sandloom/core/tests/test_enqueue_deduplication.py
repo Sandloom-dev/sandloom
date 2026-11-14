@@ -336,3 +336,67 @@ async def test_a_payload_without_canonical_form_reserves_nothing(queue) -> None:
     with pytest.raises(InvalidArgument, match="canonical form"):
         await layered.enqueue("probe.task", {"bad": object()}, idempotency_key="key")
     assert store.store == {}
+
+
+# -- checks before reserving (spec 8.1): a refusal leaves no key behind ------
+
+
+def _published(app) -> int:
+    with app.connection_for_read() as conn:
+        return conn.SimpleQueue(app.conf.task_default_queue).qsize()
+
+
+@pytest.mark.parametrize("task", ["", None, 7, b"probe.task"])
+async def test_a_bad_task_name_reserves_nothing(queue, task) -> None:
+    layered, app, store = queue
+    with pytest.raises(InvalidArgument, match="task name"):
+        await layered.enqueue(task, {}, idempotency_key="key")
+    assert store.store == {}
+    assert _published(app) == 0
+
+
+@pytest.mark.parametrize(
+    "delay",
+    ["5", 5.0, True, -1, enqueue.MAX_DELAY_SECONDS + 1, 10**12, float("inf")],
+)
+async def test_a_bad_delay_reserves_nothing(queue, delay) -> None:
+    layered, app, store = queue
+    with pytest.raises(InvalidArgument, match="delay_seconds"):
+        await layered.enqueue(
+            "probe.task", {}, delay_seconds=delay, idempotency_key="key"
+        )
+    assert store.store == {}
+    assert _published(app) == 0
+
+
+async def test_the_delay_cap_and_zero_are_accepted(queue) -> None:
+    layered, app, _ = queue
+    assert enqueue.MAX_DELAY_SECONDS == 30 * 24 * 60 * 60
+    await layered.enqueue("probe.task", {}, delay_seconds=0, idempotency_key="a")
+    await layered.enqueue(
+        "probe.task", {}, delay_seconds=enqueue.MAX_DELAY_SECONDS, idempotency_key="b"
+    )
+    assert _published(app) == 2
+
+
+async def test_a_delay_without_the_feature_reserves_nothing(
+    queue, monkeypatch
+) -> None:
+    layered, app, store = queue
+    monkeypatch.setattr(
+        layered._provider, "features", lambda: frozenset({"idempotency_key"})
+    )
+    with pytest.raises(Unsupported, match="delay"):
+        await layered.enqueue("probe.task", {}, delay_seconds=5, idempotency_key="k")
+    assert store.store == {}
+    # Without a key the same refusal holds: nothing is published.
+    with pytest.raises(Unsupported, match="delay"):
+        await layered.enqueue("probe.task", {}, delay_seconds=5)
+    assert _published(app) == 0
+
+
+async def test_a_bad_delay_without_a_key_publishes_nothing(queue) -> None:
+    layered, app, _ = queue
+    with pytest.raises(InvalidArgument, match="delay_seconds"):
+        await layered.enqueue("probe.task", {}, delay_seconds=10**12)
+    assert _published(app) == 0
