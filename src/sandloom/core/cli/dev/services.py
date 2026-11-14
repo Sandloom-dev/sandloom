@@ -7,6 +7,7 @@ Postgres.app), given as URLs (:meth:`Postgres.from_url`,
 from __future__ import annotations
 
 import contextlib
+import importlib
 import socket
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -16,20 +17,26 @@ from urllib.parse import quote, unquote, urlsplit
 import psycopg2  # type: ignore[import-untyped]
 from psycopg2 import errors, sql
 
-try:  # the `redis` extra: without it the Redis checks stop at TCP
-    import redis
-except ImportError:  # pragma: no cover - lean install
-    redis = None  # type: ignore[assignment]
-
 #: (user, password) of the generated compose file's local services.
 DEV_CREDENTIALS = ("sandloom", "sandloom")
 TEST_CREDENTIALS = ("test_user", "test_password")
 DEFAULT_PG_PORT, DEFAULT_REDIS_PORT = 5432, 6379
 
 
+def _redis_module() -> Any:
+    """The redis client (the ``redis`` extra), imported on first use; ``None``
+    without it, and the Redis checks stop at TCP."""
+    try:
+        redis = importlib.import_module("redis")  # the optional extra, by name
+    except ImportError:  # pragma: no cover - lean install
+        return None
+    return redis
+
+
 def service_errors() -> tuple[type[BaseException], ...]:
     """What a client raises when a dev service is down or refuses us."""
     found: tuple[type[BaseException], ...] = (psycopg2.Error, OSError)
+    redis = _redis_module()
     if redis is not None:
         found += (redis.RedisError,)
     return found
@@ -298,6 +305,7 @@ def advisory_holders(pg: Postgres) -> int:
 
 
 def _redis(host: str, port: int, db: int = 0, password: str | None = None) -> Any:
+    redis = _redis_module()
     if redis is None:
         raise ImportError("the redis client is not installed (sandloom[redis])")
     return redis.Redis(
@@ -355,7 +363,7 @@ def empty_indexes(
         client = _redis(server.host, server.port, index, server.password)
         try:
             size = int(client.dbsize())
-        except redis.ResponseError:  # past the server's last database
+        except _redis_module().ResponseError:  # past the server's last database
             break
         finally:
             client.close()
