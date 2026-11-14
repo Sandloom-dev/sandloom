@@ -73,7 +73,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import sandloom.core.auth.claims_view as _claims_view
-import sandloom.core.beat_lease as _beat_lease
+import sandloom.core.infra.fenced_lease as _beat_lease
 from sandloom.core.app_factory import configuration_problems
 from sandloom.core.claims import ClaimAuthorities
 from sandloom.core.cli.config import mask_url_credentials, redact_value
@@ -418,9 +418,9 @@ async def check_infra(report: Report, core: Any, timeout: float) -> None:  # noq
 
 
 def _holder_identity(token: str) -> str:
-    """``<host>:<pid>`` of a lease token ``<fence>:<host>:<pid>:<nonce>``."""
+    """``<host>:<pid>`` of a lease holder ``<fence>:<host>:<pid>``."""
     parts = token.split(":")
-    return ":".join(parts[1:-1]) if len(parts) >= 4 else token
+    return ":".join(parts[1:]) if len(parts) >= 3 else token
 
 
 async def check_periodic(report: Report, core: Any, budget: float) -> None:
@@ -444,7 +444,7 @@ async def check_periodic(report: Report, core: Any, budget: float) -> None:
         )
         return
     if not hasattr(core, "cache"):
-        report.add("periodic", "periodic jobs", SKIP, "no cache capability bound")
+        report.add("periodic", "periodic jobs", SKIP, "no infrastructure bound")
         return
     for instance in sorted({need.instance for need in needs}):
         state, value = await _beat_lease.read_beat_lease(

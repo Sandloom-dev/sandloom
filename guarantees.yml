@@ -4684,7 +4684,7 @@ guarantees:
   - src/sandloom/core/tests/test_capabilities.py::test_resolve_unknown_feature_raises
   - src/sandloom/core/tests/test_capabilities.py::test_facade_capability_and_require_capability
 - id: G-INFRA-05
-  statement: Resolving an experimental capability (document_store, graph_store, workflow, search, lock,
+  statement: Resolving an experimental capability (document_store, graph_store, workflow, search,
     secrets) without a registered driver raises ExperimentalCapabilityError (also via the facade), with
     the precise error kept for an unknown instance.
   sources:
@@ -5365,9 +5365,10 @@ guarantees:
   - src/sandloom/core/tests/test_migrations_multidb.py::test_to_sync_url_is_explicit_and_idempotent
   - src/sandloom/core/tests/test_migrations_multidb.py::test_to_sync_url_translates_asyncpg_ssl_to_sslmode
 - id: G-OPS-01
-  statement: 'Celery beat schedules only while it holds a fenced cache lease: a second beat stands by
-    and takes over on release/death, a holder that lost its token stops at once, a cache outage keeps
-    scheduling only until a local deadline, and beat refuses to start without a CAS-capable cache.'
+  statement: 'Celery beat schedules only while it holds a fenced lease: a second beat stands by and
+    takes over on release/death, a holder that lost its lease stops at once, a lease backend outage keeps
+    scheduling only until a local deadline, and in production beat refuses to start on a lease that is
+    not shared between processes.'
   sources:
   - docs/modules/background/tasks.md
   - deploy/README.md#Background work (Celery worker + beat)
@@ -5375,7 +5376,7 @@ guarantees:
   - src/sandloom/core/tests/test_beat_lease.py::test_second_beat_stands_by_and_takes_over_after_release
   - src/sandloom/core/tests/test_beat_lease.py::test_a_holder_that_lost_its_token_stops_scheduling_at_once
   - src/sandloom/core/tests/test_beat_lease.py::test_cache_outage_keeps_scheduling_only_until_the_local_deadline
-  - src/sandloom/core/tests/test_beat_lease.py::test_beat_refuses_to_start_without_a_cas_cache
+  - src/sandloom/core/tests/test_beat_lease.py::test_beat_refuses_to_start_on_a_lease_that_is_not_shared_in_production
 - id: G-OPS-02
   statement: /health and /ready answer 503 when degraded; public callers see check statuses only (details
     and /ready topology need X-Internal-Token) and results are cached for HEALTH_CACHE_TTL_SECONDS.
@@ -6700,7 +6701,7 @@ capabilities:
     (or the contract/feature error)
   gap_size: S
 - id: C-INFRA-06
-  statement: document_store, graph_store, workflow, search, lock and secrets ship as CapabilitySpecs with
+  statement: document_store, graph_store, workflow, search and secrets ship as CapabilitySpecs with
     contracts, marked stability=experimental, registered at bootstrap without a core driver; a plugin
     supplies the driver.
   sources:

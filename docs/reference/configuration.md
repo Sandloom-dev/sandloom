@@ -186,7 +186,6 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `MIGRATION_LOCK_TIMEOUT_SECONDS` | `float` | `300.0` | Maximum seconds migration commands wait to acquire the database migration lock. |
 | `BEAT_LEASE_TTL_SECONDS` | `int` | `30` | Lifetime in seconds of the renewable singleton lease used to prevent duplicate Celery beat scheduling. |
 | `BEAT_LEASE_NAME` | `str` | `""` | Lease scope; empty = derived from the broker URL, the taskqueue instance and the loaded module set (one beat per service). |
-| `BEAT_LEASE_CACHE_INSTANCE` | `str` | `'default'` | Named cache instance holding the Celery beat singleton lease. |
 | `HEALTH_CACHE_TTL_SECONDS` | `float` | `3.0` | Seconds public health and readiness reuse probe results; zero disables this cache. |
 | `SAGA_SWEEP_INTERVAL_SECONDS` | `float` | `5.0` | Interval in seconds between lease-guarded sweeps that nudge due saga instances on each database. |
 | `SAGA_SWEEP_BATCH` | `int` | `200` | Maximum due saga instances nudged per database sweep tick. |

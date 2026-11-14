@@ -1,7 +1,7 @@
 """First-class capability contracts beyond the built-in five.
 
 These are *standard* capabilities the kernel knows about — document stores,
-graph stores, durable workflows, search, distributed locks, secrets — but ships
+graph stores, durable workflows, search, secrets — but ships
 NO driver for. Each is a small, opinionated, AI-safe surface (much smaller than
 the underlying backend's SDK): a module calls ``graph.query(...)`` or
 ``workflow.start(...)``, never a raw Neo4j/Temporal client. A plugin makes one
@@ -147,20 +147,6 @@ class SearchProvider(InfraProvider):
         """Remove the document ``id`` from ``index``."""
 
 
-class LockProvider(InfraProvider):
-    """Distributed lock capability (Redis, etcd, Zookeeper, …)."""
-
-    capability: ClassVar[str] = "lock"
-
-    @abc.abstractmethod
-    async def acquire(self, key: str, *, ttl_seconds: int = 30) -> str | None:
-        """Try to acquire ``key``; return an opaque token, or ``None`` if held."""
-
-    @abc.abstractmethod
-    async def release(self, key: str, token: str) -> None:
-        """Release ``key`` iff ``token`` matches the holder (safe unlock)."""
-
-
 class SecretsProvider(InfraProvider):
     """Secret store capability (Vault, AWS/GCP Secrets Manager, …)."""
 
@@ -232,15 +218,6 @@ SEARCH_CAPABILITY = CapabilitySpec(
     description="Full-text / vector search.",
 )
 
-LOCK_CAPABILITY = CapabilitySpec(
-    name="lock",
-    version="v1",
-    stability="experimental",
-    provider_contract=LockProvider,
-    feature_kinds={"ttl": "behaviour", "reentrant": "behaviour"},
-    description="Distributed locks.",
-)
-
 SECRETS_CAPABILITY = CapabilitySpec(
     name="secrets",
     version="v1",
@@ -257,7 +234,6 @@ EXTRA_CAPABILITIES: tuple[CapabilitySpec, ...] = (
     GRAPH_STORE_CAPABILITY,
     WORKFLOW_CAPABILITY,
     SEARCH_CAPABILITY,
-    LOCK_CAPABILITY,
     SECRETS_CAPABILITY,
 )
 
@@ -267,13 +243,11 @@ __all__ = [
     "GraphStoreProvider",
     "WorkflowProvider",
     "SearchProvider",
-    "LockProvider",
     "SecretsProvider",
     "DOCUMENT_STORE_CAPABILITY",
     "GRAPH_STORE_CAPABILITY",
     "WORKFLOW_CAPABILITY",
     "SEARCH_CAPABILITY",
-    "LOCK_CAPABILITY",
     "SECRETS_CAPABILITY",
     "EXTRA_CAPABILITIES",
 ]

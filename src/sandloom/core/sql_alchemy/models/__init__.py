@@ -13,6 +13,9 @@ from sandloom.core.sql_alchemy.models.contract_command import (
 from sandloom.core.sql_alchemy.models.http_idempotency import (
     HttpIdempotencyRecord as HttpIdempotencyRecord,
 )
+from sandloom.core.sql_alchemy.models.lease import (
+    InfraLease as InfraLease,
+)
 from sandloom.core.sql_alchemy.models.outbox import (
     OutboxMessage as OutboxMessage,
 )
@@ -31,6 +34,7 @@ __all__ = [
     "ConsumerInboxEntry",
     "ContractCommandRecord",
     "HttpIdempotencyRecord",
+    "InfraLease",
     "SagaInstance",
     "SagaStepRecord",
     "ProjectionWatermark",

@@ -38,6 +38,7 @@ CORE_TABLES = {
     "saga_instances",
     "saga_steps",
     "projection_watermarks",
+    "infra_lease",
 }
 
 

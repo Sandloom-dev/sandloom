@@ -375,8 +375,14 @@ relay).
   most once per `SAGA_SWEEP_INTERVAL_SECONDS` (default 5 s), claiming at
   most `SAGA_SWEEP_BATCH` instances per tick (`FOR UPDATE SKIP LOCKED`).
   Retry latency is therefore `max(backoff, sweep interval)`. The sweep lease
-  lives in `BEAT_LEASE_CACHE_INSTANCE` (needs `cas`; without it every process
-  sweeps — safe, only redundant).
+  lives in the `lease` instance `INFRA.lease.beat`, a `redis` lease on `CACHE_URL`
+  unless `INFRA` names another. A process that hosts a saga opens and probes it
+  like the database and the cache. A backend that refuses to serve stops startup
+  in production and fails `/ready` elsewhere. The message names the cause: a
+  Redis policy that evicts keys, a refused `CONFIG GET`, a `PermissionDenied`.
+  The sweep never sits on standby unnoticed. Only a missing `lease` instance or a
+  driver that is not installed lets the sweep run in every process: redundant,
+  never harmful.
 - **Under `tenant_rls`** the sweep and `sandloom sagas` reach other tenants'
   instances only through the system channel (`DATABASE_SYSTEM_URL`, the
   `sandloom_system` role, which must exist before the core migration `0010` so
