@@ -53,19 +53,19 @@ from typing import Any, Literal, NoReturn, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from sandloom.core.descriptors import HealthResult
-from sandloom.core.infra.errors import (
+from sandloom.driverkit import (
+    AtomicStoreProvider,
+    HealthResult,
     InfraError,
     InvalidArgument,
     PermissionDenied,
     Timeout,
     Unavailable,
 )
-from sandloom.core.infra.ports.atomic_store import (
+from sandloom.driverkit.atomic_store import (
     ATOMIC_STORE_PERFORMANCE_HINTS,
     DEFAULT_MAX_VALUE_BYTES,
     MAX_SUBJECT_STATE_CHARS,
-    AtomicStoreProvider,
     check_key,
     check_subject_state,
     check_ttl,

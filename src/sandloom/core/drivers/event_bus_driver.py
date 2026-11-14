@@ -24,11 +24,9 @@ from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.eventing.streams_transport import RedisStreamsTransport
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.core.infra.contracts import EventBusProvider
-from sandloom.core.infra.ports._base import (
-    health_failure_details,
-    isolated_redis_options,
-)
+from sandloom.core.infra.ports._base import health_failure_details
 from sandloom.core.infra.registry import DriverFactory
+from sandloom.driverkit.testing_isolation import isolated_redis_options
 
 
 class EventBusOptions(BaseModel):

@@ -47,11 +47,9 @@ from sandloom.core.infra.contracts import (
     parse_plain_decimal,
     parse_subject_state,
 )
-from sandloom.core.infra.ports._base import (
-    health_failure_details,
-    isolated_redis_options,
-)
-from sandloom.core.observability.driver_metrics import observe
+from sandloom.core.infra.ports._base import health_failure_details
+from sandloom.driverkit import observe
+from sandloom.driverkit.testing_isolation import isolated_redis_options
 
 #: Redis / socket failures of cache operations (a caller's ValueError or
 #: TypeError is not counted), by instance and operation.
