@@ -60,7 +60,6 @@ def test_extra_capabilities_are_specs() -> None:
         "graph_store",
         "workflow",
         "search",
-        "lock",
         "secrets",
     }
 

@@ -259,26 +259,32 @@ env anchor.
 second beat started by mistake (a scaled-up replica, a manual `celery beat`
 left running, a k8s rollout that overlaps old and new pods) would send every
 periodic task twice. The framework beat therefore schedules only while it
-holds a lease in the cache (`sandloom.core.beat_lease`):
+holds a fenced lease of the `lease` instance `INFRA.lease.beat`
+(`sandloom.core.infra.fenced_lease`, `sandloom.core.beat_lease`):
 
 * the key is `sandloom:beat:lease:<scope>`, the scope a digest of the broker URL,
   the taskqueue instance and the sorted `SANDLOOM_MODULES` — replicas of one
   service share it, different services never suppress each other
   (`BEAT_LEASE_NAME` pins an explicit scope);
-* acquire = `SET NX` with a TTL (`BEAT_LEASE_TTL_SECONDS`, default 30) of a
-  fenced token `<fence>:<host>:<pid>:<nonce>` (`<fence>` from an `INCR`, so
-  every takeover gets a larger number); renew every TTL/3 with a
-  compare-and-set on that token;
+* acquire = a grant of the lease driver with a TTL (`BEAT_LEASE_TTL_SECONDS`,
+  default 30), owner `<host>:<pid>` and a fence that grows with every grant
+  (so every takeover gets a larger number); renew every TTL/3 with the
+  grant's token;
 * a second beat logs `[beat] standby: another beat holds lease …` and sends
   nothing; it takes over within TTL + TTL/3 after the holder dies, at once
-  after a clean shutdown (the holder deletes its own token);
-* a holder whose token was replaced stops scheduling immediately; on a cache
-  outage it keeps scheduling only until its local lease deadline, then stands
+  after a clean shutdown (the holder releases its own lease);
+* a holder whose lease was taken stops scheduling immediately; on a lease
+  backend outage it keeps scheduling only until its local lease deadline, then stands
   by until it can write again;
-* the lease lives in `BEAT_LEASE_CACHE_INSTANCE` (default `default`, the
-  shared `CACHE_URL`) and needs the `cas` feature (Redis); with a cache
-  without it beat refuses to start. The lease is always on (there is no
-  switch to turn it off).
+* the lease lives in the instance `INFRA.lease.beat`: absent, a `redis` lease
+  on the shared `CACHE_URL` (its server must run `maxmemory-policy noeviction`,
+  which the driver checks); `{"driver": "database"}` keeps it in the table
+  `infra_lease` of a database that carries the core migration chain. In
+  production the driver must be shared between processes (not `memory`), or
+  beat refuses to start. The lease is always on (there is no switch to turn it
+  off). **Upgrade:** `BEAT_LEASE_CACHE_INSTANCE` is removed and a leftover one
+  fails startup; delete it, and name the instance in `INFRA` only to move the
+  lease off `CACHE_URL`.
 
 The lease wraps whatever scheduler beat runs (`-S …` included) and applies to
 `worker -B` too. A takeover starts from the new beat's own schedule file, so a

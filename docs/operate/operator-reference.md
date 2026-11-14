@@ -375,8 +375,9 @@ relay).
   most once per `SAGA_SWEEP_INTERVAL_SECONDS` (default 5 s), claiming at
   most `SAGA_SWEEP_BATCH` instances per tick (`FOR UPDATE SKIP LOCKED`).
   Retry latency is therefore `max(backoff, sweep interval)`. The sweep lease
-  lives in `BEAT_LEASE_CACHE_INSTANCE` (needs `cas`; without it every process
-  sweeps — safe, only redundant).
+  lives in the `lease` instance `INFRA.lease.beat`. It is a `redis` lease on
+  `CACHE_URL` unless `INFRA` names another. Without a usable one the sweep runs
+  in every process: redundant, never harmful.
 - **Under `tenant_rls`** the sweep and `sandloom sagas` reach other tenants'
   instances only through the system channel (`DATABASE_SYSTEM_URL`, the
   `sandloom_system` role, which must exist before the core migration `0010` so

@@ -3,9 +3,9 @@
 A kernel loop in every process that hosts a saga-owning module — NOT tied to
 the outbox relay, which is off by default outside prod: dev drives sagas
 exactly as prod does. Per database, one holder at a time runs it, guarded by
-a fenced cache lease (:class:`sandloom.core.beat_lease.FencedLease` on
-``BEAT_LEASE_CACHE_INSTANCE``; a cache without ``cas`` runs it unleased with a
-warning — two sweepers are still safe, only redundant). Each tick:
+a fenced lease (:class:`sandloom.core.infra.fenced_lease.FencedLease` on the
+``lease`` instance ``INFRA.lease.beat``; without a usable one it runs unleased
+with a warning — two sweepers are still safe, only redundant). Each tick:
 
 1. selects active instances whose ``next_attempt_at`` (backoff elapsed) or
    applicable deadline is due and that were not nudged within the last
@@ -37,8 +37,13 @@ from typing import Any
 
 import sandloom.core.observability.metrics as _metrics
 import sandloom.core.sql_alchemy.saga_store as _store
-from sandloom.core.beat_lease import FencedLease
 from sandloom.core.consumers.runtime import database_identity
+from sandloom.core.infra.fenced_lease import (
+    BEAT_INSTANCE,
+    FencedLease,
+    beat_lease_store,
+)
+from sandloom.core.infra.registry import InfraRegistryError
 from sandloom.core.sagas.channel import CrossTenantSession, cross_tenant_session
 from sandloom.core.sagas.registry import nudge_channel
 from sandloom.core.sagas.runtime import SagaRuntime
@@ -127,27 +132,28 @@ class SagaSweeper:
         if database in self._leases:
             return self._leases[database]
         lease: FencedLease | None = None
-        name = self.runtime.settings.beat_lease_cache_instance
         try:
-            cache = self.core.cache(name)
-        except (KeyError, LookupError, RuntimeError):
-            cache = None
-        features = cache.features() if cache is not None else frozenset()
-        if cache is not None and "cas" in features:
+            store = beat_lease_store(self.core)
+        except (InfraRegistryError, LookupError, RuntimeError) as exc:  # run unleased
+            store = None
+            reason = type(exc).__name__
+        if store is not None:
             identity = database_identity(self.core, database)
             digest = hashlib.sha256(identity.encode()).hexdigest()[:16]
             lease = FencedLease(
-                cache,
+                store,
                 LEASE_KEY_PREFIX + digest,
                 ttl_seconds=max(3, int(self.interval * 3)),
                 label="[saga-sweep]",
             )
         else:
             logger.warning(
-                "saga sweep on database/%s runs without a lease: cache %r has no "
-                "'cas' feature (several sweepers are safe, only redundant)",
+                "saga sweep on database/%s runs without a lease: the lease "
+                "instance %r is unavailable (%s); several sweepers are safe, "
+                "only redundant",
                 database,
-                name,
+                BEAT_INSTANCE,
+                reason,
             )
         self._leases[database] = lease
         return lease

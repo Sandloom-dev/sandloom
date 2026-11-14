@@ -92,6 +92,13 @@ RISKS: tuple[Risk, ...] = (
         outside_prod=True,
     ),
     Risk(
+        "unverified_noeviction",
+        "A Redis whose maxmemory-policy could not be read (never_evicts_check="
+        "assume) in prod: a policy that evicts would drop a fence counter and a "
+        "fence could repeat.",
+        "lease driver build (sandloom.core.drivers.bootstrap)",
+    ),
+    Risk(
         "unversioned_ddl_repair",
         "sandloom migrate ensure-outbox --force --apply in prod: DDL outside the "
         "versioned migration chain, no drift detection.",

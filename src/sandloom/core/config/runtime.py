@@ -118,7 +118,8 @@ class RuntimeConfig(BaseModel):
             "migration lock."
         ),
     )
-    # Celery beat singleton lease (sandloom.core.beat_lease; always on): a second
+    # Celery beat singleton lease (sandloom.core.beat_lease; always on, held in the
+    # `lease` instance INFRA.lease.beat): a second
     # beat for the same broker + module set stands by instead of
     # double-scheduling.
     beat_lease_ttl_seconds: int = Field(
@@ -138,12 +139,6 @@ class RuntimeConfig(BaseModel):
             "Lease scope; empty = derived from the broker URL, the taskqueue "
             "instance and the loaded module set (one beat per service)."
         ),
-    )
-    beat_lease_cache_instance: str = Field(
-        default="default",
-        min_length=1,
-        alias="BEAT_LEASE_CACHE_INSTANCE",
-        description=("Named cache instance holding the Celery beat singleton lease."),
     )
     # Cyclic GC of long-running server processes (sandloom.core.gc_tuning; applied
     # by the gunicorn worker hook and the Celery worker, never by create_app
