@@ -379,9 +379,7 @@ async def test_the_delay_cap_and_zero_are_accepted(queue) -> None:
     assert _published(app) == 2
 
 
-async def test_a_delay_without_the_feature_reserves_nothing(
-    queue, monkeypatch
-) -> None:
+async def test_a_delay_without_the_feature_reserves_nothing(queue, monkeypatch) -> None:
     layered, app, store = queue
     monkeypatch.setattr(
         layered._provider, "features", lambda: frozenset({"idempotency_key"})

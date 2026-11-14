@@ -74,6 +74,8 @@ class _Unrecorded:
 
 _UNRECORDED = _Unrecorded()
 
+_MISUSED = "driver metric %s: %s failed and recorded nothing (logged once)"
+
 
 class _Child:
     """A labelled child whose ``inc`` / ``observe`` never raise."""
@@ -87,14 +89,16 @@ class _Child:
     def inc(self, amount: float = 1.0) -> None:
         try:
             self._child.inc(amount)
-        except Exception:  # noqa: BLE001 - a metric never breaks the recorded operation
-            self._metric._misused("inc")
+        except Exception:  # a metric never breaks the recorded operation
+            if self._metric._first_misuse():
+                logger.warning(_MISUSED, self._metric.name, "inc", exc_info=True)
 
     def observe(self, amount: float) -> None:
         try:
             self._child.observe(amount)
-        except Exception:  # noqa: BLE001 - a metric never breaks the recorded operation
-            self._metric._misused("observe")
+        except Exception:  # a metric never breaks the recorded operation
+            if self._metric._first_misuse():
+                logger.warning(_MISUSED, self._metric.name, "observe", exc_info=True)
 
 
 class DriverMetric:
@@ -127,17 +131,12 @@ class DriverMetric:
         self._failed: Any | None = None
         self._warned = False
 
-    def _misused(self, call: str) -> None:
-        """Log a failed recording once per metric; never raise."""
+    def _first_misuse(self) -> bool:
+        """Whether this is the metric's first failed recording (logged once)."""
         if self._warned:
-            return
+            return False
         self._warned = True
-        logger.warning(
-            "driver metric %s: %s failed and recorded nothing (logged once)",
-            self.name,
-            call,
-            exc_info=True,
-        )
+        return True
 
     def _build(self, registry: Any) -> Any:
         if self.kind == "counter":
@@ -187,8 +186,9 @@ class DriverMetric:
         a wrong count or name records nothing (logged once)."""
         try:
             return _Child(self, self._metric().labels(*values, **labels))
-        except Exception:  # noqa: BLE001 - a metric never breaks the recorded operation
-            self._misused("labels")
+        except Exception:  # a metric never breaks the recorded operation
+            if self._first_misuse():
+                logger.warning(_MISUSED, self.name, "labels", exc_info=True)
             return _UNRECORDED
 
 
@@ -202,8 +202,9 @@ class DriverCounter(DriverMetric):
         """Add ``amount`` (a counter without labels)."""
         try:
             self._metric().inc(amount)
-        except Exception:  # noqa: BLE001 - a metric never breaks the recorded operation
-            self._misused("inc")
+        except Exception:  # a metric never breaks the recorded operation
+            if self._first_misuse():
+                logger.warning(_MISUSED, self.name, "inc", exc_info=True)
 
 
 class DriverHistogram(DriverMetric):
@@ -216,8 +217,9 @@ class DriverHistogram(DriverMetric):
         """Record one observation (a histogram without labels)."""
         try:
             self._metric().observe(amount)
-        except Exception:  # noqa: BLE001 - a metric never breaks the recorded operation
-            self._misused("observe")
+        except Exception:  # a metric never breaks the recorded operation
+            if self._first_misuse():
+                logger.warning(_MISUSED, self.name, "observe", exc_info=True)
 
 
 class Observe:

@@ -226,7 +226,7 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
                 capability="taskqueue",
                 instance=self.name,
             ) from exc
-        except Exception as exc:  # noqa: BLE001 - may have published: mapped, never swallowed
+        except Exception as exc:  # may have published: mapped, never swallowed
             raise _maybe_published(exc, self.name) from exc
 
     async def health(self) -> HealthResult:

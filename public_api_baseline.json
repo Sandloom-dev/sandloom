@@ -2709,6 +2709,32 @@
       ],
       "signature": "()"
     },
+    "DriverCounter": {
+      "kind": "class",
+      "members": [
+        "buckets",
+        "documentation",
+        "inc",
+        "kind",
+        "labelnames",
+        "labels",
+        "name"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, documentation:POSITIONAL_OR_KEYWORD|str, labelnames:POSITIONAL_OR_KEYWORD|tuple[str, ...], buckets:POSITIONAL_OR_KEYWORD|tuple[float, ...] | None) -> None"
+    },
+    "DriverHistogram": {
+      "kind": "class",
+      "members": [
+        "buckets",
+        "documentation",
+        "kind",
+        "labelnames",
+        "labels",
+        "name",
+        "observe"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, documentation:POSITIONAL_OR_KEYWORD|str, labelnames:POSITIONAL_OR_KEYWORD|tuple[str, ...], buckets:POSITIONAL_OR_KEYWORD|tuple[float, ...] | None) -> None"
+    },
     "HealthResult": {
       "kind": "class",
       "members": [
@@ -2878,6 +2904,14 @@
         "url"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
+    "Observe": {
+      "kind": "class",
+      "members": [
+        "counter",
+        "histogram"
+      ],
+      "signature": "() -> None"
     },
     "PermissionDenied": {
       "kind": "class",

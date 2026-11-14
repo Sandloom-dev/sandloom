@@ -4,7 +4,6 @@ pending either way."""
 
 from __future__ import annotations
 
-import socket
 from uuid import uuid4
 
 import pytest
@@ -36,7 +35,7 @@ CASES = [
     (ConnectionRefusedError("refused"), Unavailable),
     (RedisConnectionError("reset by peer"), Unavailable),
     (ValueError("I/O operation on closed file"), Unavailable),
-    (socket.timeout("timed out"), Timeout),
+    (ConnectionResetError("reset"), Unavailable),
     (TimeoutError("timed out"), Timeout),
     (RedisTimeoutError("read timed out"), Timeout),
 ]

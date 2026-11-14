@@ -52,7 +52,6 @@ from sandloom.core.http.tenant_scope import TenantScope
 from sandloom.core.idempotency import durable as _idempotency_durable
 from sandloom.core.infra.access import (
     cache,
-    capability,
     notifier,
     objectstore,
 )
@@ -89,7 +88,7 @@ from sandloom.core.tasks.enqueue import (
     TaskEnqueueUnavailable,
     TaskEnqueueUncertain,
 )
-from sandloom.core.tasks.queue import taskqueue
+from sandloom.core.tasks.queue import capability, taskqueue
 from sandloom.core.tenant import (
     MissingTenantError,
     TenantMismatchError,

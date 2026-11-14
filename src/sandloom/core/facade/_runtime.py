@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from sandloom.core.config.settings import Settings
-from sandloom.core.tasks.queue import KernelTaskQueue
+from sandloom.core.tasks.queue import KernelTaskQueue, module_facing
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.core.claims import SealedClaims
@@ -65,10 +65,14 @@ class CoreRuntime:
         return self._facade.remote_access_fact_cache
 
     # -- capabilities ---------------------------------------------------
+    # A taskqueue instance comes behind the kernel's layer on every path
+    # (module_facing): the provider's enqueue(task_id=) stays kernel-only.
     def capability(
         self, capability: str, name: str = "default", contract: type | None = None
     ) -> Any:
-        return self._facade.capability(capability, name, contract)
+        return module_facing(
+            capability, self._facade.capability(capability, name, contract)
+        )
 
     def require_capability(
         self,
@@ -79,8 +83,11 @@ class CoreRuntime:
         contract: type | None = None,
         version: str | None = None,
     ) -> Any:
-        return self._facade.require_capability(
-            capability, name, features=features, contract=contract, version=version
+        return module_facing(
+            capability,
+            self._facade.require_capability(
+                capability, name, features=features, contract=contract, version=version
+            ),
         )
 
     def database(self, name: str = "default") -> Any:

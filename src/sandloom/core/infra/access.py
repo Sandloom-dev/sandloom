@@ -120,8 +120,11 @@ def objectstore(name: str = "default") -> ObjectStore:
 
 
 def taskqueue(name: str = "default") -> TaskQueue:
-    """Return the ``TaskQueueProvider`` for a named instance (the module-level
-    twin of ``CoreRuntime.taskqueue``; spec §2.2)."""
+    """Return the raw ``TaskQueueProvider`` for a named instance.
+
+    Kernel-facing: module code gets the instance behind the kernel's layer
+    (``sandloom.core.tasks.queue.taskqueue``, the twin of
+    ``CoreRuntime.taskqueue``; spec §2.2)."""
     return cast("TaskQueue", get_active_infra().resolve("taskqueue", name))
 
 
@@ -160,7 +163,10 @@ def broadcast(name: str = "default") -> Broadcast:
 def capability(ref: CapabilityRef[P], name: str = "default") -> P:
     """Return the instance ``name`` of the capability ``ref`` points to, typed by the
     ref. A capability's package publishes the ref and the caller's Protocol, and the
-    capability's major version must match the ref's."""
+    capability's major version must match the ref's.
+
+    Kernel-facing (a ``taskqueue`` instance is the raw provider here): module
+    code resolves through ``sandloom.core.tasks.queue.capability``."""
     return cast("P", get_active_infra().resolve(ref.name, name, version=ref.version))
 
 

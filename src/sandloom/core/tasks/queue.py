@@ -3,18 +3,23 @@
 A module enqueues through :class:`KernelTaskQueue`, never on the driver: the
 layer serves ``idempotency_key`` (:func:`sandloom.core.tasks.enqueue.enqueue_task`,
 G-TASK-03) and the driver only publishes. ``sandloom.sdk.infra.taskqueue()``,
-``sandloom.core.di.taskqueue()`` and ``CoreRuntime.taskqueue()`` return it; the
-kernel's own facade (``CoreFacade.taskqueue``, the worker) keeps the provider.
+``sandloom.core.di.taskqueue()`` and ``CoreRuntime.taskqueue()`` return it, and
+so does every resolution by capability name a module can make
+(:func:`module_facing`); the kernel's own facade (``CoreFacade.taskqueue``,
+the worker) keeps the provider.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 from sandloom.core.infra import access as _access
+from sandloom.core.infra.capabilities import CapabilityRef
 from sandloom.core.infra.contracts import TaskQueue, TaskQueueProvider
 from sandloom.core.tasks.enqueue import enqueue_task
+
+P = TypeVar("P")
 
 
 class KernelTaskQueue:
@@ -70,4 +75,27 @@ def taskqueue(name: str = "default") -> TaskQueue:
     return KernelTaskQueue(provider)
 
 
-__all__ = ["KernelTaskQueue", "taskqueue"]
+def module_facing(capability: str, provider: Any) -> Any:
+    """``provider`` as module code may hold it: a ``taskqueue`` instance behind
+    :class:`KernelTaskQueue`, any other capability unchanged.
+
+    Every module-facing resolution by capability name goes through here
+    (``CoreRuntime.capability`` / ``require_capability``, DI ``Capability``,
+    ``sandloom.sdk.infra.capability``): the raw provider's
+    ``enqueue(task_id=)`` would let a module publish under the job id of a
+    pending dedupe reservation. No I/O: one wrapper object.
+    """
+    if capability == "taskqueue":
+        return KernelTaskQueue(cast("TaskQueueProvider", provider))
+    return provider
+
+
+def capability(ref: CapabilityRef[P], name: str = "default") -> P:
+    """Return the instance ``name`` of the capability ``ref`` points to, typed by the
+    ref. A capability's package publishes the ref and the caller's Protocol, and the
+    capability's major version must match the ref's. A ``taskqueue`` instance
+    comes behind the kernel's layer, as from ``taskqueue()``."""
+    return cast("P", module_facing(ref.name, _access.capability(ref, name)))
+
+
+__all__ = ["KernelTaskQueue", "capability", "module_facing", "taskqueue"]
