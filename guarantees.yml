@@ -8814,6 +8814,7 @@ adr_sections:
     Consequences of the driver availability amendment: informational
     Amendment (2026-11-11) for external driver dependencies:
     - G-INFRA-10
+    'Amendment (2026-11-14) by ADR-0016: three doors, driver tiers': planned
   0010-public-api-1.0.md:
     Context: informational
     Decision: informational
@@ -9047,6 +9048,21 @@ adr_sections:
     "Consequences": informational
     "Evidence": informational
     "Fitness tests": informational
+  # Accepted 2026-11-14 (tm idk-adr), built by the infra-drivers wave: decision headings are
+  # `planned` (planned_adrs names the slices); each idk-* PR maps the headings it implements
+  # to the ledger ids it adds or changes.
+  0016-kernel-ports-and-driver-packages.md:
+    "Context": informational
+    "Decision": informational
+    "1. Three doors": planned
+    "2. The capability set": planned
+    "3. Contract rules, for every capability": planned
+    "4. Packaging: the kernel ships no service driver": planned
+    "5. Configuration": planned
+    "6. The owner's decisions (2026-11-14)": informational
+    "7. What this must not change": informational
+    "8. Decided in the spec, not by the owner": informational
+    "Consequences": informational
 planned_adrs:
   0012-kernel-boundary.md: 'design/kernel-boundary/migration-plan.md: W0 (KB-03 edge register, KB-06, KB-07,
     KB-08 sandloom-standard, KB-09 revocation applier), W1 (KB-40), W2 (KB-41); CLI phase KB-60, KB-61'
@@ -9056,3 +9072,7 @@ planned_adrs:
     W2 (KB-11, KB-13), W3 (KB-12), W4 (KB-30), W5 (KB-31..KB-33, KB-35, KB-36), W6 (KB-34, KB-37), W7 (KB-38)'
   0015-module-settings.md: 'design/kernel-boundary/migration-plan.md: W0 (KB-49 PoC gate), W1 (KB-50), W2 (KB-51,
     KB-53, KB-54, KB-56), W3 (KB-52), W4 (KB-55)'
+  0016-kernel-ports-and-driver-packages.md: 'design/infra-drivers/design.md: slices idk-foundation, idk-kit-harness,
+    idk-tiers, idk-atomic-store .. idk-ratchets-close (tm root infra-drivers)'
+  0011-driver-api.md: 'design/infra-drivers/design.md: the 2026-11-14 amendment (ADR-0016) is built by the infra-drivers
+    wave (tm root infra-drivers)'
