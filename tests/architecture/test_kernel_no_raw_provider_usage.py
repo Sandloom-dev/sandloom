@@ -8,13 +8,21 @@ rules:
 1. **No escape hatch.** No ``raw_client()``, ``raw_backend()``, ``raw()`` or
    ``native()`` call, and no reflective read of those names. A kernel that
    holds a backend SDK object cannot run with another driver.
-2. **No undeclared probe.** No ``getattr(p, "x")`` / ``hasattr(p, "x")`` where
-   ``p`` is a provider-like value (a name or attribute ``provider``, ``bus``,
-   ``cache``, ``backend``, ``driver``, ``transport``, ``taskqueue``,
-   ``objectstore``, ``notifier``) and ``x`` is not a member of a capability
-   Protocol in ``sandloom.core.infra.ports``. An attribute a driver may or
-   may not have is a feature the Protocol declares (``features``), not a probe.
-   A probe whose name is not a literal is counted as ``<dynamic>``.
+2. **No undeclared probe.** No ``getattr(x, "name")`` / ``hasattr(x, "name")``
+   where either
+   (a) ``name`` is a public member that some driver class in ``core/drivers``
+   defines and no capability Protocol in ``sandloom.core.infra.ports``
+   declares (``verify_tenant_rls``, ...): caught whatever the receiver is
+   called, so ``hasattr(p, "verify_tenant_rls")`` counts like
+   ``hasattr(provider, ...)``; or
+   (b) ``x`` is a provider-like value (a name or attribute ``provider``,
+   ``bus``, ``cache``, ``backend``, ``driver``, ``transport``, ``taskqueue``,
+   ``objectstore``, ``notifier``) and ``name`` is not a Protocol member.
+   An attribute a driver may or may not have is a feature the Protocol
+   declares (``features``), not a probe. A probe whose name is not a literal
+   is counted as ``<dynamic>`` (only on a provider-like receiver: with a
+   computed name the receiver is all there is to go by). NOT caught: a probe
+   of a name no driver class defines, on a receiver with another name.
 
 Both rules carry seeded, shrink-only allowlists (below): a site that is not
 listed, or more sites than listed, fails; a stale entry does NOT fail, so the
@@ -26,6 +34,7 @@ by line, and names ``removed_by``, the slice that removes it.
 from __future__ import annotations
 
 import ast
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -68,7 +77,12 @@ RAW_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
 #: ``idk-ratchets-close`` classifies the rest: a ``<dynamic>`` probe of a
 #: module's contract provider (not an infra provider) is reclassified or
 #: justified there.
+_NOT_A_PROVIDER = (
+    "stays: reads a module descriptor attribute, not a provider (the name collides "
+    "with a driver member; justified in idk-ratchets-close)"
+)
 PROBE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
+    ("core/admin/api/platform.py", "storage"): (1, _NOT_A_PROVIDER),
     ("core/app_factory/revocation_applier.py", "dead_letters"): (
         1,
         "idk-eventbus-contract",
@@ -103,10 +117,12 @@ PROBE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
         "idk-eventbus-contract",
     ),
     ("core/facade/_registries.py", "contract_uow_factory"): (1, "idk-db-provider"),
+    ("core/facade/_registries.py", "projection"): (1, _NOT_A_PROVIDER),
     ("core/infra/registry.py", "<dynamic>"): (
         1,
         "stays: the registry checks a driver against its Protocol by name (justified in idk-ratchets-close)",
     ),
+    ("core/loader/manifest.py", "storage"): (2, _NOT_A_PROVIDER),
     ("core/module_api/_bootstrap.py", "contract_read_uow_factory"): (
         1,
         "idk-db-provider",
@@ -118,6 +134,7 @@ PROBE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
     ("core/sagas/runtime.py", "session_factory"): (1, "idk-db-provider"),
     ("core/tasks/event_ops.py", "release_group_owner"): (1, "idk-event-ops"),
     ("core/tasks/event_ops.py", "replay_dlq"): (1, "idk-event-ops"),
+    ("core/tasks/pool_metrics.py", "pool_stats"): (1, "idk-db-provider"),
     ("core/tasks/relay.py", "native_batch_publish"): (1, "idk-eventbus-contract"),
     ("core/tasks/relay.py", "publish_event_batch"): (1, "idk-eventbus-contract"),
     ("core/testing/fixtures.py", "_contract_engine"): (1, "idk-db-provider"),
@@ -137,6 +154,7 @@ PROBE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
     ),
     ("core/worker.py", "on_after_finalize"): (1, "idk-worker-port"),
     ("core/worker.py", "task"): (1, "idk-worker-port"),
+    ("core/worker.py", "verify_tenant_rls"): (1, "idk-db-provider"),
 }
 
 
@@ -199,6 +217,33 @@ def declared_members() -> frozenset[str]:
     return frozenset(names)
 
 
+def driver_only_members() -> frozenset[str]:
+    """Public names a driver's provider class defines that no Protocol declares.
+
+    A provider class is a class in ``core/drivers`` named ``*Provider`` (the
+    class that implements a capability; option models, adapters and value types
+    carry generic names such as ``path`` or ``host``). These names are the
+    backend-specific extras (``verify_tenant_rls``, ...): a kernel ``getattr`` /
+    ``hasattr`` of one of them is a probe whatever the receiver is called, so
+    renaming ``provider`` to ``p`` hides nothing.
+    """
+    names: set[str] = set()
+    for path in DRIVERS.glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not (isinstance(node, ast.ClassDef) and node.name.endswith("Provider")):
+                continue
+            for item in node.body:
+                if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
+                    names.add(item.name)
+                elif isinstance(item, ast.AnnAssign) and isinstance(
+                    item.target, ast.Name
+                ):
+                    names.add(item.target.id)
+                elif isinstance(item, ast.Assign):
+                    names.update(t.id for t in item.targets if isinstance(t, ast.Name))
+    return frozenset(n for n in names if not n.startswith("_")) - declared_members()
+
+
 def _receiver_name(node: ast.expr) -> str | None:
     if isinstance(node, ast.Name):
         return node.id.lstrip("_")
@@ -207,7 +252,11 @@ def _receiver_name(node: ast.expr) -> str | None:
     return None
 
 
-def probe_sites(path: Path, declared: frozenset[str]) -> Counter[str]:
+def probe_sites(
+    path: Path,
+    declared: frozenset[str],
+    driver_only: frozenset[str] = frozenset(),
+) -> Counter[str]:
     sites: Counter[str] = Counter()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if not (
@@ -215,13 +264,18 @@ def probe_sites(path: Path, declared: frozenset[str]) -> Counter[str]:
             and isinstance(node.func, ast.Name)
             and node.func.id in {"getattr", "hasattr"}
             and len(node.args) >= 2
-            and _receiver_name(node.args[0]) in PROVIDER_NAMES
         ):
             continue
+        provider_like = _receiver_name(node.args[0]) in PROVIDER_NAMES
         attr = node.args[1]
         if not (isinstance(attr, ast.Constant) and isinstance(attr.value, str)):
-            sites["<dynamic>"] += 1
-        elif attr.value not in declared and not attr.value.startswith("__"):
+            if provider_like:  # the name is not a literal: only the receiver tells
+                sites["<dynamic>"] += 1
+        elif attr.value.startswith("__"):
+            continue
+        elif attr.value in driver_only or (
+            provider_like and attr.value not in declared
+        ):
             sites[attr.value] += 1
     return sites
 
@@ -261,7 +315,10 @@ def test_the_kernel_calls_no_escape_hatch() -> None:
 
 def test_the_kernel_probes_no_attribute_its_protocol_does_not_declare() -> None:
     declared = declared_members()
-    offences = new_offences(_scan(lambda p: probe_sites(p, declared)), PROBE_ALLOWLIST)
+    driver_only = driver_only_members()
+    offences = new_offences(
+        _scan(lambda p: probe_sites(p, declared, driver_only)), PROBE_ALLOWLIST
+    )
     assert offences == [], (
         "The kernel probes a provider attribute with getattr/hasattr that no "
         "capability Protocol declares (ADR-0016). Declare it (a method or a "
@@ -274,7 +331,10 @@ def test_every_allowlist_entry_names_its_removal() -> None:
     for allowed in (RAW_ALLOWLIST, PROBE_ALLOWLIST):
         for (rel, name), (sites, removed_by) in allowed.items():
             assert (SANDLOOM_ROOT / rel).is_file(), rel
-            assert sites > 0 and removed_by.strip(), (rel, name)
+            assert sites > 0 and name.strip(), (rel, name)
+            assert re.fullmatch(r"idk-[a-z0-9-]+", removed_by) or (
+                removed_by.startswith("stays:") and removed_by[len("stays:") :].strip()
+            ), (rel, name, removed_by)
             assert not rel.startswith("core/drivers/"), rel
         assert list(allowed) == sorted(allowed), "keep the allowlist sorted"
 
@@ -321,6 +381,34 @@ def test_the_scanner_finds_an_undeclared_probe_and_spares_a_declared_one(
         "incr_many_fast": 1,
         "<dynamic>": 1,
     }
+
+
+def test_a_driver_only_probe_is_caught_whatever_the_receiver_is_called(
+    tmp_path: Path,
+) -> None:
+    """``hasattr(p, "verify_tenant_rls")`` (worker.py) must count like
+    ``hasattr(provider, ...)``: the rule keys on the attribute name."""
+    declared = declared_members()
+    driver_only = driver_only_members()
+    assert {"verify_tenant_rls", "pool_stats"} <= driver_only
+    assert not driver_only & declared
+    sample = tmp_path / "probe.py"
+    sample.write_text(
+        "def f(p, q, obj, x):\n"
+        "    a = hasattr(p, 'verify_tenant_rls')\n"
+        "    b = getattr(q, 'pool_stats', None)\n"
+        "    c = getattr(obj.inner, 'verify_tenant_rls')\n"
+        "    d = hasattr(p, 'features')\n"  # declared: fine
+        "    e = hasattr(p, 'unrelated_name')\n"  # not a driver member, other receiver
+        "    g = getattr(p, x)\n"  # dynamic on a non-provider receiver: not counted
+    )
+    assert dict(probe_sites(sample, declared, driver_only)) == {
+        "verify_tenant_rls": 2,
+        "pool_stats": 1,
+    }
+    # the same file without the driver-member table sees none of them: the
+    # receiver-name rule alone is what the first version had
+    assert dict(probe_sites(sample, declared)) == {}
 
 
 def test_a_new_site_fails_and_a_stale_entry_does_not() -> None:

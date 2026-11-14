@@ -2,11 +2,13 @@
 
 ``src/sandloom/core`` reaches Redis, Celery, S3 or PostgreSQL only through a
 capability provider, so a driver package can own the SDK and the kernel starts
-without it. This test counts every import of ``redis``, ``celery``, ``kombu``,
-``boto3``, ``asyncpg`` and ``psycopg2`` (a module-level, a function-local, an
+without it. This test counts every import of ``redis``, ``aioredis``,
+``celery``, ``kombu``, ``boto3``, ``botocore``, ``aiobotocore``, ``asyncpg``,
+``psycopg`` and ``psycopg2`` (a module-level, a function-local, an
 ``if TYPE_CHECKING:`` import and an ``importlib.import_module("<sdk>...")`` with
-a literal name) in the kernel outside ``core/drivers`` and outside the
-kernel's own unit tests (``core/tests``, ``core/**/tests``).
+a literal name) in the kernel and its two public siblings, ``sandloom.sdk`` and
+``sandloom.shared``, outside ``core/drivers`` and outside the kernel's own unit
+tests (``core/tests``, ``core/**/tests``).
 
 The allowlist ``kernel_backend_import_allowlist.json`` is seeded with today's
 sites and shrinks only:
@@ -40,7 +42,23 @@ CORE = SANDLOOM_ROOT / "core"
 DRIVERS = CORE / "drivers"
 ALLOWLIST = Path(__file__).with_name("kernel_backend_import_allowlist.json")
 
-BACKEND_SDKS = frozenset({"redis", "celery", "kombu", "boto3", "asyncpg", "psycopg2"})
+SDK = SANDLOOM_ROOT / "sdk"
+SHARED = SANDLOOM_ROOT / "shared"
+
+BACKEND_SDKS = frozenset(
+    {
+        "redis",
+        "aioredis",
+        "celery",
+        "kombu",
+        "boto3",
+        "botocore",
+        "aiobotocore",
+        "asyncpg",
+        "psycopg",
+        "psycopg2",
+    }
+)
 
 
 def _sdk_of(module: str | None) -> str | None:
@@ -89,9 +107,24 @@ def kernel_files() -> list[Path]:
     )
 
 
+def scanned_files() -> list[Path]:
+    """The kernel plus ``sandloom.sdk`` and ``sandloom.shared`` (no unit tests)."""
+    return sorted(
+        [
+            *kernel_files(),
+            *(
+                path
+                for root in (SDK, SHARED)
+                for path in root.rglob("*.py")
+                if "tests" not in path.relative_to(root).parts
+            ),
+        ]
+    )
+
+
 def scan_kernel() -> dict[tuple[str, str], int]:
     found: dict[tuple[str, str], int] = {}
-    for path in kernel_files():
+    for path in scanned_files():
         for sdk, count in find_backend_imports(path).items():
             found[(str(path.relative_to(SANDLOOM_ROOT)), sdk)] = count
     return found
@@ -160,6 +193,12 @@ def test_every_allowlist_entry_names_its_removal() -> None:
         ("from celery import signals\n", {"celery": 1}),
         ("def f():\n    from kombu.exceptions import EncodeError\n", {"kombu": 1}),
         ("import boto3, asyncpg\n", {"boto3": 1, "asyncpg": 1}),
+        ("import psycopg\nfrom psycopg import sql\n", {"psycopg": 2}),
+        ("import aioredis\n", {"aioredis": 1}),
+        (
+            "import botocore.session\nfrom aiobotocore import session\n",
+            {"botocore": 1, "aiobotocore": 1},
+        ),
         (
             "def f():\n    import psycopg2\n    from psycopg2 import sql\n",
             {"psycopg2": 2},
@@ -198,6 +237,14 @@ def test_the_scan_sees_the_kernel_and_skips_drivers_and_unit_tests() -> None:
     rels = {str(p.relative_to(CORE)) for p in kernel_files()}
     assert "worker.py" in rels and "testing/resources.py" in rels
     assert not [r for r in rels if r.startswith(("drivers/", "tests/"))]
+
+
+def test_the_scan_also_sees_sdk_and_shared() -> None:
+    rels = {str(p.relative_to(SANDLOOM_ROOT)) for p in scanned_files()}
+    assert "core/worker.py" in rels
+    assert any(r.startswith("sdk/") for r in rels)
+    assert any(r.startswith("shared/") for r in rels)
+    assert not [r for r in rels if r.startswith("core/drivers/")]
 
 
 # -- the import-linter half: eventing speaks no transport ----------------------

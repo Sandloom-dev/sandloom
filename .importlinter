@@ -122,7 +122,7 @@ forbidden_modules =
 ; ADR-0016 (design/infra-drivers/design.md, slice idk-ratchets): the delivery
 ; logic of sandloom.core.eventing sits above a transport and imports no
 ; transport implementation, no driver and no backend SDK. The Redis half
-; (pub/sub, Streams) still lives in this package until idk-eventbus-contract
+; (pub/sub, Streams) still lives in this package until idk-eventbus-move
 ; moves it to core/drivers/redis_eventbus, so it is not a source here: the
 ; sources are the delivery modules, one by one (import-linter does not check a
 ; package against a forbidden module inside it, and the transport's own files
@@ -159,10 +159,14 @@ forbidden_modules =
     sandloom.core.eventing.streams_groups
     sandloom.core.drivers
     redis
+    aioredis
     celery
     kombu
     boto3
+    botocore
+    aiobotocore
     asyncpg
+    psycopg
     psycopg2
 
 ; ---------------------------------------------------------------- sandloom.sdk
