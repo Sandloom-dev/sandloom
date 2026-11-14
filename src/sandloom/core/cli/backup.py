@@ -12,6 +12,11 @@
         after restoring the SECURITY cache from a snapshot: re-derive block
         and revocation marks from the audit log / outbox (dry-run by default;
         exit 0 = nothing missing / everything re-applied, 1 = action needed)
+    sandloom backup fence-leases [--database NAME ...]
+                      [--apply [--confirm-production] --reason R] [--json]
+        after restoring a DATABASE from a dump: lift every infra_lease fence
+        by a large offset and release the leases, so a stale holder of the
+        lost window cannot outrank a new holder (dry-run by default)
 
 The commands build the composition root (``SANDLOOM_COMPOSITION_ROOT``) to resolve
 the configured databases and modules but do NOT start its lifespan. See
@@ -39,9 +44,11 @@ from sandloom.core.cli._operator import add_operator_arguments, operator_intent
 from sandloom.core.composition import load_composition_core
 from sandloom.core.config.settings import settings
 from sandloom.core.migrations.backup import (
+    LEASE_FENCE_OFFSET,
     build_backup_plan,
     command_restorer,
     database_chains,
+    fence_leases,
     format_plan,
     verify_dump,
 )
@@ -211,6 +218,62 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
     return 0 if report.clean else 1
 
 
+def _cmd_fence_leases(args: argparse.Namespace) -> int:
+    intent = operator_intent(args)
+    instances = _migrations.list_database_instances()
+    names = args.database or sorted(instances)
+    unknown = [n for n in names if n not in instances]
+    if unknown:
+        print(
+            f"error: unknown database instance(s): {', '.join(unknown)}",
+            file=sys.stderr,
+        )
+        return 2
+    report: dict[str, list[dict[str, Any]]] = {}
+    for name in names:
+        fenced = fence_leases(instances[name], apply=intent.apply)
+        report[name] = [
+            {
+                "name": f.name,
+                "fence_before": f.fence_before,
+                "fence_after": f.fence_after,
+                "held": f.held,
+            }
+            for f in fenced
+        ]
+        if intent.apply and fenced:
+            asyncio.run(_audit_fence(name, fenced, intent.operator, intent.reason))
+    if args.json:
+        print(json.dumps({"applied": intent.apply, "databases": report}, indent=2))
+        return 0
+    mode = "applied" if intent.apply else "dry-run"
+    print(f"lease fence bump ({mode}, +{LEASE_FENCE_OFFSET})")
+    for name, leases in report.items():
+        print(f"  database {name}: {len(leases)} lease(s)")
+        for lease in leases:
+            held = " (held, released)" if lease["held"] else ""
+            print(
+                f"    {lease['name']}: {lease['fence_before']} -> "
+                f"{lease['fence_after']}{held}"
+            )
+    return 0
+
+
+async def _audit_fence(
+    database: str, fenced: list[Any], operator: str, reason: str
+) -> None:
+    async with db_session(database):
+        record_audit(
+            "core.lease.fences_bumped",
+            actor_id=None,
+            actor_type="operator",
+            resource_type="infra_lease",
+            resource_id=None,
+            data={"operator": operator, "reason": reason, "leases": len(fenced)},
+            required=True,
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="sandloom backup", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -259,11 +322,26 @@ def main(argv: list[str] | None = None) -> int:
     rec.add_argument("--json", action="store_true")
     add_operator_arguments(rec)
 
+    fence = sub.add_parser(
+        "fence-leases",
+        help="after a database restore: lift every lease fence, release leases",
+    )
+    fence.add_argument(
+        "--database",
+        action="append",
+        default=[],
+        help="limit to these instances (default: every configured database)",
+    )
+    fence.add_argument("--json", action="store_true")
+    add_operator_arguments(fence)
+
     args = parser.parse_args(argv)
     if args.command == "plan":
         return _cmd_plan(args)
     if args.command == "verify":
         return _cmd_verify(args)
+    if args.command == "fence-leases":
+        return _cmd_fence_leases(args)
     return _cmd_reconcile(args)
 
 

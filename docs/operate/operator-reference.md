@@ -529,7 +529,9 @@ sandloom backup verify default-20261022T0300Z.dump --database default \
 - **`sandloom backup verify <dump>`** restores the dump into a throw-away database
   (`sandloom_restore_verify_*`) on `--server-url` (default: the instance's own
   server; in prod pass a scratch server or `--confirm-production`), checks that
-  every chain the instance hosts is at its head, that the core tables exist,
+  every chain the instance hosts is at its head, that the core tables exist
+  (outbox, audit, inbox, command and idempotency logs, saga tables, projection
+  watermarks, `infra_lease`),
   that indexes / constraints are valid and foreign keys hold, reports the
   newest audit row (your effective RPO) and the outbox backlog, then drops the
   database (`--keep` keeps it). Exit 0 = the backup restores and is current.
@@ -555,6 +557,18 @@ sandloom backup verify default-20261022T0300Z.dump --database default \
 1. Stop writers (app, worker, beat at 0) — or keep the gateway closed.
 2. Restore PostgreSQL (`pg_restore` into an empty database / PITR), then
    `sandloom migrate upgrade-all --apply`.
+   Then, with the writers still stopped, run `sandloom backup fence-leases`
+   (dry-run) and `sandloom backup fence-leases --apply --reason "restore INC-…"`.
+   The `database` lease driver issues `fence + 1` on every acquire. An older dump
+   rewinds each fence. Then a stale holder of the lost window could present a fence that the restored counter issues again. Fenced writes
+   of the new holder would not outrank it. This command adds `10**12` to every
+   `infra_lease` fence of every configured database (`--database` limits it).
+   It also releases every lease. Each name then issues a fence above any the
+   lost window issued, if fewer than `10**12` acquisitions of it happened since
+   the snapshot. Rows stay, because dropping them restarts the counter at 1.
+   Holders reacquire: a renewal of a released lease fails. A re-run lifts
+   again. After a PITR to the instant of the failure the fences are intact, and
+   running it is still safe.
 3. Restore Redis if it was lost.
 4. **`sandloom backup reconcile-security`** (dry-run), then
    `sandloom backup reconcile-security --apply --reason "restore INC-…"`. A Redis

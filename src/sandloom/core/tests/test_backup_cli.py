@@ -27,18 +27,23 @@ from pydantic import BaseModel, Field
 from sandloom.core.cli._operator import add_operator_arguments, operator_intent
 from sandloom.core.config.settings import settings
 from sandloom.core.migrations.backup import (
+    CORE_TABLES,
     CORE_VERSION_TABLE,
+    LEASE_FENCE_OFFSET,
     build_backup_plan,
     command_restorer,
     dump_format,
+    fence_leases,
     format_plan,
     verify_dump,
 )
 from sandloom.core.migrations.migrations import core_chain_dir
 from sandloom.core.testing import reload_test_env
 from sandloom.core.testing.migrations import (
+    MigrationChain,
     migrate_module,
     run_sql,
+    tables_created_by,
     temporary_database,
     upgrade_core_chain,
 )
@@ -219,3 +224,79 @@ def test_operator_guard_rails(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert confirmed.apply is True
     assert operator_intent(_args()).apply is False  # a dry-run is always allowed
+
+
+# --------------------------------------------------------------------------- #
+# core tables, lease fences
+# --------------------------------------------------------------------------- #
+def test_core_tables_equal_what_the_core_chain_creates() -> None:
+    chain = MigrationChain(
+        key="core",
+        module=None,
+        script_location=core_chain_dir(),
+        version_table=CORE_VERSION_TABLE,
+    )
+    assert set(CORE_TABLES) == tables_created_by(chain)
+    assert len(set(CORE_TABLES)) == len(CORE_TABLES)
+
+
+def test_fence_leases_lift_fences_and_release_leases() -> None:
+    with temporary_database(_server_url()) as url:
+        upgrade_core_chain(url)
+        run_sql(
+            url,
+            "INSERT INTO infra_lease (name, owner, token, expires_at, fence) VALUES "
+            "('held', 'a', 't1', now() + interval '1 hour', 5), "
+            "('free', 'b', 't2', now() - interval '1 hour', 9)",
+        )
+        dry = fence_leases(url, apply=False)
+        assert [(x.name, x.fence_before, x.held) for x in dry] == [
+            ("free", 9, False),
+            ("held", 5, True),
+        ]
+        assert [x.fence_before for x in fence_leases(url, apply=False)] == [9, 5]
+        applied = fence_leases(url, apply=True)
+        assert [x.fence_after for x in applied] == [
+            9 + LEASE_FENCE_OFFSET,
+            5 + LEASE_FENCE_OFFSET,
+        ]
+        after = fence_leases(url, apply=False)
+        assert [(x.fence_before, x.held) for x in after] == [
+            (9 + LEASE_FENCE_OFFSET, False),
+            (5 + LEASE_FENCE_OFFSET, False),
+        ]
+
+
+def test_fence_leases_without_the_table_is_empty() -> None:
+    with temporary_database(_server_url()) as url:
+        assert fence_leases(url, apply=True) == []
+
+
+def test_fence_leases_refuses_a_non_positive_offset() -> None:
+    with pytest.raises(ValueError, match="positive"):
+        fence_leases("postgresql://x/y", apply=True, offset=0)
+
+
+def test_fence_leases_command_is_dry_run_by_default(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import sandloom.core.migrations.migrations as migrations
+    from sandloom.core.cli.backup import main
+
+    with temporary_database(_server_url()) as url:
+        upgrade_core_chain(url)
+        run_sql(
+            url,
+            "INSERT INTO infra_lease (name, owner, token, expires_at, fence) "
+            "VALUES ('x', 'a', 't', now() + interval '1 hour', 3)",
+        )
+        monkeypatch.setattr(
+            migrations, "list_database_instances", lambda: {"default": url}
+        )
+        assert main(["fence-leases", "--json"]) == 0
+        assert '"fence_before": 3' in capsys.readouterr().out
+        assert fence_leases(url, apply=False)[0].fence_before == 3
+        assert main(["fence-leases", "--database", "nope"]) == 2
+        with pytest.raises(SystemExit, match="--reason"):
+            main(["fence-leases", "--apply"])
+        assert fence_leases(url, apply=False)[0].fence_before == 3
