@@ -5864,9 +5864,12 @@ guarantees:
   - docs/adr/0010-public-api-1.0.md#2. Three API levels; level 1 is built only from level 2
   tests:
   - tests/architecture/test_kernel_import_contracts.py::test_kernel_import_contracts_are_kept
+  - tests/architecture/test_driverkit_import_contract.py::test_the_contract_sources_are_exactly_the_cores_children_but_the_drivers
+  - tests/architecture/test_driverkit_import_contract.py::test_the_core_package_init_does_not_import_the_driverkit
   import_contracts:
   - sdk-kernel-surface
   - kernel-never-imports-sdk
+  - kernel-never-imports-driverkit
   - sdk-decl-l1
   - sdk-layers
 - id: G-SDK-03

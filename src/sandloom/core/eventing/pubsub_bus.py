@@ -16,7 +16,7 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from functools import partial
 from typing import (
     Any,
@@ -38,6 +38,7 @@ from sandloom.core.eventing.envelope import (
     _now_iso,
 )
 from sandloom.core.eventing.subscriptions import SubscriptionHandle
+from sandloom.core.infra.errors import Unsupported
 from sandloom.core.infra.ports.broadcast import Broadcast
 from sandloom.core.observability.metrics_utils import safe_inc
 
@@ -47,12 +48,12 @@ logger = logging.getLogger("sandloom.core.eventing.event_bus")
 class RedisEventBus(BaseEventBus):
     """The volatile bus over a ``broadcast`` instance.
 
-    - ``broadcast`` is the instance, or a callable answering it (looked up at
-      each connect, so a provider rebuilt for another event loop is picked up);
-      ``None`` is the ``default`` instance of the active registry.
-    - ``client_factory`` is accepted and ignored: the eventbus driver still
-      passes it, until it passes ``broadcast`` instead (the bus holds no client).
-    - ``prefix.*`` channels need the instance's ``pattern_subscribe``.
+    - ``broadcast`` is the instance, a callable answering it (looked up at
+      each connect, so a provider rebuilt for another event loop is picked up)
+      or the NAME of an instance of the active registry; ``None`` is the
+      ``default`` instance. The bus holds no Redis client of its own.
+    - ``prefix.*`` channels need the instance's ``pattern_subscribe``
+      (:meth:`check_broadcast` refuses an instance without it).
     - When processing messages the ContextVar trace_id is not changed: the
       message is passed directly to the callback.
     """
@@ -61,8 +62,7 @@ class RedisEventBus(BaseEventBus):
         self,
         schema_registry: SchemaRegistryContract,
         *,
-        broadcast: Broadcast | Callable[[], Broadcast] | None = None,
-        client_factory: Callable[[], Awaitable[Any]] | None = None,
+        broadcast: Broadcast | Callable[[], Broadcast] | str | None = None,
     ):
         super().__init__(schema_registry)
         self._subs: dict[str, list[CallbackType]] = {}
@@ -81,9 +81,26 @@ class RedisEventBus(BaseEventBus):
         source = self._broadcast_source
         if source is None:
             return access.broadcast()
+        if isinstance(source, str):
+            return access.broadcast(source)
         if callable(source) and not hasattr(source, "publish"):
             return source()
         return cast(Broadcast, source)
+
+    def broadcast_instance(self) -> Broadcast:
+        """The ``broadcast`` instance this bus publishes and subscribes through."""
+        return self._broadcast()
+
+    def check_broadcast(self) -> None:
+        """Refuse a ``broadcast`` instance without ``pattern_subscribe``: the
+        bus subscribes to ``prefix.*`` channels."""
+        features = getattr(self._broadcast(), "features", None)
+        if callable(features) and "pattern_subscribe" not in features():
+            raise Unsupported(
+                "pattern_subscribe",
+                capability="broadcast",
+                instance=str(self._broadcast_source or "default"),
+            )
 
     async def _publish_to_transport(self, channel: str, message: EventEnvelope) -> None:
         try:

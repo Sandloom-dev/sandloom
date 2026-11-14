@@ -10,8 +10,14 @@ that reaches the same Redis (it declares ``shared`` and ``pattern_subscribe``).
 - A lost connection ends the subscription with ``Unavailable``, and the driver
   never reconnects behind an open iterator (the client is built without
   retries): the subscriber resubscribes and treats the interval as a gap.
-- Pub/Sub is not scoped to a Redis database, so the ``prefix`` option puts
-  every channel of an instance under a namespace.
+- A connection that goes silent without closing (a half-open socket: a failed
+  over Redis, a dropped route) is found by the driver's own ``PING``: a
+  subscription pings its connection every ``health_check_interval_seconds`` and
+  ends with ``Unavailable`` when no reply comes within ``socket_timeout_seconds``.
+- Pub/Sub is not scoped to a Redis database, so every channel of an instance
+  lives under a namespace: the ``prefix`` option, or ``db<N>:`` of the URL's
+  database index when it is not given (apps that share one Redis server by
+  database index keep their events apart, as they expect).
 
 A built-in driver imports only ``sandloom.driverkit`` (ADR-0016), so the argument
 checks below are this driver's own.
@@ -27,6 +33,7 @@ import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Mapping, Sequence
 from typing import Any, ClassVar, NamedTuple, TypeVar
+from urllib.parse import parse_qs, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -61,11 +68,18 @@ class RedisBroadcastOptions(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     url: str | None = None
-    #: The payload limit (every driver accepts at least 1 MiB).
-    max_payload_bytes: int = Field(default=8 * 1024 * 1024, ge=_MIN_PAYLOAD_LIMIT_BYTES)
-    #: Put every channel of this instance under ``prefix`` (Pub/Sub ignores the
-    #: Redis database index).
-    prefix: str = ""
+    #: The payload limit (every driver accepts at least 1 MiB). Redis cuts off
+    #: a subscriber whose output buffer passes ``client-output-buffer-limit
+    #: pubsub`` (32mb hard by default), and a subscriber that does not read can
+    #: hold several payloads at once: a limit above 1 MiB needs that Redis
+    #: setting raised with it.
+    max_payload_bytes: int = Field(
+        default=_MIN_PAYLOAD_LIMIT_BYTES, ge=_MIN_PAYLOAD_LIMIT_BYTES
+    )
+    #: Put every channel of this instance under ``prefix``. Pub/Sub ignores the
+    #: Redis database index, so when this is not given the driver uses
+    #: ``db<N>:`` of the URL's database index; ``""`` states no namespace.
+    prefix: str | None = None
     #: The bound of ``publish`` and of confirming a ``subscribe``.
     socket_timeout_seconds: float = Field(default=5.0, gt=0)
     socket_connect_timeout_seconds: float = Field(default=0.5, gt=0)
@@ -78,6 +92,19 @@ class _Channels(NamedTuple):
 
     exact: tuple[str, ...]
     prefixes: tuple[str, ...]
+
+
+def _database_prefix(url: str | None) -> str:
+    """``db<N>:`` for the database index ``N`` of a Redis URL (``/N`` of a
+    ``redis://`` URL, ``?db=N`` of any, ``0`` when it names none)."""
+    index = 0
+    if url:
+        parts = urlsplit(url)
+        candidate = parts.path.strip("/") if parts.scheme != "unix" else ""
+        for value in (candidate, *parse_qs(parts.query).get("db", [])[:1]):
+            if value.isdigit():
+                index = int(value)
+    return f"db{index}:"
 
 
 def _redis_asyncio() -> Any:
@@ -194,13 +221,17 @@ class _RedisSubscription:
         self._client = client
         self._pubsub = pubsub
         self._channels = channels
-        prefix = provider._options.prefix
+        prefix = provider._prefix
         self._prefix = prefix
         self._patterns = [(p, _escape(prefix + p) + "*") for p in channels.prefixes]
         self._pending: deque[BroadcastMessage] = deque()
         self._closed = False
         self._failed = False
         self._reader: asyncio.Future[Any] | None = None
+        self._ping_interval = float(provider._options.health_check_interval_seconds)
+        self._ping_deadline = provider._options.socket_timeout_seconds
+        self._last_heard = time.monotonic()
+        self._ping_sent: float | None = None
 
     async def start(self) -> None:
         """``SUBSCRIBE`` and wait for Redis to confirm every channel."""
@@ -229,6 +260,7 @@ class _RedisSubscription:
                     confirmed += 1
                 elif (message := self._convert(raw)) is not None:
                     self._pending.append(message)
+            self._last_heard = time.monotonic()
         except BaseException as exc:
             await self._release()
             if isinstance(exc, Exception):
@@ -281,9 +313,44 @@ class _RedisSubscription:
             if self._failed:
                 raise self._unavailable("lost its connection")
             raw = await self._read()
+            if raw is not None:
+                # Any reply shows the connection is alive, a pong included.
+                self._last_heard = time.monotonic()
+                self._ping_sent = None
+            await self._watch_connection()
             message = self._convert(raw) if raw is not None else None
             if message is not None:
                 return message
+
+    async def _watch_connection(self) -> None:
+        """Ping a connection that has been silent for the health interval, and
+        end the subscription when no reply comes within the deadline: redis-py
+        sends its own health ping without waiting for the pong, so a half-open
+        socket would never fail a read."""
+        if not self._ping_interval or self._closed:
+            return
+        now = time.monotonic()
+        if self._ping_sent is not None:
+            if now - self._ping_sent > self._ping_deadline:
+                await self._fail("heard no answer to its health ping")
+        elif now - self._last_heard >= self._ping_interval:
+            try:
+                await self._pubsub.ping()
+            except (OSError, _redis_errors().RedisError) as exc:
+                if self._is_closed():
+                    return
+                await self._fail(
+                    f"could not ping its connection ({type(exc).__name__})"
+                )
+            self._ping_sent = now
+
+    def _is_closed(self) -> bool:
+        return self._closed
+
+    async def _fail(self, why: str) -> None:
+        self._failed = True
+        await self._release()
+        raise self._unavailable(why)
 
     async def _read(self) -> Mapping[str, Any] | None:
         """One bounded read of the connection (``None``: nothing yet, or closed)."""
@@ -343,6 +410,11 @@ class RedisBroadcastProvider(BroadcastProvider):
     def __init__(self, *, name: str, driver: str, options: Mapping[str, Any]) -> None:
         super().__init__(name=name, driver=driver, options=options)
         self._options = RedisBroadcastOptions.model_validate(options)
+        self._prefix = (
+            self._options.prefix
+            if self._options.prefix is not None
+            else _database_prefix(self._options.url)
+        )
         self._publisher: Any | None = None
         self._publisher_loop: asyncio.AbstractEventLoop | None = None
         self._subscriptions: set[_RedisSubscription] = set()
@@ -352,12 +424,16 @@ class RedisBroadcastProvider(BroadcastProvider):
     def test_isolation(
         cls, options: Mapping[str, Any], worker_id: str
     ) -> Mapping[str, Any]:
-        """One pytest-xdist worker per channel prefix: Pub/Sub ignores the
-        database index of the URL."""
-        return {**options, "prefix": f"{options.get('prefix', '')}w{worker_id}:"}
+        """One pytest-xdist worker per channel prefix, under the namespace the
+        instance already has (Pub/Sub ignores the database index of the URL)."""
+        stated = options.get("prefix")
+        base = stated if stated is not None else _database_prefix(options.get("url"))
+        return {**options, "prefix": f"{base}w{worker_id}:"}
 
     # -- clients -----------------------------------------------------------
-    def _new_client(self, *, socket_timeout: float | None) -> Any:
+    def _new_client(
+        self, *, socket_timeout: float | None, health_check: bool = True
+    ) -> Any:
         options = self._options
         if not options.url:
             raise _invalid(
@@ -371,7 +447,11 @@ class RedisBroadcastProvider(BroadcastProvider):
                 socket_timeout=socket_timeout,
                 socket_connect_timeout=float(options.socket_connect_timeout_seconds),
                 socket_keepalive=True,
-                health_check_interval=int(options.health_check_interval_seconds),
+                # A subscription pings by itself, with a deadline (redis-py's
+                # own health ping has none).
+                health_check_interval=(
+                    int(options.health_check_interval_seconds) if health_check else 0
+                ),
                 # A subscription never reconnects silently behind its iterator.
                 retry=_no_retry(),
             )
@@ -459,13 +539,13 @@ class RedisBroadcastProvider(BroadcastProvider):
         )
         client = await self._publisher_client()
         await self._bounded(
-            client.publish(self._options.prefix + channel, data), during="publish"
+            client.publish(self._prefix + channel, data), during="publish"
         )
 
     async def subscribe(self, channels: Sequence[str]) -> Subscription:
         parsed = _check_subscribe(self.name, channels)
         self._ensure_open()
-        client = self._new_client(socket_timeout=None)
+        client = self._new_client(socket_timeout=None, health_check=False)
         subscription = _RedisSubscription(self, client, client.pubsub(), parsed)
         self._subscriptions.add(subscription)
         await subscription.start()

@@ -55,7 +55,14 @@ class _MemoryKit(BroadcastConformance):
 
 
 class TestTheMemoryDriver(_MemoryKit):
-    pass
+    # Inherited checks that cannot apply to an in-process driver are not
+    # collected (a skip would count against the capped skip ledger): it
+    # declares no ``shared``, has no connection to interrupt and no backend
+    # that fails.
+    test_a_second_provider_from_the_same_options_receives = None  # type: ignore[assignment]
+    test_an_outage_raises_unavailable_and_a_resubscribe_works = None  # type: ignore[assignment]
+    test_harness_redacts_the_health_of_a_failing_backend = None  # type: ignore[assignment]
+    test_harness_maps_backend_failures_to_infra_errors = None  # type: ignore[assignment]
 
 
 async def test_the_spec_names_the_two_features() -> None:

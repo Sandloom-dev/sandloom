@@ -43,6 +43,7 @@ from sandloom.core.config.settings import Settings
 DEFAULTED_CAPABILITIES: tuple[str, ...] = (
     "database",
     "cache",
+    "broadcast",
     "objectstore",
     "taskqueue",
     "eventbus",
@@ -151,8 +152,9 @@ def _synthesize_defaults(settings: Settings) -> InfraConfig:
             )
         },
         # The kernel's fan-out (contract-cache shadow invalidation, the volatile
-        # event bus): Redis on CACHE_URL (fill_driver_defaults), opened only when
-        # one of them uses it.
+        # event bus): Redis on the url of the resolved cache.default
+        # (fill_driver_defaults), opened only when one of them uses it.
+        # Removed by idk-config-defaults, with the other hard-coded defaults.
         "broadcast": {
             DEFAULT_INSTANCE: InstanceConfig(
                 capability="broadcast",
@@ -336,13 +338,23 @@ def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
         if cfg.driver == "redis":
             _fill_url(cfg.options, "url", cache_url)
             _fill(cfg.options, settings, _REDIS_CLIENT_SETTINGS)
+    # A broadcast instance without a url follows the RESOLVED cache.default (an
+    # INFRA override of its url included), not the raw CACHE_URL.
+    cache_default = (config.get("cache") or {}).get(DEFAULT_INSTANCE)
+    broadcast_url = (
+        cache_default.options.get("url")
+        if cache_default is not None and cache_default.driver == "redis"
+        else None
+    ) or cache_url
     for cfg in (config.get("broadcast") or {}).values():
         if cfg.driver == "redis":
-            _fill_url(cfg.options, "url", cache_url)
+            _fill_url(cfg.options, "url", broadcast_url)
             _fill(cfg.options, settings, _TRANSPORT_CLIENT_SETTINGS)
     for cfg in (config.get("eventbus") or {}).values():
         if cfg.driver in ("redis", "streams"):
-            if cfg.name == DEFAULT_INSTANCE:
+            # The volatile ``redis`` bus has no url: it runs over a broadcast
+            # instance (option ``broadcast``).
+            if cfg.name == DEFAULT_INSTANCE and cfg.driver == "streams":
                 _fill_url(cfg.options, "url", cache_url)
             _fill(cfg.options, settings, _TRANSPORT_CLIENT_SETTINGS)
     for cfg in (config.get("taskqueue") or {}).values():
