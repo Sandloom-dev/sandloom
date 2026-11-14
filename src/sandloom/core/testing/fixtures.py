@@ -701,12 +701,12 @@ async def _sandloom_release_default_pools(
     """
     yield
     await end_post_commit_dispatch()
-    if "sandloom.core._internal.db_provider" not in sys.modules:
+    if "sandloom.core.drivers.sqlalchemy_database" not in sys.modules:
         return  # nothing touched the default database
     if runs_on_session_loop(request.node):
         reset_kept_pools()  # the loop, and the pooled connections, live on
         return
-    from sandloom.core._internal.db_provider import (  # noqa: PLC0415 - cold: only when a test already loaded the UoW / default database
+    from sandloom.core.testing._driver_seams import (  # noqa: PLC0415 - cold: only when a test already loaded the UoW / default database
         release_default_pools,
     )
 

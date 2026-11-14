@@ -131,7 +131,7 @@ def test_each_database_has_its_reset() -> None:
 
 @pytest_asyncio.fixture
 async def lite(tmp_path: Path) -> AsyncIterator[Any]:
-    from sandloom.core._internal.db_provider import build_disposable_engine
+    from sandloom.core.testing._driver_seams import build_disposable_engine
 
     engine = build_disposable_engine(
         f"sqlite+aiosqlite:///{tmp_path / 'reset_test.db'}", pool_size=2, max_overflow=2

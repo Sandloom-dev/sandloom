@@ -194,6 +194,29 @@ limits of your test instance. When the read limit is not below the upload limit,
 `read_metadata(provider, key)` to read the content type and metadata back. A driver
 without it accepts them in `put` and drops them.
 
+#### A database driver
+
+A `database` driver states `contract_version = 2` and implements
+`DatabaseProvider` (`sandloom.core.infra.ports.database`, with the stores it
+returns and `ExecutionAdapter`):
+
+- `uow_factory()` makes the units. A unit's `session` is what the stores take,
+  typed `UnitSession` (`sandloom.driverkit`: `flush()` and `in_transaction()`); your store narrows it
+  to the concrete session of your engine.
+- `isolation_identity()` names the store the options point at, never its
+  credentials: a hash of its host, port and database, or of a file path. Two options naming one store must agree, and two
+  stores must differ.
+- `planner_adapter(*, contract=False)` returns the `ExecutionAdapter` that runs
+  declared operations, or `None` (the default) when the database cannot. With
+  `contract=True` it is the adapter on a dedicated contract pool, if you keep one.
+- `session_factory` (optional) answers a callable that yields a raw session of
+  this instance; the default is `None`.
+
+`DatabaseProviderConformance` checks each of these, and that an event enqueued in
+a unit that rolls back is never written (when `transactional_outbox` is declared).
+Override `prepare_outbox_schema(provider)` if your schema comes from migrations
+instead of `ensure_model_schema()`.
+
 A database driver for a new SQL database also ships a **SQL dialect renderer**. It
 writes the portable forms of `sandloom.sdk.data` in that database's SQL
 ([Database](database.md#portable-sql-forms)).

@@ -3064,6 +3064,14 @@
       ],
       "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
     },
+    "UnitSession": {
+      "kind": "class",
+      "members": [
+        "flush",
+        "in_transaction"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
     "Unsupported": {
       "kind": "class",
       "members": [
@@ -3266,7 +3274,51 @@
       "kind": "pending"
     },
     "DatabaseProviderConformance": {
-      "kind": "pending"
+      "kind": "class",
+      "members": [
+        "begin_savepoint",
+        "contract",
+        "execute",
+        "feature_calls",
+        "health_timeout_seconds",
+        "leak_marker",
+        "make_failing_provider",
+        "make_provider",
+        "make_renamed_provider",
+        "operation_calls",
+        "prepare_outbox_schema",
+        "protocol",
+        "provider",
+        "pytestmark",
+        "requires_feature",
+        "spec",
+        "test_a_committed_write_is_seen_by_the_next_unit",
+        "test_a_fresh_session_has_no_pending_changes",
+        "test_a_released_savepoint_keeps_its_writes",
+        "test_a_rolled_back_savepoint_undoes_only_its_writes",
+        "test_a_store_is_answered_exactly_when_its_feature_is_declared",
+        "test_a_unit_does_not_see_the_uncommitted_write_of_another",
+        "test_a_unit_runs_a_statement_in_its_session",
+        "test_a_unit_that_raises_rolls_its_write_back",
+        "test_an_event_enqueued_in_a_unit_commits_or_rolls_back_with_it",
+        "test_ensure_model_schema_answers_what_it_did",
+        "test_harness_declared_behaviours_do_not_raise_unsupported",
+        "test_harness_declares_only_spec_features",
+        "test_harness_hints_name_only_operations",
+        "test_harness_implements_the_contract",
+        "test_harness_maps_backend_failures_to_infra_errors",
+        "test_harness_names_its_isolation_domain",
+        "test_harness_opens_and_closes_twice",
+        "test_harness_redacts_the_health_of_a_failing_backend",
+        "test_harness_reports_health_within_the_bound",
+        "test_harness_reports_the_features_it_declares",
+        "test_harness_states_development_only_as_a_bool",
+        "test_harness_states_the_contract_version",
+        "test_harness_undeclared_behaviours_raise_unsupported",
+        "test_planner_adapter_is_none_or_an_adapter",
+        "test_uow_factory_is_callable_and_makes_a_unit_per_call"
+      ],
+      "signature": "()"
     },
     "EventTransportConformance": {
       "kind": "pending"
