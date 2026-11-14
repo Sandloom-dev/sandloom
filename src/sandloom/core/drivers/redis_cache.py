@@ -48,7 +48,7 @@ from sandloom.core.infra.contracts import (
     parse_subject_state,
 )
 from sandloom.core.infra.ports._base import health_failure_details
-from sandloom.core.observability.driver_metrics import observe
+from sandloom.driverkit import observe
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 
 #: Redis / socket failures of cache operations (a caller's ValueError or

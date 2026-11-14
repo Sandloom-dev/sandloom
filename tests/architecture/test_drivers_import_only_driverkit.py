@@ -167,7 +167,6 @@ SEEDED: dict[str, frozenset[str]] = {
             "sandloom.core.infra.config",
             "sandloom.core.infra.contracts",
             "sandloom.core.infra.ports._base",
-            "sandloom.core.observability.driver_metrics",
         }
     ),
     _D + "schema_reset.py": frozenset(
@@ -405,8 +404,7 @@ def test_builtin_drivers_gain_no_kernel_import() -> None:
     assert not found, (
         "a built-in driver gained a sandloom.core import (ADR-0016). Drivers "
         "read options, not settings; a built-in records metrics through "
-        "sandloom.core.observability.driver_metrics.observe, which becomes "
-        "sandloom.driverkit.observe once the driver moves to a package. The "
+        "sandloom.driverkit.observe. The "
         "allowlist only shrinks:\n  " + "\n  ".join(found)
     )
 
@@ -597,6 +595,8 @@ def test_the_seed_holds_the_live_allowlist() -> None:
     for entry in _entries():
         assert set(entry["imports"]) <= SEEDED.get(entry["file"], frozenset())
     assert all(f.startswith(_D) for f in SEEDED)
+    # The seed itself only shrinks: lower this number with every pair removed.
+    assert sum(len(v) for v in SEEDED.values()) <= 89
 
 
 @pytest.mark.parametrize(
