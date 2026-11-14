@@ -2517,6 +2517,7 @@
         "tests/fixtures/specs/api10-ledger-delta-ecosystem.md",
         "tests/fixtures/specs/api10-ledger-delta-firstrun.md",
         "tests/fixtures/specs/api10-ledger-delta-generate.md",
+        "tests/fixtures/specs/api10-ledger-delta-idk-tiers.md",
         "tests/fixtures/specs/api10-ledger-delta-idk-worker-cli.md",
         "tests/fixtures/specs/api10-ledger-delta-kb02.md",
         "tests/fixtures/specs/api10-ledger-delta-kb05.md",
