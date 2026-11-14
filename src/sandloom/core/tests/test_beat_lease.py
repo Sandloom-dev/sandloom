@@ -24,6 +24,7 @@ from sandloom.core.beat_lease import (
     LeasedScheduler,
     install_beat_lease,
 )
+from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.drivers.memory_lease import MemoryLeaseProvider, _Held
 from sandloom.core.infra import fenced_lease
@@ -420,9 +421,7 @@ async def test_two_leases_on_real_redis() -> None:
     """Acquire / standby / release / takeover against the real redis lease driver."""
     from sandloom.core.drivers.redis_lease import RedisLeaseProvider
 
-    url = os.getenv("SANDLOOM_TEST_CACHE_URL")
-    if not url:
-        pytest.skip("SANDLOOM_TEST_CACHE_URL not set")
+    url = settings.cache_url
     store = RedisLeaseProvider(name="beat", driver="redis", options={"url": url})
     await store.aopen()
     loop = asyncio.get_running_loop()

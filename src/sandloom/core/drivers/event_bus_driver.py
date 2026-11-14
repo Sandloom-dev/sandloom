@@ -34,19 +34,25 @@ from sandloom.core.infra.registry import DriverFactory
 class EventBusOptions(BaseModel):
     """Config-shape schema shared by the ``memory``/``redis``/``streams`` buses.
 
-    ``url`` is the Redis DSN of the ``redis``/``streams`` drivers (``memory``
-    ignores every option), with the connect timeout and health-check interval
-    of their client. The kernel fills all three from ``CACHE_URL`` and the
-    ``CACHE_*`` settings when the configuration leaves them out. The
-    ``default`` instance shares the process-wide default transport client (a
-    sibling of the default cache client on its own ``url``); a named instance
-    connects its own client. ``extra="forbid"`` rejects a typo'd key at
-    startup.
+    ``url`` is the Redis DSN of the ``streams`` driver (``memory`` ignores
+    every option), with the connect timeout and health-check interval of its
+    client. The kernel fills all three from ``CACHE_URL`` and the ``CACHE_*``
+    settings when the configuration leaves them out. The ``default`` instance
+    shares the process-wide default transport client (a sibling of the default
+    cache client on its own ``url``); a named instance connects its own client.
+
+    The ``redis`` driver (the volatile bus) has no client of its own: it runs
+    over the ``broadcast`` instance named by ``broadcast`` (default
+    ``default``), on that instance's Redis, TLS, credentials and channel
+    namespace. A ``url`` on a ``redis`` bus is refused at startup. ``extra="forbid"``
+    rejects a typo'd key at startup.
     """
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     url: str | None = None
+    #: The ``broadcast`` instance of the ``redis`` driver.
+    broadcast: str = "default"
     socket_connect_timeout_seconds: float = Field(default=0.5, gt=0)
     health_check_interval_seconds: int = Field(default=30, ge=0)
 
@@ -189,15 +195,20 @@ class WrappedEventBusProvider(EventBusProvider):
     def bus(self) -> Any:
         return self._bus
 
-    async def health(self) -> HealthResult:
+    async def _probe(self) -> HealthResult | None:
+        """One probe of the backend; ``None`` is healthy. A failure raises."""
         if self.driver != "memory" and self._health_client_factory is not None:
-            try:
-                client = await self._health_client_factory()
-                await client.ping()
-            except Exception as exc:  # noqa: BLE001 - any failure is a failed probe
-                # The type only: the text can carry the broker URL.
-                return HealthResult(status="fail", details=health_failure_details(exc))
-        return HealthResult(status="ok")
+            client = await self._health_client_factory()
+            await client.ping()
+        return None
+
+    async def health(self) -> HealthResult:
+        try:
+            result = await self._probe()
+        except Exception as exc:  # noqa: BLE001 - any failure is a failed probe
+            # The type only: the text can carry the broker URL.
+            return HealthResult(status="fail", details=health_failure_details(exc))
+        return result or HealthResult(status="ok")
 
     async def aclose(self) -> None:
         close = getattr(self._bus, "close", None)
@@ -217,7 +228,7 @@ class MemoryEventBusProvider(WrappedEventBusProvider):
 
 
 class RedisEventBusProvider(WrappedEventBusProvider):
-    """``eventbus`` / ``redis``: the Redis Pub/Sub volatile bus."""
+    """``eventbus`` / ``redis``: the volatile bus over a ``broadcast`` instance."""
 
     supported_features = EVENTBUS_DRIVER_FEATURES["redis"]
     required_imports = ("redis",)
@@ -227,8 +238,22 @@ class RedisEventBusProvider(WrappedEventBusProvider):
     def test_isolation(
         cls, options: Mapping[str, Any], worker_id: str
     ) -> Mapping[str, Any]:
-        """Another database index of the configured URL for each xdist worker."""
+        """The bus has no ``url`` (it is refused): the ``broadcast`` instance it
+        names isolates each xdist worker by channel prefix, so options pass
+        through; kept so every Redis driver exposes the same hook."""
         return isolated_redis_options(options, worker_id)
+
+    async def aopen(self) -> None:
+        """Refuse a ``broadcast`` instance without ``pattern_subscribe``."""
+        self._bus.check_broadcast()
+
+    async def _probe(self) -> HealthResult | None:
+        """The health of the ``broadcast`` instance the bus runs on."""
+        probe = getattr(self._bus.broadcast_instance(), "health", None)
+        if probe is None:
+            return None
+        result: HealthResult = await probe()
+        return result
 
 
 class StreamsEventBusProvider(WrappedEventBusProvider):
@@ -281,14 +306,20 @@ def make_event_bus_drivers(
 
     def _redis(cfg: InstanceConfig) -> WrappedEventBusProvider:
         _refuse_volatile_in_prod(cfg)
-        factory, closable = _redis_client_factory(cfg)
+        options = EventBusOptions.model_validate(cfg.options)
+        if options.url:
+            raise RuntimeError(
+                f"eventbus instance {cfg.name!r}: driver 'redis' takes its Redis "
+                "from a broadcast instance, not from a 'url' (the bus would "
+                "otherwise run outside that Redis's TLS, credentials and "
+                "network). fix: declare INFRA broadcast.<name> with this url "
+                'and set "broadcast": "<name>" on this instance'
+            )
         return RedisEventBusProvider(
             name=cfg.name,
             driver=cfg.driver,
             options=dict(cfg.options),
-            bus_instance=RedisEventBus(schema_registry, client_factory=factory),
-            client=closable,
-            client_factory=factory,
+            bus_instance=RedisEventBus(schema_registry, broadcast=options.broadcast),
         )
 
     def _streams(cfg: InstanceConfig) -> WrappedEventBusProvider:

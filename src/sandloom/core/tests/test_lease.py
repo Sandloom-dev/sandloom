@@ -1,8 +1,8 @@
 """The ``lease`` capability: the kit against each driver, and the kit against
 broken drivers (spec 5).
 
-The kit runs on ``memory``, ``redis`` (a real Redis: ``SANDLOOM_TEST_CACHE_URL``)
-and ``database`` on SQLite and PostgreSQL (``SANDLOOM_TEST_DATABASE_URL``; a
+The kit runs on ``memory``, ``redis`` (a real Redis: ``settings.cache_url``)
+and ``database`` on SQLite and PostgreSQL (``settings.database_url``; a
 scratch database of its own, created for the run). Each broken driver must fail
 the kit test that names its fault, and only that one.
 """
@@ -10,7 +10,6 @@ the kit test that names its fault, and only that one.
 from __future__ import annotations
 
 import asyncio
-import os
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
@@ -25,6 +24,7 @@ from sqlalchemy import Table, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from sandloom.core.config.settings import settings
 from sandloom.core.drivers import database_lease, memory_lease, redis_lease
 from sandloom.core.drivers.bootstrap import (
     build_infra_registry,
@@ -41,8 +41,10 @@ from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.sql_alchemy.models.lease import InfraLease
 from sandloom.driverkit.kits.lease import LeaseConformance
 
-_REDIS_URL = os.getenv("SANDLOOM_TEST_CACHE_URL")
-_PG_URL = os.getenv("SANDLOOM_TEST_DATABASE_URL")
+# The harness resolves the URLs into ``settings`` (SANDLOOM_TEST_* on a shared
+# machine, DATABASE_URL / CACHE_URL on CI): never read the environment here.
+_REDIS_URL = settings.cache_url
+_PG_URL = settings.database_url
 
 
 # ----------------------------------------------------------- the drivers
@@ -58,7 +60,6 @@ class TestMemoryLease(LeaseConformance):
     test_harness_maps_backend_failures_to_infra_errors = None  # type: ignore[assignment]
 
 
-@pytest.mark.skipif(not _REDIS_URL, reason="SANDLOOM_TEST_CACHE_URL is not set")
 class TestRedisLease(LeaseConformance):
     @pytest.fixture
     def make_provider(self) -> Callable[[], RedisLeaseProvider]:
@@ -111,11 +112,13 @@ class TestDatabaseLeaseOnSqlite(LeaseConformance):
     test_a_second_provider_contends_for_the_same_name = None  # type: ignore[assignment]
 
 
-@pytest.mark.skipif(not _PG_URL, reason="SANDLOOM_TEST_DATABASE_URL is not set")
+@pytest.mark.skipif(
+    make_url(_PG_URL).get_backend_name() != "postgresql",
+    reason="the database lane is not PostgreSQL (the second-db lane)",
+)
 class TestDatabaseLeaseOnPostgres(LeaseConformance):
     @pytest_asyncio.fixture
     async def scratch_url(self) -> AsyncIterator[str]:
-        assert _PG_URL is not None
         admin_url = make_url(_PG_URL)
         scratch = f"lease_kit_{uuid.uuid4().hex[:10]}"
         admin = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")

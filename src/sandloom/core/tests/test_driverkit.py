@@ -378,7 +378,7 @@ def test_the_public_contract_changes_only_with_its_version() -> None:
 #: Kernel-facing contracts exported before their kit (PR #190 review, C4):
 #: their capability slices deliver these kits. Remove an entry when its kit
 #: lands; the test fails until you do.
-_KIT_PENDING = frozenset({"BroadcastProvider"})
+_KIT_PENDING: frozenset[str] = frozenset()
 
 
 def test_every_public_contract_has_a_kit() -> None:

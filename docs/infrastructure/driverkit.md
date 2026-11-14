@@ -78,7 +78,6 @@ a name raises `AttributeError` naming the work that delivers it:
 <!-- lookup -->
 
 - `AtomicStoreConformance`
-- `BroadcastConformance`
 - `CacheConformance`
 - `DatabaseProviderConformance`
 - `EventTransportConformance`
@@ -87,6 +86,7 @@ a name raises `AttributeError` naming the work that delivers it:
 
 | Name | What it is |
 | --- | --- |
+| `BroadcastConformance` | The kit of a `broadcast` driver; point `make_provider` at a test backend. It publishes on channels of its own. Set `payload_limit_bytes` to the limit the driver declares (at least 1 MiB). Override `interrupt_connections(provider)` to cut the provider's connections, as an outage would, to run the outage group. `delivery_seconds` and `quiet_seconds` set the waits. |
 | `NotifierConformance` | The kit of a `notification` driver. Override `recipients` for your test backend. Each channel is a behaviour feature: an undeclared channel raises `Unsupported(channel)`. |
 | `ObjectStoreConformance` | The kit of an `objectstore` driver; point `make_provider` at a test namespace. Set `upload_limit_bytes` and `read_limit_bytes` to the test instance's limits. A driver declaring `metadata` overrides `read_metadata(provider, key)` to read them back. |
 | `SqlDialectConformance` | A pytest class for a SQL dialect renderer. Subclass it and set `renderer` and `dialect`. It compiles each form the renderer writes, the optional `prefix_pattern` / `prefix_match` pair included. A renderer declaring `json_path` overrides `read_json_paths(document, paths)` to run it on the database; one stating `aware_times` overrides `read_aware_time(value)` to read an aware time back from it. |

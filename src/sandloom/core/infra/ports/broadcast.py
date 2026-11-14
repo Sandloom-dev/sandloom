@@ -11,9 +11,14 @@ Online-only, at-most-once fan-out of byte payloads on named channels.
   message and carries on, and never reconnects silently behind an open
   iterator. The subscriber resubscribes and treats the interval as a gap.
 - Messages of one publisher on one channel arrive in publish order.
-- A channel ending in ``.*`` matches every channel with that prefix, only with
-  ``pattern_subscribe``; without it ``subscribe`` raises
-  ``Unsupported("pattern_subscribe")``.
+- A subscription receives a message once, even when several of its channels
+  (a name and a pattern, two patterns) match it.
+- A channel ending in ``.*`` matches every channel with that prefix (``a.*``
+  matches ``a.b`` and ``a.b.c``, not ``a``), only with ``pattern_subscribe``;
+  without it ``subscribe`` raises ``Unsupported("pattern_subscribe")``. A
+  message is never published to a ``.*`` channel (``InvalidArgument``).
+- ``aclose`` on a subscription ends its iteration (``StopAsyncIteration``),
+  also one waiting for a message; it is idempotent.
 - Every driver accepts payloads of at least :data:`MIN_PAYLOAD_LIMIT_BYTES`;
   above its limit ``publish`` raises ``TooLarge``.
 

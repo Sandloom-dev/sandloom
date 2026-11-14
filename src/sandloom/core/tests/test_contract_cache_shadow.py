@@ -37,7 +37,6 @@ from sandloom.core.contract_testing import (
 )
 from sandloom.core.facade import CoreFacade
 from sandloom.core.module_api import ContractCallError, contract_method
-from sandloom.core.testing._uow import InMemoryCache
 
 CONTRACT = "shadowdemo.membership.v1"
 EVENTS = {
@@ -360,11 +359,15 @@ class _FakeDatabase:
         return None
 
 
+def _no_broadcast() -> Any:
+    raise RuntimeError("no broadcast instance is configured")
+
+
 @pytest.fixture
 def core(monkeypatch: pytest.MonkeyPatch) -> Iterator[CoreFacade]:
     for name, value in rpc_settings(_SVC, allowed_calls={_SVC: [CONTRACT]}).items():
         monkeypatch.setattr(settings, name, value)
-    monkeypatch.setattr(shadow, "_cache_provider", lambda: SimpleNamespace())
+    monkeypatch.setattr(shadow, "_broadcast_provider", _no_broadcast)
     facade = CoreFacade(app=FastAPI())
     facade.database = lambda name="default": _FakeDatabase()  # type: ignore[method-assign]
     facade.register_service(CONTRACT, Membership)
@@ -714,39 +717,30 @@ async def test_off_path_never_reaches_the_bookkeeping(
 
 
 # --------------------------------------------------------------------------- #
-# the pub/sub listener starts only for a driver that really offers pub/sub
+# invalidations travel over the ``broadcast`` capability
 # --------------------------------------------------------------------------- #
-class _NoPubSubCache(InMemoryCache):
-    """A cache driver that keeps the base ``raw_client`` (raises)."""
+def _memory_broadcast() -> Any:
+    from sandloom.core.drivers.memory_broadcast import MemoryBroadcastProvider
+
+    return MemoryBroadcastProvider(
+        name="default", driver="memory", options={"namespace": uuid4().hex}
+    )
 
 
-class _PubSubStub:
-    async def subscribe(self, _channel: str) -> None:
-        return None
-
-    async def get_message(self, **_kw: Any) -> None:
+async def _until(condition: Callable[[], bool]) -> None:
+    for _ in range(200):
+        if condition():
+            return
         await asyncio.sleep(0.01)
-
-    async def aclose(self) -> None:
-        return None
-
-
-class _PubSubClient:
-    def pubsub(self) -> _PubSubStub:
-        return _PubSubStub()
-
-
-class _PubSubCache(InMemoryCache):
-    async def raw_client(self) -> Any:
-        return _PubSubClient()
+    raise AssertionError("the condition never held")
 
 
 @pytest.mark.asyncio
-async def test_no_listener_and_no_flush_loop_without_a_raw_client(
+async def test_no_listener_without_a_broadcast_instance(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    monkeypatch.setattr(shadow, "_cache_provider", lambda: _NoPubSubCache())
-    monkeypatch.setattr(shadow, "_no_pubsub_logged", False, raising=False)
+    monkeypatch.setattr(shadow, "_broadcast_provider", _no_broadcast)
+    monkeypatch.setattr(shadow, "_no_broadcast_logged", False, raising=False)
     monkeypatch.setattr(shadow, "_listener", None)
     observer = _cache(Clock())
     flushes: list[str] = []
@@ -757,20 +751,66 @@ async def test_no_listener_and_no_flush_loop_without_a_raw_client(
     await asyncio.sleep(0.05)
     assert shadow._listener is None
     assert flushes == []
-    assert len([r for r in caplog.records if "no pub/sub" in r.getMessage()]) == 1
+    assert len([r for r in caplog.records if "no broadcast" in r.getMessage()]) == 1
 
 
 @pytest.mark.asyncio
-async def test_listener_starts_for_a_driver_with_a_raw_client(
+async def test_a_published_invalidation_reaches_the_listener(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(shadow, "_cache_provider", lambda: _PubSubCache())
+    provider = _memory_broadcast()
+    monkeypatch.setattr(shadow, "_broadcast_provider", lambda: provider)
     monkeypatch.setattr(shadow, "_listener", None)
     observer = _cache(Clock())
+    seen: list[Any] = []
+    monkeypatch.setattr(observer, "flush", lambda why: seen.append(("flush", why)))
+    monkeypatch.setattr(observer, "invalidate", lambda c, p: seen.append((c, p)))
     shadow._ensure_listener(observer)
     try:
-        assert shadow._listener is not None
-        await asyncio.sleep(0.05)
-        assert not shadow._listener[0].done()
+        await _until(lambda: seen == [("flush", "subscribed")])
+        await shadow._broadcast([{"c": "x.changed.v1", "p": {"user": "u1"}}])
+        await _until(lambda: ("x.changed.v1", {"user": "u1"}) in seen)
+        await provider.publish(shadow.INVALIDATION_CHANNEL, b"not json")
+        await _until(lambda: ("flush", "malformed") in seen)
     finally:
         await shadow.stop_listener()
+        await provider.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_lost_subscription_flushes_and_resubscribes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A gap in what the shadow heard is never served through (ADR-0003)."""
+    provider = _memory_broadcast()
+    monkeypatch.setattr(shadow, "_broadcast_provider", lambda: provider)
+    monkeypatch.setattr(shadow, "_listener", None)
+    observer = _cache(Clock())
+    seen: list[Any] = []
+    monkeypatch.setattr(observer, "flush", lambda why: seen.append(("flush", why)))
+    monkeypatch.setattr(observer, "invalidate", lambda c, p: seen.append((c, p)))
+    shadow._ensure_listener(observer)
+    try:
+        await _until(lambda: seen == [("flush", "subscribed")])
+        for subscription in tuple(provider._subscriptions):
+            subscription._overflowed = True  # what a lost connection looks like
+            subscription._wake()
+        await _until(lambda: ("flush", "subscription_lost") in seen)
+        await _until(lambda: seen.count(("flush", "subscribed")) == 2)
+        await shadow._broadcast([{"c": "y.v1", "p": {}}])
+        await _until(lambda: ("y.v1", {}) in seen)
+    finally:
+        await shadow.stop_listener()
+        await provider.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_publish_is_swallowed_ttl_bounds_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Down:
+        async def publish(self, channel: str, payload: bytes) -> None:
+            raise RuntimeError("down")
+
+    monkeypatch.setattr(shadow, "_broadcast_provider", lambda: _Down())
+    await shadow._broadcast([{"c": "z.v1", "p": {}}])  # no exception

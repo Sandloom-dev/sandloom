@@ -43,7 +43,7 @@ async def _noop(_env: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_durable_consumer_refused_on_pubsub_bus() -> None:
-    bus = RedisEventBus(InMemorySchemaRegistry(), client_factory=None)
+    bus = RedisEventBus(InMemorySchemaRegistry())
     with pytest.raises(VolatileBusError):
         await subscribe_to_bus(bus, "core.thing.v1", _noop, "notifier@thing")
     assert bus._subs == {}  # nothing half-registered
