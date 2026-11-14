@@ -18,6 +18,12 @@ test configuration (``.env.test`` / the shell):
   mapping in ``SANDLOOM_TEST_REDIS_WORKER_DBS`` (``<base>=<i0>,<i1>,…;…``). Use it
   on a Redis shared with other runs, whose markers break any fixed layout.
 
+The Redis half lives in :mod:`sandloom.core.testing.redis_isolation` (standard
+library only, so an application with no Redis installed never needs a Redis
+client to run its tests); it is the harness's twin of the drivers'
+``test_isolation(options, worker_id)`` hook, which the Redis drivers implement
+for the instance options.
+
 Without xdist (no ``PYTEST_XDIST_WORKER``) nothing changes.
 
 Reloading ``.env.test`` (``load_dotenv(override=True)``) puts the BASE values
@@ -43,20 +49,26 @@ from __future__ import annotations
 
 import os
 import re
-import sys
 from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import dotenv_values, load_dotenv
 
+import sandloom.core.testing.redis_isolation as _redis_isolation
+from sandloom.core.testing.redis_isolation import (
+    DEFAULT_REDIS_STRIDE,
+    REDIS_MAP_ENV,
+    REDIS_STRIDE_AUTO,
+    REDIS_STRIDE_ENV,
+    format_redis_map,
+    mapped_redis_url,
+    parse_redis_map,
+    redis_auto,
+    worker_redis_url,
+)
+
 WORKER_ENV = "PYTEST_XDIST_WORKER"
-REDIS_STRIDE_ENV = "SANDLOOM_TEST_REDIS_DB_STRIDE"
-DEFAULT_REDIS_STRIDE = 16
-#: ``SANDLOOM_TEST_REDIS_DB_STRIDE`` value selecting allocated indexes.
-REDIS_STRIDE_AUTO = "auto"
-#: The controller's allocation for ``auto``: ``<base>=<i0>,<i1>,…;…``.
-REDIS_MAP_ENV = "SANDLOOM_TEST_REDIS_WORKER_DBS"
 #: The settings each worker gets its own instance of.
 DATABASE_VARS = ("DATABASE_URL",)
 REDIS_VARS = ("CACHE_URL", "BROKER_URL")
@@ -84,66 +96,6 @@ def worker_number(environ: Mapping[str, str] | None = None) -> int | None:
     match = _WORKER_RE.match(wid)
     assert match is not None  # noqa: S101 - type narrowing of an invariant
     return int(match.group(1))
-
-
-def _redis_stride(environ: Mapping[str, str]) -> int:
-    raw = (environ.get(REDIS_STRIDE_ENV) or "").strip()
-    try:
-        stride = int(raw) if raw else DEFAULT_REDIS_STRIDE
-    except ValueError:
-        return DEFAULT_REDIS_STRIDE
-    return stride if stride > 0 else DEFAULT_REDIS_STRIDE
-
-
-def redis_auto(environ: Mapping[str, str] | None = None) -> bool:
-    """``SANDLOOM_TEST_REDIS_DB_STRIDE=auto``: workers get allocated indexes."""
-    env = os.environ if environ is None else environ
-    return (env.get(REDIS_STRIDE_ENV) or "").strip().lower() == REDIS_STRIDE_AUTO
-
-
-def format_redis_map(mapping: Mapping[int, list[int]]) -> str:
-    return ";".join(
-        f"{base}=" + ",".join(str(i) for i in indexes)
-        for base, indexes in sorted(mapping.items())
-    )
-
-
-def parse_redis_map(raw: str) -> dict[int, list[int]]:
-    out: dict[int, list[int]] = {}
-    for part in filter(None, (p.strip() for p in raw.split(";"))):
-        base, _, indexes = part.partition("=")
-        out[int(base)] = [int(i) for i in indexes.split(",") if i.strip()]
-    return out
-
-
-def mapped_redis_url(url: str, number: int, mapping: Mapping[int, list[int]]) -> str:
-    """``url`` moved to worker ``number``'s allocated index (``auto``)."""
-    parts = urlsplit(url)
-    raw = parts.path.lstrip("/")
-    try:
-        index = int(raw) if raw else 0
-    except ValueError:
-        return url  # not a plain index (unix socket path, ...): leave it
-    indexes = mapping.get(index)
-    if not indexes:
-        raise RuntimeError(
-            f"{REDIS_STRIDE_ENV}=auto: no Redis index allocated for base index "
-            f"{index}, worker gw{number} "
-            f"({REDIS_MAP_ENV}={format_redis_map(mapping)!r})"
-        )
-    if number >= len(indexes):
-        # A replacement for crashed workers beyond the allocated spares:
-        # deterministic (never a conftest import failure cascade), but it
-        # shares an index with another worker — say so on stderr.
-        slot = number % len(indexes)
-        print(
-            f"sandloom testing: worker gw{number} has no Redis index of its own for "
-            f"base {index}; sharing gw{slot}'s index {indexes[slot]} (a crashed "
-            "worker was replaced more often than the spares allow)",
-            file=sys.stderr,
-        )
-        return urlunsplit(parts._replace(path=f"/{indexes[slot]}"))
-    return urlunsplit(parts._replace(path=f"/{indexes[number]}"))
 
 
 def worker_database_url(url: str, worker: str) -> str:
@@ -184,17 +136,6 @@ def _worker_sqlite_url(url: str, worker: str) -> str:
     return f"{parts.scheme}://{parts.netloc}/{renamed}{query}"
 
 
-def worker_redis_url(url: str, number: int, stride: int) -> str:
-    """``url`` with its database index offset by ``stride * (number + 1)``."""
-    parts = urlsplit(url)
-    raw = parts.path.lstrip("/")
-    try:
-        index = int(raw) if raw else 0
-    except ValueError:
-        return url  # not a plain index (unix socket path, ...): leave it
-    return urlunsplit(parts._replace(path=f"/{index + stride * (number + 1)}"))
-
-
 def rewrite_for_worker(
     values: Mapping[str, str | None], environ: Mapping[str, str] | None = None
 ) -> dict[str, str]:
@@ -206,17 +147,7 @@ def rewrite_for_worker(
     wid, number = worker_id(env), worker_number(env)
     if wid is None or number is None:
         return {}
-    mapping: dict[int, list[int]] | None = None
-    if redis_auto(env):
-        raw = env.get(REDIS_MAP_ENV) or ""
-        if not raw:
-            raise RuntimeError(
-                f"{REDIS_STRIDE_ENV}=auto but {REDIS_MAP_ENV} is not set: the "
-                "xdist controller allocates the worker indexes (the "
-                "sandloom.core.testing plugin's pytest_sessionstart)"
-            )
-        mapping = parse_redis_map(raw)
-    stride = _redis_stride(env)
+    mapping = _redis_isolation.redis_url_mapping(env)
     out: dict[str, str] = {}
     for var in DATABASE_VARS:
         url = values.get(var)
@@ -224,12 +155,8 @@ def rewrite_for_worker(
             out[var] = worker_database_url(url, wid)
     for var in REDIS_VARS:
         url = values.get(var)
-        if url and url.startswith(("redis://", "rediss://")):
-            out[var] = (
-                mapped_redis_url(url, number, mapping)
-                if mapping is not None
-                else worker_redis_url(url, number, stride)
-            )
+        if url and _redis_isolation.is_redis_url(url):
+            out[var] = _redis_isolation.isolated_redis_url(url, number, env, mapping)
     return out
 
 

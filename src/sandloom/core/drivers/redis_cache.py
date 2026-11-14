@@ -34,9 +34,11 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import Any, Self, cast
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -166,6 +168,46 @@ def client_options(options: RedisCacheOptions) -> dict[str, Any]:
             supported_errors=(RedisConnectionError,),
         ),
     }
+
+
+#: Database indexes between two xdist workers' instances: the harness's default
+#: layout (``sandloom.core.testing.redis_isolation.DEFAULT_REDIS_STRIDE``, held
+#: equal by test_harness_isolation.py).
+TEST_WORKER_DB_STRIDE = 16
+_WORKER_ID = re.compile(r"^gw(\d+)$")
+
+
+def isolated_redis_options(
+    options: Mapping[str, Any],
+    worker_id: str,
+    keys: Sequence[str] = ("url",),
+) -> Mapping[str, Any]:
+    """``options`` with each Redis URL under ``keys`` moved to the database
+    index of worker ``worker_id`` (``gw<N>``): ``index + stride * (N + 1)``.
+
+    The ``test_isolation`` hook of the Redis drivers. Options without such a
+    URL, a URL naming no plain index, or a ``worker_id`` that is not ``gw<N>``
+    come back unchanged. Reads no environment: the shared-Redis ``auto`` layout
+    is the harness's (``sandloom.core.testing.redis_isolation``).
+    """
+    match = _WORKER_ID.match(worker_id)
+    if match is None:
+        return options
+    number = int(match.group(1))
+    out = dict(options)
+    for key in keys:
+        url = out.get(key)
+        if not isinstance(url, str) or not url.startswith(("redis://", "rediss://")):
+            continue
+        parts = urlsplit(url)
+        raw = parts.path.lstrip("/")
+        try:
+            index = int(raw) if raw else 0
+        except ValueError:
+            continue  # not a plain index (unix socket path, ...): leave it
+        moved = index + TEST_WORKER_DB_STRIDE * (number + 1)
+        out[key] = urlunsplit(parts._replace(path=f"/{moved}"))
+    return out
 
 
 def _url_of(options: RedisCacheOptions) -> str:
@@ -366,6 +408,13 @@ class RedisCacheProvider(CacheProvider):
     options_schema = RedisCacheOptions
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
+
+    @classmethod
+    def test_isolation(
+        cls, options: Mapping[str, Any], worker_id: str
+    ) -> Mapping[str, Any]:
+        """Another database index of the configured URL for each xdist worker."""
+        return isolated_redis_options(options, worker_id)
 
     @classmethod
     def from_config(cls, config: InstanceConfig) -> Self:

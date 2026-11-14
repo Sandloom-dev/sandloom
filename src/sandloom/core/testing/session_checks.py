@@ -25,7 +25,13 @@ from urllib.parse import parse_qs, urlsplit, urlunsplit
 import psycopg2  # type: ignore[import-untyped]
 import pytest
 
-from sandloom.core.testing import connections, ownership, resources, workers
+from sandloom.core.testing import (
+    connections,
+    ownership,
+    redis_isolation,
+    resources,
+    workers,
+)
 from sandloom.core.testing.env import dev_up_hint
 from sandloom.core.testing.fixtures import env_starts, find_env_file
 
@@ -233,10 +239,13 @@ def cap_auto_workers(config: pytest.Config, requested: Any) -> Any:
 
 
 def _redis_urls(values: dict[str, str]) -> list[str]:
+    """The Redis URLs this run may allocate indexes on: none without the client."""
+    if not redis_isolation.redis_client_installed():
+        return []
     return [
         values[var]
         for var in workers.REDIS_VARS
-        if (values.get(var) or "").startswith(("redis://", "rediss://"))
+        if redis_isolation.is_redis_url(values.get(var) or "")
     ]
 
 

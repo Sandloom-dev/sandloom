@@ -57,6 +57,7 @@ import psycopg2  # type: ignore[import-untyped]
 from psycopg2 import errors, sql
 
 from sandloom.core.testing.machine import checkout_root, machine_id
+from sandloom.core.testing.redis_isolation import is_redis_url, redis_client_installed
 
 OWNER_ENV = "SANDLOOM_TEST_OWNER"
 TAKEOVER_ENV = "SANDLOOM_TEST_TAKE_OWNERSHIP"
@@ -321,8 +322,8 @@ def claim_redis(
     url: str, *, owner: str | None = None, environ: Mapping[str, str] | None = None
 ) -> None:
     """Verify (or claim) that this run owns the Redis database ``url``."""
-    if not url.startswith(("redis://", "rediss://")):
-        return
+    if not is_redis_url(url) or not redis_client_installed():
+        return  # no Redis URL, or no client: this process reaches no Redis
     owner = owner or current_owner(environ)
     if _claimed.get(("redis", url)) == owner:
         return

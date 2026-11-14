@@ -246,6 +246,13 @@ check-and-set) instead of the fixed `index + 16 × (N + 1)` layout, which
 collides with other runs' markers. Too few free indexes abort the session
 with exit code 4 (the pre-push hook then falls back to a serial run).
 
+A driver says which database an instance uses in one run per worker. A provider
+implements `test_isolation(options, worker_id)` and returns the options of that
+worker's instance. The Redis drivers move the database index of their URL. The
+default returns the options unchanged, which is right for `memory`. An
+application on memory drivers needs no Redis client to run its tests: the
+harness touches Redis only when the client is installed.
+
 In the framework tree the benchmark security suite (`benchmarks/tests`) is a
 separate CI job (`benchmarks-security`: it needs a superuser connection for its
 RLS roles and runs about 6 minutes): `tools/ci/ci_local.sh <ref> --jobs

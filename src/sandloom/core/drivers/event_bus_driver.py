@@ -9,7 +9,7 @@ calls with the application's schema registry. The resulting provider wraps an
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from functools import partial
 from typing import Any
 
@@ -220,6 +220,13 @@ class RedisEventBusProvider(WrappedEventBusProvider):
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
 
+    @classmethod
+    def test_isolation(
+        cls, options: Mapping[str, Any], worker_id: str
+    ) -> Mapping[str, Any]:
+        """Another database index of the configured URL for each xdist worker."""
+        return _redis_cache.isolated_redis_options(options, worker_id)
+
 
 class StreamsEventBusProvider(WrappedEventBusProvider):
     """``eventbus`` / ``streams``: the durable Redis Streams bus."""
@@ -227,6 +234,13 @@ class StreamsEventBusProvider(WrappedEventBusProvider):
     supported_features = EVENTBUS_DRIVER_FEATURES["streams"]
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
+
+    @classmethod
+    def test_isolation(
+        cls, options: Mapping[str, Any], worker_id: str
+    ) -> Mapping[str, Any]:
+        """Another database index of the configured URL for each xdist worker."""
+        return _redis_cache.isolated_redis_options(options, worker_id)
 
 
 def make_event_bus_drivers(
