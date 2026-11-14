@@ -60,8 +60,9 @@ kernel port's own functions, re-exported:
 
 A reply lost after a command ran is `Unavailable`: the error model has no "may have happened"
 class. A driver therefore never re-sends `add`, `add_or_get`, `compare_and_set` or
-`compare_and_delete` itself (run twice they answer `False`, or the caller's own value, to the
-caller that won); it may re-send the idempotent `get`, `set`, `delete` and `set_subject_state`.
+`compare_and_delete` itself. Run twice they would answer `False` or the caller's own value to the
+caller that won. A driver may re-send the idempotent ones only: `get`, `set`, `delete`,
+`set_subject_state`.
 
 ## `sandloom.driverkit.testing`
 

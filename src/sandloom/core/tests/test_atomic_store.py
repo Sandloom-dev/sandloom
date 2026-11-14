@@ -370,13 +370,16 @@ async def test_a_backend_failure_never_escapes_as_a_foreign_error() -> None:
 
 
 class _DroppingProxy:
-    """A TCP proxy in front of the real server that, once armed, executes the
-    next command upstream and closes the client's connection instead of
-    relaying the reply: the lost reply of a command the server ran."""
+    """A TCP proxy in front of the real server that, once armed for a command
+    name, executes the next such command upstream and closes the client's
+    connection instead of relaying its reply: the lost reply of a command the
+    server ran. Other traffic (the handshake of a fresh connection, a
+    ``SCRIPT LOAD``) passes untouched, so the drop never lands before the
+    target command was sent."""
 
     def __init__(self, upstream: tuple[str, int]) -> None:
         self.upstream = upstream
-        self.armed = False
+        self.target: bytes | None = None
         self.dropped = 0
         self.connections = 0
         self._server: asyncio.Server | None = None
@@ -389,6 +392,10 @@ class _DroppingProxy:
         assert self._server is not None
         self._server.close()
         await self._server.wait_closed()
+
+    def arm(self, command: bytes) -> None:
+        """Drop the reply of the next ``command`` (its RESP name, upper case)."""
+        self.target = command
 
     @property
     def url(self) -> str:
@@ -404,15 +411,36 @@ class _DroppingProxy:
         self.connections += 1
         up_reader, up_writer = await asyncio.open_connection(*self.upstream)
 
+        pending = False
+        matched: bytes | None = None
+
         async def forward() -> None:
+            nonlocal pending, matched
             while data := await reader.read(65536):
+                # A command is ``*N\r\n$len\r\nNAME\r\n...``: match the name only,
+                # never a script body or a value that happens to contain it.
+                parts = data.split(b"\r\n", 3)
+                if (
+                    self.target is not None
+                    and len(parts) > 3
+                    and parts[2].upper() == self.target
+                ):
+                    matched = self.target
+                    self.target = None
+                    pending = True
                 up_writer.write(data)
                 await up_writer.drain()
 
         async def back() -> None:
+            nonlocal pending
             while data := await up_reader.read(65536):
-                if self.armed:
-                    self.armed = False
+                # A NOSCRIPT error means the command did not run: let the
+                # client load the script and re-send, then drop that reply.
+                if pending and data.startswith(b"-NOSCRIPT"):
+                    pending = False
+                    self.target = matched
+                if pending:
+                    pending = False
                     self.dropped += 1
                     return  # the server ran the command; the reply is lost
                 writer.write(data)
@@ -455,15 +483,21 @@ async def test_a_lost_reply_of_a_non_idempotent_operation_is_not_sent_twice() ->
                     key + ":cad", "a"
                 ),
             }
+            commands = {
+                "add": b"SET",
+                "add_or_get": b"EVALSHA",
+                "compare_and_set": b"EVALSHA",
+                "compare_and_delete": b"EVALSHA",
+            }
             await direct.set(key + ":cas", "a", ttl_seconds=30)
             await direct.set(key + ":cad", "a", ttl_seconds=30)
             for name, call in calls.items():
                 await through.get(key)  # a pooled connection to drop on
                 await through.add(f"{key}:warm:{name}", "w", ttl_seconds=30)
-                proxy.armed = True
+                proxy.arm(commands[name])
                 with pytest.raises(Unavailable):
                     await call()
-                assert proxy.dropped >= 1, name
+                assert proxy.dropped == 1, name
                 proxy.dropped = 0
             # Each command ran exactly once, on the server.
             assert await direct.get(key + ":add") == "v"
@@ -482,21 +516,22 @@ async def test_a_lost_reply_of_an_idempotent_operation_is_retried() -> None:
         try:
             key = f"kit:{uuid4().hex}:idempotent"
             await through.set(key, "v", ttl_seconds=30)
-            cases: list[tuple[Callable[[], Any], Any]] = [
-                (lambda: through.get(key), "v"),
-                (lambda: through.set(key, "w", ttl_seconds=30), None),
-                (lambda: through.delete(key + ":other"), None),
+            cases: list[tuple[bytes, Callable[[], Any], Any]] = [
+                (b"GET", lambda: through.get(key), "v"),
+                (b"SET", lambda: through.set(key, "w", ttl_seconds=30), None),
+                (b"DEL", lambda: through.delete(key + ":other"), None),
                 (
+                    b"EVALSHA",
                     lambda: through.set_subject_state(
                         key + ":s", "v1:after:1", ttl_seconds=30
                     ),
                     "v1:after:1",
                 ),
             ]
-            for call, expected in cases:
-                proxy.armed = True
+            for command, call, expected in cases:
+                proxy.arm(command)
                 assert await call() == expected
-                assert proxy.dropped >= 1
+                assert proxy.dropped == 1, command
                 proxy.dropped = 0
         finally:
             await through.aclose()
