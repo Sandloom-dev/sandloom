@@ -13,7 +13,7 @@ title: "ADR-0011: The driver API"
 - **Research:** `design/driver-api/research.md`
 - **Amended:** Database capability (2026-11-05), driver availability and `periodic`
   (2026-11-09), external driver dependencies (2026-11-11), and by
-  [ADR-0016](0016-kernel-ports-and-driver-packages.md) (2026-11-14: decisions 1 and 6)
+  [ADR-0016](0016-kernel-ports-and-driver-packages.md) (2026-11-14: decisions 1, 6 and 8)
 
 ## Context
 
@@ -354,9 +354,9 @@ Preflight checks discoverability with `find_spec`. Conformance exercises the
 driver's operations against a test backend. The wheel test covers both paths
 for an independently installed notification driver.
 
-## Amendment (2026-11-14) by ADR-0016: three doors
+## Amendment (2026-11-14) by ADR-0016: three doors, driver tiers
 
-[ADR-0016](0016-kernel-ports-and-driver-packages.md) amends two decisions of
+[ADR-0016](0016-kernel-ports-and-driver-packages.md) amends three decisions of
 this record.
 
 - **Decision 1** becomes three doors. The module door (`sandloom.sdk.infra`)
@@ -369,7 +369,12 @@ this record.
 - **Decision 6** holds, with `objectstore` public: `ObjectStoreProvider` and
   `ObjectStoreConformance` are exported. The other contracts become public with
   their kits, as the `infra-drivers` slices deliver them.
+- **Decision 8** is extended from capabilities to drivers. A driver's
+  registration carries a tier (`experimental`, `beta`, `stable`), and in
+  production an `experimental` driver needs the accepted risk
+  `experimental_driver` (SANDLOOM-B023), as an experimental capability needs
+  `experimental_capability`.
 
 The rest of ADR-0016 (the error hierarchy, features versus performance hints,
-the uniform kit harness, driver tiers, the `sandloom-redis` and
-`sandloom-celery` packages) builds on decisions 2 to 9 without changing them.
+the uniform kit harness, the `sandloom-redis` and `sandloom-celery` packages)
+builds on decisions 2 to 7 and 9 without changing them.
