@@ -42,3 +42,16 @@ nonces, the idempotency guard and enqueue dedupe leave the cache for the
   production and never built from the cache's options.
 - G-RPC-08 (wording): the shared nonce is an atomic `add` on the security
   `atomic_store`; an outage there fails closed in production.
+
+Review fixes of PR #206 (idk-atomic-adoptc), wording and one test id:
+
+- G-PROFILE-06 (wording and test): a real Redis cache reports `redis:<run_id>`; the test
+  `test_atomic_adopt.py::test_strict_profile_attests_real_redis_identity` is added.
+- G-PROFILE-08 (wording): the refusal of an absent or memory
+  `INFRA.atomic_store.security` is for every production deployment, any
+  `PRODUCTION_PROFILE`, at startup.
+- G-INFRA-10 (wording): the unused-instance list names `atomic_store`, not "revocation
+  and security cache".
+- G-OPS-19 (wording): "security-store restore" and "security store", not the cache.
+- G-CMD-09 (wording): the dedupe fallback outage is an outage of the idempotency
+  `atomic_store`, not "a cache outage".

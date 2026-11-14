@@ -4,7 +4,7 @@
   instance and per Redis endpoint (security store, cache, broker, event bus),
   and how: ``pg_dump`` + PITR for PostgreSQL, AOF/RDB for Redis, and what a
   restore of each implies (``sandloom backup reconcile-security`` for the security
-  cache).
+  atomic_store).
 * :func:`verify_dump` — restore a ``pg_dump`` into a throw-away database on a
   scratch server, check that every migration chain the database hosts is at
   its head and run basic integrity checks, then drop it. A backup that was

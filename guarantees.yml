@@ -432,12 +432,14 @@ guarantees:
   statement: Under the strict profile startup attests that the security atomic_store (and a separate idempotency
     atomic_store) declare never_evicts and shared and differ from the default cache by isolation_identity()
     (on Redis the run_id of the reached process), failing with ProductionProfileError on the same identity
-    or when an identity is None or cannot be read.
+    or when an identity is None or cannot be read; a real Redis cache reports redis:<run_id>, so the
+    same Redis server as the security store is refused.
   sources:
   - docs/advanced/security-model.md#`PRODUCTION_PROFILE=multi_tenant_strict`
   - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_atomic_adopt.py::test_strict_runtime_attests_each_instance_apart_from_the_cache
+  - src/sandloom/core/tests/test_atomic_adopt.py::test_strict_profile_attests_real_redis_identity
   - src/sandloom/core/tests/test_atomic_adopt.py::test_an_unknown_or_failing_identity_fails_attestation
   - src/sandloom/core/tests/test_atomic_adopt.py::test_a_cache_without_an_identity_fails_attestation
   - src/sandloom/core/tests/test_atomic_adopt.py::test_a_security_store_must_declare_never_evicts_and_shared
@@ -457,7 +459,8 @@ guarantees:
   statement: Security-critical state (revocation marks, blocks, RPC nonces, idempotency records) is written through
     the atomic_store instance of its role (security, idempotency), never plain cache(); idempotency records
     move to INFRA.atomic_store.idempotency when declared while revocation marks stay in the security store;
-    an absent INFRA.atomic_store.security is refused in production and never built from the cache's options.
+    an absent (or memory-driver) INFRA.atomic_store.security is refused at startup in every production
+    deployment, whatever the PRODUCTION_PROFILE, and is never built from the cache's options.
   sources:
   - docs/advanced/security-model.md#Security-critical vs best-effort cache
   - docs/modules/database/multi-tenancy.md
@@ -1199,8 +1202,8 @@ guarantees:
   - src/sandloom/core/tests/test_contract_runtime.py::test_command_commits_and_requires_idempotency_key
 - id: G-CMD-09
   statement: 'Without a database command log (no command_idempotency feature) command dedupe falls back
-    to the cache, fail-closed: a cache outage raises ContractIdempotencyUnavailable (503) and the method
-    does not run; the fallback lives in the idempotency atomic_store instance.'
+    to the idempotency atomic_store instance, fail-closed: an outage of that store raises ContractIdempotencyUnavailable
+    (503) and the method does not run.'
   sources:
   - docs/modules/between/contracts.md
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
@@ -4751,8 +4754,8 @@ guarantees:
     a registered driver whose package is missing is not usable. An instance INFRA selects on such a driver,
     and a driver whose dependency fails to import while it is built (strict, production startup), stops
     startup with SANDLOOM-B037 naming the capability, instance, driver, missing package and install hint.
-    An instance nothing requires and the kernel does not use (database, revocation and security cache,
-    event bus) is not built, opened or probed.
+    An instance nothing requires and the kernel does not use (database, atomic_store, event bus)
+    is not built, opened or probed.
   sources:
   - docs/adr/0011-driver-api.md
   - design/kernel-boundary/owner-decision-infra-deps.md
@@ -5569,9 +5572,9 @@ guarantees:
   - tests/integration/with_batteries/test_backup_cli_restore_checks.py::test_verify_flags_orphan_rows_of_a_broken_restore
   - src/sandloom/core/tests/test_backup_cli.py::test_operator_guard_rails
 - id: G-OPS-19
-  statement: After a security-cache restore from a stale snapshot, sandloom backup reconcile-security re-derives
+  statement: After a security-store restore from a stale snapshot, sandloom backup reconcile-security re-derives
     block and revocation marks from durable records so no blocked user is re-enabled and no newer mark
-    in the cache is lowered.
+    in the security store is lowered.
   sources:
   - 'docs/operate/operator-reference.md#Restoring: the order, and the traffic gate'
   - docs/operate/operator-reference.md#Backups & restore
