@@ -54,6 +54,7 @@ class _Stable(_Notifier):
 
 class _StableLease(MemoryLeaseProvider):
     tier = "stable"
+    development_only = False  # a production stand-in; the memory lease is not one
 
 
 class _Unknown(_Notifier):
@@ -416,6 +417,26 @@ def test_a_synthesized_default_with_a_development_only_driver_gets_b022_not_b023
     }
     with pytest.raises(DevelopmentOnlyDriverRefused):
         build_infra_registry(InMemorySchemaRegistry(), settings=_prod(), config=config)
+
+
+def test_a_synthesized_stable_development_only_default_is_refused_with_b022(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A stable development_only default must not slip past the ``stable`` skip
+    # of the tier check: B022 comes before the tier is read. (A tier-less
+    # driver registers as experimental, covered by the test above.)
+    _install(monkeypatch, {"notification.dev": _DevStable})
+    _runtime_prod(monkeypatch)
+    config = {
+        "notification": {
+            "default": InstanceConfig(
+                "notification", "default", "dev", {}, implicit=True
+            )
+        }
+    }
+    with pytest.raises(DevelopmentOnlyDriverRefused) as exc:
+        build_infra_registry(InMemorySchemaRegistry(), settings=_prod(), config=config)
+    assert exc.value.sandloom_code == "SANDLOOM-B022"
 
 
 def test_provider_refuses_a_development_only_experimental_driver_with_b022(

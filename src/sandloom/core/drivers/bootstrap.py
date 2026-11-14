@@ -448,18 +448,21 @@ def _check_driver_tiers_in_production(
     for spec in registry.capabilities():
         for name in registry.instances(spec.name):
             cfg = registry.instance_config(spec.name, name)
-            tier = registry.driver_tier(spec.name, cfg.driver) if cfg else None
-            if cfg is None or tier is None or tier == "stable":
+            if cfg is None:
                 continue
             if _is_development_only(registry, spec.name, cfg.driver):
-                # B022 whatever its tier, a synthesized ``default`` included
-                # (``validate`` skips an implicit instance's B022): never B023.
+                # B022 whatever its tier (stable and untiered too), a
+                # synthesized ``default`` included (``validate`` skips an
+                # implicit instance's B022): never B023.
                 raise DevelopmentOnlyDriverRefused(
                     f"{spec.name}/{name}: driver {cfg.driver!r} is for development "
                     "and tests only, and this is production",
                     fix=f"select a production {spec.name} driver in "
                     f"INFRA[{spec.name!r}][{name!r}]",
                 )
+            tier = registry.driver_tier(spec.name, cfg.driver)
+            if tier is None or tier == "stable":
+                continue
             row = f"{spec.name}/{name} ({cfg.driver})"
             (experimental if tier == "experimental" else beta).append(row)
     if experimental and not settings.accepts_risk("experimental_driver"):
