@@ -44,7 +44,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`ShutdownTask`](#shutdowntask) | constant |  |
 | [`StartupTask`](#startuptask) | constant |  |
 | [`TaskQueue`](#taskqueue) | class | What a module calls on `taskqueue()`. |
-| [`taskqueue`](#taskqueue_1) | function | Return the `TaskQueueProvider` for a named instance (the module-level twin of `CoreRuntime.taskqueue`; spec §2.2). |
+| [`taskqueue`](#taskqueue_1) | function | Return the taskqueue instance `name` behind the kernel's layer. |
 | [`Timeout`](#timeout) | exception | The operation did not finish within its bound. The caller may retry. |
 | [`TooLarge`](#toolarge) | exception | A value, object or payload over a limit. |
 | [`Unavailable`](#unavailable) | exception | Transient: connection lost, failover, overload. The caller may retry. |
@@ -203,7 +203,8 @@ def capability(ref: CapabilityRef[P], name: str = 'default') -> P
 
 Return the instance `name` of the capability `ref` points to, typed by the
 ref. A capability's package publishes the ref and the caller's Protocol, and the
-capability's major version must match the ref's.
+capability's major version must match the ref's. A `taskqueue` instance
+comes behind the kernel's layer, as from `taskqueue()`.
 
 ### `CapabilityRef`
 
@@ -903,8 +904,7 @@ async def enqueue(
 def taskqueue(name: str = 'default') -> TaskQueue
 ```
 
-Return the `TaskQueueProvider` for a named instance (the module-level
-twin of `CoreRuntime.taskqueue`; spec §2.2).
+Return the taskqueue instance `name` behind the kernel's layer.
 
 ### `Timeout`
 

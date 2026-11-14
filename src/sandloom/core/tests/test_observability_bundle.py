@@ -50,6 +50,8 @@ METRIC_MODULES = (
     "sandloom.core.eventing.consumer_inbox",
     "sandloom.core.unit_of_work.dispatch",
     "sandloom.core.contract_cache_shadow",
+    # Driver metrics, declared through sandloom.driverkit.observe at import.
+    "sandloom.core.drivers.redis_cache",
 )
 
 #: Series Prometheus itself synthesises for every target.

@@ -14,12 +14,19 @@ from collections.abc import Callable, Mapping
 from typing import Any, cast
 
 from prometheus_client import (
+    REGISTRY,
     CollectorRegistry,
     Counter,
     Gauge,
     Histogram,
     generate_latest,
 )
+
+from sandloom.core.observability import driver_metrics as _driver_metrics
+
+# The registry ``render_metrics`` exports (prometheus_client's process
+# registry): every driver metric declared through the hook records into it.
+_driver_metrics.install_registry(REGISTRY)
 
 
 def render_metrics() -> bytes:
@@ -634,14 +641,8 @@ db_pool_checkout_waiters = cast(
 )
 
 # -- H-09: cache, revocation, rate limit, RPC --------------------------------
-cache_operation_errors_total = cast(
-    Any,
-    Counter(
-        "sandloom_cache_operation_errors_total",
-        "Cache operations that raised (connection, timeout, server error)",
-        ["instance", "operation"],
-    ),
-)
+# sandloom_cache_operation_errors_total is the Redis cache driver's own metric,
+# declared through the driver metrics hook (driver_metrics.observe).
 _FAST_BUCKETS = (0.0002, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.5)
 auth_revocation_check_duration_seconds = cast(
     Any,

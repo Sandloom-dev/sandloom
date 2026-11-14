@@ -190,11 +190,24 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
 SQLALCHEMY_SQL_DIALECTS = frozenset({"postgresql", "sqlite"})
 
 
+def volatile_event_bus_allowed(settings: Settings | None = None) -> bool:
+    """Whether a volatile event bus (``memory``, ``redis``) may be built: not
+    in production unless the risk ``volatile_event_bus`` is accepted. The
+    kernel's policy, handed to the event bus drivers (they read no setting).
+    ``settings`` are the ones the registry was built with (the process
+    settings when omitted)."""
+    resolved = settings or _default_settings
+    return not resolved.is_prod or resolved.accepts_risk("volatile_event_bus")
+
+
 def _event_bus_build(
-    schema_registry: SchemaRegistryContract, driver: str
+    schema_registry: SchemaRegistryContract,
+    driver: str,
+    settings: Settings | None = None,
 ) -> DriverFactory:
     """The build of an event bus driver: the bus needs the application's
-    schema registry, which ``from_config`` cannot reach."""
+    schema registry, which ``from_config`` cannot reach, and the policy of
+    the registry's own ``settings``."""
 
     def build(cfg: InstanceConfig) -> InfraProvider:
         # Imported when an instance selects the driver, never at bootstrap.
@@ -202,7 +215,8 @@ def _event_bus_build(
             "sandloom.core.drivers.event_bus_driver"
         )
         factory: DriverFactory = event_bus_driver.make_event_bus_drivers(
-            schema_registry
+            schema_registry,
+            volatile_allowed=lambda: volatile_event_bus_allowed(settings),
         )[driver]
         return factory(cfg)
 
@@ -210,7 +224,10 @@ def _event_bus_build(
 
 
 def register_builtin_drivers(
-    registry: InfraRegistry, schema_registry: SchemaRegistryContract
+    registry: InfraRegistry,
+    schema_registry: SchemaRegistryContract,
+    *,
+    settings: Settings | None = None,
 ) -> None:
     """Register every capability spec and driver shipped with core.
 
@@ -221,6 +238,8 @@ def register_builtin_drivers(
     capabilities (document_store, graph_store, workflow, search, lock, secrets)
     are registered as known specs and ship no production driver — a plugin
     supplies one (document_store has the in-memory ``memory`` driver).
+    ``settings`` decide the event bus drivers' volatile policy (the process
+    settings when omitted).
     """
     for spec in (*BUILTIN_CAPABILITIES, *EXTRA_CAPABILITIES):
         registry.register_capability(spec)
@@ -246,7 +265,7 @@ def register_builtin_drivers(
             install=install,
             sql_dialects=SQLALCHEMY_SQL_DIALECTS if driver == "sqlalchemy" else None,
             build=(
-                _event_bus_build(schema_registry, driver)
+                _event_bus_build(schema_registry, driver, settings)
                 if capability == "eventbus"
                 else None
             ),
@@ -269,7 +288,7 @@ def build_infra_registry(
     registry = InfraRegistry(strict_capabilities=True)
     # Register capabilities + drivers BEFORE the config so that set_config has
     # the specs to validate INFRA against.
-    register_builtin_drivers(registry, schema_registry)
+    register_builtin_drivers(registry, schema_registry, settings=resolved_settings)
     if load_plugins:
         load_selected_plugins(registry, cfg)
     registry.set_config(cfg)
@@ -321,6 +340,7 @@ __all__ = [
     "SQLALCHEMY_SQL_DIALECTS",
     "register_builtin_drivers",
     "build_infra_registry",
+    "volatile_event_bus_allowed",
     "close_default_cache",
     "close_default_database",
 ]

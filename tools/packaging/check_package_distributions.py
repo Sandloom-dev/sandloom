@@ -363,6 +363,11 @@ def check_lean_install(temp: Path, wheel: Path) -> None:
         "redis",
         "celery",
         "sentry-sdk",
+        # The `otel` extra: imported only when TRACING_URL is set.
+        "opentelemetry-api",
+        "opentelemetry-sdk",
+        "opentelemetry-exporter-otlp-proto-http",
+        "opentelemetry-exporter-otlp-proto-grpc",
         "sandloom-identity",
         "sandloom-standard",
     }
