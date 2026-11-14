@@ -143,6 +143,15 @@ RISKS: tuple[Risk, ...] = (
         "a late retry after the dedupe record expired runs the step twice.",
         "app startup check (sandloom.core.guarantee_windows.enforce_guarantee_windows)",
     ),
+    Risk(
+        "unverified_noeviction",
+        "never_evicts_check=assume on a Redis atomic_store in prod: the driver "
+        "cannot read maxmemory-policy, so an operator vouches that the server "
+        "never evicts; if it does, a revocation mark or an idempotency "
+        "reservation can vanish before its TTL.",
+        "redis atomic_store driver (sandloom.core.drivers.redis_atomic_store), "
+        "through the policy the registry gives it (assume_allowed)",
+    ),
 )
 
 #: Every registered id.

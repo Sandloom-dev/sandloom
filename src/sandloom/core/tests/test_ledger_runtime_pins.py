@@ -62,6 +62,7 @@ def test_accepted_risk_ids_are_pinned() -> None:
         "relay_disabled",
         "saga_horizon_beyond_command_dedupe",
         "shared_hs_secret_split",
+        "unverified_noeviction",
         "unversioned_ddl_repair",
         "volatile_event_bus",
         "weak_password_hash",
