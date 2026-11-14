@@ -11,11 +11,11 @@ the identity and error-mapping tests that need no server always run.
 from __future__ import annotations
 
 import asyncio
+import http.client
 import json
 import os
 import socket
 import urllib.parse
-import urllib.request
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -84,8 +84,17 @@ class TestSmtpNotifier(NotifierConformance):
 
 
 def _api_get(path: str) -> dict[str, Any]:
-    with urllib.request.urlopen(f"{_API}{path}", timeout=5) as response:  # noqa: S310 - the CI mailpit container's HTTP API, a fixed http URL
+    target = urllib.parse.urlsplit(_API)
+    connection = http.client.HTTPConnection(
+        target.hostname or "127.0.0.1", target.port or 80, timeout=5
+    )
+    try:
+        connection.request("GET", path)
+        response = connection.getresponse()
+        assert response.status == 200, f"mailpit answered {response.status}"
         return json.loads(response.read())  # type: ignore[no-any-return]
+    finally:
+        connection.close()
 
 
 @needs_server
