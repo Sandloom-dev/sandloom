@@ -5255,6 +5255,9 @@ guarantees:
   - src/sandloom/core/tests/test_driver_tiers.py::test_provider_refuses_an_experimental_driver_configured_after_boot
   - src/sandloom/core/tests/test_driver_tiers.py::test_a_development_only_driver_is_refused_whatever_its_tier
   - src/sandloom/core/tests/test_driver_tiers.py::test_a_development_only_experimental_driver_gets_b022_not_b023
+  - src/sandloom/core/tests/test_driver_tiers.py::test_a_synthesized_default_with_a_development_only_driver_gets_b022_not_b023
+  - src/sandloom/core/tests/test_driver_tiers.py::test_a_synthesized_stable_development_only_default_is_refused_with_b022
+  - src/sandloom/core/tests/test_driver_tiers.py::test_smtp_selected_in_production_is_beta_and_needs_no_risk
   - packages/sandloom-s3/tests/test_tier.py::test_production_starts_s3_without_an_accepted_risk
   startup_checks: _check_driver_tiers_in_production at create_app / enforce_configuration
 - id: G-MIGRATE-01

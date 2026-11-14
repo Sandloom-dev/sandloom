@@ -16,7 +16,7 @@ hook: ``BROKER_URL`` has no driver to ask, so :func:`rewrite_redis` moves it
 itself, by the same layout. Nothing else rewrites a URL here.
 
 The layout is computed here and handed to the drivers
-(:func:`sandloom.core.infra.ports._base.set_worker_layout`) before any hook runs,
+(:func:`sandloom.core.infra.worker_isolation.set_worker_layout`) before any hook runs,
 so a hook and the harness agree and a driver reads no environment. Two layouts,
 chosen by ``SANDLOOM_TEST_REDIS_DB_STRIDE``:
 
@@ -38,7 +38,7 @@ import os
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-import sandloom.core.infra.ports._base as _isolation
+import sandloom.core.infra.worker_isolation as _isolation
 from sandloom.core.drivers.bootstrap import BUILTIN_DRIVER_ROWS
 from sandloom.core.infra.capabilities import BUILTIN_CAPABILITIES
 from sandloom.core.infra.config import InstanceConfig
