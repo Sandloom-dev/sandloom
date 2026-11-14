@@ -683,7 +683,9 @@ async def test_the_bus_resubscribes_when_its_subscription_is_lost(
             subscription._overflowed = True
             subscription._wake()
         await _until(
-            lambda: any("lost the subscription" in r.message for r in caplog.records)
+            lambda: any(
+                "lost the subscription" in r.getMessage() for r in caplog.records
+            )
         )
     await _until(
         lambda: bool(provider._hub.subscriptions) and handle.state.value == "running"
