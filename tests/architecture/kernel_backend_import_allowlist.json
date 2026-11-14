@@ -1,0 +1,23 @@
+{
+  "_doc": "Seeded, shrink-only allowlist of test_kernel_backend_imports.py: today's backend SDK imports in src/sandloom/core outside core/drivers. A new (file, sdk) or a higher count fails; a stale entry does not. removed_by names the slice that removes the site, or why it stays. idk-ratchets-close prunes it and makes the test strict.",
+  "entries": [
+    {"file": "core/async_runner.py", "sdk": "celery", "sites": 1, "removed_by": "idk-worker-port"},
+    {"file": "core/beat_lease.py", "sdk": "celery", "sites": 1, "removed_by": "idk-worker-port"},
+    {"file": "core/cli/dev/services.py", "sdk": "psycopg2", "sites": 2, "removed_by": "stays: PostgreSQL ops tool (design.md section 4: psycopg2 stays where the ops tools need it); idk-ratchets-close makes the import lazy"},
+    {"file": "core/cli/dev/services.py", "sdk": "redis", "sites": 1, "removed_by": "idk-test-harness"},
+    {"file": "core/cli/extract.py", "sdk": "psycopg2", "sites": 1, "removed_by": "stays: PostgreSQL ops tool (design.md section 4: psycopg2 stays where the ops tools need it); idk-ratchets-close makes the import lazy"},
+    {"file": "core/gc_tuning.py", "sdk": "celery", "sites": 1, "removed_by": "idk-worker-port"},
+    {"file": "core/migrations/backup.py", "sdk": "psycopg2", "sites": 2, "removed_by": "stays: PostgreSQL ops tool (design.md section 4: psycopg2 stays where the ops tools need it); idk-ratchets-close makes the import lazy"},
+    {"file": "core/testing/connections.py", "sdk": "psycopg2", "sites": 1, "removed_by": "stays: PostgreSQL test harness (design.md section 4); idk-ratchets-close makes the import lazy"},
+    {"file": "core/testing/migrations.py", "sdk": "psycopg2", "sites": 1, "removed_by": "stays: PostgreSQL test harness (design.md section 4); idk-ratchets-close makes the import lazy"},
+    {"file": "core/testing/ownership.py", "sdk": "psycopg2", "sites": 2, "removed_by": "stays: PostgreSQL test harness (design.md section 4); idk-ratchets-close makes the import lazy"},
+    {"file": "core/testing/ownership.py", "sdk": "redis", "sites": 1, "removed_by": "idk-test-harness"},
+    {"file": "core/testing/resources.py", "sdk": "psycopg2", "sites": 2, "removed_by": "stays: PostgreSQL test harness (design.md section 4); idk-ratchets-close makes the import lazy"},
+    {"file": "core/testing/resources.py", "sdk": "redis", "sites": 1, "removed_by": "idk-test-harness"},
+    {"file": "core/testing/session_checks.py", "sdk": "psycopg2", "sites": 1, "removed_by": "stays: PostgreSQL test harness (design.md section 4); idk-ratchets-close makes the import lazy"},
+    {"file": "core/testing/slots.py", "sdk": "psycopg2", "sites": 1, "removed_by": "stays: PostgreSQL test harness (design.md section 4); idk-ratchets-close makes the import lazy"},
+    {"file": "core/testing/slots.py", "sdk": "redis", "sites": 1, "removed_by": "idk-test-harness"},
+    {"file": "core/testing/workers.py", "sdk": "psycopg2", "sites": 2, "removed_by": "stays: PostgreSQL test harness (design.md section 4); idk-ratchets-close makes the import lazy"},
+    {"file": "core/worker.py", "sdk": "celery", "sites": 1, "removed_by": "idk-worker-port"}
+  ]
+}
