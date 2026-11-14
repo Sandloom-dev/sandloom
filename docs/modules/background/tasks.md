@@ -100,10 +100,9 @@ await close_stale_items.enqueue(
 `enqueue(payload, *, delay=None, idempotency_key=None)` returns the job id.
 `delay` is a `timedelta` and needs a task queue driver with the feature `delay`
 (`Unsupported` otherwise, raised before anything is reserved). A task without
-a payload is enqueued without one. To enqueue a task of a module you do not
-import, send it by name through the capability:
-`await taskqueue().enqueue("<package>.tasks.<name>", {...}, idempotency_key=...)`
-(`sandloom.sdk.infra`). With a key:
+a payload is enqueued without one. A module enqueues only its own tasks:
+work in another module goes through events or contracts, never through that
+module's task name. With a key:
 
 - a successful repeat within `dedupe_ttl_seconds` (driver option, default
   86400, maximum 604800) returns the original job id and publishes nothing;

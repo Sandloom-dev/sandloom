@@ -2965,11 +2965,14 @@
         "case_insensitive_text",
         "classify_error",
         "conflict_insert",
+        "contract_version",
         "features",
         "for_update",
         "greatest",
         "id_in",
         "lock_statement",
+        "minimum_server_version",
+        "name",
         "partial_index_options",
         "relaxed_commit_clause",
         "row_security",
@@ -3010,7 +3013,8 @@
         "required_imports",
         "send",
         "supported_features",
-        "test_isolation"
+        "test_isolation",
+        "tier"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -3472,6 +3476,7 @@
         "test_harness_states_development_only_as_a_bool",
         "test_harness_states_the_contract_version",
         "test_harness_undeclared_behaviours_raise_unsupported",
+        "test_send_carries_the_queue_of_the_task",
         "test_send_errors_carry_the_dedupe_decision",
         "test_send_marks_at_least_once_only_when_the_driver_redelivers",
         "test_send_of_a_bad_task_name_raises_invalid_argument",
@@ -5776,7 +5781,9 @@
     },
     "Mapper": {
       "kind": "class",
-      "members": [],
+      "members": [
+        "kind"
+      ],
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
     "Projection": {
@@ -6231,19 +6238,29 @@
     "PayloadlessTask": {
       "kind": "class",
       "members": [
-        "enqueue"
+        "enqueue",
+        "name",
+        "queue"
       ],
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
     "PeriodicTask": {
       "kind": "class",
-      "members": [],
+      "members": [
+        "cron",
+        "id",
+        "max_interval",
+        "name",
+        "queue"
+      ],
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
     "Task": {
       "kind": "class",
       "members": [
-        "enqueue"
+        "enqueue",
+        "name",
+        "queue"
       ],
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
