@@ -20,6 +20,16 @@
             "command": "tm hook claude-code"
           }
         ]
+      },
+      {
+        "matcher": "^(Edit|Write|MultiEdit)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/ruff_format.py\"",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "SessionStart": [
