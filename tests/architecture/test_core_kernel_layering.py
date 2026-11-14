@@ -184,6 +184,9 @@ DRIVER_IMPORT_ALLOWLIST = {
     # test_isolation hook. Loaded only by a process with Redis to isolate; it
     # moves into the sandloom-redis pytest plugin (idk-pkg-redis).
     "testing/redis_isolation.py",
+    # Operator command over the database lease driver specifically; the lease
+    # contract has no fence-bump operation, by review decision (G-OPS-25).
+    "cli/backup.py",
 }
 
 

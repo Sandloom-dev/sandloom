@@ -346,7 +346,7 @@ def test_fence_leases_and_verify_refuse_a_database_that_is_not_postgresql(
         lambda: {"default": "sqlite+aiosqlite:///x.db"},
     )
     assert main(["fence-leases"]) == 2
-    assert "needs PostgreSQL" in capsys.readouterr().err
+    assert "needs a migration-chain database" in capsys.readouterr().err
     dump = _fake_dump(tmp_path)
     assert main(["verify", str(dump), "--server-url", "sqlite:///x.db"]) == 2
-    assert "needs a PostgreSQL" in capsys.readouterr().err
+    assert "takes its schema from the models" in capsys.readouterr().err

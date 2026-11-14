@@ -559,31 +559,33 @@ sandloom backup verify default-20261022T0300Z.dump --database default \
    `sandloom migrate upgrade-all --apply`.
    Then, with the writers still stopped, run `sandloom backup fence-leases`
    (dry-run) and `sandloom backup fence-leases --apply --reason "restore INC-…"`.
-   Do not skip this step: nothing detects a missing one (`sandloom backup verify`
-   checks migration heads and integrity, not fences). The `database` lease driver
-   issues `fence + 1` on every acquire, and an older dump rewinds each fence. A
-   stale holder of the lost window could then present a fence that the restored
-   counter issues again, and the fenced writes of the new holder would not
-   outrank it. The command builds the core first, so it fails before any write
-   when it cannot. It then lifts every `infra_lease` fence of every configured
-   PostgreSQL database by `10**12` (`--database` limits it) and releases every
-   lease. A database that is not PostgreSQL is refused (exit 2). Each name then
-   issues a fence above any the lost window issued, if fewer than `10**12`
-   acquisitions of it happened since the snapshot. A name first acquired after
-   the restore starts above the highest fence of the table, not at 1. The rows
-   stay, because dropping them restarts the counter at 1. Holders reacquire: a
-   renewal of a released lease fails. Each database's bump commits together with
-   its audit row `core.lease.fences_bumped` (operator, reason, offset, the lease
-   names, the highest fence before and after), so a failure leaves that database
-   unchanged. A re-run lifts again, so read the audit rows before repeating it.
-   After a PITR to the instant of the failure the fences are intact, and running
-   it is still safe.
+   Do not skip this step. Nothing detects a missing one: `sandloom backup verify`
+   checks migration heads and integrity, not fences.
+   The `database` lease driver issues `fence + 1` on every acquire. An older
+   dump rewinds each fence. A stale holder of the lost window could then present
+   a fence that the restored counter issues again. The fenced writes of the new
+   holder would not outrank it.
+   The command builds the core first. It fails before any write when it cannot.
+   It lifts every `infra_lease` fence of every configured database by `10**12`
+   (`--database` limits it) and releases every lease. A database that takes its
+   schema from the models (SQLite) is refused with exit 2.
+   Each name then issues a fence above any the lost window issued, if fewer than
+   `10**12` acquisitions of it happened since the snapshot. A name first
+   acquired after the restore starts above the highest fence of the table. The
+   rows stay: dropping them restarts the counter at 1. Holders reacquire, and a
+   renewal of a released lease fails.
+   Each database's bump commits with its audit row `core.lease.fences_bumped`.
+   The row names the operator and the reason. It also holds the offset and the
+   lease names. The highest fence before the bump and after it is there too. A
+   failure leaves that database unchanged.
+   A re-run lifts again: read the audit rows before repeating it. After a PITR
+   to the instant of the failure the fences are intact. Running it is still safe.
 3. Restore Redis if it was lost. A `lease` instance on Redis (the `redis`
-   driver, key `<base>:fence`) and an `atomic_store` on Redis keep their fence
-   counters there, and an RDB or AOF restore rewinds them like a database dump.
-   `sandloom backup fence-leases` does not reach them: `INCR` each fence counter
-   past what the lost window issued (by `10**12`, as for the database), or keep
-   holders stopped until their lease TTLs have expired.
+   driver, key `<base>:fence`) keeps its fence counters there. An `atomic_store`
+   on Redis does the same. An RDB or AOF restore rewinds them like a database
+   dump. `sandloom backup fence-leases` does not reach them. `INCR` each fence
+   counter past what the lost window issued (by `10**12`, as for the database).
+   Or keep the holders stopped until their lease TTLs have expired.
 4. **`sandloom backup reconcile-security`** (dry-run), then
    `sandloom backup reconcile-security --apply --reason "restore INC-…"`. A Redis
    snapshot OLDER than a later `block_user` silently unblocks that user (an

@@ -31,7 +31,6 @@ import asyncio
 import json
 import sys
 from typing import Any
-from urllib.parse import urlsplit
 
 import sandloom.core.migrations.migrations as _migrations
 from sandloom.core.auth.recovery import (
@@ -52,6 +51,7 @@ from sandloom.core.migrations.backup import (
     format_plan,
     verify_dump,
 )
+from sandloom.core.sql_alchemy.portable import dialect_of_url, schema_from_models
 from sandloom.core.unit_of_work import db_session
 from sandloom.core.unit_of_work.effects import record_audit
 from sandloom.core.unit_of_work.scope import _audit_store, _outbox_store
@@ -90,10 +90,11 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         return 2
     core = _build_core()
     server = args.server_url or _migrations.resolve_database_sync_url(args.database)
-    if _not_postgres(server):
+    if _from_models(server):
         print(
-            "error: backup verify needs a PostgreSQL server (pg_restore, psql); "
-            f"database {args.database!r} is not on one",
+            "error: backup verify restores a dump with pg_restore / psql into a "
+            f"server whose schema comes from migrations; database {args.database!r} "
+            "takes its schema from the models",
             file=sys.stderr,
         )
         return 2
@@ -225,8 +226,11 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
     return 0 if report.clean else 1
 
 
-def _not_postgres(url: str) -> bool:
-    return not urlsplit(url).scheme.startswith("postgres")
+def _from_models(url: str) -> bool:
+    """The database takes its schema from the models (its SQL dialect renderer
+    says so, SANDLOOM-B028): no migration chain, no dump to restore, no
+    ``infra_lease`` fences to lift."""
+    return schema_from_models(dialect_of_url(url))
 
 
 async def _fence_database(
@@ -279,12 +283,13 @@ def _cmd_fence_leases(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
-    foreign = [n for n in names if _not_postgres(instances[n])]
+    foreign = [n for n in names if _from_models(instances[n])]
     if foreign:
         print(
-            "error: fence-leases needs PostgreSQL; database instance(s) "
-            f"{', '.join(foreign)} are not (a Redis lease: see the restore "
-            "note in docs/operate/operator-reference.md)",
+            "error: fence-leases needs a migration-chain database; database "
+            f"instance(s) {', '.join(foreign)} take their schema from the models "
+            "(a Redis lease: see the restore note in "
+            "docs/operate/operator-reference.md)",
             file=sys.stderr,
         )
         return 2
