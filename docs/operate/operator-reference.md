@@ -531,7 +531,7 @@ sandloom backup verify default-20261022T0300Z.dump --database default \
   server; in prod pass a scratch server or `--confirm-production`), checks that
   every chain the instance hosts is at its head, that the core tables exist
   (outbox, audit, inbox, command and idempotency logs, saga tables, projection
-  watermarks, `infra_lease`),
+  watermarks, `infra_lease`, `infra_atomic_store`),
   that indexes / constraints are valid and foreign keys hold, reports the
   newest audit row (your effective RPO) and the outbox backlog, then drops the
   database (`--keep` keeps it). Exit 0 = the backup restores and is current.

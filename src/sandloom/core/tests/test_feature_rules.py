@@ -102,10 +102,28 @@ def _registry(**config: InstanceConfig) -> InfraRegistry:
 
 
 def test_a_row_not_delivered_yet_is_refused_naming_its_slice() -> None:
-    registry = _registry(default=InstanceConfig("cache", "default", "memory", {}))
-    with pytest.raises(DriverLoadError, match="idk-cache-contract") as refused:
+    # The first row whose slice has not delivered its class yet (picked from the
+    # table, so delivering a slice never edits this test); none left, nothing to test.
+    undelivered = [
+        (capability, driver, delivered_by)
+        for capability, driver, target, _req, _install, delivered_by in BUILTIN_DRIVER_ROWS
+        if delivered_by and not _importable(target.partition(":")[0])
+    ]
+    if not undelivered:
+        return  # every slice is delivered: the refusal has no row left to show
+    capability, driver, delivered_by = undelivered[0]
+    registry = _registry(default=InstanceConfig(capability, "default", driver, {}))
+    with pytest.raises(DriverLoadError, match=delivered_by) as refused:
         registry.validate()
     assert refused.value.sandloom_code == "SANDLOOM-B022"
+
+
+def _importable(module_name: str) -> bool:
+    try:
+        importlib.import_module(module_name)
+    except ModuleNotFoundError:
+        return False
+    return True
 
 
 class _Notifier(NotifierProvider):

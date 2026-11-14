@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator, Callable
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -36,11 +35,7 @@ from sandloom.core.infra.errors import InvalidArgument, Unavailable
 from sandloom.core.infra.ports.atomic_store import AtomicStoreProvider
 from sandloom.core.migrations.backup import CORE_TABLES
 from sandloom.core.schema.registry import InMemorySchemaRegistry
-from sandloom.core.sql_alchemy.atomic_store_purge import purge_expired_atomic_entries
-from sandloom.core.sql_alchemy.models.atomic_store import (
-    STORAGE_PARAMETERS,
-    InfraAtomicStore,
-)
+from sandloom.core.sql_alchemy.models.atomic_store import InfraAtomicStore
 from sandloom.driverkit.testing import AtomicStoreConformance
 
 # The harness resolves the URL into ``settings`` (SANDLOOM_TEST_* on a shared
@@ -234,7 +229,8 @@ def test_the_driver_table_is_the_model_and_the_backup_list() -> None:
         assert column.nullable == modelled.nullable, column.name
         assert column.primary_key == modelled.primary_key, column.name
     assert "infra_atomic_store" in CORE_TABLES
-    assert model.dialect_options["postgresql"]["with"] == STORAGE_PARAMETERS
+    # The storage parameters are PostgreSQL's: the model carries none.
+    assert model.dialect_options["postgresql"]["with"] is None
 
 
 def test_the_migration_creates_the_table_logged_with_the_storage_parameters() -> None:
@@ -246,8 +242,13 @@ def test_the_migration_creates_the_table_logged_with_the_storage_parameters() ->
         pytest.skip("the migration source is not in this tree")
     body = source.read_text()
     assert "prefixes" not in body  # never ``prefixes=["UNLOGGED"]``
-    for name, value in STORAGE_PARAMETERS.items():
-        assert f'"{name}": {value}' in body
+    for pinned in (
+        '"fillfactor": 70',
+        '"autovacuum_vacuum_scale_factor": 0.02',
+        '"autovacuum_vacuum_threshold": 50',
+        '"autovacuum_analyze_scale_factor": 0.05',
+    ):
+        assert pinned in body
 
 
 def test_the_registry_builds_the_database_driver_as_an_option() -> None:
@@ -314,6 +315,11 @@ async def test_a_table_made_unlogged_after_open_fails_health(
             await conn.execute(text("ALTER TABLE infra_atomic_store SET UNLOGGED"))
         await engine.dispose()
         assert (await provider.health()).details == {"reason": "table_not_logged"}
+        # Fail closed: the check that found the table unlogged refuses every operation.
+        with pytest.raises(InvalidArgument):
+            await provider.get("k")
+        with pytest.raises(InvalidArgument):
+            await provider.set_subject_state("k", "v1:after:1")
     finally:
         await provider.aclose()
 
@@ -347,114 +353,154 @@ async def test_a_losing_insert_of_set_subject_state_reads_again(
         await provider.aclose()
 
 
-# --------------------------------------------------------------- the sweeper
-class _Unit:
-    """The unit of work of one session on ``engine``, as the relay hands it."""
-
-    def __init__(self, engine: Any) -> None:
-        self._engine = engine
-        self.session: Any = None
-        self._ctx: Any = None
-
-    async def __aenter__(self) -> _Unit:
-        from sqlalchemy.ext.asyncio import AsyncSession
-
-        self.session = AsyncSession(self._engine)
-        await self.session.begin()
-        return self
-
-    async def __aexit__(self, *exc: object) -> None:
-        if exc[0] is None:
-            await self.session.commit()
-        else:
-            await self.session.rollback()
-        await self.session.close()
-
-
-async def test_the_sweeper_deletes_only_rows_expired_beyond_the_grace(
-    sqlite_url: str,
-) -> None:
-    provider = _provider(sqlite_url)
-    engine = create_async_engine(sqlite_url)
-    now = datetime.now(UTC)
+# ------------------------------------------------------------------- the purge
+async def _insert_expired(url: str, rows: dict[str, int]) -> None:
+    """Rows expired ``seconds`` ago by the DATABASE's own clock (never ours)."""
+    engine = create_async_engine(url)
+    sqlite = make_url(url).get_backend_name() == "sqlite"
     try:
-        await provider.set("never", "a")
-        await provider.set("live", "b", ttl_seconds=600)
         async with engine.begin() as conn:
-            for key, delta in (("old", -3600), ("recent", -5)):
+            for key, seconds in rows.items():
+                expiry = (
+                    f"strftime('%Y-%m-%d %H:%M:%f', 'now', '-{seconds} seconds')"
+                    if sqlite
+                    else f"now() - interval '{seconds} seconds'"
+                )
                 await conn.execute(
                     text(
                         "INSERT INTO infra_atomic_store (key, value, expires_at) "
-                        "VALUES (:k, 'v', :t)"
+                        f"VALUES (:k, 'v', {expiry})"
                     ),
-                    {
-                        "k": key,
-                        "t": (now + timedelta(seconds=delta)).strftime(
-                            "%Y-%m-%d %H:%M:%S.%f"
-                        ),
-                    },
+                    {"k": key},
                 )
-        deleted = await purge_expired_atomic_entries(
-            lambda: _Unit(engine), limit=100, grace_seconds=60
-        )
-        assert deleted == 1
-        assert await provider.get("never") == "a"
-        assert await provider.get("live") == "b"
-        async with engine.connect() as conn:
-            keys = {
-                r[0]
-                for r in await conn.execute(text("SELECT key FROM infra_atomic_store"))
-            }
-        assert keys == {"never", "live", "recent"}
-        assert await purge_expired_atomic_entries(lambda: _Unit(engine), limit=0) == 0
     finally:
-        await provider.aclose()
         await engine.dispose()
 
 
-@_POSTGRES_ONLY
-async def test_the_sweeper_on_postgresql_keeps_live_and_non_expiring_rows(
-    pg_scratch_url: Callable[..., Any],
-) -> None:
-    url = await pg_scratch_url()
-    provider = _provider(url)
+async def _keys(url: str) -> set[str]:
     engine = create_async_engine(url)
+    try:
+        async with engine.connect() as conn:
+            rows = await conn.execute(text("SELECT key FROM infra_atomic_store"))
+            return {r[0] for r in rows}
+    finally:
+        await engine.dispose()
+
+
+async def _purge_removes_only_rows_expired_beyond_the_grace(url: str) -> None:
+    provider = _provider(url)
     try:
         await provider.set("never", "a")
         await provider.set("live", "b", ttl_seconds=600)
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "INSERT INTO infra_atomic_store (key, value, expires_at) VALUES "
-                    "('old', 'v', now() - interval '1 hour'), "
-                    "('recent', 'v', now() - interval '5 seconds')"
-                )
-            )
-        assert await purge_expired_atomic_entries(lambda: _Unit(engine), limit=100) == 1
+        await _insert_expired(url, {"old": 3600, "recent": 5})
+        assert await provider.purge_expired() == 1
+        assert await _keys(url) == {"never", "live", "recent"}
         assert await provider.get("never") == "a"
         assert await provider.get("live") == "b"
-        async with engine.connect() as conn:
-            keys = {
-                r[0]
-                for r in await conn.execute(text("SELECT key FROM infra_atomic_store"))
-            }
-        assert keys == {"never", "live", "recent"}
+        assert await provider.get("recent") is None  # expired: absent, not yet purged
     finally:
         await provider.aclose()
-        await engine.dispose()
 
 
-async def test_the_sweeper_skips_a_database_without_the_table(tmp_path: Path) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'bare.db'}")
+async def test_the_purge_removes_only_rows_expired_beyond_the_grace(
+    sqlite_url: str,
+) -> None:
+    await _purge_removes_only_rows_expired_beyond_the_grace(sqlite_url)
+
+
+@_POSTGRES_ONLY
+async def test_the_purge_on_postgresql_removes_only_rows_expired_beyond_the_grace(
+    pg_scratch_url: Callable[..., Any],
+) -> None:
+    await _purge_removes_only_rows_expired_beyond_the_grace(await pg_scratch_url())
+
+
+async def test_the_purge_runs_bounded_batches_until_nothing_is_left(
+    sqlite_url: str,
+) -> None:
+    provider = _provider(sqlite_url, purge_batch_size=2, purge_grace_seconds=0)
     try:
-        assert await purge_expired_atomic_entries(lambda: _Unit(engine), limit=10) == 0
+        await _insert_expired(sqlite_url, {f"old{i}": 100 + i for i in range(5)})
+        assert await provider.purge_expired() == 5
+        assert await _keys(sqlite_url) == set()
     finally:
-        await engine.dispose()
+        await provider.aclose()
 
 
-def test_a_row_expired_in_the_future_of_the_sweeper_is_never_a_victim() -> None:
-    # The sweeper's cutoff trails this process's clock by the grace, so a row the
-    # database's clock still reads as live (a skew below the grace) stays.
-    from sandloom.core.sql_alchemy.atomic_store_purge import DEFAULT_GRACE_SECONDS
+async def test_the_purge_task_deletes_expired_rows_and_stops_on_close(
+    sqlite_url: str,
+) -> None:
+    provider = _provider(sqlite_url, purge_interval_seconds=0.02, purge_grace_seconds=0)
+    await provider.aopen()
+    task = provider._purge_task
+    assert task is not None and not task.done()
+    try:
+        await _insert_expired(sqlite_url, {"old": 100})
+        for _ in range(250):
+            if not await _keys(sqlite_url):
+                break
+            await asyncio.sleep(0.02)
+        assert await _keys(sqlite_url) == set()
+    finally:
+        await provider.aclose()
+    assert task.done()
+    assert provider._purge_task is None
 
-    assert DEFAULT_GRACE_SECONDS >= 30
+
+async def test_a_failing_purge_is_logged_counted_and_does_not_stop_the_loop(
+    sqlite_url: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    from prometheus_client import REGISTRY
+
+    labels = {"instance": "security", "operation": "purge"}
+    name = "sandloom_atomic_store_operation_errors_total"
+    before = REGISTRY.get_sample_value(name, labels) or 0.0
+    provider = _provider(sqlite_url, purge_interval_seconds=0.01)
+    calls = 0
+
+    async def failing() -> int:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ConnectionResetError("secret detail")
+        raise Unavailable("down", capability="atomic_store", instance="security")
+
+    provider.purge_expired = failing  # type: ignore[method-assign]
+    caplog.set_level("WARNING")
+    await provider.aopen()
+    task = provider._purge_task
+    assert task is not None
+    try:
+        for _ in range(250):
+            if calls >= 3:
+                break
+            await asyncio.sleep(0.01)
+        assert calls >= 3 and not task.done()
+    finally:
+        await provider.aclose()
+    assert (REGISTRY.get_sample_value(name, labels) or 0.0) == before + 1
+    assert "ConnectionResetError" in caplog.text
+    assert "secret detail" not in caplog.text
+
+
+async def test_a_purge_that_hits_a_backend_error_counts_it(
+    sqlite_url: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    from prometheus_client import REGISTRY
+
+    labels = {"instance": "security", "operation": "purge"}
+    name = "sandloom_atomic_store_operation_errors_total"
+    before = REGISTRY.get_sample_value(name, labels) or 0.0
+    provider = _provider(sqlite_url)
+    await provider.aopen()
+    engine = create_async_engine(sqlite_url)
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP TABLE infra_atomic_store"))
+    await engine.dispose()
+    caplog.set_level("WARNING")
+    try:
+        with pytest.raises(Unavailable):
+            await provider.purge_expired()
+    finally:
+        await provider.aclose()
+    assert (REGISTRY.get_sample_value(name, labels) or 0.0) == before + 1

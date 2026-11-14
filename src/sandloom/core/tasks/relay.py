@@ -49,7 +49,6 @@ from sandloom.core.observability.metrics import outbox_oldest_pending_age_second
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.core.facade import CoreFacade
 import sandloom.core.eventing.envelope as _envelope
-import sandloom.core.sql_alchemy.atomic_store_purge as _atomic_purge
 from sandloom.core.config.settings import settings
 
 # Bound on transport publish. Publishing now runs outside the DB transaction
@@ -282,7 +281,6 @@ async def _relay_tick(core: CoreFacade) -> tuple[int, bool]:
                 await purge_delivered(factory, store)
                 await purge_expired_commands(core, name, factory)
                 await purge_expired_requests(core, name, factory)
-                await purge_expired_atomic_store(factory)
         except Exception as exc:  # noqa: BLE001 - one DB down must not stop the others
             # An unreachable DB must not stop other databases from being drained
             # — but it must be visible (a silently skipped database drains zero
@@ -393,33 +391,6 @@ async def purge_expired_requests(
     )
     if deleted:
         _logger.info("Purged %d expired HTTP idempotency record(s)", deleted)
-    return deleted
-
-
-async def purge_expired_atomic_store(
-    uow_factory: Callable[[], UnitOfWorkContract],
-    *,
-    batch_size: int = _PURGE_BATCH_SIZE,
-    max_batches: int | None = None,
-    time_budget_seconds: float | None = _PURGE_TIME_BUDGET_SECONDS,
-) -> int:
-    """Delete expired rows of the ``database`` atomic_store's table (bounded batches).
-
-    The driver reads an expired row as absent, so deleting it only reclaims
-    space (see :mod:`sandloom.core.sql_alchemy.atomic_store_purge`, which skips a
-    database whose core chain predates the table).
-    """
-
-    async def batch() -> int:
-        return await _atomic_purge.purge_expired_atomic_entries(
-            uow_factory, limit=batch_size
-        )
-
-    deleted = await _purge_batches(
-        batch, batch_size, max_batches=max_batches, budget=time_budget_seconds
-    )
-    if deleted:
-        _logger.info("Purged %d expired atomic store row(s)", deleted)
     return deleted
 
 

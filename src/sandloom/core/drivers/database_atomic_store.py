@@ -9,9 +9,9 @@ and in ``health``: that is how it verifies ``never_evicts``).
 
 Every statement compares ``expires_at`` with the database's own clock, so no
 process clock is trusted, and treats a row with ``expires_at <= now()`` as
-absent, also while the row is still there (the relay's sweeper deletes it
-later). No advisory lock is taken (they break under pgbouncer transaction
-pooling):
+absent, also while the row is still there (the driver's own purge task deletes
+it later: see below). No advisory lock is taken (they break under pgbouncer
+transaction pooling):
 
 - ``get``: ``SELECT`` of the live row;
 - ``add``: ``INSERT ... ON CONFLICT (key) DO UPDATE ... WHERE expires_at <=
@@ -28,6 +28,15 @@ pooling):
   :class:`~decimal.Decimal`, never a float or text), then written. An absent
   key is written by the insert of ``add``; when that insert loses the loop
   reads again (bounded).
+
+The purge: ``aopen`` starts one asyncio task that, every ``purge_interval_seconds``,
+deletes the expired rows of this table in bounded batches on the driver's own
+engine (so a dedicated store URL is purged too, whichever process runs it). The
+cutoff is computed by the database (``now()`` minus ``purge_grace_seconds``),
+never by the process; a failed purge is logged at WARNING (the error's type name
+only), counted in the operation-errors series with ``operation="purge"`` and
+retried at the next interval. Concurrent purgers in several processes are
+harmless (``FOR UPDATE SKIP LOCKED`` on PostgreSQL); ``aclose`` cancels the task.
 
 A single statement runs in autocommit (one round trip); only
 ``set_subject_state`` opens a transaction. The statements are built with
@@ -48,6 +57,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import logging
 import time
 from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
@@ -104,7 +114,12 @@ atomic_store_operation_errors_total = observe.counter(
     ("instance", "operation"),
 )
 
+_logger = logging.getLogger(__name__)
+
 _SQLITE_TIME = "%Y-%m-%d %H:%M:%f"
+
+#: Most batches one purge pass runs before it yields to the next interval.
+_PURGE_MAX_BATCHES = 20
 
 #: The table as the driver sees it (the model and the migration own its DDL).
 _TABLE = Table(
@@ -157,6 +172,33 @@ class _Dialect:
     def live(self) -> Any:
         """The row is not expired: ``expires_at IS NULL OR expires_at > now()``."""
         return or_(_TABLE.c.expires_at.is_(None), _TABLE.c.expires_at > self.now())
+
+    def purge(self, grace_seconds: int, batch_size: int) -> Any:
+        """``DELETE`` of at most ``batch_size`` rows expired more than
+        ``grace_seconds`` ago, the cutoff being the database's clock."""
+        cutoff: Any
+        if self.sqlite:
+            cutoff = func.strftime(
+                _SQLITE_TIME, "now", bindparam("grace", f"-{grace_seconds} seconds")
+            )
+        else:
+            cutoff = func.now() - func.make_interval(
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                bindparam("grace", float(grace_seconds)),
+                type_=Interval,
+            )
+        victims = (
+            select(_TABLE.c.key)
+            .where(_TABLE.c.expires_at < cutoff)
+            .limit(batch_size)
+            .with_for_update(skip_locked=True)
+        )
+        return delete(_TABLE).where(_TABLE.c.key.in_(victims))
 
     def insert(self) -> Any:
         return sqlite.insert(_TABLE) if self.sqlite else postgresql.insert(_TABLE)
@@ -213,6 +255,14 @@ class DatabaseAtomicStoreOptions(BaseModel):
     #: operation is ``Unavailable``.
     max_attempts: int = Field(default=8, ge=2, le=100)
     max_value_bytes: int = Field(default=DEFAULT_MAX_VALUE_BYTES, ge=1)
+    #: Seconds between two purges of the expired rows (the driver's own task).
+    purge_interval_seconds: float = Field(default=60.0, gt=0)
+    #: Seconds past its expiry a row must be (by the database's clock) before
+    #: the purge deletes it: a margin only, an expired row is absent for every
+    #: statement already.
+    purge_grace_seconds: int = Field(default=60, ge=0)
+    #: Rows one purge ``DELETE`` removes at most.
+    purge_batch_size: int = Field(default=1000, ge=1)
 
 
 class DatabaseAtomicStoreProvider(AtomicStoreProvider):
@@ -244,6 +294,7 @@ class DatabaseAtomicStoreProvider(AtomicStoreProvider):
         #: Set by a check that refused the table: every operation then raises
         #: it, so a registry that only logs the refusal never serves from it.
         self._refusal: str | None = None
+        self._purge_task: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------ plumbing
     def _failure(self, operation: str, exc: BaseException) -> InfraError:
@@ -374,8 +425,45 @@ class DatabaseAtomicStoreProvider(AtomicStoreProvider):
             raise InvalidArgument(
                 problem, capability=self.capability, instance=self.name
             )
+        if self._purge_task is None or self._purge_task.done():
+            self._purge_task = asyncio.create_task(
+                self._purge_loop(), name=f"atomic_store_purge:{self.name}"
+            )
+
+    async def purge_expired(self) -> int:
+        """Delete the rows expired beyond the grace, by the database's clock, in
+        bounded batches (at most ``_PURGE_MAX_BATCHES`` per call). Their number."""
+        _, dialect = self._engine_dialect()
+        batch = self._opts.purge_batch_size
+        statement = dialect.purge(self._opts.purge_grace_seconds, batch)
+        total = 0
+        for _ in range(_PURGE_MAX_BATCHES):
+            deleted = int(await self._exec("purge", statement, idempotent=True))
+            total += deleted
+            if deleted < batch:
+                break
+        return total
+
+    async def _purge_loop(self) -> None:
+        """Purge every interval until cancelled; a failure never ends the loop."""
+        while True:
+            await asyncio.sleep(self._opts.purge_interval_seconds)
+            try:
+                await self.purge_expired()
+            except InfraError as exc:  # counted by ``_failure`` when a backend error
+                _logger.warning("%s", exc)
+            except _BACKEND_ERRORS as exc:  # not wrapped: count it here
+                atomic_store_operation_errors_total.labels(self.name, "purge").inc()
+                _logger.warning(
+                    "atomic_store %r purge: %s", self.name, type(exc).__name__
+                )
 
     async def aclose(self) -> None:
+        task, self._purge_task = self._purge_task, None
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
         engine, self._engine, self._dialect = self._engine, None, None
         if engine is not None:
             with contextlib.suppress(Exception):  # closing is best effort
@@ -390,6 +478,7 @@ class DatabaseAtomicStoreProvider(AtomicStoreProvider):
         except InfraError as exc:  # a failed probe, by its type only
             return HealthResult(status="fail", details={"error": type(exc).__name__})
         if problem is not None:
+            self._refusal = problem  # fail closed: no operation serves from it now
             return HealthResult(status="fail", details={"reason": "table_not_logged"})
         latency = round((time.monotonic() - started) * 1000, 1)
         return HealthResult(status="ok", details={"latency_ms": latency})
