@@ -12,6 +12,7 @@ import asyncio
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import pytest
@@ -393,7 +394,9 @@ class _DroppingProxy:
     def url(self) -> str:
         assert self._server is not None
         port = self._server.sockets[0].getsockname()[1]
-        return f"redis://127.0.0.1:{port}/0"
+        # The worker's own database index: under xdist it is not /0.
+        db = urlsplit(settings.cache_url).path or "/0"
+        return f"redis://127.0.0.1:{port}{db}"
 
     async def _serve(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -426,8 +429,6 @@ class _DroppingProxy:
 
 
 def _upstream() -> tuple[str, int]:
-    from urllib.parse import urlsplit
-
     parts = urlsplit(settings.cache_url)
     return parts.hostname or "127.0.0.1", parts.port or 6379
 
