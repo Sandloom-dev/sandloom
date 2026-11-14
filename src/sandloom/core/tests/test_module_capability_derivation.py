@@ -217,7 +217,16 @@ def test_periodic_is_a_taskqueue_feature_only_celery_advertises() -> None:
 
 
 class _SendOnly(TaskQueueProvider):
-    async def send(self, task, payload, *, task_id, delay=None, at_least_once=False):  # type: ignore[no-untyped-def]
+    async def send(
+        self,
+        task,
+        payload,
+        *,
+        task_id,
+        delay=None,
+        at_least_once=False,
+        queue="default",
+    ):  # type: ignore[no-untyped-def]
         return task_id
 
 

@@ -26,6 +26,9 @@ class _Provider:
     async def raw_backend(self) -> Any:
         return self._backend
 
+    def features(self) -> frozenset[str]:
+        return frozenset({"delay", "periodic", "redelivery"})
+
     def register_task_table(self, table: Any, run: Any) -> None:
         from sandloom.core.drivers.celery_taskqueue import register_task_table
 

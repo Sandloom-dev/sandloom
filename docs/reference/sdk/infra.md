@@ -891,7 +891,7 @@ What a module calls on `taskqueue()`: enqueue a task by its name.
 async def enqueue(
     self,
     task: str,
-    payload: Mapping[str, Any],
+    payload: BaseModel | Mapping[str, Any] | None,
     *,
     delay: timedelta | None = None,
     idempotency_key: str | None = None,

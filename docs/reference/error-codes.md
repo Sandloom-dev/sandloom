@@ -61,6 +61,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C032`](#sandloom-c032) | `generated-reserved` | check | a hand-written file in a module's _generated/ package, or an import of another module's _generated package | active |
 | [`SANDLOOM-C033`](#sandloom-c033) | `undeclared-capability` | check | a module's code needs an infrastructure capability its define_module does not declare | active |
 | [`SANDLOOM-C034`](#sandloom-c034) | `handwritten-access-check` | check | a hand-written Requirement calls a declared access check with other tier, category or risk than its declaration | active |
+| [`SANDLOOM-C035`](#sandloom-c035) | `task-enqueue-ownership` | check | a module enqueues a task by name that is not a string literal naming one of its own tasks | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
 | [`SANDLOOM-B003`](#sandloom-b003) | `financial-guard` | boot | a class F route used a response-storing or fail-open guard (retired) | retired (never reused) |
@@ -771,6 +772,31 @@ classified independently at startup and the runtime checks apply.
 **Fix:** use the generated atom (sandloom generate writes it beside your stub), or state the declared tier, category and risks() on your class
 
 **More:** `docs/adr/0014-claims-trust-and-authorization-portability.md`
+
+### SANDLOOM-C035
+
+**a module enqueues a task by name that is not a string literal naming one of its own tasks**
+
+Slug: `task-enqueue-ownership` · kind: check · status: active
+
+**What happened and why it matters**
+
+The kernel checks that the task name given to taskqueue().enqueue(name, ...)
+is declared somewhere in the process, never that the caller owns it. A module
+that enqueues another module's task by name runs that module's code with a
+payload of its choosing, around the module's own checks: the isolation every
+other crossing keeps (events, contracts, sagas) does not hold for it. sandloom
+check refuses a taskqueue().enqueue(...) call (on taskqueue(...) directly, on
+a name bound to it in the file, or under an aliased import) whose first
+argument is not a string literal starting with the calling module's own
+package. The task object of the module's own tasks.py (`await task.enqueue(
+payload)`) is the usual spelling and needs no name. Not seen: a queue handed
+over as an argument, or a name computed at run time; the kernel's enqueue
+still refuses a name no loaded module declares.
+
+**Fix:** enqueue your own task through the task object (`await my_task.enqueue(payload)`), or name it with a string literal under your package (`taskqueue().enqueue("<package>.tasks.my_task", ...)`); for work in another module, publish an event or call its contract
+
+**More:** `docs/modules/background/tasks.md`
 
 ## Startup refusals (`create_app`, `sandloom check --boot`)
 

@@ -81,6 +81,7 @@ class NoPeriodicQueue(TaskQueueProvider):
         task_id: str,
         delay: timedelta | None = None,
         at_least_once: bool = False,
+        queue: str = "default",
     ) -> str:
         return task_id
 '''

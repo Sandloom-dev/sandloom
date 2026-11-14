@@ -204,11 +204,11 @@ async def test_enqueue_goes_through_the_kernel_taskqueue_layer(
     assert await enqueued_bare.enqueue() == "id-1"  # type: ignore[call-arg]
     assert calls[0] == {
         "name": enqueued.name,
-        "payload": {"amount": 4},
+        "payload": Charge(amount=4),
         "delay": delay,
         "idempotency_key": "k",
     }
-    assert calls[1]["payload"] == {} and calls[1]["delay"] is None
+    assert calls[1]["payload"] is None and calls[1]["delay"] is None
 
 
 def test_the_celery_worker_registers_the_table() -> None:

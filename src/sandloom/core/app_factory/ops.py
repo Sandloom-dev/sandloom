@@ -27,6 +27,7 @@ from sandloom.core.config.settings import settings
 from sandloom.core.contracts import SchemaEntry
 from sandloom.core.contracts.validators import classify_schema_change
 from sandloom.core.descriptors import HealthResult
+from sandloom.core.descriptors.derived_capabilities import enqueues_on_request_path
 from sandloom.core.descriptors.module_names import resolve_module_names
 from sandloom.core.eventing.bus_metrics import get_event_bus_metrics
 from sandloom.core.facade import CoreFacade
@@ -123,7 +124,9 @@ class _HealthCache(Generic[_T]):
 #: broker hands an ``at_least_once`` task to a worker again). A broker outage
 #: does not stop this process from serving, so it does not drop its readiness
 #: (owner decision on infrastructure dependencies, answer 3); the module's own
-#: check watches that the background work runs.
+#: check watches that the background work runs. A module that also declares a
+#: task that is not ``@periodic`` is enqueued from requests, so it stays on the
+#: request path (``enqueues_on_request_path``).
 BACKGROUND_TASKQUEUE_FEATURES = frozenset({"periodic", "redelivery"})
 
 
@@ -163,7 +166,11 @@ def taskqueue_use(descriptors: Iterable[Any], loaded: Iterable[str]) -> Taskqueu
             if requirement.capability != "taskqueue" or not requirement.required:
                 continue
             features = frozenset(requirement.features)
-            if features and features <= BACKGROUND_TASKQUEUE_FEATURES:
+            if (
+                features
+                and features <= BACKGROUND_TASKQUEUE_FEATURES
+                and not enqueues_on_request_path(descriptor.name)
+            ):
                 if descriptor.name not in background:
                     background.append(descriptor.name)
                 continue

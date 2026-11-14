@@ -9,7 +9,7 @@ Never imported at run time.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from datetime import timedelta
 from typing import Any, Protocol, assert_type
 from uuid import UUID, uuid4
@@ -28,6 +28,7 @@ from sandloom.sdk import (
 from sandloom.sdk.contracts import ContractRef, OptionalContract
 from sandloom.sdk.events import EventMeta
 from sandloom.sdk.sagas import Saga, step
+from sandloom.sdk.tasks import PayloadlessTask, Task, task
 from sandloom.sdk.testing import as_user, deliver, fake_contract, published
 
 
@@ -148,3 +149,31 @@ def testing_kit() -> None:
     assert_type(headers, dict[str, str])
     with fake_contract(STATS_QUOTA_V1, Quota()):
         pass
+
+
+# -- tasks -----------------------------------------------------------------------
+class Charge(BaseModel):
+    amount: int
+
+
+@task
+async def charge_default(payload: Charge) -> None: ...
+
+
+@task(queue="slow")
+async def charge_slow(payload: Charge) -> None: ...
+
+
+@task(queue="slow", at_least_once=True)
+def sweep_slow() -> None: ...
+
+
+assert_type(charge_default, Task[Charge, Awaitable[None]])
+assert_type(charge_slow, Task[Charge, Awaitable[None]])
+assert_type(sweep_slow, PayloadlessTask[None])
+
+
+async def enqueue_tasks() -> None:
+    assert_type(await charge_slow.enqueue(Charge(amount=1)), str)
+    assert_type(await sweep_slow.enqueue(delay=timedelta(seconds=1)), str)
+    await charge_slow.enqueue()  # type: ignore[call-arg]

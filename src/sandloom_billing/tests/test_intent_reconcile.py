@@ -542,9 +542,17 @@ async def test_retry_of_a_legacy_issued_checkout_uses_the_psp_default_lifetime(
 
 
 def test_reconcile_task_is_scheduled_every_five_minutes() -> None:
+    import inspect
+    import re
+
     from sandloom_billing import tasks
 
     task = tasks.reconcile_operation_intents
+    # Declared ``at_least_once``: a worker that dies mid-run hands the run to
+    # another (the kernel's table reads it, test_task_review_fixes).
+    assert re.search(r"@periodic\([^)]*at_least_once=True", inspect.getsource(tasks)), (
+        "the reconcile task must stay at_least_once"
+    )
     assert task.name == "sandloom_billing.tasks.reconcile_operation_intents"
     assert task.cron == "*/5 * * * *"
     assert 0 < task.max_interval.total_seconds() <= 15 * 60

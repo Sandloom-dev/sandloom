@@ -63,6 +63,7 @@ class _Broken(TaskQueueProvider):
         task_id: str,
         delay: timedelta | None = None,
         at_least_once: bool = False,
+        queue: str = "default",
     ) -> str:
         if self.defect == "releases-on-failure":
             # The backend is down, yet the error says nothing was published.

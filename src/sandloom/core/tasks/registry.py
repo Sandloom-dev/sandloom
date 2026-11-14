@@ -71,17 +71,17 @@ def task_name(function: Callable[..., Any]) -> str:
 def _same_definition(a: Callable[..., Any], b: Callable[..., Any]) -> bool:
     """Is ``b`` the same function as ``a``, executed again?
 
-    A module imported twice (a reload, a copy of the module in another
-    directory) defines the function again: another file, or the same line of
-    the same file. Only a second definition at another line of one file is a
-    function redefined in its module.
+    A module imported twice (a reload) defines the function again at the same
+    file and line. Anything else is a different function that derived the same
+    name (another file, or another line of one file): the second must not
+    silently replace the first, so it is refused.
     """
     code_a, code_b = getattr(a, "__code__", None), getattr(b, "__code__", None)
     if code_a is None or code_b is None:
         return False
     return bool(
-        code_a.co_filename != code_b.co_filename
-        or code_a.co_firstlineno == code_b.co_firstlineno
+        code_a.co_filename == code_b.co_filename
+        and code_a.co_firstlineno == code_b.co_firstlineno
     )
 
 
@@ -200,15 +200,21 @@ def encode_payload(
             payload
             if isinstance(payload, declared.payload_type)
             else declared.payload_type.model_validate(
-                payload.model_dump() if isinstance(payload, BaseModel) else payload
+                payload.model_dump(by_alias=True)
+                if isinstance(payload, BaseModel)
+                else payload
             )
         )
-        return orjson.dumps(model.model_dump(mode="json"))
-    except Exception as exc:
+        # By alias: the worker validates this JSON against the same model, whose
+        # aliased fields are read by their alias.
+        return orjson.dumps(model.model_dump(mode="json", by_alias=True))
+    except (ValueError, TypeError) as exc:
+        # ``from None``: a pydantic error holds the input values, and a task
+        # payload is data (never in a log or a chained traceback).
         raise InvalidArgument(
             f"payload of task {declared.name!r} is refused ({type(exc).__name__})",
             capability="taskqueue",
-        ) from exc
+        ) from None
 
 
 def run_task(name: str, payload: bytes) -> None:
@@ -227,11 +233,13 @@ def run_task(name: str, payload: bytes) -> None:
     if declared.payload_type is not None:
         try:
             arguments = (declared.payload_type.model_validate_json(payload),)
-        except Exception as exc:
+        except (ValueError, TypeError) as exc:
+            # ``from None``: a pydantic error holds the input values, and a task
+            # payload is data (never in a log or a chained traceback).
             raise InvalidArgument(
                 f"payload of task {name!r} is refused ({type(exc).__name__})",
                 capability="taskqueue",
-            ) from exc
+            ) from None
     if declared.is_async:
         run_async(declared.function(*arguments))
     else:

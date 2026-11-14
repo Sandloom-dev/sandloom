@@ -38,6 +38,7 @@ __all__ = [
     "declared_features",
     "defines_periodic",
     "derived_needs",
+    "enqueues_on_request_path",
     "loaded_package_locations",
     "tasks_source",
 ]
@@ -122,6 +123,18 @@ def _decorator_calls(path: Path) -> list[tuple[str, ast.expr | None]]:
 def defines_periodic(path: Path) -> bool:
     """Does the file declare a ``@periodic`` task at module level? (AST.)"""
     return any(name == PERIODIC_DECORATOR for name, _ in _decorator_calls(path))
+
+
+def enqueues_on_request_path(module: str) -> bool:
+    """Does the imported package ``module`` declare a task that is not
+    ``@periodic``? Such a task is enqueued by a request (the beat enqueues only
+    ``@periodic`` ones), so the module stays on the request path whatever
+    features it requires: ``redelivery`` is background only when every
+    ``at_least_once`` task is ``@periodic``. Imports nothing."""
+    path = tasks_source(loaded_package_locations(module))
+    return path is not None and any(
+        name != PERIODIC_DECORATOR for name, _ in _decorator_calls(path)
+    )
 
 
 def declared_features(path: Path) -> frozenset[str]:

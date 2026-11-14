@@ -66,6 +66,7 @@ class TaskQueueConformance(ProviderConformance[TaskQueueProvider]):
         task_id: str | None = None,
         delay: timedelta | None = None,
         at_least_once: bool = False,
+        queue: str = "default",
     ) -> Call:
         return partial(
             provider.send,
@@ -74,6 +75,7 @@ class TaskQueueConformance(ProviderConformance[TaskQueueProvider]):
             task_id=task_id or uuid4().hex,
             delay=delay,
             at_least_once=at_least_once,
+            queue=queue,
         )
 
     def feature_calls(self, provider: TaskQueueProvider) -> Mapping[str, Call]:
@@ -139,6 +141,21 @@ class TaskQueueConformance(ProviderConformance[TaskQueueProvider]):
             self.known_task, _PAYLOAD, task_id=task_id, at_least_once=True
         )
         require(answered == task_id, f"send answered {answered!r}")
+
+    async def test_send_carries_the_queue_of_the_task(
+        self, provider: TaskQueueProvider
+    ) -> None:
+        # Where the message lands is the host's to read; ``send`` accepts the
+        # queue and publishes under the given id (no refusal for a non-default
+        # queue: the kernel routes by the task's declaration, not the table).
+        task_id = uuid4().hex
+        answered = await provider.send(
+            self.known_task, _PAYLOAD, task_id=task_id, queue="sandloom-conformance"
+        )
+        require(
+            answered == task_id,
+            f"send with a queue answered {answered!r} for the task id {task_id!r}",
+        )
 
     async def test_send_errors_carry_the_dedupe_decision(
         self, make_failing_provider: Callable[[], TaskQueueProvider] | None

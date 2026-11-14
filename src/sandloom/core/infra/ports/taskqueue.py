@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, ClassVar, Protocol
 
+from pydantic import BaseModel
+
 from sandloom.core.infra.ports._base import CapabilitySpec, InfraProvider
 
 
@@ -30,7 +32,7 @@ class TaskQueue(Protocol):
     async def enqueue(
         self,
         task: str,
-        payload: Mapping[str, Any],
+        payload: BaseModel | Mapping[str, Any] | None,
         *,
         delay: timedelta | None = None,
         idempotency_key: str | None = None,
@@ -84,8 +86,13 @@ class TaskQueueProvider(InfraProvider):
         task_id: str,
         delay: timedelta | None = None,
         at_least_once: bool = False,
+        queue: str = "default",
     ) -> str:
         """Publish one message for ``task`` under ``task_id``; return the id.
+
+        ``queue`` is the task's declared queue: the message goes there, so an
+        enqueue from a process that never registered the task table (an API
+        process) reaches the same queue the worker consumes.
 
         ``payload`` is the task's JSON-encoded payload object (``b"{}"`` for a
         task without one). At most one publish per call, and never a retry of

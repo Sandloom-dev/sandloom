@@ -56,6 +56,7 @@ from sandloom.core.cli.scaffold_wiring import (
     wire_module,
 )
 from sandloom.core.descriptors.derived_capabilities import defines_periodic
+from sandloom.core.tasks.cron import parse_cron
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 #: ruff format's line length (generated files pass the project's format gate).
@@ -1249,10 +1250,22 @@ def _task_block(module: str, name: str, schedule: str | None) -> str:
         decorator = (
             one if len(one) <= 88 else f"@periodic(\n    {args}\n)"
         )  # ruff format's line length
+    if schedule is None:
+        doc = (
+            "The work of one run. It runs at most once unless the task\n"
+            "    declares at_least_once=True (which needs the taskqueue feature\n"
+            "    redelivery); then make it harmless to repeat (delete by a\n"
+            "    condition, upsert, or claim a durable_inbox key)."
+        )
+    else:
+        doc = (
+            "The work of one run. A run can repeat or overlap another, so make\n"
+            "    it harmless (delete by a condition, upsert, or claim a\n"
+            "    durable_inbox key)."
+        )
     return f'''{decorator}
 async def {name}() -> None:
-    """The work of one run. A run can repeat or overlap another, so make it
-    harmless (delete by a condition, upsert, or claim a durable_inbox key)."""
+    """{doc}"""
     async with open_uow():
         ...  # db(), await Event(...).publish() and record_audit work here
 '''
@@ -1349,13 +1362,18 @@ def add_task(
     one, the deploy wiring. Returns the edited files and a note to print."""
     directory = _require_module(where, module)
     _check_name(name, "the task name")
-    if periodic is not None and (
-        len(periodic.split()) != 5 or '"' in periodic or "\\" in periodic
-    ):
-        raise GeneratorError(
-            f"--periodic {periodic!r}: expected 5 cron fields "
-            "'minute hour day-of-month month day-of-week', e.g. '0 3 * * *'"
-        )
+    if periodic is not None:
+        try:
+            parse_cron(periodic)  # the grammar the scheduler reads, not a field count
+        except ValueError as exc:
+            raise GeneratorError(
+                f"--periodic {periodic!r}: {exc}; expected 5 cron fields "
+                "'minute hour day-of-month month day-of-week', e.g. '0 3 * * *'"
+            ) from exc
+        if '"' in periodic or "\\" in periodic:
+            raise GeneratorError(
+                f"--periodic {periodic!r}: no quote or backslash in a cron expression"
+            )
     path = directory / "tasks.py"
     if path.exists() and re.search(rf"^(async )?def {name}\(", path.read_text(), re.M):
         raise GeneratorError(f"{path} already defines {name}()")

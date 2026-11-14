@@ -30,6 +30,9 @@ class _Provider:
     async def raw_backend(self) -> Any:
         return self._backend
 
+    def features(self) -> frozenset[str]:
+        return frozenset({"delay", "periodic", "redelivery"})
+
     def register_task_table(self, table: Any, run: Any) -> None:
         from sandloom.core.drivers.celery_taskqueue import register_task_table
 
@@ -294,3 +297,60 @@ def test_worker_boot_runs_tenant_rls_role_verification() -> None:
         worker.verify_worker_infra(SimpleNamespace(infra=_Infra({"default": bad})))
     # A core without an infra registry (tests, fakes) is a no-op.
     worker.verify_worker_infra(SimpleNamespace())
+
+
+# --------------------------------------------------------------------------- #
+# The table against the driver's features (SANDLOOM-B037)
+# --------------------------------------------------------------------------- #
+def _table(*, at_least_once: bool = False, periodic: bool = False) -> Any:
+    from sandloom.core.infra.ports.taskqueue import PeriodicSpec, TaskSpec, TaskTable
+
+    return TaskTable(
+        tasks={"m.tasks.job": TaskSpec(at_least_once=at_least_once)},
+        periodic=[PeriodicSpec(id="m.job", cron="* * * * *", task="m.tasks.job")]
+        if periodic
+        else [],
+    )
+
+
+class _Bare(_Provider):
+    def features(self) -> frozenset[str]:
+        return frozenset({"delay"})
+
+
+def test_a_table_the_driver_can_serve_boots() -> None:
+    provider = _Provider(None)
+    worker.check_task_table_features(
+        _table(at_least_once=True, periodic=True), provider, "default"
+    )
+
+
+@pytest.mark.parametrize(
+    ("table", "feature", "name"),
+    [
+        (_table(at_least_once=True), "redelivery", "m.tasks.job"),
+        (_table(periodic=True), "periodic", "m.job"),
+    ],
+)
+def test_a_table_the_driver_cannot_serve_is_refused_with_b037(
+    table: Any, feature: str, name: str
+) -> None:
+    from sandloom.core.error_codes import code_for_exception
+    from sandloom.core.infra.registry import CapabilityUnavailable
+
+    with pytest.raises(CapabilityUnavailable, match=feature) as refused:
+        worker.check_task_table_features(table, _Bare(None), "default")
+    assert name in str(refused.value)
+    assert code_for_exception(refused.value) == "SANDLOOM-B037"
+
+
+def test_build_worker_app_refuses_before_registering_the_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sandloom.core.infra.registry import CapabilityUnavailable
+
+    monkeypatch.setattr(worker, "build_task_table", lambda names: _table(periodic=True))
+    core = _Core(_celery(), [])
+    core._provider = _Bare(core._provider._backend)
+    with pytest.raises(CapabilityUnavailable, match="periodic"):
+        worker.build_worker_app(core)

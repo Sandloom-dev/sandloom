@@ -211,6 +211,7 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         task_id: str,
         delay: timedelta | None = None,
         at_least_once: bool = False,
+        queue: str = "default",
     ) -> str:
         """Publish ``task`` once under ``task_id`` (the broker's job id; the
         kernel's taskqueue layer chose it).
@@ -254,7 +255,7 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
                     capability="taskqueue",
                     instance=self.name,
                 )
-        return await self._send(task, kwargs, countdown, task_id)
+        return await self._send(task, kwargs, countdown, task_id, queue)
 
     async def _send(
         self,
@@ -262,6 +263,7 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         payload: dict[str, Any],
         countdown: float | None,
         task_id: str,
+        queue: str = "default",
     ) -> str:
         # send_task is a synchronous broker round-trip; offload it so the event
         # loop is never blocked on network I/O — on a small dedicated executor
@@ -278,6 +280,9 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
             task_id=task_id,
             ignore_result=True,
             retry=False,
+            # The declared queue travels with the message: the producer need
+            # not have registered the task table (an API process) to route it.
+            **({} if queue == "default" else {"queue": queue}),
         )
         result = await asyncio.get_running_loop().run_in_executor(
             _enqueue_executor(), functools.partial(self._send_classified, send, payload)

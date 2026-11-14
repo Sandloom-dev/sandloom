@@ -84,6 +84,17 @@ class PeriodicTask(Protocol[R]):
     def __call__(self) -> R: ...
 
 
+class _TaskDecorator(Protocol):
+    """What ``@task(queue=..., at_least_once=...)`` returns: it types the
+    function it decorates, with a payload or without."""
+
+    @overload
+    def __call__(self, fn: Callable[[P], R], /) -> Task[P, R]: ...
+
+    @overload
+    def __call__(self, fn: Callable[[], R], /) -> PayloadlessTask[R]: ...
+
+
 class _Task:
     """What ``@task`` returns: the function, plus ``name`` and ``enqueue``."""
 
@@ -106,9 +117,9 @@ class _Task:
         delay: timedelta | None = None,
         idempotency_key: str | None = None,
     ) -> str:
-        body = {} if payload is None else payload.model_dump()
+        # The model itself: the kernel validates it and encodes it by alias.
         return await taskqueue().enqueue(
-            self.name, body, delay=delay, idempotency_key=idempotency_key
+            self.name, payload, delay=delay, idempotency_key=idempotency_key
         )
 
 
@@ -154,9 +165,7 @@ def task(fn: Callable[[], R], /) -> PayloadlessTask[R]: ...
 
 
 @overload
-def task(
-    *, queue: str = "default", at_least_once: bool = False
-) -> Callable[[Callable[[P], R]], Task[P, R]]: ...
+def task(*, queue: str = "default", at_least_once: bool = False) -> _TaskDecorator: ...
 
 
 def task(

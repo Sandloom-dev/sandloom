@@ -219,6 +219,7 @@ async def enqueue_task(
             task_id=task_id,
             delay=checked_delay,
             at_least_once=declared.at_least_once,
+            queue=declared.queue,
         )
 
     if idempotency_key is None:

@@ -65,6 +65,7 @@ from sandloom.core.composition import COMPOSITION_ROOT_ENV, CompositionRootError
 from sandloom.core.composition import load_composition_core as _load_root_core
 from sandloom.core.config.common import strict_profile_active
 from sandloom.core.gc_tuning import install_celery_hooks as install_celery_gc_hooks
+from sandloom.core.infra.registry import CapabilityUnavailable
 from sandloom.core.tasks.registry import build_task_table, run_task
 
 logger = logging.getLogger(__name__)
@@ -349,6 +350,36 @@ def verify_worker_infra(core: Any) -> None:
     asyncio.run(_run())
 
 
+def check_task_table_features(table: Any, provider: Any, instance: str) -> None:
+    """Refuse a task table the instance's driver cannot serve (SANDLOOM-B037).
+
+    The load-time derivation reads ``at_least_once=True`` only as a literal; the
+    table is what really runs. A task with ``at_least_once`` needs the feature
+    ``redelivery`` and a periodic one ``periodic``: without them the worker would
+    start and silently run at most once, or never schedule.
+    """
+    features = provider.features()
+    missing: dict[str, list[str]] = {}
+    for name, spec in table.tasks.items():
+        if spec.at_least_once and "redelivery" not in features:
+            missing.setdefault("redelivery", []).append(name)
+    for entry in table.periodic:
+        if "periodic" not in features:
+            missing.setdefault("periodic", []).append(entry.id)
+    if not missing:
+        return
+    detail = "; ".join(
+        f"feature {feature!r} for {', '.join(sorted(names))}"
+        for feature, names in sorted(missing.items())
+    )
+    raise CapabilityUnavailable(
+        f"taskqueue instance {instance!r} (driver {provider.driver!r}) lacks "
+        f"{detail}: the loaded modules' tasks need it",
+        fix="select in INFRA a taskqueue driver that advertises the feature, "
+        "or remove at_least_once / the @periodic task",
+    )
+
+
 def build_worker_app(core: Any | None = None, *, instance: str | None = None) -> Any:
     """Assemble the worker's Celery app for the loaded module set."""
     global _teardown_core
@@ -365,9 +396,9 @@ def build_worker_app(core: Any | None = None, *, instance: str | None = None) ->
     async_runner.add_loop_cleanup(dispose_worker_infra)
     async_runner.install_celery_hooks()
     modules = discover_task_modules(list(core.loaded_modules))
-    provider.register_task_table(
-        build_task_table(m.__name__ for m in modules), run_task
-    )
+    table = build_task_table(m.__name__ for m in modules)
+    check_task_table_features(table, provider, name)
+    provider.register_task_table(table, run_task)
     return app
 
 
@@ -416,6 +447,7 @@ __all__ = [
     "TASKS_SUBMODULE",
     "WorkerConfigurationError",
     "build_worker_app",
+    "check_task_table_features",
     "configure_worker_reliability",
     "configure_worker_sizing",
     "default_worker_concurrency",

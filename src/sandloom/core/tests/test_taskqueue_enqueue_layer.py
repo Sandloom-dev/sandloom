@@ -108,6 +108,7 @@ class RecordingProvider(TaskQueueProvider):
         task_id: str,
         delay: timedelta | None = None,
         at_least_once: bool = False,
+        queue: str = "default",
     ) -> str:
         self.sent.append(
             {
@@ -116,6 +117,7 @@ class RecordingProvider(TaskQueueProvider):
                 "task_id": task_id,
                 "delay": delay,
                 "at_least_once": at_least_once,
+                "queue": queue,
             }
         )
         return task_id
@@ -160,6 +162,25 @@ async def test_at_least_once_and_delay_reach_send() -> None:
     [call] = provider.sent
     assert call["at_least_once"] is True
     assert call["delay"] == timedelta(seconds=30)
+
+
+async def test_the_declared_queue_reaches_send() -> None:
+    async def _slow(payload: ProbePayload) -> None:  # pragma: no cover - never run
+        return None
+
+    _declare(
+        DeclaredTask(
+            name="probe.slow",
+            function=_slow,
+            payload_type=ProbePayload,
+            queue="slow",
+            at_least_once=False,
+            is_async=True,
+        )
+    )
+    provider = RecordingProvider()
+    await KernelTaskQueue(provider).enqueue("probe.slow", {})
+    assert [c["queue"] for c in provider.sent] == ["slow"]
 
 
 @pytest.mark.parametrize(

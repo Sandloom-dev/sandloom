@@ -796,6 +796,32 @@ classified independently at startup and the runtime checks apply.
 """,
         docs="docs/adr/0014-claims-trust-and-authorization-portability.md",
     ),
+    _entry(
+        "SANDLOOM-C035",
+        "task-enqueue-ownership",
+        "check",
+        "a module enqueues a task by name that is not a string literal naming "
+        "one of its own tasks",
+        "enqueue your own task through the task object (`await my_task.enqueue("
+        "payload)`), or name it with a string literal under your package "
+        '(`taskqueue().enqueue("<package>.tasks.my_task", ...)`); for work in '
+        "another module, publish an event or call its contract",
+        """
+The kernel checks that the task name given to taskqueue().enqueue(name, ...)
+is declared somewhere in the process, never that the caller owns it. A module
+that enqueues another module's task by name runs that module's code with a
+payload of its choosing, around the module's own checks: the isolation every
+other crossing keeps (events, contracts, sagas) does not hold for it. sandloom
+check refuses a taskqueue().enqueue(...) call (on taskqueue(...) directly, on
+a name bound to it in the file, or under an aliased import) whose first
+argument is not a string literal starting with the calling module's own
+package. The task object of the module's own tasks.py (`await task.enqueue(
+payload)`) is the usual spelling and needs no name. Not seen: a queue handed
+over as an argument, or a name computed at run time; the kernel's enqueue
+still refuses a name no loaded module declares.
+""",
+        docs="docs/modules/background/tasks.md",
+    ),
     # ------------------------------------------------------------- boot time
     _entry(
         "SANDLOOM-B001",

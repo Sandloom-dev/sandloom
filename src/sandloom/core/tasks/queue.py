@@ -15,6 +15,8 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, TypeVar, cast
 
+from pydantic import BaseModel
+
 from sandloom.core.infra import access as _access
 from sandloom.core.infra.capabilities import CapabilityRef
 from sandloom.core.infra.contracts import TaskQueue, TaskQueueProvider
@@ -48,7 +50,7 @@ class KernelTaskQueue:
     async def enqueue(
         self,
         task: str,
-        payload: Mapping[str, Any],
+        payload: BaseModel | Mapping[str, Any] | None,
         *,
         delay: timedelta | None = None,
         idempotency_key: str | None = None,
