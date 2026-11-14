@@ -48,10 +48,29 @@ A breaking change is a new contract version ([versioning](../contributing/versio
 
 ## `sandloom.driverkit.testing`
 
+Each provider kit is a pytest class with one test per obligation. Subclass it and
+override the `make_provider` fixture to return an unopened provider. Override
+`make_failing_provider` too to check a backend that fails. Every kit runs the shared
+harness checks first
+([Check it against the contract](write-a-driver.md#4-check-it-against-the-contract)).
+The kits need `pytest` and `pytest-asyncio`.
+
+The names of the kits still to come are listed already. Until its capability lands, such
+a name raises `AttributeError` naming the work that delivers it:
+<!-- lookup -->
+
+- `AtomicStoreConformance`
+- `BroadcastConformance`
+- `CacheConformance`
+- `DatabaseProviderConformance`
+- `EventTransportConformance`
+- `LeaseConformance`
+- `TaskQueueConformance`
+
 | Name | What it is |
 | --- | --- |
-| `NotifierConformance` | A pytest class with one test per obligation. Subclass it and override the `make_provider` fixture, and `recipients` for your test backend. It needs `pytest` and `pytest-asyncio`. |
-| `ObjectStoreConformance` | A pytest class for an `objectstore` driver. Subclass it and override the `store` fixture to return a provider that uses a test namespace. It needs `pytest` and `pytest-asyncio`. |
+| `NotifierConformance` | The kit of a `notification` driver. Override `recipients` for your test backend. Each channel is a behaviour feature: an undeclared channel raises `Unsupported(channel)`. |
+| `ObjectStoreConformance` | The kit of an `objectstore` driver; point `make_provider` at a test namespace. Set `upload_limit_bytes` and `read_limit_bytes` to the test instance's limits. A driver declaring `metadata` overrides `read_metadata(provider, key)` to read them back. |
 | `SqlDialectConformance` | A pytest class for a SQL dialect renderer. Subclass it and set `renderer` and `dialect`. It compiles each form the renderer writes, the optional `prefix_pattern` / `prefix_match` pair included. A renderer declaring `json_path` overrides `read_json_paths(document, paths)` to run it on the database; one stating `aware_times` overrides `read_aware_time(value)` to read an aware time back from it. |
 | `JSON_PATH_DOCUMENT` | The JSON text `read_json_paths` stores, numbers as written. |
 | `JSON_PATH_READS` | What `json_path` must read at each path of `JSON_PATH_DOCUMENT`: the scalar's JSON text as stored. |

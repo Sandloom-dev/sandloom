@@ -3033,6 +3033,155 @@
       "signature": "(key:POSITIONAL_OR_KEYWORD|str) -> None"
     }
   },
+  "sandloom.driverkit.testing": {
+    "AtomicStoreConformance": {
+      "kind": "pending"
+    },
+    "BroadcastConformance": {
+      "kind": "pending"
+    },
+    "CacheConformance": {
+      "kind": "pending"
+    },
+    "DatabaseProviderConformance": {
+      "kind": "pending"
+    },
+    "EventTransportConformance": {
+      "kind": "pending"
+    },
+    "JSON_PATH_DOCUMENT": {
+      "kind": "value"
+    },
+    "JSON_PATH_READS": {
+      "kind": "value"
+    },
+    "LeaseConformance": {
+      "kind": "pending"
+    },
+    "NotifierConformance": {
+      "kind": "class",
+      "members": [
+        "contract",
+        "feature_calls",
+        "health_timeout_seconds",
+        "leak_marker",
+        "make_failing_provider",
+        "make_provider",
+        "make_renamed_provider",
+        "operation_calls",
+        "protocol",
+        "provider",
+        "pytestmark",
+        "recipients",
+        "requires_feature",
+        "spec",
+        "test_accepts_a_dedupe_key",
+        "test_harness_declared_behaviours_do_not_raise_unsupported",
+        "test_harness_declares_only_spec_features",
+        "test_harness_hints_name_only_operations",
+        "test_harness_implements_the_contract",
+        "test_harness_maps_backend_failures_to_infra_errors",
+        "test_harness_names_its_isolation_domain",
+        "test_harness_opens_and_closes_twice",
+        "test_harness_redacts_the_health_of_a_failing_backend",
+        "test_harness_reports_health_within_the_bound",
+        "test_harness_reports_the_features_it_declares",
+        "test_harness_states_development_only_as_a_bool",
+        "test_harness_states_the_contract_version",
+        "test_harness_undeclared_behaviours_raise_unsupported",
+        "test_keeps_the_body_out_of_the_logs",
+        "test_sends_on_each_advertised_channel"
+      ],
+      "signature": "()"
+    },
+    "ObjectStoreConformance": {
+      "kind": "class",
+      "members": [
+        "contract",
+        "feature_calls",
+        "health_timeout_seconds",
+        "leak_marker",
+        "make_failing_provider",
+        "make_provider",
+        "make_renamed_provider",
+        "operation_calls",
+        "place_oversized_object",
+        "protocol",
+        "provider",
+        "pytestmark",
+        "read_limit_bytes",
+        "read_metadata",
+        "requires_feature",
+        "spec",
+        "test_harness_declared_behaviours_do_not_raise_unsupported",
+        "test_harness_declares_only_spec_features",
+        "test_harness_hints_name_only_operations",
+        "test_harness_implements_the_contract",
+        "test_harness_maps_backend_failures_to_infra_errors",
+        "test_harness_names_its_isolation_domain",
+        "test_harness_opens_and_closes_twice",
+        "test_harness_redacts_the_health_of_a_failing_backend",
+        "test_harness_reports_health_within_the_bound",
+        "test_harness_reports_the_features_it_declares",
+        "test_harness_states_development_only_as_a_bool",
+        "test_harness_states_the_contract_version",
+        "test_harness_undeclared_behaviours_raise_unsupported",
+        "test_object_absent_key_is_not_found",
+        "test_object_async_stream",
+        "test_object_bytes_and_overwrite",
+        "test_object_failed_upload_preserves_previous_value",
+        "test_object_invalid_keys",
+        "test_object_metadata",
+        "test_object_read_over_the_limit_is_too_large",
+        "test_object_upload_over_the_limit_is_too_large",
+        "upload_limit_bytes"
+      ],
+      "signature": "()"
+    },
+    "SqlDialectConformance": {
+      "kind": "class",
+      "members": [
+        "LOCK_KEYS",
+        "UNITS",
+        "read_aware_time",
+        "read_json_paths",
+        "read_units_share_one_snapshot",
+        "test_a_lock_binds_its_key_at_execution",
+        "test_a_session_lock_has_its_unlock",
+        "test_array_insert_binds_every_column_or_is_absent",
+        "test_arrays_store_a_list_column",
+        "test_aware_times_read_back_aware",
+        "test_begin_statement_is_a_begin_or_the_plain_one",
+        "test_begin_statement_refuses_a_writing_read_only_unit",
+        "test_case_insensitive_text_is_a_type_of_this_database",
+        "test_classifies_an_unknown_error_as_other",
+        "test_conflict_insert_has_the_on_conflict_shape",
+        "test_declares_only_database_renderer_features",
+        "test_for_update_keeps_the_query_and_skips_only_with_the_feature",
+        "test_fulltext_search_has_an_index_and_a_match",
+        "test_greatest_writes_one_expression_of_its_arguments",
+        "test_id_in_binds_the_ids_under_its_key",
+        "test_json_contains_binds_its_document",
+        "test_json_path_reads_a_scalar_as_text",
+        "test_json_path_reads_scalars_as_stored",
+        "test_list_aggregates_read_a_list_or_are_absent",
+        "test_lock_statement_compiles_or_is_absent",
+        "test_lock_statement_refuses_a_key_of_no_shape",
+        "test_partial_index_options_restrict_the_index",
+        "test_prefix_members_are_whole_or_absent",
+        "test_relaxed_commit_clause_is_a_where_term_or_absent",
+        "test_row_security_is_whole_or_absent",
+        "test_search_index_is_whole_or_absent",
+        "test_states_contract_version_2_and_its_dialect",
+        "test_transaction_options_are_execution_options",
+        "test_wall_clock_is_a_default_and_an_update_value"
+      ],
+      "signature": "()"
+    },
+    "TaskQueueConformance": {
+      "kind": "pending"
+    }
+  },
   "sandloom.sdk": {
     "Base": {
       "kind": "class",

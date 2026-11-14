@@ -11,6 +11,7 @@ entry-point group. The separate ``sandloom-s3`` package registers ``objectstore.
 
 from __future__ import annotations
 
+import hashlib
 import os
 from collections.abc import Mapping
 from typing import Self, cast
@@ -69,6 +70,10 @@ class LocalObjectStoreProvider(ObjectStoreProvider):
     ) -> None:
         super().__init__(name=name, driver=driver, options=options)
         self._storage = storage
+        # The root as Storage resolves it (a symlinked path names the same
+        # store), hashed: the identity is compared, never a host path to show.
+        root = os.path.realpath(storage.path).encode()
+        self._identity = f"{driver}:{hashlib.sha256(root).hexdigest()[:16]}"
 
     @property
     def storage(self) -> Storage:
@@ -95,12 +100,16 @@ class LocalObjectStoreProvider(ObjectStoreProvider):
         await self._storage.delete(key)
 
     async def health(self) -> HealthResult:
-        # Existence of the configured local root is sufficient liveness.
+        # Existence of the configured local root is sufficient liveness. The
+        # details carry no path (spec 2.4: one token, never free text).
         if self._storage.type == "local" and not os.path.isdir(self._storage.path):  # noqa: ASYNC240 - one local stat, negligible
-            return HealthResult(
-                status="fail", details={"error": f"missing path {self._storage.path}"}
-            )
+            return HealthResult(status="fail", details={"error": "missing_path"})
         return HealthResult(status="ok")
+
+    async def isolation_identity(self) -> str | None:
+        """``<driver>:<sha256 of the resolved root, 16 hex>``: two instances on
+        one root share it, and it shows no host path."""
+        return self._identity
 
 
 _default_storage: Storage | None = None

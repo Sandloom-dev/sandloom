@@ -269,12 +269,14 @@ capability's own:
 5. `development_only` is a `bool`; `health()` answers within the bound and its `details` pass the
    redaction rule (the tier is earned by the kit, not checked by it: it is read from the
    registration, 2.5);
-6. `isolation_identity()`: two providers built from the same options return equal, non-`None`
-   identities, each starting with `<driver>:`;
+6. `isolation_identity()`: two providers built from the same options, and one built under another
+   instance name with the same driver and options, return equal, non-`None` identities, each
+   starting with `<driver>:` (the identity names the backing store, not the instance);
 7. each feature group runs only when the feature is declared, and a declared-absent behaviour
    feature raises `Unsupported(feature)` from its call;
 8. the error-mapping group: a provider built to fail (the kit's `make_failing_provider` fixture,
-   optional) raises only `InfraError` subclasses.
+   optional) raises only `InfraError` subclasses, and the secret it was built with (the kit's
+   `leak_marker`) appears in no error message and no health detail, keys included.
 
 The kit itself is tested against broken drivers in `src/sandloom/core/tests/test_driverkit.py`: one
 broken driver per obligation (a wrong version type, a feature not in the spec, a non-atomic
@@ -1049,10 +1051,14 @@ size (`_UnsizedObjectReader`, :1108).
 `UploadTooLargeError`), `PermissionDenied`, `Unavailable`, `Timeout`. `get`: `InvalidArgument`,
 `NotFound`, `TooLarge` (buffered read limit; was `ObjectTooLargeError`), `PermissionDenied`,
 `Unavailable`, `Timeout`. `delete`: `InvalidArgument`, `PermissionDenied`, `Unavailable`. `url`:
-`InvalidArgument`, `Unsupported("presigned_get")`.
+`InvalidArgument`, `Unsupported("presigned_get")`. Key validation comes first: an invalid key
+raises `InvalidArgument` before the feature check, so `url(key)` with an invalid key raises
+`InvalidArgument` on a driver without `presigned_get` too (the kit's `test_object_invalid_keys`). A
+message names the error type or code, never the backend's text, a URL or a host path (the
+`local` driver maps `OSError` to `PermissionDenied` or `Unavailable`).
 
-**Features.** `metadata` (behaviour: content type and metadata are stored and read back),
-`presigned_get` (behaviour). **Performance hints.** none.
+**Features.** `metadata` (behaviour, informational per 13.42: content type and metadata are stored
+and read back), `presigned_get` (behaviour). **Performance hints.** none.
 **Kit (`ObjectStoreConformance`).** Moves to the harness (`make_provider` instead of a `store`
 Protocol fixture, so it checks version, features, health and close); adds `NotFound`, the size
 errors, `url` with and without `presigned_get` (the test driver that returns `memory://` without
@@ -1291,6 +1297,14 @@ For the orchestrator's review; each departs from or details `design.md`.
     every unknown-feature refusal (driver load, requirement, resolve) names the replacement. A
     removed name is never a feature of the spec. The eventbus and taskqueue slices fill their
     tables in their own ports files (item 32).
+41. **`SqlDialectConformance` is a renderer kit with no lifecycle**; it takes `renderer` and
+    `dialect` and runs only the version and feature checks of 2.7.
+42. **`metadata` is an informational objectstore feature**: a driver without it accepts and drops
+    `content_type`/`metadata`; a module checks `features()` before relying on them. The kit's
+    `test_object_metadata` checks the round trip on a driver that declares it and that `put(...,
+    metadata=...)` succeeds on one that does not.
+43. **The smtp mailpit kit lane and smtp `isolation_identity`** (`smtp:<host>:<port>`) belong to
+    `idk-tiers`.
 
 ## 14. Open for the owner
 
