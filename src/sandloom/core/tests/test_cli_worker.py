@@ -176,30 +176,52 @@ def test_worker_check_is_registered_and_boots_nothing(tmp_path: Path) -> None:
     assert loaded.stdout.split() == ["0", "False"], loaded.stderr
 
 
-def _celery_app_whose_worker_dies() -> Any:
-    """A real Celery app (memory broker, solo pool): its worker fails to start."""
-    from celery import Celery, bootsteps
+_DYING_WORKER = """
+import sys
+from celery import Celery, bootsteps
 
-    app = Celery("dies", broker="memory://", set_as_current=False)
-    app.conf.broker_url = "memory://"
-    app.conf.worker_pool = "solo"
+import sandloom.core.worker as worker
+from sandloom.core.cli import worker as worker_cli
 
-    class Dies(bootsteps.StartStopStep):  # type: ignore[misc]
-        def start(self, parent: Any) -> None:
-            raise RuntimeError("the worker dies on start")
-
-    app.steps["worker"].add(Dies)
-    return app
+app = Celery("dies", broker="memory://", set_as_current=False)
+app.conf.worker_pool = "solo"
 
 
-def test_a_worker_that_dies_exits_non_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+class Dies(bootsteps.StartStopStep):
+    def start(self, parent):
+        raise RuntimeError("the worker dies on start")
+
+
+app.steps["worker"].add(Dies)
+worker.get_worker_app = lambda: app
+sys.exit(worker_cli.worker_main(["--concurrency", "1", "--loglevel", "CRITICAL"]))
+"""
+
+
+@pytest.mark.subprocess_probe
+def test_a_worker_that_dies_exits_non_zero() -> None:
     """Celery's ``app.start()`` drops the process exit code: ``sandloom worker``
-    must not report 0 for a worker that died (the container would not restart)."""
-    _patch_app(monkeypatch, _celery_app_whose_worker_dies())
-    code = worker_cli.worker_main(
-        ["--concurrency", "1", "--loglevel", "CRITICAL"],
+    must not report 0 for a worker that died (the container would not restart).
+
+    A real Celery app (memory broker, solo pool) in its own process: a worker
+    changes process-wide state (logging, signals, the current app, GC), which
+    must not reach the other tests of this one.
+    """
+    env = {
+        name: os.environ[name]
+        for name in ("PATH", "HOME", "SYSTEMROOT", "TMPDIR")
+        if name in os.environ
+    }
+    done = subprocess.run(
+        [sys.executable, "-c", _DYING_WORKER],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
     )
-    assert code != 0
+    assert "the worker dies on start" in done.stderr + done.stdout
+    assert done.returncode != 0, done.stderr
 
 
 def test_beat_binds_the_app_and_returns_the_exit_code(
