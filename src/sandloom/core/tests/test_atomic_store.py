@@ -342,3 +342,11 @@ async def test_a_backend_failure_never_escapes_as_a_foreign_error() -> None:
         with pytest.raises(InfraError):
             await call()
     await provider.aclose()
+
+
+def test_the_driverkit_helpers_are_the_ports_own() -> None:
+    from sandloom.core.infra.ports import atomic_store as port
+    from sandloom.driverkit import atomic_store as kit
+
+    for name in kit.__all__:
+        assert getattr(kit, name) is getattr(port, name), name
