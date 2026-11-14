@@ -68,7 +68,6 @@ PROVIDER_NAMES = frozenset(
 
 #: (file relative to src/sandloom, escape hatch) -> (sites, removed_by).
 RAW_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
-    ("core/contract_cache_shadow.py", "raw_client"): (3, "idk-broadcast"),
     ("core/testing/fixtures.py", "raw_client"): (1, "idk-test-harness"),
     ("core/worker.py", "raw_backend"): (1, "idk-worker-port"),
 }

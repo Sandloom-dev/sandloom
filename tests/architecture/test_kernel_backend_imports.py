@@ -252,7 +252,6 @@ def test_the_scan_also_sees_sdk_and_shared() -> None:
 IMPORTLINTER = REPO / ".importlinter"
 EVENTING_CONTRACT = "importlinter:contract:eventing-no-transport-impl"
 TRANSPORT_IMPL = {
-    "sandloom.core.eventing.pubsub_bus",
     "sandloom.core.eventing.streams_transport",
     "sandloom.core.eventing.streams_transport_base",
     "sandloom.core.eventing.streams_consume",

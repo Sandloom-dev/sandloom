@@ -110,3 +110,38 @@ def test_flat_s3_settings_do_not_inherit_the_local_path(
     assert instance.driver == "s3"
     assert instance.options["bucket"] == "uploads"
     assert "path" not in instance.options
+
+
+def test_the_broadcast_default_is_a_defaulted_capability() -> None:
+    assert "broadcast" in DEFAULTED_CAPABILITIES
+    broadcast = load_infra_config(settings)["broadcast"][DEFAULT_INSTANCE]
+    assert broadcast.driver == "redis"
+    assert broadcast.implicit is True
+
+
+def test_the_broadcast_default_follows_the_resolved_cache_default_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An INFRA override of ``cache.default.url`` moves the fan-out with the
+    cache: it is not read again from the raw ``CACHE_URL``."""
+    s = _settings_with_infra(
+        monkeypatch,
+        {"cache": {"default": {"driver": "redis", "url": "redis://cache-host:6390/4"}}},
+    )
+    cfg = load_infra_config(s)  # type: ignore[arg-type]
+    assert cfg["cache"][DEFAULT_INSTANCE].options["url"] == "redis://cache-host:6390/4"
+    assert cfg["broadcast"][DEFAULT_INSTANCE].options["url"] == (
+        "redis://cache-host:6390/4"
+    )
+
+
+def test_a_stated_broadcast_url_is_kept(monkeypatch: pytest.MonkeyPatch) -> None:
+    s = _settings_with_infra(
+        monkeypatch,
+        {
+            "cache": {"default": {"driver": "redis", "url": "redis://cache-host/0"}},
+            "broadcast": {"default": {"driver": "redis", "url": "redis://fan/0"}},
+        },
+    )
+    cfg = load_infra_config(s)  # type: ignore[arg-type]
+    assert cfg["broadcast"][DEFAULT_INSTANCE].options["url"] == "redis://fan/0"
