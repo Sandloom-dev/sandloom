@@ -5069,10 +5069,10 @@ guarantees:
   gap_size: S
 - id: G-RISK-03
   statement: Every registered risk documents what it weakens and which check consults it, and the registry
-    holds exactly the twelve ids log_notifier_in_prod, log_links_in_prod, local_storage_in_prod,
+    holds exactly the thirteen ids log_notifier_in_prod, log_links_in_prod, local_storage_in_prod,
     volatile_event_bus, unversioned_ddl_repair, weak_password_hash, shared_hs_secret_split, relay_disabled,
     command_dedupe_below_retry_horizon, saga_horizon_beyond_command_dedupe, experimental_capability,
-    development_database_in_prod.
+    experimental_driver, development_database_in_prod.
   sources:
   - docs/adr/0006-accepted-risks.md#Amendment (2026-10-25)
   - docs/adr/0006-accepted-risks.md#Consequences
