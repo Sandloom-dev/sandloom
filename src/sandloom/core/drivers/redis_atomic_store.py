@@ -22,11 +22,23 @@ of that setting (managed Redis often refuses ``CONFIG GET``) means:
   (:func:`make_redis_atomic_store_factory`), and a driver built without it
   refuses ``assume``.
 
+A refused check is not only raised by ``aopen``: a registry outside production
+logs it and keeps the provider, so every operation then raises the same refusal
+until an ``aopen`` passes, and ``health`` reports ``fail``.
+
+**A lost reply is never answered by running the command again.** A connection
+error after the server ran ``add``, ``add_or_get``, ``compare_and_set`` or
+``compare_and_delete`` would answer ``False`` (or the caller's own value) to the
+caller that won, so those four use a second client that never re-sends and raise
+``Unavailable``. ``get``, ``set``, ``delete`` and ``set_subject_state`` are
+idempotent and use the client that re-sends after a connection error
+(``retry_attempts``).
+
 The driver reads no kernel setting and keeps no process-wide client: each
-instance owns a bounded client built from its options (the cache driver's
-bounds). It maps every backend failure to the ``InfraError`` hierarchy and
-carries only the error type in a message, never the backend's text, which can
-name a host or a key.
+instance owns two bounded clients built from its options (the cache driver's
+bounds; each has its own pool of ``max_connections``). It maps every backend
+failure to the ``InfraError`` hierarchy and carries only the error type in a
+message, never the backend's text, which can name a host or a key.
 """
 
 from __future__ import annotations
@@ -37,7 +49,7 @@ import importlib
 from collections.abc import Callable, Mapping, Sequence
 from functools import cache
 from types import ModuleType
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, NoReturn, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -52,6 +64,7 @@ from sandloom.core.infra.errors import (
 from sandloom.core.infra.ports.atomic_store import (
     ATOMIC_STORE_PERFORMANCE_HINTS,
     DEFAULT_MAX_VALUE_BYTES,
+    MAX_SUBJECT_STATE_CHARS,
     AtomicStoreProvider,
     check_key,
     check_subject_state,
@@ -140,16 +153,22 @@ def _running_loop() -> asyncio.AbstractEventLoop | None:
         return None
 
 
-def _build_client(options: RedisAtomicStoreOptions) -> Any:
+def _build_client(options: RedisAtomicStoreOptions, *, retrying: bool) -> Any:
     """A bounded client: timeouts, keepalive, a periodic health check and a
     capped BLOCKING pool, so an unreachable or hung Redis makes an operation
     raise within roughly ``(1 + retry_attempts) x socket_timeout_seconds``
-    instead of hanging a request. Only connection errors are retried (a stale
-    pooled socket after a failover), never a timeout."""
+    instead of hanging a request.
+
+    ``retrying`` clients re-send a command after a connection error (a stale
+    pooled socket after a failover), never after a timeout. A command whose
+    reply was lost may have run, so only idempotent commands use that client;
+    the others use a client that never re-sends (:meth:`RedisAtomicStoreProvider
+    ._operation_client`)."""
     redis = _asyncio_module()
     retry_module = _retry_module()
     backoff = _backoff_module()
     exceptions = _exceptions()
+    attempts = options.retry_attempts if retrying else 0
     pool: Any = redis.BlockingConnectionPool.from_url(
         options.url,
         max_connections=options.max_connections,
@@ -162,9 +181,10 @@ def _build_client(options: RedisAtomicStoreOptions) -> Any:
         health_check_interval=options.health_check_interval_seconds,
         retry=retry_module.Retry(
             backoff.FullJitterBackoff(cap=0.1, base=0.01),
-            options.retry_attempts,
+            attempts,
             supported_errors=(exceptions.ConnectionError,),
         ),
+        retry_on_error=[exceptions.ConnectionError] if retrying else [],
     )
     client: Any = redis.Redis.from_pool(pool)
     return client
@@ -220,11 +240,15 @@ return {1}
 # every ``blocked`` ranks above every ``after``, within a kind the decimal is
 # compared exactly as digit strings, byte by byte (Lua numbers are doubles:
 # 16+ significant digits would round, and ``<`` on strings is locale-collated).
-# A stored value outside the domain is corrupt and replaced. The TTL applies
-# only when ARGV[1] is written (``0``: none, which also clears an older TTL).
+# A stored value outside the domain is corrupt and replaced; one longer than
+# the domain's bound is corrupt without being matched (the pattern backtracks
+# quadratically on a long run of digits: 40k characters held a server for 7 s).
+# The TTL applies only when ARGV[1] is written (``0``: none, which also clears
+# an older TTL).
 _SUBJECT_STATE_LUA = """
 local function parse(s)
     if not s then return nil end
+    if #s > __MAX_CHARS__ then return nil end
     local k, i, f = string.match(s, '^v1:(%a+):(%d+)%.?(%d*)$')
     if not k then return nil end
     local rank
@@ -265,7 +289,7 @@ else
     redis.call('SET', KEYS[1], ARGV[1])
 end
 return ARGV[1]
-"""
+""".replace("__MAX_CHARS__", str(MAX_SUBJECT_STATE_CHARS))
 
 # Compare-and-set / compare-and-delete: the value is replaced or removed only
 # while it still equals the caller's expected value (an owner token in it). An
@@ -324,33 +348,62 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         self._assume_allowed = assume_allowed
         self._client_factory = client_factory
         self._client: Any | None = None
+        self._once_client: Any | None = None
         self._client_loop: asyncio.AbstractEventLoop | None = None
+        # Set by an ``aopen`` whose policy check refused the server: every
+        # operation then raises it, so a registry that only logs the refusal
+        # (outside production) never serves an evicting store.
+        self._refusal: tuple[type[InfraError], str] | None = None
 
     # ---------------------------------------------------------------- client
     async def _client_obj(self) -> Any:
+        """The client that re-sends a command after a connection error: for
+        the lifecycle and the idempotent operations."""
+        return await self._client_of(retrying=True)
+
+    async def _operation_client(self, *, idempotent: bool) -> Any:
+        """The client of an operation, after the eviction check passed. A
+        command whose reply was lost may have run: ``add``, ``add_or_get``,
+        ``compare_and_set`` and ``compare_and_delete`` answer a different value
+        when run twice, so they use the client that never re-sends."""
+        if self._refusal is not None:
+            kind, message = self._refusal
+            raise kind(message, capability=self.capability, instance=self.name)
+        return await self._client_of(retrying=idempotent)
+
+    async def _client_of(self, *, retrying: bool) -> Any:
         loop = _running_loop()
         if (
-            self._client is not None
+            self._client_loop is not None
             and loop is not None
-            and self._client_loop is not None
             and self._client_loop is not loop
+            and (self._client is not None or self._once_client is not None)
         ):
             # A redis.asyncio client is bound to the loop it first ran on.
-            stale, self._client = self._client, None
-            await _close_quietly(stale)
-        if self._client is None:
-            if self._client_factory is not None:
+            stale = (self._client, self._once_client)
+            self._client = self._once_client = None
+            for old in dict.fromkeys(c for c in stale if c is not None):
+                await _close_quietly(old)
+        if self._client_factory is not None:
+            if self._client is None:
                 self._client = self._client_factory()
-            else:
-                if not self._options.url:
-                    raise InvalidArgument(
-                        f"atomic_store instance {self.name!r} has no 'url' option",
-                        capability=self.capability,
-                        instance=self.name,
-                    )
-                self._client = _build_client(self._options)
+                self._client_loop = loop
+            return self._client
+        if not self._options.url:
+            raise InvalidArgument(
+                f"atomic_store instance {self.name!r} has no 'url' option",
+                capability=self.capability,
+                instance=self.name,
+            )
+        if retrying:
+            if self._client is None:
+                self._client = _build_client(self._options, retrying=True)
+                self._client_loop = loop
+            return self._client
+        if self._once_client is None:
+            self._once_client = _build_client(self._options, retrying=False)
             self._client_loop = loop
-        return self._client
+        return self._once_client
 
     def _failure(self, operation: str, exc: BaseException) -> InfraError:
         """The ``InfraError`` for a backend failure: its type, never its text."""
@@ -371,7 +424,7 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
     async def get(self, key: str) -> str | None:
         check_key(key, instance=self.name)
         try:
-            client = await self._client_obj()
+            client = await self._operation_client(idempotent=True)
             value = await client.get(key)
         except InfraError:
             raise
@@ -386,7 +439,7 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         check_value(value, limit=self._options.max_value_bytes, instance=self.name)
         ttl = check_ttl(ttl_seconds, instance=self.name)
         try:
-            client = await self._client_obj()
+            client = await self._operation_client(idempotent=True)
             await client.set(key, value, ex=ttl or None)
         except InfraError:
             raise
@@ -396,7 +449,7 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
     async def delete(self, key: str) -> None:
         check_key(key, instance=self.name)
         try:
-            client = await self._client_obj()
+            client = await self._operation_client(idempotent=True)
             await client.delete(key)
         except InfraError:
             raise
@@ -410,7 +463,7 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         check_value(value, limit=self._options.max_value_bytes, instance=self.name)
         ttl = check_ttl(ttl_seconds, instance=self.name)
         try:
-            client = await self._client_obj()
+            client = await self._operation_client(idempotent=False)
             return bool(await client.set(key, value, nx=True, ex=ttl or None))
         except InfraError:
             raise
@@ -418,10 +471,16 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
             raise self._failure("add", exc) from None
 
     async def _script(
-        self, operation: str, script: str, key: str, args: list[Any]
+        self,
+        operation: str,
+        script: str,
+        key: str,
+        args: list[Any],
+        *,
+        idempotent: bool = False,
     ) -> Any:
         try:
-            client = await self._client_obj()
+            client = await self._operation_client(idempotent=idempotent)
             return await _run_script(client, script, _SHAS[script], [key], args)
         except InfraError:
             raise
@@ -464,7 +523,11 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         check_subject_state(value, instance=self.name)
         ttl = check_ttl(ttl_seconds, instance=self.name)
         held = await self._script(
-            "set_subject_state", _SUBJECT_STATE_LUA, key, [value, ttl]
+            "set_subject_state",
+            _SUBJECT_STATE_LUA,
+            key,
+            [value, ttl],
+            idempotent=True,  # the same value written twice leaves one state
         )
         return _text(held)
 
@@ -480,19 +543,24 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         policy = reply.get(_POLICY_SETTING) if isinstance(reply, dict) else None
         return policy if isinstance(policy, str) else None
 
+    def _refuse(self, kind: type[InfraError], message: str) -> NoReturn:
+        """Record the refusal of the server (the operations repeat it) and raise."""
+        self._refusal = (kind, message)
+        raise kind(message, capability=self.capability, instance=self.name)
+
     async def aopen(self) -> None:
+        self._refusal = None
         mode = self._options.never_evicts_check
         if mode == "assume" and not (
             self._assume_allowed is not None and self._assume_allowed()
         ):
-            raise PermissionDenied(
+            self._refuse(
+                PermissionDenied,
                 f"atomic_store instance {self.name!r}: never_evicts_check='assume' "
                 f"needs the accepted risk {UNVERIFIED_NOEVICTION_RISK!r} in production "
                 "(fix: set never_evicts_check='verify' and grant CONFIG GET "
                 f"{_POLICY_SETTING}, or accept the risk with "
                 f'SANDLOOM_ACCEPTED_RISKS=["{UNVERIFIED_NOEVICTION_RISK}"])',
-                capability=self.capability,
-                instance=self.name,
             )
         try:
             client = await self._client_obj()
@@ -504,26 +572,28 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         except _backend_errors() as exc:
             raise self._failure("aopen", exc) from None
         if policy is not None and policy != _NOEVICTION:
-            raise InvalidArgument(
+            self._refuse(
+                InvalidArgument,
                 f"atomic_store instance {self.name!r}: the Redis server evicts "
                 f"keys ({_POLICY_SETTING} is {policy!r}), so a revocation mark or "
                 "an idempotency reservation could vanish before its TTL "
                 f"(fix: set {_POLICY_SETTING} to {_NOEVICTION!r})",
-                capability=self.capability,
-                instance=self.name,
             )
         if policy is None and mode == "verify":
-            raise PermissionDenied(
+            self._refuse(
+                PermissionDenied,
                 f"atomic_store instance {self.name!r}: the Redis server refused "
                 f"CONFIG GET {_POLICY_SETTING}, so the driver cannot verify that "
                 f"it never evicts (fix: grant CONFIG GET {_POLICY_SETTING} to "
                 "this user, or vouch for the policy with the option "
                 "never_evicts_check='assume')",
-                capability=self.capability,
-                instance=self.name,
             )
 
     async def health(self) -> HealthResult:
+        if self._refusal is not None:
+            return HealthResult(
+                status="fail", details={"reason": "eviction_check_refused"}
+            )
         try:
             client = await self._client_obj()
             if not await client.ping():
@@ -566,8 +636,11 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         return f"redis:{run_id}"
 
     async def aclose(self) -> None:
-        if self._client is not None:
-            client, self._client = self._client, None
+        clients = dict.fromkeys(
+            c for c in (self._client, self._once_client) if c is not None
+        )
+        self._client = self._once_client = None
+        for client in clients:
             try:
                 await client.aclose()
             except AttributeError:  # pragma: no cover - older redis-py

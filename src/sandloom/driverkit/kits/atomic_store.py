@@ -9,8 +9,10 @@ and a TTL no losing write shortens.
 
 A driver's tests subclass it, override ``make_provider`` (an unopened provider
 on a test backend) and, for the features it declares, ``make_evicting_provider``
-(``never_evicts``). Expiry is waited out with :meth:`AtomicStoreConformance.let_expire`
-(real time by default; a driver with a clock overrides it).
+(``never_evicts``; a driver with an override of the eviction check also
+``make_evicting_assume_provider``). Expiry is waited out with
+:meth:`AtomicStoreConformance.let_expire` (real time by default; a driver with a
+clock overrides it).
 """
 
 from __future__ import annotations
@@ -28,6 +30,8 @@ from sandloom.core.infra.errors import InfraError, InvalidArgument, TooLarge
 from sandloom.core.infra.ports.atomic_store import (
     ATOMIC_STORE_CAPABILITY,
     MAX_KEY_BYTES,
+    MAX_SUBJECT_STATE_CHARS,
+    MAX_TTL_SECONDS,
     AtomicStore,
     AtomicStoreProvider,
     subject_state_rank,
@@ -72,8 +76,18 @@ class AtomicStoreConformance(ProviderConformance[AtomicStoreProvider]):
     @pytest.fixture
     def make_evicting_provider(self) -> Callable[[], AtomicStoreProvider] | None:
         """An unopened provider whose backend evicts keys under pressure (an
-        eviction policy other than "never"). ``None`` skips the ``never_evicts``
-        group's check of the driver's own refusal."""
+        eviction policy other than "never"), built as the driver is by default.
+        Required of a driver that declares ``never_evicts`` and is not
+        ``development_only`` (the check of its refusal fails without it); a
+        development-only driver may leave it ``None``."""
+        return None
+
+    @pytest.fixture
+    def make_evicting_assume_provider(self) -> Callable[[], AtomicStoreProvider] | None:
+        """The same evicting backend, with the driver's operator override that
+        skips the eviction *check* switched on and allowed (Redis:
+        ``never_evicts_check="assume"`` with the risk accepted): the refusal
+        holds all the same. ``None`` for a driver with no such override."""
         return None
 
     async def let_expire(self, provider: AtomicStoreProvider, ttl_seconds: int) -> None:
@@ -517,11 +531,11 @@ class AtomicStoreConformance(ProviderConformance[AtomicStoreProvider]):
         await provider.set(longest, "v")
         require(await provider.get(longest) == "v", "a key of 1024 bytes is valid")
 
-    async def test_a_ttl_below_one_is_invalid(
+    async def test_a_ttl_outside_the_bounds_is_invalid(
         self, provider: AtomicStoreProvider
     ) -> None:
         key = _key("bad-ttl")
-        for ttl in (0, -1):
+        for ttl in (0, -1, MAX_TTL_SECONDS + 1, 10**20):
             with pytest.raises(InvalidArgument):
                 await provider.set(key, "v", ttl_seconds=ttl)
             with pytest.raises(InvalidArgument):
@@ -533,6 +547,7 @@ class AtomicStoreConformance(ProviderConformance[AtomicStoreProvider]):
             with pytest.raises(InvalidArgument):
                 await provider.set_subject_state(key, _after("1"), ttl_seconds=ttl)
         require(await provider.get(key) is None, "a refused write stores nothing")
+        await provider.set(key, "v", ttl_seconds=MAX_TTL_SECONDS)  # the cap is valid
 
     async def test_a_value_over_the_limit_is_too_large(
         self, provider: AtomicStoreProvider
@@ -554,6 +569,20 @@ class AtomicStoreConformance(ProviderConformance[AtomicStoreProvider]):
         require(
             await provider.get(key) == "x" * limit, "a refused write changed nothing"
         )
+
+    async def test_a_subject_state_over_its_bound_is_too_large(
+        self, provider: AtomicStoreProvider
+    ) -> None:
+        key = _key("too-large-state")
+        longest = _after("1" * (MAX_SUBJECT_STATE_CHARS - len(_after(""))))
+        require(
+            await provider.set_subject_state(key, longest) == longest,
+            "a subject state at the bound is valid",
+        )
+        for oversized in (_after("1" * MAX_SUBJECT_STATE_CHARS), _blocked("1" * 4096)):
+            with pytest.raises(TooLarge):
+                await provider.set_subject_state(key, oversized)
+        require(await provider.get(key) == longest, "a refused write changed nothing")
 
     # --------------------------------------------------- feature: shared
     async def test_shared_two_providers_of_one_store_see_each_other(
@@ -593,22 +622,71 @@ class AtomicStoreConformance(ProviderConformance[AtomicStoreProvider]):
     ) -> None:
         self.requires_feature(provider, "never_evicts")
         if make_evicting_provider is None:
-            pytest.skip("no make_evicting_provider: the driver's check is not run")
-        built = make_evicting_provider()
+            if provider.development_only:
+                pytest.skip("a development-only driver has no evicting backend")
+            raise AssertionError(
+                "the driver declares never_evicts, is not development_only and "
+                "gives no make_evicting_provider: its refusal of an evicting "
+                "backend is never run (override the fixture)"
+            )
+        await _require_refusal(make_evicting_provider())
+
+    async def test_never_evicts_the_refusal_holds_when_the_operator_vouches(
+        self,
+        provider: AtomicStoreProvider,
+        make_evicting_assume_provider: Callable[[], AtomicStoreProvider] | None,
+    ) -> None:
+        self.requires_feature(provider, "never_evicts")
+        if make_evicting_assume_provider is None:
+            pytest.skip("the driver has no override of the eviction check")
+        await _require_refusal(make_evicting_assume_provider())
+
+
+async def _require_refusal(built: AtomicStoreProvider) -> None:
+    """``aopen`` of a provider on an evicting backend raises ``InvalidArgument``
+    (the policy refusal: not an outage), and the provider then runs no
+    operation: a registry that only logs the refusal (outside production)
+    still serves it."""
+    try:
         try:
-            try:
-                await built.aopen()
-            except InfraError:
-                return
+            await built.aopen()
+        except InvalidArgument:
+            pass
+        except InfraError as exc:
+            raise AssertionError(
+                "aopen on a backend that evicts must raise InvalidArgument (the "
+                f"policy refusal), not {type(exc).__name__}"
+            ) from None
+        else:
             raise AssertionError(
                 "aopen succeeded on a backend that evicts: a driver that declares "
                 "never_evicts verifies it (or refuses) on aopen"
             )
-        finally:
+        key = _key("evicting")
+        for name, call in (
+            ("get", lambda: built.get(key)),
+            ("set", lambda: built.set(key, "v")),
+            ("add", lambda: built.add(key, "v")),
+            ("add_or_get", lambda: built.add_or_get(key, "v")),
+        ):
             try:
-                await built.aclose()
-            except InfraError:
-                pass
+                await call()
+            except InvalidArgument:
+                continue
+            except InfraError as exc:
+                raise AssertionError(
+                    f"{name} after the refusal must raise InvalidArgument, not "
+                    f"{type(exc).__name__}"
+                ) from None
+            raise AssertionError(
+                f"{name} ran on a provider whose eviction check was refused: an "
+                "operation raises until the check has passed"
+            )
+    finally:
+        try:
+            await built.aclose()
+        except InfraError:
+            pass
 
 
 async def _call_with_key(provider: AtomicStoreProvider, name: str, key: str) -> None:

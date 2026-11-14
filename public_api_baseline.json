@@ -3033,6 +3033,50 @@
       "signature": "(key:POSITIONAL_OR_KEYWORD|str) -> None"
     }
   },
+  "sandloom.driverkit.atomic_store": {
+    "ATOMIC_STORE_PERFORMANCE_HINTS": {
+      "kind": "value"
+    },
+    "DEFAULT_MAX_VALUE_BYTES": {
+      "kind": "value"
+    },
+    "MAX_KEY_BYTES": {
+      "kind": "value"
+    },
+    "MAX_SUBJECT_STATE_CHARS": {
+      "kind": "value"
+    },
+    "MAX_TTL_SECONDS": {
+      "kind": "value"
+    },
+    "SUBJECT_STATE_RANKS": {
+      "kind": "value"
+    },
+    "check_key": {
+      "kind": "function",
+      "signature": "(key:POSITIONAL_OR_KEYWORD|object, instance:KEYWORD_ONLY|str | None=None) -> str"
+    },
+    "check_subject_state": {
+      "kind": "function",
+      "signature": "(value:POSITIONAL_OR_KEYWORD|object, instance:KEYWORD_ONLY|str | None=None) -> str"
+    },
+    "check_ttl": {
+      "kind": "function",
+      "signature": "(ttl_seconds:POSITIONAL_OR_KEYWORD|object, instance:KEYWORD_ONLY|str | None=None) -> int"
+    },
+    "check_value": {
+      "kind": "function",
+      "signature": "(value:POSITIONAL_OR_KEYWORD|object, limit:KEYWORD_ONLY|int=1048576, instance:KEYWORD_ONLY|str | None=None) -> str"
+    },
+    "parse_subject_state": {
+      "kind": "function",
+      "signature": "(raw:POSITIONAL_OR_KEYWORD|str | None) -> tuple[str, Decimal] | None"
+    },
+    "subject_state_rank": {
+      "kind": "function",
+      "signature": "(raw:POSITIONAL_OR_KEYWORD|str | None) -> tuple[int, Decimal] | None"
+    }
+  },
   "sandloom.driverkit.testing": {
     "AtomicStoreConformance": {
       "kind": "class",
@@ -3042,6 +3086,7 @@
         "health_timeout_seconds",
         "leak_marker",
         "let_expire",
+        "make_evicting_assume_provider",
         "make_evicting_provider",
         "make_failing_provider",
         "make_provider",
@@ -3055,7 +3100,8 @@
         "test_a_key_is_gone_after_its_ttl",
         "test_a_key_outside_the_contract_is_invalid",
         "test_a_losing_write_never_shortens_the_ttl",
-        "test_a_ttl_below_one_is_invalid",
+        "test_a_subject_state_over_its_bound_is_too_large",
+        "test_a_ttl_outside_the_bounds_is_invalid",
         "test_a_value_over_the_limit_is_too_large",
         "test_absent_key_reads_none",
         "test_add_creates_only_an_absent_key",
@@ -3086,6 +3132,7 @@
         "test_harness_states_the_contract_version",
         "test_harness_undeclared_behaviours_raise_unsupported",
         "test_never_evicts_the_driver_refuses_an_evicting_backend",
+        "test_never_evicts_the_refusal_holds_when_the_operator_vouches",
         "test_set_get_overwrite_delete",
         "test_set_subject_state_over_an_expired_key_writes",
         "test_shared_two_providers_of_one_store_see_each_other",

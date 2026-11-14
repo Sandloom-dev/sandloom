@@ -16,7 +16,9 @@ from typing import Any
 import pytest
 
 from sandloom.core.drivers.memory_atomic_store import MemoryAtomicStoreProvider
+from sandloom.core.infra.errors import InvalidArgument, Unavailable
 from sandloom.core.infra.ports.atomic_store import (
+    MAX_SUBJECT_STATE_CHARS,
     AtomicStoreProvider,
     check_key,
     check_subject_state,
@@ -259,6 +261,84 @@ class _Broken:
     class DeclaresNeverEvictsAndEvicts(MemoryAtomicStoreProvider):
         """Its backend evicts, and it opens all the same."""
 
+    class AcceptsAnyTtl(_Base):
+        """Hands a TTL past the cap to its backend (a 10**20 s one)."""
+
+        async def set(
+            self, key: str, value: str, *, ttl_seconds: int | None = None
+        ) -> None:
+            check_key(key)
+            check_value(value, limit=self._limit)
+            if ttl_seconds is not None and ttl_seconds >= 1:
+                self._write(key, value, ttl_seconds)
+            else:
+                self._write(key, value, check_ttl(ttl_seconds))
+
+    class UnboundedSubjectState(MemoryAtomicStoreProvider):
+        """Matches a subject state of any length."""
+
+        async def set_subject_state(
+            self, key: str, value: str, *, ttl_seconds: int | None = None
+        ) -> str:
+            if len(value) > MAX_SUBJECT_STATE_CHARS:
+                return value  # a real driver would scan, or store, the long value
+            return await super().set_subject_state(key, value, ttl_seconds=ttl_seconds)
+
+    class NeverEvictsNotDevelopmentOnly(MemoryAtomicStoreProvider):
+        """Declares ``never_evicts`` as a production driver: the kit needs an
+        evicting provider of it, and none is given."""
+
+        development_only = False
+
+    class RefusesAnEvictingBackend(MemoryAtomicStoreProvider):
+        """What a driver does on an evicting backend: ``aopen`` raises
+        ``InvalidArgument`` and every operation after it raises the same."""
+
+        _refused = False
+
+        async def aopen(self) -> None:
+            self._refused = True
+            raise InvalidArgument("evicts", capability="atomic_store")
+
+        async def get(self, key: str) -> str | None:
+            if self._refused:
+                raise InvalidArgument("evicts", capability="atomic_store")
+            return await super().get(key)
+
+        async def set(
+            self, key: str, value: str, *, ttl_seconds: int | None = None
+        ) -> None:
+            if self._refused:
+                raise InvalidArgument("evicts", capability="atomic_store")
+            await super().set(key, value, ttl_seconds=ttl_seconds)
+
+        async def add(
+            self, key: str, value: str, *, ttl_seconds: int | None = None
+        ) -> bool:
+            if self._refused:
+                raise InvalidArgument("evicts", capability="atomic_store")
+            return await super().add(key, value, ttl_seconds=ttl_seconds)
+
+        async def add_or_get(
+            self, key: str, value: str, *, ttl_seconds: int | None = None
+        ) -> tuple[bool, str | None]:
+            if self._refused:
+                raise InvalidArgument("evicts", capability="atomic_store")
+            return await super().add_or_get(key, value, ttl_seconds=ttl_seconds)
+
+    class RefusesAsAnOutage(RefusesAnEvictingBackend):
+        """The policy refusal is an ``Unavailable``: not the refusal the kernel
+        reads (a transient outage is retried and degrades, never stops)."""
+
+        async def aopen(self) -> None:
+            raise Unavailable("evicts", capability="atomic_store")
+
+    class RefusesButServes(MemoryAtomicStoreProvider):
+        """``aopen`` refuses, and the operations then run on the evicting store."""
+
+        async def aopen(self) -> None:
+            raise InvalidArgument("evicts", capability="atomic_store")
+
 
 #: What each broken driver must fail: the kit tests that name its defect.
 _CASES: dict[str, set[str]] = {
@@ -286,6 +366,7 @@ _CASES: dict[str, set[str]] = {
     "CorruptValueKept": {"test_subject_state_replaces_a_corrupt_stored_value"},
     "AcceptsAnyValue": {
         "test_subject_state_refuses_a_value_outside_the_domain",
+        "test_a_subject_state_over_its_bound_is_too_large",
     },
     "CasIgnoresExpected": {
         "test_compare_and_set_swaps_only_on_the_expected_value",
@@ -297,13 +378,17 @@ _CASES: dict[str, set[str]] = {
     "DeleteOnExpiredKey": {"test_compare_and_delete_on_an_expired_key_is_false"},
     "LosingAddShortensTheTtl": {"test_a_losing_write_never_shortens_the_ttl"},
     "CasKeepsTheOldTtl": {"test_compare_and_set_without_a_ttl_removes_the_old_one"},
-    "IgnoresTheTtlRule": {"test_a_ttl_below_one_is_invalid"},
+    "IgnoresTheTtlRule": {"test_a_ttl_outside_the_bounds_is_invalid"},
+    "AcceptsAnyTtl": {"test_a_ttl_outside_the_bounds_is_invalid"},
+    "UnboundedSubjectState": {"test_a_subject_state_over_its_bound_is_too_large"},
 }
 
 
 async def _failures(
     driver: type[MemoryAtomicStoreProvider],
     evicting: type[MemoryAtomicStoreProvider] | None = None,
+    *,
+    assume: bool = False,
 ) -> set[str]:
     """Run every test of the kit against ``driver`` as pytest would (a fresh
     opened provider per test) and answer the names of those that failed."""
@@ -314,6 +399,9 @@ async def _failures(
         return _build(driver)
 
     make_evicting = (lambda: _build(evicting)) if evicting is not None else None
+    make_assume = (
+        (lambda: _build(evicting)) if assume and evicting is not None else None
+    )
     for name in sorted(n for n in dir(_Kit) if n.startswith("test_")):
         method = getattr(instance, name)
         parameters = inspect.signature(method).parameters
@@ -329,6 +417,8 @@ async def _failures(
             arguments["make_failing_provider"] = None
         if "make_evicting_provider" in parameters:
             arguments["make_evicting_provider"] = make_evicting
+        if "make_evicting_assume_provider" in parameters:
+            arguments["make_evicting_assume_provider"] = make_assume
         run = asyncio.ensure_future(method(**arguments))
         await asyncio.wait([run])
         outcome = run.exception()
@@ -362,3 +452,27 @@ async def test_a_never_evicts_driver_that_opens_on_an_evicting_backend_fails() -
         MemoryAtomicStoreProvider, evicting=_Broken.DeclaresNeverEvictsAndEvicts
     )
     assert failed == {"test_never_evicts_the_driver_refuses_an_evicting_backend"}
+
+
+_REFUSAL = "test_never_evicts_the_driver_refuses_an_evicting_backend"
+_VOUCHED = "test_never_evicts_the_refusal_holds_when_the_operator_vouches"
+
+
+async def test_a_driver_that_refuses_an_evicting_backend_and_stops_passes() -> None:
+    failed = await _failures(
+        MemoryAtomicStoreProvider, _Broken.RefusesAnEvictingBackend, assume=True
+    )
+    assert failed == set()
+
+
+@pytest.mark.parametrize("broken", ["RefusesAsAnOutage", "RefusesButServes"])
+async def test_a_refusal_that_is_not_the_policy_refusal_fails(broken: str) -> None:
+    failed = await _failures(
+        MemoryAtomicStoreProvider, getattr(_Broken, broken), assume=True
+    )
+    assert failed == {_REFUSAL, _VOUCHED}
+
+
+async def test_a_production_driver_with_no_evicting_provider_fails_not_skips() -> None:
+    failed = await _failures(_Broken.NeverEvictsNotDevelopmentOnly)
+    assert failed == {_REFUSAL}

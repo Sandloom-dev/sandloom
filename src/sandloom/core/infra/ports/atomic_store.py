@@ -10,7 +10,8 @@ the driver's durability class.
 - **Expired is absent** for every operation, also while the backend still holds
   the row: ``add`` / ``add_or_get`` create over it, ``compare_and_*`` answer
   ``False`` on it and ``set_subject_state`` writes over it.
-- TTLs are whole seconds, ``>= 1``; ``None`` means no expiry, also on
+- TTLs are whole seconds from 1 to :data:`MAX_TTL_SECONDS` (10 years: a larger
+  one is ``InvalidArgument`` on every driver); ``None`` means no expiry, also on
   ``compare_and_set`` (the key loses any earlier TTL). A key is not readable
   after ``ttl_seconds + 1`` s.
 - ``set_subject_state`` ranks values of the domain of
@@ -20,11 +21,16 @@ the driver's durability class.
   (never a float, never text). It writes only a higher value, replaces a stored
   value outside the domain, returns the value held after the call, and applies
   ``ttl_seconds`` only when it writes. A value outside the domain raises
-  ``InvalidArgument``.
+  ``InvalidArgument``, one over :data:`MAX_SUBJECT_STATE_CHARS` ``TooLarge``.
 
 Errors: every operation raises ``InvalidArgument`` (key, TTL, subject-state
-domain), ``TooLarge``, ``Unavailable`` (also a refused write on a full
-non-evicting store, and contention past a driver's CAS bound) or ``Timeout``.
+domain), ``TooLarge`` (a value, a subject state), ``Unavailable`` (also a
+refused write on a full non-evicting store, and contention past a driver's CAS
+bound) or ``Timeout``. The error model has no "may have happened" class: a
+reply lost after a command ran is ``Unavailable``, and a driver never re-sends
+``add``, ``add_or_get``, ``compare_and_set`` or ``compare_and_delete`` itself
+(run twice they answer ``False`` or the caller's own value to the caller that
+won).
 """
 
 from __future__ import annotations
@@ -43,6 +49,14 @@ from sandloom.core.infra.ports._base import CapabilitySpec, InfraProvider
 MAX_KEY_BYTES = 1024
 #: The default bound on a value, in UTF-8 bytes (a driver option moves it).
 DEFAULT_MAX_VALUE_BYTES = 1_048_576
+
+#: The largest TTL, in seconds (10 years): a larger one is ``InvalidArgument``
+#: (a backend refuses an absurd one with an error the kernel would read as an
+#: outage).
+MAX_TTL_SECONDS = 315_360_000
+#: The longest ``set_subject_state`` value, in characters (a real one is under
+#: 60): a longer one is ``TooLarge``, so a driver never scans an unbounded string.
+MAX_SUBJECT_STATE_CHARS = 128
 
 #: The value domain of ``set_subject_state``.
 _SUBJECT_STATE = re.compile(r"v1:(after|blocked):([0-9]+)(?:\.([0-9]*))?", re.ASCII)
@@ -190,16 +204,18 @@ def check_value(
 
 def check_ttl(ttl_seconds: object, *, instance: str | None = None) -> int:
     """The TTL as a whole number of seconds, ``0`` for no expiry (``None``);
-    a bool, a non-integer or a TTL below 1 is ``InvalidArgument``."""
+    a bool, a non-integer, a TTL below 1 or above :data:`MAX_TTL_SECONDS` is
+    ``InvalidArgument``."""
     if ttl_seconds is None:
         return 0
     if (
         isinstance(ttl_seconds, bool)
         or not isinstance(ttl_seconds, int)
-        or ttl_seconds < 1
+        or not 1 <= ttl_seconds <= MAX_TTL_SECONDS
     ):
         raise InvalidArgument(
-            "an atomic_store TTL is a whole number of seconds >= 1 or None",
+            "an atomic_store TTL is a whole number of seconds from 1 to "
+            f"{MAX_TTL_SECONDS} or None",
             capability="atomic_store",
             instance=instance,
         )
@@ -208,9 +224,10 @@ def check_ttl(ttl_seconds: object, *, instance: str | None = None) -> int:
 
 def parse_subject_state(raw: str | None) -> tuple[str, Decimal] | None:
     """``(kind, instant)`` of a subject-state value, else ``None`` (absent or
-    outside the domain). ``instant`` is the exact decimal the value carries."""
-    if raw is None:
-        return None
+    outside the domain, or longer than :data:`MAX_SUBJECT_STATE_CHARS`).
+    ``instant`` is the exact decimal the value carries."""
+    if raw is None or len(raw) > MAX_SUBJECT_STATE_CHARS:
+        return None  # a value over the bound is corrupt, never matched
     match = _SUBJECT_STATE.fullmatch(raw)
     if match is None:
         return None
@@ -230,7 +247,15 @@ def subject_state_rank(raw: str | None) -> tuple[int, Decimal] | None:
 
 def check_subject_state(value: object, *, instance: str | None = None) -> str:
     """``value`` when it is in the domain of ``set_subject_state``
-    (``v1:after:<decimal>`` / ``v1:blocked:<decimal>``), else ``InvalidArgument``."""
+    (``v1:after:<decimal>`` / ``v1:blocked:<decimal>``), else ``InvalidArgument``;
+    a string over :data:`MAX_SUBJECT_STATE_CHARS` is ``TooLarge`` (checked first,
+    so no driver matches an unbounded string)."""
+    if isinstance(value, str) and len(value) > MAX_SUBJECT_STATE_CHARS:
+        raise TooLarge(
+            f"a subject state is at most {MAX_SUBJECT_STATE_CHARS} characters",
+            capability="atomic_store",
+            instance=instance,
+        )
     if not isinstance(value, str) or parse_subject_state(value) is None:
         raise InvalidArgument(
             "a subject state is v1:after:<decimal> or v1:blocked:<decimal>",
@@ -262,6 +287,8 @@ __all__ = [
     "ATOMIC_STORE_PERFORMANCE_HINTS",
     "DEFAULT_MAX_VALUE_BYTES",
     "MAX_KEY_BYTES",
+    "MAX_SUBJECT_STATE_CHARS",
+    "MAX_TTL_SECONDS",
     "SUBJECT_STATE_RANKS",
     "AtomicStore",
     "AtomicStoreProvider",

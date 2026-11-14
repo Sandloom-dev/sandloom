@@ -57,6 +57,16 @@ def _memory(**options: Any) -> MemoryAtomicStoreProvider:
 class TestMemoryAtomicStore(AtomicStoreConformance):
     value_limit_bytes = _VALUE_LIMIT
 
+    # Checks that do not apply to the memory driver: it has no backend that
+    # can fail, declares neither ``shared`` nor ``never_evicts``, and a
+    # ``None`` attribute is not collected (a skip would be a test that runs on
+    # no CI lane: tools/ci/skip_ledger.py).
+    test_harness_maps_backend_failures_to_infra_errors = None  # type: ignore[assignment]
+    test_harness_redacts_the_health_of_a_failing_backend = None  # type: ignore[assignment]
+    test_shared_two_providers_of_one_store_see_each_other = None  # type: ignore[assignment]
+    test_never_evicts_the_driver_refuses_an_evicting_backend = None  # type: ignore[assignment]
+    test_never_evicts_the_refusal_holds_when_the_operator_vouches = None  # type: ignore[assignment]
+
     @pytest.fixture
     def make_provider(self) -> Callable[[], AtomicStoreProvider]:
         return _memory
@@ -159,6 +169,12 @@ class TestRedisAtomicStore(AtomicStoreConformance):
     @pytest.fixture
     def make_evicting_provider(self) -> Callable[[], AtomicStoreProvider]:
         return lambda: _scripted("allkeys-lru")[0]
+
+    @pytest.fixture
+    def make_evicting_assume_provider(self) -> Callable[[], AtomicStoreProvider]:
+        return lambda: _scripted(
+            "allkeys-lru", assume_allowed=True, never_evicts_check="assume"
+        )[0]
 
 
 async def test_redis_declares_shared_and_never_evicts() -> None:
@@ -295,19 +311,27 @@ async def test_each_one_round_trip_operation_is_one_command(operation: str) -> N
             "compare_and_set": lambda: provider.compare_and_set(key, "a", "b"),
         }
         await calls[operation]()  # warms the script cache (NOSCRIPT + load)
-        client = await provider._client_obj()
         sent: list[Any] = []
-        real = client.execute_command
+        clients = {
+            id(c): c
+            for c in (
+                await provider._operation_client(idempotent=True),
+                await provider._operation_client(idempotent=False),
+            )
+        }
+        for client in clients.values():
+            real = client.execute_command
 
-        async def counting(*args: Any, **kwargs: Any) -> Any:
-            sent.append(args[0])
-            return await real(*args, **kwargs)
+            async def counting(*args: Any, _real: Any = real, **kwargs: Any) -> Any:
+                sent.append(args[0])
+                return await _real(*args, **kwargs)
 
-        client.execute_command = counting
+            client.execute_command = counting
         try:
             await calls[operation]()
         finally:
-            del client.execute_command
+            for client in clients.values():
+                del client.execute_command
         assert len(sent) == 1, sent
     finally:
         await provider.aclose()
@@ -341,6 +365,179 @@ async def test_a_backend_failure_never_escapes_as_a_foreign_error() -> None:
     ):
         with pytest.raises(InfraError):
             await call()
+    await provider.aclose()
+
+
+class _DroppingProxy:
+    """A TCP proxy in front of the real server that, once armed, executes the
+    next command upstream and closes the client's connection instead of
+    relaying the reply: the lost reply of a command the server ran."""
+
+    def __init__(self, upstream: tuple[str, int]) -> None:
+        self.upstream = upstream
+        self.armed = False
+        self.dropped = 0
+        self.connections = 0
+        self._server: asyncio.Server | None = None
+
+    async def __aenter__(self) -> _DroppingProxy:
+        self._server = await asyncio.start_server(self._serve, "127.0.0.1", 0)
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        assert self._server is not None
+        self._server.close()
+        await self._server.wait_closed()
+
+    @property
+    def url(self) -> str:
+        assert self._server is not None
+        port = self._server.sockets[0].getsockname()[1]
+        return f"redis://127.0.0.1:{port}/0"
+
+    async def _serve(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        self.connections += 1
+        up_reader, up_writer = await asyncio.open_connection(*self.upstream)
+
+        async def forward() -> None:
+            while data := await reader.read(65536):
+                up_writer.write(data)
+                await up_writer.drain()
+
+        async def back() -> None:
+            while data := await up_reader.read(65536):
+                if self.armed:
+                    self.armed = False
+                    self.dropped += 1
+                    return  # the server ran the command; the reply is lost
+                writer.write(data)
+                await writer.drain()
+
+        tasks = [asyncio.ensure_future(forward()), asyncio.ensure_future(back())]
+        try:
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for task in tasks:
+                task.cancel()
+            writer.close()
+            up_writer.close()
+
+
+def _upstream() -> tuple[str, int]:
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(settings.cache_url)
+    return parts.hostname or "127.0.0.1", parts.port or 6379
+
+
+async def test_a_lost_reply_of_a_non_idempotent_operation_is_not_sent_twice() -> None:
+    """A command whose reply was lost has run: re-sending it would answer
+    ``False`` / the caller's own value to the caller that won."""
+    async with _DroppingProxy(_upstream()) as proxy:
+        direct = _redis()
+        through = _redis(url=proxy.url, retry_attempts=1)
+        await direct.aopen()
+        await through.aopen()
+        try:
+            key = f"kit:{uuid4().hex}:lost-reply"
+            calls: dict[str, Callable[[], Any]] = {
+                "add": lambda: through.add(key + ":add", "v", ttl_seconds=30),
+                "add_or_get": lambda: through.add_or_get(
+                    key + ":aog", "v", ttl_seconds=30
+                ),
+                "compare_and_set": lambda: through.compare_and_set(
+                    key + ":cas", "a", "b", ttl_seconds=30
+                ),
+                "compare_and_delete": lambda: through.compare_and_delete(
+                    key + ":cad", "a"
+                ),
+            }
+            await direct.set(key + ":cas", "a", ttl_seconds=30)
+            await direct.set(key + ":cad", "a", ttl_seconds=30)
+            for name, call in calls.items():
+                await through.get(key)  # a pooled connection to drop on
+                await through.add(f"{key}:warm:{name}", "w", ttl_seconds=30)
+                proxy.armed = True
+                with pytest.raises(Unavailable):
+                    await call()
+                assert proxy.dropped >= 1, name
+                proxy.dropped = 0
+            # Each command ran exactly once, on the server.
+            assert await direct.get(key + ":add") == "v"
+            assert await direct.get(key + ":aog") == "v"
+            assert await direct.get(key + ":cas") == "b"
+            assert await direct.get(key + ":cad") is None
+        finally:
+            await through.aclose()
+            await direct.aclose()
+
+
+async def test_a_lost_reply_of_an_idempotent_operation_is_retried() -> None:
+    async with _DroppingProxy(_upstream()) as proxy:
+        through = _redis(url=proxy.url, retry_attempts=1)
+        await through.aopen()
+        try:
+            key = f"kit:{uuid4().hex}:idempotent"
+            await through.set(key, "v", ttl_seconds=30)
+            cases: list[tuple[Callable[[], Any], Any]] = [
+                (lambda: through.get(key), "v"),
+                (lambda: through.set(key, "w", ttl_seconds=30), None),
+                (lambda: through.delete(key + ":other"), None),
+                (
+                    lambda: through.set_subject_state(
+                        key + ":s", "v1:after:1", ttl_seconds=30
+                    ),
+                    "v1:after:1",
+                ),
+            ]
+            for call, expected in cases:
+                proxy.armed = True
+                assert await call() == expected
+                assert proxy.dropped >= 1
+                proxy.dropped = 0
+        finally:
+            await through.aclose()
+
+
+async def test_a_long_corrupt_stored_value_is_replaced_without_a_scan() -> None:
+    """The Lua pattern must not backtrack on a corrupt value (a 40k-char one
+    held a Redis server for seconds)."""
+    provider = _redis(max_value_bytes=1_048_576)
+    await provider.aopen()
+    try:
+        key = f"kit:{uuid4().hex}:corrupt-long"
+        await provider.set(key, "v1:after:" + "1" * 40_000 + "x", ttl_seconds=30)
+        started = time.monotonic()
+        held = await provider.set_subject_state(key, "v1:after:5", ttl_seconds=30)
+        assert time.monotonic() - started < 0.5
+        assert held == "v1:after:5"
+        assert await provider.get(key) == "v1:after:5"
+    finally:
+        await provider.aclose()
+
+
+async def test_operations_refuse_until_the_eviction_check_has_passed() -> None:
+    """Outside production the registry only logs a refused ``aopen``: the
+    provider it still serves must not run an operation on an evicting store."""
+    provider, _ = _scripted("allkeys-lru")
+    with pytest.raises(InvalidArgument, match="noeviction"):
+        await provider.aopen()
+    calls: list[Callable[[], Any]] = [
+        lambda: provider.get("k"),
+        lambda: provider.set("k", "v"),
+        lambda: provider.delete("k"),
+        lambda: provider.add("k", "v"),
+        lambda: provider.add_or_get("k", "v"),
+        lambda: provider.compare_and_set("k", "a", "b"),
+        lambda: provider.compare_and_delete("k", "a"),
+        lambda: provider.set_subject_state("k", "v1:after:1"),
+    ]
+    for call in calls:
+        with pytest.raises(InvalidArgument, match="noeviction"):
+            await call()
+    assert (await provider.health()).status == "fail"
     await provider.aclose()
 
 
