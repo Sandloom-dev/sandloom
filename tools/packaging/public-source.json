@@ -2677,6 +2677,7 @@
         "tests/integration/with_batteries/test_backup_cli_restore_checks.py",
         "tests/integration/with_batteries/test_billing_down_login.py",
         "tests/integration/with_batteries/test_billing_semantic_ratchet.py",
+        "tests/integration/with_batteries/test_billing_task_queue_use.py",
         "tests/integration/with_batteries/test_boot_configuration_checks_module_refusals.py",
         "tests/integration/with_batteries/test_claims_key_ownership.py",
         "tests/integration/with_batteries/test_claims_provenance_by_module.py",

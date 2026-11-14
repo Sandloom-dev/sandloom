@@ -14,6 +14,7 @@ Nothing here imports a backend: the table is data.
 from __future__ import annotations
 
 import inspect
+import sys
 import threading
 import typing
 from collections.abc import Callable, Iterable, Mapping
@@ -72,16 +73,32 @@ def _same_definition(a: Callable[..., Any], b: Callable[..., Any]) -> bool:
     """Is ``b`` the same function as ``a``, executed again?
 
     A module imported twice (a reload) defines the function again at the same
-    file and line. Anything else is a different function that derived the same
-    name (another file, or another line of one file): the second must not
-    silently replace the first, so it is refused.
+    file and line; a module dropped from ``sys.modules`` and imported afresh
+    (a test app rebuilt in a new directory under one package name) replaces its
+    own earlier entry. Anything else is a different function that derived the
+    same name (another file while the first module is live, or another line of
+    one file): the second must not silently replace the first, so it is refused.
     """
     code_a, code_b = getattr(a, "__code__", None), getattr(b, "__code__", None)
     if code_a is None or code_b is None:
         return False
-    return bool(
+    if (
         code_a.co_filename == code_b.co_filename
         and code_a.co_firstlineno == code_b.co_firstlineno
+    ):
+        return True
+    return _module_gone(a)
+
+
+def _module_gone(function: Callable[..., Any]) -> bool:
+    """Was the module that defined ``function`` dropped from ``sys.modules``?
+
+    True when the live module of that name no longer owns the function's
+    globals (it was removed, or replaced by a fresh import).
+    """
+    live = sys.modules.get(function.__module__)
+    return live is None or getattr(live, "__dict__", None) is not getattr(
+        function, "__globals__", None
     )
 
 

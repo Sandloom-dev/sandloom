@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-import sandloom_billing  # noqa: F401 - the bundled module under test, imported
 from sandloom.core.app_factory.ops import taskqueue_use
 from sandloom.core.descriptors import CapabilityRequirement, ModuleDescriptor
 
@@ -85,10 +84,3 @@ def test_an_all_periodic_redelivery_module_is_background(
     )
     assert use.request_path == {}
     assert use.background == ["rt_periodic"]
-
-
-def test_billing_stays_background() -> None:
-    descriptor = _descriptor("sandloom_billing", "periodic", "redelivery")
-    use = taskqueue_use([descriptor], ["sandloom_billing"])
-    assert use.background == ["sandloom_billing"]
-    assert use.request_path == {}

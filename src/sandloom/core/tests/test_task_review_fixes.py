@@ -4,6 +4,7 @@ of its input."""
 
 from __future__ import annotations
 
+import sys
 import types
 from typing import Any
 
@@ -20,7 +21,6 @@ from sandloom.core.tasks.registry import (
     run_task,
 )
 from sandloom.sdk.tasks import task
-from sandloom_billing import tasks as billing_tasks
 
 SECRET = "s3cr3t-card-4111"
 ran: list[Any] = []
@@ -103,6 +103,55 @@ def test_one_derived_name_from_two_files_is_refused() -> None:
         register_task(_declared(_define_elsewhere("/b/review_fixes.py")))
 
 
+def _import_fresh(name: str, filename: str) -> Any:
+    """``moved`` as defined by the module ``name`` (a new module object put in
+    ``sys.modules``, as an import does) from the file ``filename``."""
+    module = types.ModuleType(name)
+    sys.modules[name] = module
+    code = _moved.__code__.replace(co_filename=filename)
+    function = types.FunctionType(code, module.__dict__, "moved")
+    function.__module__ = name
+    return function
+
+
+def test_a_module_dropped_and_imported_again_replaces_its_own_entry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rebuilt app (a test project in a new directory under one package
+    name, a reload after the module left ``sys.modules``) re-declares its
+    tasks: the second import replaces the first, from the same file or another.
+    While the first module is still live, another file is refused."""
+    name = "review_fixes_reloaded.tasks"
+    monkeypatch.delitem(sys.modules, name, raising=False)
+
+    def declared(function: Any) -> DeclaredTask:
+        return DeclaredTask(
+            name=f"{name}.moved",
+            function=function,
+            payload_type=None,
+            queue="default",
+            at_least_once=False,
+            is_async=False,
+        )
+
+    try:
+        first = _import_fresh(name, "/a/tasks.py")
+        register_task(declared(first))
+        # The module dropped and imported again from another directory.
+        del sys.modules[name]
+        second = _import_fresh(name, "/b/tasks.py")
+        register_task(declared(second))
+        known = declared_task(f"{name}.moved")
+        assert known is not None and known.function is second
+        # The same name from a third file while the second module is live.
+        other = _define_elsewhere("/c/tasks.py")
+        other.__module__ = name
+        with pytest.raises(ValueError, match="two tasks are named"):
+            register_task(declared(other))
+    finally:
+        sys.modules.pop(name, None)
+
+
 def _assert_no_input(error: BaseException) -> None:
     assert SECRET not in str(error) and SECRET not in repr(error)
     assert error.__cause__ is None
@@ -124,8 +173,3 @@ def test_a_refused_payload_carries_no_input_value() -> None:
     with pytest.raises(InvalidArgument) as encode_strict:
         encode_payload(declared_strict, {"amount": SECRET})
     _assert_no_input(encode_strict.value)
-
-
-def test_the_billing_reconcile_task_stays_at_least_once() -> None:
-    declared = declared_task(billing_tasks.reconcile_operation_intents.name)
-    assert declared is not None and declared.at_least_once
