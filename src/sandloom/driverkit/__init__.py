@@ -9,12 +9,16 @@ DBAPI that needs the driver's fast paths subclasses :class:`DbapiAdapter` and
 registers it with
 :func:`register_dbapi_adapter` (any other DBAPI takes the plain path). A
 business module may not import this package (SANDLOOM-C004), and the kernel
-never does. A contract joins it
-only with a kit in :mod:`sandloom.driverkit.testing`. A driver states its
+never does. A module-facing contract joins it
+only with a kit in :mod:`sandloom.driverkit.testing`; the kernel-facing ones
+(``atomic_store``, ``lease``, ``broadcast``) are final and exported before
+their kits. A driver states its
 ``contract_version``, the integer major of its capability; another major is
 refused at load (SANDLOOM-B022). An operation raises only the errors of
 :mod:`sandloom.core.infra.errors` (:class:`InfraError` and its subclasses,
-re-exported here), mapping its backend's errors onto them.
+re-exported here), mapping its backend's errors onto them. The kernel-facing
+contracts a driver package serves (``atomic_store``, ``lease``, ``broadcast``)
+are exported with their value types; a module never resolves them.
 Guide: ``docs/infrastructure/write-a-driver.md``.
 """
 
@@ -32,6 +36,13 @@ from sandloom.core.infra.errors import (
     Unsupported,
 )
 from sandloom.core.infra.ports._base import InfraProvider
+from sandloom.core.infra.ports.atomic_store import AtomicStoreProvider
+from sandloom.core.infra.ports.broadcast import (
+    BroadcastMessage,
+    BroadcastProvider,
+    Subscription,
+)
+from sandloom.core.infra.ports.lease import Lease, LeaseHolder, LeaseProvider
 from sandloom.core.infra.ports.notification import Notification, NotifierProvider
 from sandloom.core.infra.ports.objectstore import (
     ObjectContent,
@@ -63,6 +74,13 @@ __all__ = [
     "TooLarge",
     "Unavailable",
     "Unsupported",
+    "AtomicStoreProvider",
+    "BroadcastMessage",
+    "BroadcastProvider",
+    "Lease",
+    "LeaseHolder",
+    "LeaseProvider",
+    "Subscription",
     "CapabilityRef",
     "ConflictInsert",
     "DBAPI_CAPABILITIES",

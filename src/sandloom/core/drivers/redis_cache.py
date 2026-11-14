@@ -791,7 +791,8 @@ class RedisCacheProvider(CacheProvider):
                 return HealthResult(status="ok")
             return HealthResult(status="fail", details={"error": "no-pong"})
         except Exception as exc:  # noqa: BLE001 - any failure is a failed probe
-            return HealthResult(status="fail", details={"error": str(exc)})
+            # The type only: a redis error text names the host (spec 2.4).
+            return HealthResult(status="fail", details={"error": type(exc).__name__})
 
     async def deployment_identity(self) -> str:
         """Attest the reached Redis process, including through DNS aliases.

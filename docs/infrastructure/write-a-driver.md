@@ -54,7 +54,8 @@ a file.
 - **`supported_features`** names what the driver really does, and is its one declaration.
   A module that requires `features={"email"}` is refused at startup on a driver that does
   not advertise it. If a feature depends on an option, override the classmethod
-  `features_for(options)`. Do not override `features()`: an instance that reports other
+  `features_for(options)` and still list the feature in `supported_features`: only declared
+  features count. Do not override `features()`: an instance that reports other
   features than it declared is refused.
 - **`options`** holds the keys of the `INFRA` entry, and nothing from another driver.
   Options can hold secrets, so never log them. For validation before the driver is built,

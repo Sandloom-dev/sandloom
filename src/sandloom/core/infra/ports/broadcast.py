@@ -84,6 +84,8 @@ BROADCAST_CAPABILITY = CapabilitySpec(
         "shared": "guarantee",
     },
     description="Online at-most-once fan-out (contract-cache shadow, volatile bus).",
+    # Kernel-facing: a module resolve or requirement is refused (B041).
+    kernel_only=True,
 )
 
 

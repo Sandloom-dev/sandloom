@@ -153,7 +153,7 @@ class InfraProvider(abc.ABC):
     supported_features: ClassVar[frozenset[str]] = frozenset()
     performance_hints: ClassVar[Mapping[str, str]] = MappingProxyType({})
     tier: ClassVar[Literal["experimental", "beta", "stable"]] = "experimental"  # see 2.5
-    development_only: ClassVar[bool] = False              # refused in production (memory, log)
+    development_only: ClassVar[bool] = False              # refused in production (memory)
     options_schema: ClassVar[type[BaseModel] | None] = None
     required_imports: ClassVar[tuple[str, ...]] = ()
     install_hint: ClassVar[str] = ""
@@ -177,6 +177,11 @@ class InfraProvider(abc.ABC):
 - `register_driver(..., features=...)` in `core/drivers/bootstrap.py:88-157` stops passing features;
   the registry reads `features_for`. A built-in that overrides `features()` is a test failure.
 - `instance_features` on `DriverRegistration` (`registry.py:110`) goes: `features_for(options)` is it.
+- `features_for(options)` is read within `supported_features`, itself within the spec's features
+  (checked at load): the registry's preflight and `features()` both keep only declared features,
+  so a driver whose `features_for` answers more never claims a guarantee it did not declare
+  (`durable`, `tenant_rls`). A driver whose features depend on an option declares the union in
+  `supported_features`.
 
 ### 2.4 Lifecycle (driver door)
 
@@ -202,7 +207,11 @@ class ProviderLifecycle(Protocol):
   `str(exc)` (`registry.py:1117-1118` does today) and carries the type name. `HealthResult.details` carries only non-secret facts: the driver
   name, an error **type** name, a latency, a count. Never `str(exc)`, a URL, a host with
   credentials or a key. The kit checks this with a driver whose backend raises an error carrying a
-  marker secret.
+  marker secret. The registry does not vouch for a driver's text: in `health_all` a `details`
+  value passes when it is `None`, a bool, a number or one token (`[A-Za-z0-9_.:-]{1,64}`: a type
+  name, a driver name, `redis:<run_id>`); any other string becomes `"<redacted>"`, mappings and
+  lists are filtered the same way. The kernel's own readers (`aggregate_health`, the capability
+  probes of `/health` and `/ready`) record a failure's type name only.
 - **`isolation_identity`.** An opaque string naming the failure and eviction domain of the backing
   store: two instances with the same identity share eviction and memory. It starts with the driver
   name and a colon, so two drivers never collide: Redis `redis:<run_id>` from `INFO server` (today
@@ -227,8 +236,10 @@ states its tier, the registration is what is read. `experimental`: implements th
 the real service. `stable`: beta plus the kit's reconnect-after-outage group and its auth options.
 In production an `experimental` driver needs the accepted risk `experimental_driver` (SANDLOOM-B023,
 extended from capabilities to drivers); `beta` logs one startup warning; `stable` is silent. This
-repository's drivers are at least `beta`. `development_only` drivers (`memory`, `log`) are refused in
-production whatever their tier, with no accepted risk.
+repository's drivers are at least `beta`. `development_only` drivers (`memory`) are refused in
+production whatever their tier, with no accepted risk. The `log` notifier is not `development_only`:
+in production it advertises its channels only under the existing accepted risk
+`log_notifier_in_prod`, and none without it.
 
 ### 2.6 Test isolation and metrics
 
@@ -296,7 +307,7 @@ class Cache(Protocol):
 
 class CacheProvider(InfraProvider, Cache):
     capability: ClassVar[str] = "cache"
-    contract_version: ClassVar[int] = 2
+    # major 2: each driver class states contract_version = 2, the ABC does not (13.37)
 ```
 
 **Semantics.**
@@ -358,7 +369,7 @@ class AtomicStore(Protocol):
 
 class AtomicStoreProvider(InfraProvider, AtomicStore):
     capability: ClassVar[str] = "atomic_store"
-    contract_version: ClassVar[int] = 1
+    # major 1: each driver class states contract_version = 1, the ABC does not (13.37)
 ```
 
 **Semantics.**
@@ -496,7 +507,7 @@ class LeaseStore(Protocol):
 
 class LeaseProvider(InfraProvider, LeaseStore):
     capability: ClassVar[str] = "lease"
-    contract_version: ClassVar[int] = 1
+    # major 1: each driver class states contract_version = 1, the ABC does not (13.37)
 ```
 
 **Semantics.**
@@ -576,7 +587,7 @@ class Broadcast(Protocol):
 
 class BroadcastProvider(InfraProvider, Broadcast):
     capability: ClassVar[str] = "broadcast"
-    contract_version: ClassVar[int] = 1
+    # major 1: each driver class states contract_version = 1, the ABC does not (13.37)
 ```
 
 **Semantics.**
@@ -734,7 +745,7 @@ class EventTransport(Protocol):
 
 class EventTransportProvider(InfraProvider, EventTransport):
     capability: ClassVar[str] = "eventbus"
-    contract_version: ClassVar[int] = 2
+    # major 2: each driver class states contract_version = 2, the ABC does not (13.37)
 ```
 
 `DeadLetter`, `GroupInfo`, `StreamInfo` and `ConsumerInfo` are frozen dataclasses with the fields
@@ -906,7 +917,7 @@ class TaskQueue(Protocol):                       # taskqueue(name): enqueue by n
 ```python
 class TaskQueueProvider(InfraProvider):
     capability: ClassVar[str] = "taskqueue"
-    contract_version: ClassVar[int] = 2
+    # major 2: each driver class states contract_version = 2, the ABC does not (13.37)
     async def send(
         self, task: str, payload: bytes, *, task_id: str, delay: timedelta | None = None,
         at_least_once: bool = False,
@@ -1021,7 +1032,7 @@ class ObjectStore(Protocol):
 
 class ObjectStoreProvider(InfraProvider, ObjectStore):
     capability: ClassVar[str] = "objectstore"
-    contract_version: ClassVar[int] = 2
+    # major 2: each driver class states contract_version = 2, the ABC does not (13.37)
 ```
 
 **Semantics.** The key grammar of `contracts.py:1138-1155` (relative UTF-8, non-empty segments,
@@ -1066,7 +1077,7 @@ the caller may retry), `Timeout`. "Raises on a delivery failure" (:1326) becomes
 **Features.** `email`, `sms`, `push`, `inapp` (behaviour each). **Performance hints.** none.
 **Kit.** `NotifierConformance` gains the error group (a driver built to fail raises an
 `InfraError`), `Unsupported` for an undeclared channel, and `dedupe_key` accepted.
-**Built-ins.** `log` (`development_only`), `smtp`: tier `beta`, earned by a CI lane that runs
+**Built-ins.** `log` (in production only under the accepted risk `log_notifier_in_prod`), `smtp`: tier `beta`, earned by a CI lane that runs
 `NotifierConformance` against a real SMTP server container (mailpit as a service container; the
 kit reads the accepted message back through mailpit's HTTP API). An in-process SMTP server does not
 count. `idk-foundation` adds the lane with the kit move; until the lane is green the registration
@@ -1081,7 +1092,7 @@ says `experimental`.
 ```python
 class DatabaseProvider(InfraProvider):
     capability: ClassVar[str] = "database"
-    contract_version: ClassVar[int] = 2                 # from idk-db-provider
+    # major 2: each driver class states contract_version = 2, the ABC does not (13.37) — from idk-db-provider
     def uow_factory(self) -> Callable[[], UnitOfWorkContract]: ...
     def outbox(self) -> OutboxStore | None: ...         # transactional_outbox
     def audit(self) -> AuditStore | None: ...           # audit
@@ -1173,8 +1184,9 @@ For the orchestrator's review; each departs from or details `design.md`.
    with `<driver>:`; the harness requires every driver of every capability to return equal,
    non-`None` identities for two providers built from the same options; `None` or a raising call
    fails attestation.
-8. **`development_only` on the provider class** marks `memory` and `log` drivers, refused in
-   production with no accepted risk, separate from `tier`.
+8. **`development_only` on the provider class** marks the `memory` drivers, refused in
+   production with no accepted risk, separate from `tier`. The `log` notifier is not one: in
+   production it advertises channels only under the accepted risk `log_notifier_in_prod`.
 9. **Contract majors.** `cache`, `objectstore`, `notification`, `taskqueue`, `eventbus` go to 2 in
    this wave (`notification` because its error obligations change like `objectstore`'s); new
    capabilities start at 1. `WorkerHost` is not a capability and has no major (item 28).
@@ -1251,6 +1263,33 @@ For the orchestrator's review; each departs from or details `design.md`.
     package implements) and a kernel-internal volatile-bus shape.
 33. **Kernel tables of the database drivers** live in the core migration chain: `infra_lease`
     (`database_lease.py`) and `infra_atomic_store` (`database_atomic_store.py`).
+34. **`CapabilitySpec.major`** (foundation deviation 1): the spec carries the driver contract's
+    integer major next to the module-facing `version`, default the major of `version` read in every
+    form `versions_compatible` accepts (`v2`, `V2`, `2`, `2.0`, `v2.1.0`). It moves on its own when
+    driver obligations change and the module-facing shape does not (`objectstore` and
+    `notification` are 2 at `version` `v1`). A spec with no readable major loads no driver (B022).
+35. **Contracts live in `ports/`, `contracts.py` re-exports them** (deviation 2) until each slice
+    removes its re-export; the `database` spec and its provider ABC have their own
+    `ports/database.py` (the stores stay in `contracts.py` until `idk-db-provider`), so
+    `capabilities.py` only lists specs and `idk-db-provider` never edits it.
+36. **`CapabilitySpec` is defined in `ports/_base.py`** (deviation 3) beside `InfraProvider`, so a
+    ports file imports no registry module; `capabilities.py` and `driverkit` re-export it.
+37. **`contract_version` is stated per driver class, not on the ABC** (deviation 4): an ABC that
+    stated it would let a driver inherit a major it was not written for. The snippets in sections
+    3-11 show the major in a comment.
+38. **`InfraRegistryError`** (deviation 5) is the base of the registry's configuration errors
+    (selecting, loading, opening a driver), kept apart from `InfraError`, the errors an operation
+    raises.
+39. **`CapabilitySpec.kernel_only`** marks `atomic_store`, `lease` and `broadcast`. The kernel
+    reaches them through `InfraRegistry.provider`; `resolve` (behind `CapabilityRef`,
+    `Capability(...)`, `get_core().capability`) and a module's `CapabilityRequirement`, required
+    or optional, are refused with SANDLOOM-B041. `eventbus` is kernel-facing but not marked: the
+    kernel derives an `eventbus` requirement for modules that publish, and the facade's
+    `eventbus()` resolves it; `idk-eventbus-contract` decides whether it becomes kernel-only.
+40. **`CapabilitySpec.removed_features`** maps a previous major's feature name to its replacement;
+    every unknown-feature refusal (driver load, requirement, resolve) names the replacement. A
+    removed name is never a feature of the spec. The eventbus and taskqueue slices fill their
+    tables in their own ports files (item 32).
 
 ## 14. Open for the owner
 

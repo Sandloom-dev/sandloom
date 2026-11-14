@@ -82,6 +82,7 @@ class LogNotifierProvider(NotifierProvider):
     """Notifier that records each notification as a structured log line."""
 
     contract_version = 2
+    supported_features = NOTIFIER_LOG_FEATURES
     options_schema = NotifierOptions
 
     @classmethod

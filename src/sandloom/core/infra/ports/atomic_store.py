@@ -121,6 +121,8 @@ ATOMIC_STORE_CAPABILITY = CapabilitySpec(
         "never_evicts": "guarantee",
     },
     description="Durable atomic key-value store (security marks, idempotency).",
+    # Kernel-facing: a module resolve or requirement is refused (B041).
+    kernel_only=True,
 )
 
 

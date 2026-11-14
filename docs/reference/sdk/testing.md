@@ -573,7 +573,8 @@ the idempotency / contract-dedupe store.
 def features(self) -> frozenset[str]
 ```
 
-The features THIS instance supports: `features_for(options)`.
+The features THIS instance supports: `features_for(options)`
+within `supported_features` (an undeclared feature is never claimed).
 
 Never overridden: the registry checks at build that the instance
 reports what its class declared, so a module's requirement that passes

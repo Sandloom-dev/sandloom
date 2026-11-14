@@ -24,6 +24,7 @@ import importlib
 import importlib.util
 import inspect
 import logging
+import re
 import threading
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -38,7 +39,11 @@ from sandloom.core.infra.config import (
     InfraConfig,
     InstanceConfig,
 )
-from sandloom.core.infra.ports._base import CapabilitySpec, InfraProvider
+from sandloom.core.infra.ports._base import (
+    CapabilitySpec,
+    InfraProvider,
+    version_major,
+)
 
 if TYPE_CHECKING:
     from sandloom.core.descriptors import CapabilityRequirement
@@ -54,23 +59,6 @@ CAPABILITIES_GROUP = "sandloom.capabilities"
 DriverFactory = Callable[[InstanceConfig], InfraProvider]
 
 
-def _major(version: str) -> int | None:
-    """Return the MAJOR component of a capability version string, or None.
-
-    Accepts ``"v1"``, ``"v1.2"`` or a bare integer (``"1"``); returns the
-    leading integer after an optional ``v`` prefix. Returns ``None`` when the
-    string is unparseable — callers then fall back to exact-string equality so
-    an odd version scheme can never be silently treated as compatible.
-    """
-    head = version.split(".", 1)[0].strip()
-    if head[:1] in ("v", "V"):
-        head = head[1:]
-    try:
-        return int(head)
-    except ValueError:
-        return None
-
-
 def versions_compatible(registered: str, required: str) -> bool:
     """True if ``required`` is satisfied by the ``registered`` spec version.
 
@@ -84,8 +72,8 @@ def versions_compatible(registered: str, required: str) -> bool:
     a declared feature, checked on its own (``supported_features``, the
     requirement's ``features``), never inferred from a version number.
     """
-    req_major = _major(required)
-    reg_major = _major(registered)
+    req_major = version_major(required)
+    reg_major = version_major(registered)
     if req_major is None or reg_major is None:
         return registered == required
     return req_major == reg_major
@@ -127,9 +115,13 @@ class DriverRegistration:
     install: str = ""
 
     def features_for(self, options: Mapping[str, Any]) -> frozenset[str]:
-        """The features an instance with ``options`` declares, build-free."""
-        if self.provider_class is not None:
-            return frozenset(self.provider_class.features_for(options))
+        """The features an instance with ``options`` declares, build-free:
+        what the class's ``features_for`` answers within its
+        ``supported_features`` (itself within the spec's features, checked at
+        load), so a driver never claims a feature it did not declare."""
+        cls = self.provider_class
+        if cls is not None:
+            return frozenset(cls.features_for(options)) & cls.supported_features
         return self.features
 
 
@@ -314,6 +306,24 @@ class DevelopmentOnlyDriverRefused(DriverLoadError):
     """
 
 
+class KernelOnlyCapabilityRefused(CapabilityError):
+    """A module resolved or required a kernel-facing capability
+    (``CapabilitySpec.kernel_only``: ``atomic_store``, ``lease``,
+    ``broadcast``), which only the kernel reaches (SANDLOOM-B041)."""
+
+    sandloom_code = "SANDLOOM-B041"
+
+
+def _refuse_kernel_only(spec: CapabilitySpec | None, who: str = "module code") -> None:
+    if spec is not None and spec.kernel_only:
+        raise KernelOnlyCapabilityRefused(
+            f"{who} cannot use capability {spec.name!r}: it is kernel-facing, "
+            "reached only by the kernel [SANDLOOM-B041]",
+            fix="use the module-facing API built on it (sandloom.sdk), or a "
+            "module-facing capability; `sandloom explain SANDLOOM-B041`",
+        )
+
+
 class ExperimentalCapabilityRefused(CapabilityError):
     """An experimental capability configured in production (SANDLOOM-B023)."""
 
@@ -403,6 +413,7 @@ class InfraRegistry:
             existing.provider_contract is not spec.provider_contract
             or existing.version != spec.version
             or existing.major != spec.major
+            or existing.kernel_only != spec.kernel_only
         ):
             raise CapabilityConflictError(
                 f"Capability {spec.name!r} already registered as "
@@ -520,8 +531,8 @@ class InfraRegistry:
             if unknown:
                 raise FeatureUnsupportedError(
                     f"Driver {capability}/{driver} declares feature(s) "
-                    f"{sorted(unknown)} not defined by capability {capability!r} "
-                    f"(known: {sorted(spec.features)})",
+                    f"{spec.unknown_features_hint(unknown)} not defined by "
+                    f"capability {capability!r} (known: {sorted(spec.features)})",
                     fix="add the feature to the CapabilitySpec or drop it",
                 )
         key = (capability, driver)
@@ -886,8 +897,11 @@ class InfraRegistry:
         explicit ``contract`` (beyond the spec's) is also checked. This is the
         path behind ``CoreFacade.require_capability`` and the module preflight.
         A ``version`` (from a ``CapabilityRef``) must match the spec's major.
+        A kernel-only capability is refused (SANDLOOM-B041): the kernel
+        reaches one through :meth:`provider`.
         """
         spec = self._capabilities.get(capability)
+        _refuse_kernel_only(spec)
         if (
             version is not None
             and spec is not None
@@ -936,6 +950,7 @@ class InfraRegistry:
                 fix="install the package that declares it (the 'sandloom.capabilities' "
                 "entry-point group) and configure it in INFRA",
             )
+        _refuse_kernel_only(spec)
         if version is not None and not versions_compatible(spec.version, version):
             raise FeatureUnsupportedError(
                 f"Capability {capability!r} is {spec.version}, but incompatible "
@@ -964,7 +979,8 @@ class InfraRegistry:
             if unknown:
                 raise FeatureUnsupportedError(
                     f"Capability {capability!r} (v{spec.version}) defines no "
-                    f"feature(s) {sorted(unknown)}; known: {sorted(spec.features)}",
+                    f"feature(s) {spec.unknown_features_hint(unknown)}; known: "
+                    f"{sorted(spec.features)}",
                     fix="drop the unknown feature(s) or upgrade the contract",
                 )
             loaded = self._registration(capability, cfg.driver)
@@ -997,6 +1013,12 @@ class InfraRegistry:
         """
         unmet: list[tuple[str, CapabilityError]] = []
         optional: list[tuple[CapabilityRequirement, Exception]] = []
+        requirements = list(requirements)
+        for req in requirements:
+            # Required or optional: asking for one is the refusal (B041).
+            _refuse_kernel_only(
+                self._capabilities.get(req.capability), f"module {module!r}"
+            )
         for req in requirements:
             try:
                 self.validate_requirement(
@@ -1084,7 +1106,8 @@ class InfraRegistry:
             if unknown:
                 raise FeatureUnsupportedError(
                     f"Capability {capability!r} (v{spec.version}) defines no "
-                    f"feature(s) {sorted(unknown)}; known: {sorted(spec.features)}",
+                    f"feature(s) {spec.unknown_features_hint(unknown)}; known: "
+                    f"{sorted(spec.features)}",
                     fix="drop the unknown feature(s) or upgrade the capability "
                     "contract",
                 )
@@ -1226,6 +1249,7 @@ class InfraRegistry:
                 result = await asyncio.wait_for(
                     provider.health(), timeout=settings.health_check_timeout_seconds
                 )
+                result = _vouched_health(result)
             except Exception as exc:  # noqa: BLE001 - any failure is a failed probe
                 # The type only: an exception text can carry a URL with
                 # credentials or a key (spec 2.4, health redaction).
@@ -1483,6 +1507,35 @@ def _load_driver(registry: InfraRegistry, cfg: InstanceConfig) -> None:
     )
 
 
+#: A health detail string the registry passes on: one token (an error type
+#: name, a driver name, ``no-pong``, ``redis:<run_id>``). Anything else is
+#: free text that may carry a URL, a host with credentials or a key.
+_HEALTH_TOKEN = re.compile(r"[A-Za-z0-9_.:\-]{1,64}")
+_REDACTED = "<redacted>"
+
+
+def _vouched_detail(value: object) -> object:
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value if _HEALTH_TOKEN.fullmatch(value) else _REDACTED
+    if isinstance(value, Mapping):
+        return {str(k): _vouched_detail(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_vouched_detail(v) for v in value]
+    return _REDACTED
+
+
+def _vouched_health(result: HealthResult) -> HealthResult:
+    """A driver's health result with only what the registry can vouch for in
+    its ``details`` (spec 2.4): numbers, booleans and single-token strings
+    pass; any other value becomes ``"<redacted>"``."""
+    if not result.details:
+        return result
+    details = {str(k): _vouched_detail(v) for k, v in result.details.items()}
+    return dataclasses.replace(result, details=details)
+
+
 def check_driver_class(
     key: str, driver: object, spec: CapabilitySpec | None
 ) -> type[InfraProvider]:
@@ -1509,6 +1562,13 @@ def check_driver_class(
             fix="implement every abstract method of the contract",
         )
     major = spec.major if spec is not None else None
+    if spec is not None and major is None:
+        raise DriverLoadError(
+            f"Driver {key!r} cannot load: capability {spec.name!r} has no integer "
+            f"major (version {spec.version!r}, no major stated), so no "
+            "contract_version can be checked against it",
+            fix="give the CapabilitySpec a version such as 'v1' or an explicit major",
+        )
     written_for = getattr(driver, "contract_version", None)
     example = major if major is not None else 1
     if written_for is None:
@@ -1551,8 +1611,9 @@ def check_driver_class(
         unknown = frozenset(provider_class.supported_features) - spec.features
         if unknown:
             raise FeatureUnsupportedError(
-                f"Driver {key!r} declares feature(s) {sorted(unknown)} not defined "
-                f"by capability {spec.name!r} (known: {sorted(spec.features)})",
+                f"Driver {key!r} declares feature(s) "
+                f"{spec.unknown_features_hint(unknown)} not defined by capability "
+                f"{spec.name!r} (known: {sorted(spec.features)})",
                 fix="add the feature to the CapabilitySpec or drop it",
             )
     return provider_class

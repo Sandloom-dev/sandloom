@@ -876,11 +876,6 @@ class _ObjectStream:
         return next(self._chunks, b"")
 
 
-class _UnsizedObjectStream:
-    async def read(self) -> bytes:
-        return b"legacy"
-
-
 class _FailingObjectStream:
     def __init__(self, store: ObjectStore, key: str) -> None:
         self._store = store
@@ -961,8 +956,6 @@ class ObjectStoreConformance:
         await store.put(key, _ObjectStream(b"first", b"second"))
         try:
             _require(await store.get(key) == b"firstsecond", "put reads all chunks")
-            await store.put(key, _UnsizedObjectStream())
-            _require(await store.get(key) == b"legacy", "legacy read() is accepted")
         finally:
             await store.delete(key)
 

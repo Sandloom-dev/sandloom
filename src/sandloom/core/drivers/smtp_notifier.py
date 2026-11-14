@@ -110,17 +110,32 @@ class SmtpNotifierProvider(NotifierProvider):
             client.send_message(message)
 
 
+def _permanent(code: object) -> bool:
+    """A 5xx SMTP reply: the server will refuse the same message again."""
+    return isinstance(code, int) and 500 <= code < 600
+
+
 def _delivery_error(exc: Exception, instance: str) -> InfraError:
-    """The contract's error for an SMTP failure (spec 10). The message names
-    the error type only: an SMTP reply can echo the recipient."""
+    """The contract's error for an SMTP failure (spec 10): a permanent (5xx)
+    refusal is not retryable (``InvalidArgument``, ``PermissionDenied`` for
+    authentication), a transient (4xx) one or a lost connection is
+    ``Unavailable``. The message names the error type only: an SMTP reply
+    can echo the recipient."""
     message = f"smtp delivery failed: {type(exc).__name__}"
-    if isinstance(exc, smtplib.SMTPAuthenticationError):
-        return PermissionDenied(message, capability="notification", instance=instance)
+    kind: type[InfraError] = Unavailable
     if isinstance(exc, smtplib.SMTPRecipientsRefused):
-        return InvalidArgument(message, capability="notification", instance=instance)
-    if isinstance(exc, TimeoutError):
-        return Timeout(message, capability="notification", instance=instance)
-    return Unavailable(message, capability="notification", instance=instance)
+        codes = [reply[0] for reply in exc.recipients.values()]
+        if not codes or any(_permanent(code) for code in codes):
+            kind = InvalidArgument
+    elif isinstance(exc, smtplib.SMTPAuthenticationError):
+        if _permanent(exc.smtp_code):
+            kind = PermissionDenied
+    elif isinstance(exc, (smtplib.SMTPSenderRefused, smtplib.SMTPDataError)):
+        if _permanent(exc.smtp_code):
+            kind = InvalidArgument
+    elif isinstance(exc, TimeoutError):
+        kind = Timeout
+    return kind(message, capability="notification", instance=instance)
 
 
 def _refuse_cleartext_login_in_prod(options: Mapping[str, Any]) -> None:

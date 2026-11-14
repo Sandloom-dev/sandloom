@@ -62,5 +62,5 @@ The MinIO CI job runs the endpoint suite as a service user with
 an object outside the permitted prefix as an administrator and set
 `SANDLOOM_S3_TEST_DENIED_KEY` to that key. Run pytest with the service user's
 credentials. The check expects a missing key under the permitted prefix to
-raise `FileNotFoundError` and reads of the seeded object to return HTTP 403,
+raise `NotFound` (`sandloom.driverkit`) and reads of the seeded object to return HTTP 403,
 including through a signed GET URL.

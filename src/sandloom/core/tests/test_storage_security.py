@@ -18,8 +18,8 @@ class _AsyncFile:
     def __init__(self, data: bytes):
         self._buf = io.BytesIO(data)
 
-    async def read(self) -> bytes:
-        return self._buf.read()
+    async def read(self, size: int = -1) -> bytes:
+        return self._buf.read(size)
 
 
 @pytest.fixture()

@@ -350,6 +350,12 @@ def test_the_public_contract_changes_only_with_its_version() -> None:
     assert signatures == _NOTIFICATION_V1
 
 
+#: Kernel-facing contracts exported before their kit (PR #190 review, C4):
+#: the shared kit harness (idk-kit-harness) delivers these kits. Remove an
+#: entry when its kit lands; the test fails until you do.
+_KIT_PENDING = frozenset({"AtomicStoreProvider", "LeaseProvider", "BroadcastProvider"})
+
+
 def test_every_public_contract_has_a_kit() -> None:
     contracts = [
         name
@@ -359,6 +365,11 @@ def test_every_public_contract_has_a_kit() -> None:
     assert contracts
     for name in contracts:
         kit = name.removesuffix("Provider") + "Conformance"
+        if name in _KIT_PENDING:
+            assert kit not in sandloom.driverkit.testing.__all__, (
+                f"{kit} landed: drop {name} from _KIT_PENDING"
+            )
+            continue
         assert kit in sandloom.driverkit.testing.__all__, f"{name} has no kit: {kit}"
 
 

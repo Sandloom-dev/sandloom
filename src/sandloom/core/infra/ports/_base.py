@@ -13,7 +13,6 @@ Every capability's contract (``ports/<capability>.py``) builds on these three:
 from __future__ import annotations
 
 import abc
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -34,7 +33,23 @@ FEATURE_KINDS: frozenset[str] = frozenset({"behaviour", "guarantee"})
 #: Maturity of a capability contract (see :attr:`CapabilitySpec.stability`).
 CapabilityStability = Literal["stable", "experimental"]
 _STABILITIES: frozenset[str] = frozenset({"stable", "experimental"})
-_VERSION = re.compile(r"v(\d+)(?:\.\d+)?")
+
+
+def version_major(version: str) -> int | None:
+    """The MAJOR of a capability version string, or ``None``.
+
+    Accepts ``"v1"``, ``"v1.2"``, ``"V1"``, ``"v1.2.3"`` or a bare integer
+    (``"1"``, ``"1.0"``): the leading integer after an optional ``v``. ``None``
+    when the string has none: version matching then falls back to exact
+    equality, and no driver loads for the capability (SANDLOOM-B022).
+    """
+    head = version.split(".", 1)[0].strip()
+    if head[:1] in ("v", "V"):
+        head = head[1:]
+    try:
+        return int(head)
+    except ValueError:
+        return None
 
 
 @dataclass(frozen=True)
@@ -46,7 +61,8 @@ class CapabilitySpec:
       may pin in a requirement or a ``CapabilityRef`` (same major compatible).
     * ``major`` — the driver contract's integer major: what a driver states as
       ``contract_version``; a driver written for another major is refused at
-      load (SANDLOOM-B022). Default: the major of ``version``. It moves on its
+      load (SANDLOOM-B022). Default: the major of ``version``
+      (:func:`version_major`); a spec with neither loads no driver. It moves on its
       own when the driver obligations change and the module-facing shape does
       not (``objectstore`` and ``notification`` are 2 at ``version`` ``"v1"``:
       their error obligations changed).
@@ -61,6 +77,13 @@ class CapabilitySpec:
     * ``features`` — the feature names; derived from ``feature_kinds`` (a spec
       a plugin writes with ``features`` alone still works, its features
       unclassified).
+    * ``removed_features`` — feature names a previous major had, each mapped
+      to its replacement: a refusal of a removed name names the replacement
+      (spec 2.2). A removed name is never a feature of the spec.
+    * ``kernel_only`` — a kernel-facing capability (``atomic_store``,
+      ``lease``, ``broadcast``): the kernel reaches it through
+      ``InfraRegistry.provider``; a module's resolve or requirement is
+      refused (SANDLOOM-B041).
     * ``description`` — human/AI-facing one-liner.
     * ``stability`` — ``"stable"`` or ``"experimental"`` (a contract the kernel
       knows but ships no driver for; its surface may still change).
@@ -77,6 +100,10 @@ class CapabilitySpec:
         default_factory=lambda: MappingProxyType({})
     )
     major: int | None = None
+    removed_features: Mapping[str, str] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+    kernel_only: bool = False
 
     def __post_init__(self) -> None:
         if self.stability not in _STABILITIES:
@@ -96,9 +123,17 @@ class CapabilitySpec:
         object.__setattr__(
             self, "features", frozenset(self.features) | frozenset(self.feature_kinds)
         )
+        object.__setattr__(
+            self, "removed_features", MappingProxyType(dict(self.removed_features))
+        )
+        revived = sorted(set(self.removed_features) & self.features)
+        if revived:
+            raise ValueError(
+                f"CapabilitySpec {self.name!r}: removed feature(s) {revived} are "
+                "still features of the spec"
+            )
         if self.major is None:
-            found = _VERSION.fullmatch(self.version.strip())
-            object.__setattr__(self, "major", int(found.group(1)) if found else None)
+            object.__setattr__(self, "major", version_major(self.version))
 
     @property
     def is_experimental(self) -> bool:
@@ -108,6 +143,16 @@ class CapabilitySpec:
     def unclassified_features(self) -> frozenset[str]:
         """The features that carry no kind (a kernel spec has none)."""
         return self.features - frozenset(self.feature_kinds)
+
+    def unknown_features_hint(self, unknown: frozenset[str]) -> str:
+        """``unknown`` with the replacement of each removed name, for a
+        refusal: ``['durable'] (durable was renamed durable_delivery)``."""
+        renamed = [
+            f"{name} was renamed {self.removed_features[name]}"
+            for name in sorted(unknown)
+            if name in self.removed_features
+        ]
+        return f"{sorted(unknown)}" + (f" ({'; '.join(renamed)})" if renamed else "")
 
 
 class InfraProvider(abc.ABC):
@@ -158,7 +203,8 @@ class InfraProvider(abc.ABC):
     @classmethod
     def features_for(cls, options: Mapping[str, Any]) -> frozenset[str]:
         """The features an instance with ``options`` supports, without building
-        it. Override only when a feature depends on an option."""
+        it. Override only when a feature depends on an option. The registry
+        and :meth:`features` keep only what ``supported_features`` declares."""
         return cls.supported_features
 
     @classmethod
@@ -171,13 +217,15 @@ class InfraProvider(abc.ABC):
         return options
 
     def features(self) -> frozenset[str]:
-        """The features THIS instance supports: ``features_for(options)``.
+        """The features THIS instance supports: ``features_for(options)``
+        within ``supported_features`` (an undeclared feature is never claimed).
 
         Never overridden: the registry checks at build that the instance
         reports what its class declared, so a module's requirement that passes
         at startup cannot fail on first use.
         """
-        return type(self).features_for(self.options)
+        cls = type(self)
+        return frozenset(cls.features_for(self.options)) & cls.supported_features
 
     async def aopen(self) -> None:
         """Open the instance before its first operation. Default: no-op.
@@ -238,4 +286,5 @@ __all__ = [
     "FeatureKind",
     "InfraProvider",
     "ProviderLifecycle",
+    "version_major",
 ]

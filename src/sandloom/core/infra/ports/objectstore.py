@@ -9,8 +9,7 @@ with the shared error hierarchy (``sandloom.core.infra.errors``) in place of
 from __future__ import annotations
 
 import abc
-import inspect
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Mapping
 from typing import ClassVar, Protocol, TypeAlias
 
 from sandloom.core.infra.errors import InvalidArgument, Unsupported
@@ -48,33 +47,20 @@ class ObjectReader(Protocol):
     async def read(self, size: int, /) -> bytes: ...
 
 
-class _UnsizedObjectReader(Protocol):
-    async def read(self) -> bytes: ...
-
-
-ObjectContent: TypeAlias = bytes | ObjectReader | _UnsizedObjectReader
+#: What ``put`` accepts: bytes, or a reader whose ``read(size)`` returns up to
+#: ``size`` bytes and ``b""`` at the end (a reader whose ``read()`` takes no
+#: size is no longer accepted, spec 9).
+ObjectContent: TypeAlias = bytes | ObjectReader
 
 
 async def iter_object_chunks(
     data: ObjectContent, chunk_size: int
 ) -> AsyncIterator[bytes]:
-    """Read an upload, including legacy readers accepting no size argument."""
+    """Read an upload, bytes or a sized reader, in chunks of ``chunk_size``."""
     if isinstance(data, (bytes, bytearray)):
         yield bytes(data)
         return
-
-    read: Callable[..., Awaitable[bytes]] = data.read
-    try:
-        signature = inspect.signature(read)
-    except (TypeError, ValueError):
-        signature = None
-    if signature is not None:
-        try:
-            signature.bind(chunk_size)
-        except TypeError:
-            yield await read()
-            return
-    while chunk := await read(chunk_size):
+    while chunk := await data.read(chunk_size):
         yield chunk
 
 

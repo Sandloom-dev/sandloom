@@ -96,6 +96,8 @@ LEASE_CAPABILITY = CapabilitySpec(
         "shared": "guarantee",
     },
     description="Named fenced leases (the beat scheduler, the saga sweep).",
+    # Kernel-facing: a module resolve or requirement is refused (B041).
+    kernel_only=True,
 )
 
 

@@ -100,6 +100,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B038`](#sandloom-b038) | `fact-owner-missing` | boot | an access-fact policy or fake names no valid owner module | active |
 | [`SANDLOOM-B039`](#sandloom-b039) | `operator-capability-unavailable` | runtime | an operator command's owner cannot be confirmed to provide what the command needs: no owner is assigned, its public name is unknown, its &lt;owner>.security.v1 is neither local nor bound, the contract lacks a method or has it with another shape, this service may not call it, or the owner answered with another shape | active |
 | [`SANDLOOM-B040`](#sandloom-b040) | `operator-owner-substitution` | runtime | the service an operator command would call for &lt;owner>.security.v1 is not the owner the claim map names: its binding names another service than the owner's other bindings, or its describe states another provider, or its answer is not bound to the pinned service | active |
+| [`SANDLOOM-B041`](#sandloom-b041) | `kernel-capability-refused` | boot | module code resolved or required a kernel-facing capability (atomic_store, lease, broadcast) | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
 | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
@@ -1120,9 +1121,13 @@ Slug: `driver-load-failed` · kind: boot · status: active
 
 INFRA selected a driver or capability whose package failed to import, whose entry
 point is not a subclass of the capability's contract (or not a `CapabilitySpec`),
-which declares no `contract_version`, or which was written for another major version.
-A driver that cannot load cannot serve, so startup stops with the cause. An
-unselected package is never imported.
+which declares no `contract_version` or declares one that is not the integer major
+of the capability (a string such as "v1" is a driver written before majors were
+integers; another integer is a driver for another major), or whose capability states
+no readable major. A driver marked `development_only` (the `memory` drivers) is
+refused in production, with no accepted risk to lift it. A driver that cannot load
+cannot serve, so startup stops with the cause. An unselected package is never
+imported.
 
 **Fix:** fix or reinstall the package named in the message, or select another driver
 
@@ -1570,6 +1575,27 @@ indeterminate, so a negation never turns them into an allow.
 **Fix:** state the module that registers the fact: Entitled("subscription.active", owner="billing"), fake_access_fact(name, value, owner="billing")
 
 **More:** `docs/modules/http/authorization.md`
+
+### SANDLOOM-B041
+
+**module code resolved or required a kernel-facing capability (atomic_store, lease, broadcast)**
+
+Slug: `kernel-capability-refused` · kind: boot · status: active
+
+**What happened and why it matters**
+
+A kernel-facing capability (its CapabilitySpec says kernel_only) serves the
+kernel's own guarantees: the security marks and idempotency records
+(atomic_store), the beat and sweep leases (lease), the contract-cache shadow and
+the volatile bus (broadcast). Its keys and channels are the kernel's, so a module
+that reached it could forge or clear a security mark or steal a lease. The kernel
+reaches it through the registry's provider door; a module's CapabilityRef,
+Capability(...) dependency, get_core().capability(...) or CapabilityRequirement
+naming it is refused, the requirement when the module loads.
+
+**Fix:** use the module-facing API built on it (sandloom.sdk: cache, idempotency_guard, the event bus through the outbox), or a module-facing capability
+
+**More:** `docs/adr/0016-kernel-ports-and-driver-packages.md`
 
 ### SANDLOOM-B020
 

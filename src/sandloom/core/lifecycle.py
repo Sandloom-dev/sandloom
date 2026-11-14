@@ -214,7 +214,10 @@ async def aggregate_health(
                 status="fail", details={"error": f"timeout > {timeout}s"}
             )
         except Exception as exc:  # pragma: no cover  # noqa: BLE001 - any failure is a failed probe
-            return name, HealthResult(status="fail", details={"error": str(exc)})
+            # The type only: an exception text can carry a URL (spec 2.4).
+            return name, HealthResult(
+                status="fail", details={"error": type(exc).__name__}
+            )
 
     # Run all checks concurrently: one slow dependency must not serialize
     # the whole health endpoint.

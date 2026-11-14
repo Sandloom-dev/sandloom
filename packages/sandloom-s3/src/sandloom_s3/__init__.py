@@ -45,6 +45,8 @@ def _mapped(exc: Exception, instance: str) -> InfraError:
     from botocore.exceptions import (
         ClientError,
         ConnectTimeoutError,
+        NoCredentialsError,
+        PartialCredentialsError,
         ReadTimeoutError,
     )
 
@@ -59,6 +61,8 @@ def _mapped(exc: Exception, instance: str) -> InfraError:
             )
         return Unavailable(message, capability="objectstore", instance=instance)
     message = f"s3 request failed: {type(exc).__name__}"
+    if isinstance(exc, (NoCredentialsError, PartialCredentialsError)):
+        return PermissionDenied(message, capability="objectstore", instance=instance)
     if isinstance(exc, (ConnectTimeoutError, ReadTimeoutError)):
         return Timeout(message, capability="objectstore", instance=instance)
     return Unavailable(message, capability="objectstore", instance=instance)
@@ -139,10 +143,17 @@ class S3ObjectStore(ObjectStoreProvider):
 
     async def aopen(self) -> None:
         # Client creation (credential resolution included) can block. Serialize
-        # the first open with the same lock used by direct SDK calls.
+        # the first open with the same lock used by direct SDK calls. A client
+        # the SDK cannot create (no region, an unknown profile) is the
+        # contract's error, like any operation's (spec 2.4, 9).
+        from botocore.exceptions import BotoCoreError
+
         async with self._client_lock:
             if self._client is None:
-                self._client = await to_thread.run_sync(self._connect)
+                try:
+                    self._client = await to_thread.run_sync(self._connect)
+                except BotoCoreError as exc:
+                    raise _mapped(exc, self.name) from exc
 
     async def aclose(self) -> None:
         async with self._client_lock:
@@ -258,15 +269,23 @@ class S3ObjectStore(ObjectStoreProvider):
 
     async def url(self, key: str) -> str:
         validate_object_key(key)
+        from botocore.exceptions import BotoCoreError, ClientError
+
         client = await self._backend()
-        return await to_thread.run_sync(
-            partial(
-                client.generate_presigned_url,
-                "get_object",
-                Params={"Bucket": self._config.bucket, "Key": key},
-                ExpiresIn=self._config.presign_seconds,
+        try:
+            return cast(
+                str,
+                await to_thread.run_sync(
+                    partial(
+                        client.generate_presigned_url,
+                        "get_object",
+                        Params={"Bucket": self._config.bucket, "Key": key},
+                        ExpiresIn=self._config.presign_seconds,
+                    )
+                ),
             )
-        )
+        except (BotoCoreError, ClientError) as exc:
+            raise _mapped(exc, self.name) from exc
 
     async def health(self) -> HealthResult:
         from botocore.exceptions import (
@@ -279,6 +298,9 @@ class S3ObjectStore(ObjectStoreProvider):
             await to_thread.run_sync(
                 partial(client.head_bucket, Bucket=self._config.bucket)
             )
-        except (BotoCoreError, ClientError) as exc:
-            return HealthResult(status="fail", details={"error": type(exc).__name__})
+        except (BotoCoreError, ClientError, InfraError) as exc:
+            # The type only (spec 2.4): the SDK's, when the open was mapped.
+            cause = exc.__cause__ if isinstance(exc, InfraError) else None
+            failed = type(cause or exc).__name__
+            return HealthResult(status="fail", details={"error": failed})
         return HealthResult(status="ok")

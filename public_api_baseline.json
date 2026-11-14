@@ -2540,6 +2540,66 @@
       ],
       "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
     },
+    "AtomicStoreProvider": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "add",
+        "add_or_get",
+        "aopen",
+        "capability",
+        "compare_and_delete",
+        "compare_and_set",
+        "delete",
+        "development_only",
+        "features",
+        "features_for",
+        "from_config",
+        "get",
+        "health",
+        "install_hint",
+        "isolation_identity",
+        "options_schema",
+        "performance_hints",
+        "required_imports",
+        "set",
+        "set_subject_state",
+        "supported_features",
+        "test_isolation"
+      ],
+      "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
+    "BroadcastMessage": {
+      "kind": "class",
+      "members": [
+        "channel",
+        "payload"
+      ],
+      "signature": "(channel:POSITIONAL_OR_KEYWORD|str, payload:POSITIONAL_OR_KEYWORD|bytes) -> None"
+    },
+    "BroadcastProvider": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "aopen",
+        "capability",
+        "development_only",
+        "features",
+        "features_for",
+        "from_config",
+        "health",
+        "install_hint",
+        "isolation_identity",
+        "options_schema",
+        "performance_hints",
+        "publish",
+        "required_imports",
+        "subscribe",
+        "supported_features",
+        "test_isolation"
+      ],
+      "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
     "CapabilityRef": {
       "kind": "class",
       "members": [
@@ -2554,11 +2614,13 @@
         "config_schema",
         "description",
         "is_experimental",
+        "kernel_only",
         "major",
         "stability",
-        "unclassified_features"
+        "unclassified_features",
+        "unknown_features_hint"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, provider_contract:POSITIONAL_OR_KEYWORD|type, config_schema:POSITIONAL_OR_KEYWORD|type[Any] | None=None, features:POSITIONAL_OR_KEYWORD|frozenset[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, description:POSITIONAL_OR_KEYWORD|str='', stability:POSITIONAL_OR_KEYWORD|CapabilityStability='stable', feature_kinds:POSITIONAL_OR_KEYWORD|Mapping[str, FeatureKind]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, major:POSITIONAL_OR_KEYWORD|int | None=None) -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, provider_contract:POSITIONAL_OR_KEYWORD|type, config_schema:POSITIONAL_OR_KEYWORD|type[Any] | None=None, features:POSITIONAL_OR_KEYWORD|frozenset[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, description:POSITIONAL_OR_KEYWORD|str='', stability:POSITIONAL_OR_KEYWORD|CapabilityStability='stable', feature_kinds:POSITIONAL_OR_KEYWORD|Mapping[str, FeatureKind]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, major:POSITIONAL_OR_KEYWORD|int | None=None, removed_features:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, kernel_only:POSITIONAL_OR_KEYWORD|bool=False) -> None"
     },
     "ConflictInsert": {
       "kind": "class",
@@ -2696,6 +2758,50 @@
       ],
       "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
     },
+    "Lease": {
+      "kind": "class",
+      "members": [
+        "fence",
+        "name",
+        "owner",
+        "token",
+        "ttl_seconds"
+      ],
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, owner:POSITIONAL_OR_KEYWORD|str, token:POSITIONAL_OR_KEYWORD|str, fence:POSITIONAL_OR_KEYWORD|int, ttl_seconds:POSITIONAL_OR_KEYWORD|int) -> None"
+    },
+    "LeaseHolder": {
+      "kind": "class",
+      "members": [
+        "fence",
+        "owner"
+      ],
+      "signature": "(owner:POSITIONAL_OR_KEYWORD|str, fence:POSITIONAL_OR_KEYWORD|int) -> None"
+    },
+    "LeaseProvider": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "acquire",
+        "aopen",
+        "capability",
+        "development_only",
+        "features",
+        "features_for",
+        "from_config",
+        "health",
+        "holder",
+        "install_hint",
+        "isolation_identity",
+        "options_schema",
+        "performance_hints",
+        "release",
+        "renew",
+        "required_imports",
+        "supported_features",
+        "test_isolation"
+      ],
+      "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
     "LockStatement": {
       "kind": "class",
       "members": [
@@ -2821,6 +2927,13 @@
         "transaction_options",
         "unlock_statement",
         "wall_clock"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "Subscription": {
+      "kind": "class",
+      "members": [
+        "aclose"
       ],
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },

@@ -36,7 +36,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, ClassVar, Literal
+from typing import Any, Literal
 
 from sandloom.core.contracts.uow import UnitOfWorkContract
 from sandloom.core.infra.ports._base import InfraProvider
@@ -51,6 +51,7 @@ from sandloom.core.infra.ports.cache import (
     portable_set_max,
     portable_set_subject_state,
 )
+from sandloom.core.infra.ports.database import DatabaseProvider
 from sandloom.core.infra.ports.eventbus import EventBusProvider
 from sandloom.core.infra.ports.notification import (
     Notification,
@@ -552,89 +553,6 @@ class RequestLogStore(abc.ABC):
     ) -> int:
         """Delete up to ``limit`` expired records; return rows deleted."""
         return 0
-
-
-class DatabaseProvider(InfraProvider):
-    """Transactional persistence capability — the **relational paradigm** contract.
-
-    This is the framework's privileged system-of-record: it backs the Unit of
-    Work, the transactional outbox and the audit log. The only thing the kernel
-    needs from a driver is a factory that produces
-    :class:`~sandloom.core.contracts.uow.UnitOfWorkContract` instances (plus the
-    optional :meth:`outbox`/:meth:`audit` writers gated by the
-    ``transactional_outbox`` / ``audit`` features). Everything else (engine,
-    pool, dialect, ORM) is the driver's private business — which is why a driver
-    may be any SQLAlchemy-supported engine, yet the kernel imports no SQLAlchemy.
-
-    Non-relational stores are NOT modelled here: they have their own paradigm
-    contracts (``DocumentStoreProvider``, ``GraphStoreProvider``, …) with their
-    own guarantees. :data:`RelationalProvider` is a readability alias for this
-    class.
-    """
-
-    capability: ClassVar[str] = "database"
-
-    @abc.abstractmethod
-    def uow_factory(self) -> Callable[[], UnitOfWorkContract]:
-        """Return a zero-arg factory producing UnitOfWork instances."""
-
-    def outbox(self) -> OutboxStore | None:
-        """Return this database's transactional outbox writer.
-
-        ``None`` when the backend has no transactional outbox (i.e. does not
-        advertise the ``transactional_outbox`` feature). ``publish_event``
-        refuses to commit an event to a database that cannot store it durably.
-        """
-        return None
-
-    def audit(self) -> AuditStore | None:
-        """Return this database's audit-log writer (``None`` if unsupported)."""
-        return None
-
-    def command_log(self) -> CommandLogStore | None:
-        """Return this database's durable command-idempotency log.
-
-        ``None`` when the backend cannot record command outcomes atomically
-        with the command (no ``command_idempotency`` feature): command
-        contracts on it fall back to the cache-only dedupe.
-        """
-        return None
-
-    def has_pending_changes(self, session: Any) -> bool:
-        """Whether ``session`` (a unit of this database) holds changes that
-        its COMMIT would write although no write statement ran yet (an ORM
-        identity map with unflushed changes). The commit hooks count them as
-        a write (the commit-time re-check, risk triggers). A driver without
-        deferred writes answers ``False`` (the default)."""
-        return False
-
-    def request_log(self) -> RequestLogStore | None:
-        """Return this database's durable HTTP idempotency log.
-
-        ``None`` when the backend cannot record a response atomically with
-        the request's transaction (no ``http_idempotency`` feature): a
-        ``durable=True`` idempotency guard on it refuses with ``503``.
-        """
-        return None
-
-    async def ensure_model_schema(
-        self, metadata: Any = None, *, recreate: bool
-    ) -> bool:
-        """Build the schema of ``metadata`` (the mapped tables; ``None``: every
-        table the driver's models map) when this
-        database takes its schema from the models instead of the migration
-        chains; refuse one whose tables differ from the models, or recreate
-        it with ``recreate`` (SANDLOOM-B028). Called once at startup. False
-        (the default): the migration chains own this database's schema."""
-        return False
-
-    def execution_adapter(self) -> Any:
-        """PROTOTYPE: the execution-planner adapter of this database.
-
-        ``None`` (the default) means declared operations cannot run here; see
-        :class:`sandloom.core.planner.ExecutionAdapter`.
-        """
-        return None
 
 
 #: Readability alias: the ``database`` capability IS the relational paradigm.
