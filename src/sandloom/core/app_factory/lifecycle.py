@@ -24,6 +24,7 @@ from sandloom.core.drivers.bootstrap import (
     close_default_cache,
     close_default_database,
 )
+from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.facade import CoreFacade
 from sandloom.core.infra.ports._base import health_failure_details
 from sandloom.core.infra.registry import InfraRegistry
@@ -95,6 +96,17 @@ async def ensure_model_schemas(
     )
 
 
+async def _close_bound_durable_bus(core_facade: CoreFacade) -> None:
+    """Close the bus this application bound, when it is a durable one.
+
+    Never ``core_facade.event_bus``: unbound, that is the global fallback bus
+    (or a raise in production that would mask the startup error).
+    """
+    bound = core_facade._bound_event_bus()
+    if isinstance(bound, StreamsEventBus):
+        await bound.close()
+
+
 def _register_infra_lifecycle(
     core_facade: CoreFacade,
     schema_registry_service: InMemorySchemaRegistry,
@@ -162,13 +174,16 @@ def _register_infra_lifecycle(
         await close_default_cache()
 
     async def close_infra() -> None:
-        # Close registry-owned infrastructure: the event bus and any named
-        # (non-default) database/cache/object-store instances. The shared
-        # default engine/cache are disposed by their own tasks above. The bus
-        # closes first: the kernel built it over its provider (spec 7), which
-        # `aclose_all` then closes.
+        # Close registry-owned infrastructure: the durable event bus and any
+        # named (non-default) database/cache/object-store instances. The shared
+        # default engine/cache are disposed by their own tasks above. Only the
+        # bus this application bound AND built over a transport closes here,
+        # before `aclose_all` closes the provider under it (spec 7): a startup
+        # that failed before binding has none (`core_facade.event_bus` would be
+        # the global fallback bus, or raise in production and mask the startup
+        # error), and a volatile bus is closed by its own provider.
         try:
-            await core_facade.event_bus.close()
+            await _close_bound_durable_bus(core_facade)
         finally:
             await infra.aclose_all()
 

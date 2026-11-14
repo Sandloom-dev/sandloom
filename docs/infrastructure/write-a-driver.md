@@ -19,7 +19,8 @@ public only with a conformance kit, so the `cache` and `taskqueue` contracts are
 available yet. The `notification` and `objectstore` contracts are. The `database` backend
 carries the transaction guarantees and is not open to drivers
 ([why](database.md#the-relational-paradigm)). An `eventbus` driver is an
-[`EventTransportProvider`](#an-eventbus-driver); its conformance kit is not published yet.
+[`EventTransportProvider`](#an-eventbus-driver). It is kernel-facing: its conformance
+kit is pending (`idk-eventbus-kit`) and it is not yet a public contract.
 
 !!! note "Version"
     This guide targets `sandloom==0.7.0a13`. <!-- sandloom-release -->
@@ -197,13 +198,21 @@ without it accepts them in `put` and drops them.
 
 #### An eventbus driver
 
-An `eventbus` driver of the transport shape states `contract_version = 2` and
-implements `EventTransportProvider` (`sandloom.driverkit`): the durable transport the
-kernel builds its bus over. The kernel keeps schema validation, payload limits and the
-bus logic. The driver keeps the entries.
+!!! warning "Kernel-facing; the conformance kit is pending"
+    This section describes the contract the kernel's bus runs over. Its conformance kit
+    is pending (`idk-eventbus-kit`) and it is not yet a public contract. Mapping backend
+    errors to `Unavailable` and `Timeout` is pending with the kit. Until then a driver
+    raises them itself, and the kernel does not translate a backend exception.
 
-It implements these operations, and a call without its feature raises
-`Unsupported(feature)`:
+An `eventbus` driver of the transport shape states `contract_version = 2` and
+subclasses `EventTransportProvider` (`sandloom.driverkit`), an abstract base class. It is
+the durable transport the kernel builds its bus over. The kernel keeps schema validation,
+payload limits and the bus logic. The driver keeps the entries.
+
+It implements every operation below. A driver that leaves one out cannot be
+instantiated; the operations behind a feature default to `Unsupported(feature)`, and a
+driver that declares the feature overrides them. `publish_many` returns one id per item
+(the bus refuses any other count).
 
 - `publish` and `publish_many`. A failed batch raises `PartialPublish`, which carries
   the ids appended before the failure.

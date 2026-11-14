@@ -377,7 +377,8 @@ def test_the_public_contract_changes_only_with_its_version() -> None:
 
 #: Kernel-facing contracts exported before their kit (PR #190 review, C4):
 #: their capability slices deliver these kits. Remove an entry when its kit
-#: lands; the test fails until you do.
+#: lands; the test fails until you do. ``EventTransportProvider`` is removed by
+#: ``idk-eventbus-kit``.
 _KIT_PENDING: frozenset[str] = frozenset({"EventTransportProvider"})
 
 

@@ -1288,6 +1288,17 @@ async def transfer_group_owners(
                 raise ExtractionError(
                     f"group {group} on {stream}: owner changed concurrently"
                 )
+            # The owner record keeps three fields (spec 7): the old database
+            # is not stored with it, so the transfer is logged here.
+            logger.warning(
+                "streams group owner transferred: stream=%s group=%s module=%s "
+                "database %s -> %s",
+                stream,
+                group,
+                owner.module,
+                source_identity,
+                target_identity,
+            )
         moved.append(f"{stream} {group}")
     return moved
 

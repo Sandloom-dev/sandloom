@@ -21,6 +21,7 @@ from sandloom.core.eventing.streams_inventory import _StreamsInventory
 from sandloom.core.eventing.streams_lease import _BatchLease
 from sandloom.core.eventing.subscriptions import SubscriptionHandle
 from sandloom.core.eventing.transport_base import DLQ_REASON_POISON
+from sandloom.core.infra.errors import Unsupported
 from sandloom.core.observability.metrics_utils import safe_inc
 
 logger = logging.getLogger("sandloom.core.eventing.event_bus")
@@ -310,7 +311,7 @@ class _StreamsDispatch(_StreamsInventory):
         """Park a poison delivery in the DLQ now (left pending if unsupported)."""
         try:
             await self._transport.dead_letter(delivery, reason=DLQ_REASON_POISON)
-        except NotImplementedError:
+        except (NotImplementedError, Unsupported):
             logger.critical(
                 "Transport %s cannot dead-letter; poison event left pending "
                 "channel=%s id=%s",

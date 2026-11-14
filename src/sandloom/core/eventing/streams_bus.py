@@ -17,6 +17,7 @@ from typing import (
 from sandloom.core.config.settings import settings
 from sandloom.core.contracts import SchemaRegistryContract
 from sandloom.core.contracts.validators import validate_channel_name
+from sandloom.core.eventing.bus_base import BaseEventBus
 from sandloom.core.eventing.bus_metrics import _event_bus_metrics
 from sandloom.core.eventing.consumer_inbox import ConsumerInbox
 from sandloom.core.eventing.delivery import stream_start_id
@@ -40,6 +41,7 @@ from sandloom.core.eventing.transport_base import (
 from sandloom.core.eventing.volatile_provider import VolatileBusProvider
 from sandloom.core.infra.ports.eventbus import (
     ConsumerInfo,
+    EventTransportProvider,
     GroupOwner,
     PartialPublish,
 )
@@ -176,7 +178,18 @@ class StreamsEventBus(_StreamsDispatch):
         published = 0
         if items:
             try:
-                await self._transport.publish_many(items)
+                ids = await self._transport.publish_many(items)
+                if not isinstance(ids, list) or len(ids) != len(items):
+                    # A transport that confirms fewer (or other) ids than items
+                    # proves nothing appended: never report success. Nothing is
+                    # counted as published, so the relay retries the batch (a
+                    # duplicate, never a loss).
+                    got = len(ids) if isinstance(ids, list) else type(ids).__name__
+                    raise PartialPublish(
+                        f"publish_many returned {got} ids for {len(items)} items; "
+                        "the batch is not treated as published",
+                        retryable=True,
+                    )
                 published = len(items)
             except PartialPublish as exc:
                 published = min(len(exc.published), len(items))
@@ -482,13 +495,16 @@ class StreamsEventBus(_StreamsDispatch):
             self._tasks.clear()
 
 
-def build_event_bus(provider: Any, schema_registry: SchemaRegistryContract) -> Any:
+def build_event_bus(
+    provider: EventTransportProvider | VolatileBusProvider,
+    schema_registry: SchemaRegistryContract,
+) -> BaseEventBus:
     """The kernel's bus for one ``eventbus`` provider (spec 7: two shapes).
 
-    A volatile provider (``memory``, ``redis``) hands over its own bus; any
-    other is an ``EventTransportProvider``, over which the kernel builds its
-    durable bus. The caller owns the bus it gets and closes it before the
-    provider.
+    A volatile provider (``memory``, ``redis``) hands over its own bus, which
+    that provider closes itself; any other is an ``EventTransportProvider``,
+    over which the kernel builds its durable bus. The caller closes a bus it
+    built over a transport (before the provider), never a volatile one.
     """
     if isinstance(provider, VolatileBusProvider):
         return provider.bus()

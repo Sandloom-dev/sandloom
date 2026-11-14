@@ -11,16 +11,17 @@ from __future__ import annotations
 
 import os
 import socket
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import Collection, Mapping, Sequence
 
 from prometheus_client import Counter
 
 from sandloom.core.config.settings import settings
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.infra.errors import Unsupported
+from sandloom.core.infra.ports._base import InfraProvider
 from sandloom.core.infra.ports.eventbus import (
     Delivery,
+    EventTransport,
     GroupOwner,
     PartialPublish,
 )
@@ -32,9 +33,6 @@ _METRIC_TARGETED_SKIPPED = Counter(
 )
 
 
-#: Fingerprint fields that must MATCH for two processes to share a group
-#: (replicas of one deployment). ``service`` / ``channel`` are informational.
-GROUP_OWNER_IDENTITY_FIELDS = ("module", "database")
 #: A subscription-inventory entry not refreshed for this long is stale.
 INVENTORY_STALE_SECONDS = 300.0
 #: Stream-entry field marking a DLQ replay meant for ONE consumer group only.
@@ -45,10 +43,7 @@ def _owner_conflict_message(
     stream: str, group: str, existing: GroupOwner, owner: GroupOwner
 ) -> str:
     def _fmt(fp: GroupOwner) -> str:
-        return " ".join(
-            f"{field}={getattr(fp, field)!r}"
-            for field in (*GROUP_OWNER_IDENTITY_FIELDS, "service")
-        )
+        return f"module={fp.module!r} database={fp.database!r} service={fp.service!r}"
 
     return (
         f"consumer group {group!r} on stream {stream!r} is owned by "
@@ -63,10 +58,9 @@ def _owner_conflict_message(
 
 
 def _owners_match(existing: GroupOwner, owner: GroupOwner) -> bool:
-    return all(
-        getattr(existing, field) == getattr(owner, field)
-        for field in GROUP_OWNER_IDENTITY_FIELDS
-    )
+    # ``module`` and ``database`` must MATCH for two processes to share a group
+    # (replicas of one deployment); ``service`` is informational.
+    return existing.module == owner.module and existing.database == owner.database
 
 
 # Default reliability knobs. A message delivered this many times without an ack
@@ -125,22 +119,26 @@ def retry_delay_ms(deliveries: int, *, base_ms: int, max_ms: int) -> int:
     return int(min(max_ms, base_ms * (2 ** (deliveries - 1))))
 
 
-def declared_features(transport: Any) -> frozenset[str]:
+def declared_features(transport: EventTransport | InfraProvider) -> frozenset[str]:
     """The ``eventbus`` features ``transport`` declares.
 
     A transport provider answers ``features()``; a bare transport (the
     in-memory reference one, a test double) states ``supported_features`` on
     its class. Nothing is probed from its methods.
     """
-    features = getattr(transport, "features", None)
-    if callable(features):
-        return frozenset(features())
-    return frozenset(getattr(type(transport), "supported_features", ()))
+    if isinstance(transport, InfraProvider):
+        return transport.features()
+    declared: Collection[str] = getattr(type(transport), "supported_features", ())
+    return frozenset(declared)
 
 
-def performance_hint(transport: Any, operation: str) -> str | None:
+def performance_hint(
+    transport: EventTransport | InfraProvider, operation: str
+) -> str | None:
     """The speed claim the transport's class makes about ``operation``."""
-    hints = getattr(type(transport), "performance_hints", None)
+    hints: Mapping[str, str] | None = getattr(
+        type(transport), "performance_hints", None
+    )
     return None if hints is None else hints.get(operation)
 
 

@@ -108,6 +108,57 @@ def test_streams_is_a_transport_provider_with_the_declared_features() -> None:
     assert isinstance(provider.retention(), Retention)
 
 
+def test_a_transport_provider_missing_a_required_operation_cannot_be_built() -> None:
+    required = {
+        "publish",
+        "publish_many",
+        "ensure_group",
+        "consume",
+        "ack",
+        "ack_many",
+        "dead_letter",
+        "never_dead_letter",
+        "claim_group_owner",
+        "group_owner",
+        "list_group_owners",
+        "transfer_group_owner",
+        "release_group_owner",
+        "retention",
+    }
+    assert required <= EventTransportProvider.__abstractmethods__
+    assert required == EventTransportProvider.__abstractmethods__
+
+    class _Incomplete(EventTransportProvider):
+        contract_version = 2
+
+    with pytest.raises(TypeError, match="abstract"):
+        _Incomplete(name="x", driver="x", options={})  # type: ignore[abstract]
+
+
+@pytest.mark.asyncio
+async def test_feature_operations_default_to_unsupported() -> None:
+    provider = StreamsEventBusProvider(
+        name="default", driver="streams", options={}, client_factory=_client
+    )
+    base = EventTransportProvider
+    cases: list[tuple[str, tuple[Any, ...], dict[str, Any], str]] = [
+        ("renew_pending", ([], "c"), {}, "lease_renewal"),
+        ("list_dlq", ("s",), {}, "dlq_ops"),
+        ("replay_dlq", ("s",), {}, "dlq_ops"),
+        ("group_info", ("s",), {}, "inspection"),
+        ("stream_info", ("s",), {}, "inspection"),
+        ("oldest_unacked_age_seconds", ("s", "g"), {}, "inspection"),
+        ("list_consumers", (), {}, "inventory"),
+        ("forget_consumer", ("s", "g"), {}, "inventory"),
+    ]
+    for name, args, kwargs, feature in cases:
+        with pytest.raises(Unsupported) as refused:
+            await getattr(base, name)(provider, *args, **kwargs)
+        assert refused.value.feature == feature
+    with pytest.raises(Unsupported):
+        base.renew_interval_seconds(provider)
+
+
 def test_memory_and_redis_are_volatile_providers_without_a_transport() -> None:
     assert issubclass(MemoryEventBusProvider, VolatileBusProvider)
     assert not issubclass(MemoryEventBusProvider, EventTransportProvider)

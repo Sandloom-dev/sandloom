@@ -271,6 +271,26 @@ async def test_streams_batch_transport_failure_is_returned_not_raised() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("answer", [None, [], ["only-one"], ["a", "b", "c", "d"]])
+async def test_streams_bus_refuses_a_publish_many_with_another_count_of_ids(
+    answer: Any,
+) -> None:
+    """A transport answering fewer (or other) ids than items proves nothing
+    appended: the bus never reports success, so the relay retries the batch."""
+
+    class _Lying(MemoryTransport):
+        async def publish_many(self, items: Any) -> Any:
+            return answer
+
+    res = await StreamsEventBus(InMemorySchemaRegistry(), _Lying()).publish_event_batch(
+        [OutboundEvent(CHANNEL, {"n": i}, "v1", str(i)) for i in range(3)],
+        prevalidated=True,
+    )
+    assert res.published == 0 and not res.complete
+    assert isinstance(res.error, PartialPublish)
+
+
+@pytest.mark.asyncio
 async def test_streams_bus_over_a_looping_transport_publishes_per_event() -> None:
     class _Looping(MemoryTransport):
         """No ``one_round_trip`` hint: ``publish_many`` is the looping default."""

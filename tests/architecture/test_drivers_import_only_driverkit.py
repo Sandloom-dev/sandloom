@@ -69,7 +69,8 @@ NOT_DRIVER_PACKAGES: dict[str, str] = {
 #: not drivers: the volatile-bus shape of ``eventbus`` (``memory``, ``redis``,
 #: spec 7) is the kernel's own bus behind the capability, in ``core/eventing``,
 #: and implements no transport. It is not exported from the driverkit, so a
-#: driver package cannot be written against it.
+#: driver package cannot be written against it. Permanent by design: the
+#: volatile buses stay in the kernel, no later slice moves them to a package.
 KERNEL_INTERNAL: frozenset[str] = frozenset(
     {"sandloom.core.eventing.volatile_provider"}
 )
