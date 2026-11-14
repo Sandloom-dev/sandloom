@@ -490,7 +490,7 @@ def test_compose_has_framework_worker_and_beat(tmp_path: Path) -> None:
     services = _compose(tmp_path / "probe")["services"]
     for svc in ("worker", "beat"):
         cmd = services[svc]["command"]
-        assert cmd[:4] == ["celery", "-A", "sandloom.core.worker", svc]
+        assert cmd[:2] == ["sandloom", svc]
         assert services[svc]["environment"]["SANDLOOM_COMPOSITION_ROOT"] == "probe.asgi"
         assert services[svc]["depends_on"]["migrate"] == {
             "condition": "service_completed_successfully"

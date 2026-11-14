@@ -10,7 +10,7 @@ paths:
   profile (or prints the step that adds it).
 - **Declare tasks with `@shared_task` from `sandloom.sdk.tasks`** (typed: no mypy
   override). Never create a Celery app. The framework worker
-  (`celery -A sandloom.core.worker worker|beat`) imports `tasks.py` of every
+  (`sandloom worker`, `sandloom beat`) imports `tasks.py` of every
   loaded module.
 - **Task bodies are sync.** Run async work with `run_async(coro)` from
   `sandloom.sdk.effects`, never `asyncio.run`. Inside the coroutine, open a unit

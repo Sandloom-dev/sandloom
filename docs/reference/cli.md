@@ -165,6 +165,9 @@ infrastructure tables. See [Migrations](../modules/database/migrations.md) and
 | `sandloom admin invite --email ADDRESS [--apply --confirm-production --reason R]` | A new set-password link for an administrator; the old link and the account's sessions end. Same owner rule as `admin create`. |
 | `sandloom admin list [--confirm-production --reason R [--show-emails]]` | The platform administrators: the `roles` owner's holders (`platform_admin_ids`) with the issuer's address, whether a password is set (`at the provider` for an issuer that keeps none) and last sign-in (`accounts_by_id`). Read-only. In production it needs `--confirm-production --reason`, writes an audit record through the `roles` owner (identity: `identity.admin.listed`) and masks the addresses unless `--show-emails`. The command grants no access the server's CLI lacks; in production it adds the audit trail and keeps addresses out of shell history and CI logs. |
 | `sandloom security audit-export --since T [--until T] [--action-prefix P] --output FILE` | Export an audit-log window as JSONL (sanitized metadata). |
+| `sandloom worker [--queues Q[,Q...]] [--concurrency N] [--loglevel L]` | Run a task worker for the loaded modules (every deploy profile's `<service>-worker`). `--queues` defaults to the default queue, `--concurrency` to `WORKER_CONCURRENCY`, else the CPU quota; `--loglevel` defaults to `INFO`. It boots the composition root like the API, and exits with the worker's exit code (non-zero when the worker dies). Replaces `celery -A sandloom.core.worker worker`. |
+| `sandloom beat [--loglevel L] [--schedule PATH]` | Run the scheduler. It schedules only while it holds the singleton lease: a second one stands by, so run one per broker and module set. `--schedule` is the scheduler's state file (default `celerybeat-schedule` in the working directory; containers pass `/tmp/celerybeat-schedule`). Replaces `celery -A sandloom.core.worker beat`. |
+| `sandloom worker check [--timeout SECONDS]` | The worker's container healthcheck: exit 0 when its heartbeat file is younger than `--timeout` (default 60, at most 86400), 1 when missing or stale. Boots nothing: no composition root, no broker. Replaces `python -m sandloom.core.worker healthcheck`. |
 | `sandloom backup plan \| verify <dump> \| reconcile-security` | What to back up per database and Redis endpoint; restore a dump into a scratch database and check it; re-derive blocks and revocation marks after a security-cache restore. |
 | `sandloom keys generate [--alg EdDSA\|RS256\|ES256] [--purpose jwt\|rpc\|rpc-dh] [--service S] [--kid K] [--out-dir DIR]` | Generate an access-token signing pair, or a service's internal-RPC keys. |
 | `sandloom keys allowlist` | Derive `RPC_ALLOWED_CALLS` from `SERVICE_BINDINGS`. |
@@ -178,7 +181,7 @@ Procedures: the [runbook](../operate/runbook.md) and the
 
 ```bash
 uv run uvicorn <app>.asgi:app --reload                         # API on :8000 (needs .env)
-uv run celery -A sandloom.core.worker worker|beat --loglevel=INFO   # background tasks
+uv run sandloom worker                                          # background tasks (and: sandloom beat)
 ```
 
 ## Framework dependency sources

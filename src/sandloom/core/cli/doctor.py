@@ -471,8 +471,7 @@ def _periodic_verdict(
     absent = f"no beat holds the lease of this module set on taskqueue/{instance}: "
     if required:
         return FAIL, absent + (
-            "they do not run (required: start a worker and one "
-            "`celery -A sandloom.core.worker beat`)"
+            "they do not run (required: start a worker and one `sandloom beat`)"
         )
     return WARN, absent + (
         "they do not run (optional: the module works without them and degrades "

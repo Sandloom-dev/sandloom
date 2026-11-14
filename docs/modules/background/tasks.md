@@ -123,11 +123,12 @@ lists its forms.
 
 ### The worker and beat
 
-The worker is a framework entry point:
+The worker is a framework command:
 
 ```bash
-celery -A sandloom.core.worker worker
-celery -A sandloom.core.worker beat
+sandloom worker [--queues Q,Q] [--concurrency N]
+sandloom beat
+sandloom worker check [--timeout SECONDS]   # the container healthcheck
 ```
 
 It boots the composition root named by `SANDLOOM_COMPOSITION_ROOT` (default
@@ -136,7 +137,7 @@ Celery app from the task queue capability instance named by
 `SANDLOOM_WORKER_TASKQUEUE` (default `default`), and imports `<module>.tasks` of
 every **loaded** module. Concurrency defaults from the CPU quota
 (`WORKER_CONCURRENCY` overrides); health checks use
-`python -m sandloom.core.worker healthcheck`.
+`sandloom worker check`.
 
 Run exactly one `beat` per broker. A second one stands by: beat schedules
 only while it holds a fenced cache lease (`BEAT_LEASE_*`), scoped per

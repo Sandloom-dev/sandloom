@@ -205,14 +205,14 @@ docker compose -f deploy/compose/microservices.yml run --rm migrate-billing
 
 ## Background work (Celery worker + beat)
 
-Workers run the **framework** entrypoint, not a module's:
+Workers run the **framework** commands, not a module's:
 
 ```bash
-celery -A sandloom.core.worker worker --loglevel=INFO
-celery -A sandloom.core.worker beat   --loglevel=INFO --schedule=/tmp/celerybeat-schedule
+sandloom worker --loglevel=INFO
+sandloom beat   --loglevel=INFO --schedule=/tmp/celerybeat-schedule
 ```
 
-`sandloom.core.worker` boots the same composition root as the API
+`sandloom worker` and `sandloom beat` boot the same composition root as the API
 (`SANDLOOM_COMPOSITION_ROOT`: `sandloom_standard.main` in the image and both
 profiles; the kernel's default is the lean `sandloom.main`) with the process's `SANDLOOM_MODULES`,
 resolves the Celery app through the `taskqueue` capability
@@ -226,13 +226,13 @@ full copy of the composition root: on a 10-core host a 0.5-CPU / 384 MiB
 worker forked 10 children and was OOM-killed in a loop (while the container
 still showed "running"). The framework sets `worker_concurrency` from
 `WORKER_CONCURRENCY`, else from the container CPU quota capped at 2 (an
-explicit `--concurrency` still wins); `WORKER_MAX_MEMORY_PER_CHILD` (KiB) and
+explicit `sandloom worker --concurrency` still wins); `WORKER_MAX_MEMORY_PER_CHILD` (KiB) and
 `WORKER_MAX_TASKS_PER_CHILD` recycle children. Each child opens its own DB
 pool (`WORKER_DB_POOL_SIZE` / `WORKER_DB_MAX_OVERFLOW`). Memory: ~150 MiB for
 the main process + one child; the profiles give workers 512 MiB.
 
 **Liveness.** The worker's own timer touches `/tmp/sandloom-worker-heartbeat`
-(`WORKER_HEARTBEAT_FILE`) every 10 s; `python -m sandloom.core.worker healthcheck`
+(`WORKER_HEARTBEAT_FILE`) every 10 s; `sandloom worker check`
 exits non-zero when it is missing or older than 60 s. It boots nothing (no
 broker round-trip, no second app copy inside the memory limit — unlike
 `celery inspect ping`), so it is the compose `healthcheck` and the k8s

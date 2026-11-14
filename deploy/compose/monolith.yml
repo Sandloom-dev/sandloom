@@ -180,7 +180,7 @@ services:
         reservations:
           memory: 256m
 
-  # Framework Celery worker (sandloom.core.worker): boots the composition root with
+  # Framework task worker (`sandloom worker`): boots the composition root with
   # the same SANDLOOM_MODULES and registers every loaded module's tasks.py on the
   # taskqueue capability's Celery app.
   worker:
@@ -189,7 +189,7 @@ services:
     build: *build
     volumes:
       - appdata:/app/data
-    command: ["celery", "-A", "sandloom.core.worker", "worker", "--loglevel=INFO"]
+    command: ["sandloom", "worker", "--loglevel=INFO"]
     environment:
       <<: *app-env
       SANDLOOM_SERVICE_NAME: sandloom-worker
@@ -205,7 +205,7 @@ services:
       CONTRACT_DB_MAX_OVERFLOW: "2"
     # Liveness: heartbeat file touched by the worker's own timer.
     healthcheck:
-      test: ["CMD", "python", "-m", "sandloom.core.worker", "healthcheck"]
+      test: ["CMD", "sandloom", "worker", "check"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -232,7 +232,7 @@ services:
     build: *build
     volumes:
       - appdata:/app/data
-    command: ["celery", "-A", "sandloom.core.worker", "beat", "--loglevel=INFO",
+    command: ["sandloom", "beat", "--loglevel=INFO",
               "--schedule=/tmp/celerybeat-schedule"]
     environment:
       <<: *app-env

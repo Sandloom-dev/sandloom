@@ -9,6 +9,8 @@ LOADED module set only.
 from __future__ import annotations
 
 import importlib
+import os
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -177,13 +179,35 @@ def test_heartbeat_freshness(tmp_path: Path) -> None:
     assert not worker.heartbeat_is_fresh(str(beat), now=beat.stat().st_mtime + 120)
 
 
-def test_healthcheck_cli(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    beat = tmp_path / "hb"
-    monkeypatch.setenv(worker.HEARTBEAT_FILE_ENV, str(beat))
-    assert worker.main(["healthcheck"]) == 1
-    beat.touch()
-    assert worker.main(["healthcheck"]) == 0
-    assert worker.main([]) == 2
+def test_the_old_healthcheck_entry_is_gone() -> None:
+    """``python -m sandloom.core.worker healthcheck`` became ``sandloom worker check``
+    (``test_cli_worker``); no shim keeps the old one."""
+    assert not hasattr(worker, "main")
+
+
+@pytest.mark.subprocess_probe
+def test_the_old_probe_command_fails_and_names_the_replacement(
+    tmp_path: Path,
+) -> None:
+    """An upgrader who kept ``python -m sandloom.core.worker healthcheck`` must not
+    get a liveness probe that passes: the module run exits non-zero and says what
+    replaced it (a tombstone, not an alias: it runs nothing)."""
+    env = {
+        name: os.environ[name]
+        for name in ("PATH", "HOME", "SYSTEMROOT", "TMPDIR")
+        if name in os.environ
+    }
+    env["WORKER_HEARTBEAT_FILE"] = str(tmp_path / "heartbeat")
+    done = subprocess.run(
+        [sys.executable, "-m", "sandloom.core.worker", "healthcheck"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert done.returncode != 0
+    assert "sandloom worker check" in done.stderr
 
 
 def test_heartbeat_step_runs_on_the_worker_timer(tmp_path: Path) -> None:

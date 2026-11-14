@@ -130,8 +130,8 @@ def _cli(*argv: str) -> list[str]:
 #: entry point that builds the composition -> its command line
 COMPOSED_ENTRY_POINTS: dict[str, list[str]] = {
     "app": [sys.executable, "-c", "import sandloom.main"],
-    "worker": [sys.executable, "-m", "celery", "-A", "sandloom.core.worker", "worker"],
-    "beat": [sys.executable, "-m", "celery", "-A", "sandloom.core.worker", "beat"],
+    "worker": _cli("worker"),
+    "beat": _cli("beat"),
     "migrate": _cli("migrate", "databases"),
     "cli-outbox": _cli("outbox", "list-dead"),
     "cli-streams": _cli("streams", "consumers"),

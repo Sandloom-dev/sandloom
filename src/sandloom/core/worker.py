@@ -3,8 +3,8 @@
 Run the worker / beat for ANY Sandloom application — with or without the bundled
 ``identity`` module::
 
-    celery -A sandloom.core.worker worker --loglevel=INFO
-    celery -A sandloom.core.worker beat --loglevel=INFO
+    sandloom worker --loglevel=INFO
+    sandloom beat --loglevel=INFO
 
 How the worker app is assembled (no backend is constructed here):
 
@@ -51,7 +51,7 @@ import math
 import os
 import sys
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -79,7 +79,7 @@ MAX_DEFAULT_WORKER_CONCURRENCY = 2
 WORKER_MAX_MEMORY_ENV = "WORKER_MAX_MEMORY_PER_CHILD"
 #: Recycle a prefork child after this many tasks.
 WORKER_MAX_TASKS_ENV = "WORKER_MAX_TASKS_PER_CHILD"
-#: Liveness heartbeat file (``python -m sandloom.core.worker healthcheck``).
+#: Liveness heartbeat file (``sandloom worker check``).
 HEARTBEAT_FILE_ENV = "WORKER_HEARTBEAT_FILE"
 DEFAULT_HEARTBEAT_FILE = "/tmp/sandloom-worker-heartbeat"  # noqa: S108 - default liveness file; WORKER_HEARTBEAT_FILE overrides
 HEARTBEAT_INTERVAL_SECONDS = 10.0
@@ -155,7 +155,7 @@ async def dispose_worker_infra() -> None:
     core = _teardown_core
     if core is None or not hasattr(core, "shutdown_tasks"):
         return
-    from sandloom.core.lifecycle import run_shutdown  # noqa: PLC0415 - cold: `python -m sandloom.core.worker healthcheck` imports this module and must stay cheap; the relational stack loads only in a booted worker
+    from sandloom.core.lifecycle import run_shutdown  # noqa: PLC0415 - cold: `sandloom worker check` imports this module and must stay cheap; the relational stack loads only in a booted worker
 
     await run_shutdown(core)
 
@@ -244,11 +244,11 @@ def install_heartbeat(app: Any, path: str | None = None) -> None:
 
     The timer runs in the worker's main process event machinery, so the file
     goes stale when the worker is wedged or dead — not merely when a child is
-    busy. ``python -m sandloom.core.worker healthcheck`` checks its age without
+    busy. ``sandloom worker check`` checks its age without
     booting the app (no broker round-trip, no second copy of the composition
     root inside the container's memory limit, unlike ``celery inspect ping``).
     """
-    from celery import bootsteps  # noqa: PLC0415 - cold: `python -m sandloom.core.worker healthcheck` runs without Celery; only the worker boot assembles bootsteps
+    from celery import bootsteps  # noqa: PLC0415 - cold: `sandloom worker check` runs without Celery; only the worker boot assembles bootsteps
 
     if getattr(app, "_sandloom_heartbeat_installed", False):
         return  # one heartbeat step per app, however often it is assembled
@@ -323,7 +323,7 @@ def verify_worker_infra(core: Any) -> None:
         for p in providers
         if "tenant_rls" in p.features() and hasattr(p, "verify_tenant_rls")
     ]
-    from sandloom.core.production_profile import enforce_runtime  # noqa: PLC0415 - cold: `python -m sandloom.core.worker healthcheck` imports this module and must stay cheap; the relational stack loads only in a booted worker
+    from sandloom.core.production_profile import enforce_runtime  # noqa: PLC0415 - cold: `sandloom worker check` imports this module and must stay cheap; the relational stack loads only in a booted worker
 
     # A database that takes its schema from the models (SQLite) is built or
     # checked here too, never recreated: a worker refuses one whose tables
@@ -382,6 +382,26 @@ def get_worker_app() -> Any:
     return _app
 
 
+def run_celery_command(argv: Sequence[str]) -> int:
+    """Run one Celery command (``["worker", ...]``, ``["beat", ...]``) bound to the
+    worker app and return its exit code.
+
+    ``Celery.start()`` calls the same CLI but discards its return value, so a
+    worker that died would exit 0 and its container would never restart.
+    """
+    # Celery loads only for the processes that run it: `sandloom worker check`
+    # boots nothing.
+    celery_cli = importlib.import_module("celery.bin.celery").celery
+    celery_cli.params[0].default = get_worker_app()
+    try:
+        # standalone_mode=False: click returns the exit code (``ctx.exit(code)``)
+        # instead of calling sys.exit.
+        code = celery_cli.main(args=list(argv), standalone_mode=False)
+    finally:
+        celery_cli.params[0].default = None
+    return code if isinstance(code, int) else 0
+
+
 def __getattr__(name: str) -> Any:
     # ``celery -A sandloom.core.worker`` looks up ``app`` (or ``celery``); building
     # lazily keeps a plain ``import sandloom.core.worker`` free of side effects.
@@ -407,24 +427,16 @@ __all__ = [
     "heartbeat_is_fresh",
     "install_heartbeat",
     "load_composition_core",
+    "run_celery_command",
 ]
 
 
-def main(argv: list[str] | None = None) -> int:
-    """``python -m sandloom.core.worker healthcheck`` → 0 when the heartbeat is fresh.
-
-    Deliberately boots nothing (no composition root, no broker): a container
-    healthcheck must be cheap and must not double the worker's memory.
-    """
-    args = list(sys.argv[1:] if argv is None else argv)
-    if args[:1] != ["healthcheck"]:
-        print("usage: python -m sandloom.core.worker healthcheck", file=sys.stderr)
-        return 2
-    if heartbeat_is_fresh():
-        return 0
-    print(f"worker heartbeat {heartbeat_path()} missing or stale", file=sys.stderr)
-    return 1
-
-
-if __name__ == "__main__":  # pragma: no cover - container healthcheck entry
-    raise SystemExit(main())
+if __name__ == "__main__":
+    # Tombstone, not an alias: ``python -m sandloom.core.worker healthcheck`` used to
+    # be the container probe. Importing the module and exiting 0 would turn a kept
+    # old probe into a liveness check that never fails: exit non-zero, run nothing.
+    sys.exit(
+        "sandloom.core.worker has no command line any more: use `sandloom worker` "
+        "(run the worker), `sandloom beat` (run the scheduler) or "
+        "`sandloom worker check` (the container probe)"
+    )

@@ -49,8 +49,8 @@ docker compose -f deploy/docker-compose.yml up --build
 ```
 
 The `migrate` service runs `sandloom migrate upgrade-all --apply` to completion
-before the app starts; `worker` / `beat` run the framework Celery entrypoint
-(`celery -A sandloom.core.worker worker|beat`), which registers the `tasks.py` of
+before the app starts; `worker` / `beat` run the framework task commands
+(`sandloom worker`, `sandloom beat`), which register the `tasks.py` of
 every loaded module.
 
 ## Add a module

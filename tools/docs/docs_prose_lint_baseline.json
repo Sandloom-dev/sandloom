@@ -277,7 +277,7 @@
     "docs/modules/http/authorization.md": {
       "K3": 1,
       "P6": 3,
-      "S4": 4
+      "S4": 3
     },
     "docs/modules/http/idempotent-write.md": {
       "P6": 1,
@@ -318,9 +318,9 @@
     "docs/operate/operator-reference.md": {
       "P6": 6,
       "P8": 1,
-      "P9": 57,
+      "P9": 56,
       "S11": 1,
-      "S4": 65
+      "S4": 64
     },
     "docs/operate/service-rpc.md": {
       "P6": 1,

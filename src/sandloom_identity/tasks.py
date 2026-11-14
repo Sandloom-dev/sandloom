@@ -1,6 +1,6 @@
 """Identity module background tasks.
 
-Registered on the FRAMEWORK worker (``celery -A sandloom.core.worker worker``): the
+Registered on the FRAMEWORK worker (``sandloom worker``): the
 worker imports ``<module>.tasks`` for every loaded module, and ``@shared_task``
 binds these functions to whatever app the worker resolved from the taskqueue
 capability — this module never builds (or imports) a Celery app itself.

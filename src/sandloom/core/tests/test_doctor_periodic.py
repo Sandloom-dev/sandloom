@@ -111,7 +111,7 @@ async def test_no_beat_fails_a_required_need_and_warns_an_optional_one() -> None
     optional = checks["kbic3_cleans_up periodic jobs"]
     assert required.status == doctor.FAIL
     assert "no beat holds the lease" in required.message
-    assert "celery -A sandloom.core.worker beat" in required.message
+    assert "`sandloom beat`" in required.message
     assert optional.status == doctor.WARN
     assert "optional: the module works without them" in optional.message
 

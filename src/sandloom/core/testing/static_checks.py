@@ -264,15 +264,22 @@ def _interpolate(value: object) -> str:
 _Procs = dict[str, tuple[str, set[str]]]
 
 
-def _processes(profile: Path) -> tuple[set[str], _Procs, _Procs]:
-    """``(modules the app processes serve, beats, workers)`` of a profile;
-    beats and workers map a service to ``(broker, modules)``."""
+def _processes(profile: Path) -> tuple[set[str], _Procs, _Procs, list[str]]:
+    """``(modules the app processes serve, beats, workers, services on the removed
+    worker argv)`` of a profile; beats and workers map a service to
+    ``(broker, modules)``."""
     yaml = importlib.import_module("yaml")  # optional: the check extra ships it
     data = yaml.safe_load(profile.read_text(encoding="utf-8")) or {}
     served: set[str] = set()
     beats: _Procs = {}
     workers: _Procs = {}
+    legacy: list[str] = []
     for name, svc in (data.get("services") or {}).items():
+        raw = svc.get("command") or []
+        words = raw.split() if isinstance(raw, str) else [str(part) for part in raw]
+        if _deploy_profile.command_kind(words) == "legacy":
+            legacy.append(name)
+            continue
         env = svc.get("environment") or {}
         if not isinstance(env, dict) or "SANDLOOM_MODULES" not in env:
             continue
@@ -283,14 +290,14 @@ def _processes(profile: Path) -> tuple[set[str], _Procs, _Procs]:
         except ValueError:
             continue
         broker = _interpolate(env.get("BROKER_URL", ""))
-        command = [str(part) for part in (svc.get("command") or [])]
-        if command[:4] == ["celery", "-A", "sandloom.core.worker", "worker"]:
+        kind = _deploy_profile.command_kind(words)
+        if kind == "worker":
             workers[name] = (broker, modules)
-        elif command[:4] == ["celery", "-A", "sandloom.core.worker", "beat"]:
+        elif kind == "beat":
             beats[name] = (broker, modules)
         else:
             served |= modules
-    return served, beats, workers
+    return served, beats, workers, legacy
 
 
 def periodic_beat_problems(
@@ -301,14 +308,20 @@ def periodic_beat_problems(
     ``periodic`` defaults to the served modules whose ``tasks.py`` defines
     ``setup_periodic_tasks``.
     """
-    served, beats, workers = _processes(profile)
+    served, beats, workers, legacy = _processes(profile)
     wanted = (
         set(periodic)
         if periodic is not None
         else {m for m in served if has_periodic_tasks(m)}
     )
     where = f"{profile.parent.name}/{profile.name}"
-    problems: list[str] = []
+    problems: list[str] = [
+        f"{where}: {name} runs the removed `celery -A "
+        f"{_deploy_profile.LEGACY_WORKER_MODULE}` / `python -m "
+        f"{_deploy_profile.LEGACY_WORKER_MODULE}` command, which starts no worker "
+        f"and no beat: {_deploy_profile.LEGACY_WORKER_FIX} (SANDLOOM-T010)"
+        for name in legacy
+    ]
     by_broker: dict[str, list[str]] = {}
     for name, (broker, _) in beats.items():
         by_broker.setdefault(broker, []).append(name)
