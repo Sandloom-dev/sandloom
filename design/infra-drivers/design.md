@@ -295,32 +295,39 @@ The existing tasks fold in: `infra-cache-driver` waits for 8; `kb-ic-5` is deliv
 
 ## Questions for the owner
 
-1. **`atomic_store` as its own kernel capability** (recommended), or the atomic operations as
-   features of `cache` with a `durable` feature?
-2. **Redis and Celery drivers out of the kernel wheel** into `sandloom-redis` and
-   `sandloom-celery` this wave (recommended), or only behind public contracts first and the
-   wheel split later?
-3. **Database-backed drivers** for `atomic_store` and `lease`, so an application runs with
-   PostgreSQL alone (Solid Cache / Solid Queue style)? Recommended: yes for these two, they
-   are small and a row gives a free fence. The price: a database read on every authenticated
-   request (the block check, G-BLOCK-01) instead of a Redis read; measured with the cachegrind
-   ladder and documented as a small-deployment option. `broadcast` and the task queue stay
-   Redis and Celery (your answer 7 deferred a zero-dependency queue).
-4. **The public task API**: replace `celery.shared_task` and `crontab` in `sandloom.sdk` with
-   Sandloom's own `task` and `cron` (breaking; alpha), with Celery as the first driver?
-5. **Escape hatches**: drop `raw_client`/`raw_backend` from the contracts and allow only a
-   typed `native()` on a driver package's own class for application code (recommended), or
-   remove them entirely?
-6. **Settings**: move `CACHE_URL`, `BROKER_URL`, `SMTP_*`, `S3_*` to driver options in one
-   step with upgrade notes (recommended: the kernel rule allows no deprecated API and ADR-0011
-   keeps nothing for compatibility), or keep aliases for one minor release as an exception?
-7. **Driver tiers** (`experimental`, `beta`, `stable`) declared on the registration and
-   enforced in production like experimental capabilities?
-8. **Instance attestation**: may an `atomic_store` on the database count as the "separate
-   server" that production requires for `SECURITY_CACHE_INSTANCE` today (it is separate from
-   the module cache, but shares the server with application data)? Recommended: yes, the
-   attestation compares `isolation_identity()` of the security store with the module cache,
-   not with the database.
-9. **Worker command**: `sandloom worker` / `sandloom beat` replace `celery -A
-   sandloom.core.worker` in one step (recommended, no shim, upgrade note), or keep the old
-   module path as a shim?
+Question 6 is decided. For the others the recommendation comes from
+[research-owner-questions.md](research-owner-questions.md); each waits for the owner's yes.
+
+1. **`atomic_store` as its own kernel capability.** *Recommended: yes.* Folding the atomic
+   operations into a "durable" cache is the case where the failure is silent (Laravel locks,
+   django-ratelimit on a database cache); Redis itself advises a separate instance.
+2. **Redis and Celery out of the kernel wheel this wave.** *Recommended: yes*, released in lockstep
+   with the kernel, pinned `sandloom>=X.Y,<X.(Y+1)`, installed by the existing extras, drivers
+   importing only `driverkit` (removes Airflow's main provider pain), and the release tooling made
+   data-driven first (step of `idk-pkg-redis`). No shims.
+3. **Database-backed drivers.** *Recommended:* `lease` on the database, yes (a logged row with a
+   fence, no advisory locks, which break under pgbouncer). `atomic_store` on the database, yes as an
+   option with a stated price (+0.2–0.7 ms per authenticated request, double on writes), not the
+   standard default; its own slice after `idk-atomic-store`, gated by the kit and the round-trip
+   budget. `broadcast` and the task queue stay Redis and Celery.
+4. **The public task API.** *Recommended: yes*, Django-6-like: `@task`, `task.enqueue(payload,
+   delay=, idempotency_key=)`, a declarative `@periodic(cron=, id=)` replacing
+   `setup_periodic_tasks(sender)`; periodic dedupe by `(id, slot)` under `lease` in the driver.
+   Cheap: 5 tasks in 2 modules, the generator, 2 doc pages.
+5. **Escape hatches.** *Recommended: remove `raw_client`/`raw_backend` from the contracts and add no
+   `native()` yet*: nothing outside the kernel and its tests uses them. A driver package may expose
+   public attributes on its own class, documented as non-portable; C003 extends to the kernel.
+6. **Settings** — *decided 2026-11-14:* `CACHE_URL`, `BROKER_URL`, `SMTP_*`, `S3_*` become driver
+   options in one step with upgrade notes, no aliases.
+7. **Driver tiers.** *Recommended: yes, through the B023 mechanism*: `tier` on the registration,
+   shown by `doctor`; an `experimental` driver in production needs the accepted risk
+   `experimental_driver` (Kubernetes-style opt-in); `beta` warns; this repository's drivers are at
+   least `beta` (kits against real services in CI).
+8. **Instance attestation.** *Recommended: a database store counts.* The production check guards
+   against eviction (`production_profile.py:22-23,98-101`), not blast radius, so it becomes
+   "declares `never_evicts` and differs from the evicting module cache by `isolation_identity()`";
+   Redis keeps the `run_id` comparison and gains the missing `noeviction` check.
+9. **Worker command.** *Recommended: one step, no shim*: `sandloom worker`, `sandloom beat`,
+   `sandloom worker check`; T010 and the deploy profile parse the new argv; `sandloom-celery` keeps a
+   stable importable Celery app for `celery inspect` and Flower (the driver's native interface, not
+   a shim).
