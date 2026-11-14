@@ -4645,7 +4645,7 @@ guarantees:
 - id: G-INFRA-01
   statement: A backend constructor (create_async_engine, redis.from_url, Celery(...), Storage(...)) appears
     only inside sandloom.core.drivers/**; concrete drivers are imported only by the composition layer (app_factory,
-    _internal.db_provider), and the public DI surface / ops health imports no concrete driver.
+    testing/_driver_seams), and the public DI surface / ops health imports no concrete driver.
   sources:
   - docs/infrastructure/index.md
   - docs/adr/0007-kernel-layers.md#Principles

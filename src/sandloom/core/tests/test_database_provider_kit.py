@@ -20,6 +20,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers.sqlalchemy_database import SQLAlchemyDatabaseProvider
 from sandloom.core.infra.config import InstanceConfig
+from sandloom.core.infra.ports.database import DatabaseProvider
+from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
 from sandloom.driverkit.kits.database import DatabaseProviderConformance
 
 _PG_URL = settings.database_url
@@ -74,6 +76,15 @@ class TestSqlalchemyOnPostgres(_SqlalchemyKit):
         self, scratch_url: str
     ) -> Callable[[], SQLAlchemyDatabaseProvider]:
         return _provider(scratch_url)
+
+    async def prepare_outbox_schema(self, provider: DatabaseProvider) -> None:
+        # PostgreSQL's schema comes from the migration chains: build the one
+        # table the outbox store writes.
+        assert isinstance(provider, SQLAlchemyDatabaseProvider)
+        async with provider.engine.begin() as conn:
+            await conn.run_sync(
+                lambda sync: OutboxMessage.__table__.create(sync, checkfirst=True)  # type: ignore[attr-defined]
+            )
 
 
 # ----------------------------------------------- the kit against broken drivers

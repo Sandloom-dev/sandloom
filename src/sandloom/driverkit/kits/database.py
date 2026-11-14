@@ -12,8 +12,13 @@ The features the kit exercises: ``transactions`` and ``savepoints`` (the unit's
 call shapes), and the pairing of a store with its feature (``transactional_outbox``
 with :meth:`~DatabaseProvider.outbox`, ``audit`` with ``audit``,
 ``command_idempotency`` with ``command_log``, ``http_idempotency`` with
-``request_log``). The stores' own behaviour needs the core migration chain and
-is the kernel's tests', not the driver's.
+``request_log``), the transactional outbox's atomicity with the unit (an event
+enqueued in a unit that rolls back is never written; a committed one is), and
+:meth:`~DatabaseProvider.planner_adapter` (``None`` allowed). The outbox test
+builds the outbox table with :meth:`DatabaseProviderConformance.prepare_outbox_schema`
+(by default ``ensure_model_schema``; a driver whose schema the migration chains
+own overrides it). The stores' other behaviour needs the core migration chain
+and is the kernel's tests', not the driver's.
 """
 
 from __future__ import annotations
@@ -69,6 +74,18 @@ class DatabaseProviderConformance(ProviderConformance[DatabaseProvider]):
         manager that releases it on a normal exit and rolls back to it on an
         exception."""
         return session.begin_nested()  # type: ignore[no-any-return]
+
+    async def prepare_outbox_schema(self, provider: DatabaseProvider) -> None:
+        """Make the tables the outbox store writes exist in ``provider``'s
+        database (empty). Default: the driver builds them from its models
+        (:meth:`DatabaseProvider.ensure_model_schema`); a driver whose schema
+        the migration chains own (it answers ``False``) overrides this."""
+        built = await provider.ensure_model_schema(recreate=False)
+        if not built:
+            pytest.skip(
+                "ensure_model_schema built nothing (the migration chains own "
+                "this database's schema): override prepare_outbox_schema"
+            )
 
     # ----------------------------------------------------------- the helpers
     @asynccontextmanager
@@ -233,6 +250,69 @@ class DatabaseProviderConformance(ProviderConformance[DatabaseProvider]):
                     "a store method answers None exactly when its feature is "
                     "not declared",
                 )
+
+    # ---------------------------------------------- transactional outbox
+    async def _pending_outbox_ids(self, provider: DatabaseProvider) -> set[uuid.UUID]:
+        store = provider.outbox()
+        if store is None:
+            raise AssertionError("transactional_outbox is declared: outbox() is None")
+        ids = await store.fetch_pending_ids(
+            provider.uow_factory(), max_attempts=5, grace_seconds=0.0, limit=1000
+        )
+        return set(ids)
+
+    async def test_an_event_enqueued_in_a_unit_commits_or_rolls_back_with_it(
+        self, provider: DatabaseProvider
+    ) -> None:
+        self.requires_feature(provider, "transactional_outbox")
+        store = provider.outbox()
+        if store is None:
+            raise AssertionError("transactional_outbox is declared: outbox() is None")
+        await self.prepare_outbox_schema(provider)
+        payload = {"kit": uuid.uuid4().hex}
+
+        class _Abort(Exception):
+            pass
+
+        with pytest.raises(_Abort):
+            async with self._unit(provider) as unit:
+                undone = store.enqueue(unit.session, "kit.outbox.v1", payload, "1")
+                raise _Abort
+        async with self._unit(provider) as unit:
+            kept = store.enqueue(unit.session, "kit.outbox.v1", payload, "1")
+        pending = await self._pending_outbox_ids(provider)
+        require(
+            undone.id not in pending,
+            "an event enqueued in a unit that rolled back must not be written: "
+            "the outbox is atomic with the unit",
+        )
+        require(
+            kept.id in pending,
+            "an event enqueued in a unit that committed must be pending "
+            "delivery (fetch_pending_ids does not return it)",
+        )
+
+    # ------------------------------------------------------- planner_adapter
+    async def test_planner_adapter_is_none_or_an_adapter(
+        self, provider: DatabaseProvider
+    ) -> None:
+        """``None`` (no declared operations) is allowed; an adapter has the
+        planner's calls and gives out a read unit that closes."""
+        for contract in (False, True):
+            adapter = provider.planner_adapter(contract=contract)
+            if adapter is None:
+                continue
+            for name in ("compile", "fetch_one", "fetch_in_unit", "read_unit"):
+                require(
+                    callable(getattr(adapter, name, None)),
+                    f"planner_adapter(contract={contract}) has no callable {name!r}",
+                )
+            require(
+                isinstance(adapter.plans, dict),
+                "an adapter's `plans` must be a dict of prepared plans",
+            )
+            unit = adapter.read_unit()
+            await unit.close()
 
     # ------------------------------------------------- has_pending_changes
     async def test_a_fresh_session_has_no_pending_changes(

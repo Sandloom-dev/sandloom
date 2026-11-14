@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
 import time
 from collections.abc import Callable, Mapping
 from typing import Any, Self, cast
@@ -241,6 +242,24 @@ def _pool_snapshot(pool: Any) -> dict[str, int] | None:
     }
 
 
+def _isolation_material(url: Any, instance: int) -> str:
+    """What names the store ``url`` points at (no credentials); ``instance``
+    tells apart in-memory databases, which share nothing."""
+    backend = url.get_backend_name()
+    database = url.database
+    if backend == "sqlite":
+        if not database or database == ":memory:" or "mode=memory" in str(database):
+            database = f":memory:{os.getpid()}:{instance}"
+        else:
+            database = os.path.abspath(database)
+    hosts = url.query.get("host", ())
+    if isinstance(hosts, str):
+        hosts = (hosts,)
+    return "|".join(
+        (backend, str(url.host), str(url.port), str(database), *sorted(hosts))
+    )
+
+
 class SQLAlchemyDatabaseProvider(DatabaseProvider):
     """A single SQLAlchemy-backed database instance."""
 
@@ -352,35 +371,31 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
     def request_log(self) -> RequestLogStore:
         return sql_alchemy_request_log_store()
 
-    def execution_adapter(self) -> _planner_adapter.SQLAlchemyExecutionAdapter:
-        """The planner adapter of this instance (built once). Not part of the
-        ``database`` contract: the planner asks a driver for it
-        (:class:`sandloom.core.planner.PlannerDatabase`)."""
+    def planner_adapter(
+        self, *, contract: bool = False
+    ) -> _planner_adapter.SQLAlchemyExecutionAdapter:
+        """The planner adapter of this instance (built once).
+
+        ``contract=True``: the one on the DEDICATED contract pool. Declared
+        reads run by a contract call lease from the contract pool, exactly
+        like the contract's own Unit of Work would, so a contract called by a
+        request that holds a request-pool connection can never starve on that
+        pool. Without a separate pool: the regular adapter.
+        """
+        if contract:
+            self.contract_uow_factory()  # resolves the contract engine (lazily)
+            engine = self._contract_engine
+            if engine is not None:
+                adapter = getattr(self, "_contract_execution_adapter", None)
+                if adapter is None:
+                    adapter = self._contract_execution_adapter = (
+                        _planner_adapter.SQLAlchemyExecutionAdapter(engine)
+                    )
+                return adapter
         adapter = getattr(self, "_execution_adapter", None)
         if adapter is None:
             adapter = self._execution_adapter = (
                 _planner_adapter.SQLAlchemyExecutionAdapter(self._engine)
-            )
-        return adapter
-
-    def contract_execution_adapter(
-        self,
-    ) -> _planner_adapter.SQLAlchemyExecutionAdapter:
-        """The planner adapter on the DEDICATED contract pool (built once).
-
-        Declared reads run by a contract call lease from the contract pool,
-        exactly like the contract's own Unit of Work would, so a contract
-        called by a request that holds a request-pool connection can never
-        starve on that pool. Without a separate pool: the regular adapter.
-        """
-        self.contract_uow_factory()  # resolves the contract engine (lazily)
-        engine = self._contract_engine
-        if engine is None:
-            return self.execution_adapter()
-        adapter = getattr(self, "_contract_execution_adapter", None)
-        if adapter is None:
-            adapter = self._contract_execution_adapter = (
-                _planner_adapter.SQLAlchemyExecutionAdapter(engine)
             )
         return adapter
 
@@ -575,10 +590,12 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
             await engine.dispose()
 
     async def isolation_identity(self) -> str | None:
-        """``sqlalchemy:<sha256 of backend, host, port and database, 16 hex>``:
-        the store the URL names, never its credentials."""
-        url = self._engine.url
-        material = f"{url.get_backend_name()}|{url.host}|{url.port}|{url.database}"
+        """``sqlalchemy:<sha256 of the store the URL names, 16 hex>``: never
+        its credentials. The material is the backend, host (and the ``host``
+        query parameter, a unix socket directory), port and database; for
+        SQLite the absolute file path, and for an in-memory database a marker
+        of this process and instance (two such databases share nothing)."""
+        material = _isolation_material(self._engine.url, id(self._engine))
         return f"{self.driver}:{hashlib.sha256(material.encode()).hexdigest()[:16]}"
 
     async def release_pools(self) -> None:

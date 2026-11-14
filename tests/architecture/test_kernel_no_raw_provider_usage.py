@@ -95,14 +95,17 @@ PROBE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
         "idk-eventbus-contract",
     ),
     ("core/cli/doctor.py", "group_info"): (1, "idk-eventbus-contract"),
-    ("core/cli/doctor.py", "verify_tenant_rls"): (1, "idk-db-provider"),
+    ("core/cli/doctor.py", "verify_tenant_rls"): (1, "idk-ratchets-close"),
     ("core/cli/extract.py", "list_group_owners"): (1, "idk-eventbus-contract"),
     ("core/cli/extract.py", "transfer_group_owner"): (1, "idk-eventbus-contract"),
     ("core/cli/generated.py", "<dynamic>"): (2, "idk-ratchets-close"),
     ("core/consumers/callbacks.py", "durable"): (1, "idk-eventbus-contract"),
     ("core/consumers/callbacks.py", "in_process"): (1, "idk-eventbus-contract"),
     ("core/consumers/runtime.py", "claim_group_owner"): (1, "idk-eventbus-contract"),
-    ("core/di.py", "_sandloom_read_only_uow_factory"): (1, "idk-db-provider"),
+    ("core/di.py", "_sandloom_read_only_uow_factory"): (
+        1,
+        "stays: an optional contract-pool unit factory of the SQL driver, probed by name (justified in idk-ratchets-close)",
+    ),
     ("core/eventing/transport_capabilities.py", "<dynamic>"): (
         1,
         "idk-eventbus-contract",
@@ -115,7 +118,10 @@ PROBE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
         1,
         "idk-eventbus-contract",
     ),
-    ("core/facade/_registries.py", "contract_uow_factory"): (1, "idk-db-provider"),
+    ("core/facade/_registries.py", "contract_uow_factory"): (
+        1,
+        "stays: an optional contract-pool unit factory of the SQL driver, probed by name (justified in idk-ratchets-close)",
+    ),
     ("core/facade/_registries.py", "projection"): (1, _NOT_A_PROVIDER),
     ("core/infra/registry.py", "<dynamic>"): (
         1,
@@ -124,20 +130,19 @@ PROBE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
     ("core/loader/manifest.py", "storage"): (2, _NOT_A_PROVIDER),
     ("core/module_api/_bootstrap.py", "contract_read_uow_factory"): (
         1,
-        "idk-db-provider",
+        "stays: an optional contract-pool unit factory of the SQL driver, probed by name (justified in idk-ratchets-close)",
     ),
-    ("core/planner.py", "contract_execution_adapter"): (1, "idk-db-provider"),
-    ("core/production_profile.py", "tenant_rls_coverage"): (1, "idk-db-provider"),
+    ("core/production_profile.py", "tenant_rls_coverage"): (1, "idk-ratchets-close"),
     ("core/projections/operations.py", "list_dlq"): (1, "idk-event-ops"),
     ("core/sagas/runtime.py", "<dynamic>"): (1, "idk-ratchets-close"),
-    ("core/sagas/runtime.py", "session_factory"): (1, "idk-db-provider"),
+    ("core/sagas/runtime.py", "session_factory"): (1, "idk-ratchets-close"),
     ("core/tasks/event_ops.py", "release_group_owner"): (1, "idk-event-ops"),
     ("core/tasks/event_ops.py", "replay_dlq"): (1, "idk-event-ops"),
-    ("core/tasks/pool_metrics.py", "pool_stats"): (1, "idk-db-provider"),
+    ("core/tasks/pool_metrics.py", "pool_stats"): (1, "idk-ratchets-close"),
     ("core/tasks/relay.py", "native_batch_publish"): (1, "idk-eventbus-contract"),
     ("core/tasks/relay.py", "publish_event_batch"): (1, "idk-eventbus-contract"),
-    ("core/testing/fixtures.py", "_contract_engine"): (1, "idk-db-provider"),
-    ("core/testing/fixtures.py", "_engine"): (1, "idk-db-provider"),
+    ("core/testing/fixtures.py", "_contract_engine"): (1, "idk-ratchets-close"),
+    ("core/testing/fixtures.py", "_engine"): (1, "idk-ratchets-close"),
     ("core/unit_of_work/dispatch.py", "in_process"): (1, "idk-eventbus-contract"),
     ("core/unit_of_work/dispatch.py", "publish_event_batch"): (
         1,
@@ -153,7 +158,7 @@ PROBE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
     ),
     ("core/worker.py", "on_after_finalize"): (1, "idk-worker-port"),
     ("core/worker.py", "task"): (1, "idk-worker-port"),
-    ("core/worker.py", "verify_tenant_rls"): (1, "idk-db-provider"),
+    ("core/worker.py", "verify_tenant_rls"): (1, "idk-ratchets-close"),
 }
 
 

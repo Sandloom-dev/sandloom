@@ -47,8 +47,8 @@ class _FacadeState:
         service_registry: ServiceRegistry | None = None,
         # get_db may be coroutine returning AsyncSession OR async generator dependency
         get_db: (
-            Callable[..., Awaitable[AsyncSession]]
-            | Callable[..., AsyncGenerator[AsyncSession, None]]
+            Callable[[], Awaitable[AsyncSession]]
+            | Callable[[], AsyncGenerator[AsyncSession, None]]
             | None
         ) = None,
     ) -> None:
