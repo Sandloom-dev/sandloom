@@ -99,10 +99,13 @@ RISKS: tuple[Risk, ...] = (
     ),
     Risk(
         "unverified_noeviction",
-        "A Redis whose maxmemory-policy could not be read (never_evicts_check="
-        "assume) in prod: a policy that evicts would drop a fence counter and a "
-        "fence could repeat.",
-        "lease driver build (sandloom.core.drivers.bootstrap)",
+        "never_evicts_check=assume on a Redis atomic_store or lease driver in "
+        "prod: the driver cannot read maxmemory-policy, so an operator vouches "
+        "that the server never evicts; if it does, a revocation mark or an "
+        "idempotency reservation (atomic_store) can vanish before its TTL, or a "
+        "fence counter (lease) can vanish and a fence repeat.",
+        "redis atomic_store and lease drivers, through the policy the registry "
+        "gives them (assume_allowed, sandloom.core.drivers.bootstrap)",
     ),
     Risk(
         "unversioned_ddl_repair",

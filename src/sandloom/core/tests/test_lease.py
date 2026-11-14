@@ -9,6 +9,7 @@ the kit test that names its fault, and only that one.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -19,21 +20,23 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+import redis.exceptions as redis_errors
 from sqlalchemy import Table, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from sandloom.core.drivers import database_lease, memory_lease, redis_lease
 from sandloom.core.drivers.bootstrap import (
     build_infra_registry,
+    unverified_noeviction_allowed,
     with_default_beat_lease,
 )
 from sandloom.core.drivers.database_lease import DatabaseLeaseProvider
 from sandloom.core.drivers.memory_lease import MemoryLeaseProvider
 from sandloom.core.drivers.redis_lease import RedisLeaseProvider
 from sandloom.core.infra.config import InstanceConfig
-from sandloom.core.infra.errors import InvalidArgument, PermissionDenied
+from sandloom.core.infra.errors import InfraError, InvalidArgument, PermissionDenied
 from sandloom.core.infra.ports.lease import Lease, LeaseHolder
-from sandloom.core.infra.registry import DriverLoadError
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.sql_alchemy.models.lease import InfraLease
 from sandloom.driverkit.kits.lease import LeaseConformance
@@ -47,6 +50,12 @@ class TestMemoryLease(LeaseConformance):
     @pytest.fixture
     def make_provider(self) -> Callable[[], MemoryLeaseProvider]:
         return lambda: MemoryLeaseProvider(name="beat", driver="memory", options={})
+
+    # A backend that cannot fail and does not declare ``shared``: these groups do
+    # not apply (set to None, so no lane reports them skipped on every lane).
+    test_a_second_provider_contends_for_the_same_name = None  # type: ignore[assignment]
+    test_harness_redacts_the_health_of_a_failing_backend = None  # type: ignore[assignment]
+    test_harness_maps_backend_failures_to_infra_errors = None  # type: ignore[assignment]
 
 
 @pytest.mark.skipif(not _REDIS_URL, reason="SANDLOOM_TEST_CACHE_URL is not set")
@@ -96,6 +105,10 @@ class TestDatabaseLeaseOnSqlite(LeaseConformance):
         return lambda: DatabaseLeaseProvider(
             name="beat", driver="database", options={"url": url}
         )
+
+    # SQLite does not declare ``shared`` (a file on one host): the group does not
+    # apply and would be skipped on every lane.
+    test_a_second_provider_contends_for_the_same_name = None  # type: ignore[assignment]
 
 
 @pytest.mark.skipif(not _PG_URL, reason="SANDLOOM_TEST_DATABASE_URL is not set")
@@ -255,6 +268,28 @@ class _Broken:
 
         supported_features = frozenset({"shared"})
 
+    class ExclusiveInsideOneProviderOnly(MemoryLeaseProvider):
+        """Declares ``shared`` over one backend and excludes only inside one
+        provider (a local lock around a get-then-set): one provider's race
+        passes, two providers' race does not."""
+
+        supported_features = frozenset({"shared"})
+
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self._lock = asyncio.Lock()
+
+        async def acquire(
+            self, name: str, *, ttl_seconds: int, owner: str
+        ) -> Lease | None:
+            async with self._lock:
+                free = await super().holder(name) is None
+                await asyncio.sleep(0)
+                if not free:
+                    return None
+                self._held.pop(name, None)
+                return await super().acquire(name, ttl_seconds=ttl_seconds, owner=owner)
+
     class AcceptsAnEmptyName(MemoryLeaseProvider):
         async def acquire(
             self, name: str, *, ttl_seconds: int, owner: str
@@ -360,6 +395,27 @@ async def test_a_driver_declaring_shared_but_not_sharing_fails_the_kit() -> None
     await provider.aclose()
 
 
+async def test_a_driver_exclusive_in_one_provider_only_fails_the_shared_race() -> None:
+    held: dict[str, Any] = {}
+    fences: dict[str, int] = {}
+
+    def make() -> MemoryLeaseProvider:
+        provider = _Broken.ExclusiveInsideOneProviderOnly(
+            name="beat", driver="memory", options={}
+        )
+        provider._held, provider._fences = held, fences  # one backend
+        return provider
+
+    provider = make()
+    await provider.aopen()
+    # One provider's race passes: the local lock excludes ...
+    await _Kit().test_one_of_many_concurrent_acquirers_wins(provider)
+    # ... and the race across two providers of one backend does not.
+    with pytest.raises(AssertionError, match="two providers"):
+        await _Kit().test_a_second_provider_contends_for_the_same_name(provider, make)
+    await provider.aclose()
+
+
 # ------------------------------------------------------------- the registry
 def test_the_three_lease_drivers_are_registered_and_deliver() -> None:
     registry = build_infra_registry(InMemorySchemaRegistry(), load_plugins=False)
@@ -409,29 +465,170 @@ def _beat_redis(settings: Any, **options: Any) -> Any:
     return registry.provider("lease", "beat")
 
 
-def test_assume_in_production_needs_the_accepted_risk() -> None:
-    options = {"url": "redis://h/0", "never_evicts_check": "assume"}
-    with pytest.raises(DriverLoadError, match="unverified_noeviction"):
-        _beat_redis(_prod(), **options)
-    built = _beat_redis(_prod("unverified_noeviction"), **options)
-    assert isinstance(built, RedisLeaseProvider)
-
-
 def test_verify_in_production_needs_no_risk() -> None:
     assert isinstance(_beat_redis(_prod(), url="redis://h/0"), RedisLeaseProvider)
 
 
-async def test_a_non_noeviction_server_is_refused() -> None:
+class _Redis:
+    """A scripted client: ``policy`` is the answer of ``CONFIG GET
+    maxmemory-policy`` (``None``: the server refuses it)."""
+
+    def __init__(self, policy: str | None) -> None:
+        self.policy = policy
+        self.reads = 0
+        self.broken = False
+
+    async def config_get(self, key: str) -> dict[str, str]:
+        self.reads += 1
+        if self.policy is None:
+            raise redis_errors.NoPermissionError("NOPERM CONFIG")
+        return {key: self.policy}
+
+    async def ping(self) -> bool:
+        if self.broken:
+            raise redis_errors.ConnectionError("down")
+        return True
+
+    async def eval(self, *_: object) -> int:
+        if self.broken:
+            raise redis_errors.ConnectionError("down")
+        return 1
+
+    async def aclose(self, **_: object) -> None:
+        return None
+
+
+def _reason(health: Any) -> object:
+    assert health.details is not None
+    return health.details["reason"]
+
+
+def _scripted(
+    policy: str | None, *, allowed: bool | None = None, **options: Any
+) -> tuple[RedisLeaseProvider, _Redis]:
+    client = _Redis(policy)
     provider = RedisLeaseProvider(
-        name="beat", driver="redis", options={"url": "redis://h/0"}
+        name="beat",
+        driver="redis",
+        options=options,
+        assume_allowed=None if allowed is None else (lambda: allowed),
+        client_factory=lambda: client,
+    )
+    return provider, client
+
+
+async def test_assume_is_refused_unless_the_kernel_allows_it() -> None:
+    for allowed in (None, False):
+        provider, _ = _scripted(None, allowed=allowed, never_evicts_check="assume")
+        with pytest.raises(PermissionDenied, match="unverified_noeviction"):
+            await provider.aopen()
+        health = await provider.health()
+        assert (health.status, _reason(health)) == (
+            "fail",
+            "eviction_check_refused",
+        )
+        with pytest.raises(PermissionDenied):
+            await provider.acquire("n", ttl_seconds=30, owner="o")
+    provider, _ = _scripted(None, allowed=True, never_evicts_check="assume")
+    await provider.aopen()
+    assert (await provider.acquire("n", ttl_seconds=30, owner="o")) is not None
+    health = await provider.health()
+    assert (health.status, _reason(health)) == (
+        "degraded",
+        "noeviction_unverified",
     )
 
-    class _Client:
-        async def config_get(self, _: str) -> dict[str, str]:
-            return {"maxmemory-policy": "allkeys-lru"}
 
-    with pytest.raises(PermissionDenied, match="allkeys-lru"):
-        await provider._policy_refused_read(_Client())
+async def test_the_production_policy_reaches_the_driver_through_the_build() -> None:
+    options = {"url": "redis://h/0", "never_evicts_check": "assume"}
+    refused = _beat_redis(_prod(), **options)
+    with pytest.raises(PermissionDenied, match="unverified_noeviction"):
+        await refused.aopen()
+    accepted = _beat_redis(_prod("unverified_noeviction"), **options)
+    assert accepted._assume_allowed is not None and accepted._assume_allowed()
+    assert unverified_noeviction_allowed(_prod()) is False
+    assert unverified_noeviction_allowed(_prod("unverified_noeviction")) is True
+    outside: Any = SimpleNamespace(is_prod=False, accepts_risk=lambda _r: False)
+    assert unverified_noeviction_allowed(outside) is True
+
+
+async def test_a_refused_read_under_verify_is_permission_denied() -> None:
+    provider, _ = _scripted(None)
+    with pytest.raises(PermissionDenied, match="CONFIG GET"):
+        await provider.aopen()
+    health = await provider.health()
+    assert _reason(health) == "eviction_check_refused"
+    provider, _ = _scripted(None)
+    health = await provider.health()
+    assert (health.status, _reason(health)) == (
+        "fail",
+        "noeviction_unverifiable",
+    )
+
+
+@pytest.mark.parametrize("mode", ["verify", "assume"])
+async def test_a_readable_evicting_policy_is_invalid_argument_in_both_modes(
+    mode: str,
+) -> None:
+    provider, _ = _scripted("allkeys-lru", allowed=True, never_evicts_check=mode)
+    with pytest.raises(InvalidArgument, match="allkeys-lru"):
+        await provider.aopen()
+    with pytest.raises(InvalidArgument):
+        await provider.acquire("n", ttl_seconds=30, owner="o")
+    health = await provider.health()
+    assert _reason(health) == "eviction_check_refused"
+    fresh, _ = _scripted("allkeys-lru", allowed=True, never_evicts_check=mode)
+    assert _reason(await fresh.health()) == "evicting_policy"
+
+
+async def test_the_policy_is_read_again_after_a_connection_failure() -> None:
+    provider, client = _scripted("noeviction")
+    await provider.aopen()
+    await provider.acquire("n", ttl_seconds=30, owner="o")
+    await provider.acquire("n", ttl_seconds=30, owner="o")
+    assert client.reads == 1  # one read while the connection stays up
+    client.broken = True
+    with pytest.raises(InfraError):
+        await provider.acquire("n", ttl_seconds=30, owner="o")
+    client.broken = False
+    client.policy = "allkeys-lru"  # the server came back reconfigured
+    with pytest.raises(InvalidArgument, match="allkeys-lru"):
+        await provider.acquire("n", ttl_seconds=30, owner="o")
+    assert client.reads == 2
+
+
+def test_the_redis_lease_runs_each_xdist_worker_on_its_own_database_index() -> None:
+    options = {"url": "redis://127.0.0.1:6379/0", "never_evicts_check": "verify"}
+    moved = RedisLeaseProvider.test_isolation(options, "gw1")
+    assert moved["url"] != options["url"]
+    assert moved["never_evicts_check"] == "verify"
+    assert RedisLeaseProvider.test_isolation(options, "master") == options
+
+
+def test_the_database_lease_is_shared_only_on_postgresql() -> None:
+    pg = {"url": "postgresql+asyncpg://u:p@h/db"}
+    lite = {"url": "sqlite+aiosqlite:///x.db"}
+    assert DatabaseLeaseProvider.features_for(pg) == {"shared"}
+    assert DatabaseLeaseProvider.features_for(lite) == frozenset()
+    assert DatabaseLeaseProvider.features_for({}) == frozenset()
+    sqlite_provider = DatabaseLeaseProvider(name="b", driver="database", options=lite)
+    assert sqlite_provider.features() == frozenset()
+
+
+def test_the_three_drivers_share_the_limits_of_the_port() -> None:
+    from sandloom.core.infra.ports.lease import (
+        MAX_LEASE_NAME_LENGTH,
+        MIN_LEASE_TTL_SECONDS,
+    )
+    from sandloom.driverkit import lease_limits
+
+    assert lease_limits.MIN_LEASE_TTL_SECONDS == MIN_LEASE_TTL_SECONDS
+    assert lease_limits.MAX_LEASE_NAME_LENGTH == MAX_LEASE_NAME_LENGTH
+    for module in (redis_lease, database_lease, memory_lease):
+        assert module.MAX_LEASE_NAME_LENGTH is lease_limits.MAX_LEASE_NAME_LENGTH
+        assert module.MIN_LEASE_TTL_SECONDS is lease_limits.MIN_LEASE_TTL_SECONDS
+        assert not hasattr(module, "_MAX_NAME_LENGTH")
+        assert not hasattr(module, "_MIN_TTL_SECONDS")
 
 
 async def test_the_driver_options_reject_unknown_keys_and_bad_ttl() -> None:

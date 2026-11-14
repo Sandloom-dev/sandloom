@@ -41,7 +41,7 @@ from typing import Any, TypeVar
 
 from sandloom.core.config.settings import settings
 from sandloom.core.infra import access as _access
-from sandloom.core.infra.errors import InfraError
+from sandloom.core.infra.errors import InfraError, InvalidArgument, PermissionDenied
 from sandloom.core.infra.ports.lease import Lease, LeaseStore
 
 logger = logging.getLogger(__name__)
@@ -83,6 +83,51 @@ def beat_lease_store(core: Any) -> LeaseStore:
         store: LeaseStore = infra.provider("lease", BEAT_INSTANCE)
         return store
     return _access.lease(BEAT_INSTANCE)
+
+
+class LeaseNotSharedError(RuntimeError):
+    """The configured ``lease`` instance cannot serve a beat (not shared)."""
+
+
+def require_beat_lease(core: Any) -> None:
+    """Mark the instance ``lease.beat`` as used by this process, so the registry
+    opens and probes it like a kernel instance (a refusing backend then fails
+    startup in production, with its real cause, and ``/ready`` elsewhere).
+
+    A process that hosts sagas calls it: its sweep runs on that lease. A
+    synthesized instance nothing requires is otherwise never opened, and a
+    refusal (the Redis evicts keys, ``CONFIG GET`` is refused) would leave the
+    holder on standby for good with no health signal.
+    """
+    try:
+        infra = getattr(core, "infra", None)
+    except RuntimeError:  # a facade whose registry is not configured yet
+        return
+    mark = getattr(infra, "use_kernel_instance", None)
+    if callable(mark):
+        mark("lease", BEAT_INSTANCE)
+
+
+def resolve_beat_lease(
+    core: Any, *, broker_url: str | None, instance: str, shared_required: bool
+) -> tuple[LeaseStore, str]:
+    """The lease store of the beat of ``core``'s composition on taskqueue
+    ``instance`` and the lease name it holds there.
+
+    ``shared_required`` (production) refuses a store that does not declare
+    ``shared``: with a memory lease, or a SQLite file, two beats could both
+    hold the lease.
+    """
+    store = beat_lease_store(core)
+    features = store.features() if hasattr(store, "features") else frozenset()
+    if shared_required and "shared" not in features:
+        raise LeaseNotSharedError(
+            f"lease instance {BEAT_INSTANCE!r} (driver "
+            f"{getattr(store, 'driver', '?')!r}) is not shared between processes, "
+            "so two beats could both hold it; point INFRA.lease.beat at a "
+            "redis lease or a PostgreSQL database lease"
+        )
+    return store, LEASE_KEY_PREFIX + beat_scope(broker_url, instance, core)
 
 
 class FencedLease:
@@ -130,7 +175,7 @@ class FencedLease:
     async def _bounded(self, coro: Coroutine[Any, Any, T]) -> T:
         return await asyncio.wait_for(coro, timeout=self.renew_interval)
 
-    def _fast_path(self) -> bool | None:
+    def fast_path(self) -> bool | None:
         """The answer without a store round trip, or ``None`` when one is due."""
         now = self._clock()
         if self._lease is not None and now < self._renew_at:
@@ -141,7 +186,7 @@ class FencedLease:
 
     async def ensure_async(self) -> bool:
         """Acquire or renew as due; ``True`` while this process holds the lease."""
-        fast = self._fast_path()
+        fast = self.fast_path()
         if fast is not None:
             return fast
         now = self._clock()
@@ -170,11 +215,21 @@ class FencedLease:
                 )
             )
         except Exception as exc:  # noqa: BLE001 - the lease backend is unreachable
-            logger.warning(
-                "%s cannot reach the lease backend (%s); not scheduling",
-                self.label,
-                type(exc).__name__,
-            )
+            if isinstance(exc, PermissionDenied | InvalidArgument):
+                # The backend answers and refuses (the eviction policy, a
+                # credential): a configuration to fix, not an outage to wait out.
+                logger.error(
+                    "%s the lease backend refuses to serve (%s: %s); not scheduling",
+                    self.label,
+                    type(exc).__name__,
+                    exc,
+                )
+            else:
+                logger.warning(
+                    "%s cannot reach the lease backend (%s); not scheduling",
+                    self.label,
+                    type(exc).__name__,
+                )
             self._retry_at = now + self.renew_interval
             return False
         if lease is None:
@@ -351,6 +406,7 @@ __all__ = [
     "BEAT_INSTANCE",
     "LEASE_KEY_PREFIX",
     "FencedLease",
+    "LeaseNotSharedError",
     "PeriodicNeed",
     "beat_lease_holder",
     "beat_lease_store",
@@ -359,4 +415,6 @@ __all__ = [
     "lease_scope",
     "periodic_needs",
     "read_beat_lease",
+    "require_beat_lease",
+    "resolve_beat_lease",
 ]

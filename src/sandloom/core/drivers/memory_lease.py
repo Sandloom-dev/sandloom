@@ -21,10 +21,11 @@ from sandloom.driverkit import (
     LeaseHolder,
     LeaseProvider,
 )
+from sandloom.driverkit.lease_limits import (
+    MAX_LEASE_NAME_LENGTH,
+    MIN_LEASE_TTL_SECONDS,
+)
 
-#: The shortest lease ``acquire`` accepts (the contract's ``MIN_LEASE_TTL_SECONDS``).
-_MIN_TTL_SECONDS = 3
-_MAX_NAME_LENGTH = 255
 #: One id per process: two instances of this driver name the same domain.
 _PROCESS_ID = uuid.uuid4().hex[:16]
 
@@ -42,22 +43,23 @@ def _check_acquire_arguments(
 ) -> None:
     """The argument errors a lease driver raises (spec 5); each driver keeps its
     own copy, since a driver imports only ``sandloom.driverkit``."""
-    if not isinstance(name, str) or not name or len(name) > _MAX_NAME_LENGTH:
+    if not isinstance(name, str) or not name or len(name) > MAX_LEASE_NAME_LENGTH:
         raise InvalidArgument(
-            f"a lease name is 1..{_MAX_NAME_LENGTH} characters", capability=capability
+            f"a lease name is 1..{MAX_LEASE_NAME_LENGTH} characters",
+            capability=capability,
         )
-    if not isinstance(owner, str) or len(owner) > _MAX_NAME_LENGTH:
+    if not isinstance(owner, str) or len(owner) > MAX_LEASE_NAME_LENGTH:
         raise InvalidArgument(
-            f"a lease owner is a label of up to {_MAX_NAME_LENGTH} characters",
+            f"a lease owner is a label of up to {MAX_LEASE_NAME_LENGTH} characters",
             capability=capability,
         )
     if (
         isinstance(ttl_seconds, bool)
         or not isinstance(ttl_seconds, int)
-        or ttl_seconds < _MIN_TTL_SECONDS
+        or ttl_seconds < MIN_LEASE_TTL_SECONDS
     ):
         raise InvalidArgument(
-            f"a lease TTL is a whole number of seconds >= {_MIN_TTL_SECONDS}",
+            f"a lease TTL is a whole number of seconds >= {MIN_LEASE_TTL_SECONDS}",
             capability=capability,
         )
 

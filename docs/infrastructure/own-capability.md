@@ -47,7 +47,7 @@ vector_index = "vector_index.contracts:VECTOR_INDEX_SPEC"
   `experimental_capability` ([SANDLOOM-B023](../reference/error-codes.md#sandloom-b023)).
   Use `"stable"` when you keep the contract stable yourself.
 - **Reserved names:** the kernel defines `search`, `document_store`, `graph_store`,
-  `workflow`, `lock` and `secrets`, so a package cannot declare them.
+  `workflow`, `secrets` and `lease`, so a package cannot declare them.
 
 See also [Write a driver](write-a-driver.md) and the
 [driver kit](driverkit.md).

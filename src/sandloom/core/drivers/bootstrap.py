@@ -20,7 +20,6 @@ from sandloom.core.infra.fenced_lease import BEAT_INSTANCE
 from sandloom.core.infra.ports._base import DriverTier, InfraProvider
 from sandloom.core.infra.registry import (
     DriverFactory,
-    DriverLoadError,
     ExperimentalCapabilityRefused,
     ExperimentalDriverRefused,
     InfraRegistry,
@@ -259,29 +258,27 @@ def _event_bus_build(
     return build
 
 
+def unverified_noeviction_allowed(settings: Settings | None = None) -> bool:
+    """Whether ``never_evicts_check=assume`` may run: not in production unless
+    the risk ``unverified_noeviction`` is accepted. The kernel's policy, handed to
+    the Redis drivers whose correctness needs a server that never evicts (they
+    read no setting). ``settings`` are the ones the registry was built with (the
+    process settings when omitted)."""
+    resolved = settings or _default_settings
+    return not resolved.is_prod or resolved.accepts_risk("unverified_noeviction")
+
+
 def _redis_lease_build(settings: Settings | None = None) -> DriverFactory:
-    """The build of the ``redis`` lease driver: the kernel's policy on
-    ``never_evicts_check=assume`` (a driver reads no setting): in production it
-    needs the accepted risk ``unverified_noeviction``."""
+    """The build of the ``redis`` lease driver: it states the policy on
+    ``never_evicts_check=assume`` (:func:`unverified_noeviction_allowed`)."""
 
     def build(cfg: InstanceConfig) -> InfraProvider:
-        resolved = settings or _default_settings
-        if (
-            cfg.options.get("never_evicts_check") == "assume"
-            and resolved.is_prod
-            and not resolved.accepts_risk("unverified_noeviction")
-        ):
-            raise DriverLoadError(
-                f"lease/{cfg.name}: never_evicts_check=assume vouches for a Redis "
-                "whose maxmemory-policy could not be verified, and this is "
-                "production [SANDLOOM-B023]",
-                fix="let the server answer CONFIG GET maxmemory-policy "
-                "(never_evicts_check=verify), or accept the risk with "
-                'SANDLOOM_ACCEPTED_RISKS=["unverified_noeviction"]',
-            )
+        # Imported when an instance selects the driver, never at bootstrap.
         module = importlib.import_module("sandloom.core.drivers.redis_lease")
-        built: InfraProvider = module.RedisLeaseProvider.from_config(cfg)
-        return built
+        factory: DriverFactory = module.make_redis_lease_factory(
+            assume_allowed=lambda: unverified_noeviction_allowed(settings)
+        )
+        return factory(cfg)
 
     return build
 
@@ -470,6 +467,7 @@ __all__ = [
     "register_builtin_drivers",
     "with_default_beat_lease",
     "build_infra_registry",
+    "unverified_noeviction_allowed",
     "volatile_event_bus_allowed",
     "close_default_cache",
     "close_default_database",

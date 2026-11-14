@@ -146,6 +146,23 @@ class LeaseConformance(ProviderConformance[LeaseProvider]):
                 holder is not None and holder.owner == "kit:a",
                 "'shared': another provider must read the holder",
             )
+            # A race across the two providers: a driver that excludes only
+            # inside one provider (a local lock) passes every group above.
+            raced = _name()
+            both = (provider, other)
+            results = await asyncio.gather(
+                *(
+                    both[i % 2].acquire(raced, ttl_seconds=30, owner=f"kit:racer-{i}")
+                    for i in range(_RACERS)
+                )
+            )
+            winners = [lease for lease in results if lease is not None]
+            require(
+                len(winners) == 1,
+                f"exactly one of {_RACERS} acquirers spread over two providers of "
+                f"the same backend must win, {len(winners)} did: 'shared' is not "
+                "exclusive across providers",
+            )
         finally:
             await other.aclose()
 

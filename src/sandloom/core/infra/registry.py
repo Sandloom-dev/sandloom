@@ -716,6 +716,14 @@ class InfraRegistry:
             install=registration.install,
         )
 
+    def use_kernel_instance(self, capability: str, name: str) -> None:
+        """Mark a configured instance as used by the kernel of this process, so
+        :meth:`aopen_all` and :meth:`health_all` open and probe it like a module
+        requirement's (a module cannot name a kernel-only capability). An
+        instance that is not configured is left alone."""
+        if self._config.get(capability, {}).get(name) is not None:
+            self._requested.add((capability, name))
+
     def in_use(self, capability: str, name: str = DEFAULT_INSTANCE) -> bool:
         """Whether something requires instance ``capability/name``.
 

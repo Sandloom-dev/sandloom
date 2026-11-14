@@ -21,13 +21,21 @@ from celery.beat import Service
 from sandloom.core import beat_lease
 from sandloom.core.beat_lease import (
     BeatLease,
-    BeatLeaseUnavailableError,
     LeasedScheduler,
     install_beat_lease,
 )
+from sandloom.core.descriptors import HealthResult
 from sandloom.core.drivers.memory_lease import MemoryLeaseProvider, _Held
 from sandloom.core.infra import fenced_lease
-from sandloom.core.infra.ports.lease import Lease
+from sandloom.core.infra.config import InstanceConfig
+from sandloom.core.infra.errors import InfraError, PermissionDenied, Unavailable
+from sandloom.core.infra.fenced_lease import FencedLease, LeaseNotSharedError
+from sandloom.core.infra.ports.lease import (
+    LEASE_CAPABILITY,
+    Lease,
+    LeaseProvider,
+)
+from sandloom.core.infra.registry import InfraRegistry, InfraStartupError
 
 _NAME = "sandloom:beat:lease:test"
 
@@ -190,13 +198,13 @@ def test_lease_scope_separates_services_and_shares_replicas() -> None:
 
 
 class _Core:
-    def __init__(self, store: MemoryLeaseProvider) -> None:
+    def __init__(self, store: LeaseProvider) -> None:
         self.infra = SimpleNamespace(provider=self._provider)
         self.store = store
         self.asked: list[tuple[str, str]] = []
         self.loaded_modules = ["sandloom_billing"]
 
-    def _provider(self, capability: str, name: str = "default") -> MemoryLeaseProvider:
+    def _provider(self, capability: str, name: str = "default") -> LeaseProvider:
         self.asked.append((capability, name))
         return self.store
 
@@ -238,7 +246,7 @@ def test_beat_refuses_to_start_on_a_lease_that_is_not_shared_in_production(
     prod = SimpleNamespace(is_prod=True, beat_lease_name="", beat_lease_ttl_seconds=30)
     monkeypatch.setattr(beat_lease, "settings", prod)
     core = _Core(_Store(_Clock()))
-    with pytest.raises(BeatLeaseUnavailableError, match="not shared"):
+    with pytest.raises(LeaseNotSharedError, match="not shared"):
         beat_lease.build_lease(Celery("x", broker="memory://"), core, instance="d")
 
     app = Celery("lease-notshared", broker="memory://")
@@ -248,6 +256,164 @@ def test_beat_refuses_to_start_on_a_lease_that_is_not_shared_in_production(
         signals.beat_init.send(sender=service)
     assert exc.value.code == 1
     assert service._is_shutdown.is_set()
+
+
+def test_the_beat_lease_wraps_the_kernel_holder_without_subclassing_it() -> None:
+    _clock, _store, first, _second = _pair()
+    assert not issubclass(BeatLease, FencedLease)
+    assert isinstance(first._holder, FencedLease)
+    assert first._holder.label == "[beat]"
+
+
+def test_the_kernel_resolves_the_store_the_scope_and_the_shared_check() -> None:
+    store = _Store(_Clock())
+    core = _Core(store)
+    resolved, name = fenced_lease.resolve_beat_lease(
+        core, broker_url="memory://", instance="d", shared_required=False
+    )
+    assert resolved is store
+    assert name == fenced_lease.LEASE_KEY_PREFIX + fenced_lease.beat_scope(
+        "memory://", "d", core
+    )
+    with pytest.raises(LeaseNotSharedError, match="not shared"):
+        fenced_lease.resolve_beat_lease(
+            core, broker_url="memory://", instance="d", shared_required=True
+        )
+
+
+def test_a_sqlite_lease_is_refused_for_a_beat_in_production(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sandloom.core.drivers.database_lease import DatabaseLeaseProvider
+
+    prod = SimpleNamespace(is_prod=True, beat_lease_name="", beat_lease_ttl_seconds=30)
+    monkeypatch.setattr(beat_lease, "settings", prod)
+    lite = DatabaseLeaseProvider(
+        name="beat",
+        driver="database",
+        options={"url": f"sqlite+aiosqlite:///{tmp_path / 'lease.db'}"},
+    )
+    with pytest.raises(LeaseNotSharedError, match="not shared"):
+        beat_lease.build_lease(
+            Celery("x", broker="memory://"), _Core(lite), instance="d"
+        )
+    shared = DatabaseLeaseProvider(
+        name="beat",
+        driver="database",
+        options={"url": "postgresql+asyncpg://u:p@127.0.0.1:1/db"},
+    )
+    built = beat_lease.build_lease(
+        Celery("x", broker="memory://"), _Core(shared), instance="d"
+    )
+    assert built.name.startswith(fenced_lease.LEASE_KEY_PREFIX)
+
+
+# ------------------------------------------- a refusing lease backend (L1)
+class _Refusing(MemoryLeaseProvider):
+    """A lease driver whose server refuses to serve (the eviction policy)."""
+
+    error: type[InfraError] = PermissionDenied
+
+    async def aopen(self) -> None:
+        raise self.error(
+            "the Redis server evicts keys (maxmemory-policy is 'allkeys-lru')",
+            capability="lease",
+            instance=self.name,
+        )
+
+    async def health(self) -> HealthResult:
+        return HealthResult(status="fail", details={"reason": "eviction_check_refused"})
+
+    async def acquire(self, name: str, *, ttl_seconds: int, owner: str) -> Lease | None:
+        await self.aopen()
+        return None
+
+
+def _registry_with_refusing_beat(driver: type[_Refusing]) -> InfraRegistry:
+    registry = InfraRegistry()
+    registry.register_capability(LEASE_CAPABILITY)
+    registry.register_driver("lease", "refusing", driver)
+    implicit = InstanceConfig("lease", "beat", "refusing", {})
+    implicit.implicit = True
+    registry.set_config({"lease": {"beat": implicit}})
+    return registry
+
+
+async def test_a_process_that_hosts_sagas_opens_and_probes_the_beat_lease() -> None:
+    registry = _registry_with_refusing_beat(_Refusing)
+    # Nothing requires the synthesized instance: it is neither opened nor probed.
+    await registry.aopen_all(strict=True)
+    assert "lease:beat" not in await registry.health_all()
+
+    from sandloom.core.sagas.sweep import SagaSweeper
+
+    runtime = SimpleNamespace(
+        core=SimpleNamespace(infra=registry),
+        registry=[object()],
+        settings=SimpleNamespace(saga_sweep_interval_seconds=1, saga_sweep_batch=1),
+    )
+    SagaSweeper(runtime)  # type: ignore[arg-type]
+    assert registry.in_use("lease", "beat")
+    with pytest.raises(InfraStartupError, match="lease/beat.*allkeys-lru"):
+        await registry.aopen_all(strict=True)
+    health = (await registry.health_all())["lease:beat"]
+    assert health.status == "fail"
+
+
+def test_a_process_without_sagas_leaves_the_beat_lease_unused() -> None:
+    from sandloom.core.sagas.sweep import SagaSweeper
+
+    registry = _registry_with_refusing_beat(_Refusing)
+    runtime = SimpleNamespace(
+        core=SimpleNamespace(infra=registry),
+        registry=[],
+        settings=SimpleNamespace(saga_sweep_interval_seconds=1, saga_sweep_batch=1),
+    )
+    SagaSweeper(runtime)  # type: ignore[arg-type]
+    assert not registry.in_use("lease", "beat")
+
+
+def test_beat_refuses_to_start_on_a_backend_that_refuses_with_the_real_cause(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(beat_lease, "_default_runner", _run)
+    core = _Core(_Refusing(name="beat", driver="memory", options={}))
+    app = Celery("lease-refused", broker="memory://")
+    install_beat_lease(app, core, instance="default")
+    service = Service(app, schedule_filename=str(tmp_path / "schedule"))
+    with caplog.at_level("CRITICAL", logger="sandloom.core.beat_lease"):
+        with pytest.raises(SystemExit) as exc:
+            signals.beat_init.send(sender=service)
+    assert exc.value.code == 1
+    assert service._is_shutdown.is_set()
+    assert "allkeys-lru" in caplog.text  # the policy, not "cannot reach"
+
+
+def test_beat_starts_on_a_backend_that_is_only_unreachable(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Down(_Refusing):
+        error = Unavailable
+
+    monkeypatch.setattr(beat_lease, "_default_runner", _run)
+    core = _Core(_Down(name="beat", driver="memory", options={}))
+    app = Celery("lease-down", broker="memory://")
+    install_beat_lease(app, core, instance="default")
+    service = Service(app, schedule_filename=str(tmp_path / "schedule"))
+    signals.beat_init.send(sender=service)  # stands by and retries, no exit
+    assert isinstance(service.scheduler, LeasedScheduler)
+    service.scheduler.close()
+
+
+async def test_a_refusing_backend_is_logged_as_a_refusal_not_as_unreachable(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store = _Refusing(name="beat", driver="memory", options={})
+    holder = FencedLease(store, _NAME, ttl_seconds=30, label="[saga-sweep]")
+    with caplog.at_level("WARNING", logger="sandloom.core.infra.fenced_lease"):
+        assert await holder.ensure_async() is False
+    assert "allkeys-lru" in caplog.text
+    assert "cannot reach" not in caplog.text
 
 
 async def test_two_leases_on_real_redis() -> None:
@@ -275,7 +441,7 @@ async def test_two_leases_on_real_redis() -> None:
 
         await asyncio.to_thread(first.release)
         assert await store.holder(name) is None
-        second._retry_at = 0.0  # skip the standby back-off
+        second._holder._retry_at = 0.0  # skip the standby back-off
         assert await asyncio.to_thread(second.ensure) is True
         assert second.fence is not None and first.fence is not None
         assert second.fence > first.fence
@@ -287,9 +453,9 @@ async def test_two_leases_on_real_redis() -> None:
                 break
             await asyncio.sleep(0.02)
         assert await store.holder(name) is None
-        first._retry_at = 0.0
+        first._holder._retry_at = 0.0
         assert await asyncio.to_thread(first.ensure) is True
-        second._renew_at = 0.0
+        second._holder._renew_at = 0.0
         assert await asyncio.to_thread(second.ensure) is False  # lost, stops
     finally:
         await asyncio.to_thread(first.release)

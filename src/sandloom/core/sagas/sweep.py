@@ -42,6 +42,7 @@ from sandloom.core.infra.fenced_lease import (
     BEAT_INSTANCE,
     FencedLease,
     beat_lease_store,
+    require_beat_lease,
 )
 from sandloom.core.infra.registry import InfraRegistryError
 from sandloom.core.sagas.channel import CrossTenantSession, cross_tenant_session
@@ -77,6 +78,8 @@ class SagaSweeper:
         self._ticks = 0
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
+        if len(runtime.registry):  # this process sweeps: its lease is in use
+            require_beat_lease(self.core)
 
     # -- lifecycle --------------------------------------------------------
     async def start(self) -> None:

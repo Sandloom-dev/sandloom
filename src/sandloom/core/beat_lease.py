@@ -24,13 +24,8 @@ from typing import Any, TypeVar
 
 import sandloom.core.async_runner as _async_runner
 from sandloom.core.config.settings import settings
-from sandloom.core.infra.fenced_lease import (
-    BEAT_INSTANCE,
-    LEASE_KEY_PREFIX,
-    FencedLease,
-    beat_lease_store,
-    beat_scope,
-)
+from sandloom.core.infra.errors import Timeout, Unavailable
+from sandloom.core.infra.fenced_lease import FencedLease, resolve_beat_lease
 from sandloom.core.infra.ports.lease import LeaseStore
 
 logger = logging.getLogger(__name__)
@@ -38,16 +33,13 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
-class BeatLeaseUnavailableError(RuntimeError):
-    """The configured ``lease`` instance cannot serve a beat (not shared)."""
-
-
 def _default_runner(coro: Coroutine[Any, Any, T]) -> T:
     return _async_runner.run_async(coro)
 
 
-class BeatLease(FencedLease):
-    """The beat's lease: a synchronous facade over :class:`FencedLease`.
+class BeatLease:
+    """The beat's lease: a synchronous facade over the kernel's
+    :class:`~sandloom.core.infra.fenced_lease.FencedLease` (held, not inherited).
 
     Beat's scheduler loop is synchronous; the lease's store operations run on
     the process's persistent loop (:func:`sandloom.core.async_runner.run_async`,
@@ -64,7 +56,7 @@ class BeatLease(FencedLease):
         clock: Callable[[], float] = time.monotonic,
         identity: str | None = None,
     ) -> None:
-        super().__init__(
+        self._holder = FencedLease(
             store,
             name,
             ttl_seconds=ttl_seconds,
@@ -74,17 +66,55 @@ class BeatLease(FencedLease):
         )
         self._run = runner or _default_runner
 
+    @property
+    def name(self) -> str:
+        return self._holder.name
+
+    @property
+    def held(self) -> bool:
+        return self._holder.held
+
+    @property
+    def token(self) -> str | None:
+        return self._holder.token
+
+    @property
+    def fence(self) -> int | None:
+        return self._holder.fence
+
+    @property
+    def renew_interval(self) -> float:
+        return self._holder.renew_interval
+
+    def next_check_in(self) -> float:
+        """Seconds until :meth:`ensure` has work to do (renew or retry)."""
+        return self._holder.next_check_in()
+
     def ensure(self) -> bool:
         """Acquire or renew as due; ``True`` while this process may schedule."""
-        fast = self._fast_path()
+        fast = self._holder.fast_path()
         if fast is not None:
             return fast
-        return bool(self._run(self.ensure_async()))
+        return bool(self._run(self._holder.ensure_async()))
+
+    def open(self) -> None:
+        """Open the store, so a backend that refuses to serve fails now, with
+        its own message, instead of leaving beat on standby for good. A store
+        that is only unreachable is retried by the holder, as before."""
+        try:
+            opener = getattr(self._holder.store, "aopen", None)
+            if opener is not None:
+                self._run(opener())
+        except (Unavailable, Timeout) as exc:
+            logger.warning(
+                "[beat] lease backend not reachable yet (%s); retrying",
+                type(exc).__name__,
+            )
 
     def release(self) -> None:
         """Release our own lease (best-effort) so a standby takes over at once."""
         if self.token is not None:
-            self._run(self.release_async())
+            self._run(self._holder.release_async())
 
 
 class LeasedScheduler:
@@ -113,21 +143,15 @@ class LeasedScheduler:
 
 
 def build_lease(app: Any, core: Any, *, instance: str) -> BeatLease:
-    """The lease for this beat (resolves the ``lease`` instance ``beat``;
-    raises if unfit)."""
-    store = beat_lease_store(core)
-    features = store.features() if hasattr(store, "features") else frozenset()
-    if settings.is_prod and "shared" not in features:
-        raise BeatLeaseUnavailableError(
-            f"lease instance {BEAT_INSTANCE!r} (driver "
-            f"{getattr(store, 'driver', '?')!r}) is not shared between processes, "
-            "so two beats could both hold it; point INFRA.lease.beat at a "
-            "redis or database lease"
-        )
-    scope = beat_scope(getattr(app.conf, "broker_url", None), instance, core)
-    return BeatLease(
-        store, LEASE_KEY_PREFIX + scope, ttl_seconds=settings.beat_lease_ttl_seconds
+    """The lease for this beat (the kernel resolves the ``lease`` instance
+    ``beat``, its name and the production check; raises if unfit)."""
+    store, name = resolve_beat_lease(
+        core,
+        broker_url=getattr(app.conf, "broker_url", None),
+        instance=instance,
+        shared_required=settings.is_prod,
     )
+    return BeatLease(store, name, ttl_seconds=settings.beat_lease_ttl_seconds)
 
 
 def install_beat_lease(app: Any, core: Any, *, instance: str = "default") -> None:
@@ -150,6 +174,7 @@ def install_beat_lease(app: Any, core: Any, *, instance: str = "default") -> Non
             return
         try:
             lease = build_lease(app, core, instance=instance)
+            lease.open()
         except Exception as exc:
             # Celery's signal dispatch logs and SWALLOWS receiver exceptions,
             # which would leave beat scheduling without a lease. SystemExit is
@@ -166,7 +191,6 @@ def install_beat_lease(app: Any, core: Any, *, instance: str = "default") -> Non
 
 __all__ = [
     "BeatLease",
-    "BeatLeaseUnavailableError",
     "LeasedScheduler",
     "build_lease",
     "install_beat_lease",

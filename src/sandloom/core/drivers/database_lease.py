@@ -17,6 +17,10 @@ The statements are built with SQLAlchemy Core and rendered through the
 engine's dialect: PostgreSQL ``now()`` and interval arithmetic, SQLite
 ``strftime`` with millisecond text (SQLite serialises writers, which is what
 makes its single statements atomic). Another dialect is refused at ``aopen``.
+
+The driver declares ``shared`` only for PostgreSQL (``features_for``): every
+process reaches that server. A SQLite file belongs to one host, so production
+refuses a SQLite lease where a beat or the saga sweep needs a shared one.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ import contextlib
 import hashlib
 import time
 import uuid
+from collections.abc import Mapping
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -58,9 +63,11 @@ from sandloom.driverkit import (
     Timeout,
     Unavailable,
 )
+from sandloom.driverkit.lease_limits import (
+    MAX_LEASE_NAME_LENGTH,
+    MIN_LEASE_TTL_SECONDS,
+)
 
-_MIN_TTL_SECONDS = 3
-_MAX_NAME_LENGTH = 255
 _SQLITE_TIME = "%Y-%m-%d %H:%M:%f"
 
 #: The table as the driver sees it (the model and the migration own its DDL).
@@ -114,6 +121,17 @@ class DatabaseLeaseProvider(LeaseProvider):
     contract_version = 1
     supported_features: ClassVar[frozenset[str]] = frozenset({"shared"})
     options_schema = DatabaseLeaseOptions
+
+    @classmethod
+    def features_for(cls, options: Mapping[str, Any]) -> frozenset[str]:
+        """``shared`` only on PostgreSQL, a server every process reaches. A SQLite
+        file belongs to one host, so the lease it keeps is not shared."""
+        url = options.get("url")
+        try:
+            backend = make_url(url).get_backend_name() if isinstance(url, str) else ""
+        except sa_exc.ArgumentError:
+            backend = ""
+        return frozenset({"shared"}) if backend == "postgresql" else frozenset()
 
     def __init__(self, *, name: str, driver: str, options: dict[str, Any]) -> None:
         super().__init__(name=name, driver=driver, options=options)
@@ -189,9 +207,9 @@ class DatabaseLeaseProvider(LeaseProvider):
             raise self._fail(exc, what) from exc
 
     def _check_name(self, name: str) -> None:
-        if not isinstance(name, str) or not name or len(name) > _MAX_NAME_LENGTH:
+        if not isinstance(name, str) or not name or len(name) > MAX_LEASE_NAME_LENGTH:
             raise InvalidArgument(
-                f"a lease name is 1..{_MAX_NAME_LENGTH} characters",
+                f"a lease name is 1..{MAX_LEASE_NAME_LENGTH} characters",
                 capability=self.capability,
                 instance=self.name,
             )
@@ -231,16 +249,16 @@ class DatabaseLeaseProvider(LeaseProvider):
         if (
             isinstance(ttl_seconds, bool)
             or not isinstance(ttl_seconds, int)
-            or ttl_seconds < _MIN_TTL_SECONDS
+            or ttl_seconds < MIN_LEASE_TTL_SECONDS
         ):
             raise InvalidArgument(
-                f"a lease TTL is a whole number of seconds >= {_MIN_TTL_SECONDS}",
+                f"a lease TTL is a whole number of seconds >= {MIN_LEASE_TTL_SECONDS}",
                 capability=self.capability,
                 instance=self.name,
             )
-        if not isinstance(owner, str) or len(owner) > _MAX_NAME_LENGTH:
+        if not isinstance(owner, str) or len(owner) > MAX_LEASE_NAME_LENGTH:
             raise InvalidArgument(
-                f"a lease owner is a label of up to {_MAX_NAME_LENGTH} characters",
+                f"a lease owner is a label of up to {MAX_LEASE_NAME_LENGTH} characters",
                 capability=self.capability,
                 instance=self.name,
             )

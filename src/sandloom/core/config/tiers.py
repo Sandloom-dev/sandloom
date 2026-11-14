@@ -449,8 +449,8 @@ REMOVED: tuple[RemovedSetting, ...] = (
         "1.0",
         "the beat lease and the saga sweep are held in the `lease` instance "
         'INFRA.lease.beat (a driver: "redis", "database"; e.g. '
-        'INFRA={"lease": {"beat": {"driver": "redis", "options": {"url": '
-        '"redis://..."}}}}), no longer in a cache instance; absent, it is a '
+        'INFRA={"lease": {"beat": {"driver": "redis", "url": '
+        '"redis://..."}}}), no longer in a cache instance; absent, it is a '
         "redis lease on CACHE_URL",
     ),
     RemovedSetting(

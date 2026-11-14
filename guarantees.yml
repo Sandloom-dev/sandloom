@@ -4684,7 +4684,7 @@ guarantees:
   - src/sandloom/core/tests/test_capabilities.py::test_resolve_unknown_feature_raises
   - src/sandloom/core/tests/test_capabilities.py::test_facade_capability_and_require_capability
 - id: G-INFRA-05
-  statement: Resolving an experimental capability (document_store, graph_store, workflow, search, lock,
+  statement: Resolving an experimental capability (document_store, graph_store, workflow, search,
     secrets) without a registered driver raises ExperimentalCapabilityError (also via the facade), with
     the precise error kept for an unknown instance.
   sources:
@@ -5069,10 +5069,10 @@ guarantees:
   gap_size: S
 - id: G-RISK-03
   statement: Every registered risk documents what it weakens and which check consults it, and the registry
-    holds exactly the thirteen ids log_notifier_in_prod, log_links_in_prod, local_storage_in_prod,
+    holds exactly the fourteen ids log_notifier_in_prod, log_links_in_prod, local_storage_in_prod,
     volatile_event_bus, unversioned_ddl_repair, weak_password_hash, shared_hs_secret_split, relay_disabled,
     command_dedupe_below_retry_horizon, saga_horizon_beyond_command_dedupe, experimental_capability,
-    experimental_driver, development_database_in_prod.
+    experimental_driver, development_database_in_prod, unverified_noeviction.
   sources:
   - docs/adr/0006-accepted-risks.md#Amendment (2026-10-25)
   - docs/adr/0006-accepted-risks.md#Consequences
@@ -6697,7 +6697,7 @@ capabilities:
     (or the contract/feature error)
   gap_size: S
 - id: C-INFRA-06
-  statement: document_store, graph_store, workflow, search, lock and secrets ship as CapabilitySpecs with
+  statement: document_store, graph_store, workflow, search and secrets ship as CapabilitySpecs with
     contracts, marked stability=experimental, registered at bootstrap without a core driver; a plugin
     supplies the driver.
   sources:

@@ -6,13 +6,19 @@ counter (the fence, ``INCR``, no TTL). Acquire, renew and release are one Lua
 script each, so each is atomic and one round trip; an expired key is absent.
 
 **The fence key must outlive the lease**, so the driver refuses a Redis whose
-``maxmemory-policy`` is not ``noeviction`` (read on ``aopen`` and on every
-``health`` probe). ``never_evicts_check=assume`` skips only a read the server
-refuses (managed services often do): a readable policy that is not
-``noeviction`` is refused either way. In production the kernel admits
-``assume`` only under the accepted risk ``unverified_noeviction`` (checked
-where the driver is built, ``sandloom.core.drivers.bootstrap``: a driver
-reads no setting).
+``maxmemory-policy`` is not ``noeviction`` (read on ``aopen``, on every
+``health`` probe and again after a connection failure, so a server that came
+back reconfigured is judged afresh). The option ``never_evicts_check`` decides
+what a *refused read* means (managed services often refuse ``CONFIG GET``):
+
+- ``verify`` (default): a refused read is ``PermissionDenied``;
+- ``assume``: the operator vouches for ``noeviction``; the driver runs on a
+  refused read, health is ``degraded`` (``noeviction_unverified``). A readable
+  policy that is not ``noeviction`` is ``InvalidArgument`` in either mode.
+
+The driver reads no setting, so the kernel states whether ``assume`` is allowed
+(production: only under the accepted risk ``unverified_noeviction``) as
+``assume_allowed`` when it builds the driver; without it ``assume`` is refused.
 
 The client is built lazily on the running loop (a redis.asyncio client is
 bound to the loop it first ran on); an error a backend raises is mapped to
@@ -27,7 +33,8 @@ import contextlib
 import importlib
 import time
 import uuid
-from typing import Any, ClassVar, Literal
+from collections.abc import Callable, Mapping
+from typing import Any, ClassVar, Literal, NoReturn, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -42,8 +49,22 @@ from sandloom.driverkit import (
     Timeout,
     Unavailable,
 )
+from sandloom.driverkit.lease_limits import (
+    MAX_LEASE_NAME_LENGTH,
+    MIN_LEASE_TTL_SECONDS,
+)
+from sandloom.driverkit.testing_isolation import isolated_redis_options
 
-_MIN_TTL_SECONDS = 3
+#: The accepted risk that lets ``never_evicts_check=assume`` run in production.
+UNVERIFIED_NOEVICTION_RISK = "unverified_noeviction"
+_POLICY_SETTING = "maxmemory-policy"
+_NOEVICTION = "noeviction"
+
+
+class _InstanceLike(Protocol):
+    name: str
+    driver: str
+    options: Mapping[str, Any]
 
 
 def _redis_errors() -> Any:
@@ -52,7 +73,6 @@ def _redis_errors() -> Any:
     return importlib.import_module("redis.exceptions")
 
 
-_MAX_NAME_LENGTH = 255
 _ACQUIRE = """
 if redis.call('EXISTS', KEYS[1]) == 1 then return nil end
 local fence = redis.call('INCR', KEYS[2])
@@ -103,21 +123,49 @@ class RedisLeaseProvider(LeaseProvider):
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
 
-    def __init__(self, *, name: str, driver: str, options: dict[str, Any]) -> None:
+    @classmethod
+    def test_isolation(
+        cls, options: Mapping[str, Any], worker_id: str
+    ) -> Mapping[str, Any]:
+        """Another database index of the configured URL for each xdist worker."""
+        return isolated_redis_options(options, worker_id)
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        driver: str,
+        options: dict[str, Any],
+        assume_allowed: Callable[[], bool] | None = None,
+        client_factory: Callable[[], Any] | None = None,
+    ) -> None:
+        """``assume_allowed`` is the kernel's policy for ``never_evicts_check=
+        assume`` (production without the accepted risk: ``False``); ``None``
+        refuses ``assume``. ``client_factory`` replaces the client built from
+        the options (a test seam)."""
         super().__init__(name=name, driver=driver, options=options)
         self._opts = RedisLeaseOptions(**options)
+        self._assume_allowed = assume_allowed
+        self._client_factory = client_factory
         self._client: Any | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._policy_checked = False
+        # The server's refusal, repeated by every operation until a check finds
+        # the policy fit (a registry that only logs it outside production must
+        # never serve an evicting Redis).
+        self._refusal: tuple[type[InfraError], str] | None = None
 
     # ------------------------------------------------------------ plumbing
     def _fail(self, exc: BaseException, what: str) -> InfraError:
-        """The ``InfraError`` of a backend failure: its type name only."""
+        """The ``InfraError`` of a backend failure: its type name only. A failure
+        of the connection (``Unavailable``, ``Timeout``) makes the next call read
+        the eviction policy again: the server may have come back reconfigured."""
         if isinstance(exc, InfraError):
             return exc
         label = f"redis lease {what} failed: {type(exc).__name__}"
         redis_errors = _redis_errors()
         if isinstance(exc, TimeoutError | redis_errors.TimeoutError):
+            self._policy_checked = False
             return Timeout(label, capability=self.capability, instance=self.name)
         if isinstance(exc, redis_errors.AuthenticationError):
             return PermissionDenied(
@@ -127,11 +175,16 @@ class RedisLeaseProvider(LeaseProvider):
             return PermissionDenied(
                 label, capability=self.capability, instance=self.name
             )
+        self._policy_checked = False
         return Unavailable(label, capability=self.capability, instance=self.name)
 
     async def _redis(self) -> Any:
         loop = asyncio.get_running_loop()
         if self._client is not None and self._loop is loop:
+            return self._client
+        if self._client_factory is not None:
+            self._client = self._client_factory()
+            self._loop = loop
             return self._client
         if not self._opts.url:
             raise InvalidArgument(
@@ -160,44 +213,69 @@ class RedisLeaseProvider(LeaseProvider):
         return [f"{base}:lease", f"{base}:fence"]
 
     def _check_name(self, name: str) -> None:
-        if not isinstance(name, str) or not name or len(name) > _MAX_NAME_LENGTH:
+        if not isinstance(name, str) or not name or len(name) > MAX_LEASE_NAME_LENGTH:
             raise InvalidArgument(
-                f"a lease name is 1..{_MAX_NAME_LENGTH} characters",
+                f"a lease name is 1..{MAX_LEASE_NAME_LENGTH} characters",
                 capability=self.capability,
                 instance=self.name,
             )
 
-    async def _policy_refused_read(self, client: Any) -> bool:
-        """Read ``maxmemory-policy``: ``True`` when the read was refused and
-        ``assume`` skips it; raises on a policy other than ``noeviction`` and
-        on a refused read under ``verify``."""
+    def _refuse(self, kind: type[InfraError], message: str) -> NoReturn:
+        """Record the refusal of the server (the operations repeat it) and raise."""
+        self._refusal = (kind, message)
+        raise kind(message, capability=self.capability, instance=self.name)
+
+    def _assume_refused(self) -> bool:
+        return self._opts.never_evicts_check == "assume" and not (
+            self._assume_allowed is not None and self._assume_allowed()
+        )
+
+    async def _read_policy(self, client: Any) -> str | None:
+        """``maxmemory-policy`` of the server, ``None`` when it refuses the read."""
         try:
-            answer = await client.config_get("maxmemory-policy")
-        except _redis_errors().ResponseError as exc:
-            if self._opts.never_evicts_check == "assume":
-                return True
-            raise PermissionDenied(
-                "the server refused CONFIG GET maxmemory-policy: set the option "
-                "never_evicts_check=assume to vouch for noeviction (production "
-                "needs the accepted risk unverified_noeviction)",
-                capability=self.capability,
-                instance=self.name,
-            ) from exc
-        policy = str(answer.get("maxmemory-policy", ""))
-        if policy != "noeviction":
-            raise PermissionDenied(
-                f"the server's maxmemory-policy is {policy!r}, not 'noeviction': "
-                "the fence counter could be evicted and a fence would repeat",
-                capability=self.capability,
-                instance=self.name,
+            answer = await client.config_get(_POLICY_SETTING)
+        except _redis_errors().ResponseError:
+            return None
+        policy = answer.get(_POLICY_SETTING) if isinstance(answer, dict) else None
+        return policy if isinstance(policy, str) else None
+
+    async def _check_policy(self, client: Any) -> bool:
+        """Judge the server's eviction policy (the refusals are recorded):
+        ``True`` when it could not be read and ``assume`` vouches for it."""
+        self._refusal = None
+        if self._assume_refused():
+            self._refuse(
+                PermissionDenied,
+                f"lease instance {self.name!r}: never_evicts_check='assume' needs "
+                f"the accepted risk {UNVERIFIED_NOEVICTION_RISK!r} in production "
+                "(fix: set never_evicts_check='verify' and grant CONFIG GET "
+                f"{_POLICY_SETTING}, or accept the risk with "
+                f'SANDLOOM_ACCEPTED_RISKS=["{UNVERIFIED_NOEVICTION_RISK}"])',
             )
-        return False
+        policy = await self._read_policy(client)
+        if policy is not None and policy != _NOEVICTION:
+            self._refuse(
+                InvalidArgument,
+                f"lease instance {self.name!r}: the Redis server evicts keys "
+                f"({_POLICY_SETTING} is {policy!r}), so the fence counter could "
+                "vanish and a fence would repeat "
+                f"(fix: set {_POLICY_SETTING} to {_NOEVICTION!r})",
+            )
+        if policy is None and self._opts.never_evicts_check == "verify":
+            self._refuse(
+                PermissionDenied,
+                f"lease instance {self.name!r}: the Redis server refused CONFIG "
+                f"GET {_POLICY_SETTING}, so the driver cannot verify that it never "
+                "evicts (fix: grant CONFIG GET to this user, or vouch for the "
+                "policy with the option never_evicts_check='assume')",
+            )
+        return policy is None
 
     async def _ready(self) -> Any:
         client = await self._redis()
         if not self._policy_checked:
             try:
-                await self._policy_refused_read(client)
+                await self._check_policy(client)
             except InfraError:
                 raise
             except Exception as exc:
@@ -241,16 +319,28 @@ class RedisLeaseProvider(LeaseProvider):
         try:
             client = await self._redis()
             await self._guarded("ping", client.ping())
-            refused = await self._guarded(
-                "policy check", self._policy_refused_read(client)
-            )
         except InfraError as exc:  # a failed probe, by its type only
             return HealthResult(status="fail", details={"error": type(exc).__name__})
+        refused_before = self._refusal is not None
+        try:
+            unverified = await self._guarded("policy check", self._check_policy(client))
+        except InfraError as exc:
+            if self._refusal is None:  # the read failed; the server did not refuse
+                return HealthResult(
+                    status="fail", details={"error": type(exc).__name__}
+                )
+            if refused_before or self._assume_refused():
+                reason = "eviction_check_refused"
+            elif isinstance(exc, InvalidArgument):
+                reason = "evicting_policy"
+            else:
+                reason = "noeviction_unverifiable"
+            return HealthResult(status="fail", details={"reason": reason})
         latency = round((time.monotonic() - started) * 1000, 1)
-        if refused:
+        if unverified:
             return HealthResult(
                 status="degraded",
-                details={"reason": "unverified_noeviction", "latency_ms": latency},
+                details={"reason": "noeviction_unverified", "latency_ms": latency},
             )
         return HealthResult(status="ok", details={"latency_ms": latency})
 
@@ -268,16 +358,16 @@ class RedisLeaseProvider(LeaseProvider):
         if (
             isinstance(ttl_seconds, bool)
             or not isinstance(ttl_seconds, int)
-            or ttl_seconds < _MIN_TTL_SECONDS
+            or ttl_seconds < MIN_LEASE_TTL_SECONDS
         ):
             raise InvalidArgument(
-                f"a lease TTL is a whole number of seconds >= {_MIN_TTL_SECONDS}",
+                f"a lease TTL is a whole number of seconds >= {MIN_LEASE_TTL_SECONDS}",
                 capability=self.capability,
                 instance=self.name,
             )
-        if not isinstance(owner, str) or len(owner) > _MAX_NAME_LENGTH:
+        if not isinstance(owner, str) or len(owner) > MAX_LEASE_NAME_LENGTH:
             raise InvalidArgument(
-                f"a lease owner is a label of up to {_MAX_NAME_LENGTH} characters",
+                f"a lease owner is a label of up to {MAX_LEASE_NAME_LENGTH} characters",
                 capability=self.capability,
                 instance=self.name,
             )
@@ -315,4 +405,27 @@ class RedisLeaseProvider(LeaseProvider):
         return LeaseHolder(owner=str(owner), fence=int(fence))
 
 
-__all__ = ["RedisLeaseOptions", "RedisLeaseProvider"]
+def make_redis_lease_factory(
+    *, assume_allowed: Callable[[], bool]
+) -> Callable[[_InstanceLike], RedisLeaseProvider]:
+    """The driver factory the kernel registers (``build=``): it states the
+    policy for ``never_evicts_check=assume``. It has no default, so no caller
+    builds the driver without stating it."""
+
+    def build(cfg: _InstanceLike) -> RedisLeaseProvider:
+        return RedisLeaseProvider(
+            name=cfg.name,
+            driver=cfg.driver,
+            options=dict(cfg.options),
+            assume_allowed=assume_allowed,
+        )
+
+    return build
+
+
+__all__ = [
+    "UNVERIFIED_NOEVICTION_RISK",
+    "RedisLeaseOptions",
+    "RedisLeaseProvider",
+    "make_redis_lease_factory",
+]
