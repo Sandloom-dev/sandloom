@@ -23,7 +23,7 @@ driver reads no environment. The harness calls the hook of every configured
 instance of a driver; a driver package needs no pytest plugin for it.
 """
 
-from sandloom.core.infra.ports._base import (
+from sandloom.core.infra.worker_isolation import (
     DEFAULT_STRIDE,
     WorkerLayout,
     isolated_redis_options,

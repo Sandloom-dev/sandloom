@@ -20,7 +20,11 @@ kernel refactor breaks it. ``packages/sandloom-s3`` is the model: it imports
   ``removed_by`` (the tm slice that removes them, or ``stays: <reason>``).
   The list only shrinks: an import it does not list fails, an entry no longer
   imported does not, and :data:`SEEDED` pins it, so an entry added to the
-  JSON fails too.
+  JSON fails too. No new entry, ever: a driver written since (``atomic_store``,
+  ``lease``, ``broadcast``) imports only ``sandloom.driverkit``, and what it needs
+  of the kernel is re-exported there (the code stays in ``sandloom.core``). The
+  kernel never imports ``sandloom.driverkit`` (``.importlinter``,
+  ``kernel-never-imports-driverkit``), so the door stays one way.
 
 Counted, at any depth (function-local and ``TYPE_CHECKING`` imports
 included: a moved driver has neither): ``import sandloom...``,
@@ -150,23 +154,11 @@ SEEDED: dict[str, frozenset[str]] = {
             "sandloom.core.observability.metrics_utils",
         }
     ),
-    _D + "memory_atomic_store.py": frozenset(
-        {
-            "sandloom.core.infra.ports.atomic_store",
-        }
-    ),
     _D + "memory_document_store.py": frozenset(
         {
             "sandloom.core.infra.config",
             "sandloom.core.infra.extra_capabilities",
             "sandloom.core.projections.stores",
-        }
-    ),
-    _D + "redis_atomic_store.py": frozenset(
-        {
-            "sandloom.core.descriptors",
-            "sandloom.core.infra.errors",
-            "sandloom.core.infra.ports.atomic_store",
         }
     ),
     _D + "redis_cache.py": frozenset(
