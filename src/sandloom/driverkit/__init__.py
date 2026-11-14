@@ -11,21 +11,31 @@ registers it with
 business module may not import this package (SANDLOOM-C004), and the kernel
 never does. A contract joins it
 only with a kit in :mod:`sandloom.driverkit.testing`. A driver states its
-``contract_version``; another major version is refused at load (SANDLOOM-B022).
+``contract_version``, the integer major of its capability; another major is
+refused at load (SANDLOOM-B022). An operation raises only the errors of
+:mod:`sandloom.core.infra.errors` (:class:`InfraError` and its subclasses,
+re-exported here), mapping its backend's errors onto them.
 Guide: ``docs/infrastructure/write-a-driver.md``.
 """
 
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.infra.capabilities import CapabilityRef, CapabilitySpec
-from sandloom.core.infra.contracts import (
-    InfraProvider,
-    InvalidObjectKeyError,
-    Notification,
-    NotifierProvider,
+from sandloom.core.infra.errors import (
+    AlreadyExists,
+    InfraError,
+    InvalidArgument,
+    NotFound,
+    PermissionDenied,
+    Timeout,
+    TooLarge,
+    Unavailable,
+    Unsupported,
+)
+from sandloom.core.infra.ports._base import InfraProvider
+from sandloom.core.infra.ports.notification import Notification, NotifierProvider
+from sandloom.core.infra.ports.objectstore import (
     ObjectContent,
     ObjectStoreProvider,
-    ObjectTooLargeError,
-    UploadTooLargeError,
     iter_object_chunks,
     validate_object_key,
 )
@@ -44,6 +54,15 @@ from sandloom.core.sql_alchemy.portable import (
 )
 
 __all__ = [
+    "AlreadyExists",
+    "InfraError",
+    "InvalidArgument",
+    "NotFound",
+    "PermissionDenied",
+    "Timeout",
+    "TooLarge",
+    "Unavailable",
+    "Unsupported",
     "CapabilityRef",
     "ConflictInsert",
     "DBAPI_CAPABILITIES",
@@ -58,11 +77,8 @@ __all__ = [
     "InfraProvider",
     "Notification",
     "NotifierProvider",
-    "InvalidObjectKeyError",
     "ObjectContent",
     "ObjectStoreProvider",
-    "ObjectTooLargeError",
-    "UploadTooLargeError",
     "iter_object_chunks",
     "validate_object_key",
     "register_dbapi_adapter",

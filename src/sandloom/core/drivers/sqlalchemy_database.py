@@ -22,7 +22,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, Self, cast
 
 from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import event, exc, text
@@ -223,6 +223,21 @@ def _pool_snapshot(pool: Any) -> dict[str, int] | None:
 class SQLAlchemyDatabaseProvider(DatabaseProvider):
     """A single SQLAlchemy-backed database instance."""
 
+    contract_version = 1
+    supported_features = SQLALCHEMY_DB_FEATURES
+    options_schema = SQLAlchemyDatabaseOptions
+
+    @classmethod
+    def from_config(cls, config: InstanceConfig) -> Self:
+        return cast("Self", create_sqlalchemy_database(config))
+
+    @classmethod
+    def features_for(cls, options: Mapping[str, Any]) -> frozenset[str]:
+        """The base features, the URL's renderer features and ``tenant_rls``
+        when that option is on (:func:`sqlalchemy_db_features`). Not memoised:
+        the answer follows the renderer registered for the URL's dialect."""
+        return sqlalchemy_db_features(options) & SQLALCHEMY_DB_FEATURES
+
     def __init__(
         self,
         *,
@@ -240,7 +255,6 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
         self._session_factory = session_factory
         # The shared process-wide engine is disposed by its owner, not here.
         self._owns_engine = owns_engine
-        self._features = sqlalchemy_db_features(options)
         # Dedicated pool for contract calls' own UoWs (built lazily on first
         # use). ``None`` from the factory = no separate pool for this backend.
         self._contract_engine_factory = contract_engine
@@ -261,9 +275,6 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
     @property
     def session_factory(self) -> async_sessionmaker[AsyncSession]:
         return self._session_factory
-
-    def features(self) -> frozenset[str]:
-        return self._features
 
     def outbox(self) -> OutboxStore:
         return sql_alchemy_outbox_store()

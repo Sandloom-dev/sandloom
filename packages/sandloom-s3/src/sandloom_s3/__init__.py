@@ -19,15 +19,51 @@ from pydantic import (
 
 from sandloom.driverkit import (
     HealthResult,
+    InfraError,
+    NotFound,
     ObjectContent,
     ObjectStoreProvider,
-    ObjectTooLargeError,
-    UploadTooLargeError,
+    PermissionDenied,
+    Timeout,
+    TooLarge,
+    Unavailable,
     iter_object_chunks,
     validate_object_key,
 )
 
 _CHUNK_SIZE = 1024 * 1024
+#: S3 error codes of a refused identity (the read is not a miss).
+_DENIED = frozenset(
+    {"AccessDenied", "InvalidAccessKeyId", "SignatureDoesNotMatch", "403"}
+)
+_MISSING = frozenset({"NoSuchKey", "404"})
+
+
+def _mapped(exc: Exception, instance: str) -> InfraError:
+    """The contract's error for a botocore failure (spec 9). The message is
+    the error code or type, never the backend text (it can carry the URL)."""
+    from botocore.exceptions import (
+        ClientError,
+        ConnectTimeoutError,
+        ReadTimeoutError,
+    )
+
+    if isinstance(exc, ClientError):
+        code = str(exc.response.get("Error", {}).get("Code", ""))
+        message = f"s3 refused the request: {code or 'ClientError'}"
+        if code in _MISSING:
+            return NotFound(message, capability="objectstore", instance=instance)
+        if code in _DENIED:
+            return PermissionDenied(
+                message, capability="objectstore", instance=instance
+            )
+        return Unavailable(message, capability="objectstore", instance=instance)
+    message = f"s3 request failed: {type(exc).__name__}"
+    if isinstance(exc, (ConnectTimeoutError, ReadTimeoutError)):
+        return Timeout(message, capability="objectstore", instance=instance)
+    return Unavailable(message, capability="objectstore", instance=instance)
+
+
 _MAX_SINGLE_PUT = 5 * 1024**3
 
 
@@ -63,7 +99,7 @@ class S3Options(BaseModel):
 
 
 class S3ObjectStore(ObjectStoreProvider):
-    contract_version = "v1"
+    contract_version = 2
     supported_features = frozenset({"metadata", "presigned_get"})
     options_schema = S3Options
     # The SDK is imported inside the constructor path and operations, so the
@@ -135,10 +171,30 @@ class S3ObjectStore(ObjectStoreProvider):
             params["ContentType"] = content_type
         if metadata is not None:
             params["Metadata"] = dict(metadata)
+        from botocore.exceptions import BotoCoreError, ClientError
+
         client = await self._backend()
+        try:
+            await self._put(client, key, data, limit, params)
+        except (BotoCoreError, ClientError) as exc:
+            raise _mapped(exc, self.name) from exc
+        return key
+
+    async def _put(
+        self,
+        client: Any,
+        key: str,
+        data: ObjectContent,
+        limit: int,
+        params: dict[str, Any],
+    ) -> None:
         if isinstance(data, (bytes, bytearray)):
             if len(data) > limit:
-                raise UploadTooLargeError(f"Upload exceeds {limit} bytes")
+                raise TooLarge(
+                    f"Upload exceeds {limit} bytes",
+                    capability="objectstore",
+                    instance=self.name,
+                )
             await to_thread.run_sync(
                 partial(client.put_object, Body=bytes(data), **params)
             )
@@ -151,44 +207,54 @@ class S3ObjectStore(ObjectStoreProvider):
                 async for chunk in iter_object_chunks(data, _CHUNK_SIZE):
                     written += len(chunk)
                     if written > limit:
-                        raise UploadTooLargeError(f"Upload exceeds {limit} bytes")
+                        raise TooLarge(
+                            f"Upload exceeds {limit} bytes",
+                            capability="objectstore",
+                            instance=self.name,
+                        )
                     await to_thread.run_sync(body.write, chunk)
                 await to_thread.run_sync(body.seek, 0)
                 await to_thread.run_sync(
                     partial(client.put_object, Body=body, **params)
                 )
-        return key
 
     async def get(self, key: str) -> bytes:
         validate_object_key(key)
         client = await self._backend()
 
         def read() -> bytes:
-            from botocore.exceptions import ClientError
+            from botocore.exceptions import BotoCoreError, ClientError
 
             try:
                 result = client.get_object(Bucket=self._config.bucket, Key=key)
-            except ClientError as exc:
-                if exc.response["Error"]["Code"] == "NoSuchKey":
-                    raise FileNotFoundError(key) from exc
-                raise
-            body = result["Body"]
-            try:
-                limit = self._config.max_upload_size_bytes
-                if limit and result["ContentLength"] > limit:
-                    raise ObjectTooLargeError(f"Stored object exceeds {limit} bytes")
-                return cast(bytes, body.read())
-            finally:
-                body.close()
+                body = result["Body"]
+                try:
+                    limit = self._config.max_upload_size_bytes
+                    if limit and result["ContentLength"] > limit:
+                        raise TooLarge(
+                            f"Stored object exceeds {limit} bytes",
+                            capability="objectstore",
+                            instance=self.name,
+                        )
+                    return cast(bytes, body.read())
+                finally:
+                    body.close()
+            except (BotoCoreError, ClientError) as exc:
+                raise _mapped(exc, self.name) from exc
 
         return await to_thread.run_sync(read)
 
     async def delete(self, key: str) -> None:
         validate_object_key(key)
+        from botocore.exceptions import BotoCoreError, ClientError
+
         client = await self._backend()
-        await to_thread.run_sync(
-            partial(client.delete_object, Bucket=self._config.bucket, Key=key)
-        )
+        try:
+            await to_thread.run_sync(
+                partial(client.delete_object, Bucket=self._config.bucket, Key=key)
+            )
+        except (BotoCoreError, ClientError) as exc:
+            raise _mapped(exc, self.name) from exc
 
     async def url(self, key: str) -> str:
         validate_object_key(key)

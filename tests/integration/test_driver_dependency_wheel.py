@@ -19,7 +19,7 @@ DRIVER = """\
 from sandloom.driverkit import NotifierProvider
 
 class WheelNotifier(NotifierProvider):
-    contract_version = "v1"
+    contract_version = 2
     supported_features = frozenset({"email"})
     required_imports = ("wheel_notifier_backend",)
     install_hint = "pip install 'wheel-notifier[backend]'"

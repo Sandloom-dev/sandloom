@@ -573,12 +573,11 @@ the idempotency / contract-dedupe store.
 def features(self) -> frozenset[str]
 ```
 
-Optional capability features THIS instance actually supports.
+The features THIS instance supports: `features_for(options)`.
 
-A subset of the owning `CapabilitySpec`'s declared features. A
-module may require a feature; the registry resolves against the driver's
-advertised set, so it can refuse a backend that cannot do what the
-module needs (e.g. a graph store without `cypher`). Default: none.
+Never overridden: the registry checks at build that the instance
+reports what its class declared, so a module's requirement that passes
+at startup cannot fail on first use.
 
 #### `InMemoryCache.get`
 
@@ -676,6 +675,9 @@ async def health(self) -> HealthResult
 ```
 
 Liveness probe for this instance. Default: always healthy.
+
+`details` carries only non-secret facts: the driver name, an error
+type name, a latency, a count. Never `str(exc)`, a URL or a key.
 
 ### `keyed_rpc_settings`
 

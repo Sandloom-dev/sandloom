@@ -354,6 +354,16 @@
     }
   },
   "sandloom.core.di": {
+    "AlreadyExists": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
     "AuditUnavailableError": {
       "kind": "class",
       "members": [
@@ -450,6 +460,26 @@
       "kind": "callable",
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
+    "InfraError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "InvalidArgument": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
     "MissingTenantError": {
       "kind": "class",
       "members": [
@@ -459,6 +489,16 @@
         "with_traceback"
       ],
       "signature": null
+    },
+    "NotFound": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Notification": {
       "kind": "class",
@@ -483,6 +523,16 @@
         "url"
       ],
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "PermissionDenied": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
     },
     "PlannedReads": {
       "kind": "callable",
@@ -614,6 +664,36 @@
       "kind": "function",
       "signature": "(header:KEYWORD_ONLY|str='X-Tenant-Id', claim_keys:KEYWORD_ONLY|tuple[str, ...]=tuple('tenant_id','org_id'), required:KEYWORD_ONLY|bool=True) -> Any"
     },
+    "Timeout": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "TooLarge": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "Unavailable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
     "UnitOfWorkRequiredError": {
       "kind": "class",
       "members": [
@@ -631,6 +711,16 @@
         "with_traceback"
       ],
       "signature": null
+    },
+    "Unsupported": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(feature:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
     },
     "UowReads": {
       "kind": "callable",
@@ -2150,6 +2240,7 @@
         "compare_and_delete",
         "compare_and_set",
         "delete",
+        "development_only",
         "driver",
         "features",
         "features_for",
@@ -2161,7 +2252,9 @@
         "incr_many",
         "incr_window",
         "install_hint",
+        "isolation_identity",
         "options_schema",
+        "performance_hints",
         "raw_client",
         "required_imports",
         "set",
@@ -2169,7 +2262,8 @@
         "set_max",
         "set_nx_get",
         "set_subject_state",
-        "supported_features"
+        "supported_features",
+        "test_isolation"
       ],
       "signature": "(broken:KEYWORD_ONLY|bool=False) -> None"
     },
@@ -2436,6 +2530,16 @@
     }
   },
   "sandloom.driverkit": {
+    "AlreadyExists": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
     "CapabilityRef": {
       "kind": "class",
       "members": [
@@ -2450,9 +2554,11 @@
         "config_schema",
         "description",
         "is_experimental",
-        "stability"
+        "major",
+        "stability",
+        "unclassified_features"
       ],
-      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, provider_contract:POSITIONAL_OR_KEYWORD|type, config_schema:POSITIONAL_OR_KEYWORD|type[Any] | None=None, features:POSITIONAL_OR_KEYWORD|frozenset[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, description:POSITIONAL_OR_KEYWORD|str='', stability:POSITIONAL_OR_KEYWORD|CapabilityStability='stable') -> None"
+      "signature": "(name:POSITIONAL_OR_KEYWORD|str, version:POSITIONAL_OR_KEYWORD|str, provider_contract:POSITIONAL_OR_KEYWORD|type, config_schema:POSITIONAL_OR_KEYWORD|type[Any] | None=None, features:POSITIONAL_OR_KEYWORD|frozenset[str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, description:POSITIONAL_OR_KEYWORD|str='', stability:POSITIONAL_OR_KEYWORD|CapabilityStability='stable', feature_kinds:POSITIONAL_OR_KEYWORD|Mapping[str, FeatureKind]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, major:POSITIONAL_OR_KEYWORD|int | None=None) -> None"
     },
     "ConflictInsert": {
       "kind": "class",
@@ -2549,31 +2655,46 @@
       ],
       "signature": "(status:POSITIONAL_OR_KEYWORD|HealthStatus, details:POSITIONAL_OR_KEYWORD|dict[str, object] | None=None) -> None"
     },
+    "InfraError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
     "InfraProvider": {
       "kind": "class",
       "members": [
         "aclose",
         "aopen",
         "capability",
+        "development_only",
         "features",
         "features_for",
         "from_config",
         "health",
         "install_hint",
+        "isolation_identity",
         "options_schema",
+        "performance_hints",
         "required_imports",
-        "supported_features"
+        "supported_features",
+        "test_isolation"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
-    "InvalidObjectKeyError": {
+    "InvalidArgument": {
       "kind": "class",
       "members": [
         "add_note",
         "args",
+        "retryable",
         "with_traceback"
       ],
-      "signature": null
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
     },
     "LockStatement": {
       "kind": "class",
@@ -2584,6 +2705,16 @@
         "statement"
       ],
       "signature": "(statement:POSITIONAL_OR_KEYWORD|ForwardRef('Executable'), parameters:POSITIONAL_OR_KEYWORD|ForwardRef('Mapping[str, Any]'))"
+    },
+    "NotFound": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Notification": {
       "kind": "class",
@@ -2598,15 +2729,19 @@
         "aclose",
         "aopen",
         "capability",
+        "development_only",
         "features",
         "features_for",
         "from_config",
         "health",
         "install_hint",
+        "isolation_identity",
         "options_schema",
+        "performance_hints",
         "required_imports",
         "send",
-        "supported_features"
+        "supported_features",
+        "test_isolation"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -2620,28 +2755,33 @@
         "aopen",
         "capability",
         "delete",
+        "development_only",
         "features",
         "features_for",
         "from_config",
         "get",
         "health",
         "install_hint",
+        "isolation_identity",
         "options_schema",
+        "performance_hints",
         "put",
         "required_imports",
         "supported_features",
+        "test_isolation",
         "url"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
-    "ObjectTooLargeError": {
+    "PermissionDenied": {
       "kind": "class",
       "members": [
         "add_note",
         "args",
+        "retryable",
         "with_traceback"
       ],
-      "signature": null
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
     },
     "RowSecurity": {
       "kind": "class",
@@ -2687,14 +2827,45 @@
     "TENANT_SETTING": {
       "kind": "value"
     },
-    "UploadTooLargeError": {
+    "Timeout": {
       "kind": "class",
       "members": [
         "add_note",
         "args",
+        "retryable",
         "with_traceback"
       ],
-      "signature": null
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "TooLarge": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "Unavailable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "Unsupported": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(feature:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
     },
     "WRITE_LOCK_HELD": {
       "kind": "value"
@@ -4457,6 +4628,16 @@
     }
   },
   "sandloom.sdk.infra": {
+    "AlreadyExists": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
     "CLAIMS_CONTRACT_SUFFIX": {
       "kind": "value"
     },
@@ -4598,6 +4779,36 @@
     "FACTS_CONTRACT_SUFFIX": {
       "kind": "value"
     },
+    "InfraError": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "InvalidArgument": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "NotFound": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
     "Notification": {
       "kind": "class",
       "members": [
@@ -4622,6 +4833,16 @@
       ],
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
+    "PermissionDenied": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
     "ShutdownTask": {
       "kind": "value"
     },
@@ -4634,6 +4855,46 @@
         "enqueue"
       ],
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "Timeout": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "TooLarge": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "Unavailable": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "Unsupported": {
+      "kind": "class",
+      "members": [
+        "add_note",
+        "args",
+        "retryable",
+        "with_traceback"
+      ],
+      "signature": "(feature:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
     },
     "cache": {
       "kind": "function",
@@ -5479,6 +5740,7 @@
         "compare_and_delete",
         "compare_and_set",
         "delete",
+        "development_only",
         "driver",
         "features",
         "features_for",
@@ -5490,7 +5752,9 @@
         "incr_many",
         "incr_window",
         "install_hint",
+        "isolation_identity",
         "options_schema",
+        "performance_hints",
         "raw_client",
         "required_imports",
         "set",
@@ -5498,7 +5762,8 @@
         "set_max",
         "set_nx_get",
         "set_subject_state",
-        "supported_features"
+        "supported_features",
+        "test_isolation"
       ],
       "signature": "(broken:KEYWORD_ONLY|bool=False) -> None"
     },

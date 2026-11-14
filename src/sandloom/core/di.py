@@ -65,6 +65,17 @@ from sandloom.core.infra.contracts import (
     ObjectStore,
     TaskQueue,
 )
+from sandloom.core.infra.errors import (
+    AlreadyExists,
+    InfraError,
+    InvalidArgument,
+    NotFound,
+    PermissionDenied,
+    Timeout,
+    TooLarge,
+    Unavailable,
+    Unsupported,
+)
 from sandloom.core.module_api import bind_contract_session, contract_session
 from sandloom.core.module_api._service_registry import (
     ServiceNotFound,
@@ -783,6 +794,15 @@ UowReads = Annotated[Any, Depends(get_uow_reads, scope=_UOW_DEPENDENCY_SCOPE)]
 settings = _settings
 
 __all__ = [
+    "AlreadyExists",
+    "InfraError",
+    "InvalidArgument",
+    "NotFound",
+    "PermissionDenied",
+    "Timeout",
+    "TooLarge",
+    "Unavailable",
+    "Unsupported",
     "Cache",
     "CapabilityRef",
     "Notifier",

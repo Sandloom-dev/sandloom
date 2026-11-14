@@ -19,7 +19,6 @@ from sqlalchemy.schema import CreateIndex, CreateTable
 
 from sandloom.core.infra.capabilities import NOTIFICATION_CAPABILITY
 from sandloom.core.infra.contracts import NotificationChannel
-from sandloom.core.infra.registry import versions_compatible
 from sandloom.core.sql_alchemy.portable import (
     RENDERER_FEATURES,
     ROW_SECURITY_MEMBERS,
@@ -31,8 +30,9 @@ from sandloom.driverkit import (
     TENANT_SETTING,
     ConflictInsert,
     HealthResult,
-    InvalidObjectKeyError,
+    InvalidArgument,
     LockStatement,
+    NotFound,
     Notification,
     NotifierProvider,
     SqlDialect,
@@ -102,11 +102,12 @@ class NotifierConformance:
         self, provider: NotifierProvider
     ) -> None:
         version = getattr(type(provider), "contract_version", None)
+        major = NOTIFICATION_CAPABILITY.major
         _require(
-            isinstance(version, str)
-            and versions_compatible(NOTIFICATION_CAPABILITY.version, version),
-            f"contract_version must match {NOTIFICATION_CAPABILITY.version!r}, got "
-            f"{version!r}",
+            isinstance(version, int)
+            and not isinstance(version, bool)
+            and version == major,
+            f"contract_version must be the integer {major!r}, got {version!r}",
         )
 
     async def test_advertises_only_defined_features(
@@ -907,7 +908,7 @@ class ObjectStoreConformance:
         try:
             _require(await store.get(key) == b"first", "read returns stored bytes")
             prefix, _, _ = key.rpartition("/")
-            with pytest.raises(FileNotFoundError):
+            with pytest.raises(NotFound):
                 await store.get(prefix)
             await store.delete(prefix)
             _require(
@@ -918,7 +919,7 @@ class ObjectStoreConformance:
         finally:
             await store.delete(key)
         await store.delete(key)
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(NotFound):
             await store.get(key)
 
     async def test_object_failed_upload_preserves_previous_value(
@@ -946,13 +947,13 @@ class ObjectStoreConformance:
             "a\x00b",
             "é" * 513,
         ):
-            with pytest.raises(InvalidObjectKeyError):
+            with pytest.raises(InvalidArgument):
                 await store.put(key, b"test")
-            with pytest.raises(InvalidObjectKeyError):
+            with pytest.raises(InvalidArgument):
                 await store.get(key)
-            with pytest.raises(InvalidObjectKeyError):
+            with pytest.raises(InvalidArgument):
                 await store.delete(key)
-            with pytest.raises(InvalidObjectKeyError):
+            with pytest.raises(InvalidArgument):
                 await store.url(key)
 
     async def test_object_async_stream(self, store: ObjectStore) -> None:

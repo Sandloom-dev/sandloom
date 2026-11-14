@@ -71,7 +71,7 @@ from sandloom.core.infra.contracts import TaskQueueProvider
 
 
 class NoPeriodicQueue(TaskQueueProvider):
-    contract_version = "v1"
+    contract_version = 1
     supported_features = frozenset({"delay"})
 
     async def enqueue(

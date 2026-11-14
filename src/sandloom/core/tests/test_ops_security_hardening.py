@@ -91,7 +91,7 @@ def test_decode_token_never_raises_on_key_errors(
 
 def test_s3_storage_fails_fast_at_startup() -> None:
     from sandloom.core.drivers.bootstrap import build_infra_registry
-    from sandloom.core.infra.registry import InfraError
+    from sandloom.core.infra.registry import InfraRegistryError
     from sandloom.core.schema.registry import InMemorySchemaRegistry
 
     cfg = _settings(
@@ -102,7 +102,7 @@ def test_s3_storage_fails_fast_at_startup() -> None:
         S3_ACCESS_KEY_ID="k",
         S3_SECRET_ACCESS_KEY="s",
     )
-    with pytest.raises(InfraError, match="no registered driver"):
+    with pytest.raises(InfraRegistryError, match="no registered driver"):
         build_infra_registry(InMemorySchemaRegistry(), settings=cfg, load_plugins=False)
 
 

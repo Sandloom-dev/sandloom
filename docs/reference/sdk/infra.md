@@ -17,6 +17,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 
 | Name | Kind | Summary |
 | --- | --- | --- |
+| [`AlreadyExists`](#alreadyexists) | exception | A create that must not overwrite found an existing resource. |
 | [`Cache`](#cache) | class | What a module calls on `cache()`: the operations, not the lifecycle. |
 | [`cache`](#cache_1) | function | Return the operation-based `CacheProvider` for a named instance. |
 | [`capability`](#capability) | function | Return the instance `name` of the capability `ref` points to, typed by the ref. A capability's package publishes the ref and the caller's... |
@@ -30,18 +31,39 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`facts_contract_name`](#facts_contract_name) | function | `"billing"` -> `"billing.facts.v1"`. |
 | [`FACTS_CONTRACT_SUFFIX`](#facts_contract_suffix) | constant |  |
 | [`get_core`](#get_core) | async function | Return the read-only `CoreRuntime` view of the app's facade. |
+| [`InfraError`](#infraerror) | exception | Base of every error a capability operation raises on purpose. |
+| [`InvalidArgument`](#invalidargument) | exception | A key, value, TTL or option outside the contract. |
+| [`NotFound`](#notfound) | exception | An addressed resource is absent (`objectstore.get` of a missing key). |
 | [`Notification`](#notification) | class | One outbound notification, independent of the delivery backend. |
 | [`Notifier`](#notifier) | class | What a module calls on `notifier()`. |
 | [`notifier`](#notifier_1) | function | Return the `NotifierProvider` for a named instance. |
 | [`ObjectStore`](#objectstore) | class | Key-addressed objects in one configured store. |
 | [`objectstore`](#objectstore_1) | function | Return the `ObjectStoreProvider` for a named instance (the module-level twin of `CoreRuntime.objectstore`; spec §2.2). |
+| [`PermissionDenied`](#permissiondenied) | exception | The backend refused the credentials. |
 | [`settings`](#settings) | settings object |  |
 | [`ShutdownTask`](#shutdowntask) | constant |  |
 | [`StartupTask`](#startuptask) | constant |  |
 | [`TaskQueue`](#taskqueue) | class | What a module calls on `taskqueue()`. |
 | [`taskqueue`](#taskqueue_1) | function | Return the `TaskQueueProvider` for a named instance (the module-level twin of `CoreRuntime.taskqueue`; spec §2.2). |
+| [`Timeout`](#timeout) | exception | The operation did not finish within its bound. The caller may retry. |
+| [`TooLarge`](#toolarge) | exception | A value, object or payload over a limit. |
+| [`Unavailable`](#unavailable) | exception | Transient: connection lost, failover, overload. The caller may retry. |
+| [`Unsupported`](#unsupported) | exception | A call needs a behaviour feature the instance does not declare. |
 
 ## Advanced names
+
+### `AlreadyExists`
+
+```python
+class AlreadyExists(InfraError)(
+    message: str,
+    *,
+    capability: str,
+    instance: str | None = None,
+) -> None
+```
+
+A create that must not overwrite found an existing resource.
 
 ### `Cache`
 
@@ -653,6 +675,45 @@ the anyio thread pool on every request (a thread hop for an attribute
 read). Use it as `Depends(get_core)`; a direct call is
 `core = await get_core(request)`.
 
+### `InfraError`
+
+```python
+class InfraError(Exception)(
+    message: str,
+    *,
+    capability: str,
+    instance: str | None = None,
+) -> None
+```
+
+Base of every error a capability operation raises on purpose.
+
+### `InvalidArgument`
+
+```python
+class InvalidArgument(InfraError)(
+    message: str,
+    *,
+    capability: str,
+    instance: str | None = None,
+) -> None
+```
+
+A key, value, TTL or option outside the contract.
+
+### `NotFound`
+
+```python
+class NotFound(InfraError)(
+    message: str,
+    *,
+    capability: str,
+    instance: str | None = None,
+) -> None
+```
+
+An addressed resource is absent (`objectstore.get` of a missing key).
+
 ### `Notification`
 
 ```python
@@ -721,13 +782,22 @@ representable on that filesystem.
 
 A complete put publishes one object and returns its key. A source read
 failure or size refusal preserves any previous object. Get returns bytes
-and raises FileNotFoundError when the backend reports a missing key.
-Delete succeeds when the key is absent. In a versioned store it removes
-the current object from ordinary reads. Older versions follow backend policy.
+and raises `NotFound` when the backend reports a missing key. Delete
+succeeds when the key is absent. In a versioned store it removes the
+current object from ordinary reads. Older versions follow backend policy.
+
+Errors (`sandloom.sdk.infra`): `put` raises `InvalidArgument` (the
+key), `TooLarge`, `PermissionDenied`, `Unavailable`, `Timeout`;
+`get` raises `InvalidArgument`, `NotFound`, `TooLarge` (over the
+buffered read limit), `PermissionDenied`, `Unavailable`, `Timeout`;
+`delete` raises `InvalidArgument`, `PermissionDenied`,
+`Unavailable`; `url` raises `InvalidArgument` and
+`Unsupported("presigned_get")`.
 
 Content type and metadata are available when the driver advertises
 `metadata`. A driver with `presigned_get` can issue a time-limited
-retrieval link without checking that the object exists.
+retrieval link without checking that the object exists; without it `url`
+raises `Unsupported("presigned_get")`.
 
 #### `ObjectStore.put`
 
@@ -768,6 +838,19 @@ def objectstore(name: str = 'default') -> ObjectStore
 
 Return the `ObjectStoreProvider` for a named instance (the
 module-level twin of `CoreRuntime.objectstore`; spec §2.2).
+
+### `PermissionDenied`
+
+```python
+class PermissionDenied(InfraError)(
+    message: str,
+    *,
+    capability: str,
+    instance: str | None = None,
+) -> None
+```
+
+The backend refused the credentials.
 
 ### `settings`
 
@@ -822,6 +905,58 @@ def taskqueue(name: str = 'default') -> TaskQueue
 
 Return the `TaskQueueProvider` for a named instance (the module-level
 twin of `CoreRuntime.taskqueue`; spec §2.2).
+
+### `Timeout`
+
+```python
+class Timeout(InfraError)(
+    message: str,
+    *,
+    capability: str,
+    instance: str | None = None,
+) -> None
+```
+
+The operation did not finish within its bound. The caller may retry.
+
+### `TooLarge`
+
+```python
+class TooLarge(InfraError)(
+    message: str,
+    *,
+    capability: str,
+    instance: str | None = None,
+) -> None
+```
+
+A value, object or payload over a limit.
+
+### `Unavailable`
+
+```python
+class Unavailable(InfraError)(
+    message: str,
+    *,
+    capability: str,
+    instance: str | None = None,
+) -> None
+```
+
+Transient: connection lost, failover, overload. The caller may retry.
+
+### `Unsupported`
+
+```python
+class Unsupported(InfraError)(
+    feature: str,
+    *,
+    capability: str,
+    instance: str | None = None,
+) -> None
+```
+
+A call needs a behaviour feature the instance does not declare.
 
 ## Examples and related guides
 

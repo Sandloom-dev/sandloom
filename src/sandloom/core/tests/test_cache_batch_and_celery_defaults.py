@@ -44,7 +44,7 @@ async def test_redis_batch_ops_round_trip() -> None:
         assert await cache.get_many(keys) == ["x", None, "z"]
         client = await cache.raw_client()
         assert 0 < await client.ttl(keys[0]) <= 30
-        assert {"get_many", "set_many"} <= cache.features()
+        assert {"get_many", "set_many"} <= set(cache.performance_hints)
     finally:
         client = await cache.raw_client()
         await client.delete(*keys)

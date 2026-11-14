@@ -458,6 +458,15 @@ bundled modules and examples. `CoreFacade` appears once, only in a test comment.
 | `core.di.Notifier` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
 | `core.di.ObjectStore` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
 | `core.di.TaskQueue` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
+| `core.di.AlreadyExists` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
+| `core.di.InfraError` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
+| `core.di.InvalidArgument` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
+| `core.di.NotFound` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
+| `core.di.PermissionDenied` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
+| `core.di.Timeout` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
+| `core.di.TooLarge` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
+| `core.di.Unavailable` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
+| `core.di.Unsupported` | sandloom.sdk.infra | kept | 0 |  | C-INFRA-02 |
 | `core.di.notifier` | aja.sdk.infra | kept | 7 | name | G-INFRA-02, G-RISK-06, G-OPS-14, C-INFRA-07, C-INFRA-11 |
 | `core.di.on_commit` | aja.sdk.effects | kept | 5 | callback, database | G-UOW-04, G-UOW-05, G-EFFECT-01, G-BLOCK-03, G-CONTRACT-02, C-EFFECT-02 |
 | `core.di.operation_class` | deny-by-default + snapshot (G-ROUTE-01/04) | adr0009 | 27 | name | G-IDEM-13, G-OPCLASS-04, G-GUARD-03 |

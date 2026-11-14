@@ -15,7 +15,7 @@ every environment, with a hint naming the composition roots that bind one.
 
 from __future__ import annotations
 
-from typing import TypeVar, cast
+from typing import Literal, TypeVar, cast
 
 from sandloom.core.config.settings import settings
 from sandloom.core.infra.active import get_active_infra
@@ -27,6 +27,9 @@ from sandloom.core.infra.contracts import (
     ObjectStore,
     TaskQueue,
 )
+from sandloom.core.infra.ports.atomic_store import AtomicStore
+from sandloom.core.infra.ports.broadcast import Broadcast
+from sandloom.core.infra.ports.lease import LeaseStore
 
 P = TypeVar("P")
 
@@ -122,6 +125,38 @@ def taskqueue(name: str = "default") -> TaskQueue:
     return cast("TaskQueue", get_active_infra().resolve("taskqueue", name))
 
 
+#: The roles of the kernel's ``atomic_store`` instances (spec 4, "Instances").
+AtomicStoreRole = Literal["security", "idempotency"]
+
+
+def atomic_store(role: AtomicStoreRole) -> AtomicStore:
+    """The ``atomic_store`` instance of a kernel role.
+
+    ``security`` holds revocation marks, subject blocks and RPC nonces;
+    ``idempotency`` holds idempotency reservations and enqueue dedupe, and is
+    the ``security`` instance when ``INFRA.atomic_store.idempotency`` is not
+    configured. Resolves via the process-active registry.
+    """
+    registry = get_active_infra()
+    name: str = role
+    if (
+        role == "idempotency"
+        and registry.instance_config("atomic_store", "idempotency") is None
+    ):
+        name = "security"
+    return cast("AtomicStore", registry.provider("atomic_store", name))
+
+
+def lease(name: str) -> LeaseStore:
+    """The ``lease`` instance ``name`` (the kernel uses ``beat``)."""
+    return cast("LeaseStore", get_active_infra().provider("lease", name))
+
+
+def broadcast(name: str = "default") -> Broadcast:
+    """The ``broadcast`` instance ``name``."""
+    return cast("Broadcast", get_active_infra().provider("broadcast", name))
+
+
 def capability(ref: CapabilityRef[P], name: str = "default") -> P:
     """Return the instance ``name`` of the capability ``ref`` points to, typed by the
     ref. A capability's package publishes the ref and the caller's Protocol, and the
@@ -130,6 +165,10 @@ def capability(ref: CapabilityRef[P], name: str = "default") -> P:
 
 
 __all__ = [
+    "AtomicStoreRole",
+    "atomic_store",
+    "broadcast",
+    "lease",
     "cache",
     "capability",
     "idempotency_cache",

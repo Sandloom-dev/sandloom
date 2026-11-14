@@ -11,7 +11,7 @@ from sandloom.driverkit import Notification, NotifierProvider
 
 
 class FileNotifier(NotifierProvider):
-    contract_version = "v1"
+    contract_version = 2
     supported_features = frozenset({"email"})
 
     def __init__(self, *, name: str, driver: str, options: Mapping[str, Any]) -> None:

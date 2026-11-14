@@ -12,19 +12,11 @@ from contextlib import suppress
 from tempfile import mkstemp
 
 from sandloom.core.config.settings import settings
-from sandloom.core.infra.contracts import (
-    InvalidObjectKeyError as UnsafeStoragePathError,
-)
-from sandloom.core.infra.contracts import (
+from sandloom.core.infra.errors import InvalidArgument, NotFound, TooLarge
+from sandloom.core.infra.ports.objectstore import (
     ObjectContent,
     iter_object_chunks,
     validate_object_key,
-)
-from sandloom.core.infra.contracts import (
-    ObjectTooLargeError as ObjectTooLargeError,
-)
-from sandloom.core.infra.contracts import (
-    UploadTooLargeError as UploadTooLargeError,
 )
 
 _CHUNK_SIZE = 1024 * 1024  # 1 MiB
@@ -61,11 +53,14 @@ class Storage:
         base = os.path.realpath(self.path)
         candidate = os.path.realpath(os.path.join(base, filename))
         if os.path.commonpath((base, candidate)) != base:
-            raise UnsafeStoragePathError(
-                f"Filename escapes the storage root: {filename!r}"
+            raise InvalidArgument(
+                f"Filename escapes the storage root: {filename!r}",
+                capability="objectstore",
             )
         if candidate == base:
-            raise UnsafeStoragePathError("Filename resolves to the storage root")
+            raise InvalidArgument(
+                "Filename resolves to the storage root", capability="objectstore"
+            )
         return candidate
 
     async def save(self, file: ObjectContent, filename: str) -> str:
@@ -83,7 +78,9 @@ class Storage:
                 async for chunk in iter_object_chunks(file, _CHUNK_SIZE):
                     written += len(chunk)
                     if limit and written > limit:
-                        raise UploadTooLargeError(f"Upload exceeds {limit} bytes")
+                        raise TooLarge(
+                            f"Upload exceeds {limit} bytes", capability="objectstore"
+                        )
                     write = asyncio.create_task(asyncio.to_thread(target.write, chunk))
                     try:
                         await asyncio.shield(write)
@@ -116,7 +113,9 @@ class Storage:
         The contract returns the whole object, so the read is bounded by the
         same MAX_UPLOAD_SIZE_BYTES that caps puts (0 disables it): an object
         placed out of band, or stored before the limit was lowered, raises
-        :class:`ObjectTooLargeError` instead of being loaded into memory.
+        :class:`~sandloom.core.infra.errors.TooLarge` instead of being loaded
+        into memory. A missing object raises
+        :class:`~sandloom.core.infra.errors.NotFound`.
         """
         if self.type != "local":
             raise NotImplementedError(f"Storage type '{self.type}' not implemented.")
@@ -125,21 +124,22 @@ class Storage:
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
         try:
             fd = await asyncio.to_thread(os.open, full_path, flags)
-        except NotADirectoryError as exc:
-            raise FileNotFoundError(filename) from exc
+        except (FileNotFoundError, NotADirectoryError) as exc:
+            raise NotFound(filename, capability="objectstore") from exc
         try:
             fh = os.fdopen(fd, "rb")
         except IsADirectoryError as exc:
             os.close(fd)
-            raise FileNotFoundError(filename) from exc
+            raise NotFound(filename, capability="objectstore") from exc
         try:
             if not limit:
                 return await asyncio.to_thread(fh.read)
             # One byte past the limit detects a file that grows after open.
             data = await asyncio.to_thread(fh.read, limit + 1)
             if len(data) > limit:
-                raise ObjectTooLargeError(
-                    f"Stored object exceeds {limit} bytes (MAX_UPLOAD_SIZE_BYTES)"
+                raise TooLarge(
+                    f"Stored object exceeds {limit} bytes (MAX_UPLOAD_SIZE_BYTES)",
+                    capability="objectstore",
                 )
             return data
         finally:

@@ -16,6 +16,7 @@ from sandloom.core.drivers.smtp_notifier import (
 from sandloom.core.infra.capabilities import NOTIFICATION_CAPABILITY
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.contracts import Notification, NotifierProvider
+from sandloom.core.infra.errors import Unsupported
 from sandloom.core.infra.registry import InfraRegistry
 
 
@@ -84,10 +85,11 @@ async def test_smtp_rejects_non_email_channel() -> None:
         InstanceConfig("notification", "default", "smtp", {"host": "localhost"})
     )
     assert provider.features() == {"email"}
-    with pytest.raises(ValueError, match="email"):
+    with pytest.raises(Unsupported) as refused:
         await provider.send(
             Notification(channel="sms", recipient="+100", subject="s", body="b")
         )
+    assert refused.value.feature == "sms"
 
 
 class _FakeSMTP:

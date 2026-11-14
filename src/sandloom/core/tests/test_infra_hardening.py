@@ -14,12 +14,13 @@ import pytest
 
 from sandloom.core.config.settings import settings
 from sandloom.core.contracts.validators import ContractValidationError
-from sandloom.core.drivers.filesystem_storage import Storage, UnsafeStoragePathError
+from sandloom.core.drivers.filesystem_storage import Storage
 from sandloom.core.drivers.local_objectstore import LocalObjectStoreProvider
 from sandloom.core.drivers.redis_cache import create_redis_cache
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.eventing.pubsub_bus import RedisEventBus
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
+from sandloom.core.infra.errors import InvalidArgument, Unsupported
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.testing import register_event_schemas
 
@@ -202,11 +203,10 @@ async def test_objectstore_roundtrip(tmp_path) -> None:
     assert (tmp_path / "a" / "b.txt").read_bytes() == b"hello"
     assert loc == "a/b.txt"
     assert await store.get("a/b.txt") == b"hello"
-    from sandloom.core.infra.registry import FeatureUnsupportedError
-
-    assert "url" not in store.features()
-    with pytest.raises(FeatureUnsupportedError, match="no HTTP retrieval route"):
+    assert "presigned_get" not in store.features()
+    with pytest.raises(Unsupported) as refused:
         await store.url("a/b.txt")
+    assert refused.value.feature == "presigned_get"
     await store.delete("a/b.txt")
     assert not (tmp_path / "a" / "b.txt").exists()
 
@@ -214,7 +214,7 @@ async def test_objectstore_roundtrip(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_objectstore_rejects_traversal(tmp_path) -> None:
     store = _store(tmp_path)
-    with pytest.raises(UnsafeStoragePathError):
+    with pytest.raises(InvalidArgument):
         await store.put("../escape.txt", b"x")
 
 
@@ -226,6 +226,6 @@ async def test_objectstore_rejects_symlink_escaping_root(tmp_path) -> None:
     outside.mkdir()
     (root / "evil").symlink_to(outside, target_is_directory=True)
     store = _store(root)
-    with pytest.raises(UnsafeStoragePathError):
+    with pytest.raises(InvalidArgument):
         await store.put("evil/x.txt", b"data")
     assert not (outside / "x.txt").exists()

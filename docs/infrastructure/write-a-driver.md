@@ -42,8 +42,15 @@ a file.
 --8<-- "docs/snippets/drivers/file_notifier.py"
 ```
 
-- **`contract_version`** is the contract the driver was written for. It is required, and
-  another major version is refused when the driver loads.
+- **`contract_version`** is the integer major of the contract the driver was written for
+  (`notification` and `objectstore` are 2). It is required, and another major, or a
+  string such as `"v1"`, is refused when the driver loads. Built-in drivers are checked
+  the same way.
+- **Errors.** An operation raises only `InfraError` subclasses from `sandloom.driverkit`:
+  map the backend's errors to `NotFound`, `InvalidArgument`, `TooLarge`,
+  `PermissionDenied`, `Unavailable` or `Timeout`. A call that needs a behaviour feature
+  the instance does not declare raises `Unsupported(feature)`. Put the error type in
+  a message, never the backend's text: it can carry a URL with credentials.
 - **`supported_features`** names what the driver really does, and is its one declaration.
   A module that requires `features={"email"}` is refused at startup on a driver that does
   not advertise it. If a feature depends on an option, override the classmethod
@@ -283,7 +290,7 @@ driver of each instance. It needs `INTERNAL_API_TOKEN`
 | Error | Cause and fix |
 | --- | --- |
 | [SANDLOOM-B021](../reference/error-codes.md#sandloom-b021) | The selected name has two providers, or a package published a built-in's name. Uninstall one, or rename your driver. |
-| [SANDLOOM-B022](../reference/error-codes.md#sandloom-b022) | The selected driver failed to import, is not a subclass of the contract, has no `contract_version`, or was written for another major version. It may also declare invalid dependency metadata. The message names the problem. |
+| [SANDLOOM-B022](../reference/error-codes.md#sandloom-b022) | The selected driver failed to import, is not a subclass of the contract, has no integer `contract_version`, or was written for another major version. It may also declare invalid dependency metadata, or be a `development_only` driver selected in production. The message names the problem. |
 | [SANDLOOM-B037](../reference/error-codes.md#sandloom-b037) | A declared import for a selected or required driver is missing. Follow the install hint or select another installed driver in `INFRA`. |
 | `Configured infrastructure instances have no registered driver` | `INFRA` names a driver no installed package publishes. |
 | `ProviderContractError` | An instance reports other features than its class declares. |
