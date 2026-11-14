@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -18,6 +19,7 @@ from uuid import uuid4
 import pytest
 
 from sandloom.core.config.settings import settings
+from sandloom.core.drivers.bootstrap import build_infra_registry
 from sandloom.core.drivers.memory_atomic_store import MemoryAtomicStoreProvider
 from sandloom.core.drivers.redis_atomic_store import (
     RedisAtomicStoreProvider,
@@ -31,6 +33,7 @@ from sandloom.core.infra.errors import (
     Unavailable,
 )
 from sandloom.core.infra.ports.atomic_store import AtomicStoreProvider
+from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.driverkit.testing import AtomicStoreConformance
 
 _VALUE_LIMIT = 8192
@@ -279,6 +282,48 @@ async def test_the_kernel_factory_carries_the_assume_policy() -> None:
     allowed = make_redis_atomic_store_factory(assume_allowed=lambda: True)(config)
     await allowed.aopen()  # a real server: the policy is readable and noeviction
     await allowed.aclose()
+
+
+def _registry_store(*, is_prod: bool, risks: tuple[str, ...] = ()) -> Any:
+    """The ``redis`` atomic_store the registry builds, ``never_evicts_check=assume``."""
+    registry_settings: Any = SimpleNamespace(
+        is_prod=is_prod, accepts_risk=lambda risk: risk in risks, infra={}
+    )
+    config = {
+        "atomic_store": {
+            "default": InstanceConfig(
+                "atomic_store",
+                "default",
+                "redis",
+                _redis_options(never_evicts_check="assume"),
+            )
+        }
+    }
+    registry = build_infra_registry(
+        InMemorySchemaRegistry(),
+        settings=registry_settings,
+        config=config,
+        load_plugins=False,
+    )
+    return registry.provider("atomic_store", "default")
+
+
+@pytest.mark.parametrize(
+    ("is_prod", "risks"),
+    [(False, ()), (True, ("unverified_noeviction",))],
+)
+async def test_the_registry_opens_assume_in_dev_and_with_the_accepted_risk(
+    is_prod: bool, risks: tuple[str, ...]
+) -> None:
+    provider = _registry_store(is_prod=is_prod, risks=risks)
+    await provider.aopen()  # a real server: the policy is readable and noeviction
+    await provider.aclose()
+
+
+async def test_the_registry_refuses_assume_in_production_without_the_risk() -> None:
+    provider = _registry_store(is_prod=True)
+    with pytest.raises(PermissionDenied, match="unverified_noeviction"):
+        await provider.aopen()
 
 
 async def test_an_unreachable_server_is_unavailable_at_aopen() -> None:
