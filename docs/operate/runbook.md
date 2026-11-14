@@ -23,7 +23,7 @@ generated profile does. Run them with `--apply` only after reading the dry run.
 | a saga is stuck | `sandloom sagas list` | [A parked saga](operator-reference.md#runbook-a-parked-saga) |
 | a task may or may not have been enqueued | `TaskEnqueueUncertain`: don't retry with another key | [Uncertain enqueues](operator-reference.md#uncertain-task-enqueues) |
 | a database or a key leaked | freeze deploys, `sandloom security audit-export` | [Security incident](operator-reference.md#security-incident-runbook-database-leak-credential-leak-key-compromise) |
-| data was lost | stop writers, restore in order, `sandloom backup reconcile-security` | [Restoring](operator-reference.md#restoring-the-order-and-the-traffic-gate) |
+| data was lost | stop writers, restore in order, `sandloom backup fence-leases`, `sandloom backup reconcile-security` | [Restoring](operator-reference.md#restoring-the-order-and-the-traffic-gate) |
 | Redis is slow or unavailable | the `CACHE_*` limits and each caller's failure policy | [Redis cache](operator-reference.md#redis-cache-timeouts-pool-revocation-cache) |
 | login is slow or CPU spikes at login | `PASSWORD_HASH_PROFILE` | [Password hashing](operator-reference.md#password-hashing-work-factor-capacity-planning) |
 | latency spikes with no slow queries | the `GC_*` settings and metrics | [Garbage collector](operator-reference.md#garbage-collector-tuning) |

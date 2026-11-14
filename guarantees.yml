@@ -5661,6 +5661,25 @@ guarantees:
   - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_new_psp_effects_wait_for_reconciler_recovery
   - src/sandloom/core/tests/test_ready_taskqueue.py::test_operational_failure_keeps_web_ready_and_live
   - src/sandloom_billing/tests/test_reconciler_heartbeat.py::test_billing_registers_the_reconciler_check
+- id: G-OPS-25
+  statement: After a database restore, `sandloom backup fence-leases` lifts every `infra_lease`
+    fence of the database lease driver by 10**12 and releases every lease. It is a dry-run
+    unless `--apply --reason` is given, builds the core before any write, commits each database's
+    bump together with its `core.lease.fences_bumped` audit row (operator, reason, offset, lease
+    names, highest fence before and after), and refuses a database that is not PostgreSQL. A
+    lease name first acquired afterwards starts above the highest fence of the table, so a stale
+    holder of the lost window cannot outrank it. Running the command is a step of the restore
+    plan; `backup verify` does not detect that it was skipped.
+  sources:
+  - docs/operate/operator-reference.md
+  - docs/reference/cli.md
+  tests:
+  - src/sandloom/core/tests/test_backup_cli.py::test_core_tables_equal_what_the_core_chain_creates
+  - src/sandloom/core/tests/test_backup_cli.py::test_fence_leases_command_is_dry_run_by_default
+  - src/sandloom/core/tests/test_backup_cli.py::test_fence_leases_apply_bumps_and_audits_in_the_same_transaction
+  - src/sandloom/core/tests/test_backup_cli.py::test_fence_leases_and_verify_refuse_a_database_that_is_not_postgresql
+  - src/sandloom/core/tests/test_lease.py::test_lift_fences_lifts_releases_and_new_names_start_above
+  - src/sandloom/core/tests/test_lease.py::test_a_new_name_starts_above_the_highest_fence
 
 - id: G-SAGA-01
   statement: register_saga refuses a malformed definition deterministically at registration (duplicate
@@ -8350,7 +8369,7 @@ issued:
   G-MODULE: 19
   G-MSTORE: 10
   G-OPCLASS: 7
-  G-OPS: 24
+  G-OPS: 25
   G-OUTBOX: 16
   G-PROFILE: 9
   G-REVOKE: 27

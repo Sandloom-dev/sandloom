@@ -10,6 +10,10 @@ pgbouncer transaction pooling):
   expires_at = now() + ttl, fence = infra_lease.fence + 1 WHERE
   infra_lease.expires_at <= now() RETURNING fence``; a held name updates
   nothing and returns no row;
+  A name seen for the first time starts at ``max(fence) + 1`` over the table, not
+  at 1: after ``sandloom backup fence-leases`` (a database restore) a name the
+  dump never held starts above the lifted offset, so a stale holder's token
+  cannot outrank it;
 - **renew** / **release**: ``UPDATE ... WHERE name AND token AND expires_at >
   now()`` (an expired lease is not held); release sets ``expires_at = now()``.
 
@@ -80,6 +84,11 @@ _TABLE = Table(
     Column("expires_at", DateTime(timezone=True), nullable=False),
     Column("fence", BigInteger, nullable=False),
 )
+
+
+def _first_fence() -> Any:
+    """``max(fence) + 1`` over the table: the fence of a name never seen before."""
+    return func.coalesce(select(func.max(_TABLE.c.fence)).scalar_subquery(), 0) + 1
 
 
 class _Clock:
@@ -272,7 +281,11 @@ class DatabaseLeaseProvider(LeaseProvider):
             upsert = postgresql.insert(_TABLE)
         statement = (
             upsert.values(
-                name=name, owner=owner, token=token, expires_at=expires, fence=1
+                name=name,
+                owner=owner,
+                token=token,
+                expires_at=expires,
+                fence=_first_fence(),
             )
             .on_conflict_do_update(
                 index_elements=[_TABLE.c.name],

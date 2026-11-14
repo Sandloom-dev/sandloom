@@ -113,7 +113,7 @@ _HARNESS = "stays: PostgreSQL test harness (design.md section 4)"
 SEEDED: dict[tuple[str, str], tuple[int, str]] = {
     ("core/cli/dev/services.py", "Redis"): (1, "idk-test-harness"),
     ("core/cli/dev/services.py", "psycopg2.connect"): (1, _OPS),
-    ("core/migrations/backup.py", "psycopg2.connect"): (2, _OPS),
+    ("core/migrations/backup.py", "psycopg2.connect"): (1, _OPS),
     ("core/testing/connections.py", "psycopg2.connect"): (1, _HARNESS),
     ("core/testing/migrations.py", "psycopg2.connect"): (2, _HARNESS),
     ("core/testing/ownership.py", "Redis"): (1, "idk-test-harness"),

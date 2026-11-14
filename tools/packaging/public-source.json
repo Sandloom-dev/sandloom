@@ -2552,6 +2552,7 @@
         "tests/fixtures/specs/api10-ledger-delta-kb22.md",
         "tests/fixtures/specs/api10-ledger-delta-driverkit.md",
         "tests/fixtures/specs/api10-ledger-delta-lease.md",
+        "tests/fixtures/specs/api10-ledger-delta-backup-core-tables.md",
         "tests/fixtures/specs/api10-ledger-delta-dxfix.md",
         "tests/fixtures/specs/api10-ledger-delta-ecosystem.md",
         "tests/fixtures/specs/api10-ledger-delta-firstrun.md",

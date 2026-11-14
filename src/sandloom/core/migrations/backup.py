@@ -34,6 +34,19 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from psycopg2 import sql
 from pydantic import BaseModel
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    DateTime,
+    MetaData,
+    String,
+    Table,
+    func,
+    inspect,
+    select,
+    update,
+)
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.descriptors import ModuleDescriptor
@@ -45,15 +58,25 @@ from sandloom.core.migrations.migrations import (
 )
 from sandloom.core.migrations.urls import to_sync_url
 
-#: Shared infra tables of the core chain every hosting database carries.
+#: Shared infra tables of the core chain every hosting database carries. Kept
+#: literal (deriving it reads the chain's revisions: I/O at import); a test
+#: asserts it equals what the core chain creates.
 CORE_TABLES = (
     "outbox_messages",
     "audit_log",
     "consumer_inbox",
     "contract_command_log",
     "http_idempotency_log",
+    "saga_instances",
+    "saga_steps",
     "projection_watermarks",
+    "infra_lease",
 )
+#: What a restore adds to every ``infra_lease`` fence (see :func:`lift_fences`).
+#: A restored dump rewinds fences to the snapshot; the holders of the lost
+#: window kept tokens above it. The offset must exceed the acquisitions of one
+#: lease name between the snapshot and the restore (10**12: never reached).
+LEASE_FENCE_OFFSET = 10**12
 #: Version table of the core chain.
 CORE_VERSION_TABLE = "alembic_version"
 #: Prefix of the scratch databases :func:`verify_dump` creates (and drops).
@@ -131,6 +154,9 @@ def _postgres_item(
             "sandloom backup reconcile-security --apply BEFORE admitting traffic "
             "(audit rows newer than the snapshot are gone: pass the off-site "
             "audit export with --audit-export)",
+            "sandloom backup fence-leases --apply --reason ... BEFORE starting "
+            "writers (a dump rewinds the infra_lease fences below tokens a stale "
+            "holder still carries)",
         ],
     )
 
@@ -342,8 +368,7 @@ def _libpq_url(url: str) -> str:
 def scratch_database(server_url: str, *, keep: bool = False) -> Iterator[str]:
     """Create an empty database on ``server_url``'s server; drop it afterwards."""
     name = f"{SCRATCH_PREFIX}{uuid.uuid4().hex[:12]}"
-    admin = psycopg2.connect(_libpq_url(_with_database(server_url, "postgres")))
-    admin.autocommit = True
+    admin = _connect(_with_database(server_url, "postgres"), autocommit=True)
     try:
         with admin.cursor() as cur:
             cur.execute(f'CREATE DATABASE "{name}"')
@@ -424,6 +449,12 @@ def command_restorer(
     return _restore
 
 
+def _connect(url: str, *, autocommit: bool) -> Any:
+    conn = psycopg2.connect(_libpq_url(url))
+    conn.autocommit = autocommit
+    return conn
+
+
 def _rows(conn: Any, statement: str | sql.Composable, params: Any = None) -> list[Any]:
     with conn.cursor() as cur:
         cur.execute(statement, params)
@@ -446,8 +477,7 @@ def check_restored_database(
 ) -> list[CheckResult]:
     """Migration heads + basic integrity of a (restored) database at ``url``."""
     results: list[CheckResult] = []
-    conn = psycopg2.connect(_libpq_url(url))
-    conn.autocommit = True
+    conn = _connect(url, autocommit=True)
     try:
         for label, location, table in chains:
             heads = _chain_heads(location)
@@ -618,6 +648,77 @@ def verify_dump(
         return report
 
 
+# --------------------------------------------------------------------------- #
+# Lease fences after a restore
+# --------------------------------------------------------------------------- #
+# This operates on the table of the ``database`` lease driver
+# (``sandloom.core.drivers.database_lease``): the kernel's operator commands do
+# not import a driver, and the lease contract has no fence-bump operation. The
+# columns below are the ones the bump reads and writes; a test pins them to the
+# driver's model (``test_lease_table_matches_the_driver``), so a driver change
+# breaks it.
+_LEASE_TABLE = Table(
+    "infra_lease",
+    MetaData(),
+    Column("name", String(255), primary_key=True),
+    Column("fence", BigInteger, nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class FencedLease:
+    name: str
+    fence_before: int
+    fence_after: int
+    held: bool  # unexpired in the restored data (released by the bump)
+
+
+async def lift_fences(
+    session: AsyncSession, *, apply: bool, offset: int = LEASE_FENCE_OFFSET
+) -> list[FencedLease]:
+    """After restoring a database: lift every ``infra_lease`` fence by ``offset``
+    and release every lease, so no holder of the lost window can outrank one.
+
+    The driver issues ``fence + 1`` on every acquire and keeps the row after
+    release to keep the counter. A restore to an older point rewinds it: a stale
+    holder could then present a fence the restored counter reissues, and a
+    fenced write of a new holder would not outrank it. The rows are NOT dropped
+    (the next acquire would start at 1); the driver starts a name first acquired
+    later above the highest fence of the table. The caller owns the transaction:
+    the bump commits with it (the CLI writes its audit row in the same one). A
+    database without the table yields ``[]``. Dry-run unless ``apply``; running
+    it twice lifts twice.
+    """
+    if offset < 1:
+        raise ValueError("the fence offset must be positive")
+    has_table = await session.run_sync(
+        lambda sync: inspect(sync.connection()).has_table(_LEASE_TABLE.name)
+    )
+    if not has_table:
+        return []
+    table = _LEASE_TABLE
+    selected = (
+        select(table.c.name, table.c.fence, table.c.expires_at > func.now())
+        .order_by(table.c.name)
+        .with_for_update()
+    )
+    rows = (await session.execute(selected)).all()
+    if apply and rows:
+        await session.execute(
+            update(table).values(fence=table.c.fence + offset, expires_at=func.now())
+        )
+    return [
+        FencedLease(
+            name=str(name),
+            fence_before=int(fence),
+            fence_after=int(fence) + offset,
+            held=bool(held),
+        )
+        for name, fence, held in rows
+    ]
+
+
 def database_chains(
     database: str, descriptors: Sequence[ModuleDescriptor]
 ) -> list[tuple[str, str, str]]:
@@ -627,7 +728,9 @@ def database_chains(
 
 __all__ = [
     "CORE_TABLES",
+    "LEASE_FENCE_OFFSET",
     "CheckResult",
+    "FencedLease",
     "PlanItem",
     "VerifyReport",
     "build_backup_plan",
@@ -635,6 +738,7 @@ __all__ = [
     "command_restorer",
     "database_chains",
     "dump_format",
+    "lift_fences",
     "format_plan",
     "scratch_database",
     "verify_dump",
