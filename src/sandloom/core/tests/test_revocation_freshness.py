@@ -29,12 +29,12 @@ import httpx
 import pytest
 import pytest_asyncio
 from fastapi import Depends, FastAPI
+from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 from sqlalchemy import Table, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from sandloom.core.auth import blocks, marks, revocation, tokens, verification
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers.redis_atomic_store import RedisAtomicStoreProvider
 from sandloom.core.infra import access
 from sandloom.core.testing import bind_test_uow, reload_test_env, run_on_commit
 
@@ -414,7 +414,7 @@ _CHILD = textwrap.dedent(
     import asyncio, json, sys, time
     from sandloom.core.auth import verification
     from sandloom.core.infra import access
-    from sandloom.core.drivers.redis_atomic_store import RedisAtomicStoreProvider
+    from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
     async def main():
         url, sub = sys.argv[1], sys.argv[2]

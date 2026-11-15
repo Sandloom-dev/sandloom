@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+from typing import Any
 
 from sandloom.core.config.settings import Settings
 from sandloom.core.config.settings import settings as _default_settings
@@ -30,6 +31,16 @@ from sandloom.core.infra.registry import (
 #: The import name and the extra of the redis-py client.
 _REDIS: tuple[str, ...] = ("redis",)
 _REDIS_INSTALL = "pip install 'sandloom[redis]'"
+#: The Redis drivers of the ``sandloom-redis`` package: the same ``module:Class``
+#: targets its ``sandloom.drivers`` entry points name (a test keeps them equal),
+#: so a row and its entry point are one driver, never a conflict. A build
+#: without the package is refused when an instance selects the driver (B037).
+_REDIS_PACKAGE: tuple[str, ...] = ("sandloom_redis", "redis")
+_REDIS_DRIVERS = {
+    "atomic_store": "sandloom_redis.atomic_store:RedisAtomicStoreProvider",
+    "lease": "sandloom_redis.lease:RedisLeaseProvider",
+    "broadcast": "sandloom_redis.broadcast:RedisBroadcastProvider",
+}
 _DRIVERS = "sandloom.core.drivers"
 
 logger = logging.getLogger("sandloom.core.infra")
@@ -127,8 +138,8 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
     (
         "atomic_store",
         "redis",
-        f"{_DRIVERS}.redis_atomic_store:RedisAtomicStoreProvider",
-        _REDIS,
+        _REDIS_DRIVERS["atomic_store"],
+        _REDIS_PACKAGE,
         _REDIS_INSTALL,
         "",
     ),
@@ -151,8 +162,8 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
     (
         "lease",
         "redis",
-        f"{_DRIVERS}.redis_lease:RedisLeaseProvider",
-        _REDIS,
+        _REDIS_DRIVERS["lease"],
+        _REDIS_PACKAGE,
         _REDIS_INSTALL,
         "",
     ),
@@ -175,8 +186,8 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
     (
         "broadcast",
         "redis",
-        f"{_DRIVERS}.redis_broadcast:RedisBroadcastProvider",
-        _REDIS,
+        _REDIS_DRIVERS["broadcast"],
+        _REDIS_PACKAGE,
         _REDIS_INSTALL,
         "",
     ),
@@ -274,33 +285,33 @@ def unverified_noeviction_allowed(settings: Settings | None = None) -> bool:
     return not resolved.is_prod or resolved.accepts_risk("unverified_noeviction")
 
 
-def _redis_lease_build(settings: Settings | None = None) -> DriverFactory:
-    """The build of the ``redis`` lease driver: it states the policy on
-    ``never_evicts_check=assume`` (:func:`unverified_noeviction_allowed`)."""
+#: The drivers that take the kernel's ``never_evicts_check=assume`` policy.
+_NOEVICTION_POLICY_DRIVERS = frozenset({("atomic_store", "redis"), ("lease", "redis")})
+
+
+def _policy_build(
+    registry: InfraRegistry,
+    capability: str,
+    driver: str,
+    settings: Settings | None = None,
+) -> DriverFactory:
+    """The build of a Redis driver whose correctness needs a server that never
+    evicts (``atomic_store``, ``lease``): it constructs the provider class the
+    registry resolves from the driver's row with ``assume_allowed`` stating the
+    kernel's policy on ``never_evicts_check=assume``
+    (:func:`unverified_noeviction_allowed`)."""
 
     def build(cfg: InstanceConfig) -> InfraProvider:
-        # Imported when an instance selects the driver, never at bootstrap.
-        module = importlib.import_module("sandloom.core.drivers.redis_lease")
-        factory: DriverFactory = module.make_redis_lease_factory(
-            assume_allowed=lambda: unverified_noeviction_allowed(settings)
+        # The row's lazy target is imported by the registry when an instance
+        # selects the driver, never at bootstrap.
+        constructor: Any = registry.driver_class(capability, driver)
+        provider: InfraProvider = constructor(
+            name=cfg.name,
+            driver=cfg.driver,
+            options=dict(cfg.options),
+            assume_allowed=lambda: unverified_noeviction_allowed(settings),
         )
-        return factory(cfg)
-
-    return build
-
-
-def _atomic_store_build(settings: Settings | None = None) -> DriverFactory:
-    """The build of the ``redis`` atomic_store driver: it states the policy on
-    ``never_evicts_check=assume`` (:func:`unverified_noeviction_allowed`), the
-    same one the ``redis`` lease driver gets."""
-
-    def build(cfg: InstanceConfig) -> InfraProvider:
-        # Imported when an instance selects the driver, never at bootstrap.
-        module = importlib.import_module("sandloom.core.drivers.redis_atomic_store")
-        factory: DriverFactory = module.make_redis_atomic_store_factory(
-            assume_allowed=lambda: unverified_noeviction_allowed(settings)
-        )
-        return factory(cfg)
+        return provider
 
     return build
 
@@ -365,10 +376,8 @@ def register_builtin_drivers(
             build=(
                 _event_bus_build(schema_registry, driver, settings)
                 if capability == "eventbus"
-                else _redis_lease_build(settings)
-                if (capability, driver) == ("lease", "redis")
-                else _atomic_store_build(settings)
-                if (capability, driver) == ("atomic_store", "redis")
+                else _policy_build(registry, capability, driver, settings)
+                if (capability, driver) in _NOEVICTION_POLICY_DRIVERS
                 else None
             ),
             delivered_by=delivered_by,

@@ -538,7 +538,7 @@ async def test_a_refusing_backend_is_logged_as_a_refusal_not_as_unreachable(
 
 async def test_two_leases_on_real_redis() -> None:
     """Acquire / standby / release / takeover against the real redis lease driver."""
-    from sandloom.core.drivers.redis_lease import RedisLeaseProvider
+    from sandloom_redis.lease import RedisLeaseProvider
 
     url = settings.cache_url
     store = RedisLeaseProvider(name="beat", driver="redis", options={"url": url})

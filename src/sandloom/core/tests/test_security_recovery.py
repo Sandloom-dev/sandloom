@@ -27,6 +27,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from fastapi import Depends, FastAPI, HTTPException
+from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 from sqlalchemy import Table
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -41,7 +42,6 @@ from sandloom.core.auth.recovery import (
     revocation_window_start,
 )
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers.redis_atomic_store import RedisAtomicStoreProvider
 from sandloom.core.infra import access
 from sandloom.core.sql_alchemy.outbox_store import (
     sql_alchemy_audit_store,

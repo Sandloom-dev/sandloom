@@ -24,12 +24,12 @@ import httpx
 import pytest
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, ValidationError
+from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
 from sandloom.core import idempotency, production_profile
 from sandloom.core.app_factory.config import configuration_problems
 from sandloom.core.auth import revocation
 from sandloom.core.config.settings import Settings, settings
-from sandloom.core.drivers.redis_atomic_store import RedisAtomicStoreProvider
 from sandloom.core.drivers.redis_cache import RedisCacheProvider
 from sandloom.core.idempotency import cache_store as idempotency_cache_store
 from sandloom.core.idempotency import replay as idempotency_replay

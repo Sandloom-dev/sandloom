@@ -607,12 +607,15 @@ jobs:
       - name: A venv with the kernel package and no module package
         # The kernel's extras and the pinned dev tools; no sandloom-identity,
         # -tenancy, -billing or -admin. The hook then hides their sources.
+        # sandloom-redis (the Redis drivers the `redis` extra names) is
+        # installed from the checkout: its version is not on an index yet.
         run: |
           uv venv --python 3.12 .venv-kernel
           uv export --frozen --only-group dev --no-hashes --no-emit-project \
             > "$RUNNER_TEMP/dev-requirements.txt"
           uv pip install --python .venv-kernel/bin/python \
             -e "packages/sandloom[redis,celery,check,fast,sqlite,sentry]" \
+            -e packages/sandloom-redis \
             -r "$RUNNER_TEMP/dev-requirements.txt"
           .venv-kernel/bin/python tools/ci/no_batteries.py install
           .venv-kernel/bin/python tools/ci/no_batteries.py check
