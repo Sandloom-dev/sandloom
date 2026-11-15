@@ -61,6 +61,7 @@ from typing import Any
 import sandloom.core.sql_alchemy.durable_inbox as _durable_inbox
 from sandloom.core.composition import load_composition_core
 from sandloom.core.guarantee_windows import configured_inbox_purge_problems
+from sandloom.core.infra.errors import Unsupported
 from sandloom.core.tasks.event_ops import (
     outbox_list_dead,
     outbox_purge,
@@ -70,6 +71,7 @@ from sandloom.core.tasks.event_ops import (
     streams_dlq_replay,
     streams_groups,
     streams_release_group,
+    unsupported_message,
 )
 
 
@@ -312,7 +314,10 @@ def streams_main(argv: list[str] | None = None) -> int:
         parser.error("dlq-replay requires --id or --all")
     if args.action in {"dlq-list", "dlq-replay"} and args.limit <= 0:
         parser.error("--limit must be positive")
-    return asyncio.run(_run_streams(args))
+    try:
+        return asyncio.run(_run_streams(args))
+    except Unsupported as exc:
+        raise SystemExit(f"error: {unsupported_message(exc)}") from exc
 
 
 __all__ = [

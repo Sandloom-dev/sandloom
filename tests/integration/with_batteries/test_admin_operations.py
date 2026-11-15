@@ -18,6 +18,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.core.admin.api.platform import safe_error
+from sandloom.core.eventing.memory_transport import MemoryTransport
+from sandloom.core.infra.errors import InvalidArgument, Unsupported
 from sandloom.core.infra.ports.eventbus import DeadLetter
 from sandloom.core.sql_alchemy.models.audit import AuditLogEntry
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
@@ -255,19 +257,23 @@ class _Runtime:
         return _Snapshot(self.channel)
 
 
-class _Transport:
-    """A durable transport double recording the CLI-equivalent calls."""
+class _Transport(MemoryTransport):
+    """A conforming durable transport recording the CLI-equivalent calls."""
 
     def __init__(self) -> None:
+        super().__init__()
         self.replays: list[dict[str, Any]] = []
         self.fail = False
+        self.unsupported = False
 
     async def list_dlq(
         self, stream: str, *, count: int = 100, after: str | None = None
     ) -> list[DeadLetter]:
+        if self.unsupported:
+            raise Unsupported("dlq_ops", capability="eventbus")
         return [
             DeadLetter(
-                id="1-0",
+                id=f"{n}-0",
                 original_id=None,
                 group="identity:probe@channel",
                 event_id="e-1",
@@ -275,7 +281,8 @@ class _Transport:
                 reason="max_deliveries",
                 replayable=True,
             )
-        ]
+            for n in (1, 2)
+        ][:count]
 
     async def replay_dlq(
         self,
@@ -285,6 +292,8 @@ class _Transport:
         count: int = 100,
         group: str | None = None,
     ) -> int:
+        if self.unsupported:
+            raise Unsupported("dlq_ops", capability="eventbus")
         if self.fail:
             raise ConnectionError("redis://cache:6379 down")
         self.replays.append(
@@ -318,6 +327,33 @@ async def test_stream_dlq_replay_targets_the_group_and_audits_first(
     )
     assert refused.status_code == 501
     assert refused.json()["detail"] == "not supported by this driver: dlq_ops"
+
+    async def audit_rows() -> int:
+        return int(
+            await test_db.scalar(
+                select(func.count())
+                .select_from(AuditLogEntry)
+                .where(
+                    AuditLogEntry.action == "core.streams.dlq_replayed",
+                    AuditLogEntry.actor_id == actor,
+                )
+            )
+            or 0
+        )
+
+    body = {
+        "channel": channel,
+        "group": "identity:probe@channel",
+        "ids": ["1-0"],
+        "reason": "Handler fixed",
+    }
+    # the replay is refused before its audit row is written
+    refused_replay = await real_uow_client.post(
+        f"{base}/replay", json=body, headers={**headers, **key()}
+    )
+    assert refused_replay.status_code == 501
+    assert refused_replay.json()["detail"] == "not supported by this driver: dlq_ops"
+    assert await audit_rows() == 0
     monkeypatch.setattr(
         sandloom_app.state.core.event_bus,
         "bus_features",
@@ -333,13 +369,36 @@ async def test_stream_dlq_replay_targets_the_group_and_audits_first(
     )
     assert listed.status_code == 200, listed.text
     assert listed.json()[0]["group"] == "identity:probe@channel"
+    assert "X-Next-Cursor" not in listed.headers
+    paged = await real_uow_client.get(
+        f"{base}/dlq", params={"channel": channel, "limit": 1}, headers=headers
+    )
+    assert paged.status_code == 200, paged.text
+    assert paged.json() == [
+        {
+            "id": "1-0",
+            "group": "identity:probe@channel",
+            "event_id": "e-1",
+            "attempts": 5,
+            "reason": "max_deliveries",
+            "replayable": True,
+        }
+    ]
+    assert paged.headers["X-Next-Cursor"] == "1-0"
+    # ids and the cursor share one shape
+    malformed = await real_uow_client.post(
+        f"{base}/replay",
+        json={**body, "ids": ["not-an-entry-id"]},
+        headers={**headers, **key()},
+    )
+    assert malformed.status_code == 422
+    too_long = await real_uow_client.post(
+        f"{base}/replay",
+        json={**body, "ids": ["1-" + "0" * 80]},
+        headers={**headers, **key()},
+    )
+    assert too_long.status_code == 422
 
-    body = {
-        "channel": channel,
-        "group": "identity:probe@channel",
-        "ids": ["1-0"],
-        "reason": "Handler fixed",
-    }
     done = await real_uow_client.post(
         f"{base}/replay", json=body, headers={**headers, **key()}
     )
@@ -359,16 +418,35 @@ async def test_stream_dlq_replay_targets_the_group_and_audits_first(
         f"{base}/replay", json=body, headers={**headers, **key()}
     )
     assert failed.status_code >= 500
-    audits = await test_db.scalar(
-        select(func.count())
-        .select_from(AuditLogEntry)
-        .where(
-            AuditLogEntry.action == "core.streams.dlq_replayed",
-            AuditLogEntry.actor_id == actor,
-        )
-    )
     # The failed replay rolled its audit row back: exactly one remains.
-    assert audits == 1
+    assert await audit_rows() == 1
+
+    # A driver that declares the feature but raises Unsupported from the call
+    # is a 501 with the fixed text, and the replay's audit row rolls back too.
+    transport.fail = False
+    transport.unsupported = True
+    unsupported_list = await real_uow_client.get(
+        f"{base}/dlq", params={"channel": channel}, headers=headers
+    )
+    assert unsupported_list.status_code == 501
+    assert unsupported_list.json()["detail"] == "not supported by this driver: dlq_ops"
+    unsupported_replay = await real_uow_client.post(
+        f"{base}/replay", json=body, headers={**headers, **key()}
+    )
+    assert unsupported_replay.status_code == 501
+    assert await audit_rows() == 1
+
+    # A durable bus without a transport: fixed text, no exception text.
+    monkeypatch.setattr(sandloom_app.state.core.event_bus, "transport", None)
+    misconfigured = await real_uow_client.get(
+        f"{base}/dlq", params={"channel": channel}, headers=headers
+    )
+    assert misconfigured.status_code == 501
+    assert misconfigured.json()["detail"] == (
+        "the configured event bus declares the 'durable' feature "
+        "but exposes no transport (check the event bus driver)"
+    )
+    assert InvalidArgument.__name__ not in misconfigured.text
 
 
 def test_safe_error_redacts_urls_and_secrets() -> None:

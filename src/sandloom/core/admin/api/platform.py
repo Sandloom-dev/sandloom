@@ -20,7 +20,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
@@ -37,6 +37,7 @@ from sandloom.core.config.module_settings import declared_console
 from sandloom.core.descriptors.module_names import module_name as _module_name
 from sandloom.core.guard_order import authenticates
 from sandloom.core.idempotency import idempotency_guard
+from sandloom.core.infra.errors import Unsupported
 from sandloom.core.lifecycle import aggregate_health
 from sandloom.core.rpc import check_remote_service_bindings
 from sandloom.core.tasks.event_ops import (
@@ -45,6 +46,7 @@ from sandloom.core.tasks.event_ops import (
     outbox_target,
     streams_dlq_list,
     streams_dlq_replay,
+    unsupported_message,
 )
 from sandloom.core.unit_of_work import db_session
 from sandloom.core.unit_of_work.effects import record_audit
@@ -234,7 +236,9 @@ class ReplayIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     channel: str = Field(min_length=1, max_length=200, pattern=r"^[a-z0-9_.-]+$")
     group: str = Field(min_length=1, max_length=200)
-    ids: list[str] = Field(min_length=1, max_length=100)
+    ids: list[Annotated[str, Field(max_length=80, pattern=r"^[0-9]+-[0-9]+$")]] = Field(
+        min_length=1, max_length=100
+    )
     reason: str = Field(min_length=3, max_length=500)
 
 
@@ -400,6 +404,8 @@ async def _unavailable_as_501() -> AsyncIterator[None]:
         yield
     except EventOperationUnavailable as exc:
         raise HTTPException(501, str(exc.code).removeprefix("error: ")) from exc
+    except Unsupported as exc:
+        raise HTTPException(501, unsupported_message(exc)) from exc
 
 
 def _outbox_routes(router: APIRouter, core: Any, source: _Source) -> None:
@@ -502,7 +508,7 @@ def _stream_routes(router: APIRouter, core: Any, source: _Source) -> None:
             StreamDeadLetterView(
                 id=entry.id,
                 group=entry.group,
-                event_id=entry.event_id,
+                event_id=entry.event_id[:200] if entry.event_id else entry.event_id,
                 attempts=entry.attempts,
                 reason=safe_error(entry.reason),
                 replayable=entry.replayable,
@@ -539,9 +545,14 @@ def _stream_routes(router: APIRouter, core: Any, source: _Source) -> None:
                 database=source.database,
             )
             await db.flush()
-            applied = await streams_dlq_replay(
-                core, data.channel, ids=data.ids, limit=len(data.ids), group=data.group
-            )
+            async with _unavailable_as_501():
+                applied = await streams_dlq_replay(
+                    core,
+                    data.channel,
+                    ids=data.ids,
+                    limit=len(data.ids),
+                    group=data.group,
+                )
         return CommandResult(requested=len(data.ids), applied=applied)
 
 
