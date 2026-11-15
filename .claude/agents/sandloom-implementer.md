@@ -179,7 +179,8 @@ item 2. A task created with `checklist` among its required kinds refuses
   `sandloom-infra-map` (port, drivers with tier and package, kit, tests per
   capability), `sandloom-plan` (headings of the marked spec or plan: grep the
   one section). No Skill tool: run `python3 tools/agent_reference.py <topic>`
-  (`registries`, `ci`, `kernel`, `infra`, `plan`).
+  (`registries`, `kernel`, `infra`, `plan`), and for `ci`
+  `uv run --quiet python tools/agent_reference.py ci` (it needs PyYAML).
 - Search with `grep -rn` on `src/`, `tests/`, `docs/`; skip `.claude/worktrees/`.
 - Near the turn limit (around 100 turns), commit and push WIP, write a precise
   `task_checkpoint` and stop.

@@ -7,7 +7,7 @@ allowed-tools: Bash(python3 tools/agent_reference.py:*)
 # Kernel map
 
 Entry points as file and symbol, with no line numbers: find the line with
-`grep -n '^def <symbol>' <file>`. Read from the AST of this checkout when the skill loads.
+`grep -nE '^(async def |def |class )?<symbol>\b' <file>` (a function, class or constant). Read from the AST of this checkout when the skill loads.
 
 !`python3 tools/agent_reference.py kernel`
 
