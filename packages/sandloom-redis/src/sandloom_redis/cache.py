@@ -48,14 +48,13 @@ from sandloom.driverkit import (
     InfraError,
     InstanceConfig,
     InvalidArgument,
-    PermissionDenied,
-    Timeout,
     Unavailable,
     health_failure_details,
     observe,
 )
 from sandloom.driverkit.atomic_store import MAX_KEY_BYTES, MAX_TTL_SECONDS
 from sandloom.driverkit.testing_isolation import isolated_redis_options
+from sandloom_redis._errors import map_redis_error
 
 #: Redis / socket failures of cache operations (a caller's ValueError or
 #: TypeError is not counted), by instance and operation.
@@ -743,7 +742,6 @@ def _map_error(instance: str, operation: str, exc: BaseException) -> InfraError:
     """
     from redis import exceptions
 
-    what = f"cache {instance!r} {operation}: {type(exc).__name__}"
     if isinstance(exc, exceptions.ResponseError) and "not an integer" in str(exc):
         return InvalidArgument(
             f"cache {instance!r} {operation}: the stored value is not an integer",
@@ -758,14 +756,13 @@ def _map_error(instance: str, operation: str, exc: BaseException) -> InfraError:
             instance=instance,
         )
     cache_operation_errors_total.labels(instance, operation).inc()
-    kind: type[InfraError]
-    if isinstance(exc, exceptions.AuthenticationError | exceptions.NoPermissionError):
-        kind = PermissionDenied
-    elif isinstance(exc, exceptions.TimeoutError | TimeoutError):
-        kind = Timeout
-    else:  # connection, failover, loading, a full store (OOM), a bad reply
-        kind = Unavailable
-    return kind(what, capability="cache", instance=instance)
+    # ``from None`` at the call sites: a request unit branches on the class only.
+    return map_redis_error(
+        exc,
+        capability="cache",
+        instance=instance,
+        what=f"cache {instance!r} {operation}",
+    )
 
 
 def create_redis_cache(cfg: InstanceConfig) -> RedisCacheProvider:

@@ -54,7 +54,12 @@ a file.
   map the backend's errors to `NotFound`, `InvalidArgument`, `TooLarge`,
   `PermissionDenied`, `Unavailable` or `Timeout`. A call that needs a behaviour feature
   the instance does not declare raises `Unsupported(feature)`. Put the error type in
-  a message, never the backend's text: it can carry a URL with credentials.
+  a message, never the backend's text: it can carry a URL with credentials. Map only a
+  transient fault (a lost connection, a failover) to `Unavailable`. The outbox relay
+  reads it as an outage: no attempt is spent and the row is never dead-lettered.
+  A reply the backend sends for this request alone (an unknown `ERR ...`) is
+  `InvalidArgument`, which is not retryable. The `redis` drivers map through one
+  classifier, `sandloom_redis._errors`.
 - **`supported_features`** names what the driver really does, and is its one declaration.
   A module that requires `features={"email"}` is refused at startup on a driver that does
   not advertise it. If a feature depends on an option, override the classmethod

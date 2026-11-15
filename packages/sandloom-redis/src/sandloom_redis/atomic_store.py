@@ -58,7 +58,6 @@ from sandloom.driverkit import (
     InfraError,
     InvalidArgument,
     PermissionDenied,
-    Timeout,
     Unavailable,
     observe,
 )
@@ -71,6 +70,7 @@ from sandloom.driverkit.atomic_store import (
     check_ttl,
     check_value,
 )
+from sandloom_redis._errors import map_redis_error
 
 #: Failed operations of the store (connection, timeout, server error), by
 #: instance and operation: the page-level alert on the security store reads it.
@@ -408,19 +408,14 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
 
     def _failure(self, operation: str, exc: BaseException) -> InfraError:
         """The ``InfraError`` for a backend failure: its type, never its text."""
-        exceptions = _exceptions()
         atomic_store_operation_errors_total.labels(self.name, operation).inc()
-        what = f"atomic_store {self.name!r} {operation}: {type(exc).__name__}"
-        kind: type[InfraError]
-        if isinstance(
-            exc, exceptions.AuthenticationError | exceptions.NoPermissionError
-        ):
-            kind = PermissionDenied
-        elif isinstance(exc, exceptions.TimeoutError | TimeoutError):
-            kind = Timeout
-        else:  # connection, failover, loading, a full store (OOM), a bad reply
-            kind = Unavailable
-        return kind(what, capability=self.capability, instance=self.name)
+        # ``from None`` at the call sites: callers branch on the class only.
+        return map_redis_error(
+            exc,
+            capability=self.capability,
+            instance=self.name,
+            what=f"atomic_store {self.name!r} {operation}",
+        )
 
     # ------------------------------------------------------------ operations
     async def get(self, key: str) -> str | None:
