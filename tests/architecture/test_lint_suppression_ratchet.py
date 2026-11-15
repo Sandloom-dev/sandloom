@@ -45,7 +45,7 @@ RATCHETED_PREFIXES = ("ASYNC", "BLE", "S", "SIM", "RUF", "PERF", "PLC0415", "C90
 NOQA_BASELINE: dict[str, int] = {
     "ASYNC109": 19,
     "ASYNC240": 1,
-    "BLE001": 184,  # 198: -8 streams error mapping (idk-streams-errors); -5 in the kernel and +1 in packages/sandloom-redis/src where the Redis cache driver moved (idk-pkg-redis-streams); -2 streams tests moved to packages/sandloom-redis/tests (idk-pkg-redis-eventbus-tests)
+    "BLE001": 181,  # 198: -8 streams error mapping (idk-streams-errors); -5 in the kernel and +1 in packages/sandloom-redis/src where the Redis cache driver moved (idk-pkg-redis-streams); -2 streams tests moved to packages/sandloom-redis/tests (idk-pkg-redis-eventbus-tests); -3 Redis skips moved out of kernel tests (idk-pkg-redis-eventbus-tests2)
     "C901": 79,
     "PERF401": 24,
     # 118 (2026-10-28): +1 optional import, testing/ownership.py: `redis` is

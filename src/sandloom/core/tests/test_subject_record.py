@@ -194,7 +194,17 @@ async def live() -> AsyncIterator[RedisAtomicStoreProvider]:
     if not url:
         pytest.skip("CACHE_URL not configured")
     provider = RedisAtomicStoreProvider(
-        name="subject", driver="redis", options={"url": url}
+        name="subject",
+        driver="redis",
+        # These tests prove atomic ordering, not the driver's production
+        # bounds (0.5 s socket, 1 s pool wait): a loaded shared runner stalls
+        # the loop past those and fails a correct script with ``Timeout``.
+        options={
+            "url": url,
+            "socket_timeout_seconds": 30,
+            "socket_connect_timeout_seconds": 30,
+            "pool_timeout_seconds": 30,
+        },
     )
     try:
         await asyncio.wait_for(provider.get("sandloom:test:ping"), 5)
@@ -239,8 +249,16 @@ async def test_redis_concurrent_block_and_revocations_end_blocked(
     key = f"t:subject:{uuid.uuid4()}"
     values = [_after(1_700_000_000 + i) for i in range(200)] + [_blocked(5)]
     random.Random(3).shuffle(values)
+
+    async def _stall() -> None:
+        # A loaded runner in miniature: block the loop while the 201 commands
+        # are in flight, longer than the driver's default 0.5 s socket timeout
+        # (the fixture's wider bounds must absorb it; the defaults fail here).
+        await asyncio.sleep(0.002)
+        time.sleep(0.8)
+
     await asyncio.gather(
-        *(live.set_subject_state(key, v, ttl_seconds=30) for v in values)
+        _stall(), *(live.set_subject_state(key, v, ttl_seconds=30) for v in values)
     )
     assert await live.get(key) == _blocked(5)
     await live.delete(key)

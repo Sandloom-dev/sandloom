@@ -1638,8 +1638,8 @@ guarantees:
   - docs/modules/index.md#What a module may import
   tests:
   - src/sandloom/core/tests/test_event_consumers.py::test_same_consumer_name_in_two_modules_gets_two_groups
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_same_name_in_two_services_each_receive_every_event
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_replicas_of_one_service_share_the_group
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_same_name_in_two_services_each_receive_every_event
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_replicas_of_one_service_share_the_group
 - id: G-EVENT-02
   rests_on:
   - capability: eventbus
@@ -1652,8 +1652,8 @@ guarantees:
   - docs/modules/index.md#What a module may import
   tests:
   - src/sandloom/core/tests/test_streams_split_identity.py::test_duplicate_group_in_one_process_fails_startup
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_explicit_group_reused_by_other_module_fails_startup
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_group_owned_by_other_database_fails_startup
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_explicit_group_reused_by_other_module_fails_startup
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_group_owned_by_other_database_fails_startup
   - src/sandloom/core/tests/test_event_consumers.py::test_consumer_name_unique_across_event_and_projection
   - src/sandloom/core/tests/test_consumer_runtime.py::test_a_durable_bus_without_a_transport_never_skips_the_group_owner_claim
 - id: G-EVENT-03
@@ -1709,7 +1709,7 @@ guarantees:
   - src/sandloom/core/tests/test_revocation_never_dead_lettered.py::test_in_memory_bus_retries_a_never_dead_letter_consumer_forever
   - src/sandloom/core/tests/test_revocation_never_dead_lettered.py::test_streams_outage_longer_than_the_old_budget_is_applied_not_dlqd
   - src/sandloom/core/tests/test_revocation_never_dead_lettered.py::test_streams_default_consumers_are_still_dead_lettered
-  - src/sandloom/core/tests/test_revocation_never_dead_lettered.py::test_redis_streams_never_dead_letter_group_survives_the_old_budget
+  - packages/sandloom-redis/tests/test_redis_eventbus_never_dead_letter.py::test_redis_streams_never_dead_letter_group_survives_the_old_budget
 - id: G-EVENT-07
   rests_on:
   - capability: eventbus
@@ -1743,8 +1743,8 @@ guarantees:
   - docs/modules/index.md#What a module may import
   tests:
   - src/sandloom/core/tests/test_event_consumers.py::test_start_from_and_group_are_validated
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_start_from_latest_skips_history
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_start_from_timestamp
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_start_from_latest_skips_history
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_start_from_timestamp
 - id: G-EVENT-10
   rests_on:
   - capability: eventbus
@@ -1759,9 +1759,9 @@ guarantees:
   - 'docs/operate/operator-reference.md#Events: outbox relay and dead letters'
   tests:
   - src/sandloom/core/tests/test_transport.py::test_unacked_message_is_redelivered
-  - src/sandloom/core/tests/test_transport.py::test_reclaim_advances_server_scan_cursor
+  - packages/sandloom-redis/tests/test_redis_eventbus_maintenance.py::test_reclaim_advances_server_scan_cursor
   - src/sandloom/core/tests/test_transport.py::test_poison_dead_lettered_after_exactly_max_deliveries
-  - src/sandloom/core/tests/test_transport.py::test_dlq_append_failure_leaves_source_message_unacked
+  - packages/sandloom-redis/tests/test_redis_eventbus_maintenance.py::test_dlq_append_failure_leaves_source_message_unacked
   - packages/sandloom-redis/tests/test_redis_eventbus_kit.py::TestTheStreamsDriver::test_max_deliveries_moves_the_entry_to_the_dlq
   - packages/sandloom-redis/tests/test_redis_eventbus_kit.py::TestTheStreamsDriver::test_the_source_is_acked_only_after_the_dlq_append
 - id: G-EVENT-11
@@ -1774,7 +1774,7 @@ guarantees:
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   tests:
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_dlq_replay_reaches_only_the_failed_group
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_dlq_replay_reaches_only_the_failed_group
   - src/sandloom/core/tests/test_streams_split_identity.py::test_memory_dlq_replay_is_targeted_too
   - tests/integration/with_batteries/test_admin_operations.py::test_stream_dlq_replay_targets_the_group_and_audits_first
 - id: G-EVENT-12
@@ -1787,8 +1787,8 @@ guarantees:
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   tests:
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_publish_trims_entries_older_than_retention
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_publish_caps_stream_length
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_publish_trims_entries_older_than_retention
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_publish_caps_stream_length
 - id: G-EVENT-13
   rests_on: []
   statement: Re-registering an identical event schema is a no-op, while a breaking change (new required
@@ -2363,7 +2363,7 @@ guarantees:
   - src/sandloom/core/tests/test_revocation_never_dead_lettered.py::test_streams_outage_longer_than_the_old_budget_is_applied_not_dlqd
   - src/sandloom/core/tests/test_revocation_never_dead_lettered.py::test_streams_malformed_revocation_is_dead_lettered_at_once
   - src/sandloom/core/tests/test_revocation_never_dead_lettered.py::test_ready_degrades_while_a_revocation_is_stuck_liveness_unaffected
-  - src/sandloom/core/tests/test_revocation_never_dead_lettered.py::test_redis_streams_never_dead_letter_group_survives_the_old_budget
+  - packages/sandloom-redis/tests/test_redis_eventbus_never_dead_letter.py::test_redis_streams_never_dead_letter_group_survives_the_old_budget
 - id: G-REVOKE-09
   statement: The mark lives AUTH_REVOCATION_MARK_TTL_SECONDS (default max(access TTL + 120 s, 24 h), never
     shorter than the access lifetime); a token older than the verifier's mark TTL is rejected (fail closed
@@ -5637,7 +5637,7 @@ guarantees:
   tests:
   - tests/integration/with_batteries/test_module_extraction.py::test_extract_crash_resume_verify_and_cleanup
   - tests/integration/with_batteries/test_module_extraction.py::test_unfence_rolls_back_before_completion
-  - tests/integration/with_batteries/test_module_extraction.py::test_group_owner_transfer_redis_transport
+  - packages/sandloom-redis/tests/test_redis_eventbus_group_owner_transfer.py::test_group_owner_transfer_redis_transport
   - tests/integration/with_batteries/test_module_extraction.py::test_shared_rows_stream_idempotently_and_detect_missing_keys
 - id: G-MIGRATE-09
   statement: sandloom migrate resolves the module set through the composition root (SANDLOOM_COMPOSITION_ROOT) and
@@ -6682,7 +6682,7 @@ capabilities:
   - docs/modules/index.md#What you get by default, and what you declare
   tests:
   - src/sandloom/core/tests/test_streams_split_identity.py::test_publish_event_versions_is_reexported_for_modules
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_dual_publish_does_not_warn_about_starvation
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_dual_publish_does_not_warn_about_starvation
   - src/sandloom/core/tests/test_uow_outbox.py::test_publish_event_versions_outside_uow_raises_unless_best_effort
   gap: No test proves that publish_event_versions inside a UoW writes all versions as outbox rows atomically
     (rolled back together).
@@ -6703,9 +6703,9 @@ capabilities:
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   tests:
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_inventory_lists_live_consumers_and_flags_starved_versions
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_group_lag_and_pending_are_reported
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_streams_cli_operations
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_inventory_lists_live_consumers_and_flags_starved_versions
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_group_lag_and_pending_are_reported
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_streams_cli_operations
 - id: C-EFFECT-01
   statement: '`sandloom worker` and `sandloom beat` boot the composition root, import <pkg>.tasks of every
     LOADED module only (skipping modules without tasks) and run the table derived from its `@task` / `@periodic`
@@ -7463,7 +7463,7 @@ capabilities:
   - docs/reference/cli.md
   - 'docs/operate/operator-reference.md#Events: outbox relay and dead letters'
   tests:
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_dlq_replay_reaches_only_the_failed_group
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_dlq_replay_reaches_only_the_failed_group
   - src/sandloom/core/tests/test_streams_split_identity.py::test_memory_dlq_replay_is_targeted_too
   - packages/sandloom-redis/tests/test_transport_redis.py::test_dlq_replay_republishes_and_clears
 - id: C-OPS-04
@@ -7472,9 +7472,9 @@ capabilities:
   sources:
   - docs/reference/cli.md
   tests:
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_streams_cli_operations
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_inventory_lists_live_consumers_and_flags_starved_versions
-  - src/sandloom/core/tests/test_streams_split_identity.py::test_group_lag_and_pending_are_reported
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_streams_cli_operations
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_inventory_lists_live_consumers_and_flags_starved_versions
+  - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_group_lag_and_pending_are_reported
 - id: C-OPS-05
   statement: sandloom contracts snapshot [--write|--check] / sandloom contracts check --against <snapshot|url> exist
     for rolling-upgrade compatibility (owned by area D).
@@ -7691,7 +7691,7 @@ capabilities:
   tests:
   - src/sandloom/core/tests/test_operational_metrics.py::test_outbox_oldest_pending_age_ignores_delivered_and_dead
   - src/sandloom/core/tests/test_operational_metrics.py::test_relay_tick_refreshes_age_while_the_broker_circuit_is_open
-  - src/sandloom/core/tests/test_operational_metrics.py::test_streams_oldest_unacked_age_from_entry_ids
+  - packages/sandloom-redis/tests/test_redis_eventbus_metrics.py::test_streams_oldest_unacked_age_from_entry_ids
   - src/sandloom/core/tests/test_operational_metrics.py::test_heartbeat_sets_the_group_oldest_age_gauge
 - id: C-OBS-04
   statement: Pool, rate-limiter, revocation-check, RPC-client and consumer latency metrics are exported
