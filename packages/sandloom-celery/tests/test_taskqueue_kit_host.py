@@ -4,7 +4,7 @@ broker and the real test cache. About a minute: its own file, so
 ``--dist loadfile`` runs it beside the send groups, not after them.
 
 The CI lane (``celery-drivers``) runs it against a real Redis with
-``SANDLOOM_CELERY_BROKER_REQUIRED=1``: no broker there is an error, not a skip."""
+``SANDLOOM_CELERY_REQUIRED=1``: no broker there is an error, not a skip."""
 
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ class TestCeleryTaskQueueHost(TaskQueueConformance):
     @pytest.fixture(autouse=True)
     def _broker(self, real_broker: str) -> str:
         # Fails the run where the lane requires the broker and it is down
-        # (SANDLOOM_CELERY_BROKER_REQUIRED=1), skips on a machine without one.
+        # (SANDLOOM_CELERY_REQUIRED=1), skips on a machine without one.
         return real_broker
 
     @pytest.fixture
@@ -75,9 +75,9 @@ class TestCeleryTaskQueueHost(TaskQueueConformance):
         return lambda: _celery(real_broker)
 
     @pytest.fixture
-    def make_lease_store(self) -> Callable[[], LeaseProvider]:
+    def make_lease_store(self, real_cache: str) -> Callable[[], LeaseProvider]:
         return lambda: RedisLeaseProvider(
-            name="beat", driver="redis", options={"url": settings.cache_url}
+            name="beat", driver="redis", options={"url": real_cache}
         )
 
     @pytest.fixture

@@ -724,7 +724,9 @@ jobs:
     # as its built wheel, so the entry point the registry reads is the one the
     # wheel ships. The root mypy run and pytest paths exclude packages/, so no
     # other job checks this source or runs these tests. An unreachable broker
-    # is an error here, not a skip (SANDLOOM_CELERY_BROKER_REQUIRED).
+    # is an error here, not a skip (SANDLOOM_CELERY_REQUIRED), and so is a run
+    # against the source tree instead of the wheel. Its skip ledger (lane
+    # `celery`) feeds the skip-ledger job.
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.packages == 'true' }}
     runs-on: ubuntu-latest
@@ -752,7 +754,7 @@ jobs:
       BROKER_URL: redis://127.0.0.1:6380/14
       JWT_SECRET: ci-celery-drivers-not-a-real-secret
       SANDLOOM_TEST_OWNER: ci-celery-drivers
-      SANDLOOM_CELERY_BROKER_REQUIRED: "1"
+      SANDLOOM_CELERY_REQUIRED: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -813,10 +815,21 @@ jobs:
       - name: Driver tests, the conformance kit against a real broker and the kernel's driver rows
         run: >-
           uv run --no-sync pytest -q -n 2 --dist loadfile
+          -p sandloom.core.testing.skip_ledger --sandloom-skip-ledger-lane=celery
+          --sandloom-skip-ledger=skip-ledger/celery.json
           packages/sandloom-celery/tests
           src/sandloom/core/tests/test_celery_driver_rows.py
           src/sandloom/core/tests/test_celery_error_mapping.py
           src/sandloom/core/tests/test_beat_lease.py
+
+      - name: Upload the skip ledger
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: skip-ledger-celery
+          path: skip-ledger/
+          if-no-files-found: error
+          retention-days: 3
 
   second-db-test-lane:
     # The second database (spec: design/infra-agnostic/spec.md, section 6).
@@ -950,7 +963,7 @@ jobs:
     # Runs when either lane pair ran (backend-tests + the modules step,
     # examples + the examples step); a skipped job uploads nothing, and each
     # ledger present is judged with the ledgers of its other lane.
-    needs: [changes, backend-tests, examples, second-db-test-lane]
+    needs: [changes, backend-tests, examples, second-db-test-lane, celery-drivers]
     if: ${{ !cancelled() && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.examples == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

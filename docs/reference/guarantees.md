@@ -17,7 +17,7 @@ without an entry fails the build.
 Run exactly the enforcing tests (from the repository root):
 
 ```bash
-uv run pytest -m guarantees src
+uv run pytest -m guarantees src packages/sandloom-celery/tests packages/sandloom-redis/tests
 ```
 
 ## Guarantees
