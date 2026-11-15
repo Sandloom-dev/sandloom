@@ -68,8 +68,10 @@ PROVIDER_NAMES = frozenset(
 
 #: (file relative to src/sandloom, escape hatch) -> (sites, removed_by).
 RAW_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
-    # the test harness flushes the Redis cache driver's own database
-    ("core/testing/fixtures.py", "redis_client"): (1, "idk-ratchets-close"),
+    # the Redis harness family flushes the Redis cache driver's own database
+    # (moved here from core/testing/fixtures.py by idk-pkg-redis-harness; the
+    # family moves into sandloom-redis with its part B)
+    ("core/testing/redis_family.py", "redis_client"): (1, "idk-ratchets-close"),
 }
 
 #: (file relative to src/sandloom, probed name) -> (sites, removed_by).
@@ -108,7 +110,6 @@ PROBE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
     ("core/tasks/pool_metrics.py", "pool_stats"): (1, "idk-ratchets-close"),
     ("core/testing/fixtures.py", "_contract_engine"): (1, "idk-ratchets-close"),
     ("core/testing/fixtures.py", "_engine"): (1, "idk-ratchets-close"),
-    ("core/testing/fixtures.py", "redis_client"): (1, "idk-ratchets-close"),
     ("core/worker.py", "verify_tenant_rls"): (1, "idk-ratchets-close"),
 }
 

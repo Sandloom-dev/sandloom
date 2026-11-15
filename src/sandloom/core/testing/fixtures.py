@@ -87,6 +87,7 @@ import sandloom.core.testing as _testing
 import sandloom.core.testing.env as _env
 from sandloom.core.testing import isolation
 from sandloom.core.testing.auth import make_user_headers
+from sandloom.core.testing.families import harness_families
 from sandloom.core.testing.infra import (
     DB_FEATURE_MARKER,
     db_feature_skip_reason,
@@ -362,11 +363,9 @@ async def sandloom_cache(sandloom_core: Any) -> AsyncIterator[Any]:
         )
         await _security_store_on_cache(stack, sandloom_core, url)
         provider = registry.provider("cache")
-        redis_client = getattr(provider, "redis_client", None)
-        if redis_client is not None:
-            from sandloom.core.testing.ownership import flush_owned_redis  # noqa: PLC0415 - cold: plugin entry - pytest imports it on every run; the heavy harness part loads with the fixture that needs it
-
-            await flush_owned_redis(await redis_client())
+        for family in harness_families():
+            if await family.flush_owned(provider):
+                break
         yield provider
 
 

@@ -51,6 +51,7 @@ from urllib.parse import urlsplit, urlunsplit
 import psycopg2  # type: ignore[import-untyped]
 from dotenv import dotenv_values
 
+from sandloom.core.testing import families
 from sandloom.core.testing.env import LOCAL_ENV_FILE, find_env_file
 from sandloom.core.testing.machine import (
     canonical,
@@ -58,13 +59,11 @@ from sandloom.core.testing.machine import (
     machine_id,
     short_hash,
 )
-from sandloom.core.testing.redis_urls import is_redis_url, redis_client_installed
 
 SLOT_HELD_ENV = "SANDLOOM_TEST_SLOT_HELD"
 OWNER_ENV = "SANDLOOM_TEST_OWNER"
 DATABASE_ENV = "SANDLOOM_TEST_DATABASE_URL"
 REDIS_ENVS = ("SANDLOOM_TEST_CACHE_URL", "SANDLOOM_TEST_BROKER_URL")
-STRIDE_ENV = "SANDLOOM_TEST_REDIS_DB_STRIDE"
 MAX_SLOTS = 64
 #: ``application_name`` prefix of a slot's connection (names the holder).
 APPLICATION_PREFIX = "sandloom-test-slot"
@@ -82,18 +81,19 @@ class Slot:
     database_url: str
     owner: str
     redis_urls: dict[str, str] = field(default_factory=dict)
-    #: The Redis URLs whose indexes this slot claimed (handed back on release).
-    claimed_redis: tuple[str, ...] = ()
+    #: The URLs the harness families claimed for this slot (handed back on release).
+    claimed_urls: tuple[str, ...] = ()
     connection: Any = None
 
     def release(self) -> None:
         # Only while this run still holds the slot's lock: once it is lost,
         # another run may hold the same slot (same owner, same indexes).
-        claimed = () if slot_lost(self) else self.claimed_redis
-        for url in claimed:
-            with contextlib.suppress(Exception):  # gone or taken over: prune's job
-                _resources().release_redis(url, self.owner)
-        self.claimed_redis = ()
+        claimed = () if slot_lost(self) else self.claimed_urls
+        if claimed:
+            for family in families.harness_families():
+                with contextlib.suppress(Exception):  # gone or taken over: prune's job
+                    family.release_slot_bases(claimed, self.owner)
+        self.claimed_urls = ()
         if self.connection is not None:
             with contextlib.suppress(Exception):
                 self.connection.close()
@@ -165,32 +165,14 @@ def _admin_dsn(url: str) -> str:
     return urlunsplit(parts._replace(scheme="postgresql", path="/postgres", query=""))
 
 
-def _resources() -> Any:
-    from sandloom.core.testing import resources  # noqa: PLC0415 - optional: imports the redis extra at import; only a slot with Redis URLs needs it
-
-    return resources
-
-
-def _claim_redis_bases(urls: dict[str, str], owner: str) -> dict[str, str]:
-    """New base indexes for this owner, one per distinct base index."""
-    plain = [u for u in urls.values() if is_redis_url(u)]
-    if not plain or not redis_client_installed():
-        return {}  # no Redis URL, or no client: this run reaches no Redis
-    import redis  # noqa: PLC0415 - optional: the redis extra; only a slot with Redis URLs needs it
-
-    resources = _resources()
-    try:
-        mapping = resources.allocate_worker_redis(plain, 1, owner)
-    except redis.RedisError as exc:
-        raise RuntimeError(str(exc)) from exc
-    out: dict[str, str] = {}
-    for var, url in urls.items():
-        parts = urlsplit(url)
-        raw = parts.path.lstrip("/") or "0"
-        if not raw.isdigit() or int(raw) not in mapping:
-            continue
-        out[var] = urlunsplit(parts._replace(path=f"/{mapping[int(raw)][0]}"))
-    return out
+def _claim_family_bases(
+    urls: dict[str, str], owner: str, env: MutableMapping[str, str]
+) -> dict[str, str]:
+    """New own base resources of every harness family for this owner."""
+    claimed: dict[str, str] = {}
+    for family in families.harness_families():
+        claimed.update(family.slot_bases(urls, owner, env))
+    return claimed
 
 
 def _slot_source(
@@ -255,16 +237,15 @@ def _point_at(
 ) -> None:
     env[DATABASE_ENV] = slot.database_url
     env[OWNER_ENV] = slot.owner
-    env.setdefault(STRIDE_ENV, "auto")
     redis = {var: values[var] for var in REDIS_ENVS if values.get(var)}
     try:
-        claimed = _claim_redis_bases(redis, slot.owner)
+        claimed = _claim_family_bases(redis, slot.owner, env)
     except (OSError, RuntimeError) as exc:  # Redis full: the run reports it itself
         claimed = {}
         if announce:
             print(f"sandloom testing: no own Redis indexes ({exc})", file=sys.stderr)
     slot.redis_urls = {**redis, **claimed}
-    slot.claimed_redis = tuple(dict.fromkeys(claimed.values()))
+    slot.claimed_urls = tuple(dict.fromkeys(claimed.values()))
     env.update(slot.redis_urls)
     env[SLOT_HELD_ENV] = str(os.getpid())
 

@@ -17,12 +17,10 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+from sandloom.core.testing.families import FLAT_VARS, INFRA_VAR
+
 #: The URL schemes of a Redis server.
 REDIS_SCHEMES = ("redis://", "rediss://")
-#: The flat settings naming a Redis (the default cache, the task broker).
-FLAT_VARS = ("CACHE_URL", "BROKER_URL")
-#: The setting declaring named infrastructure instances (JSON).
-INFRA_VAR = "INFRA"
 
 
 def is_redis_url(url: str) -> bool:

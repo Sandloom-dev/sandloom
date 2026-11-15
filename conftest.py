@@ -69,6 +69,7 @@ def _standard_root_when_installed() -> None:
 _standard_root_when_installed()
 
 from sandloom.core.testing.connections import apply_test_pool_profile  # noqa: E402
+from sandloom.core.testing.families import require_for_installed  # noqa: E402
 from sandloom.core.testing.fixtures import (  # noqa: E402, F401 - autouse fixtures
     _sandloom_cancel_leftover_tasks,
     _sandloom_isolate_module_globals,
@@ -78,6 +79,11 @@ from sandloom.core.testing.fixtures import (  # noqa: E402, F401 - autouse fixtu
     runs_on_session_loop,
 )
 from sandloom.core.testing.workers import apply_worker_env  # noqa: E402
+
+# Redis isolation is a harness family (entry-point group ``sandloom.testing``).
+# A process with the client but no family would run its xdist workers on one
+# shared Redis, silently: refuse. Without the client the suite is DB-only.
+require_for_installed({"redis": importlib.util.find_spec("redis") is not None})
 
 
 def pytest_configure(config: pytest.Config) -> None:
