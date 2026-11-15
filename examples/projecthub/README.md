@@ -120,6 +120,6 @@ durable consumer of its `TaskCreated` view (`tasks.task.created.v1`);
 the framework runs each delivery in a UoW with exactly-once claim, and the
 handler persists an in-app record and calls `notifier().send(Notification(...))`.
 The `notification` capability defaults to the zero-dependency `log` driver
-(`NOTIFIER_BACKEND=smtp` + `SMTP_*` to send real email). The in-app table is
+(`NOTIFIER_BACKEND=smtp` + an `INFRA` `notification` instance to send real email). The in-app table is
 `TenantScoped`, so `GET /api/v1/notifications` (the router binds the tenant)
 is auto-filtered to the caller's tenant.

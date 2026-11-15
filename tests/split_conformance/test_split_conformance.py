@@ -554,7 +554,10 @@ def _proc_env(
             ),
             "SANDLOOM_SERVICE_NAME": f"{dep.name}-{proc.label}",
             "EVENT_BUS_BACKEND": "streams",
-            "EVENT_STREAM_PREFIX": f"conf-{RUN}-{dep.name}:",
+            # the key namespace is an option of the ``streams`` bus instance
+            "INFRA": json.dumps(
+                {"eventbus": {"default": {"prefix": f"conf-{RUN}-{dep.name}:"}}}
+            ),
             "INTERNAL_API_TOKEN": INTERNAL_TOKEN,
             "JWT_ALGORITHM": "EdDSA",
             "JWT_PUBLIC_KEYS": JWT_PUBLIC_KEYS,
@@ -577,7 +580,7 @@ def _proc_env(
         }
     )
     env.update(_rpc_identity_env(dep, proc))
-    for key in ("MODULE_REQUIRED", "INFRA", "ACCESS"):
+    for key in ("MODULE_REQUIRED", "ACCESS"):
         env.pop(key, None)
     env.update(proc.extra_env)
     return env

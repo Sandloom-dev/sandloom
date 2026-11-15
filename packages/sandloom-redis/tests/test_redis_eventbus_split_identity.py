@@ -13,7 +13,7 @@ point of view exactly what two deployments sharing one Redis look like. Proves:
 * M1 — a DLQ replay is delivered to the ORIGINAL group only.
 * M4 — the subscription inventory lists live consumers; publishing a version
   nobody reads / starving a sibling version is reported.
-* L1 — ``EVENT_STREAM_PREFIX`` namespaces every key.
+* L1 — the ``prefix`` option namespaces every key.
 
 Skipped when Redis (``CACHE_URL``) is unreachable, a failure in the
 ``redis-drivers`` lane (``SANDLOOM_REDIS_REQUIRED=1``). The kernel's memory-transport

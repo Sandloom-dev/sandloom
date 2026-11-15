@@ -35,9 +35,16 @@ The default. It only records that a message was sent, never the raw recipient or
 
 ### `smtp`
 
-Sends email through an SMTP server. Set `NOTIFIER_BACKEND=smtp` and the `SMTP_*` settings, from
-the [configuration reference](../reference/configuration.md#notifications). It supports the
-channel `email`.
+Sends email through an SMTP server. Set `NOTIFIER_BACKEND=smtp` and write the server on the
+`notification` instance in `INFRA`:
+
+```sh
+INFRA='{"notification":{"default":{"driver":"smtp","host":"mail.example.com","port":587,"from_addr":"no-reply@example.com","username":"app","password":"..."}}}'
+```
+
+The options are `host` (required), `port`, `username`, `password`, `from_addr` and `use_tls`.
+STARTTLS (`use_tls`) is on unless you write `false`, and production refuses a login without it.
+It supports the channel `email`.
 
 **Tier.** `experimental` until its conformance lane (`NotifierConformance` against a mailpit
 container, `.github/workflows/notification-smtp.yml`) is green on main, then `beta`. In

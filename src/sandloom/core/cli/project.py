@@ -1036,17 +1036,13 @@ _IDENTITY_ENV: tuple[str, ...] = (
 _NOTIFIER_ENV = """\
   # identity / tenancy send mail (recovery, invitations) and REQUIRE an email
   # notifier: with ENVIRONMENT=prod the default `log` driver (no mail) is
-  # refused at startup. Production: NOTIFIER_BACKEND=smtp with SMTP_HOST and
-  # SMTP_FROM (SMTP_USERNAME / SMTP_PASSWORD over SMTP_USE_TLS=true). A demo
+  # refused at startup. Production: NOTIFIER_BACKEND=smtp with the options of the
+  # `notification` instance in INFRA (host, from_addr, username / password over
+  # use_tls, which stays on): INFRA: '{"notification": {"default": {"driver":
+  # "smtp", "host": "...", "from_addr": "..."}}}'. A demo
   # without mail adds log_notifier_in_prod to SANDLOOM_ACCEPTED_RISKS (mail is
   # NOT delivered).
   NOTIFIER_BACKEND: ${NOTIFIER_BACKEND:-log}
-  SMTP_HOST: ${SMTP_HOST:-}
-  SMTP_PORT: ${SMTP_PORT:-25}
-  SMTP_USERNAME: ${SMTP_USERNAME:-}
-  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-  SMTP_FROM: ${SMTP_FROM:-}
-  SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
 """
 
 # Billing refuses the fake PSP in prod, so a batteries app must choose.

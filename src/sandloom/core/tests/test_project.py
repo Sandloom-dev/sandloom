@@ -527,13 +527,15 @@ def test_mail_apps_expose_a_real_notifier_and_name_the_demo_risk(
     tmp_path: Path,
 ) -> None:
     """identity / tenancy require an email notifier: the app's compose passes the
-    smtp settings through and says what a mail-less demo accepts."""
+    backend choice through (the smtp options live in the INFRA instance, not in
+    flat settings) and says what a mail-less demo accepts."""
     for battery in ("identity", "tenancy"):
         generate_project(f"shop_{battery}", tmp_path, with_batteries=[battery])
         root = tmp_path / f"shop_{battery}"
         env = _compose(root)["services"]["app"]["environment"]
-        for key in ("NOTIFIER_BACKEND", "SMTP_HOST", "SMTP_FROM", "SMTP_USE_TLS"):
-            assert key in env, (battery, key)
+        assert "NOTIFIER_BACKEND" in env, battery
+        for removed in ("SMTP_HOST", "SMTP_FROM", "SMTP_USE_TLS"):
+            assert removed not in env, (battery, removed)
         assert "log_notifier_in_prod" in _read(root, "deploy/docker-compose.yml")
     generate_project("probe_nomail", tmp_path, with_batteries=["billing"])
     plain = _compose(tmp_path / "probe_nomail")["services"]["app"]["environment"]

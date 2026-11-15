@@ -158,7 +158,8 @@ def _refuse_cleartext_login_in_prod(options: Mapping[str, Any]) -> None:
     ):
         raise ValueError(
             "smtp notifier: SMTP credentials without use_tls would send the "
-            "password in clear; set SMTP_USE_TLS=true (STARTTLS, verified) in prod"
+            "password in clear; set the instance's use_tls option to true "
+            "(STARTTLS, verified) in prod"
         )
 
 
@@ -166,7 +167,9 @@ def _build_smtp_notifier(cls: type[_S], cfg: InstanceConfig) -> _S:
     """``cls`` over the instance's options (so a subclass's ``from_config``
     returns the subclass)."""
     if not str(cfg.options.get("host") or "").strip():
-        raise ValueError("smtp notifier requires a non-empty host (SMTP_HOST)")
+        raise ValueError(
+            "smtp notifier requires a non-empty host option on the instance"
+        )
     _refuse_cleartext_login_in_prod(cfg.options)
     return cls(name=cfg.name, driver=cfg.driver, options=dict(cfg.options))
 

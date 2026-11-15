@@ -62,7 +62,7 @@ class RedisStreamsTransport(_StreamsConsume):
       ``maxlen`` > 0) and a throttled ``XTRIM MINID ~`` drops entries older than
       ``retention_seconds``, so a stream cannot grow forever and a new group
       created at ``"0"`` replays at most the retention window.
-    * **namespacing** — ``prefix`` (``EVENT_STREAM_PREFIX``) is prepended to
+    * **namespacing** — ``prefix`` (a driver option) is prepended to
       every Redis key this transport touches (streams, DLQs, ownership and
       inventory keys) so several environments can share one Redis. Channel /
       stream names in the API stay logical (unprefixed).

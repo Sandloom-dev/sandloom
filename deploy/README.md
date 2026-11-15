@@ -79,7 +79,7 @@ startup.
 | `RPC_SERVICE_KEYS` | — | **required** (every process) | `{"<service>": {"<kid>": "<PEM>"}}` the callers' Ed25519 public keys |
 | `RPC_ALLOWED_CALLS` | — | fixed in the common env | the allowlist = each caller's `SERVICE_BINDINGS` (`sandloom keys allowlist`; pinned by `test_rpc_allowlist_is_derived_from_bindings`) |
 | `METRICS_TOKEN` | optional | optional | scrape-only credential for `/metrics` (must differ from `INTERNAL_API_TOKEN`); give it to Prometheus instead of the internal token |
-| `NOTIFIER_BACKEND`, `SMTP_HOST`, `SMTP_FROM` | **`smtp` + host + sender** for real mail | same | identity and tenancy require an email notifier (`notification` with feature `email`). The default `log` driver delivers no mail, so with `ENVIRONMENT=prod` startup refuses it (a named capability error) instead of logging recovery and invitation mail nobody receives. Production: `NOTIFIER_BACKEND=smtp`, `SMTP_HOST`, `SMTP_FROM`, and `SMTP_USERNAME` / `SMTP_PASSWORD` over `SMTP_USE_TLS=true` (the default; credentials without TLS are refused). A demo without a mail server adds `log_notifier_in_prod` to `SANDLOOM_ACCEPTED_RISKS` and **no mail is delivered** |
+| `NOTIFIER_BACKEND`, `INFRA` (`notification` instance) | **`smtp` + `host` + `from_addr`** for real mail | same | identity and tenancy require an email notifier (`notification` with feature `email`). The default `log` driver delivers no mail, so with `ENVIRONMENT=prod` startup refuses it (a named capability error) instead of logging recovery and invitation mail nobody receives. Production: `NOTIFIER_BACKEND=smtp` and `INFRA={"notification": {"default": {"driver": "smtp", "host": ..., "from_addr": ..., "username": ..., "password": ...}}}`, over `use_tls` (on by default; credentials without TLS are refused). A demo without a mail server adds `log_notifier_in_prod` to `SANDLOOM_ACCEPTED_RISKS` and **no mail is delivered** |
 | `BILLING_PROVIDER` | **required** | **required** | `stripe` (+ `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) or `fake` together with `SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod` (demo only). There is no default: in prod billing rejects `fake` — even set explicitly — unless `SANDLOOM_ACCEPTED_RISKS` lists `billing.fake_psp_in_prod`, and compose refuses to start without a choice |
 | `SANDLOOM_ACCEPTED_RISKS` | default `local_storage_in_prod` | default `local_storage_in_prod` | the ONE list of weaker guarantees a prod deployment accepts (JSON or comma list of risk ids; an unknown id fails startup). Each accepted risk is logged as a WARNING at every start, exported as `sandloom_accepted_risk_active{risk}` and listed by `/diagnostics/core` and `sandloom doctor`. The former booleans (`BILLING_ALLOW_FAKE_PSP_IN_PROD`, …) are removed settings: startup refuses them unless set to their inert value ([ADR-0006](../docs/adr/0006-accepted-risks.md)) |
 | `WEB_CONCURRENCY`, `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` | defaults 3 / 10 / 10 | defaults 2 / 5 / 5 | see *Sizing* |
@@ -97,7 +97,7 @@ startup.
 | `WORKER_MAX_MEMORY_PER_CHILD` | default 200000 KiB | same | recycle a child above this RSS after its task |
 | `SANDLOOM_IMAGE` | default `sandloom:local` | same | the one image every process runs (built once) |
 | `GATEWAY_PORT`, `SANDLOOM_SUBNET`, `SANDLOOM_GATEWAY_IP`, `SANDLOOM_IP_RANGE` / `APP_PORT` | `APP_PORT` 2222 | 8080 / `172.28.0.0/24` / `172.28.0.10` / `172.28.0.128/25` | change them (plus `-p <project>`) to run two stacks on one host; `SANDLOOM_GATEWAY_IP` must lie in `SANDLOOM_SUBNET` but outside `SANDLOOM_IP_RANGE` (the dynamic-address pool), so change all three together |
-| `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_PREVIOUS_SECRETS` (monolith only), `ACCESS_TOKEN_EXPIRE_MINUTES`, `NOTIFIER_BACKEND`, `SMTP_*`, `FRONTEND_URL` | optional | optional | in the **common** env of both profiles: identical in every process |
+| `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_PREVIOUS_SECRETS` (monolith only), `ACCESS_TOKEN_EXPIRE_MINUTES`, `NOTIFIER_BACKEND`, `INFRA`, `FRONTEND_URL` | optional | optional | in the **common** env of both profiles: identical in every process |
 
 `REFRESH_TOKEN_EXPIRE_DAYS` is identity's setting (it sets the issuer's refresh
 sessions): the monolith passes it in the common env, the microservices profile
@@ -121,7 +121,7 @@ identity is verified by every service, so `JWT_*` / the access-token lifetime mu
 (the exceptions are the issuer-only `JWT_PRIVATE_KEY` / `JWT_SECRET` of the
 microservices profile, which only identity processes receive —
 `test_only_the_issuer_holds_signing_material`);
-identity and tenancy both send mail (`NOTIFIER_BACKEND` / `SMTP_*`);
+identity and tenancy both send mail (`NOTIFIER_BACKEND` and the `notification` instance in `INFRA`);
 subscription gates evaluate one past-due policy. **`CACHE_URL` is identical for
 every service** — a hard invariant: access-token revocation marks, rate-limit
 buckets, idempotency keys and the Streams bus live there; a per-service cache

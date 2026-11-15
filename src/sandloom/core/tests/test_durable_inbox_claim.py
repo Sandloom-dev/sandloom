@@ -196,8 +196,14 @@ def _core_with_retention(
         settings=SimpleNamespace(
             is_prod=False,
             event_bus_backend=backend,
-            event_stream_retention_seconds=retention_seconds,
-            infra=None,
+            infra={
+                "eventbus": {
+                    "default": {
+                        "driver": backend,
+                        "retention_seconds": retention_seconds,
+                    }
+                }
+            },
         ),
         event_bus=SimpleNamespace(retention=lambda: None),
     )
@@ -254,7 +260,7 @@ async def test_inbox_purge_inside_the_redelivery_window_is_refused(
             await self.session.close()
 
     core = _core_with_retention(_Uow, 7 * 86400)
-    with pytest.raises(SystemExit, match="EVENT_STREAM_RETENTION_SECONDS"):
+    with pytest.raises(SystemExit, match="eventbus.default.retention_seconds"):
         await inbox_purge(core, days=7.5, batch=10)
     assert await _remaining(sessionmaker, "test@window") == ["e0"]
     with pytest.raises(SystemExit, match="unbounded"):

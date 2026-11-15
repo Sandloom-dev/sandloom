@@ -85,8 +85,8 @@ def test_new_instance_requires_driver(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_infra_overlay_gives_a_replacement_driver_no_prior_options(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The SMTP password of the default instance must not reach a plugin driver."""
-    monkeypatch.setattr(settings, "smtp_password", "secret", raising=False)
+    """A replacement driver gets the options the overlay states, none inherited."""
+    monkeypatch.setattr(settings, "notifier_backend", "smtp")
     s = _settings_with_infra(
         monkeypatch,
         {"notification": {"default": {"driver": "file", "path": "/m.log"}}},
@@ -103,12 +103,10 @@ def test_flat_s3_settings_do_not_inherit_the_local_path(
 ) -> None:
     monkeypatch.setattr(settings, "infra", {})
     monkeypatch.setattr(settings, "storage_type", "s3")
-    monkeypatch.setattr(settings, "s3_bucket", "uploads")
 
     instance = load_infra_config(settings)["objectstore"]["default"]
 
     assert instance.driver == "s3"
-    assert instance.options["bucket"] == "uploads"
     assert "path" not in instance.options
 
 

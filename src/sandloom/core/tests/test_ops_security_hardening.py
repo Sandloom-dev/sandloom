@@ -97,10 +97,17 @@ def test_s3_storage_fails_fast_at_startup() -> None:
     cfg = _settings(
         JWT_SECRET="x",
         STORAGE_TYPE="s3",
-        S3_BUCKET="b",
-        S3_REGION="r",
-        S3_ACCESS_KEY_ID="k",
-        S3_SECRET_ACCESS_KEY="s",
+        INFRA={
+            "objectstore": {
+                "default": {
+                    "driver": "s3",
+                    "bucket": "b",
+                    "region": "r",
+                    "access_key_id": "k",
+                    "secret_access_key": "s",
+                }
+            }
+        },
     )
     with pytest.raises(InfraRegistryError, match="no registered driver"):
         build_infra_registry(InMemorySchemaRegistry(), settings=cfg, load_plugins=False)

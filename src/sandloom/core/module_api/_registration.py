@@ -532,7 +532,7 @@ class ModuleAPI:
         ``group`` pins an explicit group id instead (e.g. the bare pre-0.4
         name, to keep draining an existing group). ``start_from`` applies when
         the group is first created: ``"earliest"`` (default; every event still
-        within ``EVENT_STREAM_RETENTION_SECONDS``), ``"latest"`` or an ISO-8601
+        within the stream ``retention_seconds``), ``"latest"`` or an ISO-8601
         timestamp. ``bind_tenant_from`` (opt-in) names the payload field holding
         the tenant id: the handler then runs with that tenant bound, so
         ``TenantScoped`` code works; a missing/invalid value fails the delivery.

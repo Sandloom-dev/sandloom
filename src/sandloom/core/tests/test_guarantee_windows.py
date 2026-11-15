@@ -102,25 +102,14 @@ def test_the_inbox_window_requires_the_retention_it_is_checked_against() -> None
     ("settings", "days", "risky"),
     [
         # streams configured with the 7 days default
-        (
-            {
-                "event_bus_backend": "streams",
-                "event_stream_retention_seconds": 7 * 86400,
-            },
-            0.5,
-            True,
-        ),
-        (
-            {
-                "event_bus_backend": "streams",
-                "event_stream_retention_seconds": 7 * 86400,
-            },
-            8,
-            False,
-        ),
+        ({"event_bus_backend": "streams"}, 0.5, True),
+        ({"event_bus_backend": "streams"}, 8, False),
         # unbounded retention: any purge
         (
-            {"event_bus_backend": "streams", "event_stream_retention_seconds": 0},
+            {
+                "event_bus_backend": "streams",
+                "infra": {"eventbus": {"default": {"retention_seconds": 0}}},
+            },
             365,
             True,
         ),
@@ -155,7 +144,7 @@ def test_an_undetermined_retention_names_the_setting() -> None:
         _settings(event_bus_backend="memory"), 365
     )
     assert "EVENT_BUS_BACKEND" in problem.message
-    assert "EVENT_STREAM_RETENTION_SECONDS" in problem.settings
+    assert gw.RETENTION_OPTION in problem.settings
 
 
 def test_production_refuses_and_names_the_risk() -> None:

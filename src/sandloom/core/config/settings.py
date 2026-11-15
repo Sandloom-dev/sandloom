@@ -689,26 +689,9 @@ class Settings(
 
     @model_validator(mode="after")
     def _storage_requirements(self) -> Settings:
-        if self.storage_type == "local":
-            # local directory
-            if not self.storage_path:
-                raise ValueError("STORAGE_PATH is required when STORAGE_TYPE=local")
-        elif self.storage_type == "s3":
-            missing = [
-                name
-                for name, val in {
-                    "S3_BUCKET": self.s3_bucket,
-                    "S3_REGION": self.s3_region,
-                    "S3_ACCESS_KEY_ID": self.s3_access_key_id,
-                    "S3_SECRET_ACCESS_KEY": self.s3_secret_access_key,
-                }.items()
-                if not val
-            ]
-            if missing:
-                raise ValueError(
-                    f"STORAGE_TYPE=s3 requires variables: {', '.join(missing)}"
-                )
-        # gcs/yc can be added similarly
+        # ``s3``: the driver validates its options (INFRA.objectstore.default).
+        if self.storage_type == "local" and not self.storage_path:
+            raise ValueError("STORAGE_PATH is required when STORAGE_TYPE=local")
         return self
 
     # ---- Helpers ----

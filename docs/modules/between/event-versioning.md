@@ -134,9 +134,10 @@ When no live consumer group reads `.v1` in any environment
 await NoteArchivedV2(...).publish()
 ```
 
-Keep the v1 class until v1 events can no longer be replayed: stream
-retention (`EVENT_STREAM_RETENTION_SECONDS`, 7 days by default) and any
-entry still in a dead-letter queue (`sandloom streams dlq-list`).
+Keep the v1 class until v1 events can no longer be replayed. Two things
+replay them: stream retention and any entry still in a dead-letter queue
+(`sandloom streams dlq-list`). Retention is the `retention_seconds` option of
+the `streams` bus, 7 days by default.
 
 ## Verify
 

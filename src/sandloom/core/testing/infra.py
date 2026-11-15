@@ -63,14 +63,8 @@ async def override_instance(
     """
     from sandloom.core.infra.config import (  # noqa: PLC0415 - cold: settings snapshot - the pytest plugin imports this module before .env.test is loaded
         InstanceConfig,
-        fill_streams_override_defaults,
     )
 
-    if capability == "eventbus" and driver == "streams":
-        # The kernel fills the key namespace of a ``streams`` bus from
-        # ``EVENT_STREAM_PREFIX``; the override bypasses that fill, so it makes
-        # the same one: an override stays namespaced.
-        fill_streams_override_defaults(options)
     registry = core.infra
     snapshot = registry.snapshot_instance(capability, name)
     registry.configure_instance(

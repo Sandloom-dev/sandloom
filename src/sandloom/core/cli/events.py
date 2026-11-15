@@ -33,7 +33,7 @@ bounded batches; dead-lettered and pending rows are never touched.
 (``consumer_inbox``) claims older than that many days — never automatic: a
 claim must outlive every possible redelivery of its event (Streams retention,
 an operator ``requeue`` of an old dead row), or a late duplicate would apply
-its effect twice; a ``D`` inside ``EVENT_STREAM_RETENTION_SECONDS`` + 1 day is
+its effect twice; a ``D`` inside the stream ``retention_seconds`` + 1 day is
 refused unless ``--force`` (:mod:`sandloom.core.guarantee_windows`). The audit log
 is never purged by the framework (retention is a compliance policy; see
 docs/operate/operator-reference.md).
@@ -95,7 +95,7 @@ async def inbox_purge(
     Deletes in batches of ``batch`` rows, each in its own short Unit of Work,
     so a large backlog never becomes one long transaction. Refused when
     ``days`` is inside the redelivery window (the configured stream retention,
-    ``EVENT_STREAM_RETENTION_SECONDS``, + a margin,
+    ``INFRA.eventbus.default.retention_seconds``, + a margin,
     :mod:`sandloom.core.guarantee_windows`) or the retention cannot be
     determined from the configuration, unless ``force``: a claim purged before
     its event's last possible redelivery lets it apply twice.
@@ -265,7 +265,7 @@ def outbox_main(argv: list[str] | None = None) -> int:
         type=float,
         default=None,
         help="also prune consumer_inbox claims older than this many days "
-        "(refused inside EVENT_STREAM_RETENTION_SECONDS + 1 day unless --force)",
+        "(refused inside the stream retention_seconds + 1 day unless --force)",
     )
     purge.add_argument(
         "--force",

@@ -64,14 +64,12 @@ class EventBusOptions(BaseModel):
     #: Retention of every stream (``retention()``): entries older than
     #: ``retention_seconds`` are trimmed at publish, and, when ``max_length`` is
     #: positive, entries beyond that count. Zero disables the respective bound.
-    #: The kernel fills both from ``EVENT_STREAM_RETENTION_SECONDS`` and
-    #: ``EVENT_STREAM_MAXLEN`` until those settings become options.
+    #: Both are written on the INFRA instance (``INFRA.eventbus.<name>``).
     retention_seconds: int = Field(default=DEFAULT_EVENT_STREAM_RETENTION_SECONDS, ge=0)
     max_length: int = Field(default=0, ge=0)
     #: Namespace prepended to every Streams key (streams, dead letters, group
-    #: ownership, inventory) so several environments can share one Redis. The
-    #: kernel fills it from ``EVENT_STREAM_PREFIX`` until that setting becomes
-    #: an option; changing it starts a separate namespace.
+    #: ownership, inventory) so several environments can share one Redis.
+    #: Changing it starts a separate namespace.
     prefix: str = ""
 
 

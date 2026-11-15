@@ -114,7 +114,10 @@ def test_a_removed_feature_is_refused_naming_its_replacement(removed: str) -> No
 # -- the two driver shapes ----------------------------------------------------
 
 
-def test_the_kernel_fills_the_retention_options_from_the_settings() -> None:
+def test_the_kernel_leaves_the_retention_options_to_the_instance() -> None:
+    """Retention, length and key prefix are options of the ``streams`` instance:
+    the kernel fills none of them (no flat setting feeds them any more), and
+    keeps the ones INFRA states."""
     from types import SimpleNamespace
 
     from sandloom.core.infra.config import (
@@ -127,19 +130,15 @@ def test_the_kernel_fills_the_retention_options_from_the_settings() -> None:
         capability="eventbus", name="default", driver="streams", options={}
     )
     config: InfraConfig = {"eventbus": {"default": cfg}}
-    settings = SimpleNamespace(
-        cache_url="redis://x/0",
-        event_stream_retention_seconds=120,
-        event_stream_maxlen=9,
-    )
+    settings = SimpleNamespace(cache_url="redis://x/0")
     fill_driver_defaults(config, settings)
-    assert cfg.options["retention_seconds"] == 120
-    assert cfg.options["max_length"] == 9
+    for option in ("retention_seconds", "max_length", "prefix"):
+        assert option not in cfg.options
     own = InstanceConfig(
         capability="eventbus",
         name="x",
         driver="streams",
-        options={"retention_seconds": 5},
+        options={"retention_seconds": 5, "max_length": 9},
     )
     fill_driver_defaults({"eventbus": {"x": own}}, settings)
     assert own.options["retention_seconds"] == 5

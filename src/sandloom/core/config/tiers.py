@@ -316,13 +316,6 @@ SEMANTIC: tuple[SemanticSetting, ...] = (
         risk="relay_disabled",
         adr="docs/adr/0006-accepted-risks.md",
     ),
-    # ---- transport
-    SemanticSetting(
-        "SMTP_USE_TLS",
-        "STARTTLS / TLS to the SMTP server (credentials in clear without it).",
-        profile=_all(True),
-        strength=_BOOL_WEAK_FALSE,
-    ),
 )
 
 
@@ -461,6 +454,63 @@ REMOVED: tuple[RemovedSetting, ...] = (
         "and move the INFRA cache entry it named to "
         'INFRA["atomic_store"]["idempotency"]',
     ),
+    *(
+        RemovedSetting(
+            name,
+            "1.0",
+            f"the smtp notifier reads its `{option}` from the driver options of "
+            "the `notification` instance, no longer from a flat setting. Upgrade: "
+            f"delete {name} and write `{option}` into INFRA, e.g. "
+            'INFRA={"notification": {"default": {"driver": "smtp", '
+            f'"{option}": ...}}}}}} (keys: host, port, username, password, '
+            "from_addr, use_tls; use_tls stays on unless set false)",
+            # SMTP_USE_TLS defaulted to true: only an explicit false was a choice.
+            inert=name == "SMTP_USE_TLS",
+        )
+        for name, option in (
+            ("SMTP_HOST", "host"),
+            ("SMTP_PORT", "port"),
+            ("SMTP_USERNAME", "username"),
+            ("SMTP_PASSWORD", "password"),
+            ("SMTP_FROM", "from_addr"),
+            ("SMTP_USE_TLS", "use_tls"),
+        )
+    ),
+    *(
+        RemovedSetting(
+            name,
+            "1.0",
+            f"the s3 object store reads its `{option}` from the driver options of "
+            "the `objectstore` instance, no longer from a flat setting. Upgrade: "
+            f"delete {name} and write `{option}` into INFRA, e.g. "
+            'INFRA={"objectstore": {"default": {"driver": "s3", '
+            f'"{option}": ...}}}}}} (keys: bucket, region, access_key_id, '
+            "secret_access_key, endpoint_url); STORAGE_TYPE=s3 still selects "
+            "the driver",
+        )
+        for name, option in (
+            ("S3_BUCKET", "bucket"),
+            ("S3_REGION", "region"),
+            ("S3_ACCESS_KEY_ID", "access_key_id"),
+            ("S3_SECRET_ACCESS_KEY", "secret_access_key"),
+        )
+    ),
+    *(
+        RemovedSetting(
+            name,
+            "1.0",
+            f"the `streams` event bus reads its `{option}` from the driver "
+            "options of the `eventbus` instance, no longer from a flat "
+            f"setting. Upgrade: delete {name} and write `{option}` into INFRA, "
+            'e.g. INFRA={"eventbus": {"default": {"driver": "streams", '
+            f'"{option}": ...}}}}}}',
+        )
+        for name, option in (
+            ("EVENT_STREAM_RETENTION_SECONDS", "retention_seconds"),
+            ("EVENT_STREAM_MAXLEN", "max_length"),
+            ("EVENT_STREAM_PREFIX", "prefix"),
+        )
+    ),
     RemovedSetting(
         "MODULE_FS_SCAN",
         "0.7",
@@ -519,14 +569,11 @@ OPS: frozenset[str] = frozenset(
         "CONSUMER_RETRY_MAX_SECONDS",
         "EVENT_BUS_BACKEND",
         "SANDLOOM_SERVICE_NAME",
-        "EVENT_STREAM_RETENTION_SECONDS",
         "PROJECTION_TOKEN_KEYS",
         "PROJECTION_RYW_WAIT_MS",
-        "EVENT_STREAM_MAXLEN",
         "EVENT_HANDLER_TIMEOUT_SECONDS",
         "EVENT_STREAMS_RECONNECT_BASE_SECONDS",
         "EVENT_STREAMS_RECONNECT_MAX_SECONDS",
-        "EVENT_STREAM_PREFIX",
         "EVENT_STREAM_READ_COUNT",
         "SANDLOOM_COMPOSITION_ROOT",
         "OUTBOX_RELAY_MAX_ATTEMPTS",
@@ -598,15 +645,6 @@ OPS: frozenset[str] = frozenset(
         "MAX_REQUEST_BODY_BYTES",
         "NOTIFIER_BACKEND",
         "NOTIFIER_LOG_LINKS",
-        "SMTP_HOST",
-        "SMTP_PORT",
-        "SMTP_USERNAME",
-        "SMTP_PASSWORD",
-        "SMTP_FROM",
-        "S3_BUCKET",
-        "S3_REGION",
-        "S3_ACCESS_KEY_ID",
-        "S3_SECRET_ACCESS_KEY",
         "JWT_SECRET",
         "JWT_ALGORITHM",
         "JWT_PRIVATE_KEY",
