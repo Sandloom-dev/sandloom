@@ -8,8 +8,8 @@ turns at-least-once redelivery into once-per-effect on the stable envelope id.
 from __future__ import annotations
 
 import pytest
+from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 
-from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
 from sandloom.core.eventing.consumer_inbox import ConsumerInbox
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.memory_transport import MemoryTransport

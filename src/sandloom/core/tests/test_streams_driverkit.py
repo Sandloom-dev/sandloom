@@ -16,16 +16,16 @@ from typing import Any
 
 import pytest
 import sandloom_redis.cache as redis_cache
-
-from sandloom.core.config.settings import settings
-from sandloom.core.drivers.event_bus_driver import (
+from sandloom_redis.eventbus import streams_transport
+from sandloom_redis.eventbus.driver import (
     EventBusOptions,
     StreamsEventBusProvider,
     _LazyRedisClient,
     _streams_read_timeout,
     make_streams_driver,
 )
-from sandloom.core.drivers.redis_eventbus import streams_transport
+
+from sandloom.core.config.settings import settings
 from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.infra.config import (
     DEFAULT_INSTANCE,
@@ -56,6 +56,46 @@ def test_the_kernel_fills_the_prefix_option_from_the_setting(
     assert isinstance(provider, StreamsEventBusProvider)
     assert provider.prefix == "staging:"
     assert provider.key("orders.created") == "staging:orders.created"
+
+
+async def test_the_entry_point_build_is_the_kernel_build() -> None:
+    """``from_config`` (what the ``eventbus.streams`` entry point resolves to) gives
+    the provider its Redis client factory: without one the transport cannot do
+    I/O. A named instance with a ``url`` owns a client it closes."""
+    provider = StreamsEventBusProvider.from_config(
+        InstanceConfig(
+            capability="eventbus",
+            name="named",
+            driver="streams",
+            options={"url": "redis://127.0.0.1:6399/0", "prefix": "p:"},
+        )
+    )
+    assert isinstance(provider, StreamsEventBusProvider)
+    assert provider.prefix == "p:"
+    assert provider._client_factory is not None
+    assert provider._owned_client is not None
+    await provider.aclose()
+
+
+async def test_a_subclass_from_config_builds_the_subclass() -> None:
+    """The kits call ``type(provider).from_config``: a subclass gets itself back,
+    built over the same client factory as the base class."""
+
+    class _Sub(StreamsEventBusProvider):
+        pass
+
+    provider = _Sub.from_config(
+        InstanceConfig(
+            capability="eventbus",
+            name="named",
+            driver="streams",
+            options={"url": "redis://127.0.0.1:6399/0"},
+        )
+    )
+    assert type(provider) is _Sub
+    assert provider._client_factory is not None
+    assert provider._owned_client is not None
+    await provider.aclose()
 
 
 def test_a_prefix_left_out_is_no_namespace_and_reads_no_setting(

@@ -10,8 +10,6 @@ from typing import Any, ClassVar
 
 import orjson
 
-from sandloom.core.drivers.redis_eventbus.streams_consume import _StreamsConsume
-from sandloom.core.drivers.redis_eventbus.streams_transport_base import _mapped
 from sandloom.driverkit import DeadLetter, EventEnvelope, observe
 from sandloom.driverkit.eventbus_support import (
     DLQ_REASON_MAX_DELIVERIES,
@@ -19,6 +17,8 @@ from sandloom.driverkit.eventbus_support import (
     partial_publish,
 )
 from sandloom.driverkit.metrics import safe_inc
+from sandloom_redis.eventbus.streams_consume import _StreamsConsume
+from sandloom_redis.eventbus.streams_transport_base import _mapped
 
 logger = logging.getLogger("sandloom.core.eventing.transport")
 

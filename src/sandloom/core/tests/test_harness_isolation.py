@@ -26,9 +26,9 @@ from typing import Any
 
 import pytest
 import sandloom_redis.cache as redis_cache
+import sandloom_redis.eventbus.driver as event_bus_driver
 from sandloom_celery.taskqueue import CeleryTaskQueueProvider
 
-from sandloom.core.drivers import event_bus_driver
 from sandloom.core.infra.ports._base import InfraProvider
 from sandloom.core.testing import (
     ownership,

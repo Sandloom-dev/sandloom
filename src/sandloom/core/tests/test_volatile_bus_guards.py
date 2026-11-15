@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from sandloom_redis.eventbus.driver import make_streams_driver
 
 from sandloom.core.config.common import Environment
 from sandloom.core.config.settings import settings
@@ -16,7 +17,6 @@ from sandloom.core.drivers.bootstrap import (
     build_infra_registry,
     volatile_event_bus_allowed,
 )
-from sandloom.core.drivers.event_bus_driver import make_streams_driver
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.eventing.pubsub_bus import RedisEventBus
 from sandloom.core.eventing.volatile_provider import make_volatile_bus_drivers

@@ -10,18 +10,17 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from functools import partial
-from types import ModuleType
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol, Self, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from sandloom.core.drivers.redis_eventbus.streams_transport import (
-    RedisStreamsTransport,
-)
+import sandloom_redis.cache as _redis_cache
 from sandloom.driverkit import (
     EventTransportProvider,
     HealthResult,
     InfraProvider,
+    InstanceConfig,
+    Unavailable,
     health_failure_details,
 )
 from sandloom.driverkit._builtin_streams import BUS_BLOCK_MS
@@ -29,29 +28,12 @@ from sandloom.driverkit.eventbus_support import (
     DEFAULT_EVENT_STREAM_RETENTION_SECONDS,
 )
 from sandloom.driverkit.testing_isolation import isolated_redis_options
+from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
+from sandloom_redis.eventbus.streams_transport_base import _mapped
 
 #: The name of the ``default`` instance of a capability (the kernel's
 #: ``DEFAULT_INSTANCE``): it shares the process-wide default transport client.
 _DEFAULT_INSTANCE = "default"
-
-
-if TYPE_CHECKING:
-    # Temporary, removed by idk-pkg-redis-eventbus (this driver moves into
-    # ``sandloom-redis`` next to the cache module): the one place the kernel
-    # names the package. The runtime import is the lazy one in ``_redis_cache``;
-    # this one types what the module's classes are used for.
-    from sandloom_redis.cache import RedisCacheOptions
-
-
-def _redis_cache() -> ModuleType:
-    """The cache driver of the ``sandloom-redis`` package, which owns the Redis
-    client helpers. Imported when a client is first built, so this module
-    imports in a lean install (the registry refuses the ``streams`` driver
-    without the package before it gets here, SANDLOOM-B037). Temporary until
-    idk-pkg-redis-eventbus moves this driver into the package."""
-    import sandloom_redis.cache as cache  # noqa: PLC0415 - optional: the package is the `sandloom[redis]` extra
-
-    return cache
 
 
 class _InstanceLike(Protocol):
@@ -118,7 +100,7 @@ class _LazyRedisClient:
             options = self._options
             if not options.url:
                 raise ValueError("eventbus instance has no 'url' option")
-            self._client = _redis_cache().build_transport_client(
+            self._client = _redis_cache.build_transport_client(
                 options.url,
                 read_timeout=self._read_timeout,
                 socket_connect_timeout_seconds=options.socket_connect_timeout_seconds,
@@ -170,20 +152,19 @@ def _redis_client_factory(
     for this provider to close).
     """
     options = EventBusOptions.model_validate(cfg.options)
-    redis_cache = _redis_cache()
     if not options.url:
-        return partial(redis_cache.get_default_transport_client, read_timeout), None
+        return partial(_redis_cache.get_default_transport_client, read_timeout), None
     if cfg.name == _DEFAULT_INSTANCE:
-        transport: RedisCacheOptions = redis_cache.RedisCacheOptions(
+        transport = _redis_cache.RedisCacheOptions(
             url=options.url,
             socket_connect_timeout_seconds=options.socket_connect_timeout_seconds,
             health_check_interval_seconds=options.health_check_interval_seconds,
         )
         # The default client may not be configured yet (the cache instance is
         # built lazily); never replaces what the default cache instance set.
-        redis_cache.configure_default_client(transport, replace=False)
+        _redis_cache.configure_default_client(transport, replace=False)
         return (
-            partial(redis_cache.get_default_transport_client, read_timeout, transport),
+            partial(_redis_cache.get_default_transport_client, read_timeout, transport),
             None,
         )
     lazy = _LazyRedisClient(options, read_timeout=read_timeout)
@@ -223,6 +204,13 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
         self._owned_client = client
 
     @classmethod
+    def from_config(cls, config: InstanceConfig) -> Self:
+        """The entry-point build: the instance's Redis client comes from the
+        same builder the kernel's row uses (:func:`make_streams_driver`), and
+        the result is ``cls``, so a subclass's ``from_config`` returns it."""
+        return _build_provider(cls, config)
+
+    @classmethod
     def test_isolation(
         cls, options: Mapping[str, Any], worker_id: str
     ) -> Mapping[str, Any]:
@@ -238,6 +226,26 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
             return HealthResult(status="fail", details=health_failure_details(exc))
         return HealthResult(status="ok")
 
+    @_mapped
+    async def isolation_identity(self) -> str:
+        """``streams:<run_id>``: the ``run_id`` of the reached Redis server from
+        ``INFO server``, behind the driver name every identity starts with
+        (spec 2.4, 2.7 item 6). Two buses on one server answer the same, however
+        they reach it. Needs the Redis ACL permission for ``INFO server``. A
+        startup diagnostic, never a per-request operation."""
+        client = await self._client()
+        info = await client.info(section="server")
+        run_id = info.get("run_id") or info.get(b"run_id")
+        if isinstance(run_id, bytes):
+            run_id = run_id.decode("ascii", "replace")
+        if not isinstance(run_id, str) or not run_id:
+            raise Unavailable(
+                f"eventbus {self.name!r}: INFO server returned no process identity",
+                capability=self.capability,
+                instance=self.name,
+            )
+        return f"{self.driver}:{run_id}"
+
     async def aclose(self) -> None:
         # Close the instance-owned Redis client (if any) so its connection pool
         # does not leak. The shared default client has no _LazyRedisClient and
@@ -246,23 +254,25 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
             await self._owned_client.aclose()
 
 
+_P = TypeVar("_P", bound=StreamsEventBusProvider)
+
+
+def _build_provider(cls: type[_P], cfg: _InstanceLike) -> _P:
+    """``cls`` over the Redis client the instance's options describe."""
+    factory, closable = _redis_client_factory(cfg, read_timeout=_streams_read_timeout())
+    return cls(
+        name=cfg.name,
+        driver=cfg.driver,
+        options=dict(cfg.options),
+        client=closable,
+        client_factory=factory,
+    )
+
+
 def make_streams_driver() -> Callable[[_InstanceLike], InfraProvider]:
     """The factory of the ``streams`` driver (it needs no schema registry: the
     kernel builds the bus over the provider)."""
-
-    def _streams(cfg: _InstanceLike) -> InfraProvider:
-        factory, closable = _redis_client_factory(
-            cfg, read_timeout=_streams_read_timeout()
-        )
-        return StreamsEventBusProvider(
-            name=cfg.name,
-            driver=cfg.driver,
-            options=dict(cfg.options),
-            client=closable,
-            client_factory=factory,
-        )
-
-    return _streams
+    return partial(_build_provider, StreamsEventBusProvider)
 
 
 __all__ = [

@@ -17,11 +17,11 @@ from typing import Any
 
 import pytest
 import sandloom_redis.cache as redis_cache
+from sandloom_redis.eventbus.driver import make_streams_driver
 
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.drivers.bootstrap import volatile_event_bus_allowed
-from sandloom.core.drivers.event_bus_driver import make_streams_driver
 from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.eventing.volatile_provider import (
     VolatileBusOptions,

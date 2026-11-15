@@ -191,7 +191,7 @@ async def test_health_probes_are_bounded(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 async def test_broker_unavailability_is_reported_as_health_failure() -> None:
-    from sandloom.core.drivers.event_bus_driver import StreamsEventBusProvider
+    from sandloom_redis.eventbus.driver import StreamsEventBusProvider
 
     async def client():
         raise ConnectionError("unavailable")

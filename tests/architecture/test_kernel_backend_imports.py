@@ -252,7 +252,8 @@ def test_the_scan_also_sees_sdk_and_shared() -> None:
 IMPORTLINTER = REPO / ".importlinter"
 EVENTING_CONTRACT = "importlinter:contract:eventing-no-transport-impl"
 #: The Redis Streams transport files, which moved to the driver package
-#: ``core/drivers/redis_eventbus`` (idk-eventbus-move): none is in eventing.
+#: ``sandloom_redis/eventbus`` (idk-eventbus-move, idk-pkg-redis-eventbus): none
+#: is in eventing.
 TRANSPORT_FILES = (
     "streams_transport",
     "streams_transport_base",
@@ -290,8 +291,11 @@ def test_the_whole_eventing_package_is_the_contract_source() -> None:
 
 
 def test_no_transport_file_is_left_in_eventing() -> None:
-    """The Redis Streams transport lives in ``core/drivers/redis_eventbus``."""
+    """The Redis Streams transport lives in the ``sandloom-redis`` package."""
     left = [n for n in TRANSPORT_FILES if (CORE / "eventing" / f"{n}.py").exists()]
-    assert not left, f"{left} belong in core/drivers/redis_eventbus"
-    package = CORE / "drivers" / "redis_eventbus"
+    assert not left, f"{left} belong in sandloom_redis/eventbus"
+    assert not (CORE / "drivers" / "redis_eventbus").exists()
+    package = (
+        REPO / "packages" / "sandloom-redis" / "src" / "sandloom_redis" / "eventbus"
+    )
     assert all((package / f"{n}.py").is_file() for n in TRANSPORT_FILES)
