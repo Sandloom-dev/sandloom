@@ -4019,6 +4019,7 @@
         "test_host_runs_an_async_task_once",
         "test_host_runs_nothing_for_an_unknown_task",
         "test_scheduler_sends_once_per_slot_while_holding_the_lease",
+        "test_scheduler_that_takes_over_inside_a_slot_does_not_send_it_again",
         "test_send_carries_the_queue_of_the_task",
         "test_send_errors_carry_the_dedupe_decision",
         "test_send_marks_at_least_once_only_when_the_driver_redelivers",

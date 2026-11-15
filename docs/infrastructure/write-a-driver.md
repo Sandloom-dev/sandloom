@@ -282,9 +282,9 @@ not a driver shape.
 
 #### A taskqueue driver's worker host
 
-!!! warning "Kernel-facing; the conformance kit is pending"
-    A `taskqueue` driver is not open to packages yet: its conformance kit covers `send`
-    and is extended with the host (`idk-worker-port-kit`). This section is the contract the
+!!! warning "Kernel-facing"
+    A `taskqueue` driver is not open to packages yet. Its conformance kit,
+    `TaskQueueConformance`, covers `send` and the host. This section is the contract the
     kernel runs a worker over.
 
 A `taskqueue` driver (`TaskQueueProvider`, `contract_version = 2`) implements `send` and
@@ -317,6 +317,26 @@ The host answers three calls:
   the production check, so a second scheduler stands by.
 - `check(timeout_seconds=)` answers whether a worker runs, without booting anything.
   Its details name no broker address or credential.
+
+`TaskQueueConformance` has send groups and host groups. Send groups call `send` against a
+throw-away backend. Host groups run `worker_host()` for real, one forked process per
+host, on a backend the processes share. Each host gets a `WorkerBoot` that reports every
+call and every run through a pipe. A platform without `fork` skips them. A driver whose
+`worker_host()` answers `None` or raises `NotImplementedError` fails, because the method
+is abstract. Set these fixtures:
+
+- `make_provider` builds an unopened provider for the send groups. A `memory://` broker
+  is enough there.
+- `make_host_provider` builds a provider on a backend the forked hosts and the test
+  share. It defaults to `make_provider`, so override it when that one is not shared.
+- `make_lease_store` builds an unopened shared `lease` store. A driver that declares
+  `periodic` must override it: the scheduler groups fail without it.
+- `scheduler_clock` is optional. It freezes the driver's clock shortly before a cron slot
+  and returns `advance`, so the scheduler groups do not wait for a real minute.
+
+The scheduler groups run two schedulers on one lease. One sends a slot once while the
+other stands by. After the first stops, the second takes over inside the same slot and
+sends nothing for it.
 
 A driver may keep an importable object for its own tools (the Celery driver's `app`, for
 `celery inspect` and Flower). It documents that object itself: it is the driver's

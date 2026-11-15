@@ -12,7 +12,9 @@ process (``run_worker`` and ``run_scheduler`` block and own the process's
 signals) with a kit-made ``WorkerBoot`` that reports every call and every run
 through a pipe. They need a backend the forked processes share: point
 ``make_host_provider`` at one (default: ``make_provider``; a ``memory://``
-broker is not shared). A driver without a host skips them cleanly.
+broker is not shared). ``worker_host`` is abstract, so a driver that answers no
+host fails them; a platform without ``fork`` skips them. The scheduler groups
+run for a driver that declares ``periodic`` and need ``make_lease_store``.
 """
 
 from __future__ import annotations
@@ -24,8 +26,9 @@ import os
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Coroutine, Mapping
-from contextlib import AbstractContextManager, nullcontext
+from collections.abc import AsyncIterator, Callable, Coroutine, Mapping
+from contextlib import AbstractContextManager, asynccontextmanager, nullcontext
+from dataclasses import dataclass
 from datetime import timedelta
 from functools import partial
 from types import TracebackType
@@ -41,7 +44,7 @@ from sandloom.core.infra.errors import (
     TooLarge,
     Unavailable,
 )
-from sandloom.core.infra.ports.lease import LeaseProvider
+from sandloom.core.infra.ports.lease import LeaseHolder, LeaseProvider
 from sandloom.core.infra.ports.taskqueue import (
     TASKQUEUE_CAPABILITY,
     PeriodicSpec,
@@ -286,6 +289,18 @@ class _KitBoot:
         self._report("run", **fields)
 
 
+@dataclass
+class _Beat:
+    """The state of two schedulers on one lease, after the first slot was sent."""
+
+    session: _Session
+    store: LeaseProvider
+    lease_name: str
+    first: _Child
+    second: _Child
+    holder: LeaseHolder
+
+
 @pytest.mark.asyncio
 class TaskQueueConformance(ProviderConformance[TaskQueueProvider]):
     """What a ``taskqueue`` driver must do, after the harness's checks.
@@ -450,7 +465,8 @@ class TaskQueueConformance(ProviderConformance[TaskQueueProvider]):
     @pytest.fixture
     def make_lease_store(self) -> Callable[[], LeaseProvider] | None:
         """A shared ``lease`` store (unopened, built in each process that uses it)
-        for the scheduler group. ``None``: the group is skipped."""
+        for the scheduler groups. Required when the driver declares ``periodic``
+        (the groups fail without it); a driver without ``periodic`` skips them."""
         return None
 
     @pytest.fixture
@@ -472,7 +488,11 @@ class TaskQueueConformance(ProviderConformance[TaskQueueProvider]):
         except NotImplementedError:
             host = None
         if host is None:
-            pytest.skip("this driver has no worker host")
+            raise AssertionError(
+                "worker_host() answered no host: it is abstract on "
+                "TaskQueueProvider (spec 8.2), so a driver returns the host that "
+                "runs its worker and scheduler"
+            )
         return provider, host
 
     @staticmethod
@@ -655,17 +675,29 @@ class TaskQueueConformance(ProviderConformance[TaskQueueProvider]):
         )
         require(code == 0, f"the host exited with code {code} after SIGTERM, not 0")
 
-    async def test_scheduler_sends_once_per_slot_while_holding_the_lease(
+    @asynccontextmanager
+    async def _schedulers(
         self,
         make_host_provider: Callable[[], TaskQueueProvider],
         make_lease_store: Callable[[], LeaseProvider] | None,
         scheduler_clock: Callable[[], AbstractContextManager[Callable[[], None]]]
         | None,
-    ) -> None:
+    ) -> AsyncIterator[_Beat]:
+        """Two schedulers on one lease and a worker, the first holding the lease
+        and the periodic task sent once for its slot; the second stands by.
+
+        Yielded after the first run of the periodic task arrived. The clock the
+        driver's ``scheduler_clock`` froze stays inside that slot until the
+        context ends.
+        """
         provider, _ = self._host(make_host_provider)
         self.requires_feature(provider, "periodic")
         if make_lease_store is None:
-            pytest.skip("no make_lease_store: the scheduler group needs a shared lease")
+            raise AssertionError(
+                "the driver declares 'periodic' but the kit has no "
+                "make_lease_store: the scheduler groups need a shared lease store "
+                "to run two schedulers on (override the make_lease_store fixture)"
+            )
         lease_name = f"sandloom:conformance:beat:{uuid4().hex}"
         clock = scheduler_clock() if scheduler_clock else nullcontext(lambda: None)
         store = make_lease_store()
@@ -700,13 +732,13 @@ class TaskQueueConformance(ProviderConformance[TaskQueueProvider]):
                     holder = await store.holder(lease_name)
                     session.require_alive("a scheduler took the lease")
                     session.pump(0)
-                require(
-                    holder is not None,
-                    "no scheduler took the lease it was given within "
-                    f"{_WAIT_SECONDS:.0f}s",
-                )
+                if holder is None:
+                    raise AssertionError(
+                        "no scheduler took the lease it was given within "
+                        f"{_WAIT_SECONDS:.0f}s"
+                    )
                 boots = len(session.of("boot"))
-                scheduler("second")
+                second = scheduler("second")
                 session.wait(
                     lambda: len(session.of("boot")) > boots, "second scheduler start"
                 )
@@ -718,11 +750,23 @@ class TaskQueueConformance(ProviderConformance[TaskQueueProvider]):
                     timeout=_WAIT_SECONDS + 70.0,
                 )
                 session.settle(3.0)
-                ticks = session.runs(TICK_TASK)
-                after = await store.holder(lease_name)
-                first.stop()
+                yield _Beat(session, store, lease_name, first, second, holder)
         finally:
             await store.aclose()
+
+    async def test_scheduler_sends_once_per_slot_while_holding_the_lease(
+        self,
+        make_host_provider: Callable[[], TaskQueueProvider],
+        make_lease_store: Callable[[], LeaseProvider] | None,
+        scheduler_clock: Callable[[], AbstractContextManager[Callable[[], None]]]
+        | None,
+    ) -> None:
+        async with self._schedulers(
+            make_host_provider, make_lease_store, scheduler_clock
+        ) as beat:
+            ticks = beat.session.runs(TICK_TASK)
+            after = await beat.store.holder(beat.lease_name)
+            beat.first.stop()
         require(
             len(ticks) == 1,
             f"two schedulers on one lease sent the periodic task {len(ticks)} "
@@ -730,8 +774,50 @@ class TaskQueueConformance(ProviderConformance[TaskQueueProvider]):
             "scheduler sends nothing",
         )
         require(
-            after is not None and holder is not None and after.owner == holder.owner,
+            after is not None and after.owner == beat.holder.owner,
             "the lease changed hands while the first scheduler was running",
+        )
+
+    async def test_scheduler_that_takes_over_inside_a_slot_does_not_send_it_again(
+        self,
+        make_host_provider: Callable[[], TaskQueueProvider],
+        make_lease_store: Callable[[], LeaseProvider] | None,
+        scheduler_clock: Callable[[], AbstractContextManager[Callable[[], None]]]
+        | None,
+    ) -> None:
+        """The holder sent slot S and stops; the standby takes the lease inside
+        the same slot (the frozen clock never leaves it): S is sent once, not
+        again by the new holder."""
+        async with self._schedulers(
+            make_host_provider, make_lease_store, scheduler_clock
+        ) as beat:
+            before = len(beat.session.runs(TICK_TASK))
+            beat.first.stop()
+            taken = None
+            deadline = time.monotonic() + _LEASE_TTL_SECONDS + _WAIT_SECONDS
+            while taken is None and time.monotonic() < deadline:
+                await asyncio.sleep(0.2)
+                now = await beat.store.holder(beat.lease_name)
+                if now is not None and now.owner != beat.holder.owner:
+                    taken = now
+                beat.session.pump(0)
+                beat.session.require_alive("the second scheduler took the lease")
+            require(
+                taken is not None,
+                "the second scheduler did not take the lease after the first one "
+                f"stopped, within {_LEASE_TTL_SECONDS + _WAIT_SECONDS:.0f}s",
+            )
+            beat.session.settle(4.0)  # the new holder's ticks inside the same slot
+            ticks = beat.session.runs(TICK_TASK)
+        require(
+            before == 1,
+            f"the first scheduler sent the periodic task {before} times for one slot",
+        )
+        require(
+            len(ticks) == 1,
+            f"after a takeover inside the slot the periodic task was sent "
+            f"{len(ticks)} times: the slot the first holder sent is not sent "
+            "again by the lease's next holder",
         )
 
     async def test_check_reports_a_live_worker(

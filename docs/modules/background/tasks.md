@@ -156,6 +156,11 @@ the CPU quota (`WORKER_CONCURRENCY` overrides). `sandloom worker check` asks the
 host whether a worker is alive, without booting the application. It still needs the
 full, valid settings of the worker, `JWT_SECRET` included.
 
+**macOS:** the Celery driver's default prefork pool does not work there. Billiard spawns
+its pool processes on macOS instead of forking them. They never see the task table the
+worker registered at boot and cannot run its messages. Run the worker on Linux, in a
+container for local development. `sandloom worker` has no option to choose another pool yet.
+
 Start a worker or a scheduler only with `sandloom worker` and `sandloom beat`. The
 importable Celery app of the Celery driver is for `celery inspect` and Flower: a
 `celery -A ... worker` or `beat` on it stops with exit code 1. The environment

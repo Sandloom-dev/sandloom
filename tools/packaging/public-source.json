@@ -1928,6 +1928,8 @@
         "src/sandloom/core/tests/test_task_review_fixes.py",
         "src/sandloom/core/tests/test_taskqueue_enqueue_layer.py",
         "src/sandloom/core/tests/test_taskqueue_kit.py",
+        "src/sandloom/core/tests/test_taskqueue_kit_host.py",
+        "src/sandloom/core/tests/test_taskqueue_kit_hostdefects.py",
         "src/sandloom/core/tests/test_taskqueue_module_paths.py",
         "src/sandloom/core/tests/test_tenant_criteria_prebuilt.py",
         "src/sandloom/core/tests/test_tenant_guard_cache.py",
