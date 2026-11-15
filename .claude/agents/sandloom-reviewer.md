@@ -24,6 +24,7 @@ Rules:
 - Before opening a registry, CI config, kernel entry point, port, driver, kit or
   the active wave's spec, run the matching topic (no Skill tool here; rendered
   from this checkout, never stale): `python3 tools/agent_reference.py <topic>`
+  (`ci` reads the workflows with PyYAML: `uv run --quiet python tools/agent_reference.py ci`)
   with `registries` (formats and commands), `ci` (CI by path), `kernel` (entry
   points), `infra` (port, drivers with tier and package, kit, tests per
   capability) or `plan` (headings of the marked spec or plan).

@@ -109,8 +109,11 @@ def test_each_skill_page_runs_its_topic_and_is_mirrored() -> None:
         ]
         assert pages[0] == pages[1], f"{skill}: the two copies differ"
         assert f"name: {skill}\n" in pages[0]
-        assert f"!`python3 tools/agent_reference.py {topic}`" in pages[0]
-        assert "allowed-tools: Bash(python3 tools/agent_reference.py:*)" in pages[0]
+        # `ci` reads the workflows with PyYAML, so it runs in the project's
+        # environment; the other topics need only the standard library.
+        runner = "uv run --quiet python" if topic == "ci" else "python3"
+        assert f"!`{runner} tools/agent_reference.py {topic}`" in pages[0]
+        assert f"allowed-tools: Bash({runner} tools/agent_reference.py:*)" in pages[0]
         assert "description:" in pages[0]
     commands = set(re.findall(r"tools/agent_reference.py (\w+)`", "".join(pages)))
     assert commands <= set(tool.TOPICS)
@@ -212,6 +215,45 @@ def test_only_marked_design_docs_are_indexed(tmp_path: Path) -> None:
 def test_no_marked_doc_says_so(tmp_path: Path) -> None:
     _write(tmp_path, "design/other/plain.md", "# T\n## 1. Hidden\n")
     assert "no wave is active" in tool.render("plan", tmp_path)
+
+
+def test_a_tilde_fence_and_a_longer_backtick_fence_hide_their_headings(
+    tmp_path: Path,
+) -> None:
+    doc = (
+        f"{tool.MARKER}\n## 1. Real\n"
+        "~~~markdown\n## 2. Tilde\n~~~\n"
+        "````\n```\n## 3. Inner\n```\n````\n"
+        "## 4. After\n"
+    )
+    _write(tmp_path, "design/wave/spec.md", doc)
+    text = tool.render("plan", tmp_path)
+    assert "1 Real · 4 After" in text
+    assert "Tilde" not in text
+    assert "Inner" not in text
+
+
+def test_a_missing_entry_point_target_stops_the_build_even_when_shadowed(
+    tmp_path: Path,
+) -> None:
+    points = (
+        "[project]\nname = 'p'\n"
+        '[project.entry-points."sandloom.drivers"]\n'
+        '"cap.x" = "missing:Driver"\n'
+    )
+    _driver_tree(tmp_path, "real:Cls", points)
+    with pytest.raises(SystemExit, match="no file for module missing"):
+        tool._drivers(tmp_path)
+
+
+def test_map_paths_open_from_the_repository_root() -> None:
+    for topic in ("kernel", "infra"):
+        for path in re.findall(
+            r"`((?:src|packages)/[\w/.<>*-]+\.py)`", tool.render(topic, REPO)
+        ):
+            if "<" not in path and "*" not in path:
+                assert (REPO / path).is_file(), f"{topic}: {path} does not open"
+    assert "`src/sandloom/core/infra/ports/<cap>.py`" in tool.render("infra", REPO)
 
 
 def test_headings_inside_code_fences_are_not_indexed(tmp_path: Path) -> None:

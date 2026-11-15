@@ -74,7 +74,7 @@ subagent): pass no actor on tm calls.
   beforehand. Not in it, so run them when you touched their area:
   `uv run sandloom check`, `uv run sandloom generate --check`, a module's
   `uv run sandloom test <module>`, and the CI steps of
-  `sandloom-ci-map` (`python3 tools/agent_reference.py ci`) for packaging, docs
+  `sandloom-ci-map` (`uv run --quiet python tools/agent_reference.py ci`) for packaging, docs
   site and examples.
 - Two CI jobs no gate above runs, the ones PRs failed most after the static
   gates:

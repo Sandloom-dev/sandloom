@@ -327,7 +327,7 @@ def _top_level_lines(source: str) -> dict[str, int]:
 
 def _kernel(root: Path) -> str:
     lines = [
-        "# Kernel map (file · symbols; `grep -n '^def create_app' <file>`)",
+        "# Kernel map (file · symbols; `grep -nE '^(async def |def |class )?NAME\\b' <file>` finds a function, class or constant)",
         "",
     ]
     for rel, names in KERNEL_MAP:
@@ -337,7 +337,7 @@ def _kernel(root: Path) -> str:
             raise SystemExit(
                 f"agent_reference: {rel} no longer defines {', '.join(missing)}"
             )
-        lines.append(f"- `{rel.removeprefix('src/sandloom/')}` · " + ", ".join(names))
+        lines.append(f"- `{rel}` · " + ", ".join(names))
     lines.append("")
     return "\n".join(lines)
 
@@ -452,9 +452,11 @@ def _drivers(root: Path) -> dict[str, dict[str, tuple[str, str]]]:
         )
         for key, target in (points or {}).items():
             cap, _, name = key.partition(".")
+            # Resolve first: a missing target stops the build even when a
+            # built-in row of the same name wins the listing below.
+            owner, cls = _driver_class(root, target, f"{toml.parent.name} {key}")
             if name in found.get(cap, {}):
                 continue
-            owner, cls = _driver_class(root, target, f"{toml.parent.name} {key}")
             found.setdefault(cap, {})[name] = (owner, _declared_tier(cls))
     return found
 
@@ -469,9 +471,9 @@ def _infra(root: Path) -> str:
     lines = [
         "# Infrastructure map (capability: port classes; kit classes; drivers (owner, tier); tests)",
         "",
-        f"Ports `{PORTS.removeprefix('src/sandloom/')}/<cap>.py`, kits `{KITS.removeprefix('src/sandloom/')}/<cap>.py`, "
-        "driver rows `core/drivers/bootstrap.py`; owner is `core` or a `packages/<dir>`. "
-        "Tests: `core/tests/test_<cap>*.py`, `packages/<dir>/tests/test_*<cap>*.py` (name without `test_`).",
+        f"Ports `{PORTS}/<cap>.py`, kits `{KITS}/<cap>.py`, "
+        f"driver rows `{BOOTSTRAP}`; owner is `core` or a `packages/<dir>`. "
+        "Tests: `src/sandloom/core/tests/test_<cap>*.py`, `packages/<dir>/tests/test_*<cap>*.py` (name without `test_`).",
         "",
     ]
     for cap in sorted(set(ports) | set(drivers)):
@@ -528,11 +530,24 @@ def _headings(text: list[str]) -> list[str]:
     """The ``## `` headings outside code fences, compact: backticks and a
     parenthetical dropped, the number's dot too, 48 characters at most."""
     out: list[str] = []
-    fenced = False
+    fence: tuple[str, int] | None = None  # opening character and length
     for line in text:
-        if line.startswith("```"):
-            fenced = not fenced
-        elif not fenced and line.startswith("## "):
+        opening = re.match(r" {0,3}(`{3,}|~{3,})", line)
+        if fence is None and opening:
+            fence = (opening.group(1)[0], len(opening.group(1)))
+            continue
+        if fence is not None:
+            # CommonMark: closed by a run of the same character, at least as
+            # long, with nothing after it.
+            closing = re.fullmatch(r" {0,3}(`{3,}|~{3,})\s*", line)
+            if (
+                closing
+                and closing.group(1)[0] == fence[0]
+                and len(closing.group(1)) >= fence[1]
+            ):
+                fence = None
+            continue
+        if line.startswith("## "):
             head = re.sub(r"\s*\(.*", "", line[3:].replace("`", ""))
             out.append(re.sub(r"^(\d+)\.\s*", r"\1 ", head).strip()[:48])
     return out
