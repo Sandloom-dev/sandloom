@@ -70,10 +70,10 @@ Not listed (full suites, SBOM, UI): `uv run sandloom test <module>`, `admin/AGEN
 **admin**: tools/inspection/** admin/** src/** tools/smoke/admin_live_acceptance.py
 - admin-contracts: node --test tools/inspection/test_viewer.mjs ; npm run contracts:check
 
-**architecture**: src/** tests/** packages/** tools/checks/** tools/packaging/*.py docs/adr/** docs/reference/guarantees.md
+**architecture**: src/** tests/** packages/** tools/checks/** tools/packaging/*.py tools/packaging/packages.json docs/adr/** docs/reference/guarantees.md
 - architecture: uv run python tools/checks/check_architecture.py ; uv run python tools/packaging/check_public_api.py ; uv run pytest src/sandloom/core/tests/test_architecture.py -q
 
-**backend**: src/** tests/** tools/ci/** tools/smoke/** migrations/** packages/** tools/checks/** tools/packaging/*.py conftest.py architecture_rules.yml guarantees.yml .env.test
+**backend**: src/** tests/** tools/ci/** tools/smoke/** migrations/** packages/** tools/checks/** tools/packaging/*.py tools/packaging/packages.json conftest.py architecture_rules.yml guarantees.yml .env.test
 - backend-static: uv run ruff check --no-fix src/ ; python3 tools/checks/check_secrets.py ; uv run ruff format --check src/ ; uv run mypy src/ ; uv run pytest tests/architecture/ -q --no-cov -p no:cacheprovider ; uv run python tools/checks/check_architecture.py ; uv run python tools/packaging/check_public_api.py ; uv run sandloom generate --check
 
 **deploy**: deploy/** .dockerignore
@@ -85,7 +85,7 @@ Not listed (full suites, SBOM, UI): `uv run sandloom test <module>`, `admin/AGEN
 **examples**: examples/** docs/getting-started/tutorial.md tools/smoke/tutorial_check.py
 - examples: $BIN/sandloom test --ci --full ; $BIN/sandloom migrate upgrade-all --apply
 
-**packages**: src/** packages/** migrations/core/** LICENSE NOTICE tools/packaging/*.py
+**packages**: src/** packages/** migrations/core/** LICENSE NOTICE tools/packaging/*.py tools/packaging/packages.json
 - packages: uv run --locked --group packaging python tools/packaging/check_packag... ; docker compose -f deploy/compose/test.yml up -d --wait ; uv run --locked pytest tests/integration/module_subsets -p no:cachepr...
 
 ## 3. Kernel map (file · symbols; `grep -n '^def create_app' <file>`)
