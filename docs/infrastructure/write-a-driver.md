@@ -204,7 +204,7 @@ without it accepts them in `put` and drops them.
     This section describes the contract the kernel's bus runs over. Its conformance kit,
     `EventTransportConformance`, exists. The built-in `streams` driver passes it, error
     mapping and outage checks included. The contract is not yet public: `streams` has not
-    moved into its driver package (`idk-pkg-redis-streams`). A driver raises `Unavailable`
+    moved into its driver package (`idk-pkg-redis-eventbus`). A driver raises `Unavailable`
     and `Timeout` itself: the kernel does not translate a backend exception.
 
 An `eventbus` driver of the transport shape states `contract_version = 2` and
