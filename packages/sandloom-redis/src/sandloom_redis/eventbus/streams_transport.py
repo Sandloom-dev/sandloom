@@ -131,20 +131,22 @@ class RedisStreamsTransport(_StreamsConsume):
                         pipe.xadd(key, fields)
                 results = await pipe.execute(raise_on_error=False)
         except Exception as exc:
-            raise partial_publish(
-                [],
-                f"MULTI/EXEC of {len(items)} XADD(s) failed: {type(exc).__name__}",
-                self._cause("publish_many", exc),
-            ) from exc
+            message = f"MULTI/EXEC of {len(items)} XADD(s) failed: {type(exc).__name__}"
+            # Chained from the MAPPED error (the raw one is its ``__cause__``):
+            # the relay stops its chain walk at the first ``InfraError``. ``exc``
+            # is rebound so the raise stays ``from exc`` (the BLE001 rule).
+            exc = self._cause("publish_many", exc)
+            raise partial_publish([], message, exc) from exc
         ids: list[str] = []
         for result in results:
-            if isinstance(result, BaseException):
+            if isinstance(result, Exception):  # redis-py returns the error object
+                cause = self._cause("publish_many", result)
                 raise partial_publish(
                     ids,
                     f"XADD {len(ids)} of {len(items)} failed in EXEC: "
                     f"{type(result).__name__}",
-                    self._cause("publish_many", result),
-                ) from result
+                    cause,
+                ) from cause
             ids.append(str(result))
         for key in keys:
             await self._maybe_trim_by_age(client, key)

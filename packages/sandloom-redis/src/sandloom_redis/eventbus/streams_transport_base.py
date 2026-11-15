@@ -13,11 +13,7 @@ from typing import Any, Concatenate, ParamSpec, TypeVar
 from sandloom.driverkit import (
     InfraError,
     InfraProvider,
-    InvalidArgument,
-    PermissionDenied,
     Retention,
-    Timeout,
-    Unavailable,
 )
 from sandloom.driverkit._builtin_streams import RECLAIM_INTERVAL_SECONDS
 from sandloom.driverkit.eventbus_support import (
@@ -29,6 +25,7 @@ from sandloom.driverkit.eventbus_support import (
     TransportDefaults,
     retry_delay_ms,
 )
+from sandloom_redis._errors import map_redis_error
 
 logger = logging.getLogger("sandloom.core.eventing.transport")
 
@@ -222,35 +219,29 @@ class _StreamsTransportBase(TransportDefaults):
     def _failure(self, operation: str, exc: BaseException) -> InfraError:
         """The ``InfraError`` for a backend failure: its type, never its text
         (which can carry the broker URL)."""
-        exceptions = _redis_exceptions()
-        what = f"eventbus streams {operation}: {type(exc).__name__}"
-        kind: type[InfraError]
-        if isinstance(
-            exc, exceptions.AuthenticationError | exceptions.NoPermissionError
-        ):
-            kind = PermissionDenied
-        elif isinstance(exc, exceptions.TimeoutError | TimeoutError):
-            kind = Timeout
-        elif isinstance(exc, exceptions.DataError) or (
-            type(exc) is exceptions.ResponseError
-            and str(exc).startswith(REPLY_WRONGTYPE)
-        ):
-            # Not transient: the client refused a value it cannot encode, or a
-            # key holds another type than the transport's layout expects.
-            # Repeating the call cannot succeed, so it must not read as an
-            # outage (``Unavailable`` is retryable and the relay would spin).
-            kind = InvalidArgument
-        else:  # connection, failover, loading, a full store (OOM), a bad reply
-            kind = Unavailable
+        # Not transient: DataError (a value the client cannot encode), WRONGTYPE
+        # and any other plain reply are not retryable, so they must not read as
+        # an outage (``Unavailable`` is retryable and the relay would park the
+        # row for ever). Chained ``from exc`` by ``_mapped``: the relay walks the
+        # chain of a publish error (``is_broker_unavailable``).
         instance = self.name if isinstance(self, InfraProvider) else None
-        return kind(what, capability=_CAPABILITY, instance=instance)
+        return map_redis_error(
+            exc,
+            capability=_CAPABILITY,
+            instance=instance,
+            what=f"eventbus streams {operation}",
+        )
 
-    def _cause(self, operation: str, exc: BaseException) -> BaseException:
+    def _cause(self, operation: str, exc: Exception) -> Exception:
         """The mapped error of a backend failure caught inside an operation
-        (so a ``PartialPublish`` built there follows its ``retryable``); any
-        other exception is a bug and stays as it is."""
+        (so a ``PartialPublish`` built there follows its ``retryable``), with
+        the raw error as its ``__cause__``; any other exception is a bug and
+        stays as it is. The caller chains ``PartialPublish`` from THIS error,
+        so the relay judges the batch path like the per-row path."""
         if isinstance(exc, _backend_errors()):
-            return self._failure(operation, exc)
+            mapped = self._failure(operation, exc)
+            mapped.__cause__ = exc
+            return mapped
         return exc
 
     @staticmethod
