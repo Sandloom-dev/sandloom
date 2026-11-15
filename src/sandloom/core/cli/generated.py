@@ -53,7 +53,6 @@ import ast
 import datetime as _dt
 import decimal
 import importlib
-import importlib.util
 import inspect
 import json
 import sys
@@ -1197,20 +1196,6 @@ def apply(
     return 0
 
 
-def _agent_reference(root: Path) -> list[Generated]:
-    """The framework repository's agent reference (``tools/agent_reference.py``
-    renders ``.claude/agent-reference.md``); an application has no such script."""
-    script = root / "tools" / "agent_reference.py"
-    if not script.is_file():
-        return []
-    spec = importlib.util.spec_from_file_location("sandloom_agent_reference", script)
-    if spec is None or spec.loader is None:
-        return []
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return [Generated(root / module.OUT, module.render(root), "SANDLOOM-T005")]
-
-
 def main(argv: list[str] | None = None) -> int:
     """``sandloom generate [module ...]`` (writes) and the ``generated files``
     step of ``sandloom test`` (``--check``: never writes)."""
@@ -1269,8 +1254,6 @@ def main(argv: list[str] | None = None) -> int:
         # A named provider can publish its first stub before any caller exists.
         consumed_only=consumed_only and not args.modules,
     ) + _consumer_plan(app, rules, planned, args.modules or None)
-    if not args.modules:
-        files += _agent_reference(rules.root)
     return _inspection_generation.finish(
         rules=rules,
         app=app,
