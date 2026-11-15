@@ -15,10 +15,10 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from sandloom_redis.lease import RedisLeaseProvider
 
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers.celery_taskqueue import create_celery_taskqueue
-from sandloom.core.drivers.redis_lease import RedisLeaseProvider
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.ports.lease import LeaseProvider
 from sandloom.core.infra.ports.taskqueue import TaskQueueProvider
