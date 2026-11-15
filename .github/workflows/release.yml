@@ -4,20 +4,17 @@ name: Release (PyPI)
 # Maryarty's approval; only the publish job can obtain an OIDC token.
 on:
   push:
+    # Any distribution's tag; the plan job refuses a tag that is not exactly
+    # <name>-v<source version> of a package in tools/packaging/packages.json.
     tags:
-      - "sandloom-v*"
-      - "sandloom-standard-v*"
-      - "sandloom-identity-v*"
-      - "sandloom-tenancy-v*"
-      - "sandloom-billing-v*"
+      - "sandloom*-v*"
   workflow_dispatch:
     inputs:
       package:
-        description: "Distribution to release (all for a coordinated alpha)"
+        description: "Distribution to release (all for a coordinated alpha); a name from tools/packaging/packages.json, refused by the plan job otherwise"
         required: true
         default: all
-        type: choice
-        options: [all, sandloom, sandloom-standard, sandloom-identity, sandloom-tenancy, sandloom-billing, sandloom-s3]
+        type: string
       dry_run:
         description: "Validate and retain artifacts without uploading to PyPI"
         required: true

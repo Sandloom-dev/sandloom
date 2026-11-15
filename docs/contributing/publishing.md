@@ -33,8 +33,13 @@ first release:
 The GitHub `pypi` environment requires approval by `Maryarty`, including runs
 started by the owner. Administrator bypass is disabled. The owner may approve
 their own run because there is only one maintainer. Allowed deployment refs are
-`main` and the five tag patterns `sandloom-v*`, `sandloom-standard-v*`,
-`sandloom-identity-v*`, `sandloom-tenancy-v*` and `sandloom-billing-v*`.
+`main` and the tag patterns of the packages that release by tag:
+`sandloom-v*`, `sandloom-standard-v*`, `sandloom-identity-v*`,
+`sandloom-tenancy-v*` and `sandloom-billing-v*`.
+
+The workflow starts on `sandloom*-v*`, and the plan step checks the tag against
+`tools/packaging/packages.json`. A tag outside the allowed patterns stops at
+the `pypi` environment until its pattern is allowed there.
 
 Configure a pending Trusted Publisher for the first `sandloom-s3` release.
 Use a manual release from `main` and include the compatible framework wheel in
@@ -144,10 +149,20 @@ git push origin sandloom-v0.7.0a13
 ```
 
 The other package prefixes are `sandloom-standard-v`, `sandloom-identity-v`,
-`sandloom-tenancy-v` and `sandloom-billing-v`. `sandloom-admin` releases through a coordinated manual run;
-its tag and single-package choice need an entry in `release.yml`. Select `sandloom-s3` or `all` in a manual run for the S3 driver. Release a framework version before packages that
-require it, or use one coordinated manual run. Each tag-triggered upload still
+`sandloom-tenancy-v` and `sandloom-billing-v`. `sandloom-admin` and `sandloom-s3`
+release through a manual run: the environment's tag patterns do not allow their
+tags yet. Pass `all` or the package name in the `package` input. Release a
+framework version before packages that require it, or use one coordinated
+manual run. Each tag-triggered upload still
 requires the owner's environment approval.
+
+## Adding a package
+
+`tools/packaging/packages.json` is the one list of workspace distributions.
+The release, sync and distribution tools read only it. A new package is one
+entry there plus its own `packages/<name>/` files, and no tool changes. The
+entry's `kind` and data set its entry points and its place in the standard set. A test adds a package to a copy of the tooling and runs
+each tool on it.
 
 ## Package metadata and licenses
 

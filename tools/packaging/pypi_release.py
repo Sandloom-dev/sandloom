@@ -10,20 +10,20 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import tomllib
 from pathlib import Path
 from typing import Any
 
-PACKAGES = (
-    "sandloom",
-    "sandloom-standard",
-    "sandloom-identity",
-    "sandloom-tenancy",
-    "sandloom-billing",
-    "sandloom-admin",
-    "sandloom-s3",
-)
+# The reviewed directory carries release_packages.py and packages.json beside
+# this file (see select_artifacts), so the privileged job needs no checkout.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import release_packages
+
+#: The distributions, from the one list (``packages.json``).
+PACKAGES = release_packages.NAMES
 VERSION = re.compile(r"\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?")
 
 
@@ -132,7 +132,8 @@ def select_artifacts(plan: dict, artifacts: Path, output: Path) -> dict:
     )
     version = versions[plan["packages"][0]]
     (output / "release-notes.md").write_text(changelog_section(changelog, version))
-    shutil.copyfile(Path(__file__), output / "pypi_release.py")
+    for tool in ("pypi_release.py", "release_packages.py", "packages.json"):
+        shutil.copyfile(Path(__file__).with_name(tool), output / tool)
     return manifest
 
 
