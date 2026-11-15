@@ -252,12 +252,27 @@ see the same streams.
 - With `lease_renewal`, build it with a reclaim idle time of about a second. The kit
   renews for five intervals and expects the entry to stay with its consumer, then to be
   reclaimed once renewal stops.
-- Override `refused_stream`, `failing_dlq_append` and `retention_cases` to make the
-  backend fail. A check without its hook is skipped.
+- Override `refused_stream(provider, stream)` and `failing_dlq_append(provider)` to make
+  the backend fail. Each returns a context that holds the failure while it is open.
+  `failing_dlq_append` covers an explicit `dead_letter` and the dead-lettering that
+  `max_deliveries` triggers. In both the source entry must stay unacked until the
+  dead-letter append succeeds.
+- Override `retention_cases()` to give `(options, retention)` pairs. Override
+  `make_provider_with_options(provider, options)` when `from_config` cannot rebuild the
+  provider with other options. The kit gives `feature_calls(provider)`, one call per
+  behaviour feature. Override it only when one of those calls does not suit the driver.
+- Override `parked_ids(provider, stream)` when the driver has no `dlq_ops`. It returns the
+  event ids parked in the dead-letter queue. With neither, the checks that an entry is
+  parked are skipped, because a parked entry and a dropped one cannot be told apart.
 - Override `interrupt_connections(provider)` to cut the provider's connections. The
   outage group, required of a stable-tier driver, then expects `consume` to raise
   `Unavailable` and consuming to resume without loss. Build the provider so that it does
   not retry the cut call silently.
+
+A check without its hook is skipped, never passed. A stable-tier driver sets
+`require_stable_hooks = True`, and then a missing hook fails the check. Such a driver
+gives every hook above, or sets the test of a check it cannot run to `None` in its own
+class, on the record.
 
 The names of the previous major are gone, with no alias. A module or driver that names
 `publish`, `subscribe`, `volatile`, `at_least_once` or `consumer_groups` is refused at

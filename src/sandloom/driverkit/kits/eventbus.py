@@ -18,8 +18,12 @@ What the kit cannot learn from the provider, the driver's tests state:
   of about a second;
 * how to make the backend misbehave (:meth:`~EventTransportConformance.refused_stream`,
   :meth:`~EventTransportConformance.failing_dlq_append`,
-  :meth:`~EventTransportConformance.interrupt_connections`): a check that needs a
-  hook the driver does not give is skipped, never passed;
+  :meth:`~EventTransportConformance.interrupt_connections`) and how to read what
+  was dead-lettered when the driver has no ``dlq_ops``
+  (:meth:`~EventTransportConformance.parked_ids`): a check that needs a hook the
+  driver does not give is skipped with its reason, never passed; a driver of the
+  stable tier sets :attr:`~EventTransportConformance.require_stable_hooks` and
+  the same check fails instead;
 * with ``lease_renewal``, the reclaim idle time of about a second (the kit
   renews at :meth:`renew_interval_seconds` for five intervals and expects the
   entry to stay with its consumer, then to be reclaimed once renewal stops);
@@ -40,7 +44,7 @@ from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import replace
 from functools import partial
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
 
 import pytest
 
@@ -138,8 +142,24 @@ class EventTransportConformance(ProviderConformance[EventTransportProvider]):
     #: How long an outage may take to surface as ``Unavailable``, and, doubled,
     #: how long the transport may take to serve again.
     outage_seconds: ClassVar[float] = 5.0
+    #: ``True`` for a driver of the stable tier: a check whose hook is missing
+    #: (``refused_stream``, ``failing_dlq_append``, ``interrupt_connections``,
+    #: ``retention_cases``, ``parked_ids`` without ``dlq_ops``) fails instead of
+    #: being skipped. A driver that cannot give a hook leaves the check's test
+    #: out (``test_x = None``) in its own class, on the record.
+    require_stable_hooks: ClassVar[bool] = False
 
     # ------------------------------------------------------------- the hooks
+    def _hook_missing(self, hook: str, unchecked: str) -> NoReturn:
+        """Skip (or, with :attr:`require_stable_hooks`, fail) a check whose
+        ``hook`` the driver's tests do not give."""
+        if self.require_stable_hooks:
+            raise AssertionError(
+                f"{hook} is not given, so {unchecked}: a driver of the stable "
+                "tier must give it (require_stable_hooks)"
+            )
+        pytest.skip(f"no {hook} hook: {unchecked}")
+
     async def interrupt_connections(self, provider: EventTransportProvider) -> None:
         """Cut every connection ``provider`` holds to its backend, as a network
         outage or a failover would (``CLIENT KILL`` on Redis). The call in
@@ -147,7 +167,7 @@ class EventTransportConformance(ProviderConformance[EventTransportProvider]):
         so that it does not retry silently. It must serve again afterwards.
         Override it to run the outage group (a stable-tier driver must); the
         default skips it."""
-        pytest.skip("interrupt_connections is not overridden: no outage check")
+        self._hook_missing("interrupt_connections", "the outage is not checked")
 
     def refused_stream(
         self, provider: EventTransportProvider, stream: str
@@ -162,12 +182,24 @@ class EventTransportConformance(ProviderConformance[EventTransportProvider]):
     ) -> AbstractAsyncContextManager[None] | None:
         """A context in which appending to a dead-letter queue fails while every
         other operation works; ``None``: no way, and the check that the source
-        is acked only after the dead-letter append is skipped."""
+        is acked only after the dead-letter append (on an explicit
+        ``dead_letter`` and when ``max_deliveries`` is reached) is skipped."""
+        return None
+
+    async def parked_ids(
+        self, provider: EventTransportProvider, stream: str
+    ) -> Sequence[str] | None:
+        """The domain event ids parked in ``stream``'s dead-letter queue, read
+        from the backend. Used when the driver does not declare ``dlq_ops``
+        (``list_dlq`` reads them otherwise). ``None``: no way; then the checks
+        that an entry is parked are skipped, since a parked entry and a dropped
+        one could not be told apart."""
         return None
 
     def retention_cases(self) -> Sequence[tuple[Mapping[str, Any], Retention]]:
         """``(options, retention)`` pairs: a provider built with ``options``
-        (merged over the one under test) must report ``retention``."""
+        (merged over the one under test) must report ``retention``. Empty: the
+        echo check is skipped."""
         return ()
 
     def make_provider_with_options(
@@ -300,19 +332,32 @@ class EventTransportConformance(ProviderConformance[EventTransportProvider]):
     async def _dead_letter_ids(
         self, provider: EventTransportProvider, stream: str
     ) -> list[str] | None:
-        """The event ids parked in ``stream``'s DLQ, or ``None`` when the driver
-        has no ``dlq_ops`` to read them with."""
-        if "dlq_ops" not in provider.features():
-            return None
-        listed = await provider.list_dlq(stream, count=1000)
-        return [entry.event_id for entry in listed if entry.event_id is not None]
+        """The event ids parked in ``stream``'s DLQ: read with ``list_dlq`` when
+        the driver declares ``dlq_ops``, else with the :meth:`parked_ids` hook;
+        ``None`` when neither can read them."""
+        if "dlq_ops" in provider.features():
+            listed = await provider.list_dlq(stream, count=1000)
+            return [entry.event_id for entry in listed if entry.event_id is not None]
+        hooked = await self.parked_ids(provider, stream)
+        return None if hooked is None else list(hooked)
+
+    async def _require_parking_observable(
+        self, provider: EventTransportProvider
+    ) -> None:
+        """Skip (fail, with :attr:`require_stable_hooks`) when nothing reads the
+        DLQ: without it a parked entry cannot be told from a dropped one."""
+        if await self._dead_letter_ids(provider, _stream()) is None:
+            self._hook_missing(
+                "parked_ids (and no dlq_ops feature)",
+                "a parked entry cannot be told from a dropped one",
+            )
 
     async def _require_parked(
         self, provider: EventTransportProvider, stream: str, event_id: str, how: str
     ) -> None:
-        """Fail unless ``event_id`` is in the DLQ (only when it can be read)."""
-        if "dlq_ops" not in provider.features():
-            return
+        """Fail unless ``event_id`` is in the DLQ; skip when the DLQ cannot be
+        read (:meth:`_require_parking_observable`)."""
+        await self._require_parking_observable(provider)
         deadline = time.monotonic() + self.redelivery_timeout_seconds
         parked = await self._dead_letter_ids(provider, stream)
         while parked is not None and event_id not in parked:
@@ -322,7 +367,32 @@ class EventTransportConformance(ProviderConformance[EventTransportProvider]):
             parked = await self._dead_letter_ids(provider, stream)
         require(
             parked is not None and event_id in parked,
-            f"{how}: the entry is not in {stream}.dlq (list_dlq: {parked})",
+            f"{how}: the entry is not in {stream}.dlq (parked: {parked})",
+        )
+
+    async def _consume_until_parked(
+        self,
+        provider: EventTransportProvider,
+        stream: str,
+        group: str,
+        event_id: str,
+        how: str,
+    ) -> None:
+        """Keep consuming (the dead-letter append is retried from ``consume``)
+        until ``event_id`` is parked, else fail."""
+        deadline = time.monotonic() + self.redelivery_timeout_seconds
+        parked: list[str] | None = None
+        while time.monotonic() < deadline:
+            parked = await self._dead_letter_ids(provider, stream)
+            if parked is not None and event_id in parked:
+                return
+            try:
+                await provider.consume(stream, group=group, consumer="kit-1")
+            except InfraError:
+                pass  # still recovering
+            await asyncio.sleep(_POLL_SECONDS)
+        raise AssertionError(
+            f"{how}: the entry is not in {stream}.dlq (parked: {parked})"
         )
 
     # ----------------------------------------------------- publish and consume
@@ -423,8 +493,8 @@ class EventTransportConformance(ProviderConformance[EventTransportProvider]):
         for index in range(3):
             await provider.publish(stream, _envelope(f"e{index}"))
         in_one = await self._first_deliveries(provider, stream, one, "kit-1", 3)
-        await provider.ack_many(in_one)
         in_other = await self._first_deliveries(provider, stream, other, "kit-1", 3)
+        await provider.ack_many(in_one)
         require(
             _ids(in_one) == _ids(in_other) == ["e0", "e1", "e2"],
             f"each group must receive every entry in order, got {_ids(in_one)} "
@@ -476,7 +546,9 @@ class EventTransportConformance(ProviderConformance[EventTransportProvider]):
         good, bad, group = _stream(), _stream(), _group()
         refusal = self.refused_stream(provider, bad)
         if refusal is None:
-            pytest.skip("no refused_stream hook: a failing publish_many is not checked")
+            self._hook_missing(
+                "refused_stream", "a failing publish_many is not checked"
+            )
         await provider.ensure_group(good, group)
         items = [
             (good, _envelope("first")),
@@ -517,6 +589,12 @@ class EventTransportConformance(ProviderConformance[EventTransportProvider]):
             _ids(got)[: len(published)] == ["first", "second"][: len(published)],
             f"the {len(published)} ids in PartialPublish.published must be the "
             f"leading items, appended in order, a group reads {_ids(got)}",
+        )
+        require(
+            published == [delivery.id for delivery in got[: len(published)]],
+            f"PartialPublish.published must hold the message ids of the leading "
+            f"items, {published} are not the delivery ids "
+            f"{[delivery.id for delivery in got[: len(published)]]}",
         )
 
     # ------------------------------------------------------------- at least once
@@ -640,14 +718,56 @@ class EventTransportConformance(ProviderConformance[EventTransportProvider]):
     async def test_the_source_is_acked_only_after_the_dlq_append(
         self, provider: EventTransportProvider
     ) -> None:
-        stream, group = _stream(), _group()
         failing = self.failing_dlq_append(provider)
         if failing is None:
-            pytest.skip("no failing_dlq_append hook: the DLQ ordering is not checked")
+            self._hook_missing("failing_dlq_append", "the DLQ ordering is not checked")
+        await self._require_parking_observable(provider)
+        # The automatic path: an entry that reached max_deliveries is parked by
+        # the transport itself. While the append fails, the source stays
+        # unacked, and the append is retried once the queue is back.
+        auto_stream, auto_group = _stream(), _group()
+        await provider.ensure_group(auto_stream, auto_group)
+        await provider.publish(auto_stream, _envelope("poison"))
+        seen = await self._drain(
+            provider,
+            auto_stream,
+            auto_group,
+            "kit-1",
+            until=lambda s: len(s) >= self.max_deliveries,
+        )
+        require(
+            len(seen) == self.max_deliveries,
+            f"an entry nobody acks must be delivered max_deliveries "
+            f"({self.max_deliveries}) times, it was delivered {len(seen)}",
+        )
+        async with failing:
+            until = time.monotonic() + self.settle_seconds
+            while time.monotonic() < until:
+                try:
+                    await provider.consume(
+                        auto_stream, group=auto_group, consumer="kit-1"
+                    )
+                except InfraError:
+                    pass  # failing loudly is fine; acking the source is not
+                await asyncio.sleep(_POLL_SECONDS)
+        await self._consume_until_parked(
+            provider,
+            auto_stream,
+            auto_group,
+            "poison",
+            "max_deliveries reached while the dead-letter append failed: the "
+            "source entry was acked (or dropped) without being parked, the "
+            "entry is lost; once the queue is back",
+        )
+        # The explicit path: dead_letter.
+        stream, group = _stream(), _group()
         await provider.ensure_group(stream, group)
         await provider.publish(stream, _envelope("e1"))
         (delivery,) = await self._first_deliveries(provider, stream, group, "kit-1", 1)
-        async with failing:
+        again = self.failing_dlq_append(provider)  # a context is entered once
+        if again is None:
+            raise AssertionError("failing_dlq_append gave a context, then None")
+        async with again:
             try:
                 await provider.dead_letter(delivery, reason="kit")
             except InfraError:
@@ -691,8 +811,9 @@ class EventTransportConformance(ProviderConformance[EventTransportProvider]):
     async def test_never_dead_letter_keeps_redelivering(
         self, provider: EventTransportProvider
     ) -> None:
-        stream, group = _stream(), _group()
+        stream, group, other = _stream(), _group(), _group()
         await provider.ensure_group(stream, group)
+        await provider.ensure_group(stream, other)
         provider.never_dead_letter(stream, group)
         await provider.publish(stream, _envelope("revocation"))
         wanted = self.max_deliveries + 2
@@ -708,6 +829,35 @@ class EventTransportConformance(ProviderConformance[EventTransportProvider]):
         parked = await self._dead_letter_ids(provider, stream)
         require(not parked, f"never_dead_letter: the entry reached the DLQ ({parked})")
         await provider.ack(seen[-1])
+        # The exemption is the group's: another group of the stream, failing the
+        # same entry, still dead-letters it after max_deliveries.
+        failed = await self._drain(
+            provider,
+            stream,
+            other,
+            "kit-1",
+            until=lambda s: len(s) >= self.max_deliveries,
+        )
+        require(
+            len(failed) == self.max_deliveries,
+            f"a group that was not exempted must see the failing entry "
+            f"max_deliveries ({self.max_deliveries}) times, it saw {len(failed)}",
+        )
+        extra = await self._drain(
+            provider,
+            stream,
+            other,
+            "kit-1",
+            until=bool,
+            wait_seconds=self.settle_seconds,
+        )
+        require(
+            not extra,
+            "never_dead_letter exempted a group that did not ask for it: another "
+            "group of the stream kept receiving the failing entry past "
+            f"max_deliveries ({self.max_deliveries})",
+        )
+        await self._require_parked(provider, stream, "revocation", "max_deliveries")
 
     async def test_dead_letter_parks_even_a_never_dead_letter_group(
         self, provider: EventTransportProvider
@@ -923,7 +1073,12 @@ class EventTransportConformance(ProviderConformance[EventTransportProvider]):
     async def test_retention_echoes_the_options(
         self, provider: EventTransportProvider
     ) -> None:
-        for options, expected in self.retention_cases():
+        cases = self.retention_cases()
+        if not cases:
+            self._hook_missing(
+                "retention_cases", "what retention() echoes is not checked"
+            )
+        for options, expected in cases:
             built = self.make_provider_with_options(provider, options)
             await built.aopen()
             try:

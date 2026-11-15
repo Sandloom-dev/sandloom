@@ -31,6 +31,7 @@ from sandloom.core.infra.ports.eventbus import (
     Delivery,
     EventTransportProvider,
     GroupInfo,
+    GroupOwnedElsewhere,
     GroupOwner,
     Retention,
     StreamInfo,
@@ -98,10 +99,18 @@ class _MemoryProvider(MemoryTransport, EventTransportProvider):
             raise Unavailable("the stream is refusing appends", capability="eventbus")
         return await super().publish(stream, envelope)
 
-    async def dead_letter(self, delivery: Delivery, *, reason: str) -> None:
+    def _park(
+        self,
+        stream: str,
+        msg_id: str,
+        envelope: Any,
+        attempts: int,
+        group: str,
+    ) -> None:
+        """Every append to the dead-letter queue, explicit or automatic."""
         if self.dlq_down:
             raise Unavailable("the dead-letter queue is down", capability="eventbus")
-        await super().dead_letter(delivery, reason=reason)
+        super()._park(stream, msg_id, envelope, attempts, group)
 
     async def isolation_identity(self) -> str | None:
         return "memory:process"
@@ -294,6 +303,9 @@ def _streams(**options: Any) -> _StreamsUnderTest:
 class TestTheStreamsDriver(EventTransportConformance):
     redelivery_timeout_seconds = 15.0
     settle_seconds = 0.6
+    # The streams driver is of the stable tier: every hook is given (its outage
+    # test stays out until idk-pkg-redis-streams, below).
+    require_stable_hooks = True
 
     @pytest.fixture(autouse=True)
     async def _clean(self) -> AsyncIterator[None]:
@@ -804,7 +816,188 @@ class _OutageSkipsTheUnread(_MemoryProvider):
             raise
 
 
-class _Kit(_MemoryHooks, EventTransportConformance):
+class _AutoDlqAcksTheSource(_MemoryProvider):
+    """The automatic dead-lettering shrugs off a failed append and drops the
+    entry (an explicit ``dead_letter`` still raises)."""
+
+    _automatic = False
+
+    def _collect(self, stream: str, group: str, count: int) -> list[Delivery]:
+        self._automatic = True
+        try:
+            return super()._collect(stream, group, count)
+        finally:
+            self._automatic = False
+
+    def _park(
+        self, stream: str, msg_id: str, envelope: Any, attempts: int, group: str
+    ) -> None:
+        try:
+            super()._park(stream, msg_id, envelope, attempts, group)
+        except Unavailable:
+            if not self._automatic:
+                raise
+
+
+class _AckOfOneGroupAcksTheOthers(_MemoryProvider):
+    async def ack(self, delivery: Delivery) -> None:
+        for (stream, group), pending in self._pending.items():
+            if stream == delivery.stream:
+                pending.pop(delivery.id, None)
+                self._delivery_count.pop((stream, group, delivery.id), None)
+                self._delivered_at.pop((stream, group, delivery.id), None)
+
+
+class _NeverRedelivers(_MemoryProvider):
+    """At most once: a delivery is forgotten as it is handed out."""
+
+    async def consume(
+        self,
+        stream: str,
+        *,
+        group: str,
+        consumer: str,
+        count: int = 10,
+        block_ms: int | None = None,
+    ) -> list[Delivery]:
+        delivered = await super().consume(
+            stream, group=group, consumer=consumer, count=count, block_ms=block_ms
+        )
+        for delivery in delivered:
+            self._pending[(stream, group)].pop(delivery.id, None)
+        return delivered
+
+
+class _NeverReclaimsADeadConsumer(_MemoryProvider):
+    """An unacked entry comes back to the consumer that first read it only."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._first_reader: dict[tuple[str, str, str], str] = {}
+
+    async def consume(
+        self,
+        stream: str,
+        *,
+        group: str,
+        consumer: str,
+        count: int = 10,
+        block_ms: int | None = None,
+    ) -> list[Delivery]:
+        delivered = await super().consume(
+            stream, group=group, consumer=consumer, count=count, block_ms=block_ms
+        )
+        return [
+            d
+            for d in delivered
+            if self._first_reader.setdefault((stream, group, d.id), consumer)
+            == consumer
+        ]
+
+
+class _OwnerIsGlobal(_MemoryProvider):
+    """One owner for every stream and group of the transport."""
+
+    _first: GroupOwner | None = None
+
+    async def claim_group_owner(
+        self, stream: str, group: str, owner: GroupOwner
+    ) -> None:
+        self._first = self._first or owner
+        if (self._first.module, self._first.database) != (
+            owner.module,
+            owner.database,
+        ):
+            raise GroupOwnedElsewhere("one owner for all", capability="eventbus")
+        await super().claim_group_owner(stream, group, owner)
+
+
+class _ClaimRecordsNothing(_MemoryProvider):
+    async def claim_group_owner(
+        self, stream: str, group: str, owner: GroupOwner
+    ) -> None:
+        return None
+
+
+class _SameOwnerIsRefused(_MemoryProvider):
+    """A replica of the owning deployment is refused as a rival."""
+
+    async def claim_group_owner(
+        self, stream: str, group: str, owner: GroupOwner
+    ) -> None:
+        if (stream, group) in self._owners:
+            raise GroupOwnedElsewhere("a replica", capability="eventbus")
+        await super().claim_group_owner(stream, group, owner)
+
+
+class _PublishReturnsOneId(_MemoryProvider):
+    async def publish(self, stream: str, envelope: Any) -> str:
+        await super().publish(stream, envelope)
+        return "1-0"
+
+
+class _RetentionIsNotARetention(_MemoryProvider):
+    def retention(self) -> Any:
+        return {"max_age_seconds": None, "max_length": None}
+
+
+class _EnvelopeIsAltered(_MemoryProvider):
+    async def consume(
+        self,
+        stream: str,
+        *,
+        group: str,
+        consumer: str,
+        count: int = 10,
+        block_ms: int | None = None,
+    ) -> list[Delivery]:
+        delivered = await super().consume(
+            stream, group=group, consumer=consumer, count=count, block_ms=block_ms
+        )
+        return [replace(d, envelope={**d.envelope, "payload": {}}) for d in delivered]
+
+
+class _PublishManyOfNothingRaises(_MemoryProvider):
+    async def publish_many(self, items: Any) -> list[str]:
+        if not items:
+            raise ValueError("nothing to publish")
+        return await super().publish_many(items)
+
+
+class _PublishManyMadeUpIds(_MemoryProvider):
+    """Reports the right number of published items, with ids it made up."""
+
+    async def publish_many(self, items: Any) -> list[str]:
+        ids: list[str] = []
+        for stream, envelope in items:
+            try:
+                ids.append(await self.publish(stream, envelope))
+            except Unavailable as exc:
+                made_up = [f"9-{index}" for index in range(len(ids))]
+                raise partial_publish(made_up, "failed", exc) from exc
+        return ids
+
+
+class _NeverDeadLetterExemptsEveryGroup(_MemoryProvider):
+    def never_dead_letter(self, stream: str, group: str) -> None:
+        self._exempt_all = True
+
+    def dead_letters_by_count(self, stream: str, group: str) -> bool:
+        return not getattr(self, "_exempt_all", False)
+
+
+class _NoDlqOps(_MemoryProvider):
+    """Reads no dead letters through the port (``dlq_ops`` undeclared)."""
+
+    supported_features = frozenset(_MemoryProvider.supported_features - {"dlq_ops"})
+
+
+class _NoDlqOpsDropsDeadLetters(_NoDlqOps):
+    async def dead_letter(self, delivery: Delivery, *, reason: str) -> None:
+        await self.ack(delivery)
+
+
+class _FastKit(EventTransportConformance):
     redelivery_timeout_seconds = 0.6
     settle_seconds = 0.15
     outage_seconds = 0.6
@@ -815,21 +1008,28 @@ for _name in (
     "test_harness_redacts_the_health_of_a_failing_backend",
     "test_harness_maps_backend_failures_to_infra_errors",
 ):
-    setattr(_Kit, _name, None)
+    setattr(_FastKit, _name, None)
 
 
-async def _failures(driver: type[_MemoryProvider]) -> set[str]:
-    """The names of the kit tests ``driver`` fails."""
-    instance = _Kit()
-    failed: set[str] = set()
+class _Kit(_MemoryHooks, _FastKit):
+    pass
+
+
+async def _outcomes(
+    driver: type[_MemoryProvider],
+    kit: type[EventTransportConformance] = _Kit,
+    only: Sequence[str] | None = None,
+) -> dict[str, BaseException | None]:
+    """What each kit test (``only`` those named) does against ``driver``: its
+    exception, a skip included, or ``None``. The tests of one transport run
+    together: each takes streams and a provider of its own."""
+    instance = kit()
 
     def make() -> _MemoryProvider:
         return driver(name="kit", driver="memory", options={})
 
-    for name in sorted(n for n in dir(_Kit) if n.startswith("test_")):
+    async def run_one(name: str) -> BaseException | None:
         method = getattr(instance, name)
-        if method is None:
-            continue
         parameters = inspect.signature(method).parameters
         opened = None
         arguments: dict[str, Any] = {}
@@ -843,13 +1043,34 @@ async def _failures(driver: type[_MemoryProvider]) -> set[str]:
             arguments["make_failing_provider"] = None
         run = asyncio.ensure_future(method(**arguments))
         await asyncio.wait([run])
-        outcome = run.exception()
-        if outcome is not None and not isinstance(outcome, pytest.skip.Exception):
-            failed.add(name)
+        outcome: BaseException | None = run.exception()
         if opened is not None:
             with suppress(Exception):
                 await opened.aclose()
-    return failed
+        return outcome
+
+    names = sorted(
+        n
+        for n in dir(kit)
+        if n.startswith("test_")
+        and getattr(kit, n) is not None
+        and (only is None or n in only)
+    )
+    results = await asyncio.gather(*(run_one(name) for name in names))
+    return dict(zip(names, results, strict=True))
+
+
+async def _failures(
+    driver: type[_MemoryProvider],
+    kit: type[EventTransportConformance] = _Kit,
+    only: Sequence[str] | None = None,
+) -> set[str]:
+    """The names of the kit tests ``driver`` fails (a skip is not a failure)."""
+    return {
+        name
+        for name, outcome in (await _outcomes(driver, kit, only)).items()
+        if outcome is not None and not isinstance(outcome, pytest.skip.Exception)
+    }
 
 
 _OUTAGE = "test_an_outage_during_consume_raises_unavailable_and_consuming_resumes"
@@ -895,7 +1116,11 @@ _CASES: dict[type[_MemoryProvider], set[str]] = {
         "test_replay_can_be_limited_to_one_group",
     },
     _IgnoresNeverDeadLetter: {"test_never_dead_letter_keeps_redelivering"},
-    _OneDeliveryTooMany: {"test_max_deliveries_moves_the_entry_to_the_dlq"},
+    _OneDeliveryTooMany: {
+        "test_max_deliveries_moves_the_entry_to_the_dlq",
+        # The second group of this check dead-letters after max_deliveries too.
+        "test_never_dead_letter_keeps_redelivering",
+    },
     _PublishManySwallowsAFailure: {
         "test_publish_many_failing_in_the_middle_raises_partial_publish"
     },
@@ -970,6 +1195,57 @@ _CASES: dict[type[_MemoryProvider], set[str]] = {
     _OutageIsARawError: {_OUTAGE},
     _OutageLosesTheUnacked: {_OUTAGE},
     _OutageSkipsTheUnread: {_OUTAGE},
+    # G-EVENT-10, the automatic path: a failed append must not ack the source.
+    _AutoDlqAcksTheSource: {"test_the_source_is_acked_only_after_the_dlq_append"},
+    _AckOfOneGroupAcksTheOthers: {"test_two_groups_each_receive_every_entry"},
+    # At most once: nothing that waits for a redelivery survives it.
+    _NeverRedelivers: {
+        "test_ack_stops_redelivery",
+        "test_ack_many_stops_redelivery",
+        "test_an_unacked_delivery_returns_to_its_consumer",
+        "test_a_dead_consumers_pending_entries_are_reclaimed",
+        "test_max_deliveries_moves_the_entry_to_the_dlq",
+        "test_the_source_is_acked_only_after_the_dlq_append",
+        "test_dead_letter_parks_the_entry_at_once",
+        "test_dead_letter_parks_even_a_never_dead_letter_group",
+        "test_never_dead_letter_keeps_redelivering",
+        "test_group_info_reports_position_and_pending",
+        "test_the_oldest_unacked_age_follows_the_group",
+        _OUTAGE,
+        "test_two_groups_each_receive_every_entry",
+    },
+    _NeverReclaimsADeadConsumer: {
+        "test_a_dead_consumers_pending_entries_are_reclaimed"
+    },
+    _OwnerIsGlobal: {
+        "test_an_owner_is_per_stream_and_group",
+        "test_release_forgets_the_owner",
+    },
+    _ClaimRecordsNothing: {
+        "test_the_first_claim_records_the_owner",
+        "test_a_second_owner_is_refused",
+        "test_one_of_many_concurrent_claims_wins",
+        "test_transfer_is_a_compare_and_set_on_the_whole_owner",
+        "test_one_of_many_concurrent_transfers_wins",
+        "test_release_forgets_the_owner",
+    },
+    _SameOwnerIsRefused: {"test_the_same_owner_claims_again"},
+    _PublishReturnsOneId: {
+        "test_publish_returns_a_distinct_id_per_entry",
+        "test_publish_many_appends_in_order_and_returns_the_ids",
+        "test_publish_many_failing_in_the_middle_raises_partial_publish",
+        "test_stream_info_reports_length_and_the_newest_entry",
+    },
+    _RetentionIsNotARetention: {
+        "test_retention_reports_a_retention",
+        "test_retention_echoes_the_options",
+    },
+    _EnvelopeIsAltered: {"test_publish_then_consume_delivers_the_envelope"},
+    _PublishManyOfNothingRaises: {"test_publish_many_of_nothing_returns_nothing"},
+    _PublishManyMadeUpIds: {
+        "test_publish_many_failing_in_the_middle_raises_partial_publish"
+    },
+    _NeverDeadLetterExemptsEveryGroup: {"test_never_dead_letter_keeps_redelivering"},
 }
 
 
@@ -987,3 +1263,77 @@ async def test_each_check_fails_exactly_its_broken_transport(
     broken: type[_MemoryProvider],
 ) -> None:
     assert await _failures(broken) == _CASES[broken]
+
+
+# ------------------------------------------------- a check whose hook is missing
+class _NoHooks(_FastKit):
+    """A driver's tests that give no hook."""
+
+
+class _NoHooksStable(_NoHooks):
+    require_stable_hooks = True
+
+
+class _ParkedHooks(_Kit):
+    """A driver without ``dlq_ops`` that reads its dead letters itself."""
+
+    async def parked_ids(
+        self, provider: EventTransportProvider, stream: str
+    ) -> Sequence[str] | None:
+        assert isinstance(provider, _MemoryProvider)
+        return [entry[1]["id"] for entry in provider._dlq.get(stream, [])]
+
+
+class _StableKit(_Kit):
+    require_stable_hooks = True
+
+
+_HOOKED_CHECKS = {
+    "test_publish_many_failing_in_the_middle_raises_partial_publish",  # refused_stream
+    "test_the_source_is_acked_only_after_the_dlq_append",  # failing_dlq_append
+    "test_retention_echoes_the_options",  # retention_cases
+    _OUTAGE,  # interrupt_connections
+}
+_PARKING_CHECKS = {
+    "test_max_deliveries_moves_the_entry_to_the_dlq",
+    "test_dead_letter_parks_the_entry_at_once",
+}
+
+
+async def test_a_check_without_its_hook_is_skipped_never_passed() -> None:
+    outcomes = await _outcomes(_MemoryProvider, _NoHooks, tuple(_HOOKED_CHECKS))
+    assert set(outcomes) == _HOOKED_CHECKS
+    assert all(isinstance(o, pytest.skip.Exception) for o in outcomes.values())
+
+
+async def test_a_stable_tier_driver_fails_a_check_without_its_hook() -> None:
+    outcomes = await _outcomes(_MemoryProvider, _NoHooksStable, tuple(_HOOKED_CHECKS))
+    assert set(outcomes) == _HOOKED_CHECKS
+    assert all(isinstance(o, AssertionError) for o in outcomes.values())
+    assert all("require_stable_hooks" in str(o) for o in outcomes.values())
+
+
+async def test_the_parking_checks_read_the_dlq_through_parked_ids() -> None:
+    assert await _failures(_NoDlqOps, _ParkedHooks, tuple(_PARKING_CHECKS)) == set()
+    # Dropped is told from parked: the entry is gone and nothing is in the DLQ.
+    assert await _failures(
+        _NoDlqOpsDropsDeadLetters, _ParkedHooks, tuple(_PARKING_CHECKS)
+    ) == {"test_dead_letter_parks_the_entry_at_once"}
+
+
+async def test_without_dlq_ops_or_parked_ids_the_parking_checks_skip() -> None:
+    outcomes = await _outcomes(_NoDlqOps, _Kit, tuple(_PARKING_CHECKS))
+    assert set(outcomes) == _PARKING_CHECKS
+    assert all(isinstance(o, pytest.skip.Exception) for o in outcomes.values())
+    reason = str(next(iter(outcomes.values())))
+    assert "parked_ids" in reason
+    # Even a transport that drops every dead letter is not passed silently.
+    dropped = await _outcomes(_NoDlqOpsDropsDeadLetters, _Kit, tuple(_PARKING_CHECKS))
+    assert not any(o is None for o in dropped.values())
+
+
+async def test_a_stable_tier_driver_fails_the_parking_checks_it_cannot_observe() -> (
+    None
+):
+    outcomes = await _outcomes(_NoDlqOps, _StableKit, tuple(_PARKING_CHECKS))
+    assert all(isinstance(o, AssertionError) for o in outcomes.values())
