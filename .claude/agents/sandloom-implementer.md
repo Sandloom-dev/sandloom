@@ -67,6 +67,44 @@ subagent): pass no actor on tm calls.
   Monitor and `sleep` is blocked, so never start a run in the background
   only to wait for it.
 
+## Before the PR: what review keeps sending back
+Go through your own `git diff origin/main` against this list and fix what
+fails before you push. These nine classes were ~3/4 of the review findings
+of the infra-drivers waves, each costing a whole fix-up agent.
+1. **Checks that bite.** Every new check, kit hook or test fails on a
+   deliberately broken implementation (a broken-driver / meta test proves
+   it). None passes with zero cases, skips silently, checks presence only or
+   greps file names instead of running the thing.
+2. **No leftovers after a rename or move.** `grep -rn '<old name>'` over
+   `src tests docs benchmarks examples guarantees.yml` finds nothing stale:
+   code, comments, guarantees, `docs/infrastructure/write-a-driver.md`,
+   "pending / not available yet" notes, allowlist `removed_by` entries.
+3. **Refuse, don't go quiet.** An unsupported feature or an error raises or
+   refuses; it never turns into an empty list, `None`, a skip or a green
+   `/ready`. Catch only the error types you mean.
+4. **Deviations recorded.** Anything that departs from `spec.md` or the ADR
+   (an API, a default, a measured price) is written into spec/ADR in the
+   same PR.
+5. **Types, not duck-typing.** No `Any`, `getattr` probe or bare `cast`
+   where the type is known; call required methods directly.
+6. **Reuse.** No copy of an existing helper, constant or in-memory fake:
+   `grep -rn` for it first and import it.
+7. **Registered in every gate.** A new module, escape hatch or file is in
+   the gates that track it: public API (`EXTRA_MODULES`, baseline),
+   `RAW_PROVIDER_METHODS`, the CI explicit lists, `public-source.json`,
+   globs that must see subpackages.
+8. **Input bounds.** TTLs, key lengths, ids, schemas are validated at the
+   boundary, with a test.
+9. **Layers.** No dialect or driver detail in kernel models; `driverkit`
+   and the kernel never import a driver.
+
+## Tokens: batch independent calls
+- Look-ups that do not depend on each other (several `grep -n`, several
+  `Read` ranges, `git status` beside a `grep`) go out as parallel tool calls
+  in ONE response. Every response re-sends your whole context, so five
+  single-grep turns cost five times one. Only a call that needs the previous
+  result waits for it.
+
 ## Tokens: keep the context small
 - Test and lint output: failures and the summary only (`-q`, then
   `grep -E '^(FAILED|ERROR|E )' -A6 | head -60`).
