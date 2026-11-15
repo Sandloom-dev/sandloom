@@ -815,7 +815,9 @@ def test_the_seed_holds_the_live_allowlist() -> None:
     # package, so event_bus_driver's import of it is no longer a ``sandloom`` one.
     # 74 -> 73 (idk-pkg-redis-eventbus, -1): event_bus_driver and redis_eventbus/
     # moved into the sandloom-redis package, which the package scan covers.
-    assert sum(len(v) for v in SEEDED.values()) <= 73
+    # 73 -> 67 (idk-pkg-redis-eventbusb): the cap sat above the live sum of SEEDED
+    # after the earlier moves; it equals the live sum now, so a pair added fails.
+    assert sum(len(v) for v in SEEDED.values()) <= 67
 
 
 @pytest.mark.parametrize(

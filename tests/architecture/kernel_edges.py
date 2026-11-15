@@ -558,6 +558,11 @@ def _imported(node: ast.Import | ast.ImportFrom) -> Iterator[str]:
     yield from (f"{node.module}.{a.name}" for a in node.names if a.name != "*")
 
 
+def _names_driver_package(value: str) -> bool:
+    """Whether a dotted module name starts in a driver package."""
+    return value.strip().split(".")[0] in _DRIVER_PACKAGES
+
+
 def scan_source(path: str, source: str, matcher: _Matcher) -> list[Finding]:
     """Findings of one Python file: literals outside docstrings, static
     imports (``static-import``) and dynamic imports (computed ones as
@@ -594,9 +599,20 @@ def scan_source(path: str, source: str, matcher: _Matcher) -> list[Finding]:
                 continue
             arg = node.args[0]
             if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                continue  # the literal itself is visited as a constant
+                # The literal itself is visited as a constant; a driver package
+                # it names is a dynamic import of one (the constant scan skips it).
+                if _names_driver_package(arg.value):
+                    found.append(
+                        Finding(path, node.lineno, arg.value.strip(), "driver-package")
+                    )
+                continue
             if isinstance(arg, ast.Name) and arg.id in constants:
                 value = constants[arg.id]
+                if _names_driver_package(value):
+                    found.append(
+                        Finding(path, node.lineno, value.strip(), "driver-package")
+                    )
+                    continue
                 pattern = matcher.pattern(value)
                 if pattern:
                     found.append(Finding(path, node.lineno, value, pattern))

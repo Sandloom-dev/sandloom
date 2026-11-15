@@ -77,6 +77,27 @@ async def test_the_entry_point_build_is_the_kernel_build() -> None:
     await provider.aclose()
 
 
+async def test_a_subclass_from_config_builds_the_subclass() -> None:
+    """The kits call ``type(provider).from_config``: a subclass gets itself back,
+    built over the same client factory as the base class."""
+
+    class _Sub(StreamsEventBusProvider):
+        pass
+
+    provider = _Sub.from_config(
+        InstanceConfig(
+            capability="eventbus",
+            name="named",
+            driver="streams",
+            options={"url": "redis://127.0.0.1:6399/0"},
+        )
+    )
+    assert type(provider) is _Sub
+    assert provider._client_factory is not None
+    assert provider._owned_client is not None
+    await provider.aclose()
+
+
 def test_a_prefix_left_out_is_no_namespace_and_reads_no_setting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

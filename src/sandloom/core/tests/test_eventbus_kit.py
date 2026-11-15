@@ -210,7 +210,18 @@ class _StreamsUnderTest(StreamsEventBusProvider):
     budget, no retry backoff, a short idle time before a dead consumer's
     entries are reclaimed) and a client of its own."""
 
-    def __init__(self, *, name: str, driver: str, options: Mapping[str, Any]) -> None:
+    def __init__(
+        self,
+        *,
+        name: str,
+        driver: str,
+        options: Mapping[str, Any],
+        client: object | None = None,
+        client_factory: object | None = None,
+    ) -> None:
+        # ``from_config`` builds this class too (the kit's renamed provider); the
+        # client it passes is not used: the kit's own ``_connect`` is.
+        del client, client_factory
         super().__init__(
             name=name, driver=driver, options=options, client_factory=self._connect
         )

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from functools import partial
-from typing import Any, Protocol, Self, cast
+from typing import Any, Protocol, Self, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -206,8 +206,9 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
     @classmethod
     def from_config(cls, config: InstanceConfig) -> Self:
         """The entry-point build: the instance's Redis client comes from the
-        same factory the kernel's row uses (:func:`make_streams_driver`)."""
-        return cast("Self", make_streams_driver()(config))
+        same builder the kernel's row uses (:func:`make_streams_driver`), and
+        the result is ``cls``, so a subclass's ``from_config`` returns it."""
+        return _build_provider(cls, config)
 
     @classmethod
     def test_isolation(
@@ -253,23 +254,25 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
             await self._owned_client.aclose()
 
 
+_P = TypeVar("_P", bound=StreamsEventBusProvider)
+
+
+def _build_provider(cls: type[_P], cfg: _InstanceLike) -> _P:
+    """``cls`` over the Redis client the instance's options describe."""
+    factory, closable = _redis_client_factory(cfg, read_timeout=_streams_read_timeout())
+    return cls(
+        name=cfg.name,
+        driver=cfg.driver,
+        options=dict(cfg.options),
+        client=closable,
+        client_factory=factory,
+    )
+
+
 def make_streams_driver() -> Callable[[_InstanceLike], InfraProvider]:
     """The factory of the ``streams`` driver (it needs no schema registry: the
     kernel builds the bus over the provider)."""
-
-    def _streams(cfg: _InstanceLike) -> InfraProvider:
-        factory, closable = _redis_client_factory(
-            cfg, read_timeout=_streams_read_timeout()
-        )
-        return StreamsEventBusProvider(
-            name=cfg.name,
-            driver=cfg.driver,
-            options=dict(cfg.options),
-            client=closable,
-            client_factory=factory,
-        )
-
-    return _streams
+    return partial(_build_provider, StreamsEventBusProvider)
 
 
 __all__ = [

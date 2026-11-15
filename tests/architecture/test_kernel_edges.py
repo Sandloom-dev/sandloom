@@ -463,6 +463,37 @@ def test_a_kernel_import_of_a_driver_package_fails(tmp_path: Path, source: str) 
     assert "imports a driver package" in problem
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        'import importlib\nimportlib.import_module("sandloom_redis.cache")\n',
+        '__import__("sandloom_redis.lease")\n',
+        'import importlib\nMOD = "sandloom_redis.cache"\nimportlib.import_module(MOD)\n',
+        'import importlib.util\nimportlib.util.find_spec("sandloom_redis")\n',
+    ],
+)
+def test_a_dynamic_import_of_a_driver_package_fails(
+    tmp_path: Path, source: str
+) -> None:
+    """A literal (or a module-level constant) a dynamic import loads is a
+    driver-package finding like a static import; the string alone is not."""
+    src = _tree(tmp_path, {"sandloom/core/x.py": source})
+    (problem,) = _problems(src, _register())
+    assert "sandloom/core/x.py:" in problem
+    assert "imports a driver package" in problem
+
+
+def test_a_dynamic_import_of_the_standard_library_is_no_finding(tmp_path: Path) -> None:
+    """The driver-package branch of the dynamic-import scan is an allow-list of
+    the driver package names: any other literal passes through it unflagged."""
+    source = (
+        'import importlib\nMOD = "json"\n'
+        'importlib.import_module("os")\nimportlib.import_module(MOD)\n'
+    )
+    src = _tree(tmp_path, {"sandloom/core/x.py": source})
+    assert _problems(src, _register()) == []
+
+
 def test_a_string_naming_a_driver_package_is_no_import(tmp_path: Path) -> None:
     """The driver table names its targets as strings: no finding, while a module
     package beside a driver package one is still a finding."""
