@@ -11,8 +11,15 @@ import orjson
 
 from sandloom.core.drivers.redis_eventbus.streams_groups import _StreamsGroups
 from sandloom.core.drivers.redis_eventbus.streams_transport_base import (
+    REPLY_NOGROUP,
+    REPLY_UNKNOWN_COMMAND,
+    REPLY_WRONGTYPE,
+    _backend_errors,
+    _is_absent,
     _is_nogroup,
+    _mapped,
     _PendingEntry,
+    _reraise_unless_absent,
     _stream_id_key,
 )
 from sandloom.driverkit import Delivery, EventEnvelope
@@ -192,8 +199,11 @@ class _StreamsConsume(_StreamsGroups):
                     count=count,
                     consumername=consumer,
                 )
-        except Exception:  # noqa: BLE001 - no pending / unsupported: empty
+        except _backend_errors() as exc:
             self._pel_known.discard(cursor_key)
+            # No group (the read path recreates it) or a store without
+            # XPENDING: nothing pending. Any other reply surfaces.
+            _reraise_unless_absent(exc, REPLY_NOGROUP, REPLY_UNKNOWN_COMMAND)
             return []
         entries: list[_PendingEntry] = []
         for item in pend or []:
@@ -354,6 +364,7 @@ class _StreamsConsume(_StreamsGroups):
             )
             return None
 
+    @_mapped
     async def consume(
         self,
         stream: str,
@@ -470,11 +481,18 @@ class _StreamsConsume(_StreamsGroups):
     ) -> None:
         """Move an entry that used its whole delivery budget to the DLQ."""
         frames = await client.xrange(key, min=entry.msg_id, max=entry.msg_id, count=1)
-        if frames and await self._targeted_elsewhere(
-            client, stream, group, entry.msg_id, frames[0][1]
-        ):
-            return
-        raw = await self._fetch_raw(client, stream, entry.msg_id)
+        raw: str | None = None
+        if frames:
+            fields = frames[0][1]
+            if await self._targeted_elsewhere(
+                client, stream, group, entry.msg_id, fields
+            ):
+                return
+            # The payload of THIS read: a second read could fail (or lose the
+            # entry to a trim) and park an entry whose source exists as
+            # SOURCE_MISSING without its data.
+            data = fields.get("data") if isinstance(fields, dict) else None
+            raw = None if data is None else str(data)
         await self._to_dlq(client, stream, group, entry.msg_id, raw, entry.times)
 
     async def _read_new(
@@ -536,6 +554,7 @@ class _StreamsConsume(_StreamsGroups):
             raw = last_fields.get("data") if isinstance(last_fields, dict) else None
             self._note_delivered(stream, group, last_id, raw)
 
+    @_mapped
     async def ack(self, delivery: Delivery) -> None:
         client = await self._client()
         await client.xack(self.key(delivery.stream), delivery.group, delivery.id)
@@ -545,6 +564,7 @@ class _StreamsConsume(_StreamsGroups):
         """Renew live batches before Redis' dead-consumer idle threshold."""
         return max(0.001, self._min_idle_ms / 3000)
 
+    @_mapped
     async def renew_pending(
         self, deliveries: Sequence[Delivery], consumer: str
     ) -> None:
@@ -581,6 +601,7 @@ return lost
         if lost:
             raise RuntimeError("Streams delivery lease lost; aborting active handler")
 
+    @_mapped
     async def dead_letter(self, delivery: Delivery, *, reason: str) -> None:
         client = await self._client()
         raw = orjson.dumps(delivery.envelope).decode()
@@ -597,6 +618,7 @@ return lost
             client, delivery.stream, delivery.group, delivery.id, raw, 0, reason=reason
         )
 
+    @_mapped
     async def ack_many(self, deliveries: Sequence[Delivery]) -> None:
         """One multi-id ``XACK`` per ``(stream, group)`` of the batch."""
         if not deliveries:
@@ -611,18 +633,23 @@ return lost
             await client.xack(self.key(stream), group, *ids)
             self._untrack(stream, group, ids)
 
+    @_mapped
     async def stats(self, stream: str, group: str) -> dict[str, int]:
-        """Pending + DLQ depth for diagnostics. Best-effort (0 on error)."""
+        """Pending + DLQ depth for diagnostics (0 for a missing group or key)."""
         client = await self._client()
         pending = 0
         dlq = 0
         try:
             summary = await client.xpending(self.key(stream), group)
             pending = int(summary.get("pending", 0) if isinstance(summary, dict) else 0)
-        except Exception:  # noqa: BLE001 - diagnostics only
+        except _backend_errors() as exc:
+            if not _is_absent(exc, REPLY_NOGROUP, REPLY_WRONGTYPE):  # nothing pending
+                raise
             pending = 0
         try:
             dlq = int(await client.xlen(self._dlq_key(stream)))
-        except Exception:  # noqa: BLE001 - diagnostics only
+        except _backend_errors() as exc:
+            if not _is_absent(exc, REPLY_WRONGTYPE):  # holds no stream: empty
+                raise
             dlq = 0
         return {"pending": pending, "dlq": dlq}

@@ -23,15 +23,22 @@ if not path.endswith(".py") or not os.path.isfile(path):
     sys.exit(0)
 try:
     folder = os.path.dirname(path)
-    top = (
-        subprocess.run(
-            ["git", "-C", folder, "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        ).stdout.strip()
-        or folder
-    )
+    top = subprocess.run(
+        ["git", "-C", folder, "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    ).stdout.strip()
+    # Only this project (worktrees under it included): a file outside any
+    # repository, or in another repository (an extra working directory such as
+    # a sibling project), is left as it is.
+    project = os.path.realpath(os.environ.get("CLAUDE_PROJECT_DIR", ""))
+    if (
+        not top
+        or not project
+        or os.path.commonpath([os.path.realpath(top), project]) != project
+    ):
+        sys.exit(0)
     ruff = os.path.join(top, ".venv", "bin", "ruff")
     cmd = [ruff] if os.path.exists(ruff) else ["uv", "run", "--no-sync", "ruff"]
     subprocess.run(

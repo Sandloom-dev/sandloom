@@ -45,7 +45,7 @@ RATCHETED_PREFIXES = ("ASYNC", "BLE", "S", "SIM", "RUF", "PERF", "PLC0415", "C90
 NOQA_BASELINE: dict[str, int] = {
     "ASYNC109": 19,
     "ASYNC240": 1,
-    "BLE001": 194,  # 198 on main: -5 in the kernel and +1 in packages/sandloom-redis/src, where the Redis cache driver moved (idk-pkg-redis-streams); the scan covers both, the total shrinks by 4
+    "BLE001": 186,  # 198: -8 streams error mapping (idk-streams-errors); -5 in the kernel and +1 in packages/sandloom-redis/src where the Redis cache driver moved (idk-pkg-redis-streams)
     "C901": 79,
     "PERF401": 24,
     # 118 (2026-10-28): +1 optional import, testing/ownership.py: `redis` is
@@ -68,7 +68,7 @@ NOQA_BASELINE: dict[str, int] = {
     "S105": 8,
     "S106": 1,
     "S108": 1,  # the worker heartbeat default moved to sandloom_celery/worker.py (idk-pkg-celery-move)
-    "S110": 27,
+    "S110": 26,
     "S112": 3,
     "S301": 0,
     "S311": 9,
