@@ -90,10 +90,16 @@ def test_pyproject_pins_exactly_the_verified_range(pyproject: Path) -> None:
         # The contributor environment installs the distribution that owns drivers.
         assert any(d.startswith("sandloom[") for d in deps), deps
         kernel = BACKEND / "packages/sandloom/pyproject.toml"
-        deps = tomllib.loads(kernel.read_text())["project"]["dependencies"]
+        project = tomllib.loads(kernel.read_text())["project"]
+        deps = project["dependencies"]
+    # asyncpg is the `postgres` extra: read the pins from the base
+    # dependencies and from the extras alike.
+    extras = project.get("optional-dependencies", {})
+    deps = [*deps, *(spec for extra in extras.values() for spec in extra)]
     for dist, (low, high) in VERIFIED_DRIVER_RANGES.items():
-        spec = next(d for d in deps if re.match(rf"{dist}(\[|>|=|<|$)", d))
-        assert spec.endswith(f">={low},<{high}"), (pyproject, spec)
+        specs = [d for d in deps if re.match(rf"{dist}(\[|>|=|<|$)", d)]
+        assert specs, f"{pyproject} names no {dist} dependency"
+        assert all(s.endswith(f">={low},<{high}") for s in specs), (pyproject, specs)
 
 
 # --- detection ----------------------------------------------------------------

@@ -15,15 +15,29 @@ CI gives the same job, skipping the architecture tests (they need the agent's
 own test servers, which a hook does not know) and the two hooks that rewrite
 files (a dirty tree would make tm refuse the handover). Any failure of the hook
 itself lets the call through.
+
+Only the record this hook emitted passes the second call: its digest is kept in
+``~/.cache/sandloom-checks`` (outside every checkout), so an agent cannot attach
+a self-written all-green record. If that directory cannot be written, the hook
+lets the handover through without a record (the catch-all below) rather than
+refusing a second call it could never accept. Credentials (URL userinfo and
+secret-looking query values) are masked in everything stored in tm.
+
+Trust: the run uses the agent's own checkout, its ``.pre-commit-config.yaml`` and
+``uv.lock`` included, with this machine's environment, exactly as the agent's own
+pre-commit run would. The record is evidence of what that tree's gates said, not a
+boundary against a hostile agent: CI on GitHub stays the gate.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 AGENT = "sandloom-implementer"
 SKIP = "architecture-tests,end-of-file-fixer,trailing-whitespace"
@@ -34,6 +48,18 @@ CI_ENV = {
     "JWT_SECRET": "ci-architecture-tests-not-a-real-secret",
 }
 _RESULT = re.compile(r"^(.+?)\.{3,}(?:\(.*\))?(Passed|Failed|Skipped)\s*$")
+# user:pass@ and the password-only :pass@ form (redis://:secret@host).
+# Any userinfo in a URL: user:pass@, :pass@ and a bare token@ (https://<token>@host).
+_CREDENTIALS = re.compile(r"([A-Za-z][A-Za-z0-9+.-]*)://[^/\s@]+@")
+# Secret-looking query values: ?token=..., &password=..., api_key=...
+_SECRET_QUERY = re.compile(
+    r"([?&;](?:[A-Za-z0-9_.-]*?(?:password|passwd|pwd|token|secret|api[_-]?key|access[_-]?key|auth))=)[^&#\s]+",
+    re.IGNORECASE,
+)
+#: Digests of the records this hook emitted, outside every checkout.
+ISSUED = (
+    Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "sandloom-checks"
+)
 
 
 def _git(args: list[str], cwd: str) -> str:
@@ -54,18 +80,39 @@ def _deliverables(tool_input: dict) -> list[dict]:
     return [d for d in raw if isinstance(d, dict)]
 
 
+def _digest(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def remember(content: str) -> None:
+    """Note the record this hook emitted, outside any checkout an agent edits."""
+    ISSUED.mkdir(parents=True, exist_ok=True)
+    (ISSUED / _digest(content)).write_text(content, encoding="utf-8")
+
+
 def already_checked(tool_input: dict, head: str) -> bool:
-    """A ``checks`` deliverable for this very commit is already attached."""
+    """The ``checks`` deliverable this hook emitted for this very commit is
+    attached. A record the agent wrote itself (same shape, all green) is not
+    one: only a content whose digest the hook stored when it refused passes."""
     for item in _deliverables(tool_input):
         if item.get("kind") != "checks":
             continue
-        try:
-            record = json.loads(item.get("content") or "{}")
-        except ValueError:
+        content = item.get("content")
+        if not isinstance(content, str) or not (ISSUED / _digest(content)).is_file():
             continue
-        if record.get("commit") == head:
+        try:
+            record = json.loads(content)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(record, dict) and record.get("commit") == head:
             return True
     return False
+
+
+def redact(text: str) -> str:
+    """Credentials out of text stored in tm: URL userinfo (``user:pass@``,
+    ``:pass@``, ``token@``) and secret-looking query values."""
+    return _SECRET_QUERY.sub(r"\1***", _CREDENTIALS.sub(r"\1://***@", text))
 
 
 def results(output: str) -> dict[str, str]:
@@ -111,12 +158,14 @@ def main() -> int:
     exit_status: int | None = None
     try:
         outcome, tail, exit_status = run_checks(top)
-        not_run = "" if outcome else "pre-commit printed no hook result: " + tail[-300:]
+        # Mask first, then cut: a cut could drop a URL's prefix and keep its password.
+        shown = redact(tail)[-300:]
+        not_run = "" if outcome else "pre-commit printed no hook result: " + shown
         if _git(["rev-parse", "HEAD"], cwd) != head:
             # The tree moved under the run: its results belong to no commit.
             outcome, not_run = {}, "HEAD moved while the checks ran"
     except (subprocess.TimeoutExpired, OSError) as exc:
-        outcome, tail, not_run = {}, "", f"{type(exc).__name__}: {exc}"[:300]
+        outcome, tail, not_run = {}, "", redact(f"{type(exc).__name__}: {exc}")[:300]
     record = {
         "commit": head,
         "ran": "pre-commit run --from-ref origin/main --to-ref HEAD",
@@ -128,12 +177,13 @@ def main() -> int:
     if not_run:
         # Recorded once, so the reviewer sees why there is no result; the
         # second call carries it through like any other record.
-        record["not_run"] = not_run
+        record["not_run"] = redact(not_run)
     if record["failed"] or exit_status not in (0, None):
         # A nonzero exit with no failed hook is an errored or partial run:
         # keep its output, so it never reads as a clean pass.
-        record["tail"] = tail
+        record["tail"] = redact(tail)
     deliverable = {"kind": "checks", "content": json.dumps(record, sort_keys=True)}
+    remember(deliverable["content"])
     reason = (
         "Checks ran at the handover (tm-fleet: checks at task_done). Call task_done "
         "again with the same arguments and this deliverable appended, unchanged, "

@@ -24,7 +24,7 @@ import logging
 import os
 import time
 from collections.abc import Callable, Mapping
-from typing import Any, Self, cast
+from typing import Any, Self, TypeVar
 
 from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import MetaData, event, exc, text
@@ -260,6 +260,9 @@ def _isolation_material(url: Any, instance: int) -> str:
     )
 
 
+_D = TypeVar("_D", bound="SQLAlchemyDatabaseProvider")
+
+
 class SQLAlchemyDatabaseProvider(DatabaseProvider):
     """A single SQLAlchemy-backed database instance."""
 
@@ -269,7 +272,7 @@ class SQLAlchemyDatabaseProvider(DatabaseProvider):
 
     @classmethod
     def from_config(cls, config: InstanceConfig) -> Self:
-        return cast("Self", create_sqlalchemy_database(config))
+        return _build_sqlalchemy_database(cls, config)
 
     @classmethod
     def features_for(cls, options: Mapping[str, Any]) -> frozenset[str]:
@@ -1050,6 +1053,12 @@ async def _dispose_system_engine(name: str) -> None:
 
 def create_sqlalchemy_database(cfg: InstanceConfig) -> SQLAlchemyDatabaseProvider:
     """Driver factory for ``database`` capability / ``sqlalchemy`` driver."""
+    return _build_sqlalchemy_database(SQLAlchemyDatabaseProvider, cfg)
+
+
+def _build_sqlalchemy_database(cls: type[_D], cfg: InstanceConfig) -> _D:
+    """``cls`` over the engine the instance's options describe (so a
+    subclass's ``from_config`` returns the subclass)."""
     url = str(cfg.options.get("url") or settings.database_url)
     sqlite_problem = sqlite_url_problem(url)
     if sqlite_problem is not None:
@@ -1073,7 +1082,7 @@ def create_sqlalchemy_database(cfg: InstanceConfig) -> SQLAlchemyDatabaseProvide
     if cfg.name == DEFAULT_INSTANCE and url == settings.database_url:
         if tenant_rls:
             install_tenant_rls(get_default_engine())
-        return SQLAlchemyDatabaseProvider(
+        return cls(
             name=cfg.name,
             driver=cfg.driver,
             options=dict(cfg.options),
@@ -1094,7 +1103,7 @@ def create_sqlalchemy_database(cfg: InstanceConfig) -> SQLAlchemyDatabaseProvide
         sync_session_class=KernelSession,
         expire_on_commit=False,
     )
-    return SQLAlchemyDatabaseProvider(
+    return cls(
         name=cfg.name,
         driver=cfg.driver,
         options=dict(cfg.options),

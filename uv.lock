@@ -3463,7 +3463,6 @@ dependencies = [
     { name = "aiohttp" },
     { name = "alembic" },
     { name = "argon2-cffi" },
-    { name = "asyncpg" },
     { name = "certifi" },
     { name = "cryptography" },
     { name = "fastapi" },
@@ -3499,6 +3498,7 @@ sqlite = [
     { name = "aiosqlite" },
 ]
 standard = [
+    { name = "asyncpg" },
     { name = "celery", extra = ["redis"] },
     { name = "redis" },
     { name = "sandloom-billing" },
@@ -3515,7 +3515,7 @@ requires-dist = [
     { name = "aiosqlite", marker = "extra == 'sqlite'", specifier = ">=0.21,<1" },
     { name = "alembic", specifier = ">=1.20.0,<2" },
     { name = "argon2-cffi", specifier = ">=25.1.0,<26" },
-    { name = "asyncpg", specifier = ">=0.32.0,<0.33" },
+    { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.32.0,<0.33" },
     { name = "celery", extras = ["redis"], marker = "extra == 'celery'", specifier = ">=5.6.3,<6" },
     { name = "certifi", specifier = ">=2026.10.19" },
     { name = "cryptography", specifier = ">=50.0.2,<51" },
@@ -3541,8 +3541,8 @@ requires-dist = [
     { name = "pyyaml", marker = "extra == 'check'", specifier = ">=6.0.2,<7" },
     { name = "redis", marker = "extra == 'redis'", specifier = ">=5.2.1,<6" },
     { name = "redis", extras = ["hiredis"], marker = "extra == 'fast'", specifier = ">=5.2.1,<6" },
-    { name = "sandloom", extras = ["redis", "celery"], marker = "extra == 'admin'" },
-    { name = "sandloom", extras = ["redis", "celery"], marker = "extra == 'standard'" },
+    { name = "sandloom", extras = ["postgres", "redis"], marker = "extra == 'admin'" },
+    { name = "sandloom", extras = ["postgres", "redis", "celery"], marker = "extra == 'standard'" },
     { name = "sandloom-admin", marker = "extra == 'admin'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sandloom-billing", marker = "extra == 'standard'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sandloom-celery", marker = "extra == 'celery'", specifier = ">=0.7.0a13,<0.8" },
@@ -3559,7 +3559,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0,<1" },
     { name = "uvicorn-worker", specifier = ">=0.4.0,<0.5" },
 ]
-provides-extras = ["redis", "celery", "standard", "admin", "fast", "check", "testing", "sqlite", "sentry", "otel"]
+provides-extras = ["postgres", "redis", "celery", "standard", "admin", "fast", "check", "testing", "sqlite", "sentry", "otel"]
 
 [[package]]
 name = "sandloom-billing"

@@ -36,6 +36,11 @@ nothing waits for an answer.
 | `sandloom-identity` | accounts, sign-in, roles, 2FA, SSO |
 | `sandloom-tenancy` | organizations, roles, invitations |
 | `sandloom-billing` | subscriptions, credits, Stripe |
-| `sandloom[standard]` | `sandloom` with all three modules |
+| `sandloom[standard]` | `sandloom` with all three modules, PostgreSQL (`asyncpg`), Redis and Celery |
+
+`sandloom` alone runs on a SQLite file (`sandloom[sqlite]`) and in-process
+drivers. A PostgreSQL URL needs `sandloom[postgres]` (it adds `asyncpg`);
+without it the app refuses to start and names the extra (SANDLOOM-B037).
+`sandloom[standard]` and the project `sandloom new` writes include it.
 
 To work on the framework itself, see [Set up the repository](../contributing/setup.md).

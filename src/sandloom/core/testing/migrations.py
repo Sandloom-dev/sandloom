@@ -39,7 +39,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-import psycopg2  # type: ignore[import-untyped]
 from alembic import command
 from alembic.config import Config
 
@@ -51,6 +50,7 @@ from sandloom.core.migrations.migrations import (
     run_core_upgrade,
     version_table_for,
 )
+from sandloom.core.migrations.pg_sync import psycopg2
 from sandloom.core.migrations.schema_compare import schema_differences
 from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.sql_alchemy.portable import dialect_of_url, schema_from_models

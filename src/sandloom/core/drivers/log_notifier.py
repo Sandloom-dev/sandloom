@@ -26,7 +26,7 @@ import re
 import sys
 import uuid
 from collections.abc import Mapping
-from typing import Any, Self, cast
+from typing import Any, Self, TypeVar
 
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
@@ -39,6 +39,8 @@ logger = logging.getLogger("sandloom.core.notification")
 
 #: The links of a body (``NOTIFIER_LOG_LINKS``): http(s) up to whitespace.
 _LINK = re.compile(r"https?://[^\s<>\"']+")
+
+_N = TypeVar("_N", bound="LogNotifierProvider")
 
 #: A dev/catch-all driver accepts every channel (it only logs them).
 NOTIFIER_LOG_FEATURES = frozenset({"email", "sms", "push", "inapp"})
@@ -88,7 +90,7 @@ class LogNotifierProvider(NotifierProvider):
 
     @classmethod
     def from_config(cls, config: InstanceConfig) -> Self:
-        return cast("Self", create_log_notifier(config))
+        return _build_log_notifier(cls, config)
 
     @classmethod
     def features_for(cls, options: Mapping[str, Any]) -> frozenset[str]:
@@ -136,13 +138,19 @@ def get_default_notifier() -> LogNotifierProvider:
     return _default
 
 
+def _build_log_notifier(cls: type[_N], cfg: InstanceConfig) -> _N:
+    """``cls`` for the instance; the ``default`` one of the base class is the
+    process-wide notifier, a subclass is built fresh."""
+    if cfg.name == DEFAULT_INSTANCE:
+        default = get_default_notifier()
+        if isinstance(default, cls):
+            return default
+    return cls(name=cfg.name, driver=cfg.driver, options=dict(cfg.options))
+
+
 def create_log_notifier(cfg: InstanceConfig) -> LogNotifierProvider:
     """Driver factory for ``notification`` capability / ``log`` driver."""
-    if cfg.name == DEFAULT_INSTANCE:
-        return get_default_notifier()
-    return LogNotifierProvider(
-        name=cfg.name, driver=cfg.driver, options=dict(cfg.options)
-    )
+    return _build_log_notifier(LogNotifierProvider, cfg)
 
 
 __all__ = [

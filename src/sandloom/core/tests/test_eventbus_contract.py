@@ -217,7 +217,9 @@ def test_the_kernel_builds_its_bus_per_shape() -> None:
     assert isinstance(durable, StreamsEventBus)
     assert durable.transport is durable_provider
     assert "durable" in durable.bus_features
-    assert durable.native_batch_publish is True
+    # ``native_batch_publish`` is asserted over the real Streams driver
+    # (``packages/sandloom-redis/tests/test_redis_eventbus_provider.py``): this
+    # fake declares its own hint, so checking it here would prove nothing.
 
 
 # -- the bus reads declared features, nothing is probed ----------------------

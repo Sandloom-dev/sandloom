@@ -24,9 +24,9 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 
-import psycopg2  # type: ignore[import-untyped]
 import pytest
 
+from sandloom.core.migrations.pg_sync import psycopg2
 from sandloom.core.testing import connections, families, ownership, workers
 from sandloom.core.testing.env import dev_up_hint
 from sandloom.core.testing.families import INFRA_VAR
