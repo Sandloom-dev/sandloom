@@ -147,6 +147,14 @@ def pytest_configure(config: Any) -> None:
             f"tools.ci.no_batteries: {', '.join(found)} importable; run "
             "`python tools/ci/no_batteries.py install` with this interpreter first"
         )
+    # The Redis harness family must be loadable wherever the Redis client is,
+    # or the lane's xdist workers would share one Redis without a word.
+    from sandloom.core.testing.families import require_for_installed
+
+    try:
+        require_for_installed({"redis": importlib.util.find_spec("redis") is not None})
+    except RuntimeError as exc:
+        raise pytest.UsageError(f"tools.ci.no_batteries: {exc}") from exc
     grown = above_ceiling(load_pending())
     if grown:
         raise pytest.UsageError(
