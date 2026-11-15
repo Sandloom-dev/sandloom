@@ -23,7 +23,7 @@ from dotenv import dotenv_values
 
 from sandloom.core.cli import run_tests
 from sandloom.core.testing import env as test_env
-from sandloom.core.testing import ownership, slots, workers
+from sandloom.core.testing import ownership, redis_family, slots, workers
 
 BACKEND = Path(__file__).resolve().parents[5]
 
@@ -461,7 +461,7 @@ def test_a_released_slot_hands_back_its_redis_indexes(
     env = _clean_env(tmp_path / "home")
     slot = slots.acquire_test_slot([root], env, cwd=root, announce=False)
     assert slot is not None
-    claimed = list(slot.claimed_redis)
+    claimed = list(slot.claimed_urls)
     if not claimed:
         slot.release()
         pytest.skip("no Redis URLs or no free index on the shared test server")
@@ -483,20 +483,20 @@ def test_a_slot_that_lost_its_lock_leaves_the_redis_indexes_alone(
     owner and indexes: the old process must not empty them at exit."""
     released: list[str] = []
     monkeypatch.setattr(
-        slots,
-        "_resources",
-        lambda: mock.Mock(release_redis=lambda u, _o: released.append(u)),
+        redis_family.resources,
+        "release_redis",
+        lambda u, _o: released.append(u),
     )
     slot = slots.Slot(
         number=2,
         database_url="postgresql://x/y",
         owner="m:/repo#2",
-        claimed_redis=("redis://h/7",),
+        claimed_urls=("redis://h/7",),
     )
     monkeypatch.setattr(slots, "slot_lost", lambda _slot=None: True)
     slot.release()
     assert released == []
-    slot.claimed_redis = ("redis://h/7",)
+    slot.claimed_urls = ("redis://h/7",)
     monkeypatch.setattr(slots, "slot_lost", lambda _slot=None: False)
     slot.release()
     assert released == ["redis://h/7"]

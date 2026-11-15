@@ -303,7 +303,9 @@ def test_auto_without_a_client_skips_redis_entirely(
     assert set(out) == {"DATABASE_URL"}
     assert redis_urls.redis_urls(values) == []
     assert session_checks.worker_targets(values, 2)[1]["CACHE_URL"] == "redis://h/0"
-    session_checks.allocate_worker_redis(values, 2)  # no client: nothing to allocate
+    session_checks.allocate_worker_resources(
+        values, 2
+    )  # no client: nothing to allocate
 
 
 def test_auto_without_a_redis_url_needs_no_mapping() -> None:

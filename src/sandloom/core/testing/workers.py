@@ -18,8 +18,10 @@ test configuration (``.env.test`` / the shell):
   mapping in ``SANDLOOM_TEST_REDIS_WORKER_DBS`` (``<base>=<i0>,<i1>,…;…``). Use it
   on a Redis shared with other runs, whose markers break any fixed layout.
 
-The Redis half lives in :mod:`sandloom.core.testing.redis_isolation`, imported
-only by a process that can reach a Redis (the client is installed and a Redis
+The Redis half is a harness family (:mod:`sandloom.core.testing.families`),
+whose ``rewrite_worker`` hook this module calls; a process with no family is
+DB-only. The Redis family loads :mod:`sandloom.core.testing.redis_isolation` only
+for a process that can reach a Redis (the client is installed and a Redis
 setting is present): an application on memory drivers never loads it and needs
 no client to run its tests. It asks the driver of each configured instance (the
 default cache, the default task queue for ``BROKER_URL``, every named ``INFRA``
@@ -57,17 +59,13 @@ from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import dotenv_values, load_dotenv
 
-from sandloom.core.testing.redis_urls import (
-    FLAT_VARS,
-    INFRA_VAR,
-    is_redis_url,
-    redis_client_installed,
-    redis_isolation,
-)
+from sandloom.core.testing import families
+from sandloom.core.testing.families import FLAT_VARS, INFRA_VAR
 
 WORKER_ENV = "PYTEST_XDIST_WORKER"
 #: The settings each worker gets its own instance of.
 DATABASE_VARS = ("DATABASE_URL",)
+#: The cache / broker settings a harness family (Redis) isolates.
 REDIS_VARS = FLAT_VARS
 #: ``INFRA`` (JSON): its named instances with a ``url`` are isolated too.
 ISOLATED_VARS = (*DATABASE_VARS, *REDIS_VARS, INFRA_VAR)
@@ -151,11 +149,8 @@ def rewrite_for_worker(
         url = values.get(var)
         if url:
             out[var] = worker_database_url(url, wid)
-    has_redis_setting = INFRA_VAR in values or any(
-        is_redis_url(values.get(var) or "") for var in REDIS_VARS
-    )
-    if has_redis_setting and redis_client_installed():
-        out.update(redis_isolation().rewrite_redis(values, env, wid, number))
+    for family in families.harness_families():
+        out.update(family.rewrite_worker(values, env, wid, number))
     return out
 
 
