@@ -3249,7 +3249,7 @@ guarantees:
   rests_on:
   - capability: cache
     instance: default
-    operations: [incr_window]
+    operations: [windowed_counter]
     note: fails open on InfraError
   statement: The global per-IP floor (RATE_LIMIT_GLOBAL_REQUESTS) is off at 0 by default, when set limits
     every route including unknown routes / 404s per IP, and fails open on a cache outage.

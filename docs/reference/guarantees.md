@@ -1091,7 +1091,7 @@ in this table rests on no capability or does not state it yet.
 | `cache` (`default`) | <span class="sl-id">G-PROFILE-07</span> | `isolation_identity` |  | instance attestation: lifecycle isolation_identity() |
 | `cache` (`default`) | <span class="sl-id">G-PROFILE-08</span> | `isolation_identity` |  | instance attestation: lifecycle isolation_identity() |
 | `cache` (`default`) | <span class="sl-id">G-INBOX-03</span> | `get`, `set` |  | fails open |
-| `cache` (`default`) | <span class="sl-id">G-HTTP-02</span> | `incr_window` |  | fails open on InfraError |
+| `cache` (`default`) | <span class="sl-id">G-HTTP-02</span> | `windowed_counter` |  | fails open on InfraError |
 | `database` | <span class="sl-id">G-IDEM-09</span> | `request_log` | `http_idempotency` |  |
 | `database` | <span class="sl-id">G-IDEM-10</span> | `request_log` | `http_idempotency` |  |
 | `database` | <span class="sl-id">G-IDEM-11</span> | `request_log` | `http_idempotency` |  |
