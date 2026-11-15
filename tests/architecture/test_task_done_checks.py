@@ -41,8 +41,16 @@ def test_pre_commit_results_are_read_per_hook() -> None:
     }
 
 
+@pytest.fixture(autouse=True)
+def _issued(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Each test keeps the hook's issued digests in its own directory."""
+    monkeypatch.setattr(hook, "ISSUED", tmp_path / "issued")
+    return tmp_path / "issued"
+
+
 def test_a_checks_deliverable_counts_only_for_its_own_commit() -> None:
     record = json.dumps({"commit": "abc"})
+    hook.remember(record)
     for raw in (
         [{"kind": "checks", "content": record}],
         json.dumps([{"kind": "checks", "content": record}]),
@@ -51,6 +59,29 @@ def test_a_checks_deliverable_counts_only_for_its_own_commit() -> None:
         assert hook.already_checked(tool_input, "abc")
         assert not hook.already_checked(tool_input, "def")
     assert not hook.already_checked({"deliverables": [{"kind": "git_commit"}]}, "abc")
+
+
+def test_a_self_written_record_does_not_pass() -> None:
+    forged = json.dumps({"commit": "abc", "results": {"ruff": "Passed"}, "failed": []})
+    assert not hook.already_checked(
+        {"deliverables": [{"kind": "checks", "content": forged}]}, "abc"
+    )
+
+
+def test_a_record_that_is_not_a_string_is_ignored() -> None:
+    for content in ({"commit": "abc"}, ["abc"], 7, None):
+        assert not hook.already_checked(
+            {"deliverables": [{"kind": "checks", "content": content}]}, "abc"
+        )
+
+
+def test_credentials_are_masked_in_the_stored_tail() -> None:
+    tail = (
+        "connect postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/x failed"
+    )
+    assert (
+        hook.redact(tail) == "connect postgresql+asyncpg://***@127.0.0.1:5433/x failed"
+    )
 
 
 def test_a_handover_by_anyone_but_an_implementer_is_not_checked(
