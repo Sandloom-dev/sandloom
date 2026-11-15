@@ -541,6 +541,12 @@ ENVIRONMENT=dev
 # `uv run sandloom dev up` writes DATABASE_URL, CACHE_URL and BROKER_URL of this
 # checkout's dev services into the block below; everything else is yours.
 $dev_block
+# ==== Event bus ====
+# The app selects Redis Streams ($app/__init__.py: DEFAULT_INFRA), which a
+# deploy runs on. Development names the in-process bus here, explicitly: it
+# reaches no other process and loses events on restart (never use it in prod).
+EVENT_BUS_BACKEND=memory
+
 # ==== Storage ====
 STORAGE_TYPE=local
 STORAGE_PATH=./data
@@ -574,6 +580,9 @@ DATABASE_URL=postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloo
 CACHE_URL=redis://127.0.0.1:6380/15
 BROKER_URL=redis://127.0.0.1:6380/14
 
+# The tests run on the in-process bus, named explicitly (DEFAULT_INFRA selects Streams).
+EVENT_BUS_BACKEND=memory
+
 STORAGE_TYPE=local
 STORAGE_PATH=./test_data
 
@@ -588,6 +597,21 @@ _APP_INIT = Template(
     '''"""$app — a Sandloom application package."""
 
 __version__ = "0.1.0"
+
+#: The drivers this app runs on, ``{capability: {instance: {"driver": ...}}}``:
+#: the kernel selects none, so the app does (``create_app(default_infra=...)``,
+#: and ``sandloom worker check`` reads it here). ``INFRA`` overrides it per
+#: instance. ``memory`` is never selected for you: development names it in
+#: ``.env`` (``EVENT_BUS_BACKEND=memory``), production uses the Streams bus.
+DEFAULT_INFRA = {
+    "database": {"default": {"driver": "sqlalchemy"}},
+    "cache": {"default": {"driver": "redis"}},
+    "eventbus": {"default": {"driver": "streams"}},
+    "broadcast": {"default": {"driver": "redis"}},
+    "taskqueue": {"default": {"driver": "celery"}},
+    "atomic_store": {"security": {"driver": "redis"}},
+    "lease": {"beat": {"driver": "redis"}},
+}
 '''
 )
 
@@ -606,6 +630,8 @@ from sandloom.sdk.app import (  # sandloom: advanced app
     app_modules,
     create_app,
 )
+
+from . import DEFAULT_INFRA
 
 BUNDLED: list[str] = $bundled_json
 $billing_authority
@@ -634,14 +660,17 @@ def _create_app_call(app: str, width: int = 88) -> str:
     title = f'title="{app}"'
     modules = f'default_modules=[*BUNDLED, *app_modules("{app}.modules")]'
     authorities = "claim_authorities=CLAIM_AUTHORITIES"
+    infra = "default_infra=DEFAULT_INFRA"
     forms = [
-        f"app = create_app({title}, {modules}, {authorities})\n",
-        f"app = create_app(\n    {title}, {modules}, {authorities}\n)\n",
-        f"app = create_app(\n    {title},\n    {modules},\n    {authorities},\n)\n",
+        f"app = create_app({title}, {modules}, {authorities}, {infra})\n",
+        f"app = create_app(\n    {title}, {modules}, {authorities}, {infra}\n)\n",
+        f"app = create_app(\n    {title},\n    {modules},\n    {authorities},\n"
+        f"    {infra},\n)\n",
     ]
     exploded = (
         f"app = create_app(\n    {title},\n    default_modules=[\n        *BUNDLED,\n"
-        f'        *app_modules("{app}.modules"),\n    ],\n    {authorities},\n)\n'
+        f'        *app_modules("{app}.modules"),\n    ],\n    {authorities},\n'
+        f"    {infra},\n)\n"
     )
     forms.append(exploded)
     for form in forms:

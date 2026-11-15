@@ -92,7 +92,7 @@ def _ops_app(
     core = CoreFacade(app=app)
     # The registry create_app binds: identity registers tasks, so /ready also
     # opens the default taskqueue (KB-02).
-    core.set_infra(build_infra_registry(InMemorySchemaRegistry(), load_plugins=False))
+    core.set_infra(build_infra_registry(InMemorySchemaRegistry()))
 
     async def ok() -> HealthResult:
         return HealthResult(status="ok")

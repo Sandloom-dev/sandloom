@@ -2,9 +2,13 @@
 
 Two layers, merged at startup:
 
-1. **Defaults** synthesized from the flat settings (``DATABASE_URL``,
-   ``CACHE_URL``, ``BROKER_URL``, ``STORAGE_*``, ``EVENT_BUS_BACKEND``): with
-   no extra configuration, one ``default`` instance per capability.
+1. **Defaults**: the drivers the composition selects
+   (``create_app(default_infra=...)``; the kernel names none of its own) with
+   the options of the flat settings (``DATABASE_URL``, ``CACHE_URL``,
+   ``BROKER_URL``, ``STORAGE_*``, ``EVENT_BUS_BACKEND``): one ``default``
+   instance per capability the composition selects. A capability nothing
+   selects has no instance, and startup refuses it when the app needs it
+   (SANDLOOM-B037).
 
 2. The optional ``INFRA`` setting (JSON) which declares additional named
    instances or overrides driver/options of existing ones. This is how an
@@ -28,6 +32,7 @@ passed verbatim to that driver as an option.
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -37,8 +42,8 @@ from sandloom.core.config.common import Environment
 from sandloom.core.config.eventing import DEFAULT_EVENT_STREAM_RETENTION_SECONDS
 from sandloom.core.config.settings import Settings
 
-#: Capabilities for which a ``default`` instance is synthesized from the flat
-#: settings (DATABASE_URL, CACHE_URL, …). This is NOT the set of valid
+#: Capabilities whose ``default`` instance a composition selects (options from
+#: the flat settings: DATABASE_URL, CACHE_URL, …). This is NOT the set of valid
 #: capabilities — INFRA may declare instances for any capability a plugin
 #: registers (workflow, graph_store, …). Whether a capability is valid is the
 #: registry's job (it owns the specs); config.py only validates SHAPE.
@@ -68,6 +73,14 @@ KERNEL_INSTANCES: frozenset[tuple[str, str]] = frozenset(
         ("eventbus", DEFAULT_INSTANCE),
     }
 )
+
+#: Every instance a process refuses to start without (SANDLOOM-B037): the
+#: kernel's three, and the store of revocation marks. Nothing selects them but
+#: the composition or ``INFRA``: the kernel has no driver of its own to fall
+#: back to, and never ``memory``.
+REQUIRED_AT_STARTUP: frozenset[tuple[str, str]] = KERNEL_INSTANCES | {
+    ("atomic_store", "security")
+}
 
 
 @dataclass(slots=True)
@@ -100,24 +113,108 @@ def _is_prod(settings: Any) -> bool:
     )
 
 
-def _default_eventbus_driver(settings: Any) -> str:
-    """The ``default`` eventbus instance's driver from ``EVENT_BUS_BACKEND``."""
+#: ``{capability: {instance: {"driver": ..., <options>}}}``: what a composition
+#: selects when ``INFRA`` names nothing (``create_app(default_infra=...)``).
+DefaultInfra = Mapping[str, Mapping[str, Mapping[str, Any]]]
+
+#: The composition's selection of this process. The kernel names no driver of
+#: its own for database, cache, event bus, task queue, broadcast, lease or
+#: atomic_store: a composition (``sandloom_standard``) supplies them, and one
+#: that supplies none leaves startup to refuse with SANDLOOM-B037.
+_COMPOSITION_DEFAULTS: InfraConfig = {}
+
+#: Whether this process has its composition's selection (set by
+#: :func:`use_default_infra`). Until then a reader adopts the root's own.
+_COMPOSITION_ADOPTED = False
+
+
+def use_default_infra(defaults: DefaultInfra | None) -> None:
+    """Set the composition's driver selection for this process (``None``: none).
+
+    Shape-checked like ``INFRA`` (:func:`_overlay`); every instance it names is
+    a synthesized ``default``: ``INFRA`` overrides it, and nothing opens it
+    unless the kernel or a module's requirement uses it.
+    """
+    global _COMPOSITION_ADOPTED
+    checked: InfraConfig = {}
+    _overlay(checked, defaults or {})
+    _COMPOSITION_DEFAULTS.clear()
+    _COMPOSITION_DEFAULTS.update(checked)
+    _COMPOSITION_ADOPTED = True
+
+
+def _adopt_root_selection() -> None:
+    """A process that boots no app (``sandloom migrate``, ``worker check``, the
+    backup tools) never ran ``create_app(default_infra=...)``: take the
+    selection the composition root's package exports (``DEFAULT_INFRA``)."""
+    # Reached by name: ``composition`` sits above the infra layer (ADR-0007).
+    composition = importlib.import_module("sandloom.core.composition")
+    use_default_infra(composition.root_default_infra())
+
+
+def _composition_instances() -> InfraConfig:
+    """A copy of the composition's selection, safe to change."""
+    if not _COMPOSITION_ADOPTED:
+        _adopt_root_selection()
+    return {
+        capability: {
+            name: InstanceConfig(
+                capability=cfg.capability,
+                name=cfg.name,
+                driver=cfg.driver,
+                options=dict(cfg.options),
+            )
+            for name, cfg in instances.items()
+        }
+        for capability, instances in _COMPOSITION_DEFAULTS.items()
+    }
+
+
+def _select(
+    config: InfraConfig,
+    capability: str,
+    driver: str,
+    options: Mapping[str, Any],
+) -> None:
+    """The ``default`` instance of ``capability`` with ``driver``: the options of
+    a composition default that selects the same driver are kept (flat settings
+    below them), another driver starts from the flat options alone."""
+    existing = config.get(capability, {}).get(DEFAULT_INSTANCE)
+    merged = dict(options)
+    if existing is not None and existing.driver == driver:
+        merged.update(existing.options)
+    config.setdefault(capability, {})[DEFAULT_INSTANCE] = InstanceConfig(
+        capability=capability, name=DEFAULT_INSTANCE, driver=driver, options=merged
+    )
+
+
+def _flat_options(
+    config: InfraConfig, capability: str, flat: Mapping[str, Any]
+) -> None:
+    """Under the options of the composition's ``default`` instance of
+    ``capability`` (when it selects one), the options the flat settings give."""
+    existing = config.get(capability, {}).get(DEFAULT_INSTANCE)
+    if existing is not None:
+        existing.options = {**flat, **existing.options}
+
+
+def _eventbus_selector(settings: Any) -> str | None:
+    """The driver ``EVENT_BUS_BACKEND`` names, ``None`` for ``auto`` (the
+    composition's ``eventbus.default`` decides: no kernel default, in any
+    environment)."""
     driver = str(getattr(settings, "event_bus_backend", "auto") or "auto")
-    if driver == "auto":
-        # Production defaults to the DURABLE streams transport (at-least-once);
-        # dev/test use the in-memory bus. Explicit EVENT_BUS_BACKEND wins.
-        driver = "streams" if _is_prod(settings) else "memory"
-    return driver
+    return None if driver == "auto" else driver
 
 
 def _synthesize_defaults(settings: Settings) -> InfraConfig:
     """Build the implicit ``default`` instance for each capability.
 
-    Every instance built here is marked ``implicit``; :func:`_overlay` makes
-    it explicit when ``INFRA`` names it.
+    The composition's selection (:func:`use_default_infra`) is the base, the
+    flat settings give its options, ``STORAGE_TYPE``, ``NOTIFIER_BACKEND`` and
+    an explicit ``EVENT_BUS_BACKEND`` select their drivers. Every instance
+    built here is marked ``implicit``; :func:`_overlay` makes it explicit when
+    ``INFRA`` names it. A capability nothing selects has no instance.
     """
-    eventbus_driver = _default_eventbus_driver(settings)
-
     objectstore_options: dict[str, Any] = {
         "max_upload_size_bytes": settings.max_upload_size_bytes,
     }
@@ -131,95 +228,39 @@ def _synthesize_defaults(settings: Settings) -> InfraConfig:
     else:
         objectstore_options["path"] = settings.storage_path
 
-    synthesized: InfraConfig = {
-        "database": {
-            DEFAULT_INSTANCE: InstanceConfig(
-                capability="database",
-                name=DEFAULT_INSTANCE,
-                driver="sqlalchemy",
-                options={"url": settings.database_url},
-            )
+    synthesized = _composition_instances()
+    _flat_options(synthesized, "database", {"url": settings.database_url})
+    _flat_options(
+        synthesized,
+        "taskqueue",
+        {"broker": settings.broker_url, "backend": settings.cache_url},
+    )
+    # The in-tree objectstore and notifier drivers are selected by their own
+    # flat settings (``local`` and ``log`` by default).
+    _select(synthesized, "objectstore", settings.storage_type, objectstore_options)
+    _select(
+        synthesized,
+        "notification",
+        settings.notifier_backend,
+        {
+            "host": settings.smtp_host,
+            "port": settings.smtp_port,
+            "username": settings.smtp_username,
+            "password": settings.smtp_password,
+            "from_addr": settings.smtp_from,
+            "use_tls": settings.smtp_use_tls,
         },
-        "cache": {
-            DEFAULT_INSTANCE: InstanceConfig(
-                capability="cache",
-                name=DEFAULT_INSTANCE,
-                driver="redis",
-                options={"url": settings.cache_url},
-            )
-        },
-        "objectstore": {
-            DEFAULT_INSTANCE: InstanceConfig(
-                capability="objectstore",
-                name=DEFAULT_INSTANCE,
-                driver=settings.storage_type,
-                options=objectstore_options,
-            )
-        },
-        # The kernel's fan-out (contract-cache shadow invalidation, the volatile
-        # event bus): Redis on the url of the resolved cache.default
-        # (fill_driver_defaults), opened only when one of them uses it.
-        # Removed by idk-config-defaults, with the other hard-coded defaults.
-        "broadcast": {
-            DEFAULT_INSTANCE: InstanceConfig(
-                capability="broadcast",
-                name=DEFAULT_INSTANCE,
-                driver="redis",
-                options={},
-            )
-        },
-        "taskqueue": {
-            DEFAULT_INSTANCE: InstanceConfig(
-                capability="taskqueue",
-                name=DEFAULT_INSTANCE,
-                driver="celery",
-                options={
-                    "broker": settings.broker_url,
-                    "backend": settings.cache_url,
-                },
-            )
-        },
-        "eventbus": {
-            DEFAULT_INSTANCE: InstanceConfig(
-                capability="eventbus",
-                name=DEFAULT_INSTANCE,
-                driver=eventbus_driver,
-                # fill_driver_defaults gives a redis/streams default bus the
-                # url CACHE_URL; the default bus shares the bounded default
-                # transport client on it. A named instance may set its own.
-                options={},
-            )
-        },
-        "notification": {
-            DEFAULT_INSTANCE: InstanceConfig(
-                capability="notification",
-                name=DEFAULT_INSTANCE,
-                driver=settings.notifier_backend,
-                options={
-                    "host": settings.smtp_host,
-                    "port": settings.smtp_port,
-                    "username": settings.smtp_username,
-                    "password": settings.smtp_password,
-                    "from_addr": settings.smtp_from,
-                    "use_tls": settings.smtp_use_tls,
-                },
-            )
-        },
-    }
-    if not _is_prod(settings):
-        # Development and tests only: the security store on the cache's Redis
-        # (url filled by fill_driver_defaults), so an app runs without INFRA.
-        # Never in production, where an absent INFRA.atomic_store.security is
-        # a startup refusal (production_profile.config_problems): the store of
-        # revocation marks is never built from the cache's options.
-        synthesized["atomic_store"] = {
-            "security": InstanceConfig(
-                capability="atomic_store",
-                name="security",
-                driver="redis",
-                options={},
-            )
-        }
+    )
+    selected_bus = _eventbus_selector(settings)
+    if selected_bus is not None:
+        _select(synthesized, "eventbus", selected_bus, {})
+    if _is_prod(settings):
+        # Never in production: an absent INFRA.atomic_store.security is a startup
+        # refusal (production_profile.config_problems), the store of revocation
+        # marks is never built from a composition's development default.
+        synthesized.get("atomic_store", {}).pop("security", None)
+        if not synthesized.get("atomic_store", True):
+            del synthesized["atomic_store"]
     for instances in synthesized.values():
         for cfg in instances.values():
             cfg.implicit = True
@@ -298,14 +339,11 @@ def _resolved_eventbus(settings: Any) -> dict[str, InstanceConfig]:
     """The eventbus instances: ``EVENT_BUS_BACKEND`` resolved, ``INFRA`` applied
     (options not yet filled from the settings)."""
     config: InfraConfig = {
-        "eventbus": {
-            DEFAULT_INSTANCE: InstanceConfig(
-                capability="eventbus",
-                name=DEFAULT_INSTANCE,
-                driver=_default_eventbus_driver(settings),
-            )
-        }
+        "eventbus": _composition_instances().get("eventbus", {}),
     }
+    selected = _eventbus_selector(settings)
+    if selected is not None:
+        _select(config, "eventbus", selected, {})
     raw = getattr(settings, "infra", None)
     if raw:
         if not isinstance(raw, Mapping):
@@ -504,6 +542,9 @@ __all__ = [
     "DEFAULT_EVENT_STREAM_RETENTION_SECONDS",
     "DEFAULT_INSTANCE",
     "KERNEL_INSTANCES",
+    "REQUIRED_AT_STARTUP",
+    "DefaultInfra",
+    "use_default_infra",
     "configured_stream_retention_seconds",
     "database_instance_url",
     "eventbus_driver",

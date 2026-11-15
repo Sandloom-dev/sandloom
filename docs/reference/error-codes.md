@@ -1582,9 +1582,13 @@ requirement only warns. An instance INFRA selects on an uninstalled driver
 refuses startup the same way, and so does a dependency that fails to import
 while a driver is built (strict startup in production). A synthesized default
 instance nothing requires is neither opened nor probed; the instances the
-kernel uses (database, cache, event bus) stay required.
+kernel uses (database, cache, event bus, and the security atomic store) stay
+required. The kernel names no driver for them: the composition selects them
+(create_app(default_infra=...)), or INFRA does. When neither does, startup
+refuses in every environment and names each instance with what to select;
+memory is never an automatic fallback.
 
-**Fix:** install what the refusal names (pip install 'sandloom[celery]', 'sandloom[redis]'), or select in INFRA an installed driver that advertises the features the module requires
+**Fix:** install what the refusal names (pip install sandloom-celery, pip install sandloom-redis), select a driver for each instance the composition leaves unselected, or select in INFRA an installed driver that advertises the features the module requires
 
 **More:** `docs/infrastructure/index.md`
 

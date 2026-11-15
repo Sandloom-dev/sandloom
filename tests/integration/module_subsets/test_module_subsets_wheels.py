@@ -8,10 +8,12 @@ are built from this tree once, then:
 - **P2** (I-19): one clean venv per subset with plain ``sandloom`` and exactly
   the subset's module wheels, each with only the dependencies its published
   metadata declares (no Celery, no Redis). The composition root
-  ``sandloom.main`` composes what is installed, by entry point; a subset with
-  identity (a token issuer) adds the ``sandloom-standard`` wheel and boots
+  ``sandloom.main`` composes what is installed, by entry point, and selects
+  no driver: every subset is refused (SANDLOOM-B037). A subset with identity
+  (a token issuer) adds the ``sandloom-standard`` wheel and boots
   ``sandloom_standard.main``, since the lean root assigns no claim
-  authorities and refuses an issuer (SANDLOOM-B035).
+  authorities and refuses an issuer (SANDLOOM-B035); its ``DEFAULT_INFRA``
+  names the Redis drivers the venv lacks, so it is refused (B037) too.
 - **P3 extras**: one clean venv with ``sandloom[standard,admin]`` (every module
   wheel, Celery and Redis); each subset is chosen with ``SANDLOOM_MODULES``
   through the standard root ``sandloom_standard.main``, what the image and
@@ -45,7 +47,6 @@ from _module_subset_matrix import (
     SubsetRun,
     check_run,
     expected,
-    expected_unstubbed,
     probe_environment,
     run_matrix,
     run_subset,
@@ -212,7 +213,8 @@ def p3_runs(
 def test_subset_boots_on_plain_sandloom_p2(
     p2_runs: dict[tuple[str, ...], SubsetRun], subset: tuple[str, ...]
 ) -> None:
-    check_run(p2_runs[subset], expected(subset, celery=False), celery=False)
+    """Plain ``sandloom`` selects no driver: every subset is refused (B037)."""
+    check_run(p2_runs[subset], expected(subset, celery=False), celery=False, names={})
 
 
 @pytest.mark.parametrize("subset", SUBSETS, ids=subset_id)
@@ -221,26 +223,19 @@ def test_subset_on_plain_sandloom_p2_unstubbed(
 ) -> None:
     """No driver package (``sandloom-redis``, ``sandloom-celery``), no stub (I-19, KB-IC-4).
 
-    identity (cache) and billing (taskqueue with ``periodic``) are refused with
-    SANDLOOM-B037 naming the module, the capability and the feature. Any other
-    subset boots, and the kernel's own cache check fails with
-    ``DriverUnavailableError`` (the ``redis`` cache driver lives in
-    ``sandloom-redis``, which this venv lacks): plain ``sandloom`` is not ready
-    without the cache driver's package, which the stubbed matrix could not
-    show. The missing redis-py behind an installed package is the infrastructure
+    The kernel names no driver and never ``memory``, and the venv has no
+    composition that selects one (the identity subsets bring
+    ``sandloom-standard``, whose ``DEFAULT_INFRA`` names the Redis drivers
+    this venv lacks): every subset is refused with SANDLOOM-B037, naming the
+    required instances, at startup instead of booting without a cache.
+    A missing redis-py behind an installed package is the infrastructure
     lane's (``test_a_missing_redis_driver_is_refused_or_visible``).
     """
     run = p2_unstubbed_runs[subset]
-    want = expected_unstubbed(subset, redis=False, celery=False)
-    check_run(run, want, celery=False)
-    if want.kind == "not_ready_cache":
-        checks = run.probe["health_checks"]
-        assert checks["cache"]["details"].get("error") == "DriverUnavailableError", (
-            checks
-        )
-        assert {n for n, c in checks.items() if c["status"] != "ok"} == {"cache"}, (
-            checks
-        )
+    check_run(run, expected(subset, celery=False), celery=False, names={})
+    message = run.probe["message"]
+    for token in ("cache/default", "atomic_store/security"):
+        assert token in message, (token, message)
 
 
 @pytest.mark.parametrize("subset", SUBSETS, ids=subset_id)

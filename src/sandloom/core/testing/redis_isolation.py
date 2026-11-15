@@ -66,6 +66,10 @@ REDIS_MAP_ENV = "SANDLOOM_TEST_REDIS_WORKER_DBS"
 DEFAULT_CACHE_DRIVER = "redis"
 #: The driver of the default task queue instance (it reads ``BROKER_URL``).
 DEFAULT_TASKQUEUE_DRIVER = "celery"
+#: The driver of the default event bus instance when ``EVENT_BUS_BACKEND`` is
+#: ``auto``: the standard composition's (``sandloom_standard.DEFAULT_INFRA``),
+#: in every environment (the kernel has no default and never selects memory).
+DEFAULT_EVENTBUS_DRIVER = "streams"
 
 
 def redis_stride(environ: Mapping[str, str]) -> int:
@@ -147,12 +151,9 @@ def _driver_class(
 
 def _eventbus_driver(values: Mapping[str, str | None]) -> str:
     """The default event bus driver ``EVENT_BUS_BACKEND`` selects (``auto``:
-    streams in production, memory elsewhere)."""
+    the standard composition's, :data:`DEFAULT_EVENTBUS_DRIVER`)."""
     backend = (values.get("EVENT_BUS_BACKEND") or "auto").strip().lower()
-    if backend != "auto":
-        return backend
-    prod = (values.get("ENVIRONMENT") or "").strip().lower() == "prod"
-    return "streams" if prod else "memory"
+    return DEFAULT_EVENTBUS_DRIVER if backend == "auto" else backend
 
 
 def _isolated_options(

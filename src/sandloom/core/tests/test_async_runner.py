@@ -22,6 +22,7 @@ import pytest
 from sandloom.core import async_runner, worker
 from sandloom.core.di import run_async as di_run_async
 from sandloom.core.testing import worker_env_values
+from sandloom.core.tests._root_support import suite_infra_env
 
 _BACKEND = Path(__file__).resolve().parents[4]
 
@@ -215,6 +216,7 @@ if sys.argv[1] == "run_async":
 def _run_task_script(mode: str) -> subprocess.CompletedProcess[str]:
     env_test = worker_env_values(_BACKEND / ".env.test")
     env = {**os.environ, **env_test}
+    env.update(suite_infra_env(env))  # a root that selects no driver (kernel-only venv)
     return subprocess.run(
         [sys.executable, "-c", _TASK_SCRIPT, mode],
         cwd=_BACKEND,

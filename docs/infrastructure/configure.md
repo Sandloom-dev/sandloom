@@ -6,9 +6,23 @@ type: concept
 
 # Configure backends
 
-A `default` instance of every interface is built from the flat settings: `DATABASE_URL`,
-`CACHE_URL`, `BROKER_URL`, `STORAGE_*`, `EVENT_BUS_BACKEND` and `NOTIFIER_BACKEND`. For most
-applications that is all the configuration there is.
+The kernel names no driver for the database, cache, event bus, task queue, broadcast, lease <!-- prose-ok: P6 a list of drivers and settings -->
+or atomic store. The composition selects them. `sandloom_standard` picks SQLAlchemy, Redis,
+Streams and Celery. An app made by `sandloom new` lists its picks in `DEFAULT_INFRA`
+(`<app>/__init__.py`), which it passes to `create_app(default_infra=...)`.
+
+The flat settings give those instances their options: `DATABASE_URL`, `CACHE_URL`, <!-- prose-ok: P6 a list of settings -->
+`BROKER_URL`, `STORAGE_*` and `NOTIFIER_BACKEND`. `EVENT_BUS_BACKEND` names the bus
+(`memory`, `redis` or `streams`); `auto` leaves it to the composition.
+
+Nothing falls back to `memory`. Some instances are required: the database, the cache, <!-- prose-ok: P6 a list of required instances -->
+the event bus and the `security` atomic store. When neither the composition nor `INFRA`
+selects a driver for one, startup refuses with SANDLOOM-B037, in every environment. The
+message lists each missing instance, what to select and what to install. A selected driver
+whose package is missing is refused the same way, with the install command
+(`pip install sandloom-redis`, `pip install sandloom-celery`). Development names `memory`
+itself, for example `EVENT_BUS_BACKEND=memory` in `.env`. In production the `security`
+atomic store comes from `INFRA` only, never from a default.
 
 The composition root (`create_app`, the worker, `sandloom migrate`, the test
 harness) builds the registry. There is no implicit default registry:

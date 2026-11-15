@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import importlib
 import os
+from collections.abc import Mapping
 from typing import Any
 
 from sandloom.core.config.settings import settings
@@ -45,6 +46,24 @@ def composition_root_name(root_name: str | None = None) -> str:
         return from_env
 
     return settings.sandloom_composition_root or DEFAULT_COMPOSITION_ROOT
+
+
+def root_default_infra(root_name: str | None = None) -> Mapping[str, Any] | None:
+    """The driver selection the composition root's package exports as
+    ``DEFAULT_INFRA`` (``None`` when the root has no package or exports none):
+    what ``create_app(default_infra=...)`` is given, readable without building
+    the app, for a process that boots none (``sandloom worker check``)."""
+    package = composition_root_name(root_name).rpartition(".")[0]
+    if not package:
+        return None
+    try:
+        module = importlib.import_module(package)
+    except ModuleNotFoundError as exc:
+        if exc.name != package:
+            raise
+        return None
+    found = getattr(module, "DEFAULT_INFRA", None)
+    return found if isinstance(found, Mapping) else None
 
 
 def _is_core(obj: object) -> bool:

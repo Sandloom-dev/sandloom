@@ -27,6 +27,7 @@ import pytest
 
 from sandloom.core.cli import add
 from sandloom.core.migrations.urls import to_sync_url
+from sandloom.core.tests._root_support import lean_root_infra
 
 # Slow (alembic autogenerate + upgrade in subprocesses): skipped by the fast dev loop `pytest -m "not slow"`.
 pytestmark = pytest.mark.slow
@@ -102,6 +103,8 @@ def _env(tmp_path: Path, database_url: str, **extra: str) -> dict[str, str]:
         }
     )
     env.update(extra)
+    # A root that selects no driver (the lean one) gets them from INFRA.
+    env["INFRA"] = lean_root_infra(env)
     return env
 
 

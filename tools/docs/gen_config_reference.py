@@ -28,6 +28,9 @@ _DOCS_BUILD_ENV = {
     "CACHE_URL": "redis://localhost:6379/0",
     "BROKER_URL": "redis://localhost:6379/1",
     "JWT_SECRET": "docs-build-placeholder-secret-not-used-at-runtime",
+    # No composition is booted here: name the in-process bus, so the revocation
+    # applier's service-name check (a shared bus needs one) has nothing to ask.
+    "EVENT_BUS_BACKEND": "memory",
 }
 for _key, _value in _DOCS_BUILD_ENV.items():
     os.environ.setdefault(_key, _value)

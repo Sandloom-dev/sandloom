@@ -118,7 +118,7 @@ def _ops_app(
     # Before the registry: the kernel fills the celery probe's bound from it.
     monkeypatch.setattr(settings, "health_check_timeout_seconds", 2.0)
     # The registry ``create_app`` binds: the default taskqueue is ``celery``.
-    core.set_infra(build_infra_registry(InMemorySchemaRegistry(), load_plugins=False))
+    core.set_infra(build_infra_registry(InMemorySchemaRegistry()))
 
     async def ok() -> HealthResult:
         return HealthResult(status="ok")

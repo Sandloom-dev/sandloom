@@ -92,7 +92,7 @@ async def _ready_status(core: CoreFacade, monkeypatch: pytest.MonkeyPatch) -> in
     core.register_health_check("db", ok)
     # The registry create_app binds: a module with tasks makes /ready open the
     # default taskqueue too (KB-02).
-    core.set_infra(build_infra_registry(InMemorySchemaRegistry(), load_plugins=False))
+    core.set_infra(build_infra_registry(InMemorySchemaRegistry()))
     monkeypatch.setattr(settings, "health_cache_ttl_seconds", 0.0)
     monkeypatch.setattr(settings, "service_bindings", {})
     _install_ops_endpoints(core.app, core)

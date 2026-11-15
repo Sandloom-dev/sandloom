@@ -40,6 +40,7 @@ from _module_subset_matrix import (
     MODULES,
     REFUSAL_NAMES,
     SUBSETS,
+    Outcome,
     SubsetRun,
     check_run,
     expected_unstubbed,
@@ -110,9 +111,8 @@ def _live_env(
 
 
 def _root(subset: tuple[str, ...]) -> str:
-    if not subset:
-        return "kernel"
-    return "sandloom_standard.main" if "identity" in subset else "sandloom.main"
+    # The lean root selects no driver (SANDLOOM-B037): the standard one does.
+    return "sandloom_standard.main" if subset else "kernel"
 
 
 def _lane(
@@ -269,21 +269,20 @@ def test_an_unreachable_broker_does_not_unready_the_web_process(
 def test_a_missing_redis_driver_is_refused_or_visible(
     no_redis_runs: dict[tuple[str, ...], SubsetRun], subset: tuple[str, ...]
 ) -> None:
-    """identity requires the cache: refused naming it. Any other subset boots,
-    and the kernel's own cache check fails, un-hidden by a stub."""
+    """The standard composition selects the ``redis`` cache and the security
+    store, which every process starts with (SANDLOOM-B037): whatever the
+    subset, a missing redis-py is refused at startup naming the instance and
+    the package, never a boot that is not ready."""
     run = no_redis_runs[subset]
-    want = expected_unstubbed(subset, redis=False)
-    check_run(run, want, celery=True, names={"identity": REFUSAL_NAMES["identity"]})
-    if want.kind == "not_ready_cache":
-        checks = run.probe["health_checks"]
-        missing = str(checks["cache"]["details"].get("missing_module", ""))
-        assert missing.split(".")[0] == "redis", checks
-        expected_failed = {"cache"}
-        if "billing" in subset:
-            expected_failed.add("billing_reconciler")
-        assert {
-            n for n, c in checks.items() if c["status"] != "ok"
-        } == expected_failed, checks
+    check_run(
+        run,
+        Outcome("refused", refusal="SANDLOOM-B037"),
+        celery=True,
+        names={},
+    )
+    message = run.probe["message"]
+    for token in ("cache/default", "atomic_store/security", "redis"):
+        assert token in message, (token, message)
 
 
 @pytest.mark.parametrize("subset", SUBSETS, ids=subset_id)

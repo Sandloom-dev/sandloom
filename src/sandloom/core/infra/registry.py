@@ -410,6 +410,38 @@ class InfraRegistry:
         self._requested: set[tuple[str, str]] = set()
         # import name -> installed (find_spec answers once per process).
         self._installed: dict[str, bool] = {}
+        # capability -> {constructor argument -> kernel policy} for the drivers
+        # built from an entry point (see :meth:`set_policy`).
+        self._policies: dict[str, dict[str, Callable[[], bool]]] = {}
+        # (capability, driver) -> (distribution, install command) of a driver
+        # package the kernel knows by name (see :meth:`register_driver_package`).
+        self._driver_packages: dict[tuple[str, str], tuple[str, str]] = {}
+
+    def set_policy(self, capability: str, **policy: Callable[[], bool]) -> None:
+        """The kernel's policy for ``capability``'s drivers: each ``name=hook`` is
+        passed as that constructor argument to a provider class that declares a
+        parameter of the name (the Redis ``atomic_store`` and ``lease`` take
+        ``assume_allowed``, spec 13 item 45), whether the class comes from an
+        entry point or a lazy row. A class without the parameter is built by
+        its ``from_config`` as before. The hook is called by the driver, when
+        it needs the answer, never here."""
+        self._policies.setdefault(capability, {}).update(policy)
+
+    def register_driver_package(
+        self, capability: str, driver: str, *, package: str, install: str
+    ) -> None:
+        """Name the package (its top-level import name) that ships
+        ``capability/driver``, so an instance that selects the driver while the
+        package is not installed is refused with the install hint
+        (SANDLOOM-B037) instead of as an unknown driver. The package registers
+        the driver itself (entry point ``sandloom.drivers``); this registers no
+        driver."""
+        if not package.isidentifier():
+            raise ValueError(
+                f"Driver {capability}/{driver}: package= is a top-level import "
+                f"name, got {package!r}"
+            )
+        self._driver_packages[(capability, driver)] = (package, install)
 
     # ------------------------------------------------------------------ #
     # Capability registration
@@ -592,9 +624,30 @@ class InfraRegistry:
         return dataclasses.replace(
             registration,
             provider_class=checked,
-            factory=registration.factory or checked.from_config,
+            factory=registration.factory or self._class_factory(capability, checked),
             config_schema=checked.options_schema or registration.config_schema,
         )
+
+    def _class_factory(
+        self, capability: str, provider_class: type[InfraProvider]
+    ) -> DriverFactory:
+        """The factory of a class without a ``build``: its ``from_config``, or,
+        when the kernel has a policy for the capability (:meth:`set_policy`) the
+        class takes as constructor arguments, the constructor with them."""
+
+        def build(cfg: InstanceConfig) -> InfraProvider:
+            policy = self._policies.get(capability, {})
+            parameters = inspect.signature(provider_class).parameters
+            hooks = {arg: hook for arg, hook in policy.items() if arg in parameters}
+            if not hooks:
+                return provider_class.from_config(cfg)
+            constructor: Any = provider_class
+            provider: InfraProvider = constructor(
+                name=cfg.name, driver=cfg.driver, options=dict(cfg.options), **hooks
+            )
+            return provider
+
+        return build
 
     def _registration(self, capability: str, driver: str) -> DriverRegistration | None:
         """The registration of ``capability/driver`` with its class loaded.
@@ -728,6 +781,88 @@ class InfraRegistry:
             missing=missing,
             install=registration.install,
         )
+
+    def _not_runnable(
+        self, capability: str, name: str, cfg: InstanceConfig
+    ) -> DriverUnavailableError | None:
+        """B037 for an instance whose driver package is not installed: a lazy
+        row whose package is missing, or a driver the kernel knows a package
+        for and no entry point registered. ``None`` otherwise."""
+        if self._target_package_missing(capability, name):
+            return self._unavailable(capability, name)
+        return self._package_absent(capability, name, cfg)
+
+    def _package_absent(
+        self,
+        capability: str,
+        name: str,
+        cfg: InstanceConfig,
+        features: frozenset[str] | None = None,
+    ) -> DriverUnavailableError | None:
+        """A :class:`DriverUnavailableError` (SANDLOOM-B037) with the install
+        hint when ``cfg``'s driver is not registered and belongs to a driver
+        package the kernel knows (:meth:`register_driver_package`): its entry
+        point is absent, so the package is not installed. ``None`` for any
+        other unregistered driver (an unknown name is no installation fact)."""
+        known = self._driver_packages.get((capability, cfg.driver))
+        if known is None:
+            return None
+        package, install = known
+        if (capability, cfg.driver) in self._drivers and self._is_installed(package):
+            return None
+        return DriverUnavailableError(
+            f"{capability}/{name}: driver {cfg.driver!r} needs the package "
+            f"{package!r}, which is not installed",
+            fix=f"{install}, or select an installed {capability} driver"
+            f"{f' that advertises {sorted(features)}' if features else ''} in "
+            f"INFRA[{capability!r}][{name!r}]",
+            capability=capability,
+            instance=name,
+            driver=cfg.driver,
+            missing=(package,),
+            install=install,
+        )
+
+    def require_instances(self, required: Iterable[tuple[str, str]]) -> None:
+        """Refuse (SANDLOOM-B037) every instance the process cannot start
+        without that nothing selects, or whose driver cannot run here: the
+        composition or ``INFRA`` must name a driver, the kernel has none of its
+        own and never falls back to ``memory``. One error names every instance,
+        what to select and what to install. Build-free."""
+        problems: list[DriverUnavailableError] = []
+        for capability, name in sorted(required):
+            cfg = self._config.get(capability, {}).get(name)
+            if cfg is None:
+                problems.append(
+                    DriverUnavailableError(
+                        f"{capability}/{name}: no driver is selected",
+                        fix=f"install a composition that selects one "
+                        f"(`pip install 'sandloom[standard]'`), or name a "
+                        f"driver in INFRA[{capability!r}][{name!r}], e.g. "
+                        f'INFRA={{"{capability}": {{"{name}": {{"driver": '
+                        '"<driver>"}}}}',
+                        capability=capability,
+                        instance=name,
+                    )
+                )
+                continue
+            absent = self._package_absent(capability, name, cfg)
+            problem = absent or self._unavailable(capability, name)
+            if problem is not None:
+                problems.append(problem)
+        if problems:
+            first = problems[0]
+            raise DriverUnavailableError(
+                "The application cannot start: "
+                + "; ".join(f"{p.reason} (fix: {p.fix})" for p in problems),
+                fix="select a driver for each instance named and install what it "
+                "needs; `sandloom explain SANDLOOM-B037`",
+                capability=first.capability,
+                instance=first.instance,
+                driver=first.driver,
+                missing=tuple(m for p in problems for m in p.missing),
+                install=first.install,
+            )
 
     def _import_failure(
         self,
@@ -913,14 +1048,12 @@ class InfraRegistry:
                     fix=f"add INFRA[{capability!r}][{name!r}] or request a "
                     "configured instance",
                 )
-            if self._target_package_missing(capability, name):
-                # A lazy row of a driver package that is not installed (an
-                # implicit default is not refused at startup): B037 with the
-                # install hint, before the target is imported, which would
-                # only fail with a generic load error.
-                problem = self._unavailable(capability, name)
-                if problem is not None:
-                    raise problem
+            problem = self._not_runnable(capability, name, instance_cfg)
+            if problem is not None:
+                # A driver whose package is not installed: B037 with the
+                # install hint, before a target is imported (which would only
+                # fail with a generic load error).
+                raise problem
             registration = self._registration(capability, instance_cfg.driver)
             if registration is None:
                 self._check_experimental_driver(capability, instance_cfg.driver)
@@ -1048,6 +1181,9 @@ class InfraRegistry:
                 f"(available: {', '.join(available)})",
                 fix=f"add INFRA[{capability!r}][{instance!r}]",
             )
+        absent = self._package_absent(capability, instance, cfg, features)
+        if absent is not None:
+            raise absent
         registration = self._drivers.get((capability, cfg.driver))
         if registration is None:
             self._check_experimental_driver(capability, cfg.driver)
@@ -1298,22 +1434,7 @@ class InfraRegistry:
         unavailable: list[DriverUnavailableError] = []
         for capability, instances in self._config.items():
             for name, cfg in instances.items():
-                if self._target_package_missing(capability, name):
-                    self._refuse_unless_implicit(capability, name, cfg, unavailable)
-                    continue
-                registration = self._registration(capability, cfg.driver)
-                if registration is None:
-                    missing.append(f"{capability}/{name} (driver={cfg.driver!r})")
-                    continue
-                # Build-free: instantiates the config schema only — never the
-                # provider. Raises ConfigSchemaError with an actionable fix.
-                if not cfg.implicit:
-                    self._refuse_development_only(cfg, registration)
-                self._validate_options(capability, cfg, registration)
-                if not cfg.implicit:
-                    problem = self._unavailable(capability, name)
-                    if problem is not None:
-                        unavailable.append(problem)
+                self._validate_instance(capability, name, cfg, missing, unavailable)
         if unavailable:
             first = unavailable[0]
             raise DriverUnavailableError(
@@ -1335,6 +1456,38 @@ class InfraRegistry:
                 "'<capability>.<driver>' in the 'sandloom.drivers' group) or pick "
                 "a known driver in INFRA",
             )
+
+    def _validate_instance(
+        self,
+        capability: str,
+        name: str,
+        cfg: InstanceConfig,
+        missing: list[str],
+        unavailable: list[DriverUnavailableError],
+    ) -> None:
+        """One instance's build-free checks for :meth:`validate`. A driver of a
+        package that is not installed is not imported: an instance INFRA names
+        is refused (B037); a synthesized default is resolved when first used."""
+        if self._target_package_missing(capability, name):
+            self._refuse_unless_implicit(capability, name, cfg, unavailable)
+            return
+        registration = self._registration(capability, cfg.driver)
+        if registration is None:
+            absent = self._package_absent(capability, name, cfg)
+            if absent is None:
+                missing.append(f"{capability}/{name} (driver={cfg.driver!r})")
+            elif not cfg.implicit:
+                unavailable.append(absent)
+            return
+        # Build-free: instantiates the config schema only — never the
+        # provider. Raises ConfigSchemaError with an actionable fix.
+        if not cfg.implicit:
+            self._refuse_development_only(cfg, registration)
+        self._validate_options(capability, cfg, registration)
+        if not cfg.implicit:
+            problem = self._unavailable(capability, name)
+            if problem is not None:
+                unavailable.append(problem)
 
     # ------------------------------------------------------------------ #
     # Lifecycle

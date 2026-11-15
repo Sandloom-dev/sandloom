@@ -12,6 +12,11 @@ from sandloom.sdk.app import (  # sandloom: advanced composition root
     create_app,
 )
 
+from . import DEFAULT_INFRA
+
 BUNDLED: list[str] = []
 
-app = create_app(default_modules=[*BUNDLED, *app_modules("tasklist.modules")])
+app = create_app(
+    default_modules=[*BUNDLED, *app_modules("tasklist.modules")],
+    default_infra=DEFAULT_INFRA,
+)
