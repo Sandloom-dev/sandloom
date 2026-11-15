@@ -226,3 +226,27 @@ def test_results_are_dropped_when_head_moves_during_the_run(
     assert record["commit"] == "first"
     assert record["results"] == {}
     assert record["not_run"] == "HEAD moved while the checks ran"
+
+
+def test_a_credential_at_the_cutoff_is_masked_before_the_cut(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = "cut0ff-pass"
+    tail = f"https://user:{secret}@example.test/" + "x" * 280  # last 300 start mid-password
+    monkeypatch.setattr(
+        hook,
+        "_git",
+        lambda args, cwd: "/repo" if "--show-toplevel" in args else "c0ffee",
+    )
+
+    def raise_long(top: str) -> tuple[dict[str, str], str, int]:
+        raise OSError("x" * 270 + f" redis://:{secret}@localhost:6379/0")  # first 300 end on it
+
+    for run in (lambda top: ({}, tail, 1), raise_long):
+        monkeypatch.setattr(hook, "run_checks", run)
+        reason = json.loads(
+            _call(monkeypatch, {"agent_type": hook.AGENT, "tool_input": {}})
+        )["hookSpecificOutput"]["permissionDecisionReason"]
+        # Neither the head of the password (cut after it) nor its tail (cut before).
+        assert "cut0" not in reason
+        assert "f-pass" not in reason

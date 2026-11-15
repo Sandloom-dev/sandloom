@@ -149,12 +149,14 @@ def main() -> int:
     exit_status: int | None = None
     try:
         outcome, tail, exit_status = run_checks(top)
-        not_run = "" if outcome else "pre-commit printed no hook result: " + tail[-300:]
+        # Mask first, then cut: a cut could drop a URL's prefix and keep its password.
+        shown = redact(tail)[-300:]
+        not_run = "" if outcome else "pre-commit printed no hook result: " + shown
         if _git(["rev-parse", "HEAD"], cwd) != head:
             # The tree moved under the run: its results belong to no commit.
             outcome, not_run = {}, "HEAD moved while the checks ran"
     except (subprocess.TimeoutExpired, OSError) as exc:
-        outcome, tail, not_run = {}, "", f"{type(exc).__name__}: {exc}"[:300]
+        outcome, tail, not_run = {}, "", redact(f"{type(exc).__name__}: {exc}")[:300]
     record = {
         "commit": head,
         "ran": "pre-commit run --from-ref origin/main --to-ref HEAD",
