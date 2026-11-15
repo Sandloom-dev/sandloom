@@ -41,11 +41,10 @@ from typing import Any, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from sandloom.core.descriptors import HealthResult
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
-from sandloom.core.infra.contracts import CacheProvider
-from sandloom.core.infra.ports._base import health_failure_details
 from sandloom.driverkit import (
+    CacheProvider,
+    HealthResult,
     InfraError,
     InvalidArgument,
     PermissionDenied,
@@ -54,6 +53,7 @@ from sandloom.driverkit import (
     observe,
 )
 from sandloom.driverkit.atomic_store import MAX_KEY_BYTES, MAX_TTL_SECONDS
+from sandloom.driverkit.eventbus_support import health_failure_details
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 
 #: Redis / socket failures of cache operations (a caller's ValueError or
@@ -232,8 +232,8 @@ async def _run_script(
 ) -> Any:
     """``EVALSHA`` the script; on ``NOSCRIPT`` load it once and retry.
 
-    A client without scripting (test double) raises ``AttributeError`` /
-    ``NotImplementedError`` so the caller falls back to plain commands.
+    There is no non-atomic fallback: a client without scripting fails here, so
+    a test double must implement ``evalsha`` and ``script_load``.
     """
     from redis.exceptions import NoScriptError  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
 
@@ -572,23 +572,16 @@ class RedisCacheProvider(CacheProvider):
         try:
             client = await self._client_obj()
             ttl = ttl_seconds or 0
-            # Atomic INCR+EXPIRE (Lua); fall back to two ops for fakes/mocks that
-            # lack script support (test doubles).
-            try:
-                return int(
-                    await _run_script(
-                        client,
-                        self._INCR_WITH_TTL_LUA,
-                        self._INCR_WITH_TTL_SHA,
-                        [key],
-                        [ttl],
-                    )
+            # Atomic INCR+EXPIRE (Lua): never two separate commands.
+            return int(
+                await _run_script(
+                    client,
+                    self._INCR_WITH_TTL_LUA,
+                    self._INCR_WITH_TTL_SHA,
+                    [key],
+                    [ttl],
                 )
-            except (AttributeError, NotImplementedError):
-                count = int(await client.incr(key))
-                if count == 1 and ttl:
-                    await client.expire(key, ttl)
-                return count
+            )
         except _backend_errors() as exc:
             raise _map_error(self.name, "incr", exc) from None
 
@@ -601,18 +594,13 @@ class RedisCacheProvider(CacheProvider):
         try:
             client = await self._client_obj()
             ttl = ttl_seconds or 0
-            try:
-                count, previous = await _run_script(
-                    client,
-                    self._INCR_WINDOW_LUA,
-                    self._INCR_WINDOW_SHA,
-                    [key, previous_key],
-                    [ttl],
-                )
-            except (AttributeError, NotImplementedError):
-                return await super().windowed_counter(
-                    key, previous_key, ttl_seconds=ttl_seconds
-                )
+            count, previous = await _run_script(
+                client,
+                self._INCR_WINDOW_LUA,
+                self._INCR_WINDOW_SHA,
+                [key, previous_key],
+                [ttl],
+            )
             return int(count), (None if previous is None else str(previous))
         except _backend_errors() as exc:
             raise _map_error(self.name, "windowed_counter", exc) from None
@@ -653,24 +641,17 @@ class RedisCacheProvider(CacheProvider):
         try:
             client = await self._client_obj()
             ttl = ttl_seconds or 0
-            try:
-                return bool(
-                    int(
-                        await _run_script(
-                            client,
-                            self._CAS_LUA,
-                            self._CAS_SHA,
-                            [key],
-                            [expected, value, ttl],
-                        )
+            return bool(
+                int(
+                    await _run_script(
+                        client,
+                        self._CAS_LUA,
+                        self._CAS_SHA,
+                        [key],
+                        [expected, value, ttl],
                     )
                 )
-            except (AttributeError, NotImplementedError):
-                # Test doubles without scripting: best-effort, non-atomic.
-                if await self.get(key) != expected:
-                    return False
-                await self.set(key, value, ttl_seconds=ttl_seconds)
-                return True
+            )
         except _backend_errors() as exc:
             raise _map_error(self.name, "compare_and_set", exc) from None
 
@@ -678,19 +659,13 @@ class RedisCacheProvider(CacheProvider):
         _check_key(self.name, key)
         try:
             client = await self._client_obj()
-            try:
-                return bool(
-                    int(
-                        await _run_script(
-                            client, self._CAD_LUA, self._CAD_SHA, [key], [expected]
-                        )
+            return bool(
+                int(
+                    await _run_script(
+                        client, self._CAD_LUA, self._CAD_SHA, [key], [expected]
                     )
                 )
-            except (AttributeError, NotImplementedError):
-                if await self.get(key) != expected:
-                    return False
-                await self.delete(key)
-                return True
+            )
         except _backend_errors() as exc:
             raise _map_error(self.name, "compare_and_delete", exc) from None
 
