@@ -628,7 +628,7 @@ jobs:
           tests/integration/replaceability
 
   redis-drivers:
-    # The sandloom-redis package (atomic_store, lease and broadcast drivers):
+    # The sandloom-redis package (atomic_store, lease, broadcast and cache drivers):
     # its wheel, style, strict types, its tests and conformance kits against a
     # real Redis, and the kernel's tests of the driver rows. The package is
     # tested as its built wheel, so the entry points the registry reads are the

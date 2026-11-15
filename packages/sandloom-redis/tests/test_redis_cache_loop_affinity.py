@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import sandloom_redis.cache as redis_cache
 
-from sandloom.core.drivers import redis_cache
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.testing.workers import worker_env_values
 

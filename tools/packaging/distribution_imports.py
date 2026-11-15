@@ -62,6 +62,16 @@ ALLOWLIST = (
     Path(__file__).resolve().parents[2] / "tests" / "architecture" / "kernel_edges.yml"
 )
 
+#: First-party imports of a driver package (ADR-0016) that a built-in driver of
+#: the kernel wheel still makes: the streams event-bus driver builds its Redis
+#: clients with ``sandloom_redis.cache`` until it moves into the package
+#: (removed_by idk-pkg-redis-eventbus). They are not business-module edges, so
+#: the register (``ALLOWLIST``) does not hold them. Used when ``check`` gets no
+#: ``allowlist``; an entry that matches no import is reported, so it only shrinks.
+KERNEL_DRIVER_IMPORTS: dict[str, tuple[str, ...]] = {
+    "sandloom.core.drivers.event_bus_driver": ("sandloom_redis.cache",),
+}
+
 Requirement = tuple[str, frozenset[str]]
 
 
@@ -449,7 +459,9 @@ def check(
     tolerated = {
         (module, target)
         for module, targets in (
-            load_allowlist() if allowlist is None else allowlist
+            {**load_allowlist(), **KERNEL_DRIVER_IMPORTS}
+            if allowlist is None
+            else allowlist
         ).items()
         for target in targets
     }

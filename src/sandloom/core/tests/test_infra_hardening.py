@@ -12,16 +12,16 @@ import asyncio
 
 import pytest
 from redis.exceptions import NoScriptError
+from sandloom_redis.cache import (
+    RedisCacheProvider,
+    _script_sha,
+    create_redis_cache,
+)
 
 from sandloom.core.config.settings import settings
 from sandloom.core.contracts.validators import ContractValidationError
 from sandloom.core.drivers.filesystem_storage import Storage
 from sandloom.core.drivers.local_objectstore import LocalObjectStoreProvider
-from sandloom.core.drivers.redis_cache import (
-    RedisCacheProvider,
-    _script_sha,
-    create_redis_cache,
-)
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.eventing.pubsub_bus import RedisEventBus
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
@@ -168,9 +168,7 @@ async def test_cache_provider_operations(monkeypatch: pytest.MonkeyPatch) -> Non
     async def _get_cache():
         return fake
 
-    monkeypatch.setattr(
-        "sandloom.core.drivers.redis_cache.get_default_client", _get_cache
-    )
+    monkeypatch.setattr("sandloom_redis.cache.get_default_client", _get_cache)
     provider = create_redis_cache(
         InstanceConfig(
             capability="cache", name=DEFAULT_INSTANCE, driver="redis", options={}
@@ -210,9 +208,7 @@ async def test_cache_atomic_operations_have_no_non_atomic_fallback(
     async def _get_cache():
         return fake
 
-    monkeypatch.setattr(
-        "sandloom.core.drivers.redis_cache.get_default_client", _get_cache
-    )
+    monkeypatch.setattr("sandloom_redis.cache.get_default_client", _get_cache)
     provider = create_redis_cache(
         InstanceConfig(
             capability="cache", name=DEFAULT_INSTANCE, driver="redis", options={}

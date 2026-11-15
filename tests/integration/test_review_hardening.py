@@ -334,7 +334,7 @@ async def test_rate_limit_key_gets_ttl_atomically(
 
     The atomic primitive now lives in the CacheProvider, so the limiter
     delegates through di.cache() -> the shared Redis provider -> the client
-    built by redis_cache.get_default_client.
+    built by sandloom_redis.cache.get_default_client.
     """
     from sandloom.core.config.settings import settings
     from sandloom.core.ingress import rate_limit as rl
@@ -353,9 +353,7 @@ async def test_rate_limit_key_gets_ttl_atomically(
     async def fake_get_cache() -> Any:
         return _LuaRedis()
 
-    monkeypatch.setattr(
-        "sandloom.core.drivers.redis_cache.get_default_client", fake_get_cache
-    )
+    monkeypatch.setattr("sandloom_redis.cache.get_default_client", fake_get_cache)
     monkeypatch.setattr(settings, "rate_limit_enabled", True)
 
     dep = rl.rate_limiter(requests=5, period=60)

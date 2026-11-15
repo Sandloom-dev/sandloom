@@ -167,7 +167,7 @@ max-complexity = 10
 quote-style = "double"
 
 [tool.mypy]
-mypy_path = "src"
+mypy_path = "src:packages/sandloom-redis/src"
 files = [
     "src/",
     "packages/sandloom-standard/src/",

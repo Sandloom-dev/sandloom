@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import sys
 from typing import Any
 
 from sandloom.core.config.settings import Settings
@@ -40,6 +41,7 @@ _REDIS_DRIVERS = {
     "atomic_store": "sandloom_redis.atomic_store:RedisAtomicStoreProvider",
     "lease": "sandloom_redis.lease:RedisLeaseProvider",
     "broadcast": "sandloom_redis.broadcast:RedisBroadcastProvider",
+    "cache": "sandloom_redis.cache:RedisCacheProvider",
 }
 _DRIVERS = "sandloom.core.drivers"
 
@@ -64,8 +66,8 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
     (
         "cache",
         "redis",
-        f"{_DRIVERS}.redis_cache:RedisCacheProvider",
-        _REDIS,
+        _REDIS_DRIVERS["cache"],
+        _REDIS_PACKAGE,
         _REDIS_INSTALL,
         "",
     ),
@@ -113,7 +115,7 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
         "eventbus",
         "streams",
         f"{_DRIVERS}.event_bus_driver:StreamsEventBusProvider",
-        _REDIS,
+        _REDIS_PACKAGE,
         _REDIS_INSTALL,
         "",
     ),
@@ -507,9 +509,14 @@ async def close_default_database() -> None:
 
 
 async def close_default_cache() -> None:
-    """Close the process-wide default cache client (driver-owned)."""
-    driver = importlib.import_module("sandloom.core.drivers.redis_cache")
-    await driver.close_default_client()
+    """Close the process-wide default cache client (driver-owned).
+
+    The client exists only once the ``sandloom_redis`` package's cache module
+    was imported, so a build without the package has nothing to close.
+    """
+    driver = sys.modules.get(_REDIS_DRIVERS["cache"].partition(":")[0])
+    if driver is not None:
+        await driver.close_default_client()
 
 
 __all__ = [

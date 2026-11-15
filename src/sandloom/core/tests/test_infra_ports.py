@@ -59,7 +59,7 @@ def test_no_driver_module_is_imported_until_an_instance_selects_it() -> None:
     # never a driver no instance selected.
     assert "sandloom.core.drivers.log_notifier" in after_select
     for unselected in (
-        "sandloom.core.drivers.redis_cache",
+        "sandloom_redis.cache",
         "sandloom.core.drivers.celery_taskqueue",
         "sandloom.core.drivers.event_bus_driver",
         "sandloom.core.drivers.sqlalchemy_database",

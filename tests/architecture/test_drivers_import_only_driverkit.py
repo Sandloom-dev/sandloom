@@ -122,12 +122,11 @@ SEEDED: dict[str, frozenset[str]] = {
     ),
     # idk-streams-driverkit: the driver reaches the kernel through the driver kit
     # only. What stays is its own transport, a sibling the package move takes
-    # along (idk-pkg-redis-streams): no kernel internal. The default Redis client
-    # helpers are the cache driver's (idk-streams-driverkitb: the driver kit
-    # imports no driver); the package move takes them to sandloom-redis.
+    # along (idk-pkg-redis-eventbus): no kernel internal. The default Redis
+    # client helpers are the cache driver's, now ``sandloom_redis.cache``
+    # (idk-pkg-redis-streams): a package import, not one of ``sandloom``.
     _D + "event_bus_driver.py": frozenset(
         {
-            "sandloom.core.drivers.redis_cache",
             "sandloom.core.drivers.redis_eventbus.streams_transport",
         }
     ),
@@ -674,7 +673,7 @@ def test_a_sibling_group_member_has_no_allowlist_entry() -> None:
 def test_a_group_member_with_an_allowlist_entry_bites() -> None:
     entries = [
         {"file": _D + "celery_worker.py", "imports": ["sandloom.core.x"]},
-        {"file": _D + "redis_cache.py", "imports": ["sandloom.core.y"]},
+        {"file": _D + "event_bus_driver.py", "imports": ["sandloom.core.y"]},
     ]
     assert group_members_with_entries(SIBLING_GROUPS, entries) == [
         _D + "celery_worker.py"
@@ -727,7 +726,9 @@ def test_the_seed_holds_the_live_allowlist() -> None:
     # package's own (SIBLING_GROUPS).
     # 79 -> 75 (idk-redis-cache-driverkit, -4): redis_cache imports only the
     # driver kit.
-    assert sum(len(v) for v in SEEDED.values()) <= 75
+    # 75 -> 74 (idk-pkg-redis-streams, -1): redis_cache moved to the sandloom-redis
+    # package, so event_bus_driver's import of it is no longer a ``sandloom`` one.
+    assert sum(len(v) for v in SEEDED.values()) <= 74
 
 
 @pytest.mark.parametrize(

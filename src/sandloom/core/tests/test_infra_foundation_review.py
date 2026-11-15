@@ -286,7 +286,7 @@ async def test_the_registry_redacts_a_health_detail_keyed_by_free_text() -> None
 
 @pytest.mark.asyncio
 async def test_the_redis_health_names_the_error_type() -> None:
-    from sandloom.core.drivers.redis_cache import create_redis_cache
+    from sandloom_redis.cache import create_redis_cache
 
     provider = create_redis_cache(
         InstanceConfig(

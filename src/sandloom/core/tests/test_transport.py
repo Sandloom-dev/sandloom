@@ -216,9 +216,7 @@ async def test_consumer_inbox_dedupes_on_event_id(
     async def _get_cache():
         return _FakeRedis()
 
-    monkeypatch.setattr(
-        "sandloom.core.drivers.redis_cache.get_default_client", _get_cache
-    )
+    monkeypatch.setattr("sandloom_redis.cache.get_default_client", _get_cache)
     inbox = ConsumerInbox("emailer")
     assert await inbox.seen("e1") is False  # first time -> process
     assert await inbox.seen("e1") is True  # duplicate -> skip
@@ -236,9 +234,7 @@ async def test_consumer_inbox_fails_open_on_cache_error(
     async def _get_cache():
         return _BrokenRedis()
 
-    monkeypatch.setattr(
-        "sandloom.core.drivers.redis_cache.get_default_client", _get_cache
-    )
+    monkeypatch.setattr("sandloom_redis.cache.get_default_client", _get_cache)
     inbox = ConsumerInbox("emailer")
     # Degrade to at-least-once (process) rather than dropping the event.
     assert await inbox.seen("e1") is False

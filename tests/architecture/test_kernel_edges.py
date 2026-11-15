@@ -444,6 +444,25 @@ def test_a_static_import_of_a_module_package_fails(tmp_path: Path, source: str) 
     assert "would be class b, type import" in problem
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import sandloom_redis.cache as cache\n",
+        "from sandloom_redis import cache\n",
+        'NAME = "sandloom_redis.cache"\n',
+    ],
+)
+def test_a_driver_package_is_no_module_edge(tmp_path: Path, source: str) -> None:
+    """``sandloom_redis`` ships drivers (ADR-0016): the kernel's built-in streams
+    driver may name it. A module package beside it is still a finding."""
+    src = _tree(tmp_path, {"sandloom/core/x.py": source})
+    assert _problems(src, _register()) == []
+    planted = _tree(
+        tmp_path / "other", {"sandloom/core/x.py": "import sandloom_crm.api\n"}
+    )
+    assert len(_problems(planted, _register())) == 1
+
+
 def test_kernel_and_relative_imports_are_not_findings(tmp_path: Path) -> None:
     """Imports of the kernel, the standard library and relative imports name no module."""
     source = "import os\nfrom sandloom.core import x\nfrom . import crm\nfrom .crm import y\n"

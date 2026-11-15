@@ -26,8 +26,8 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 from redis.exceptions import ConnectionError as RedisConnectionError
+from sandloom_redis.cache import RedisCacheProvider
 
-from sandloom.core.drivers.redis_cache import RedisCacheProvider
 from sandloom.core.infra.errors import Unavailable
 from sandloom.core.testing.workers import worker_env_values
 

@@ -22,11 +22,11 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
+import sandloom_redis.cache as redis_cache
 from fastapi import Depends, FastAPI, HTTPException
+from sandloom_redis.cache import RedisCacheOptions, RedisCacheProvider
 
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers import redis_cache
-from sandloom.core.drivers.redis_cache import RedisCacheOptions, RedisCacheProvider
 
 #: Generous wall-clock bound (the configured timeout is 0.5s): a regression to
 #: an unbounded client hangs until the outer ``wait_for`` guard instead.
