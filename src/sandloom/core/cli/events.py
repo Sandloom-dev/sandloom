@@ -122,9 +122,7 @@ async def inbox_purge(
 
 
 async def _close(core: Any) -> None:
-    infra = getattr(core, "infra", None)
-    if infra is not None:
-        await infra.aclose_all()
+    await core.infra.aclose_all()
 
 
 async def _run_outbox(args: argparse.Namespace) -> int:
@@ -183,9 +181,9 @@ async def _run_streams(args: argparse.Namespace) -> int:
             entries = await streams_dlq_list(core, args.channel, limit=args.limit)
             for entry in entries:
                 print(
-                    f"{entry['id']}  event={entry['event_id']}  "
-                    f"group={entry.get('group')}  attempts={entry['attempts']}  "
-                    f"reason={entry['reason']}  replayable={entry.get('replayable')}"
+                    f"{entry.id}  event={entry.event_id}  "
+                    f"group={entry.group}  attempts={entry.attempts}  "
+                    f"reason={entry.reason}  replayable={entry.replayable}"
                 )
             print(f"{len(entries)} DLQ entr(y/ies) on {args.channel}")
             return 0
@@ -193,23 +191,23 @@ async def _run_streams(args: argparse.Namespace) -> int:
             groups = await streams_groups(core, args.channel)
             for g in groups:
                 print(
-                    f"{g['group']}  lag={g.get('lag')}  pending={g.get('pending')}  "
-                    f"consumers={g.get('consumers')}  "
-                    f"last_delivered={g.get('last_delivered_id')}"
+                    f"{g.group}  lag={g.lag}  pending={g.pending}  "
+                    f"consumers={g.consumers}  "
+                    f"last_delivered={g.last_delivered_id}"
                 )
             print(f"{len(groups)} group(s) on {args.channel}")
             return 0
         if args.action == "consumers":
-            entries = await streams_consumers(core, include_stale=args.all)
-            for e in entries:
-                stale = "  STALE" if e.get("stale") else ""
+            consumers = await streams_consumers(core, include_stale=args.all)
+            for e in consumers:
+                stale = "  STALE" if e.stale else ""
                 print(
-                    f"{e.get('stream')}  group={e.get('group')}  "
-                    f"module={e.get('module') or '-'}  "
-                    f"service={e.get('service') or '-'}  "
-                    f"consumer={e.get('consumer') or '-'}{stale}"
+                    f"{e.stream}  group={e.group}  "
+                    f"module={e.module or '-'}  "
+                    f"service={e.service or '-'}  "
+                    f"consumer={e.consumer or '-'}{stale}"
                 )
-            print(f"{len(entries)} subscription(s)")
+            print(f"{len(consumers)} subscription(s)")
             return 0
         if args.action == "release-group":
             released = await streams_release_group(core, args.channel, args.group)

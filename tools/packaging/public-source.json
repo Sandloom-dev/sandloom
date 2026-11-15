@@ -1734,6 +1734,7 @@
         "src/sandloom/core/tests/test_event_bus_driver_client.py",
         "src/sandloom/core/tests/test_event_bus_schemas.py",
         "src/sandloom/core/tests/test_event_consumers.py",
+        "src/sandloom/core/tests/test_event_ops.py",
         "src/sandloom/core/tests/test_eventbus_contract.py",
         "src/sandloom/core/tests/test_extra_capabilities.py",
         "src/sandloom/core/tests/test_feature_rules.py",

@@ -94,10 +94,6 @@ _SECRETISH = re.compile(
 )
 
 
-def _text(value: Any) -> str | None:
-    return None if value is None else str(value)
-
-
 def safe_error(text: str | None, *, limit: int = 240) -> str | None:
     """Operator-safe error text: no URLs/DSNs, no key=value secrets, bounded."""
     if not text:
@@ -501,15 +497,15 @@ def _stream_routes(router: APIRouter, core: Any, source: _Source) -> None:
                 core, channel, limit=limit + 1, after=cursor
             )
         page = entries[:limit]
-        headers = {"X-Next-Cursor": str(page[-1]["id"])} if len(entries) > limit else {}
+        headers = {"X-Next-Cursor": page[-1].id} if len(entries) > limit else {}
         body = [
             StreamDeadLetterView(
-                id=str(entry.get("id")),
-                group=entry.get("group"),
-                event_id=_text(entry.get("event_id")),
-                attempts=entry.get("attempts"),
-                reason=safe_error(entry.get("reason")),
-                replayable=bool(entry.get("replayable", True)),
+                id=entry.id,
+                group=entry.group,
+                event_id=entry.event_id,
+                attempts=entry.attempts,
+                reason=safe_error(entry.reason),
+                replayable=entry.replayable,
             ).model_dump(mode="json")
             for entry in page
         ]
@@ -530,7 +526,7 @@ def _stream_routes(router: APIRouter, core: Any, source: _Source) -> None:
         if data.channel not in _local_channels(request):
             raise HTTPException(404, "No consumer of this channel runs in this service")
         async with _unavailable_as_501():
-            event_transport(core)
+            event_transport(core, "dlq_ops")
         async with db_session(source.database) as db:
             await before_commit(_session_still_valid(request))
             record_audit(

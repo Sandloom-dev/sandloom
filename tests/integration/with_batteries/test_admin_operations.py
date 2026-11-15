@@ -262,7 +262,9 @@ class _Transport:
         self.replays: list[dict[str, Any]] = []
         self.fail = False
 
-    async def list_dlq(self, stream: str, *, count: int = 100) -> list[DeadLetter]:
+    async def list_dlq(
+        self, stream: str, *, count: int = 100, after: str | None = None
+    ) -> list[DeadLetter]:
         return [
             DeadLetter(
                 id="1-0",
@@ -310,6 +312,18 @@ async def test_stream_dlq_replay_targets_the_group_and_audits_first(
     )
     actor, headers = operator()
     base = "/api/v1/platform/identity/streams"
+    # a transport that does not declare ``dlq_ops`` is refused by feature name
+    refused = await real_uow_client.get(
+        f"{base}/dlq", params={"channel": channel}, headers=headers
+    )
+    assert refused.status_code == 501
+    assert refused.json()["detail"] == "not supported by this driver: dlq_ops"
+    monkeypatch.setattr(
+        sandloom_app.state.core.event_bus,
+        "bus_features",
+        frozenset({"durable", "dlq_ops"}),
+        raising=False,
+    )
     unknown = await real_uow_client.get(
         f"{base}/dlq", params={"channel": "nobody.consumes.this.v1"}, headers=headers
     )
