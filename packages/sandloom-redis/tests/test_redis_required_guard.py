@@ -31,18 +31,29 @@ _NEEDING_REDIS = (
 )
 
 
-def test_the_helper_skips_by_default_and_fails_when_required(
+def test_the_helper_reads_the_redis_lane_variable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The binding to ``SANDLOOM_REDIS_REQUIRED``; the skip-or-fail rule itself
+    is the driverkit guard's, tested in ``test_driverkit_required.py``. A skip
+    must turn this red, not mark the test skipped: catch both outcomes."""
+
+    def outcome() -> BaseException:
+        try:
+            redis_unavailable("no redis")
+        except (pytest.fail.Exception, pytest.skip.Exception) as caught:
+            return caught
+        raise AssertionError("redis_unavailable returned")
+
     monkeypatch.delenv(REQUIRED_ENV, raising=False)
-    with pytest.raises(pytest.skip.Exception, match="no redis"):
-        redis_unavailable("no redis")
-    monkeypatch.setenv(REQUIRED_ENV, "0")
-    with pytest.raises(pytest.skip.Exception):
-        redis_unavailable("no redis")
+    assert isinstance(outcome(), pytest.skip.Exception)
+    monkeypatch.setenv("SANDLOOM_CELERY_REQUIRED", "1")
+    assert isinstance(outcome(), pytest.skip.Exception)
     monkeypatch.setenv(REQUIRED_ENV, "1")
-    with pytest.raises(pytest.fail.Exception, match="no redis.*may not skip"):
-        redis_unavailable("no redis")
+    failed = outcome()
+    assert isinstance(failed, pytest.fail.Exception)
+    assert "no redis" in str(failed)
+    assert REQUIRED_ENV in str(failed)
 
 
 def _outcome(test: str, *, required: bool) -> str:
