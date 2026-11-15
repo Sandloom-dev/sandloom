@@ -29,10 +29,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-import psycopg2  # type: ignore[import-untyped]
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from psycopg2 import sql
 from pydantic import BaseModel
 from sqlalchemy import (
     BigInteger,
@@ -56,6 +54,7 @@ from sandloom.core.migrations.migrations import (
     core_chain_dir,
     version_table_for,
 )
+from sandloom.core.migrations.pg_sync import psycopg2, sql
 from sandloom.core.migrations.urls import to_sync_url
 
 #: Shared infra tables of the core chain every hosting database carries. Kept
@@ -503,7 +502,7 @@ def _connect(url: str, *, autocommit: bool) -> Any:
     return conn
 
 
-def _rows(conn: Any, statement: str | sql.Composable, params: Any = None) -> list[Any]:
+def _rows(conn: Any, statement: Any, params: Any = None) -> list[Any]:
     with conn.cursor() as cur:
         cur.execute(statement, params)
         return list(cur.fetchall()) if cur.description else []

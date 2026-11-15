@@ -127,13 +127,15 @@ def wheels(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
 def p2_venvs(
     tmp_path_factory: pytest.TempPathFactory, wheels: dict[str, Path]
 ) -> dict[tuple[str, ...], Path]:
-    """One clean venv per subset: plain ``sandloom`` and the subset's wheels."""
+    """One clean venv per subset: ``sandloom`` with its ``postgres`` extra (the
+    probe environment names a PostgreSQL database; no Redis, no Celery) and the
+    subset's wheels."""
     root = tmp_path_factory.mktemp("subsets-p2")
 
     def make(subset: tuple[str, ...]) -> Path:
         return _venv(
             root / subset_id(subset),
-            str(wheels["sandloom"]),
+            f"sandloom[postgres] @ {wheels['sandloom'].resolve().as_uri()}",
             *([str(wheels["sandloom-standard"])] if "identity" in subset else []),
             *(str(wheels[MODULES[m][1]]) for m in subset),
         )

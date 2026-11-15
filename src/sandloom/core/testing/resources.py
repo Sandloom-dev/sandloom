@@ -44,9 +44,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-import psycopg2  # type: ignore[import-untyped]
-from psycopg2 import sql
-
+from sandloom.core.migrations.pg_sync import psycopg2, sql
 from sandloom.core.testing.ownership import (
     DB_LAST_USED_SETTING,
     DB_MARKER_PREFIX,

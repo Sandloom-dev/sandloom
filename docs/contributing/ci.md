@@ -90,9 +90,19 @@ Locally:
 ```bash
 uv venv .venv-kernel
 uv export --frozen --only-group dev --no-hashes --no-emit-project > /tmp/dev-req.txt
-uv pip install --python .venv-kernel/bin/python -e "packages/sandloom[redis,celery,check,fast,sqlite,sentry]" -e packages/sandloom-redis -e packages/sandloom-celery -r /tmp/dev-req.txt
+uv pip install --python .venv-kernel/bin/python -e "packages/sandloom[postgres,redis,celery,check,fast,sqlite,sentry]" -e packages/sandloom-redis -e packages/sandloom-celery -r /tmp/dev-req.txt
 .venv-kernel/bin/python tools/ci/no_batteries.py install
 .venv-kernel/bin/python -m pytest -n auto --dist loadfile -p tools.ci.no_batteries src/sandloom/core/tests tests/sdk tests/architecture tests/integration/replaceability
+```
+
+A last step uninstalls `asyncpg` (the `postgres` extra) and runs
+`src/sandloom/core/tests/test_postgres_extra.py` on a SQLite file. The kernel
+boots without it and imports neither asyncpg nor psycopg2. It refuses a
+PostgreSQL URL and names the extra (SANDLOOM-B037). Locally:
+
+```bash
+uv pip uninstall --python .venv-kernel/bin/python asyncpg
+DATABASE_URL=sqlite+aiosqlite:////tmp/kernel.db SANDLOOM_TEST_DATABASE_URL=sqlite+aiosqlite:////tmp/kernel-test.db .venv-kernel/bin/python -m pytest -q --no-cov -p no:xdist -p tools.ci.no_batteries src/sandloom/core/tests/test_postgres_extra.py
 ```
 
 Checks run on PRs rather than repeating the same work after a merge to `main`.

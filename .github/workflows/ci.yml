@@ -615,7 +615,7 @@ jobs:
           uv export --frozen --only-group dev --no-hashes --no-emit-project \
             > "$RUNNER_TEMP/dev-requirements.txt"
           uv pip install --python .venv-kernel/bin/python \
-            -e "packages/sandloom[redis,celery,check,fast,sqlite,sentry]" \
+            -e "packages/sandloom[postgres,redis,celery,check,fast,sqlite,sentry]" \
             -e packages/sandloom-redis \
             -e packages/sandloom-celery \
             -r "$RUNNER_TEMP/dev-requirements.txt"
@@ -628,6 +628,21 @@ jobs:
           --durations=25 --sandloom-shuffle=random -p tools.ci.no_batteries
           src/sandloom/core/tests tests/sdk tests/architecture
           tests/integration/replaceability
+
+      - name: The kernel without asyncpg (the `postgres` extra) boots on SQLite
+        # asyncpg is the optional `postgres` extra: uninstalled, the kernel
+        # serves a SQLite file, imports neither asyncpg nor psycopg2 at boot,
+        # and refuses a PostgreSQL URL naming the extra (SANDLOOM-B037). The
+        # harness itself runs on a SQLite file (the job's PostgreSQL URL
+        # would refuse, which is the point of the last test).
+        env:
+          DATABASE_URL: sqlite+aiosqlite:///${{ runner.temp }}/kernel-without-asyncpg.db
+          SANDLOOM_TEST_DATABASE_URL: sqlite+aiosqlite:///${{ runner.temp }}/kernel-without-asyncpg-test.db
+        run: |
+          uv pip uninstall --python .venv-kernel/bin/python asyncpg
+          .venv-kernel/bin/python -c "import importlib.util as u; assert u.find_spec('asyncpg') is None"
+          .venv-kernel/bin/python -m pytest -q --no-cov -p no:xdist -p tools.ci.no_batteries \
+            src/sandloom/core/tests/test_postgres_extra.py
 
   redis-drivers:
     # The sandloom-redis package (atomic_store, lease, broadcast, cache drivers and

@@ -53,9 +53,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-import psycopg2  # type: ignore[import-untyped]
-from psycopg2 import errors, sql
-
+from sandloom.core.migrations.pg_sync import errors, psycopg2, sql
 from sandloom.core.testing import families
 from sandloom.core.testing.machine import checkout_root, machine_id
 from sandloom.core.testing.redis_urls import is_redis_url, redis_client_installed

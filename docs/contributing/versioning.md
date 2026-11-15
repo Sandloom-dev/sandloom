@@ -84,7 +84,7 @@ each module package to release a version whose range admits it.
 
 Third-party dependencies are ranges too (`>=tested,<next breaking release`);
 exact versions live only in `uv.lock`. The `sandloom new` generator depends on
-`sandloom[redis,celery]>=0.7.0a13,<0.8` plus `sandloom-<module>>=0.7.0a13,<0.8` for each
+`sandloom[postgres,redis,celery]>=0.7.0a13,<0.8` plus `sandloom-<module>>=0.7.0a13,<0.8` for each
 `--with` module, since the code it generates uses that release's API.
 
 ## Event schema evolution

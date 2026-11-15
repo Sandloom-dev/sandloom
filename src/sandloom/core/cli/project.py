@@ -1244,7 +1244,7 @@ def _framework_backend(path: Path) -> Path:
 def _sourced_names(bundled: list[str]) -> list[str]:
     """The framework distributions an unpublished checkout supplies:
     ``sandloom-redis`` and ``sandloom-celery`` too, which the
-    ``sandloom[redis,celery]`` extras of every generated app require."""
+    ``sandloom[postgres,redis,celery]`` extras of every generated app require."""
     return [
         "sandloom",
         "sandloom-redis",
@@ -1387,10 +1387,10 @@ def generate_project(
     # and ``sandloom-celery`` are named beside the extras that require them:
     # uv applies a ``[tool.uv.sources]`` entry (an unpublished checkout) to
     # direct dependencies only. A published app gets them through
-    # ``sandloom[redis,celery]``.
+    # ``sandloom[postgres,redis,celery]``.
     driver_packages: list[str] = []
     if framework_req is None:
-        framework_req = f"sandloom[redis,celery]{FRAMEWORK_RANGE}"
+        framework_req = f"sandloom[postgres,redis,celery]{FRAMEWORK_RANGE}"
         if source_config:
             driver_packages = [
                 f"sandloom-redis{FRAMEWORK_RANGE}",

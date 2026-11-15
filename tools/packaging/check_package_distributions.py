@@ -79,11 +79,12 @@ def _run(
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
     capture_output: bool = False,
+    check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     print("+", " ".join(command), flush=True)
     return subprocess.run(
         command,
-        check=True,
+        check=check,
         cwd=cwd,
         env=env,
         text=True,
@@ -353,6 +354,8 @@ def check_lean_install(temp: Path, wheel: Path) -> None:
     leaked = names & {
         "redis",
         "celery",
+        # The `postgres` extra: the kernel serves SQLite without it.
+        "asyncpg",
         "sentry-sdk",
         # The `otel` extra: imported only when TRACING_URL is set.
         "opentelemetry-api",
@@ -630,7 +633,10 @@ def check_plain_module_install(
     _run("uv", "venv", str(venv))
     _run(
         "uv", "pip", "install", "--compile-bytecode", "--python", str(_python(venv)),
-        str(wheels[KERNEL]), str(wheels[package]),
+        # The smoke environment names a PostgreSQL database: asyncpg is the
+        # kernel's `postgres` extra (no Redis, no Celery).
+        f"sandloom[postgres] @ {wheels[KERNEL].resolve().as_uri()}",
+        str(wheels[package]),
     )  # fmt: skip
     installed = json.loads(
         _run(
@@ -648,6 +654,85 @@ def check_plain_module_install(
         cwd=work,
         env={**_smoke_environment(), "HEALTH_CACHE_TTL_SECONDS": "0"},
     )  # fmt: skip
+
+
+#: Run by the venv's interpreter in :func:`check_sqlite_install`: argv[1] is
+#: ``boot`` (the app starts on a SQLite file) or ``refuse`` (a PostgreSQL URL
+#: stops the startup).
+SQLITE_SMOKE = """
+import asyncio, importlib.util, sys
+import httpx
+from sandloom.core.app_factory import create_app
+assert importlib.util.find_spec("asyncpg") is None, "asyncpg is installed"
+async def probe():
+    app = create_app()
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            return (await c.get("/health")).status_code
+if sys.argv[1] == "boot":
+    status = asyncio.run(probe())
+    assert status == 200, status
+    banned = ("asyncpg", "psycopg2")
+    drivers = sorted(m for m in sys.modules if m.split(".")[0] in banned)
+    assert not drivers, f"imported at boot: {drivers}"
+    print("kernel + sqlite extra booted: /health 200, no PostgreSQL driver imported")
+else:
+    create_app()
+"""
+
+#: The drivers a kernel with no cache, event bus or Redis boots on: the
+#: built-in memory ones, selected the way an operator selects them (INFRA).
+SQLITE_INFRA = json.dumps(
+    {
+        "database": {"default": {"driver": "sqlalchemy"}},
+        "cache": {"default": {"driver": "memory"}},
+        "eventbus": {"default": {"driver": "memory"}},
+        "atomic_store": {"security": {"driver": "memory"}},
+    }
+)
+
+
+def check_sqlite_install(temp: Path, wheel: Path) -> None:
+    """``sandloom[sqlite]`` alone, with no ``postgres`` extra: boots on SQLite.
+
+    The kernel without asyncpg starts on a SQLite file (memory cache, event
+    bus and security store: nothing else installed), imports neither asyncpg
+    nor psycopg2 doing it, and refuses a PostgreSQL URL naming the extra
+    (SANDLOOM-B037).
+    """
+    venv = temp / "sqlite"
+    _run("uv", "venv", str(venv))
+    _run(
+        "uv", "pip", "install", "--compile-bytecode", "--python", str(_python(venv)),
+        f"sandloom[sqlite] @ {wheel.resolve().as_uri()}",
+    )  # fmt: skip
+    work = temp / "sqlite-work"
+    work.mkdir()
+    env = {
+        **_smoke_environment(),
+        "DATABASE_URL": f"sqlite+aiosqlite:///{work / 'app.db'}",
+        "INFRA": SQLITE_INFRA,
+        "SANDLOOM_MODULES": "[]",
+        "SANDLOOM_SERVICE_NAME": "package-check",
+    }
+    _run(str(_python(venv)), "-c", SQLITE_SMOKE, "boot", cwd=work, env=env)
+    refused = _run(
+        str(_python(venv)), "-c", SQLITE_SMOKE, "refuse",
+        cwd=work,
+        env={**env, "DATABASE_URL": SMOKE_ENV["DATABASE_URL"]},
+        capture_output=True,
+        check=False,
+    )  # fmt: skip
+    if (
+        refused.returncode == 0
+        or "pip install 'sandloom[postgres]'" not in refused.stderr
+        or "SANDLOOM-B037" not in refused.stderr
+    ):
+        raise RuntimeError(
+            "a PostgreSQL URL without asyncpg must refuse, naming the postgres "
+            f"extra (exit {refused.returncode}):\n{refused.stderr[-800:]}"
+        )
 
 
 def check_console_install(
@@ -742,6 +827,7 @@ def main(argv: list[str] | None = None) -> int:
             with ThreadPoolExecutor(max_workers=len(PACKAGES) + 2) as pool:
                 checks = [
                     pool.submit(check_lean_install, temp, wheels[KERNEL]),
+                    pool.submit(check_sqlite_install, temp, wheels[KERNEL]),
                     pool.submit(check_standard_install, temp, wheels),
                     *(
                         pool.submit(check_console_install, temp, wheels, p)

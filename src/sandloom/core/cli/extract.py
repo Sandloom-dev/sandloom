@@ -79,9 +79,6 @@ from typing import Any
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from psycopg2.extras import (  # type: ignore[import-untyped]
-    execute_values,
-)
 from sqlalchemy import create_engine, pool
 
 import sandloom.core.migrations.migrations as _migrations
@@ -91,6 +88,7 @@ from sandloom.core.descriptors.module_names import module_name as _module_name
 from sandloom.core.infra.ports.eventbus import EventTransport
 from sandloom.core.migrations.alembic_support import MIGRATE_URL_ENV
 from sandloom.core.migrations.migrations import _mask_url
+from sandloom.core.migrations.pg_sync import extras
 from sandloom.core.migrations.urls import to_sync_url
 from sandloom.core.orm import Base
 
@@ -1190,7 +1188,7 @@ class ModuleExtractor:
             src.commit()
             return 0
         try:
-            execute_values(
+            extras.execute_values(
                 tgt.cursor(),
                 "INSERT INTO outbox_messages (id, channel, schema_version, payload, "
                 "emitted_at, delivery_attempts, last_error, dead_at, "
