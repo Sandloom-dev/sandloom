@@ -74,7 +74,8 @@ subagent): pass no actor on tm calls.
   beforehand. Not in it, so run them when you touched their area:
   `uv run sandloom check`, `uv run sandloom generate --check`, a module's
   `uv run sandloom test <module>`, and the CI steps of
-  `.claude/agent-reference.md` §2 for packaging, docs site and examples.
+  `sandloom-ci-map` (`python3 tools/agent_reference.py ci`) for packaging, docs
+  site and examples.
 - Two CI jobs no gate above runs, the ones PRs failed most after the static
   gates:
   - you changed what the kernel imports (`src/sandloom/core`, `sdk`,
@@ -171,9 +172,14 @@ item 2. A task created with `checklist` among its required kinds refuses
   `offset`/`limit` around it. Never `cat` / `cat -n` a whole file and never
   `Read` a big one without a range. A small file: once, whole. The spec
   sections your brief names, by those line numbers only.
-- Before opening a registry, CI config or kernel entry point, read the matching
-  section of `.claude/agent-reference.md` (registry formats and commands, CI by
-  path, `file:line` kernel map, plan index).
+- Before opening a registry, CI config, kernel entry point, port, driver, kit or
+  the active wave's spec, load the matching skill (rendered from this checkout
+  when it loads, never stale): `sandloom-registries` (formats and commands),
+  `sandloom-ci-map` (CI by path), `sandloom-kernel-map` (entry points),
+  `sandloom-infra-map` (port, drivers with tier and package, kit, tests per
+  capability), `sandloom-plan` (headings of the marked spec or plan: grep the
+  one section). No Skill tool: run `python3 tools/agent_reference.py <topic>`
+  (`registries`, `ci`, `kernel`, `infra`, `plan`).
 - Search with `grep -rn` on `src/`, `tests/`, `docs/`; skip `.claude/worktrees/`.
 - Near the turn limit (around 100 turns), commit and push WIP, write a precise
   `task_checkpoint` and stop.

@@ -21,9 +21,12 @@ Rules:
   Don't read `design/kernel-boundary/requirements.md` or `migration-plan.md`
   whole; `grep -n` them. `design/kernel-boundary/_archive/` is finished
   research: skip it unless the prompt names it.
-- Before opening a registry, CI config or kernel entry point, read the matching
-  section of `.claude/agent-reference.md` (registry formats, CI by path,
-  `file:line` kernel map, plan index).
+- Before opening a registry, CI config, kernel entry point, port, driver, kit or
+  the active wave's spec, run the matching topic (no Skill tool here; rendered
+  from this checkout, never stale): `python3 tools/agent_reference.py <topic>`
+  with `registries` (formats and commands), `ci` (CI by path), `kernel` (entry
+  points), `infra` (port, drivers with tier and package, kit, tests per
+  capability) or `plan` (headings of the marked spec or plan).
 - One simple command per call. In a worktree, no `for` / `source` / `&&` /
   heredoc around `git`.
 - Run only the tests that prove or refute a finding, never `sandloom test --full`

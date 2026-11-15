@@ -1,25 +1,40 @@
 #!/usr/bin/env python3
 # ruff: noqa: E501, C901
-"""Write (default) or check (``--check``) ``.claude/agent-reference.md``.
+"""Print one section of the agent reference: ``python3 tools/agent_reference.py <topic>``.
 
-One sectioned file an agent reads instead of opening the big shared files, the
-CI configuration or the kernel entry points to find out how they work:
+Small sections an agent reads instead of opening the big shared files, the CI
+configuration or the kernel entry points to find out how they work. Each topic
+is a skill (``sandloom-registries``, ``sandloom-ci-map``, ``sandloom-kernel-map``,
+``sandloom-infra-map``, ``sandloom-plan``, in ``.agents/skills`` and the
+``.claude/skills`` mirror) whose ``SKILL.md`` runs this script when it loads:
 
-1. registries: what each shared file holds, one entry, the command that adds or
-   validates an entry, how to find neighbours (hand-written, below; each example
-   is checked to still exist in its file);
-2. CI by path: the path filters and the commands of ``ci.yml``, ``docs.yml``,
-   ``architecture-check.yml``, ``packages.yml``, ``admin.yml`` and
-   ``tools/ci/required_ci.py``;
-3. kernel map: file and symbol of the entry points (no line numbers, so a PR that
-   moves code does not drift; the build fails only when a symbol vanishes, read
-   from the AST);
-4. plan index: KB id, wave, dependencies, M-metrics and heading text of
-   ``design/kernel-boundary/migration-plan.md`` (no line numbers).
+- ``registries``: what each shared file holds, one entry, the command that adds
+  or validates an entry, how to find neighbours (hand-written, below; each
+  example is checked to still exist in its file);
+- ``ci``: the path filters and the commands of ``ci.yml``, ``docs.yml``,
+  ``architecture-check.yml``, ``packages.yml``, ``admin.yml`` and
+  ``tools/ci/required_ci.py`` (the only topic that needs PyYAML);
+- ``kernel``: file and symbol of the entry points (no line numbers; the script
+  fails when a symbol vanishes, read from the AST);
+- ``infra``: one line per capability, derived from code only: the public classes
+  of ``core/infra/ports/<cap>.py``, the ``*Conformance`` classes of
+  ``driverkit/kits/<cap>.py`` (both from the AST), the built-in driver rows and
+  tiers of ``core/drivers/bootstrap.py``, every ``sandloom.drivers`` entry point
+  of ``packages/*/pyproject.toml`` and the capability's test files by glob.
+  ``bootstrap.py`` is read from its AST (a small evaluator for the constants the
+  rows are built from, f-string prefix ``_DRIVERS`` included), never imported:
+  the script runs with a plain ``python3`` and no sandloom import. A row or
+  entry point whose module file or class is missing stops it;
+- ``plan``: every ``design/**/*.md`` with ``<!-- agent-reference: index -->`` in
+  its first five lines, its ``## `` headings listed (the KB migration plan, if
+  marked, keeps its KB rows: id, wave, dependencies, M-metrics).
 
-``sandloom generate`` calls :func:`render` (the repository checkout only: the
-hook looks for this file) and ``tests/architecture/test_agent_reference.py``
-compares it with the committed file. Standard library and PyYAML.
+Freshness rule: nothing is generated or committed. The output comes from code
+and from marked plans of the checkout the script sits in, rendered each time a
+skill loads, so a new capability, driver or a moved port shows up at once. A
+wave's orchestrator adds the marker to its plan or spec when the wave starts and
+removes it when the wave ends. ``tests/architecture/test_agent_reference.py``
+runs every topic and bounds its size. Standard library (PyYAML for ``ci``).
 """
 
 from __future__ import annotations
@@ -27,18 +42,28 @@ from __future__ import annotations
 import argparse
 import ast
 import importlib.util
+import itertools
 import re
 import sys
+import tomllib
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-import yaml
-
 REPO = Path(__file__).resolve().parents[1]
-OUT = ".claude/agent-reference.md"
+#: Byte limits an agent can read whole: a topic, the plan index.
+MAX_BYTES = 4096
+MAX_PLAN_BYTES = 6144
+#: Test files listed per capability and owner in the infra map.
+_TESTS_SHOWN = 5
 PLAN = "design/kernel-boundary/migration-plan.md"
 WORKFLOWS = ".github/workflows"
+PORTS = "src/sandloom/core/infra/ports"
+KITS = "src/sandloom/driverkit/kits"
+BOOTSTRAP = "src/sandloom/core/drivers/bootstrap.py"
+#: A design doc with this comment in its first five lines is indexed in section 5.
+MARKER = "<!-- agent-reference: index -->"
 
 #: (file, literal the hand-written example quotes): a missing literal fails the build.
 EXAMPLE_ANCHORS = (
@@ -50,7 +75,7 @@ EXAMPLE_ANCHORS = (
 )
 
 REGISTRIES = """\
-## 1. Registries (shared files: never open whole, never reorder others' lines)
+# Registries (shared files: never open whole, never reorder others' lines)
 
 Add only your own lines (the orchestrator resolves conflicts). Routine edits are commands; run
 `uv run python tools/agent_registry.py <command>` instead of opening the file:
@@ -173,8 +198,21 @@ def _commands(job: dict[str, Any]) -> list[str]:
     return found
 
 
+def _yaml(text: str) -> Any:
+    """Parse YAML; only the ``ci`` topic needs it, so a plain ``python3`` without
+    PyYAML still renders the other topics and this one says how to run it."""
+    try:
+        import yaml
+    except ImportError:
+        raise SystemExit(
+            "agent_reference: the ci topic needs PyYAML; "
+            "run `uv run python tools/agent_reference.py ci`"
+        ) from None
+    return yaml.safe_load(text)
+
+
 def _workflow(root: Path, name: str) -> dict[str, Any]:
-    loaded: dict[str, Any] = yaml.safe_load(
+    loaded: dict[str, Any] = _yaml(
         (root / WORKFLOWS / name).read_text(encoding="utf-8")
     )
     return loaded
@@ -186,7 +224,7 @@ def _ci(root: Path) -> str:
     filters: dict[str, list[str]] = {}
     for step in ci["jobs"]["changes"]["steps"]:
         if step.get("id") == "filter":
-            filters = yaml.safe_load(step["with"]["filters"])
+            filters = _yaml(step["with"]["filters"])
     jobs = ci["jobs"]
 
     def commands(job_id: str) -> list[str]:
@@ -203,7 +241,7 @@ def _ci(root: Path) -> str:
     for job_id, area in required.PR_JOBS.items():
         by_area[area].append(job_id)
     lines = [
-        "## 2. CI by path (a matching path runs the area's jobs; hidden: .github, pyproject, uv.lock, packages.json)",
+        "# CI by path (a matching path runs the area's jobs; hidden: .github, pyproject, uv.lock, packages.json)",
         "",
         "Not listed (full suites, SBOM, UI): `uv run sandloom test <module>`, `admin/AGENTS.md`, `tools/ci/ci_local.py --list`.",
         "",
@@ -289,7 +327,7 @@ def _top_level_lines(source: str) -> dict[str, int]:
 
 def _kernel(root: Path) -> str:
     lines = [
-        "## 3. Kernel map (file · symbols; `grep -n '^def create_app' <file>`)",
+        "# Kernel map (file · symbols; `grep -n '^def create_app' <file>`)",
         "",
     ]
     for rel, names in KERNEL_MAP:
@@ -304,8 +342,221 @@ def _kernel(root: Path) -> str:
     return "\n".join(lines)
 
 
-def _plan(root: Path) -> str:
-    text = (root / PLAN).read_text(encoding="utf-8").splitlines()
+class _Unresolved(Exception):
+    """A module-level expression the static reader does not evaluate."""
+
+
+def _static(node: ast.expr, env: dict[str, Any]) -> Any:
+    """Evaluate the constant expressions ``bootstrap.py`` builds its rows from:
+    literals, tuples, dicts, names already read, ``d["k"]`` and f-strings."""
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name) and node.id in env:
+        return env[node.id]
+    if isinstance(node, ast.Tuple):
+        return tuple(_static(e, env) for e in node.elts)
+    if isinstance(node, ast.Dict) and all(k is not None for k in node.keys):
+        return {
+            _static(k, env): _static(v, env)
+            for k, v in zip(node.keys, node.values, strict=True)
+            if k is not None
+        }
+    if isinstance(node, ast.Subscript):
+        return _static(node.value, env)[_static(node.slice, env)]
+    if isinstance(node, ast.JoinedStr):
+        return "".join(str(_static(part, env)) for part in node.values)
+    if isinstance(node, ast.FormattedValue):
+        return _static(node.value, env)
+    raise _Unresolved(ast.dump(node)[:60])
+
+
+def _constants(source: str) -> dict[str, Any]:
+    env: dict[str, Any] = {}
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.AnnAssign) and node.value is not None:
+            targets = [node.target]
+        elif isinstance(node, ast.Assign):
+            targets = node.targets
+        else:
+            continue
+        try:
+            value = _static(node.value, env) if node.value else None
+        except _Unresolved:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                env[target.id] = value
+    return env
+
+
+def _classes(path: Path) -> dict[str, ast.ClassDef]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return {n.name: n for n in tree.body if isinstance(n, ast.ClassDef)}
+
+
+def _declared_tier(cls: ast.ClassDef) -> str:
+    """The class-level ``tier`` a driver declares; the port's default otherwise."""
+    for node in cls.body:
+        target = node.target if isinstance(node, ast.AnnAssign) else None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+        value = getattr(node, "value", None)
+        if (
+            isinstance(target, ast.Name)
+            and target.id == "tier"
+            and isinstance(value, ast.Constant)
+        ):
+            return str(value.value)
+    return "experimental"
+
+
+def _driver_class(root: Path, target: str, where: str) -> tuple[str, ast.ClassDef]:
+    """``(owner, class)`` of a ``module:Class`` target: ``core`` or the package
+    directory that holds the module file; a missing file or class stops the build."""
+    module, _, name = target.partition(":")
+    parts = module.split(".")
+    roots = [root / "src", *sorted((root / "packages").glob("*/src"))]
+    for base in roots:
+        for tail in (Path(*parts).with_suffix(".py"), Path(*parts, "__init__.py")):
+            path = base / tail
+            if not path.is_file():
+                continue
+            cls = _classes(path).get(name)
+            if cls is None:
+                raise SystemExit(f"agent_reference: {where}: {path} has no {name}")
+            owner = "core" if base == roots[0] else base.parent.name
+            return owner, cls
+    raise SystemExit(f"agent_reference: {where}: no file for module {module}")
+
+
+def _drivers(root: Path) -> dict[str, dict[str, tuple[str, str]]]:
+    """``{capability: {driver: (owner, tier)}}`` from the built-in rows and tiers
+    (read from the AST of ``bootstrap.py``, no import: ``generate`` stays light) and
+    from every ``sandloom.drivers`` entry point of ``packages/*/pyproject.toml``."""
+    env = _constants((root / BOOTSTRAP).read_text(encoding="utf-8"))
+    rows, tiers = env.get("BUILTIN_DRIVER_ROWS"), env.get("BUILTIN_DRIVER_TIERS")
+    if not isinstance(rows, tuple) or not isinstance(tiers, dict):
+        raise SystemExit(f"agent_reference: {BOOTSTRAP} rows or tiers not readable")
+    found: dict[str, dict[str, tuple[str, str]]] = {}
+    for row in rows:
+        cap, name, target = row[0], row[1], row[2]
+        owner, cls = _driver_class(root, target, f"row {cap}.{name}")
+        found.setdefault(cap, {})[name] = (
+            owner,
+            tiers.get((cap, name)) or _declared_tier(cls),
+        )
+    for toml in sorted((root / "packages").glob("*/pyproject.toml")):
+        entries = tomllib.loads(toml.read_text(encoding="utf-8"))
+        points = (
+            entries.get("project", {}).get("entry-points", {}).get("sandloom.drivers")
+        )
+        for key, target in (points or {}).items():
+            cap, _, name = key.partition(".")
+            if name in found.get(cap, {}):
+                continue
+            owner, cls = _driver_class(root, target, f"{toml.parent.name} {key}")
+            found.setdefault(cap, {})[name] = (owner, _declared_tier(cls))
+    return found
+
+
+def _infra(root: Path) -> str:
+    ports = {
+        p.stem: p
+        for p in sorted((root / PORTS).glob("*.py"))
+        if p.stem not in ("_base", "__init__")
+    }
+    drivers = _drivers(root)
+    lines = [
+        "# Infrastructure map (capability: port classes; kit classes; drivers (owner, tier); tests)",
+        "",
+        f"Ports `{PORTS.removeprefix('src/sandloom/')}/<cap>.py`, kits `{KITS.removeprefix('src/sandloom/')}/<cap>.py`, "
+        "driver rows `core/drivers/bootstrap.py`; owner is `core` or a `packages/<dir>`. "
+        "Tests: `core/tests/test_<cap>*.py`, `packages/<dir>/tests/test_*<cap>*.py` (name without `test_`).",
+        "",
+    ]
+    for cap in sorted(set(ports) | set(drivers)):
+        port = (
+            [n for n in _classes(ports[cap]) if not n.startswith("_")]
+            if cap in ports
+            else []
+        )
+        kit_path = root / KITS / f"{cap}.py"
+        kits = (
+            [n for n in _classes(kit_path) if n.endswith("Conformance")]
+            if kit_path.is_file()
+            else []
+        )
+        shown = ", ".join(
+            f"{n} ({o}, {t})" for n, (o, t) in sorted(drivers.get(cap, {}).items())
+        )
+        lines.append(
+            f"- {cap}: {' '.join(port) or 'no port'}; "
+            f"{' '.join(kits) or 'no kit'}; {shown or 'no driver'}; "
+            f"{_tests(root, cap)}"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _tests(root: Path, cap: str) -> str:
+    """The test files of a capability by glob: the kernel's and each package's."""
+    where = [("core", root / "src/sandloom/core/tests", f"test_{cap}*.py")]
+    where += [
+        (d.name, d / "tests", f"test_*{cap}*.py")
+        for d in sorted((root / "packages").glob("*"))
+    ]
+    shown: list[str] = []
+    for owner, folder, pattern in where:
+        stems = [p.stem.removeprefix("test_") for p in sorted(folder.glob(pattern))]
+        if stems:
+            more = f" +{len(stems) - _TESTS_SHOWN}" if len(stems) > _TESTS_SHOWN else ""
+            shown.append(f"{owner}: {' '.join(stems[:_TESTS_SHOWN])}{more}")
+    return "tests " + ("; ".join(shown) or "none")
+
+
+def _marked(root: Path) -> list[str]:
+    """Design docs carrying :data:`MARKER` in their first five lines."""
+    found: list[str] = []
+    for path in sorted((root / "design").glob("**/*.md")):
+        with path.open(encoding="utf-8") as handle:
+            if any(MARKER in line for line in itertools.islice(handle, 5)):
+                found.append(path.relative_to(root).as_posix())
+    return found
+
+
+def _headings(text: list[str]) -> list[str]:
+    """The ``## `` headings outside code fences, compact: backticks and a
+    parenthetical dropped, the number's dot too, 48 characters at most."""
+    out: list[str] = []
+    fenced = False
+    for line in text:
+        if line.startswith("```"):
+            fenced = not fenced
+        elif not fenced and line.startswith("## "):
+            head = re.sub(r"\s*\(.*", "", line[3:].replace("`", ""))
+            out.append(re.sub(r"^(\d+)\.\s*", r"\1 ", head).strip()[:48])
+    return out
+
+
+def _plans(root: Path) -> str:
+    """One section per marked design doc: its path and its headings (the KB
+    migration plan, if marked, keeps its KB rows)."""
+    out = [
+        "# Plan index (design docs marked `<!-- agent-reference: index -->`; "
+        "`grep -n '^## 7\\.' <file>`, read to the next `## `)",
+        "",
+    ]
+    marked = _marked(root)
+    if not marked:
+        out += ["No design doc is marked: no wave is active.", ""]
+    for rel in marked:
+        text = (root / rel).read_text(encoding="utf-8").splitlines()
+        body = _plan(text) if rel == PLAN else [" · ".join(_headings(text))]
+        out += [f"## `{rel}`", "", *body, ""]
+    return "\n".join(out)
+
+
+def _plan(text: list[str]) -> list[str]:
     heads = [
         (i + 1, m.group(1))
         for i, line in enumerate(text)
@@ -347,9 +598,7 @@ def _plan(root: Path) -> str:
         if extra:
             deps.setdefault(extra.group(2), []).append(extra.group(1))
     out = [
-        "## 4. Plan index (`grep -n '^### KB-30' <plan>`, read to the next `###`; KB-50..56 wait for KB-49)",
-        "",
-        f"`{PLAN}` (also `## Rules every PR follows`, `## Waves`, `## Edge closure`)",
+        f"`{PLAN}` (`grep -n '^### KB-30' <plan>`, read to the next `###`; also `## Rules every PR follows`, `## Waves`, `## Edge closure`)",
         "id wave <needs> [metrics] heading",
     ]
     for start, kb in heads:
@@ -361,42 +610,45 @@ def _plan(root: Path) -> str:
             + (f" [{' '.join(metrics)}]" if metrics else "")
             + f" {titles[kb]}"
         )
-    out.append("")
-    return "\n".join(out)
+    return out
 
 
-def render(root: Path = REPO) -> str:
-    """The reference file's content for the checkout at ``root``."""
+def _registries(root: Path) -> str:
     for rel, literal in EXAMPLE_ANCHORS:
         if literal not in (root / rel).read_text(encoding="utf-8"):
             raise SystemExit(
                 f"agent_reference: {rel} no longer holds {literal!r}; update REGISTRIES"
             )
-    head = (
-        "# Agent reference (generated by `sandloom generate`; never edit)\n\n"
-        "Index of registries, CI jobs and kernel entry points. "
-        "Source: `tools/agent_reference.py`.\n\n"
-    )
-    return head + "\n".join([REGISTRIES, _ci(root), _kernel(root), _plan(root)])
+    return REGISTRIES
+
+
+#: topic -> renderer; each prints one section for the checkout at ``root``.
+TOPICS: dict[str, Callable[[Path], str]] = {
+    "registries": _registries,
+    "ci": _ci,
+    "kernel": _kernel,
+    "infra": _infra,
+    "plan": _plans,
+}
+
+
+def render(topic: str, root: Path = REPO) -> str:
+    """The section ``topic`` (a key of :data:`TOPICS`) of the checkout at ``root``."""
+    if topic not in TOPICS:
+        raise SystemExit(
+            f"agent_reference: unknown topic {topic!r}; one of {', '.join(TOPICS)}"
+        )
+    return TOPICS[topic](root)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("topic", choices=sorted(TOPICS), help="the section to print")
     parser.add_argument(
-        "--check", action="store_true", help="exit 1 when the file is stale"
+        "--root", type=Path, default=REPO, help="checkout to read (default: this one)"
     )
     args = parser.parse_args(argv)
-    path = REPO / OUT
-    content = render(REPO)
-    current = path.read_text(encoding="utf-8") if path.is_file() else None
-    if args.check:
-        if current != content:
-            print(f"{OUT} is stale: run `uv run sandloom generate`")
-            return 1
-        return 0
-    if current != content:
-        path.write_text(content, encoding="utf-8")
-        print(f"wrote {OUT}")
+    sys.stdout.write(render(args.topic, args.root.resolve()))
     return 0
 
 
