@@ -42,6 +42,8 @@ from sandloom.core.eventing.envelope import (
 )
 from sandloom.core.eventing.origin import envelope_origin
 from sandloom.core.eventing.subscriptions import SubscriptionHandle
+from sandloom.core.infra.errors import InvalidArgument
+from sandloom.core.infra.ports.eventbus import EventTransport, Retention
 from sandloom.core.observability.guardrails import enforce_max_size
 from sandloom.core.observability.metrics_utils import safe_inc
 
@@ -79,34 +81,59 @@ class EventBusProtocol(Protocol):
     async def close(self) -> None: ...
 
 
-class BaseEventBus(ABC, EventBusProtocol):
+class BusFacts:
+    """The facts a kernel bus states about itself (spec 7: the bus's own facts
+    are attributes of the kernel's bus classes, read through this type, never
+    probed by name and never read off the transport).
+
+    A plain test bus is not a ``BusFacts``: kernel code treats it as the
+    plainest bus (no prevalidated publish, no batch, not in-process, not
+    durable). A test bus that needs a fact subclasses this.
+    """
+
+    #: The ``eventbus`` features the bus runs over: a durable bus carries its
+    #: transport's declared features (``"durable" in bus_features``), a
+    #: volatile bus declares none.
+    bus_features: frozenset[str] = frozenset()
+    #: ``publish_event`` accepts ``prevalidated=`` (post-commit dispatch).
+    #: False here (the plainest bus); the kernel's buses (:class:`BaseEventBus`)
+    #: set True.
+    supports_prevalidated: bool = False
+    #: ``prevalidated=PREFLIGHTED`` skips every check (see ``publish_event``).
+    supports_preflighted: bool = False
+    #: True when publisher and every consumer share ONE process (memory bus).
+    in_process: bool = False
+    #: ``publish_event_batch`` is available (post-commit dispatch, relay).
+    supports_batch_publish: bool = False
+    #: A batch publish is ONE transport round trip (the transport's
+    #: ``one_round_trip`` hint on ``publish_many``), not a loop.
+    native_batch_publish: bool = False
+
+
+class BaseEventBus(BusFacts, ABC, EventBusProtocol):
     """
     Abstract base class for event buses. Shared logic: schema validation,
     payload-size limiting and the publish template.
     """
 
-    #: The ``eventbus`` features the bus runs over: a durable bus carries its
-    #: transport's declared features, a volatile bus declares none.
-    bus_features: frozenset[str] = frozenset()
-    #: ``publish_event`` accepts ``prevalidated=`` (post-commit dispatch).
-    supports_prevalidated: bool = True
-    #: ``prevalidated=PREFLIGHTED`` skips every check (see ``publish_event``).
-    supports_preflighted: bool = True
-    #: True when publisher and every consumer share ONE process (memory bus).
-    in_process: bool = False
-    #: ``publish_event_batch`` is available (post-commit dispatch, relay).
-    supports_batch_publish: bool = True
+    # The kernel's buses take a prevalidated / preflighted publish and a batch.
+    supports_prevalidated = True
+    supports_preflighted = True
+    supports_batch_publish = True
 
-    @property
-    def durable(self) -> bool:
-        """True when published events persist until a consumer group acks them
-        (the transport declares ``durable``)."""
-        return "durable" in self.bus_features
+    #: The durable transport the bus runs over (operator tooling: DLQ
+    #: inspection and replay, group ownership); ``None`` for a volatile bus.
+    transport: EventTransport | None = None
 
-    @property
-    def native_batch_publish(self) -> bool:
-        """True when a batch publish is ONE transport round trip (not a loop)."""
-        return False
+    def retention(self) -> Retention | None:
+        """What the bus's durable transport keeps of a stream; ``None`` for a
+        bus without one (a volatile bus retains nothing a consumer could replay)."""
+        return None
+
+    def group_stats(self, channel: str, group: str) -> dict[str, Any] | None:
+        """The last lag / pending reading of a consumer group this process
+        observed; ``None`` where the bus observes none (a volatile bus)."""
+        return None
 
     def __init__(self, schema_registry: SchemaRegistryContract):
         self._schema_registry = schema_registry
@@ -351,3 +378,24 @@ class BaseEventBus(ABC, EventBusProtocol):
     async def close(self) -> None:
         """Optionally overridden by implementations."""
         pass
+
+
+def durable_transport(bus: object) -> EventTransport | None:
+    """The transport of a durable kernel bus; ``None`` for a bus that has none
+    to read (a volatile bus, a plain test bus).
+
+    A bus that declares ``"durable"`` among its features but exposes no
+    transport is a configuration error and raises ``InvalidArgument``: the
+    caller (the group-owner claim, the DLQ read, the group transfer) would
+    otherwise skip silently what the durable guarantee rests on.
+    """
+    if not isinstance(bus, BaseEventBus):
+        return None
+    transport = bus.transport
+    if transport is None and "durable" in bus.bus_features:
+        raise InvalidArgument(
+            f"{type(bus).__name__} declares the 'durable' eventbus feature but "
+            "exposes no transport: a durable bus must name the transport it runs over",
+            capability="eventbus",
+        )
+    return transport

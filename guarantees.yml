@@ -1474,6 +1474,8 @@ guarantees:
   - src/sandloom/core/tests/test_guarantee_windows.py::test_inbox_purge_window
   - src/sandloom/core/tests/test_durable_inbox_claim.py::test_inbox_purge_inside_the_redelivery_window_is_refused
   - src/sandloom/core/tests/test_guarantee_windows.py::test_window_risk_ids_are_registered_accepted_risks
+  - src/sandloom/core/tests/test_guarantee_windows.py::test_the_inbox_window_follows_the_configured_retention
+  - src/sandloom/core/tests/test_durable_inbox_claim.py::test_inbox_purge_on_an_unknown_retention_is_refused_unless_forced
 - id: G-EVENT-01
   statement: 'A consumer registered by a module gets the durable group <module>:<name>: equally named
     consumers of two modules (or of one module in two services) get distinct groups and each receives
@@ -1495,6 +1497,7 @@ guarantees:
   - src/sandloom/core/tests/test_streams_split_identity.py::test_explicit_group_reused_by_other_module_fails_startup
   - src/sandloom/core/tests/test_streams_split_identity.py::test_group_owned_by_other_database_fails_startup
   - src/sandloom/core/tests/test_event_consumers.py::test_consumer_name_unique_across_event_and_projection
+  - src/sandloom/core/tests/test_consumer_runtime.py::test_a_durable_bus_without_a_transport_never_skips_the_group_owner_claim
 - id: G-EVENT-03
   statement: Required consumers (the default) abort startup when they cannot connect (all consumers are
     still attempted, transient failures retried within CONSUMER_STARTUP_TIMEOUT_SECONDS), and /ready fails

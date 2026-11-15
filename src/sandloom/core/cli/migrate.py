@@ -45,7 +45,9 @@ from sandloom.core.composition import (
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import ModuleDescriptor
 from sandloom.core.descriptors.module_names import module_name as _module_name
+from sandloom.core.eventing.bus_base import durable_transport
 from sandloom.core.facade import CoreFacade  # facade used only for module descriptors
+from sandloom.core.infra.ports.eventbus import EventTransport
 from sandloom.core.migrations.migrations import (
     _mask_url as _mask,
 )
@@ -179,11 +181,11 @@ def _extract_module(core: CoreFacade, args: argparse.Namespace) -> int:  # noqa:
         return 1
     plain = not (args.verify or args.drop_source or args.unfence)
     if plain and not args.no_transfer_groups:
-        transport = getattr(getattr(core, "event_bus", None), "transport", None)
+        bus = getattr(core, "event_bus", None)
         source_id = database_identity_of_url(args.source_identity_url or source_url)
         target_id = database_identity_of_url(args.target_identity_url or target_url)
 
-        async def _transfer() -> list[str]:
+        async def _transfer(transport: EventTransport) -> list[str]:
             try:
                 return await transfer_group_owners(
                     transport,
@@ -197,7 +199,9 @@ def _extract_module(core: CoreFacade, args: argparse.Namespace) -> int:  # noqa:
                 if infra is not None:
                     await infra.aclose_all()
 
-        moved = asyncio.run(_transfer()) if transport is not None else []
+        # a durable bus without a transport raises (never skipped silently)
+        transport = durable_transport(bus)
+        moved = asyncio.run(_transfer(transport)) if transport is not None else []
         verb = "transferred" if args.apply else "would transfer"
         for pair in moved:
             print(f"  streams group owner {verb}: {pair}: {source_id} -> {target_id}")
