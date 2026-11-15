@@ -82,6 +82,22 @@ repos:
         files: ^(src/|tools/packaging/check_public_api\.py|architecture_rules\.yml|public_api_baseline\.json)
         pass_filenames: false
 
+    # The two fast docs gates of the CI docs job (under a second each): prose
+    # ratchet and stale code references. The site build stays a pre-push check.
+    -   id: docs-prose-lint
+        name: docs-prose-lint
+        entry: python3 tools/docs/docs_prose_lint.py
+        language: system
+        files: (\.md$|^tools/docs/docs_prose_lint)
+        pass_filenames: false
+
+    -   id: docs-stale-symbols
+        name: docs-stale-symbols
+        entry: python3 tools/docs/docs_stale_symbols.py
+        language: system
+        files: (\.md$|^src/|^tools/docs/docs_stale_symbols)
+        pass_filenames: false
+
     # Heavy checks mirror the CI jobs and run once per push, not once per
     # commit — and not at all when a FULL local CI run (tools/ci/ci_local.sh)
     # already passed on the exact tree being pushed (tools/ci/unless_ci_passed.sh;
