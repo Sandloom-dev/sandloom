@@ -363,11 +363,12 @@ _TRANSPORT_CLIENT_SETTINGS: dict[str, str] = {
     "health_check_interval_seconds": "cache_health_check_interval_seconds",
 }
 
-#: ``option -> setting``: the retention of a ``streams`` event bus's streams
-#: (until ``idk-config-defaults`` turns the settings into options).
+#: ``option -> setting``: the retention and key namespace of a ``streams`` event
+#: bus's streams (until ``idk-config-defaults`` turns the settings into options).
 _STREAMS_RETENTION_SETTINGS: dict[str, str] = {
     "retention_seconds": "event_stream_retention_seconds",
     "max_length": "event_stream_maxlen",
+    "prefix": "event_stream_prefix",
 }
 
 
@@ -418,7 +419,7 @@ def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
     and the client bounds; ``redis`` / ``streams`` event buses the connect
     timeout and health-check interval, and the ``default`` one ``url`` too
     (a named bus without one shares the default transport); ``streams`` buses
-    their ``retention_seconds`` and ``max_length``; ``celery`` task
+    their ``retention_seconds``, ``max_length`` and ``prefix``; ``celery`` task
     queues ``broker`` and ``backend``.
     """
     cache_url = getattr(settings, "cache_url", None)

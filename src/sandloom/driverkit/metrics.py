@@ -30,4 +30,9 @@ from sandloom.core.observability.driver_metrics import (
     observe,
 )
 
-__all__ = ["DriverCounter", "DriverHistogram", "Observe", "observe"]
+# A counter the kernel's own bus and consumer runtime also record (a Streams
+# transport counts claims, dead letters and maintenance failures on the
+# kernel's series): it is looked up by name, never declared a second time.
+from sandloom.core.observability.metrics_utils import safe_inc
+
+__all__ = ["DriverCounter", "DriverHistogram", "Observe", "observe", "safe_inc"]

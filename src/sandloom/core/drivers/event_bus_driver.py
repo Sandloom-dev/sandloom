@@ -10,25 +10,35 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from functools import partial
-from typing import Any
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-import sandloom.core.drivers.redis_cache as _redis_cache
-from sandloom.core.descriptors import HealthResult
 from sandloom.core.drivers.redis_eventbus.streams_transport import (
     RedisStreamsTransport,
 )
-from sandloom.core.eventing.streams_bus import StreamsEventBus
-from sandloom.core.infra.config import (
-    DEFAULT_EVENT_STREAM_RETENTION_SECONDS,
-    DEFAULT_INSTANCE,
-    InstanceConfig,
+from sandloom.driverkit import (
+    EventTransportProvider,
+    HealthResult,
+    InfraProvider,
 )
-from sandloom.core.infra.ports._base import health_failure_details
-from sandloom.core.infra.registry import DriverFactory
-from sandloom.driverkit import EventTransportProvider, InfraProvider
+from sandloom.driverkit import redis_client as _redis_client
+from sandloom.driverkit.eventbus_support import (
+    BUS_BLOCK_MS,
+    DEFAULT_EVENT_STREAM_RETENTION_SECONDS,
+    health_failure_details,
+)
 from sandloom.driverkit.testing_isolation import isolated_redis_options
+
+#: The name of the ``default`` instance of a capability (the kernel's
+#: ``DEFAULT_INSTANCE``): it shares the process-wide default transport client.
+_DEFAULT_INSTANCE = "default"
+
+
+class _InstanceLike(Protocol):
+    name: str
+    driver: str
+    options: Mapping[str, Any]
 
 
 class EventBusOptions(BaseModel):
@@ -55,6 +65,11 @@ class EventBusOptions(BaseModel):
     #: ``EVENT_STREAM_MAXLEN`` until those settings become options.
     retention_seconds: int = Field(default=DEFAULT_EVENT_STREAM_RETENTION_SECONDS, ge=0)
     max_length: int = Field(default=0, ge=0)
+    #: Namespace prepended to every Streams key (streams, dead letters, group
+    #: ownership, inventory) so several environments can share one Redis. The
+    #: kernel fills it from ``EVENT_STREAM_PREFIX`` until that setting becomes
+    #: an option; changing it starts a separate namespace.
+    prefix: str = ""
 
 
 class _LazyRedisClient:
@@ -63,9 +78,9 @@ class _LazyRedisClient:
     A named eventbus instance with its own ``url`` connects its own client on
     first use and caches it — a bounded transport client (connect timeout,
     keepalive, health check, the bus's read timeout; see
-    ``redis_cache.build_transport_client``). Because the client is owned by
-    this instance (not the shared default), it must be closed on shutdown —
-    :meth:`aclose` does that, and :class:`StreamsEventBusProvider` calls it
+    ``sandloom.driverkit.redis_client.build_transport_client``). Because the
+    client is owned by this instance (not the shared default), it must be
+    closed on shutdown — :meth:`aclose` does that, and :class:`StreamsEventBusProvider` calls it
     from ``aclose`` so the dedicated connection pool does not leak.
     """
 
@@ -81,7 +96,7 @@ class _LazyRedisClient:
             options = self._options
             if not options.url:
                 raise ValueError("eventbus instance has no 'url' option")
-            self._client = _redis_cache.build_transport_client(
+            self._client = _redis_client.build_transport_client(
                 options.url,
                 read_timeout=self._read_timeout,
                 socket_connect_timeout_seconds=options.socket_connect_timeout_seconds,
@@ -113,11 +128,11 @@ def _streams_read_timeout() -> float:
     and the consumer reconnects instead of hanging forever.
     """
 
-    return StreamsEventBus._BLOCK_MS / 1000 + _STREAMS_READ_MARGIN_SECONDS
+    return BUS_BLOCK_MS / 1000 + _STREAMS_READ_MARGIN_SECONDS
 
 
 def _redis_client_factory(
-    cfg: InstanceConfig, *, read_timeout: float | None = None
+    cfg: _InstanceLike, *, read_timeout: float | None = None
 ) -> tuple[Callable[[], Awaitable[Any]], _LazyRedisClient | None]:
     """Return ``(client_factory, closable)`` for THIS eventbus instance.
 
@@ -134,18 +149,20 @@ def _redis_client_factory(
     """
     options = EventBusOptions.model_validate(cfg.options)
     if not options.url:
-        return partial(_redis_cache.get_default_transport_client, read_timeout), None
-    if cfg.name == DEFAULT_INSTANCE:
-        transport = _redis_cache.RedisCacheOptions(
+        return partial(_redis_client.get_default_transport_client, read_timeout), None
+    if cfg.name == _DEFAULT_INSTANCE:
+        transport = _redis_client.RedisCacheOptions(
             url=options.url,
             socket_connect_timeout_seconds=options.socket_connect_timeout_seconds,
             health_check_interval_seconds=options.health_check_interval_seconds,
         )
         # The default client may not be configured yet (the cache instance is
         # built lazily); never replaces what the default cache instance set.
-        _redis_cache.configure_default_client(transport, replace=False)
+        _redis_client.configure_default_client(transport, replace=False)
         return (
-            partial(_redis_cache.get_default_transport_client, read_timeout, transport),
+            partial(
+                _redis_client.get_default_transport_client, read_timeout, transport
+            ),
             None,
         )
     lazy = _LazyRedisClient(options, read_timeout=read_timeout)
@@ -180,6 +197,7 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
             client_factory=client_factory,
             retention_seconds=retention.retention_seconds,
             maxlen=retention.max_length,
+            prefix=retention.prefix,
         )
         self._owned_client = client
 
@@ -207,11 +225,11 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
             await self._owned_client.aclose()
 
 
-def make_streams_driver() -> DriverFactory:
+def make_streams_driver() -> Callable[[_InstanceLike], InfraProvider]:
     """The factory of the ``streams`` driver (it needs no schema registry: the
     kernel builds the bus over the provider)."""
 
-    def _streams(cfg: InstanceConfig) -> InfraProvider:
+    def _streams(cfg: _InstanceLike) -> InfraProvider:
         factory, closable = _redis_client_factory(
             cfg, read_timeout=_streams_read_timeout()
         )
