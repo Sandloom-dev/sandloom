@@ -141,6 +141,9 @@ if** the change that produced it commits.
   at `OUTBOX_RELAY_BACKOFF_MAX_SECONDS`, default 300). When the broker itself
   is down the relay opens a circuit and cools down
   (`OUTBOX_RELAY_CIRCUIT_BASE_SECONDS` / `_MAX_SECONDS`, defaults 1 / 30). A
+  refused credential (`PermissionDenied`) counts as an outage too. Rows are
+  not dead-lettered; the circuit stays open and they stay pending until the
+  credential is fixed (`SandloomOutboxBacklogAgeing` alerts on it). A
   row that exhausts `OUTBOX_RELAY_MAX_ATTEMPTS` (default 10) is dead-lettered
   (`dead_at` set, `outbox_dead_total` incremented); return it with
   `sandloom outbox list-dead` and `sandloom outbox requeue`. The envelope id is

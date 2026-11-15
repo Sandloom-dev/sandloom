@@ -490,48 +490,87 @@ def _infra_error_is_outage(error: InfraError) -> bool:
     return isinstance(error, PermissionDenied) or error.retryable
 
 
-def is_broker_unavailable(exc: BaseException) -> bool:
-    """True when ``exc`` (or its cause chain) is a transport availability error.
+#: A publish error of this type at the TOP is the event's own fault (a payload
+#: the transport cannot encode, an oversize payload, a failed schema check:
+#: ``ContractValidationError`` is a ``ValueError``, ``UnicodeError`` too), never
+#: an outage, whatever its chain holds: a ``TypeError`` raised while handling an
+#: ``Unavailable`` is still a bug in the handler or the row, and must not park
+#: the relay.
+_POISON_TYPES: tuple[type[Exception], ...] = (TypeError, ValueError)
 
-    A capability error (:class:`InfraError`) found in the chain decides on its
-    own: see :func:`_infra_error_is_outage`; the chain is not walked past it, so
-    a driver's mapping wins over the raw error it wraps. Everything else is
-    matched on the raw transport errors below, which publishers that do not map
-    their errors yet still raise (the volatile bus, pubsub, Celery's
-    ``BrokerUnavailableError``). That matching goes once those publishers map
-    onto ``InfraError``.
 
-    Connection refused/reset, timeouts, "broker loading" and a failover /
-    cluster reply (READONLY, MASTERDOWN, TRYAGAIN, CLUSTERDOWN) are outages,
-    not evidence that the EVENT is poison — they must not consume its
-    attempts.
+def outage_reason(exc: BaseException) -> str | None:
+    """The class name of the error that makes ``exc`` an outage, else ``None``.
+
+    The name only, never the message (no secret or URL reaches a log line).
+    See :func:`is_broker_unavailable` for the rules.
     """
+    if isinstance(exc, _POISON_TYPES):
+        return None
     seen: set[int] = set()
     current: BaseException | None = exc
     for _ in range(_CAUSE_CHAIN_LIMIT):
         if current is None or id(current) in seen:
             break
         seen.add(id(current))
+        name = type(current).__name__
         # PartialPublish is only the batch's wrapper: its ``retryable`` is "the
         # batch may be sent again" and is True for ANY cause (a poison row
         # included), so it carries no outage verdict; its cause does.
         if isinstance(current, InfraError) and not isinstance(current, PartialPublish):
-            return _infra_error_is_outage(current)
+            return name if _infra_error_is_outage(current) else None
         if isinstance(
             current,
             (BrokerUnavailableError, OSError, TimeoutError, asyncio.TimeoutError),
         ):
-            return True
+            return name
         if any(
             cls.__name__ in _UNAVAILABLE_TYPE_NAMES for cls in type(current).__mro__
         ):
-            return True
+            return name
         if any(
             cls.__name__ == "ResponseError" for cls in type(current).__mro__
         ) and str(current).startswith(_UNAVAILABLE_REPLY_PREFIXES):
-            return True
-        current = current.__cause__ or current.__context__
-    return False
+            return name
+        # ``__cause__`` is always followed; ``__context__`` (an error raised
+        # while another was being handled) only when no ``raise ... from``
+        # suppressed it.
+        if current.__cause__ is not None:
+            current = current.__cause__
+        elif not current.__suppress_context__:
+            current = current.__context__
+        else:
+            current = None
+    return None
+
+
+def is_broker_unavailable(exc: BaseException) -> bool:
+    """True when ``exc`` (or its cause chain) is a transport availability error.
+
+    A poison-type error at the top (``TypeError``, ``ValueError`` and its
+    subclasses such as ``UnicodeError`` and the schema check's
+    ``ContractValidationError``; an oversize payload is a ``ValueError``) is
+    never an outage, whatever its chain holds. Otherwise a capability error
+    (:class:`InfraError`) found in the chain decides on its own: see
+    :func:`_infra_error_is_outage`; the chain is not walked past it, so a
+    driver's mapping wins over the raw error it wraps. The chain follows
+    ``__cause__``, and ``__context__`` only when ``raise ... from`` did not
+    suppress it.
+
+    Everything else is matched on the raw transport errors below, which the
+    publishers that do not map their errors onto ``InfraError`` yet still raise:
+    the volatile bus, and pubsub, which re-raises whatever its broadcast driver
+    raises (raw redis errors while the redis broadcast driver does not map
+    them). That matching goes once they map. ``BrokerUnavailableError`` is not
+    one of them: it is the relay's own wrapper (raised below and caught in the
+    outbox store, which counts no attempt) and it stays.
+
+    Connection refused/reset, timeouts, "broker loading" and a failover /
+    cluster reply (READONLY, MASTERDOWN, TRYAGAIN, CLUSTERDOWN) are outages,
+    not evidence that the EVENT is poison — they must not consume its
+    attempts.
+    """
+    return outage_reason(exc) is not None
 
 
 class _BrokerCircuit:
@@ -652,6 +691,9 @@ async def _relay_batch_for_store(  # noqa: C901
     """
     max_attempts = _max_attempts()
     _METRIC_RELAY_BATCHES.inc()
+    # Class names of the errors that decided an outage in this batch (names
+    # only, for the log line); the last one is the error that stopped it.
+    outage_reasons: list[str] = []
 
     async def _publish(
         channel: str, payload: dict[str, Any], schema_version: str, event_id: str
@@ -680,12 +722,15 @@ async def _relay_batch_for_store(  # noqa: C901
                 ),
                 timeout=_PUBLISH_TIMEOUT_SECONDS,
             )
-        except BrokerUnavailableError:
+        except BrokerUnavailableError as exc:
+            outage_reasons.append(type(exc).__name__)
             raise
         except Exception as exc:
             # A transport outage is not the event's fault: surface it as
             # BrokerUnavailableError so the store does not count an attempt.
-            if is_broker_unavailable(exc):
+            reason = outage_reason(exc)
+            if reason is not None:
+                outage_reasons.append(reason)
                 raise BrokerUnavailableError(f"{type(exc).__name__}: {exc}") from exc
             raise
 
@@ -703,15 +748,20 @@ async def _relay_batch_for_store(  # noqa: C901
                 timeout=_PUBLISH_TIMEOUT_SECONDS,
             )
         except Exception as exc:
-            if is_broker_unavailable(exc):
+            reason = outage_reason(exc)
+            if reason is not None:
+                outage_reasons.append(reason)
                 raise BrokerUnavailableError(f"{type(exc).__name__}: {exc}") from exc
             raise
         error = result.error
         if error is None:
             return
         if isinstance(error, BrokerUnavailableError):
+            outage_reasons.append(type(error).__name__)
             raise error
-        if is_broker_unavailable(error):
+        reason = outage_reason(error)
+        if reason is not None:
+            outage_reasons.append(reason)
             raise BrokerUnavailableError(f"{type(error).__name__}: {error}") from error
         raise RelayBatchPublishError(result.published, error) from error
 
@@ -751,8 +801,9 @@ async def _relay_batch_for_store(  # noqa: C901
         cooldown = _CIRCUIT.trip()
         _METRIC_RELAY_BROKER_UNAVAILABLE.inc()
         _logger.warning(
-            "Outbox relay: broker unavailable; pausing relay for %.1fs "
+            "Outbox relay: broker unavailable (%s); pausing relay for %.1fs "
             "(no delivery attempts counted)",
+            outage_reasons[-1] if outage_reasons else "unknown",
             cooldown,
         )
     for msg_id in result.dead_ids:

@@ -3,18 +3,23 @@
 Spec 2.1: ``Unavailable`` / ``Timeout`` are outages, ``PermissionDenied`` is one
 too (a bad credential must not burn event attempts), any other ``InfraError``
 follows ``retryable``. A capability error in the cause chain is the driver's
-verdict and wins over the raw error it wraps. Publishers that still raise raw
-errors (volatile bus, pubsub, Celery) stay matched by class name.
+verdict and wins over the raw error it wraps; a ``TypeError`` / ``ValueError`` at
+the top is never an outage and a suppressed ``__context__`` is not followed.
+Publishers that still raise raw errors (the volatile bus; pubsub, which
+re-raises what its broadcast driver raises) stay matched by class name.
+``BrokerUnavailableError`` is not one of those: it is the relay's own wrapper
+(caught in the outbox store) and it stays.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, NoReturn
 
 import pytest
 import pytest_asyncio
@@ -67,6 +72,11 @@ def _chain(*errors: BaseException) -> BaseException:
     for outer, inner in pairwise(errors):
         outer.__cause__ = inner
     return errors[0]
+
+
+def _raise(error: BaseException) -> NoReturn:
+    """Raise ``error``; called from an ``except`` it gets that error as ``__context__``."""
+    raise error
 
 
 # -- InfraError ----------------------------------------------------------------
@@ -158,6 +168,72 @@ def test_infra_error_in_the_context_chain_is_found() -> None:
     assert relay.is_broker_unavailable(outer)
 
 
+def test_a_suppressed_context_is_not_followed() -> None:
+    outer = RuntimeError("publish failed")
+    outer.__context__ = Unavailable("down", capability=CAP)
+    outer.__suppress_context__ = True  # ``raise RuntimeError(...) from None``
+    assert not relay.is_broker_unavailable(outer)
+
+
+def test_a_raise_from_none_inside_an_except_is_not_an_outage() -> None:
+    try:
+        try:
+            raise Unavailable("down", capability=CAP)
+        except Unavailable:
+            raise RuntimeError("unrelated") from None
+    except RuntimeError as err:
+        assert not relay.is_broker_unavailable(err)
+
+
+def test_a_cause_is_followed_even_with_a_context() -> None:
+    outer = RuntimeError("publish failed")
+    outer.__context__ = ValueError("handling")
+    outer.__cause__ = PermissionDenied("bad credential", capability=CAP)
+    assert relay.is_broker_unavailable(outer)
+
+
+@pytest.mark.parametrize("poison", [TypeError("t"), ValueError("v"), UnicodeError("u")])
+def test_a_poison_error_at_the_top_is_never_an_outage(poison: Exception) -> None:
+    # Whether the outage sits in its ``__cause__`` or in its ``__context__``.
+    via_cause = type(poison)("poison")
+    via_cause.__cause__ = Unavailable("down", capability=CAP)
+    via_context = type(poison)("poison")
+    via_context.__context__ = Unavailable("down", capability=CAP)
+    assert not relay.is_broker_unavailable(via_cause)
+    assert not relay.is_broker_unavailable(via_context)
+
+
+def test_a_value_error_raised_inside_except_unavailable_is_not_an_outage() -> None:
+    try:
+        try:
+            raise Unavailable("down", capability=CAP)
+        except Unavailable:
+            _raise(ValueError("a bad row, found while handling the outage"))
+    except ValueError as err:
+        assert isinstance(err.__context__, Unavailable)
+        assert not relay.is_broker_unavailable(err)
+
+
+def test_a_non_poison_error_raised_inside_except_unavailable_is_an_outage() -> None:
+    try:
+        try:
+            raise Unavailable("down", capability=CAP)
+        except Unavailable:
+            _raise(RuntimeError("publish failed"))
+    except RuntimeError as err:
+        assert relay.is_broker_unavailable(err)
+
+
+def test_the_outage_reason_is_a_class_name() -> None:
+    assert relay.outage_reason(Unavailable("secret://x", capability=CAP)) == (
+        "Unavailable"
+    )
+    wrapped = _chain(RuntimeError("w"), PermissionDenied("x", capability=CAP))
+    assert relay.outage_reason(wrapped) == "PermissionDenied"
+    assert relay.outage_reason(OSError("reset")) == "OSError"
+    assert relay.outage_reason(ValueError("poison")) is None
+
+
 def test_a_cyclic_chain_terminates() -> None:
     a, b = ValueError("a"), ValueError("b")
     a.__cause__, b.__cause__ = b, a
@@ -169,7 +245,7 @@ def test_the_chain_walk_is_bounded() -> None:
     leaf = Unavailable("down", capability=CAP)
 
     def deep(wrappers: int) -> BaseException:
-        return _chain(*[ValueError(str(i)) for i in range(wrappers)], leaf)
+        return _chain(*[RuntimeError(str(i)) for i in range(wrappers)], leaf)
 
     assert relay.is_broker_unavailable(deep(limit - 1))
     assert not relay.is_broker_unavailable(deep(limit))
@@ -204,7 +280,7 @@ class _Refused(RecordingTransport):
 
 @pytest.mark.asyncio
 async def test_a_permission_denied_publish_consumes_no_attempt(
-    engine: AsyncEngine,
+    engine: AsyncEngine, caplog: pytest.LogCaptureFixture
 ) -> None:
     sessions = async_sessionmaker(
         bind=engine, class_=AsyncSession, expire_on_commit=False
@@ -225,11 +301,16 @@ async def test_a_permission_denied_publish_consumes_no_attempt(
                 )
             )
 
-    result = await relay._relay_batch_for_store(
-        factory, sql_alchemy_outbox_store(), streams_bus(_Refused()), sweep=False
-    )
+    with caplog.at_level(logging.WARNING, logger=relay.__name__):
+        result = await relay._relay_batch_for_store(
+            factory, sql_alchemy_outbox_store(), streams_bus(_Refused()), sweep=False
+        )
 
     assert result.unavailable and result.failed == 0 and result.delivered == 0
+    # The log line names the class that decided the outage, never its message.
+    lines = [r.getMessage() for r in caplog.records if "broker unavailable" in r.msg]
+    assert len(lines) == 1
+    assert "(PermissionDenied)" in lines[0] and "NOAUTH" not in lines[0]
     assert relay.broker_circuit().is_open()
     async with sessions() as s:
         rows = list((await s.execute(select(OutboxMessage))).scalars().all())
