@@ -29,6 +29,7 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
+from sandloom_celery.taskqueue import CELERY_TASKQUEUE_FEATURES
 
 import sandloom.core.loader.plugin_loader as plugin_loader
 from sandloom.core.archcheck.analyzers import parse_file
@@ -40,7 +41,6 @@ from sandloom.core.cli.generated import module_surface
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import CapabilityRequirement, ModuleDescriptor
 from sandloom.core.descriptors.derived_capabilities import DerivedNeed, derived_needs
-from sandloom.core.drivers.celery_taskqueue import CELERY_TASKQUEUE_FEATURES
 from sandloom.core.facade import CoreFacade
 from sandloom.core.infra.capabilities import TASKQUEUE_CAPABILITY, CapabilitySpec
 from sandloom.core.infra.config import InstanceConfig

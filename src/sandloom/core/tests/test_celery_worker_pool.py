@@ -18,19 +18,19 @@ from typing import Any
 import pytest
 from celery import Celery
 from pydantic import ValidationError
-
-from sandloom.core.drivers import celery_worker
-from sandloom.core.drivers.celery_taskqueue import (
+from sandloom_celery import worker as celery_worker
+from sandloom_celery.taskqueue import (
     CeleryTaskQueueOptions,
     create_celery_taskqueue,
 )
-from sandloom.core.drivers.celery_worker import (
+from sandloom_celery.worker import (
     CeleryWorkerHost,
     WorkerPool,
     heartbeat_is_fresh,
     install_heartbeat,
     refuse_unusable_pool,
 )
+
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.errors import InvalidArgument
 from sandloom.core.infra.ports.taskqueue import TaskTable

@@ -1,4 +1,4 @@
-"""The worker port (spec 8.2) and its Celery host (``sandloom.core.drivers.celery_worker``).
+"""The worker port (spec 8.2) and its Celery host (``sandloom_celery.worker``).
 
 The kernel hands a host a :class:`WorkerBoot`; the Celery host registers the
 task table, wires Celery's signals to the boot's process hooks, runs the
@@ -16,13 +16,12 @@ from typing import Any
 
 import pytest
 from celery import Celery, signals
-
-from sandloom.core.drivers import celery_worker
-from sandloom.core.drivers.celery_taskqueue import (
+from sandloom_celery import worker as celery_worker
+from sandloom_celery.taskqueue import (
     CeleryTaskQueueProvider,
     create_celery_taskqueue,
 )
-from sandloom.core.drivers.celery_worker import (
+from sandloom_celery.worker import (
     CeleryWorkerHost,
     WorkerPool,
     configure_worker_reliability,
@@ -31,6 +30,7 @@ from sandloom.core.drivers.celery_worker import (
     install_heartbeat,
     register_task_table,
 )
+
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.errors import InvalidArgument
 from sandloom.core.infra.ports.taskqueue import (
@@ -424,7 +424,7 @@ class _Sender:
 def test_the_importable_app_refuses_to_run_a_worker_or_a_beat(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``celery -A sandloom.core.drivers.celery_worker worker`` would consume
+    """``celery -A sandloom_celery.worker worker`` would consume
     messages of a table with no task (each dropped as unknown) and a beat would
     tick without the lease: both stop with exit code 1 and name the command."""
     monkeypatch.setattr(celery_worker, "_default_app", None)

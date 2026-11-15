@@ -1,12 +1,12 @@
-"""Built-in Celery task-queue driver.
+"""Celery task-queue driver (``sandloom-celery``).
 
 This driver is the SOLE constructor of Celery apps, including the process-wide
-``default`` one (:func:`~sandloom.core.drivers.celery_worker.get_default_app`).
+``default`` one (:func:`~sandloom_celery.worker.get_default_app`).
 Named instances build their own Celery app from ``options['broker']`` /
 ``options['backend']``. The kernel only depends on the abstract
 :class:`TaskQueueProvider` — modules never import Celery directly. The worker
 and the scheduler are this driver's host (:meth:`CeleryTaskQueueProvider.
-worker_host`, :mod:`sandloom.core.drivers.celery_worker`): it runs the SAME app,
+worker_host`, :mod:`sandloom_celery.worker`): it runs the SAME app,
 so enqueue and execution share one namespace.
 
 The driver reads no kernel setting (the kernel fills ``broker`` and
@@ -33,17 +33,6 @@ from urllib.parse import urlsplit
 import orjson
 from pydantic import BaseModel, ConfigDict, Field
 
-from sandloom.core.drivers.celery_broker_probe import (
-    BrokerUnreachableError,
-    probe_broker,
-)
-from sandloom.core.drivers.celery_worker import (
-    CeleryWorkerHost,
-    WorkerPool,
-    build_named_app,
-    default_app_matches,
-    get_default_app,
-)
 from sandloom.driverkit import (
     DEFAULT_INSTANCE,
     HealthResult,
@@ -54,10 +43,18 @@ from sandloom.driverkit import (
     Unavailable,
 )
 from sandloom.driverkit.testing_isolation import isolated_redis_options
+from sandloom_celery.broker_probe import BrokerUnreachableError, probe_broker
+from sandloom_celery.worker import (
+    CeleryWorkerHost,
+    WorkerPool,
+    build_named_app,
+    default_app_matches,
+    get_default_app,
+)
 
 #: Features the Celery task-queue driver supports. ``periodic``: the worker
 #: registers each periodic task of the table and one beat per broker and module
-#: set runs it under a fenced lease (``celery_worker``).
+#: set runs it under a fenced lease (``sandloom_celery.worker``).
 #: ``redelivery``: an ``at_least_once`` task is registered ``acks_late`` and
 #: ``reject_on_worker_lost``.
 CELERY_TASKQUEUE_FEATURES = frozenset({"delay", "periodic", "redelivery"})
@@ -118,6 +115,11 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
     options_schema = CeleryTaskQueueOptions
     required_imports = ("celery",)
     install_hint = "pip install 'sandloom[celery]'"
+    # Beta, the floor for a driver of this repository (spec 2.5): the kernel's
+    # CI runs TaskQueueConformance against a real broker (`test_taskqueue_kit*`;
+    # its own lane comes with idk-pkg-celery-lane). An undeclared tier would
+    # be experimental.
+    tier = "beta"
 
     @classmethod
     def test_isolation(
@@ -254,12 +256,12 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         the broker and is raised as :class:`Unavailable` / :class:`Timeout`,
         the original as its cause — the kernel keeps the dedupe key pending.
         """
-        from celery.exceptions import NotRegistered  # noqa: PLC0415 - cold: Celery is imported only by the worker and the celery taskqueue driver
-        from kombu.exceptions import (  # type: ignore[import-untyped]  # noqa: PLC0415 - cold: Celery is imported only by the worker and the celery taskqueue driver
+        from celery.exceptions import NotRegistered
+        from kombu.exceptions import (  # type: ignore[import-untyped]
             ContentDisallowed,
             EncodeError,
         )
-        from kombu.serialization import dumps  # type: ignore[import-untyped]  # noqa: PLC0415 - cold: Celery is imported only by the worker and the celery taskqueue driver
+        from kombu.serialization import dumps  # type: ignore[import-untyped]
 
         serializer = str(
             getattr(getattr(self._app, "conf", None), "task_serializer", None) or "json"
@@ -298,13 +300,13 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
     def worker_host(self) -> CeleryWorkerHost:
         """The Celery host of this instance's app: it consumes the queues the
         kernel's task table declares and runs the beat under the kernel's
-        lease (:mod:`sandloom.core.drivers.celery_worker`). Connects to
+        lease (:mod:`sandloom_celery.worker`). Connects to
         nothing."""
         return CeleryWorkerHost(lambda: self._app, worker_pool=self._typed.worker_pool)
 
     async def health(self) -> HealthResult:
         """One bounded connection to this instance's broker
-        (:func:`~sandloom.core.drivers.celery_broker_probe.probe_broker`);
+        (:func:`~sandloom_celery.broker_probe.probe_broker`);
         building the provider sends nothing, so without it a broker outage
         was invisible. A broker that refuses the connection is a failed
         probe carrying the error's type name (spec 2.4), never its text."""

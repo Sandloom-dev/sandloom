@@ -1,4 +1,4 @@
-"""The broker probe of the built-in ``celery`` taskqueue driver.
+"""The broker probe of the ``celery`` taskqueue driver (``sandloom-celery``).
 
 ``CeleryTaskQueueProvider.health()`` answers with :func:`probe_broker`: one
 kombu connection to the app's broker, opened and released, bounded by

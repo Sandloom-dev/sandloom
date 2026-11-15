@@ -12,9 +12,10 @@ import asyncio
 from typing import Any
 
 import pytest
+from sandloom_celery import taskqueue as celery_taskqueue
 
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers import celery_taskqueue, redis_cache
+from sandloom.core.drivers import redis_cache
 from sandloom.core.drivers.redis_cache import RedisCacheOptions
 from sandloom.core.eventing.volatile_provider import VolatileBusOptions
 from sandloom.core.infra.config import (

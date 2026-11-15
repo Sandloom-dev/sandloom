@@ -207,7 +207,7 @@ from celery import Celery, bootsteps
 
 import sandloom.core.worker as worker
 from sandloom.core.cli import worker as worker_cli
-from sandloom.core.drivers.celery_worker import CeleryWorkerHost
+from sandloom_celery.worker import CeleryWorkerHost
 
 app = Celery("dies", broker="memory://", set_as_current=False)
 
@@ -277,8 +277,7 @@ def test_celery_commands_bind_the_app_and_return_the_exit_code(
     is the process exit code (``Celery.start()`` drops it)."""
     from celery import Celery
     from celery.bin.celery import celery as celery_cli
-
-    from sandloom.core.drivers import celery_worker
+    from sandloom_celery import worker as celery_worker
 
     app = Celery("bound", broker="memory://", set_as_current=False)
     seen: dict[str, Any] = {}
@@ -334,8 +333,7 @@ def test_celery_cli_env_cannot_replace_the_hosts_broker_or_app(
     it (its lease scope was computed from it), and ``APP`` must not swap the app
     (the beat lease is installed on the host's)."""
     from celery import Celery
-
-    from sandloom.core.drivers import celery_worker
+    from sandloom_celery import worker as celery_worker
 
     app = Celery("mine", broker="memory://mine", set_as_current=False)
     for name in _ENV_ISOLATION_NAMES:
@@ -374,8 +372,7 @@ def test_celery_cli_runs_the_hosts_app_whatever_the_environment(
 ) -> None:
     """Through the real CLI: ``celery report`` prints the app it ran on."""
     from celery import Celery
-
-    from sandloom.core.drivers import celery_worker
+    from sandloom_celery import worker as celery_worker
 
     app = Celery("mine", broker="memory://mine", set_as_current=False)
     for name in _ENV_ISOLATION_NAMES:

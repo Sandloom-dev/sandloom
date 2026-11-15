@@ -14,10 +14,10 @@ import time
 from typing import Any
 
 import pytest
+from sandloom_celery import broker_probe as probe
+from sandloom_celery.taskqueue import create_celery_taskqueue
 
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers import celery_broker_probe as probe
-from sandloom.core.drivers.celery_taskqueue import create_celery_taskqueue
 from sandloom.core.infra.config import InstanceConfig
 
 celery = pytest.importorskip("celery")
