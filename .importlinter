@@ -122,41 +122,16 @@ forbidden_modules =
 ; logic of sandloom.core.eventing sits above a transport and imports no
 ; transport implementation, no driver and no backend SDK. The volatile bus
 ; (pubsub_bus) runs over the broadcast capability and is a delivery module. The
-; Redis Streams half still lives in this package until idk-eventbus-move
-; moves it to core/drivers/redis_eventbus, so it is not a source here: the
-; sources are the delivery modules, one by one (import-linter does not check a
-; package against a forbidden module inside it, and the transport's own files
-; import each other). tests/architecture/test_kernel_backend_imports.py fails
-; when an eventing module is neither a source nor a transport file, so a new
-; module is placed on purpose. No ignore_imports (G-KERNEL-04).
+; Redis Streams transport lives in core/drivers/redis_eventbus (idk-eventbus-move),
+; so the whole package is the source: a new eventing module is held to the
+; rule without being listed. No ignore_imports (G-KERNEL-04).
 
 [importlinter:contract:eventing-no-transport-impl]
 name = sandloom.core.eventing imports no transport implementation, driver or backend SDK (ADR-0016)
 type = forbidden
 source_modules =
-    sandloom.core.eventing.bus_base
-    sandloom.core.eventing.bus_metrics
-    sandloom.core.eventing.consumer_inbox
-    sandloom.core.eventing.core_events
-    sandloom.core.eventing.delivery
-    sandloom.core.eventing.envelope
-    sandloom.core.eventing.event_bus
-    sandloom.core.eventing.memory_bus
-    sandloom.core.eventing.memory_transport
-    sandloom.core.eventing.origin
-    sandloom.core.eventing.pubsub_bus
-    sandloom.core.eventing.streams_bus
-    sandloom.core.eventing.streams_dispatch
-    sandloom.core.eventing.streams_inventory
-    sandloom.core.eventing.streams_lease
-    sandloom.core.eventing.subscriptions
-    sandloom.core.eventing.transport_base
-    sandloom.core.eventing.volatile_provider
+    sandloom.core.eventing
 forbidden_modules =
-    sandloom.core.eventing.streams_transport
-    sandloom.core.eventing.streams_transport_base
-    sandloom.core.eventing.streams_consume
-    sandloom.core.eventing.streams_groups
     sandloom.core.drivers
     redis
     aioredis

@@ -194,7 +194,9 @@ class _FakeStreamsClient:
 
 
 def _redis_transport(client: Any) -> Any:
-    from sandloom.core.eventing.streams_transport import RedisStreamsTransport
+    from sandloom.core.drivers.redis_eventbus.streams_transport import (
+        RedisStreamsTransport,
+    )
 
     transport = RedisStreamsTransport.__new__(RedisStreamsTransport)
     transport._prefix = ""

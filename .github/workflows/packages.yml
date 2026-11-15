@@ -1,8 +1,8 @@
 name: Packages (ADR-0001)
 
-# Builds every Sandloom distribution (sandloom, sandloom-identity,
-# sandloom-tenancy, sandloom-billing) from the monorepo tree and proves each
-# works as installed: sdist round trip and license metadata, import layering
+# Builds every Sandloom distribution of tools/packaging/packages.json (the one
+# list; a package added there is built and checked here) from the monorepo tree
+# and proves each works as installed: sdist round trip and license metadata, import layering
 # across distributions (no module imports a distribution its own does not
 # depend on, lazy imports included), `pip install sandloom` alone runs every
 # CLI subcommand, `sandloom docs` and `sandloom new`, and `sandloom[standard]`

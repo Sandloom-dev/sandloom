@@ -35,10 +35,10 @@ import pytest
 from fastapi import FastAPI
 
 from sandloom.core.consumers.runtime import ConsumerConfigurationError, ConsumerRuntime
+from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
 from sandloom.core.eventing.delivery import stream_start_id
 from sandloom.core.eventing.memory_transport import MemoryTransport
 from sandloom.core.eventing.streams_bus import StreamsEventBus
-from sandloom.core.eventing.streams_transport import RedisStreamsTransport
 from sandloom.core.facade import CoreFacade
 from sandloom.core.infra.ports.eventbus import (
     ConsumerInfo,

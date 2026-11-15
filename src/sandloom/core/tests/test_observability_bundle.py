@@ -45,7 +45,7 @@ METRIC_MODULES = (
     "sandloom.core.eventing.memory_bus",
     "sandloom.core.eventing.pubsub_bus",
     "sandloom.core.eventing.streams_bus",
-    "sandloom.core.eventing.streams_transport",
+    "sandloom.core.drivers.redis_eventbus.streams_transport",
     "sandloom.core.eventing.memory_transport",
     "sandloom.core.eventing.consumer_inbox",
     "sandloom.core.unit_of_work.dispatch",

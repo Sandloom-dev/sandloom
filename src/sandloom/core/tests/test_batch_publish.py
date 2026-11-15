@@ -22,12 +22,12 @@ from typing import Any
 import pytest
 import pytest_asyncio
 
+from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
 from sandloom.core.eventing.bus_metrics import get_event_bus_metrics
 from sandloom.core.eventing.envelope import EventEnvelope, OutboundEvent
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.eventing.memory_transport import MemoryTransport
 from sandloom.core.eventing.streams_bus import StreamsEventBus
-from sandloom.core.eventing.streams_transport import RedisStreamsTransport
 from sandloom.core.infra.ports.eventbus import PartialPublish
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.tasks import relay
