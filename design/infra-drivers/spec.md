@@ -287,6 +287,12 @@ broken driver per obligation (a wrong version type, a feature not in the spec, a
 of which must fail exactly the test that names it. Kit signatures and `sandloom.driverkit.testing`
 are pinned in `public_api_baseline.json` (T008).
 
+`sandloom.driverkit.testing` also carries the required-backend guard of a package's own test lane
+(`kits/required.py`): `required_or_skip(env_var, reason)` fails where `env_var` is `1` and skips
+otherwise, `lane_required(env_var, environ=None)` is the same predicate. Each package keeps its
+probe (redis ping, celery broker scheme and connect, s3 bucket variable) and calls the guard; the
+variables are `SANDLOOM_REDIS_REQUIRED`, `SANDLOOM_CELERY_REQUIRED`, `SANDLOOM_S3_REQUIRED`.
+
 ## 3. `cache` (module-facing)
 
 **Replaces** `Cache` (`core/infra/contracts.py:696-727`) and `CacheProvider` (:730-929). Leaves it:
