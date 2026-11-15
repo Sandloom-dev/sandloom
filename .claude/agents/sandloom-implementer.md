@@ -81,9 +81,11 @@ subagent): pass no actor on tm calls.
   - you added a test that can skip: it must run on the PostgreSQL lane. A test
     skipped on every lane fails `skip-ledger`; a deliberate one goes into
     `tools/ci/skip_ledger_allowlist.json` with its reason.
-- Merging `origin/main` into your branch: `CHANGELOG.md` and
-  `public-source.json` merge by themselves (`.gitattributes`). A conflict
-  left in them is a real one: keep both sides' entries.
+- Merging `origin/main` into your branch: `CHANGELOG.md` merges by itself
+  (`.gitattributes`, union), and so does `public-source.json` once the clone
+  has run `python3 tools/packaging/merge_public_source.py --install` (the
+  orchestrator does it once; `git config merge.public-source.driver` shows
+  it). A conflict left in them is a real one: keep both sides' entries.
 - Other agents test at the same time: pass your own
   `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`,
   `SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER` (your alias) in the

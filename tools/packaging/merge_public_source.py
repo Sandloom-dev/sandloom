@@ -13,15 +13,18 @@ The policy is sets of paths, not text: this driver merges it three-way as data.
   as it was.
 * Mappings (``exclude_files``, ``exclude_trees``, ``symlinks``) and every other
   top-level key merge per key: a key changed on one side takes that change.
-* Both sides changing the same key or group differently is a conflict: the
-  driver leaves our version, exits 1, and git reports the file as conflicted.
+* Both sides changing the same key or group differently, a path listed twice
+  after the merge, or a side that is not valid JSON: the driver falls back to
+  ``git merge-file``, so the file gets ordinary conflict markers and git
+  reports it as conflicted.
 
 Wired through ``.gitattributes`` (``merge=public-source``) and the local git
 config, which ``--install`` writes once per clone (worktrees share it)::
 
     python3 tools/packaging/merge_public_source.py --install
 
-Git then calls ``merge_public_source.py %O %A %B`` and keeps the result in %A.
+Git then calls ``merge_public_source.py %O %A %B`` (``git merge-file`` where the
+script is missing) and keeps the result in %A.
 Without the config, git falls back to its line merge. Standard library only.
 """
 
@@ -35,7 +38,14 @@ from pathlib import Path
 from typing import Any
 
 DRIVER = "public-source"
-COMMAND = "python3 tools/packaging/merge_public_source.py %O %A %B"
+# A branch cut before this script existed (or a machine without python3) still
+# gets git's line merge with markers, never a silent copy of ours.
+SCRIPT = "tools/packaging/merge_public_source.py"
+COMMAND = (
+    f"if [ -f {SCRIPT} ] && command -v python3 >/dev/null; "
+    f"then python3 {SCRIPT} %O %A %B; "
+    "else git merge-file -L ours -L base -L theirs %A %O %B; fi"
+)
 
 
 class Conflict(Exception):
@@ -161,7 +171,33 @@ def merge(base: dict, ours: dict, theirs: dict) -> dict:
             out[key] = _merge_mapping(b or {}, o, t)
         else:
             _set(out, key, base, ours, theirs)
+    _no_duplicates(out)
     return out
+
+
+def _no_duplicates(policy: dict) -> None:
+    """Each side was valid alone; together they may list one path twice."""
+    seen: dict[str, str] = {}
+    for group in policy.get("include", []):
+        for path in group["paths"]:
+            if path in seen:
+                raise Conflict(f"{path} in two include groups after the merge")
+            seen[path] = group["reason"]
+    for path in policy.get("exclude_files", {}):
+        if path in seen:
+            raise Conflict(f"{path} both included and excluded after the merge")
+
+
+def _line_merge(base: Path, ours: Path, theirs: Path) -> int:
+    """Git's own line merge into ``ours``, conflict markers included.
+
+    A conflict the driver cannot settle must look like any other conflict: a
+    file with markers, not a plain copy of ours that loses their additions to
+    a careless ``git add``.
+    """
+    argv = ["git", "merge-file", "-L", "ours", "-L", "base", "-L", "theirs"]
+    done = subprocess.run([*argv, str(ours), str(base), str(theirs)], check=False)  # noqa: S603 - fixed git argv
+    return done.returncode or 1
 
 
 def install() -> None:
@@ -192,8 +228,11 @@ def main(argv: list[str]) -> int:
         )
         merged = merge(base, ours, theirs)
     except (ValueError, Conflict, KeyError, TypeError) as exc:
-        print(f"public-source.json: not merged automatically: {exc}", file=sys.stderr)
-        return 1
+        print(
+            f"public-source.json: not merged as data ({exc}); line merge with markers",
+            file=sys.stderr,
+        )
+        return _line_merge(base_p, ours_p, theirs_p)
     ours_p.write_text(
         json.dumps(merged, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
