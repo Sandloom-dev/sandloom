@@ -169,14 +169,6 @@ SEEDED: dict[str, frozenset[str]] = {
             "sandloom.core.projections.stores",
         }
     ),
-    _D + "redis_cache.py": frozenset(
-        {
-            "sandloom.core.descriptors",
-            "sandloom.core.infra.config",
-            "sandloom.core.infra.contracts",
-            "sandloom.core.infra.ports._base",
-        }
-    ),
     _D + "schema_reset.py": frozenset(
         {
             "sandloom.core.drivers.dbapi_aiosqlite",
@@ -733,7 +725,9 @@ def test_the_seed_holds_the_live_allowlist() -> None:
     # 84 -> 79 (idk-pkg-celery, -5): the three celery files import only the driver
     # kit (the probe's timeout is a driver option); their sibling imports are the
     # package's own (SIBLING_GROUPS).
-    assert sum(len(v) for v in SEEDED.values()) <= 79
+    # 79 -> 75 (idk-redis-cache-driverkit, -4): redis_cache imports only the
+    # driver kit.
+    assert sum(len(v) for v in SEEDED.values()) <= 75
 
 
 @pytest.mark.parametrize(
