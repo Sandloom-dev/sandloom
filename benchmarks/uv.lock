@@ -2755,6 +2755,7 @@ name = "sandloom-redis"
 version = "0.7.0a13"
 source = { editable = "../packages/sandloom-redis" }
 dependencies = [
+    { name = "orjson" },
     { name = "pydantic" },
     { name = "redis" },
     { name = "sandloom" },
@@ -2762,6 +2763,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "orjson", specifier = ">=3.13.0,<4" },
     { name = "pydantic", specifier = ">=2,<3" },
     { name = "redis", specifier = ">=5.2.1,<6" },
     { name = "sandloom", specifier = ">=0.7.0a13,<0.8" },
