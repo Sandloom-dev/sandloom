@@ -5674,7 +5674,9 @@ guarantees:
   statement: 'Celery beat schedules only while it holds a fenced lease: a second beat stands by and
     takes over on release/death, a holder that lost its lease stops at once, a lease backend outage keeps
     scheduling only until a local deadline, and in production beat refuses to start on a lease that is
-    not shared between processes.'
+    not shared between processes. Each cron slot is sent once while the lease store answers; an unanswering
+    store lets a slot through (G-INFRA-11: a run may repeat); a scheduler killed between claim and send
+    loses that slot.'
   sources:
   - docs/modules/background/tasks.md
   - deploy/README.md#Background work (Celery worker + beat)
@@ -5684,6 +5686,19 @@ guarantees:
   - src/sandloom/core/tests/test_beat_lease.py::test_cache_outage_keeps_scheduling_only_until_the_local_deadline
   - src/sandloom/core/tests/test_beat_lease.py::test_beat_refuses_to_start_on_a_lease_that_is_not_shared_in_production
   - src/sandloom/core/tests/test_beat_lease.py::test_the_scheduler_holds_the_lease_the_kernel_resolved
+  - src/sandloom/core/tests/test_celery_slots.py::test_ten_minutely_slots_are_sent_once_each_under_one_lease_name
+  - src/sandloom/core/tests/test_celery_slots.py::test_a_takeover_inside_a_slot_does_not_resend_it
+  - src/sandloom/core/tests/test_celery_slots.py::test_a_takeover_after_the_holder_died_does_not_resend_the_slot
+  - src/sandloom/core/tests/test_celery_slots.py::test_the_repeated_hour_of_a_fall_back_runs_once_on_each_reading
+  - src/sandloom/core/tests/test_celery_slots.py::test_the_gap_of_a_spring_forward_does_not_double_send
+  - src/sandloom/core/tests/test_celery_slots.py::test_a_store_that_does_not_answer_lets_the_slot_through
+  - src/sandloom/core/tests/test_celery_slots.py::test_a_store_that_refuses_the_claim_sends_nothing
+  - src/sandloom/core/tests/test_celery_slots.py::test_a_scheduler_killed_between_claim_and_send_loses_that_slot
+  - src/sandloom/core/tests/test_celery_slots.py::test_a_scheduler_lease_name_too_long_for_a_slot_refuses_to_start
+  - src/sandloom/core/tests/test_driverkit_periodic.py::test_ten_minutely_slots_create_one_lease_name_in_memory
+  - src/sandloom/core/tests/test_driverkit_periodic.py::test_ten_minutely_slots_create_one_lease_name_on_redis
+  - src/sandloom/core/tests/test_driverkit_periodic.py::test_ten_minutely_slots_create_one_lease_row_in_a_database
+  - src/sandloom/core/tests/test_periodic_dedupe.py::test_two_schedulers_share_one_slot_on_real_redis
 - id: G-OPS-02
   statement: /health and /ready answer 503 when degraded; public callers see check statuses only (details
     and /ready topology need X-Internal-Token) and results are cached for HEALTH_CACHE_TTL_SECONDS.
