@@ -139,6 +139,7 @@ _SKIP_AREAS = ("benchmarks", "dependency_review")
 _SKIP_JOBS = (
     "kernel-without-batteries",
     "redis-drivers",
+    "celery-drivers",
     "supply-chain",
     "backend-tests",
     "second-db-test-lane",

@@ -3502,6 +3502,7 @@ standard = [
     { name = "celery", extra = ["redis"] },
     { name = "redis" },
     { name = "sandloom-billing" },
+    { name = "sandloom-celery" },
     { name = "sandloom-identity" },
     { name = "sandloom-redis" },
     { name = "sandloom-standard" },
@@ -3544,6 +3545,8 @@ requires-dist = [
     { name = "sandloom", extras = ["redis", "celery"], marker = "extra == 'standard'" },
     { name = "sandloom-admin", marker = "extra == 'admin'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sandloom-billing", marker = "extra == 'standard'", specifier = ">=0.7.0a13,<0.8" },
+    { name = "sandloom-celery", marker = "extra == 'celery'", specifier = ">=0.7.0a13,<0.8" },
+    { name = "sandloom-celery", marker = "extra == 'standard'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sandloom-identity", marker = "extra == 'admin'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sandloom-identity", marker = "extra == 'standard'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sandloom-redis", marker = "extra == 'redis'", specifier = ">=0.7.0a13,<0.8" },
@@ -3570,12 +3573,32 @@ dependencies = [
 requires-dist = [{ name = "sandloom", specifier = ">=0.7.0a13,<0.8" }]
 
 [[package]]
+name = "sandloom-celery"
+version = "0.7.0a13"
+source = { editable = "packages/sandloom-celery" }
+dependencies = [
+    { name = "celery", extra = ["redis"] },
+    { name = "orjson" },
+    { name = "pydantic" },
+    { name = "sandloom" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "celery", extras = ["redis"], specifier = ">=5.6.3,<6" },
+    { name = "orjson", specifier = ">=3.13.0,<4" },
+    { name = "pydantic", specifier = ">=2,<3" },
+    { name = "sandloom", specifier = ">=0.7.0a13,<0.8" },
+]
+
+[[package]]
 name = "sandloom-dev"
 version = "0.7.0a13"
 source = { virtual = "." }
 dependencies = [
     { name = "sandloom", extra = ["check", "fast", "sentry", "sqlite", "standard"] },
     { name = "sandloom-billing" },
+    { name = "sandloom-celery" },
     { name = "sandloom-identity" },
     { name = "sandloom-redis" },
     { name = "sandloom-standard" },
@@ -3625,6 +3648,7 @@ requires-dist = [
     { name = "pyyaml", marker = "extra == 'docs'", specifier = ">=6.0.2" },
     { name = "sandloom", extras = ["standard", "check", "fast", "sentry", "sqlite"], editable = "packages/sandloom" },
     { name = "sandloom-billing", editable = "packages/sandloom-billing" },
+    { name = "sandloom-celery", editable = "packages/sandloom-celery" },
     { name = "sandloom-identity", editable = "packages/sandloom-identity" },
     { name = "sandloom-redis", editable = "packages/sandloom-redis" },
     { name = "sandloom-standard", editable = "packages/sandloom-standard" },

@@ -11,9 +11,9 @@ from celery import Celery
 from kombu.exceptions import OperationalError  # type: ignore[import-untyped]
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
+from sandloom_celery.taskqueue import CeleryTaskQueueProvider
 
 from sandloom.core.di import TaskEnqueueUncertain
-from sandloom.core.drivers.celery_taskqueue import CeleryTaskQueueProvider
 from sandloom.core.infra.errors import Timeout, Unavailable
 from sandloom.core.tasks import enqueue
 from sandloom.core.tasks.queue import KernelTaskQueue

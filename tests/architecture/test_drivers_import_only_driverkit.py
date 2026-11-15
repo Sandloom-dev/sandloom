@@ -40,7 +40,6 @@ from __future__ import annotations
 import ast
 import json
 import re
-import sys
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -74,22 +73,6 @@ NOT_DRIVER_PACKAGES: dict[str, str] = {
 #: volatile buses stay in the kernel, no later slice moves them to a package.
 KERNEL_INTERNAL: frozenset[str] = frozenset(
     {"sandloom.core.eventing.volatile_provider"}
-)
-
-#: Top-level driver modules that ship as one package (idk-pkg-celery-move moves
-#: the three celery files together into ``sandloom-celery``): each imports the
-#: others of its group freely, nothing else of Sandloom beyond the driver kit.
-#: removed_by: idk-pkg-celery-move (the group goes when the files move; the
-#: kernel's own copies are then gone and the package scan covers them). A group
-#: member has no allowlist entry: ``test_a_sibling_group_member_has_no_allowlist_entry``.
-SIBLING_GROUPS: tuple[frozenset[str], ...] = (
-    frozenset(
-        {
-            "sandloom.core.drivers.celery_broker_probe",
-            "sandloom.core.drivers.celery_taskqueue",
-            "sandloom.core.drivers.celery_worker",
-        }
-    ),
 )
 
 KERNEL = "sandloom.core"
@@ -382,12 +365,10 @@ def violations(
         listed = set(allowed.get(rel, ()))
         own = _own_package(path, root)
         module = _module_name(path, root)
-        group = next((g for g in SIBLING_GROUPS if module in g), frozenset())
         found = {
             name
             for name in sandloom_imports(path, module)
             if not _is_driverkit(name)
-            and name not in group
             # a file of drivers/<pkg>/ importing its own package is not a
             # kernel import: the package moves as one
             and not (own and (name == own or name.startswith(own + ".")))
@@ -620,67 +601,6 @@ def test_a_driver_subpackage_is_scanned_and_its_own_imports_are_exempt(
     ]
 
 
-def test_a_sibling_group_exempts_only_its_own_members(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    src = _plant(
-        tmp_path,
-        {
-            "sandloom/core/drivers/a.py": (
-                "from sandloom.core.drivers.b import B\n"
-                "from sandloom.core.drivers.c import C\n"
-                "from sandloom.core.infra.config import InstanceConfig\n"
-            ),
-            "sandloom/core/drivers/b.py": "from sandloom.driverkit import observe\n",
-            "sandloom/core/drivers/c.py": "from sandloom.core.drivers.a import A\n",
-        },
-    )
-    monkeypatch.setattr(
-        sys.modules[__name__],
-        "SIBLING_GROUPS",
-        (frozenset({"sandloom.core.drivers.a", "sandloom.core.drivers.b"}),),
-    )
-    files = [src / f"sandloom/core/drivers/{n}.py" for n in "abc"]
-    assert violations(files, src, tmp_path, {}) == [
-        "src/sandloom/core/drivers/a.py: sandloom.core.drivers.c",
-        "src/sandloom/core/drivers/a.py: sandloom.core.infra.config",
-        "src/sandloom/core/drivers/c.py: sandloom.core.drivers.a",
-    ]
-
-
-def test_every_sibling_group_member_is_a_driver_file() -> None:
-    found = {_module_name(p, SRC) for p in builtin_driver_files()}
-    assert all(group <= found for group in SIBLING_GROUPS)
-
-
-def group_members_with_entries(
-    groups: tuple[frozenset[str], ...], entries: list[dict[str, Any]]
-) -> list[str]:
-    """The allowlist files that are members of a sibling group (a group member
-    imports only the driver kit and its siblings: an entry would hide an import
-    the group's exemption must not cover)."""
-    members = {
-        "src/" + module.replace(".", "/") + ".py"
-        for group in groups
-        for module in group
-    }
-    return sorted({e["file"] for e in entries} & members)
-
-
-def test_a_sibling_group_member_has_no_allowlist_entry() -> None:
-    assert group_members_with_entries(SIBLING_GROUPS, _entries()) == []
-
-
-def test_a_group_member_with_an_allowlist_entry_bites() -> None:
-    entries = [
-        {"file": _D + "celery_worker.py", "imports": ["sandloom.core.x"]},
-        {"file": _D + "redis_cache.py", "imports": ["sandloom.core.y"]},
-    ]
-    assert group_members_with_entries(SIBLING_GROUPS, entries) == [
-        _D + "celery_worker.py"
-    ]
-
-
 def test_the_scan_reaches_the_driver_subpackages() -> None:
     found = {p.relative_to(DRIVERS).as_posix() for p in builtin_driver_files()}
     assert "redis_eventbus/streams_transport.py" in found
@@ -723,8 +643,8 @@ def test_the_seed_holds_the_live_allowlist() -> None:
     # directly (the driver kit's redis_client wrapper hid that edge and inverted
     # the layering); removed_by idk-pkg-redis-streams.
     # 84 -> 79 (idk-pkg-celery, -5): the three celery files import only the driver
-    # kit (the probe's timeout is a driver option); their sibling imports are the
-    # package's own (SIBLING_GROUPS).
+    # kit (the probe's timeout is a driver option); they moved to the
+    # sandloom-celery package, whose files the package scan covers.
     # 79 -> 75 (idk-redis-cache-driverkit, -4): redis_cache imports only the
     # driver kit.
     assert sum(len(v) for v in SEEDED.values()) <= 75

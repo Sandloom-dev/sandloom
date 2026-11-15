@@ -1,4 +1,4 @@
-"""The Celery worker host of the built-in ``celery`` taskqueue driver.
+"""The Celery worker host of the ``celery`` taskqueue driver (``sandloom-celery``).
 
 Everything Celery-specific about running tasks lives here, behind the port
 (:class:`~sandloom.driverkit.WorkerHost`): the kernel names no Celery object.
@@ -13,14 +13,14 @@ Everything Celery-specific about running tasks lives here, behind the port
   (:meth:`WorkerBoot.on_process_start` / ``on_process_stop``) and ``beat_init``
   (the lease wrapper of the scheduler).
 * :func:`get_default_app`, the sole builder of the process-wide ``default``
-  Celery app, which the provider (``celery_taskqueue``) and this host share.
+  Celery app, which the provider (``sandloom_celery.taskqueue``) and this host
+  share.
 
-**The importable Celery app.** ``celery -A sandloom.core.drivers.celery_worker
+**The importable Celery app.** ``celery -A sandloom_celery.worker
 inspect|call|status`` and Flower use the module attribute ``app`` (also
 ``celery`` and ``celery_app``): the ``default`` app, built lazily from
 ``BROKER_URL``, with no composition root and no task registered. It is the
-driver's own interface, not a shim; it moves to ``sandloom_celery.app`` with the
-package (``idk-pkg-celery``).
+driver's own interface, not a shim.
 
 **Process options.** The port carries the log level and the scheduler's state
 file (``state_file``: Celery beat's ``--schedule``, default ``celerybeat-schedule``
@@ -157,7 +157,7 @@ def build_named_app(name: str, broker: str, backend: str | None) -> Any:
 
 
 def __getattr__(name: str) -> Any:
-    # ``celery -A sandloom.core.drivers.celery_worker`` looks up ``app`` (or
+    # ``celery -A sandloom_celery.worker`` looks up ``app`` (or
     # ``celery``); building lazily keeps a plain import free of side effects.
     if name in {"app", "celery", "celery_app"}:
         if _default_app is not None:
@@ -184,7 +184,7 @@ _refusal_connected = False
 
 def _refuse_unhosted_runs(app: Any) -> Any:
     """Mark ``app`` as the importable one and make ``celery -A
-    sandloom.core.drivers.celery_worker worker|beat`` refuse to start.
+    sandloom_celery.worker worker|beat`` refuse to start.
 
     The importable app registers no task (the task table is built by
     ``sandloom worker`` / ``sandloom beat``): a worker on it would consume

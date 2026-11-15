@@ -15,10 +15,10 @@ from typing import Any
 
 from celery import Celery
 from celery.schedules import crontab
+from sandloom_celery.worker import BeatLease, LeasedScheduler
 from sandloom_redis.lease import RedisLeaseProvider
 
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers.celery_worker import BeatLease, LeasedScheduler
 
 _APP = Celery("dedupe", broker="memory://", set_as_current=False)
 

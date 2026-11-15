@@ -1055,6 +1055,12 @@ class InfraRegistry:
                 f"No driver {cfg.driver!r} registered for capability {capability!r}",
                 fix="register the driver or pick a configured one",
             )
+        # Before the features: advertising them loads the driver's class, and a
+        # driver of a package that is not installed (a lazy install-hint row)
+        # must be refused with the install hint, not a failed import.
+        unavailable = self._unavailable(capability, instance, features=features)
+        if unavailable is not None:
+            raise unavailable
         if features:
             unknown = features - spec.features
             if unknown:
@@ -1075,9 +1081,6 @@ class InfraRegistry:
                     fix=f"configure {capability}/{instance} with a driver that "
                     f"supports {sorted(missing)}",
                 )
-        unavailable = self._unavailable(capability, instance, features=features)
-        if unavailable is not None:
-            raise unavailable
         self._requested.add((capability, instance))
 
     def check_module_requirements(

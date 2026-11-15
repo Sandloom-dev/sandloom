@@ -10,13 +10,13 @@ from uuid import uuid4
 
 import pytest
 from celery import Celery
+from sandloom_celery.taskqueue import CeleryTaskQueueProvider
 
 from sandloom.core.di import (
     TaskEnqueueConflict,
     TaskEnqueueUnavailable,
     TaskEnqueueUncertain,
 )
-from sandloom.core.drivers.celery_taskqueue import CeleryTaskQueueProvider
 from sandloom.core.infra.errors import InvalidArgument, Unsupported
 from sandloom.core.tasks import enqueue
 from sandloom.core.tasks.queue import KernelTaskQueue

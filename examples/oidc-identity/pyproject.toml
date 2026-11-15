@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "sandloom[redis,celery]>=0.7.0a13,<0.8",
     "sandloom-redis>=0.7.0a13,<0.8",
+    "sandloom-celery>=0.7.0a13,<0.8",
     "sandloom-tenancy>=0.7.0a13,<0.8",
     "sandloom-billing>=0.7.0a13,<0.8",
 ]
@@ -86,5 +87,6 @@ exclude = ["/migrations/", ".*/tests/.*"]
 [tool.uv.sources]
 sandloom = { path = "../../packages/sandloom", editable = true }
 sandloom-redis = { path = "../../packages/sandloom-redis", editable = true }
+sandloom-celery = { path = "../../packages/sandloom-celery", editable = true }
 sandloom-tenancy = { path = "../../packages/sandloom-tenancy", editable = true }
 sandloom-billing = { path = "../../packages/sandloom-billing", editable = true }

@@ -194,6 +194,7 @@ def test_every_sourced_distribution_is_a_direct_dependency(tmp_path: Path) -> No
     assert sourced == {
         "sandloom",
         "sandloom-redis",
+        "sandloom-celery",
         "sandloom-identity",
         "sandloom-tenancy",
         "sandloom-billing",

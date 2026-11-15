@@ -17,10 +17,10 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
+from sandloom_celery.taskqueue import CeleryTaskQueueProvider
 
 from sandloom.core import di
 from sandloom.core.drivers.bootstrap import build_infra_registry
-from sandloom.core.drivers.celery_taskqueue import CeleryTaskQueueProvider
 from sandloom.core.facade import CoreFacade
 from sandloom.core.infra.active import use_infra
 from sandloom.core.infra.capabilities import CapabilityRef

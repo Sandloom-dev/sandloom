@@ -4,16 +4,17 @@ type: how-to
 
 # Publishing packages to PyPI
 
-Sandloom publishes seven distributions through
+Sandloom publishes nine distributions through
 [Release (PyPI)](https://github.com/Sandloom-dev/sandloom/actions/workflows/release.yml):
 `sandloom`, `sandloom-standard`, `sandloom-identity`, `sandloom-tenancy`,
-`sandloom-billing`, `sandloom-admin` and `sandloom-s3`. `sandloom-standard` holds the standard
+`sandloom-billing`, `sandloom-admin`, `sandloom-s3`, `sandloom-redis` and
+`sandloom-celery`. `sandloom-standard` holds the standard
 composition root (`sandloom_standard.main`) that `sandloom[standard]` installs:
 release it before or together with a `sandloom` version whose `standard` extra
 requires it.
 Versions are independent. A manual run can select one package or `all` for a
 coordinated release. A per-package tag selects only that package.
-The current coordinated alpha is `0.7.0a13` for all seven packages. <!-- sandloom-release -->
+The current coordinated alpha is `0.7.0a13` for all nine packages. <!-- sandloom-release -->
 
 ## Authentication and approval
 
@@ -114,7 +115,7 @@ uv run python tools/checks/check_benchmark_dependencies.py --write
 
 <!-- sandloom-release --> The command above prepares the `0.7.0a13` release.
 The canonical current framework version is `packages/sandloom/pyproject.toml`.
-The helper updates all seven package versions, compatible dependency floors,
+The helper updates all nine package versions, compatible dependency floors,
 example manifests, scaffold requirements, CLI help and current documentation.
 It discovers package pins in source documentation; prose that describes the
 current release carries an inline `<!-- sandloom-release -->` marker.
@@ -156,6 +157,12 @@ The other tag prefixes are `sandloom-identity-v`, `sandloom-tenancy-v` and
 releases through a manual run. No tag pattern of the environment allows its
 tag. Its `tag_release` is false in `packages.json`, so the plan step refuses
 that tag.
+
+A new driver package (`sandloom-redis`, `sandloom-celery`) is first released
+with `all`, after the version bump. Set its `tag_release` only after that
+release. The kernel and a driver package require each other. A version bump of
+both therefore goes out with `all`. A tag releases a package only when its
+sibling is already on PyPI at that version.
 
 Pass `all` or the package name in the `package` input. A manual run can select
 `sandloom-admin` alone, and the owner's approval still gates its upload.

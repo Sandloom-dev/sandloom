@@ -1,6 +1,6 @@
 """The beat singleton lease: the kernel's holder (``FencedLease``), the kernel's
 resolution of the lease (``sandloom.core.worker.run_scheduler``) and the Celery
-side (``sandloom.core.drivers.celery_worker``), over a ``lease`` store (spec 5;
+side (``sandloom_celery.worker``), over a ``lease`` store (spec 5;
 review-map H-10).
 
 Two beats on one broker must not both schedule: the second stands by, takes
@@ -19,18 +19,18 @@ from typing import Any
 import pytest
 from celery import Celery, signals
 from celery.beat import Service
-
-from sandloom.core import worker
-from sandloom.core.config.settings import settings
-from sandloom.core.descriptors import HealthResult
-from sandloom.core.drivers import celery_worker
-from sandloom.core.drivers.celery_worker import (
+from sandloom_celery import worker as celery_worker
+from sandloom_celery.worker import (
     BeatLease,
     CeleryWorkerHost,
     LeasedScheduler,
     install_beat_lease,
     remove_beat_lease,
 )
+
+from sandloom.core import worker
+from sandloom.core.config.settings import settings
+from sandloom.core.descriptors import HealthResult
 from sandloom.core.drivers.memory_lease import MemoryLeaseProvider, _Held
 from sandloom.core.infra import fenced_lease
 from sandloom.core.infra.config import InstanceConfig
@@ -498,7 +498,7 @@ def test_beat_refuses_to_start_on_a_backend_that_refuses_with_the_real_cause(
     host = CeleryWorkerHost(lambda: app)
     store = _Refusing(name="beat", driver="memory", options={})
     boot = _Boot()
-    with caplog.at_level("CRITICAL", logger="sandloom.core.drivers.celery_worker"):
+    with caplog.at_level("CRITICAL", logger="sandloom_celery.worker"):
         code = host.run_scheduler(boot, lease=store, lease_name=_NAME)
     assert code == 1
     assert started == []  # beat never started: no first tick
