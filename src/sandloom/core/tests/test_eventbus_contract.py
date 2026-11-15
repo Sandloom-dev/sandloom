@@ -17,7 +17,12 @@ from sandloom.core.eventing.volatile_provider import (
 )
 from sandloom.core.infra.capabilities import EVENTBUS_CAPABILITY
 from sandloom.core.infra.config import InstanceConfig
-from sandloom.core.infra.errors import AlreadyExists, Unavailable, Unsupported
+from sandloom.core.infra.errors import (
+    AlreadyExists,
+    InvalidArgument,
+    Unavailable,
+    Unsupported,
+)
 from sandloom.core.infra.ports._base import InfraProvider
 from sandloom.core.infra.ports.eventbus import (
     ConsumerInfo,
@@ -253,6 +258,63 @@ def test_a_bus_over_a_transport_without_durable_is_not_durable() -> None:
     assert "durable" not in bus.bus_features
     assert bus.transport_features == frozenset({"inspection"})
     assert declared_features(MemoryTransport()) == MemoryTransport.supported_features
+
+
+def test_the_bus_refuses_a_retention_that_is_not_a_retention() -> None:
+    """The purge guards read ``retention()``: a transport answering anything
+    else breaks the contract, it is never cast into one."""
+
+    class _Broken(MemoryTransport):
+        def retention(self) -> Any:
+            return {"max_age_seconds": 60}
+
+    bus = StreamsEventBus(InMemorySchemaRegistry(), _Broken())
+    with pytest.raises(InvalidArgument, match="not a Retention"):
+        bus.retention()
+    good = StreamsEventBus(InMemorySchemaRegistry(), MemoryTransport())
+    assert good.retention() == MemoryTransport().retention()
+
+
+def test_a_bus_states_its_transport_and_durable_transport_never_skips() -> None:
+    from sandloom.core.eventing.bus_base import BaseEventBus, durable_transport
+    from sandloom.core.eventing.memory_bus import InMemoryEventBus
+
+    schemas = InMemorySchemaRegistry()
+    transport = MemoryTransport()
+    assert StreamsEventBus(schemas, transport).transport is transport
+    assert InMemoryEventBus(schemas).transport is None
+    assert durable_transport(InMemoryEventBus(schemas)) is None
+    assert durable_transport(object()) is None  # a plain test bus
+    durable = StreamsEventBus(schemas, _DurableTransport())
+    assert "durable" in durable.bus_features
+    assert durable_transport(durable) is durable.transport
+
+    class _DurableNoTransport(BaseEventBus):
+        bus_features = frozenset({"durable"})
+
+        async def _publish_to_transport(self, channel: str, message: Any) -> None: ...
+
+        async def subscribe(self, channel: str, callback: Any) -> Any: ...
+
+        def unsubscribe(self, channel: str, callback: Any) -> None: ...
+
+    with pytest.raises(InvalidArgument, match="durable"):
+        durable_transport(_DurableNoTransport(schemas))
+
+
+def test_the_plainest_bus_facts_claim_nothing() -> None:
+    """``BusFacts`` defaults match its docstring; the kernel's buses say True."""
+    from sandloom.core.eventing.bus_base import BaseEventBus, BusFacts
+
+    plain = BusFacts()
+    assert not (plain.supports_prevalidated or plain.supports_preflighted)
+    assert not (plain.supports_batch_publish or plain.in_process)
+    assert BaseEventBus.supports_prevalidated is True
+    assert BaseEventBus.supports_batch_publish is True
+
+
+class _DurableTransport(MemoryTransport):
+    supported_features = frozenset({"durable"})
 
 
 # -- operations and errors ---------------------------------------------------

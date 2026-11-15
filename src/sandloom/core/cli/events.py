@@ -60,7 +60,7 @@ from typing import Any
 
 import sandloom.core.sql_alchemy.durable_inbox as _durable_inbox
 from sandloom.core.composition import load_composition_core
-from sandloom.core.guarantee_windows import inbox_purge_problems
+from sandloom.core.guarantee_windows import configured_inbox_purge_problems
 from sandloom.core.tasks.event_ops import (
     outbox_list_dead,
     outbox_purge,
@@ -92,15 +92,19 @@ async def inbox_purge(
 
     Deletes in batches of ``batch`` rows, each in its own short Unit of Work,
     so a large backlog never becomes one long transaction. Refused when
-    ``days`` is inside the redelivery window (``EVENT_STREAM_RETENTION_SECONDS``
-    + a margin, :mod:`sandloom.core.guarantee_windows`) unless ``force``: a claim
-    purged before its event's last possible redelivery lets it apply twice.
+    ``days`` is inside the redelivery window (the configured stream retention,
+    ``EVENT_STREAM_RETENTION_SECONDS``, + a margin,
+    :mod:`sandloom.core.guarantee_windows`) or the retention cannot be
+    determined from the configuration, unless ``force``: a claim purged before
+    its event's last possible redelivery lets it apply twice.
     """
     if days <= 0:
         raise SystemExit("error: --inbox-days must be > 0")
     if batch <= 0:
         raise SystemExit("error: --batch must be > 0")
-    problems = inbox_purge_problems(core.event_bus.retention(), days)
+    # The retention the deployment's bus is CONFIGURED with, never this
+    # process's live bus (a volatile one here would read as "no redelivery").
+    problems = configured_inbox_purge_problems(core.settings, days)
     if problems and not force:
         raise SystemExit(f"error: {problems[0].message} (pass --force to purge anyway)")
     cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)

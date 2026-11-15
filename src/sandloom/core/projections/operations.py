@@ -27,6 +27,8 @@ from typing import Any
 
 from sandloom.core.config.settings import settings
 from sandloom.core.effects import relay_retry_horizon_seconds
+from sandloom.core.eventing.bus_base import durable_transport
+from sandloom.core.infra.config import configured_stream_retention_seconds
 from sandloom.core.infra.errors import Unsupported
 from sandloom.core.projections.descriptors import (
     ProjectionConsumerDescriptor,
@@ -112,8 +114,8 @@ async def oldest_dlq_age_s(
 ) -> float:
     """Age in seconds of the oldest dead-lettered event of ``channels`` (by
     its original stream entry), 0 without a DLQ."""
-    transport = getattr(core.event_bus, "transport", None)
-    if transport is None or not hasattr(transport, "list_dlq"):
+    transport = durable_transport(core.event_bus)
+    if transport is None or "dlq_ops" not in core.event_bus.bus_features:
         return 0.0
     now_ms = (now or datetime.now(UTC)).timestamp() * 1000.0
     oldest = 0.0
@@ -129,21 +131,34 @@ async def oldest_dlq_age_s(
     return oldest
 
 
-def _stream_retention_s(core: Any) -> float:
-    """The age bound of the event streams, as the bus's transport reports it
-    (``0``: unbounded, so :func:`purge_floor_seconds` refuses every purge).
+def _stream_retention_s(core: Any, *, force: bool = False) -> float:
+    """The age bound of the event streams the deployment's bus is CONFIGURED
+    with (``eventbus.default`` ``retention_seconds`` of the resolved ``INFRA``;
+    ``0``: unbounded, so :func:`purge_floor_seconds` refuses every purge).
 
-    A bus without a durable transport keeps nothing a rebuild could replay: only
-    the relay horizon and the dead letters bound the purge there, so the stream
-    term is one second (positive: it does not read as unbounded).
+    A configuration read, never this process's live bus: a CLI process with a
+    volatile bus of its own would read "no replay window" for a deployment whose
+    streams keep seven days. A retention that cannot be determined (a volatile
+    ``memory`` / ``redis`` bus, a driver without ``retention_seconds``) refuses
+    the purge unless ``force``, which keeps only the relay horizon and the dead
+    letters as bounds (the stream term is one second: positive, so it does not
+    read as unbounded).
     """
-    retention = core.event_bus.retention()
-    if retention is None:
+    seconds = configured_stream_retention_seconds(core.settings)
+    if seconds is not None:
+        return float(seconds)
+    if force:
         return 1.0
-    return float(retention.max_age_seconds or 0)
+    raise PurgeRefused(
+        "the stream retention of the deployment's event bus cannot be determined "
+        "from its configuration (EVENT_BUS_BACKEND resolves to a bus without a "
+        "retention_seconds option; set EVENT_BUS_BACKEND=streams and "
+        "EVENT_STREAM_RETENTION_SECONDS): a replay could resurrect a purged row "
+        "(--force purges anyway)"
+    )
 
 
-async def purge_floor(core: Any, descriptor: Any) -> PurgeFloor:
+async def purge_floor(core: Any, descriptor: Any, *, force: bool = False) -> PurgeFloor:
     """The purge floor of ``descriptor``'s projection in this deployment."""
     channels = tuple(descriptor.source_events)
     dead = 0.0
@@ -151,7 +166,7 @@ async def purge_floor(core: Any, descriptor: Any) -> PurgeFloor:
         async with db_session(database) as session:
             dead = max(dead, await oldest_dead_outbox_age_s(session, channels))
     return PurgeFloor(
-        stream_retention_s=_stream_retention_s(core),
+        stream_retention_s=_stream_retention_s(core, force=force),
         relay_horizon_s=relay_retry_horizon_seconds(settings),
         oldest_dlq_age_s=await oldest_dlq_age_s(core, channels),
         oldest_dead_outbox_age_s=dead,
@@ -159,10 +174,16 @@ async def purge_floor(core: Any, descriptor: Any) -> PurgeFloor:
 
 
 async def purge_projection_tombstones(
-    name: str, *, older_than: timedelta, core: Any | None = None
+    name: str,
+    *,
+    older_than: timedelta,
+    core: Any | None = None,
+    force: bool = False,
 ) -> int:
     """Purge ``name``'s tombstones older than ``older_than`` (refused below
-    the purge floor or during a rebuild, :class:`PurgeRefused`)."""
+    the purge floor or during a rebuild, :class:`PurgeRefused`). ``force``
+    accepts a stream retention the configuration does not state (see
+    :func:`_stream_retention_s`); it never lowers a floor that is known."""
     core = _core(core)
     descriptor = _descriptor(core, name)
     purge = getattr(descriptor, "purge", None)
@@ -176,7 +197,7 @@ async def purge_projection_tombstones(
     return await purge_tombstones(
         name,
         older_than=older_than,
-        floor=await purge_floor(core, descriptor),
+        floor=await purge_floor(core, descriptor, force=force),
         watermarks=watermark_store(descriptor.storage),
         delete_tombstones=delete,
     )

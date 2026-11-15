@@ -565,7 +565,7 @@ def _batch_publish_capable(bus: Any) -> bool:
     would only widen a failure to the whole batch, so the relay keeps
     publishing row by row there.
     """
-    return isinstance(bus, _bus_base.BaseEventBus) and bus.native_batch_publish
+    return isinstance(bus, _bus_base.BusFacts) and bus.native_batch_publish
 
 
 _PUBLISH_MANY_SUPPORT: dict[type, bool] = {}

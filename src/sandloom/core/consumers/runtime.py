@@ -18,7 +18,7 @@ from sandloom.core.consumers.callbacks import (
     _side_effect_callback,
     subscribe_to_bus,
 )
-from sandloom.core.eventing.streams_bus import StreamsEventBus
+from sandloom.core.eventing.bus_base import BaseEventBus, durable_transport
 from sandloom.core.eventing.subscriptions import SubscriptionState
 from sandloom.core.eventing.transport_base import service_name as _configured_service
 from sandloom.core.observability.metrics_utils import safe_inc
@@ -27,6 +27,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from sandloom.core.facade import CoreFacade
 import sandloom.core.unit_of_work as _unit_of_work
 from sandloom.core.config.settings import settings
+from sandloom.core.infra.errors import InvalidArgument
 from sandloom.core.infra.ports.eventbus import GroupOwnedElsewhere, GroupOwner
 
 ConsumerKind = Literal["side_effect", "projection"]
@@ -305,10 +306,14 @@ class ConsumerRuntime:
         transport error here is ignored — the connect path retries — but an
         ownership conflict aborts startup with an actionable message.
         """
-        bus = self._core.event_bus
-        if not isinstance(bus, StreamsEventBus):
+        try:
+            transport = durable_transport(self._core.event_bus)
+        except InvalidArgument as exc:
+            # a durable bus without a transport never skips the claim (G-EVENT-02)
+            raise ConsumerConfigurationError(str(exc)) from exc
+        if transport is None:
             return  # a volatile bus keeps no group ownership
-        claim = bus.transport.claim_group_owner
+        claim = transport.claim_group_owner
 
         conflicts: list[str] = []
         for record in self._records:
@@ -562,10 +567,10 @@ class ConsumerRuntime:
                     if connected_at is not None:
                         last_connected_at = connected_at.isoformat()
             stats: dict[str, Any] | None = None
-            group_stats = getattr(self._core.event_bus, "group_stats", None)
-            if callable(group_stats) and record.group:
+            bus = self._core.event_bus
+            if isinstance(bus, BaseEventBus) and record.group:
                 try:
-                    stats = group_stats(record.channel, record.group)
+                    stats = bus.group_stats(record.channel, record.group)
                 except Exception:  # noqa: BLE001 - diagnostics only
                     stats = None
             status_items.append(

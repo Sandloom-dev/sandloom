@@ -45,7 +45,7 @@ from sandloom.core.composition import (
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import ModuleDescriptor
 from sandloom.core.descriptors.module_names import module_name as _module_name
-from sandloom.core.eventing.streams_bus import StreamsEventBus
+from sandloom.core.eventing.bus_base import durable_transport
 from sandloom.core.facade import CoreFacade  # facade used only for module descriptors
 from sandloom.core.infra.ports.eventbus import EventTransport
 from sandloom.core.migrations.migrations import (
@@ -199,11 +199,9 @@ def _extract_module(core: CoreFacade, args: argparse.Namespace) -> int:  # noqa:
                 if infra is not None:
                     await infra.aclose_all()
 
-        moved = (
-            asyncio.run(_transfer(bus.transport))
-            if isinstance(bus, StreamsEventBus)
-            else []
-        )
+        # a durable bus without a transport raises (never skipped silently)
+        transport = durable_transport(bus)
+        moved = asyncio.run(_transfer(transport)) if transport is not None else []
         verb = "transferred" if args.apply else "would transfer"
         for pair in moved:
             print(f"  streams group owner {verb}: {pair}: {source_id} -> {target_id}")

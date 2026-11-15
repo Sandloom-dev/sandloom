@@ -378,6 +378,38 @@ async def test_doctor_reports_each_section_and_exit_code() -> None:
     assert "FAIL" in report.render()
 
 
+async def test_doctor_consumers_warns_when_the_transport_declares_no_inspection() -> (
+    None
+):
+    """A transport that does not declare ``inspection`` is not "no durable
+    transport": the lag cannot be read, and the report says exactly that."""
+
+    class _Blind(MemoryTransport):
+        supported_features = frozenset({"durable"})
+
+    core = _core(**{"database:default": _Result("ok")})
+    core.event_bus = StreamsEventBus(InMemorySchemaRegistry(), _Blind())
+    report = doctor.Report()
+    await doctor.check_consumers(report, core, 2, lag_warn=1000)
+    (check,) = report.checks
+    assert (check.section, check.name, check.status) == (
+        "consumers",
+        "transport",
+        doctor.WARN,
+    )
+    assert "does not declare 'inspection'" in check.message
+    assert "no durable" not in check.message
+
+    from sandloom.core.eventing.memory_bus import InMemoryEventBus
+
+    core.event_bus = InMemoryEventBus(InMemorySchemaRegistry())
+    volatile = doctor.Report()
+    await doctor.check_consumers(volatile, core, 2, lag_warn=1000)
+    (skipped,) = volatile.checks
+    assert skipped.status == doctor.SKIP
+    assert "no durable" in skipped.message
+
+
 async def test_doctor_exit_codes() -> None:
     healthy = _core(**{"database:default": _Result("ok")})
     healthy.event_consumers = []

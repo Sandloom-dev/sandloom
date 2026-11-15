@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from sandloom.core.config.eventing import DEFAULT_EVENT_STREAM_RETENTION_SECONDS
 from sandloom.core.config.settings import settings
 from sandloom.core.eventing.transport_base import (
     _DEFAULT_MAX_DELIVERIES,
@@ -23,7 +24,7 @@ logger = logging.getLogger("sandloom.core.eventing.transport")
 
 #: The ``streams`` driver's retention options when a configuration leaves them
 #: out: entries older than 7 days are trimmed, no length bound (``0``: none).
-DEFAULT_RETENTION_SECONDS = 7 * 24 * 60 * 60
+DEFAULT_RETENTION_SECONDS = DEFAULT_EVENT_STREAM_RETENTION_SECONDS
 DEFAULT_MAX_LENGTH = 0
 
 

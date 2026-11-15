@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from sandloom.core.config.common import Environment
+from sandloom.core.config.eventing import DEFAULT_EVENT_STREAM_RETENTION_SECONDS
 from sandloom.core.config.settings import Settings
 
 #: Capabilities for which a ``default`` instance is synthesized from the flat
@@ -288,6 +289,13 @@ def eventbus_driver(settings: Any, instance: str = DEFAULT_INSTANCE) -> str | No
     ``None`` when ``instance`` is not configured. A malformed ``INFRA``
     raises :class:`InfraConfigError`, as loading the whole config would.
     """
+    found = _resolved_eventbus(settings).get(instance)
+    return found.driver if found is not None else None
+
+
+def _resolved_eventbus(settings: Any) -> dict[str, InstanceConfig]:
+    """The eventbus instances: ``EVENT_BUS_BACKEND`` resolved, ``INFRA`` applied
+    (options not yet filled from the settings)."""
     config: InfraConfig = {
         "eventbus": {
             DEFAULT_INSTANCE: InstanceConfig(
@@ -303,8 +311,38 @@ def eventbus_driver(settings: Any, instance: str = DEFAULT_INSTANCE) -> str | No
             raise InfraConfigError("INFRA must be a JSON object")
         if "eventbus" in raw:
             _overlay(config, {"eventbus": raw["eventbus"]})
-    found = config["eventbus"].get(instance)
-    return found.driver if found is not None else None
+    _fill_eventbus_defaults(config, settings, getattr(settings, "cache_url", None))
+    return config["eventbus"]
+
+
+#: The kernel's volatile event buses: no transport, so no stream retention.
+_VOLATILE_EVENTBUS_DRIVERS: frozenset[str] = frozenset({"memory", "redis"})
+
+
+def configured_stream_retention_seconds(
+    settings: Any, instance: str = DEFAULT_INSTANCE
+) -> int | None:
+    """The age bound, in seconds, the eventbus ``instance`` is CONFIGURED with
+    (``0``: entries are never trimmed by age): the ``retention_seconds`` option
+    of a transport-backed driver, as the kernel fills it from
+    ``EVENT_STREAM_RETENTION_SECONDS``.
+
+    A pure configuration read: no bus is built and no process's live bus is
+    asked, so a tool running in another process (a CLI with a volatile bus of
+    its own) learns the retention of the deployment's bus. ``None`` when it
+    cannot be determined: the instance is not configured, its driver is a
+    volatile one (``memory``, ``redis``) or its options carry no
+    ``retention_seconds``.
+    """
+    found = _resolved_eventbus(settings).get(instance)
+    if found is None or found.driver in _VOLATILE_EVENTBUS_DRIVERS:
+        return None
+    value = found.options.get("retention_seconds")
+    if value is None and found.driver == "streams":
+        value = DEFAULT_EVENT_STREAM_RETENTION_SECONDS
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
 
 
 #: ``option -> setting``: the bounds of a ``redis`` cache client, filled from
@@ -422,8 +460,10 @@ def load_infra_config(settings: Settings) -> InfraConfig:
 
 
 __all__ = [
+    "DEFAULT_EVENT_STREAM_RETENTION_SECONDS",
     "DEFAULT_INSTANCE",
     "KERNEL_INSTANCES",
+    "configured_stream_retention_seconds",
     "database_instance_url",
     "eventbus_driver",
     "fill_driver_defaults",

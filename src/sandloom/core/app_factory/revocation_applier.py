@@ -46,8 +46,8 @@ from sandloom.core.auth.marks import TOKENS_REVOKED_CHANNEL
 from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
 from sandloom.core.consumers.callbacks import EventConsumerDescriptor, EventEnvelope
 from sandloom.core.descriptors.module_names import module_name
+from sandloom.core.eventing.bus_base import durable_transport
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
-from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.infra.errors import Unsupported
 
 logger = logging.getLogger("sandloom.core.auth.applier")
@@ -490,12 +490,13 @@ async def _dead_letters(
     wanted = set(groups)
     counts: dict[tuple[str, str], int] = {}
     unknown: set[tuple[str, str]] = set()
-    if isinstance(bus, StreamsEventBus):
-        if "dlq_ops" not in bus.transport_features:
+    transport = durable_transport(bus)
+    if transport is not None:
+        if "dlq_ops" not in bus.bus_features:
             return DeadLetterReading()
         for channel in sorted({channel for channel, _ in wanted}):
             mine = {group for ch, group in wanted if ch == channel}
-            await _count_channel(bus.transport.list_dlq, channel, mine, counts, unknown)
+            await _count_channel(transport.list_dlq, channel, mine, counts, unknown)
         return DeadLetterReading(counts=counts, unknown=frozenset(unknown))
     if isinstance(bus, InMemoryEventBus):
         for channel, _message, _attempt in bus.dead_letters:

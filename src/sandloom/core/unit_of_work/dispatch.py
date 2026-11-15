@@ -104,7 +104,7 @@ async def _publish_in_order(
 
 def _batch_capable(bus: Any) -> bool:
     """A framework bus with ``publish_event_batch`` (test doubles: per event)."""
-    return isinstance(bus, _bus_base.BaseEventBus) and bus.supports_batch_publish
+    return isinstance(bus, _bus_base.BusFacts) and bus.supports_batch_publish
 
 
 async def _publish_prefix(

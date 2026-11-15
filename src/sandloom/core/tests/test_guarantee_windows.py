@@ -39,7 +39,8 @@ def _ids(problems: list[gw.Problem]) -> list[str]:
 
 
 def test_defaults_hold_every_window() -> None:
-    assert gw.guarantee_window_problems(_settings(), inbox_days=8) == []
+    week = Retention(max_age_seconds=7 * 86400, max_length=None)
+    assert gw.guarantee_window_problems(_settings(), inbox_days=8, retention=week) == []
     assert gw.guarantee_window_problems(_settings(is_prod=True)) == []
     # the relay switch is not a window (accepted-risks list: relay_disabled)
     assert gw.guarantee_window_problems(_settings(outbox_relay_enabled="off")) == []
@@ -87,6 +88,74 @@ def test_window_problems_take_the_retention_the_bus_reports() -> None:
     week = Retention(max_age_seconds=7 * 86400, max_length=None)
     problems = gw.guarantee_window_problems(_settings(), inbox_days=1, retention=week)
     assert _ids(problems) == [gw.INBOX_PURGE_BELOW_REDELIVERY]
+
+
+def test_the_inbox_window_requires_the_retention_it_is_checked_against() -> None:
+    """``inbox_days`` without ``retention=`` is a programming error, never a
+    silent "no replay window" (``None`` is a value to state)."""
+    with pytest.raises(TypeError, match="retention="):
+        gw.guarantee_window_problems(_settings(), inbox_days=1)
+    assert gw.guarantee_window_problems(_settings(), inbox_days=1, retention=None) == []
+
+
+@pytest.mark.parametrize(
+    ("settings", "days", "risky"),
+    [
+        # streams configured with the 7 days default
+        (
+            {
+                "event_bus_backend": "streams",
+                "event_stream_retention_seconds": 7 * 86400,
+            },
+            0.5,
+            True,
+        ),
+        (
+            {
+                "event_bus_backend": "streams",
+                "event_stream_retention_seconds": 7 * 86400,
+            },
+            8,
+            False,
+        ),
+        # unbounded retention: any purge
+        (
+            {"event_bus_backend": "streams", "event_stream_retention_seconds": 0},
+            365,
+            True,
+        ),
+        # production auto resolves to streams
+        ({"event_bus_backend": "auto", "is_prod": True}, 0.5, True),
+        # INFRA names the retention of the default instance
+        (
+            {
+                "event_bus_backend": "streams",
+                "infra": {"eventbus": {"default": {"retention_seconds": 3600}}},
+            },
+            1.05,
+            False,
+        ),
+        # a volatile bus states no retention: refused (never "no window")
+        ({"event_bus_backend": "memory"}, 365, True),
+        ({"event_bus_backend": "auto"}, 365, True),
+        ({"event_bus_backend": "redis"}, 365, True),
+    ],
+)
+def test_the_inbox_window_follows_the_configured_retention(
+    settings: dict[str, Any], days: float, risky: bool
+) -> None:
+    """The CLI's guard reads the retention the deployment's bus is configured
+    with, whatever bus its own process holds (G-INBOX-03)."""
+    problems = gw.configured_inbox_purge_problems(_settings(**settings), days)
+    assert _ids(problems) == ([gw.INBOX_PURGE_BELOW_REDELIVERY] if risky else [])
+
+
+def test_an_undetermined_retention_names_the_setting() -> None:
+    (problem,) = gw.configured_inbox_purge_problems(
+        _settings(event_bus_backend="memory"), 365
+    )
+    assert "EVENT_BUS_BACKEND" in problem.message
+    assert "EVENT_STREAM_RETENTION_SECONDS" in problem.settings
 
 
 def test_production_refuses_and_names_the_risk() -> None:
