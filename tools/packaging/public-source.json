@@ -3229,7 +3229,9 @@
     ".claude/agents/sandloom-implementer.md": "The owner's fleet agent types for tm-fleet runs in this repository; not part of the framework's public source.",
     ".claude/agents/sandloom-reviewer.md": "The owner's fleet agent types for tm-fleet runs in this repository; not part of the framework's public source.",
     ".claude/agents/sandloom-waiter.md": "The owner's fleet agent types for tm-fleet runs in this repository; not part of the framework's public source.",
-    ".claude/settings.json": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source."
+    ".claude/settings.json": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    "tests/architecture/test_task_done_checks.py": "Tests of the owner's fleet hook (.claude/hooks, excluded); not part of the framework's public source.",
+    ".tm/fleet-brief.md": "The owner's fleet rules for tm agents, like the tm-fleet skill and .claude/hooks; not part of the framework's public source."
   },
   "exclude_trees": {
     ".agents/skills/sandloom-registries": "The owner's fleet-agent reference skill (runs tools/agent_reference.py); not part of the framework's public source.",
