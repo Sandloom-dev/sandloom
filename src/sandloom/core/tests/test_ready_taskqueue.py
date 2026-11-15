@@ -28,7 +28,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-import sandloom.core.drivers.celery_taskqueue as _celery_taskqueue
+import sandloom.core.drivers.celery_worker as _celery_worker
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import (
     CapabilityRequirement,
@@ -91,7 +91,7 @@ def undeclared_has_a_tasks_module(
 @pytest.fixture(autouse=True)
 def fresh_default_app(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test builds its own default Celery app from the settings it sets."""
-    monkeypatch.setattr(_celery_taskqueue, "_default_app", None)
+    monkeypatch.setattr(_celery_worker, "_default_app", None)
 
 
 @pytest.fixture

@@ -8,17 +8,18 @@ connection whose loop is already closed (``Event loop is closed`` /
 ``attached to a different loop``). :func:`run_async` keeps one persistent loop
 per worker PROCESS, so the pool and the loop live (and die) together.
 
-Lifecycle (prefork Celery):
+Lifecycle (a host that forks task processes):
 
-* ``worker_process_init`` (after the fork) — drop any loop inherited from the
-  parent and start a fresh one for this child (:func:`reset_loop`).
-* ``worker_process_shutdown`` — run the registered async cleanups (the worker
+* ``WorkerBoot.on_process_start`` (after the fork) — drop any loop inherited from
+  the parent and start a fresh one for this child (:func:`reset_loop`).
+* ``WorkerBoot.on_process_stop`` — run the registered async cleanups (the worker
   registers "dispose the database engines / caches / registry instances") on
   that same loop, then close it (:func:`shutdown_loop`).
 
-:func:`install_celery_hooks` connects both (the framework worker does it in
-``build_worker_app``). The loop is also created lazily and re-created when the
-PID changes, so the solo pool, a script or a test works without the signals.
+The kernel's boot (:class:`sandloom.core.worker.KernelWorkerBoot`) calls both; the
+loop is also created lazily and re-created when the PID changes, so a host that
+forks nothing, a script or a test works without them. The kernel names no
+task-queue backend here.
 
 Concurrency comes from worker *processes*: calls are serialized per process
 (a lock), so a ``threads`` pool still works correctly, just without overlap.
@@ -48,7 +49,6 @@ _lock = threading.RLock()
 _loop: asyncio.AbstractEventLoop | None = None
 _loop_pid: int | None = None
 _cleanups: list[LoopCleanup] = []
-_hooks_installed = False
 _POST_COMMIT_DRAIN_SECONDS = 5.0
 
 
@@ -160,35 +160,9 @@ async def _as_coro(aw: Awaitable[Any]) -> Any:
     return await aw
 
 
-def _on_worker_process_init(**_: Any) -> None:
-    reset_loop()
-
-
-def _on_worker_process_shutdown(**_: Any) -> None:
-    shutdown_loop()
-
-
-def install_celery_hooks() -> None:
-    """Wire :func:`reset_loop` / :func:`shutdown_loop` to Celery's signals.
-
-    Celery is imported lazily (the kernel imports no task-queue backend at
-    import time); calling this more than once is a no-op.
-    """
-    global _hooks_installed
-    with _lock:
-        if _hooks_installed:
-            return
-        from celery import signals  # noqa: PLC0415 - cold: Celery is imported only by the worker and the celery taskqueue driver
-
-        signals.worker_process_init.connect(_on_worker_process_init, weak=False)
-        signals.worker_process_shutdown.connect(_on_worker_process_shutdown, weak=False)
-        _hooks_installed = True
-
-
 __all__ = [
     "LoopCleanup",
     "add_loop_cleanup",
-    "install_celery_hooks",
     "reset_loop",
     "run_async",
     "shutdown_loop",

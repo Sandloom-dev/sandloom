@@ -1,11 +1,13 @@
 """Built-in Celery task-queue driver.
 
 This driver is the SOLE constructor of Celery apps, including the process-wide
-``default`` one (:func:`get_default_app`). Named instances build their own
-Celery app from ``options['broker']`` / ``options['backend']``. The kernel only
-depends on the abstract :class:`TaskQueueProvider` — modules never import Celery
-directly. The framework worker (``sandloom.core.worker``) consumes the SAME app,
-resolved through the registry, so enqueue and execution share one namespace.
+``default`` one (:func:`~sandloom.core.drivers.celery_worker.get_default_app`).
+Named instances build their own Celery app from ``options['broker']`` /
+``options['backend']``. The kernel only depends on the abstract
+:class:`TaskQueueProvider` — modules never import Celery directly. The worker
+and the scheduler are this driver's host (:meth:`CeleryTaskQueueProvider.
+worker_host`, :mod:`sandloom.core.drivers.celery_worker`): it runs the SAME app,
+so enqueue and execution share one namespace.
 
 The driver reads no kernel setting (the kernel fills ``broker`` and
 ``backend`` from ``BROKER_URL`` / ``CACHE_URL``) and only publishes: enqueue
@@ -20,9 +22,9 @@ from __future__ import annotations
 
 import asyncio
 import functools
-import importlib
+import importlib.util
 import os
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any, Self, cast
@@ -31,19 +33,25 @@ from urllib.parse import urlsplit
 import orjson
 from pydantic import BaseModel, ConfigDict, Field
 
-from sandloom.core.descriptors import HealthResult
 from sandloom.core.drivers.celery_broker_probe import probe_broker
-from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
-from sandloom.core.infra.contracts import (
-    PeriodicSpec,
-    TaskQueueProvider,
-    TaskTable,
+from sandloom.core.drivers.celery_worker import (
+    CeleryWorkerHost,
+    build_named_app,
+    default_app_matches,
+    get_default_app,
 )
-from sandloom.core.infra.errors import InvalidArgument, Timeout, Unavailable
+from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
+from sandloom.driverkit import (
+    HealthResult,
+    InvalidArgument,
+    TaskQueueProvider,
+    Timeout,
+    Unavailable,
+)
 
 #: Features the Celery task-queue driver supports. ``periodic``: the worker
 #: registers each periodic task of the table and one beat per broker and module
-#: set runs it under a fenced lease (sandloom.core.worker, beat_lease).
+#: set runs it under a fenced lease (``celery_worker``).
 #: ``redelivery``: an ``at_least_once`` task is registered ``acks_late`` and
 #: ``reject_on_worker_lost``.
 CELERY_TASKQUEUE_FEATURES = frozenset({"delay", "periodic", "redelivery"})
@@ -68,10 +76,6 @@ class CeleryTaskQueueOptions(BaseModel):
     dedupe_ttl_seconds: int = Field(default=24 * 60 * 60, ge=1, le=604800)
 
 
-#: Process-wide ``default`` Celery app, built lazily from the ``default``
-#: instance's options, and the ``(broker, backend)`` it was built from.
-_default_app: Any | None = None
-_default_app_urls: tuple[str, str | None] | None = None
 #: Threads that run the blocking broker publish of ``send``.
 ENQUEUE_EXECUTOR_THREADS = 4
 _executor: ThreadPoolExecutor | None = None
@@ -89,94 +93,6 @@ def _enqueue_executor() -> ThreadPoolExecutor:
         )
         _executor_pid = pid
     return _executor
-
-
-def _apply_framework_defaults(app: Any) -> Any:
-    """Framework Celery defaults (shared by the enqueue side and the worker).
-
-    ``task_ignore_result``: tasks store no result unless they opt out with
-    ``@shared_task(ignore_result=False)`` — nothing in the framework reads
-    task results, and storing each one costs a backend write + TTL key.
-    """
-    app.conf.task_ignore_result = True
-    return app
-
-
-def get_default_app(broker: str, backend: str | None) -> Any:
-    """Return the process-wide ``default`` Celery app (built once, from the
-    ``default`` instance's ``broker`` and ``backend``)."""
-    global _default_app, _default_app_urls
-    if _default_app is None:
-        from celery import Celery  # local import: optional heavy dependency  # noqa: PLC0415 - cold: Celery is imported only by the worker and the celery taskqueue driver
-
-        _default_app = _apply_framework_defaults(
-            Celery("project", broker=broker, backend=backend)
-        )
-        _default_app_urls = (broker, backend)
-    return _default_app
-
-
-def _cron_fields(cron: str) -> dict[str, str]:
-    minute, hour, day_of_month, month_of_year, day_of_week = cron.split()
-    return {
-        "minute": minute,
-        "hour": hour,
-        "day_of_month": day_of_month,
-        "month_of_year": month_of_year,
-        "day_of_week": day_of_week,
-    }
-
-
-def _celery_task_for(name: str, run: Callable[[str, bytes], None]) -> Any:
-    """The Celery task body of the declared task ``name``: its message's
-    keyword arguments are the payload object, which ``run`` (the kernel's
-    ``run_task``) turns back into the payload model."""
-
-    def body(**payload: Any) -> None:
-        run(name, orjson.dumps(payload))
-
-    body.__name__ = name.rsplit(".", 1)[-1]
-    return body
-
-
-def register_task_table(
-    app: Any, table: TaskTable, run: Callable[[str, bytes], None]
-) -> None:
-    """Register ``table`` on the Celery ``app``: one task per entry (queue
-    routing, ``acks_late`` and ``reject_on_worker_lost`` for ``at_least_once``)
-    and the beat schedule of the periodic entries. A message runs ``run(name,
-    payload)``. ``idk-worker-port`` moves this behind the driver's host."""
-    routes: dict[str, dict[str, str]] = dict(app.conf.task_routes or {})
-    for name, spec in table.tasks.items():
-        app.task(
-            name=name,
-            acks_late=spec.at_least_once,
-            reject_on_worker_lost=spec.at_least_once,
-            ignore_result=True,
-        )(_celery_task_for(name, run))
-        if spec.queue != "default":
-            routes[name] = {"queue": spec.queue}
-    if routes:
-        app.conf.task_routes = routes
-    periodic = tuple(table.periodic)
-    if periodic:
-        app.on_after_finalize.connect(
-            functools.partial(_add_periodic_tasks, periodic=periodic), weak=False
-        )
-
-
-def _add_periodic_tasks(
-    sender: Any, *, periodic: Sequence[PeriodicSpec], **_: Any
-) -> None:
-    # Celery loads only where the beat is assembled (a module-level import would not).
-    crontab = importlib.import_module("celery.schedules").crontab
-
-    for spec in periodic:
-        sender.add_periodic_task(
-            crontab(**_cron_fields(spec.cron)),
-            sender.signature(spec.task),
-            name=spec.id,
-        )
 
 
 class CeleryTaskQueueProvider(TaskQueueProvider):
@@ -198,10 +114,22 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         name: str,
         driver: str,
         options: dict[str, object],
-        app: Any,
+        app: Any | None = None,
+        app_factory: Callable[[], Any] | None = None,
     ) -> None:
+        if (app is None) == (app_factory is None):
+            raise ValueError("pass exactly one of app and app_factory")
         super().__init__(name=name, driver=driver, options=options)
-        self._app = app
+        self._built_app = app
+        self._app_factory: Callable[[], Any] = app_factory or (lambda: app)
+
+    @property
+    def _app(self) -> Any:
+        """The Celery app, built on first use: the provider is built for a
+        health check or ``sandloom worker check`` too, which import no Celery."""
+        if self._built_app is None:
+            self._built_app = self._app_factory()
+        return self._built_app
 
     async def send(
         self,
@@ -340,15 +268,12 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         host = where.hostname or ""
         return f"{self.driver}:{where.scheme}://{host}{port}{where.path}"
 
-    def register_task_table(
-        self, table: TaskTable, run: Callable[[str, bytes], None]
-    ) -> None:
-        """Register ``table`` on this instance's Celery app (the worker boot):
-        one task per entry (queue routing, ``acks_late`` and
-        ``reject_on_worker_lost`` for ``at_least_once``) and the beat schedule
-        of the periodic entries. A message runs ``run(name, payload)``.
-        Celery-only, until ``idk-worker-port`` moves it behind the host."""
-        register_task_table(self._app, table, run)
+    def worker_host(self) -> CeleryWorkerHost:
+        """The Celery host of this instance's app: it consumes the queues the
+        kernel's task table declares and runs the beat under the kernel's
+        lease (:mod:`sandloom.core.drivers.celery_worker`). Connects to
+        nothing."""
+        return CeleryWorkerHost(lambda: self._app)
 
     async def health(self) -> HealthResult:
         """One bounded connection to this instance's broker
@@ -356,9 +281,6 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         building the provider sends nothing, so without it a broker outage
         was invisible."""
         return await probe_broker(self._app)
-
-    async def raw_backend(self) -> Any:
-        return self._app
 
 
 def _maybe_published(exc: Exception, instance: str) -> Unavailable | Timeout:
@@ -389,22 +311,22 @@ def create_celery_taskqueue(cfg: InstanceConfig) -> CeleryTaskQueueProvider:
     # No backend: no result backend (the framework stores no task result).
     broker, backend = options.broker, options.backend
 
-    if cfg.name == DEFAULT_INSTANCE and (
-        _default_app is None or _default_app_urls == (broker, backend)
-    ):
-        app = get_default_app(broker, backend)
-    else:
-        from celery import Celery  # local import: optional heavy dependency  # noqa: PLC0415 - cold: Celery is imported only by the worker and the celery taskqueue driver
+    # The app is built on first use, but a missing Celery fails here, at build:
+    # the registry answers it as an unavailable driver (a lookup, not an import).
+    if importlib.util.find_spec("celery") is None:
+        raise ModuleNotFoundError("No module named 'celery'", name="celery")
 
-        app = _apply_framework_defaults(
-            Celery(f"sandloom-{cfg.name}", broker=broker, backend=backend)
-        )
+    def build() -> Any:
+        if cfg.name == DEFAULT_INSTANCE and default_app_matches(broker, backend):
+            return get_default_app(broker, backend)
+        return build_named_app(cfg.name, broker, backend)
 
+    # The app is built on first use (a publish, a probe, the worker host).
     return CeleryTaskQueueProvider(
         name=cfg.name,
         driver=cfg.driver,
         options=dict(cfg.options),
-        app=app,
+        app_factory=build,
     )
 
 
@@ -412,6 +334,4 @@ __all__ = [
     "CeleryTaskQueueProvider",
     "CeleryTaskQueueOptions",
     "create_celery_taskqueue",
-    "get_default_app",
-    "register_task_table",
 ]

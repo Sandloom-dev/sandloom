@@ -10,8 +10,7 @@ from typing import Any
 import pytest
 from celery import Celery
 
-from sandloom.core import worker
-from sandloom.core.drivers import celery_taskqueue
+from sandloom.core.drivers import celery_taskqueue, celery_worker
 from sandloom.core.drivers.redis_cache import RedisCacheProvider
 from sandloom.core.testing import InMemoryCache
 from sandloom.core.testing.workers import worker_env_values
@@ -53,7 +52,7 @@ async def test_redis_batch_ops_round_trip() -> None:
 
 def test_worker_reliability_defaults() -> None:
     app = Celery("t", broker="memory://", backend="cache+memory://")
-    worker.configure_worker_reliability(app)
+    celery_worker.configure_worker_reliability(app)
     assert app.conf.task_ignore_result is True
     assert app.conf.worker_prefetch_multiplier == 1
     # acks_late stays an explicit per-task opt-in (idempotent tasks only).

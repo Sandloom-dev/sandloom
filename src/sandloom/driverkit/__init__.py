@@ -44,6 +44,7 @@ from sandloom.core.infra.errors import (
     Unavailable,
     Unsupported,
 )
+from sandloom.core.infra.fenced_lease import FencedLease
 from sandloom.core.infra.ports._base import InfraProvider
 from sandloom.core.infra.ports.atomic_store import AtomicStoreProvider
 from sandloom.core.infra.ports.broadcast import (
@@ -65,7 +66,12 @@ from sandloom.core.infra.ports.eventbus import (
     Retention,
     StreamInfo,
 )
-from sandloom.core.infra.ports.lease import Lease, LeaseHolder, LeaseProvider
+from sandloom.core.infra.ports.lease import (
+    Lease,
+    LeaseHolder,
+    LeaseProvider,
+    LeaseStore,
+)
 from sandloom.core.infra.ports.notification import Notification, NotifierProvider
 from sandloom.core.infra.ports.objectstore import (
     ObjectContent,
@@ -78,6 +84,8 @@ from sandloom.core.infra.ports.taskqueue import (
     TaskQueueProvider,
     TaskSpec,
     TaskTable,
+    WorkerBoot,
+    WorkerHost,
 )
 from sandloom.core.sql_alchemy.dbapi import (
     DBAPI_CAPABILITIES,
@@ -124,9 +132,11 @@ __all__ = [
     "PartialPublish",
     "Retention",
     "StreamInfo",
+    "FencedLease",
     "Lease",
     "LeaseHolder",
     "LeaseProvider",
+    "LeaseStore",
     "Subscription",
     "CapabilityRef",
     "ConflictInsert",
@@ -149,6 +159,8 @@ __all__ = [
     "TaskSpec",
     "TaskTable",
     "UnitSession",
+    "WorkerBoot",
+    "WorkerHost",
     "DriverCounter",
     "DriverHistogram",
     "Observe",

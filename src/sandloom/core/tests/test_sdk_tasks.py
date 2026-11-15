@@ -12,7 +12,7 @@ import pytest
 from celery import Celery
 from pydantic import BaseModel
 
-from sandloom.core.drivers.celery_taskqueue import register_task_table
+from sandloom.core.drivers.celery_worker import register_task_table
 from sandloom.core.infra.errors import InvalidArgument
 from sandloom.core.tasks.registry import (
     build_task_table,
@@ -222,7 +222,11 @@ def test_the_celery_worker_registers_the_table() -> None:
 
     app = Celery("table", broker="memory://", set_as_current=False)
     try:
-        register_task_table(app, build_task_table([__name__]), run_task)
+        register_task_table(
+            app,
+            build_task_table([__name__]),
+            lambda name, payload, *, task_id: run_task(name, payload),
+        )
         app.finalize()
         registered = app.tasks[celery_charge.name]
         assert registered.acks_late and registered.reject_on_worker_lost

@@ -79,7 +79,12 @@ CASES: dict[str, tuple[dict[str, Any], str]] = {
 #: entry point -> the code its process runs first
 ENTRY_POINTS = {
     "app": "import sandloom.main",
-    "worker": "from sandloom.core.worker import get_worker_app; get_worker_app()",
+    "worker": (
+        "from sandloom.core.worker import KernelWorkerBoot, load_composition_core, "
+        "resolve_worker_host; core = load_composition_core(); "
+        "provider, _ = resolve_worker_host(core, 'default'); "
+        "KernelWorkerBoot(core, provider, 'default').boot()"
+    ),
     "migrate": ("from sandloom.core.cli.migrate import main; main(['databases'])"),
     "cli": "import sys; sys.argv = ['sandloom', 'config', 'dump']; import sandloom; sandloom.main()",
 }

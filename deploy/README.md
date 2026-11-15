@@ -260,7 +260,8 @@ second beat started by mistake (a scaled-up replica, a manual `celery beat`
 left running, a k8s rollout that overlaps old and new pods) would send every
 periodic task twice. The framework beat therefore schedules only while it
 holds a fenced lease of the `lease` instance `INFRA.lease.beat`
-(`sandloom.core.infra.fenced_lease`, `sandloom.core.beat_lease`):
+(`sandloom.core.infra.fenced_lease`; the scheduler of the Celery driver,
+`sandloom.core.drivers.celery_worker`, runs only while it holds it):
 
 * the key is `sandloom:beat:lease:<scope>`, the scope a digest of the broker URL,
   the taskqueue instance and the sorted `SANDLOOM_MODULES` — replicas of one

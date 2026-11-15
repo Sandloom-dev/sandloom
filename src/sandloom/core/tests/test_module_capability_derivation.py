@@ -217,6 +217,9 @@ def test_periodic_is_a_taskqueue_feature_only_celery_advertises() -> None:
 
 
 class _SendOnly(TaskQueueProvider):
+    def worker_host(self):  # type: ignore[no-untyped-def]
+        raise NotImplementedError
+
     async def send(
         self,
         task,

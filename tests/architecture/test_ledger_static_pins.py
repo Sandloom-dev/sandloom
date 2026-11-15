@@ -94,6 +94,9 @@ RAW_ENV_BASELINE: dict[str, int] = {
     "sandloom/core/app_factory/config.py": 1,
     "sandloom/core/auth/hashing.py": 2,
     "sandloom/core/cli/extract.py": 1,
+    # The importable Celery app (``celery -A``, Flower) reads BROKER_URL itself: a
+    # driver imports no kernel setting. It leaves with the driver (idk-pkg-celery).
+    "sandloom/core/drivers/celery_worker.py": 1,
     "sandloom/core/cli/gunicorn_conf.py": 14,
     "sandloom/core/cli/project.py": 1,
     "sandloom/core/composition.py": 1,

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import timedelta
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -54,6 +55,9 @@ class _Broken(TaskQueueProvider):
     def __init__(self, defect: str) -> None:
         super().__init__(name="broken", driver="broken", options={})
         self.defect = defect
+
+    def worker_host(self) -> Any:
+        raise NotImplementedError
 
     async def send(
         self,

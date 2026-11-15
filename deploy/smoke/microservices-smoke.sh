@@ -106,7 +106,7 @@ case "$worker_health" in
   healthy|starting) ;;
   *) fail "identity-worker health is '$worker_health'" ;;
 esac
-TASK_ID="$("${COMPOSE[@]}" exec -T identity-worker celery -A sandloom.core.worker call \
+TASK_ID="$("${COMPOSE[@]}" exec -T identity-worker celery -A sandloom.core.drivers.celery_worker call \
   sandloom_identity.tasks.cleanup_expired_refresh_tokens 2>/dev/null | tail -n 1 | tr -d '\r')"
 [ -n "$TASK_ID" ] || fail "could not enqueue a worker task"
 deadline=$(( $(date +%s) + 60 ))

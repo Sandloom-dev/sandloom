@@ -15,38 +15,43 @@ import pytest
 
 from sandloom.core.cli import worker as worker_cli
 
+#: The settings a worker process loads (nothing is connected to: the heartbeat
+#: check reads a file and the dying worker uses an in-memory broker).
+_SERVICE_ENV = {
+    "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:1/db",
+    "CACHE_URL": "redis://127.0.0.1:1/0",
+    "BROKER_URL": "redis://127.0.0.1:1/1",
+    "JWT_SECRET": "x" * 40,
+}
 
-class _FakeApp:
-    """Stands in for the worker app AND records what Celery's CLI is asked to run."""
 
-    def __init__(self, result: object = None) -> None:
-        self.argv: list[str] | None = None
+class _Kernel:
+    """Stands in for ``sandloom.core.worker``: records what the CLI asks of it."""
+
+    def __init__(self, result: int = 0) -> None:
         self.result = result
+        self.worker: dict[str, Any] | None = None
+        self.beat: dict[str, Any] | None = None
+
+    def run_worker(self, **kwargs: Any) -> int:
+        self.worker = kwargs
+        return self.result
+
+    def run_scheduler(self, **kwargs: Any) -> int:
+        self.beat = kwargs
+        return self.result
 
 
-def _patch_app(monkeypatch: pytest.MonkeyPatch, app: Any) -> None:
-    from celery.bin.celery import celery as celery_cli
-
-    import sandloom.core.worker as worker
-
-    monkeypatch.setattr(worker, "get_worker_app", lambda: app)
-    if isinstance(app, _FakeApp):
-
-        def fake_main(*, args: list[str], standalone_mode: bool) -> object:
-            app.argv = args
-            return app.result
-
-        monkeypatch.setattr(celery_cli, "main", fake_main)
+@pytest.fixture
+def kernel(monkeypatch: pytest.MonkeyPatch) -> _Kernel:
+    fake = _Kernel()
+    monkeypatch.setattr(worker_cli, "_worker", fake)
+    return fake
 
 
-def test_worker_runs_the_worker_with_its_options(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    app = _FakeApp()
-    _patch_app(monkeypatch, app)
-
+def test_worker_runs_the_worker_with_its_options(kernel: _Kernel) -> None:
     assert worker_cli.worker_main([]) == 0
-    assert app.argv == ["worker", "--loglevel=INFO"]
+    assert kernel.worker == {"queues": None, "concurrency": None, "loglevel": "INFO"}
 
     assert (
         worker_cli.worker_main(
@@ -54,31 +59,26 @@ def test_worker_runs_the_worker_with_its_options(
         )
         == 0
     )
-    assert app.argv == [
-        "worker",
-        "--loglevel=DEBUG",
-        "--queues=mail,default",
-        "--concurrency=3",
-    ]
+    assert kernel.worker == {
+        "queues": ["mail", "default"],
+        "concurrency": 3,
+        "loglevel": "DEBUG",
+    }
 
 
-def test_worker_returns_the_exit_code_of_the_process(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_app(monkeypatch, _FakeApp(result=7))
+def test_worker_returns_the_exit_code_of_the_process(kernel: _Kernel) -> None:
+    kernel.result = 7
     assert worker_cli.worker_main([]) == 7
 
 
-def test_beat_runs_the_scheduler(monkeypatch: pytest.MonkeyPatch) -> None:
-    app = _FakeApp()
-    _patch_app(monkeypatch, app)
-
+def test_beat_runs_the_scheduler(kernel: _Kernel) -> None:
     assert worker_cli.beat_main(["--schedule", "/tmp/celerybeat-schedule"]) == 0
-    assert app.argv == [
-        "beat",
-        "--loglevel=INFO",
-        "--schedule=/tmp/celerybeat-schedule",
-    ]
+    assert kernel.beat == {
+        "loglevel": "INFO",
+        "state_file": "/tmp/celerybeat-schedule",
+    }
+    assert worker_cli.beat_main([]) == 0
+    assert kernel.beat == {"loglevel": "INFO", "state_file": None}
 
 
 @pytest.mark.parametrize("value", ["0", "-2", "many"])
@@ -150,6 +150,7 @@ def test_worker_check_is_registered_and_boots_nothing(tmp_path: Path) -> None:
         for name in ("PATH", "HOME", "SYSTEMROOT", "TMPDIR")
         if name in os.environ
     }
+    env.update(_SERVICE_ENV)
     env["WORKER_HEARTBEAT_FILE"] = str(beat)
 
     stale = _sandloom("worker", "check", env=env)
@@ -182,6 +183,7 @@ from celery import Celery, bootsteps
 
 import sandloom.core.worker as worker
 from sandloom.core.cli import worker as worker_cli
+from sandloom.core.drivers.celery_worker import CeleryWorkerHost
 
 app = Celery("dies", broker="memory://", set_as_current=False)
 app.conf.worker_pool = "solo"
@@ -193,7 +195,27 @@ class Dies(bootsteps.StartStopStep):
 
 
 app.steps["worker"].add(Dies)
-worker.get_worker_app = lambda: app
+
+
+class Provider:
+    driver = "celery"
+    options = {}
+
+    def worker_host(self):
+        return CeleryWorkerHost(lambda: app)
+
+    def features(self):
+        return frozenset({"delay", "periodic", "redelivery"})
+
+
+class Core:
+    loaded_modules = []
+
+    def taskqueue(self, name="default"):
+        return Provider()
+
+
+worker.load_composition_core = lambda: Core()
 sys.exit(worker_cli.worker_main(["--concurrency", "1", "--loglevel", "CRITICAL"]))
 """
 
@@ -212,6 +234,7 @@ def test_a_worker_that_dies_exits_non_zero() -> None:
         for name in ("PATH", "HOME", "SYSTEMROOT", "TMPDIR")
         if name in os.environ
     }
+    env.update(_SERVICE_ENV)
     done = subprocess.run(
         [sys.executable, "-c", _DYING_WORKER],
         env=env,
@@ -224,15 +247,17 @@ def test_a_worker_that_dies_exits_non_zero() -> None:
     assert done.returncode != 0, done.stderr
 
 
-def test_beat_binds_the_app_and_returns_the_exit_code(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_celery_commands_bind_the_app_and_return_the_exit_code(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Beat goes through the same call: Celery's CLI bound to the worker app, its
-    return value the process exit code."""
+    """The host runs Celery's CLI bound to its app, and the CLI's return value
+    is the process exit code (``Celery.start()`` drops it)."""
+    from celery import Celery
     from celery.bin.celery import celery as celery_cli
 
-    app = _FakeApp()
-    _patch_app(monkeypatch, app)
+    from sandloom.core.drivers import celery_worker
+
+    app = Celery("bound", broker="memory://", set_as_current=False)
     seen: dict[str, Any] = {}
 
     def fake_main(*, args: list[str], standalone_mode: bool) -> int:
@@ -241,7 +266,7 @@ def test_beat_binds_the_app_and_returns_the_exit_code(
         return 3
 
     monkeypatch.setattr(celery_cli, "main", fake_main)
-    assert worker_cli.beat_main(["--schedule", str(tmp_path / "schedule")]) == 3
+    assert celery_worker._run_celery(app, ["beat", "--loglevel=INFO"]) == 3
     assert seen["args"][0] == "beat" and seen["standalone"] is False
     assert seen["bound"] is app
     assert celery_cli.params[0].default is None

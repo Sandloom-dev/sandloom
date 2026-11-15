@@ -242,6 +242,49 @@ load, and the refusal names the replacement. The last two become `durable`; the 
 three are dropped. The `memory` and `redis` buses are the kernel's own volatile buses,
 not a driver shape.
 
+#### A taskqueue driver's worker host
+
+!!! warning "Kernel-facing; the conformance kit is pending"
+    A `taskqueue` driver is not open to packages yet: its conformance kit covers `send`
+    and is extended with the host (`idk-worker-port-kit`). This section is the contract the
+    kernel runs a worker over.
+
+A `taskqueue` driver (`TaskQueueProvider`, `contract_version = 2`) implements `send` and
+`worker_host()`. The host is a `WorkerHost` (`sandloom.driverkit`): the process that
+runs the messages and the scheduler. It is **not a capability**. It has no `INFRA` entry
+and no registration, and it is versioned with `taskqueue`. `worker_host()` is
+synchronous and cheap: it builds the host over what the instance holds and connects to
+nothing.
+
+The kernel gives the host a `WorkerBoot` and calls nothing else of the driver:
+
+| `WorkerBoot` | What the host does with it |
+|---|---|
+| `boot()` | once, in the main process, before it forks or consumes: the kernel loads the composition, runs the startup checks and answers the `TaskTable` (tasks with their queue and `at_least_once`, periodic entries) to register |
+| `before_fork()` | once after `boot()`, right before the host forks processes that run messages (the kernel freezes its startup heap) |
+| `run(task, payload, task_id=)` | for each message, outside any running loop: an `async def` body runs on the process's one persistent loop, a sync body directly; an exception propagates to the host's retry and redelivery rules |
+| `on_process_start()` / `on_process_stop()` | in each process that runs messages: a fresh loop after a fork; dispose the engines on the loop that opened them |
+| `run_coroutine(coro)` | on the same persistent loop, for the host's own async calls (the lease) |
+
+The host answers three calls:
+
+- `run_worker(boot, queues=, concurrency=, loglevel=)` blocks and returns the process exit
+  code (a worker that died must not return 0). The kernel resolves `concurrency` from the
+  CPU quota.
+- `run_scheduler(boot, lease=, lease_name=, lease_ttl_seconds=, loglevel=, state_file=)`
+  sends each periodic task at its cron slots, and only while the process holds
+  `lease_name` on `lease` (a `lease` store). Wrap the store in `FencedLease`
+  (`sandloom.driverkit`): it keeps the renew cadence and the local deadline, and logs the
+  standby. The kernel resolves the store, the name (broker, instance and module set) and
+  the production check, so a second scheduler stands by.
+- `check(timeout_seconds=)` answers whether a worker runs, without booting anything.
+  Its details name no broker address or credential.
+
+A driver may keep an importable object for its own tools (the Celery driver's `app`, for
+`celery inspect` and Flower). It documents that object itself: it is the driver's
+interface, not part of the port. The `raw_backend()` escape hatch of earlier versions is
+gone, and no `native()` replaces it.
+
 #### A database driver
 
 A `database` driver states `contract_version = 2` and implements

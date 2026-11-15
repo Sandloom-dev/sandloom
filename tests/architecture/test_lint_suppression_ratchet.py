@@ -59,7 +59,7 @@ NOQA_BASELINE: dict[str, int] = {
     # up` ask a .env database's renderer for schema_from_models (SQLite) only
     # when .env names one; importing the renderers costs the dev CLI 0.3 s
     # and loads the settings.
-    "PLC0415": 120,  # -1: the celery driver publishes only (idk-driver-deps)
+    "PLC0415": 114,  # -6: the Celery halves move to the driver, which imports by importlib (idk-worker-port)
     "RUF001": 4,
     "RUF005": 2,
     "RUF012": 3,

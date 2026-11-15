@@ -100,6 +100,9 @@ class RecordingProvider(TaskQueueProvider):
         if features is not None:
             self.features = lambda: features  # type: ignore[method-assign]
 
+    def worker_host(self) -> Any:
+        raise NotImplementedError
+
     async def send(
         self,
         task: str,

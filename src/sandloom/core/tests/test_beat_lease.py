@@ -1,5 +1,7 @@
-"""The beat singleton lease: the kernel's holder (``FencedLease``) and the Celery
-side (``sandloom.core.beat_lease``), over a ``lease`` store (spec 5; review-map H-10).
+"""The beat singleton lease: the kernel's holder (``FencedLease``), the kernel's
+resolution of the lease (``sandloom.core.worker.run_scheduler``) and the Celery
+side (``sandloom.core.drivers.celery_worker``), over a ``lease`` store (spec 5;
+review-map H-10).
 
 Two beats on one broker must not both schedule: the second stands by, takes
 over when the first releases its lease or dies (TTL expiry), and a holder
@@ -18,14 +20,17 @@ import pytest
 from celery import Celery, signals
 from celery.beat import Service
 
-from sandloom.core import beat_lease
-from sandloom.core.beat_lease import (
-    BeatLease,
-    LeasedScheduler,
-    install_beat_lease,
-)
+from sandloom.core import worker
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
+from sandloom.core.drivers import celery_worker
+from sandloom.core.drivers.celery_worker import (
+    BeatLease,
+    CeleryWorkerHost,
+    LeasedScheduler,
+    install_beat_lease,
+    remove_beat_lease,
+)
 from sandloom.core.drivers.memory_lease import MemoryLeaseProvider, _Held
 from sandloom.core.infra import fenced_lease
 from sandloom.core.infra.config import InstanceConfig
@@ -210,53 +215,113 @@ class _Core:
         return self.store
 
 
-def test_beat_init_wraps_the_scheduler_of_this_app_only(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_beat_init_wraps_the_scheduler_of_this_app_only(tmp_path: Any) -> None:
     clock = _Clock()
-    core = _Core(_Store(clock))
+    store = _Store(clock)
     app = Celery("lease-test", broker="memory://")
     other = Celery("other", broker="memory://")
-    monkeypatch.setattr(beat_lease, "_default_runner", _run)
-    install_beat_lease(app, core, instance="default")
-    install_beat_lease(app, core, instance="default")  # idempotent
+    lease = BeatLease(store, _NAME, ttl_seconds=30, runner=_run, clock=clock)
+    standby = BeatLease(store, _NAME, ttl_seconds=30, runner=_run, clock=clock)
+    receiver = install_beat_lease(app, lease)
+    standby_receiver = install_beat_lease(app, standby)
+    try:
+        service = Service(app, schedule_filename=str(tmp_path / "schedule"))
+        signals.beat_init.send(sender=service)
+        assert isinstance(service.scheduler, LeasedScheduler)
+        assert service.scheduler.lease is lease  # the first receiver wraps once
 
-    service = Service(app, schedule_filename=str(tmp_path / "schedule"))
-    signals.beat_init.send(sender=service)
-    assert isinstance(service.scheduler, LeasedScheduler)
-    assert service.scheduler.lease.name.startswith(fenced_lease.LEASE_KEY_PREFIX)
+        foreign = Service(other, schedule_filename=str(tmp_path / "other"))
+        signals.beat_init.send(sender=foreign)
+        assert not isinstance(foreign.scheduler, LeasedScheduler)
+
+        assert service.scheduler.tick() > 0
+        assert lease.held
+        assert standby.ensure() is False  # a second beat on the name stands by
+        service.scheduler.close()
+    finally:
+        remove_beat_lease(receiver)
+        remove_beat_lease(standby_receiver)
+
+
+class _Boot:
+    """A ``WorkerBoot`` for the Celery host: a table of no task, loop per call."""
+
+    def __init__(self, table: Any | None = None) -> None:
+        from sandloom.core.infra.ports.taskqueue import TaskTable
+
+        self.table = table or TaskTable(tasks={}, periodic=[])
+        self.stopped = 0
+
+    def boot(self) -> Any:
+        return self.table
+
+    def run(self, task: str, payload: bytes, *, task_id: str) -> None: ...
+
+    def before_fork(self) -> None: ...
+
+    def on_process_start(self) -> None: ...
+
+    def on_process_stop(self) -> None:
+        self.stopped += 1
+
+    def run_coroutine(self, coro: Coroutine[Any, Any, Any]) -> Any:
+        return _run(coro)
+
+
+class _Provider:
+    """A taskqueue instance whose host records the scheduler call."""
+
+    driver = "fake"
+
+    def __init__(self) -> None:
+        self.options = {"broker": "redis://broker.invalid:6379/1"}
+        self.scheduled: list[dict[str, Any]] = []
+
+    def worker_host(self) -> Any:
+        provider = self
+
+        class _Host:
+            def run_scheduler(self, boot: Any, **kwargs: Any) -> int:
+                provider.scheduled.append(kwargs)
+                return 0
+
+        return _Host()
+
+    def features(self) -> frozenset[str]:
+        return frozenset({"periodic"})
+
+
+class _SchedulerCore(_Core):
+    def __init__(self, store: LeaseProvider) -> None:
+        super().__init__(store)
+        self.provider = _Provider()
+
+    def taskqueue(self, name: str = "default") -> _Provider:
+        return self.provider
+
+
+def test_the_scheduler_holds_the_lease_the_kernel_resolved() -> None:
+    store = _Store(_Clock())
+    core = _SchedulerCore(store)
+    assert worker.run_scheduler(core=core, instance="jobs") == 0
     assert core.asked == [("lease", "beat")]  # the instance INFRA.lease.beat
-
-    foreign = Service(other, schedule_filename=str(tmp_path / "other"))
-    signals.beat_init.send(sender=foreign)
-    assert not isinstance(foreign.scheduler, LeasedScheduler)
-
-    second = Service(app, schedule_filename=str(tmp_path / "second"))
-    signals.beat_init.send(sender=second)
-    assert service.scheduler.tick() > 0
-    assert service.scheduler.lease.held
-    second.scheduler.tick()
-    assert not second.scheduler.lease.held  # the second beat stands by
-    service.scheduler.close()
-    second.scheduler.close()
+    (call,) = core.provider.scheduled
+    assert call["lease"] is store
+    assert call["lease_name"].startswith(fenced_lease.LEASE_KEY_PREFIX)
+    assert call["lease_ttl_seconds"] == settings.beat_lease_ttl_seconds
 
 
 def test_beat_refuses_to_start_on_a_lease_that_is_not_shared_in_production(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     prod = SimpleNamespace(is_prod=True, beat_lease_name="", beat_lease_ttl_seconds=30)
-    monkeypatch.setattr(beat_lease, "settings", prod)
-    core = _Core(_Store(_Clock()))
-    with pytest.raises(LeaseNotSharedError, match="not shared"):
-        beat_lease.build_lease(Celery("x", broker="memory://"), core, instance="d")
-
-    app = Celery("lease-notshared", broker="memory://")
-    install_beat_lease(app, core, instance="default")
-    service = Service(app, schedule_filename=str(tmp_path / "schedule"))
-    with pytest.raises(SystemExit) as exc:
-        signals.beat_init.send(sender=service)
-    assert exc.value.code == 1
-    assert service._is_shutdown.is_set()
+    monkeypatch.setattr(worker, "settings", prod)
+    monkeypatch.setattr(fenced_lease, "settings", prod)
+    core = _SchedulerCore(_Store(_Clock()))
+    with caplog.at_level("CRITICAL", logger="sandloom.core.worker"):
+        assert worker.run_scheduler(core=core, instance="default") == 1
+    assert "not shared" in caplog.text
+    assert core.provider.scheduled == []  # nothing was scheduled
 
 
 def test_the_beat_lease_wraps_the_kernel_holder_without_subclassing_it() -> None:
@@ -288,25 +353,25 @@ def test_a_sqlite_lease_is_refused_for_a_beat_in_production(
     from sandloom.core.drivers.database_lease import DatabaseLeaseProvider
 
     prod = SimpleNamespace(is_prod=True, beat_lease_name="", beat_lease_ttl_seconds=30)
-    monkeypatch.setattr(beat_lease, "settings", prod)
+    monkeypatch.setattr(worker, "settings", prod)
+    monkeypatch.setattr(fenced_lease, "settings", prod)
     lite = DatabaseLeaseProvider(
         name="beat",
         driver="database",
         options={"url": f"sqlite+aiosqlite:///{tmp_path / 'lease.db'}"},
     )
-    with pytest.raises(LeaseNotSharedError, match="not shared"):
-        beat_lease.build_lease(
-            Celery("x", broker="memory://"), _Core(lite), instance="d"
-        )
+    refused = _SchedulerCore(lite)
+    assert worker.run_scheduler(core=refused, instance="d") == 1
+    assert refused.provider.scheduled == []
     shared = DatabaseLeaseProvider(
         name="beat",
         driver="database",
         options={"url": "postgresql+asyncpg://u:p@127.0.0.1:1/db"},
     )
-    built = beat_lease.build_lease(
-        Celery("x", broker="memory://"), _Core(shared), instance="d"
-    )
-    assert built.name.startswith(fenced_lease.LEASE_KEY_PREFIX)
+    accepted = _SchedulerCore(shared)
+    assert worker.run_scheduler(core=accepted, instance="d") == 0
+    (call,) = accepted.provider.scheduled
+    assert call["lease_name"].startswith(fenced_lease.LEASE_KEY_PREFIX)
 
 
 # ------------------------------------------- a refusing lease backend (L1)
@@ -374,19 +439,33 @@ def test_a_process_without_sagas_leaves_the_beat_lease_unused() -> None:
     assert not registry.in_use("lease", "beat")
 
 
+def _fake_beat(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, started: list[Any]
+) -> None:
+    """Replace the Celery command with a ``Service`` whose ``beat_init`` fires."""
+
+    def run(app: Any, argv: Any) -> int:
+        service = Service(app, schedule_filename=str(tmp_path / "schedule"))
+        signals.beat_init.send(sender=service)
+        started.append(service.scheduler)
+        return 0
+
+    monkeypatch.setattr(celery_worker, "_run_celery", run)
+
+
 def test_beat_refuses_to_start_on_a_backend_that_refuses_with_the_real_cause(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    monkeypatch.setattr(beat_lease, "_default_runner", _run)
-    core = _Core(_Refusing(name="beat", driver="memory", options={}))
+    started: list[Any] = []
+    _fake_beat(monkeypatch, tmp_path, started)
     app = Celery("lease-refused", broker="memory://")
-    install_beat_lease(app, core, instance="default")
-    service = Service(app, schedule_filename=str(tmp_path / "schedule"))
-    with caplog.at_level("CRITICAL", logger="sandloom.core.beat_lease"):
-        with pytest.raises(SystemExit) as exc:
-            signals.beat_init.send(sender=service)
-    assert exc.value.code == 1
-    assert service._is_shutdown.is_set()
+    host = CeleryWorkerHost(lambda: app)
+    store = _Refusing(name="beat", driver="memory", options={})
+    boot = _Boot()
+    with caplog.at_level("CRITICAL", logger="sandloom.core.drivers.celery_worker"):
+        code = host.run_scheduler(boot, lease=store, lease_name=_NAME)
+    assert code == 1
+    assert started == []  # beat never started: no first tick
     assert "allkeys-lru" in caplog.text  # the policy, not "cannot reach"
 
 
@@ -396,14 +475,18 @@ def test_beat_starts_on_a_backend_that_is_only_unreachable(
     class _Down(_Refusing):
         error = Unavailable
 
-    monkeypatch.setattr(beat_lease, "_default_runner", _run)
-    core = _Core(_Down(name="beat", driver="memory", options={}))
+    started: list[Any] = []
+    _fake_beat(monkeypatch, tmp_path, started)
     app = Celery("lease-down", broker="memory://")
-    install_beat_lease(app, core, instance="default")
-    service = Service(app, schedule_filename=str(tmp_path / "schedule"))
-    signals.beat_init.send(sender=service)  # stands by and retries, no exit
-    assert isinstance(service.scheduler, LeasedScheduler)
-    service.scheduler.close()
+    host = CeleryWorkerHost(lambda: app)
+    boot = _Boot()
+    store = _Down(name="beat", driver="memory", options={})
+    # stands by and retries, no exit
+    assert host.run_scheduler(boot, lease=store, lease_name=_NAME) == 0
+    (scheduler,) = started
+    assert isinstance(scheduler, LeasedScheduler)
+    scheduler.close()
+    assert boot.stopped == 1  # the process's pools are disposed at the end
 
 
 async def test_a_refusing_backend_is_logged_as_a_refusal_not_as_unreachable(
