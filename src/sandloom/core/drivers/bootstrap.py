@@ -43,6 +43,11 @@ _REDIS_DRIVERS = {
     "broadcast": "sandloom_redis.broadcast:RedisBroadcastProvider",
     "cache": "sandloom_redis.cache:RedisCacheProvider",
 }
+#: The Celery taskqueue driver of the ``sandloom-celery`` package: the same
+#: ``module:Class`` target its ``taskqueue.celery`` entry point names (a test
+#: keeps them equal), refused with the install hint when the package is absent.
+_CELERY_PACKAGE: tuple[str, ...] = ("sandloom_celery", "celery")
+_CELERY_DRIVER = "sandloom_celery.taskqueue:CeleryTaskQueueProvider"
 _DRIVERS = "sandloom.core.drivers"
 
 logger = logging.getLogger("sandloom.core.infra")
@@ -90,8 +95,8 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
     (
         "taskqueue",
         "celery",
-        f"{_DRIVERS}.celery_taskqueue:CeleryTaskQueueProvider",
-        ("celery",),
+        _CELERY_DRIVER,
+        _CELERY_PACKAGE,
         "pip install 'sandloom[celery]'",
         "",
     ),

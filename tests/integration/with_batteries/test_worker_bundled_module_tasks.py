@@ -14,9 +14,9 @@ from __future__ import annotations
 from typing import Any
 
 from celery import Celery
+from sandloom_celery.worker import CeleryWorkerHost, register_task_table
 
 from sandloom.core import worker
-from sandloom.core.drivers.celery_worker import CeleryWorkerHost, register_task_table
 
 
 class _Provider:

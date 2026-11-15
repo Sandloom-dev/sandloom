@@ -1,7 +1,8 @@
 """The sixteen module subsets boot from built wheels in clean venvs (slow, KB-04).
 
 The wheels of ``sandloom``, ``sandloom-standard``, the four module
-distributions and the driver packages of the standard set (``sandloom-redis``)
+distributions and the driver packages of the standard set (``sandloom-redis``,
+``sandloom-celery``)
 are built from this tree once, then:
 
 - **P2** (I-19): one clean venv per subset with plain ``sandloom`` and exactly

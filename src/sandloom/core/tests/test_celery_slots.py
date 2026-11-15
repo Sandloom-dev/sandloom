@@ -14,14 +14,14 @@ from typing import Any
 import pytest
 from celery import Celery
 from celery.schedules import crontab
-
-from sandloom.core.drivers.celery_worker import (
+from sandloom_celery.worker import (
     BeatLease,
     CeleryWorkerHost,
     LeasedScheduler,
     _cron_fields,
     cron_schedule_of,
 )
+
 from sandloom.core.drivers.memory_lease import MemoryLeaseProvider
 from sandloom.core.infra.errors import InvalidArgument, PermissionDenied, Unavailable
 from sandloom.core.infra.ports.lease import Lease

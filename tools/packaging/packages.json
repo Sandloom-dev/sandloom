@@ -13,7 +13,7 @@
       "console": {
         "extra": "admin",
         "route": "/admin/{path:path}",
-        "with": ["sandloom-identity", "sandloom-redis", "sandloom-standard"]
+        "with": ["sandloom-identity", "sandloom-redis", "sandloom-celery", "sandloom-standard"]
       }
     },
     {
@@ -46,6 +46,17 @@
         "cache.redis": {
           "target": "sandloom_redis.cache:RedisCacheProvider",
           "provider": "CacheProvider"
+        }
+      }
+    },
+    {
+      "name": "sandloom-celery",
+      "kind": "driver",
+      "standard": true,
+      "drivers": {
+        "taskqueue.celery": {
+          "target": "sandloom_celery.taskqueue:CeleryTaskQueueProvider",
+          "provider": "TaskQueueProvider"
         }
       }
     }

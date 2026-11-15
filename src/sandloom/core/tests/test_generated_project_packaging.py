@@ -151,8 +151,8 @@ def test_minimal_app_uses_the_kernel_factory(tmp_path: Path) -> None:
     generate_project("probe", tmp_path)
     project = tmp_path / "probe"
     installed = _closure(_dependencies(project))
-    # No module package: the kernel and its Redis drivers.
-    assert installed == {"sandloom", "sandloom-redis"}
+    # No module package: the kernel and its Redis and Celery drivers.
+    assert installed == {"sandloom", "sandloom-redis", "sandloom-celery"}
     shipped = _shipped_files(installed)
     assert _resolves("sandloom.core.app_factory", shipped)
     assert "sandloom.main" not in _sandloom_imports(project)

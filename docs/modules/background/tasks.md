@@ -201,10 +201,10 @@ Any send that may have reached the broker keeps its
 claim. See `deploy/README.md` ("Beat singleton lease").
 
 A tool that inspects the Celery driver's queues (`celery inspect`, Flower) uses
-the driver's importable app, `sandloom.core.drivers.celery_worker.app` (built
-from `BROKER_URL`, with no application booted): `celery -A
-sandloom.core.drivers.celery_worker inspect active`. It is the driver's own
-interface and moves to `sandloom_celery.app` with the package.
+the driver's importable app, `sandloom_celery.worker.app` (built from
+`BROKER_URL`, with no application booted): `celery -A sandloom_celery.worker
+inspect active`. It is the driver's own interface, in the `sandloom-celery`
+package (`pip install 'sandloom[celery]'`).
 
 **A module's first periodic task needs a beat.** A `@periodic`
 task runs only where a beat loads the

@@ -21,7 +21,9 @@ await taskqueue().enqueue(task, payload, delay=None, idempotency_key=None)  # de
 
 ### `celery`
 
-Celery with a Redis broker. It supports the features `delay`, `periodic` and `redelivery`.
+Celery with a Redis broker. It ships in the `sandloom-celery` package, which
+`pip install 'sandloom[celery]'` brings in. Its tier is `beta`. It supports the
+features `delay`, `periodic` and `redelivery`.
 
 | Option | Meaning |
 | --- | --- |
