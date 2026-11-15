@@ -11,8 +11,8 @@ import pytest
 from celery import Celery
 from sandloom_celery import taskqueue as celery_taskqueue
 from sandloom_celery import worker as celery_worker
+from sandloom_redis.cache import RedisCacheProvider
 
-from sandloom.core.drivers.redis_cache import RedisCacheProvider
 from sandloom.core.testing import InMemoryCache
 from sandloom.core.testing.workers import worker_env_values
 

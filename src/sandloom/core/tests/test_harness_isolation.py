@@ -25,9 +25,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import sandloom_redis.cache as redis_cache
 from sandloom_celery.taskqueue import CeleryTaskQueueProvider
 
-from sandloom.core.drivers import event_bus_driver, redis_cache
+from sandloom.core.drivers import event_bus_driver
 from sandloom.core.infra.ports._base import InfraProvider
 from sandloom.core.testing import (
     ownership,
@@ -428,7 +429,7 @@ def test_no_redis_module_of_the_harness_loaded():
 
     for name in (
         "sandloom.core.testing.redis_isolation",
-        "sandloom.core.drivers.redis_cache",
+        "sandloom_redis.cache",
         "sandloom.core.drivers.bootstrap",
     ):
         assert name not in sys.modules, name

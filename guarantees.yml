@@ -5004,9 +5004,9 @@ guarantees:
   - docs/adr/0002-framework-absorbs-module-boilerplate.md#Decision
   - docs/reference/testing.md
   tests:
-  - src/sandloom/core/tests/test_redis_cache_loop_affinity.py::test_default_client_is_rebuilt_on_a_new_loop
-  - src/sandloom/core/tests/test_redis_cache_loop_affinity.py::test_named_instance_client_follows_the_loop
-  - src/sandloom/core/tests/test_redis_cache_loop_affinity.py::test_injected_default_client_is_never_replaced
+  - packages/sandloom-redis/tests/test_redis_cache_loop_affinity.py::test_default_client_is_rebuilt_on_a_new_loop
+  - packages/sandloom-redis/tests/test_redis_cache_loop_affinity.py::test_named_instance_client_follows_the_loop
+  - packages/sandloom-redis/tests/test_redis_cache_loop_affinity.py::test_injected_default_client_is_never_replaced
 - id: G-INFRA-09
   statement: A module using a database feature form of sdk.data (Array, fulltext_index / matches, json_path,
     json_contains, aggregate_list) declares its database feature (C030); module load refuses an instance lacking a feature its

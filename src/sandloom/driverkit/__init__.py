@@ -46,7 +46,7 @@ from sandloom.core.infra.errors import (
     Unsupported,
 )
 from sandloom.core.infra.fenced_lease import FencedLease
-from sandloom.core.infra.ports._base import InfraProvider
+from sandloom.core.infra.ports._base import InfraProvider, health_failure_details
 from sandloom.core.infra.ports.atomic_store import AtomicStoreProvider
 from sandloom.core.infra.ports.broadcast import (
     BroadcastMessage,
@@ -169,6 +169,7 @@ __all__ = [
     "DriverCounter",
     "DriverHistogram",
     "Observe",
+    "health_failure_details",
     "iter_object_chunks",
     "observe",
     "validate_object_key",

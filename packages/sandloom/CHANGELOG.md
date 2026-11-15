@@ -8,8 +8,8 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+- The kernel wheel no longer ships the Redis `cache` driver (`sandloom.core.drivers.redis_cache`): it is `sandloom_redis.cache` in `sandloom-redis`. `sandloom.driverkit.health_failure_details` moved from `eventbus_support` to the top level.
 - The kernel wheel no longer ships the Celery `taskqueue` driver, its worker and scheduler host and its broker probe: they are in the new `sandloom-celery` package. Install `sandloom[celery]` (or `sandloom[standard]`) where an app selects the `celery` taskqueue driver; `celery -A` tools use `sandloom_celery.worker`.
-
 - The kernel wheel no longer ships the Redis `atomic_store`, `lease` and `broadcast` drivers: they are in the new `sandloom-redis` package. Install `sandloom[redis]` (or `sandloom[standard]`) where an app selects a `redis` driver for one of them.
 
 ## [0.7.0a13]

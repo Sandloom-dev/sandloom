@@ -1,4 +1,4 @@
-"""Built-in Redis cache driver.
+"""The ``redis`` cache driver (entry point ``cache.redis``).
 
 This driver is the SOLE constructor of Redis cache clients — including the
 process-wide ``default`` one (:func:`get_default_client`), so "infrastructure
@@ -51,10 +51,10 @@ from sandloom.driverkit import (
     PermissionDenied,
     Timeout,
     Unavailable,
+    health_failure_details,
     observe,
 )
 from sandloom.driverkit.atomic_store import MAX_KEY_BYTES, MAX_TTL_SECONDS
-from sandloom.driverkit.eventbus_support import health_failure_details
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 
 #: Redis / socket failures of cache operations (a caller's ValueError or
@@ -145,9 +145,9 @@ async def _close_quietly(client: Any) -> None:
 
 def client_options(options: RedisCacheOptions) -> dict[str, Any]:
     """Bounded-client connection options from an instance's ``options``."""
-    from redis.asyncio.retry import Retry  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
-    from redis.backoff import FullJitterBackoff  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
-    from redis.exceptions import ConnectionError as RedisConnectionError  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
+    from redis.asyncio.retry import Retry
+    from redis.backoff import FullJitterBackoff
+    from redis.exceptions import ConnectionError as RedisConnectionError
 
     return {
         "socket_timeout": float(options.socket_timeout_seconds),
@@ -180,7 +180,7 @@ def _build_client(options: RedisCacheOptions) -> Any:
     ``pool_timeout_seconds`` for one, then gets a ``ConnectionError`` (never an
     unbounded pile-up of sockets).
     """
-    import redis.asyncio as redis  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
+    import redis.asyncio as redis
 
     pool: Any = redis.BlockingConnectionPool.from_url(
         _url_of(options),
@@ -209,7 +209,7 @@ def build_transport_client(
     Streams, so a half-open socket after a failover raises instead of hanging
     the consumer forever. No command retry: ``XADD`` is not idempotent.
     """
-    import redis.asyncio as redis  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
+    import redis.asyncio as redis
 
     return redis.from_url(
         url,
@@ -228,6 +228,11 @@ def _script_sha(script: str) -> str:
     ).hexdigest()
 
 
+#: The no-op script ``health`` runs to prove the server accepts scripting.
+_PROBE_LUA = "return 1"
+_PROBE_SHA = _script_sha(_PROBE_LUA)
+
+
 async def _run_script(
     client: Any, script: str, sha: str, keys: Sequence[str], args: Sequence[Any]
 ) -> Any:
@@ -236,7 +241,7 @@ async def _run_script(
     There is no non-atomic fallback: a client without scripting fails here, so
     a test double must implement ``evalsha`` and ``script_load``.
     """
-    from redis.exceptions import NoScriptError  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
+    from redis.exceptions import NoScriptError
 
     evalsha = client.evalsha
     try:
@@ -407,6 +412,10 @@ class RedisCacheProvider(CacheProvider):
     options_schema = RedisCacheOptions
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
+    # Beta, the floor for a driver of this repository (spec 2.5): the
+    # `redis-drivers` job of ci.yml runs CacheConformance against a real Redis.
+    # An undeclared tier would be experimental.
+    tier = "beta"
 
     @classmethod
     def test_isolation(
@@ -529,12 +538,7 @@ class RedisCacheProvider(CacheProvider):
                 return
             client = await self._client_obj()
             ttl = ttl_seconds
-            pipeline = getattr(client, "pipeline", None)
-            if pipeline is None:  # test doubles without pipelining
-                for key, value in items.items():
-                    await self.set(key, value, ttl_seconds=ttl_seconds)
-                return
-            async with pipeline(transaction=False) as pipe:
+            async with client.pipeline(transaction=False) as pipe:
                 for key, value in items.items():
                     if ttl is not None:
                         pipe.set(key, value, ex=ttl)
@@ -674,9 +678,14 @@ class RedisCacheProvider(CacheProvider):
         try:
             client = await self._client_obj()
             pong = await client.ping()
-            if pong:
-                return HealthResult(status="ok")
-            return HealthResult(status="fail", details={"error": "no-pong"})
+            if not pong:
+                return HealthResult(status="fail", details={"error": "no-pong"})
+            # ``incr``, ``windowed_counter`` and the CAS calls are scripts: a
+            # server (an ACL without ``@scripting``, a proxy that blocks
+            # ``EVALSHA``) that answers PING but refuses them is not healthy,
+            # or the rate limits would fail open behind a green probe.
+            await _run_script(client, _PROBE_LUA, _PROBE_SHA, [], [])
+            return HealthResult(status="ok")
         except Exception as exc:  # noqa: BLE001 - any failure is a failed probe
             # The type only: a redis error text names the host (spec 2.4).
             return HealthResult(status="fail", details=health_failure_details(exc))
@@ -719,7 +728,7 @@ def _backend_errors() -> tuple[type[BaseException], ...]:
     """What a Redis backend raises: redis-py's errors, socket errors, a timeout
     and an undecodable stored value. Nothing else is caught: any other
     exception is a caller's or a driver bug and propagates (spec 2.1)."""
-    from redis import exceptions  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
+    from redis import exceptions
 
     return (exceptions.RedisError, OSError, TimeoutError, UnicodeDecodeError)
 
@@ -732,7 +741,7 @@ def _map_error(instance: str, operation: str, exc: BaseException) -> InfraError:
     the host). Called from an ``except`` clause in each operation: a ``try``
     costs nothing on success, unlike a wrapping coroutine (one frame per call).
     """
-    from redis import exceptions  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
+    from redis import exceptions
 
     what = f"cache {instance!r} {operation}: {type(exc).__name__}"
     if isinstance(exc, exceptions.ResponseError) and "not an integer" in str(exc):

@@ -3377,6 +3377,10 @@
       ],
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
+    "health_failure_details": {
+      "kind": "function",
+      "signature": "(exc:POSITIONAL_OR_KEYWORD|BaseException) -> dict[str, object]"
+    },
     "iter_object_chunks": {
       "kind": "function",
       "signature": "(data:POSITIONAL_OR_KEYWORD|ObjectContent, chunk_size:POSITIONAL_OR_KEYWORD|int) -> AsyncIterator[bytes]"
@@ -3478,10 +3482,6 @@
         "renew_pending"
       ],
       "signature": "()"
-    },
-    "health_failure_details": {
-      "kind": "function",
-      "signature": "(exc:POSITIONAL_OR_KEYWORD|BaseException) -> dict[str, object]"
     },
     "owner_conflict_message": {
       "kind": "function",

@@ -8,6 +8,7 @@ from importlib import metadata
 import pytest
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 from sandloom_redis.broadcast import RedisBroadcastProvider
+from sandloom_redis.cache import RedisCacheProvider
 from sandloom_redis.lease import RedisLeaseProvider
 
 import sandloom.core.infra.registry as registry_module
@@ -31,6 +32,7 @@ _CLASSES = {
     "atomic_store": RedisAtomicStoreProvider,
     "lease": RedisLeaseProvider,
     "broadcast": RedisBroadcastProvider,
+    "cache": RedisCacheProvider,
 }
 
 
@@ -53,6 +55,15 @@ def test_each_row_targets_the_entry_point_of_the_package() -> None:
     for capability, (target, requires) in _rows().items():
         assert entries[f"{capability}.redis"] == target
         assert "sandloom_redis" in requires  # preflight names the missing package
+
+
+def test_the_streams_row_requires_the_package_its_driver_imports() -> None:
+    """``event_bus_driver`` imports ``sandloom_redis.cache``: a build without
+    the package is refused with the install hint, not an ImportError."""
+    (requires,) = (
+        row[3] for row in BUILTIN_DRIVER_ROWS if row[:2] == ("eventbus", "streams")
+    )
+    assert "sandloom_redis" in requires
 
 
 def test_each_row_resolves_to_the_package_class() -> None:

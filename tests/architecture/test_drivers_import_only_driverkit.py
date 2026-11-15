@@ -40,6 +40,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import sys
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -75,6 +76,26 @@ KERNEL_INTERNAL: frozenset[str] = frozenset(
     {"sandloom.core.eventing.volatile_provider"}
 )
 
+sys.path.insert(0, str(REPO / "tools" / "packaging"))
+import release_packages  # noqa: E402  (stdlib only; the one package list)
+
+#: The import names of the driver packages (``kind: driver`` of ``packages.json``:
+#: ``sandloom_redis``, ``sandloom_s3``, ...). A built-in driver imports none: the
+#: kernel does not depend on a package that depends on it (ADR-0016).
+DRIVER_PACKAGES: frozenset[str] = frozenset(
+    p.import_name for p in release_packages.PACKAGES if p.kind == "driver"
+)
+
+#: The driver-package imports a built-in driver file still makes, by exact file
+#: and exact target. removed_by: idk-pkg-redis-eventbus (the streams driver moves
+#: into ``sandloom-redis``, next to the cache module it imports). Cap 1: the
+#: seed only shrinks, and an entry the file no longer imports fails too.
+SEEDED_PACKAGE_IMPORTS: dict[str, frozenset[str]] = {
+    "src/sandloom/core/drivers/event_bus_driver.py": frozenset(
+        {"sandloom_redis.cache"}
+    ),
+}
+
 KERNEL = "sandloom.core"
 DRIVERKIT = "sandloom.driverkit"
 #: What a dynamic ``import_module`` / ``__import__`` (a non-literal name) counts as.
@@ -105,12 +126,11 @@ SEEDED: dict[str, frozenset[str]] = {
     ),
     # idk-streams-driverkit: the driver reaches the kernel through the driver kit
     # only. What stays is its own transport, a sibling the package move takes
-    # along (idk-pkg-redis-streams): no kernel internal. The default Redis client
-    # helpers are the cache driver's (idk-streams-driverkitb: the driver kit
-    # imports no driver); the package move takes them to sandloom-redis.
+    # along (idk-pkg-redis-eventbus): no kernel internal. The default Redis
+    # client helpers are the cache driver's, now ``sandloom_redis.cache``
+    # (idk-pkg-redis-streams): a package import, not one of ``sandloom``.
     _D + "event_bus_driver.py": frozenset(
         {
-            "sandloom.core.drivers.redis_cache",
             "sandloom.core.drivers.redis_eventbus.streams_transport",
         }
     ),
@@ -311,6 +331,74 @@ def _dynamic_import(node: ast.Call) -> set[str]:
     return {DYNAMIC}
 
 
+def package_imports(path: Path, packages: Iterable[str] = DRIVER_PACKAGES) -> set[str]:
+    """The driver-package names ``path`` imports, at any depth (function-local and
+    ``TYPE_CHECKING`` included): ``import pkg.mod`` and ``from pkg.mod import x``
+    name ``pkg.mod``, ``from pkg import mod`` names ``pkg.mod``, and a literal
+    ``import_module("pkg.mod")`` / ``__import__("pkg.mod")`` names it too."""
+    roots = frozenset(packages)
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found.update(a.name for a in node.names if a.name.split(".")[0] in roots)
+        elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+            if node.module.split(".")[0] not in roots:
+                continue
+            if "." in node.module:
+                found.add(node.module)
+            else:
+                found.update(f"{node.module}.{a.name}" for a in node.names)
+        elif isinstance(node, ast.Call):
+            literal = _literal_import(node)
+            if literal and literal.split(".")[0] in roots:
+                found.add(literal)
+    return found
+
+
+def _literal_import(node: ast.Call) -> str:
+    """The literal name of an ``import_module`` / ``__import__`` call, else ``""``."""
+    func = node.func
+    called = (
+        func.attr
+        if isinstance(func, ast.Attribute)
+        else func.id
+        if isinstance(func, ast.Name)
+        else ""
+    )
+    if called not in {"import_module", "__import__"}:
+        return ""
+    arg = node.args[0] if node.args else None
+    if arg is None:
+        arg = next((k.value for k in node.keywords if k.arg == "name"), None)
+    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+        return arg.value
+    return ""
+
+
+def package_import_problems(
+    files: Iterable[Path],
+    repo: Path,
+    seeded: Mapping[str, frozenset[str]],
+    packages: Iterable[str] = DRIVER_PACKAGES,
+) -> list[str]:
+    """``file: name`` for each driver-package import beyond ``seeded``, and
+    ``file: stale ...`` for each seeded one the file no longer makes."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for path in files:
+        rel = path.relative_to(repo).as_posix()
+        seen.add(rel)
+        found = package_imports(path, packages)
+        listed = seeded.get(rel, frozenset())
+        out.extend(f"{rel}: {name}" for name in sorted(found - listed))
+        out.extend(f"{rel}: stale seed {name}" for name in sorted(listed - found))
+    out.extend(
+        f"{rel}: stale seed, no such driver file" for rel in sorted(set(seeded) - seen)
+    )
+    return out
+
+
 def _row_modules() -> set[str]:
     return {target.partition(":")[0] for _, _, target, *_ in BUILTIN_DRIVER_ROWS}
 
@@ -412,6 +500,89 @@ def test_builtin_drivers_gain_no_kernel_import() -> None:
         "sandloom.driverkit.observe. The "
         "allowlist only shrinks:\n  " + "\n  ".join(found)
     )
+
+
+def test_builtin_drivers_import_no_driver_package() -> None:
+    """A built-in driver never imports a driver package (``sandloom_redis``,
+    ``sandloom_celery``, ``sandloom_s3``: ``kind: driver`` of ``packages.json``),
+    beyond the one seeded pair; a seeded pair the file no longer imports fails
+    too, so the seed goes with the import (removed_by idk-pkg-redis-eventbus)."""
+    assert DRIVER_PACKAGES >= {"sandloom_redis", "sandloom_s3"}, DRIVER_PACKAGES
+    found = package_import_problems(
+        builtin_driver_files(), REPO, SEEDED_PACKAGE_IMPORTS
+    )
+    assert not found, (
+        "a built-in driver imports a driver package (ADR-0016): the kernel does "
+        "not depend on a package that depends on it. Move the code, or the "
+        "driver, into the package:\n  " + "\n  ".join(found)
+    )
+    assert sum(len(v) for v in SEEDED_PACKAGE_IMPORTS.values()) <= 1
+
+
+def test_the_package_import_scan_counts_every_form(tmp_path: Path) -> None:
+    """Bite proof: each import form of a driver package is counted, in a
+    function and under ``TYPE_CHECKING`` too, and a name that is none is not."""
+    src = _plant(
+        tmp_path,
+        {
+            "sandloom/core/drivers/z.py": (
+                "import importlib\n"
+                "import sandloom_redis.cache\n"
+                "import sandloom_celery as c\n"
+                "from sandloom_s3.store import Store\n"
+                "from sandloom_redis import lease\n"
+                "if TYPE_CHECKING:\n"
+                "    from sandloom_redis.atomic_store import X\n"
+                "def f():\n"
+                "    importlib.import_module('sandloom_redis.broadcast')\n"
+                "    __import__(name='sandloom_s3')\n"
+                "    from sandloom_celery.worker import w\n"
+                "import redis\n"
+                "import sandloom_redisx\n"
+                "importlib.import_module('sandloom_other')\n"
+                "NAME = 'sandloom_redis.cache'\n"
+            ),
+        },
+    )
+    path = src / "sandloom/core/drivers/z.py"
+    names = {"sandloom_redis", "sandloom_celery", "sandloom_s3"}
+    assert package_imports(path, names) == {
+        "sandloom_redis.cache",
+        "sandloom_celery",
+        "sandloom_s3.store",
+        "sandloom_redis.lease",
+        "sandloom_redis.atomic_store",
+        "sandloom_redis.broadcast",
+        "sandloom_s3",
+        "sandloom_celery.worker",
+    }
+
+
+def test_an_unseeded_package_import_bites_and_a_stale_seed_does_too(
+    tmp_path: Path,
+) -> None:
+    """Exact file, exact target: another file, another target, a missing import
+    and a missing file each fail."""
+    src = _plant(
+        tmp_path,
+        {
+            "sandloom/core/drivers/a.py": "import sandloom_redis.cache\n",
+            "sandloom/core/drivers/b.py": "import sandloom_redis.lease\n",
+            "sandloom/core/drivers/c.py": "X = 1\n",
+        },
+    )
+    files = [src / f"sandloom/core/drivers/{n}.py" for n in "abc"]
+    rel = "src/sandloom/core/drivers/"
+    seeded = {
+        rel + "a.py": frozenset({"sandloom_redis.cache"}),
+        rel + "c.py": frozenset({"sandloom_redis.cache"}),
+        rel + "gone.py": frozenset({"sandloom_redis.cache"}),
+    }
+    assert package_import_problems(files, tmp_path, seeded, {"sandloom_redis"}) == [
+        f"{rel}b.py: sandloom_redis.lease",
+        f"{rel}c.py: stale seed sandloom_redis.cache",
+        f"{rel}gone.py: stale seed, no such driver file",
+    ]
 
 
 def test_the_allowlist_adds_nothing_to_its_seed() -> None:
@@ -647,7 +818,9 @@ def test_the_seed_holds_the_live_allowlist() -> None:
     # sandloom-celery package, whose files the package scan covers.
     # 79 -> 75 (idk-redis-cache-driverkit, -4): redis_cache imports only the
     # driver kit.
-    assert sum(len(v) for v in SEEDED.values()) <= 75
+    # 75 -> 74 (idk-pkg-redis-streams, -1): redis_cache moved to the sandloom-redis
+    # package, so event_bus_driver's import of it is no longer a ``sandloom`` one.
+    assert sum(len(v) for v in SEEDED.values()) <= 74
 
 
 @pytest.mark.parametrize(

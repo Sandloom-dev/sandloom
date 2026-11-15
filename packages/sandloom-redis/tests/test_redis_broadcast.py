@@ -15,6 +15,7 @@ from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
 import pytest
+from _redis_required import redis_unavailable
 from sandloom_redis.broadcast import RedisBroadcastProvider
 
 from sandloom.core.testing import reload_test_env
@@ -36,7 +37,7 @@ def _load_test_env() -> None:
 def _url() -> str:
     url = os.getenv("SANDLOOM_TEST_CACHE_URL") or os.getenv("CACHE_URL")
     if not url:
-        pytest.skip("no test Redis URL: Redis broadcast kit skipped")
+        redis_unavailable("no test Redis URL: Redis broadcast kit skipped")
     return url
 
 
@@ -45,8 +46,8 @@ async def _redis() -> AsyncIterator[Any]:
     client = redis_asyncio.from_url(_url())
     try:
         await client.ping()
-    except Exception:  # noqa: BLE001 - test Redis unreachable: skip
-        pytest.skip("Redis unreachable")
+    except Exception:  # noqa: BLE001 - test Redis unreachable: skip, or fail when required
+        redis_unavailable("Redis unreachable")
     yield client
     await client.aclose()
 

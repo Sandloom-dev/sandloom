@@ -43,6 +43,7 @@ A breaking change is a new contract version ([versioning](../contributing/versio
 | `Notification` | One outbound message: `channel`, `recipient`, `subject`, `body`, `data`, `dedupe_key`, `body_fields`. |
 | `InfraProvider` | The base of every contract. A driver sets `contract_version` (the integer major of its capability), `supported_features` and optionally `performance_hints` (speed claims such as `{"get_many": "one_round_trip"}`, never a feature), `development_only` (refused in production) and `options_schema`; it may override `features_for(options)`, `test_isolation(options, worker_id)`, `aopen()`, `health()`, `aclose()` and `isolation_identity()`. It never overrides `features()`. |
 | `HealthResult` | What `health()` returns. |
+| `health_failure_details` | The `details` of a failed health probe: the error type, never its text. |
 | `InstanceConfig`, `DEFAULT_INSTANCE` | The configuration of one instance, which a driver's `from_config` receives (`name`, `driver`, `options`), and the name of the `default` instance. Re-exported from the kernel: a driver package imports them here. |
 | `CapabilitySpec` | Declares a capability: `name`, `version` (what a module may pin), `major` (the `contract_version` a driver states; default: the major of `version`), `provider_contract`, `config_schema`, `feature_kinds` (each feature and whether it is a `behaviour` or a `guarantee`), `features`, `removed_features` (a previous major's feature names, each mapped to its replacement, which a refusal names), `kernel_only` (a kernel-facing capability modules cannot resolve), `description`, `stability`. A driver loads only for a spec whose major is readable. |
 | `CapabilityRef` | A typed key callers resolve a capability with: `CapabilityRef[VectorIndex]("vector_index.v1")`. |
@@ -84,7 +85,6 @@ the same model.
 | `TARGET_GROUP_FIELD` | The stream-entry field that marks a dead-letter replay meant for one consumer group only. |
 | `DEFAULT_MAX_DELIVERIES`, `DEFAULT_MIN_IDLE_MS`, `DEFAULT_RETRY_BASE_MS`, `DEFAULT_RETRY_MAX_MS`, `DEFAULT_EVENT_STREAM_RETENTION_SECONDS` | The defaults of the reliability model: deliveries before an entry is dead-lettered, the idle time before a reclaim, the retry backoff bounds and the retention offered when `retention_seconds` is left out. |
 | `owners_match`, `owner_conflict_message` | The group-owner rule for `claim_group_owner`: two owners match when `module` and `database` match (`service` is informational), and the message to raise in `GroupOwnedElsewhere` when they do not. |
-| `health_failure_details` | The `details` of a failed health probe: the error type, never its text. |
 
 ## `sandloom.driverkit.testing`
 
