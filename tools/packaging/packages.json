@@ -46,6 +46,10 @@
         "cache.redis": {
           "target": "sandloom_redis.cache:RedisCacheProvider",
           "provider": "CacheProvider"
+        },
+        "eventbus.streams": {
+          "target": "sandloom_redis.eventbus.driver:StreamsEventBusProvider",
+          "provider": "EventTransportProvider"
         }
       }
     },

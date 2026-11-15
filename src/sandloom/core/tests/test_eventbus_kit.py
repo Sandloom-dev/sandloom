@@ -14,14 +14,13 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppres
 from dataclasses import replace
 from types import MappingProxyType
 from typing import Any, ClassVar
-from urllib.parse import urlsplit
 from uuid import uuid4
 
 import pytest
+from sandloom_redis.eventbus.driver import StreamsEventBusProvider
 
 # The one place this file reaches the streams transport.
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers.event_bus_driver import StreamsEventBusProvider
 from sandloom.core.eventing.memory_transport import MemoryTransport
 from sandloom.core.eventing.transport_base import partial_publish
 from sandloom.core.infra.errors import Unavailable
@@ -246,10 +245,6 @@ class _StreamsUnderTest(StreamsEventBusProvider):
             with suppress(Exception):
                 await client.aclose()
         await super().aclose()
-
-    async def isolation_identity(self) -> str | None:
-        target = urlsplit(self.options["url"])
-        return f"streams:{target.hostname}:{target.port}{target.path}"
 
 
 @asynccontextmanager

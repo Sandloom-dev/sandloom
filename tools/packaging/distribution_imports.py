@@ -62,22 +62,6 @@ ALLOWLIST = (
     Path(__file__).resolve().parents[2] / "tests" / "architecture" / "kernel_edges.yml"
 )
 
-#: First-party imports of a driver package (ADR-0016) that a built-in driver of
-#: the kernel wheel still makes: the streams event-bus driver builds its Redis
-#: clients with ``sandloom_redis.cache`` until it moves into the package
-#: They are not business-module edges, so the register's rows (``ALLOWLIST``)
-#: do not hold them; its ``driver_package_imports`` section lists the same pair
-#: for the kernel-edges check (the architecture tests keep both in step).
-#: ``{importing module: {imported module: removed_by}}``, ``removed_by`` the tm
-#: task that removes the import (``idk-...``). Merged per pair with the
-#: register's rows when ``check`` gets no ``allowlist``; an entry that matches no
-#: import is reported, so it only shrinks (cap 1, held by the architecture test).
-KERNEL_DRIVER_IMPORTS: dict[str, dict[str, str]] = {
-    "sandloom.core.drivers.event_bus_driver": {
-        "sandloom_redis.cache": "idk-pkg-redis-eventbus",
-    },
-}
-
 Requirement = tuple[str, frozenset[str]]
 
 
@@ -470,12 +454,6 @@ def check(
     ).items():
         for target in targets:
             tolerated[module, target] = row_hint
-    if allowlist is None:
-        for module, driver_targets in KERNEL_DRIVER_IMPORTS.items():
-            for target, removed_by in driver_targets.items():
-                tolerated[module, target] = (
-                    f"remove it from KERNEL_DRIVER_IMPORTS (removed_by {removed_by})"
-                )
     used: set[tuple[str, str]] = set()
     problems: list[str] = []
     for wheel in by_name.values():

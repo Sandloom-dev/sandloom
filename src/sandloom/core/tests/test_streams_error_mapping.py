@@ -14,11 +14,11 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 import pytest
+import sandloom_redis.eventbus.driver as event_bus_driver
+from sandloom_redis.eventbus import streams_groups, streams_transport
+from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
+from sandloom_redis.eventbus.streams_transport_base import _PendingEntry
 
-from sandloom.core.drivers import event_bus_driver
-from sandloom.core.drivers.redis_eventbus import streams_groups, streams_transport
-from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
-from sandloom.core.drivers.redis_eventbus.streams_transport_base import _PendingEntry
 from sandloom.core.observability.unreachable import CODE, connection_failure
 from sandloom.core.tasks.relay import is_broker_unavailable
 from sandloom.driverkit import (
@@ -342,6 +342,71 @@ async def test_the_instance_name_of_a_provider_is_on_the_error() -> None:
     with pytest.raises(Unavailable) as caught:
         await provider.ack(DELIVERY)
     assert caught.value.instance == "bus-two"
+
+
+class _InfoClient:
+    """A client whose ``INFO server`` answers ``reply`` (or raises it)."""
+
+    def __init__(self, reply: Any) -> None:
+        self._reply = reply
+
+    async def info(self, section: str) -> Any:
+        assert section == "server"
+        if isinstance(self._reply, BaseException):
+            raise self._reply
+        return self._reply
+
+
+def _identity_provider(reply: Any, *, name: str = "bus") -> Any:
+    async def factory() -> Any:
+        return _InfoClient(reply)
+
+    return event_bus_driver.StreamsEventBusProvider(
+        name=name, driver="streams", options={}, client_factory=factory
+    )
+
+
+@pytest.mark.parametrize(
+    "reply", [{"run_id": "abc123"}, {b"run_id": b"abc123"}, {"run_id": b"abc123"}]
+)
+async def test_the_isolation_identity_is_the_driver_and_the_server_run_id(
+    reply: dict[Any, Any],
+) -> None:
+    """Same server, same identity, whatever the instance name; the driver name
+    leads (spec 2.7 item 6)."""
+    assert await _identity_provider(reply).isolation_identity() == "streams:abc123"
+    assert (
+        await _identity_provider(reply, name="other").isolation_identity()
+        == "streams:abc123"
+    )
+    assert (
+        await _identity_provider({"run_id": "zzz"}).isolation_identity()
+        == "streams:zzz"
+    )
+
+
+@pytest.mark.parametrize("reply", [{}, {"run_id": ""}, {"run_id": None}, {"run_id": 7}])
+async def test_a_server_without_a_run_id_refuses_its_identity(
+    reply: dict[Any, Any],
+) -> None:
+    with pytest.raises(Unavailable) as caught:
+        await _identity_provider(reply, name="bus-three").isolation_identity()
+    assert caught.value.instance == "bus-three"
+
+
+async def test_a_failing_info_call_is_mapped_without_its_text() -> None:
+    provider = _identity_provider(redis_exceptions.ConnectionError(SECRET))
+    with pytest.raises(Unavailable) as caught:
+        await provider.isolation_identity()
+    assert SECRET not in str(caught.value)
+
+
+async def test_an_error_that_is_not_a_backend_failure_is_not_mapped_in_identity() -> (
+    None
+):
+    provider = _identity_provider(ValueError("a bug, not the backend"))
+    with pytest.raises(ValueError, match="a bug"):
+        await provider.isolation_identity()
 
 
 async def test_a_reply_that_is_not_a_backend_failure_is_not_mapped() -> None:

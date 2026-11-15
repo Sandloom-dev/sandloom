@@ -86,15 +86,10 @@ DRIVER_PACKAGES: frozenset[str] = frozenset(
     p.import_name for p in release_packages.PACKAGES if p.kind == "driver"
 )
 
-#: The driver-package imports a built-in driver file still makes, by exact file
-#: and exact target. removed_by: idk-pkg-redis-eventbus (the streams driver moves
-#: into ``sandloom-redis``, next to the cache module it imports). Cap 1: the
-#: seed only shrinks, and an entry the file no longer imports fails too.
-SEEDED_PACKAGE_IMPORTS: dict[str, frozenset[str]] = {
-    "src/sandloom/core/drivers/event_bus_driver.py": frozenset(
-        {"sandloom_redis.cache"}
-    ),
-}
+#: The driver-package imports a built-in driver file may make, by exact file and
+#: exact target: none (the streams driver, the last one, moved into
+#: ``sandloom-redis`` with idk-pkg-redis-eventbus). The seed never grows.
+SEEDED_PACKAGE_IMPORTS: dict[str, frozenset[str]] = {}
 
 KERNEL = "sandloom.core"
 DRIVERKIT = "sandloom.driverkit"
@@ -122,16 +117,6 @@ SEEDED: dict[str, frozenset[str]] = {
             "sandloom.core.sql_alchemy.dead_connection",
             "sandloom.core.sql_alchemy.driver_compat",
             "sandloom.core.sql_alchemy.portable",
-        }
-    ),
-    # idk-streams-driverkit: the driver reaches the kernel through the driver kit
-    # only. What stays is its own transport, a sibling the package move takes
-    # along (idk-pkg-redis-eventbus): no kernel internal. The default Redis
-    # client helpers are the cache driver's, now ``sandloom_redis.cache``
-    # (idk-pkg-redis-streams): a package import, not one of ``sandloom``.
-    _D + "event_bus_driver.py": frozenset(
-        {
-            "sandloom.core.drivers.redis_eventbus.streams_transport",
         }
     ),
     _D + "filesystem_storage.py": frozenset(
@@ -504,9 +489,9 @@ def test_builtin_drivers_gain_no_kernel_import() -> None:
 
 def test_builtin_drivers_import_no_driver_package() -> None:
     """A built-in driver never imports a driver package (``sandloom_redis``,
-    ``sandloom_celery``, ``sandloom_s3``: ``kind: driver`` of ``packages.json``),
-    beyond the one seeded pair; a seeded pair the file no longer imports fails
-    too, so the seed goes with the import (removed_by idk-pkg-redis-eventbus)."""
+    ``sandloom_celery``, ``sandloom_s3``: ``kind: driver`` of ``packages.json``):
+    the seed is empty, and a seeded pair the file no longer imports would fail
+    too."""
     assert DRIVER_PACKAGES >= {"sandloom_redis", "sandloom_s3"}, DRIVER_PACKAGES
     found = package_import_problems(
         builtin_driver_files(), REPO, SEEDED_PACKAGE_IMPORTS
@@ -516,7 +501,7 @@ def test_builtin_drivers_import_no_driver_package() -> None:
         "not depend on a package that depends on it. Move the code, or the "
         "driver, into the package:\n  " + "\n  ".join(found)
     )
-    assert sum(len(v) for v in SEEDED_PACKAGE_IMPORTS.values()) <= 1
+    assert not SEEDED_PACKAGE_IMPORTS
 
 
 def test_the_package_import_scan_counts_every_form(tmp_path: Path) -> None:
@@ -772,9 +757,17 @@ def test_a_driver_subpackage_is_scanned_and_its_own_imports_are_exempt(
     ]
 
 
-def test_the_scan_reaches_the_driver_subpackages() -> None:
+def test_the_scan_reaches_the_builtin_driver_files() -> None:
+    """No built-in driver subpackage is left (the streams transport moved into
+    ``sandloom-redis``, whose files ``package_files`` scans); the live scan finds
+    the files that stay and none of the infrastructure modules."""
     found = {p.relative_to(DRIVERS).as_posix() for p in builtin_driver_files()}
-    assert "redis_eventbus/streams_transport.py" in found
+    assert "sqlalchemy_database.py" in found
+    assert not any("/" in name for name in found), found
+    assert any(
+        p.name == "streams_transport.py" and "sandloom_redis" in p.parts
+        for p in package_files()
+    )
     assert "__init__.py" not in found
     assert "bootstrap.py" not in found
 
@@ -807,12 +800,12 @@ def test_the_seed_holds_the_live_allowlist() -> None:
     # The seed itself only shrinks: lower this number with every pair removed.
     # 89 -> 103 once (idk-eventbus-moveb, +14): pre-existing imports of the files
     # idk-eventbus-move moved out of core/eventing, newly counted by the subpackage
-    # scan, not newly added; removed_by idk-pkg-redis-streams.
+    # scan, not newly added (those files left with idk-pkg-redis-eventbus).
     # 103 -> 83 (idk-streams-driverkit, -20): the four files of redis_eventbus/
     # (14 pairs) and six of event_bus_driver's seven import only the driver kit.
     # 83 -> 84 (idk-streams-driverkitb, +1): event_bus_driver imports redis_cache
     # directly (the driver kit's redis_client wrapper hid that edge and inverted
-    # the layering); removed_by idk-pkg-redis-streams.
+    # the layering); the import went with the driver (idk-pkg-redis-streams).
     # 84 -> 79 (idk-pkg-celery, -5): the three celery files import only the driver
     # kit (the probe's timeout is a driver option); they moved to the
     # sandloom-celery package, whose files the package scan covers.
@@ -820,7 +813,9 @@ def test_the_seed_holds_the_live_allowlist() -> None:
     # driver kit.
     # 75 -> 74 (idk-pkg-redis-streams, -1): redis_cache moved to the sandloom-redis
     # package, so event_bus_driver's import of it is no longer a ``sandloom`` one.
-    assert sum(len(v) for v in SEEDED.values()) <= 74
+    # 74 -> 73 (idk-pkg-redis-eventbus, -1): event_bus_driver and redis_eventbus/
+    # moved into the sandloom-redis package, which the package scan covers.
+    assert sum(len(v) for v in SEEDED.values()) <= 73
 
 
 @pytest.mark.parametrize(

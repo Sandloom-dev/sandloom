@@ -57,12 +57,22 @@ def test_each_row_targets_the_entry_point_of_the_package() -> None:
         assert "sandloom_redis" in requires  # preflight names the missing package
 
 
-def test_the_streams_row_requires_the_package_its_driver_imports() -> None:
-    """``event_bus_driver`` imports ``sandloom_redis.cache``: a build without
-    the package is refused with the install hint, not an ImportError."""
-    (requires,) = (
-        row[3] for row in BUILTIN_DRIVER_ROWS if row[:2] == ("eventbus", "streams")
+def test_the_streams_row_is_the_entry_point_of_the_package() -> None:
+    """The ``streams`` driver lives in ``sandloom_redis.eventbus``: its row and
+    its ``eventbus.streams`` entry point name one target, and the row requires
+    the package, so a build without it is refused with the install hint, not an
+    ImportError."""
+    ((target, requires),) = (
+        (row[2], row[3])
+        for row in BUILTIN_DRIVER_ROWS
+        if row[:2] == ("eventbus", "streams")
     )
+    entries = {
+        entry.name: entry.value
+        for entry in metadata.entry_points(group="sandloom.drivers")
+        if entry.dist is not None and entry.dist.name == "sandloom-redis"
+    }
+    assert entries["eventbus.streams"] == target
     assert "sandloom_redis" in requires
 
 
@@ -197,4 +207,27 @@ def test_first_use_of_a_lazy_row_without_the_package_names_the_install_hint(
     assert caught.value.sandloom_code == "SANDLOOM-B037"
     assert caught.value.missing == ("sandloom_redis",)
     assert "sandloom_redis" in str(caught.value)
+    assert "pip install 'sandloom[redis]'" in str(caught.value)
+
+
+def test_the_streams_bus_without_the_package_is_refused_not_an_import_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ``streams`` driver lives in the package: a build without it refuses an
+    instance that selects it with B037 and the install hint, and the kernel's
+    own code never imports the driver module on the way."""
+    _without_the_package(monkeypatch)
+    config = {
+        "eventbus": {
+            "default": InstanceConfig(
+                "eventbus", "default", "streams", {"url": "redis://h"}
+            )
+        }
+    }
+    with pytest.raises(DriverUnavailableError) as caught:
+        build_infra_registry(
+            InMemorySchemaRegistry(), config=config, load_plugins=False
+        )
+    assert caught.value.sandloom_code == "SANDLOOM-B037"
+    assert caught.value.missing == ("sandloom_redis",)
     assert "pip install 'sandloom[redis]'" in str(caught.value)

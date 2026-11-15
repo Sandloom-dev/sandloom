@@ -42,6 +42,7 @@ _REDIS_DRIVERS = {
     "lease": "sandloom_redis.lease:RedisLeaseProvider",
     "broadcast": "sandloom_redis.broadcast:RedisBroadcastProvider",
     "cache": "sandloom_redis.cache:RedisCacheProvider",
+    "eventbus": "sandloom_redis.eventbus.driver:StreamsEventBusProvider",
 }
 #: The Celery taskqueue driver of the ``sandloom-celery`` package: the same
 #: ``module:Class`` target its ``taskqueue.celery`` entry point names (a test
@@ -119,7 +120,7 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
     (
         "eventbus",
         "streams",
-        f"{_DRIVERS}.event_bus_driver:StreamsEventBusProvider",
+        _REDIS_DRIVERS["eventbus"],
         _REDIS_PACKAGE,
         _REDIS_INSTALL,
         "",
@@ -267,9 +268,7 @@ def _event_bus_build(
     def build(cfg: InstanceConfig) -> InfraProvider:
         # Imported when an instance selects the driver, never at bootstrap.
         if driver == "streams":
-            event_bus_driver = importlib.import_module(
-                "sandloom.core.drivers.event_bus_driver"
-            )
+            event_bus_driver = importlib.import_module("sandloom_redis.eventbus.driver")
             streams: DriverFactory = event_bus_driver.make_streams_driver()
             return streams(cfg)
         volatile = importlib.import_module("sandloom.core.eventing.volatile_provider")

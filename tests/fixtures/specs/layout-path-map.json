@@ -473,7 +473,7 @@
     "src/sandloom/core/drivers/__init__.py": "backend/src/sandloom/core/drivers/__init__.py",
     "src/sandloom/core/drivers/bootstrap.py": "backend/src/sandloom/core/drivers/bootstrap.py",
     "src/sandloom/core/drivers/celery_taskqueue.py": "backend/src/sandloom/core/drivers/celery_taskqueue.py",
-    "src/sandloom/core/drivers/event_bus_driver.py": "backend/src/sandloom/core/drivers/event_bus_driver.py",
+    "packages/sandloom-redis/src/sandloom_redis/eventbus/driver.py": "backend/src/sandloom/core/drivers/event_bus_driver.py",
     "src/sandloom/core/drivers/filesystem_storage.py": "backend/src/sandloom/core/drivers/filesystem_storage.py",
     "src/sandloom/core/drivers/linger_pool.py": "backend/src/sandloom/core/drivers/linger_pool.py",
     "src/sandloom/core/drivers/local_objectstore.py": "backend/src/sandloom/core/drivers/local_objectstore.py",
