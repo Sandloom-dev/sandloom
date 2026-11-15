@@ -2,9 +2,9 @@
 on an in-memory broker, and the kit catches broken drivers.
 
 The host groups (forked worker and scheduler processes, about a minute) are in
-``test_taskqueue_kit_host.py``, and the kit's checks against broken hosts in
-``test_taskqueue_kit_hostdefects.py``: ``--dist loadfile`` runs one file on one
-worker, so three files run on three.
+``test_taskqueue_kit_host.py`` beside this file, and the kit's checks against
+broken hosts in the kernel's ``test_taskqueue_kit_hostdefects.py``:
+``--dist loadfile`` runs one file on one worker.
 """
 
 from __future__ import annotations
@@ -17,9 +17,12 @@ from uuid import uuid4
 import pytest
 from sandloom_celery.taskqueue import create_celery_taskqueue
 
-from sandloom.core.infra.config import InstanceConfig
-from sandloom.core.infra.errors import InvalidArgument, Unavailable
-from sandloom.core.infra.ports.taskqueue import TaskQueueProvider
+from sandloom.driverkit import (
+    InstanceConfig,
+    InvalidArgument,
+    TaskQueueProvider,
+    Unavailable,
+)
 from sandloom.driverkit.testing import TaskQueueConformance
 
 #: The groups that fork a host: their own file (``test_taskqueue_kit_host.py``).

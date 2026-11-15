@@ -115,10 +115,11 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
     options_schema = CeleryTaskQueueOptions
     required_imports = ("celery",)
     install_hint = "pip install 'sandloom[celery]'"
-    # Beta, the floor for a driver of this repository (spec 2.5): the kernel's
-    # CI runs TaskQueueConformance against a real broker (`test_taskqueue_kit*`;
-    # its own lane comes with idk-pkg-celery-lane). An undeclared tier would
-    # be experimental.
+    # Beta, the floor for a driver of this repository (spec 2.5): the
+    # `celery-drivers` CI lane runs TaskQueueConformance (send and host groups)
+    # against the built wheel and a real Redis broker
+    # (`packages/sandloom-celery/tests/test_taskqueue_kit*`). An undeclared
+    # tier would be experimental.
     tier = "beta"
 
     @classmethod

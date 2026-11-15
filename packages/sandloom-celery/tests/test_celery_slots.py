@@ -23,9 +23,8 @@ from sandloom_celery.worker import (
 )
 
 from sandloom.core.drivers.memory_lease import MemoryLeaseProvider
-from sandloom.core.infra.errors import InvalidArgument, PermissionDenied, Unavailable
-from sandloom.core.infra.ports.lease import Lease
 from sandloom.core.tasks.cron import parse_cron
+from sandloom.driverkit import InvalidArgument, Lease, PermissionDenied, Unavailable
 
 _APP = Celery("slots", broker="memory://", set_as_current=False)
 _NY_APP = Celery("slots-ny", broker="memory://", set_as_current=False)

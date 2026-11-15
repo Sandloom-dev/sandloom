@@ -48,7 +48,7 @@ def _celery() -> Celery:
 @pytest.fixture(autouse=True)
 def _billiard_forks(monkeypatch: pytest.MonkeyPatch) -> None:
     """The prefork pool is refused where billiard spawns (macOS): the tests of
-    the host's wiring run as on Linux; ``test_celery_worker_pool`` pins the
+    the host's wiring run as on Linux; the package's ``test_celery_worker_pool`` pins the
     refusal."""
     import billiard  # type: ignore[import-untyped]
 
