@@ -15,8 +15,8 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from sandloom_celery.taskqueue import create_celery_taskqueue
 
-from sandloom.core.drivers.celery_taskqueue import create_celery_taskqueue
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.errors import InvalidArgument, Unavailable
 from sandloom.core.infra.ports.taskqueue import TaskQueueProvider

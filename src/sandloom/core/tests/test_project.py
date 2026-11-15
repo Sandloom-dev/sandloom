@@ -188,6 +188,7 @@ def test_apps_depend_on_sandloom_and_each_chosen_module_package(
     assert shop["project"]["dependencies"] == [
         "sandloom[redis,celery]>=0.7.0a13,<0.8",
         "sandloom-redis>=0.7.0a13,<0.8",
+        "sandloom-celery>=0.7.0a13,<0.8",
         "sandloom-identity>=0.7.0a13,<0.8",
     ]
 
@@ -198,10 +199,12 @@ def test_apps_depend_on_sandloom_and_each_chosen_module_package(
     assert probe["project"]["dependencies"] == [
         "sandloom[redis,celery]>=0.7.0a13,<0.8",
         "sandloom-redis>=0.7.0a13,<0.8",
+        "sandloom-celery>=0.7.0a13,<0.8",
     ]
 
     # A published app (no local checkout, so no `[tool.uv.sources]`) gets
-    # sandloom-redis through the `redis` extra alone.
+    # sandloom-redis and sandloom-celery through the `redis` and `celery`
+    # extras alone.
     generate_project("published", tmp_path, framework_source="pypi")
     published = tomllib.loads(_read(tmp_path / "published", "pyproject.toml"))
     assert published["project"]["dependencies"] == [

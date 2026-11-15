@@ -123,10 +123,10 @@ There is no alias for what it replaces.
 | Before | After |
 | --- | --- |
 | `TaskQueueProvider.raw_backend()` (the Celery app) | Removed, and no `native()` replaces it. Implement `worker_host()` in a driver; reach the app of a worker through the driver's own importable object |
-| `celery -A sandloom.core.worker inspect\|call\|status` and Flower on `sandloom.core.worker` | `celery -A sandloom.core.drivers.celery_worker inspect\|call\|status`; the app is built from `BROKER_URL`, boots no application and registers no task. It moves to `sandloom_celery.app` with the package |
+| `celery -A sandloom.core.worker inspect\|call\|status` and Flower on `sandloom.core.worker` | `celery -A sandloom_celery.worker inspect\|call\|status`; the app is built from `BROKER_URL`, boots no application and registers no task. |
 | `provider.register_task_table(table, run)` on the Celery provider | Removed: the host registers the table it gets from `WorkerBoot.boot()` |
-| `sandloom.core.worker.build_worker_app`, `get_worker_app`, `run_celery_command`, `install_heartbeat`, `heartbeat_is_fresh` | `sandloom.core.worker.run_worker`, `run_scheduler`, `check_worker` (the kernel side); the Celery side is `sandloom.core.drivers.celery_worker` |
-| `sandloom.core.beat_lease` (`BeatLease`, `LeasedScheduler`, `install_beat_lease`) | Moved to `sandloom.core.drivers.celery_worker`; the lease is resolved by the kernel (`sandloom.core.infra.fenced_lease`) and passed to the scheduler as `lease` and `lease_name` |
+| `sandloom.core.worker.build_worker_app`, `get_worker_app`, `run_celery_command`, `install_heartbeat`, `heartbeat_is_fresh` | `sandloom.core.worker.run_worker`, `run_scheduler`, `check_worker` (the kernel side); the Celery side is `sandloom_celery.worker` |
+| `sandloom.core.beat_lease` (`BeatLease`, `LeasedScheduler`, `install_beat_lease`) | Moved to `sandloom_celery.worker`; the lease is resolved by the kernel (`sandloom.core.infra.fenced_lease`) and passed to the scheduler as `lease` and `lease_name` |
 | `sandloom.core.async_runner.install_celery_hooks`, `sandloom.core.gc_tuning.install_celery_hooks` | Removed: the host calls `WorkerBoot.on_process_start`, `on_process_stop` and `before_fork` |
 | A health detail or error of the broker probe naming `scheme://host:port` | The details carry no broker address and no credential; read the error type |
 | `sandloom worker` on macOS (the prefork pool never saw the task table) | The worker refuses `prefork` where billiard spawns: set `worker_pool` to `solo` or `threads` in the `celery` taskqueue instance's options (`INFRA`) |

@@ -32,7 +32,7 @@ commit, and the owner reviews compatibility with the current `main`.
 | Changed area | Checks |
 | --- | --- |
 | Every PR | Workflow-policy regressions, reviewed source allowlist, credential-pattern scan; change classification |
-| Backend source/tests, migrations, package/build code or dependencies | Static gates, fast backend suite on Python 3.12, the kernel suites without module packages (`kernel-without-batteries`), the Redis driver package's tests and types (`redis-drivers`), the SQLite lane (`second-db-test-lane`) and the skip ledger, production image build; package checks for their declared paths |
+| Backend source/tests, migrations, package/build code or dependencies | Static gates, fast backend suite on Python 3.12, the kernel suites without module packages (`kernel-without-batteries`), the Redis driver package's tests and types (`redis-drivers`), the Celery driver package's wheel, style and types (`celery-drivers`), the SQLite lane (`second-db-test-lane`) and the skip ledger, production image build; package checks for their declared paths |
 | Admin or backend source/dependencies | Admin contract drift and the admin workflow |
 | Documentation, website, tutorial examples, SDK or documentation tooling | Strict site build, stale-symbol lint and website acceptance tests |
 | Example applications | All five example applications' gates and migrations |

@@ -1367,6 +1367,16 @@ For the orchestrator's review; each departs from or details `design.md`.
     (`unverified_noeviction_allowed`) to an `atomic_store` or `lease` built from an entry point.
     Without it `never_evicts_check=assume` is refused for ever in production, because only the row's
     `build` passes the policy.
+46. **`sandloom-celery` keeps the `taskqueue` row of item 45 and names its modules
+    `taskqueue`, `worker` and `broker_probe`** (`idk-pkg-celery-move`). The three files move whole
+    to `sandloom_celery/{taskqueue,worker,broker_probe}.py` (section 1 names no file), so the
+    stable importable Celery app of 8.2 is the module attribute `app` of `sandloom_celery.worker`:
+    `celery -A sandloom_celery.worker inspect|call|status` (earlier text said `sandloom_celery.app`).
+    The provider declares `tier = "beta"` (2.5) on the strength of the kernel's own
+    `TaskQueueConformance` runs against a real broker (`test_taskqueue_kit*`); the package's own
+    kit lane and tests follow in `idk-pkg-celery-lane`. Until then the CI job `celery-drivers`
+    builds the wheel, lints and runs strict `mypy packages/sandloom-celery/src` (the root mypy run
+    and pytest paths do not reach `packages/`).
 
 ## 14. Open for the owner
 

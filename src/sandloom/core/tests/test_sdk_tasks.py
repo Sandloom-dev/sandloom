@@ -11,8 +11,8 @@ from typing import Any
 import pytest
 from celery import Celery
 from pydantic import BaseModel
+from sandloom_celery.worker import register_task_table
 
-from sandloom.core.drivers.celery_worker import register_task_table
 from sandloom.core.infra.errors import InvalidArgument
 from sandloom.core.tasks.registry import (
     build_task_table,

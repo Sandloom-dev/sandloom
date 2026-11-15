@@ -26,9 +26,9 @@ from typing import Any
 
 import httpx
 import pytest
+import sandloom_celery.worker as _celery_worker
 from fastapi import FastAPI
 
-import sandloom.core.drivers.celery_worker as _celery_worker
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import (
     CapabilityRequirement,
@@ -338,7 +338,7 @@ async def test_the_taskqueue_probe_is_cached_like_the_other_readiness_probes(
 def _count_broker_connections(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     """Record every broker connection the celery driver's probe opens (the
     real connect still runs)."""
-    import sandloom.core.drivers.celery_broker_probe as probe
+    import sandloom_celery.broker_probe as probe
 
     opened: list[float] = []
     connect = probe._connect_once

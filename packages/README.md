@@ -23,6 +23,7 @@ checks, Alembic `env.py`, docker mounts, documentation imports) is undisturbed.
 | `sandloom-billing` | `sandloom_billing` (plans, subscriptions, credits, Stripe) | `sandloom>=0.7.0a13,<0.8` | none | `sandloom.modules`: `billing = "sandloom_billing"` |
 | `sandloom-admin` | `sandloom_admin` (the prebuilt owner console, served at `/admin/`) | `sandloom>=0.7.0a13,<0.8` | none | `sandloom.modules`: `admin = "sandloom_admin"` |
 | `sandloom-redis` | `sandloom_redis` (Redis `atomic_store`, `lease` and `broadcast` drivers) | `sandloom>=0.7.0a13,<0.8`, redis, pydantic | none | `sandloom.drivers`: `atomic_store.redis`, `lease.redis`, `broadcast.redis` (`sandloom_redis.<capability>:<Provider>`) |
+| `sandloom-celery` | `sandloom_celery` (the Celery `taskqueue` driver, its worker and scheduler host and its broker probe) | `sandloom>=0.7.0a13,<0.8`, celery[redis], pydantic, orjson | none | `sandloom.drivers`: `taskqueue.celery = "sandloom_celery.taskqueue:CeleryTaskQueueProvider"` |
 | `sandloom-s3` | `sandloom_s3` (S3-compatible object storage) | `sandloom>=0.7.0a13,<0.8`, boto3, botocore, anyio, pydantic | none | `sandloom.drivers`: `objectstore.s3 = "sandloom_s3:S3ObjectStore"` |
 
 Extras of `sandloom`:
@@ -30,8 +31,8 @@ Extras of `sandloom`:
 | extra | adds | for |
 | --- | --- | --- |
 | `redis` | `redis`, `sandloom-redis` (`>=0.7.0a13,<0.8`) | the Redis cache and Streams event bus, and the Redis `atomic_store`, `lease` and `broadcast` drivers |
-| `celery` | `celery[redis]` | the Celery task queue |
-| `standard` | `sandloom[redis,celery]`, `sandloom-redis`, `sandloom-standard`, `sandloom-identity`, `sandloom-tenancy`, `sandloom-billing` (each `>=0.7.0a13,<0.8`) | the batteries-included set and its composition root <!-- sandloom-release --> |
+| `celery` | `celery[redis]`, `sandloom-celery` (`>=0.7.0a13,<0.8`) | the Celery task queue, its worker host and scheduler |
+| `standard` | `sandloom[redis,celery]`, `sandloom-redis`, `sandloom-celery`, `sandloom-standard`, `sandloom-identity`, `sandloom-tenancy`, `sandloom-billing` (each `>=0.7.0a13,<0.8`) | the batteries-included set and its composition root <!-- sandloom-release --> |
 | `admin` | `sandloom[redis,celery]`, `sandloom-admin`, `sandloom-identity` | the admin console; deliberately not in `standard`, because an installed module joins `sandloom.main` and a console is a decision |
 | `fast` | `redis[hiredis]`, `jsonschema-rs` | optional accelerators |
 | `check` | `PyYAML` | `sandloom check` (reads YAML manifests) |

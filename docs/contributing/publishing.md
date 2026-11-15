@@ -34,8 +34,8 @@ The GitHub `pypi` environment requires approval by `Maryarty`, including runs
 started by the owner. Administrator bypass is disabled. The owner may approve
 their own run because there is only one maintainer. Allowed deployment refs are
 `main` and the tag patterns of the packages that release by tag:
-`sandloom-v*`, `sandloom-identity-v*`, `sandloom-tenancy-v*` and
-`sandloom-billing-v*`.
+`sandloom-v*`, `sandloom-identity-v*`, `sandloom-tenancy-v*`,
+`sandloom-billing-v*` and `sandloom-celery-v*`.
 
 The workflow starts on `sandloom*-v*`. Its plan step checks the tag against
 `tools/packaging/packages.json`: the package must exist and have `tag_release`
@@ -151,8 +151,8 @@ git tag sandloom-v0.7.0a13
 git push origin sandloom-v0.7.0a13
 ```
 
-The other tag prefixes are `sandloom-identity-v`, `sandloom-tenancy-v` and
-`sandloom-billing-v`. Every other package, such as `sandloom-standard`,
+The other tag prefixes are `sandloom-identity-v`, `sandloom-tenancy-v`,
+`sandloom-billing-v` and `sandloom-celery-v`. Every other package, such as `sandloom-standard`,
 releases through a manual run. No tag pattern of the environment allows its
 tag. Its `tag_release` is false in `packages.json`, so the plan step refuses
 that tag.
