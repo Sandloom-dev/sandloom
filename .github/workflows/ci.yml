@@ -627,6 +627,90 @@ jobs:
           src/sandloom/core/tests tests/sdk tests/architecture
           tests/integration/replaceability
 
+  redis-drivers:
+    # The sandloom-redis package (atomic_store, lease and broadcast drivers):
+    # its wheel, style, strict types, its tests and conformance kits against a
+    # real Redis, and the kernel's tests of the driver rows. The package is
+    # tested as its built wheel, so the entry points the registry reads are the
+    # ones the wheel ships. The root pytest paths exclude packages/, so no
+    # other job runs these tests.
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.packages == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: .
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sandloom_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
+      CACHE_URL: redis://127.0.0.1:6380/0
+      BROKER_URL: redis://127.0.0.1:6380/14
+      JWT_SECRET: ci-redis-drivers-not-a-real-secret
+      SANDLOOM_TEST_OWNER: ci-redis-drivers
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Start Redis with enough databases for every xdist worker
+        working-directory: .
+        run: |
+          docker run -d --name redis -p 6380:6379 redis:7 \
+            redis-server --databases 256 --save "" --appendonly no
+          for _ in $(seq 1 30); do
+            docker exec redis redis-cli ping | grep -q PONG && break
+            sleep 1
+          done
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          save-cache: false
+
+      - name: Install Sandloom and the built driver package
+        run: |
+          uv sync --frozen --group packaging
+          uv build packages/sandloom-redis --out-dir "$RUNNER_TEMP/redis-dist"
+          uv pip install --reinstall --no-deps "$RUNNER_TEMP"/redis-dist/*.whl
+
+      - name: Driver package style
+        run: |
+          uv run --no-sync ruff check --no-fix packages/sandloom-redis
+          uv run --no-sync ruff format --check packages/sandloom-redis
+
+      - name: Driver package types
+        run: uv run --no-sync mypy packages/sandloom-redis/src
+
+      - name: Driver tests, their conformance kits and the kernel's driver rows
+        run: >-
+          uv run --no-sync pytest -q -n 2 --dist loadfile
+          packages/sandloom-redis/tests
+          src/sandloom/core/tests/test_redis_driver_rows.py
+          src/sandloom/core/tests/test_atomic_store.py
+          src/sandloom/core/tests/test_lease.py
+          src/sandloom/core/tests/test_broadcast_redis.py
+
   second-db-test-lane:
     # The second database (spec: design/infra-agnostic/spec.md, section 6).
     # PostgreSQL (backend-tests) is the mandatory lane and runs everything;
@@ -1380,6 +1464,7 @@ jobs:
       - backend-tests
       - backend-tests-isolation
       - kernel-without-batteries
+      - redis-drivers
       - second-db-test-lane
       - skip-ledger
       - benchmarks-security

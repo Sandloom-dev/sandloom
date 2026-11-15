@@ -10,12 +10,20 @@ from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 from sandloom_redis.broadcast import RedisBroadcastProvider
 from sandloom_redis.lease import RedisLeaseProvider
 
-from sandloom.core.drivers.bootstrap import BUILTIN_DRIVER_ROWS, build_infra_registry
+import sandloom.core.infra.registry as registry_module
+from sandloom.core.drivers.bootstrap import (
+    BUILTIN_DRIVER_ROWS,
+    BUILTIN_DRIVER_TIERS,
+    build_infra_registry,
+)
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.registry import (
     DriverConflictError,
+    DriverLoadError,
+    DriverRegistration,
     DriverUnavailableError,
     InfraRegistry,
+    InfraStartupError,
 )
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
@@ -51,7 +59,9 @@ def test_each_row_resolves_to_the_package_class() -> None:
     registry = build_infra_registry(InMemorySchemaRegistry(), load_plugins=False)
     for capability, provider_class in _CLASSES.items():
         assert registry.driver_class(capability, "redis") is provider_class
-        assert registry.driver_tier(capability, "redis") == "beta"
+        assert registry.driver_tier(capability, "redis") == provider_class.tier
+        # The tier the row is registered with is the class's own declaration.
+        assert provider_class.tier == BUILTIN_DRIVER_TIERS[(capability, "redis")]
 
 
 def test_the_entry_point_of_a_row_is_the_same_driver_not_a_conflict() -> None:
@@ -128,3 +138,52 @@ def test_an_instance_infra_names_is_refused_without_the_package(
             InMemorySchemaRegistry(), config=config, load_plugins=False
         )
     assert "sandloom[redis]" in str(caught.value.install)
+
+
+def _implicit_lease_registry() -> InfraRegistry:
+    config = {
+        "lease": {
+            "beat": InstanceConfig(
+                "lease", "beat", "redis", {"url": "redis://h"}, implicit=True
+            )
+        }
+    }
+    registry = build_infra_registry(
+        InMemorySchemaRegistry(), config=config, load_plugins=False
+    )
+    registry.use_kernel_instance("lease", "beat")
+    return registry
+
+
+async def test_an_implicit_default_without_the_package_is_b037_at_strict_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _without_the_package(monkeypatch)
+    registry = _implicit_lease_registry()
+    with pytest.raises(InfraStartupError, match="sandloom_redis") as caught:
+        await registry.aopen_all(strict=True)
+    assert caught.value.sandloom_code == "SANDLOOM-B037"
+    assert "sandloom[redis]" in str(caught.value)
+
+
+def test_first_use_of_a_lazy_row_without_the_package_names_the_install_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _without_the_package(monkeypatch)
+    real_import = registry_module._import_target
+
+    def import_target(
+        capability: str, driver: str, registration: DriverRegistration
+    ) -> object:
+        if (registration.target or "").startswith("sandloom_redis"):
+            raise DriverLoadError("sandloom_redis is not importable", fix="-")
+        return real_import(capability, driver, registration)
+
+    monkeypatch.setattr(registry_module, "_import_target", import_target)
+    registry = _implicit_lease_registry()
+    with pytest.raises(DriverUnavailableError) as caught:
+        registry.provider("lease", "beat")
+    assert caught.value.sandloom_code == "SANDLOOM-B037"
+    assert caught.value.missing == ("sandloom_redis",)
+    assert "sandloom_redis" in str(caught.value)
+    assert "pip install 'sandloom[redis]'" in str(caught.value)

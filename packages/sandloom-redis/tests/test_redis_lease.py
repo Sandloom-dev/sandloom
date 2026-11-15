@@ -18,11 +18,11 @@ from sandloom_redis.lease import RedisLeaseProvider
 
 from sandloom.core.config.settings import settings
 from sandloom.driverkit import InfraError, InvalidArgument, PermissionDenied
-from sandloom.driverkit.kits.lease import LeaseConformance
 from sandloom.driverkit.lease_limits import (
     MAX_LEASE_NAME_LENGTH,
     MIN_LEASE_TTL_SECONDS,
 )
+from sandloom.driverkit.testing import LeaseConformance
 
 # The harness resolves the URL into ``settings`` (SANDLOOM_TEST_CACHE_URL on a
 # shared machine, CACHE_URL on CI): never read the environment here.

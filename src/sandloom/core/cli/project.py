@@ -1349,13 +1349,15 @@ def generate_project(
     # The kernel with its Redis/Celery drivers (the generated compose uses
     # Redis and runs the Celery worker), plus each module package chosen with
     # --with: ecosystem packages, each a compatible range.
-    # ``sandloom-redis`` is named beside the extra that requires it: uv applies
-    # a ``[tool.uv.sources]`` entry (an unpublished checkout) to direct
-    # dependencies only.
+    # In a local checkout (``source_config`` is not empty) ``sandloom-redis`` is
+    # named beside the extra that requires it: uv applies a
+    # ``[tool.uv.sources]`` entry (an unpublished checkout) to direct
+    # dependencies only. A published app gets it through ``sandloom[redis]``.
     redis_package: list[str] = []
     if framework_req is None:
         framework_req = f"sandloom[redis,celery]{FRAMEWORK_RANGE}"
-        redis_package = [f"sandloom-redis{FRAMEWORK_RANGE}"]
+        if source_config:
+            redis_package = [f"sandloom-redis{FRAMEWORK_RANGE}"]
     framework_deps = [
         framework_req,
         *redis_package,

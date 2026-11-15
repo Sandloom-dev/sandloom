@@ -85,7 +85,6 @@
         ".github/workflows/full-validation.yml",
         ".github/workflows/notification-smtp.yml",
         ".github/workflows/objectstore-s3.yml",
-        ".github/workflows/redis-drivers.yml",
         ".github/workflows/packages.yml",
         ".github/workflows/pages.yml",
         ".github/workflows/release.yml",

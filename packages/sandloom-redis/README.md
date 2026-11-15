@@ -11,9 +11,10 @@ discovers the drivers through the `sandloom.drivers` entry-point group.
 | `lease.redis` | `lease` | `sandloom_redis.lease:RedisLeaseProvider` |
 | `broadcast.redis` | `broadcast` | `sandloom_redis.broadcast:RedisBroadcastProvider` |
 
-Each driver declares the tier `beta`. The CI lane `redis-drivers.yml` runs the
-conformance kits (`AtomicStoreConformance`, `LeaseConformance`,
-`BroadcastConformance`) against a real Redis.
+Each driver declares the tier `beta`. The `redis-drivers` job of `ci.yml`
+(required by the aggregate check "CI required") runs the conformance kits
+(`AtomicStoreConformance`, `LeaseConformance`, `BroadcastConformance`) against
+a real Redis, and this package's tests and types (`mypy` strict).
 
 ```sh
 INFRA='{"lease":{"beat":{"driver":"redis"}},"atomic_store":{"security":{"driver":"redis","url":"redis://cache:6379/0"}}}'

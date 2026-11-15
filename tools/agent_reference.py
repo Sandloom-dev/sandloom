@@ -138,6 +138,7 @@ _NOISE = (
 _SKIP_AREAS = ("benchmarks", "dependency_review")
 _SKIP_JOBS = (
     "kernel-without-batteries",
+    "redis-drivers",
     "supply-chain",
     "backend-tests",
     "second-db-test-lane",

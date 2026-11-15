@@ -913,6 +913,14 @@ class InfraRegistry:
                     fix=f"add INFRA[{capability!r}][{name!r}] or request a "
                     "configured instance",
                 )
+            if self._target_package_missing(capability, name):
+                # A lazy row of a driver package that is not installed (an
+                # implicit default is not refused at startup): B037 with the
+                # install hint, before the target is imported, which would
+                # only fail with a generic load error.
+                problem = self._unavailable(capability, name)
+                if problem is not None:
+                    raise problem
             registration = self._registration(capability, instance_cfg.driver)
             if registration is None:
                 self._check_experimental_driver(capability, instance_cfg.driver)

@@ -407,8 +407,8 @@ class RedisBroadcastProvider(BroadcastProvider):
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
     # Beta, the floor for a driver of this repository (spec 2.5): the lane
-    # .github/workflows/redis-drivers.yml runs BroadcastConformance against a
-    # real Redis. An undeclared tier would be experimental.
+    # `redis-drivers` job of ci.yml runs BroadcastConformance against a real
+    # Redis. An undeclared tier would be experimental.
     tier = "beta"
 
     def __init__(self, *, name: str, driver: str, options: Mapping[str, Any]) -> None:
