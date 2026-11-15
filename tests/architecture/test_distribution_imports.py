@@ -14,6 +14,7 @@ shrink-only allowlist. The real wheels are checked by
 
 from __future__ import annotations
 
+import re
 import sys
 import zipfile
 from collections.abc import Mapping
@@ -25,7 +26,10 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools" / "packaging"))
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import distribution_imports as di  # noqa: E402
+import kernel_edges as ke  # noqa: E402
 
 TOPS = {
     "fastapi": {"fastapi"},
@@ -336,6 +340,60 @@ def test_the_streams_driver_may_import_the_cache_driver_package_by_default() -> 
     assert "does not depend on" in run("sandloom.core.other", imports, None)[0]
     stale = run(streams, "import os\n", None)
     assert "allowlist entry sandloom.core.drivers.event_bus_driver" in stale[0]
+    # the stale message names the constant it comes from, and the removing task
+    assert "KERNEL_DRIVER_IMPORTS (removed_by idk-pkg-redis-eventbus)" in stale[0]
+    assert "kernel_edges.yml" not in stale[0]
+
+
+def test_the_driver_imports_merge_with_the_registers_rows_per_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A module the register tolerates for one import and ``KERNEL_DRIVER_IMPORTS``
+    for another keeps both (the dicts are merged per pair, not replaced per
+    module); a stale register pair names the register's row, not the constant."""
+    streams = "sandloom.core.drivers.event_bus_driver"
+    redis = di.Wheel("sandloom-redis", {"sandloom"})
+    redis.modules = {"sandloom_redis": "", "sandloom_redis.cache": ""}
+    redis.packages = {"sandloom_redis"}
+    source = "import sandloom_redis.cache\nimport sandloom_identity.api\n"
+
+    def run(register: dict[str, tuple[str, ...]], body: str) -> list[str]:
+        monkeypatch.setattr(di, "load_allowlist", lambda *a, **k: register)
+        return di.check(
+            [_kernel(**{streams: body}), redis, _identity()],
+            first_party=["sandloom", "sandloom_redis", "sandloom_identity"],
+            top_levels=TOPS,
+            requires_of=_requires,
+            provides={"sandloom": ["fastapi"]},
+        )
+
+    assert run({streams: ("sandloom_identity.api",)}, source) == []
+    # without the register's pair the identity import is a violation
+    assert "sandloom_identity.api" in run({}, source)[0]
+    (stale,) = run(
+        {streams: ("sandloom_identity.api",)}, "import sandloom_redis.cache\n"
+    )
+    assert "sandloom_identity.api matches no violation" in stale
+    assert "kernel_edges.yml" in stale
+    assert "KERNEL_DRIVER_IMPORTS" not in stale
+
+
+def test_the_kernel_driver_imports_are_one_removable_pair_the_register_lists() -> None:
+    """Cap 1, each entry with a machine-readable ``removed_by``, and the same pair
+    the edge register's ``driver_package_imports`` lists for the kernel-edges check."""
+    pairs = [
+        (module, target, removed_by)
+        for module, targets in di.KERNEL_DRIVER_IMPORTS.items()
+        for target, removed_by in targets.items()
+    ]
+    assert 1 <= len(pairs) <= 1, pairs
+    for _, _, removed_by in pairs:
+        assert re.fullmatch(r"idk-[a-z0-9]+(?:-[a-z0-9]+)*", removed_by), removed_by
+    listed = {
+        (d.path.removesuffix(".py").replace("/", "."), d.literal, d.removed_by)
+        for d in ke.load_register().driver_imports
+    }
+    assert listed == set(pairs)
 
 
 def test_an_allowlisted_violation_passes_and_a_stale_entry_fails() -> None:

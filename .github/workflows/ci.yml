@@ -661,6 +661,9 @@ jobs:
       BROKER_URL: redis://127.0.0.1:6380/14
       JWT_SECRET: ci-redis-drivers-not-a-real-secret
       SANDLOOM_TEST_OWNER: ci-redis-drivers
+      # This job is the only one that runs the package tests: a Redis that is
+      # not reachable is an error here, not a skip (packages/sandloom-redis/tests/_redis_required.py).
+      SANDLOOM_REDIS_REQUIRED: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

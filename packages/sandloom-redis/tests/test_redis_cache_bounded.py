@@ -23,6 +23,7 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 import sandloom_redis.cache as redis_cache
+from _redis_required import redis_unavailable
 from fastapi import Depends, FastAPI, HTTPException
 from sandloom_redis.cache import RedisCacheOptions, RedisCacheProvider
 
@@ -296,16 +297,16 @@ async def live() -> AsyncIterator[RedisCacheProvider]:
 
     from sandloom.core.testing.workers import worker_env_values
 
-    env_test = Path(__file__).resolve().parents[4] / ".env.test"
+    env_test = Path(__file__).resolve().parents[3] / ".env.test"
     url = os.getenv("CACHE_URL") or worker_env_values(env_test).get("CACHE_URL")
     if not url:
-        pytest.skip("CACHE_URL not configured")
+        redis_unavailable("CACHE_URL not configured")
     provider = _provider(url)
     try:
         await asyncio.wait_for(provider.get("sandloom:test:ping"), 5)
-    except Exception:  # noqa: BLE001 - test Redis unreachable: skip
+    except Exception:  # noqa: BLE001 - test Redis unreachable: skip, or fail when required
         await provider.aclose()
-        pytest.skip("test Redis not reachable")
+        redis_unavailable("test Redis not reachable")
     yield provider
     await provider.aclose()
 

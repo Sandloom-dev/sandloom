@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from functools import partial
 from types import ModuleType
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -35,11 +35,20 @@ from sandloom.driverkit.testing_isolation import isolated_redis_options
 _DEFAULT_INSTANCE = "default"
 
 
+if TYPE_CHECKING:
+    # Temporary, removed by idk-pkg-redis-eventbus (this driver moves into
+    # ``sandloom-redis`` next to the cache module): the one place the kernel
+    # names the package. The runtime import is the lazy one in ``_redis_cache``;
+    # this one types what the module's classes are used for.
+    from sandloom_redis.cache import RedisCacheOptions
+
+
 def _redis_cache() -> ModuleType:
     """The cache driver of the ``sandloom-redis`` package, which owns the Redis
     client helpers. Imported when a client is first built, so this module
     imports in a lean install (the registry refuses the ``streams`` driver
-    without the package before it gets here, SANDLOOM-B037)."""
+    without the package before it gets here, SANDLOOM-B037). Temporary until
+    idk-pkg-redis-eventbus moves this driver into the package."""
     import sandloom_redis.cache as cache  # noqa: PLC0415 - optional: the package is the `sandloom[redis]` extra
 
     return cache
@@ -165,7 +174,7 @@ def _redis_client_factory(
     if not options.url:
         return partial(redis_cache.get_default_transport_client, read_timeout), None
     if cfg.name == _DEFAULT_INSTANCE:
-        transport = redis_cache.RedisCacheOptions(
+        transport: RedisCacheOptions = redis_cache.RedisCacheOptions(
             url=options.url,
             socket_connect_timeout_seconds=options.socket_connect_timeout_seconds,
             health_check_interval_seconds=options.health_check_interval_seconds,

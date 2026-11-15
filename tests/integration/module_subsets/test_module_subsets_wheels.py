@@ -218,21 +218,25 @@ def test_subset_boots_on_plain_sandloom_p2(
 def test_subset_on_plain_sandloom_p2_unstubbed(
     p2_unstubbed_runs: dict[tuple[str, ...], SubsetRun], subset: tuple[str, ...]
 ) -> None:
-    """No redis-py, no Celery, no stub for them (I-19, KB-IC-4).
+    """No driver package (``sandloom-redis``, ``sandloom-celery``), no stub (I-19, KB-IC-4).
 
     identity (cache) and billing (taskqueue with ``periodic``) are refused with
     SANDLOOM-B037 naming the module, the capability and the feature. Any other
-    subset boots, and the kernel's own cache check fails with ``No module named
-    'redis'``: plain ``sandloom`` is not ready without the cache driver's
-    package, which the stubbed matrix could not show.
+    subset boots, and the kernel's own cache check fails with
+    ``DriverUnavailableError`` (the ``redis`` cache driver lives in
+    ``sandloom-redis``, which this venv lacks): plain ``sandloom`` is not ready
+    without the cache driver's package, which the stubbed matrix could not
+    show. The missing redis-py behind an installed package is the infrastructure
+    lane's (``test_a_missing_redis_driver_is_refused_or_visible``).
     """
     run = p2_unstubbed_runs[subset]
     want = expected_unstubbed(subset, redis=False, celery=False)
     check_run(run, want, celery=False)
     if want.kind == "not_ready_cache":
         checks = run.probe["health_checks"]
-        missing = str(checks["cache"]["details"].get("missing_module", ""))
-        assert missing.split(".")[0] == "redis", checks
+        assert checks["cache"]["details"].get("error") == "DriverUnavailableError", (
+            checks
+        )
         assert {n for n, c in checks.items() if c["status"] != "ok"} == {"cache"}, (
             checks
         )
