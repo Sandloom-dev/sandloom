@@ -266,7 +266,11 @@ This section holds the settings, commands and metrics.
   `outbox_dead_total`). A broker outage opens a circuit
   (`OUTBOX_RELAY_CIRCUIT_BASE_SECONDS` / `OUTBOX_RELAY_CIRCUIT_MAX_SECONDS`)
   that pauses dispatch without consuming attempts
-  (`outbox_relay_broker_unavailable_total`).
+  (`outbox_relay_broker_unavailable_total`). A refused credential
+  (`PermissionDenied`) counts as an outage: rows are not dead-lettered, the
+  circuit stays open and the rows stay pending until the credential is fixed.
+  `SandloomOutboxBacklogAgeing` alerts on it, and the relay's warning line
+  names the error class that opened the circuit.
 - Inspect / requeue dead outbox rows:
   `sandloom outbox list-dead [--database x] [--channel c]`,
   `sandloom outbox requeue --id <id> | --all`.

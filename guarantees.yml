@@ -1033,6 +1033,7 @@ guarantees:
   - src/sandloom/core/tests/test_outbox_relay_backoff.py::test_open_circuit_skips_relay_ticks
   - src/sandloom/core/tests/test_relay_batch_publish.py::test_relay_batch_outage_counts_no_attempt_and_trips_circuit
   - src/sandloom/core/tests/test_batch_publish.py::test_redis_availability_replies_do_not_burn_relay_attempts
+  - src/sandloom/core/tests/test_relay_broker_unavailable.py::test_a_permission_denied_publish_consumes_no_attempt
 - id: G-OUTBOX-12
   statement: A poison row in a relay batch is isolated (per-row fallback) and still dead-lettered, while
     the other rows are delivered.
