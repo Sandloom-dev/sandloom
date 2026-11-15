@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from test_redis_errors import _PipelineClient, _streams_transport
+from test_redis_errors import _PipelineClient, _reply, _streams_transport
 
 from sandloom.core.config.settings import settings as _settings
 from sandloom.core.eventing.streams_bus import StreamsEventBus
@@ -188,14 +188,28 @@ class _UnknownErrClient(_PipelineClient):
         raise self.outcome[0]
 
 
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "LOADING Redis is loading the dataset in memory",
+        "MISCONF Redis is configured to save RDB snapshots",
+        "NOREPLICAS Not enough good replicas to write",
+        "MOVED 3999 10.0.0.1:6381",
+        "ASK 3999 10.0.0.1:6381",
+    ],
+    ids=["LOADING", "MISCONF", "NOREPLICAS", "MOVED", "ASK"],
+)
 async def test_a_transient_reply_is_still_an_outage(
-    sessions: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+    sessions: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    reply: str,
 ) -> None:
-    """The other side of the same branch: ``LOADING`` spends no attempt."""
+    """The other side of the same branch: a reply of a broker that cannot write
+    (as redis-py's parser builds it) spends no attempt and never dead-letters
+    the outbox: ``MISCONF`` and ``NOREPLICAS`` read ``InvalidArgument`` before."""
     monkeypatch.setattr(_settings, "outbox_relay_max_attempts", MAX_ATTEMPTS)
     await _seed(sessions, 3)
-    loading = rx.ResponseError("LOADING Redis is loading the dataset in memory")
-    bus = _bus(_streams_transport(_UnknownErrClient(loading)))
+    bus = _bus(_streams_transport(_UnknownErrClient(_reply(reply))))
 
     result = await _relay_once(sessions, bus)
 
@@ -210,6 +224,8 @@ BATCH_CASES: list[tuple[str, Callable[[], BaseException], type[InfraError], bool
     ("NOPERM-class", lambda: rx.NoPermissionError("NOPERM x"), PermissionDenied, True),
     ("NOPERM-text", lambda: rx.ResponseError("NOPERM x"), PermissionDenied, True),
     ("LOADING-text", lambda: rx.ResponseError("LOADING x"), Unavailable, True),
+    ("MISCONF", lambda: _reply("MISCONF Redis cannot persist"), Unavailable, True),
+    ("NOREPLICAS", lambda: _reply("NOREPLICAS too few"), Unavailable, True),
     ("connection", lambda: rx.ConnectionError("down"), Unavailable, True),
 ]
 
