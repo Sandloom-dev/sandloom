@@ -1761,6 +1761,8 @@ guarantees:
   - src/sandloom/core/tests/test_transport.py::test_reclaim_advances_server_scan_cursor
   - src/sandloom/core/tests/test_transport.py::test_poison_dead_lettered_after_exactly_max_deliveries
   - src/sandloom/core/tests/test_transport.py::test_dlq_append_failure_leaves_source_message_unacked
+  - src/sandloom/core/tests/test_eventbus_kit.py::TestTheStreamsDriver::test_max_deliveries_moves_the_entry_to_the_dlq
+  - src/sandloom/core/tests/test_eventbus_kit.py::TestTheStreamsDriver::test_the_source_is_acked_only_after_the_dlq_append
 - id: G-EVENT-11
   rests_on:
   - capability: eventbus
