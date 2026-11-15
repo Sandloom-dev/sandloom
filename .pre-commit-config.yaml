@@ -34,7 +34,9 @@ repos:
 
     -   id: ruff
         name: ruff
-        entry: bash -c 'uv run --locked ruff check src/'
+        # --no-fix like CI: pyproject has fix = true, which would rewrite every
+        # fixable file under src/ and leave unrelated files dirty.
+        entry: bash -c 'uv run --locked ruff check --no-fix src/'
         language: system
         files: ^(src/|tests/|pyproject\.toml|uv\.lock)
         pass_filenames: false
@@ -57,7 +59,7 @@ repos:
         name: architecture-tests
         entry: bash -c 'uv run --locked pytest tests/architecture/'
         language: system
-        files: ^((src/|architecture_rules\.yml|\.importlinter|pyproject\.toml|uv\.lock|guarantees\.yml|tools/checks/guarantees\.py)|docs/adr/|docs/reference/guarantees\.md)
+        files: ^((src/|tests/architecture/|tools/checks/|tools/packaging/|architecture_rules\.yml|\.importlinter|pyproject\.toml|uv\.lock|guarantees\.yml)|docs/adr/|docs/reference/guarantees\.md)
         pass_filenames: false
 
     # Kernel import contracts (ADR-0007): layers, acyclic packages, config leaf.
