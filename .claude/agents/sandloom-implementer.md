@@ -115,9 +115,10 @@ item 2. A task created with `checklist` among its required kinds refuses
    allow-list of what it accepts (never a deny-list), with a test that one
    other failure still raises. A new or changed branch: grep who feeds it
    (callers, the error mappings of drivers, producers upstream) and check
-   what they now route into it. A catch-all mapping you rely on (unknown
-   error → `Unavailable`) is part of your change: an outage branch it feeds
-   can park a poison row forever. Do not classify an error by walking
+   what they now route into it. A catch-all mapping you rely on (an unknown
+   error maps to `Unavailable`) is part of your change: an outage branch it
+   feeds can park a poison row forever, so test that a non-transient error
+   does not reach the outage branch. Do not classify an error by walking
    `__context__` / `__cause__` unless a test shows the chained case is meant.
 4. **Deviations recorded.** Anything that departs from `spec.md` or the ADR
    (an API, a default, a measured price) is written into spec/ADR in the
