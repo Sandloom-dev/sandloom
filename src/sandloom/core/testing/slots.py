@@ -240,6 +240,8 @@ def _point_at(
     redis = {var: values[var] for var in REDIS_ENVS if values.get(var)}
     try:
         claimed = _claim_family_bases(redis, slot.owner, env)
+    except families.HarnessFamilyError:
+        raise  # a broken family is not "Redis full": refuse it as what it is
     except (OSError, RuntimeError) as exc:  # Redis full: the run reports it itself
         claimed = {}
         if announce:
@@ -299,7 +301,11 @@ def acquire_test_slot(
         )
     owner = slot_owner(machine, checkout, number)
     slot = Slot(number, slot_database_url(base, number), owner, connection=conn)
-    _point_at(slot, values, env, announce)
+    try:
+        _point_at(slot, values, env, announce)
+    except BaseException:
+        conn.close()  # frees the advisory lock of a slot this run will not use
+        raise
     if announce and number > 1:
         name = urlsplit(slot.database_url).path.lstrip("/")
         print(

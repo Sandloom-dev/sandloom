@@ -19,7 +19,10 @@ Until the Redis family moves into ``sandloom-redis``, the kernel package
 registers it (``packages/sandloom/pyproject.toml``,
 ``sandloom.core.testing.redis_family:FAMILY``); the package then registers the
 same name instead. An install made before the entry point existed has no
-family: :func:`require_for_installed` refuses that where it is called.
+family: :func:`require_for_installed` refuses that (the pytest plugin calls it
+in ``pytest_configure``, so a downstream suite gets the refusal too). Two
+registrations of one name (a stale kernel entry beside the package's) are
+refused as well, naming both distributions.
 
 Imports nothing from the framework (safe before the settings snapshot).
 """
@@ -113,11 +116,30 @@ def _as_family(loaded: object, what: str, target: str) -> HarnessFamily:
     return loaded
 
 
+def _distribution(entry: metadata.EntryPoint) -> str:
+    return (
+        f"distribution {entry.dist.name!r}" if entry.dist else "an unknown distribution"
+    )
+
+
 def _discover() -> tuple[HarnessFamily, ...]:
     found: dict[str, HarnessFamily] = {}
+    registered: dict[str, metadata.EntryPoint] = {}
     for entry in sorted(
         metadata.entry_points().select(group=TESTING_GROUP), key=lambda e: e.name
     ):
+        # Before loading: a stale registration (a package that dropped the
+        # module it points at) must be named as the duplicate it is, not fail
+        # as an import error.
+        earlier = registered.setdefault(entry.name, entry)
+        if earlier is not entry:
+            raise HarnessFamilyError(
+                f"the harness family {entry.name!r} is registered twice in "
+                f"{TESTING_GROUP!r}: by {_distribution(earlier)} "
+                f"({earlier.value}) and by {_distribution(entry)} "
+                f"({entry.value}); uninstall or reinstall the package that "
+                "no longer owns it (`uv sync`)"
+            )
         try:
             loaded = entry.load()
         except Exception as exc:  # any import failure is a broken family
@@ -151,6 +173,8 @@ def require_for_installed(client_installed: Mapping[str, bool]) -> None:
     A run with the client and no family would silently share that backend
     between parallel workers and runs, so the harness stops instead.
     """
+    if not any(client_installed.values()):
+        return  # no client: nothing to isolate, and no family needs loading
     names = {family.name for family in harness_families()}
     for name, installed in client_installed.items():
         if installed and name not in names:
