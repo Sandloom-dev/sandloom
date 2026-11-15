@@ -597,6 +597,7 @@
         "docs/getting-started/project-structure.md",
         "docs/getting-started/tutorial.md",
         "docs/index.md",
+        "docs/infrastructure/atomic-store.md",
         "docs/infrastructure/cache.md",
         "docs/infrastructure/configure.md",
         "docs/infrastructure/database.md",
@@ -1134,7 +1135,8 @@
         "migrations/core/versions/0011_projection_watermarks.py",
         "migrations/core/versions/0012_projection_rebuilds_active.py",
         "migrations/core/versions/0013_contract_command_effects.py",
-        "migrations/core/versions/0014_infra_lease.py"
+        "migrations/core/versions/0014_infra_lease.py",
+        "migrations/core/versions/0015_infra_atomic_store.py"
       ]
     },
     {
@@ -1346,6 +1348,7 @@
         "src/sandloom/core/drivers/linger_pool.py",
         "src/sandloom/core/drivers/local_objectstore.py",
         "src/sandloom/core/drivers/database_lease.py",
+        "src/sandloom/core/drivers/database_atomic_store.py",
         "src/sandloom/core/drivers/log_notifier.py",
         "src/sandloom/core/drivers/memory_atomic_store.py",
         "src/sandloom/core/drivers/memory_broadcast.py",
@@ -1543,6 +1546,7 @@
         "src/sandloom/core/sql_alchemy/models/__init__.py",
         "src/sandloom/core/sql_alchemy/models/audit.py",
         "src/sandloom/core/sql_alchemy/models/consumer_inbox.py",
+        "src/sandloom/core/sql_alchemy/models/atomic_store.py",
         "src/sandloom/core/sql_alchemy/models/contract_command.py",
         "src/sandloom/core/sql_alchemy/models/http_idempotency.py",
         "src/sandloom/core/sql_alchemy/models/lease.py",
@@ -1644,6 +1648,7 @@
         "src/sandloom/core/tests/test_atomic_adopt.py",
         "src/sandloom/core/tests/test_atomic_store.py",
         "src/sandloom/core/tests/test_atomic_store_kit.py",
+        "src/sandloom/core/tests/test_database_atomic_store.py",
         "src/sandloom/core/tests/test_database_provider_kit.py",
         "src/sandloom/core/tests/test_db_provider_get_db.py",
         "src/sandloom/core/tests/test_audit_and_secrets.py",
@@ -2734,6 +2739,7 @@
         "tests/perf_budgets/_counters.py",
         "tests/perf_budgets/conftest.py",
         "tests/perf_budgets/pgcount.py",
+        "tests/perf_budgets/test_budget_atomic_store_database.py",
         "tests/perf_budgets/test_budget_contract_read_scope.py",
         "tests/perf_budgets/test_budget_pool_churn.py",
         "tests/perf_budgets/test_budget_rpc_server.py",

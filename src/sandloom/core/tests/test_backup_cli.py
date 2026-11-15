@@ -131,6 +131,41 @@ def test_plan_covers_databases_and_security_redis_without_secrets(
     assert "orders cannot be verified" in text
 
 
+def test_plan_flags_a_database_security_store_on_a_listed_and_on_its_own_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shared = "postgresql+asyncpg://u:s3cret@db1:5432/app"
+    own = "postgresql+asyncpg://u:s3cret@db2:5432/security"
+    monkeypatch.setattr(
+        settings,
+        "infra",
+        {
+            "database": {"default": {"driver": "sqlalchemy", "url": shared}},
+            "atomic_store": {
+                "security": {"driver": "database", "url": shared},
+                "idempotency": {"driver": "database", "url": own},
+            },
+        },
+    )
+    items = build_backup_plan(settings)
+    default = next(i for i in items if i.kind == "postgres" and i.name == "default")
+    assert any(
+        "atomic_store:security" in r and "SECURITY" in r and "infra_atomic_store" in r
+        for r in default.roles
+    )
+    assert any(
+        "infra_atomic_store" in step and "reconcile-security" in step
+        for step in default.restore
+    )
+    separate = next(i for i in items if i.name == "atomic_store:idempotency")
+    assert separate.kind == "postgres" and separate.criticality == "critical"
+    assert any("IDEMPOTENCY" in r for r in separate.roles)
+    assert not any(
+        "atomic_store" in r for i in items if i.kind == "redis" for r in i.roles
+    )
+    assert "s3cret" not in format_plan(items)
+
+
 def test_plan_names_no_module_secret_without_a_declaration() -> None:
     text = format_plan(build_backup_plan(settings))
     assert "TWOFA_ENCRYPTION_KEY" not in text and "STRIPE_" not in text

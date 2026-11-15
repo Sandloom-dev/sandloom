@@ -24,6 +24,7 @@ code runs against any configured backend and in any deployment profile.
 | --- | --- | --- |
 | [Database](database.md) | your tables, transactions, the outbox and audit | [`sqlalchemy`](database.md#sqlalchemy) |
 | [Cache](cache.md) | fast shared data and counters | [`redis`](cache.md#redis) |
+| [Atomic store](atomic-store.md) | revocation marks, nonces and idempotency reservations | [`redis`](atomic-store.md#drivers), [`database`](atomic-store.md#database) |
 | [Event bus](event-bus.md) | delivering events between modules | [`streams`](event-bus.md#streams), [`redis`](event-bus.md#redis), [`memory`](event-bus.md#memory) |
 | [Task queue](task-queue.md) | background work | [`celery`](task-queue.md#celery) |
 | [Object store](object-store.md) | files | [`local`](object-store.md#local), optional [`s3`](object-store.md#s3) |
