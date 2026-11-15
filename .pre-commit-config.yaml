@@ -84,6 +84,20 @@ repos:
         files: ^(src/|tools/packaging/check_public_api\.py|architecture_rules\.yml|public_api_baseline\.json)
         pass_filenames: false
 
+    # Every tracked uv.lock, not only the root one: benchmarks/ keeps its own
+    # lock over the workspace packages, so a dependency added to a package's
+    # pyproject.toml must relock it too (CI's benchmarks-security job fails
+    # otherwise, PR #234). New locks are picked up by `git ls-files`.
+    -   id: uv-locks
+        name: uv-locks
+        entry: >-
+          bash -c 'for l in $(git ls-files "*uv.lock"); do
+          (cd "$(dirname "$l")" && uv lock --check --quiet)
+          || { echo "stale: $l (run: cd $(dirname "$l") && uv lock)"; exit 1; }; done'
+        language: system
+        files: (^|/)(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
+
     # The driver packages' own static steps, as the redis-drivers and
     # celery-drivers CI jobs run them (the hooks above cover src/ only). Each
     # changed package is checked whole: a merge of main can leave an unused
