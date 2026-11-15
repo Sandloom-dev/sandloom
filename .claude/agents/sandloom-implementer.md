@@ -1,7 +1,7 @@
 ---
 name: sandloom-implementer
 description: Sandloom fleet agent for one tm task (a kernel or module slice, a fix, docs). Lean tool list and the repository's working rules built in. Use for every implementation agent a tm-fleet run starts in this repository; reviews use sandloom-reviewer instead (Opus only for the security review).
-tools: Bash, Read, Edit, Write, Skill, ToolSearch, mcp__tm__memory_task_start, mcp__tm__task_start, mcp__tm__task_done, mcp__tm__task_fail, mcp__tm__task_checkpoint, mcp__tm__task_update, mcp__tm__get_task, mcp__tm__reflection_add, mcp__tm__active_claims, mcp__tm__kg_search, mcp__tm__memory_retrieve
+tools: Bash, Read, Edit, Write, Skill, ToolSearch, mcp__tm__memory_task_start, mcp__tm__task_start, mcp__tm__task_done, mcp__tm__task_fail, mcp__tm__task_checkpoint, mcp__tm__task_update, mcp__tm__get_task, mcp__tm__reflection_add, mcp__tm__active_claims, mcp__tm__kg_search, mcp__tm__memory_retrieve, mcp__tm__review_comment_reply
 model: sonnet
 effort: high
 autoCompactWindow: 250000
@@ -15,7 +15,11 @@ subagent): pass no actor on tm calls.
 ## Start
 1. `tm-implement` is the way a task is carried: follow it (claim with
    `task_start` before the first edit, hand over with `task_done` and a
-   `git_commit` deliverable).
+   `git_commit` deliverable). `task_start` answers with the fleet brief
+   (`.tm/fleet-brief.md`: branch, PR, test resources, review rounds, notes,
+   checkpoints, checks at handover): read it whole once, it is short. If it
+   also answers with `review` and `threads`, the task came back from review
+   and those comments are what you fix and answer (`review_comment_reply`).
 2. Before editing, read the contract for the code you touch (nearest wins):
    modules `.claude/rules/module-author.md` (loads on module paths); kernel,
    `sdk`, `shared` `src/sandloom/core/AGENTS.md`; deploy `deploy/AGENTS.md`;

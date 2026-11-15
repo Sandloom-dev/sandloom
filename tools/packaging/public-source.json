@@ -5,6 +5,7 @@
       "reason": "Agent procedures for supported public workflows.",
       "paths": [
         ".agents/skills/sandloom-docs-brief/SKILL.md",
+        ".tm/fleet-brief.md",
         ".agents/skills/sandloom-docs-concepts/SKILL.md",
         ".agents/skills/sandloom-docs-eval/SKILL.md",
         ".agents/skills/sandloom-docs-positioning/SKILL.md",
@@ -2596,6 +2597,7 @@
         "tests/architecture/test_skip_ledger.py",
         "tests/architecture/test_source_export.py",
         "tests/architecture/test_system_channel_unreachable.py",
+        "tests/architecture/test_task_done_checks.py",
         "tests/architecture/test_task_enqueue_ownership.py",
         "tests/architecture/test_tenant_scoped_models_rule.py",
         "tests/architecture/test_uow_bootstrap_single_source.py",
