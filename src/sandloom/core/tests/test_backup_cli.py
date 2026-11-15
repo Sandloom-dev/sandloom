@@ -17,17 +17,24 @@ import argparse
 import os
 import shlex
 import subprocess
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, ClassVar
 from urllib.parse import urlsplit
 
 import pytest
 from pydantic import BaseModel, Field
+from sqlalchemy import Table
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from sandloom.core.cli._operator import add_operator_arguments, operator_intent
 from sandloom.core.config.settings import settings
 from sandloom.core.migrations.backup import (
+    CORE_TABLES,
     CORE_VERSION_TABLE,
+    LEASE_FENCE_OFFSET,
     build_backup_plan,
     command_restorer,
     dump_format,
@@ -37,8 +44,10 @@ from sandloom.core.migrations.backup import (
 from sandloom.core.migrations.migrations import core_chain_dir
 from sandloom.core.testing import reload_test_env
 from sandloom.core.testing.migrations import (
+    MigrationChain,
     migrate_module,
     run_sql,
+    tables_created_by,
     temporary_database,
     upgrade_core_chain,
 )
@@ -97,16 +106,19 @@ def test_plan_covers_databases_and_security_redis_without_secrets(
                     "url": "postgresql+asyncpg://u:s3cret@db2:5432/analytics",
                 }
             },
-            "cache": {"security": {"driver": "redis", "url": "redis://:pw@sec:6379/0"}},
+            "atomic_store": {
+                "security": {"driver": "redis", "url": "redis://:pw@sec:6379/0"}
+            },
         },
     )
-    monkeypatch.setattr(settings, "security_cache_instance", "security")
     items = build_backup_plan(settings, (), [_KeyedModule])
     text = format_plan(items)
     names = {(i.kind, i.name) for i in items}
     assert ("postgres", "default") in names
     assert ("postgres", "analytics") in names
-    security = [i for i in items if i.kind == "redis" and "cache:security" in i.name]
+    security = [
+        i for i in items if i.kind == "redis" and "atomic_store:security" in i.name
+    ]
     assert len(security) == 1
     assert security[0].criticality == "critical"
     assert any("reconcile-security" in step for step in security[0].restore)
@@ -117,6 +129,41 @@ def test_plan_covers_databases_and_security_redis_without_secrets(
     assert "JWT_SECRET" in text and "STRIPE" not in text
     assert "SHOP_SIGNING_KEY" in text
     assert "orders cannot be verified" in text
+
+
+def test_plan_flags_a_database_security_store_on_a_listed_and_on_its_own_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shared = "postgresql+asyncpg://u:s3cret@db1:5432/app"
+    own = "postgresql+asyncpg://u:s3cret@db2:5432/security"
+    monkeypatch.setattr(
+        settings,
+        "infra",
+        {
+            "database": {"default": {"driver": "sqlalchemy", "url": shared}},
+            "atomic_store": {
+                "security": {"driver": "database", "url": shared},
+                "idempotency": {"driver": "database", "url": own},
+            },
+        },
+    )
+    items = build_backup_plan(settings)
+    default = next(i for i in items if i.kind == "postgres" and i.name == "default")
+    assert any(
+        "atomic_store:security" in r and "SECURITY" in r and "infra_atomic_store" in r
+        for r in default.roles
+    )
+    assert any(
+        "infra_atomic_store" in step and "reconcile-security" in step
+        for step in default.restore
+    )
+    separate = next(i for i in items if i.name == "atomic_store:idempotency")
+    assert separate.kind == "postgres" and separate.criticality == "critical"
+    assert any("IDEMPOTENCY" in r for r in separate.roles)
+    assert not any(
+        "atomic_store" in r for i in items if i.kind == "redis" for r in i.roles
+    )
+    assert "s3cret" not in format_plan(items)
 
 
 def test_plan_names_no_module_secret_without_a_declaration() -> None:
@@ -219,3 +266,143 @@ def test_operator_guard_rails(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert confirmed.apply is True
     assert operator_intent(_args()).apply is False  # a dry-run is always allowed
+
+
+# --------------------------------------------------------------------------- #
+# core tables, lease fences
+# --------------------------------------------------------------------------- #
+def test_core_tables_equal_what_the_core_chain_creates() -> None:
+    chain = MigrationChain(
+        key="core",
+        module=None,
+        script_location=core_chain_dir(),
+        version_table=CORE_VERSION_TABLE,
+    )
+    assert set(CORE_TABLES) == tables_created_by(chain)
+    assert len(set(CORE_TABLES)) == len(CORE_TABLES)
+
+
+@pytest.fixture
+def lease_database(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """A database of its own (core chain, two leases) that the CLI's ``default``
+    points at: the shared test database is never written. Yields its sync URL."""
+    import sandloom.core.cli.backup as cli_backup
+    import sandloom.core.migrations.migrations as migrations
+    from sandloom.core.sql_alchemy.uow import SQLAlchemyUnitOfWork
+    from sandloom.core.unit_of_work import _active_core_for, open_uow
+
+    with temporary_database(_server_url()) as url:
+        upgrade_core_chain(url)
+        run_sql(
+            url,
+            "INSERT INTO infra_lease (name, owner, token, expires_at, fence) VALUES "
+            "('held', 'a', 't1', now() + interval '1 hour', 5), "
+            "('free', 'b', 't2', now() - interval '1 hour', 9)",
+        )
+        async_url = make_url(url).set(drivername="postgresql+asyncpg")
+
+        @asynccontextmanager
+        async def _db_session(name: str = "default") -> AsyncIterator[Any]:
+            engine = create_async_engine(async_url)
+            sessions = async_sessionmaker(engine, expire_on_commit=False)
+            core, bus = _active_core_for(name)
+            try:
+                async with open_uow(
+                    core,
+                    name,
+                    factory=lambda: SQLAlchemyUnitOfWork(session_factory=sessions),
+                    bus=bus,
+                    wait=True,
+                ) as session:
+                    yield session
+            finally:
+                await engine.dispose()
+
+        monkeypatch.setattr(cli_backup, "db_session", _db_session)
+        monkeypatch.setattr(
+            migrations, "list_database_instances", lambda: {"default": url}
+        )
+        yield url
+
+
+def _fences(url: str) -> list[tuple[str, int]]:
+    rows = run_sql(url, "SELECT name, fence FROM infra_lease ORDER BY name")
+    return [(str(n), int(f)) for n, f in rows]
+
+
+def test_fence_leases_command_is_dry_run_by_default(
+    lease_database: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from sandloom.core.cli.backup import main
+
+    assert main(["fence-leases", "--json"]) == 0
+    assert '"fence_before": 5' in capsys.readouterr().out
+    assert _fences(lease_database) == [("free", 9), ("held", 5)]
+    assert main(["fence-leases", "--database", "nope"]) == 2
+    with pytest.raises(SystemExit, match="--reason"):
+        main(["fence-leases", "--apply"])
+    assert _fences(lease_database) == [("free", 9), ("held", 5)]
+
+
+def test_fence_leases_apply_bumps_and_audits_in_the_same_transaction(
+    lease_database: str,
+) -> None:
+    from sandloom.core.cli.backup import main
+
+    assert (
+        main(["fence-leases", "--apply", "--reason", "restore", "--operator", "al"])
+        == 0
+    )
+    assert _fences(lease_database) == [
+        ("free", 9 + LEASE_FENCE_OFFSET),
+        ("held", 5 + LEASE_FENCE_OFFSET),
+    ]
+    rows = run_sql(
+        lease_database,
+        "SELECT data FROM audit_log WHERE action = 'core.lease.fences_bumped'",
+    )
+    assert len(rows) == 1  # one bump, one audit row: a rerun is the operator's choice
+    data = rows[0][0]
+    assert data["operator"] == "al"
+    assert data["reason"] == "restore"
+    assert data["offset"] == LEASE_FENCE_OFFSET
+    assert sorted(data["leases"]) == ["free", "held"]
+    assert data["max_fence_before"] == 9
+    assert data["max_fence_after"] == 9 + LEASE_FENCE_OFFSET
+
+
+def test_fence_leases_and_verify_refuse_a_database_that_is_not_postgresql(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    import sandloom.core.migrations.migrations as migrations
+    from sandloom.core.cli.backup import main
+
+    monkeypatch.setattr(
+        migrations,
+        "list_database_instances",
+        lambda: {"default": "sqlite+aiosqlite:///x.db"},
+    )
+    assert main(["fence-leases"]) == 2
+    assert "needs a migration-chain database" in capsys.readouterr().err
+    dump = _fake_dump(tmp_path)
+    assert main(["verify", str(dump), "--server-url", "sqlite:///x.db"]) == 2
+    assert "takes its schema from the models" in capsys.readouterr().err
+
+
+def test_lease_table_matches_the_driver() -> None:
+    """The restore bump writes the table of the ``database`` lease driver: every
+    column it names exists in the driver's table and the model, with the same
+    type, nullability and key."""
+    from sandloom.core.drivers.database_lease import _TABLE as driver_table
+    from sandloom.core.migrations.backup import _LEASE_TABLE
+    from sandloom.core.sql_alchemy.models.lease import InfraLease
+
+    model_table: Table = InfraLease.__table__  # type: ignore[assignment]
+    assert _LEASE_TABLE.name == driver_table.name == model_table.name
+    for column in _LEASE_TABLE.columns:
+        for other in (driver_table.c[column.name], model_table.c[column.name]):
+            assert type(column.type) is type(other.type), column.name
+            assert column.nullable == other.nullable, column.name
+            assert column.primary_key == other.primary_key, column.name

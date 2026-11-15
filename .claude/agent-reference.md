@@ -63,7 +63,7 @@ is an API decision (upgrade steps). Find: `grep -n '^  "sandloom\.sdk' public_ap
 
 **CHANGELOG.md**: a bullet under `## [Unreleased]`, in its `###` kind.
 
-## 2. CI by path (a path in the filter runs the area's jobs; globs omit .github, pyproject, uv.lock)
+## 2. CI by path (a matching path runs the area's jobs; hidden: .github, pyproject, uv.lock, packages.json)
 
 Not listed (full suites, SBOM, UI): `uv run sandloom test <module>`, `admin/AGENTS.md`, `tools/ci/ci_local.py --list`.
 

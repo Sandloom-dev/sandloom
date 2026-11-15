@@ -60,6 +60,83 @@ migration guide, not the general package-upgrade procedure.
 If the upgrade fails, capture the error code, package versions and a redacted
 reproduction for [support](../help.md).
 
+## Upgrading a database driver to contract major 2
+
+The `database` contract is major 2. Update a driver package that implements it
+([Write a driver](../infrastructure/write-a-driver.md#a-database-driver)):
+
+| Before | After |
+| --- | --- |
+| `contract_version = 1` | `contract_version = 2` |
+| `session: Any` in your stores and `has_pending_changes` | `session: UnitSession` (`sandloom.driverkit`); narrow it inside your store |
+| `execution_adapter()` and `contract_execution_adapter()` on the provider | `planner_adapter(self, *, contract=False)`, answering `None` where the database cannot run declared operations |
+| Raw sessions only through an engine of your own | `session_factory`, a property answering a callable that yields a session of the instance (or `None`) |
+| `OutboxStore`, `AuditStore`, `CommandLogStore`, `RequestLogStore` imported from `sandloom.core.infra.contracts` | Import them from `sandloom.core.infra.ports.database`, where they now live (`contracts` re-exports them for kernel code) |
+
+## Upgrading an event bus driver to contract major 2
+
+The `eventbus` contract is major 2: the `streams` transport is a typed
+`EventTransportProvider` ([Write a driver](../infrastructure/write-a-driver.md#an-eventbus-driver))
+and `memory` and `redis` are the kernel's own volatile buses. A driver or module that names
+a feature of the previous vocabulary is refused at load, and the refusal names the
+replacement. There is no alias.
+
+| Before | After |
+| --- | --- |
+| `publish`, `subscribe` in a requirement or a driver's features | Drop them: every driver has both operations |
+| `volatile` | Drop it: a volatile bus declares no `durable` |
+| `at_least_once`, `consumer_groups` | `durable` |
+| `durable`, `wildcard_subscribe` | Unchanged (`wildcard_subscribe` is the volatile buses' only) |
+| `EventBusProvider.bus()` and flags read with `getattr` | `EventTransportProvider` and its declared features: `shared`, `blocking_consume`, `group_start_id`, `lease_renewal`, `dlq_ops`, `inspection`, `inventory` |
+| `GroupOwnershipError`, `TransportBatchError` | `GroupOwnedElsewhere` (an `AlreadyExists`), `PartialPublish` (an `InfraError`; `published` and `retryable`) |
+| Group owners, DLQ entries, group and inventory records as `dict`s | `GroupOwner`, `DeadLetter`, `GroupInfo`, `StreamInfo`, `ConsumerInfo` (`sandloom.driverkit`) |
+
+## Upgrading a cache driver or a cache caller to contract major 2
+
+The `cache` contract is major 2 and holds the operations of a module. These are `get`, `set`,
+`delete`, `add`, `incr`, `get_many`, `set_many` and `windowed_counter`. `compare_and_set` and
+`compare_and_delete` are behind the feature `cas`. The cache may evict a key. What a security
+guarantee needs lives on `atomic_store`. There is no alias for what leaves.
+
+| Before | After |
+| --- | --- |
+| `cache().incr_window(key, previous_key, ttl_seconds=...)` | `cache().windowed_counter(key, previous_key, ttl_seconds=...)`; `ttl_seconds` is required |
+| `cache().incr_many(keys, ttl_seconds=...)` | `incr` for each key, with `asyncio.gather` where the round trips should overlap |
+| `cache().set_nx_get(key, value, ttl_seconds=...)` | `add`, then `get` when it answers `False` |
+| `cache().set_max(key, value, ...)` | Removed. A monotonic mark is `atomic_store` `set_subject_state` |
+| `provider.set_subject_state(...)` on a `CacheProvider` | `atomic_store` `set_subject_state` |
+| `provider.raw_client()` on a cache | Removed, and no `native()` replaces it. The Redis driver has the non-portable `redis_client()` for its own tests |
+| `CacheProvider.compare_and_set` raising `NotImplementedError` without `cas` | Raises `Unsupported("cas")` |
+| `contract_version = 1` in a cache driver | `contract_version = 2`; `incr_window` becomes `windowed_counter`, and the hints `incr_many`, `set_nx_get`, `set_max` and `set_subject_state` go |
+| `CacheContentionError`, `portable_set_max`, `portable_set_subject_state`, `parse_plain_decimal`, `SET_MAX_MAX_ROUNDS` (`sandloom.core.infra.contracts`) | Removed. `parse_subject_state` and `SUBJECT_STATE_RANKS` are in `sandloom.core.infra.ports.atomic_store` |
+| A Redis cache failure raised as a `redis.exceptions` error | `Unavailable`, `Timeout` or `PermissionDenied`; an `incr` of a stored non-integer raises `InvalidArgument` |
+
+Test a cache driver with `CacheConformance` from `sandloom.driverkit.testing`.
+
+## Upgrading a task queue driver or a Celery command to the worker host
+
+The worker and the scheduler are the `taskqueue` driver's host
+([Write a driver](../infrastructure/write-a-driver.md#a-taskqueue-drivers-worker-host)):
+`TaskQueueProvider.worker_host()` is part of the `taskqueue` contract, which is major 2.
+There is no alias for what it replaces.
+
+| Before | After |
+| --- | --- |
+| `TaskQueueProvider.raw_backend()` (the Celery app) | Removed, and no `native()` replaces it. Implement `worker_host()` in a driver; reach the app of a worker through the driver's own importable object |
+| `celery -A sandloom.core.worker inspect\|call\|status` and Flower on `sandloom.core.worker` | `celery -A sandloom_celery.worker inspect\|call\|status`; the app is built from `BROKER_URL`, boots no application and registers no task. |
+| `provider.register_task_table(table, run)` on the Celery provider | Removed: the host registers the table it gets from `WorkerBoot.boot()` |
+| `sandloom.core.worker.build_worker_app`, `get_worker_app`, `run_celery_command`, `install_heartbeat`, `heartbeat_is_fresh` | `sandloom.core.worker.run_worker`, `run_scheduler`, `check_worker` (the kernel side); the Celery side is `sandloom_celery.worker` |
+| `sandloom.core.beat_lease` (`BeatLease`, `LeasedScheduler`, `install_beat_lease`) | Moved to `sandloom_celery.worker`; the lease is resolved by the kernel (`sandloom.core.infra.fenced_lease`) and passed to the scheduler as `lease` and `lease_name` |
+| `sandloom.core.async_runner.install_celery_hooks`, `sandloom.core.gc_tuning.install_celery_hooks` | Removed: the host calls `WorkerBoot.on_process_start`, `on_process_stop` and `before_fork` |
+| A health detail or error of the broker probe naming `scheme://host:port` | The details carry no broker address and no credential; read the error type |
+| `sandloom worker` on macOS (the prefork pool never saw the task table) | The worker refuses `prefork` where billiard spawns: set `worker_pool` to `solo` or `threads` in the `celery` taskqueue instance's options (`INFRA`) |
+| The Celery broker probe bounded by `HEALTH_CHECK_TIMEOUT_SECONDS` | The `celery` option `health_timeout_seconds`, filled from that setting when the configuration leaves it out; `probe_broker(app, limit_seconds=)` takes the bound as a required argument |
+
+The three commands are unchanged for an operator. `sandloom worker check` now builds the
+infrastructure registry from the settings and asks the driver's host. It needs the same
+`DATABASE_URL`, `CACHE_URL` and `BROKER_URL` as the worker, boots no application and asks
+no broker.
+
 ## Upgrading from 0.7.0a4 to 0.7.0a5
 
 This alpha changes infrastructure extension APIs. Update the framework and

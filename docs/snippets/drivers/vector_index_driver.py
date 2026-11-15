@@ -4,7 +4,7 @@ from vector_index.contracts import VectorIndexProvider
 
 
 class MemoryVectorIndex(VectorIndexProvider):
-    contract_version = "v1"
+    contract_version = 1
     supported_features = frozenset({"exact"})
 
     async def nearest(self, vector: list[float], *, limit: int) -> list[str]:

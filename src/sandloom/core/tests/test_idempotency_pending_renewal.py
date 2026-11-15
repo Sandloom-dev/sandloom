@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
 from sandloom.core import idempotency
-from sandloom.core.drivers.redis_cache import RedisCacheProvider
 from sandloom.core.idempotency import cache_store as idempotency_cache_store
 from sandloom.core.idempotency import fingerprint as idempotency_fingerprint
 from sandloom.core.idempotency import reservation as idempotency_reservation
@@ -41,15 +41,15 @@ async def provider(monkeypatch: pytest.MonkeyPatch) -> Any:
     url = os.getenv("CACHE_URL")
     if not url:
         pytest.skip("CACHE_URL not set")
-    cache = RedisCacheProvider(
-        name="idem-renew-test", driver="redis", options={"url": url}, shared=False
+    cache = RedisAtomicStoreProvider(
+        name="idem-renew-test", driver="redis", options={"url": url}
     )
     try:
-        client = await cache.raw_client()
+        client = await cache._client_obj()
         await client.ping()
     except (OSError, redis_asyncio.RedisError):  # pragma: no cover
         pytest.skip("Redis unreachable")
-    monkeypatch.setattr(idempotency_cache_store, "cache", lambda: cache)
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: cache)
     monkeypatch.setattr(idempotency_reservation, "_PENDING_RESERVATION_TTL_SECONDS", 1)
     monkeypatch.setattr(idempotency_reservation, "_PENDING_RENEW_INTERVAL_SECONDS", 0.2)
     await client.delete(KEY)
@@ -60,7 +60,7 @@ async def provider(monkeypatch: pytest.MonkeyPatch) -> Any:
 
 @pytest.mark.asyncio
 async def test_a_running_request_keeps_its_reservation_past_the_pending_ttl(
-    provider: RedisCacheProvider,
+    provider: RedisAtomicStoreProvider,
 ) -> None:
     reserved = asyncio.Event()
     finish = asyncio.Event()
@@ -90,7 +90,7 @@ async def test_a_running_request_keeps_its_reservation_past_the_pending_ttl(
 
 @pytest.mark.asyncio
 async def test_a_dead_requests_reservation_still_self_heals(
-    provider: RedisCacheProvider,
+    provider: RedisAtomicStoreProvider,
 ) -> None:
     """The owner task ended without a terminal record (cancelled, leaked):
     renewal stops and the key frees at the pending TTL, as before."""
@@ -113,7 +113,7 @@ async def test_a_dead_requests_reservation_still_self_heals(
 
 @pytest.mark.asyncio
 async def test_a_released_reservation_is_no_longer_renewed(
-    provider: RedisCacheProvider,
+    provider: RedisAtomicStoreProvider,
 ) -> None:
     outcome, reservation = await idempotency.reserve_key(KEY, "fp", 3600)
     assert outcome == "reserved"

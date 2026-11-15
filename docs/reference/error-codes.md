@@ -61,6 +61,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-C032`](#sandloom-c032) | `generated-reserved` | check | a hand-written file in a module's _generated/ package, or an import of another module's _generated package | active |
 | [`SANDLOOM-C033`](#sandloom-c033) | `undeclared-capability` | check | a module's code needs an infrastructure capability its define_module does not declare | active |
 | [`SANDLOOM-C034`](#sandloom-c034) | `handwritten-access-check` | check | a hand-written Requirement calls a declared access check with other tier, category or risk than its declaration | active |
+| [`SANDLOOM-C035`](#sandloom-c035) | `task-enqueue-ownership` | check | a module enqueues a task by name that is not a string literal naming one of its own tasks | active |
 | [`SANDLOOM-B001`](#sandloom-b001) | `module-load-failed` | boot | a module failed to load | active |
 | [`SANDLOOM-B002`](#sandloom-b002) | `guard-order-startup` | boot | idempotency_guard resolves before the route's authentication | active |
 | [`SANDLOOM-B003`](#sandloom-b003) | `financial-guard` | boot | a class F route used a response-storing or fail-open guard (retired) | retired (never reused) |
@@ -82,7 +83,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B019`](#sandloom-b019) | `capability-replay` | boot | a token issuer, intent or money route has the wrong idempotency guard or an intent route a request session | active |
 | [`SANDLOOM-B021`](#sandloom-b021) | `driver-conflict` | boot | a selected driver or capability name has two providers | active |
 | [`SANDLOOM-B022`](#sandloom-b022) | `driver-load-failed` | boot | a selected driver or capability cannot be used | active |
-| [`SANDLOOM-B023`](#sandloom-b023) | `experimental-capability-refused` | boot | an experimental capability is configured in production | active |
+| [`SANDLOOM-B023`](#sandloom-b023) | `experimental-capability-refused` | boot | an experimental capability or an experimental driver is configured in production | active |
 | [`SANDLOOM-B024`](#sandloom-b024) | `sql-dialect-missing` | boot | a configured SQL database has no SQL dialect renderer, or its URL names a DBAPI SQLAlchemy does not know or a synchronous one | active |
 | [`SANDLOOM-B025`](#sandloom-b025) | `sql-dialect-incompatible` | boot | a SQL dialect renderer or DBAPI adapter of another contract version, or one that declares a feature or capability the kernel does not define or keeps to itself | active |
 | [`SANDLOOM-B026`](#sandloom-b026) | `row-security-missing` | boot | tenant_rls, system_url, require_system_channel or DATABASE_SYSTEM_URL on a database instance whose database has no row security, or a system channel on another database than its instance | active |
@@ -100,6 +101,7 @@ error[SANDLOOM-B008]: route POST /api/v1/notes/ is neither authenticated nor pub
 | [`SANDLOOM-B038`](#sandloom-b038) | `fact-owner-missing` | boot | an access-fact policy or fake names no valid owner module | active |
 | [`SANDLOOM-B039`](#sandloom-b039) | `operator-capability-unavailable` | runtime | an operator command's owner cannot be confirmed to provide what the command needs: no owner is assigned, its public name is unknown, its &lt;owner>.security.v1 is neither local nor bound, the contract lacks a method or has it with another shape, this service may not call it, or the owner answered with another shape | active |
 | [`SANDLOOM-B040`](#sandloom-b040) | `operator-owner-substitution` | runtime | the service an operator command would call for &lt;owner>.security.v1 is not the owner the claim map names: its binding names another service than the owner's other bindings, or its describe states another provider, or its answer is not bound to the pinned service | active |
+| [`SANDLOOM-B041`](#sandloom-b041) | `kernel-capability-refused` | boot | module code resolved or required a kernel-facing capability (atomic_store, lease, broadcast) | active |
 | [`SANDLOOM-B020`](#sandloom-b020) | `ambiguous-module` | boot | a requested module name has two providers (two installed packages, or an installed package and a local module) | active |
 | [`SANDLOOM-R001`](#sandloom-r001) | `missing-tenant` | runtime | a tenant-scoped operation ran with no tenant bound | active |
 | [`SANDLOOM-R002`](#sandloom-r002) | `unit-of-work-required` | runtime | db(), an event publish or record_audit ran outside a Unit of Work | active |
@@ -720,11 +722,13 @@ A module states the infrastructure it needs in define_module(capabilities=[...])
 and the deployment chooses the driver; startup checks that they match. Some
 needs are visible in the module's code, and the kernel derives them at load
 whether they are declared or not: a tasks.py (or tasks/ package), which the
-framework worker imports and runs, needs the taskqueue capability; a beat hook
-(setup_periodic_tasks) in it needs the taskqueue feature "periodic", a driver
-that runs the module's periodic jobs at their interval in at least one process
-while the deployment runs (a driver never has it for supporting enqueue alone;
-only celery advertises it today). This check asks for the declaration, so a
+framework worker imports and runs, needs the taskqueue capability; a
+@periodic task in it needs the taskqueue feature "periodic", a driver that
+runs the module's periodic jobs at their cron slots in at least one process
+while the deployment runs, and a task declared at_least_once=True needs the
+feature "redelivery", a driver that redelivers it when its worker dies (a
+driver never has either for supporting send alone; only celery advertises
+them today). This check asks for the declaration, so a
 reader, an agent and the module snapshot see the need where every other need
 is stated. A declaration decides required or optional: the derived need only
 adds its feature to it, and a capability nobody declared is derived as
@@ -734,7 +738,7 @@ a SANDLOOM-C030 finding). It does not claim to find every capability a module
 uses: a module that reaches one another way declares it itself, and the
 startup check stays the last line of defence.
 
-**Fix:** declare it in define_module: capabilities=["taskqueue"] for a tasks.py, CapabilityRequirement("taskqueue", features=frozenset({"periodic"})) for a beat hook (required=False when the module works without its schedule), with CapabilityRequirement from sandloom.sdk.module
+**Fix:** declare it in define_module: capabilities=["taskqueue"] for a tasks.py, CapabilityRequirement("taskqueue", features=frozenset({"periodic"})) for a @periodic task and the feature "redelivery" for an at_least_once one (required=False when the module works without its schedule), with CapabilityRequirement from sandloom.sdk.module
 
 **More:** `docs/modules/background/tasks.md`
 
@@ -768,6 +772,31 @@ classified independently at startup and the runtime checks apply.
 **Fix:** use the generated atom (sandloom generate writes it beside your stub), or state the declared tier, category and risks() on your class
 
 **More:** `docs/adr/0014-claims-trust-and-authorization-portability.md`
+
+### SANDLOOM-C035
+
+**a module enqueues a task by name that is not a string literal naming one of its own tasks**
+
+Slug: `task-enqueue-ownership` · kind: check · status: active
+
+**What happened and why it matters**
+
+The kernel checks that the task name given to taskqueue().enqueue(name, ...)
+is declared somewhere in the process, never that the caller owns it. A module
+that enqueues another module's task by name runs that module's code with a
+payload of its choosing, around the module's own checks: the isolation every
+other crossing keeps (events, contracts, sagas) does not hold for it. sandloom
+check refuses a taskqueue().enqueue(...) call (on taskqueue(...) directly, on
+a name bound to it in the file, or under an aliased import) whose first
+argument is not a string literal starting with the calling module's own
+package. The task object of the module's own tasks.py (`await task.enqueue(
+payload)`) is the usual spelling and needs no name. Not seen: a queue handed
+over as an argument, or a name computed at run time; the kernel's enqueue
+still refuses a name no loaded module declares.
+
+**Fix:** enqueue your own task through the task object (`await my_task.enqueue(payload)`), or name it with a string literal under your package (`taskqueue().enqueue("<package>.tasks.my_task", ...)`); for work in another module, publish an event or call its contract
+
+**More:** `docs/modules/background/tasks.md`
 
 ## Startup refusals (`create_app`, `sandloom check --boot`)
 
@@ -1120,9 +1149,13 @@ Slug: `driver-load-failed` · kind: boot · status: active
 
 INFRA selected a driver or capability whose package failed to import, whose entry
 point is not a subclass of the capability's contract (or not a `CapabilitySpec`),
-which declares no `contract_version`, or which was written for another major version.
-A driver that cannot load cannot serve, so startup stops with the cause. An
-unselected package is never imported.
+which declares no `contract_version` or declares one that is not the integer major
+of the capability (a string such as "v1" is a driver written before majors were
+integers; another integer is a driver for another major), or whose capability states
+no readable major. A driver marked `development_only` (the `memory` drivers) is
+refused in production, with no accepted risk to lift it. A driver that cannot load
+cannot serve, so startup stops with the cause. An unselected package is never
+imported.
 
 **Fix:** fix or reinstall the package named in the message, or select another driver
 
@@ -1130,7 +1163,7 @@ unselected package is never imported.
 
 ### SANDLOOM-B023
 
-**an experimental capability is configured in production**
+**an experimental capability or an experimental driver is configured in production**
 
 Slug: `experimental-capability-refused` · kind: boot · status: active
 
@@ -1140,7 +1173,17 @@ An experimental capability's contract may change in any release. Running one in
 production is a weakening, so the deployment accepts it by name and every start
 reports it.
 
-**Fix:** remove it from INFRA, or accept the risk with SANDLOOM_ACCEPTED_RISKS=["experimental_capability"]
+A driver has a tier (`sandloom doctor` and /diagnostics/infra show it):
+`experimental` implements the contract, `beta` passes its conformance kit in CI
+against the real service, `stable` adds reconnect after an outage and the auth
+options. An experimental driver in production is refused with this code unless
+SANDLOOM_ACCEPTED_RISKS has `experimental_driver`; a beta driver logs one
+startup warning; a stable one is silent. A `development_only` driver (`memory`)
+is refused in production whatever its tier, with no risk to accept
+(SANDLOOM-B022). A driver package states its tier with the class attribute
+`tier` (default `experimental`).
+
+**Fix:** remove it from INFRA, or accept the risk with SANDLOOM_ACCEPTED_RISKS=["experimental_capability"] (a capability) or ["experimental_driver"] (a driver)
 
 **More:** `docs/reference/configuration.md`
 
@@ -1570,6 +1613,27 @@ indeterminate, so a negation never turns them into an allow.
 **Fix:** state the module that registers the fact: Entitled("subscription.active", owner="billing"), fake_access_fact(name, value, owner="billing")
 
 **More:** `docs/modules/http/authorization.md`
+
+### SANDLOOM-B041
+
+**module code resolved or required a kernel-facing capability (atomic_store, lease, broadcast)**
+
+Slug: `kernel-capability-refused` · kind: boot · status: active
+
+**What happened and why it matters**
+
+A kernel-facing capability (its CapabilitySpec says kernel_only) serves the
+kernel's own guarantees: the security marks and idempotency records
+(atomic_store), the beat and sweep leases (lease), the contract-cache shadow and
+the volatile bus (broadcast). Its keys and channels are the kernel's, so a module
+that reached it could forge or clear a security mark or steal a lease. The kernel
+reaches it through the registry's provider door; a module's CapabilityRef,
+Capability(...) dependency, get_core().capability(...) or CapabilityRequirement
+naming it is refused, the requirement when the module loads.
+
+**Fix:** use the module-facing API built on it (sandloom.sdk: cache, idempotency_guard, the event bus through the outbox), or a module-facing capability
+
+**More:** `docs/adr/0016-kernel-ports-and-driver-packages.md`
 
 ### SANDLOOM-B020
 
@@ -2243,7 +2307,7 @@ Slug: `periodic-tasks-need-a-beat` · kind: test · status: active
 
 **What happened and why it matters**
 
-A schedule (setup_periodic_tasks in &lt;module>/tasks.py) runs only where a celery beat loads the module, and exactly one may: none and the task never runs, two and it runs twice. sandloom test's static schema & deploy step checks every deploy profile.
+A schedule (a @periodic task in &lt;module>/tasks.py) runs only where a celery beat loads the module, and exactly one may: none and the task never runs, two and it runs twice. sandloom test's static schema & deploy step checks every deploy profile.
 
 **Fix:** give the module's service its worker and beat: `sandloom add deploy <module> --service <name>` for an undeployed module, `sandloom add task <module> <name> --periodic "<cron>"` or `sandloom add deploy --refresh` for a deployed one (each writes &lt;service>-worker / &lt;service>-beat); in a hand-written profile, add one beat per broker and a worker consuming it
 

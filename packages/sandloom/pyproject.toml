@@ -59,16 +59,24 @@ Issues = "https://github.com/Sandloom-dev/sandloom/issues"
 Changelog = "https://github.com/Sandloom-dev/sandloom/blob/main/packages/sandloom/CHANGELOG.md"
 
 [project.optional-dependencies]
+# The redis-py client the kernel's cache and event bus use, and the package of
+# the Redis atomic_store, lease and broadcast drivers (sandloom-redis).
 redis = [
     "redis>=5.2.1,<6",
+    "sandloom-redis>=0.7.0a13,<0.8",
 ]
+# The Celery client the worker tooling uses, and the package of the Celery
+# taskqueue driver and its worker host (sandloom-celery).
 celery = [
     "celery[redis]>=5.6.3,<6",
+    "sandloom-celery>=0.7.0a13,<0.8",
 ]
 # The batteries-included set: the standard composition root
 # (sandloom_standard.main), the three standard modules, Redis and Celery.
 standard = [
     "sandloom[redis,celery]",
+    "sandloom-redis>=0.7.0a13,<0.8",
+    "sandloom-celery>=0.7.0a13,<0.8",
     "sandloom-standard>=0.7.0a13,<0.8",
     "sandloom-identity>=0.7.0a13,<0.8",
     "sandloom-tenancy>=0.7.0a13,<0.8",
@@ -102,6 +110,13 @@ sqlite = [
 # Imported only when SENTRY_DSN is set (sandloom.core.observability).
 sentry = [
     "sentry-sdk>=2.72.0,<3",
+]
+# Imported only when TRACING_URL is set (sandloom.core.observability.tracing):
+# the SDK and both OTLP exporters, gRPC and HTTP/protobuf.
+otel = [
+    "opentelemetry-sdk>=1.27,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.27,<2",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.27,<2",
 ]
 
 [project.scripts]

@@ -127,7 +127,7 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
 ## Uncertain task enqueues
 
 `taskqueue.enqueue(..., idempotency_key=...)` stores reservations in
-`SECURITY_CACHE_INSTANCE` under `sandloom:task-enqueue:*`. Use persistent Redis with
+the `idempotency` `atomic_store` instance under `sandloom:task-enqueue:*`. Use persistent Redis with
 `noeviction`, shared by every producer of the queue. Successful records expire
 after the driver's `dedupe_ttl_seconds` replay window; unresolved pending
 reservations deliberately do not expire.
@@ -304,7 +304,9 @@ This section holds the settings, commands and metrics.
   and consumer group): `sandloom streams dlq-list <channel>`,
   `sandloom streams dlq-replay <channel> [--id <entry>] [--group <g>]`. A replay is
   delivered ONLY to the group that dead-lettered the entry; every other group
-  acks it unprocessed (no repeated side effects elsewhere).
+  acks it unprocessed (no repeated side effects elsewhere). On a driver without
+  the feature, `dlq-list`, `dlq-replay`, `groups` and `consumers` exit with
+  "not supported by this driver: <feature>".
 - Consumer groups are `<module>:<name>`. `sandloom streams groups <channel>` shows
   each group's lag / pending (also `sandloom_streams_group_lag` /
   `sandloom_streams_group_pending` and `/diagnostics/consumers`);
@@ -375,8 +377,14 @@ relay).
   most once per `SAGA_SWEEP_INTERVAL_SECONDS` (default 5 s), claiming at
   most `SAGA_SWEEP_BATCH` instances per tick (`FOR UPDATE SKIP LOCKED`).
   Retry latency is therefore `max(backoff, sweep interval)`. The sweep lease
-  lives in `BEAT_LEASE_CACHE_INSTANCE` (needs `cas`; without it every process
-  sweeps — safe, only redundant).
+  lives in the `lease` instance `INFRA.lease.beat`, a `redis` lease on `CACHE_URL`
+  unless `INFRA` names another. A process that hosts a saga opens and probes it
+  like the database and the cache. A backend that refuses to serve stops startup
+  in production and fails `/ready` elsewhere. The message names the cause: a
+  Redis policy that evicts keys, a refused `CONFIG GET`, a `PermissionDenied`.
+  The sweep never sits on standby unnoticed. Only a missing `lease` instance or a
+  driver that is not installed lets the sweep run in every process: redundant,
+  never harmful.
 - **Under `tenant_rls`** the sweep and `sandloom sagas` reach other tenants'
   instances only through the system channel (`DATABASE_SYSTEM_URL`, the
   `sandloom_system` role, which must exist before the core migration `0010` so
@@ -514,7 +522,7 @@ sandloom backup verify default-20261022T0300Z.dump --database default \
 
 - **`sandloom backup plan`** lists every configured database instance (with the
   migration chains it hosts), every Redis endpoint with its roles (cache,
-  **security cache**, event-bus streams, task broker), the object store and the
+  **security store**, event-bus streams, task broker), the object store and the
   secrets, each with backup and restore steps. Passwords are masked.
 - **PostgreSQL:** `pg_dump --format=custom --no-owner --no-privileges` per
   instance, run as the **owner / migration role** — under `tenant_rls` the app
@@ -523,23 +531,25 @@ sandloom backup verify default-20261022T0300Z.dump --database default \
 - **`sandloom backup verify <dump>`** restores the dump into a throw-away database
   (`sandloom_restore_verify_*`) on `--server-url` (default: the instance's own
   server; in prod pass a scratch server or `--confirm-production`), checks that
-  every chain the instance hosts is at its head, that the core tables exist,
+  every chain the instance hosts is at its head, that the core tables exist
+  (outbox, audit, inbox, command and idempotency logs, saga tables, projection
+  watermarks, `infra_lease`, `infra_atomic_store`),
   that indexes / constraints are valid and foreign keys hold, reports the
   newest audit row (your effective RPO) and the outbox backlog, then drops the
   database (`--keep` keeps it). Exit 0 = the backup restores and is current.
   The dump is piped on stdin, so a containerised client works:
   `--pg-restore "docker exec -i pg pg_restore" --restore-url
   postgresql://owner:…@localhost:5432/x`. Schedule it and alert on failure.
-- **Redis (security cache):** `appendonly yes`, `appendfsync always` (`everysec`
+- **Redis (security store, `INFRA.atomic_store.security`):** `appendonly yes`, `appendfsync always` (`everysec`
   can lose the last second of revocation marks / blocks on a crash — run
   `sandloom backup reconcile-security` after such a restart if you accept it), RDB
   snapshots copied off-host, `maxmemory-policy noeviction`, a separate instance
-  in prod (`SECURITY_CACHE_INSTANCE`). It holds the revocation marks and the
+  in prod (declared in `INFRA`; absent, production refuses to start). It holds the revocation marks and the
   emergency blocks — state that exists nowhere else live.
-- **Redis (idempotency cache, opt-in `IDEMPOTENCY_CACHE_INSTANCE`):** the
-  same persistence, eviction policy and backups as the security cache — never
+- **Redis (idempotency store, opt-in `INFRA.atomic_store.idempotency`):** the
+  same persistence, eviction policy and backups as the security store — never
   weaker. It holds the idempotency reservations / replay records and task
-  enqueue dedupe; restore it with the security cache.
+  enqueue dedupe; restore it with the security store.
 - **Secrets** (JWT keys, `TWOFA_ENCRYPTION_KEY` — every key still in the list —
   RPC keys, PSP keys) live in the secret manager, never next to the dumps: a
   dump plus the 2FA key is a readable set of TOTP secrets.
@@ -549,7 +559,35 @@ sandloom backup verify default-20261022T0300Z.dump --database default \
 1. Stop writers (app, worker, beat at 0) — or keep the gateway closed.
 2. Restore PostgreSQL (`pg_restore` into an empty database / PITR), then
    `sandloom migrate upgrade-all --apply`.
-3. Restore Redis if it was lost.
+   Then, with the writers still stopped, run `sandloom backup fence-leases`
+   (dry-run) and `sandloom backup fence-leases --apply --reason "restore INC-…"`.
+   Do not skip this step. Nothing detects a missing one: `sandloom backup verify`
+   checks migration heads and integrity, not fences.
+   The `database` lease driver issues `fence + 1` on every acquire. An older
+   dump rewinds each fence. A stale holder of the lost window could then present
+   a fence that the restored counter issues again. The fenced writes of the new
+   holder would not outrank it.
+   The command builds the core first. It fails before any write when it cannot.
+   It lifts every `infra_lease` fence of every configured database by `10**12`
+   (`--database` limits it) and releases every lease. A database that takes its
+   schema from the models (SQLite) is refused with exit 2.
+   Each name then issues a fence above any the lost window issued, if fewer than
+   `10**12` acquisitions of it happened since the snapshot. A name first
+   acquired after the restore starts above the highest fence of the table. The
+   rows stay: dropping them restarts the counter at 1. Holders reacquire, and a
+   renewal of a released lease fails.
+   Each database's bump commits with its audit row `core.lease.fences_bumped`.
+   The row names the operator and the reason. It also holds the offset and the
+   lease names. The highest fence before the bump and after it is there too. A
+   failure leaves that database unchanged.
+   A re-run lifts again: read the audit rows before repeating it. After a PITR
+   to the instant of the failure the fences are intact. Running it is still safe.
+3. Restore Redis if it was lost. A `lease` instance on Redis (the `redis`
+   driver, key `<base>:fence`) keeps its fence counters there. An `atomic_store`
+   on Redis does the same. An RDB or AOF restore rewinds them like a database
+   dump. `sandloom backup fence-leases` does not reach them. `INCR` each fence
+   counter past what the lost window issued (by `10**12`, as for the database).
+   Or keep the holders stopped until their lease TTLs have expired.
 4. **`sandloom backup reconcile-security`** (dry-run), then
    `sandloom backup reconcile-security --apply --reason "restore INC-…"`. A Redis
    snapshot OLDER than a later `block_user` silently unblocks that user (an
@@ -839,7 +877,7 @@ Before tuning, the Oracle 2-vCPU stand spent 6–14% of CPU in GC, at
 - **gunicorn worker:** applied by the `post_worker_init` hook (`sandloom.core.cli.gunicorn_conf`)
   when the app reports `lifespan.startup.complete`, so the freeze includes
   pools and consumers and happens before the worker accepts a connection.
-- **Celery worker:** applied by `sandloom.core.worker` in the parent before the pool
+- **Celery worker:** applied by `sandloom worker` in the parent before the pool
   forks (`worker_init`); children inherit the frozen heap and the thresholds.
 - **Never in `create_app`:** tests and a plain `uvicorn sandloom.main:app` run
   untuned. A custom server entry point applies it with
@@ -950,7 +988,8 @@ sampled every 5 s by a background task, the outbox age by the relay every
 | `sandloom_db_pool_max_connections` | gauge, `database`, `pool` | `pool_size + max_overflow` (summed over workers). |
 | `sandloom_db_pool_overflow` | gauge, `database`, `pool` | Open connections beyond `pool_size`. |
 | `sandloom_db_pool_checkout_waiters` | gauge, `database`, `pool` | Checkouts queued at the pool's fair gate — the pool is exhausted. A 5 s sample: short bursts show in request latency first. |
-| `sandloom_cache_operation_errors_total` | counter, `instance`, `operation` | Redis cache operations that failed (connection, timeout, server error); caller errors are not counted. `instance` includes `SECURITY_CACHE_INSTANCE`. |
+| `sandloom_cache_operation_errors_total` | counter, `instance`, `operation` | Redis cache operations that failed (connection, timeout, server error); caller errors are not counted. |
+| `sandloom_atomic_store_operation_errors_total` | counter, `instance`, `operation` | `atomic_store` operations (`redis` and `database` drivers; security / idempotency store) that failed (connection, timeout, server error); caller errors are not counted. |
 | `sandloom_auth_revocation_check_duration_seconds` | histogram, `mode` | The request's live session-record check (`mode` is always `strict`); per-request memo hits are not timed. |
 | `sandloom_rate_limit_rejected_total` | counter, `route` | `429` answers of `rate_limiter` (route template, `unmatched` for 404s). |
 | `sandloom_rate_limit_unavailable_total` | counter, `outcome` | Rate-limit checks without a cache answer: `open` (allowed) / `closed` (503). |
@@ -973,9 +1012,9 @@ Severity: **page** — someone acts now; **warning** — a ticket for business
 hours; **info** — context for an investigation. Rules aggregate `by (job)`,
 so the same file serves the monolith and every service of the microservices
 profile. The cache instance label is scraped as `exported_instance`
-(`honor_labels: false`); `SandloomSecurityCacheErrors` matches
-`exported_instance="security"` — rename it if your `SECURITY_CACHE_INSTANCE`
-differs.
+(`honor_labels: false`); `SandloomSecurityStoreErrors` matches
+`exported_instance` `security` and `idempotency` (the `INFRA.atomic_store`
+instance names).
 
 | Alert | Severity | Fires when | First step / runbook |
 |---|---|---|---|
@@ -989,11 +1028,11 @@ differs.
 | `SandloomStreamsDeadLettered` | warning | Any Streams entry dead-lettered in 15m | `sandloom streams dlq-list`, then a targeted `dlq-replay` once fixed. |
 | `SandloomDbPoolSaturated` | warning | Checked-out / capacity > 90 % for 5m | Raise `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` (mind PostgreSQL `max_connections`), or find long transactions. |
 | `SandloomDbCheckoutsQueueing` | warning | Checkout waiters seen in every 5m window for 10m | Requests wait for a connection (write p99 grows; `DB_POOL_TIMEOUT` → 500s next). |
-| `SandloomSecurityCacheErrors` | page | Security cache errors > 0.1/s | Revocation / block / idempotency state unreachable: 503s (fail-closed) or unchecked revocation (fail-open). [Redis cache](#redis-cache-timeouts-pool-revocation-cache). |
+| `SandloomSecurityStoreErrors` | page | Security / idempotency store errors > 0.1/s | Revocation / block / idempotency state unreachable: 503s (fail-closed) or unchecked revocation (fail-open). [Redis cache](#redis-cache-timeouts-pool-revocation-cache). |
 | `SandloomCacheErrors` | warning | Other cache instances' errors > 0.1/s | Redis unreachable or timing out; rate limiting falls back to its policy. [Redis cache](#redis-cache-timeouts-pool-revocation-cache). |
 | `SandloomRevocationCheckSlow` | warning | p99 revocation + block check > 10 ms for 10m | Every authenticated request pays it; check the security Redis (latency, `appendfsync`). |
 | `SandloomRevocationsDeferred` | warning | `auth_revocation_deferred_total` grew in 5m | Post-commit revocation writes failing (cache outage); the durable applier catches up. [Secrets management](#secrets-management). |
-| `SandloomRevocationApplierFailing` | page | The durable applier fails for 10m | Revoked tokens may still be accepted. Fix the security cache. [Secrets management](#secrets-management). |
+| `SandloomRevocationApplierFailing` | page | The durable applier fails for 10m | Revoked tokens may still be accepted. Fix the security store. [Secrets management](#secrets-management). |
 | `SandloomRevocationImmediateRefused` | warning | A `require_immediate` change was refused (503) in 5m | The cache is unreachable for security changes. [Secrets management](#secrets-management). |
 | `SandloomRevocationCorruptMark` | warning | An unparsable revocation mark in 15m | That user is locked out until the next login; investigate the writer. |
 | `SandloomRevocationPending` | warning | A durable revocation pending > 60 s | The identity replica answers `/ready` 503 until it drains. [Secrets management](#secrets-management). |

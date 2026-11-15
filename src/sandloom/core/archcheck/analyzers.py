@@ -539,7 +539,7 @@ _CROSS_MODULE_VISITORS: dict[type[ast.AST], Callable[[_CrossModuleScan, Any], No
 # 2. Provider escape hatches (raw_client / raw_backend / raw)
 # --------------------------------------------------------------------------- #
 
-RAW_PROVIDER_METHODS = frozenset({"raw_client", "raw_backend", "raw"})
+RAW_PROVIDER_METHODS = frozenset({"raw_client", "raw_backend", "raw", "redis_client"})
 
 
 def find_raw_provider_calls(file_path: Path) -> list[str]:
@@ -583,7 +583,7 @@ FORBIDDEN_INFRA_MODULES = frozenset(
     }
 )
 FORBIDDEN_FROM_CORE = frozenset({"get_db", "get_event_bus"})
-FORBIDDEN_FROM_DI = frozenset({"get_cache"})
+FORBIDDEN_FROM_DI = frozenset({"get_cache", "declare_task"})
 #: Concrete backend SDKs: reached only through a capability provider.
 FORBIDDEN_BACKEND_ROOTS = frozenset(
     {"motor", "pymongo", "neo4j", "temporalio", "kafka", "boto3", "redis", "celery"}

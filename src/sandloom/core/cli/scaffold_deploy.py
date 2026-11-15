@@ -445,14 +445,13 @@ def _worker_blocks(svc: Service) -> list[str]:
             f"{i2}build: *build",
             f"{i2}volumes:",
             f"{i3}- appdata:/app/data",
-            f'{i2}command: ["celery", "-A", "sandloom.core.worker", "worker", '
-            '"--loglevel=INFO"]',
+            f'{i2}command: ["sandloom", "worker", "--loglevel=INFO"]',
             f"{i2}environment:",
             f"{i3}<<: [*{svc.name}-env, *worker-env]",
             f"{i3}SANDLOOM_SERVICE_NAME: {svc.name}-worker",
             f"{i3}WORKER_CONCURRENCY: ${{{svc.name.upper()}_WORKER_CONCURRENCY:-1}}",
             f"{i2}healthcheck:",
-            f'{i3}test: ["CMD", "python", "-m", "sandloom.core.worker", "healthcheck"]',
+            f'{i3}test: ["CMD", "sandloom", "worker", "check"]',
             f"{i3}interval: 30s",
             f"{i3}timeout: 5s",
             f"{i3}retries: 3",
@@ -476,7 +475,7 @@ def _worker_blocks(svc: Service) -> list[str]:
             f"{i2}build: *build",
             f"{i2}volumes:",
             f"{i3}- appdata:/app/data",
-            f'{i2}command: ["celery", "-A", "sandloom.core.worker", "beat", '
+            f'{i2}command: ["sandloom", "beat", '
             '"--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]',
             f"{i2}environment:",
             f"{i3}<<: *{svc.name}-env",

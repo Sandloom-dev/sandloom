@@ -29,6 +29,7 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
+from sandloom_celery.taskqueue import CELERY_TASKQUEUE_FEATURES
 
 import sandloom.core.loader.plugin_loader as plugin_loader
 from sandloom.core.archcheck.analyzers import parse_file
@@ -40,7 +41,6 @@ from sandloom.core.cli.generated import module_surface
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import CapabilityRequirement, ModuleDescriptor
 from sandloom.core.descriptors.derived_capabilities import DerivedNeed, derived_needs
-from sandloom.core.drivers.celery_taskqueue import CELERY_TASKQUEUE_FEATURES
 from sandloom.core.facade import CoreFacade
 from sandloom.core.infra.capabilities import TASKQUEUE_CAPABILITY, CapabilitySpec
 from sandloom.core.infra.config import InstanceConfig
@@ -59,8 +59,18 @@ REPO = Path(__file__).resolve().parents[4]
 BUNDLED = REPO / "src"
 
 _HOOK = """
-def setup_periodic_tasks(sender, **kwargs):
-    sender.add_periodic_task(60.0, purge.s())
+from sandloom.sdk.tasks import periodic
+
+@periodic(cron="*/5 * * * *", id="capmod.purge")
+def purge_on_schedule():
+    return 0
+"""
+_RETRIED = """
+from sandloom.sdk import tasks
+
+@tasks.task(at_least_once=True)
+def retried():
+    return 0
 """
 _TASK = """
 def purge():
@@ -104,14 +114,22 @@ def importable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path
 # -- derivation ----------------------------------------------------------------
 
 
-def test_tasks_derive_taskqueue_and_a_beat_hook_derives_periodic(
+def test_tasks_derive_taskqueue_and_a_periodic_task_derives_periodic(
     importable: Path,
 ) -> None:
     _package(importable, "capmod_plain", tasks=_TASK)
     _package(importable, "capmod_beat", tasks=_TASK + _HOOK)
     _package(importable, "capmod_pkg", tasks=_TASK + _HOOK, package_tasks=True)
     _package(importable, "capmod_none")
+    _package(importable, "capmod_retry", tasks=_TASK + _RETRIED)
 
+    assert derived_needs("capmod_retry") == (
+        DerivedNeed(
+            "taskqueue",
+            frozenset({"redelivery"}),
+            "at_least_once in capmod_retry/tasks.py",
+        ),
+    )
     assert derived_needs("capmod_plain") == (
         DerivedNeed("taskqueue", frozenset(), "capmod_plain/tasks.py"),
     )
@@ -119,7 +137,7 @@ def test_tasks_derive_taskqueue_and_a_beat_hook_derives_periodic(
         DerivedNeed(
             "taskqueue",
             frozenset({"periodic"}),
-            "setup_periodic_tasks in capmod_beat/tasks.py",
+            "@periodic in capmod_beat/tasks.py",
         ),
     )
     assert derived_needs("capmod_pkg")[0].features == frozenset({"periodic"})
@@ -173,7 +191,7 @@ def test_bundled_modules_need_what_the_decision_says() -> None:
         for name in ("sandloom_billing", "sandloom_identity", "sandloom_tenancy")
     }
     assert declared["sandloom_billing"] is not None
-    assert declared["sandloom_billing"]["taskqueue"] == {"periodic"}
+    assert declared["sandloom_billing"]["taskqueue"] == {"periodic", "redelivery"}
     assert declared["sandloom_identity"] is not None
     assert declared["sandloom_identity"]["taskqueue"] == {"periodic"}
     assert declared["sandloom_identity"]["notification"] == {"email"}
@@ -198,9 +216,21 @@ def test_periodic_is_a_taskqueue_feature_only_celery_advertises() -> None:
     assert "periodic" in CELERY_TASKQUEUE_FEATURES
 
 
-class _EnqueueOnly(TaskQueueProvider):
-    async def enqueue(self, task, payload, *, delay_seconds=None, idempotency_key=None):  # type: ignore[no-untyped-def]
-        return "id"
+class _SendOnly(TaskQueueProvider):
+    def worker_host(self):  # type: ignore[no-untyped-def]
+        raise NotImplementedError
+
+    async def send(
+        self,
+        task,
+        payload,
+        *,
+        task_id,
+        delay=None,
+        at_least_once=False,
+        queue="default",
+    ):  # type: ignore[no-untyped-def]
+        return task_id
 
 
 def _core_with_taskqueue(features: frozenset[str]) -> CoreFacade:
@@ -220,7 +250,7 @@ def _core_with_taskqueue(features: frozenset[str]) -> CoreFacade:
     registry.register_driver(
         "taskqueue",
         "fake",
-        lambda cfg: _EnqueueOnly(name=cfg.name, driver=cfg.driver, options={}),
+        lambda cfg: _SendOnly(name=cfg.name, driver=cfg.driver, options={}),
         features=features,
     )
     core = CoreFacade(app=FastAPI())
@@ -228,12 +258,12 @@ def _core_with_taskqueue(features: frozenset[str]) -> CoreFacade:
     return core
 
 
-def test_an_enqueue_only_driver_cannot_serve_a_beat_hook(importable: Path) -> None:
+def test_a_send_only_driver_cannot_serve_a_periodic_task(importable: Path) -> None:
     _package(importable, "capmod_needs_beat", tasks=_TASK + _HOOK)
     desc = ModuleDescriptor(name="capmod_needs_beat", version="1")
     with pytest.raises(FeatureUnsupportedError, match="periodic"):
         _preflight_capabilities(
-            _core_with_taskqueue(frozenset({"delay", "idempotency_key"})), desc
+            _core_with_taskqueue(frozenset({"delay", "redelivery"})), desc
         )
     _preflight_capabilities(
         _core_with_taskqueue(frozenset({"delay", "periodic"})), desc
@@ -241,6 +271,23 @@ def test_an_enqueue_only_driver_cannot_serve_a_beat_hook(importable: Path) -> No
     # Declared optional: an enqueue-only driver is reported, not refused.
     desc.capabilities = [CapabilityRequirement("taskqueue", required=False)]
     _preflight_capabilities(_core_with_taskqueue(frozenset({"delay"})), desc)
+
+
+def test_a_requirement_naming_idempotency_key_is_refused_at_load() -> None:
+    """``idempotency_key`` is the kernel layer's, no longer a driver feature."""
+    assert "idempotency_key" not in TASKQUEUE_CAPABILITY.features
+    assert "idempotency_key" not in CELERY_TASKQUEUE_FEATURES
+    desc = ModuleDescriptor(
+        name="capmod_old_feature",
+        version="1",
+        capabilities=[
+            CapabilityRequirement("taskqueue", features=frozenset({"idempotency_key"}))
+        ],
+    )
+    with pytest.raises(FeatureUnsupportedError, match="idempotency_key"):
+        _preflight_capabilities(
+            _core_with_taskqueue(frozenset({"delay", "periodic", "redelivery"})), desc
+        )
 
 
 # -- notification(email) under production ----------------------------------------

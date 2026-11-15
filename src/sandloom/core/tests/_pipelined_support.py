@@ -4,19 +4,25 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
+from types import MappingProxyType
 from typing import Any
 
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.memory_transport import MemoryTransport
 from sandloom.core.eventing.streams_bus import StreamsEventBus
-from sandloom.core.eventing.transport_base import TransportBatchError
+from sandloom.core.infra.ports.eventbus import PartialPublish
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
 CHANNEL = "core.test_event.v1"
 
 
 class RecordingTransport(MemoryTransport):
-    """MemoryTransport counting batch calls; can fail a batch on demand."""
+    """MemoryTransport counting batch calls; can fail a batch on demand.
+
+    Its ``publish_many`` stands for a native batch: it says ``one_round_trip``.
+    """
+
+    performance_hints = MappingProxyType({"publish_many": "one_round_trip"})
 
     def __init__(self) -> None:
         super().__init__()
@@ -44,11 +50,13 @@ class RecordingTransport(MemoryTransport):
         self.batches.append([str(env["id"]) for _s, env in items])
         if self.fail_next is not None:
             exc, self.fail_next = self.fail_next, None
-            raise TransportBatchError([], f"batch failed: {exc}") from exc
+            raise PartialPublish(f"batch failed: {exc}") from exc
         if self.partial_next is not None:
             keep, self.partial_next = self.partial_next, None
             ids = [self._append(s, e, target_group=None) for s, e in items[:keep]]
-            raise TransportBatchError(ids, "WRONGTYPE") from RuntimeError("WRONGTYPE")
+            raise PartialPublish("WRONGTYPE", published=ids) from RuntimeError(
+                "WRONGTYPE"
+            )
         return [self._append(s, e, target_group=None) for s, e in items]
 
     def stream_ids(self, stream: str = CHANNEL) -> list[str]:

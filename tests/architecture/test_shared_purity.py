@@ -260,7 +260,10 @@ def test_core_may_import_driverkit_here_import_linter_forbids_it(
     tmp_path: Path,
 ) -> None:
     """Foreign ``sandloom.<m>`` subpackages are this scan's concern for
-    shared only; the ``kernel-never-imports-sdk`` contract covers core."""
+    shared only; core's import of the driverkit is the import-linter contract
+    ``kernel-never-imports-driverkit`` (its sources are kept exhaustive by
+    ``test_driverkit_import_contract.py``), and ``kernel-never-imports-sdk``
+    covers the sdk."""
     sandloom = _plant(tmp_path, {"core/x.py": "from sandloom.driverkit import z\n"})
     assert kernel_violations(sandloom, {"sandloom_billing"}, {}) == []
 

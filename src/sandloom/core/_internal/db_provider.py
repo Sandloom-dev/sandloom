@@ -3,10 +3,12 @@
 ``get_db`` is the raw session provider the request UoW wraps. It lives under
 ``sandloom.core._internal`` deliberately: it is NOT a public surface. Only the
 composition root (``create_app``) and test conftests touch it — the latter to
-override it via ``app.dependency_overrides``. The engine/sessionmaker it uses
-are owned and constructed by the database DRIVER
-(``sandloom.core.drivers.sqlalchemy_database``); this module holds no engine of
-its own. Business modules use ``DbSession`` from ``sandloom.core.di`` instead.
+override it via ``app.dependency_overrides``. The sessions it yields come from
+the session factory the ``default`` database instance of the active core
+declares (``DatabaseProvider.session_factory``), so they follow the configured
+instance (the infrastructure may override its URL); this module imports no
+driver and holds no engine of its own. Business modules use ``DbSession`` from
+``sandloom.core.di`` instead.
 """
 
 from collections.abc import AsyncGenerator
@@ -14,16 +16,28 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sandloom.core.drivers.schema_reset import schema_reset_for
-from sandloom.core.drivers.sqlalchemy_database import (
-    build_disposable_engine,
-    get_default_sessionmaker,
-    release_default_pools,
-)
+from sandloom.core.runtime import get_active_core
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    async with get_default_sessionmaker()() as session:
+    """A raw session of the ``default`` database, from its declared factory.
+
+    Only the key of ``app.dependency_overrides`` in practice (a request's
+    session is the UoW's, ``sandloom.core.di.get_db``).
+    """
+    core = get_active_core()
+    if core is None:
+        raise RuntimeError(
+            "get_db: no active core. fix: call it inside a running application "
+            "(create_app binds one) or a use_active_core() scope"
+        )
+    factory = core.database("default").session_factory
+    if factory is None:
+        raise RuntimeError(
+            "get_db: the default database driver offers no raw session factory "
+            "(DatabaseProvider.session_factory); use the unit of work instead"
+        )
+    async with factory() as session:
         yield session
 
 
@@ -42,14 +56,8 @@ def is_relational_session_type(annotation: Any) -> bool:
     return annotation is AsyncSession
 
 
-# Test-harness seams (``sandloom.core.testing``): the harness reaches the driver's
-# default pools and a caller-owned engine through this adapter, so no other
-# kernel module needs to import a concrete driver.
 __all__ = [
-    "build_disposable_engine",
     "get_db",
     "is_relational_session",
     "is_relational_session_type",
-    "release_default_pools",
-    "schema_reset_for",
 ]

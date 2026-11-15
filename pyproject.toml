@@ -10,7 +10,9 @@ requires-python = ">=3.11"
 dependencies = [
     "sandloom[standard,check,fast,sentry,sqlite]",
     "sandloom-billing",
+    "sandloom-celery",
     "sandloom-identity",
+    "sandloom-redis",
     "sandloom-standard",
     "sandloom-tenancy",
 ]
@@ -69,8 +71,16 @@ path = "packages/sandloom-admin"
 path = "packages/sandloom-billing"
 editable = true
 
+[tool.uv.sources.sandloom-celery]
+path = "packages/sandloom-celery"
+editable = true
+
 [tool.uv.sources.sandloom-identity]
 path = "packages/sandloom-identity"
+editable = true
+
+[tool.uv.sources.sandloom-redis]
+path = "packages/sandloom-redis"
 editable = true
 
 [tool.uv.sources.sandloom-s3]

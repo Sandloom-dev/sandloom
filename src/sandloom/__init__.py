@@ -40,7 +40,7 @@ Subcommands:
     sandloom routes ...       per-module route snapshots (method, path, operation
                          class) and the route reference (sandloom.core.cli.routes)
     sandloom admin export     export the platform-owner UI manifest
-    sandloom backup ...       backup plan, restore verification, security-cache
+    sandloom backup ...       backup plan, restore verification, security-store
                          reconciliation after a restore (see sandloom.core.cli.backup)
     sandloom sagas ...        list / show / retry / park / resolve saga instances
                          (see sandloom.core.cli.sagas)
@@ -51,6 +51,10 @@ Subcommands:
     sandloom doctor           read-only deployment preflight: config, modules,
                          infra reachability, migration heads, consumer lag,
                          RLS (see sandloom.core.cli.doctor)
+    sandloom worker [check]   run a task worker for the loaded modules; `check` is the
+                         container healthcheck (see sandloom.core.cli.worker)
+    sandloom beat             run the scheduler, one per broker and module set
+                         (see sandloom.core.cli.worker)
     sandloom dev ...          local Postgres + Redis per repository, a database
                          per checkout: up / status / run / reset / down /
                          prune / logs (see sandloom.core.cli.dev)
@@ -235,6 +239,12 @@ def _main() -> None:  # noqa: C901
     )
     sub.add_parser("doctor", add_help=False, help="read-only deployment preflight")
     sub.add_parser(
+        "worker",
+        add_help=False,
+        help="run a task worker; `worker check` is the container healthcheck",
+    )
+    sub.add_parser("beat", add_help=False, help="run the task scheduler")
+    sub.add_parser(
         "dev",
         add_help=False,
         help="local Postgres + Redis: up / status / run / reset / down / prune / logs",
@@ -321,6 +331,14 @@ def _main() -> None:  # noqa: C901
         from sandloom.core.cli.doctor import main as doctor_main
 
         raise SystemExit(doctor_main(rest))
+    if args.command == "worker":
+        from sandloom.core.cli.worker import worker_main
+
+        raise SystemExit(worker_main(rest))
+    if args.command == "beat":
+        from sandloom.core.cli.worker import beat_main
+
+        raise SystemExit(beat_main(rest))
     if args.command == "dev":
         raise SystemExit(_static_import("sandloom.core.cli.dev").main(rest))
     if args.command == "version":

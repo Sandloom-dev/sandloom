@@ -17,11 +17,13 @@ from sandloom.core.app_factory import _install_ops_endpoints
 from sandloom.core.composition import composition_root_name
 from sandloom.core.consumers.callbacks import EventConsumerDescriptor
 from sandloom.core.consumers.runtime import (
+    ConsumerConfigurationError,
     ConsumerRuntime,
     ConsumerRuntimeSnapshot,
     ConsumerStartupError,
     ConsumerStatus,
 )
+from sandloom.core.eventing.bus_base import BaseEventBus
 from sandloom.core.eventing.event_bus import get_event_bus, set_active_event_bus
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.eventing.pubsub_bus import RedisEventBus
@@ -353,6 +355,39 @@ async def test_permanent_subscription_contract_error_is_not_retried_forever() ->
     await runtime.stop()
 
 
+class _DurableBusWithoutTransport(BaseEventBus):
+    """Declares ``durable`` yet exposes no transport: a configuration error."""
+
+    bus_features = frozenset({"durable"})
+
+    async def _publish_to_transport(self, channel: str, message: Any) -> None:
+        raise AssertionError("never published")
+
+    async def subscribe(self, channel: str, callback: Any) -> SubscriptionHandle:
+        raise AssertionError("never subscribed")
+
+    def unsubscribe(self, channel: str, callback: Any) -> None:
+        raise AssertionError("never unsubscribed")
+
+
+@pytest.mark.asyncio
+async def test_a_durable_bus_without_a_transport_never_skips_the_group_owner_claim() -> (
+    None
+):
+    """G-EVENT-02: the claim is not silently skipped for a durable bus that
+    is not a ``StreamsEventBus``; one without a transport refuses startup."""
+    core = CoreFacade(app=FastAPI())
+    core.set_event_bus(_DurableBusWithoutTransport(PermissiveSchemaRegistry()))
+    runtime = ConsumerRuntime(
+        core, session_opener=_session_opener, startup_timeout=0, retry_delay=0
+    )
+    with pytest.raises(ConsumerConfigurationError, match="durable"):
+        await runtime._check_group_owners()
+    # a volatile bus keeps no group ownership: nothing to claim
+    core.set_event_bus(InMemoryEventBus(PermissiveSchemaRegistry()))
+    await runtime._check_group_owners()
+
+
 @pytest.mark.asyncio
 async def test_runtime_restarts_a_subscription_whose_task_dies() -> None:
     core = CoreFacade(app=FastAPI())
@@ -644,51 +679,62 @@ async def test_lifespan_aborts_when_required_consumer_cannot_start(
     assert stopped.is_set()
 
 
-@pytest.mark.asyncio
-async def test_redis_subscription_becomes_ready_only_after_broker_subscribe() -> None:
-    subscribed = asyncio.Event()
-    closed = asyncio.Event()
+class _FakeBroadcastSubscription:
+    def __init__(self) -> None:
+        self._closed = asyncio.Event()
 
-    class _PubSub:
-        async def subscribe(self, *_channels: str) -> None:
-            subscribed.set()
+    def __aiter__(self) -> AsyncIterator[Any]:
+        return self
 
-        async def psubscribe(self, *_channels: str) -> None:
-            subscribed.set()
+    async def __anext__(self) -> Any:
+        await self._closed.wait()
+        raise StopAsyncIteration
 
-        def listen(self) -> AsyncIterator[dict[str, Any]]:
-            return self
+    async def aclose(self) -> None:
+        self._closed.set()
 
-        def __aiter__(self) -> AsyncIterator[dict[str, Any]]:
-            return self
 
-        async def __anext__(self) -> dict[str, Any]:
-            await closed.wait()
-            raise StopAsyncIteration
+class _FakeBroadcast:
+    """A ``broadcast`` instance whose ``subscribe`` can be held back."""
 
-        async def close(self) -> None:
-            closed.set()
+    def __init__(self) -> None:
+        self.hold: set[str] = set()
+        self.release = asyncio.Event()
+        self.waiting = asyncio.Event()
+        self.confirmed: list[str] = []
 
-    class _Client:
-        def pubsub(self) -> _PubSub:
-            return _PubSub()
-
-    async def client_factory() -> _Client:
-        return _Client()
-
-    bus = RedisEventBus(
-        PermissiveSchemaRegistry(),
-        client_factory=client_factory,
-    )
-
-    async def handler(_envelope: object) -> None:
+    async def publish(self, channel: str, payload: bytes) -> None:
         return None
 
-    handle = await bus.subscribe("demo.redis.created.v1", handler)
+    async def subscribe(self, channels: Any) -> _FakeBroadcastSubscription:
+        (channel,) = channels
+        if channel in self.hold:
+            self.waiting.set()
+            await self.release.wait()
+        self.confirmed.append(channel)
+        return _FakeBroadcastSubscription()
 
+
+async def _noop_handler(_envelope: object) -> None:
+    return None
+
+
+@pytest.mark.asyncio
+async def test_redis_subscription_becomes_ready_only_after_broker_subscribe() -> None:
+    broadcast = _FakeBroadcast()
+    channel = "demo.redis.created.v1"
+    broadcast.hold.add(channel)
+    bus = RedisEventBus(PermissiveSchemaRegistry(), broadcast=broadcast)
+
+    handle = await bus.subscribe(channel, _noop_handler)
+    await asyncio.wait_for(broadcast.waiting.wait(), timeout=1)
+    assert handle.snapshot().state is SubscriptionState.STARTING
+    assert broadcast.confirmed == []
+
+    broadcast.release.set()
     await handle.wait_ready(timeout=1)
-    assert subscribed.is_set()
-    assert handle.state is SubscriptionState.RUNNING
+    assert broadcast.confirmed == [channel]
+    assert handle.snapshot().state is SubscriptionState.RUNNING
     await bus.close()
     assert handle.snapshot().state is SubscriptionState.STOPPED
 
@@ -697,68 +743,27 @@ async def test_redis_subscription_becomes_ready_only_after_broker_subscribe() ->
 async def test_redis_cancelled_dynamic_subscribe_rolls_back_local_registration() -> (
     None
 ):
-    dynamic_started = asyncio.Event()
-    release_dynamic = asyncio.Event()
-    closed = asyncio.Event()
-
-    class _PubSub:
-        block_dynamic = False
-
-        async def subscribe(self, *_channels: str) -> None:
-            if self.block_dynamic:
-                dynamic_started.set()
-                await release_dynamic.wait()
-
-        async def psubscribe(self, *_channels: str) -> None:
-            await self.subscribe(*_channels)
-
-        async def unsubscribe(self, *_channels: str) -> None:
-            return None
-
-        async def punsubscribe(self, *_channels: str) -> None:
-            return None
-
-        def listen(self) -> AsyncIterator[dict[str, Any]]:
-            return self
-
-        def __aiter__(self) -> AsyncIterator[dict[str, Any]]:
-            return self
-
-        async def __anext__(self) -> dict[str, Any]:
-            await closed.wait()
-            raise StopAsyncIteration
-
-        async def close(self) -> None:
-            closed.set()
-
-    pubsub = _PubSub()
-
-    class _Client:
-        def pubsub(self) -> _PubSub:
-            return pubsub
-
-    async def client_factory() -> _Client:
-        return _Client()
-
-    async def handler(_envelope: object) -> None:
-        return None
-
+    broadcast = _FakeBroadcast()
     channel = "demo.rediscancelled.created.v1"
-    bus = RedisEventBus(
-        PermissiveSchemaRegistry(),
-        client_factory=client_factory,
-    )
-    first_handle = await bus.subscribe(channel, handler)
+    other = "demo.rediscancelled.other.v1"
+    bus = RedisEventBus(PermissiveSchemaRegistry(), broadcast=broadcast)
+    first_handle = await bus.subscribe(channel, _noop_handler)
     await first_handle.wait_ready(timeout=1)
-    pubsub.block_dynamic = True
 
-    subscribe_task = asyncio.create_task(bus.subscribe(channel, handler))
-    await asyncio.wait_for(dynamic_started.wait(), timeout=1)
+    # A channel whose broker subscribe is held back never holds up a later
+    # ``subscribe`` of the bus: it registers at once and waits for readiness.
+    broadcast.hold.add(other)
+    held = await asyncio.wait_for(bus.subscribe(other, _noop_handler), timeout=1)
+    assert held.snapshot().state is SubscriptionState.STARTING
+    assert first_handle.snapshot().state is SubscriptionState.RUNNING
+
+    # A subscribe cancelled before it ran leaves no registration behind.
+    subscribe_task = asyncio.create_task(bus.subscribe(channel, _noop_handler))
     subscribe_task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await subscribe_task
 
-    assert bus._subs[channel] == [handler]
+    assert bus._subs[channel] == [_noop_handler]
     assert bus._subscription_handles[channel] == [first_handle]
     await bus.close()
 

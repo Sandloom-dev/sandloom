@@ -58,9 +58,18 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Generic, Literal, NamedTuple, Protocol, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    Literal,
+    NamedTuple,
+    Protocol,
+    TypeVar,
+)
 
 from sandloom.core.config.settings import settings
+from sandloom.core.infra.ports.database import DatabaseProvider, ExecutionAdapter
 from sandloom.core.tenant_context import (
     MissingTenantError,
     _current_tenant,
@@ -595,44 +604,6 @@ def execution_context(plan: Plan[Any]) -> ExecutionContext:
     return ExecutionContext(plan.operation.database, tenant, plan.tenant_scoped)
 
 
-class ExecutionAdapter(Protocol):
-    """What a database driver offers the planner (one per database instance)."""
-
-    #: Prepared plans, keyed by (id(operation), optimized mode).
-    plans: dict[tuple[int, bool], Plan[Any]]
-
-    def compile(self, op: ReadOperation[Any], *, optimized: bool) -> Plan[Any]:
-        """Validate ``op`` against the schema and return its plan."""
-
-    async def fetch_one(
-        self, plan: Plan[Any], ctx: ExecutionContext, key: Sequence[Any]
-    ) -> Sequence[Any] | None:
-        """Run ``plan`` under ``ctx`` in its own read-only transaction."""
-
-    async def fetch_in_unit(
-        self, plan: Plan[Any], ctx: ExecutionContext, key: Sequence[Any], unit: Any
-    ) -> Sequence[Any] | None:
-        """Run ``plan``'s GENERAL form on ``unit`` (an open Unit of Work)."""
-
-    def read_unit(self, *, snapshot: bool = False) -> ReadUnit:
-        """A scope-wide read-only unit (one lease + transaction, opened lazily);
-        ``snapshot=True``: one snapshot for all its reads, refused with
-        :class:`SnapshotReadsUnavailable` before any I/O where the database
-        has no ``snapshot_reads``."""
-
-    async def fetch_page(
-        self,
-        plan: Plan[Any],
-        ctx: ExecutionContext,
-        key: Sequence[Any],
-        limit: int,
-        after: Sequence[Any] | None,
-        unit: Any = None,
-    ) -> list[Sequence[Any]]:
-        """A ListOperation page (``limit`` rows after ``after``): own read-only
-        transaction, or the GENERAL form on ``unit`` when given."""
-
-
 class ReadUnit(Protocol):
     """ONE read-only transaction shared by the general-executor reads of a scope.
 
@@ -660,22 +631,20 @@ class ReadUnit(Protocol):
 
 
 def _adapter(core: CoreRuntime, database: str) -> ExecutionAdapter:
-    provider = core.database(database)
-    get = getattr(provider, "execution_adapter", None)
-    adapter = get() if callable(get) else None
+    provider: DatabaseProvider = core.database(database)
+    adapter = provider.planner_adapter()
     if adapter is None:
         raise PlanningError(
             f"database {database!r} (driver {getattr(provider, 'driver', '?')!r}) "
             "offers no execution adapter for declared operations"
         )
-    return adapter  # type: ignore[no-any-return]
+    return adapter
 
 
 def _contract_adapter(core: CoreRuntime, database: str) -> ExecutionAdapter:
     """The adapter on the database's dedicated CONTRACT pool (if it has one)."""
-    provider = core.database(database)
-    get = getattr(provider, "contract_execution_adapter", None)
-    adapter = get() if callable(get) else None
+    provider: DatabaseProvider = core.database(database)
+    adapter = provider.planner_adapter(contract=True)
     return adapter if adapter is not None else _adapter(core, database)
 
 

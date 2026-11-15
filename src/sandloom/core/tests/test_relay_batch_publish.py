@@ -30,8 +30,8 @@ from sqlalchemy.ext.asyncio import (
 from sandloom.core.config.settings import settings as _settings
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
-from sandloom.core.eventing.transport_base import TransportBatchError
 from sandloom.core.infra.contracts import BrokerUnavailableError
+from sandloom.core.infra.ports.eventbus import PartialPublish
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
 from sandloom.core.sql_alchemy.outbox_store import (
@@ -223,7 +223,7 @@ async def test_relay_poison_row_still_dead_letters(
         async def publish_many(
             self, items: Sequence[tuple[str, EventEnvelope]]
         ) -> list[str]:
-            raise TransportBatchError([], "x") from RuntimeError("poison")
+            raise PartialPublish("x") from RuntimeError("poison")
 
     t = _PoisonTransport()
     bus = streams_bus(t)

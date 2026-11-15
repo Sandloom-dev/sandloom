@@ -1,7 +1,7 @@
 """First-class capability contracts beyond the built-in five.
 
 These are *standard* capabilities the kernel knows about — document stores,
-graph stores, durable workflows, search, distributed locks, secrets — but ships
+graph stores, durable workflows, search, secrets — but ships
 NO driver for. Each is a small, opinionated, AI-safe surface (much smaller than
 the underlying backend's SDK): a module calls ``graph.query(...)`` or
 ``workflow.start(...)``, never a raw Neo4j/Temporal client. A plugin makes one
@@ -147,20 +147,6 @@ class SearchProvider(InfraProvider):
         """Remove the document ``id`` from ``index``."""
 
 
-class LockProvider(InfraProvider):
-    """Distributed lock capability (Redis, etcd, Zookeeper, …)."""
-
-    capability: ClassVar[str] = "lock"
-
-    @abc.abstractmethod
-    async def acquire(self, key: str, *, ttl_seconds: int = 30) -> str | None:
-        """Try to acquire ``key``; return an opaque token, or ``None`` if held."""
-
-    @abc.abstractmethod
-    async def release(self, key: str, token: str) -> None:
-        """Release ``key`` iff ``token`` matches the holder (safe unlock)."""
-
-
 class SecretsProvider(InfraProvider):
     """Secret store capability (Vault, AWS/GCP Secrets Manager, …)."""
 
@@ -186,9 +172,13 @@ DOCUMENT_STORE_CAPABILITY = CapabilitySpec(
     # ``conditional_write`` + ``tenant_native``: the store may be a projection
     # target (version-guarded writes and tombstones, native tenancy; spec
     # §6.4, sandloom.core.projections.stores)
-    features=frozenset(
-        {"transactions", "aggregation", "indexes", "conditional_write", "tenant_native"}
-    ),
+    feature_kinds={
+        "transactions": "behaviour",
+        "aggregation": "behaviour",
+        "indexes": "behaviour",
+        "conditional_write": "behaviour",
+        "tenant_native": "guarantee",
+    },
     description="Document database (collections of JSON-like documents).",
 )
 
@@ -197,7 +187,12 @@ GRAPH_STORE_CAPABILITY = CapabilitySpec(
     version="v1",
     stability="experimental",
     provider_contract=GraphStoreProvider,
-    features=frozenset({"cypher", "gremlin", "transactions", "vector_index"}),
+    feature_kinds={
+        "cypher": "behaviour",
+        "gremlin": "behaviour",
+        "transactions": "behaviour",
+        "vector_index": "behaviour",
+    },
     description="Graph database (nodes/edges, graph queries).",
 )
 
@@ -206,7 +201,7 @@ WORKFLOW_CAPABILITY = CapabilitySpec(
     version="v1",
     stability="experimental",
     provider_contract=WorkflowProvider,
-    features=frozenset({"signal", "schedule"}),
+    feature_kinds={"signal": "behaviour", "schedule": "behaviour"},
     description="Durable, resumable long-running workflows.",
 )
 
@@ -215,17 +210,12 @@ SEARCH_CAPABILITY = CapabilitySpec(
     version="v1",
     stability="experimental",
     provider_contract=SearchProvider,
-    features=frozenset({"fulltext", "vector", "faceting"}),
+    feature_kinds={
+        "fulltext": "behaviour",
+        "vector": "behaviour",
+        "faceting": "behaviour",
+    },
     description="Full-text / vector search.",
-)
-
-LOCK_CAPABILITY = CapabilitySpec(
-    name="lock",
-    version="v1",
-    stability="experimental",
-    provider_contract=LockProvider,
-    features=frozenset({"ttl", "reentrant"}),
-    description="Distributed locks.",
 )
 
 SECRETS_CAPABILITY = CapabilitySpec(
@@ -233,7 +223,7 @@ SECRETS_CAPABILITY = CapabilitySpec(
     version="v1",
     stability="experimental",
     provider_contract=SecretsProvider,
-    features=frozenset({"rotate", "versioning"}),
+    feature_kinds={"rotate": "behaviour", "versioning": "behaviour"},
     description="Secret store.",
 )
 
@@ -244,7 +234,6 @@ EXTRA_CAPABILITIES: tuple[CapabilitySpec, ...] = (
     GRAPH_STORE_CAPABILITY,
     WORKFLOW_CAPABILITY,
     SEARCH_CAPABILITY,
-    LOCK_CAPABILITY,
     SECRETS_CAPABILITY,
 )
 
@@ -254,13 +243,11 @@ __all__ = [
     "GraphStoreProvider",
     "WorkflowProvider",
     "SearchProvider",
-    "LockProvider",
     "SecretsProvider",
     "DOCUMENT_STORE_CAPABILITY",
     "GRAPH_STORE_CAPABILITY",
     "WORKFLOW_CAPABILITY",
     "SEARCH_CAPABILITY",
-    "LOCK_CAPABILITY",
     "SECRETS_CAPABILITY",
     "EXTRA_CAPABILITIES",
 ]

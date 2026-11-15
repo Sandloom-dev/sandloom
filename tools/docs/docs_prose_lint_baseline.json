@@ -45,7 +45,7 @@
       "P8": 5,
       "P9": 70,
       "S11": 1,
-      "S4": 92
+      "S4": 91
     },
     "docs/advanced/write-admission.md": {
       "P6": 2,
@@ -152,17 +152,13 @@
     "docs/infrastructure/own-capability.md": {
       "K3": 2
     },
-    "docs/infrastructure/write-a-driver.md": {
-      "P8": 1
-    },
     "docs/modules/background/effect-deduplication.md": {
       "P6": 1,
       "P7": 1
     },
     "docs/modules/background/tasks.md": {
       "P6": 1,
-      "P7": 1,
-      "S4": 8
+      "S4": 6
     },
     "docs/modules/batteries/billing.md": {
       "P6": 5,
@@ -277,7 +273,7 @@
     "docs/modules/http/authorization.md": {
       "K3": 1,
       "P6": 3,
-      "S4": 4
+      "S4": 3
     },
     "docs/modules/http/idempotent-write.md": {
       "P6": 1,
@@ -318,9 +314,9 @@
     "docs/operate/operator-reference.md": {
       "P6": 6,
       "P8": 1,
-      "P9": 57,
+      "P9": 54,
       "S11": 1,
-      "S4": 65
+      "S4": 64
     },
     "docs/operate/service-rpc.md": {
       "P6": 1,

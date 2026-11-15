@@ -34,7 +34,8 @@ Sections (each check is ``ok`` / ``warn`` / ``fail`` / ``skip``):
 * **infra** — every configured instance (databases, caches, object stores,
   task queue / broker, event bus) answers its health probe within the
   timeout — the same probes as ``/diagnostics/infra`` (the ``celery``
-  taskqueue's probe connects to its broker).
+  taskqueue's probe connects to its broker). Each row names the driver and its
+  tier (``experimental``, ``beta``, ``stable``).
 * **periodic** — each loaded module whose taskqueue requirement asks for
   ``periodic``: whether a beat schedules its jobs for this composition (the
   beat's singleton lease is held). Missing for a required requirement fails;
@@ -72,7 +73,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import sandloom.core.auth.claims_view as _claims_view
-import sandloom.core.beat_lease as _beat_lease
+import sandloom.core.infra.fenced_lease as _beat_lease
 from sandloom.core.app_factory import configuration_problems
 from sandloom.core.claims import ClaimAuthorities
 from sandloom.core.cli.config import mask_url_credentials, redact_value
@@ -82,6 +83,8 @@ from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.config import tiers
 from sandloom.core.config.common import MULTI_TENANT_STRICT, strict_profile_active
 from sandloom.core.config.settings import settings
+from sandloom.core.eventing.bus_base import BaseEventBus, durable_transport
+from sandloom.core.infra.errors import InvalidArgument
 from sandloom.core.migrations.migrations import migration_status
 from sandloom.core.production_profile import (
     config_problems,
@@ -402,10 +405,12 @@ async def check_infra(report: Report, core: Any, timeout: float) -> None:  # noq
     for key in sorted(results):
         result = results[key]
         capability, _, name = key.partition(":")
-        driver = described.get(capability, {}).get(name, {}).get("driver", "?")
+        row = described.get(capability, {}).get(name, {})
+        driver = row.get("driver", "?")
         details = dict(getattr(result, "details", None) or {})
+        details["tier"] = row.get("tier")
         status = OK if result.status == "ok" else FAIL
-        message = f"driver={driver}"
+        message = f"driver={driver} tier={row.get('tier') or '?'}"
         if status == FAIL:
             message += f": {details.get('error') or result.status}"
         report.add("infra", key, status, message, **details)
@@ -415,9 +420,9 @@ async def check_infra(report: Report, core: Any, timeout: float) -> None:  # noq
 
 
 def _holder_identity(token: str) -> str:
-    """``<host>:<pid>`` of a lease token ``<fence>:<host>:<pid>:<nonce>``."""
+    """``<host>:<pid>`` of a lease holder ``<fence>:<host>:<pid>``."""
     parts = token.split(":")
-    return ":".join(parts[1:-1]) if len(parts) >= 4 else token
+    return ":".join(parts[1:]) if len(parts) >= 3 else token
 
 
 async def check_periodic(report: Report, core: Any, budget: float) -> None:
@@ -441,7 +446,7 @@ async def check_periodic(report: Report, core: Any, budget: float) -> None:
         )
         return
     if not hasattr(core, "cache"):
-        report.add("periodic", "periodic jobs", SKIP, "no cache capability bound")
+        report.add("periodic", "periodic jobs", SKIP, "no infrastructure bound")
         return
     for instance in sorted({need.instance for need in needs}):
         state, value = await _beat_lease.read_beat_lease(
@@ -471,8 +476,7 @@ def _periodic_verdict(
     absent = f"no beat holds the lease of this module set on taskqueue/{instance}: "
     if required:
         return FAIL, absent + (
-            "they do not run (required: start a worker and one "
-            "`celery -A sandloom.core.worker beat`)"
+            "they do not run (required: start a worker and one `sandloom beat`)"
         )
     return WARN, absent + (
         "they do not run (optional: the module works without them and degrades "
@@ -566,9 +570,13 @@ async def check_consumers(
     if not consumers:
         report.add("consumers", "registered", SKIP, "no durable consumers registered")
         return
-    transport = getattr(getattr(core, "event_bus", None), "transport", None)
-    group_info = getattr(transport, "group_info", None)
-    if transport is None or group_info is None:
+    bus = getattr(core, "event_bus", None)
+    try:
+        transport = durable_transport(bus)
+    except InvalidArgument as exc:
+        report.add("consumers", "transport", FAIL, str(exc))
+        return
+    if transport is None or not isinstance(bus, BaseEventBus):
         report.add(
             "consumers",
             "transport",
@@ -577,7 +585,17 @@ async def check_consumers(
             "transport (EVENT_BUS_BACKEND=streams reports groups and lag)",
         )
         return
-    infos: dict[str, list[dict[str, Any]]] = {}
+    if "inspection" not in bus.bus_features:
+        report.add(
+            "consumers",
+            "transport",
+            WARN,
+            f"{len(consumers)} consumer(s); the event transport does not declare "
+            "'inspection': consumer lag is not checked",
+        )
+        return
+    group_info = transport.group_info
+    infos: dict[str, list[Any]] = {}
     for channel, group, required in consumers:
         try:
             if channel not in infos:
@@ -587,7 +605,7 @@ async def check_consumers(
         except Exception as exc:  # noqa: BLE001 - reported
             report.add("consumers", f"{channel} -> {group}", FAIL, _error(exc))
             continue
-        info = next((g for g in infos[channel] if g.get("group") == group), None)
+        info = next((g for g in infos[channel] if g.group == group), None)
         name = f"{channel} -> {group}"
         if info is None:
             report.add(
@@ -597,7 +615,7 @@ async def check_consumers(
                 "group not created yet (the consumer has never subscribed)",
             )
             continue
-        lag, pending = info.get("lag"), info.get("pending")
+        lag, pending = info.lag, info.pending
         status = WARN if isinstance(lag, int) and lag >= lag_warn else OK
         report.add(
             "consumers",

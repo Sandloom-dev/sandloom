@@ -30,6 +30,11 @@ AREA_JOBS = {
     "backend-tests": ("backend",),
     # The kernel suites with no module package importable (ADR-0012, KB-05).
     "kernel-without-batteries": ("backend",),
+    # The sandloom-redis package: its tests and types (the root testpaths and
+    # the CI mypy run do not reach packages/).
+    "redis-drivers": ("backend", "packages"),
+    # The sandloom-celery package: its wheel, style and types (same reason).
+    "celery-drivers": ("backend", "packages"),
     # The second database (SQLite) and the merge of the lanes' skip ledgers.
     "second-db-test-lane": ("backend", "examples"),
     "skip-ledger": ("backend", "examples"),

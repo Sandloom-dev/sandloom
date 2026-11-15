@@ -9,9 +9,9 @@ from typing import Any
 
 import pytest
 from celery import Celery
+from sandloom_celery import taskqueue as celery_taskqueue
+from sandloom_celery import worker as celery_worker
 
-from sandloom.core import worker
-from sandloom.core.drivers import celery_taskqueue
 from sandloom.core.drivers.redis_cache import RedisCacheProvider
 from sandloom.core.testing import InMemoryCache
 from sandloom.core.testing.workers import worker_env_values
@@ -42,18 +42,18 @@ async def test_redis_batch_ops_round_trip() -> None:
         except Exception:  # pragma: no cover  # noqa: BLE001 - test Redis unreachable: skip
             pytest.skip("Redis unreachable")
         assert await cache.get_many(keys) == ["x", None, "z"]
-        client = await cache.raw_client()
+        client = await cache.redis_client()
         assert 0 < await client.ttl(keys[0]) <= 30
-        assert {"get_many", "set_many"} <= cache.features()
+        assert {"get_many", "set_many"} <= set(cache.performance_hints)
     finally:
-        client = await cache.raw_client()
+        client = await cache.redis_client()
         await client.delete(*keys)
         await cache.aclose()
 
 
 def test_worker_reliability_defaults() -> None:
     app = Celery("t", broker="memory://", backend="cache+memory://")
-    worker.configure_worker_reliability(app)
+    celery_worker.configure_worker_reliability(app)
     assert app.conf.task_ignore_result is True
     assert app.conf.worker_prefetch_multiplier == 1
     # acks_late stays an explicit per-task opt-in (idempotent tasks only).
@@ -86,14 +86,32 @@ async def test_enqueue_never_subscribes_a_result_consumer() -> None:
     provider = celery_taskqueue.CeleryTaskQueueProvider(
         name="x", driver="celery", options={}, app=_App()
     )
-    assert await provider.enqueue("mod.task", {"a": 1}) == "task-1"
+    assert await provider.send("mod.task", b'{"a":1}', task_id="task-1") == "task-1"
     assert sent == [
         {
             "name": "mod.task",
             "kwargs": {"a": 1},
             "countdown": None,
-            "task_id": None,
+            "task_id": "task-1",
             "ignore_result": True,
             "retry": False,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_enqueue_carries_the_declared_queue_without_a_task_table() -> None:
+    """A producer that never registered the table (an API process) still
+    routes the message to the task's queue."""
+    sent: list[dict[str, Any]] = []
+
+    class _App:
+        def send_task(self, name: str, **options: Any) -> Any:
+            sent.append({"name": name, **options})
+            return type("R", (), {"id": "task-1"})()
+
+    provider = celery_taskqueue.CeleryTaskQueueProvider(
+        name="x", driver="celery", options={}, app=_App()
+    )
+    await provider.send("mod.task", b"{}", task_id="task-1", queue="slow")
+    assert sent[0]["queue"] == "slow"

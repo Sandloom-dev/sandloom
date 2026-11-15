@@ -41,7 +41,12 @@ from sqlalchemy import Table
 
 from sandloom.core.contracts.uow import UnitOfWorkContract
 from sandloom.core.effects import PENDING, DedupeBusy, DedupeRecordSpec
-from sandloom.core.infra.contracts import CommandClaim, CommandLogBusy, CommandLogStore
+from sandloom.core.infra.contracts import (
+    CommandClaim,
+    CommandLogBusy,
+    CommandLogStore,
+    UnitSession,
+)
 from sandloom.core.sql_alchemy.dedupe_log import RelationalDedupeLog
 from sandloom.core.sql_alchemy.models.contract_command import (
     ContractCommandRecord,
@@ -97,7 +102,7 @@ class SQLAlchemyCommandLogStore(CommandLogStore):
 
     async def claim(
         self,
-        session: Any,
+        session: UnitSession,
         *,
         dedupe_key: str,
         contract: str,
@@ -135,7 +140,7 @@ class SQLAlchemyCommandLogStore(CommandLogStore):
 
     async def complete(
         self,
-        session: Any,
+        session: UnitSession,
         *,
         dedupe_key: str,
         status: str,

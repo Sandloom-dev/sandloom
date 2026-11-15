@@ -132,4 +132,4 @@ chain in `<app>/modules/<m>/migrations/`. `sandloom migrate upgrade-all --apply`
 (the `migrate` service in each `deploy/docker-compose.yml`) applies both;
 `sandloom migrate new <module> "<message>"` autogenerates a revision (with row-level
 security for each new `TenantScoped` table). The `worker` / `beat` services
-run the framework entrypoint `celery -A sandloom.core.worker`.
+run the framework commands `sandloom worker` and `sandloom beat`.

@@ -24,11 +24,13 @@ import hashlib
 import logging
 import re
 import sys
+import uuid
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Self, cast
 
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
+from sandloom.core.drivers.smtp_notifier import NotifierOptions
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.core.infra.contracts import Notification, NotifierProvider
 from sandloom.core.observability.metrics_utils import safe_inc
@@ -80,7 +82,13 @@ def _print_links(notification: Notification) -> None:
 class LogNotifierProvider(NotifierProvider):
     """Notifier that records each notification as a structured log line."""
 
-    contract_version = "v1"
+    contract_version = 2
+    supported_features = NOTIFIER_LOG_FEATURES
+    options_schema = NotifierOptions
+
+    @classmethod
+    def from_config(cls, config: InstanceConfig) -> Self:
+        return cast("Self", create_log_notifier(config))
 
     @classmethod
     def features_for(cls, options: Mapping[str, Any]) -> frozenset[str]:
@@ -106,6 +114,15 @@ class LogNotifierProvider(NotifierProvider):
 
     async def health(self) -> HealthResult:
         return HealthResult(status="ok")
+
+    async def isolation_identity(self) -> str | None:
+        """``<driver>:<process id>``: the log stream is this process's."""
+        return f"{self.driver}:{_PROCESS_ID}"
+
+
+#: This process's identity for :meth:`LogNotifierProvider.isolation_identity`
+#: (a random id, since a pid repeats across hosts).
+_PROCESS_ID = uuid.uuid4().hex
 
 
 _default: LogNotifierProvider | None = None

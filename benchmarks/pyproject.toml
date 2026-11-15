@@ -25,6 +25,8 @@ dependencies = [
     "msgspec==0.22.0",
     "psutil==7.2.2",
     "sandloom-standard",
+    "sandloom-redis",
+    "sandloom-celery",
     "sandloom-tenancy",
     "sandloom-billing",
     "sandloom-identity",
@@ -36,6 +38,14 @@ editable = true
 
 [tool.uv.sources.sandloom-standard]
 path = "../packages/sandloom-standard"
+editable = true
+
+[tool.uv.sources.sandloom-redis]
+path = "../packages/sandloom-redis"
+editable = true
+
+[tool.uv.sources.sandloom-celery]
+path = "../packages/sandloom-celery"
 editable = true
 
 [tool.uv.sources.sandloom-tenancy]

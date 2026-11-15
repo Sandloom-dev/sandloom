@@ -21,9 +21,10 @@ from typing import Any
 import orjson
 import pytest
 
+from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.streams_bus import StreamsEventBus
-from sandloom.core.eventing.streams_transport import RedisStreamsTransport
+from sandloom.core.infra.ports.eventbus import ConsumerInfo
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.testing import reload_test_env
 
@@ -124,8 +125,10 @@ async def test_position_falls_back_to_the_inventory_heartbeat(
         await t.publish(STREAM, _env(f"old{i}"))
     assert await _drain(t) == ["old0", "old1", "old2"]
     groups = await t.group_info(STREAM)
-    position = next(g for g in groups if g["group"] == "g")["last_delivered_id"]
-    await t.register_consumer(STREAM, "g", {"last_delivered_id": position})
+    position = next(g for g in groups if g.group == "g").last_delivered_id
+    await t.register_consumer(
+        STREAM, "g", ConsumerInfo(STREAM, "g", "m", "d", last_delivered_id=position)
+    )
 
     t._last_delivered.clear()  # this process lost its in-memory position
     await client.xgroup_destroy(STREAM, "g")

@@ -26,8 +26,9 @@ What (settings, ``sandloom.core.config.settings``):
   (``sandloom_gc_pause_seconds``), collected-object counter and frozen-object gauge.
 
 Where: the gunicorn worker hook (``sandloom.core.cli.gunicorn_conf``) wraps the
-ASGI app with :class:`GcAfterStartup`; the Celery worker freezes in the
-parent before the pool forks (:func:`install_celery_hooks`). ``create_app``
+ASGI app with :class:`GcAfterStartup`; a worker host freezes in the parent
+before it forks the task processes (:func:`freeze_before_fork`, called through
+``WorkerBoot.before_fork``). ``create_app``
 never touches the collector: test processes build many apps and must not pin
 each one's heap.
 """
@@ -248,23 +249,16 @@ def configure_process(config: GcConfig, *, flush_on_loop: bool = False) -> None:
     apply_after_startup(config)
 
 
-def install_celery_hooks(config: GcConfig | None = None) -> None:
-    """Freeze in the Celery PARENT, before the pool forks (``worker_init``):
-    the children inherit the frozen startup heap (and a CoW-friendlier
-    layout). Thresholds are inherited too. No metrics: a Celery worker
-    exports no Prometheus endpoint."""
-    from celery import signals  # noqa: PLC0415 - cold: Celery is imported only by the worker; gunicorn and the app use the rest of this module
-
-    def on_worker_init(**_: Any) -> None:
-        cfg = config or GcConfig.from_settings()
-        try:
-            apply_after_startup(
-                GcConfig(cfg.freeze_after_startup, cfg.thresholds, False)
-            )
-        except Exception:  # pragma: no cover - never block the worker
-            logger.exception("sandloom gc configuration failed")
-
-    signals.worker_init.connect(on_worker_init, weak=False)
+def freeze_before_fork(config: GcConfig | None = None) -> None:
+    """Freeze in the worker host's PARENT, before it forks the processes that
+    run tasks (``WorkerBoot.before_fork``): the children inherit the frozen
+    startup heap (and a CoW-friendlier layout). Thresholds are inherited too.
+    No metrics: a worker exports no Prometheus endpoint. Never raises."""
+    cfg = config or GcConfig.from_settings()
+    try:
+        apply_after_startup(GcConfig(cfg.freeze_after_startup, cfg.thresholds, False))
+    except Exception:  # pragma: no cover - never block the worker
+        logger.exception("sandloom gc configuration failed")
 
 
 __all__ = [
@@ -273,7 +267,7 @@ __all__ = [
     "GcMetrics",
     "apply_after_startup",
     "configure_process",
-    "install_celery_hooks",
+    "freeze_before_fork",
     "install_gc_metrics",
     "thresholds_supported",
 ]

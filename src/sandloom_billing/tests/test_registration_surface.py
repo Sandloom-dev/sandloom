@@ -168,8 +168,10 @@ def test_registration_surface_is_pinned() -> None:
     assert descriptor.capabilities == [
         CapabilityRequirement("database"),
         CapabilityRequirement("eventbus"),
-        # The intent reconciler must run at its interval.
-        CapabilityRequirement("taskqueue", features=frozenset({"periodic"})),
+        # The intent reconciler runs at its cron slots and is redelivered.
+        CapabilityRequirement(
+            "taskqueue", features=frozenset({"periodic", "redelivery"})
+        ),
     ]
     assert descriptor.consumes == [
         ContractRequirement(

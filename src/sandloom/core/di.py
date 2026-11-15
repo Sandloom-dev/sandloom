@@ -52,10 +52,8 @@ from sandloom.core.http.tenant_scope import TenantScope
 from sandloom.core.idempotency import durable as _idempotency_durable
 from sandloom.core.infra.access import (
     cache,
-    capability,
     notifier,
     objectstore,
-    taskqueue,
 )
 from sandloom.core.infra.capabilities import CapabilityRef
 from sandloom.core.infra.contracts import (
@@ -64,6 +62,17 @@ from sandloom.core.infra.contracts import (
     Notifier,
     ObjectStore,
     TaskQueue,
+)
+from sandloom.core.infra.errors import (
+    AlreadyExists,
+    InfraError,
+    InvalidArgument,
+    NotFound,
+    PermissionDenied,
+    Timeout,
+    TooLarge,
+    Unavailable,
+    Unsupported,
 )
 from sandloom.core.module_api import bind_contract_session, contract_session
 from sandloom.core.module_api._service_registry import (
@@ -79,6 +88,9 @@ from sandloom.core.tasks.enqueue import (
     TaskEnqueueUnavailable,
     TaskEnqueueUncertain,
 )
+from sandloom.core.tasks.queue import capability, taskqueue
+from sandloom.core.tasks.registry import DeclaredPeriodic, DeclaredTask
+from sandloom.core.tasks.registry import declare as _declare_task
 from sandloom.core.tenant import (
     MissingTenantError,
     TenantMismatchError,
@@ -105,6 +117,25 @@ from sandloom.core.unit_of_work.hooks import before_commit, on_commit
 from sandloom.core.unit_of_work.versioning import publish_event_versions
 
 _T = TypeVar("_T")
+
+
+def declare_task(
+    function: Callable[..., Any],
+    *,
+    queue: str,
+    at_least_once: bool,
+    cron: str | None = None,
+    periodic_id: str | None = None,
+) -> tuple[DeclaredTask, DeclaredPeriodic | None]:
+    """Register a ``@task`` / ``@periodic`` declaration (the bridge
+    ``sandloom.sdk.tasks`` calls; not a public name, so not in ``__all__``)."""
+    return _declare_task(
+        function,
+        queue=queue,
+        at_least_once=at_least_once,
+        cron=cron,
+        periodic_id=periodic_id,
+    )
 
 
 def _get_facade(request: Request) -> CoreFacade:
@@ -783,6 +814,15 @@ UowReads = Annotated[Any, Depends(get_uow_reads, scope=_UOW_DEPENDENCY_SCOPE)]
 settings = _settings
 
 __all__ = [
+    "AlreadyExists",
+    "InfraError",
+    "InvalidArgument",
+    "NotFound",
+    "PermissionDenied",
+    "Timeout",
+    "TooLarge",
+    "Unavailable",
+    "Unsupported",
     "Cache",
     "CapabilityRef",
     "Notifier",

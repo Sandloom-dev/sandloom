@@ -11,7 +11,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -32,9 +35,8 @@ _STRICT = {
     "PRODUCTION_PROFILE": "multi_tenant_strict",
     "INFRA": {
         "database": {"default": {"tenant_rls": True}},
-        "cache": {"security": {"driver": "redis", "url": "redis://sec:6379/0"}},
+        "atomic_store": {"security": {"driver": "redis", "url": "redis://sec:6379/0"}},
     },
-    "SECURITY_CACHE_INSTANCE": "security",
 }
 _PROFILE_ENV: dict[str, dict[str, Any]] = {
     "dev": {"ENVIRONMENT": "dev"},
@@ -55,7 +57,6 @@ SEMANTIC_BASELINE = frozenset(
         "PRODUCTION_PROFILE",
         "TENANCY_MODE",
         "database.tenant_rls",
-        "SECURITY_CACHE_INSTANCE",
         "AUTH_REVOCATION_FAIL_CLOSED",
         "RPC_COMMANDS_REQUIRE_SIGNATURE",
         "RPC_REPLAY_GUARD",
@@ -65,7 +66,7 @@ SEMANTIC_BASELINE = frozenset(
         "SMTP_USE_TLS",
     }
 )
-SEMANTIC_BASELINE_COUNT = 12
+SEMANTIC_BASELINE_COUNT = 11
 #: Total semantic settings (baseline + ADR-argued). Only goes down.
 SEMANTIC_COUNT_CEILING = 14
 
@@ -382,3 +383,43 @@ def test_generated_reference_lists_every_tier() -> None:
         "| `AUTH_REVOCATION_FAIL_CLOSED` | `false` | `false` | `true` | `true` (refused) |"
         in page
     )
+
+
+# ------------------------------------------------- documented INFRA examples
+def _documented_infra(text: str) -> list[dict[str, Any]]:
+    """Every ``INFRA={...}`` JSON object a prose or message states."""
+    decoder = json.JSONDecoder()
+    return [
+        decoder.raw_decode(text, match.end())[0]
+        for match in re.finditer(r"INFRA=(?=\{)", text)
+    ]
+
+
+def _lease_upgrade_texts() -> list[str]:
+    changelog = Path(__file__).resolve().parents[4] / "CHANGELOG.md"
+    texts = [removed.hint for removed in tiers.REMOVED]
+    if changelog.exists():
+        texts += [
+            line
+            for line in changelog.read_text().splitlines()
+            if "BEAT_LEASE_CACHE_INSTANCE" in line
+        ]
+    return [t for t in texts if "lease" in t and "INFRA=" in t]
+
+
+def test_the_documented_lease_upgrade_examples_parse_into_instance_options() -> None:
+    from sandloom.core.infra.config import load_infra_config
+
+    texts = _lease_upgrade_texts()
+    assert len(texts) >= 2, "the setting's message and the changelog state an example"
+    examples = [e for text in texts for e in _documented_infra(text)]
+    assert len(examples) >= 2
+    for example in examples:
+        beat = example["lease"]["beat"]
+        assert "options" not in beat, "INFRA takes the options flat, next to driver"
+        instance = load_infra_config(_settings(INFRA=example))["lease"]["beat"]
+        assert instance.driver == beat["driver"]
+        assert (
+            instance.options.items()
+            >= {k: v for k, v in beat.items() if k != "driver"}.items()
+        )

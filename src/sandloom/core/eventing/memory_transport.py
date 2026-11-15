@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Sequence
+from dataclasses import replace
+from types import MappingProxyType
+from typing import ClassVar
 
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.transport_base import (
@@ -15,20 +17,28 @@ from sandloom.core.eventing.transport_base import (
     _METRIC_TARGETED_SKIPPED,
     DLQ_REASON_MAX_DELIVERIES,
     INVENTORY_STALE_SECONDS,
-    Delivery,
-    GroupOwnershipError,
-    MessageTransport,
+    TransportDefaults,
     _owner_conflict_message,
     _owners_match,
     retry_delay_ms,
 )
-from sandloom.core.eventing.transport_capabilities import TransportCapability as Cap
+from sandloom.core.infra.errors import InfraError
+from sandloom.core.infra.ports.eventbus import (
+    ConsumerInfo,
+    DeadLetter,
+    Delivery,
+    GroupInfo,
+    GroupOwnedElsewhere,
+    GroupOwner,
+    Retention,
+    StreamInfo,
+)
 from sandloom.core.observability.metrics_utils import safe_inc
 
 logger = logging.getLogger("sandloom.core.eventing.transport")
 
 
-class MemoryTransport(MessageTransport):
+class MemoryTransport(TransportDefaults):
     """In-process transport with consumer-group + ack semantics.
 
     Faithful enough for tests and single-process dev: an appended message stays
@@ -40,20 +50,19 @@ class MemoryTransport(MessageTransport):
     subscription inventory so those contracts are testable without Redis.
     """
 
-    capabilities = frozenset(
+    #: The ``eventbus`` features of this transport (spec 7). ``durable`` is
+    #: its durability class: the process (see the class docstring).
+    supported_features: ClassVar[frozenset[str]] = frozenset(
         {
-            Cap.BLOCKING_CONSUME,
-            Cap.GROUP_START_ID,
-            Cap.BATCH_PUBLISH,
-            Cap.BATCH_ACK,
-            Cap.GROUP_OWNERSHIP,
-            Cap.NEVER_DEAD_LETTER,
-            Cap.GROUP_INFO,
-            Cap.OLDEST_UNACKED_AGE,
-            Cap.REGISTER_CONSUMER,
-            Cap.LIST_CONSUMERS,
+            "durable",
+            "blocking_consume",
+            "group_start_id",
+            "dlq_ops",
+            "inspection",
+            "inventory",
         }
     )
+    performance_hints: ClassVar[MappingProxyType[str, str]] = MappingProxyType({})
 
     def __init__(
         self,
@@ -79,9 +88,9 @@ class MemoryTransport(MessageTransport):
         # stream -> event set on publish (wakes a blocked consume)
         self._arrivals: dict[str, asyncio.Event] = {}
         # (stream, group) -> owner fingerprint
-        self._owners: dict[tuple[str, str], dict[str, Any]] = {}
+        self._owners: dict[tuple[str, str], GroupOwner] = {}
         # (stream, group) -> inventory entry
-        self._inventory: dict[tuple[str, str], dict[str, Any]] = {}
+        self._inventory: dict[tuple[str, str], ConsumerInfo] = {}
         self._seq = 0
         self._max_deliveries = max_deliveries
         self._retry_base_ms = retry_base_ms
@@ -127,6 +136,19 @@ class MemoryTransport(MessageTransport):
             arrival.set()
         return msg_id
 
+    def _park(
+        self,
+        stream: str,
+        msg_id: str,
+        envelope: EventEnvelope,
+        attempts: int,
+        group: str,
+    ) -> None:
+        """Append to the stream's dead-letter queue: the one place that does,
+        and the seam for a test that makes the append fail (it raises
+        :class:`InfraError`; the source is acked only after this returns)."""
+        self._dlq.setdefault(stream, []).append((msg_id, envelope, attempts, group))
+
     def _collect(self, stream: str, group: str, count: int) -> list[Delivery]:
         key = (stream, group)
         pending = self._pending[key]
@@ -145,7 +167,22 @@ class MemoryTransport(MessageTransport):
             if attempts >= self._max_deliveries and self.dead_letters_by_count(
                 stream, group
             ):
-                self._dlq.setdefault(stream, []).append((msg_id, env, attempts, group))
+                try:
+                    self._park(stream, msg_id, env, attempts, group)
+                except InfraError:
+                    # Ack the source only after the DLQ append succeeded: it
+                    # stays pending and the append is tried again on a later
+                    # consume (G-EVENT-10), as the Streams driver does.
+                    safe_inc("streams_dlq_append_failures_total", {"stream": stream})
+                    logger.error(
+                        "Failed to dead-letter memory message; leaving it pending "
+                        "stream=%s group=%s id=%s",
+                        stream,
+                        group,
+                        msg_id,
+                        exc_info=True,
+                    )
+                    continue
                 pending.pop(msg_id, None)
                 self._delivery_count.pop(dkey, None)
                 self._delivered_at.pop(dkey, None)
@@ -222,8 +259,8 @@ class MemoryTransport(MessageTransport):
     async def dead_letter(self, delivery: Delivery, *, reason: str) -> None:
         dkey = (delivery.stream, delivery.group, delivery.id)
         attempts = self._delivery_count.get(dkey, 0)
-        self._dlq.setdefault(delivery.stream, []).append(
-            (delivery.id, delivery.envelope, attempts, delivery.group)
+        self._park(
+            delivery.stream, delivery.id, delivery.envelope, attempts, delivery.group
         )
         await self.ack(delivery)
         safe_inc("streams_messages_dlq_total", {"stream": delivery.stream})
@@ -243,84 +280,111 @@ class MemoryTransport(MessageTransport):
         """Dead-lettered message count for a stream (diagnostics/tests)."""
         return len(self._dlq.get(stream, []))
 
-    async def group_info(self, stream: str) -> list[dict[str, Any]]:
+    def retention(self) -> Retention:
+        """Unbounded: the log is kept for the life of the process."""
+        return Retention(max_age_seconds=None, max_length=None)
+
+    async def group_info(self, stream: str) -> list[GroupInfo]:
         log = self._log.get(stream, [])
         return [
-            {
-                "group": group,
-                "consumers": None,
-                "pending": len(self._pending.get((s, group), {})),
-                "last_delivered_id": log[cursor - 1][0] if cursor else "0-0",
-                "lag": len(log) - cursor,
-            }
+            GroupInfo(
+                group=group,
+                consumers=None,
+                pending=len(self._pending.get((s, group), {})),
+                last_delivered_id=log[cursor - 1][0] if cursor else "0-0",
+                lag=len(log) - cursor,
+            )
             for (s, group), cursor in sorted(self._cursor.items())
             if s == stream
         ]
 
+    async def stream_info(self, stream: str) -> StreamInfo:
+        log = self._log.get(stream, [])
+        if not log:
+            return StreamInfo(length=0, last_id=None, last_entry_age_seconds=None)
+        last_id = log[-1][0]
+        appended_ms = self._meta.get(last_id, (0, None))[0]
+        age = max(0.0, time.time() - appended_ms / 1000) if appended_ms else None
+        return StreamInfo(length=len(log), last_id=last_id, last_entry_age_seconds=age)
+
+    async def oldest_unacked_age_seconds(self, stream: str, group: str) -> float | None:
+        key = (stream, group)
+        if key not in self._cursor:
+            return None
+        log = self._log.get(stream, [])
+        pending = self._pending.get(key, {})
+        candidates = list(pending)
+        if self._cursor[key] < len(log):
+            candidates.append(log[self._cursor[key]][0])
+        times = [self._meta[m][0] for m in candidates if m in self._meta]
+        if not times:
+            return 0.0
+        return max(0.0, time.time() - min(times) / 1000)
+
     async def claim_group_owner(
-        self, stream: str, group: str, owner: Mapping[str, Any]
+        self, stream: str, group: str, owner: GroupOwner
     ) -> None:
-        existing = self._owners.setdefault((stream, group), dict(owner))
+        existing = self._owners.setdefault((stream, group), owner)
         if not _owners_match(existing, owner):
-            raise GroupOwnershipError(
-                _owner_conflict_message(stream, group, existing, owner)
+            raise GroupOwnedElsewhere(
+                _owner_conflict_message(stream, group, existing, owner),
+                capability="eventbus",
             )
+
+    async def group_owner(self, stream: str, group: str) -> GroupOwner | None:
+        return self._owners.get((stream, group))
 
     async def release_group_owner(self, stream: str, group: str) -> bool:
         return self._owners.pop((stream, group), None) is not None
 
-    async def list_group_owners(self) -> list[dict[str, Any]]:
+    async def list_group_owners(self) -> list[tuple[str, str, GroupOwner]]:
         return [
-            {"stream": stream, "group": group, "owner": dict(owner)}
+            (stream, group, owner)
             for (stream, group), owner in sorted(self._owners.items())
         ]
 
     async def transfer_group_owner(
-        self,
-        stream: str,
-        group: str,
-        *,
-        expected: Mapping[str, Any],
-        owner: Mapping[str, Any],
+        self, stream: str, group: str, *, expected: GroupOwner, owner: GroupOwner
     ) -> bool:
-        if self._owners.get((stream, group)) != dict(expected):
+        if self._owners.get((stream, group)) != expected:
             return False
-        self._owners[(stream, group)] = dict(owner)
+        self._owners[(stream, group)] = owner
         return True
 
     async def register_consumer(
-        self, stream: str, group: str, info: Mapping[str, Any]
+        self, stream: str, group: str, info: ConsumerInfo
     ) -> None:
-        self._inventory[(stream, group)] = {
-            **dict(info),
-            "stream": stream,
-            "group": group,
-            "last_seen": time.time(),
-        }
+        self._inventory[(stream, group)] = replace(
+            info, stream=stream, group=group, last_seen=time.time(), stale=False
+        )
 
     async def list_consumers(
         self, *, include_stale: bool = False
-    ) -> list[dict[str, Any]]:
+    ) -> list[ConsumerInfo]:
         cutoff = time.time() - INVENTORY_STALE_SECONDS
-        return [
-            dict(entry)
-            for entry in self._inventory.values()
-            if include_stale or float(entry.get("last_seen", 0)) >= cutoff
-        ]
+        listed: list[ConsumerInfo] = []
+        for entry in self._inventory.values():
+            stale = (entry.last_seen or 0.0) < cutoff
+            if include_stale or not stale:
+                listed.append(replace(entry, stale=stale))
+        return listed
+
+    async def forget_consumer(self, stream: str, group: str) -> bool:
+        return self._inventory.pop((stream, group), None) is not None
 
     async def list_dlq(
         self, stream: str, *, count: int = 100, after: str | None = None
-    ) -> list[dict[str, Any]]:
+    ) -> list[DeadLetter]:
         return [
-            {
-                "id": msg_id,
-                "original_id": msg_id,
-                "group": group,
-                "event_id": env.get("id"),
-                "attempts": attempts,
-                "reason": DLQ_REASON_MAX_DELIVERIES,
-                "replayable": True,
-            }
+            DeadLetter(
+                id=msg_id,
+                original_id=msg_id,
+                group=group,
+                event_id=env.get("id"),
+                attempts=attempts,
+                reason=DLQ_REASON_MAX_DELIVERIES,
+                replayable=True,
+            )
             for msg_id, env, attempts, group in [
                 row
                 for row in self._dlq.get(stream, [])
@@ -334,7 +398,7 @@ class MemoryTransport(MessageTransport):
         self,
         stream: str,
         *,
-        ids: list[str] | None = None,
+        ids: Sequence[str] | None = None,
         count: int = 100,
         group: str | None = None,
     ) -> int:

@@ -1,22 +1,18 @@
 """Identity module background tasks.
 
-Registered on the FRAMEWORK worker (``celery -A sandloom.core.worker worker``): the
-worker imports ``<module>.tasks`` for every loaded module, and ``@shared_task``
-binds these functions to whatever app the worker resolved from the taskqueue
-capability — this module never builds (or imports) a Celery app itself.
-Async work runs through ``run_async`` (one persistent loop per worker
-process), never ``asyncio.run`` — the engine pools are loop-bound.
-``setup_periodic_tasks`` is the beat hook the worker connects to
-``on_after_finalize``.
+Declared with ``@task`` / ``@periodic`` of ``sandloom.sdk.tasks``: the
+framework worker (``sandloom worker``) imports ``<module>.tasks`` for every
+loaded module and runs what it declares; the scheduler (``sandloom beat``)
+sends the ``@periodic`` ones at their cron slots (UTC). This module never builds
+a broker app itself. The bodies are ``async def``: the worker runs them on its
+one persistent loop, and the engine pools are loop-bound.
 """
 
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
 from typing import Any
 
 from sandloom.sdk.data import open_uow
-from sandloom.sdk.effects import run_async
-from sandloom.sdk.tasks import shared_task
+from sandloom.sdk.tasks import periodic, task
 from sandloom_identity.services.token_service import TokenService
 
 #: Rows per DELETE: each batch is its own short Unit of Work, so a large
@@ -34,88 +30,50 @@ async def _purge_in_batches(purge: Callable[[Any], Awaitable[int]]) -> int:
             return total
 
 
-@shared_task(name="sandloom_identity.tasks.cleanup_expired_refresh_tokens")
-def cleanup_expired_refresh_tokens() -> dict[str, Any]:
-    """Clean up expired refresh tokens."""
-
-    async def _run_cleanup() -> int:
-        return await _purge_in_batches(
-            lambda sess: TokenService.cleanup_expired_tokens(
-                sess, limit=CLEANUP_BATCH_SIZE
-            )
-        )
-
-    deleted_count = run_async(_run_cleanup())
-
-    return {
-        "task": "cleanup_expired_refresh_tokens",
-        "deleted_count": deleted_count,
-        "timestamp": datetime.now(UTC).isoformat(),
-    }
+#: Revoked refresh tokens are purged after this many days.
+REVOKED_RETENTION_DAYS = 30
 
 
-@shared_task(name="sandloom_identity.tasks.cleanup_revoked_refresh_tokens")
-def cleanup_revoked_refresh_tokens(days_old: int = 30) -> dict[str, Any]:
-    """Clean up old revoked refresh tokens."""
-
-    async def _run_cleanup() -> int:
-        return await _purge_in_batches(
-            lambda sess: TokenService.cleanup_revoked_tokens_by_age(
-                sess, days_old, limit=CLEANUP_BATCH_SIZE
-            )
-        )
-
-    deleted_count = run_async(_run_cleanup())
-
-    return {
-        "task": "cleanup_revoked_refresh_tokens",
-        "days_old": days_old,
-        "deleted_count": deleted_count,
-        "timestamp": datetime.now(UTC).isoformat(),
-    }
-
-
-@shared_task(name="sandloom_identity.tasks.send_email_verification_reminder")
-def send_email_verification_reminder() -> dict[str, Any]:
-    """Send reminder to users who haven't verified their email."""
-    # This is a placeholder for email reminder functionality
-    # Implementation would depend on the specific email service used
-
-    return {
-        "task": "send_email_verification_reminder",
-        "status": "placeholder",
-        "timestamp": datetime.now(UTC).isoformat(),
-    }
-
-
-@shared_task(name="sandloom_identity.tasks.audit_user_activity")
-def audit_user_activity() -> dict[str, Any]:
-    """Audit user activity for security monitoring."""
-    # This is a placeholder for security auditing functionality
-    # Implementation would involve analyzing login patterns, suspicious activities, etc.
-
-    return {
-        "task": "audit_user_activity",
-        "status": "placeholder",
-        "timestamp": datetime.now(UTC).isoformat(),
-    }
-
-
-def setup_periodic_tasks(sender: Any, **kwargs: Any) -> None:
-    """Register identity's periodic tasks on the worker app (beat hook)."""
-    # Clean up expired refresh tokens every hour
-    sender.add_periodic_task(
-        3600.0,  # Every hour
-        cleanup_expired_refresh_tokens.s(),
-        name="cleanup_expired_refresh_tokens_hourly",
+async def purge_expired_refresh_tokens() -> int:
+    """Delete expired refresh tokens in batches; returns how many."""
+    return await _purge_in_batches(
+        lambda sess: TokenService.cleanup_expired_tokens(sess, limit=CLEANUP_BATCH_SIZE)
     )
 
-    # Clean up old revoked tokens daily
-    sender.add_periodic_task(
-        86400.0,  # 24 hours
-        cleanup_revoked_refresh_tokens.s(),
-        name="cleanup_revoked_refresh_tokens_daily",
+
+async def purge_revoked_refresh_tokens(days_old: int = REVOKED_RETENTION_DAYS) -> int:
+    """Delete refresh tokens revoked more than ``days_old`` days ago, in
+    batches; returns how many."""
+    return await _purge_in_batches(
+        lambda sess: TokenService.cleanup_revoked_tokens_by_age(
+            sess, days_old, limit=CLEANUP_BATCH_SIZE
+        )
     )
 
-    # Placeholder task names remain importable for compatibility, but beat must
-    # not schedule jobs that perform no verification or security work.
+
+@periodic(cron="0 * * * *", id="identity.cleanup-expired-refresh-tokens")
+async def cleanup_expired_refresh_tokens() -> None:
+    """Hourly: clean up expired refresh tokens."""
+    await purge_expired_refresh_tokens()
+
+
+@periodic(cron="0 3 * * *", id="identity.cleanup-revoked-refresh-tokens")
+async def cleanup_revoked_refresh_tokens() -> None:
+    """Daily at 03:00 UTC: clean up old revoked refresh tokens."""
+    await purge_revoked_refresh_tokens()
+
+
+# The two tasks below are placeholders: they stay importable, and beat does not
+# schedule jobs that perform no verification or security work.
+@task
+async def send_email_verification_reminder() -> None:
+    """Send reminder to users who haven't verified their email (placeholder).
+
+    The implementation would depend on the specific email service used."""
+
+
+@task
+async def audit_user_activity() -> None:
+    """Audit user activity for security monitoring (placeholder).
+
+    The implementation would analyse login patterns and suspicious activity."""

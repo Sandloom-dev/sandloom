@@ -2,7 +2,7 @@
   "annotations": {
     "list": []
   },
-  "description": "Token revocation / block checks, the security cache, rate limiting and idempotency. Most panels should be flat zero.",
+  "description": "Token revocation / block checks, the security store, rate limiting and idempotency. Most panels should be flat zero.",
   "editable": true,
   "graphTooltip": 1,
   "links": [
@@ -587,7 +587,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "The metric's own `instance` label (cache instance name) is scraped as `exported_instance`.",
+      "description": "The security and idempotency stores (`INFRA.atomic_store`): the metric's `instance` label is scraped as `exported_instance`.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -605,6 +605,57 @@
         "y": 22
       },
       "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (exported_instance, operation) (rate(sandloom_atomic_store_operation_errors_total{job=~\"$job\"}[$__rate_interval]))",
+          "legendFormat": "{{exported_instance}} {{operation}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Atomic store operation errors / s",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "The metric's own `instance` label (cache instance name) is scraped as `exported_instance`.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 1
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "id": 12,
       "options": {
         "legend": {
           "calcs": [
@@ -652,10 +703,10 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 22
+        "x": 0,
+        "y": 30
       },
-      "id": 12,
+      "id": 13,
       "options": {
         "legend": {
           "calcs": [
@@ -703,10 +754,10 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
+        "x": 12,
         "y": 30
       },
-      "id": 13,
+      "id": 14,
       "options": {
         "legend": {
           "calcs": [
@@ -754,10 +805,10 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 30
+        "x": 0,
+        "y": 38
       },
-      "id": 14,
+      "id": 15,
       "options": {
         "legend": {
           "calcs": [
@@ -824,9 +875,9 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 38
+        "y": 46
       },
-      "id": 15,
+      "id": 16,
       "options": {
         "legend": {
           "calcs": [

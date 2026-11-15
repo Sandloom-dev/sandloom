@@ -17,8 +17,8 @@ This is the local/pre-push equivalent of ``.github/workflows/packages.yml``:
    composes the installed ``sandloom.modules`` entry points;
 5. each module wheel on plain ``sandloom`` (no Celery, no Redis client): the
    app boots with the module loaded, ``/health`` and ``/ready`` answer 200
-   over stubbed infrastructure probes, and enqueueing one of its tasks
-   refuses with ``TaskQueueNotInstalled`` (KB-01).
+   over stubbed infrastructure probes, and its ``tasks.py`` declares its
+   tasks without importing Celery (KB-01).
 
 ``--skip-install`` runs steps 1-2 only (no network).
 """
@@ -35,6 +35,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from email.parser import BytesParser
@@ -44,24 +45,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import distribution_imports
 import inspection_smoke
+import release_packages
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = BACKEND_ROOT / "packages"
-PACKAGES = (
-    "sandloom",
-    "sandloom-standard",
-    "sandloom-identity",
-    "sandloom-tenancy",
-    "sandloom-billing",
-    "sandloom-admin",
-    "sandloom-s3",
-)
+#: The distributions, from the one list (``packages.json``): what each kind
+#: of package is checked for comes from its entry there, never from its name.
+PACKAGES = release_packages.NAMES
+KERNEL = release_packages.kernel().name
 #: Module packages and their ``sandloom.modules`` entry-point names.
 MODULES = {
-    "sandloom-identity": ("identity", "sandloom_identity"),
-    "sandloom-tenancy": ("tenancy", "sandloom_tenancy"),
-    "sandloom-billing": ("billing", "sandloom_billing"),
-    "sandloom-admin": ("admin", "sandloom_admin"),
+    p.name: (p.module, p.import_name) for p in release_packages.of_kind("module")
 }
 #: Third-party distributions a module wheel may import through ``sandloom``
 #: without declaring them: the stack the kernel promises modules (routes,
@@ -186,7 +180,7 @@ def _check_contents(package: str, wheel: Path) -> None:
     leaked = [n for n in names if "/tests/" in n or n.endswith((".pyc", ".bak"))]
     if leaked:
         raise RuntimeError(f"{wheel.name}: ships repository-only files {leaked[:5]}")
-    if package == "sandloom":
+    if package == KERNEL:
         # ADR-0013: the kernel ships no generated stub, DTO copy or event schema
         # of a module (each module wheel carries its own `_generated` copies and
         # `module.snapshot.json`), so a module change never touches this wheel.
@@ -219,11 +213,12 @@ def _check_contents(package: str, wheel: Path) -> None:
         # The kernel and the standard composition root compose modules; they
         # register none.
         raise RuntimeError(f"{wheel.name}: registers a module, expected none")
-    if package == "sandloom-s3" and entry_points.get("sandloom.drivers") != {
-        "objectstore.s3": "sandloom_s3:S3ObjectStore"
+    drivers = release_packages.by_name(package).drivers
+    if drivers is not None and entry_points.get("sandloom.drivers") != {
+        name: driver["target"] for name, driver in drivers.items()
     }:
         raise RuntimeError(
-            f"{wheel.name}: expected the objectstore.s3 driver entry point"
+            f"{wheel.name}: expected the {', '.join(drivers)} driver entry point"
         )
 
 
@@ -284,13 +279,8 @@ def build(out: Path) -> dict[str, Path]:
 def check_layering(wheels: dict[str, Path]) -> None:
     problems = distribution_imports.check(
         [distribution_imports.read_wheel(w) for w in wheels.values()],
-        first_party=[
-            "sandloom",
-            "sandloom_standard",
-            "sandloom_s3",
-            *(path for _n, path in MODULES.values()),
-        ],
-        provides={"sandloom": KERNEL_PROVIDES},
+        first_party=[p.import_name for p in release_packages.PACKAGES],
+        provides={KERNEL: KERNEL_PROVIDES},
     )
     if problems:
         raise RuntimeError(
@@ -328,7 +318,8 @@ def _check_battery_handoff(sandloom: Path, env: dict[str, str], work: Path) -> N
             capture_output=True,
         )
 
-    every = ("identity", "tenancy", "billing", "identity,tenancy,billing")
+    batteries = [p.module for p in release_packages.standard_set() if p.module]
+    every = (*batteries, ",".join(batteries))
     with ThreadPoolExecutor(max_workers=len(every)) as pool:
         created_apps = list(pool.map(new_with, every))
     for batteries, created in zip(every, created_apps, strict=True):
@@ -363,8 +354,13 @@ def check_lean_install(temp: Path, wheel: Path) -> None:
         "redis",
         "celery",
         "sentry-sdk",
-        "sandloom-identity",
-        "sandloom-standard",
+        # The `otel` extra: imported only when TRACING_URL is set.
+        "opentelemetry-api",
+        "opentelemetry-sdk",
+        "opentelemetry-exporter-otlp-proto-http",
+        "opentelemetry-exporter-otlp-proto-grpc",
+        # Every other distribution of the list: extras and batteries only.
+        *(p.name for p in release_packages.PACKAGES if p.kind != "kernel"),
     }
     if leaked:
         raise RuntimeError(
@@ -444,10 +440,13 @@ def _check_kernel_factory(venv: Path, env: dict[str, str], work: Path) -> None:
     _run(
         str(_python(venv)),
         "-c",
-        "import sandloom, sandloom.sdk, sandloom.core.drivers.bootstrap; "
-        "import sandloom.core.drivers.redis_cache; "
-        "import sandloom.core.drivers.celery_taskqueue; "
-        "import sandloom.core.drivers.event_bus_driver; "
+        # Every driver module the kernel wheel ships imports without its
+        # client library; one that moved to a driver package is not in the
+        # wheel, so it is not imported here.
+        "import importlib, pkgutil; "
+        "import sandloom, sandloom.sdk, sandloom.core.drivers as drivers; "
+        "[importlib.import_module(f'{drivers.__name__}.{m.name}') "
+        "for m in pkgutil.iter_modules(drivers.__path__)]; "
         "from sandloom.core.app_factory import create_app; "
         "assert type(create_app()).__name__ == 'FastAPI'; "
         "import sandloom.main as m; assert m.core.loaded_modules == []; "
@@ -455,6 +454,38 @@ def _check_kernel_factory(venv: Path, env: dict[str, str], work: Path) -> None:
         cwd=work,
         env={**env, "SANDLOOM_MODULES": "[]"},
     )
+
+
+def _standard_third_party() -> list[str]:
+    """Third-party distributions the kernel's ``standard`` extra pulls in.
+
+    Read from the kernel's ``pyproject.toml`` (nested ``sandloom[...]`` extras
+    followed; the workspace's own distributions skipped), so the check names no
+    client library: what the extra requires is what must import."""
+    extras = tomllib.loads((PACKAGE_ROOT / KERNEL / "pyproject.toml").read_text())[
+        "project"
+    ]["optional-dependencies"]
+    found: set[str] = set()
+    seen: set[str] = set()
+    pending = ["standard"]
+    while pending:
+        extra = pending.pop()
+        if extra in seen:
+            continue
+        seen.add(extra)
+        for requirement in extras[extra]:
+            name = re.match(r"[A-Za-z0-9][A-Za-z0-9._-]*", requirement)
+            if name is None:
+                raise RuntimeError(f"unreadable requirement: {requirement!r}")
+            canonical = re.sub(r"[-_.]+", "-", name.group()).lower()
+            if canonical == KERNEL:
+                inner = re.search(r"\[([^\]]*)\]", requirement)
+                pending += (
+                    [e.strip() for e in inner.group(1).split(",")] if inner else []
+                )
+            elif canonical not in release_packages.NAMES:
+                found.add(canonical)
+    return sorted(found)
 
 
 def check_standard_install(temp: Path, wheels: dict[str, Path]) -> None:
@@ -465,27 +496,50 @@ def check_standard_install(temp: Path, wheels: dict[str, Path]) -> None:
     composition resolution returns that root's core."""
     venv = temp / "standard"
     _run("uv", "venv", str(venv))
-    kernel = wheels["sandloom"]
+    kernel = wheels[KERNEL]
+    members = release_packages.standard_set()
+    root = release_packages.of_kind("root")[0]
+    loaded = sorted(p.import_name for p in members if p.kind == "module")
+    third_party = _standard_third_party()
+    driver_modules = sorted(
+        {
+            spec["target"].split(":")[0]
+            for p in members
+            for spec in (p.drivers or {}).values()
+        }
+    )
     _run(
         "uv", "pip", "install", "--compile-bytecode", "--python", str(_python(venv)),
         f"sandloom[standard] @ {kernel.resolve().as_uri()}",
-        *(str(w) for p, w in wheels.items() if p not in ("sandloom", "sandloom-admin", "sandloom-s3")),
+        *(str(wheels[p.name]) for p in members),
     )  # fmt: skip
     _run(
         str(_python(venv)),
         "-c",
-        "import redis, celery; import sandloom_standard.main as m; "
+        # What the standard set provides must import: the third-party
+        # distributions of the kernel's `standard` extra (by their top-level
+        # packages) and the modules of standard-set driver packages.
+        "import importlib, importlib.metadata as md; "
+        "owners = md.packages_distributions(); "
+        f"[importlib.import_module(m) for m in {driver_modules!r}]; "
+        f"[importlib.import_module(top) for dist in {third_party!r} "
+        "for top, owned in owners.items() "
+        "if dist in {o.replace('_', '-').replace('.', '-').lower() for o in owned}]; "
+        f"missing = [d for d in {third_party!r} if not any(d in "
+        "{o.replace('_', '-').replace('.', '-').lower() for o in owned} "
+        "for owned in owners.values())]; "
+        "assert not missing, missing; "
+        f"import {root.import_name}.main as m; "
         "from sandloom.core.composition import load_composition_core; "
         "assert type(m.app).__name__ == 'FastAPI'; "
-        "assert m.core.loaded_modules == "
-        "['sandloom_billing', 'sandloom_identity', 'sandloom_tenancy'], "
+        f"assert m.core.loaded_modules == {loaded!r}, "
         "m.core.loaded_modules; "
         "assert load_composition_core() is m.core; "
         "print('standard set OK:', m.core.loaded_modules)",
         cwd=temp,
         env={
             **_smoke_environment(),
-            "SANDLOOM_COMPOSITION_ROOT": "sandloom_standard.main",
+            "SANDLOOM_COMPOSITION_ROOT": f"{root.import_name}.main",
         },
     )
 
@@ -497,7 +551,7 @@ def check_standard_install(temp: Path, wheels: dict[str, Path]) -> None:
 PLAIN_MODULE_SMOKE = """
 import asyncio, importlib, importlib.util, sys
 import httpx
-from sandloom.sdk._prim.tasks import TaskQueueNotInstalled, _UnqueuedTask
+from sandloom.core.tasks.registry import declared_task
 module = sys.argv[1]
 try:
     import sandloom.main as m
@@ -526,49 +580,46 @@ responses = asyncio.run(probe())
 has_tasks = importlib.util.find_spec(module + ".tasks") is not None
 # A module that boots here has no unmet required taskqueue (B037 refuses one,
 # KB-IC-1), so readiness never probes the queue (KB-IC-3): "unused". Its
-# tasks still cannot be enqueued without Celery (checked below).
+# tasks are declared without Celery (checked below).
 expected = {"/health": 200, "/ready": 200}
 codes = {p: r.status_code for p, r in responses.items()}
 assert codes == expected, (codes, responses["/ready"].json())
 taskqueue = responses["/ready"].json()["taskqueue_status"]
 assert taskqueue == "unused", taskqueue
-refused = []
+declared = []
 if has_tasks:
     tasks = importlib.import_module(module + ".tasks")
     for task in vars(tasks).values():
-        if isinstance(task, _UnqueuedTask):
-            try:
-                task.delay()
-            except TaskQueueNotInstalled:
-                refused.append(task.name)
-            else:
-                raise AssertionError(f"{task.name}.delay() did not refuse")
-    assert refused, f"{module}.tasks registers no task"
+        name = getattr(task, "name", None)
+        if isinstance(name, str) and declared_task(name) is not None:
+            declared.append(name)
+    assert declared, f"{module}.tasks declares no task"
+assert "celery" not in sys.modules, "celery imported by a module's tasks"
 print(f"plain sandloom + {module} OK: {codes}, taskqueue {taskqueue}; "
-      f"enqueue refused: {len(refused)}")
+      f"tasks declared: {len(declared)}")
 """
 
 
 def check_plain_module_install(
     temp: Path, wheels: dict[str, Path], package: str
 ) -> None:
-    """One module wheel on plain ``sandloom``: boots, probes answer, enqueue refuses.
+    """One module wheel on plain ``sandloom``: boots, probes answer, tasks declare.
 
     ``/health`` and ``/ready`` are 200 (``taskqueue_status: unused``: a
     module that boots here uses no queue on the request path), and a task of
-    a module with a ``tasks.py`` refuses ``.delay()``. A module that requires a
-    capability whose driver is not installed here refuses to boot with
+    a module with a ``tasks.py`` declares its tasks without Celery. A module
+    that requires a capability whose driver is not installed here refuses to boot with
     SANDLOOM-B037 naming the extra (KB-IC-1), and nothing else.
 
     The module's own dependencies only (no ``sandloom`` extra): a module whose
-    ``tasks.py`` uses ``sandloom.sdk.tasks.shared_task`` must load without
-    Celery, and its tasks refuse to enqueue with ``TaskQueueNotInstalled``.
+    ``tasks.py`` uses ``sandloom.sdk.tasks`` must load and declare its tasks
+    without Celery.
     """
     venv = temp / f"plain-{package}"
     _run("uv", "venv", str(venv))
     _run(
         "uv", "pip", "install", "--compile-bytecode", "--python", str(_python(venv)),
-        str(wheels["sandloom"]), str(wheels[package]),
+        str(wheels[KERNEL]), str(wheels[package]),
     )  # fmt: skip
     installed = json.loads(
         _run(
@@ -588,9 +639,15 @@ def check_plain_module_install(
     )  # fmt: skip
 
 
-def check_admin_install(temp: Path, wheels: dict[str, Path]) -> None:
+def check_console_install(
+    temp: Path, wheels: dict[str, Path], package: release_packages.Package
+) -> None:
     """The console's wheel serves it with no build step, and only when installed."""
-    venv = temp / "admin"
+    console = package.console or {}
+    others = [release_packages.by_name(n) for n in console["with"]]
+    root = release_packages.of_kind("root")[0]
+    loaded = sorted(p.import_name for p in (package, *others) if p.kind == "module")
+    venv = temp / f"console-{package.name}"
     _run("uv", "venv", str(venv))
     _run(
         "uv",
@@ -599,49 +656,50 @@ def check_admin_install(temp: Path, wheels: dict[str, Path]) -> None:
         "--compile-bytecode",
         "--python",
         str(_python(venv)),
-        f"sandloom[admin] @ {wheels['sandloom'].resolve().as_uri()}",
+        f"sandloom[{console['extra']}] @ {wheels[KERNEL].resolve().as_uri()}",
         # identity issues tokens: it boots only under a root that carries its
         # trust map (SANDLOOM-B035), the standard root in this wheel.
-        *(
-            str(wheels[name])
-            for name in ("sandloom-identity", "sandloom-admin", "sandloom-standard")
-        ),
+        *(str(wheels[p.name]) for p in (*others, package)),
     )
     _run(
         str(_python(venv)),
         "-c",
-        "from pathlib import Path; import sandloom_admin; "
-        "console = Path(sandloom_admin.__file__).parent / 'console'; "
+        f"from pathlib import Path; import {package.import_name}; "
+        f"console = Path({package.import_name}.__file__).parent / 'console'; "
         "assert (console / 'index.html').is_file(); "
         "assert (console / 'third-party-licenses.txt').is_file(); "
-        "assert not (console / 'admin-manifest.json').exists(); "
-        "import sandloom_standard.main as m; "
-        "assert m.core.loaded_modules == ['sandloom_admin', 'sandloom_identity'], "
+        f"assert not (console / '{package.module}-manifest.json').exists(); "
+        f"import {root.import_name}.main as m; "
+        f"assert m.core.loaded_modules == {loaded!r}, "
         "m.core.loaded_modules; "
-        "assert any(getattr(r, 'path', '') == '/admin/{path:path}' for r in m.app.routes); "
-        "print('admin console OK:', m.core.loaded_modules)",
+        "assert any(getattr(r, 'path', '') == "
+        f"{console['route']!r} for r in m.app.routes); "
+        f"print('{package.module} console OK:', m.core.loaded_modules)",
         cwd=temp,
         env=_smoke_environment(),
     )
 
 
-def check_s3_install(temp: Path, wheels: dict[str, Path]) -> None:
-    """Install the driver with the kernel wheel and load its entry point."""
-    venv = temp / "s3-driver"
+def check_driver_install(
+    temp: Path, wheels: dict[str, Path], package: release_packages.Package
+) -> None:
+    """Install the driver with the kernel wheel and load its entry points."""
+    venv = temp / f"driver-{package.name}"
     _run("uv", "venv", str(venv))
     _run(
         "uv", "pip", "install", "--python", str(_python(venv)),
-        str(wheels["sandloom"]), str(wheels["sandloom-s3"]),
+        str(wheels[KERNEL]), str(wheels[package.name]),
     )  # fmt: skip
-    _run(
-        str(_python(venv)), "-c",
-        "from importlib.metadata import entry_points; "
-        "from sandloom.driverkit import ObjectStoreProvider; "
-        "(driver,) = entry_points(group='sandloom.drivers', name='objectstore.s3'); "
-        "assert issubclass(driver.load(), ObjectStoreProvider)",
-        cwd=temp,
-        env=_smoke_environment(),
-    )  # fmt: skip
+    for name, driver in (package.drivers or {}).items():
+        _run(
+            str(_python(venv)), "-c",
+            "from importlib.metadata import entry_points; "
+            f"from sandloom.driverkit import {driver['provider']}; "
+            f"(driver,) = entry_points(group='sandloom.drivers', name={name!r}); "
+            f"assert issubclass(driver.load(), {driver['provider']})",
+            cwd=temp,
+            env=_smoke_environment(),
+        )  # fmt: skip
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -670,12 +728,19 @@ def main(argv: list[str] | None = None) -> int:
         if not args.skip_install:
             # Independent clean environments: checked side by side; the first
             # failure (in this order) is raised once all of them finished.
-            with ThreadPoolExecutor(max_workers=4 + len(MODULES)) as pool:
+            with ThreadPoolExecutor(max_workers=len(PACKAGES) + 2) as pool:
                 checks = [
-                    pool.submit(check_lean_install, temp, wheels["sandloom"]),
+                    pool.submit(check_lean_install, temp, wheels[KERNEL]),
                     pool.submit(check_standard_install, temp, wheels),
-                    pool.submit(check_admin_install, temp, wheels),
-                    pool.submit(check_s3_install, temp, wheels),
+                    *(
+                        pool.submit(check_console_install, temp, wheels, p)
+                        for p in release_packages.PACKAGES
+                        if p.console
+                    ),
+                    *(
+                        pool.submit(check_driver_install, temp, wheels, p)
+                        for p in release_packages.of_kind("driver")
+                    ),
                     *(
                         pool.submit(check_plain_module_install, temp, wheels, p)
                         for p in MODULES

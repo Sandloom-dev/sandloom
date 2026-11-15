@@ -60,9 +60,9 @@ async def test_login_round_trips(
     monkeypatch.setattr(settings, "rate_limit_enabled", rate_limited)
     await _make_user(db, "budget-login@example.com")
     redis = RedisCommandCounter()
-    redis.wrap(await sandloom_cache.raw_client(), monkeypatch)
+    redis.wrap(await sandloom_cache.redis_client(), monkeypatch)
     # Warm the Lua script cache (a one-off NOSCRIPT reload per server).
-    await sandloom_cache.incr_window("warm:cur", "warm:prev", ttl_seconds=5)
+    await sandloom_cache.windowed_counter("warm:cur", "warm:prev", ttl_seconds=5)
 
     sql_counter.enabled = redis.enabled = True
     resp = await client.post(

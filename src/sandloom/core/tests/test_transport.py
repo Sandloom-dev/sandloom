@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import pytest
 
+from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
 from sandloom.core.eventing.consumer_inbox import ConsumerInbox
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.memory_transport import MemoryTransport
-from sandloom.core.eventing.streams_transport import RedisStreamsTransport
 
 
 def _env(event_id: str, channel: str = "core.test.v1") -> EventEnvelope:

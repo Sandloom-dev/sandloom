@@ -123,7 +123,7 @@ Module-facing (public, each with a kit):
 | `cache` | `get`, `set(ttl)`, `delete`, `get_many`, `set_many`, `add`, `incr`. **May evict, may lose data.** Nothing the kernel's guarantees depend on | `cas` |
 | `objectstore` | as today (portable key grammar, put/get/delete, failed put keeps the old object) | `metadata`, `presigned_get` |
 | `notification` | as today, `send(Notification)` | channels |
-| `taskqueue` | Sandloom's own task declaration (`task`, `cron` in `sandloom.sdk`) and `enqueue(task, payload, delay_seconds=, idempotency_key=)` | `delay`, `periodic` |
+| `taskqueue` | Sandloom's own task declaration (`task`, `periodic` in `sandloom.sdk`; the Celery `cron` helper goes) and `enqueue(payload, delay=, idempotency_key=)` (owner decision 4; signatures in `spec.md` section 8) | `delay`, `periodic`, `redelivery` |
 
 Kernel-facing (driver-implementable, not callable by modules):
 
@@ -133,7 +133,7 @@ Kernel-facing (driver-implementable, not callable by modules):
 | `lease` (new, replaces private `lock`) | `acquire(name, ttl, owner) -> Lease \| None` with a monotonic `fence`, `renew`, `release`; no blocking wait | beat lease (G-OPS-01), saga sweep (`sagas/sweep.py:139`) | `redis`, `memory`, optionally `database` (row with a fence column) |
 | `broadcast` (new) | online-only fan-out: `publish(channel, payload)`, `subscribe(channel)`; no persistence, no replay, declared best-effort | contract-cache invalidation (ADR-0003), the volatile event bus, future websocket rooms | `redis` (pub/sub), `memory` |
 | `eventbus` | the durable transport made public: today's `MessageTransport` with typed operations (publish batch, consume with consumer groups, ack, claim stale, dead-letter, trim, replay, inventory, **group ownership**: claim, read, transfer, release, already `TransportCapability.GROUP_OWNERSHIP`, used by G-EVENT-02 and `extract`'s owner transfer). Schema validation, payload limits and the bus logic above the transport (`streams_bus`, `streams_dispatch`, `streams_inventory`, `pubsub_bus`) stay in the kernel | outbox relay, consumers, DLQ ops (G-EVENT-03..07, G-EVENT-10) | `streams` (Redis), `memory`; later NATS JetStream or Kafka |
-| `worker` (the driver side of `taskqueue`) | `WorkerHost`: run a worker process, run the scheduler while holding a `lease`, process lifecycle hooks. Kernel boot (composition, `enforce_runtime`) stays in the kernel and calls the host | `sandloom worker`, `sandloom beat` (new commands; today every deploy runs `celery -A sandloom.core.worker`), G-INFRA-11, C-WORKER-01..06 | `celery` |
+| `worker` (the driver side of `taskqueue`; not a capability of its own: `spec.md` reaches it through `TaskQueueProvider.worker_host()`) | `WorkerHost`: run a worker process, run the scheduler while holding a `lease`, process lifecycle hooks. Kernel boot (composition, `enforce_runtime`) stays in the kernel and calls the host | `sandloom worker`, `sandloom beat` (new commands; today every deploy runs `celery -A sandloom.core.worker`), G-INFRA-11, C-WORKER-01..06 | `celery` |
 
 **Kept on `cache`, deliberately.** The rate limiter (`ingress/rate_limit.py:121`) and the
 consumer inbox (`eventing/consumer_inbox.py:57`) use the default, evicting cache today and fail
@@ -191,7 +191,9 @@ stays in the eventbus contract.
    redaction rule for `details`.
 5. **Escape hatches.** `raw_client` and `raw_backend` leave the provider ABCs. A driver
    package may offer a typed `native()` accessor on its own class for application code; the
-   kernel and modules may not call it (a C-check and a ratchet).
+   kernel and modules may not call it (a C-check and a ratchet). *Superseded by owner decision 5:
+   no `native()` is added; a package may document public attributes of its own class as
+   non-portable.*
 6. **Kits.** One harness shape for every capability: a `make_provider` fixture; the kit opens
    and closes the provider, checks `contract_version`, the feature declaration and health,
    runs feature-gated groups, and is itself run against broken drivers. Signatures and
@@ -258,14 +260,14 @@ once, in the foundation, so the capability slices after it can run side by side.
 | 5 | `idk-test-harness` | 2 | parallel test isolation through the driverkit hook; no Redis import or protocol in `core/testing` outside a lazy allowlisted spot |
 | 6 | `idk-atomic-store` | 2 | contract, kit, `redis` and `memory` drivers (the Lua moves from the cache driver), eviction check, `isolation_identity` |
 | 7 | `idk-atomic-adopt` | 4, 6 | revocation, blocks, idempotency, enqueue dedupe, RPC replay onto `atomic_store`; the instance settings and production attestation through the port; guarantee texts updated |
-| 7b | `idk-atomic-store-db` | 7 | database-backed `atomic_store` (decision 3): logged table, `GREATEST`, CAS by `UPDATE … WHERE`, relay sweeper, `never_evicts`; an option, not the default |
+| 7b | `idk-atomic-store-db` | 7 | database-backed `atomic_store` (decision 3): logged table, expired rows treated as absent in every statement, subject states ranked as decimals (never float or text; no `GREATEST` on text), CAS by `UPDATE … WHERE`, relay sweeper, `never_evicts`; an option, not the default (`spec.md` section 4) |
 | 8 | `idk-cache-contract` | 7 | `cache` shrinks to module operations plus `windowed_counter`; rate limit and inbox use it; kit; `memory` cache driver (fulfils `kb-ic-5`); removal of `incr_window`, `incr_many`, `set_nx_get`, `set_max` from `sandloom.sdk.infra.Cache` in the API baseline and upgrade notes |
 | 9 | `idk-lease` | 2 | contract, kit, drivers; `FencedLease` over the port; beat lease and saga sweep on it; private `lock` removed |
 | 10 | `idk-broadcast` | 2, 0 | contract, kit, drivers; contract-cache shadow and the volatile bus use it |
 | 11 | `idk-eventbus-contract` | 2 | `MessageTransport` public with typed operations, features and group ownership; kit against `memory` and `streams`; every duck-typed read goes (`bus_base`, `consumers/callbacks`, `consumers/runtime`, `unit_of_work/dispatch`, `tasks/relay`, `app_factory/revocation_applier`, `cli/extract`, `cli/doctor`) |
 | 12 | `idk-event-ops` | 11 | `sandloom streams`, `tasks/event_ops.py`, admin platform API on the transport's ops operations |
-| 13 | `idk-task-api` | 2 | Sandloom's `task`, `cron` and a periodic declaration replacing the `setup_periodic_tasks(sender)` hook; the `Task` Protocol without `s`/`si`/`apply_async`; derivation (`descriptors/derived_capabilities.py`, `tasks/periodic.py`) and T010 follow; modules and docs (`docs/modules/background/tasks.md`, `docs/reference/sdk/tasks.md`, `templates/module-AGENTS.md`) updated; taskqueue kit |
-| 14 | `idk-worker-cli` | 2 | `sandloom worker`, `sandloom beat`, `sandloom worker healthcheck`; deploy compose, `cli/project.py`, `cli/scaffold_deploy.py`, templates, examples and T010 use them |
+| 13 | `idk-task-api` | 2 | Sandloom's `task` and `periodic` (the Celery `cron` helper goes) replacing the `setup_periodic_tasks(sender)` hook; the `Task` Protocol without `s`/`si`/`apply_async`; derivation (`descriptors/derived_capabilities.py`, `tasks/periodic.py`) and T010 follow; modules and docs (`docs/modules/background/tasks.md`, `docs/reference/sdk/tasks.md`, `templates/module-AGENTS.md`) updated; taskqueue kit |
+| 14 | `idk-worker-cli` | 2 | `sandloom worker`, `sandloom beat`, `sandloom worker check` (owner decision 9); deploy compose, `cli/project.py`, `cli/scaffold_deploy.py`, templates, examples and T010 use them |
 | 15 | `idk-worker-port` | 4, 9, 13, 14 | `WorkerHost` port; kernel boot stays, `worker.py`, the Celery half of `beat_lease.py`, `async_runner.py`, `gc_tuning.py` move behind the port; `.importlinter` updated |
 | 16 | `idk-db-provider` | 2 | typed stores, no `execution_adapter`, `_internal/db_provider.py` stops importing driver internals, provider kit (replaces `infra-pg-features`) |
 | 17 | `idk-pkg-redis` | 4, 5, 8, 9, 10, 12 | `sandloom-redis`: the Redis drivers and the four Streams transport files; their tests, `guarantees.yml` and `public-source.json` entries, root `pyproject.toml`/`uv.lock`, extras |

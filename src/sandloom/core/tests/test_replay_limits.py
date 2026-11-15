@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import inspect
 
+from sandloom_celery.taskqueue import CeleryTaskQueueOptions
+
 import sandloom.core.config.replay_limits as replay_limits
 from sandloom.core import di
 from sandloom.core.config.settings import Settings
-from sandloom.core.drivers.celery_taskqueue import CeleryTaskQueueOptions
 from sandloom.core.eventing.consumer_inbox import ConsumerInbox
 from sandloom.core.idempotency import capture as idempotency_capture
 from sandloom.core.idempotency import fingerprint as idempotency_fingerprint

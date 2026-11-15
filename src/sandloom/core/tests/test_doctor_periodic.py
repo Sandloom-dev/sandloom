@@ -18,11 +18,12 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from sandloom.core import beat_lease
 from sandloom.core.cli import doctor
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import CapabilityRequirement, ModuleDescriptor
+from sandloom.core.infra import fenced_lease
 from sandloom.core.infra.config import InstanceConfig
+from sandloom.core.infra.ports.lease import LeaseHolder
 
 _TOKEN = "kbic3-diagnostics-token-0123456789abcdef0123456789"
 _PERIODIC = frozenset({"periodic"})
@@ -42,28 +43,42 @@ _NONE = ModuleDescriptor(name="kbic3_plain", version="1")
 
 
 class _Cache:
-    def __init__(self, value: Any = None, error: Exception | None = None) -> None:
+    """The ``lease`` instance ``beat``: ``value`` is the holder as
+    ``(owner, fence)``, ``None`` for a free name."""
+
+    def __init__(
+        self,
+        value: tuple[str, int] | None = None,
+        error: Exception | None = None,
+    ) -> None:
         self.value = value
         self.error = error
         self.keys: list[str] = []
 
-    async def get(self, key: str) -> Any:
-        self.keys.append(key)
+    async def holder(self, name: str) -> LeaseHolder | None:
+        self.keys.append(name)
         if self.error is not None:
             raise self.error
-        return self.value
+        return None if self.value is None else LeaseHolder(*self.value)
 
 
 class _Infra:
     def __init__(
-        self, error: Exception | None = None, broker: str | None = None
+        self,
+        error: Exception | None = None,
+        broker: str | None = None,
+        leases: _Cache | None = None,
     ) -> None:
         self.error = error
         self.broker = broker
+        self.leases = leases
 
     def provider(self, capability: str, name: str = "default") -> Any:
         if self.error is not None:
             raise self.error
+        if capability == "lease":
+            assert name == "beat"  # the kernel's instance INFRA.lease.beat
+            return self.leases
         return SimpleNamespace(driver="celery")
 
     def instance_config(self, capability: str, name: str = "default") -> Any:
@@ -77,7 +92,7 @@ def _core(
     return SimpleNamespace(
         loaded_modules=[d.name for d in descriptors],
         module_descriptors=list(descriptors),
-        infra=infra or _Infra(),
+        infra=infra or _Infra(leases=cache),
         cache=lambda name: cache,
     )
 
@@ -90,7 +105,7 @@ async def _periodic(core: Any) -> dict[str, doctor.Check]:
 
 
 async def test_a_held_lease_is_ok_and_names_the_beat() -> None:
-    cache = _Cache("7:beat-host:4242:abcdef123456")
+    cache = _Cache(("beat-host:4242", 7))
 
     checks = await _periodic(_core(_REQUIRED, _OPTIONAL, _NONE, cache=cache))
 
@@ -111,7 +126,7 @@ async def test_no_beat_fails_a_required_need_and_warns_an_optional_one() -> None
     optional = checks["kbic3_cleans_up periodic jobs"]
     assert required.status == doctor.FAIL
     assert "no beat holds the lease" in required.message
-    assert "celery -A sandloom.core.worker beat" in required.message
+    assert "`sandloom beat`" in required.message
     assert optional.status == doctor.WARN
     assert "optional: the module works without them" in optional.message
 
@@ -147,18 +162,23 @@ async def test_the_key_read_is_the_one_a_beat_of_this_composition_holds(
     instance, the instance, the loaded module set; ``BEAT_LEASE_NAME`` wins."""
     monkeypatch.setattr(settings, "beat_lease_name", "")
     cache = _Cache(None)
-    core = _core(_REQUIRED, _NONE, cache=cache, infra=_Infra(broker="redis://b:6379/3"))
+    core = _core(
+        _REQUIRED,
+        _NONE,
+        cache=cache,
+        infra=_Infra(broker="redis://b:6379/3", leases=cache),
+    )
 
-    await beat_lease.beat_lease_holder(core)
+    await fenced_lease.beat_lease_holder(core)
 
-    expected = beat_lease.lease_scope(
+    expected = fenced_lease.lease_scope(
         "redis://b:6379/3", "default", ["kbic3_reconciles", "kbic3_plain"]
     )
-    assert cache.keys == [beat_lease.LEASE_KEY_PREFIX + expected]
+    assert cache.keys == [fenced_lease.LEASE_KEY_PREFIX + expected]
 
     monkeypatch.setattr(settings, "beat_lease_name", "pinned")
-    await beat_lease.beat_lease_holder(core)
-    assert cache.keys[-1] == beat_lease.LEASE_KEY_PREFIX + "pinned"
+    await fenced_lease.beat_lease_holder(core)
+    assert cache.keys[-1] == fenced_lease.LEASE_KEY_PREFIX + "pinned"
 
 
 async def test_diagnostics_core_reports_the_periodic_needs(
@@ -177,7 +197,7 @@ async def test_diagnostics_core_reports_the_periodic_needs(
     core.loaded_modules = [_REQUIRED.name, _OPTIONAL.name]
     core.module_descriptors = [_REQUIRED, _OPTIONAL]
     cache = _Cache(None)
-    monkeypatch.setattr(core, "cache", lambda name="default": cache)
+    monkeypatch.setattr(fenced_lease, "beat_lease_store", lambda core: cache)
     monkeypatch.setattr(settings, "internal_api_token", _TOKEN)
     monkeypatch.setattr(settings, "service_bindings", {})
     _install_ops_endpoints(app, core)

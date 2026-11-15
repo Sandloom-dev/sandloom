@@ -22,7 +22,7 @@ import os
 import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -35,8 +35,10 @@ from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.eventing.memory_transport import MemoryTransport
 from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.eventing.transport_base import DLQ_REASON_POISON
+from sandloom.core.infra.errors import Unsupported
+from sandloom.core.infra.ports.eventbus import Delivery
 from sandloom.core.schema.registry import InMemorySchemaRegistry
-from sandloom.core.testing import InMemoryCache
+from sandloom.core.testing import InMemoryAtomicStore
 
 CHANNEL = marks.TOKENS_REVOKED_CHANNEL
 #: The old delivery budget after which the event used to be dead-lettered.
@@ -44,11 +46,11 @@ OLD_BUDGET = 5
 
 
 @pytest.fixture
-def mem_cache(monkeypatch: pytest.MonkeyPatch) -> Iterator[InMemoryCache]:
+def mem_cache(monkeypatch: pytest.MonkeyPatch) -> Iterator[InMemoryAtomicStore]:
     import sandloom.core.infra.access as access
 
-    fake = InMemoryCache()
-    monkeypatch.setattr(access, "cache", lambda name="default": fake)
+    fake = InMemoryAtomicStore()
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": fake)
     revocation._stuck_revocations.clear()
     revocation._stuck_marks.clear()
     yield fake
@@ -91,7 +93,7 @@ def _envelope(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-class _OutageCache(InMemoryCache):
+class _OutageCache(InMemoryAtomicStore):
     """Down for the first ``failures`` revocation writes (> the old budget)."""
 
     def __init__(self, failures: int) -> None:
@@ -123,7 +125,7 @@ async def test_streams_outage_longer_than_the_old_budget_is_applied_not_dlqd(
 
     failures = OLD_BUDGET * 3  # far past the old dead-letter threshold
     cache = _OutageCache(failures)
-    monkeypatch.setattr(access, "cache", lambda name="default": cache)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": cache)
     revocation._stuck_revocations.clear()
     transport = MemoryTransport(
         max_deliveries=OLD_BUDGET, retry_base_ms=1, retry_max_ms=20
@@ -170,7 +172,7 @@ async def test_streams_default_consumers_are_still_dead_lettered() -> None:
 
 
 async def test_streams_malformed_revocation_is_dead_lettered_at_once(
-    mem_cache: InMemoryCache, caplog: pytest.LogCaptureFixture
+    mem_cache: InMemoryAtomicStore, caplog: pytest.LogCaptureFixture
 ) -> None:
     transport = MemoryTransport(max_deliveries=OLD_BUDGET, retry_base_ms=0)
     bus = StreamsEventBus(InMemorySchemaRegistry(), transport, poll_interval=0.005)
@@ -187,7 +189,7 @@ async def test_streams_malformed_revocation_is_dead_lettered_at_once(
     finally:
         await bus.close()
     (entry,) = await transport.list_dlq(CHANNEL)
-    assert entry["attempts"] <= 1  # not retried: it can never apply
+    assert entry.attempts <= 1  # not retried: it can never apply
     assert marks._counter_value(malformed) == count_before + 1
     assert any(r.levelname == "CRITICAL" for r in caplog.records)
     assert marks.revocation_metrics_snapshot()["applied"] == before["applied"]
@@ -203,7 +205,7 @@ async def test_in_memory_bus_retries_a_never_dead_letter_consumer_forever(
     import sandloom.core.infra.access as access
 
     cache = _OutageCache(OLD_BUDGET * 2)
-    monkeypatch.setattr(access, "cache", lambda name="default": cache)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": cache)
     revocation._stuck_revocations.clear()
     bus = InMemoryEventBus(
         InMemorySchemaRegistry(),
@@ -224,7 +226,7 @@ async def test_in_memory_bus_retries_a_never_dead_letter_consumer_forever(
 
 
 async def test_in_memory_bus_dead_letters_poison_immediately(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     bus = InMemoryEventBus(InMemorySchemaRegistry(), max_deliveries=OLD_BUDGET)
     await bus.subscribe(CHANNEL, _callback(dead_letter=False))
@@ -237,7 +239,7 @@ async def test_in_memory_bus_dead_letters_poison_immediately(
 # Pending gauge, ERROR log, /ready (not /health)
 # --------------------------------------------------------------------------- #
 async def test_stuck_revocation_is_reported_and_cleared(
-    mem_cache: InMemoryCache, caplog: pytest.LogCaptureFixture
+    mem_cache: InMemoryAtomicStore, caplog: pytest.LogCaptureFixture
 ) -> None:
     sub = str(uuid4())
     committed_at = time.time() - 30  # the revoking change, 30 s ago
@@ -261,7 +263,7 @@ async def test_stuck_revocation_is_reported_and_cleared(
 
 
 async def test_stuck_entry_clears_when_another_worker_applied_the_delivery(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     # Review hand-off: this worker failed to apply the revocation, then a
     # Streams reclaim handed its pending delivery to ANOTHER worker, which
@@ -287,7 +289,7 @@ async def test_stuck_entry_clears_when_another_worker_applied_the_delivery(
 
 
 async def test_ready_degrades_while_a_revocation_is_stuck_liveness_unaffected(
-    mem_cache: InMemoryCache, monkeypatch: pytest.MonkeyPatch
+    mem_cache: InMemoryAtomicStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from fastapi import FastAPI
     from httpx import ASGITransport, AsyncClient
@@ -336,7 +338,9 @@ async def test_redis_streams_never_dead_letter_group_survives_the_old_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     redis_asyncio = pytest.importorskip("redis.asyncio")
-    from sandloom.core.eventing.streams_transport import RedisStreamsTransport
+    from sandloom.core.drivers.redis_eventbus.streams_transport import (
+        RedisStreamsTransport,
+    )
 
     url = os.getenv("SANDLOOM_TEST_CACHE_URL") or os.getenv("CACHE_URL")
     if not url:
@@ -383,10 +387,29 @@ async def test_redis_streams_never_dead_letter_group_survives_the_old_budget(
         (poison,) = await transport.consume(stream, group=group, consumer=consumer)
         await transport.dead_letter(poison, reason=DLQ_REASON_POISON)
         (parked,) = await transport.list_dlq(stream)
-        assert parked["reason"] == DLQ_REASON_POISON
+        assert parked.reason == DLQ_REASON_POISON
     finally:
         await client.delete(stream, f"{stream}.dlq")
         await client.aclose()
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [NotImplementedError(), Unsupported("dead_letter", capability="eventbus")],
+    ids=["not_implemented", "unsupported"],
+)
+async def test_a_transport_that_cannot_dead_letter_leaves_poison_pending(
+    refusal: Exception, caplog: pytest.LogCaptureFixture
+) -> None:
+    class _CannotDeadLetter(MemoryTransport):
+        async def dead_letter(self, delivery: Any, *, reason: str) -> None:
+            raise refusal
+
+    bus = StreamsEventBus(InMemorySchemaRegistry(), _CannotDeadLetter())
+    delivery = Delivery(stream=CHANNEL, group="g", id="1-0", envelope=cast(Any, {}))
+    with caplog.at_level("CRITICAL"):
+        await bus._dead_letter_poison(delivery)  # must not raise
+    assert "cannot dead-letter" in caplog.text
 
 
 def test_poison_error_is_public() -> None:

@@ -5,8 +5,8 @@ blackholed or hung Redis made every cache call await forever — the
 fail-open / fail-closed branches of the rate limiter, token revocation,
 idempotency and login lockout never ran; the request just hung. Now every
 operation raises within ~(1 + retries) x CACHE_SOCKET_TIMEOUT_SECONDS and each
-caller's policy branch runs. Plus the fused single-round-trip operations
-(``incr_window`` / ``incr_many`` / ``set_nx_get``) against the real test Redis.
+caller's policy branch runs. Plus the fused single-round-trip operation
+(``windowed_counter``) against the real test Redis.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from fastapi import Depends, FastAPI, HTTPException
 
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers import redis_cache
-from sandloom.core.drivers.redis_cache import RedisCacheProvider
+from sandloom.core.drivers.redis_cache import RedisCacheOptions, RedisCacheProvider
 
 #: Generous wall-clock bound (the configured timeout is 0.5s): a regression to
 #: an unbounded client hangs until the outer ``wait_for`` guard instead.
@@ -82,7 +82,15 @@ async def _elapsed_raise(coro: Any) -> tuple[float, BaseException]:
 # Client construction
 # --------------------------------------------------------------------------- #
 def test_client_is_bounded() -> None:
-    client = redis_cache._build_client("redis://127.0.0.1:6399/0")
+    """The kernel fills the bounds from the CACHE_* settings into the
+    instance's options; the driver builds its client from them."""
+    from sandloom.core.infra.config import load_infra_config
+
+    filled = load_infra_config(settings)["cache"]["default"].options
+    options = RedisCacheOptions.model_validate(
+        {**filled, "url": "redis://127.0.0.1:6399/0"}
+    )
+    client = redis_cache._build_client(options)
     pool = client.connection_pool
     kwargs = pool.connection_kwargs
     assert type(pool).__name__ == "BlockingConnectionPool"
@@ -112,7 +120,12 @@ async def test_transport_client_has_no_read_timeout(
     monkeypatch.setattr(redis_cache, "_default_client", None)
     monkeypatch.setattr(redis_cache, "_default_client_origin", None)
     monkeypatch.setattr(redis_cache, "_default_transport", {})
-    monkeypatch.setattr(redis_cache.settings, "cache_url", "redis://127.0.0.1:6399/0")
+    monkeypatch.setattr(redis_cache, "_default_built_from", None)
+    monkeypatch.setattr(
+        redis_cache,
+        "_default_options",
+        RedisCacheOptions(url="redis://127.0.0.1:6399/0"),
+    )
     try:
         main = await redis_cache.get_default_client()
         transport = await redis_cache.get_default_transport_client()
@@ -138,15 +151,14 @@ async def test_injected_default_client_is_shared_with_transport(
 # --------------------------------------------------------------------------- #
 # Dead Redis -> operations raise within the bound
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("op", ["get", "incr", "add", "incr_window", "set_nx_get"])
+@pytest.mark.parametrize("op", ["get", "incr", "add", "windowed_counter"])
 async def test_hung_redis_raises_within_timeout(hung_redis_url: str, op: str) -> None:
     provider = _provider(hung_redis_url)
     calls = {
         "get": lambda: provider.get("k"),
         "incr": lambda: provider.incr("k", ttl_seconds=5),
         "add": lambda: provider.add("k", "v", ttl_seconds=5),
-        "incr_window": lambda: provider.incr_window("k", "p", ttl_seconds=5),
-        "set_nx_get": lambda: provider.set_nx_get("k", "v", ttl_seconds=5),
+        "windowed_counter": lambda: provider.windowed_counter("k", "p", ttl_seconds=5),
     }
     try:
         elapsed, _exc = await _elapsed_raise(calls[op]())
@@ -205,11 +217,15 @@ async def test_rate_limiter_branches_on_hung_redis(
 async def test_revocation_branches_on_hung_redis(
     hung_redis_url: str, monkeypatch: pytest.MonkeyPatch, fail_closed: bool
 ) -> None:
+    from sandloom_redis.atomic_store import RedisAtomicStoreProvider
+
     from sandloom.core.auth import marks, verification
     from sandloom.core.infra import access
 
-    provider = _provider(hung_redis_url)
-    monkeypatch.setattr(access, "cache", lambda name="default": provider)
+    provider = RedisAtomicStoreProvider(
+        name="bounded", driver="redis", options={"url": hung_redis_url}
+    )
+    monkeypatch.setattr(access, "atomic_store", lambda role: provider)
     monkeypatch.setattr(settings, "auth_revocation_fail_closed", fail_closed)
     claims = {"sub": str(uuid4()), "iat": int(time.time())}
     start = time.monotonic()
@@ -236,14 +252,15 @@ async def test_idempotency_branches_on_hung_redis(
     hung_redis_url: str, monkeypatch: pytest.MonkeyPatch, fail_closed: bool
 ) -> None:
     import httpx
+    from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
     from sandloom.core import idempotency
     from sandloom.core.idempotency import cache_store as idempotency_cache_store
 
-    provider = _provider(hung_redis_url)
-    monkeypatch.setattr(
-        idempotency_cache_store, "cache", lambda name="default": provider
+    provider = RedisAtomicStoreProvider(
+        name="bounded", driver="redis", options={"url": hung_redis_url}
     )
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: provider)
     app = FastAPI()
 
     @app.post(
@@ -293,30 +310,14 @@ async def live() -> AsyncIterator[RedisCacheProvider]:
     await provider.aclose()
 
 
-async def test_incr_window_counts_ttl_and_previous(live: RedisCacheProvider) -> None:
+async def test_windowed_counter_counts_ttl_and_previous(
+    live: RedisCacheProvider,
+) -> None:
     key, prev = f"t:{uuid4()}:cur", f"t:{uuid4()}:prev"
-    assert await live.incr_window(key, prev, ttl_seconds=30) == (1, None)
+    assert await live.windowed_counter(key, prev, ttl_seconds=30) == (1, None)
     await live.set(prev, "7", ttl_seconds=30)
-    assert await live.incr_window(key, prev, ttl_seconds=30) == (2, "7")
-    client = await live.raw_client()
-    assert 0 < await client.ttl(key) <= 30
-
-
-async def test_incr_many_counts_and_ttls(live: RedisCacheProvider) -> None:
-    a, b = f"t:{uuid4()}:a", f"t:{uuid4()}:b"
-    assert await live.incr_many([a, b], ttl_seconds=30) == [1, 1]
-    assert await live.incr_many([a, b], ttl_seconds=30) == [2, 2]
-    assert await live.incr_many([], ttl_seconds=30) == []
-    client = await live.raw_client()
-    assert 0 < await client.ttl(a) <= 30 and 0 < await client.ttl(b) <= 30
-
-
-async def test_set_nx_get_creates_or_returns_existing(live: RedisCacheProvider) -> None:
-    key = f"t:{uuid4()}"
-    assert await live.set_nx_get(key, "first", ttl_seconds=30) == (True, None)
-    assert await live.set_nx_get(key, "second", ttl_seconds=30) == (False, "first")
-    assert await live.get(key) == "first"
-    client = await live.raw_client()
+    assert await live.windowed_counter(key, prev, ttl_seconds=30) == (2, "7")
+    client = await live.redis_client()
     assert 0 < await client.ttl(key) <= 30
 
 
@@ -324,7 +325,7 @@ async def test_script_reloads_after_noscript(live: RedisCacheProvider) -> None:
     """EVALSHA falls back to SCRIPT LOAD + EVALSHA on NOSCRIPT."""
     from redis.exceptions import NoScriptError
 
-    client = await live.raw_client()
+    client = await live.redis_client()
     real = client.evalsha
     calls: list[str] = []
 
@@ -337,38 +338,6 @@ async def test_script_reloads_after_noscript(live: RedisCacheProvider) -> None:
     with patch.object(client, "evalsha", _flaky):
         assert await live.incr(f"t:{uuid4()}", ttl_seconds=30) == 1
     assert calls == ["evalsha", "evalsha"]
-
-
-async def test_set_nx_get_degrades_on_old_redis(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Redis < 7 rejects ``SET NX GET`` (syntax error): fall back to SET NX + GET."""
-    from redis.exceptions import ResponseError
-
-    store: dict[str, str] = {}
-
-    class _OldRedis:
-        async def set(self, key: str, value: str, **kw: Any) -> Any:
-            if kw.get("get"):
-                raise ResponseError("ERR syntax error")
-            if kw.get("nx") and key in store:
-                return None
-            store[key] = value
-            return True
-
-        async def get(self, key: str) -> str | None:
-            return store.get(key)
-
-    provider = _provider("redis://unused:1/0")
-    monkeypatch.setattr(RedisCacheProvider, "_nx_get_unsupported", False)
-
-    async def _client() -> Any:
-        return _OldRedis()
-
-    monkeypatch.setattr(provider, "_client_obj", _client)
-    assert await provider.set_nx_get("k", "a", ttl_seconds=5) == (True, None)
-    assert RedisCacheProvider._nx_get_unsupported is True
-    assert await provider.set_nx_get("k", "b", ttl_seconds=5) == (False, "a")
 
 
 async def test_concurrent_transport_rebuild_after_loop_change_builds_one(
@@ -395,14 +364,17 @@ async def test_concurrent_transport_rebuild_after_loop_change_builds_one(
         return client
 
     old_main, old_transport = _Client(), _Client()
+    options = RedisCacheOptions(url="redis://127.0.0.1:6399/0")
     monkeypatch.setattr(redis_cache, "_build_client", _build)
     monkeypatch.setattr(redis_cache, "build_transport_client", _build)
+    monkeypatch.setattr(redis_cache, "_default_options", options)
+    monkeypatch.setattr(redis_cache, "_default_built_from", options)
     monkeypatch.setattr(redis_cache, "_default_client", old_main)
     monkeypatch.setattr(
         redis_cache, "_default_client_origin", (old_main, object())
     )  # built on another (gone) loop
     monkeypatch.setattr(
-        redis_cache, "_default_transport", {None: (old_main, old_transport)}
+        redis_cache, "_default_transport", {(None, options): (old_main, old_transport)}
     )
     first, second = await asyncio.gather(
         redis_cache.get_default_transport_client(),

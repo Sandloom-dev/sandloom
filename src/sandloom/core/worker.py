@@ -1,43 +1,47 @@
-"""Framework Celery worker entrypoint (owned by the kernel, not a module).
+"""Framework worker boot (owned by the kernel, not a module).
 
-Run the worker / beat for ANY Sandloom application — with or without the bundled
-``identity`` module::
+Run the worker / scheduler for ANY Sandloom application — with or without the
+bundled ``identity`` module::
 
-    celery -A sandloom.core.worker worker --loglevel=INFO
-    celery -A sandloom.core.worker beat --loglevel=INFO
+    sandloom worker --loglevel=INFO
+    sandloom beat --loglevel=INFO
 
-How the worker app is assembled (no backend is constructed here):
+The kernel does not run a message loop. It boots the application and hands the
+task table to the taskqueue driver's host (:class:`~sandloom.core.infra.ports.
+taskqueue.WorkerHost`, reached through ``TaskQueueProvider.worker_host()``); this
+module imports no task-queue backend.
 
 1. **Boot the composition root** — the same one the API and ``sandloom-migrate``
    use (``SANDLOOM_COMPOSITION_ROOT``, default ``sandloom.main``; an ``sandloom new``
-   project
-   points it at ``<app>.asgi``). Importing it runs ``create_app()``, which loads
-   exactly the ``SANDLOOM_MODULES`` set and binds the active core, so task bodies can
-   use ``db_session()`` / ``publish_event`` like a request handler.
-2. **Resolve the Celery app through the capability registry** —
-   ``core.taskqueue(SANDLOOM_WORKER_TASKQUEUE or "default")``. The taskqueue DRIVER
-   is the sole constructor of the Celery app (``test_infra_constructed_only_in
-   _drivers``), and the enqueue side (``core.taskqueue().enqueue``) and this
-   worker therefore share one app, broker and task namespace.
-3. **Discover module tasks** — for every LOADED module ``<pkg>`` the worker
-   imports ``<pkg>.tasks`` if it exists. A module declares tasks with Celery's
-   app-agnostic ``@shared_task`` (it never builds or imports an app), and may
-   expose ``setup_periodic_tasks(sender, **kwargs)`` which is connected to the
-   app's ``on_after_finalize`` so ``beat`` schedules it.
+   project points it at ``<app>.asgi``). Importing it runs ``create_app()``, which
+   loads exactly the ``SANDLOOM_MODULES`` set and binds the active core, so task
+   bodies can use ``db_session()`` / ``publish_event`` like a request handler.
+2. **Resolve the host through the capability registry** —
+   ``core.taskqueue(SANDLOOM_WORKER_TASKQUEUE or "default").worker_host()``. The
+   enqueue side and the worker therefore share one driver instance, broker and
+   task namespace.
+3. **Discover module tasks** — :class:`KernelWorkerBoot` (the host's
+   :class:`~sandloom.core.infra.ports.taskqueue.WorkerBoot`) imports ``<pkg>.tasks``
+   for every LOADED module that has one. A module declares tasks with ``@task`` and
+   ``@periodic`` of ``sandloom.sdk.tasks`` (it never builds or imports a queue);
+   the kernel derives the :class:`~sandloom.core.infra.ports.taskqueue.TaskTable`
+   from the declarations and the host registers it.
 
 A module that is not in ``SANDLOOM_MODULES`` contributes no tasks, so a split
 deployment runs one worker per service with that service's module set.
 
-4. **One event loop per worker process** — task bodies are synchronous, so
-   they run coroutines through ``sandloom.core.di.run_async`` (never
-   ``asyncio.run``): the async engine pools are per-process and loop-bound, so
-   a fresh loop per task breaks the pool on the 2nd task. The worker wires
-   ``worker_process_init`` (fresh loop after fork) and
-   ``worker_process_shutdown`` (dispose the engines/caches on that loop, then
-   close it) — see :mod:`sandloom.core.async_runner`.
-5. **One beat per broker and module set** — beat schedules only while it
-   holds a fenced lease in the cache (:mod:`sandloom.core.beat_lease`); a second
-   beat stands by and takes over when the first dies.
+4. **One event loop per worker process** — an ``async def`` task body runs
+   through ``sandloom.core.di.run_async`` (never ``asyncio.run``), a sync body
+   directly: the async engine pools are per-process and loop-bound, so a fresh
+   loop per task breaks the pool on the 2nd task. The host calls
+   ``on_process_start`` (a fresh loop after a fork) and ``on_process_stop``
+   (dispose the engines/caches on that loop, then close it) — see
+   :mod:`sandloom.core.async_runner`.
+5. **One scheduler per broker and module set** — it schedules only while it holds
+   a fenced lease of the ``lease`` instance ``beat``
+   (:mod:`sandloom.core.infra.fenced_lease`): the kernel resolves the lease store
+   and its name and passes them to the host; a second scheduler stands by and
+   takes over when the first dies.
 """
 
 from __future__ import annotations
@@ -45,45 +49,49 @@ from __future__ import annotations
 import asyncio
 import importlib
 import importlib.util
-import inspect
 import logging
 import math
 import os
 import sys
-import time
-from collections.abc import Iterable
-from pathlib import Path
+from collections.abc import Coroutine, Iterable
 from types import ModuleType
-from typing import Any
+from typing import Any, TypeVar, cast
 
-from sandloom.core import async_runner, cpu_quota
-from sandloom.core.beat_lease import install_beat_lease
+from sandloom.core import cpu_quota
 from sandloom.core.composition import COMPOSITION_ROOT_ENV, CompositionRootError
 from sandloom.core.composition import load_composition_core as _load_root_core
 from sandloom.core.config.common import strict_profile_active
-from sandloom.core.gc_tuning import install_celery_hooks as install_celery_gc_hooks
-from sandloom.core.tasks import periodic as _periodic
+from sandloom.core.config.settings import settings
+from sandloom.core.gc_tuning import freeze_before_fork
+from sandloom.core.infra.errors import InfraError
+from sandloom.core.infra.fenced_lease import (
+    LeaseNotSharedError,
+    broker_url_of,
+    resolve_beat_lease,
+)
+from sandloom.core.infra.ports.taskqueue import TaskTable, WorkerHost
+from sandloom.core.infra.registry import CapabilityUnavailable, InfraRegistryError
+from sandloom.core.tasks.registry import build_task_table, run_task
 
 logger = logging.getLogger(__name__)
 
-#: Logical taskqueue instance whose app the worker consumes (default ``default``).
+T = TypeVar("T")
+
+
+def _async_runner() -> ModuleType:
+    """:mod:`sandloom.core.async_runner`, imported where a worker process needs
+    it: it pulls in the unit of work and the web framework, which
+    ``sandloom worker check`` (a healthcheck every 30 s) must not load."""
+    return importlib.import_module("sandloom.core.async_runner")
+
+
+#: Logical taskqueue instance whose host the worker runs (default ``default``).
 TASKQUEUE_INSTANCE_ENV = "SANDLOOM_WORKER_TASKQUEUE"
-#: Submodule of a business module that holds its ``@shared_task`` functions.
+#: Submodule of a business module that holds its ``@task`` functions.
 TASKS_SUBMODULE = "tasks"
-#: Optional hook in ``<pkg>.tasks`` that registers periodic (beat) tasks.
-PERIODIC_HOOK = _periodic.PERIODIC_HOOK
-#: Prefork children (default: cgroup CPUs, capped at MAX_DEFAULT_WORKER_CONCURRENCY).
+#: Worker processes (default: cgroup CPUs, capped at MAX_DEFAULT_WORKER_CONCURRENCY).
 WORKER_CONCURRENCY_ENV = "WORKER_CONCURRENCY"
 MAX_DEFAULT_WORKER_CONCURRENCY = 2
-#: Recycle a prefork child above this resident size (KiB) after its task.
-WORKER_MAX_MEMORY_ENV = "WORKER_MAX_MEMORY_PER_CHILD"
-#: Recycle a prefork child after this many tasks.
-WORKER_MAX_TASKS_ENV = "WORKER_MAX_TASKS_PER_CHILD"
-#: Liveness heartbeat file (``python -m sandloom.core.worker healthcheck``).
-HEARTBEAT_FILE_ENV = "WORKER_HEARTBEAT_FILE"
-DEFAULT_HEARTBEAT_FILE = "/tmp/sandloom-worker-heartbeat"  # noqa: S108 - default liveness file; WORKER_HEARTBEAT_FILE overrides
-HEARTBEAT_INTERVAL_SECONDS = 10.0
-HEARTBEAT_MAX_AGE_SECONDS = 60.0
 
 
 class WorkerConfigurationError(CompositionRootError):
@@ -103,24 +111,25 @@ def load_composition_core(root_name: str | None = None) -> Any:
         raise WorkerConfigurationError(str(exc)) from exc
 
 
-def _resolve_celery_app(core: Any, instance: str) -> Any:
-    """Return the Celery app backing taskqueue ``instance`` (driver-built)."""
-    provider = core.taskqueue(instance)
-    backend = provider.raw_backend()
-    if inspect.isawaitable(backend):
-        # Worker boot runs before any event loop exists; the accessor is a pure
-        # getter, so a throwaway loop is enough.
-        async def _await() -> Any:
-            return await backend
+def taskqueue_instance() -> str:
+    """The taskqueue instance the worker and the scheduler run
+    (``SANDLOOM_WORKER_TASKQUEUE``, default ``default``)."""
+    return os.getenv(TASKQUEUE_INSTANCE_ENV) or "default"
 
-        backend = asyncio.run(_await())
-    if not (hasattr(backend, "on_after_finalize") and hasattr(backend, "task")):
+
+def resolve_worker_host(core: Any, instance: str) -> tuple[Any, WorkerHost]:
+    """Return ``(provider, host)``: taskqueue ``instance`` and the host its
+    driver runs."""
+    provider = core.taskqueue(instance)
+    opener = getattr(provider, "worker_host", None)
+    if not callable(opener):
         raise WorkerConfigurationError(
             f"taskqueue instance {instance!r} (driver "
-            f"{getattr(provider, 'driver', '?')!r}) is not backed by a Celery "
-            "app; the framework worker needs the `celery` taskqueue driver"
+            f"{getattr(provider, 'driver', '?')!r}) offers no worker host; the "
+            "framework worker needs a taskqueue driver with `worker_host()`"
         )
-    return backend
+    host: WorkerHost = opener()
+    return provider, host
 
 
 def discover_task_modules(module_names: Iterable[str]) -> list[ModuleType]:
@@ -155,16 +164,16 @@ async def dispose_worker_infra() -> None:
     core = _teardown_core
     if core is None or not hasattr(core, "shutdown_tasks"):
         return
-    from sandloom.core.lifecycle import run_shutdown  # noqa: PLC0415 - cold: `python -m sandloom.core.worker healthcheck` imports this module and must stay cheap; the relational stack loads only in a booted worker
+    from sandloom.core.lifecycle import run_shutdown  # noqa: PLC0415 - cold: the relational stack loads only in a booted worker
 
     await run_shutdown(core)
 
 
 def default_worker_concurrency(cpus: float | None = None) -> int:
-    """Prefork children when ``WORKER_CONCURRENCY`` is unset.
+    """Worker processes when ``WORKER_CONCURRENCY`` is unset.
 
-    Celery defaults to ``os.cpu_count()`` — the HOST's cores, not the
-    container's CPU quota — and every prefork child holds a full copy of the
+    A prefork pool defaults to ``os.cpu_count()`` — the HOST's cores, not the
+    container's CPU quota — and every child holds a full copy of the
     composition root (all modules, pools). A 0.5-CPU / 384 MiB worker on a
     10-core host therefore forked 10 children and was OOM-killed in a loop.
     Derive it from the cgroup quota like the web workers
@@ -174,130 +183,23 @@ def default_worker_concurrency(cpus: float | None = None) -> int:
     return max(1, min(math.ceil(effective), MAX_DEFAULT_WORKER_CONCURRENCY))
 
 
-def _positive_int_env(env: dict[str, str] | os._Environ[str], key: str) -> int | None:
-    raw = (env.get(key) or "").strip()
+def worker_concurrency(env: dict[str, str] | os._Environ[str] | None = None) -> int:
+    """``WORKER_CONCURRENCY``, else :func:`default_worker_concurrency`."""
+    source = os.environ if env is None else env
+    raw = (source.get(WORKER_CONCURRENCY_ENV) or "").strip()
     if not raw:
-        return None
+        return default_worker_concurrency()
     try:
         value = int(raw)
     except ValueError as exc:
         raise WorkerConfigurationError(
-            f"{key} must be a positive integer, got {raw!r}"
+            f"{WORKER_CONCURRENCY_ENV} must be a positive integer, got {raw!r}"
         ) from exc
     if value <= 0:
-        raise WorkerConfigurationError(f"{key} must be a positive integer, got {raw!r}")
+        raise WorkerConfigurationError(
+            f"{WORKER_CONCURRENCY_ENV} must be a positive integer, got {raw!r}"
+        )
     return value
-
-
-def configure_worker_sizing(app: Any, env: dict[str, str] | None = None) -> None:
-    """Apply container-aware sizing to the Celery app's config.
-
-    - ``worker_concurrency``: ``WORKER_CONCURRENCY`` or
-      :func:`default_worker_concurrency` (an explicit ``--concurrency`` on the
-      command line still wins over app config);
-    - ``worker_max_memory_per_child`` (KiB): ``WORKER_MAX_MEMORY_PER_CHILD``,
-      recycling a child that grew past it after its current task;
-    - ``worker_max_tasks_per_child``: ``WORKER_MAX_TASKS_PER_CHILD``.
-    """
-    source = os.environ if env is None else env
-    conf = app.conf
-    conf.worker_concurrency = (
-        _positive_int_env(source, WORKER_CONCURRENCY_ENV)
-        or default_worker_concurrency()
-    )
-    max_mem = _positive_int_env(source, WORKER_MAX_MEMORY_ENV)
-    if max_mem is not None:
-        conf.worker_max_memory_per_child = max_mem
-    max_tasks = _positive_int_env(source, WORKER_MAX_TASKS_ENV)
-    if max_tasks is not None:
-        conf.worker_max_tasks_per_child = max_tasks
-
-
-def configure_worker_reliability(app: Any) -> None:
-    """Framework delivery defaults of the worker's Celery app.
-
-    - ``task_ignore_result=True``: a task stores no result unless it opts out
-      (``@shared_task(ignore_result=False)``) — the framework never reads
-      results, and each stored one is a backend write + TTL key;
-    - ``worker_prefetch_multiplier=1``: a child reserves one message at a
-      time, so a long task does not strand a prefetched backlog behind it (and
-      a crashed child loses at most its own message's ack).
-
-    ``acks_late`` stays OFF globally (Celery's at-most-once default: a task is
-    acked when it starts). An IDEMPOTENT task should opt in to at-least-once
-    with ``@shared_task(acks_late=True, reject_on_worker_lost=True)``: it is
-    acked only after it finished, and redelivered if the worker process dies
-    mid-task — only safe when running it twice is harmless.
-    """
-    conf = app.conf
-    conf.task_ignore_result = True
-    conf.worker_prefetch_multiplier = 1
-
-
-def heartbeat_path(env: dict[str, str] | None = None) -> str:
-    source = os.environ if env is None else env
-    return (source.get(HEARTBEAT_FILE_ENV) or "").strip() or DEFAULT_HEARTBEAT_FILE
-
-
-def install_heartbeat(app: Any, path: str | None = None) -> None:
-    """Touch a heartbeat file from the worker's own timer (liveness probe).
-
-    The timer runs in the worker's main process event machinery, so the file
-    goes stale when the worker is wedged or dead — not merely when a child is
-    busy. ``python -m sandloom.core.worker healthcheck`` checks its age without
-    booting the app (no broker round-trip, no second copy of the composition
-    root inside the container's memory limit, unlike ``celery inspect ping``).
-    """
-    from celery import bootsteps  # noqa: PLC0415 - cold: `python -m sandloom.core.worker healthcheck` runs without Celery; only the worker boot assembles bootsteps
-
-    if getattr(app, "_sandloom_heartbeat_installed", False):
-        return  # one heartbeat step per app, however often it is assembled
-    target = Path(path or heartbeat_path())
-
-    class _Heartbeat(bootsteps.StartStopStep):  # type: ignore[misc]
-        requires = {("celery.worker.components:Timer")}  # noqa: RUF012 - celery bootstep API
-
-        def __init__(self, parent: Any, **kwargs: Any) -> None:
-            super().__init__(parent, **kwargs)
-            self.tref: Any = None
-            self.stopped = False
-
-        def _beat(self, *_: Any) -> None:
-            if self.stopped:
-                return
-            try:
-                target.touch()
-            except OSError:  # pragma: no cover - read-only fs
-                logger.warning("[worker] cannot touch heartbeat %s", target)
-
-        def start(self, parent: Any) -> None:
-            self._beat()
-            self.tref = parent.timer.call_repeatedly(
-                HEARTBEAT_INTERVAL_SECONDS, self._beat, (), priority=10
-            )
-
-        def stop(self, parent: Any) -> None:
-            self.stopped = True
-            if self.tref is not None:
-                self.tref.cancel()
-            target.unlink(missing_ok=True)
-
-    app.steps["worker"].add(_Heartbeat)
-    app._sandloom_heartbeat_installed = True
-
-
-def heartbeat_is_fresh(
-    path: str | None = None,
-    *,
-    max_age: float = HEARTBEAT_MAX_AGE_SECONDS,
-    now: float | None = None,
-) -> bool:
-    """True when the heartbeat file exists and was touched within ``max_age``."""
-    try:
-        mtime = os.path.getmtime(path or heartbeat_path())
-    except OSError:
-        return False
-    return ((time.time() if now is None else now) - mtime) <= max_age
 
 
 def verify_worker_infra(core: Any) -> None:
@@ -323,7 +225,7 @@ def verify_worker_infra(core: Any) -> None:
         for p in providers
         if "tenant_rls" in p.features() and hasattr(p, "verify_tenant_rls")
     ]
-    from sandloom.core.production_profile import enforce_runtime  # noqa: PLC0415 - cold: `python -m sandloom.core.worker healthcheck` imports this module and must stay cheap; the relational stack loads only in a booted worker
+    from sandloom.core.production_profile import enforce_runtime  # noqa: PLC0415 - cold: the relational stack loads only in a booted worker
 
     # A database that takes its schema from the models (SQLite) is built or
     # checked here too, never recreated: a worker refuses one whose tables
@@ -347,84 +249,183 @@ def verify_worker_infra(core: Any) -> None:
     asyncio.run(_run())
 
 
-def build_worker_app(core: Any | None = None, *, instance: str | None = None) -> Any:
-    """Assemble the worker's Celery app for the loaded module set."""
-    global _teardown_core
+def check_task_table_features(table: Any, provider: Any, instance: str) -> None:
+    """Refuse a task table the instance's driver cannot serve (SANDLOOM-B037).
+
+    The load-time derivation reads ``at_least_once=True`` only as a literal; the
+    table is what really runs. A task with ``at_least_once`` needs the feature
+    ``redelivery`` and a periodic one ``periodic``: without them the worker would
+    start and silently run at most once, or never schedule.
+    """
+    features = provider.features()
+    missing: dict[str, list[str]] = {}
+    for name, spec in table.tasks.items():
+        if spec.at_least_once and "redelivery" not in features:
+            missing.setdefault("redelivery", []).append(name)
+    for entry in table.periodic:
+        if "periodic" not in features:
+            missing.setdefault("periodic", []).append(entry.id)
+    if not missing:
+        return
+    detail = "; ".join(
+        f"feature {feature!r} for {', '.join(sorted(names))}"
+        for feature, names in sorted(missing.items())
+    )
+    raise CapabilityUnavailable(
+        f"taskqueue instance {instance!r} (driver {provider.driver!r}) lacks "
+        f"{detail}: the loaded modules' tasks need it",
+        fix="select in INFRA a taskqueue driver that advertises the feature, "
+        "or remove at_least_once / the @periodic task",
+    )
+
+
+class KernelWorkerBoot:
+    """The kernel's :class:`~sandloom.core.infra.ports.taskqueue.WorkerBoot`.
+
+    ``boot`` is the application boot of a worker process (database checks, task
+    discovery, the feature check); ``run`` runs one message through the kernel's
+    task layer; the process hooks own the persistent loop and the GC freeze.
+    The host calls them; this class imports no task-queue backend.
+    """
+
+    def __init__(self, core: Any, provider: Any, instance: str) -> None:
+        self._core = core
+        self._provider = provider
+        self._instance = instance
+
+    def boot(self) -> TaskTable:
+        global _teardown_core
+        verify_worker_infra(self._core)
+        _teardown_core = self._core
+        _async_runner().add_loop_cleanup(dispose_worker_infra)
+        modules = discover_task_modules(list(self._core.loaded_modules))
+        table = build_task_table(m.__name__ for m in modules)
+        check_task_table_features(table, self._provider, self._instance)
+        return table
+
+    def run(self, task: str, payload: bytes, *, task_id: str) -> None:
+        run_task(task, payload)
+
+    def before_fork(self) -> None:
+        freeze_before_fork()
+
+    def on_process_start(self) -> None:
+        _async_runner().reset_loop()
+
+    def on_process_stop(self) -> None:
+        _async_runner().shutdown_loop()
+
+    def run_coroutine(self, coro: Coroutine[Any, Any, T]) -> T:
+        return cast(T, _async_runner().run_async(coro))
+
+
+def run_worker(
+    *,
+    queues: list[str] | None = None,
+    concurrency: int | None = None,
+    loglevel: str = "INFO",
+    core: Any | None = None,
+    instance: str | None = None,
+) -> int:
+    """``sandloom worker``: boot the composition and run the driver's worker
+    host (its process model is a driver option, not an argument); the process
+    exit code."""
     core = core if core is not None else load_composition_core()
-    verify_worker_infra(core)
-    name = instance or os.getenv(TASKQUEUE_INSTANCE_ENV) or "default"
-    app = _resolve_celery_app(core, name)
-    _teardown_core = core
-    configure_worker_sizing(app)
-    configure_worker_reliability(app)
-    install_heartbeat(app)
-    install_beat_lease(app, core, instance=name)
-    install_celery_gc_hooks()
-    async_runner.add_loop_cleanup(dispose_worker_infra)
-    async_runner.install_celery_hooks()
-    for module in discover_task_modules(list(core.loaded_modules)):
-        hook = getattr(module, PERIODIC_HOOK, None)
-        if callable(hook):
-            # weak=False: the hook is a module-level function, but a strong ref
-            # keeps it alive regardless of how the module is reloaded.
-            app.on_after_finalize.connect(hook, weak=False)
-    return app
+    name = instance or taskqueue_instance()
+    provider, host = resolve_worker_host(core, name)
+    boot = KernelWorkerBoot(core, provider, name)
+    return host.run_worker(
+        boot,
+        queues=queues,
+        concurrency=concurrency if concurrency is not None else worker_concurrency(),
+        loglevel=loglevel,
+    )
 
 
-_app: Any | None = None
+def run_scheduler(
+    *,
+    loglevel: str = "INFO",
+    state_file: str | None = None,
+    core: Any | None = None,
+    instance: str | None = None,
+) -> int:
+    """``sandloom beat``: boot the composition and run the driver's scheduler
+    under the beat lease; the process exit code.
+
+    The kernel resolves the lease store, the lease name (broker, taskqueue
+    instance and module set) and the production check; a lease it cannot grant
+    refuses the scheduler before anything is scheduled (exit 1).
+    """
+    core = core if core is not None else load_composition_core()
+    name = instance or taskqueue_instance()
+    provider, host = resolve_worker_host(core, name)
+    try:
+        lease, lease_name = resolve_beat_lease(
+            core,
+            broker_url=broker_url_of(core, name),
+            instance=name,
+            shared_required=settings.is_prod,
+        )
+    except (LeaseNotSharedError, InfraRegistryError, InfraError) as exc:
+        logger.critical("[beat] refusing to schedule: %s", exc)
+        return 1
+    return host.run_scheduler(
+        KernelWorkerBoot(core, provider, name),
+        lease=lease,
+        lease_name=lease_name,
+        lease_ttl_seconds=settings.beat_lease_ttl_seconds,
+        loglevel=loglevel,
+        state_file=state_file,
+    )
 
 
-def get_worker_app() -> Any:
-    """Return the process-wide worker app (assembled once, lazily)."""
-    global _app
-    if _app is None:
-        _app = build_worker_app()
-    return _app
+def check_worker(
+    infra: Any, timeout_seconds: float, *, instance: str | None = None
+) -> tuple[bool, str]:
+    """``sandloom worker check``: ask the driver's host whether a worker runs.
 
-
-def __getattr__(name: str) -> Any:
-    # ``celery -A sandloom.core.worker`` looks up ``app`` (or ``celery``); building
-    # lazily keeps a plain ``import sandloom.core.worker`` free of side effects.
-    if name in {"app", "celery", "celery_app"}:
-        return get_worker_app()
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    It boots no composition root (no module, no database, no broker round
+    trip): ``infra`` is a registry built from the settings alone
+    (:func:`sandloom.core.infra.tool_infra.build_tool_infra`), whose
+    providers are lazy; the host of the worker's taskqueue instance answers.
+    """
+    name = instance or taskqueue_instance()
+    provider = infra.provider("taskqueue", name)
+    host: WorkerHost = provider.worker_host()
+    result = host.check(timeout_seconds=timeout_seconds)
+    if result.status == "ok":
+        return True, ""
+    reason = (result.details or {}).get("error")
+    return False, str(reason or "worker check failed")
 
 
 __all__ = [
     "COMPOSITION_ROOT_ENV",
-    "PERIODIC_HOOK",
     "TASKQUEUE_INSTANCE_ENV",
     "TASKS_SUBMODULE",
+    "KernelWorkerBoot",
     "WorkerConfigurationError",
-    "build_worker_app",
-    "configure_worker_reliability",
-    "configure_worker_sizing",
+    "check_task_table_features",
+    "check_worker",
     "default_worker_concurrency",
     "dispose_worker_infra",
     "verify_worker_infra",
     "discover_task_modules",
-    "get_worker_app",
-    "heartbeat_is_fresh",
-    "install_heartbeat",
     "load_composition_core",
+    "resolve_worker_host",
+    "run_scheduler",
+    "run_worker",
+    "taskqueue_instance",
+    "worker_concurrency",
 ]
 
 
-def main(argv: list[str] | None = None) -> int:
-    """``python -m sandloom.core.worker healthcheck`` → 0 when the heartbeat is fresh.
-
-    Deliberately boots nothing (no composition root, no broker): a container
-    healthcheck must be cheap and must not double the worker's memory.
-    """
-    args = list(sys.argv[1:] if argv is None else argv)
-    if args[:1] != ["healthcheck"]:
-        print("usage: python -m sandloom.core.worker healthcheck", file=sys.stderr)
-        return 2
-    if heartbeat_is_fresh():
-        return 0
-    print(f"worker heartbeat {heartbeat_path()} missing or stale", file=sys.stderr)
-    return 1
-
-
-if __name__ == "__main__":  # pragma: no cover - container healthcheck entry
-    raise SystemExit(main())
+if __name__ == "__main__":
+    # Tombstone, not an alias: ``python -m sandloom.core.worker healthcheck`` used to
+    # be the container probe. Importing the module and exiting 0 would turn a kept
+    # old probe into a liveness check that never fails: exit non-zero, run nothing.
+    sys.exit(
+        "sandloom.core.worker has no command line any more: use `sandloom worker` "
+        "(run the worker), `sandloom beat` (run the scheduler) or "
+        "`sandloom worker check` (the container probe)"
+    )

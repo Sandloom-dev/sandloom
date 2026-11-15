@@ -50,6 +50,7 @@ from sandloom.core.di import (
     publish_event,
     record_audit,
 )
+from sandloom.core.infra import access
 from sandloom.core.planner import ExecutionContext
 from sandloom.core.testing import (
     make_user_headers,
@@ -145,7 +146,7 @@ def _probe_router() -> APIRouter:
     # transaction) with a query that has NO tenant predicate: only RLS filters.
     @r.get("/_p/plan/{ids}")
     async def p_plan(ids: str, tenant: Any = TenantScope(), core: Any = _core()) -> Any:
-        adapter = core.database("default").execution_adapter()
+        adapter = core.database("default").planner_adapter()
         async with adapter.session(_ctx(tenant)) as session:
             rows = await session.execute(
                 text(
@@ -159,7 +160,7 @@ def _probe_router() -> APIRouter:
     async def p_planopt(
         ids: str, tenant: Any = TenantScope(), core: Any = _core()
     ) -> Any:
-        adapter = core.database("default").execution_adapter()
+        adapter = core.database("default").planner_adapter()
         async with adapter.raw_transaction(_ctx(tenant)) as raw:
             rows = await raw.fetch(PROBE_SQL, _ids(ids))
         return [x[0] for x in rows]
@@ -167,7 +168,7 @@ def _probe_router() -> APIRouter:
     # -- no tenant bound at all (no TenantScope) -------------------------------
     @r.get("/_p/unbound/scope/{variant}/{ids}")
     async def u_scope(variant: str, ids: str, core: Any = _core()) -> Any:
-        adapter = core.database("default").execution_adapter()
+        adapter = core.database("default").planner_adapter()
         if variant == "plan":
             async with adapter.session(_ctx(None)) as session:
                 rows = await session.execute(
@@ -227,7 +228,7 @@ def _probe_router() -> APIRouter:
     ) -> Any:
         engine = core.database("default").engine
         if variant in PLANNER:  # the failure happens INSIDE the executor scope
-            adapter = core.database("default").execution_adapter()
+            adapter = core.database("default").planner_adapter()
             if variant == "plan":
                 async with adapter.session(_ctx(tenant)) as session:
                     await session.execute(select(BenchTenantItem.id).limit(1))
@@ -291,7 +292,7 @@ def _probe_router() -> APIRouter:
     ) -> Any:
         """A route DECLARED read-only (PlannedReads) that then tries to write."""
         assert (await reads.one(get_tenant_item, id=A_ID)) is not None
-        adapter = core.database("default").execution_adapter()
+        adapter = core.database("default").planner_adapter()
         if action == "orm":  # through the general executor's session
             async with adapter.session(_ctx(tenant)) as session:
                 session.add(BenchTenantItem(id=999_003, name="x", value=1))
@@ -992,7 +993,9 @@ async def test_autocommit_set_config_is_gone_for_the_next_statement(
     assert await app_conn.fetchval(
         "SELECT set_config('sandloom.tenant_id', $1, true)", str(A)
     ) == str(A)
-    assert await app_conn.fetchval("SELECT current_setting('sandloom.tenant_id', true)") in (
+    assert await app_conn.fetchval(
+        "SELECT current_setting('sandloom.tenant_id', true)"
+    ) in (
         "",
         None,
     )
@@ -1039,7 +1042,9 @@ async def test_plpgsql_function_is_order_safe(app_conn: asyncpg.Connection) -> N
         for r in await app_conn.fetch("SELECT * FROM bench_s5_get($1, $2)", A, A_ID)
     ] == [A_ID]
     assert await app_conn.fetch("SELECT * FROM bench_s5_get($1, $2)", A, B_ID) == []
-    assert await app_conn.fetchval("SELECT current_setting('sandloom.tenant_id', true)") in (
+    assert await app_conn.fetchval(
+        "SELECT current_setting('sandloom.tenant_id', true)"
+    ) in (
         "",
         None,
     )
@@ -1156,10 +1161,9 @@ async def test_fn_endpoint_takes_the_tenant_from_the_token_not_the_client(
 EXPECTED_REDIS = ["GET"]
 
 
-async def test_redis_round_trips(
-    s5: S5, sandloom_core: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    client = await sandloom_core.cache().raw_client()
+async def test_redis_round_trips(s5: S5, monkeypatch: pytest.MonkeyPatch) -> None:
+    # the subject record lives on the security atomic_store (its own client)
+    client = await access.atomic_store("security")._client_obj()  # type: ignore[attr-defined]
     sent: list[str] = []
     original = client.execute_command
 

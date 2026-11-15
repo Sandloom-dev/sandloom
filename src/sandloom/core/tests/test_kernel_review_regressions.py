@@ -173,12 +173,12 @@ class ScopedLedger:
 @pytest.fixture
 def fallback_core(monkeypatch: pytest.MonkeyPatch) -> CoreFacade:
     from sandloom.core.idempotency import cache_store as idempotency_cache_store
-    from sandloom.core.testing import InMemoryCache
+    from sandloom.core.testing import InMemoryAtomicStore
     from sandloom.core.tests.test_contract_runtime import _core
 
     core, _ = _core()
-    cache = InMemoryCache()
-    monkeypatch.setattr(idempotency_cache_store, "cache", lambda name="default": cache)
+    cache = InMemoryAtomicStore()
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: cache)
     ScopedLedger._calls.clear()
     core.register_service("ledger.review.v1", ScopedLedger)
     return core
@@ -618,7 +618,7 @@ async def test_no_stored_record_depends_on_an_undigested_secret(
     assert await contract.set_secret("first-Secret-1", "key-1") == 1
     assert await contract.set_secret("other-Secret-2", "key-1") == 1
     assert SecretLedger._calls == ["first-Secret-1"]
-    store = idempotency_cache_store.cache()
+    store = idempotency_cache_store.atomic_store("idempotency")
     stored = repr(store.store)
     assert "key-1" in stored or store.store  # the reservation is there
     with_secret = effects.args_digest(

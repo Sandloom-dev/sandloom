@@ -46,6 +46,9 @@ from sandloom.core.auth.marks import TOKENS_REVOKED_CHANNEL
 from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
 from sandloom.core.consumers.callbacks import EventConsumerDescriptor, EventEnvelope
 from sandloom.core.descriptors.module_names import module_name
+from sandloom.core.eventing.bus_base import durable_transport
+from sandloom.core.eventing.memory_bus import InMemoryEventBus
+from sandloom.core.infra.errors import Unsupported
 
 logger = logging.getLogger("sandloom.core.auth.applier")
 
@@ -427,15 +430,47 @@ async def _channel_dead_letters(
     counts: dict[str, int] = {}
     after: str | None = None
     for _page in range(DLQ_MAX_PAGES):
-        rows = list(await list_dlq(channel, count=DLQ_PAGE_SIZE, after=after) or ())
+        rows = await list_dlq(channel, count=DLQ_PAGE_SIZE, after=after)
+        if not isinstance(rows, list):
+            # ``None`` or anything else is no reading: never an empty queue.
+            raise TypeError(
+                f"list_dlq({channel!r}) returned {type(rows).__name__}, not a list"
+            )
         for row in rows:
-            group = str(row.get("group"))
+            group = str(row.group)
             if group in groups:
                 counts[group] = counts.get(group, 0) + 1
         if len(rows) < DLQ_PAGE_SIZE:
             return counts, True
-        after = str(rows[-1].get("id"))
+        after = str(rows[-1].id)
     return counts, False
+
+
+async def _count_channel(
+    list_dlq: Any,
+    channel: str,
+    mine: set[str],
+    counts: dict[tuple[str, str], int],
+    unknown: set[tuple[str, str]],
+) -> None:
+    """Add ``channel``'s dead letters of ``mine`` to ``counts``, or to
+    ``unknown`` when the read failed or did not cover the whole queue."""
+    try:
+        found, complete = await _channel_dead_letters(list_dlq, channel, mine)
+    except (NotImplementedError, Unsupported):
+        return  # no inspectable DLQ: none to count
+    except Exception:  # any failure is an unknown count
+        logger.warning(
+            "dead-letter read failed for %s: /ready fails until it can count them",
+            channel,
+            exc_info=True,
+        )
+        unknown.update((channel, group) for group in mine)
+        return
+    for group, count in found.items():
+        counts[(channel, group)] = count
+    if not complete:
+        unknown.update((channel, group) for group in mine if group not in found)
 
 
 async def _dead_letters(
@@ -447,39 +482,27 @@ async def _dead_letters(
     of ``<channel>.dlq``), counting only the wanted groups over the whole
     queue. A read that fails, or a queue longer than the scan, leaves the
     groups it could not count ``unknown`` (fail closed). A transport that
-    keeps no inspectable DLQ (``NotImplementedError``) has none to count.
+    keeps no inspectable DLQ (it does not declare ``dlq_ops``, or ``list_dlq``
+    raises ``Unsupported`` / ``NotImplementedError``) has none to count; a
+    result that is not a list is no reading (unknown, never an empty queue).
     The in-process memory bus keeps its own list.
     """
     wanted = set(groups)
     counts: dict[tuple[str, str], int] = {}
     unknown: set[tuple[str, str]] = set()
-    transport = getattr(bus, "transport", None)
-    list_dlq = getattr(transport, "list_dlq", None)
-    if callable(list_dlq):
+    transport = durable_transport(bus)
+    if transport is not None:
+        if "dlq_ops" not in bus.bus_features:
+            return DeadLetterReading()
         for channel in sorted({channel for channel, _ in wanted}):
             mine = {group for ch, group in wanted if ch == channel}
-            try:
-                found, complete = await _channel_dead_letters(list_dlq, channel, mine)
-            except NotImplementedError:
-                continue
-            except Exception:  # any failure is an unknown count
-                logger.warning(
-                    "dead-letter read failed for %s: /ready fails until it "
-                    "can count them",
-                    channel,
-                    exc_info=True,
-                )
-                unknown.update((channel, group) for group in mine)
-                continue
-            for group, count in found.items():
-                counts[(channel, group)] = count
-            if not complete:
-                unknown.update((channel, group) for group in mine if group not in found)
+            await _count_channel(transport.list_dlq, channel, mine, counts, unknown)
         return DeadLetterReading(counts=counts, unknown=frozenset(unknown))
-    for channel, _message, _attempt in getattr(bus, "dead_letters", ()) or ():
-        for key in wanted:
-            if key[0] == channel:
-                counts[key] = counts.get(key, 0) + 1
+    if isinstance(bus, InMemoryEventBus):
+        for channel, _message, _attempt in bus.dead_letters:
+            for key in wanted:
+                if key[0] == channel:
+                    counts[key] = counts.get(key, 0) + 1
     return DeadLetterReading(counts=counts)
 
 

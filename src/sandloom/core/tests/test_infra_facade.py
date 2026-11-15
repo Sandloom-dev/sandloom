@@ -15,7 +15,7 @@ from sandloom.core.infra.contracts import (
     ObjectStoreProvider,
     TaskQueueProvider,
 )
-from sandloom.core.infra.registry import InfraError
+from sandloom.core.infra.registry import InfraRegistryError
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
 
@@ -53,7 +53,7 @@ def test_get_uow_factory_resolves_through_registry(wired_core: CoreFacade) -> No
     factory = wired_core.get_uow_factory()
     assert factory is not None
     # Named instance that does not exist must raise, not silently fall back.
-    with pytest.raises(InfraError):
+    with pytest.raises(InfraRegistryError):
         wired_core.get_uow_factory("nonexistent")
 
 

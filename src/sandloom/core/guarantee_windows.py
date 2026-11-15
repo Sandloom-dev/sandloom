@@ -6,13 +6,18 @@ while something retries it. Each window is an ops knob on its own; the
 guarantee holds only when they agree:
 
 * ``inbox_purge_below_redelivery`` — a durable-inbox claim must outlive every
-  redelivery of its event. The Streams transport keeps entries for
-  ``EVENT_STREAM_RETENTION_SECONDS`` (a group recreated from ``0``, a pending
+  redelivery of its event. The Streams transport keeps entries for its
+  ``retention_seconds`` option (``EVENT_STREAM_RETENTION_SECONDS``; reported by
+  ``retention()``, a group recreated from ``0``, a pending
   reclaim, ``dlq-replay`` can redeliver anything still retained), so an
   ``sandloom outbox purge --inbox-days D`` with ``D`` below that retention (plus
   :data:`INBOX_RETENTION_MARGIN_SECONDS`) lets a redelivery apply its effect a
   second time. With retention ``0`` (unbounded) every inbox purge is a risk.
-  Checked by the CLI (the purge window is a CLI argument, not a setting).
+  Checked by the CLI (the purge window is a CLI argument, not a setting),
+  against the retention the deployment's event bus is CONFIGURED with
+  (:func:`configured_inbox_purge_problems`), never the live bus of the CLI's own
+  process: a volatile bus there would read as "no replay window". A retention
+  that cannot be determined refuses too.
 * ``command_dedupe_below_retry_horizon`` — a command contract's record must
   outlive the framework's automatic retries of that command. The documented
   horizon is the outbox relay's redelivery budget
@@ -53,6 +58,8 @@ from typing import Any
 
 from sandloom.core.config import accepted_risks as _risks
 from sandloom.core.effects import relay_retry_horizon_seconds
+from sandloom.core.infra.config import configured_stream_retention_seconds
+from sandloom.core.infra.ports.eventbus import Retention
 
 logger = logging.getLogger("sandloom.core.guarantee_windows")
 
@@ -82,34 +89,59 @@ class Problem:
     settings: tuple[str, ...] = ()
 
 
+class _Missing:
+    """The type of :data:`_MISSING`: an argument the caller left out."""
+
+
+_MISSING = _Missing()
+
+
 class GuaranteeWindowError(RuntimeError):
     """Production refuses a configuration whose guarantee windows disagree."""
 
     fatal_at_startup = True
 
 
-def inbox_purge_problems(settings: Any, inbox_days: float) -> list[Problem]:
-    """The inbox-purge window of ``sandloom outbox purge --inbox-days``."""
-    retention = int(settings.event_stream_retention_seconds)
+def stream_retention_seconds(retention: Retention | None) -> int:
+    """The age bound of ``retention`` in seconds: ``0`` for an unbounded
+    stream, ``-1`` for a bus without a durable transport (no replay window)."""
+    if retention is None:
+        return -1
+    return int(retention.max_age_seconds or 0)
+
+
+def inbox_purge_problems(
+    retention: Retention | None, inbox_days: float
+) -> list[Problem]:
+    """The inbox-purge window of ``sandloom outbox purge --inbox-days``.
+
+    ``retention`` is what the event bus's transport reports
+    (``Retention.max_age_seconds``, ``None``: unbounded); ``None`` instead of a
+    ``Retention`` is a bus without a durable transport, which has no redelivery
+    window.
+    """
+    seconds = stream_retention_seconds(retention)
+    if seconds < 0:
+        return []
     purge_after = float(inbox_days) * 86400.0
-    if retention <= 0:
+    if seconds == 0:
         return [
             Problem(
                 INBOX_PURGE_BELOW_REDELIVERY,
-                "EVENT_STREAM_RETENTION_SECONDS=0 keeps stream entries without "
-                "a time bound, so any redelivery horizon is unbounded: purging "
-                f"inbox claims older than {inbox_days:g} day(s) lets a "
+                "the event streams keep entries without a time bound "
+                "(retention_seconds=0), so any redelivery horizon is unbounded: "
+                f"purging inbox claims older than {inbox_days:g} day(s) lets a "
                 "redelivered event apply its effect twice",
                 ("EVENT_STREAM_RETENTION_SECONDS", "--inbox-days"),
             )
         ]
-    needed = retention + INBOX_RETENTION_MARGIN_SECONDS
+    needed = seconds + INBOX_RETENTION_MARGIN_SECONDS
     if purge_after < needed:
         return [
             Problem(
                 INBOX_PURGE_BELOW_REDELIVERY,
                 f"--inbox-days {inbox_days:g} purges claims younger than the "
-                f"stream retention (EVENT_STREAM_RETENTION_SECONDS={retention}) "
+                f"stream retention (EVENT_STREAM_RETENTION_SECONDS={seconds}) "
                 f"+ {INBOX_RETENTION_MARGIN_SECONDS // 3600} h margin: a "
                 "redelivery after the purge applies its effect twice — use "
                 f"--inbox-days >= {needed / 86400.0:g}",
@@ -117,6 +149,33 @@ def inbox_purge_problems(settings: Any, inbox_days: float) -> list[Problem]:
             )
         ]
     return []
+
+
+def configured_inbox_purge_problems(settings: Any, inbox_days: float) -> list[Problem]:
+    """The inbox-purge window against the retention the deployment's eventbus
+    instance is CONFIGURED with (``eventbus.default`` of the resolved ``INFRA``:
+    ``retention_seconds``, a pure configuration read; no live bus is asked).
+
+    A retention that cannot be determined (a volatile ``memory`` / ``redis``
+    bus, a driver without a ``retention_seconds`` option) is a problem too: the
+    purge cannot prove it stays outside the redelivery window.
+    """
+    seconds = configured_stream_retention_seconds(settings)
+    if seconds is None:
+        return [
+            Problem(
+                INBOX_PURGE_BELOW_REDELIVERY,
+                "the stream retention of the deployment's event bus cannot be "
+                "determined from its configuration (EVENT_BUS_BACKEND resolves to a "
+                "bus without a retention_seconds option): a redelivery after "
+                f"purging inbox claims older than {inbox_days:g} day(s) could "
+                "apply its effect twice",
+                ("EVENT_BUS_BACKEND", "EVENT_STREAM_RETENTION_SECONDS", "--inbox-days"),
+            )
+        ]
+    return inbox_purge_problems(
+        Retention(max_age_seconds=seconds or None, max_length=None), inbox_days
+    )
 
 
 def saga_horizon_problems(settings: Any, sagas: Iterable[Any]) -> list[Problem]:
@@ -168,13 +227,22 @@ def guarantee_window_problems(
     settings: Any,
     *,
     inbox_days: float | None = None,
+    retention: Retention | _Missing | None = _MISSING,
     sagas: Iterable[Any] = (),
 ) -> list[Problem]:
     """Every guarantee window ``settings`` violates (deterministic, no I/O).
 
-    ``inbox_days`` adds the inbox-purge window (the CLI's argument);
+    ``inbox_days`` adds the inbox-purge window (the CLI's argument) against
+    the stream ``retention`` (:func:`inbox_purge_problems`); ``retention`` is
+    REQUIRED with ``inbox_days`` (``None`` is a bus without a durable transport,
+    a value to state, never a default): a missing one raises ``TypeError``.
     ``sagas`` the registered saga definitions (the saga horizon).
     """
+    if inbox_days is not None and isinstance(retention, _Missing):
+        raise TypeError(
+            "guarantee_window_problems(inbox_days=...) needs retention=: the "
+            "stream retention to check the purge window against"
+        )
     problems: list[Problem] = []
     ttl = int(settings.contract_command_dedupe_ttl_seconds)
     horizon = relay_retry_horizon_seconds(settings)
@@ -196,7 +264,11 @@ def guarantee_window_problems(
         )
     problems.extend(saga_horizon_problems(settings, sagas))
     if inbox_days is not None:
-        problems.extend(inbox_purge_problems(settings, inbox_days))
+        problems.extend(
+            inbox_purge_problems(
+                None if isinstance(retention, _Missing) else retention, inbox_days
+            )
+        )
     return problems
 
 
@@ -250,7 +322,9 @@ __all__ = [
     "Problem",
     "accepted_risks",
     "enforce_guarantee_windows",
+    "configured_inbox_purge_problems",
     "guarantee_window_problems",
     "inbox_purge_problems",
     "saga_horizon_problems",
+    "stream_retention_seconds",
 ]

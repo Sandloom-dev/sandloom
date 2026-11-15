@@ -143,11 +143,6 @@ def _risk_list(cfg: Any) -> object:
     return tuple(sorted(accepted_risks.effective(cfg)))
 
 
-def _security_cache(cfg: Any) -> object:
-    name = getattr(cfg, "security_cache_instance", "default") or "default"
-    return "shared" if name == "default" else "separate"
-
-
 # ------------------------------------------------------------------ specs ----
 
 
@@ -260,14 +255,6 @@ SEMANTIC: tuple[SemanticSetting, ...] = (
         refused=frozenset({"prod_strict"}),
         infra_option=True,
     ),
-    SemanticSetting(
-        "SECURITY_CACHE_INSTANCE",
-        "Revocation marks / blocks / idempotency on a separate non-evicting Redis.",
-        profile=_all("shared", prod_strict="separate"),
-        strength=("shared", "separate"),
-        refused=frozenset({"prod_strict"}),
-        effective=_security_cache,
-    ),
     # ---- authentication / tokens
     SemanticSetting(
         "AUTH_REVOCATION_FAIL_CLOSED",
@@ -375,8 +362,8 @@ REMOVED: tuple[RemovedSetting, ...] = (
     RemovedSetting(
         "BEAT_LEASE_ENABLED",
         "0.8",
-        "the beat singleton lease is always on (BEAT_LEASE_CACHE_INSTANCE must "
-        "be a cache with the 'cas' feature)",
+        "the beat singleton lease is always on (it is held in the `lease` "
+        "instance INFRA.lease.beat)",
         inert=True,
     ),
     RemovedSetting(
@@ -445,6 +432,36 @@ REMOVED: tuple[RemovedSetting, ...] = (
         inert=[],
     ),
     RemovedSetting(
+        "BEAT_LEASE_CACHE_INSTANCE",
+        "1.0",
+        "the beat lease and the saga sweep are held in the `lease` instance "
+        'INFRA.lease.beat (a driver: "redis", "database"; e.g. '
+        'INFRA={"lease": {"beat": {"driver": "redis", "url": '
+        '"redis://..."}}}), no longer in a cache instance; absent, it is a '
+        "redis lease on CACHE_URL",
+    ),
+    RemovedSetting(
+        "SECURITY_CACHE_INSTANCE",
+        "1.0",
+        "revocation marks, blocks and RPC nonces are held in the `atomic_store` "
+        'instance INFRA.atomic_store.security (a driver: "redis"; e.g. '
+        'INFRA={"atomic_store": {"security": {"driver": "redis", "url": '
+        '"redis://..."}}}), no longer in a cache instance; every production '
+        "deployment, with any PRODUCTION_PROFILE, is refused at startup without "
+        "it. Upgrade: delete SECURITY_CACHE_INSTANCE and move the INFRA cache "
+        'entry it named to INFRA["atomic_store"]["security"] (the same url, on a '
+        "Redis that never evicts)",
+    ),
+    RemovedSetting(
+        "IDEMPOTENCY_CACHE_INSTANCE",
+        "1.0",
+        "idempotency reservations and enqueue dedupe are held in the "
+        "`atomic_store` instance INFRA.atomic_store.idempotency, the `security` "
+        "instance when it is absent. Upgrade: delete IDEMPOTENCY_CACHE_INSTANCE "
+        "and move the INFRA cache entry it named to "
+        'INFRA["atomic_store"]["idempotency"]',
+    ),
+    RemovedSetting(
         "MODULE_FS_SCAN",
         "0.7",
         "modules are no longer packages under sandloom.*: list them in "
@@ -492,7 +509,6 @@ OPS: frozenset[str] = frozenset(
         "MIGRATION_LOCK_TIMEOUT_SECONDS",
         "BEAT_LEASE_TTL_SECONDS",
         "BEAT_LEASE_NAME",
-        "BEAT_LEASE_CACHE_INSTANCE",
         "GC_FREEZE_AFTER_STARTUP",
         "GC_THRESHOLDS",
         "GC_METRICS_ENABLED",
@@ -538,7 +554,6 @@ OPS: frozenset[str] = frozenset(
         "CONTRACT_DTO_PACKAGES",
         "CONTRACT_SNAPSHOT_PATHS",
         "ACCESS",
-        "IDEMPOTENCY_CACHE_INSTANCE",
         "SINGLE_TENANT_ID",
         "DATABASE_URL",
         "DATABASE_SYSTEM_URL",

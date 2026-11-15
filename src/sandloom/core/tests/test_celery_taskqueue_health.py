@@ -3,8 +3,9 @@ dependencies, answer 4): a real, bounded check, not the default ``ok``.
 
 ``health()`` opens one connection to the app's broker and releases it, with
 the connect and socket timeouts set to ``HEALTH_CHECK_TIMEOUT_SECONDS`` and no
-retry; a failure names the broker by scheme, host and port, never its
-credentials. Its readers cache it (``/ready``: one probe per TTL).
+retry; no detail of the answer names the broker (no URL, no host, no
+credential: security review S7). Its readers cache it (``/ready``: one probe
+per TTL).
 """
 
 from __future__ import annotations
@@ -13,10 +14,10 @@ import time
 from typing import Any
 
 import pytest
+from sandloom_celery import broker_probe as probe
+from sandloom_celery.taskqueue import create_celery_taskqueue
 
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers import celery_broker_probe as probe
-from sandloom.core.drivers.celery_taskqueue import create_celery_taskqueue
 from sandloom.core.infra.config import InstanceConfig
 
 celery = pytest.importorskip("celery")
@@ -33,19 +34,37 @@ async def test_a_reachable_broker_is_ok() -> None:
     result = await probe.probe_broker(_app(settings.broker_url), limit_seconds=2.0)
 
     assert result.status == "ok", result.details
-    assert result.details["broker"].startswith("redis://")
+    assert not result.details  # nothing of the broker
 
 
-async def test_an_unreachable_broker_fails_naming_it_without_credentials() -> None:
+def _leaks(text: str) -> list[str]:
+    """What of the refused broker's address or secret ``text`` carries."""
+    return [part for part in ("s3cret", "127.0.0.1", ":1/", "redis://") if part in text]
+
+
+async def test_an_unreachable_broker_fails_without_naming_it() -> None:
     """A refused connection raises; every health reader turns it into a
-    failed probe carrying this message."""
+    failed probe carrying this message: the type of the error, never the broker
+    (no credential, no host string)."""
     started = time.monotonic()
     with pytest.raises(probe.BrokerUnreachableError) as caught:
         await probe.probe_broker(_app(_REFUSED), limit_seconds=2.0)
 
-    assert str(caught.value).startswith("broker redis://127.0.0.1:1 unreachable: ")
-    assert "s3cret" not in str(caught.value)
+    assert str(caught.value).startswith("broker unreachable: ")
+    assert _leaks(str(caught.value)) == []
     assert time.monotonic() - started < 2.0  # refused: no retry, no backoff
+
+
+async def test_a_client_error_that_prints_the_url_does_not_reach_the_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refuse(app: Any, timeout: float) -> None:
+        raise ConnectionError(f"Error connecting to {_REFUSED}")
+
+    monkeypatch.setattr(probe, "_connect_once", refuse)
+    with pytest.raises(probe.BrokerUnreachableError) as caught:
+        await probe.probe_broker(_app(_REFUSED), limit_seconds=2.0)
+    assert str(caught.value) == "broker unreachable: ConnectionError"
 
 
 async def test_a_hanging_broker_is_bounded_by_the_timeout(
@@ -62,7 +81,8 @@ async def test_a_hanging_broker_is_bounded_by_the_timeout(
     result = await probe.probe_broker(_app(_REFUSED), limit_seconds=0.2)
 
     assert result.status == "fail"
-    assert result.details["error"] == "broker redis://127.0.0.1:1 timeout > 0.2s"
+    assert result.details == {"error": "timeout"}
+    assert _leaks(str(result.details)) == []
     assert time.monotonic() - started < 1.0
 
 
@@ -103,14 +123,14 @@ async def test_the_provider_health_probes_its_broker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``CeleryTaskQueueProvider.health()`` is the probe, per instance
-    broker (no longer the contract's default ``ok``)."""
-    monkeypatch.setattr(settings, "health_check_timeout_seconds", 2.0)
+    broker (no longer the contract's default ``ok``), bounded by its
+    ``health_timeout_seconds`` option."""
     down = create_celery_taskqueue(
         InstanceConfig(
             capability="taskqueue",
             name="kbic3",
             driver="celery",
-            options={"broker": _REFUSED},
+            options={"broker": _REFUSED, "health_timeout_seconds": 2.0},
         )
     )
     up = create_celery_taskqueue(
@@ -122,6 +142,8 @@ async def test_the_provider_health_probes_its_broker(
         )
     )
 
-    with pytest.raises(probe.BrokerUnreachableError):
-        await down.health()
+    refused = await down.health()
+    # A failed probe carrying the error's type name, never its text (spec 2.4).
+    assert refused.status == "fail"
+    assert refused.details == {"error": "BrokerUnreachableError"}
     assert (await up.health()).status == "ok"

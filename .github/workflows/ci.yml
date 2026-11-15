@@ -53,6 +53,7 @@ jobs:
           tests/architecture/test_ci_workflow_policy.py
           tests/architecture/test_required_ci.py
           tests/architecture/test_pypi_release.py
+          tests/architecture/test_release_packages.py
           tests/architecture/test_pr_evidence.py
           tests/architecture/test_release_sync.py -q
       - name: Reviewed source and credential patterns
@@ -93,12 +94,14 @@ jobs:
               - 'tools/checks/**'
               - 'tools/packaging/*.py'
               - 'tools/packaging/**/*.py'
+              - 'tools/packaging/packages.json'
               - 'pyproject.toml'
               - 'uv.lock'
               - 'conftest.py'
               - 'architecture_rules.yml'
               - 'guarantees.yml'
               - '.env.test'
+              - '.github/workflows/release.yml'
               - '.github/workflows/ci.yml'
             admin:
               - 'tools/inspection/**'
@@ -153,6 +156,7 @@ jobs:
               - 'NOTICE'
               - 'tools/packaging/*.py'
               - 'tools/packaging/**/*.py'
+              - 'tools/packaging/packages.json'
               - '.github/workflows/packages.yml'
               - '.github/workflows/release.yml'
               - '.github/workflows/ci.yml'
@@ -163,10 +167,12 @@ jobs:
               - 'tools/checks/**'
               - 'tools/packaging/*.py'
               - 'tools/packaging/**/*.py'
+              - 'tools/packaging/packages.json'
               - 'pyproject.toml'
               - 'uv.lock'
               - 'docs/adr/**'
               - 'docs/reference/guarantees.md'
+              - '.github/workflows/release.yml'
               - '.github/workflows/architecture-check.yml'
               - '.github/workflows/ci.yml'
             dependency_review:
@@ -601,12 +607,17 @@ jobs:
       - name: A venv with the kernel package and no module package
         # The kernel's extras and the pinned dev tools; no sandloom-identity,
         # -tenancy, -billing or -admin. The hook then hides their sources.
+        # sandloom-redis and sandloom-celery (the drivers the `redis` and
+        # `celery` extras name) are installed from the checkout: their
+        # version is not on an index yet.
         run: |
           uv venv --python 3.12 .venv-kernel
           uv export --frozen --only-group dev --no-hashes --no-emit-project \
             > "$RUNNER_TEMP/dev-requirements.txt"
           uv pip install --python .venv-kernel/bin/python \
             -e "packages/sandloom[redis,celery,check,fast,sqlite,sentry]" \
+            -e packages/sandloom-redis \
+            -e packages/sandloom-celery \
             -r "$RUNNER_TEMP/dev-requirements.txt"
           .venv-kernel/bin/python tools/ci/no_batteries.py install
           .venv-kernel/bin/python tools/ci/no_batteries.py check
@@ -617,6 +628,144 @@ jobs:
           --durations=25 --sandloom-shuffle=random -p tools.ci.no_batteries
           src/sandloom/core/tests tests/sdk tests/architecture
           tests/integration/replaceability
+
+  redis-drivers:
+    # The sandloom-redis package (atomic_store, lease and broadcast drivers):
+    # its wheel, style, strict types, its tests and conformance kits against a
+    # real Redis, and the kernel's tests of the driver rows. The package is
+    # tested as its built wheel, so the entry points the registry reads are the
+    # ones the wheel ships. The root pytest paths exclude packages/, so no
+    # other job runs these tests.
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.packages == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: .
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sandloom_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
+      CACHE_URL: redis://127.0.0.1:6380/0
+      BROKER_URL: redis://127.0.0.1:6380/14
+      JWT_SECRET: ci-redis-drivers-not-a-real-secret
+      SANDLOOM_TEST_OWNER: ci-redis-drivers
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Start Redis with enough databases for every xdist worker
+        working-directory: .
+        run: |
+          docker run -d --name redis -p 6380:6379 redis:7 \
+            redis-server --databases 256 --save "" --appendonly no
+          for _ in $(seq 1 30); do
+            docker exec redis redis-cli ping | grep -q PONG && break
+            sleep 1
+          done
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          save-cache: false
+
+      - name: Install Sandloom and the built driver package
+        run: |
+          uv sync --frozen --group packaging
+          uv build packages/sandloom-redis --out-dir "$RUNNER_TEMP/redis-dist"
+          uv pip install --reinstall --no-deps "$RUNNER_TEMP"/redis-dist/*.whl
+
+      - name: Driver package style
+        run: |
+          uv run --no-sync ruff check --no-fix packages/sandloom-redis
+          uv run --no-sync ruff format --check packages/sandloom-redis
+
+      - name: Driver package types
+        run: uv run --no-sync mypy packages/sandloom-redis/src
+
+      - name: Driver tests, their conformance kits and the kernel's driver rows
+        run: >-
+          uv run --no-sync pytest -q -n 2 --dist loadfile
+          packages/sandloom-redis/tests
+          src/sandloom/core/tests/test_redis_driver_rows.py
+          src/sandloom/core/tests/test_atomic_store.py
+          src/sandloom/core/tests/test_lease.py
+          src/sandloom/core/tests/test_broadcast_redis.py
+
+  celery-drivers:
+    # The sandloom-celery package (the `celery` taskqueue driver, its worker
+    # host and its broker probe): its wheel, style and strict types. The root
+    # mypy run and pytest paths exclude packages/, so no other job checks this
+    # source. The package's tests and a real-broker lane come with
+    # idk-pkg-celery-lane; until then the kernel suites (`backend-tests`) run
+    # the driver through the kernel's own tests.
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.packages == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          save-cache: false
+
+      - name: Install Sandloom and the built driver package
+        run: |
+          uv sync --frozen --group packaging
+          uv build packages/sandloom-celery --out-dir "$RUNNER_TEMP/celery-dist"
+          uv pip install --reinstall --no-deps "$RUNNER_TEMP"/celery-dist/*.whl
+
+      - name: Driver package style
+        run: |
+          uv run --no-sync ruff check --no-fix packages/sandloom-celery
+          uv run --no-sync ruff format --check packages/sandloom-celery
+
+      - name: Driver package types
+        run: uv run --no-sync mypy packages/sandloom-celery/src
+
+      - name: The built wheel registers the driver and imports without Celery loaded
+        run: >-
+          uv run --no-sync python -I -c
+          "import sys, importlib.metadata as m;
+          e = {x.name: x.value for x in m.entry_points(group='sandloom.drivers') if x.dist.name == 'sandloom-celery'};
+          assert e == {'taskqueue.celery': 'sandloom_celery.taskqueue:CeleryTaskQueueProvider'}, e;
+          import sandloom_celery.taskqueue, sandloom_celery.worker;
+          assert 'celery' not in sys.modules, 'celery imported at import time'"
 
   second-db-test-lane:
     # The second database (spec: design/infra-agnostic/spec.md, section 6).
@@ -1371,6 +1520,8 @@ jobs:
       - backend-tests
       - backend-tests-isolation
       - kernel-without-batteries
+      - redis-drivers
+      - celery-drivers
       - second-db-test-lane
       - skip-ledger
       - benchmarks-security

@@ -9,25 +9,85 @@ DBAPI that needs the driver's fast paths subclasses :class:`DbapiAdapter` and
 registers it with
 :func:`register_dbapi_adapter` (any other DBAPI takes the plain path). A
 business module may not import this package (SANDLOOM-C004), and the kernel
-never does. A contract joins it
-only with a kit in :mod:`sandloom.driverkit.testing`. A driver states its
-``contract_version``; another major version is refused at load (SANDLOOM-B022).
+never does. A module-facing contract joins it
+only with a kit in :mod:`sandloom.driverkit.testing`; the kernel-facing ones
+(``atomic_store``, ``lease``, ``broadcast``, the transport shape of ``eventbus``)
+are final and exported before their kits. A driver states its
+``contract_version``, the integer major of its capability; another major is
+refused at load (SANDLOOM-B022). An operation raises only the errors of
+:mod:`sandloom.core.infra.errors` (:class:`InfraError` and its subclasses,
+re-exported here), mapping its backend's errors onto them. The kernel-facing
+contracts a driver package serves (``atomic_store``, ``lease``, ``broadcast``,
+and ``eventbus`` as an :class:`EventTransportProvider`: the typed durable
+transport the kernel builds its bus over, with :class:`Delivery`,
+:class:`GroupOwner`, :class:`Retention` and the other value types of its
+operations, :class:`PartialPublish` and :class:`GroupOwnedElsewhere`)
+are exported with their value types; a module never resolves them. A driver
+records metrics through :data:`observe` (an :class:`Observe`: ``counter`` and
+``histogram`` return a :class:`DriverCounter` / :class:`DriverHistogram`), which
+registers them in the kernel's registry: a driver imports no kernel setting
+and no ``prometheus_client`` registry (:mod:`sandloom.driverkit.metrics`).
 Guide: ``docs/infrastructure/write-a-driver.md``.
 """
 
 from sandloom.core.descriptors import HealthResult
+from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.infra.capabilities import CapabilityRef, CapabilitySpec
-from sandloom.core.infra.contracts import (
-    InfraProvider,
-    InvalidObjectKeyError,
-    Notification,
-    NotifierProvider,
+from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
+from sandloom.core.infra.errors import (
+    AlreadyExists,
+    InfraError,
+    InvalidArgument,
+    NotFound,
+    PermissionDenied,
+    Timeout,
+    TooLarge,
+    Unavailable,
+    Unsupported,
+)
+from sandloom.core.infra.fenced_lease import FencedLease
+from sandloom.core.infra.ports._base import InfraProvider
+from sandloom.core.infra.ports.atomic_store import AtomicStoreProvider
+from sandloom.core.infra.ports.broadcast import (
+    BroadcastMessage,
+    BroadcastProvider,
+    Subscription,
+)
+from sandloom.core.infra.ports.cache import CacheProvider
+from sandloom.core.infra.ports.database import UnitSession
+from sandloom.core.infra.ports.eventbus import (
+    ConsumerInfo,
+    DeadLetter,
+    Delivery,
+    EventTransport,
+    EventTransportProvider,
+    GroupInfo,
+    GroupOwnedElsewhere,
+    GroupOwner,
+    PartialPublish,
+    Retention,
+    StreamInfo,
+)
+from sandloom.core.infra.ports.lease import (
+    Lease,
+    LeaseHolder,
+    LeaseProvider,
+    LeaseStore,
+)
+from sandloom.core.infra.ports.notification import Notification, NotifierProvider
+from sandloom.core.infra.ports.objectstore import (
     ObjectContent,
     ObjectStoreProvider,
-    ObjectTooLargeError,
-    UploadTooLargeError,
     iter_object_chunks,
     validate_object_key,
+)
+from sandloom.core.infra.ports.taskqueue import (
+    PeriodicSpec,
+    TaskQueueProvider,
+    TaskSpec,
+    TaskTable,
+    WorkerBoot,
+    WorkerHost,
 )
 from sandloom.core.sql_alchemy.dbapi import (
     DBAPI_CAPABILITIES,
@@ -42,8 +102,45 @@ from sandloom.core.sql_alchemy.portable import (
     RowSecurity,
     SqlDialect,
 )
+from sandloom.driverkit.metrics import (
+    DriverCounter,
+    DriverHistogram,
+    Observe,
+    observe,
+)
 
 __all__ = [
+    "AlreadyExists",
+    "InfraError",
+    "InvalidArgument",
+    "NotFound",
+    "PermissionDenied",
+    "Timeout",
+    "TooLarge",
+    "Unavailable",
+    "Unsupported",
+    "AtomicStoreProvider",
+    "BroadcastMessage",
+    "BroadcastProvider",
+    "CacheProvider",
+    "ConsumerInfo",
+    "DeadLetter",
+    "Delivery",
+    "EventEnvelope",
+    "EventTransport",
+    "EventTransportProvider",
+    "GroupInfo",
+    "GroupOwnedElsewhere",
+    "GroupOwner",
+    "PartialPublish",
+    "Retention",
+    "StreamInfo",
+    "FencedLease",
+    "Lease",
+    "LeaseHolder",
+    "LeaseProvider",
+    "LeaseStore",
+    "Subscription",
     "CapabilityRef",
     "ConflictInsert",
     "DBAPI_CAPABILITIES",
@@ -54,16 +151,26 @@ __all__ = [
     "TENANT_SETTING",
     "WRITE_LOCK_HELD",
     "CapabilitySpec",
+    "DEFAULT_INSTANCE",
     "HealthResult",
     "InfraProvider",
+    "InstanceConfig",
     "Notification",
     "NotifierProvider",
-    "InvalidObjectKeyError",
     "ObjectContent",
     "ObjectStoreProvider",
-    "ObjectTooLargeError",
-    "UploadTooLargeError",
+    "PeriodicSpec",
+    "TaskQueueProvider",
+    "TaskSpec",
+    "TaskTable",
+    "UnitSession",
+    "WorkerBoot",
+    "WorkerHost",
+    "DriverCounter",
+    "DriverHistogram",
+    "Observe",
     "iter_object_chunks",
+    "observe",
     "validate_object_key",
     "register_dbapi_adapter",
 ]

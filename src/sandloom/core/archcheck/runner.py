@@ -98,6 +98,7 @@ _CHECK_RULE_IDS: tuple[str, ...] = (
     "database-feature-forms",
     "portable-sql",
     "undeclared-capability",
+    "task-enqueue-ownership",
     "generated-reserved",
 )
 RULES: dict[str, str] = dict.fromkeys(_CHECK_RULE_IDS, "")
@@ -678,6 +679,9 @@ def _module_level_checks(
         "consumed-contracts": lambda: mr.find_undeclared_contracts(files),
         "undeclared-capability": lambda: mr.find_undeclared_capabilities(
             module_dir, files
+        ),
+        "task-enqueue-ownership": lambda: mr.find_foreign_task_enqueues(
+            files, rules.module_package(module)
         ),
         "generated-reserved": lambda: gr.find_reserved_generated_problems(
             module_dir,

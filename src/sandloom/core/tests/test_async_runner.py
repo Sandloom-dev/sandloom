@@ -3,8 +3,8 @@
 Celery task bodies used ``asyncio.run`` per task, while the async engine pools
 are process-wide and loop-bound: the 2nd task in a worker child got a pooled
 connection whose loop ``asyncio.run`` had already closed. ``run_async`` keeps
-ONE loop per process (fresh after fork via ``worker_process_init``, engines
-disposed on it at ``worker_process_shutdown``).
+ONE loop per process (fresh after fork via the boot's ``on_process_start``,
+engines disposed on it at ``on_process_stop``).
 """
 
 from __future__ import annotations
@@ -14,10 +14,10 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from celery import Celery, signals
 
 from sandloom.core import async_runner, worker
 from sandloom.core.di import run_async as di_run_async
@@ -58,10 +58,16 @@ def test_inherited_loop_is_replaced_after_fork(monkeypatch: pytest.MonkeyPatch) 
     assert async_runner.run_async(_loop_id()) != parent_loop
 
 
-def test_worker_process_init_resets_the_loop() -> None:
-    async_runner.install_celery_hooks()
+def _boot() -> worker.KernelWorkerBoot:
+    """The boot a host calls in each process that runs messages."""
+    return worker.KernelWorkerBoot(
+        SimpleNamespace(loaded_modules=[]), object(), "default"
+    )
+
+
+def test_process_start_resets_the_loop() -> None:
     before = async_runner.run_async(_loop_id())
-    signals.worker_process_init.send(sender=None)
+    _boot().on_process_start()
     assert async_runner.run_async(_loop_id()) != before
 
 
@@ -75,9 +81,8 @@ def test_shutdown_runs_cleanups_on_the_worker_loop_then_closes_it() -> None:
     async_runner.add_loop_cleanup(cleanup)  # idempotent registration
     loop_id = async_runner.run_async(_loop_id())
     loop = async_runner._loop
-    async_runner.install_celery_hooks()
 
-    signals.worker_process_shutdown.send(sender=None)
+    _boot().on_process_stop()
 
     assert seen == [loop_id]
     assert loop is not None and loop.is_closed()
@@ -132,30 +137,26 @@ async def test_run_async_inside_a_running_loop_is_rejected() -> None:
         async_runner.run_async(coro)
 
 
-def test_build_worker_app_wires_loop_hooks_and_engine_disposal() -> None:
+def test_the_kernel_imports_no_task_queue_signal() -> None:
+    """The runner wires no Celery signal: the host calls the boot's process
+    hooks (``on_process_start`` / ``on_process_stop``)."""
+    assert not hasattr(async_runner, "install_celery_hooks")
+    assert not hasattr(async_runner, "_hooks_installed")
+
+
+def test_boot_wires_engine_disposal() -> None:
     class _Provider:
-        driver = "celery"
+        driver = "fake"
 
-        def __init__(self, app: Celery) -> None:
-            self._app = app
+        def features(self) -> frozenset[str]:
+            return frozenset({"delay", "periodic", "redelivery"})
 
-        def raw_backend(self) -> Celery:
-            return self._app
-
-    class _Core:
-        loaded_modules: list[str] = []
-
-        def __init__(self, app: Celery) -> None:
-            self._p = _Provider(app)
-
-        def taskqueue(self, name: str = "default") -> _Provider:
-            return self._p
-
-    app = Celery("sandloom-runner-test", broker="memory://")
-    worker.build_worker_app(_Core(app))
+    boot = worker.KernelWorkerBoot(
+        SimpleNamespace(loaded_modules=[]), _Provider(), "default"
+    )
+    boot.boot()
 
     assert worker.dispose_worker_infra in async_runner._cleanups
-    assert async_runner._hooks_installed
 
 
 def test_dispose_worker_infra_runs_the_core_shutdown_tasks(

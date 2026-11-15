@@ -92,7 +92,7 @@ repository. The steps are in [Deploy an application](deploy.md) and
   with a cap. `/health` and `/ready` answer 503 when degraded (the
   Kubernetes probe contract).
 - **Workers** are sized from the CPU quota (`WORKER_CONCURRENCY` overrides)
-  and health-checked with `python -m sandloom.core.worker healthcheck`; exactly
+  and health-checked with `sandloom worker check`; exactly
   one beat per broker holds the lease (see
   [Background tasks](../modules/background/tasks.md)).
 - **The image** builds from the locked `uv.lock`, runs as a non-root user and

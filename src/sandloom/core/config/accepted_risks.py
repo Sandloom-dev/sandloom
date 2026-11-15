@@ -65,6 +65,12 @@ RISKS: tuple[Risk, ...] = (
         "build_infra_registry (sandloom.core.drivers.bootstrap)",
     ),
     Risk(
+        "experimental_driver",
+        "An experimental driver in prod: it implements the contract, but its "
+        "conformance kit has not passed in CI against the real service.",
+        "build_infra_registry (sandloom.core.drivers.bootstrap)",
+    ),
+    Risk(
         "log_notifier_in_prod",
         "The log notifier advertises delivery channels in prod: mail and SMS "
         "nobody receives.",
@@ -90,6 +96,17 @@ RISKS: tuple[Risk, ...] = (
         "event-bus driver (sandloom.core.drivers.event_bus_driver) and the "
         "consumer runtime (sandloom.core.consumers.callbacks)",
         outside_prod=True,
+    ),
+    Risk(
+        "unverified_noeviction",
+        "never_evicts_check=assume on a Redis atomic_store or lease driver in "
+        "prod: the driver cannot read maxmemory-policy, so an operator vouches "
+        "that the server never evicts; if it does, a revocation mark or an "
+        "idempotency reservation (atomic_store) can vanish before its TTL, or a "
+        "fence counter (lease) can vanish and a fence repeat.",
+        "redis atomic_store and lease drivers, through the policy the registry "
+        "builds both with (unverified_noeviction_allowed, "
+        "sandloom.core.drivers.bootstrap)",
     ),
     Risk(
         "unversioned_ddl_repair",

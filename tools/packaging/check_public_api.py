@@ -37,12 +37,18 @@ BASELINE_PATH = ROOT / "public_api_baseline.json"
 # import, and sandloom.driverkit, which is for driver packages.
 EXTRA_MODULES = (
     "sandloom.driverkit",
+    "sandloom.driverkit.atomic_store",
+    "sandloom.driverkit.eventbus_support",
+    "sandloom.driverkit.testing",
     "sandloom.shared",
     "sandloom.shared.authz",
     "sandloom.shared.guards.auth",
     "sandloom.core.testing",
     "sandloom.core.contract_testing",
 )
+
+#: The kind of a public name listed in ``__all__`` that does not resolve yet.
+PENDING = "pending"
 
 Descriptor = dict[str, Any]
 ModuleSnapshot = dict[str, Descriptor]
@@ -130,7 +136,18 @@ def _public_names(obj: object) -> list[str]:
     explicit = getattr(obj, "__all__", None)
     if isinstance(explicit, (list, tuple)):
         return sorted({str(n) for n in explicit if not str(n).startswith("_")})
-    return sorted(n for n in dir(obj) if not n.startswith("_"))
+    names = {n for n in dir(obj) if not n.startswith("_")}
+    if getattr(obj, "_is_protocol", False):
+        # A Protocol's data members are bare annotations (``name: str``): not in
+        # ``dir()``, yet they are the contract an implementation must meet.
+        for klass in getattr(obj, "__mro__", ()):
+            if klass is not object and getattr(klass, "_is_protocol", False):
+                names |= {
+                    n
+                    for n in vars(klass).get("__annotations__", {})
+                    if not n.startswith("_")
+                }
+    return sorted(names)
 
 
 def _describe(obj: object) -> Descriptor:
@@ -146,13 +163,49 @@ def _describe(obj: object) -> Descriptor:
     return {"kind": "value"}
 
 
+#: The one module whose ``__all__`` may name what is not delivered yet: its
+#: ``_TABLE`` lists each kit with the slice that delivers it.
+PENDING_MODULE = "sandloom.driverkit.testing"
+
+
+def _may_be_pending(mod_name: str, module: object, name: str) -> bool:
+    table = getattr(module, "_TABLE", None)
+    return mod_name == PENDING_MODULE and isinstance(table, dict) and name in table
+
+
+def _newly_pending(baseline: Snapshot, current: Snapshot) -> list[str]:
+    """Names the baseline pins resolved that ``current`` pins pending: a
+    delivered kit that stopped resolving, which ``--update`` must not hide."""
+    found: list[str] = []
+    for mod_name, base_mod in baseline.items():
+        cur_mod = current.get(mod_name, {})
+        for name, base_desc in base_mod.items():
+            cur_desc = cur_mod.get(name)
+            if (
+                cur_desc is not None
+                and cur_desc.get("kind") == PENDING
+                and base_desc.get("kind") != PENDING
+            ):
+                found.append(f"{mod_name}.{name}")
+    return found
+
+
 def snapshot() -> Snapshot:
     result: Snapshot = {}
     for mod_name in _public_modules():
         module = importlib.import_module(mod_name)
         mod_snap: ModuleSnapshot = {}
         for name in _public_names(module):
-            obj = getattr(module, name)
+            try:
+                obj = getattr(module, name)
+            except AttributeError:
+                # Only a kit of ``sandloom.driverkit.testing`` its slice has
+                # not delivered yet is pinned as pending; an unresolvable
+                # name anywhere else is a broken ``__all__``.
+                if not _may_be_pending(mod_name, module, name):
+                    raise
+                mod_snap[name] = {"kind": PENDING}
+                continue
             # Skip re-exported submodules; we snapshot the named modules directly.
             if inspect.ismodule(obj):
                 continue
@@ -176,6 +229,11 @@ def _diff(baseline: Snapshot, current: Snapshot) -> list[str]:
             cur_desc = cur_mod.get(name)
             if cur_desc is None:
                 breaks.append(f"{mod_name}.{name}: symbol removed")
+                continue
+            if base_desc.get("kind") == PENDING:
+                continue  # delivering a pending name is additive
+            if cur_desc.get("kind") == PENDING:
+                breaks.append(f"{mod_name}.{name}: no longer resolves")
                 continue
             if cur_desc.get("kind") != base_desc.get("kind"):
                 breaks.append(
@@ -205,6 +263,17 @@ def main(argv: list[str] | None = None) -> int:
     current = snapshot()
 
     if args.update:
+        if BASELINE_PATH.exists():
+            pinned = cast("Snapshot", json.loads(BASELINE_PATH.read_text()))
+            if regressed := _newly_pending(pinned, current):
+                print(
+                    "error: refusing to pin resolved name(s) as pending: "
+                    + ", ".join(regressed)
+                    + "\nThey resolved when the baseline was written: fix the "
+                    "import that stopped them, do not re-pin them.",
+                    file=sys.stderr,
+                )
+                return 1
         BASELINE_PATH.write_text(_dump(current), encoding="utf-8")
         print(f"baseline written: {BASELINE_PATH.relative_to(ROOT)}")
         return 0

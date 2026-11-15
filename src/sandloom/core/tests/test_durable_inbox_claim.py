@@ -13,6 +13,7 @@ from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -184,6 +185,24 @@ async def test_purge_with_limit_deletes_old_claims_in_bounded_batches(
     assert await _remaining(sessionmaker, "test@purge") == ["e3"]
 
 
+def _core_with_retention(
+    uow: Any, retention_seconds: int, *, backend: str = "streams"
+) -> SimpleNamespace:
+    """A core of a deployment CONFIGURED with ``retention_seconds`` (0:
+    unbounded) on ``backend``. Its own process holds a volatile bus whatever the
+    configuration says: the purge guard must not read it."""
+    return SimpleNamespace(
+        get_uow_factory=lambda _name: uow,
+        settings=SimpleNamespace(
+            is_prod=False,
+            event_bus_backend=backend,
+            event_stream_retention_seconds=retention_seconds,
+            infra=None,
+        ),
+        event_bus=SimpleNamespace(retention=lambda: None),
+    )
+
+
 @pytest.mark.asyncio
 async def test_inbox_purge_cli_loops_batches_in_separate_units_of_work(
     sessionmaker: async_sessionmaker[AsyncSession],
@@ -205,8 +224,7 @@ async def test_inbox_purge_cli_loops_batches_in_separate_units_of_work(
             await self.session.commit()
             await self.session.close()
 
-    week = SimpleNamespace(event_stream_retention_seconds=7 * 86400)
-    core = SimpleNamespace(get_uow_factory=lambda _name: _Uow, settings=week)
+    core = _core_with_retention(_Uow, 7 * 86400)
     assert await inbox_purge(core, days=30, batch=2) == 5
     # 2 + 2 + 1: the short last batch ends the loop; each batch committed alone.
     assert units == 3
@@ -235,19 +253,42 @@ async def test_inbox_purge_inside_the_redelivery_window_is_refused(
             await self.session.commit()
             await self.session.close()
 
-    week = SimpleNamespace(event_stream_retention_seconds=7 * 86400)
-    core = SimpleNamespace(get_uow_factory=lambda _name: _Uow, settings=week)
+    core = _core_with_retention(_Uow, 7 * 86400)
     with pytest.raises(SystemExit, match="EVENT_STREAM_RETENTION_SECONDS"):
         await inbox_purge(core, days=7.5, batch=10)
     assert await _remaining(sessionmaker, "test@window") == ["e0"]
-    unbounded = SimpleNamespace(event_stream_retention_seconds=0)
     with pytest.raises(SystemExit, match="unbounded"):
-        await inbox_purge(
-            SimpleNamespace(get_uow_factory=lambda _name: _Uow, settings=unbounded),
-            days=365,
-        )
+        await inbox_purge(_core_with_retention(_Uow, 0), days=365)
     assert await inbox_purge(core, days=3, batch=10, force=True) >= 1
     assert await _remaining(sessionmaker, "test@window") == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("backend", ["memory", "redis"])
+async def test_inbox_purge_on_an_unknown_retention_is_refused_unless_forced(
+    sessionmaker: async_sessionmaker[AsyncSession], backend: str
+) -> None:
+    """A deployment whose configured bus states no retention (volatile) cannot
+    prove a purge stays outside the redelivery window: refused naming the
+    setting, ``--force`` only is the way through."""
+    from sandloom.core.cli.events import inbox_purge
+
+    await _seed_claims(sessionmaker, f"test@unknown-{backend}", [5])
+
+    class _Uow:
+        async def __aenter__(self) -> _Uow:
+            self.session = sessionmaker()
+            await self.session.begin()
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            await self.session.commit()
+            await self.session.close()
+
+    core = _core_with_retention(_Uow, 7 * 86400, backend=backend)
+    with pytest.raises(SystemExit, match="EVENT_BUS_BACKEND"):
+        await inbox_purge(core, days=0.5, batch=10)
+    assert await inbox_purge(core, days=0.5, batch=10, force=True) >= 1
 
 
 def test_consumer_inbox_declares_the_purge_index() -> None:

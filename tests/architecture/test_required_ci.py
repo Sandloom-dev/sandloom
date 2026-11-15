@@ -67,6 +67,8 @@ def test_selected_successes_and_unrelated_skips_allow_merge(areas):
         "changes",
         "workflow-policy",
         "backend-tests",
+        "redis-drivers",
+        "celery-drivers",
         "admin-ui",
         "packages",
         "docs",
@@ -78,6 +80,22 @@ def test_a_required_check_never_accepts_missing_or_unsuccessful_work(job, status
     needs = planned_needs(*gate.AREAS)
     needs[job]["result"] = status
     assert gate.check(needs, full_validation=False, pull_request=True)
+
+
+@pytest.mark.parametrize("area", ["backend", "packages"])
+@pytest.mark.parametrize("job", ["redis-drivers", "celery-drivers"])
+def test_a_driver_package_lane_is_required_when_its_code_changes(job, area):
+    """The package's types (and tests) run in no other lane (root testpaths and
+    the CI mypy run exclude packages/): a red or skipped lane blocks merge."""
+    assert gate.AREA_JOBS[job] == ("backend", "packages")
+    for status in ("failure", "skipped", "cancelled"):
+        needs = planned_needs(area)
+        needs[job]["result"] = status
+        assert gate.check(needs, full_validation=False, pull_request=True)
+    # Full validation selects every area, so the lane runs there too.
+    needs = planned_needs(full=True, pr=False)
+    needs[job]["result"] = "failure"
+    assert gate.check(needs, full_validation=True, pull_request=False)
 
 
 def test_missing_classifier_output_and_new_unclassified_jobs_block_merge():

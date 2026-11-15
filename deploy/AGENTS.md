@@ -49,7 +49,7 @@ this profile and, in `sandloom test`'s `schema & deploy` step, on an app's.
   split: `uv run sandloom add deploy <module> --service <svc>` writes it
   together with the profile entry and the bindings.
 - **Workers** are sized from the CPU quota (`WORKER_CONCURRENCY`) and
-  health-checked with `python -m sandloom.core.worker healthcheck`. Run exactly one
+  health-checked with `sandloom worker check`. Run exactly one
   beat per broker (it holds a fenced lease).
 - **Migrations.** One-shot `migrate` services (`sandloom migrate upgrade-all
   --apply`) run to completion before `app` and `worker` start

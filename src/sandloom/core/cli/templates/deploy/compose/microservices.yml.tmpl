@@ -94,12 +94,15 @@ x-common-env: &common-env
   # live there; a per-service cache would let a revoked token through on
   # every service but the one that revoked it.
   CACHE_URL: redis://redis:6379/0
+  # The security store (revocation marks, blocks, RPC nonces, idempotency
+  # records): the persistent, non-evicting `redis` service below. The strict
+  # production profile wants its own Redis (docs/advanced/security-model.md).
+  INFRA: '{"atomic_store": {"security": {"driver": "redis", "url": "redis://redis:6379/0"}}}'
   # Opt-in (off by default): idempotency records on their own Redis instead of
-  # the security cache (deploy/README.md -> "Separate idempotency Redis").
+  # the security store (deploy/README.md -> "Separate idempotency Redis").
   # Enable together with the idempotency-redis service below, identically in
   # EVERY process:
-  # INFRA: '{"cache": {"idempotency": {"driver": "redis", "url": "redis://idempotency-redis:6379/0"}}}'
-  # IDEMPOTENCY_CACHE_INSTANCE: idempotency
+  # INFRA: '{"atomic_store": {"security": {"driver": "redis", "url": "redis://redis:6379/0"}, "idempotency": {"driver": "redis", "url": "redis://idempotency-redis:6379/0"}}}'
   EVENT_BUS_BACKEND: streams
   # Asymmetric access tokens (a shared HS secret would let every service mint
   # tokens). Public keys by kid — every key still accepted during a rotation;
@@ -193,7 +196,7 @@ x-http-env: &http-env
   # outbox (its own database).
   OUTBOX_RELAY_ENABLED: auto
 
-# Celery worker sizing (sandloom.core.worker): the child count comes from the
+# Celery worker sizing (`sandloom worker`): the child count comes from the
 # container CPU quota (capped); every child opens its own small DB pool.
 x-worker-env: &worker-env
   # Recycle a child that grew past this resident size (KiB) after its task.
@@ -291,7 +294,7 @@ services:
           cpus: "1.0"
           memory: 512m
 
-  # Opt-in idempotency Redis (see the IDEMPOTENCY_CACHE_INSTANCE note in the
+  # Opt-in idempotency Redis (see the INFRA.atomic_store.idempotency note in the
   # shared env above). Same persistence as a security Redis — fsync every
   # write, never evict: a lost reservation re-runs a mutation.
   # idempotency-redis:

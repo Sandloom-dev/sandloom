@@ -307,12 +307,13 @@ async def test_upload_over_limit_rejected_and_cleaned_up(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from sandloom.core.config.settings import settings
-    from sandloom.core.drivers.filesystem_storage import Storage, UploadTooLargeError
+    from sandloom.core.drivers.filesystem_storage import Storage
+    from sandloom.core.infra.errors import TooLarge
 
     monkeypatch.setattr(settings, "storage_path", str(tmp_path))
     monkeypatch.setattr(settings, "max_upload_size_bytes", 10)
     storage = Storage()
-    with pytest.raises(UploadTooLargeError):
+    with pytest.raises(TooLarge):
         await storage.save(_SizedAsyncFile(b"x" * 64), "big.bin")
     assert not (tmp_path / "big.bin").exists()  # partial file removed
 
@@ -329,7 +330,7 @@ async def test_rate_limit_key_gets_ttl_atomically(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The Lua path must be preferred: ONE script call sets count AND TTL and
-    reads the previous window (``incr_window`` — a single round trip).
+    reads the previous window (``windowed_counter`` — a single round trip).
 
     The atomic primitive now lives in the CacheProvider, so the limiter
     delegates through di.cache() -> the shared Redis provider -> the client

@@ -22,7 +22,8 @@ time. These look at a whole business module (its ``events.py``, its
   ``json_path``, ``json_contains``, ``transaction_lock``) has its feature in
   a ``CapabilityRequirement("database", features=...)`` of the module;
 * ``undeclared-capability`` (SANDLOOM-C033) — a ``tasks.py`` declares the
-  ``taskqueue`` capability, and its beat hook the feature ``periodic``.
+  ``taskqueue`` capability, a ``@periodic`` task the feature ``periodic`` and
+  an ``at_least_once`` task the feature ``redelivery``.
 
 Each analyzer returns ``(file, "Line N: message")`` pairs. They only report
 what they can decide: an unresolvable name (a list built elsewhere, a channel
@@ -48,8 +49,9 @@ from sandloom.core.archcheck.analyzers import (
 from sandloom.core.descriptors.database_forms import DATABASE_FORM_FEATURES
 from sandloom.core.descriptors.derived_capabilities import (
     PERIODIC_FEATURE,
-    PERIODIC_HOOK,
+    REDELIVERY_FEATURE,
     TASKQUEUE,
+    declared_features,
 )
 
 Hit = tuple[Path, str]
@@ -796,14 +798,34 @@ def _first_definition_line(tree: ast.AST) -> int:
     return 1
 
 
+def _aliased_task_imports(tree: ast.AST) -> list[tuple[int, str, str]]:
+    """``(line, name, alias)`` of ``from <...>.tasks import task|periodic as x``:
+    the derivation reads the decorators by name, so an alias would hide them."""
+    found: list[tuple[int, str, str]] = []
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.ImportFrom)
+            and node.level == 0
+            and node.module == "sandloom.sdk.tasks"
+        ):
+            continue
+        found.extend(
+            (node.lineno, alias.name, alias.asname)
+            for alias in node.names
+            if alias.name in {"task", "periodic"}
+            and alias.asname
+            and alias.asname != alias.name
+        )
+    return found
+
+
 def find_undeclared_capabilities(module_dir: Path, files: Sequence[Path]) -> list[Hit]:
     """``undeclared-capability``: a capability the module's code shows it
     needs (the rules of :mod:`sandloom.core.descriptors.derived_capabilities`)
     that its ``define_module(capabilities=[...])`` does not declare:
 
     * a ``tasks.py`` (or ``tasks/`` package) without ``taskqueue``;
-    * a beat hook (``setup_periodic_tasks``) without the ``taskqueue``
-      feature ``periodic``.
+    * a ``@periodic`` task without the ``taskqueue`` feature ``periodic``.
 
     The load preflight derives both anyway; the declaration is what readers
     see. Only what is decidable is reported: an unreadable declaration (a
@@ -825,29 +847,39 @@ def find_undeclared_capabilities(module_dir: Path, files: Sequence[Path]) -> lis
         tasks_tree = parse_file(tasks)
     except SyntaxError:
         return []
+    aliased = _aliased_task_imports(tasks_tree)
+    if aliased:
+        return [
+            (
+                tasks,
+                f"Line {line}: `{imported} as {alias}` hides the decorator from "
+                "the capability derivation (it reads `task` / `periodic` by "
+                "name): import it unaliased "
+                f"(`from sandloom.sdk.tasks import {imported}`)",
+            )
+            for line, imported, alias in aliased
+        ]
     declared = _declared_capabilities(dict(_trees(files)))
     if declared is None:
         return []
     taskqueue = declared.get(TASKQUEUE)
-    hook = next(
-        (
-            node
-            for node in getattr(tasks_tree, "body", [])
-            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-            and node.name == PERIODIC_HOOK
-        ),
-        None,
-    )
     shown = tasks.relative_to(module_dir).as_posix()
-    if hook is not None and (taskqueue is None or PERIODIC_FEATURE not in taskqueue):
+    missing = sorted(declared_features(tasks) - (taskqueue or frozenset()))
+    if missing:
+        reasons = {
+            PERIODIC_FEATURE: "@periodic schedules periodic jobs",
+            REDELIVERY_FEATURE: "at_least_once=True needs redelivery",
+        }
         return [
             (
                 tasks,
-                f"Line {hook.lineno}: {PERIODIC_HOOK} schedules periodic jobs, "
-                f"which need the {TASKQUEUE} feature {PERIODIC_FEATURE!r}; declare "
-                "it in define_module: capabilities=[CapabilityRequirement("
-                f'"{TASKQUEUE}", features=frozenset({{"{PERIODIC_FEATURE}"}}))] '
-                "(required=False when the module works without its schedule)",
+                f"Line {_first_definition_line(tasks_tree)}: "
+                f"{'; '.join(reasons[f] for f in missing)}, which need the "
+                f"{TASKQUEUE} {' and '.join(f'feature {f!r}' for f in missing)}; "
+                "declare them in define_module: "
+                f'capabilities=[CapabilityRequirement("{TASKQUEUE}", '
+                f"features=frozenset({set(missing)!r}))] "
+                "(required=False when the module works without them)",
             )
         ]
     if taskqueue is None:
@@ -860,6 +892,91 @@ def find_undeclared_capabilities(module_dir: Path, files: Sequence[Path]) -> lis
             )
         ]
     return []
+
+
+# --------------------------------------------------------------------------- #
+# task-enqueue-ownership
+# --------------------------------------------------------------------------- #
+def _taskqueue_names(tree: ast.AST) -> set[str]:
+    """The local names that ``taskqueue`` is imported under in the file."""
+    names = {"taskqueue"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+            "sandloom"
+        ):
+            names.update(
+                alias.asname or alias.name
+                for alias in node.names
+                if alias.name == "taskqueue"
+            )
+    return names
+
+
+def _is_taskqueue_call(node: ast.expr, names: set[str]) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    target = node.func
+    return (isinstance(target, ast.Name) and target.id in names) or (
+        isinstance(target, ast.Attribute) and target.attr == "taskqueue"
+    )
+
+
+def _bound_taskqueues(tree: ast.AST, names: set[str]) -> set[str]:
+    """Names assigned ``taskqueue(...)`` anywhere in the file."""
+    bound: set[str] = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Assign | ast.AnnAssign) and node.value):
+            continue
+        if _is_taskqueue_call(node.value, names):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            bound.update(t.id for t in targets if isinstance(t, ast.Name))
+    return bound
+
+
+def find_foreign_task_enqueues(files: Sequence[Path], package: str) -> list[Hit]:
+    """``task-enqueue-ownership``: ``taskqueue().enqueue(name, ...)`` whose
+    first argument is not a string literal under the module's own package.
+
+    The kernel only checks that the task name is declared somewhere in the
+    process, never that the caller owns it, so a module could run another
+    module's task with a payload of its choosing. Cross-module work goes
+    through events, contracts or sagas. ``await my_task.enqueue(payload)`` (the
+    task object) needs no check: it is the module's own function. Seen: the
+    call on ``taskqueue(...)`` directly or on a name bound to it in the file
+    (an aliased import included). Not seen: a queue handed over as an argument.
+    """
+    hits: list[Hit] = []
+    for path, tree in _trees(files):
+        names = _taskqueue_names(tree)
+        bound = _bound_taskqueues(tree, names)
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "enqueue"
+                and (
+                    _is_taskqueue_call(node.func.value, names)
+                    or (
+                        isinstance(node.func.value, ast.Name)
+                        and node.func.value.id in bound
+                    )
+                )
+            ):
+                continue
+            first = node.args[0] if node.args else _keyword(node, "task")
+            literal = _const_str(first) if first is not None else None
+            if literal is None or not literal.startswith(f"{package}."):
+                hits.append(
+                    (
+                        path,
+                        f"Line {node.lineno}: taskqueue().enqueue(...) must name "
+                        "a task of this module with a string literal starting "
+                        f"with {package + '.'!r}; enqueue your own task with "
+                        "`await <task>.enqueue(payload)`, and reach another "
+                        "module through an event or a contract",
+                    )
+                )
+    return hits
 
 
 # --------------------------------------------------------------------------- #

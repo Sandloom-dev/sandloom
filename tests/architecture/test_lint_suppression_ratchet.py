@@ -45,7 +45,7 @@ RATCHETED_PREFIXES = ("ASYNC", "BLE", "S", "SIM", "RUF", "PERF", "PLC0415", "C90
 NOQA_BASELINE: dict[str, int] = {
     "ASYNC109": 19,
     "ASYNC240": 1,
-    "BLE001": 202,
+    "BLE001": 198,
     "C901": 79,
     "PERF401": 24,
     # 118 (2026-10-28): +1 optional import, testing/ownership.py: `redis` is
@@ -59,16 +59,16 @@ NOQA_BASELINE: dict[str, int] = {
     # up` ask a .env database's renderer for schema_from_models (SQLite) only
     # when .env names one; importing the renderers costs the dev CLI 0.3 s
     # and loads the settings.
-    "PLC0415": 121,  # -2: the kernel domain atoms left (KB-34g)
+    "PLC0415": 111,  # -6: the Celery halves move to the driver, which imports by importlib (idk-worker-port); -3 (idk-pkg-celery-move)
     "RUF001": 4,
     "RUF005": 2,
-    "RUF012": 3,
+    "RUF012": 3,  # -1 in the kernel, +1 in sandloom_celery/worker.py (idk-pkg-celery-move)
     "S101": 43,
     "S102": 1,
     "S105": 8,
     "S106": 1,
-    "S108": 1,
-    "S110": 28,
+    "S108": 1,  # the worker heartbeat default moved to sandloom_celery/worker.py (idk-pkg-celery-move)
+    "S110": 27,
     "S112": 3,
     "S301": 0,
     "S311": 9,
@@ -121,11 +121,18 @@ def _ratcheted(code: str) -> bool:
     )
 
 
+def _source_roots() -> list[Path]:
+    # The kernel and the standard modules (src/) and every package that ships
+    # its own source (packages/*/src: the driver packages).
+    return [SRC, *sorted((BACKEND / "packages").glob("*/src"))]
+
+
 def _linted_files() -> list[Path]:
     # Mirrors ruff's extend-exclude: generated module migration revisions.
     return [
         p
-        for p in sorted(SRC.rglob("*.py"))
+        for root in _source_roots()
+        for p in sorted(root.rglob("*.py"))
         if not ("migrations" in p.parts and "versions" in p.parts)
     ]
 

@@ -46,6 +46,8 @@ the framework's own lives in ``backend/``) and runs every analyzer of
                            and mark raw SQL `# sandloom: raw-sql <reason>`
     undeclared-capability  a tasks.py declares taskqueue in capabilities=,
                            and its beat hook the feature "periodic"
+    task-enqueue-ownership taskqueue().enqueue(...) names only a task of its
+                           own module (a string literal under its package)
     generated-reserved     <module>/_generated/ holds only what sandloom
                            generate wrote, unedited; no import of another
                            module's _generated package

@@ -1,4 +1,4 @@
-"""Batch publish API: ``MessageTransport.publish_many`` and
+"""Batch publish API: ``EventTransport.publish_many`` and
 ``publish_event_batch`` (one broker round trip per batch, same envelopes).
 
 * the default ``publish_many`` is an ordered loop that stops at the first
@@ -22,13 +22,13 @@ from typing import Any
 import pytest
 import pytest_asyncio
 
+from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
 from sandloom.core.eventing.bus_metrics import get_event_bus_metrics
 from sandloom.core.eventing.envelope import EventEnvelope, OutboundEvent
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.eventing.memory_transport import MemoryTransport
 from sandloom.core.eventing.streams_bus import StreamsEventBus
-from sandloom.core.eventing.streams_transport import RedisStreamsTransport
-from sandloom.core.eventing.transport_base import TransportBatchError
+from sandloom.core.infra.ports.eventbus import PartialPublish
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.tasks import relay
 from sandloom.core.testing import reload_test_env
@@ -57,7 +57,7 @@ async def test_default_publish_many_is_ordered_and_stops_at_first_failure() -> N
 
     t = _Flaky()
     items = [(CHANNEL, _env(str(i), i)) for i in range(4)]
-    with pytest.raises(TransportBatchError) as info:
+    with pytest.raises(PartialPublish) as info:
         await t.publish_many(items)
     assert len(info.value.published) == 2
     assert isinstance(info.value.__cause__, ConnectionError)
@@ -149,7 +149,7 @@ async def test_redis_publish_many_exec_abort_reports_nothing_appended() -> None:
         return client
 
     t = RedisStreamsTransport(client_factory=factory)
-    with pytest.raises(TransportBatchError) as info:
+    with pytest.raises(PartialPublish) as info:
         await t.publish_many([(CHANNEL, _env("a")), (CHANNEL, _env("b"))])
     assert info.value.published == []
     assert client.xtrims == []
@@ -212,7 +212,7 @@ async def test_real_redis_publish_many_runtime_error_reports_the_prefix(
         ("core.broken.v1", _env("b", channel="core.broken.v1")),
         (CHANNEL, _env("c")),
     ]
-    with pytest.raises(TransportBatchError) as info:
+    with pytest.raises(PartialPublish) as info:
         await t.publish_many(items)
     assert len(info.value.published) == 1
     # "c" was appended by Redis but is NOT confirmed: a retry duplicates it
@@ -266,34 +266,51 @@ async def test_streams_batch_transport_failure_is_returned_not_raised() -> None:
         prevalidated=True,
     )
     assert res.published == 0
-    assert isinstance(res.error, TransportBatchError)
+    assert isinstance(res.error, PartialPublish)
     assert relay.is_broker_unavailable(res.error)  # cause chain is kept
 
 
 @pytest.mark.asyncio
-async def test_streams_bus_without_publish_many_falls_back_per_event() -> None:
-    class _Old:
+@pytest.mark.parametrize("answer", [None, [], ["only-one"], ["a", "b", "c", "d"]])
+async def test_streams_bus_refuses_a_publish_many_with_another_count_of_ids(
+    answer: Any,
+) -> None:
+    """A transport answering fewer (or other) ids than items proves nothing
+    appended: the bus never reports success, so the relay retries the batch."""
+
+    class _Lying(MemoryTransport):
+        async def publish_many(self, items: Any) -> Any:
+            return answer
+
+    res = await StreamsEventBus(InMemorySchemaRegistry(), _Lying()).publish_event_batch(
+        [OutboundEvent(CHANNEL, {"n": i}, "v1", str(i)) for i in range(3)],
+        prevalidated=True,
+    )
+    assert res.published == 0 and not res.complete
+    assert isinstance(res.error, PartialPublish)
+
+
+@pytest.mark.asyncio
+async def test_streams_bus_over_a_looping_transport_publishes_per_event() -> None:
+    class _Looping(MemoryTransport):
+        """No ``one_round_trip`` hint: ``publish_many`` is the looping default."""
+
         def __init__(self) -> None:
+            super().__init__()
             self.published: list[str] = []
 
         async def publish(self, stream: str, envelope: EventEnvelope) -> str:
             self.published.append(str(envelope["id"]))
-            return "1-0"
+            return await super().publish(stream, envelope)
 
-        async def consume(self, *a: Any, **k: Any) -> list[Any]:  # pragma: no cover
-            return []
-
-        async def ensure_group(self, *a: Any, **k: Any) -> None:  # pragma: no cover
-            return None
-
-    old = _Old()
-    bus = StreamsEventBus(InMemorySchemaRegistry(), old)
+    looping = _Looping()
+    bus = StreamsEventBus(InMemorySchemaRegistry(), looping)
     assert bus.native_batch_publish is False
     res = await bus.publish_event_batch(
         [OutboundEvent(CHANNEL, {"n": i}, "v1", str(i)) for i in range(3)],
         prevalidated=True,
     )
-    assert res.complete and old.published == ["0", "1", "2"]
+    assert res.complete and looping.published == ["0", "1", "2"]
 
 
 @pytest.mark.asyncio

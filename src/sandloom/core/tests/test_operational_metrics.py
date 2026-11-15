@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from sandloom.core.infra.ports.eventbus import GroupInfo
 from sandloom.core.testing import reload_test_env
 
 
@@ -169,10 +170,19 @@ async def test_relay_tick_refreshes_age_while_the_broker_circuit_is_open(
 
 
 class _FakeStreamsClient:
-    def __init__(self, pending_min: str | None, after: list[Any]) -> None:
+    def __init__(
+        self,
+        pending_min: str | None,
+        after: list[Any],
+        group: dict[str, Any] | None = None,
+    ) -> None:
         self.pending_min = pending_min
         self.after = after
+        self.group = group
         self.calls: list[tuple[str, Any]] = []
+
+    async def xinfo_groups(self, key: str) -> list[dict[str, Any]]:
+        return [] if self.group is None else [{"name": "g", **self.group}]
 
     async def xpending(self, key: str, group: str) -> dict[str, Any]:
         self.calls.append(("xpending", group))
@@ -184,7 +194,9 @@ class _FakeStreamsClient:
 
 
 def _redis_transport(client: Any) -> Any:
-    from sandloom.core.eventing.streams_transport import RedisStreamsTransport
+    from sandloom.core.drivers.redis_eventbus.streams_transport import (
+        RedisStreamsTransport,
+    )
 
     transport = RedisStreamsTransport.__new__(RedisStreamsTransport)
     transport._prefix = ""
@@ -198,30 +210,29 @@ def _redis_transport(client: Any) -> Any:
 
 async def test_streams_oldest_unacked_age_from_entry_ids() -> None:
     now_ms = int(time.time() * 1000)
-    pending = _FakeStreamsClient(f"{now_ms - 42_000}-0", [])
-    transport = _redis_transport(pending)
-    age = await transport.oldest_unacked_age_seconds(
-        "s.v1", "g", last_delivered_id="1-0", pending=3, lag=5
+    pending = _FakeStreamsClient(
+        f"{now_ms - 42_000}-0", [], {"pending": 3, "lag": 5, "last-delivered-id": "1-0"}
     )
+    transport = _redis_transport(pending)
+    age = await transport.oldest_unacked_age_seconds("s.v1", "g")
     assert 41 <= age < 60
     assert pending.calls == [("xpending", "g")]  # one command
 
-    lagging = _FakeStreamsClient(None, [(f"{now_ms - 7_000}-1", {})])
-    transport = _redis_transport(lagging)
-    age = await transport.oldest_unacked_age_seconds(
-        "s.v1", "g", last_delivered_id="5-0", pending=0, lag=2
+    lagging = _FakeStreamsClient(
+        None,
+        [(f"{now_ms - 7_000}-1", {})],
+        {"pending": 0, "lag": 2, "last-delivered-id": "5-0"},
     )
+    transport = _redis_transport(lagging)
+    age = await transport.oldest_unacked_age_seconds("s.v1", "g")
     assert 6 <= age < 30
     assert lagging.calls == [("xrange", "(5-0")]  # exclusive start
 
-    idle = _FakeStreamsClient(None, [])
-    transport = _redis_transport(idle)
-    assert (
-        await transport.oldest_unacked_age_seconds(
-            "s.v1", "g", last_delivered_id="5-0", pending=0, lag=0
-        )
-        == 0.0
+    idle = _FakeStreamsClient(
+        None, [], {"pending": 0, "lag": 0, "last-delivered-id": "5-0"}
     )
+    transport = _redis_transport(idle)
+    assert await transport.oldest_unacked_age_seconds("s.v1", "g") == 0.0
     assert idle.calls == []  # nothing pending, nothing lagging: no command
 
 
@@ -229,17 +240,19 @@ async def test_heartbeat_sets_the_group_oldest_age_gauge() -> None:
     from sandloom.core.eventing.streams_bus import StreamsEventBus
 
     class _Transport:
+        supported_features = frozenset({"inspection"})
+
         async def consume(self, *a: Any, **k: Any) -> Any:  # pragma: no cover
             return []
 
         async def ensure_group(self, *a: Any, **k: Any) -> None:  # pragma: no cover
             return None
 
-        async def group_info(self, stream: str) -> list[dict[str, Any]]:
-            return [{"group": "g1", "pending": 2, "lag": 0, "last_delivered_id": "9-0"}]
+        async def group_info(self, stream: str) -> list[GroupInfo]:
+            return [GroupInfo("g1", None, 2, "9-0", 0)]
 
-        async def oldest_unacked_age_seconds(self, *a: Any, **k: Any) -> float:
-            assert k == {"last_delivered_id": "9-0", "pending": 2, "lag": 0}
+        async def oldest_unacked_age_seconds(self, stream: str, group: str) -> float:
+            assert (stream, group) == ("orders.paid.v1", "g1")
             return 12.5
 
     bus = StreamsEventBus(SimpleNamespace(), _Transport())  # type: ignore[arg-type]
@@ -355,10 +368,14 @@ async def test_redis_cache_counts_backend_errors_not_caller_errors() -> None:
     from redis.exceptions import ConnectionError as RedisConnectionError
 
     from sandloom.core.drivers.redis_cache import RedisCacheProvider
+    from sandloom.core.infra.errors import Unavailable
 
     class _Client:
         async def get(self, key: str) -> str:
             raise RedisConnectionError("down")
+
+        async def set(self, key: str, value: str) -> None:
+            raise ValueError("a caller's bug")
 
     provider = RedisCacheProvider(
         name="errtest", driver="redis", options={}, shared=False
@@ -370,15 +387,15 @@ async def test_redis_cache_counts_backend_errors_not_caller_errors() -> None:
     provider._client_obj = _client_obj  # type: ignore[method-assign]
     labels = {"instance": "errtest", "operation": "get"}
     before = _value("sandloom_cache_operation_errors_total", labels)
-    with pytest.raises(RedisConnectionError):
+    with pytest.raises(Unavailable):
         await provider.get("k")
     assert _value("sandloom_cache_operation_errors_total", labels) == before + 1
     with pytest.raises(ValueError):
-        await provider.set_max("k", "not-a-number")
+        await provider.set("k", "v")
     assert (
         _value(
             "sandloom_cache_operation_errors_total",
-            {"instance": "errtest", "operation": "set_max"},
+            {"instance": "errtest", "operation": "set"},
         )
         == 0
     )

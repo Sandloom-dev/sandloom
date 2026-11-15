@@ -980,7 +980,7 @@ async def _forget_guard_records(sandloom_cache: Any) -> None:
     """The idempotency guard's record is gone (Redis flush / eviction / TTL)."""
     from sandloom.sdk.testing import flush_owned_redis
 
-    client = await sandloom_cache.raw_client()
+    client = await sandloom_cache.redis_client()
     await flush_owned_redis(client)
 
 

@@ -113,7 +113,7 @@ services:
   worker:
     <<: *app-runtime
     build: *app-build
-    command: ["celery", "-A", "sandloom.core.worker", "worker", "--loglevel=INFO"]
+    command: ["sandloom", "worker", "--loglevel=INFO"]
     environment:
       <<: *app-env
       SANDLOOM_COMPOSITION_ROOT: helpdesk.asgi
@@ -137,7 +137,7 @@ services:
   beat:
     <<: *app-runtime
     build: *app-build
-    command: ["celery", "-A", "sandloom.core.worker", "beat", "--loglevel=INFO",
+    command: ["sandloom", "beat", "--loglevel=INFO",
               "--schedule=/tmp/celerybeat-schedule"]
     environment:
       <<: *app-env

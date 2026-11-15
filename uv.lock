@@ -925,11 +925,11 @@ wheels = [
 
 [[package]]
 name = "dnspython"
-version = "2.9.0"
+version = "2.9.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ef/4a/50822184bd67cc6493f0fb6a880749158fcd31ab3fa07409acfd91f9fc85/dnspython-2.9.0.tar.gz", hash = "sha256:b44dc6b18f07a8b1c56676a19fbfdb5209415b046a9cece286baafa87ff3f7f1", size = 423560, upload-time = "2026-10-09T00:07:24.352Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/76/49/900383b471c645a3c397f47b3211d1fcecb3a540c98f683494cdf86b33de/dnspython-2.9.2.tar.gz", hash = "sha256:8d4d39a513e649d634004ce4d39ade2352efcea472a0247535a5c2d18a9d7ba9", size = 455484, upload-time = "2026-11-03T23:56:53.601Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/10/02/cdcc9b7c051786a103c3b09e1003a82fa0c66bcb91ffbdabcfbf7b4163b9/dnspython-2.9.0-py3-none-any.whl", hash = "sha256:9a4aedb833c3c1b49214d04d44d3032ab7a9135f7c1d29a549b4ff78fd82fda9", size = 354822, upload-time = "2026-10-09T00:07:22.622Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/0c/5346358b3a20275d256978c35203ddc2c8617f78c1b23795b79ba22ced6d/dnspython-2.9.2-py3-none-any.whl", hash = "sha256:af15f7d385a6ae2fb35a796fde2138004c8c42c7389090e2addc83e3b3340fd8", size = 360455, upload-time = "2026-11-03T23:56:52.088Z" },
 ]
 
 [[package]]
@@ -3502,7 +3502,9 @@ standard = [
     { name = "celery", extra = ["redis"] },
     { name = "redis" },
     { name = "sandloom-billing" },
+    { name = "sandloom-celery" },
     { name = "sandloom-identity" },
+    { name = "sandloom-redis" },
     { name = "sandloom-standard" },
     { name = "sandloom-tenancy" },
 ]
@@ -3523,6 +3525,9 @@ requires-dist = [
     { name = "jsonschema", specifier = ">=4.26.0,<5" },
     { name = "jsonschema-rs", marker = "extra == 'fast'", specifier = ">=0.59.0,<0.60" },
     { name = "msgpack", specifier = ">=1.2.3,<2" },
+    { name = "opentelemetry-exporter-otlp-proto-grpc", marker = "extra == 'otel'", specifier = ">=1.27,<2" },
+    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = ">=1.27,<2" },
+    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.27,<2" },
     { name = "orjson", specifier = ">=3.13.0,<4" },
     { name = "prometheus-client", specifier = ">=0.26.0,<0.27" },
     { name = "psycopg2-binary", specifier = ">=2.9.11,<3" },
@@ -3540,8 +3545,12 @@ requires-dist = [
     { name = "sandloom", extras = ["redis", "celery"], marker = "extra == 'standard'" },
     { name = "sandloom-admin", marker = "extra == 'admin'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sandloom-billing", marker = "extra == 'standard'", specifier = ">=0.7.0a13,<0.8" },
+    { name = "sandloom-celery", marker = "extra == 'celery'", specifier = ">=0.7.0a13,<0.8" },
+    { name = "sandloom-celery", marker = "extra == 'standard'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sandloom-identity", marker = "extra == 'admin'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sandloom-identity", marker = "extra == 'standard'", specifier = ">=0.7.0a13,<0.8" },
+    { name = "sandloom-redis", marker = "extra == 'redis'", specifier = ">=0.7.0a13,<0.8" },
+    { name = "sandloom-redis", marker = "extra == 'standard'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sandloom-standard", marker = "extra == 'standard'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sandloom-tenancy", marker = "extra == 'standard'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sentry-sdk", marker = "extra == 'sentry'", specifier = ">=2.72.0,<3" },
@@ -3550,7 +3559,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0,<1" },
     { name = "uvicorn-worker", specifier = ">=0.4.0,<0.5" },
 ]
-provides-extras = ["redis", "celery", "standard", "admin", "fast", "check", "testing", "sqlite", "sentry"]
+provides-extras = ["redis", "celery", "standard", "admin", "fast", "check", "testing", "sqlite", "sentry", "otel"]
 
 [[package]]
 name = "sandloom-billing"
@@ -3564,13 +3573,34 @@ dependencies = [
 requires-dist = [{ name = "sandloom", specifier = ">=0.7.0a13,<0.8" }]
 
 [[package]]
+name = "sandloom-celery"
+version = "0.7.0a13"
+source = { editable = "packages/sandloom-celery" }
+dependencies = [
+    { name = "celery", extra = ["redis"] },
+    { name = "orjson" },
+    { name = "pydantic" },
+    { name = "sandloom" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "celery", extras = ["redis"], specifier = ">=5.6.3,<6" },
+    { name = "orjson", specifier = ">=3.13.0,<4" },
+    { name = "pydantic", specifier = ">=2,<3" },
+    { name = "sandloom", specifier = ">=0.7.0a13,<0.8" },
+]
+
+[[package]]
 name = "sandloom-dev"
 version = "0.7.0a13"
 source = { virtual = "." }
 dependencies = [
     { name = "sandloom", extra = ["check", "fast", "sentry", "sqlite", "standard"] },
     { name = "sandloom-billing" },
+    { name = "sandloom-celery" },
     { name = "sandloom-identity" },
+    { name = "sandloom-redis" },
     { name = "sandloom-standard" },
     { name = "sandloom-tenancy" },
 ]
@@ -3618,7 +3648,9 @@ requires-dist = [
     { name = "pyyaml", marker = "extra == 'docs'", specifier = ">=6.0.2" },
     { name = "sandloom", extras = ["standard", "check", "fast", "sentry", "sqlite"], editable = "packages/sandloom" },
     { name = "sandloom-billing", editable = "packages/sandloom-billing" },
+    { name = "sandloom-celery", editable = "packages/sandloom-celery" },
     { name = "sandloom-identity", editable = "packages/sandloom-identity" },
+    { name = "sandloom-redis", editable = "packages/sandloom-redis" },
     { name = "sandloom-standard", editable = "packages/sandloom-standard" },
     { name = "sandloom-tenancy", editable = "packages/sandloom-tenancy" },
     { name = "tomli-w", marker = "extra == 'docs'", specifier = ">=1.2" },
@@ -3677,6 +3709,23 @@ requires-dist = [
     { name = "pillow", specifier = ">=13.0.0,<14" },
     { name = "pyotp", specifier = ">=2.10.0,<3" },
     { name = "qrcode", specifier = ">=8.2,<9" },
+    { name = "sandloom", specifier = ">=0.7.0a13,<0.8" },
+]
+
+[[package]]
+name = "sandloom-redis"
+version = "0.7.0a13"
+source = { editable = "packages/sandloom-redis" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "redis" },
+    { name = "sandloom" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2,<3" },
+    { name = "redis", specifier = ">=5.2.1,<6" },
     { name = "sandloom", specifier = ">=0.7.0a13,<0.8" },
 ]
 

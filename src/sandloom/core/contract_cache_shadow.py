@@ -70,8 +70,9 @@ Invalidations are matched by VALUE: an event whose configured fields carry
 include all of those values (conservative: over-invalidates, never under-).
 An event naming none of its fields flushes the whole contract. In the
 publishing process the drop runs at once after commit; other processes get it
-over Redis pub/sub (:data:`INVALIDATION_CHANNEL`) and drop EVERYTHING when
-their subscription is (re-)established or lost — the rules ADR-0003 decided
+over the ``broadcast`` capability (:data:`INVALIDATION_CHANNEL`) and drop
+EVERYTHING when their subscription is (re-)established or lost — the rules
+ADR-0003 decided
 for the real cache, so the shadow also measures their cost.
 
 Entries are stamped with the time the read STARTED and are not stored when an
@@ -108,7 +109,7 @@ from sandloom.core.unit_of_work import dispatch as _unit_of_work_dispatch
 
 logger = logging.getLogger("sandloom.core.contract_cache_shadow")
 
-#: Redis pub/sub channel carrying invalidations between processes.
+#: ``broadcast`` channel carrying invalidations between processes.
 INVALIDATION_CHANNEL = "sandloom:contract-cache-shadow:invalidations"
 
 OUTCOMES = (
@@ -835,19 +836,32 @@ def note_committed_events(events: Iterable[Any]) -> None:
 _pending: set[asyncio.Task[None]] = set()
 
 
-def _cache_provider() -> Any:
-    return _access.cache()
+def _broadcast_provider() -> Any:
+    """The ``broadcast`` instance that carries invalidations (``default``)."""
+    return _access.broadcast()
+
+
+_no_broadcast_logged = False
+
+
+def _note_no_broadcast() -> None:
+    global _no_broadcast_logged
+    if _no_broadcast_logged:
+        return
+    _no_broadcast_logged = True
+    logger.info(
+        "contract cache shadow: no broadcast instance; invalidation stays "
+        "in-process and TTLs bound cross-process staleness"
+    )
 
 
 async def _broadcast(messages: list[dict[str, Any]]) -> None:
     try:
-        provider = _cache_provider()
-        raw_client = getattr(provider, "raw_client", None)
-        if raw_client is None:
-            return
-        client = await raw_client()
+        provider = _broadcast_provider()
         for message in messages:
-            await client.publish(INVALIDATION_CHANNEL, json.dumps(message))
+            await provider.publish(
+                INVALIDATION_CHANNEL, json.dumps(message).encode("utf-8")
+            )
     except Exception:  # lost broadcast: TTL bounds it (measured)
         logger.debug("contract cache shadow broadcast failed", exc_info=True)
 
@@ -863,55 +877,51 @@ def _ensure_listener(observer: ShadowContractCache) -> None:
     if _listener is not None and _listener[1] is loop and not _listener[0].done():
         return
     try:
-        provider = _cache_provider()
-    except Exception:  # noqa: BLE001 - no cache: in-process invalidation only
-        return
-    if getattr(provider, "raw_client", None) is None:
+        _broadcast_provider()
+    except Exception:  # noqa: BLE001 - no broadcast: in-process invalidation only
+        _note_no_broadcast()
         return
     stop = asyncio.Event()
     task = loop.create_task(
-        _listen(observer, provider, stop), name="sandloom-contract-cache-shadow"
+        _listen(observer, stop), name="sandloom-contract-cache-shadow"
     )
     _listener = (task, loop, stop)
 
 
-async def _listen(
-    observer: ShadowContractCache, provider: Any, stop: asyncio.Event
-) -> None:
+async def _listen(observer: ShadowContractCache, stop: asyncio.Event) -> None:
+    """Apply the invalidations of other processes. A subscription that ends
+    for any reason (``Unavailable`` from a lost connection) is a gap: flush
+    what the shadow holds and subscribe again after a backoff, so the shadow
+    never keeps serving through an interval it did not hear."""
     backoff = 0.5
     while not stop.is_set():
-        pubsub: Any | None = None
+        subscription: Any | None = None
         try:
-            client = await provider.raw_client()
-            pubsub = client.pubsub()
-            await pubsub.subscribe(INVALIDATION_CHANNEL)
+            subscription = await _broadcast_provider().subscribe([INVALIDATION_CHANNEL])
             observer.flush("subscribed")
             backoff = 0.5
-            while not stop.is_set():
-                message = await pubsub.get_message(
-                    ignore_subscribe_messages=True, timeout=1.0
-                )
-                if message and message.get("type") == "message":
-                    try:
-                        data = json.loads(message.get("data"))
-                        observer.invalidate(str(data["c"]), dict(data["p"]))
-                    except Exception:  # noqa: BLE001 - malformed: flush
-                        observer.flush("malformed")
+            async for message in subscription:
+                try:
+                    data = json.loads(message.payload)
+                    observer.invalidate(str(data["c"]), dict(data["p"]))
+                except Exception:  # noqa: BLE001 - malformed: flush
+                    observer.flush("malformed")
+            observer.flush("subscription_lost")  # ended behind our back
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001 - reconnect; flush what we hold
+        except Exception:  # noqa: BLE001 - resubscribe; flush what we hold
             observer.flush("subscription_lost")
-            try:
-                await asyncio.wait_for(stop.wait(), timeout=backoff)
-            except TimeoutError:
-                pass
-            backoff = min(backoff * 2, 10.0)
         finally:
-            if pubsub is not None:
+            if subscription is not None:
                 try:
-                    await pubsub.aclose()
-                except Exception:  # noqa: BLE001, S110 - best-effort pubsub teardown
+                    await subscription.aclose()
+                except Exception:  # noqa: BLE001, S110 - best-effort teardown
                     pass
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=backoff)
+        except TimeoutError:
+            pass
+        backoff = min(backoff * 2, 10.0)
 
 
 async def stop_listener() -> None:
@@ -924,10 +934,11 @@ async def stop_listener() -> None:
     stop.set()
     if loop is not asyncio.get_running_loop() or task.done():
         return
+    task.cancel()  # a subscription blocks until a message: cancel ends it
     try:
-        await asyncio.wait_for(asyncio.shield(task), timeout=3.0)
-    except TimeoutError:
-        task.cancel()
+        await asyncio.wait_for(task, timeout=3.0)
+    except (asyncio.CancelledError, TimeoutError):
+        pass
     except Exception:  # noqa: BLE001, S110 - best-effort listener shutdown
         pass
 

@@ -33,7 +33,7 @@ from typing import Any
 from prometheus_client import Counter, Gauge
 
 from sandloom.core.config.settings import settings
-from sandloom.core.infra.contracts import parse_subject_state
+from sandloom.core.infra.ports.atomic_store import parse_subject_state
 
 logger = logging.getLogger(__name__)
 
@@ -248,12 +248,14 @@ def _parse_state(raw: Any) -> tuple[str, int] | None:
     """``(kind, instant_us)`` of a record value, ``None`` when it is corrupt.
 
     The instant is rounded UP to the microsecond (never earlier than the
-    writer meant). The value domain is the cache's ``set_subject_state`` one
-    (:func:`~sandloom.core.infra.contracts.parse_subject_state`), so a value the
-    reader treats as corrupt (fail closed, repaired) is exactly one the
+    writer meant). The value domain is the atomic store's ``set_subject_state``
+    one (:func:`~sandloom.core.infra.ports.atomic_store.parse_subject_state`),
+    so a value the reader treats as corrupt (fail closed, repaired) is exactly one the
     monotonic writer replaces.
     """
-    if raw is not None and not isinstance(raw, (str, bytes)):
+    if isinstance(raw, bytes):
+        raw = raw.decode("ascii", "replace")
+    elif raw is not None and not isinstance(raw, str):
         raw = str(raw)
     parsed = parse_subject_state(raw)
     if parsed is None:

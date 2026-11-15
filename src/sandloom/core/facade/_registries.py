@@ -105,7 +105,7 @@ class _RegistriesMixin(_FacadeState):
         return self.capability("taskqueue", name)
 
     def eventbus_provider(self, name: str = "default") -> Any:
-        """Return the EventBusProvider for a named instance."""
+        """Return the eventbus provider for a named instance."""
         return self.capability("eventbus", name)
 
     def notifier(self, name: str = "default") -> Any:

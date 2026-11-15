@@ -8,7 +8,7 @@ import logging
 import random
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
@@ -18,15 +18,17 @@ from sandloom.core.consumers.callbacks import (
     _side_effect_callback,
     subscribe_to_bus,
 )
+from sandloom.core.eventing.bus_base import BaseEventBus, durable_transport
 from sandloom.core.eventing.subscriptions import SubscriptionState
 from sandloom.core.eventing.transport_base import service_name as _configured_service
 from sandloom.core.observability.metrics_utils import safe_inc
 
 if TYPE_CHECKING:  # pragma: no cover
     from sandloom.core.facade import CoreFacade
-import sandloom.core.eventing.transport_base as _transport_base
 import sandloom.core.unit_of_work as _unit_of_work
 from sandloom.core.config.settings import settings
+from sandloom.core.infra.errors import InvalidArgument
+from sandloom.core.infra.ports.eventbus import GroupOwnedElsewhere, GroupOwner
 
 ConsumerKind = Literal["side_effect", "projection"]
 logger = logging.getLogger(__name__)
@@ -148,7 +150,7 @@ class _ConsumerRecord:
     module: str | None = None
     database: str = "default"
     start_from: Any = None
-    owner: dict[str, Any] = field(default_factory=dict)
+    owner: GroupOwner | None = None
 
 
 class ConsumerRuntime:
@@ -202,16 +204,15 @@ class ConsumerRuntime:
             shutdown_timeout=settings.shutdown_task_timeout_seconds,
         )
 
-    def _owner(self, module: str | None, database: str, channel: str) -> dict[str, Any]:
+    def _owner(self, module: str | None, database: str) -> GroupOwner:
         identify = self._database_identity or (
             lambda db: database_identity(self._core, db)
         )
-        return {
-            "module": module or "",
-            "database": identify(database),
-            "service": self._service,
-            "channel": channel,
-        }
+        return GroupOwner(
+            module=module or "",
+            database=identify(database),
+            service=self._service,
+        )
 
     def _record(
         self,
@@ -239,7 +240,7 @@ class ConsumerRuntime:
             module=module,
             database=database,
             start_from=getattr(descriptor, "start_from", None),
-            owner=self._owner(module, database, channel),
+            owner=self._owner(module, database),
         )
 
     def _event_records(self) -> list[_ConsumerRecord]:
@@ -305,18 +306,22 @@ class ConsumerRuntime:
         transport error here is ignored — the connect path retries — but an
         ownership conflict aborts startup with an actionable message.
         """
-        transport = getattr(self._core.event_bus, "transport", None)
-        claim = getattr(transport, "claim_group_owner", None)
-        if claim is None:
-            return
+        try:
+            transport = durable_transport(self._core.event_bus)
+        except InvalidArgument as exc:
+            # a durable bus without a transport never skips the claim (G-EVENT-02)
+            raise ConsumerConfigurationError(str(exc)) from exc
+        if transport is None:
+            return  # a volatile bus keeps no group ownership
+        claim = transport.claim_group_owner
 
         conflicts: list[str] = []
         for record in self._records:
-            if record.callback is None or not record.owner:
+            if record.callback is None or record.owner is None:
                 continue
             try:
                 await claim(record.channel, record.group, record.owner)
-            except _transport_base.GroupOwnershipError as exc:
+            except GroupOwnedElsewhere as exc:
                 conflicts.append(str(exc))
             except Exception:  # transient: connect path retries
                 logger.debug("group ownership pre-check failed", exc_info=True)
@@ -339,7 +344,7 @@ class ConsumerRuntime:
                 record.callback,
                 record.group or record.name,
                 start_from=record.start_from,
-                owner=record.owner or None,
+                owner=record.owner,
             )
             if handle is None:
                 raise _PermanentSubscriptionError(
@@ -367,7 +372,9 @@ class ConsumerRuntime:
                 raise
             record.state = SubscriptionState.FAILED
             record.last_error = f"{type(exc).__name__}: {exc}"
-            if isinstance(exc, (_PermanentSubscriptionError, ValueError)):
+            if isinstance(
+                exc, (_PermanentSubscriptionError, GroupOwnedElsewhere, ValueError)
+            ):
                 record.retryable = False
             safe_inc(
                 "consumer_subscription_attempts_total",
@@ -560,10 +567,10 @@ class ConsumerRuntime:
                     if connected_at is not None:
                         last_connected_at = connected_at.isoformat()
             stats: dict[str, Any] | None = None
-            group_stats = getattr(self._core.event_bus, "group_stats", None)
-            if callable(group_stats) and record.group:
+            bus = self._core.event_bus
+            if isinstance(bus, BaseEventBus) and record.group:
                 try:
-                    stats = group_stats(record.channel, record.group)
+                    stats = bus.group_stats(record.channel, record.group)
                 except Exception:  # noqa: BLE001 - diagnostics only
                     stats = None
             status_items.append(

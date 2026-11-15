@@ -1,4 +1,4 @@
-"""Billing background tasks (framework worker: ``celery -A sandloom.core.worker``).
+"""Billing background tasks (framework worker: ``sandloom worker``).
 
 ``reconcile_operation_intents`` (#72, ADR-0003 open items 7 and 15) closes the
 loose ends of the class-F operation intents that no request will close: stale
@@ -9,10 +9,10 @@ dispute payment states that never matched a credit grant after their
 retention (``PAYMENT_STATE_RETENTION``, ADR-0003 item 12).
 
 It is idempotent (every write is status- and owner-guarded, the PSP expire is
-idempotent), so it runs ``acks_late`` + ``reject_on_worker_lost``: a worker
-lost mid-run redelivers it and the re-run finds the finished work done.
-Async work runs through ``run_async`` (the worker's persistent loop), never
-``asyncio.run``.
+idempotent), so it is ``at_least_once``: a worker lost mid-run redelivers it
+and the re-run finds the finished work done. Its schedule is the cron of
+``@periodic``; the ``billing_reconciler`` health check derives its tolerance
+from that declaration (``reconcile_operation_intents.max_interval``).
 """
 
 from __future__ import annotations
@@ -21,14 +21,10 @@ import logging
 from typing import Any
 
 from sandloom.sdk.data import open_uow
-from sandloom.sdk.effects import run_async
-from sandloom.sdk.tasks import shared_task
+from sandloom.sdk.tasks import periodic
 from sandloom_billing.psp import active_psp_client
 from sandloom_billing.services.intent_reconciler import IntentReconciler
-from sandloom_billing.services.reconciler_health import (
-    RECONCILE_INTERVAL_SECONDS,
-    record_reconciler_run,
-)
+from sandloom_billing.services.reconciler_health import record_reconciler_run
 from sandloom_billing.services.webhook_service import purge_orphan_payment_states
 
 logger = logging.getLogger("sandloom_billing.tasks")
@@ -53,20 +49,9 @@ async def reconcile_intents_once(psp: Any | None = None) -> dict[str, int]:
     return counts
 
 
-@shared_task(
-    name="sandloom_billing.tasks.reconcile_operation_intents",
-    acks_late=True,
-    reject_on_worker_lost=True,
+@periodic(
+    cron="*/5 * * * *", id="billing.reconcile-operation-intents", at_least_once=True
 )
-def reconcile_operation_intents() -> dict[str, int]:
+async def reconcile_operation_intents() -> None:
     """Periodic: reconcile stale / uncompensated operation intents."""
-    return run_async(reconcile_intents_once())
-
-
-def setup_periodic_tasks(sender: Any, **kwargs: Any) -> None:
-    """Register billing's periodic tasks on the worker app (beat hook)."""
-    sender.add_periodic_task(
-        RECONCILE_INTERVAL_SECONDS,
-        reconcile_operation_intents.s(),
-        name="billing_reconcile_operation_intents",
-    )
+    await reconcile_intents_once()

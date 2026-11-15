@@ -12,9 +12,14 @@ from sandloom.core.consumers.callbacks import (
     VolatileBusError,
     subscribe_to_bus,
 )
-from sandloom.core.drivers.event_bus_driver import make_event_bus_drivers
+from sandloom.core.drivers.bootstrap import (
+    build_infra_registry,
+    volatile_event_bus_allowed,
+)
+from sandloom.core.drivers.event_bus_driver import make_streams_driver
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.eventing.pubsub_bus import RedisEventBus
+from sandloom.core.eventing.volatile_provider import make_volatile_bus_drivers
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
@@ -39,7 +44,7 @@ async def _noop(_env: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_durable_consumer_refused_on_pubsub_bus() -> None:
-    bus = RedisEventBus(InMemorySchemaRegistry(), client_factory=None)
+    bus = RedisEventBus(InMemorySchemaRegistry())
     with pytest.raises(VolatileBusError):
         await subscribe_to_bus(bus, "core.thing.v1", _noop, "notifier@thing")
     assert bus._subs == {}  # nothing half-registered
@@ -67,7 +72,9 @@ async def test_memory_bus_allowed_in_dev_refused_in_prod(
 
 
 def test_driver_refuses_volatile_bus_in_prod(monkeypatch: pytest.MonkeyPatch) -> None:
-    drivers = make_event_bus_drivers(InMemorySchemaRegistry())
+    drivers = make_volatile_bus_drivers(
+        InMemorySchemaRegistry(), volatile_allowed=volatile_event_bus_allowed
+    )
     monkeypatch.setattr(settings, "environment", Environment.prod)
     for driver in ("memory", "redis"):
         cfg = InstanceConfig(capability="eventbus", name="side", driver=driver)
@@ -79,4 +86,37 @@ def test_driver_refuses_volatile_bus_in_prod(monkeypatch: pytest.MonkeyPatch) ->
         cfg = InstanceConfig(capability="eventbus", name="side", driver=driver)
         assert drivers[driver](cfg).bus() is not None
     streams = InstanceConfig(capability="eventbus", name="side", driver="streams")
-    assert "durable" in drivers["streams"](streams).features()
+    assert "durable" in make_streams_driver()(streams).features()
+
+
+def _registry_for(resolved: Any) -> Any:
+    cfg = {
+        "eventbus": {
+            "side": InstanceConfig(capability="eventbus", name="side", driver="memory")
+        }
+    }
+    return build_infra_registry(
+        InMemorySchemaRegistry(), settings=resolved, config=cfg, load_plugins=False
+    )
+
+
+def test_the_registry_asks_the_settings_it_was_built_with(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The volatile policy reads the settings ``build_infra_registry`` got,
+    not the process-global ones."""
+    assert not settings.is_prod
+    nonprod = settings.model_copy(update={"sandloom_accepted_risks": []})
+    prod = settings.model_copy(
+        update={"environment": Environment.prod, "sandloom_accepted_risks": []}
+    )
+    with pytest.raises(RuntimeError, match="volatile"):
+        _registry_for(prod).provider("eventbus", "side")
+    accepted = prod.model_copy(
+        update={"sandloom_accepted_risks": ["volatile_event_bus"]}
+    )
+    assert _registry_for(accepted).provider("eventbus", "side").bus() is not None
+    # And the other way round: a non-prod registry under prod globals builds.
+    monkeypatch.setattr(settings, "environment", Environment.prod)
+    monkeypatch.setattr(settings, "sandloom_accepted_risks", [])
+    assert _registry_for(nonprod).provider("eventbus", "side").bus() is not None

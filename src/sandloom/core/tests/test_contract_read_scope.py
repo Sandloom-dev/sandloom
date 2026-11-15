@@ -41,7 +41,7 @@ from sandloom.core.module_api import (
 )
 from sandloom.core.orm import Base
 from sandloom.core.sql_alchemy.models.contract_command import ContractCommandRecord
-from sandloom.core.testing import InMemoryCache
+from sandloom.core.testing import InMemoryAtomicStore
 from sandloom.core.testing.workers import worker_env_values
 
 TABLE = "sandloom_read_scope_probe"
@@ -157,8 +157,8 @@ async def provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[SQLAlchemyDatabaseProvider]:
     url = _database_url()
-    mem = InMemoryCache()
-    monkeypatch.setattr(idempotency_cache_store, "cache", lambda name="default": mem)
+    mem = InMemoryAtomicStore()
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: mem)
     db = create_sqlalchemy_database(
         InstanceConfig(
             capability="database",

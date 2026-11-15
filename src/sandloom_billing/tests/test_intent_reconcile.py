@@ -490,7 +490,7 @@ async def test_retry_of_an_issued_checkout_after_its_session_expired_is_410(
             .values(psp_session_expires_at=datetime.now(UTC) - timedelta(minutes=1))
         )
         await db.commit()
-    client = await sandloom_cache.raw_client()
+    client = await sandloom_cache.redis_client()
     await client.flushdb()
 
     retry = await async_client.post(
@@ -527,7 +527,7 @@ async def test_retry_of_a_legacy_issued_checkout_uses_the_psp_default_lifetime(
             )
         )
         await db.commit()
-    client = await sandloom_cache.raw_client()
+    client = await sandloom_cache.redis_client()
     await client.flushdb()
 
     retry = await async_client.post(
@@ -541,22 +541,22 @@ async def test_retry_of_a_legacy_issued_checkout_uses_the_psp_default_lifetime(
 # --------------------------------------------------------------------------- #
 
 
-def test_reconcile_task_is_scheduled_and_acks_late() -> None:
+def test_reconcile_task_is_scheduled_every_five_minutes() -> None:
+    import inspect
+    import re
+
     from sandloom_billing import tasks
 
-    scheduled: list[tuple[float, Any, str]] = []
-
-    class _Sender:
-        def add_periodic_task(self, interval: float, sig: Any, name: str) -> None:
-            scheduled.append((interval, sig, name))
-
-    tasks.setup_periodic_tasks(_Sender())
-
-    [(interval, sig, _name)] = scheduled
-    assert sig.task == "sandloom_billing.tasks.reconcile_operation_intents"
-    assert 0 < interval <= 15 * 60
     task = tasks.reconcile_operation_intents
-    assert task.acks_late is True and task.reject_on_worker_lost is True
+    # Declared ``at_least_once``: a worker that dies mid-run hands the run to
+    # another (the kernel's table reads it, test_task_review_fixes).
+    assert re.search(r"@periodic\([^)]*at_least_once=True", inspect.getsource(tasks)), (
+        "the reconcile task must stay at_least_once"
+    )
+    assert task.name == "sandloom_billing.tasks.reconcile_operation_intents"
+    assert task.cron == "*/5 * * * *"
+    assert 0 < task.max_interval.total_seconds() <= 15 * 60
+    assert task.id == "billing.reconcile-operation-intents"
 
 
 async def test_reconcile_task_body_reports_counts(

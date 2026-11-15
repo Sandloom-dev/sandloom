@@ -10,14 +10,19 @@ type: how-to
 [capability](index.md), selected by configuration,
 with no change to business modules or to the kernel.
 
-**Use it** for a `notification` backend that Sandloom does not ship, such as an email
-API, or for a [capability of your own](own-capability.md).
+**Use it** for a `notification` or `objectstore` backend that Sandloom does not ship, such
+as an email API or a Google Cloud Storage store. Use it also for a
+[capability of your own](own-capability.md).
 
 **Do not use it** for business logic: that is a [module](../modules/create.md). A contract is
-public only with a conformance kit, so the `cache`, `objectstore` and `taskqueue`
-contracts are not available yet. The `database` and `eventbus` backends carry the
-transaction and delivery guarantees and are not open to drivers
-([why](database.md#the-relational-paradigm)).
+public only with a conformance kit, so the `taskqueue` contract is not available yet.
+The `cache`, `notification` and `objectstore` contracts are
+(`CacheConformance`, [the cache contract](cache.md)). The `database` backend
+carries the transaction guarantees and is not open to drivers
+([why](database.md#the-relational-paradigm)). An `eventbus` driver is an
+[`EventTransportProvider`](#an-eventbus-driver). It is kernel-facing: its conformance
+kit, `EventTransportConformance`, exists. The built-in `streams` driver does not yet map
+backend errors, and the contract is not yet public.
 
 !!! note "Version"
     This guide targets `sandloom==0.7.0a13`. <!-- sandloom-release -->
@@ -41,12 +46,20 @@ a file.
 --8<-- "docs/snippets/drivers/file_notifier.py"
 ```
 
-- **`contract_version`** is the contract the driver was written for. It is required, and
-  another major version is refused when the driver loads.
+- **`contract_version`** is the integer major of the contract the driver was written for
+  (`notification` and `objectstore` are 2). It is required, and another major, or a
+  string such as `"v1"`, is refused when the driver loads. Built-in drivers are checked
+  the same way.
+- **Errors.** An operation raises only `InfraError` subclasses from `sandloom.driverkit`:
+  map the backend's errors to `NotFound`, `InvalidArgument`, `TooLarge`,
+  `PermissionDenied`, `Unavailable` or `Timeout`. A call that needs a behaviour feature
+  the instance does not declare raises `Unsupported(feature)`. Put the error type in
+  a message, never the backend's text: it can carry a URL with credentials.
 - **`supported_features`** names what the driver really does, and is its one declaration.
   A module that requires `features={"email"}` is refused at startup on a driver that does
   not advertise it. If a feature depends on an option, override the classmethod
-  `features_for(options)`. Do not override `features()`: an instance that reports other
+  `features_for(options)` and still list the feature in `supported_features`: only declared
+  features count. Do not override `features()`: an instance that reports other
   features than it declared is refused.
 - **`options`** holds the keys of the `INFRA` entry, and nothing from another driver.
   Options can hold secrets, so never log them. For validation before the driver is built,
@@ -56,6 +69,19 @@ a file.
   `/diagnostics/infra` or release resources, override `aopen`, `health` and `aclose`.
 - **`Notification.body_fields`** holds the values `body` was built from, for a driver that
   renders its own template. It is as sensitive as the body: never log it.
+
+A driver records metrics through `sandloom.driverkit.observe`:
+`counter(name, documentation, labelnames)` and `histogram(...)` return metrics on the
+kernel's registry. A driver imports no metrics registry and no settings of the kernel.
+
+`aclose` may be called twice. The `details` of `health()` carry only non-secret facts,
+such as the error type name, under keys that are single words too. Never put the exception
+text, a URL or a path there, as a value or as a key.
+
+`isolation_identity()` names the store behind the instance. It starts with the driver
+name and a colon (`file:/var/mail.log`, `s3:<endpoint>/<bucket>`). Two instances on one
+store return the same identity, whatever their instance names. It carries no credential.
+The default, `None`, means unknown, and the kit fails it.
 
 ### 2. Publish it by name
 
@@ -120,16 +146,230 @@ and resolve it with `notifier("audit")`.
 
 ### 4. Check it against the contract
 
-`sandloom.driverkit.testing` holds the conformance kit. Subclass it in the driver's tests;
-each obligation is its own test, so a failure names what to fix. The kit needs `pytest` and
-`pytest-asyncio`, and it sends real messages, so point it at a test backend.
+`sandloom.driverkit.testing` holds the conformance kits, one per capability
+(`NotifierConformance`, `ObjectStoreConformance`). Subclass yours in the driver's tests and
+override the `make_provider` fixture to return a new, unopened provider. Each obligation is
+its own test, so a failure names what to fix. The kit needs `pytest` and `pytest-asyncio`.
+It sends real messages: point it at a test backend.
+
+State how far the kit has proven the driver with the class attribute `tier`.
+The default is `experimental`: the driver implements the contract. A `beta` driver passes
+its kit in CI against the real service. Past that, `stable` adds reconnect after an outage
+and the auth options. The registry copies the tier into the driver's registration when it loads the
+entry point. `sandloom doctor` and `/diagnostics/infra` show it.
+
+In production an `experimental` driver is refused unless `SANDLOOM_ACCEPTED_RISKS` lists
+`experimental_driver` ([SANDLOOM-B023](../reference/error-codes.md#sandloom-b023)).
+A `beta` driver logs one startup warning.
 
 ```python title="tests/test_conformance.py"
 --8<-- "docs/snippets/drivers/test_file_notifier.py"
 ```
 
-A skipped test means the driver advertises no channel, so nothing was sent. Read the skip
+Every kit runs the same harness checks first, named `test_harness_*`:
+
+| Check | What the driver must do |
+| --- | --- |
+| lifecycle | `aopen()`, then `aclose()` twice without an error. |
+| contract | Subclass the capability's provider class and have every operation. |
+| version | Set `contract_version` to the integer major of the capability. |
+| features | Declare only features the capability defines; `features()` equals `features_for(options)`. |
+| hints | Name only the capability's operations in `performance_hints`. |
+| health | Set `development_only` to a bool. `health()` answers within the bound (5 seconds), each `details` key is one token and each value a number, a bool or one token. |
+| identity | Two providers from the same options, and one under another instance name, return the same `isolation_identity()`, starting with `<driver>:`. |
+| features in use | A declared behaviour feature works; an undeclared one raises `Unsupported(feature)`. For `notification` each channel is such a feature. |
+| errors | A provider built to fail raises only `InfraError` subclasses, and no message shows the kit's `leak_marker`. |
+
+The capability's own tests follow. A skipped test means the check does not apply. The
+driver may advertise no channel, or you did not give the kit what it needs. Read the skip
 reason rather than treating it as a pass.
+
+To check the error mapping and the health of a failing backend, override
+`make_failing_provider` too. Return a provider whose backend fails, such as one pointing at
+a closed port. Put the kit's `leak_marker` in its password, and the kit checks that
+neither `health()` nor an error message shows it. The identity check builds a provider
+under another instance name with your class's `from_config`; override
+`make_renamed_provider(provider, name)` if that cannot rebuild it.
+
+`ObjectStoreConformance` also reads `upload_limit_bytes` and `read_limit_bytes`, the
+limits of your test instance. When the read limit is not below the upload limit, override
+`place_oversized_object(provider, key, data)` to write the object to the backend directly.
+`metadata` is informational. A driver that declares it overrides
+`read_metadata(provider, key)` to read the content type and metadata back. A driver
+without it accepts them in `put` and drops them.
+
+#### An eventbus driver
+
+!!! warning "Kernel-facing; not yet a public contract"
+    This section describes the contract the kernel's bus runs over. Its conformance kit,
+    `EventTransportConformance`, exists. The built-in `streams` driver still raises the
+    backend's own errors (`idk-pkg-redis-streams` maps them), so the contract is not yet
+    public. A driver raises `Unavailable` and `Timeout` itself: the kernel does not
+    translate a backend exception.
+
+An `eventbus` driver of the transport shape states `contract_version = 2` and
+subclasses `EventTransportProvider` (`sandloom.driverkit`), an abstract base class. It is
+the durable transport the kernel builds its bus over. The kernel keeps schema validation,
+payload limits and the bus logic. The driver keeps the entries.
+
+It implements every operation below. A driver that leaves one out cannot be
+instantiated; the operations behind a feature default to `Unsupported(feature)`, and a
+driver that declares the feature overrides them. `publish_many` returns one id per item
+(the bus refuses any other count).
+
+- `publish` and `publish_many`. A failed batch raises `PartialPublish`, which carries
+  the ids appended before the failure.
+- `ensure_group`, `consume`, `ack` and `ack_many`.
+- `dead_letter` and `never_dead_letter`.
+- Group ownership. `claim_group_owner` raises `GroupOwnedElsewhere` for a second
+  `(module, database)`.
+- `retention()`, and the operations of the features below.
+
+| Feature | Kind | Operations |
+|---|---|---|
+| `durable` | guarantee | entries survive a transport restart within its durability class and a consumer crash; delivery is at least once |
+| `shared` | guarantee | every process of the deployment sees the same streams and groups |
+| `blocking_consume` | behaviour | `consume(block_ms=)` waits server-side |
+| `group_start_id` | behaviour | `ensure_group(start_id=)` other than `"0"` |
+| `lease_renewal` | behaviour | `renew_pending`, `renew_interval_seconds` |
+| `dlq_ops` | behaviour | `list_dlq`, `replay_dlq` |
+| `inspection` | behaviour | `group_info`, `stream_info`, `oldest_unacked_age_seconds` |
+| `inventory` | behaviour | `register_consumer`, `list_consumers`, `forget_consumer` |
+
+`publish_many` and `ack_many` say `one_round_trip` in `performance_hints` when each is one
+round trip.
+
+**The kit.** Subclass `EventTransportConformance` (`sandloom.driverkit.testing`) and
+override `make_provider`. The harness checks the contract and the features first. A
+declared feature's call must not raise `Unsupported`, and an undeclared one's must. The
+kit then runs the core groups. They cover delivery, the dead-letter queue, ordered
+batches, group ownership and retention. It runs one more group for each behaviour
+feature you declare. The `shared` group checks that two providers of one configuration
+see the same streams.
+
+- Build the provider with `max_deliveries` equal to `EventTransportConformance.max_deliveries`
+  and no retry backoff beyond a few milliseconds.
+- With `lease_renewal`, build it with a reclaim idle time of about a second. The kit
+  renews for five intervals and expects the entry to stay with its consumer, then to be
+  reclaimed once renewal stops.
+- Override `refused_stream(provider, stream)` and `failing_dlq_append(provider)` to make
+  the backend fail. Each returns a context that holds the failure while it is open.
+  `failing_dlq_append` covers an explicit `dead_letter` and the dead-lettering that
+  `max_deliveries` triggers. In both the source entry must stay unacked until the
+  dead-letter append succeeds.
+- Override `retention_cases()` to give `(options, retention)` pairs. Override
+  `make_provider_with_options(provider, options)` when `from_config` cannot rebuild the
+  provider with other options. The kit gives `feature_calls(provider)`, one call per
+  behaviour feature. Override it only when one of those calls does not suit the driver.
+- Override `parked_ids(provider, stream)` when the driver has no `dlq_ops`. It returns the
+  event ids parked in the dead-letter queue. With neither, the checks that an entry is
+  parked are skipped, because a parked entry and a dropped one cannot be told apart.
+- Override `interrupt_connections(provider)` to cut the provider's connections. The
+  outage group, required of a stable-tier driver, then expects `consume` to raise
+  `Unavailable` and consuming to resume without loss. Build the provider so that it does
+  not retry the cut call silently.
+
+A check without its hook is skipped, never passed. A stable-tier driver sets
+`require_stable_hooks = True`, and then a missing hook fails the check. Such a driver
+gives every hook above, or sets the test of a check it cannot run to `None` in its own
+class, on the record.
+
+The names of the previous major are gone, with no alias. A module or driver that names
+`publish`, `subscribe`, `volatile`, `at_least_once` or `consumer_groups` is refused at
+load, and the refusal names the replacement. The last two become `durable`; the first
+three are dropped. The `memory` and `redis` buses are the kernel's own volatile buses,
+not a driver shape.
+
+#### A taskqueue driver's worker host
+
+!!! warning "Kernel-facing"
+    A `taskqueue` driver is not open to packages yet. Its conformance kit,
+    `TaskQueueConformance`, covers `send` and the host. This section is the contract the
+    kernel runs a worker over.
+
+A `taskqueue` driver (`TaskQueueProvider`, `contract_version = 2`) implements `send` and
+`worker_host()`. The host is a `WorkerHost` (`sandloom.driverkit`): the process that
+runs the messages and the scheduler. It is **not a capability**. It has no `INFRA` entry
+and no registration, and it is versioned with `taskqueue`. `worker_host()` is
+synchronous and cheap: it builds the host over what the instance holds and connects to
+nothing.
+
+The kernel gives the host a `WorkerBoot` and calls nothing else of the driver:
+
+| `WorkerBoot` | What the host does with it |
+|---|---|
+| `boot()` | once, in the main process, before it forks or consumes: the kernel loads the composition, runs the startup checks and answers the `TaskTable` (tasks with their queue and `at_least_once`, periodic entries) to register |
+| `before_fork()` | once after `boot()`, right before the host forks processes that run messages (the kernel freezes its startup heap) |
+| `run(task, payload, task_id=)` | for each message, outside any running loop: an `async def` body runs on the process's one persistent loop, a sync body directly; an exception propagates to the host's retry and redelivery rules |
+| `on_process_start()` / `on_process_stop()` | in each process that runs messages: a fresh loop after a fork; dispose the engines on the loop that opened them |
+| `run_coroutine(coro)` | on the same persistent loop, for the host's own async calls (the lease) |
+
+The host answers three calls:
+
+- `run_worker(boot, queues=, concurrency=, loglevel=)` blocks and returns the process
+  exit code (a worker that died must not return 0). The kernel resolves `concurrency` from the
+  CPU quota. The process model is not an argument. Keep it as an option of your driver, and
+  raise `InvalidArgument` before consuming for a configuration you cannot run. A host that
+  runs the messages in its own process starts and stops it itself
+  (`boot.on_process_start()` / `on_process_stop()`). No child announces itself there, and
+  `before_fork()` is not called. If the host runs messages inside the loop that fires its
+  liveness timer, it touches the liveness file from a thread of its own.
+- `run_scheduler(boot, lease=, lease_name=, lease_ttl_seconds=, loglevel=, state_file=)`
+  sends each periodic task at its cron slots, and only while the process holds
+  `lease_name` on `lease` (a `lease` store). Wrap the store in `FencedLease`
+  (`sandloom.driverkit`): it keeps the renew cadence and the local deadline, and logs the
+  standby. The kernel resolves the store, the name (broker, instance and module set) and
+  the production check, so a second scheduler stands by.
+- `check(timeout_seconds=)` answers whether a worker runs, without booting anything.
+  Its details name no broker address or credential.
+
+`TaskQueueConformance` has send groups and host groups. Send groups call `send` against a
+throw-away backend. Host groups run `worker_host()` for real, one forked process per
+host, on a backend the processes share. Each host gets a `WorkerBoot` that reports every
+call and every run through a pipe. A platform without `fork` skips them. A driver whose
+`worker_host()` answers `None` or raises `NotImplementedError` fails, because the method
+is abstract. Set these fixtures:
+
+- `make_provider` builds an unopened provider for the send groups. A `memory://` broker
+  is enough there.
+- `make_host_provider` builds a provider on a backend the forked hosts and the test
+  share. It defaults to `make_provider`, so override it when that one is not shared.
+- `make_lease_store` builds an unopened shared `lease` store. A driver that declares
+  `periodic` must override it: the scheduler groups fail without it.
+- `scheduler_clock` is optional. It freezes the driver's clock shortly before a cron slot
+  and returns `advance`, so the scheduler groups do not wait for a real minute.
+
+The scheduler groups run two schedulers on one lease. One sends a slot once while the
+other stands by. After the first stops, the second takes over inside the same slot and
+sends nothing for it.
+
+A driver may keep an importable object for its own tools (the Celery driver's `app`, for
+`celery inspect` and Flower). It documents that object itself: it is the driver's
+interface, not part of the port. The `raw_backend()` escape hatch of earlier versions is
+gone, and no `native()` replaces it.
+
+#### A database driver
+
+A `database` driver states `contract_version = 2` and implements
+`DatabaseProvider` (`sandloom.core.infra.ports.database`, with the stores it
+returns and `ExecutionAdapter`):
+
+- `uow_factory()` makes the units. A unit's `session` is what the stores take,
+  typed `UnitSession` (`sandloom.driverkit`: `flush()` and `in_transaction()`); your store narrows it
+  to the concrete session of your engine.
+- `isolation_identity()` names the store the options point at, never its
+  credentials: a hash of its host, port and database, or of a file path. Two options naming one store must agree, and two
+  stores must differ.
+- `planner_adapter(*, contract=False)` returns the `ExecutionAdapter` that runs
+  declared operations, or `None` (the default) when the database cannot. With
+  `contract=True` it is the adapter on a dedicated contract pool, if you keep one.
+- `session_factory` (optional) answers a callable that yields a raw session of
+  this instance; the default is `None`.
+
+`DatabaseProviderConformance` checks each of these, and that an event enqueued in
+a unit that rolls back is never written (when `transactional_outbox` is declared).
+Override `prepare_outbox_schema(provider)` if your schema comes from migrations
+instead of `ensure_model_schema()`.
 
 A database driver for a new SQL database also ships a **SQL dialect renderer**. It
 writes the portable forms of `sandloom.sdk.data` in that database's SQL
@@ -282,7 +522,7 @@ driver of each instance. It needs `INTERNAL_API_TOKEN`
 | Error | Cause and fix |
 | --- | --- |
 | [SANDLOOM-B021](../reference/error-codes.md#sandloom-b021) | The selected name has two providers, or a package published a built-in's name. Uninstall one, or rename your driver. |
-| [SANDLOOM-B022](../reference/error-codes.md#sandloom-b022) | The selected driver failed to import, is not a subclass of the contract, has no `contract_version`, or was written for another major version. It may also declare invalid dependency metadata. The message names the problem. |
+| [SANDLOOM-B022](../reference/error-codes.md#sandloom-b022) | The selected driver failed to import, is not a subclass of the contract, has no integer `contract_version`, or was written for another major version. It may also declare invalid dependency metadata, or be a `development_only` driver selected in production. The message names the problem. |
 | [SANDLOOM-B037](../reference/error-codes.md#sandloom-b037) | A declared import for a selected or required driver is missing. Follow the install hint or select another installed driver in `INFRA`. |
 | `Configured infrastructure instances have no registered driver` | `INFRA` names a driver no installed package publishes. |
 | `ProviderContractError` | An instance reports other features than its class declares. |

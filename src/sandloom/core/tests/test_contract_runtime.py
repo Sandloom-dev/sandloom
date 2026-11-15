@@ -39,17 +39,17 @@ from sandloom.core.module_api import (
 )
 from sandloom.core.rpc import install_service_rpc_routes
 from sandloom.core.rpc import wire as rpc_wire
-from sandloom.core.testing import InMemoryCache
+from sandloom.core.testing import InMemoryAtomicStore
 from sandloom.core.unit_of_work import scope as uow_mod_scope
 
 
 @pytest.fixture(autouse=True)
-def dedupe_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryCache:
+def dedupe_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryAtomicStore:
     """Command dedupe is fail-closed: give every test a working store."""
     from sandloom.core.idempotency import cache_store as idempotency_cache_store
 
-    mem = InMemoryCache()
-    monkeypatch.setattr(idempotency_cache_store, "cache", lambda name="default": mem)
+    mem = InMemoryAtomicStore()
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: mem)
     return mem
 
 

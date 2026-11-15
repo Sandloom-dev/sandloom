@@ -6,7 +6,6 @@ import asyncio
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
@@ -192,41 +191,15 @@ async def test_health_probes_are_bounded(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 async def test_broker_unavailability_is_reported_as_health_failure() -> None:
-    from sandloom.core.drivers.event_bus_driver import WrappedEventBusProvider
+    from sandloom.core.drivers.event_bus_driver import StreamsEventBusProvider
 
     async def client():
         raise ConnectionError("unavailable")
 
-    provider = WrappedEventBusProvider(
-        name="default",
-        driver="streams",
-        options={},
-        bus_instance=SimpleNamespace(),
-        client_factory=client,
+    provider = StreamsEventBusProvider(
+        name="default", driver="streams", options={}, client_factory=client
     )
     assert (await provider.health()).status == "fail"
-
-
-async def test_strict_profile_checks_physical_redis_identity(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from sandloom.core import production_profile
-    from sandloom.core.tests.test_production_profile import _settings
-
-    cfg = _settings()
-    provider = SimpleNamespace(
-        deployment_identity=AsyncMock(return_value="same-process")
-    )
-    core = SimpleNamespace(
-        settings=cfg, infra=SimpleNamespace(provider=lambda *args: provider)
-    )
-    monkeypatch.setattr(
-        production_profile, "verify_tenant_rls_coverage", AsyncMock(return_value=[])
-    )
-    with pytest.raises(
-        production_profile.ProductionProfileError, match="same Redis process"
-    ):
-        await production_profile.enforce_runtime(core)
 
 
 def test_rls_target_role_checked_before_target_tables_exist() -> None:

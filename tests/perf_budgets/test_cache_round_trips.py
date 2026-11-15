@@ -11,6 +11,10 @@ Before -> after (this change):
   previous window fused into one EVALSHA)
 * + idempotent FIRST request (reserve + finalise): 3 -> 2 (GET + SET NX
   fused into SET NX GET)
+
+The security / idempotency duties run on the ``atomic_store`` port
+(idk-atomic-adopt): the same budgets, so moving them off the cache added no
+round trip (``get`` / ``add_or_get`` / ``compare_and_set`` are one command each).
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 from fastapi import Depends, FastAPI
+from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
 from sandloom.core import idempotency
 from sandloom.core.auth import tokens
@@ -59,20 +64,31 @@ def _cache_url() -> str:
 async def counted_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[tuple[RedisCacheProvider, RedisCommandCounter]]:
+    """The rate limiter's cache and the security / idempotency ``atomic_store``
+    (one instance for both roles), both counted by one command counter."""
     provider = RedisCacheProvider(
         name="budget", driver="redis", options={"url": _cache_url()}, shared=False
     )
-    client = await provider.raw_client()
+    store = RedisAtomicStoreProvider(
+        name="budget", driver="redis", options={"url": _cache_url()}
+    )
     counter = RedisCommandCounter()
-    counter.wrap(client, monkeypatch)
-    for module in (access, rl, idempotency_cache_store):
-        monkeypatch.setattr(module, "cache", lambda name="default": provider)
+    counter.wrap(await provider.redis_client(), monkeypatch)
+    counter.wrap(await store._client_of(retrying=True), monkeypatch)
+    counter.wrap(await store._client_of(retrying=False), monkeypatch)
+    monkeypatch.setattr(rl, "cache", lambda name="default": provider)
+    monkeypatch.setattr(access, "cache", lambda name="default": provider)
+    monkeypatch.setattr(access, "atomic_store", lambda role: store)
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: store)
     monkeypatch.setattr(settings, "rate_limit_enabled", True)
     # Warm the Lua script cache (a NOSCRIPT reload is a one-off per server).
-    await provider.incr_window(f"warm:{uuid4()}", "warm:prev", ttl_seconds=5)
-    await provider.compare_and_set(f"warm:{uuid4()}", "a", "b", ttl_seconds=5)
+    await provider.windowed_counter(f"warm:{uuid4()}", "warm:prev", ttl_seconds=5)
+    await store.compare_and_set(f"warm:{uuid4()}", "a", "b", ttl_seconds=5)
+    await store.add_or_get(f"warm:{uuid4()}", "a", ttl_seconds=5)
+    await store.set_subject_state(f"warm:{uuid4()}", "v1:after:1.000000", ttl_seconds=5)
     yield provider, counter
     await provider.aclose()
+    await store.aclose()
 
 
 def _probe_app() -> FastAPI:

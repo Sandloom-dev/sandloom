@@ -78,6 +78,228 @@ def test_ledger_is_not_empty(raw: dict[str, Any]) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# rests_on: the infra capability, operations and features an entry needs
+# (design/infra-drivers/spec.md section 12, ADR-0016 section 7).
+
+#: What a ``rests_on`` item pins: capability, instance, features it needs, features it needs
+#: absent. Operations are not pinned (the checker reads them from the kernel port).
+Shape = tuple[str, str, frozenset[str], frozenset[str]]
+
+
+def _shape(
+    capability: str,
+    instance: str = "",
+    features: tuple[str, ...] = (),
+    without: tuple[str, ...] = (),
+) -> Shape:
+    return (capability, instance, frozenset(features), frozenset(without))
+
+
+_SECURITY = _shape("atomic_store", "security", ("shared", "never_evicts"))
+_SECURITY_GET = _shape("atomic_store", "security")
+_IDEM = _shape("atomic_store", "idempotency", ("shared",))
+_IDEM_ANY = _shape("atomic_store", "idempotency")
+_TASKQUEUE = _shape("taskqueue")
+_BEAT = _shape("lease", "beat", ("shared",))
+_CACHE = _shape("cache", "default")
+_BUS = _shape("eventbus")
+_PROFILE = {
+    _SECURITY,
+    _shape("atomic_store", "idempotency", ("shared", "never_evicts")),
+    _CACHE,
+}
+
+
+def _pin(ids: tuple[str, ...], *shapes: Shape) -> dict[str, frozenset[Shape]]:
+    return {i: frozenset(shapes) for i in ids}
+
+
+def _ids(prefix: str, *numbers: int) -> tuple[str, ...]:
+    return tuple(f"{prefix}-{n:02d}" for n in numbers)
+
+
+#: Spec section 12, row by row: the capabilities each entry rests on. The ledger must say
+#: exactly this; changing a row of the spec changes it here. An empty set is the only
+#: ``rests_on: []``: the entry rests on no capability (kernel bus logic, the per-process
+#: replay guard, settings validation).
+PINNED_REST_ON: dict[str, frozenset[Shape]] = {
+    **_pin(_ids("G-REVOKE", 1, 2, 3), _SECURITY),
+    **_pin(_ids("G-REVOKE", 10, 12, 21), _SECURITY_GET),
+    **_pin(_ids("G-REVOKE", 19), _SECURITY_GET, _IDEM_ANY),
+    **_pin(_ids("G-BLOCK", 1, 2, 3, 6), _SECURITY),
+    **_pin(_ids("G-IDEM", 1, 2, 3, 5), _IDEM),
+    **_pin(_ids("G-IDEM", 8, 18), _IDEM_ANY),
+    **_pin(_ids("G-IDEM", 16), _SECURITY_GET, _IDEM_ANY),
+    **_pin(
+        _ids("G-IDEM", 9, 10, 11, 12), _shape("database", "", ("http_idempotency",))
+    ),
+    **_pin(_ids("G-TASK", 1, 2, 3), _IDEM, _TASKQUEUE),
+    **_pin(_ids("G-TASK", 4, 5) + _ids("C-WORKER", 1, 2, 3, 4, 5), _TASKQUEUE),
+    **_pin(("G-INFRA-11",), _shape("taskqueue", "", ("periodic",))),
+    **_pin(("G-OPS-01", "C-WORKER-06"), _BEAT, _TASKQUEUE),
+    **_pin(("G-SAGA-08",), _BEAT),
+    **_pin(("G-HTTP-02", "G-INBOX-03"), _CACHE),
+    **_pin(("G-RPC-08",), _shape("atomic_store", "security", ("shared",))),
+    **_pin(("G-RPC-07", "G-RPC-09")),
+    **_pin(_ids("G-PROFILE", 1, 6, 7, 8), *_PROFILE),
+    **_pin(_ids("G-EVENT", 1, 2, 3, 5, 6, 7, 12), _BUS),
+    **_pin(_ids("G-EVENT", 9), _shape("eventbus", "", ("group_start_id",))),
+    **_pin(_ids("G-EVENT", 10), _shape("eventbus", "", ("durable",))),
+    **_pin(_ids("G-EVENT", 11), _shape("eventbus", "", ("dlq_ops",))),
+    **_pin(_ids("G-EVENT", 4, 8, 13)),
+    **_pin(
+        ("G-EVENT-14", "G-RISK-04"),
+        _shape("eventbus", "", (), ("durable",)),
+        _shape("broadcast"),
+    ),
+    **_pin(("G-MIGRATE-07", "G-MIGRATE-08"), _BUS),
+    **_pin(("G-INFRA-10",), _shape("*")),
+}
+REST_ON_IDS = tuple(PINNED_REST_ON)
+NO_CAPABILITY_IDS = tuple(i for i, shapes in PINNED_REST_ON.items() if not shapes)
+
+
+def _shape_of(rest: Any) -> Shape:
+    return (
+        rest.capability,
+        rest.instance,
+        frozenset(rest.features),
+        frozenset(rest.without_features),
+    )
+
+
+def test_spec_section_12_entries_carry_rests_on() -> None:
+    entries = ledger_mod.load().by_id()
+    missing = [i for i in REST_ON_IDS if i not in entries]
+    assert not missing, f"not in the ledger: {missing}"
+    unstated = [i for i in REST_ON_IDS if not entries[i].rests_on_declared]
+    assert not unstated, f"no rests_on (spec section 12): {unstated}"
+
+
+def _pin_differences(raw: dict[str, Any]) -> dict[str, Any]:
+    """Entries whose ``rests_on`` is not what spec section 12 pins (actual, expected)."""
+    entries = ledger_mod.parse(raw).by_id()
+    return {
+        entry_id: (
+            sorted(map(repr, (_shape_of(r) for r in entries[entry_id].rests_on))),
+            sorted(map(repr, expected)),
+        )
+        for entry_id, expected in PINNED_REST_ON.items()
+        if frozenset(_shape_of(r) for r in entries[entry_id].rests_on) != expected
+    }
+
+
+def test_rests_on_matches_spec_section_12(raw: dict[str, Any]) -> None:
+    """Capability, instance and features are the spec's, entry by entry; ``[]`` only
+    for the entries pinned as resting on no capability."""
+    wrong = _pin_differences(raw)
+    assert not wrong, (
+        f"rests_on differs from spec section 12 (actual, expected): {wrong}"
+    )
+    entries = ledger_mod.parse(raw).by_id()
+    assert set(NO_CAPABILITY_IDS) == {i for i in REST_ON_IDS if not entries[i].rests_on}
+
+
+def test_rests_on_pin_catches_a_dropped_feature_or_swapped_capability(
+    raw: dict[str, Any],
+) -> None:
+    """G-REVOKE-01 with ``never_evicts`` dropped, or its item replaced by the cache,
+    or ``rests_on: []``, no longer matches the pin (and only that entry differs)."""
+
+    def mutate(rests_on: Any) -> dict[str, Any]:
+        mutated = copy.deepcopy(raw)
+        entry = next(e for e in mutated["guarantees"] if e["id"] == "G-REVOKE-01")
+        entry["rests_on"] = rests_on
+        return mutated
+
+    first = next(e for e in raw["guarantees"] if e["id"] == "G-REVOKE-01")["rests_on"]
+    dropped = copy.deepcopy(first)
+    dropped[0]["features"] = ["shared"]
+    for rests_on in (
+        dropped,
+        [{"capability": "cache", "operations": ["get"]}],
+        [],
+    ):
+        assert set(_pin_differences(mutate(rests_on))) == {"G-REVOKE-01"}
+
+
+def test_detects_unknown_rests_on_instance(raw: dict[str, Any]) -> None:
+    mutated = copy.deepcopy(raw)
+    entry = next(e for e in mutated["guarantees"] if e.get("rests_on"))
+    entry["rests_on"] = [
+        {"capability": "atomic_store", "instance": "streams", "operations": ["get"]}
+    ]
+    assert any("is not an instance the kernel names" in p for p in _problems(mutated))
+
+
+def test_detects_rests_on_operation_that_is_not_a_port_method(
+    raw: dict[str, Any],
+) -> None:
+    mutated = copy.deepcopy(raw)
+    entry = next(e for e in mutated["guarantees"] if e.get("rests_on"))
+    entry["rests_on"] = [
+        {"capability": "taskqueue", "operations": ["send(task_id=)", "WorkerBoot"]}
+    ]
+    problems = _problems(mutated)
+    assert any(
+        "'send(task_id=)' is not an operation of taskqueue" in p for p in problems
+    )
+    assert any("'WorkerBoot' is not an operation of taskqueue" in p for p in problems)
+
+
+def test_detects_a_feature_needed_and_absent_in_two_items(raw: dict[str, Any]) -> None:
+    mutated = copy.deepcopy(raw)
+    entry = next(e for e in mutated["guarantees"] if e.get("rests_on"))
+    entry["rests_on"] = [
+        {"capability": "eventbus", "features": ["durable"], "note": "needs"},
+        {"capability": "eventbus", "without_features": ["durable"], "note": "absent"},
+    ]
+    assert any("needed by one eventbus item" in p for p in _problems(mutated))
+
+
+def test_rests_on_capabilities_are_the_kernel_registry() -> None:
+    from sandloom.core.infra.capabilities import BUILTIN_CAPABILITIES
+
+    declared = ledger_mod.capability_features()
+    assert set(declared) == {spec.name for spec in BUILTIN_CAPABILITIES}
+    used = {
+        rest.capability
+        for entry in ledger_mod.load().entries
+        for rest in entry.rests_on
+        if rest.capability != ledger_mod.ANY_CAPABILITY
+    }
+    assert used <= set(declared)
+
+
+def test_detects_unknown_rests_on_capability(raw: dict[str, Any]) -> None:
+    mutated = copy.deepcopy(raw)
+    entry = next(e for e in mutated["guarantees"] if e.get("rests_on"))
+    entry["rests_on"] = [{"capability": "redis", "operations": ["get"]}]
+    assert any("is not a kernel capability" in p for p in _problems(mutated))
+
+
+def test_detects_undeclared_rests_on_feature(raw: dict[str, Any]) -> None:
+    mutated = copy.deepcopy(raw)
+    entry = next(e for e in mutated["guarantees"] if e.get("rests_on"))
+    entry["rests_on"] = [
+        {"capability": "atomic_store", "operations": ["get"], "features": ["nope"]}
+    ]
+    assert any(
+        "'nope' is not a feature of atomic_store" in p for p in _problems(mutated)
+    )
+
+
+def test_detects_malformed_rests_on(raw: dict[str, Any]) -> None:
+    mutated = copy.deepcopy(raw)
+    first, second = (e for e in mutated["guarantees"][:2])
+    first["rests_on"] = [{"capability": "lease", "feature": ["shared"]}]
+    second["rests_on"] = [{"capability": "lease"}]
+    problems = _problems(mutated)
+    assert any("unknown keys ['feature']" in p for p in problems)
+    assert any("names no operation, feature or note" in p for p in problems)
+
+
+# --------------------------------------------------------------------------- #
 # Positive detection: the gate catches each failure it promises to catch.
 
 

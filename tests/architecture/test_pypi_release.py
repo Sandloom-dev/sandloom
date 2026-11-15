@@ -59,7 +59,11 @@ def candidate(tmp_path, plan):
     return out, manifest
 
 
-@pytest.mark.parametrize("project", release.PACKAGES)
+TAGGED = tuple(p.name for p in release.release_packages.PACKAGES if p.tag_release)
+UNTAGGED = tuple(n for n in release.PACKAGES if n not in TAGGED)
+
+
+@pytest.mark.parametrize("project", TAGGED)
 def test_tag_selects_only_its_matching_package(source, project):
     plan = release.plan_release(
         source,
@@ -71,6 +75,29 @@ def test_tag_selects_only_its_matching_package(source, project):
     )
     assert plan["packages"] == [project]
     assert plan["publish"] is True
+
+
+@pytest.mark.parametrize("project", UNTAGGED)
+def test_a_tag_of_a_package_the_environment_does_not_allow_is_refused(source, project):
+    with pytest.raises(ValueError, match="not released by tag"):
+        release.plan_release(
+            source,
+            "all",
+            "push",
+            f"refs/tags/{project}-v0.7.0a2",
+            dry_run=True,
+            on_main=True,
+        )
+
+
+def test_the_tag_allowed_packages_are_the_environment_allowed_ones():
+    assert set(TAGGED) == {
+        "sandloom",
+        "sandloom-identity",
+        "sandloom-tenancy",
+        "sandloom-billing",
+    }
+    assert UNTAGGED, "a list with no manual-only package hides the refusal path"
 
 
 @pytest.mark.parametrize(
@@ -103,6 +130,95 @@ def test_dry_run_can_validate_a_feature_branch_without_publication(source):
         )["publish"]
         is False
     )
+
+
+def _kernel_requires_a_sibling(source, requirement="sandloom-redis>=0.7.0a2,<0.8"):
+    (source / "packages" / "sandloom" / "pyproject.toml").write_text(
+        '[project]\nversion = "0.7.0a2"\n'
+        f'dependencies = ["pydantic>=2"]\n[project.optional-dependencies]\nredis = ["{requirement}"]\n'
+    )
+
+
+def _tag_plan(source, **kwargs):
+    return release.plan_release(
+        source,
+        "all",
+        "push",
+        "refs/tags/sandloom-v0.7.0a2",
+        dry_run=True,
+        on_main=True,
+        **kwargs,
+    )
+
+
+def test_a_release_refuses_a_sibling_that_no_index_has(source):
+    _kernel_requires_a_sibling(source)
+    asked = []
+
+    def on_pypi(project, version):
+        asked.append((project, version))
+        return False
+
+    with pytest.raises(ValueError, match="sandloom-redis") as caught:
+        _tag_plan(source, on_pypi=on_pypi)
+    assert "release sandloom-redis first" in str(caught.value)
+    assert asked == [("sandloom-redis", "0.7.0a2")]
+
+
+def test_a_sibling_already_on_pypi_does_not_block_the_release(source):
+    _kernel_requires_a_sibling(source)
+    plan = _tag_plan(source, on_pypi=lambda project, version: True)
+    assert plan["packages"] == ["sandloom"]
+
+
+def test_a_sibling_in_the_same_plan_is_not_looked_up(source):
+    _kernel_requires_a_sibling(source)
+
+    def never(project, version):
+        raise AssertionError("PyPI must not be asked for a sibling in the plan")
+
+    plan = release.plan_release(
+        source,
+        "all",
+        "workflow_dispatch",
+        "refs/heads/main",
+        dry_run=False,
+        on_main=True,
+        on_pypi=never,
+    )
+    assert "sandloom-redis" in plan["packages"]
+
+
+def test_a_dry_run_does_not_ask_pypi(source):
+    _kernel_requires_a_sibling(source)
+
+    def never(project, version):
+        raise AssertionError("a dry run publishes nothing and asks no index")
+
+    plan = release.plan_release(
+        source,
+        "sandloom",
+        "workflow_dispatch",
+        "refs/heads/feature",
+        dry_run=True,
+        on_main=False,
+        on_pypi=never,
+    )
+    assert plan["publish"] is False
+
+
+def test_the_default_lookup_is_pypi_itself(source, monkeypatch):
+    _kernel_requires_a_sibling(source)
+    monkeypatch.setattr(release, "fetch_release", lambda project, version: None)
+    with pytest.raises(ValueError, match="sandloom-redis"):
+        _tag_plan(source)
+    monkeypatch.setattr(release, "fetch_release", lambda project, version: {"urls": []})
+    assert _tag_plan(source)["packages"] == ["sandloom"]
+
+
+def test_a_requirement_on_a_name_outside_the_list_is_not_a_sibling(source):
+    _kernel_requires_a_sibling(source, requirement="sandloom-unlisted>=1")
+    assert _tag_plan(source, on_pypi=lambda *_: False)["packages"] == ["sandloom"]
 
 
 def test_malformed_boolean_does_not_enable_publication(monkeypatch):

@@ -216,7 +216,7 @@ matches, it returns the existing instance. Outside a UoW, `start_saga` raises
   claim would protect nothing the row lock and version do not already
   protect, and would add an `INSERT` per step and a growing table.
 - **Timer sweep:** a kernel loop in every process that hosts a saga-owning
-  module, guarded by a fenced cache lease (the `beat_lease` mechanism, one
+  module, guarded by a fenced cache lease (the beat lease's `FencedLease`, one
   holder per database). It is **not** tied to the outbox relay: the relay is
   off by default outside prod, and dev must drive sagas exactly as prod does.
   Each tick selects active instances whose `next_attempt_at` or `deadline_at`
@@ -704,7 +704,7 @@ reason is recorded here; this section supersedes the text it names.
   purges terminal instances older than `SAGA_RETENTION_DAYS` about once an
   hour (parked instances are kept). Without a cache that supports `cas` the
   sweep runs unleased (safe, only redundant). The lease is
-  `sandloom.core.beat_lease.FencedLease`, the beat lease's state machine made
+  `sandloom.core.infra.fenced_lease.FencedLease`, the beat lease's state machine made
   async and shared.
 - **A6 — the system channel is injected (§2, §10).** `sandloom.core.sagas` sits
   in the contracts & RPC layer and may not import a concrete driver

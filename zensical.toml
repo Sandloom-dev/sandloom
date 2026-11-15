@@ -140,6 +140,7 @@ Infrastructure = [
     "infrastructure/configure.md",
     "infrastructure/database.md",
     "infrastructure/cache.md",
+    "infrastructure/atomic-store.md",
     "infrastructure/event-bus.md",
     "infrastructure/task-queue.md",
     "infrastructure/object-store.md",
@@ -372,6 +373,7 @@ Infrastructure = [
     { "Interfaces and drivers" = [
         { Database = "infrastructure/database.md" },
         { Cache = "infrastructure/cache.md" },
+        { "Atomic store" = "infrastructure/atomic-store.md" },
         { "Event bus" = "infrastructure/event-bus.md" },
         { "Task queue" = "infrastructure/task-queue.md" },
         { "Object store" = "infrastructure/object-store.md" },

@@ -155,8 +155,8 @@ infrastructure tables. See [Migrations](../modules/database/migrations.md) and
 | Command | What it does |
 | --- | --- |
 | `sandloom outbox list-dead \| requeue \| purge [--database D] [--channel C] [--id ID \| --all] [--limit N]` | Inspect dead-lettered outbox events, return them to pending, or delete delivered events older than the retention window. |
-| `sandloom streams dlq-list \| dlq-replay <channel> [--id ID] [--group G]` | List or re-publish a channel's Streams dead-letter entries. |
-| `sandloom streams groups <channel> \| consumers [--all] \| release-group <channel> <group>` | Consumer groups of a channel, the subscription inventory, or forget a group's owner fingerprint. |
+| `sandloom streams dlq-list \| dlq-replay <channel> [--id ID] [--group G]` | List or re-publish a channel's dead-letter entries. On a driver without the `dlq_ops` feature the command exits 1 with "not supported by this driver". |
+| `sandloom streams groups <channel> \| consumers [--all] \| release-group <channel> <group>` | Consumer groups of a channel, the subscription inventory, or forget a group's owner fingerprint. `groups` needs the `inspection` feature and `consumers` needs `inventory`; without it the command exits 1. |
 | `sandloom projection list \| rebuild <name> [--tenant <id>]` | List registered projections and consumers; rebuild one from its source. |
 | `sandloom sagas list [--all] \| show <type> <id> \| retry <type> <id> \| park <type> <id> \| resolve <type> <id> --step S --as applied\|skipped` | Operate saga instances. Dry run unless `--apply --reason R` (prod: also `--confirm-production`). |
 | `sandloom security revoke-sessions \| force-password-reset (--all \| --tenant ORG \| --user ID) [--operation-id ID]` | Incident response: end every session of the targets, or require a password reset. The kernel revokes the access tokens (any issuer); the claim map's issuer ends its refresh sessions; the output reports each kind of session. Asks the issuer's `<issuer>.security.v1` (`--tenant`: the `tenant_ids` owner's), confirmed before anything is done: a missing method refuses (`SANDLOOM-B039`, exit 1), e.g. `force-password-reset` with an issuer that has no passwords. Dry run unless `--apply --reason R` (prod: also `--confirm-production`); `--operation-id` resumes an interrupted run. |
@@ -165,7 +165,10 @@ infrastructure tables. See [Migrations](../modules/database/migrations.md) and
 | `sandloom admin invite --email ADDRESS [--apply --confirm-production --reason R]` | A new set-password link for an administrator; the old link and the account's sessions end. Same owner rule as `admin create`. |
 | `sandloom admin list [--confirm-production --reason R [--show-emails]]` | The platform administrators: the `roles` owner's holders (`platform_admin_ids`) with the issuer's address, whether a password is set (`at the provider` for an issuer that keeps none) and last sign-in (`accounts_by_id`). Read-only. In production it needs `--confirm-production --reason`, writes an audit record through the `roles` owner (identity: `identity.admin.listed`) and masks the addresses unless `--show-emails`. The command grants no access the server's CLI lacks; in production it adds the audit trail and keeps addresses out of shell history and CI logs. |
 | `sandloom security audit-export --since T [--until T] [--action-prefix P] --output FILE` | Export an audit-log window as JSONL (sanitized metadata). |
-| `sandloom backup plan \| verify <dump> \| reconcile-security` | What to back up per database and Redis endpoint; restore a dump into a scratch database and check it; re-derive blocks and revocation marks after a security-cache restore. |
+| `sandloom worker [--queues Q[,Q...]] [--concurrency N] [--loglevel L]` | Run a task worker for the loaded modules (every deploy profile's `<service>-worker`). `--queues` defaults to the default queue, `--concurrency` to `WORKER_CONCURRENCY`, else the CPU quota; the process model is the `worker_pool` option of the celery instance in `INFRA` (on macOS set `solo` or `threads`: [the note](../modules/background/tasks.md#the-worker-and-beat)); `--loglevel` defaults to `INFO`. It boots the composition root like the API, runs the worker host of the taskqueue driver, and exits with the worker's exit code (non-zero when the worker dies). Replaces `celery -A sandloom.core.worker worker`. |
+| `sandloom beat [--loglevel L] [--schedule PATH]` | Run the scheduler. It schedules only while it holds the singleton lease: a second one stands by, so run one per broker and module set. `--schedule` is the scheduler's state file (default `celerybeat-schedule` in the working directory; containers pass `/tmp/celerybeat-schedule`). Replaces `celery -A sandloom.core.worker beat`. |
+| `sandloom worker check [--timeout SECONDS]` | The worker's container healthcheck: exit 0 when its heartbeat file is younger than `--timeout` (default 60, at most 86400), 1 when missing or stale. It asks the driver's host and boots nothing: no composition root, no broker round trip. It loads the full, valid settings of the worker (`DATABASE_URL`, `CACHE_URL`, `BROKER_URL` and `JWT_SECRET`) to find the driver, and fails like any process on an invalid one. Replaces `python -m sandloom.core.worker healthcheck`. |
+| `sandloom backup plan \| verify <dump> \| reconcile-security \| fence-leases` | What to back up per database and Redis endpoint; restore a dump into a scratch database and check it; re-derive blocks and revocation marks after a security-store restore; lift every fence of the `database` lease driver (`infra_lease`) after a restore of a PostgreSQL database, in one transaction with its audit row (dry-run by default; `fence-leases` and `verify` refuse a database that is not PostgreSQL). |
 | `sandloom keys generate [--alg EdDSA\|RS256\|ES256] [--purpose jwt\|rpc\|rpc-dh] [--service S] [--kid K] [--out-dir DIR]` | Generate an access-token signing pair, or a service's internal-RPC keys. |
 | `sandloom keys allowlist` | Derive `RPC_ALLOWED_CALLS` from `SERVICE_BINDINGS`. |
 | `sandloom keys dev-env [--deploy-dir D] [--out F]` | DEVELOPMENT / CI ONLY: a compose `--env-file` with fresh keys for every variable the microservices profile requires. |
@@ -178,7 +181,7 @@ Procedures: the [runbook](../operate/runbook.md) and the
 
 ```bash
 uv run uvicorn <app>.asgi:app --reload                         # API on :8000 (needs .env)
-uv run celery -A sandloom.core.worker worker|beat --loglevel=INFO   # background tasks
+uv run sandloom worker                                          # background tasks (and: sandloom beat)
 ```
 
 ## Framework dependency sources
@@ -330,10 +333,10 @@ is raw env).
   `AUTH_REVOCATION_WRITE_ATTEMPTS` / `AUTH_REVOCATION_RETRY_BASE_SECONDS`
   (revocation mark margin and retries; identical in every service),
   `TWOFA_ENCRYPTION_KEY` (required in prod with identity; comma list =
-  rotation), `SECURITY_CACHE_INSTANCE` (named cache for the subject-state
-  records and — by default — idempotency records),
-  `IDEMPOTENCY_CACHE_INSTANCE` (opt-in separate cache for idempotency
-  records; empty = the security cache). Every authenticated route reads the
+  rotation), `INFRA.atomic_store.security` (the store of the subject-state
+  records and — by default — idempotency records) and
+  `INFRA.atomic_store.idempotency` (opt-in separate store for idempotency
+  records; absent = the security store). Every authenticated route reads the
   session record live; there is no per-route revocation setting
   ([Route policy](../modules/http/route-policy.md)).
 - **Passwords.** `PASSWORD_HASH_CONCURRENCY` (argon2 pool; default

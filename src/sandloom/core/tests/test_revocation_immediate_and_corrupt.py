@@ -21,15 +21,15 @@ import pytest
 
 from sandloom.core.auth import blocks, marks, revocation, tokens, verification
 from sandloom.core.config.settings import settings
-from sandloom.core.testing import InMemoryCache, recording_uow, run_on_commit
+from sandloom.core.testing import InMemoryAtomicStore, recording_uow, run_on_commit
 
 
 @pytest.fixture
-def mem_cache(monkeypatch: pytest.MonkeyPatch) -> InMemoryCache:
+def mem_cache(monkeypatch: pytest.MonkeyPatch) -> InMemoryAtomicStore:
     import sandloom.core.infra.access as access
 
-    fake = InMemoryCache()
-    monkeypatch.setattr(access, "cache", lambda name="default": fake)
+    fake = InMemoryAtomicStore()
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": fake)
     monkeypatch.setattr(
         settings, "auth_revocation_clock_skew_seconds", 2.0, raising=False
     )
@@ -75,7 +75,7 @@ def _key(sub: str) -> str:
     ],
 )
 async def test_corrupt_mark_rejects_every_token_and_is_counted(
-    mem_cache: InMemoryCache, corrupt: str
+    mem_cache: InMemoryAtomicStore, corrupt: str
 ) -> None:
     sub = str(uuid4())
     token = _claims(sub)
@@ -88,7 +88,7 @@ async def test_corrupt_mark_rejects_every_token_and_is_counted(
 
 
 async def test_issuance_check_repairs_a_corrupt_mark_so_relogin_works(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     from sandloom.core.auth.blocks import ensure_user_not_blocked
 
@@ -109,7 +109,9 @@ async def test_issuance_check_repairs_a_corrupt_mark_so_relogin_works(
     assert await verification.is_token_revoked(fresh) is False
 
 
-async def test_a_revocation_overwrites_a_corrupt_mark(mem_cache: InMemoryCache) -> None:
+async def test_a_revocation_overwrites_a_corrupt_mark(
+    mem_cache: InMemoryAtomicStore,
+) -> None:
     sub = str(uuid4())
     mem_cache.store[_key(sub)] = "corrupt"
     assert await revocation.revoke_user_tokens(sub, valid_after=time.time()) is True
@@ -117,7 +119,7 @@ async def test_a_revocation_overwrites_a_corrupt_mark(mem_cache: InMemoryCache) 
 
 
 async def test_corrupt_mark_rejects_on_budgeted_reads_too(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     """There are no budgeted reads any more (ADR-0009): the corrupt record is
     read live by every check, and every check rejects."""
@@ -127,7 +129,7 @@ async def test_corrupt_mark_rejects_on_budgeted_reads_too(
         assert await verification.is_token_revoked(_claims(sub)) is True
 
 
-async def test_any_block_value_blocks(mem_cache: InMemoryCache) -> None:
+async def test_any_block_value_blocks(mem_cache: InMemoryAtomicStore) -> None:
     """ADR-0009 item 13: the block is a value of the one subject-state record;
     it blocks tokens minted before AND after it. An unparsable value is not a
     block but still fails closed (revoked)."""
@@ -147,7 +149,7 @@ async def test_any_block_value_blocks(mem_cache: InMemoryCache) -> None:
 # 2. require_immediate
 # --------------------------------------------------------------------------- #
 async def test_immediate_revocation_writes_the_mark_before_commit(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     sub = str(uuid4())
     old = _claims(sub)
@@ -164,7 +166,7 @@ async def test_immediate_revocation_writes_the_mark_before_commit(
 
 
 async def test_immediate_revocation_refuses_the_change_on_a_cache_outage(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     from sandloom.core.http.error_handlers import http_status_of
 
@@ -181,7 +183,7 @@ async def test_immediate_revocation_refuses_the_change_on_a_cache_outage(
 
 
 async def test_immediate_post_commit_remark_revokes_tokens_minted_before_commit(
-    mem_cache: InMemoryCache, monkeypatch: pytest.MonkeyPatch
+    mem_cache: InMemoryAtomicStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An issuer that read the EARLY mark (before commit) collected claims
     from the pre-change state and stamped its token after that mark: the
@@ -212,7 +214,7 @@ async def test_immediate_post_commit_remark_revokes_tokens_minted_before_commit(
 
 
 async def test_tokens_the_revoking_request_mints_survive_the_post_commit_remark(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     sub = str(uuid4())
     with recording_uow() as session:
@@ -225,7 +227,7 @@ async def test_tokens_the_revoking_request_mints_survive_the_post_commit_remark(
 
 
 async def test_immediate_revocation_survives_a_post_commit_cache_failure(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     """The early mark already holds: losing the post-commit write (deferred to
     the applier) cannot re-open the window for tokens minted before it."""
@@ -242,7 +244,7 @@ async def test_immediate_revocation_survives_a_post_commit_cache_failure(
 
 
 async def test_a_commit_slower_than_the_skew_revokes_the_requests_own_tokens_loudly(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -272,7 +274,7 @@ async def test_a_commit_slower_than_the_skew_revokes_the_requests_own_tokens_lou
 
 
 async def test_a_prompt_commit_does_not_count_an_overtaken_floor(
-    mem_cache: InMemoryCache,
+    mem_cache: InMemoryAtomicStore,
 ) -> None:
     sub = str(uuid4())
     before = marks.revocation_metrics_snapshot()["remark_overtook_floor"]
@@ -296,7 +298,7 @@ def _aged_claims(sub: str, age_s: float) -> dict[str, Any]:
 
 
 async def test_a_token_older_than_the_mark_ttl_is_rejected_when_no_mark_exists(
-    mem_cache: InMemoryCache, monkeypatch: pytest.MonkeyPatch
+    mem_cache: InMemoryAtomicStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A token older than the revocation-mark TTL may have been revoked by a
     mark that has since expired (an issuer configured with a longer
@@ -320,7 +322,7 @@ async def test_a_token_older_than_the_mark_ttl_is_rejected_when_no_mark_exists(
 
 
 async def test_mark_ttl_guard_follows_a_configured_ttl(
-    mem_cache: InMemoryCache, monkeypatch: pytest.MonkeyPatch
+    mem_cache: InMemoryAtomicStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "access_token_expire_minutes", 15)
     monkeypatch.setattr(

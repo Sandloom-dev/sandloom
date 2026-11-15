@@ -205,20 +205,20 @@ docker compose -f deploy/compose/microservices.yml run --rm migrate-billing
 
 ## Background work (Celery worker + beat)
 
-Workers run the **framework** entrypoint, not a module's:
+Workers run the **framework** commands, not a module's:
 
 ```bash
-celery -A sandloom.core.worker worker --loglevel=INFO
-celery -A sandloom.core.worker beat   --loglevel=INFO --schedule=/tmp/celerybeat-schedule
+sandloom worker --loglevel=INFO
+sandloom beat   --loglevel=INFO --schedule=/tmp/celerybeat-schedule
 ```
 
-`sandloom.core.worker` boots the same composition root as the API
+`sandloom worker` and `sandloom beat` boot the same composition root as the API
 (`SANDLOOM_COMPOSITION_ROOT`: `sandloom_standard.main` in the image and both
 profiles; the kernel's default is the lean `sandloom.main`) with the process's `SANDLOOM_MODULES`,
 resolves the Celery app through the `taskqueue` capability
 (`SANDLOOM_WORKER_TASKQUEUE`, default `default`), imports `<module>.tasks` for every
-loaded module and connects each module's `setup_periodic_tasks(sender)` beat
-hook. Run **exactly one beat** per broker (a second one stands by — see
+loaded module; the beat sends each module's `@periodic` tasks at their cron
+slots (UTC). Run **exactly one beat** per broker (a second one stands by — see
 "Beat singleton lease" below).
 
 **Sizing.** Celery's own default is one prefork child per *host* core, each a
@@ -226,13 +226,13 @@ full copy of the composition root: on a 10-core host a 0.5-CPU / 384 MiB
 worker forked 10 children and was OOM-killed in a loop (while the container
 still showed "running"). The framework sets `worker_concurrency` from
 `WORKER_CONCURRENCY`, else from the container CPU quota capped at 2 (an
-explicit `--concurrency` still wins); `WORKER_MAX_MEMORY_PER_CHILD` (KiB) and
+explicit `sandloom worker --concurrency` still wins); `WORKER_MAX_MEMORY_PER_CHILD` (KiB) and
 `WORKER_MAX_TASKS_PER_CHILD` recycle children. Each child opens its own DB
 pool (`WORKER_DB_POOL_SIZE` / `WORKER_DB_MAX_OVERFLOW`). Memory: ~150 MiB for
 the main process + one child; the profiles give workers 512 MiB.
 
 **Liveness.** The worker's own timer touches `/tmp/sandloom-worker-heartbeat`
-(`WORKER_HEARTBEAT_FILE`) every 10 s; `python -m sandloom.core.worker healthcheck`
+(`WORKER_HEARTBEAT_FILE`) every 10 s; `sandloom worker check`
 exits non-zero when it is missing or older than 60 s. It boots nothing (no
 broker round-trip, no second app copy inside the memory limit — unlike
 `celery inspect ping`), so it is the compose `healthcheck` and the k8s
@@ -246,7 +246,7 @@ orphan payment-state purge) ship periodic tasks, hence `identity-worker` /
 does not load its module.
 
 **One scheduler per task set.** A beat schedules exactly the
-`setup_periodic_tasks` of the modules in ITS `SANDLOOM_MODULES`, onto its own
+`@periodic` tasks of the modules in ITS `SANDLOOM_MODULES`, onto its own
 service's broker; the worker of the same service (same env anchor, same broker)
 is the only consumer. So there is exactly one beat per broker and per module
 with periodic tasks — no schedule runs twice, none is missing.
@@ -259,26 +259,33 @@ env anchor.
 second beat started by mistake (a scaled-up replica, a manual `celery beat`
 left running, a k8s rollout that overlaps old and new pods) would send every
 periodic task twice. The framework beat therefore schedules only while it
-holds a lease in the cache (`sandloom.core.beat_lease`):
+holds a fenced lease of the `lease` instance `INFRA.lease.beat`
+(`sandloom.core.infra.fenced_lease`; the scheduler of the Celery driver,
+`sandloom_celery.worker`, runs only while it holds it):
 
 * the key is `sandloom:beat:lease:<scope>`, the scope a digest of the broker URL,
   the taskqueue instance and the sorted `SANDLOOM_MODULES` — replicas of one
   service share it, different services never suppress each other
   (`BEAT_LEASE_NAME` pins an explicit scope);
-* acquire = `SET NX` with a TTL (`BEAT_LEASE_TTL_SECONDS`, default 30) of a
-  fenced token `<fence>:<host>:<pid>:<nonce>` (`<fence>` from an `INCR`, so
-  every takeover gets a larger number); renew every TTL/3 with a
-  compare-and-set on that token;
+* acquire = a grant of the lease driver with a TTL (`BEAT_LEASE_TTL_SECONDS`,
+  default 30), owner `<host>:<pid>` and a fence that grows with every grant
+  (so every takeover gets a larger number); renew every TTL/3 with the
+  grant's token;
 * a second beat logs `[beat] standby: another beat holds lease …` and sends
   nothing; it takes over within TTL + TTL/3 after the holder dies, at once
-  after a clean shutdown (the holder deletes its own token);
-* a holder whose token was replaced stops scheduling immediately; on a cache
-  outage it keeps scheduling only until its local lease deadline, then stands
+  after a clean shutdown (the holder releases its own lease);
+* a holder whose lease was taken stops scheduling immediately; on a lease
+  backend outage it keeps scheduling only until its local lease deadline, then stands
   by until it can write again;
-* the lease lives in `BEAT_LEASE_CACHE_INSTANCE` (default `default`, the
-  shared `CACHE_URL`) and needs the `cas` feature (Redis); with a cache
-  without it beat refuses to start. The lease is always on (there is no
-  switch to turn it off).
+* the lease lives in the instance `INFRA.lease.beat`: absent, a `redis` lease
+  on the shared `CACHE_URL` (its server must run `maxmemory-policy noeviction`,
+  which the driver checks); `{"driver": "database"}` keeps it in the table
+  `infra_lease` of a database that carries the core migration chain. In
+  production the driver must be shared between processes (not `memory`), or
+  beat refuses to start. The lease is always on (there is no switch to turn it
+  off). **Upgrade:** `BEAT_LEASE_CACHE_INSTANCE` is removed and a leftover one
+  fails startup; delete it, and name the instance in `INFRA` only to move the
+  lease off `CACHE_URL`.
 
 The lease wraps whatever scheduler beat runs (`-S …` included) and applies to
 `worker -B` too. A takeover starts from the new beat's own schedule file, so a
@@ -772,8 +779,8 @@ Neither is implemented; until then plan a maintenance window per module.
 - A shared multi-tenant SaaS should run with
   `PRODUCTION_PROFILE=multi_tenant_strict`: the process then refuses to start
   unless Row-Level Security is on for every database (and covers every tenant
-  table), revocation fails closed, security-critical cache state has its own
-  non-evicting Redis (`SECURITY_CACHE_INSTANCE`) and, when split, the contract
+  table), revocation fails closed, security-critical state has its own
+  non-evicting Redis (`INFRA.atomic_store.security`) and, when split, the contract
   compatibility check is on. The full contract, the Redis HA recommendations
   and the mapping of named cache instances are in
   `docs/advanced/security-model.md` → *Production profile*. The compose
@@ -803,7 +810,7 @@ Neither is implemented; until then plan a maintenance window per module.
 ### Separate idempotency Redis (opt-in)
 
 By default `idempotency_guard` reservations / replay records and task-enqueue
-dedupe records live in the security cache (`SECURITY_CACHE_INSTANCE`) next to
+dedupe records live in the `security` atomic store (`INFRA.atomic_store.security`) next to
 the revocation marks every authenticated request reads. On a security Redis
 that fsyncs every write (`appendfsync always`, single-threaded), the
 idempotency `SET NX` fsyncs queue those reads and dominate the p99 of guarded
@@ -813,8 +820,7 @@ weakening any guarantee:
 
 ```yaml
 # shared env (identical in EVERY process)
-INFRA: '{"cache": {"security": {...}, "idempotency": {"driver": "redis", "url": "redis://idempotency-redis:6379/0"}}}'
-IDEMPOTENCY_CACHE_INSTANCE: idempotency
+INFRA: '{"atomic_store": {"security": {...}, "idempotency": {"driver": "redis", "url": "redis://idempotency-redis:6379/0"}}}'
 
 # service
 idempotency-redis:
@@ -827,13 +833,13 @@ idempotency-redis:
 Both compose profiles carry this block commented out. Give it the same
 persistence, `noeviction`, backups and HA as the security Redis — never
 `appendfsync everysec` (a lost reservation re-executes a mutation).
-Revocation marks, blocks and the RPC replay guard stay in the security cache;
+Revocation marks, blocks and the RPC replay guard stay in the security store;
 `fail_closed=True` guards answer `503` when the idempotency Redis is down,
 exactly as they did for the security one. Under
 `PRODUCTION_PROFILE=multi_tenant_strict` the instance must be declared in
-`INFRA["cache"]` on a Redis server other than the default cache's (attested
-at startup); sharing the security Redis's server only warns (it removes no
-contention). Leave it unset to keep today's behaviour.
+`INFRA["atomic_store"]` on a Redis server other than the default cache's
+(attested at startup through `isolation_identity()`); sharing the security Redis's server only warns (it removes no
+contention). Leave it unset and the `security` instance holds them.
 
 ## Optional admin UI
 

@@ -99,26 +99,17 @@ def lock_seconds_for(failures: int) -> int:
 
 
 async def _get_keys(provider: Any, keys: list[str]) -> list[Any]:
-    """Read ``keys`` — one round trip via ``get_many`` when the cache has it."""
-    get_many = getattr(provider, "get_many", None)
-    if get_many is not None:
-        values = await get_many(keys)
-        if isinstance(values, dict):
-            return [values.get(key) for key in keys]
-        return list(values)
-    return [await provider.get(key) for key in keys]
+    """Read ``keys`` in one round trip (``get_many``)."""
+    return list(await provider.get_many(keys))
 
 
 async def _incr_two(provider: Any, first: str, second: str) -> tuple[int, int]:
-    """Bump two failure counters — one round trip via ``incr_many``."""
-    incr_many = getattr(provider, "incr_many", None)
-    if incr_many is not None:
-        counts = await incr_many([first, second], ttl_seconds=FAIL_WINDOW_SECONDS)
-        return int(counts[0]), int(counts[1])
-    return (
-        await provider.incr(first, ttl_seconds=FAIL_WINDOW_SECONDS),
-        await provider.incr(second, ttl_seconds=FAIL_WINDOW_SECONDS),
+    """Bump two failure counters (two concurrent ``incr`` calls)."""
+    first_count, second_count = await asyncio.gather(
+        provider.incr(first, ttl_seconds=FAIL_WINDOW_SECONDS),
+        provider.incr(second, ttl_seconds=FAIL_WINDOW_SECONDS),
     )
+    return int(first_count), int(second_count)
 
 
 def _unavailable(exc: Exception) -> None:
@@ -185,7 +176,7 @@ async def register_failure(subject: str, *, client_ip: str | None = None) -> boo
                 _FAIL_PREFIX + key, ttl_seconds=FAIL_WINDOW_SECONDS
             )
         else:
-            # Both counters in ONE round trip where the driver fuses it.
+            # Both counters, concurrently.
             failures, _global = await _incr_two(
                 provider, _FAIL_PREFIX + key, _GLOBAL_PREFIX + subject
             )

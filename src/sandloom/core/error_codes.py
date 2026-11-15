@@ -739,7 +739,8 @@ never checked against what you call.
         "does not declare",
         'declare it in define_module: capabilities=["taskqueue"] for a '
         'tasks.py, CapabilityRequirement("taskqueue", '
-        'features=frozenset({"periodic"})) for a beat hook (required=False '
+        'features=frozenset({"periodic"})) for a @periodic task and the feature '
+        '"redelivery" for an at_least_once one (required=False '
         "when the module works without its schedule), with CapabilityRequirement "
         "from sandloom.sdk.module",
         """
@@ -747,11 +748,13 @@ A module states the infrastructure it needs in define_module(capabilities=[...])
 and the deployment chooses the driver; startup checks that they match. Some
 needs are visible in the module's code, and the kernel derives them at load
 whether they are declared or not: a tasks.py (or tasks/ package), which the
-framework worker imports and runs, needs the taskqueue capability; a beat hook
-(setup_periodic_tasks) in it needs the taskqueue feature "periodic", a driver
-that runs the module's periodic jobs at their interval in at least one process
-while the deployment runs (a driver never has it for supporting enqueue alone;
-only celery advertises it today). This check asks for the declaration, so a
+framework worker imports and runs, needs the taskqueue capability; a
+@periodic task in it needs the taskqueue feature "periodic", a driver that
+runs the module's periodic jobs at their cron slots in at least one process
+while the deployment runs, and a task declared at_least_once=True needs the
+feature "redelivery", a driver that redelivers it when its worker dies (a
+driver never has either for supporting send alone; only celery advertises
+them today). This check asks for the declaration, so a
 reader, an agent and the module snapshot see the need where every other need
 is stated. A declaration decides required or optional: the derived need only
 adds its feature to it, and a capability nobody declared is derived as
@@ -792,6 +795,32 @@ decided outside the package. Those are not proven statically; every route is
 classified independently at startup and the runtime checks apply.
 """,
         docs="docs/adr/0014-claims-trust-and-authorization-portability.md",
+    ),
+    _entry(
+        "SANDLOOM-C035",
+        "task-enqueue-ownership",
+        "check",
+        "a module enqueues a task by name that is not a string literal naming "
+        "one of its own tasks",
+        "enqueue your own task through the task object (`await my_task.enqueue("
+        "payload)`), or name it with a string literal under your package "
+        '(`taskqueue().enqueue("<package>.tasks.my_task", ...)`); for work in '
+        "another module, publish an event or call its contract",
+        """
+The kernel checks that the task name given to taskqueue().enqueue(name, ...)
+is declared somewhere in the process, never that the caller owns it. A module
+that enqueues another module's task by name runs that module's code with a
+payload of its choosing, around the module's own checks: the isolation every
+other crossing keeps (events, contracts, sagas) does not hold for it. sandloom
+check refuses a taskqueue().enqueue(...) call (on taskqueue(...) directly, on
+a name bound to it in the file, or under an aliased import) whose first
+argument is not a string literal starting with the calling module's own
+package. The task object of the module's own tasks.py (`await task.enqueue(
+payload)`) is the usual spelling and needs no name. Not seen: a queue handed
+over as an argument, or a name computed at run time; the kernel's enqueue
+still refuses a name no loaded module declares.
+""",
+        docs="docs/modules/background/tasks.md",
     ),
     # ------------------------------------------------------------- boot time
     _entry(
@@ -1113,9 +1142,13 @@ A built-in cannot be replaced silently: another behaviour is another name.
         """
 INFRA selected a driver or capability whose package failed to import, whose entry
 point is not a subclass of the capability's contract (or not a `CapabilitySpec`),
-which declares no `contract_version`, or which was written for another major version.
-A driver that cannot load cannot serve, so startup stops with the cause. An
-unselected package is never imported.
+which declares no `contract_version` or declares one that is not the integer major
+of the capability (a string such as "v1" is a driver written before majors were
+integers; another integer is a driver for another major), or whose capability states
+no readable major. A driver marked `development_only` (the `memory` drivers) is
+refused in production, with no accepted risk to lift it. A driver that cannot load
+cannot serve, so startup stops with the cause. An unselected package is never
+imported.
 """,
         docs="docs/infrastructure/write-a-driver.md",
     ),
@@ -1123,13 +1156,25 @@ unselected package is never imported.
         "SANDLOOM-B023",
         "experimental-capability-refused",
         "boot",
-        "an experimental capability is configured in production",
+        "an experimental capability or an experimental driver is configured in "
+        "production",
         "remove it from INFRA, or accept the risk with "
-        'SANDLOOM_ACCEPTED_RISKS=["experimental_capability"]',
+        'SANDLOOM_ACCEPTED_RISKS=["experimental_capability"] (a capability) or '
+        '["experimental_driver"] (a driver)',
         """
 An experimental capability's contract may change in any release. Running one in
 production is a weakening, so the deployment accepts it by name and every start
 reports it.
+
+A driver has a tier (`sandloom doctor` and /diagnostics/infra show it):
+`experimental` implements the contract, `beta` passes its conformance kit in CI
+against the real service, `stable` adds reconnect after an outage and the auth
+options. An experimental driver in production is refused with this code unless
+SANDLOOM_ACCEPTED_RISKS has `experimental_driver`; a beta driver logs one
+startup warning; a stable one is silent. A `development_only` driver (`memory`)
+is refused in production whatever its tier, with no risk to accept
+(SANDLOOM-B022). A driver package states its tier with the class attribute
+`tier` (default `experimental`).
 """,
         docs="docs/reference/configuration.md",
     ),
@@ -1668,6 +1713,27 @@ mismatch refuses the command with exit status 1 and nothing done.
         "docs/operate/operator-reference.md",
     ),
     _entry(
+        "SANDLOOM-B041",
+        "kernel-capability-refused",
+        "boot",
+        "module code resolved or required a kernel-facing capability "
+        "(atomic_store, lease, broadcast)",
+        "use the module-facing API built on it (sandloom.sdk: cache, "
+        "idempotency_guard, the event bus through the outbox), or a "
+        "module-facing capability",
+        """
+A kernel-facing capability (its CapabilitySpec says kernel_only) serves the
+kernel's own guarantees: the security marks and idempotency records
+(atomic_store), the beat and sweep leases (lease), the contract-cache shadow and
+the volatile bus (broadcast). Its keys and channels are the kernel's, so a module
+that reached it could forge or clear a security mark or steal a lease. The kernel
+reaches it through the registry's provider door; a module's CapabilityRef,
+Capability(...) dependency, get_core().capability(...) or CapabilityRequirement
+naming it is refused, the requirement when the module loads.
+""",
+        "docs/adr/0016-kernel-ports-and-driver-packages.md",
+    ),
+    _entry(
         "SANDLOOM-B020",
         "ambiguous-module",
         "boot",
@@ -2116,7 +2182,7 @@ reports breaking changes.
         "for a deployed one (each writes <service>-worker / <service>-beat); "
         "in a hand-written profile, add one beat per broker and a worker "
         "consuming it",
-        "A schedule (setup_periodic_tasks in <module>/tasks.py) runs only "
+        "A schedule (a @periodic task in <module>/tasks.py) runs only "
         "where a celery beat loads the module, and exactly one may: none "
         "and the task never runs, two and it runs twice. sandloom test's static "
         "schema & deploy step checks every deploy profile.",
@@ -2249,6 +2315,7 @@ EXCEPTION_CODES: dict[str, str] = {
     "DriverConflictError": "SANDLOOM-B021",
     "DriverLoadError": "SANDLOOM-B022",
     "ExperimentalCapabilityRefused": "SANDLOOM-B023",
+    "KernelOnlyCapabilityRefused": "SANDLOOM-B041",
     "IncompatibleSqlDialect": "SANDLOOM-B025",
     "InvalidDbapiAdapter": "SANDLOOM-B025",
     "RowSecurityUnavailable": "SANDLOOM-B026",

@@ -18,26 +18,30 @@ import sys
 import tomllib
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import release_packages
+
 ROOT = Path(__file__).resolve().parents[2]
-PACKAGES = (
-    "sandloom",
-    "sandloom-standard",
-    "sandloom-identity",
-    "sandloom-tenancy",
-    "sandloom-billing",
-    "sandloom-admin",
-    "sandloom-s3",
-)
+#: The distributions, from the one list (``packages.json``).
+PACKAGES = release_packages.NAMES
+#: The kernel carries the canonical version; the others may version on their own.
+KERNEL = release_packages.kernel().name
 VERSION = r"[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?"
 VALID_VERSION = re.compile(VERSION + r"\Z")
+#: ``sandloom`` or ``sandloom-<package>`` of the list.
+NAME = release_packages.suffix_pattern()
 PIN = re.compile(
-    r"(?P<prefix>(?P<package>sandloom(?:-(?:standard|identity|tenancy|billing|admin|s3|<module>))?)"
-    r"(?:\[[^]\n]+\])?(?:==|>=))(?P<version>" + VERSION + r")"
+    r"(?P<prefix>(?P<package>"
+    + release_packages.suffix_pattern(extra=("<module>",))
+    + r")(?:\[[^]\n]+\])?(?:==|>=))(?P<version>"
+    + VERSION
+    + r")"
     r"(?P<upper>,<[0-9]+\.[0-9]+(?:\.[0-9]+)?)?"
 )
 PYPI = re.compile(
     r"(?P<prefix>(?:https://pypi\.org/project/"
-    r"(?P<package>sandloom(?:-(?:standard|identity|tenancy|billing|admin|s3))?)/"
+    r"(?P<package>" + NAME + r")/"
     r"|https://img\.shields\.io/badge/PyPI-))(?P<version>" + VERSION + r")"
 )
 MARKER = "<!-- sandloom-release -->"
@@ -49,7 +53,7 @@ HISTORY = (
 
 
 def version(root: Path) -> str:
-    value = tomllib.loads((root / "packages/sandloom/pyproject.toml").read_text())[
+    value = tomllib.loads((root / "packages" / KERNEL / "pyproject.toml").read_text())[
         "project"
     ]["version"]
     if not VALID_VERSION.fullmatch(value):
@@ -122,7 +126,7 @@ def synchronized(
         r"(sync_release\.py --version )" + VERSION, lambda m: m[1] + value, text
     )
     text = re.sub(
-        r"(sandloom(?:-(?:standard|identity|tenancy|billing|admin|s3))?-v)" + VERSION,
+        r"(" + NAME + r"-v)" + VERSION,
         lambda m: m[1] + value,
         text,
     )
@@ -149,7 +153,7 @@ def changes(root: Path, value: str, *, coordinated: bool = False) -> dict[Path, 
     }
     versions = {
         name: value
-        if coordinated or name == "sandloom"
+        if coordinated or name == KERNEL
         else tomllib.loads((root / "packages" / name / "pyproject.toml").read_text())[
             "project"
         ]["version"]
@@ -158,7 +162,11 @@ def changes(root: Path, value: str, *, coordinated: bool = False) -> dict[Path, 
     result = {}
     for path in current_files(root):
         original = path.read_text()
-        module_metadata = path in metadata and path.parent.name in PACKAGES[1:]
+        module_metadata = (
+            path in metadata
+            and path.parent.name in PACKAGES
+            and path.parent.name != KERNEL
+        )
         updated = (
             original
             if module_metadata and not coordinated

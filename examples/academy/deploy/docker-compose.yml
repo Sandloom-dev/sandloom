@@ -109,7 +109,7 @@ services:
     <<: *app-runtime
     build: *app-build
     volumes: ["app_data:/app/data"]
-    command: ["celery", "-A", "sandloom.core.worker", "worker", "--loglevel=INFO"]
+    command: ["sandloom", "worker", "--loglevel=INFO"]
     environment:
       <<: *app-env
       SANDLOOM_COMPOSITION_ROOT: academy.asgi
@@ -135,7 +135,7 @@ services:
     <<: *app-runtime
     build: *app-build
     volumes: ["app_data:/app/data"]
-    command: ["celery", "-A", "sandloom.core.worker", "beat", "--loglevel=INFO",
+    command: ["sandloom", "beat", "--loglevel=INFO",
               "--schedule=/tmp/celerybeat-schedule"]
     environment:
       <<: *app-env

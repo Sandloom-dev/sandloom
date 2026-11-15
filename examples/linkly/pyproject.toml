@@ -5,6 +5,8 @@ description = "A Sandloom application."
 requires-python = ">=3.11"
 dependencies = [
     "sandloom[redis,celery]>=0.7.0a13,<0.8",
+    "sandloom-redis>=0.7.0a13,<0.8",
+    "sandloom-celery>=0.7.0a13,<0.8",
 ]
 
 [project.optional-dependencies]
@@ -105,3 +107,5 @@ exclude = [
 
 [tool.uv.sources]
 sandloom = { path = "../../packages/sandloom", editable = true }
+sandloom-redis = { path = "../../packages/sandloom-redis", editable = true }
+sandloom-celery = { path = "../../packages/sandloom-celery", editable = true }

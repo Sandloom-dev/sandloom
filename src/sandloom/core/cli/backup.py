@@ -9,9 +9,14 @@
         integrity, drop it (exit 0 = the backup restores and is current)
     sandloom backup reconcile-security [--audit-export FILE ...] [--lift-stale-blocks]
                       [--apply [--confirm-production] --reason R] [--json]
-        after restoring the SECURITY cache from a snapshot: re-derive block
+        after restoring the security store from a snapshot: re-derive block
         and revocation marks from the audit log / outbox (dry-run by default;
         exit 0 = nothing missing / everything re-applied, 1 = action needed)
+    sandloom backup fence-leases [--database NAME ...]
+                      [--apply [--confirm-production] --reason R] [--json]
+        after restoring a DATABASE from a dump: lift every infra_lease fence
+        by a large offset and release the leases, so a stale holder of the
+        lost window cannot outrank a new holder (dry-run by default)
 
 The commands build the composition root (``SANDLOOM_COMPOSITION_ROOT``) to resolve
 the configured databases and modules but do NOT start its lifespan. See
@@ -39,12 +44,15 @@ from sandloom.core.cli._operator import add_operator_arguments, operator_intent
 from sandloom.core.composition import load_composition_core
 from sandloom.core.config.settings import settings
 from sandloom.core.migrations.backup import (
+    LEASE_FENCE_OFFSET,
     build_backup_plan,
     command_restorer,
     database_chains,
     format_plan,
+    lift_fences,
     verify_dump,
 )
+from sandloom.core.sql_alchemy.portable import dialect_of_url, schema_from_models
 from sandloom.core.unit_of_work import db_session
 from sandloom.core.unit_of_work.effects import record_audit
 from sandloom.core.unit_of_work.scope import _audit_store, _outbox_store
@@ -83,6 +91,14 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         return 2
     core = _build_core()
     server = args.server_url or _migrations.resolve_database_sync_url(args.database)
+    if _from_models(server):
+        print(
+            "error: backup verify restores a dump with pg_restore / psql into a "
+            f"server whose schema comes from migrations; database {args.database!r} "
+            "takes its schema from the models",
+            file=sys.stderr,
+        )
+        return 2
     report = verify_dump(
         args.dump,
         server_url=server,
@@ -155,7 +171,7 @@ async def _audit_reconcile(report: Any, operator: str, reason: str) -> None:
             "core.security.marks_reconciled",
             actor_id=None,
             actor_type="operator",
-            resource_type="security_cache",
+            resource_type="security_store",
             resource_id=None,
             data={
                 "operator": operator,
@@ -192,7 +208,7 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
         mode = "applied" if report.applied else "dry-run"
         print(f"security-state reconciliation ({mode})")
         print(f"  blocked users (durable records): {report.blocked_users}")
-        print(f"  block marks missing from the cache: {len(report.missing_blocks)}")
+        print(f"  block marks missing from the store: {len(report.missing_blocks)}")
         for user in report.missing_blocks[:20]:
             print(f"    {user}")
         print(
@@ -201,7 +217,7 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
         )
         print(
             f"  revocations in the window: {report.revocations_seen}, "
-            f"missing/older in the cache: {len(report.missing_revocations)}"
+            f"missing/older in the store: {len(report.missing_revocations)}"
         )
         for line in report.failures:
             print(f"  FAILURE {line}")
@@ -209,6 +225,99 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
             print(f"  WARNING {line}")
         print("clean" if report.clean else "ACTION NEEDED")
     return 0 if report.clean else 1
+
+
+def _from_models(url: str) -> bool:
+    """The database takes its schema from the models (its SQL dialect renderer
+    says so, SANDLOOM-B028): no migration chain, no dump to restore, no
+    ``infra_lease`` fences to lift."""
+    return schema_from_models(dialect_of_url(url))
+
+
+async def _fence_database(
+    name: str, *, apply: bool, operator: str, reason: str
+) -> list[dict[str, Any]]:
+    """Lift the fences of one database in one transaction; with ``apply`` the
+    audit row commits with the bump (a failed audit rolls the bump back)."""
+    async with db_session(name) as session:
+        fenced = await lift_fences(session, apply=apply)
+        if apply and fenced:
+            record_audit(
+                "core.lease.fences_bumped",
+                actor_id=None,
+                actor_type="operator",
+                resource_type="infra_lease",
+                resource_id=None,
+                data={
+                    "operator": operator,
+                    "reason": reason,
+                    "database": name,
+                    "offset": LEASE_FENCE_OFFSET,
+                    "leases": [f.name for f in fenced],
+                    "max_fence_before": max(f.fence_before for f in fenced),
+                    "max_fence_after": max(f.fence_after for f in fenced),
+                },
+                required=True,
+            )
+    return [
+        {
+            "name": f.name,
+            "fence_before": f.fence_before,
+            "fence_after": f.fence_after,
+            "held": f.held,
+        }
+        for f in fenced
+    ]
+
+
+def _cmd_fence_leases(args: argparse.Namespace) -> int:
+    intent = operator_intent(args)
+    # The core first (like reconcile-security): a command that cannot build it
+    # fails here, before any database is written.
+    _build_core()
+    instances = _migrations.list_database_instances()
+    names = args.database or sorted(instances)
+    unknown = [n for n in names if n not in instances]
+    if unknown:
+        print(
+            f"error: unknown database instance(s): {', '.join(unknown)}",
+            file=sys.stderr,
+        )
+        return 2
+    foreign = [n for n in names if _from_models(instances[n])]
+    if foreign:
+        print(
+            "error: fence-leases needs a migration-chain database; database "
+            f"instance(s) {', '.join(foreign)} take their schema from the models "
+            "(a Redis lease: see the restore note in "
+            "docs/operate/operator-reference.md)",
+            file=sys.stderr,
+        )
+        return 2
+
+    async def _run() -> dict[str, list[dict[str, Any]]]:
+        report: dict[str, list[dict[str, Any]]] = {}
+        for name in names:
+            report[name] = await _fence_database(
+                name, apply=intent.apply, operator=intent.operator, reason=intent.reason
+            )
+        return report
+
+    report = asyncio.run(_run())
+    if args.json:
+        print(json.dumps({"applied": intent.apply, "databases": report}, indent=2))
+        return 0
+    mode = "applied" if intent.apply else "dry-run"
+    print(f"lease fence bump ({mode}, +{LEASE_FENCE_OFFSET})")
+    for name, leases in report.items():
+        print(f"  database {name}: {len(leases)} lease(s)")
+        for lease in leases:
+            held = " (held, released)" if lease["held"] else ""
+            print(
+                f"    {lease['name']}: {lease['fence_before']} -> "
+                f"{lease['fence_after']}{held}"
+            )
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -259,11 +368,26 @@ def main(argv: list[str] | None = None) -> int:
     rec.add_argument("--json", action="store_true")
     add_operator_arguments(rec)
 
+    fence = sub.add_parser(
+        "fence-leases",
+        help="after a database restore: lift every lease fence, release leases",
+    )
+    fence.add_argument(
+        "--database",
+        action="append",
+        default=[],
+        help="limit to these instances (default: every configured database)",
+    )
+    fence.add_argument("--json", action="store_true")
+    add_operator_arguments(fence)
+
     args = parser.parse_args(argv)
     if args.command == "plan":
         return _cmd_plan(args)
     if args.command == "verify":
         return _cmd_verify(args)
+    if args.command == "fence-leases":
+        return _cmd_fence_leases(args)
     return _cmd_reconcile(args)
 
 

@@ -16,9 +16,9 @@ from typing import Any
 
 import orjson
 import pytest
+from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
 from sandloom.core import idempotency
-from sandloom.core.drivers.redis_cache import RedisCacheProvider
 from sandloom.core.idempotency import cache_store as idempotency_cache_store
 from sandloom.core.idempotency import capture as idempotency_capture
 from sandloom.core.idempotency import fingerprint as idempotency_fingerprint
@@ -41,15 +41,15 @@ async def provider(monkeypatch: pytest.MonkeyPatch):
     url = os.getenv("CACHE_URL")
     if not url:
         pytest.skip("CACHE_URL not set")
-    cache = RedisCacheProvider(
-        name="idem-test", driver="redis", options={"url": url}, shared=False
+    cache = RedisAtomicStoreProvider(
+        name="idem-test", driver="redis", options={"url": url}
     )
     try:
-        client = await cache.raw_client()
+        client = await cache._client_obj()
         await client.ping()
     except Exception:  # pragma: no cover  # noqa: BLE001 - test Redis unreachable: skip
         pytest.skip("Redis unreachable")
-    monkeypatch.setattr(idempotency_cache_store, "cache", lambda: cache)
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: cache)
     yield cache
     for key in await client.keys("idem:test:*"):
         await client.delete(key)
@@ -60,7 +60,7 @@ KEY = "idem:test:k1"
 
 
 @pytest.mark.asyncio
-async def test_redis_cas_primitives(provider: RedisCacheProvider) -> None:
+async def test_redis_cas_primitives(provider: RedisAtomicStoreProvider) -> None:
     await provider.set(KEY, "v1")
     assert await provider.compare_and_set(KEY, "other", "v2") is False
     assert await provider.compare_and_set(KEY, "v1", "v2", ttl_seconds=60) is True
@@ -72,7 +72,7 @@ async def test_redis_cas_primitives(provider: RedisCacheProvider) -> None:
 
 @pytest.mark.asyncio
 async def test_expired_owner_cannot_release_a_retrys_reservation(
-    provider: RedisCacheProvider,
+    provider: RedisAtomicStoreProvider,
 ) -> None:
     outcome_a, res_a = await idempotency.reserve_key(KEY, "fp", 60)
     assert outcome_a == "reserved"
@@ -90,7 +90,7 @@ async def test_expired_owner_cannot_release_a_retrys_reservation(
 
 @pytest.mark.asyncio
 async def test_expired_owner_cannot_finalise_over_a_retrys_reservation(
-    provider: RedisCacheProvider,
+    provider: RedisAtomicStoreProvider,
 ) -> None:
     _, res_a = await idempotency.reserve_key(KEY, "fp", 60)
     await provider.delete(KEY)
@@ -114,7 +114,7 @@ async def test_expired_owner_cannot_finalise_over_a_retrys_reservation(
 
 @pytest.mark.asyncio
 async def test_success_is_recorded_even_if_reservation_expired_unclaimed(
-    provider: RedisCacheProvider,
+    provider: RedisAtomicStoreProvider,
 ) -> None:
     _, res_a = await idempotency.reserve_key(KEY, "fp", 60)
     await provider.delete(KEY)  # expired; nobody retried yet
@@ -132,7 +132,7 @@ async def test_success_is_recorded_even_if_reservation_expired_unclaimed(
 
 @pytest.mark.asyncio
 async def test_aborted_success_stream_still_writes_terminal_record(
-    provider: RedisCacheProvider,
+    provider: RedisAtomicStoreProvider,
 ) -> None:
     _, res = await idempotency.reserve_key(KEY, "fp", 60)
 

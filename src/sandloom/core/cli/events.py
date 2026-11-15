@@ -60,7 +60,8 @@ from typing import Any
 
 import sandloom.core.sql_alchemy.durable_inbox as _durable_inbox
 from sandloom.core.composition import load_composition_core
-from sandloom.core.guarantee_windows import inbox_purge_problems
+from sandloom.core.guarantee_windows import configured_inbox_purge_problems
+from sandloom.core.infra.errors import Unsupported
 from sandloom.core.tasks.event_ops import (
     outbox_list_dead,
     outbox_purge,
@@ -70,6 +71,7 @@ from sandloom.core.tasks.event_ops import (
     streams_dlq_replay,
     streams_groups,
     streams_release_group,
+    unsupported_message,
 )
 
 
@@ -92,15 +94,19 @@ async def inbox_purge(
 
     Deletes in batches of ``batch`` rows, each in its own short Unit of Work,
     so a large backlog never becomes one long transaction. Refused when
-    ``days`` is inside the redelivery window (``EVENT_STREAM_RETENTION_SECONDS``
-    + a margin, :mod:`sandloom.core.guarantee_windows`) unless ``force``: a claim
-    purged before its event's last possible redelivery lets it apply twice.
+    ``days`` is inside the redelivery window (the configured stream retention,
+    ``EVENT_STREAM_RETENTION_SECONDS``, + a margin,
+    :mod:`sandloom.core.guarantee_windows`) or the retention cannot be
+    determined from the configuration, unless ``force``: a claim purged before
+    its event's last possible redelivery lets it apply twice.
     """
     if days <= 0:
         raise SystemExit("error: --inbox-days must be > 0")
     if batch <= 0:
         raise SystemExit("error: --batch must be > 0")
-    problems = inbox_purge_problems(core.settings, days)
+    # The retention the deployment's bus is CONFIGURED with, never this
+    # process's live bus (a volatile one here would read as "no redelivery").
+    problems = configured_inbox_purge_problems(core.settings, days)
     if problems and not force:
         raise SystemExit(f"error: {problems[0].message} (pass --force to purge anyway)")
     cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
@@ -118,9 +124,7 @@ async def inbox_purge(
 
 
 async def _close(core: Any) -> None:
-    infra = getattr(core, "infra", None)
-    if infra is not None:
-        await infra.aclose_all()
+    await core.infra.aclose_all()
 
 
 async def _run_outbox(args: argparse.Namespace) -> int:
@@ -179,9 +183,9 @@ async def _run_streams(args: argparse.Namespace) -> int:
             entries = await streams_dlq_list(core, args.channel, limit=args.limit)
             for entry in entries:
                 print(
-                    f"{entry['id']}  event={entry['event_id']}  "
-                    f"group={entry.get('group')}  attempts={entry['attempts']}  "
-                    f"reason={entry['reason']}  replayable={entry.get('replayable')}"
+                    f"{entry.id}  event={entry.event_id}  "
+                    f"group={entry.group}  attempts={entry.attempts}  "
+                    f"reason={entry.reason}  replayable={entry.replayable}"
                 )
             print(f"{len(entries)} DLQ entr(y/ies) on {args.channel}")
             return 0
@@ -189,23 +193,23 @@ async def _run_streams(args: argparse.Namespace) -> int:
             groups = await streams_groups(core, args.channel)
             for g in groups:
                 print(
-                    f"{g['group']}  lag={g.get('lag')}  pending={g.get('pending')}  "
-                    f"consumers={g.get('consumers')}  "
-                    f"last_delivered={g.get('last_delivered_id')}"
+                    f"{g.group}  lag={g.lag}  pending={g.pending}  "
+                    f"consumers={g.consumers}  "
+                    f"last_delivered={g.last_delivered_id}"
                 )
             print(f"{len(groups)} group(s) on {args.channel}")
             return 0
         if args.action == "consumers":
-            entries = await streams_consumers(core, include_stale=args.all)
-            for e in entries:
-                stale = "  STALE" if e.get("stale") else ""
+            consumers = await streams_consumers(core, include_stale=args.all)
+            for e in consumers:
+                stale = "  STALE" if e.stale else ""
                 print(
-                    f"{e.get('stream')}  group={e.get('group')}  "
-                    f"module={e.get('module') or '-'}  "
-                    f"service={e.get('service') or '-'}  "
-                    f"consumer={e.get('consumer') or '-'}{stale}"
+                    f"{e.stream}  group={e.group}  "
+                    f"module={e.module or '-'}  "
+                    f"service={e.service or '-'}  "
+                    f"consumer={e.consumer or '-'}{stale}"
                 )
-            print(f"{len(entries)} subscription(s)")
+            print(f"{len(consumers)} subscription(s)")
             return 0
         if args.action == "release-group":
             released = await streams_release_group(core, args.channel, args.group)
@@ -310,7 +314,10 @@ def streams_main(argv: list[str] | None = None) -> int:
         parser.error("dlq-replay requires --id or --all")
     if args.action in {"dlq-list", "dlq-replay"} and args.limit <= 0:
         parser.error("--limit must be positive")
-    return asyncio.run(_run_streams(args))
+    try:
+        return asyncio.run(_run_streams(args))
+    except Unsupported as exc:
+        raise SystemExit(f"error: {unsupported_message(exc)}") from exc
 
 
 __all__ = [

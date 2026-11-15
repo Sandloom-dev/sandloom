@@ -13,9 +13,7 @@ import pytest
 
 import sandloom.core.infra as infra_pkg
 from sandloom.core.drivers.sqlalchemy_database import (
-    SQLALCHEMY_DB_FEATURES,
-    SQLAlchemyDatabaseOptions,
-    create_sqlalchemy_database,
+    SQLAlchemyDatabaseProvider,
     sqlalchemy_db_features,
 )
 from sandloom.core.infra.capabilities import DATABASE_CAPABILITY
@@ -45,14 +43,11 @@ def _registry(*cfgs: InstanceConfig) -> InfraRegistry:
         strict_capabilities=True,
     )
     reg.register_capability(DATABASE_CAPABILITY)
-    # Mirrors sandloom.core.drivers.bootstrap.register_builtin_drivers.
+    # Mirrors sandloom.core.drivers.bootstrap (the class declares its features).
     reg.register_driver(
         "database",
         "sqlalchemy",
-        create_sqlalchemy_database,
-        features=SQLALCHEMY_DB_FEATURES,
-        config_schema=SQLAlchemyDatabaseOptions,
-        instance_features=sqlalchemy_db_features,
+        SQLAlchemyDatabaseProvider,
     )
     return reg
 

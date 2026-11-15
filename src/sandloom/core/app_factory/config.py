@@ -34,7 +34,11 @@ from sandloom.core.infra.config import (
 )
 from sandloom.core.infra.registry import InfraRegistry
 from sandloom.core.observability import metrics
-from sandloom.core.production_profile import config_problems, tenant_scoped_tables
+from sandloom.core.production_profile import (
+    atomic_store_security_problem,
+    config_problems,
+    tenant_scoped_tables,
+)
 from sandloom.core.sql_alchemy.portable import (
     development_only,
     dialect_of_url,
@@ -338,7 +342,10 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
       (:func:`~sandloom.core.app_factory.revocation_applier.revocation_applier_config_problem`);
     * ``PRODUCTION_PROFILE=multi_tenant_strict`` in prod
       (:func:`sandloom.core.production_profile.config_problems`), unless
-      ``include_profile=False`` (``sandloom doctor`` reports the profile itself).
+      ``include_profile=False`` (``sandloom doctor`` reports the profile itself);
+    * in prod on any other profile, a declared, non-memory
+      ``INFRA.atomic_store.security``
+      (:func:`sandloom.core.production_profile.atomic_store_security_problem`).
     """
     problems: list[str] = []
     for check in (
@@ -363,6 +370,12 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
                 "PRODUCTION_PROFILE=multi_tenant_strict is not met: "
                 + "; ".join(errors)
             )
+    elif getattr(cfg, "is_prod", False):
+        # Every production deployment, any profile (spec section 4): the
+        # strict branch above already reports this same finding.
+        store_problem = atomic_store_security_problem(cfg)
+        if store_problem:
+            problems.append(store_problem)
     return problems
 
 
@@ -393,8 +406,8 @@ def warn_pair_mac_rpc(cfg: Any, log: logging.Logger) -> list[str]:
         )
     if not cfg.is_prod and cfg.rpc_replay_guard != "local":
         out.append(
-            "RPC nonce guard: the shared (security cache) layer FAILS OPEN "
-            "outside prod — a cache outage accepts a replay on another worker "
+            "RPC nonce guard: the shared (security store) layer FAILS OPEN "
+            "outside prod — a store outage accepts a replay on another worker "
             "or replica (prod fails closed)."
         )
     if not rpc_pair_mac.commands_require_signature(cfg):

@@ -1,0 +1,92 @@
+name: SMTP notifier conformance
+
+# The `smtp` notifier is tier `beta` (spec 2.5), kept by this lane:
+# NotifierConformance runs against a real SMTP server (mailpit as a service
+# container) and reads the accepted message back through its HTTP API. An
+# in-process SMTP server does not count. If this lane goes red on main, the
+# registration in `sandloom.core.drivers.bootstrap` (BUILTIN_DRIVER_TIERS) drops
+# back to `experimental`. `stable` additionally needs a STARTTLS + login lane
+# (mailpit here runs plain, without authentication).
+
+on:
+  pull_request:
+    branches: [main, arch/kernel-boundary]
+    paths:
+      - 'src/sandloom/core/drivers/smtp_notifier.py'
+      - 'src/sandloom/core/infra/**'
+      - 'src/sandloom/core/tests/test_smtp_notifier_conformance.py'
+      - 'src/sandloom/driverkit/**'
+      - 'src/sandloom/sdk/**'
+      - '.github/workflows/notification-smtp.yml'
+      - 'uv.lock'
+  push:
+    branches: [main]
+    paths:
+      - 'src/sandloom/core/drivers/smtp_notifier.py'
+      - 'src/sandloom/core/infra/**'
+      - 'src/sandloom/core/tests/test_smtp_notifier_conformance.py'
+      - 'src/sandloom/driverkit/**'
+      - 'src/sandloom/sdk/**'
+      - '.github/workflows/notification-smtp.yml'
+      - 'uv.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smtp:
+    name: Notifier conformance (mailpit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mailpit:
+        image: axllent/mailpit:v1.21.8@sha256:81370195cd4a0eab9604d17c2617a7525b0486f9365555253b6c5376c6350f1a
+        ports:
+          - 1025:1025
+          - 8025:8025
+        options: >-
+          --health-cmd "/mailpit readyz"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      SANDLOOM_SMTP_TEST_HOST: 127.0.0.1
+      SANDLOOM_SMTP_TEST_PORT: '1025'
+      SANDLOOM_SMTP_TEST_API: http://127.0.0.1:8025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          save-cache: false
+      - name: Install Sandloom
+        run: uv sync --frozen
+      - name: Start test services
+        run: docker compose -f deploy/compose/test.yml up -d --wait
+      - name: Check mailpit answers
+        run: curl --retry 20 --retry-connrefused --retry-delay 1 --fail --silent "$SANDLOOM_SMTP_TEST_API/api/v1/info" >/dev/null
+      - name: Run NotifierConformance against mailpit
+        run: >-
+          uv run --no-sync pytest -n 2 --dist loadfile
+          src/sandloom/core/tests/test_smtp_notifier_conformance.py
+          --junitxml="$RUNNER_TEMP/smtp-conformance.xml"
+      - name: Require that the conformance tests ran, not skipped
+        run: |
+          uv run --no-sync python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse(os.path.join(os.environ["RUNNER_TEMP"], "smtp-conformance.xml")).getroot()
+          suite = root if root.tag == "testsuite" else root[0]
+          ran = int(suite.get("tests", 0)) - int(suite.get("skipped", 0))
+          skipped = int(suite.get("skipped", 0))
+          print(f"ran {ran}, skipped {skipped}")
+          assert ran >= 15, "NotifierConformance against mailpit did not run"
+          PY
+      - name: Print mailpit logs on failure
+        if: failure()
+        run: docker logs "$(docker ps -q --filter ancestor=axllent/mailpit:v1.21.8 | head -n 1)" || true

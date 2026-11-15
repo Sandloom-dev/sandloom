@@ -46,7 +46,7 @@ from sandloom.core.module_api._service_registry import ServiceUnavailableInDeplo
 from sandloom.core.rpc import envelope as rpc_envelope
 from sandloom.core.rpc import proxy as rpc_proxy
 from sandloom.core.rpc import wire as rpc_wire
-from sandloom.core.testing import InMemoryCache
+from sandloom.core.testing import InMemoryAtomicStore
 
 #: This process's RPC identity: every RPC test calls itself as ``svc``.
 _SVC = "svc"
@@ -182,7 +182,7 @@ class Demo:
         return "x" * (300 * 1024)
 
 
-class _RecordingCache(InMemoryCache):
+class _RecordingCache(InMemoryAtomicStore):
     def __init__(self) -> None:
         super().__init__()
         self.ttls: dict[str, int | None] = {}
@@ -240,7 +240,7 @@ class _FakeDatabase:
 @pytest.fixture
 def mem(monkeypatch: pytest.MonkeyPatch) -> _RecordingCache:
     cache = _RecordingCache()
-    monkeypatch.setattr(idempotency_cache_store, "cache", lambda name="default": cache)
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: cache)
     return cache
 
 

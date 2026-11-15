@@ -19,6 +19,8 @@ run_migrations(
         "saga_instances",
         "saga_steps",
         "projection_watermarks",
+        "infra_lease",
+        "infra_atomic_store",
     },
     model_modules=[
         "sandloom.core.sql_alchemy.models",

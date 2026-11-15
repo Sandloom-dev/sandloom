@@ -144,7 +144,7 @@ services use.
    [`sandloom add deploy`](split-into-services.md) wrote for the service.
 
 A monolith that still loads the module cannot consume its events after the
-group transfer: claiming a moved group raises `GroupOwnershipError`.
+group transfer: claiming a moved group raises `GroupOwnedElsewhere`.
 
 ## Verify
 

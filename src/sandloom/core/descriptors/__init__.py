@@ -13,12 +13,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal, cast
-
-from fastapi import APIRouter
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sandloom.core.descriptors.derived_capabilities import derived_needs
 from sandloom.core.descriptors.module_names import module_name
+
+if TYPE_CHECKING:  # the container probes import this package without the web framework
+    from fastapi import APIRouter
 
 __all__ = [
     "HealthStatus",
@@ -283,8 +284,8 @@ class ModuleDescriptor:
     def effective_capabilities(self) -> list[CapabilityRequirement]:
         """Capabilities to preflight at load: the declared ones, plus what the
         module's code shows it needs: ``taskqueue`` for a ``tasks`` submodule,
-        with the feature ``periodic`` for its beat hook
-        (``setup_periodic_tasks``).
+        with the feature ``periodic`` for a ``@periodic`` task and
+        ``redelivery`` for an ``at_least_once`` one.
 
         A declaration wins: a derived need adds its features to every declared
         requirement of the same capability and never changes its ``required``

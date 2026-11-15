@@ -188,6 +188,81 @@ async def test_a_purge_below_the_replay_horizon_is_refused() -> None:
     assert deleted == [] and (await marks.get("p")).purged_before is None
 
 
+def _deployment(**settings: Any) -> Any:
+    """A core whose CONFIGURATION is ``settings`` and whose own live bus is
+    volatile whatever they say (a CLI process, not the deployment's)."""
+    from types import SimpleNamespace
+
+    base: dict[str, Any] = {"is_prod": False, "infra": None}
+    return SimpleNamespace(settings=SimpleNamespace(**(base | settings)))
+
+
+def test_the_purge_floor_reads_the_configured_retention_not_the_live_bus() -> None:
+    from sandloom.core.projections.operations import _stream_retention_s
+
+    streams = _deployment(
+        event_bus_backend="streams", event_stream_retention_seconds=7 * 86400
+    )
+    assert _stream_retention_s(streams) == 7 * 86400
+    unbounded = _deployment(
+        event_bus_backend="streams", event_stream_retention_seconds=0
+    )
+    assert _stream_retention_s(unbounded) == 0  # purge_floor_seconds: inf
+
+
+@pytest.mark.parametrize("backend", ["memory", "redis", "auto"])
+def test_an_undetermined_retention_refuses_the_purge_unless_forced(
+    backend: str,
+) -> None:
+    from sandloom.core.projections.operations import _stream_retention_s
+
+    core = _deployment(event_bus_backend=backend, event_stream_retention_seconds=0)
+    with pytest.raises(PurgeRefused, match="EVENT_BUS_BACKEND"):
+        _stream_retention_s(core)
+    assert _stream_retention_s(core, force=True) == 1.0
+
+
+@pytest.mark.asyncio
+async def test_the_oldest_dlq_reads_the_typed_transport_of_a_dlq_ops_bus() -> None:
+    from types import SimpleNamespace
+
+    from sandloom.core.eventing.memory_bus import InMemoryEventBus
+    from sandloom.core.eventing.memory_transport import MemoryTransport
+    from sandloom.core.eventing.streams_bus import StreamsEventBus
+    from sandloom.core.infra.ports.eventbus import DeadLetter
+    from sandloom.core.projections.operations import oldest_dlq_age_s
+    from sandloom.core.schema.registry import InMemorySchemaRegistry
+
+    now = datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
+    entry_ms = int((now - timedelta(hours=2)).timestamp() * 1000)
+    reads: list[str] = []
+
+    class _Transport(MemoryTransport):
+        supported_features = frozenset({"durable", "dlq_ops"})
+
+        async def list_dlq(
+            self, stream: str, *, count: int = 100, after: str | None = None
+        ) -> list[DeadLetter]:
+            reads.append(stream)
+            return [
+                DeadLetter(f"{entry_ms + 5}-0", f"{entry_ms}-0", "g", "e", 1, "r", True)
+            ]
+
+    class _NoDlq(_Transport):
+        supported_features = frozenset({"durable"})
+
+    schemas = InMemorySchemaRegistry()
+    durable = SimpleNamespace(event_bus=StreamsEventBus(schemas, _Transport()))
+    assert await oldest_dlq_age_s(durable, ["a.b.v1"], now) == 2 * 3600
+    assert reads == ["a.b.v1"]
+    # no ``dlq_ops``: nothing is asked of the transport
+    blind = SimpleNamespace(event_bus=StreamsEventBus(schemas, _NoDlq()))
+    assert await oldest_dlq_age_s(blind, ["a.b.v1"], now) == 0.0
+    assert reads == ["a.b.v1"]
+    volatile = SimpleNamespace(event_bus=InMemoryEventBus(schemas))
+    assert await oldest_dlq_age_s(volatile, ["a.b.v1"], now) == 0.0
+
+
 @pytest.mark.asyncio
 async def test_the_watermark_is_raised_before_the_delete_and_never_lowered() -> None:
     marks = MemoryWatermarkStore()

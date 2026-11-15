@@ -33,7 +33,7 @@ layers =
     rpc : loader : module_api : sagas : contract_compat : route_snapshots : contract_cache_shadow : rpc_transport : rpc_transport_compat
     http : idempotency : route_policy : auth : internal_auth : production_profile : route_markers : guard_order : rpc_binding : rpc_identity : rpc_pair_mac : ingress
     _internal : drivers
-    projections : tasks : async_runner : beat_lease : consumers
+    projections : tasks : async_runner : consumers
     migrations : orm : sql_alchemy : planner : unit_of_work : tenant
     eventing : runtime
     infra
@@ -59,7 +59,6 @@ forbidden_modules =
     sandloom.core.archcheck
     sandloom.core.async_runner
     sandloom.core.auth
-    sandloom.core.beat_lease
     sandloom.core.claims
     sandloom.core.cli
     sandloom.core.composition
@@ -118,6 +117,45 @@ forbidden_modules =
     sandloom.core.utils
     sandloom.core.worker
 
+; ----------------------------------------------- eventing speaks no transport
+; ADR-0016 (design/infra-drivers/design.md, slice idk-ratchets): the delivery
+; logic of sandloom.core.eventing sits above a transport and imports no
+; transport implementation, no driver and no backend SDK. The volatile bus
+; (pubsub_bus) runs over the broadcast capability and is a delivery module. The
+; Redis Streams transport lives in core/drivers/redis_eventbus (idk-eventbus-move),
+; so the whole package is the source: a new eventing module is held to the
+; rule without being listed. No ignore_imports (G-KERNEL-04).
+
+[importlinter:contract:eventing-no-transport-impl]
+name = sandloom.core.eventing imports no transport implementation, driver or backend SDK (ADR-0016)
+type = forbidden
+source_modules =
+    sandloom.core.eventing
+forbidden_modules =
+    sandloom.core.drivers
+    redis
+    aioredis
+    celery
+    kombu
+    boto3
+    botocore
+    aiobotocore
+    asyncpg
+    psycopg
+    psycopg2
+
+; The driver kit imports no driver (idk-streams-driverkitb): a driver depends on
+; the kit, never the reverse. In a package split the kit stays in the kernel
+; wheel, which cannot import a driver package. The source is the whole kit, so a
+; new kit module is held to it. No ignore_imports (G-KERNEL-04).
+[importlinter:contract:driverkit-no-driver]
+name = sandloom.driverkit imports no built-in driver (ADR-0016)
+type = forbidden
+source_modules =
+    sandloom.driverkit
+forbidden_modules =
+    sandloom.core.drivers
+
 ; ---------------------------------------------------------------- sandloom.sdk
 ; Public API 1.0 (spec §3, ADR-0010; text supplied by WS-B at H0). sandloom.sdk
 ; sits above the kernel: it may import only the public kernel surface (the
@@ -136,7 +174,6 @@ forbidden_modules =
     sandloom.core.archcheck
     sandloom.core.async_runner
     sandloom.core.auth
-    sandloom.core.beat_lease
     sandloom.core.claims
     sandloom.core.composition
     sandloom.core.config
@@ -208,14 +245,173 @@ forbidden_modules =
 allow_indirect_imports = true
 
 [importlinter:contract:kernel-never-imports-sdk]
-name = the kernel (sandloom.core, sandloom.shared) never imports sandloom.sdk or sandloom.driverkit (ADR-0010)
+name = the kernel (sandloom.core, sandloom.shared) never imports sandloom.sdk (ADR-0010)
 type = forbidden
 source_modules =
     sandloom.core
     sandloom.shared
 forbidden_modules =
     sandloom.sdk
+
+; The kernel never imports the driver door either, with one exception that is
+; ADR-0016's rule rather than a break of it: a built-in driver (sandloom.core.
+; drivers) imports only sandloom.driverkit, as a driver package does, so that
+; its file moves whole to a package (spec section 1). The sources are every
+; sandloom.core child but drivers (import-linter takes no exclusion of a
+; sub-package, and ignore_imports is refused, G-KERNEL-04): a new core child is
+; added here, as to the layers above, and tests/architecture keeps the layers
+; exhaustive.
+[importlinter:contract:kernel-never-imports-driverkit]
+name = the kernel (sandloom.core but its built-in drivers, sandloom.shared) never imports sandloom.driverkit (ADR-0010, ADR-0016)
+type = forbidden
+source_modules =
+    sandloom.shared
+    sandloom.core._internal
+    sandloom.core.admin
+    sandloom.core.app_factory
+    sandloom.core.archcheck
+    sandloom.core.async_runner
+    sandloom.core.auth
+    sandloom.core.claims
+    sandloom.core.cli
+    sandloom.core.composition
+    sandloom.core.config
+    sandloom.core.consumers
+    sandloom.core.contract_cache_shadow
+    sandloom.core.contract_compat
+    sandloom.core.contract_context
+    sandloom.core.contract_testing
+    sandloom.core.contract_wire
+    sandloom.core.contracts
+    sandloom.core.cpu_quota
+    sandloom.core.descriptors
+    sandloom.core.di
+    sandloom.core.effects
+    sandloom.core.error_codes
+    sandloom.core.eventing
+    sandloom.core.exceptions
+    sandloom.core.facade
+    sandloom.core.gc_tuning
+    sandloom.core.guarantee_lattice
+    sandloom.core.guarantee_windows
+    sandloom.core.guard_order
+    sandloom.core.http
+    sandloom.core.idempotency
+    sandloom.core.infra
+    sandloom.core.ingress
+    sandloom.core.internal_auth
+    sandloom.core.lifecycle
+    sandloom.core.loader
+    sandloom.core.migrations
+    sandloom.core.module_api
+    sandloom.core.observability
+    sandloom.core.orm
+    sandloom.core.planner
+    sandloom.core.production_profile
+    sandloom.core.projections
+    sandloom.core.route_markers
+    sandloom.core.route_policy
+    sandloom.core.route_snapshots
+    sandloom.core.rpc
+    sandloom.core.rpc_binding
+    sandloom.core.rpc_identity
+    sandloom.core.rpc_pair_mac
+    sandloom.core.rpc_transport
+    sandloom.core.rpc_transport_compat
+    sandloom.core.runtime
+    sandloom.core.sagas
+    sandloom.core.schema
+    sandloom.core.signing_keys
+    sandloom.core.sql_alchemy
+    sandloom.core.tasks
+    sandloom.core.tenant
+    sandloom.core.tenant_context
+    sandloom.core.testing
+    sandloom.core.unit_of_work
+    sandloom.core.utils
+    sandloom.core.worker
+forbidden_modules =
     sandloom.driverkit
+
+; The kernel names no task-queue backend (idk-worker-port): Celery's worker,
+; scheduler, signals and bootsteps live in sandloom_celery.worker (the
+; sandloom-celery package) behind TaskQueueProvider.worker_host(), and the kernel runs a task through the
+; WorkerBoot it hands the host. Same sources as the contract above (every
+; sandloom.core child but drivers); a new core child is added to both, and
+; tests/architecture/test_kernel_backend_imports.py ratchets the other backends.
+; No ignore_imports, no allow_indirect_imports.
+[importlinter:contract:kernel-never-imports-celery]
+name = the kernel (sandloom.core but its built-in drivers, sandloom.shared) never imports celery or kombu (ADR-0016)
+type = forbidden
+source_modules =
+    sandloom.shared
+    sandloom.core._internal
+    sandloom.core.admin
+    sandloom.core.app_factory
+    sandloom.core.archcheck
+    sandloom.core.async_runner
+    sandloom.core.auth
+    sandloom.core.claims
+    sandloom.core.cli
+    sandloom.core.composition
+    sandloom.core.config
+    sandloom.core.consumers
+    sandloom.core.contract_cache_shadow
+    sandloom.core.contract_compat
+    sandloom.core.contract_context
+    sandloom.core.contract_testing
+    sandloom.core.contract_wire
+    sandloom.core.contracts
+    sandloom.core.cpu_quota
+    sandloom.core.descriptors
+    sandloom.core.di
+    sandloom.core.effects
+    sandloom.core.error_codes
+    sandloom.core.eventing
+    sandloom.core.exceptions
+    sandloom.core.facade
+    sandloom.core.gc_tuning
+    sandloom.core.guarantee_lattice
+    sandloom.core.guarantee_windows
+    sandloom.core.guard_order
+    sandloom.core.http
+    sandloom.core.idempotency
+    sandloom.core.infra
+    sandloom.core.ingress
+    sandloom.core.internal_auth
+    sandloom.core.lifecycle
+    sandloom.core.loader
+    sandloom.core.migrations
+    sandloom.core.module_api
+    sandloom.core.observability
+    sandloom.core.orm
+    sandloom.core.planner
+    sandloom.core.production_profile
+    sandloom.core.projections
+    sandloom.core.route_markers
+    sandloom.core.route_policy
+    sandloom.core.route_snapshots
+    sandloom.core.rpc
+    sandloom.core.rpc_binding
+    sandloom.core.rpc_identity
+    sandloom.core.rpc_pair_mac
+    sandloom.core.rpc_transport
+    sandloom.core.rpc_transport_compat
+    sandloom.core.runtime
+    sandloom.core.sagas
+    sandloom.core.schema
+    sandloom.core.signing_keys
+    sandloom.core.sql_alchemy
+    sandloom.core.tasks
+    sandloom.core.tenant
+    sandloom.core.tenant_context
+    sandloom.core.testing
+    sandloom.core.unit_of_work
+    sandloom.core.utils
+    sandloom.core.worker
+forbidden_modules =
+    celery
+    kombu
 
 [importlinter:contract:sdk-decl-l1]
 name = L1 (sandloom.sdk._decl) is built only from L2: no kernel import (spec §3)

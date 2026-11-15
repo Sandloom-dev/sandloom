@@ -126,6 +126,9 @@ H1_KERNEL_NAMES: dict[str, str] = {
     "core.module_api.RemovedSetting": "sandloom.sdk.module",
     "core.module_api.Risk": "sandloom.sdk.module",
     "core.module_api.ModuleSettingsError": "sandloom.sdk.testing",
+    # The security store's test double and seam (idk-atomic-adopt).
+    "core.testing.InMemoryAtomicStore": "sandloom.sdk.testing",
+    "core.testing.use_security_store": "sandloom.sdk.testing",
     "core.module_api.override_settings": "sandloom.sdk.testing",
     "core.module_api.validate_settings": "sandloom.sdk.testing",
     "core.contract_testing.split_env": "sandloom.sdk.testing",

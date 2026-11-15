@@ -27,6 +27,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from fastapi import Depends, FastAPI, HTTPException
+from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 from sqlalchemy import Table
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -41,14 +42,13 @@ from sandloom.core.auth.recovery import (
     revocation_window_start,
 )
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers.redis_cache import RedisCacheProvider
 from sandloom.core.infra import access
 from sandloom.core.sql_alchemy.outbox_store import (
     sql_alchemy_audit_store,
     sql_alchemy_outbox_store,
 )
 from sandloom.core.testing import (
-    InMemoryCache,
+    InMemoryAtomicStore,
     bind_test_uow,
     reload_test_env,
     run_on_commit,
@@ -79,19 +79,19 @@ def _platform_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest_asyncio.fixture
 async def redis_cache(
     monkeypatch: pytest.MonkeyPatch,
-) -> AsyncIterator[RedisCacheProvider]:
+) -> AsyncIterator[RedisAtomicStoreProvider]:
     url = os.getenv("CACHE_URL")
     if not url:
         pytest.skip("no test CACHE_URL configured")
-    provider = RedisCacheProvider(
-        name="recovery", driver="redis", options={"url": url}, shared=False
+    provider = RedisAtomicStoreProvider(
+        name="recovery", driver="redis", options={"url": url}
     )
     try:
         await asyncio.wait_for(provider.get("sandloom:test:ping"), 5)
     except Exception:  # noqa: BLE001 - test Redis unreachable: skip
         await provider.aclose()
         pytest.skip("test Redis not reachable")
-    monkeypatch.setattr(access, "cache", lambda name="default": provider)
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": provider)
     monkeypatch.setattr(settings, "auth_revocation_fail_closed", True)
     yield provider
     await provider.aclose()
@@ -146,12 +146,12 @@ def _keys(sub: str) -> list[str]:
     return [marks.subject_key(sub)]
 
 
-async def _snapshot(provider: RedisCacheProvider, sub: str) -> dict[str, Any]:
+async def _snapshot(provider: RedisAtomicStoreProvider, sub: str) -> dict[str, Any]:
     """The subject's security keys as an RDB snapshot would hold them now."""
     return {key: await provider.get(key) for key in _keys(sub)}
 
 
-async def _restore(provider: RedisCacheProvider, snap: dict[str, Any]) -> None:
+async def _restore(provider: RedisAtomicStoreProvider, snap: dict[str, Any]) -> None:
     """Replace the live keys with the snapshot's (absent stays absent)."""
     for key, value in snap.items():
         if value is None:
@@ -174,7 +174,7 @@ async def _durable_records(
 
 
 async def test_stale_snapshot_after_block_does_not_reenable_the_user(
-    redis_cache: RedisCacheProvider,
+    redis_cache: RedisAtomicStoreProvider,
     records_db: async_sessionmaker[AsyncSession],
     probe: httpx.AsyncClient,
 ) -> None:
@@ -238,7 +238,7 @@ async def test_stale_snapshot_after_block_does_not_reenable_the_user(
 
 
 async def test_stale_snapshot_after_unblock_keeps_the_user_blocked_unless_lifted(
-    redis_cache: RedisCacheProvider,
+    redis_cache: RedisAtomicStoreProvider,
     records_db: async_sessionmaker[AsyncSession],
 ) -> None:
     sub, admin = str(uuid4()), uuid4()
@@ -273,7 +273,7 @@ async def test_stale_snapshot_after_unblock_keeps_the_user_blocked_unless_lifted
 
 
 async def test_lost_revocation_is_reapplied_from_the_outbox(
-    redis_cache: RedisCacheProvider,
+    redis_cache: RedisAtomicStoreProvider,
     records_db: async_sessionmaker[AsyncSession],
     probe: httpx.AsyncClient,
 ) -> None:
@@ -306,14 +306,14 @@ async def test_lost_revocation_is_reapplied_from_the_outbox(
 # without a database: the off-site audit export, ordering, coverage
 # --------------------------------------------------------------------------- #
 @pytest.fixture
-def memory_cache(monkeypatch: pytest.MonkeyPatch) -> InMemoryCache:
-    cache = InMemoryCache()
-    monkeypatch.setattr(access, "cache", lambda name="default": cache)
+def memory_cache(monkeypatch: pytest.MonkeyPatch) -> InMemoryAtomicStore:
+    cache = InMemoryAtomicStore()
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": cache)
     return cache
 
 
 async def test_audit_export_restores_blocks_a_restored_database_lost(
-    memory_cache: InMemoryCache, tmp_path: Path
+    memory_cache: InMemoryAtomicStore, tmp_path: Path
 ) -> None:
     sub = str(uuid4())
     export = tmp_path / "audit.jsonl"
@@ -359,7 +359,7 @@ def test_newest_record_wins_and_a_tie_is_blocked() -> None:
 
 
 async def test_short_outbox_retention_is_flagged_as_a_coverage_gap(
-    memory_cache: InMemoryCache, monkeypatch: pytest.MonkeyPatch
+    memory_cache: InMemoryAtomicStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "outbox_retention_hours", 0.1)
     monkeypatch.setattr(settings, "access_token_expire_minutes", 30)
@@ -372,7 +372,7 @@ async def test_short_outbox_retention_is_flagged_as_a_coverage_gap(
 
 
 async def test_a_newer_mark_in_the_cache_is_never_lowered(
-    memory_cache: InMemoryCache,
+    memory_cache: InMemoryAtomicStore,
 ) -> None:
     sub = str(uuid4())
     newer = time.time() + 60

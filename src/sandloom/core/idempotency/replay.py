@@ -88,7 +88,7 @@ def success_record(
     """Build the terminal ``succeeded`` record for ``reservation``.
 
     A JSON body is stored as raw JSON (``orjson.Fragment``: no base64, ~25%
-    smaller on the security cache) when parsing and re-serialising it gives
+    smaller in the idempotency store) when parsing and re-serialising it gives
     back the very same bytes — the replay is then byte-identical; any other
     body (non-JSON, big integers, duplicate keys, other float spellings) is
     stored base64 as before. Such a record also says ``truncated``: a reader

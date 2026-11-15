@@ -23,7 +23,7 @@ What you get is runnable and testable out of the box:
   lint and tests on every change
 * ``Dockerfile`` / ``.dockerignore`` — production image (non-root, gunicorn)
 * ``deploy/docker-compose.yml`` — monolith profile (one-shot migrate + app +
-  Celery worker + beat via ``sandloom.core.worker``)
+  Celery worker + beat via ``sandloom worker`` and ``sandloom beat``)
 
 Usage:
     sandloom new myapp                              # minimal app + sample module
@@ -436,8 +436,8 @@ docker compose -f deploy/docker-compose.yml up --build
 ```
 
 The `migrate` service runs `sandloom migrate upgrade-all --apply` to completion
-before the app starts; `worker` / `beat` run the framework Celery entrypoint
-(`celery -A sandloom.core.worker worker|beat`), which registers the `tasks.py` of
+before the app starts; `worker` / `beat` run the framework task commands
+(`sandloom worker`, `sandloom beat`), which register the `tasks.py` of
 every loaded module.
 
 ## Deploy as microservices (no code change)
@@ -934,7 +934,7 @@ services:
     <<: *app-runtime
     build: *app-build
     volumes: ["app_data:/app/data"]
-    command: ["celery", "-A", "sandloom.core.worker", "worker", "--loglevel=INFO"]
+    command: ["sandloom", "worker", "--loglevel=INFO"]
     environment:
       <<: *app-env
       SANDLOOM_COMPOSITION_ROOT: $app.asgi
@@ -960,7 +960,7 @@ services:
     <<: *app-runtime
     build: *app-build
     volumes: ["app_data:/app/data"]
-    command: ["celery", "-A", "sandloom.core.worker", "beat", "--loglevel=INFO",
+    command: ["sandloom", "beat", "--loglevel=INFO",
               "--schedule=/tmp/celerybeat-schedule"]
     environment:
       <<: *app-env
@@ -1213,8 +1213,15 @@ def _framework_backend(path: Path) -> Path:
 
 
 def _sourced_names(bundled: list[str]) -> list[str]:
-    """The framework distributions an unpublished checkout supplies."""
-    return ["sandloom", *(f"sandloom-{m}" for m in bundled)]
+    """The framework distributions an unpublished checkout supplies:
+    ``sandloom-redis`` and ``sandloom-celery`` too, which the
+    ``sandloom[redis,celery]`` extras of every generated app require."""
+    return [
+        "sandloom",
+        "sandloom-redis",
+        "sandloom-celery",
+        *(f"sandloom-{m}" for m in bundled),
+    ]
 
 
 #: The framework range a generated app depends on (0.x: one minor).
@@ -1347,10 +1354,22 @@ def generate_project(
     # The kernel with its Redis/Celery drivers (the generated compose uses
     # Redis and runs the Celery worker), plus each module package chosen with
     # --with: ecosystem packages, each a compatible range.
+    # In a local checkout (``source_config`` is not empty) ``sandloom-redis``
+    # and ``sandloom-celery`` are named beside the extras that require them:
+    # uv applies a ``[tool.uv.sources]`` entry (an unpublished checkout) to
+    # direct dependencies only. A published app gets them through
+    # ``sandloom[redis,celery]``.
+    driver_packages: list[str] = []
     if framework_req is None:
         framework_req = f"sandloom[redis,celery]{FRAMEWORK_RANGE}"
+        if source_config:
+            driver_packages = [
+                f"sandloom-redis{FRAMEWORK_RANGE}",
+                f"sandloom-celery{FRAMEWORK_RANGE}",
+            ]
     framework_deps = [
         framework_req,
+        *driver_packages,
         *(f"sandloom-{m}{FRAMEWORK_RANGE}" for m in bundled),
     ]
     app_module = f"{app}.modules.{sample_module}"

@@ -114,13 +114,19 @@ def _env(
 
     env = dict(writes.server_env())
     infra = json.loads(env.get("INFRA") or "{}")
-    infra["cache"] = {
+    infra["atomic_store"] = {
         "security": {
             "driver": "redis",
             "url": f"redis://{REDIS['security'][0]}:6379/0",
         },
-        "idem": {"driver": "redis", "url": f"redis://{REDIS['idem'][0]}:6379/0"},
     }
+    if split:
+        # EXPERIMENT: idempotency records on their own Redis; revocation and
+        # block marks stay on atomic_store/security.
+        infra["atomic_store"]["idempotency"] = {
+            "driver": "redis",
+            "url": f"redis://{REDIS['idem'][0]}:6379/0",
+        }
     infra["eventbus"] = {
         "default": {
             "driver": "streams",
@@ -133,7 +139,6 @@ def _env(
             "CACHE_URL": f"redis://{REDIS['cache'][0]}:6379/0",
             "BROKER_URL": f"redis://{REDIS['broker'][0]}:6379/1",
             "INFRA": json.dumps(infra),
-            "SECURITY_CACHE_INSTANCE": "security",
             "AUTH_REVOCATION_FAIL_CLOSED": "true",
             "OUTBOX_RELAY_ENABLED": "auto",
             "OUTBOX_RELAY_INTERVAL_SECONDS": "1",
@@ -144,7 +149,6 @@ def _env(
             "WEB_CONCURRENCY": str(workers),
             "GUNICORN_BIND": "0.0.0.0:8000",
             "TAIL_OUT": "/out",
-            "TAIL_IDEMPOTENCY_INSTANCE": "idem" if split else "",
             "PYTHONPATH": "/w/src:/w/benchmarks:/w/benchmarks/ladder",
         }
     )

@@ -1,8 +1,8 @@
-"""t8_purge_invitations — Celery task + beat schedule.
+"""t8_purge_invitations — a task + its periodic schedule.
 
 Framework mode (a kernel-contributor task): the bundled ``tenancy``. App mode:
 the seeded app's own ``invites`` module (``seeds/teamhub``): the same
-mechanism, a nightly periodic task in the module, idempotent, beat wired (the
+mechanism, a nightly ``@periodic`` task in the module, idempotent, beat wired (the
 app's ``sandloom test`` checks one beat per profile, SANDLOOM-T010)."""
 
 import re
@@ -29,7 +29,7 @@ def _tasks() -> str:
 
 def test_fn_task_and_schedule() -> None:
     src = _tasks()
-    assert "shared_task" in src and "setup_periodic_tasks" in src
+    assert re.search(r"@(\w+\.)?periodic\(", src) and "cron=" in src
 
 
 def test_fn_tests_changed() -> None:
@@ -38,13 +38,13 @@ def test_fn_tests_changed() -> None:
 
 def test_dev_run_async_not_asyncio_run() -> None:
     src = _tasks() + text(MODULE)
-    assert "run_async(" in src and "asyncio.run(" not in src
+    assert ("async def" in src or "run_async(" in src) and "asyncio.run(" not in src
 
 
 def test_dev_at_least_once_opt_in() -> None:
-    """An idempotent task opts into acks_late + reject_on_worker_lost."""
+    """An idempotent task opts into at_least_once."""
     src = _tasks()
-    assert re.search(r"acks_late\s*=\s*True", src) and "reject_on_worker_lost" in src
+    assert re.search(r"at_least_once\s*=\s*True", src)
 
 
 def test_dev_cross_tenant_work_is_explicit() -> None:

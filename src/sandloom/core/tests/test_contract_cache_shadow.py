@@ -359,11 +359,15 @@ class _FakeDatabase:
         return None
 
 
+def _no_broadcast() -> Any:
+    raise RuntimeError("no broadcast instance is configured")
+
+
 @pytest.fixture
 def core(monkeypatch: pytest.MonkeyPatch) -> Iterator[CoreFacade]:
     for name, value in rpc_settings(_SVC, allowed_calls={_SVC: [CONTRACT]}).items():
         monkeypatch.setattr(settings, name, value)
-    monkeypatch.setattr(shadow, "_cache_provider", lambda: SimpleNamespace())
+    monkeypatch.setattr(shadow, "_broadcast_provider", _no_broadcast)
     facade = CoreFacade(app=FastAPI())
     facade.database = lambda name="default": _FakeDatabase()  # type: ignore[method-assign]
     facade.register_service(CONTRACT, Membership)
@@ -710,3 +714,103 @@ async def test_off_path_never_reaches_the_bookkeeping(
             assert await proxy.get_role(org, user) == "admin"
     assert checks == [CONTRACT]  # exactly one constant-time check per read
     assert shadow._REQUEST.get() is None
+
+
+# --------------------------------------------------------------------------- #
+# invalidations travel over the ``broadcast`` capability
+# --------------------------------------------------------------------------- #
+def _memory_broadcast() -> Any:
+    from sandloom.core.drivers.memory_broadcast import MemoryBroadcastProvider
+
+    return MemoryBroadcastProvider(
+        name="default", driver="memory", options={"namespace": uuid4().hex}
+    )
+
+
+async def _until(condition: Callable[[], bool]) -> None:
+    for _ in range(200):
+        if condition():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("the condition never held")
+
+
+@pytest.mark.asyncio
+async def test_no_listener_without_a_broadcast_instance(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(shadow, "_broadcast_provider", _no_broadcast)
+    monkeypatch.setattr(shadow, "_no_broadcast_logged", False, raising=False)
+    monkeypatch.setattr(shadow, "_listener", None)
+    observer = _cache(Clock())
+    flushes: list[str] = []
+    monkeypatch.setattr(observer, "flush", flushes.append)
+    with caplog.at_level("INFO", logger=shadow.logger.name):
+        shadow._ensure_listener(observer)
+        shadow._ensure_listener(observer)
+    await asyncio.sleep(0.05)
+    assert shadow._listener is None
+    assert flushes == []
+    assert len([r for r in caplog.records if "no broadcast" in r.getMessage()]) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_published_invalidation_reaches_the_listener(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _memory_broadcast()
+    monkeypatch.setattr(shadow, "_broadcast_provider", lambda: provider)
+    monkeypatch.setattr(shadow, "_listener", None)
+    observer = _cache(Clock())
+    seen: list[Any] = []
+    monkeypatch.setattr(observer, "flush", lambda why: seen.append(("flush", why)))
+    monkeypatch.setattr(observer, "invalidate", lambda c, p: seen.append((c, p)))
+    shadow._ensure_listener(observer)
+    try:
+        await _until(lambda: seen == [("flush", "subscribed")])
+        await shadow._broadcast([{"c": "x.changed.v1", "p": {"user": "u1"}}])
+        await _until(lambda: ("x.changed.v1", {"user": "u1"}) in seen)
+        await provider.publish(shadow.INVALIDATION_CHANNEL, b"not json")
+        await _until(lambda: ("flush", "malformed") in seen)
+    finally:
+        await shadow.stop_listener()
+        await provider.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_lost_subscription_flushes_and_resubscribes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A gap in what the shadow heard is never served through (ADR-0003)."""
+    provider = _memory_broadcast()
+    monkeypatch.setattr(shadow, "_broadcast_provider", lambda: provider)
+    monkeypatch.setattr(shadow, "_listener", None)
+    observer = _cache(Clock())
+    seen: list[Any] = []
+    monkeypatch.setattr(observer, "flush", lambda why: seen.append(("flush", why)))
+    monkeypatch.setattr(observer, "invalidate", lambda c, p: seen.append((c, p)))
+    shadow._ensure_listener(observer)
+    try:
+        await _until(lambda: seen == [("flush", "subscribed")])
+        for subscription in tuple(provider._subscriptions):
+            subscription._overflowed = True  # what a lost connection looks like
+            subscription._wake()
+        await _until(lambda: ("flush", "subscription_lost") in seen)
+        await _until(lambda: seen.count(("flush", "subscribed")) == 2)
+        await shadow._broadcast([{"c": "y.v1", "p": {}}])
+        await _until(lambda: ("y.v1", {}) in seen)
+    finally:
+        await shadow.stop_listener()
+        await provider.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_publish_is_swallowed_ttl_bounds_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Down:
+        async def publish(self, channel: str, payload: bytes) -> None:
+            raise RuntimeError("down")
+
+    monkeypatch.setattr(shadow, "_broadcast_provider", lambda: _Down())
+    await shadow._broadcast([{"c": "z.v1", "p": {}}])  # no exception

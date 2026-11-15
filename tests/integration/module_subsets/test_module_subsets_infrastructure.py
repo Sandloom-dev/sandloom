@@ -17,7 +17,7 @@ real:
   unimportable, which ``find_spec`` also reports missing, as in a clean venv:
   the module is refused with SANDLOOM-B037 naming the module, the capability
   and the missing feature; without redis-py the kernel's own cache check fails
-  (no stub hides ``No module named 'redis'``);
+  (no stub hides it: the health detail names ``missing_module: redis``);
 - **a taskqueue driver without ``periodic``**: a driver a package publishes
   through the ``sandloom.drivers`` entry point, advertising ``delay`` only,
   selected with ``INFRA``: billing is refused naming ``periodic``, identity
@@ -62,27 +62,31 @@ DEAD_BROKER = "redis://127.0.0.1:1/1"
 
 FAKE_DRIVER = "fakeq"
 FAKE_DRIVER_MODULE = '''\
-"""A taskqueue driver that enqueues and nothing else: no ``periodic``."""
+"""A taskqueue driver that sends and nothing else: no ``periodic``."""
 
-from collections.abc import Mapping
-from typing import Any
+from datetime import timedelta
 
 from sandloom.core.infra.contracts import TaskQueueProvider
 
 
 class NoPeriodicQueue(TaskQueueProvider):
-    contract_version = "v1"
-    supported_features = frozenset({"delay"})
+    contract_version = 2
+    supported_features = frozenset({"delay", "redelivery"})
 
-    async def enqueue(
+    def worker_host(self) -> object:
+        raise NotImplementedError
+
+    async def send(
         self,
         task: str,
-        payload: Mapping[str, Any],
+        payload: bytes,
         *,
-        delay_seconds: int | None = None,
-        idempotency_key: str | None = None,
+        task_id: str,
+        delay: timedelta | None = None,
+        at_least_once: bool = False,
+        queue: str = "default",
     ) -> str:
-        return "fakeq-1"
+        return task_id
 '''
 
 
@@ -272,7 +276,8 @@ def test_a_missing_redis_driver_is_refused_or_visible(
     check_run(run, want, celery=True, names={"identity": REFUSAL_NAMES["identity"]})
     if want.kind == "not_ready_cache":
         checks = run.probe["health_checks"]
-        assert "redis" in checks["cache"]["details"]["error"], checks
+        missing = str(checks["cache"]["details"].get("missing_module", ""))
+        assert missing.split(".")[0] == "redis", checks
         expected_failed = {"cache"}
         if "billing" in subset:
             expected_failed.add("billing_reconciler")

@@ -50,13 +50,13 @@ from sandloom.core.archcheck import api10_rules
 from sandloom.core.archcheck.manifest import ManifestError, load_rules
 from sandloom.core.cli.scaffold_wiring import (
     FRAMEWORK_TREE_CONFTEST,
-    PERIODIC_HOOK,
     contract_inherited,
     module_contract,
     project_root,
     wire_module,
 )
-from sandloom.core.descriptors.derived_capabilities import defines_periodic_hook
+from sandloom.core.descriptors.derived_capabilities import defines_periodic
+from sandloom.core.tasks.cron import parse_cron
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 #: ruff format's line length (generated files pass the project's format gate).
@@ -1230,108 +1230,86 @@ def downgrade() -> None:
 # sandloom add task
 # --------------------------------------------------------------------------- #
 
-_TASK_IMPORTS = [
-    "from sandloom.sdk.data import open_uow  # sandloom: advanced task unit",
-    "from sandloom.sdk.effects import run_async  # sandloom: advanced task body",
-    "from sandloom.sdk.tasks import shared_task  # sandloom: advanced tasks",
-]
+_OPEN_UOW_IMPORT = (
+    "from sandloom.sdk.data import open_uow  # sandloom: advanced task unit"
+)
+_TASKS_MODULE = "sandloom.sdk.tasks"
+_TASKS_COMMENT = "  # sandloom: advanced tasks"
 
 
-def _missing_imports(path: Path, lines: list[str]) -> list[str]:
-    """The ``from x import name`` lines whose name ``path`` does not import."""
+def _tasks_import(*names: str) -> str:
+    return f"from {_TASKS_MODULE} import {', '.join(sorted(names))}{_TASKS_COMMENT}"
+
+
+def _task_block(module: str, name: str, schedule: str | None) -> str:
+    if schedule is None:
+        decorator = "@task"
+    else:
+        args = f'cron="{schedule}", id="{module}.{name.replace("_", "-")}"'
+        one = f"@periodic({args})"
+        decorator = (
+            one if len(one) <= 88 else f"@periodic(\n    {args}\n)"
+        )  # ruff format's line length
+    if schedule is None:
+        doc = (
+            "The work of one run. It runs at most once unless the task\n"
+            "    declares at_least_once=True (which needs the taskqueue feature\n"
+            "    redelivery); then make it harmless to repeat (delete by a\n"
+            "    condition, upsert, or claim a durable_inbox key)."
+        )
+    else:
+        doc = (
+            "The work of one run. A run can repeat or overlap another, so make\n"
+            "    it harmless (delete by a condition, upsert, or claim a\n"
+            "    durable_inbox key)."
+        )
+    return f'''{decorator}
+async def {name}() -> None:
+    """{doc}"""
+    async with open_uow():
+        ...  # db(), await Event(...).publish() and record_audit work here
+'''
+
+
+def _ensure_task_imports(path: Path, decorator: str) -> None:
+    """Make an existing ``tasks.py`` import ``open_uow`` and ``decorator``
+    (merged into its ``sandloom.sdk.tasks`` import when it has one)."""
     if not path.exists():
-        return []
+        return
     source = path.read_text(encoding="utf-8")
     try:
         tree = ast.parse(source)
     except SyntaxError as exc:
         raise GeneratorError(f"{path} does not parse ({exc}); fix it first") from exc
+    lines = source.split("\n")
+    imports = [n for n in tree.body if isinstance(n, ast.Import | ast.ImportFrom)]
     imported = {
         alias.asname or alias.name
-        for node in tree.body
+        for node in imports
         if isinstance(node, ast.ImportFrom)
         for alias in node.names
     }
-    return [line for line in lines if line.split()[3] not in imported]
-
-
-def _task_block(module: str, dotted: str, name: str) -> str:
-    return f'''async def _{name}() -> int:
-    """The work of one run; a redelivered or overlapping run must be harmless
-    (delete by a condition, upsert, or claim a durable_inbox key)."""
-    async with open_uow():
-        ...  # db(), await Event(...).publish() and record_audit work here
-    return 0
-
-
-@shared_task(
-    name="{dotted}.tasks.{name}", acks_late=True, reject_on_worker_lost=True
-)
-def {name}() -> int:
-    """At-least-once (acks_late): Celery redelivers it if a worker dies."""
-    return run_async(_{name}())
-'''
-
-
-def _periodic_line(module: str, name: str, schedule: str) -> str:
-    args = f'cron("{schedule}"), {name}.s(), name="{module}.{name}"'
-    one = f"    sender.add_periodic_task({args})"
-    if len(one) <= 88:  # ruff format's line length
-        return one + "\n"
-    return f"    sender.add_periodic_task(\n        {args}\n    )\n"
-
-
-def _insert_stdlib_import(source: str, line: str) -> str:
-    """``line`` after the module docstring / ``__future__`` imports."""
-    tree = ast.parse(source)
-    after = 0
-    for node in tree.body:
-        is_doc = isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
-        future = isinstance(node, ast.ImportFrom) and node.module == "__future__"
-        if not (is_doc or future):
-            break
-        after = node.end_lineno or node.lineno
-    lines = source.split("\n")
-    lines[after:after] = ["", line] if after else [line, ""]
-    return "\n".join(lines)
-
-
-def _add_periodic(path: Path, module: str, name: str, schedule: str) -> None:
-    """Register ``name`` in the module's beat hook (created when absent)."""
-    source = path.read_text(encoding="utf-8")
-    first = source.split("from sandloom.sdk.tasks import", 1)
-    if len(first) == 2 and "cron" not in first[1].split("\n", 1)[0]:
-        source = source.replace(
-            "from sandloom.sdk.tasks import shared_task",
-            "from sandloom.sdk.tasks import cron, shared_task",
-            1,
-        )
-    if "from typing import Any" not in source:
-        source = _insert_stdlib_import(source, "from typing import Any")
-    hook = next(
+    existing = next(
         (
-            node
-            for node in ast.parse(source).body
-            if isinstance(node, ast.FunctionDef) and node.name == PERIODIC_HOOK
+            n
+            for n in imports
+            if isinstance(n, ast.ImportFrom) and n.module == _TASKS_MODULE
         ),
         None,
     )
-    line = _periodic_line(module, name, schedule)
-    if hook is None:
-        source = (
-            source.rstrip("\n")
-            + "\n\n\n"
-            + f"def {PERIODIC_HOOK}(sender: Any, **kwargs: Any) -> None:\n"
-            + '    """Beat hook: exactly one beat per deploy profile runs it '
-            + '(SANDLOOM-T010)."""\n'
-            + line
-        )
-    else:
-        lines = source.split("\n")
-        end = hook.end_lineno or hook.lineno
-        lines[end:end] = line.rstrip("\n").split("\n")
-        source = "\n".join(lines)
-    path.write_text(source, encoding="utf-8")
+    shift = 0  # lines the merged import gives back
+    if existing is not None and decorator not in imported:
+        names = {a.name for a in existing.names if a.asname is None} | {decorator}
+        first, last = existing.lineno - 1, existing.end_lineno or existing.lineno
+        lines[first:last] = [_tasks_import(*names)]
+        shift = (last - first) - 1
+    added = [_OPEN_UOW_IMPORT] if "open_uow" not in imported else []
+    if existing is None and decorator not in imported:
+        added.append(_tasks_import(decorator))
+    if added:
+        at = max((n.end_lineno or n.lineno for n in imports), default=0) - shift
+        lines[at:at] = added
+    path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def _wire_beat(where: Layout, module: str) -> tuple[list[Path], str]:
@@ -1379,45 +1357,39 @@ def _wire_beat(where: Layout, module: str) -> tuple[list[Path], str]:
 def add_task(
     module: str, name: str, where: Layout, *, periodic: str | None = None
 ) -> tuple[list[Path], str | None]:
-    """``sandloom add task <m> <name> [--periodic "<cron>"]``: an idempotent,
-    at-least-once task in ``tasks.py``; with ``--periodic`` its beat schedule
-    and the deploy wiring. Returns the edited files and a note to print."""
+    """``sandloom add task <m> <name> [--periodic "<cron>"]``: a ``@task`` (or,
+    with ``--periodic``, a ``@periodic``) in ``tasks.py`` and, for a periodic
+    one, the deploy wiring. Returns the edited files and a note to print."""
     directory = _require_module(where, module)
     _check_name(name, "the task name")
-    if periodic is not None and len(periodic.split()) != 5:
-        raise GeneratorError(
-            f"--periodic {periodic!r}: expected 5 cron fields "
-            "'minute hour day-of-month month day-of-week', e.g. '0 3 * * *'"
-        )
-    path = directory / "tasks.py"
-    if path.exists() and re.search(rf"^def {name}\(", path.read_text(), re.M):
-        raise GeneratorError(f"{path} already defines {name}()")
-    missing = _missing_imports(path, _TASK_IMPORTS)
-    if missing:  # an existing tasks.py: add them after its last import
-        source = path.read_text(encoding="utf-8")
-        imports = [
-            node
-            for node in ast.parse(source).body
-            if isinstance(node, ast.Import | ast.ImportFrom)
-        ]
-        lines = source.split("\n")
-        at = (imports[-1].end_lineno or 0) if imports else 0
-        lines[at:at] = missing
-        path.write_text("\n".join(lines), encoding="utf-8")
-    header = (
-        f'"""Background tasks of the {module} module (the framework worker '
-        "imports this file).\n\nTask bodies are sync: async work runs through "
-        '``run_async`` in ``open_uow()`` blocks."""\n\n'
-        "from sandloom.sdk.data import open_uow  # sandloom: advanced task unit\n"
-        "from sandloom.sdk.effects import run_async  # sandloom: advanced task body\n"
-        "from sandloom.sdk.tasks import shared_task  # sandloom: advanced tasks\n\n\n"
-    )
-    block = _task_block(module, where.dotted(module), name)
-    edited = [_append(path, block, header=header)]
     if periodic is not None:
-        _add_periodic(path, module, name, periodic)
+        try:
+            parse_cron(periodic)  # the grammar the scheduler reads, not a field count
+        except ValueError as exc:
+            raise GeneratorError(
+                f"--periodic {periodic!r}: {exc}; expected 5 cron fields "
+                "'minute hour day-of-month month day-of-week', e.g. '0 3 * * *'"
+            ) from exc
+        if '"' in periodic or "\\" in periodic:
+            raise GeneratorError(
+                f"--periodic {periodic!r}: no quote or backslash in a cron expression"
+            )
+    path = directory / "tasks.py"
+    if path.exists() and re.search(rf"^(async )?def {name}\(", path.read_text(), re.M):
+        raise GeneratorError(f"{path} already defines {name}()")
+    decorator = "task" if periodic is None else "periodic"
+    _ensure_task_imports(path, decorator)  # an existing tasks.py
+    header = (
+        f'''"""Background tasks of the {module} module (the framework worker '''
+        "imports this file).\n\nTask bodies are ``async def``: the worker runs them "
+        "on its persistent loop,\nand a unit of work opens with "
+        '``open_uow()``."""\n\n'
+        f"{_OPEN_UOW_IMPORT}\n{_tasks_import(decorator)}\n\n\n"
+    )
+    block = _task_block(module, name, periodic)
+    edited = [_append(path, block, header=header)]
     declared, declare_note = _declare_taskqueue(
-        directory / "__init__.py", periodic=defines_periodic_hook(path)
+        directory / "__init__.py", periodic=defines_periodic(path)
     )
     edited += declared
     if periodic is None:

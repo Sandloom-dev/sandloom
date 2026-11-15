@@ -26,9 +26,9 @@ from typing import Any
 
 import httpx
 import pytest
+import sandloom_celery.worker as _celery_worker
 from fastapi import FastAPI
 
-import sandloom.core.drivers.celery_taskqueue as _celery_taskqueue
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import (
     CapabilityRequirement,
@@ -91,7 +91,7 @@ def undeclared_has_a_tasks_module(
 @pytest.fixture(autouse=True)
 def fresh_default_app(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test builds its own default Celery app from the settings it sets."""
-    monkeypatch.setattr(_celery_taskqueue, "_default_app", None)
+    monkeypatch.setattr(_celery_worker, "_default_app", None)
 
 
 @pytest.fixture
@@ -115,6 +115,8 @@ def _ops_app(
         monkeypatch.setattr(settings, "broker_url", broker)
     app = FastAPI()
     core = CoreFacade(app=app)
+    # Before the registry: the kernel fills the celery probe's bound from it.
+    monkeypatch.setattr(settings, "health_check_timeout_seconds", 2.0)
     # The registry ``create_app`` binds: the default taskqueue is ``celery``.
     core.set_infra(build_infra_registry(InMemorySchemaRegistry(), load_plugins=False))
 
@@ -126,7 +128,6 @@ def _ops_app(
     core.module_descriptors = [_DESCRIPTORS[name] for name in loaded]
     monkeypatch.setattr(settings, "service_bindings", {})
     monkeypatch.setattr(settings, "health_cache_ttl_seconds", ttl)
-    monkeypatch.setattr(settings, "health_check_timeout_seconds", 2.0)
     monkeypatch.setattr(settings, "module_required", [])
     monkeypatch.setattr(settings, "sandloom_modules", loaded)
     monkeypatch.setattr(settings, "internal_api_token", _TOKEN)
@@ -206,7 +207,8 @@ async def test_ready_fails_naming_the_taskqueue_when_its_broker_is_down(
     default = block["instances"]["default"]
     assert default["status"] == "fail"
     assert default["task_modules"] == [_ENQUEUES]
-    assert "broker redis://127.0.0.1:1 unreachable" in default["details"]["error"]
+    # The type only (spec 2.4): an exception text can carry a URL.
+    assert default["details"]["error"] == "BrokerUnreachableError"
 
 
 async def test_ready_stays_green_with_a_reachable_broker(
@@ -235,10 +237,8 @@ async def test_ready_fails_when_the_driver_cannot_open(
     internal = await _get(app, "/ready", internal=True)
 
     assert internal.status_code == 503
-    assert (
-        "celery"
-        in internal.json()["taskqueue"]["instances"]["default"]["details"]["error"]
-    )
+    instance = internal.json()["taskqueue"]["instances"]["default"]
+    assert instance["details"] == {"error": "DriverUnavailableError"}
 
 
 # ------------------------------------------------ background-only use ----
@@ -338,7 +338,7 @@ async def test_the_taskqueue_probe_is_cached_like_the_other_readiness_probes(
 def _count_broker_connections(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     """Record every broker connection the celery driver's probe opens (the
     real connect still runs)."""
-    import sandloom.core.drivers.celery_broker_probe as probe
+    import sandloom_celery.broker_probe as probe
 
     opened: list[float] = []
     connect = probe._connect_once

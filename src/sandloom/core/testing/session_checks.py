@@ -24,11 +24,16 @@ from urllib.parse import parse_qs, urlsplit, urlunsplit
 
 import psycopg2  # type: ignore[import-untyped]
 import pytest
-import redis
 
 from sandloom.core.testing import connections, ownership, resources, workers
 from sandloom.core.testing.env import dev_up_hint
 from sandloom.core.testing.fixtures import env_starts, find_env_file
+from sandloom.core.testing.redis_urls import (
+    INFRA_VAR,
+    redis_client_installed,
+    redis_isolation,
+    redis_urls,
+)
 
 #: Where Linux's default ephemeral range starts; macOS and Windows start higher.
 EPHEMERAL_PORTS_START = 32768
@@ -46,24 +51,29 @@ def run_values(config: pytest.Config) -> dict[str, str]:
     for var in workers.OVERRIDABLE_VARS:
         if not values.get(var) and os.environ.get(var):
             values[var] = os.environ[var]
+    if not values.get(INFRA_VAR) and os.environ.get(INFRA_VAR):
+        values[INFRA_VAR] = os.environ[INFRA_VAR]
     return values
+
+
+def _redis_auto() -> bool:
+    """``SANDLOOM_TEST_REDIS_DB_STRIDE=auto`` on a process that can reach a Redis."""
+    return redis_client_installed() and redis_isolation().redis_auto()
 
 
 def worker_targets(values: dict[str, str], count: int) -> list[dict[str, str]]:
     """``values`` as each of ``count`` xdist workers rewrites it."""
     if count <= 0:
         return [values]
-    stride = os.environ.get(workers.REDIS_STRIDE_ENV, "")
-    mapping = os.environ.get(workers.REDIS_MAP_ENV, "")
-    out = []
-    for n in range(count):
-        environ = {
-            workers.WORKER_ENV: f"gw{n}",
-            workers.REDIS_STRIDE_ENV: stride,
-            workers.REDIS_MAP_ENV: mapping,
+    return [
+        {
+            **values,
+            **workers.rewrite_for_worker(
+                values, {**os.environ, workers.WORKER_ENV: f"gw{n}"}
+            ),
         }
-        out.append({**values, **workers.rewrite_for_worker(values, environ)})
-    return out
+        for n in range(count)
+    ]
 
 
 def allocate_worker_redis(values: dict[str, str], count: int) -> None:
@@ -73,16 +83,17 @@ def allocate_worker_redis(values: dict[str, str], count: int) -> None:
     Runs in the controller's ``pytest_sessionstart`` (``tryfirst``), before
     xdist spawns its workers, which inherit the environment.
     """
-    urls = _redis_urls(values)
+    urls = redis_urls(values)
     if not urls:
         return
+    isolation = redis_isolation()
     mapping = resources.allocate_worker_redis(
         urls,
         count,
         ownership.current_owner(),
         spares=resources.REDIS_SPARES_PER_BASE,  # replacements of crashed workers
     )
-    os.environ[workers.REDIS_MAP_ENV] = workers.format_redis_map(mapping)
+    os.environ[isolation.REDIS_MAP_ENV] = isolation.format_redis_map(mapping)
 
 
 def self_connecting_urls(values: Mapping[str, str]) -> list[str]:
@@ -140,7 +151,7 @@ def check_run_resources(config: pytest.Config) -> None:
         except connections.ConnectionBudgetError as exc:
             pytest.exit(str(exc), returncode=pytest.ExitCode.USAGE_ERROR)
     try:
-        if count and workers.redis_auto():
+        if count and _redis_auto():
             allocate_worker_redis(values, count)
         for target in worker_targets(values, count):
             ownership.claim_test_resources(target)
@@ -209,15 +220,15 @@ def cap_auto_workers(config: pytest.Config, requested: Any) -> Any:
     values = run_values(config)
     database = values.get("DATABASE_URL") or ""
     count = connections.affordable_workers(requested, database)
-    if count > 1 and workers.redis_auto():
-        urls = _redis_urls(values)
+    if count > 1 and _redis_auto():
+        urls = redis_urls(values)
         if urls:
             try:
                 owner = os.environ.get(ownership.OWNER_ENV)
                 room = resources.affordable_redis_workers(
                     urls, owner or ownership.current_owner()
                 )
-            except (redis.RedisError, OSError):  # reported again at session start
+            except resources.redis_errors():  # reported again at session start
                 return count
             if room < count:
                 fallback = room if room > 1 else 0
@@ -231,14 +242,6 @@ def cap_auto_workers(config: pytest.Config, requested: Any) -> Any:
                 )
                 return fallback
     return count
-
-
-def _redis_urls(values: dict[str, str]) -> list[str]:
-    return [
-        values[var]
-        for var in workers.REDIS_VARS
-        if (values.get(var) or "").startswith(("redis://", "rediss://"))
-    ]
 
 
 __all__ = [

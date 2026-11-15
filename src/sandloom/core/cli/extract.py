@@ -73,7 +73,7 @@ import os
 import tempfile
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from alembic import command
@@ -88,6 +88,7 @@ import sandloom.core.migrations.migrations as _migrations
 from sandloom.core.consumers.runtime import normalize_database_url
 from sandloom.core.descriptors import ModuleDescriptor
 from sandloom.core.descriptors.module_names import module_name as _module_name
+from sandloom.core.infra.ports.eventbus import EventTransport
 from sandloom.core.migrations.alembic_support import MIGRATE_URL_ENV
 from sandloom.core.migrations.migrations import _mask_url
 from sandloom.core.migrations.urls import to_sync_url
@@ -1254,7 +1255,7 @@ class ModuleExtractor:
 
 
 async def transfer_group_owners(
-    transport: Any,
+    transport: EventTransport,
     module: str,
     *,
     source_identity: str,
@@ -1271,29 +1272,32 @@ async def transfer_group_owners(
     and a stale monolith still loading the module is refused). Returns the
     ``stream group`` pairs (to be) transferred.
     """
-    lister = getattr(transport, "list_group_owners", None)
-    transfer = getattr(transport, "transfer_group_owner", None)
-    if lister is None or transfer is None:
-        return []
     short = _module_name(module)
     moved: list[str] = []
-    for entry in await lister():
-        owner = entry.get("owner") or {}
-        if owner.get("module") not in (module, short):
+    for stream, group, owner in await transport.list_group_owners():
+        if owner.module not in (module, short):
             continue
-        if owner.get("database") != source_identity:
+        if owner.database != source_identity:
             continue
-        stream, group = str(entry["stream"]), str(entry["group"])
         if apply:
-            new_owner = {
-                **owner,
-                "database": target_identity,
-                "transferred_from": source_identity,
-            }
-            if not await transfer(stream, group, expected=owner, owner=new_owner):
+            new_owner = replace(owner, database=target_identity)
+            if not await transport.transfer_group_owner(
+                stream, group, expected=owner, owner=new_owner
+            ):
                 raise ExtractionError(
                     f"group {group} on {stream}: owner changed concurrently"
                 )
+            # The owner record keeps three fields (spec 7): the old database
+            # is not stored with it, so the transfer is logged here.
+            logger.warning(
+                "streams group owner transferred: stream=%s group=%s module=%s "
+                "database %s -> %s",
+                stream,
+                group,
+                owner.module,
+                source_identity,
+                target_identity,
+            )
         moved.append(f"{stream} {group}")
     return moved
 

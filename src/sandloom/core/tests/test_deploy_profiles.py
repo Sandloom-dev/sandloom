@@ -262,12 +262,12 @@ def test_the_image_boots_the_standard_composition_root() -> None:
 def test_worker_and_beat_use_framework_entrypoint(profile: str) -> None:
     services = _load(profile)["services"]
     commands = {n: s.get("command") for n, s in services.items()}
-    workers = [n for n, c in commands.items() if c and "worker" in c and "celery" in c]
-    beats = [n for n, c in commands.items() if c and "beat" in c and "celery" in c]
+    workers = [n for n, c in commands.items() if c and c[:2] == ["sandloom", "worker"]]
+    beats = [n for n, c in commands.items() if c and c[:2] == ["sandloom", "beat"]]
     assert workers and beats
     for name in workers + beats:
         cmd = commands[name]
-        assert cmd[:3] == ["celery", "-A", "sandloom.core.worker"], (name, cmd)
+        assert cmd[:1] == ["sandloom"], (name, cmd)
     assert not any(
         "sandloom_identity.tasks" in json.dumps(c) for c in commands.values()
     )
@@ -381,8 +381,7 @@ def test_workers_are_sized_and_health_checked(profile: str) -> None:
     workers = {
         n: s
         for n, s in services.items()
-        if s.get("command")
-        and s["command"][:4] == ["celery", "-A", "sandloom.core.worker", "worker"]
+        if s.get("command") and s["command"][:2] == ["sandloom", "worker"]
     }
     assert workers
     for name, svc in workers.items():
@@ -391,13 +390,7 @@ def test_workers_are_sized_and_health_checked(profile: str) -> None:
         assert int(env["DB_POOL_SIZE"]) <= 2 and int(env["DB_MAX_OVERFLOW"]) <= 2, name
         hc = svc["healthcheck"]
         assert not hc.get("disable"), name
-        assert hc["test"] == [
-            "CMD",
-            "python",
-            "-m",
-            "sandloom.core.worker",
-            "healthcheck",
-        ]
+        assert hc["test"] == ["CMD", "sandloom", "worker", "check"]
         limit = svc["deploy"]["resources"]["limits"]["memory"]
         assert limit.endswith("m") and int(limit[:-1]) >= 512, (name, limit)
         per_child_kib = int(env["WORKER_MAX_MEMORY_PER_CHILD"])
@@ -408,32 +401,25 @@ def test_workers_are_sized_and_health_checked(profile: str) -> None:
 
 
 def _modules_with_periodic_tasks() -> set[str]:
-    """Bundled modules whose ``tasks.py`` defines the beat hook (AST, no import)."""
-    import ast
-
-    from sandloom.core.worker import PERIODIC_HOOK
+    """Bundled modules whose ``tasks.py`` declares a ``@periodic`` task (AST, no
+    import)."""
+    from sandloom.core.descriptors.derived_capabilities import defines_periodic
 
     src = Path(__file__).resolve().parents[3]  # .../src (top-level modules)
-    found: set[str] = set()
-    for tasks in src.glob("*/tasks.py"):
-        tree = ast.parse(tasks.read_text())
-        if any(
-            isinstance(node, ast.FunctionDef) and node.name == PERIODIC_HOOK
-            for node in tree.body
-        ):
-            found.add(tasks.parent.name)
-    return found
+    return {
+        tasks.parent.name for tasks in src.glob("*/tasks.py") if defines_periodic(tasks)
+    }
 
 
 def test_periodic_task_modules_are_discovered() -> None:
     # Guards the scan below: billing (intent reconciler) and identity
-    # (token cleanup) both ship beat schedules.
+    # (token cleanup) both declare @periodic tasks.
     assert {"sandloom_billing", "sandloom_identity"} <= _modules_with_periodic_tasks()
 
 
 @pytest.mark.parametrize("profile", PROFILES)
 def test_every_periodic_task_set_has_exactly_one_beat(profile: str) -> None:
-    """Every module with ``setup_periodic_tasks`` that a profile serves has
+    """Every module with a ``@periodic`` task that a profile serves has
     exactly ONE beat loading it, a worker loading it on that beat's broker, and
     no two beats share a broker — so no schedule is missing or runs twice.
     Also a step of ``sandloom test`` (``schema & deploy``, SANDLOOM-T010)."""
@@ -476,11 +462,11 @@ def test_redis_bus_is_persistent(profile: str) -> None:
 
 @pytest.mark.parametrize("profile", PROFILES)
 def test_idempotency_cache_opt_in_is_shared_and_durable(profile: str) -> None:
-    """IDEMPOTENCY_CACHE_INSTANCE is off by default; once enabled it (with
-    INFRA / SECURITY_CACHE_INSTANCE) is identical in every process, and its
-    Redis fsyncs every write and never evicts, like a security Redis."""
+    """INFRA (it carries INFRA.atomic_store.security and .idempotency) is
+    identical in every process, and a dedicated idempotency Redis fsyncs
+    every write and never evicts, like a security Redis."""
     procs = _app_processes(profile)
-    for key in ("IDEMPOTENCY_CACHE_INSTANCE", "SECURITY_CACHE_INSTANCE", "INFRA"):
+    for key in ("INFRA",):
         values = {name: svc["environment"].get(key) for name, svc in procs.items()}
         assert len(set(values.values())) == 1, f"{key} differs: {values}"
     services = _load(profile)["services"]
@@ -702,7 +688,7 @@ def _process_count(svc: dict[str, Any], env: dict[str, str]) -> int:
     from sandloom.core.worker import MAX_DEFAULT_WORKER_CONCURRENCY
 
     command = svc.get("command") or []
-    if command[:4] == ["celery", "-A", "sandloom.core.worker", "worker"]:
+    if command[:2] == ["sandloom", "worker"]:
         raw = env.get("WORKER_CONCURRENCY", "")
         return int(raw) if raw else MAX_DEFAULT_WORKER_CONCURRENCY
     if "beat" in command:
@@ -978,3 +964,104 @@ def test_sandloom_test_checks_the_split_profile_of_a_project(tmp_path: Path) -> 
     )
     problems = all_problems(tmp_path, load_composition_core())
     assert any("SANDLOOM-T014" in p for p in problems), problems
+
+
+# --------------------------------------------------------------------------- #
+# the old worker argv (celery -A sandloom.core.worker, python -m ...) is refused
+# --------------------------------------------------------------------------- #
+
+_OLD_ARGV = [
+    ["celery", "-A", "sandloom.core.worker", "worker", "--loglevel=INFO"],
+    ["celery", "--app=sandloom.core.worker", "beat", "--schedule=/tmp/s"],
+    ["celery", "-Asandloom.core.worker", "worker"],
+    ["python", "-m", "sandloom.core.worker", "healthcheck"],
+]
+_OLD_IDS = ["worker", "app-equals", "A-glued", "python-m"]
+
+
+def _profile_with_service(tmp_path: Path, service: dict[str, Any]) -> Path:
+    profile = tmp_path / "compose/monolith.yml"
+    profile.parent.mkdir(parents=True)
+    profile.write_text(yaml.safe_dump({"services": {"jobs": service}}))
+    return profile
+
+
+@pytest.mark.parametrize("command", _OLD_ARGV, ids=_OLD_IDS)
+def test_t010_refuses_the_old_worker_argv_without_periodic_tasks(
+    tmp_path: Path, command: list[str]
+) -> None:
+    """A profile whose modules have no periodic tasks still must not run the old
+    worker argv: it would pass T010 and T014 unnoticed (no worker, no beat)."""
+    from sandloom.core.testing.static_checks import periodic_beat_problems
+
+    profile = _profile_with_service(
+        tmp_path,
+        {
+            "command": command,
+            "environment": {"SANDLOOM_MODULES": '["sandloom_tenancy"]'},
+        },
+    )
+    (problem,) = periodic_beat_problems(profile, periodic=[])
+    assert "SANDLOOM-T010" in problem and "jobs" in problem
+    assert "`sandloom worker`" in problem and "`sandloom beat`" in problem
+    assert "`sandloom worker check`" in problem
+
+
+@pytest.mark.parametrize("command", _OLD_ARGV, ids=_OLD_IDS)
+def test_t014_refuses_the_old_worker_argv(tmp_path: Path, command: list[str]) -> None:
+    from sandloom.core.testing.deploy_profile import profile_problems
+
+    copy = _broken(tmp_path, {})
+    path = copy / "compose/microservices.yml"
+    data = yaml.safe_load(path.read_text())
+    worker = next(
+        n
+        for n, s in data["services"].items()
+        if (s.get("command") or [])[:2] == ["sandloom", "worker"]
+    )
+    data["services"][worker]["command"] = command
+    path.write_text(yaml.safe_dump(data))
+    problems = profile_problems(copy).problems
+    assert any(
+        worker in p and "`sandloom worker check`" in p and "SANDLOOM-T014" in p
+        for p in problems
+    ), problems
+
+
+def test_worker_check_is_not_a_worker() -> None:
+    """``sandloom worker check`` is a probe: it consumes nothing, so it must not
+    satisfy "a worker consumes it" (T010) or count as a worker (T014)."""
+    from sandloom.core.testing.deploy_profile import process_kind
+
+    assert process_kind({"command": ["sandloom", "worker", "check"]}) != "worker"
+    run = {"command": ["sandloom", "worker", "--loglevel=INFO"]}
+    assert process_kind(run) == "worker"
+
+
+def test_a_worker_check_service_does_not_consume_the_beats_tasks(
+    tmp_path: Path,
+) -> None:
+    from sandloom.core.testing.static_checks import periodic_beat_problems
+
+    env = {"SANDLOOM_MODULES": '["sandloom_tenancy"]', "BROKER_URL": "redis://b"}
+    profile = tmp_path / "compose/microservices.yml"
+    profile.parent.mkdir(parents=True)
+    profile.write_text(
+        yaml.safe_dump(
+            {
+                "services": {
+                    "tenancy": {"environment": env},
+                    "tenancy-beat": {
+                        "command": ["sandloom", "beat"],
+                        "environment": env,
+                    },
+                    "tenancy-probe": {
+                        "command": ["sandloom", "worker", "check"],
+                        "environment": env,
+                    },
+                }
+            }
+        )
+    )
+    (problem,) = periodic_beat_problems(profile, periodic=["sandloom_tenancy"])
+    assert "no worker consumes sandloom_tenancy" in problem

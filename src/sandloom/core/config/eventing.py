@@ -8,6 +8,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+#: Default age bound of an event stream, in seconds (7 days): the one value of
+#: ``EVENT_STREAM_RETENTION_SECONDS``, the ``streams`` driver's
+#: ``retention_seconds`` option and the transport's own default.
+DEFAULT_EVENT_STREAM_RETENTION_SECONDS = 7 * 24 * 60 * 60
+
 
 class EventingConfig(BaseModel):
     """Event bus transport, Streams retention, the outbox relay and event
@@ -54,7 +59,7 @@ class EventingConfig(BaseModel):
     # longer than the retention window misses the trimmed events (the outbox
     # still holds them for a requeue).
     event_stream_retention_seconds: int = Field(
-        default=7 * 24 * 60 * 60,
+        default=DEFAULT_EVENT_STREAM_RETENTION_SECONDS,
         ge=0,
         alias="EVENT_STREAM_RETENTION_SECONDS",
         description=(

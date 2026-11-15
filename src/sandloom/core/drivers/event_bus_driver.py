@@ -1,46 +1,77 @@
-"""Built-in event-bus drivers (``memory`` and ``redis``).
+"""The built-in ``streams`` event-bus driver: a durable ``EventTransportProvider``.
 
-The bus needs the schema registry at construction time, so these driver
-factories are produced by :func:`make_event_bus_drivers`, which the bootstrap
-calls with the application's schema registry. The resulting provider wraps an
-``EventBusProtocol`` instance and participates in the infra lifecycle
-(``aclose`` closes the bus).
+``streams`` is the transport shape of the ``eventbus`` capability (spec 7):
+this class IS the transport (Redis Streams) and the kernel builds its durable
+bus over it. The volatile buses (``memory``, ``redis``) are kernel-internal
+(:mod:`sandloom.core.eventing.volatile_provider`).
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from functools import partial
-from typing import Any
+from typing import Any, Protocol
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 import sandloom.core.drivers.redis_cache as _redis_cache
-from sandloom.core.config.settings import settings
-from sandloom.core.contracts import SchemaRegistryContract
-from sandloom.core.descriptors import HealthResult
-from sandloom.core.eventing.memory_bus import InMemoryEventBus
-from sandloom.core.eventing.pubsub_bus import RedisEventBus
-from sandloom.core.eventing.streams_bus import StreamsEventBus
-from sandloom.core.eventing.streams_transport import RedisStreamsTransport
-from sandloom.core.infra.config import InstanceConfig
-from sandloom.core.infra.contracts import EventBusProvider
-from sandloom.core.infra.registry import DriverFactory
+from sandloom.core.drivers.redis_eventbus.streams_transport import (
+    RedisStreamsTransport,
+)
+from sandloom.driverkit import (
+    EventTransportProvider,
+    HealthResult,
+    InfraProvider,
+)
+from sandloom.driverkit._builtin_streams import BUS_BLOCK_MS
+from sandloom.driverkit.eventbus_support import (
+    DEFAULT_EVENT_STREAM_RETENTION_SECONDS,
+    health_failure_details,
+)
+from sandloom.driverkit.testing_isolation import isolated_redis_options
+
+#: The name of the ``default`` instance of a capability (the kernel's
+#: ``DEFAULT_INSTANCE``): it shares the process-wide default transport client.
+_DEFAULT_INSTANCE = "default"
+
+
+class _InstanceLike(Protocol):
+    name: str
+    driver: str
+
+    @property
+    def options(self) -> Mapping[str, Any]: ...
 
 
 class EventBusOptions(BaseModel):
-    """Config-shape schema shared by the ``memory``/``redis``/``streams`` buses.
+    """Config-shape schema of the ``streams`` driver.
 
-    The only option any built-in bus driver reads is ``url`` (the Redis DSN the
-    ``redis``/``streams`` drivers connect their own client from; ``memory``
-    ignores it). Optional — without it (the synthesized ``default`` instance)
-    the instance shares the process-wide default transport client.
-    ``extra="forbid"`` rejects a typo'd key at startup.
+    ``url`` is the Redis DSN, with the connect timeout and health-check
+    interval of its client. The kernel fills all three from ``CACHE_URL`` and
+    the ``CACHE_*`` settings when the configuration leaves them out. The
+    ``default`` instance shares the process-wide default transport client (a
+    sibling of the default cache client on its own ``url``); a named instance
+    connects its own client. ``extra="forbid"`` rejects a typo'd key at
+    startup.
     """
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     url: str | None = None
+    socket_connect_timeout_seconds: float = Field(default=0.5, gt=0)
+    health_check_interval_seconds: int = Field(default=30, ge=0)
+    #: Retention of every stream (``retention()``): entries older than
+    #: ``retention_seconds`` are trimmed at publish, and, when ``max_length`` is
+    #: positive, entries beyond that count. Zero disables the respective bound.
+    #: The kernel fills both from ``EVENT_STREAM_RETENTION_SECONDS`` and
+    #: ``EVENT_STREAM_MAXLEN`` until those settings become options.
+    retention_seconds: int = Field(default=DEFAULT_EVENT_STREAM_RETENTION_SECONDS, ge=0)
+    max_length: int = Field(default=0, ge=0)
+    #: Namespace prepended to every Streams key (streams, dead letters, group
+    #: ownership, inventory) so several environments can share one Redis. The
+    #: kernel fills it from ``EVENT_STREAM_PREFIX`` until that setting becomes
+    #: an option; changing it starts a separate namespace.
+    prefix: str = ""
 
 
 class _LazyRedisClient:
@@ -49,21 +80,30 @@ class _LazyRedisClient:
     A named eventbus instance with its own ``url`` connects its own client on
     first use and caches it — a bounded transport client (connect timeout,
     keepalive, health check, the bus's read timeout; see
-    ``redis_cache.build_transport_client``). Because the client is owned by
-    this instance (not the shared default), it must be closed on shutdown —
-    :meth:`aclose` does that, and :class:`WrappedEventBusProvider` calls it
-    from ``aclose`` so the dedicated connection pool does not leak.
+    ``sandloom.core.drivers.redis_cache.build_transport_client``). Because the
+    client is owned by this instance (not the shared default), it must be
+    closed on shutdown — :meth:`aclose` does that, and
+    :class:`StreamsEventBusProvider` calls it from its own ``aclose`` so the
+    dedicated connection pool does not leak.
     """
 
-    def __init__(self, url: str, *, read_timeout: float | None = None) -> None:
-        self._url = url
+    def __init__(
+        self, options: EventBusOptions, *, read_timeout: float | None = None
+    ) -> None:
+        self._options = options
         self._read_timeout = read_timeout
         self._client: Any | None = None
 
     async def __call__(self) -> Any:
         if self._client is None:
+            options = self._options
+            if not options.url:
+                raise ValueError("eventbus instance has no 'url' option")
             self._client = _redis_cache.build_transport_client(
-                self._url, read_timeout=self._read_timeout
+                options.url,
+                read_timeout=self._read_timeout,
+                socket_connect_timeout_seconds=options.socket_connect_timeout_seconds,
+                health_check_interval_seconds=options.health_check_interval_seconds,
             )
         return self._client
 
@@ -91,151 +131,122 @@ def _streams_read_timeout() -> float:
     and the consumer reconnects instead of hanging forever.
     """
 
-    return StreamsEventBus._BLOCK_MS / 1000 + _STREAMS_READ_MARGIN_SECONDS
+    return BUS_BLOCK_MS / 1000 + _STREAMS_READ_MARGIN_SECONDS
 
 
 def _redis_client_factory(
-    cfg: InstanceConfig, *, read_timeout: float | None = None
+    cfg: _InstanceLike, *, read_timeout: float | None = None
 ) -> tuple[Callable[[], Awaitable[Any]], _LazyRedisClient | None]:
     """Return ``(client_factory, closable)`` for THIS eventbus instance.
 
     The driver is the only layer that knows where the Redis client comes from,
     so it ALWAYS hands the bus/transport a factory — the transport classes never
-    reach back into the driver themselves. A named instance with its own ``url``
-    gets its own lazily-connected client (the closable, shut down on teardown);
-    without a ``url`` (the ``default`` instance) it shares the process-wide
-    default transport client (the driver's ``get_default_transport_client``: a
-    bounded sibling of the default cache client with ``read_timeout`` instead
-    of the cache read timeout, owned by the cache lifecycle — nothing for this
-    provider to close).
+    reach back into the driver themselves. A named instance with its own
+    ``url`` gets its own lazily-connected client (the closable, shut down on
+    teardown); the ``default`` instance, and one without a ``url``, shares the
+    process-wide default transport client (the driver's
+    ``get_default_transport_client``: a bounded sibling of the default cache
+    client — on this instance's ``url`` when it has one — with ``read_timeout``
+    instead of the cache read timeout, owned by the cache lifecycle — nothing
+    for this provider to close).
     """
-    url = cfg.options.get("url")
-    if not url:
+    options = EventBusOptions.model_validate(cfg.options)
+    if not options.url:
         return partial(_redis_cache.get_default_transport_client, read_timeout), None
-    lazy = _LazyRedisClient(str(url), read_timeout=read_timeout)
+    if cfg.name == _DEFAULT_INSTANCE:
+        transport = _redis_cache.RedisCacheOptions(
+            url=options.url,
+            socket_connect_timeout_seconds=options.socket_connect_timeout_seconds,
+            health_check_interval_seconds=options.health_check_interval_seconds,
+        )
+        # The default client may not be configured yet (the cache instance is
+        # built lazily); never replaces what the default cache instance set.
+        _redis_cache.configure_default_client(transport, replace=False)
+        return (
+            partial(_redis_cache.get_default_transport_client, read_timeout, transport),
+            None,
+        )
+    lazy = _LazyRedisClient(options, read_timeout=read_timeout)
     return lazy, lazy
 
 
-#: Per-driver delivery features. The in-memory and Redis pub/sub buses are
-#: volatile (no persistence, fan-out to live subscribers, wildcard patterns);
-#: the Redis Streams bus is durable, at-least-once and supports consumer groups
-#: (but rejects wildcard subscriptions). A module declares the delivery
-#: guarantee it needs so it never silently runs on a volatile bus.
-EVENTBUS_DRIVER_FEATURES: dict[str, frozenset[str]] = {
-    "memory": frozenset({"publish", "subscribe", "volatile", "wildcard_subscribe"}),
-    "redis": frozenset({"publish", "subscribe", "volatile", "wildcard_subscribe"}),
-    "streams": frozenset(
-        {"publish", "subscribe", "durable", "at_least_once", "consumer_groups"}
-    ),
-}
+class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
+    """``eventbus`` / ``streams``: the durable Redis Streams transport.
 
+    The kernel builds its durable bus (``StreamsEventBus``) over an instance;
+    the transport, its features and its lifecycle are this one class.
+    """
 
-class WrappedEventBusProvider(EventBusProvider):
-    """Adapts an EventBusProtocol instance to the infra provider contract."""
+    contract_version = 2
+    options_schema = EventBusOptions
+    required_imports = ("redis",)
+    install_hint = "pip install 'sandloom[redis]'"
 
     def __init__(
         self,
         *,
         name: str,
         driver: str,
-        options: dict[str, object],
-        bus_instance: Any,
+        options: Mapping[str, Any],
         client: _LazyRedisClient | None = None,
         client_factory: Callable[[], Awaitable[Any]] | None = None,
-        features: frozenset[str] | None = None,
     ) -> None:
-        super().__init__(name=name, driver=driver, options=options)
-        self._bus = bus_instance
-        self._client = client
-        self._health_client_factory = client_factory
-        self._features = (
-            features
-            if features is not None
-            else EVENTBUS_DRIVER_FEATURES.get(
-                driver, frozenset({"publish", "subscribe"})
-            )
+        InfraProvider.__init__(self, name=name, driver=driver, options=options)
+        retention = EventBusOptions.model_validate(options)
+        RedisStreamsTransport.__init__(
+            self,
+            client_factory=client_factory,
+            retention_seconds=retention.retention_seconds,
+            maxlen=retention.max_length,
+            prefix=retention.prefix,
         )
+        self._owned_client = client
 
-    def bus(self) -> Any:
-        return self._bus
-
-    def features(self) -> frozenset[str]:
-        return self._features
+    @classmethod
+    def test_isolation(
+        cls, options: Mapping[str, Any], worker_id: str
+    ) -> Mapping[str, Any]:
+        """Another database index of the configured URL for each xdist worker."""
+        return isolated_redis_options(options, worker_id)
 
     async def health(self) -> HealthResult:
-        if self.driver != "memory" and self._health_client_factory is not None:
-            try:
-                client = await self._health_client_factory()
-                await client.ping()
-            except Exception as exc:  # noqa: BLE001 - any failure is a failed probe
-                return HealthResult(status="fail", details={"error": str(exc)})
+        try:
+            client = await self._client()
+            await client.ping()
+        except Exception as exc:  # noqa: BLE001 - any failure is a failed probe
+            # The type only: the text can carry the broker URL.
+            return HealthResult(status="fail", details=health_failure_details(exc))
         return HealthResult(status="ok")
 
     async def aclose(self) -> None:
-        close = getattr(self._bus, "close", None)
-        if callable(close):
-            await close()
         # Close the instance-owned Redis client (if any) so its connection pool
         # does not leak. The shared default client has no _LazyRedisClient and
         # is owned by the cache lifecycle.
-        if self._client is not None:
-            await self._client.aclose()
+        if self._owned_client is not None:
+            await self._owned_client.aclose()
 
 
-def make_event_bus_drivers(
-    schema_registry: SchemaRegistryContract,
-) -> dict[str, DriverFactory]:
-    """Return ``{driver_name: factory}`` for the memory, Redis and Streams buses."""
+def make_streams_driver() -> Callable[[_InstanceLike], InfraProvider]:
+    """The factory of the ``streams`` driver (it needs no schema registry: the
+    kernel builds the bus over the provider)."""
 
-    def _refuse_volatile_in_prod(cfg: InstanceConfig) -> None:
-        if settings.is_prod and not settings.accepts_risk("volatile_event_bus"):
-            raise RuntimeError(
-                f"eventbus instance {cfg.name!r}: driver {cfg.driver!r} is "
-                "volatile (no persistence; a Pub/Sub PUBLISH succeeds with zero "
-                "subscribers, so the outbox would mark undelivered events as "
-                "delivered). fix: use driver 'streams' (EVENT_BUS_BACKEND=streams) "
-                "or accept lossy delivery explicitly with "
-                'SANDLOOM_ACCEPTED_RISKS=["volatile_event_bus"]'
-            )
-
-    def _memory(cfg: InstanceConfig) -> WrappedEventBusProvider:
-        _refuse_volatile_in_prod(cfg)
-        return WrappedEventBusProvider(
-            name=cfg.name,
-            driver=cfg.driver,
-            options=dict(cfg.options),
-            bus_instance=InMemoryEventBus(schema_registry),
-        )
-
-    def _redis(cfg: InstanceConfig) -> WrappedEventBusProvider:
-        _refuse_volatile_in_prod(cfg)
-        factory, closable = _redis_client_factory(cfg)
-        return WrappedEventBusProvider(
-            name=cfg.name,
-            driver=cfg.driver,
-            options=dict(cfg.options),
-            bus_instance=RedisEventBus(schema_registry, client_factory=factory),
-            client=closable,
-            client_factory=factory,
-        )
-
-    def _streams(cfg: InstanceConfig) -> WrappedEventBusProvider:
+    def _streams(cfg: _InstanceLike) -> InfraProvider:
         factory, closable = _redis_client_factory(
             cfg, read_timeout=_streams_read_timeout()
         )
-        return WrappedEventBusProvider(
+        return StreamsEventBusProvider(
             name=cfg.name,
             driver=cfg.driver,
             options=dict(cfg.options),
-            bus_instance=StreamsEventBus(
-                schema_registry,
-                RedisStreamsTransport(client_factory=factory),
-            ),
             client=closable,
             client_factory=factory,
         )
 
-    return {"memory": _memory, "redis": _redis, "streams": _streams}
+    return _streams
 
 
-__all__ = ["WrappedEventBusProvider", "EventBusOptions", "make_event_bus_drivers"]
+__all__ = [
+    "EventBusOptions",
+    "StreamsEventBusProvider",
+    "make_streams_driver",
+]

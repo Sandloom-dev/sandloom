@@ -79,7 +79,12 @@ CASES: dict[str, tuple[dict[str, Any], str]] = {
 #: entry point -> the code its process runs first
 ENTRY_POINTS = {
     "app": "import sandloom.main",
-    "worker": "from sandloom.core.worker import get_worker_app; get_worker_app()",
+    "worker": (
+        "from sandloom.core.worker import KernelWorkerBoot, load_composition_core, "
+        "resolve_worker_host; core = load_composition_core(); "
+        "provider, _ = resolve_worker_host(core, 'default'); "
+        "KernelWorkerBoot(core, provider, 'default').boot()"
+    ),
     "migrate": ("from sandloom.core.cli.migrate import main; main(['databases'])"),
     "cli": "import sys; sys.argv = ['sandloom', 'config', 'dump']; import sandloom; sandloom.main()",
 }
@@ -130,8 +135,8 @@ def _cli(*argv: str) -> list[str]:
 #: entry point that builds the composition -> its command line
 COMPOSED_ENTRY_POINTS: dict[str, list[str]] = {
     "app": [sys.executable, "-c", "import sandloom.main"],
-    "worker": [sys.executable, "-m", "celery", "-A", "sandloom.core.worker", "worker"],
-    "beat": [sys.executable, "-m", "celery", "-A", "sandloom.core.worker", "beat"],
+    "worker": _cli("worker"),
+    "beat": _cli("beat"),
     "migrate": _cli("migrate", "databases"),
     "cli-outbox": _cli("outbox", "list-dead"),
     "cli-streams": _cli("streams", "consumers"),

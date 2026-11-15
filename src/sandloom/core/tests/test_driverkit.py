@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import inspect
 import logging
+import sys
 from collections.abc import Callable, Mapping
+from contextlib import suppress
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -37,11 +40,21 @@ from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.driverkit import (
     CapabilityRef,
     CapabilitySpec,
+    HealthResult,
     InfraProvider,
+    InvalidArgument,
+    NotFound,
     Notification,
     NotifierProvider,
+    ObjectContent,
+    ObjectStoreProvider,
+    TooLarge,
+    Unavailable,
+    Unsupported,
+    iter_object_chunks,
+    validate_object_key,
 )
-from sandloom.driverkit.testing import NotifierConformance
+from sandloom.driverkit.testing import NotifierConformance, ObjectStoreConformance
 
 SNIPPET = Path(__file__).resolve().parents[4] / "docs/snippets/drivers/file_notifier.py"
 
@@ -54,12 +67,24 @@ def _guide_module() -> ModuleType:
     return module
 
 
-class _Notifier(NotifierProvider):
-    contract_version = "v1"
-    supported_features = frozenset({"email"})
+class _Behaviour(InfraProvider):
+    """What a well-behaved notification driver does, NotifierProvider or not."""
+
+    capability = "notification"
 
     async def send(self, notification: Notification) -> None:
-        return None
+        if notification.channel not in self.features():
+            raise Unsupported(
+                notification.channel, capability="notification", instance=self.name
+            )
+
+    async def isolation_identity(self) -> str | None:
+        return f"{self.driver}:shared"
+
+
+class _Notifier(_Behaviour, NotifierProvider):
+    contract_version = 2
+    supported_features = frozenset({"email"})
 
 
 def _entry(name: str, target: Any, *, owner: str = "pkg") -> SimpleNamespace:
@@ -181,7 +206,7 @@ def test_a_capability_in_another_package_loads_in_any_order(
 ) -> None:
     class Search(InfraProvider):
         capability = "vector_index"
-        contract_version = "v1"
+        contract_version = 1
 
     spec = CapabilitySpec(name="vector_index", version="v1", provider_contract=Search)
     _install(
@@ -238,11 +263,15 @@ class _NoVersion(NotifierProvider):
 
 
 class _OldVersion(_Notifier):
-    contract_version = "v2"
+    contract_version = 1
+
+
+class _StringVersion(_Notifier):
+    contract_version = "v2"  # type: ignore[assignment]
 
 
 class _Abstract(NotifierProvider):
-    contract_version = "v1"
+    contract_version = 2
 
 
 class _NotCallable(_Notifier):
@@ -255,7 +284,8 @@ class _NotCallable(_Notifier):
         (ImportError("no such backend"), "failed to import"),
         (object, "not a subclass"),
         (_NoVersion, "no contract_version"),
-        (_OldVersion, "written for v2"),
+        (_OldVersion, "written for contract_version 1"),
+        (_StringVersion, "integer major"),
         (_Abstract, "does not implement send"),
         (_NotCallable, "does not implement send"),
     ],
@@ -336,12 +366,20 @@ _NOTIFICATION_V1 = {"send": "(self, notification: 'Notification') -> 'None'"}
 
 def test_the_public_contract_changes_only_with_its_version() -> None:
     assert NOTIFICATION_CAPABILITY.version == "v1"
+    assert NOTIFICATION_CAPABILITY.major == 2
     abstract = sorted(NotifierProvider.__abstractmethods__)
     signatures = {
         name: str(inspect.signature(getattr(NotifierProvider, name)))
         for name in abstract
     }
     assert signatures == _NOTIFICATION_V1
+
+
+#: Kernel-facing contracts exported before their kit (PR #190 review, C4):
+#: their capability slices deliver these kits. Remove an entry when its kit
+#: lands; the test fails until you do. Empty since ``idk-eventbus-kit``
+#: delivered ``EventTransportConformance``.
+_KIT_PENDING: frozenset[str] = frozenset()
 
 
 def test_every_public_contract_has_a_kit() -> None:
@@ -353,7 +391,86 @@ def test_every_public_contract_has_a_kit() -> None:
     assert contracts
     for name in contracts:
         kit = name.removesuffix("Provider") + "Conformance"
-        assert kit in sandloom.driverkit.testing.__all__, f"{name} has no kit: {kit}"
+        assert kit in sandloom.driverkit.testing.__all__, f"{name}: no kit name {kit}"
+        delivered = hasattr(sandloom.driverkit.testing, kit)
+        if name in _KIT_PENDING:
+            assert not delivered, f"{kit} landed: drop {name} from _KIT_PENDING"
+            continue
+        assert delivered, f"{name} has no kit: {kit}"
+
+
+def test_a_kit_not_delivered_yet_names_its_slice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Every kit is delivered: a table entry whose file does not exist stands in.
+    monkeypatch.setitem(
+        sandloom.driverkit.testing._TABLE, "GhostConformance", ("ghost", "idk-ghost")
+    )
+    with pytest.raises(AttributeError, match="idk-ghost") as caught:
+        _ = sandloom.driverkit.testing.GhostConformance
+    assert "sandloom.driverkit.kits.ghost" in str(caught.value)
+    with pytest.raises(AttributeError, match="no attribute 'NoSuchKit'"):
+        _ = sandloom.driverkit.testing.NoSuchKit
+    assert "LeaseConformance" in dir(sandloom.driverkit.testing)
+
+
+def _api_gate() -> ModuleType:
+    script = SNIPPET.parents[3] / "tools/packaging/check_public_api.py"
+    spec = importlib.util.spec_from_file_location("check_public_api", script)
+    assert spec is not None and spec.loader is not None
+    api = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(api)
+    return api
+
+
+_LANDED = {"kind": "class", "members": ["a"], "signature": "()"}
+
+
+def test_the_api_baseline_pins_a_pending_kit_until_it_lands() -> None:
+    api = _api_gate()
+    pending = {"m": {"Kit": {"kind": "pending"}}}
+    landed = {"m": {"Kit": _LANDED}}
+    assert api._diff(pending, landed) == []
+    assert api._diff(landed, pending) == ["m.Kit: no longer resolves"]
+    assert api._diff(pending, {"m": {}}) == ["m.Kit: symbol removed"]
+
+
+def test_only_a_kit_of_driverkit_testing_is_pinned_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api_gate()
+    monkeypatch.setattr(api, "_public_modules", lambda: ["sandloom.driverkit.testing"])
+    kits = api.snapshot()["sandloom.driverkit.testing"]
+    assert kits["EventTransportConformance"]["kind"] == "class"
+    assert kits["ObjectStoreConformance"]["kind"] == "class"
+
+    forgotten = ModuleType("sandloom_api_gate_probe")
+    forgotten.__all__ = ["ghost"]  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, forgotten.__name__, forgotten)
+    monkeypatch.setattr(api, "_public_modules", lambda: [forgotten.__name__])
+    with pytest.raises(AttributeError, match="ghost"):
+        api.snapshot()
+
+
+def test_the_api_update_refuses_to_pin_a_resolved_name_pending(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    api = _api_gate()
+    baseline = tmp_path / "public_api_baseline.json"
+    pinned = api._dump({"m": {"Kit": _LANDED}})
+    baseline.write_text(pinned)
+    monkeypatch.setattr(api, "ROOT", tmp_path)
+    monkeypatch.setattr(api, "BASELINE_PATH", baseline)
+    monkeypatch.setattr(api, "snapshot", lambda: {"m": {"Kit": {"kind": "pending"}}})
+    assert api.main(["--update"]) == 1
+    assert baseline.read_text() == pinned
+    assert "m.Kit" in capsys.readouterr().err
+    monkeypatch.setattr(
+        api, "snapshot", lambda: {"m": {"Kit": _LANDED, "New": _LANDED}}
+    )
+    assert api.main(["--update"]) == 0
 
 
 @pytest.mark.parametrize(
@@ -364,6 +481,25 @@ def test_a_required_method_is_not_called_a_feature(spec: CapabilitySpec) -> None
     assert not spec.features & set(required)
 
 
+@pytest.mark.parametrize(
+    ("kit", "informational"),
+    [
+        (NotifierConformance, {}),
+        # ``metadata`` is informational (spec 13.42): a driver without it
+        # accepts and drops it, which its kit check asserts instead of a call.
+        (ObjectStoreConformance, {"metadata": "test_object_metadata"}),
+    ],
+)
+def test_each_behaviour_feature_has_its_call(
+    kit: Any, informational: dict[str, str]
+) -> None:
+    behaviours = {f for f, k in kit.spec.feature_kinds.items() if k == "behaviour"}
+    calls = kit().feature_calls(_built(_kit_driver(kit)))
+    assert set(calls) == behaviours - set(informational)
+    for check in informational.values():
+        assert callable(getattr(kit, check, None)), f"{kit.__name__} lacks {check}"
+
+
 # ----------------------------------------------------------------------- the kit
 class TestTheGuideDriver(NotifierConformance):
     @pytest.fixture
@@ -371,6 +507,16 @@ class TestTheGuideDriver(NotifierConformance):
         driver = _guide_module().FileNotifier
         return lambda: driver(
             name="default", driver="file", options={"path": str(tmp_path / "m.log")}
+        )
+
+    @pytest.fixture
+    def make_failing_provider(self, tmp_path: Path) -> Callable[[], NotifierProvider]:
+        # A directory that does not exist, named after the kit's secret: the
+        # error must carry neither the path nor the secret.
+        path = tmp_path / self.leak_marker / "m.log"
+        driver = _guide_module().FileNotifier
+        return lambda: driver(
+            name="default", driver="file", options={"path": str(path)}
         )
 
 
@@ -394,22 +540,158 @@ async def test_the_guide_driver_records_the_whole_message(tmp_path: Path) -> Non
         _guide_module().FileNotifier(name="default", driver="file", options={})
 
 
+# ------------------------------------------------- the kit against broken drivers
+#: A secret a broken driver leaks; the harness looks for its own marker.
+_LEAK = f"smtp://user:{NotifierConformance.leak_marker}@mail.test:25 refused"
+
+
+class _Failing(_Notifier):
+    """A notification driver whose backend is down, mapped as it must be."""
+
+    async def send(self, notification: Notification) -> None:
+        raise Unavailable("backend down", capability="notification")
+
+    async def health(self) -> HealthResult:
+        return HealthResult(status="fail", details={"error": "ConnectionError"})
+
+
+_OBJECTS: dict[str, bytes] = {}
+
+
+class _Store(ObjectStoreProvider):
+    """A memory object store that keeps the contract; its broken variants don't."""
+
+    contract_version = 2
+    supported_features = frozenset({"presigned_get"})
+
+    async def put(
+        self,
+        key: str,
+        data: ObjectContent,
+        *,
+        content_type: str | None = None,
+        metadata: Mapping[str, str] | None = None,
+    ) -> str:
+        validate_object_key(key)
+        body = b"".join([chunk async for chunk in iter_object_chunks(data, 64)])
+        limit = self.options.get("limit")
+        if limit is not None and len(body) > limit:
+            raise TooLarge("over the limit", capability="objectstore")
+        _OBJECTS[key] = body
+        return key
+
+    async def get(self, key: str) -> bytes:
+        validate_object_key(key)
+        if key not in _OBJECTS:
+            raise NotFound("absent", capability="objectstore")
+        limit = self.options.get("read_limit")
+        if limit is not None and len(_OBJECTS[key]) > limit:
+            raise TooLarge("over the read limit", capability="objectstore")
+        return _OBJECTS[key]
+
+    async def delete(self, key: str) -> None:
+        validate_object_key(key)
+        _OBJECTS.pop(key, None)
+
+    async def url(self, key: str) -> str:
+        validate_object_key(key)
+        if "presigned_get" not in self.features():
+            raise Unsupported("presigned_get", capability="objectstore")
+        return f"memory://{key}"
+
+    async def isolation_identity(self) -> str | None:
+        return f"{self.driver}:objects"
+
+
 class _Broken:
-    """The kit must fail these: a kit that passes everything proves nothing."""
+    """One broken driver per obligation: each fails exactly the check naming
+    it. A kit that passes everything proves nothing."""
 
-    class WrongContract(InfraProvider):
-        contract_version = "v1"
+    # 1. the contract
+    class WrongContract(_Behaviour):
+        contract_version = 2
+        supported_features = frozenset({"email"})
 
+    # 2. the major
+    class NoVersion(_Behaviour, NotifierProvider):
+        supported_features = frozenset({"email"})
+
+    class StringVersion(_Notifier):
+        contract_version = "v2"  # type: ignore[assignment]
+
+    class BoolVersion(_Notifier):
+        contract_version = True
+
+    class OldMajor(_Notifier):
+        contract_version = 1
+
+    # 3. the features
     class UnknownFeature(_Notifier):
-        supported_features = frozenset({"fax"})
+        supported_features = frozenset({"email", "fax"})
 
     class Drifting(_Notifier):
         def features(self) -> frozenset[str]:
             return frozenset()
 
-    class NoVersion(_NoVersion):
-        supported_features = frozenset({"email"})
+    class OverClaiming(_Notifier):
+        @classmethod
+        def features_for(cls, options: Mapping[str, Any]) -> frozenset[str]:
+            return frozenset({"email", "sms"})
 
+    # 4. speed claims
+    class HintsNoOperation(_Notifier):
+        performance_hints = {"broadcast": "one_round_trip"}
+
+    # 5. declaration and health
+    class DevelopmentOnlyNotABool(_Notifier):
+        development_only = 1  # type: ignore[assignment]
+
+    class SlowHealth(_Notifier):
+        async def health(self) -> HealthResult:
+            await asyncio.sleep(1)
+            return HealthResult(status="ok")
+
+    class HealthWithAUrl(_Notifier):
+        async def health(self) -> HealthResult:
+            return HealthResult(status="fail", details={"error": _LEAK})
+
+    class HealthWithAUrlKey(_Notifier):
+        async def health(self) -> HealthResult:
+            return HealthResult(
+                status="fail", details={"smtp://user:pw@mail.test:25": False}
+            )
+
+    class HealthWithTheSecret(_Notifier):
+        async def health(self) -> HealthResult:
+            marker = NotifierConformance.leak_marker
+            return HealthResult(status="fail", details={"checks": [marker]})
+
+    class FailingHealthWithTheSecret(_Failing):
+        async def health(self) -> HealthResult:
+            return HealthResult(status="fail", details={"error": _LEAK})
+
+    # 6. isolation identity
+    class NoIdentity(_Notifier):
+        async def isolation_identity(self) -> str | None:
+            return None
+
+    class UnprefixedIdentity(_Notifier):
+        async def isolation_identity(self) -> str | None:
+            return "redis:shared"
+
+    class IdentityPerInstance(_Notifier):
+        async def isolation_identity(self) -> str | None:
+            return f"{self.driver}:{id(self)}"
+
+    class IdentityNamesTheInstance(_Notifier):
+        async def isolation_identity(self) -> str | None:
+            return f"{self.driver}:{self.name}"
+
+    class RaisingIdentity(_Notifier):
+        async def isolation_identity(self) -> str | None:
+            raise ConnectionError(_LEAK)
+
+    # lifecycle
     class ClosesOnce(_Notifier):
         closed = False
 
@@ -418,30 +700,318 @@ class _Broken:
                 raise RuntimeError("already closed")
             self.closed = True
 
+    # 7. feature groups
+    class SendsAnyChannel(_Notifier):
+        async def send(self, notification: Notification) -> None:
+            return None
 
-def _built(cls: type[Any]) -> Any:
-    return cls(name="default", driver="test", options={})
+    class RefusesItsDeclaredLink(_Store):
+        async def url(self, key: str) -> str:
+            validate_object_key(key)
+            raise Unsupported("presigned_get", capability="objectstore")
+
+    class LinkWithoutTheFeature(_Store):
+        supported_features = frozenset()
+
+        async def url(self, key: str) -> str:
+            validate_object_key(key)
+            return f"memory://{key}"
+
+    class RefusesTheWrongFeature(_Store):
+        supported_features = frozenset()
+
+        async def url(self, key: str) -> str:
+            validate_object_key(key)
+            raise Unsupported("metadata", capability="objectstore")
+
+    # 8. error mapping
+    class FailingWithABackendError(_Failing):
+        async def send(self, notification: Notification) -> None:
+            raise ConnectionError(_LEAK)
+
+    class FailingThatSucceeds(_Failing):
+        async def send(self, notification: Notification) -> None:
+            return None
+
+    class FailingWithTheSecretInTheMessage(_Failing):
+        async def send(self, notification: Notification) -> None:
+            raise Unavailable(_LEAK, capability="notification")
+
+    # the capabilities' own groups
+    class RefusesADedupeKey(_Notifier):
+        async def send(self, notification: Notification) -> None:
+            if notification.dedupe_key:
+                raise InvalidArgument("dedupe", capability="notification")
+            await super().send(notification)
+
+    class IgnoresItsLimit(_Store):
+        async def put(
+            self,
+            key: str,
+            data: ObjectContent,
+            *,
+            content_type: str | None = None,
+            metadata: Mapping[str, str] | None = None,
+        ) -> str:
+            validate_object_key(key)
+            _OBJECTS[key] = b"".join([c async for c in iter_object_chunks(data, 64)])
+            return key
+
+    class IgnoresItsReadLimit(_Store):
+        async def get(self, key: str) -> bytes:
+            validate_object_key(key)
+            if key not in _OBJECTS:
+                raise NotFound("absent", capability="objectstore")
+            return _OBJECTS[key]
+
+    class MetadataWithoutAReader(_Store):
+        supported_features = frozenset({"presigned_get", "metadata"})
+
+    class RefusesMetadataWithoutTheFeature(_Store):
+        async def put(
+            self,
+            key: str,
+            data: ObjectContent,
+            *,
+            content_type: str | None = None,
+            metadata: Mapping[str, str] | None = None,
+        ) -> str:
+            if metadata is not None:
+                raise Unsupported("metadata", capability="objectstore")
+            return await super().put(key, data, content_type=content_type)
+
+
+class _NotifierKit(NotifierConformance):
+    health_timeout_seconds = 0.2
+
+
+class _StoreKit(ObjectStoreConformance):
+    health_timeout_seconds = 0.2
+    upload_limit_bytes = 16
+    read_limit_bytes = 12
+
+
+def _kit_driver(kit: Any) -> type[InfraProvider]:
+    return _Notifier if issubclass(kit, NotifierConformance) else _Store
+
+
+def _built(cls: type[Any], **options: Any) -> Any:
+    return cls(name="default", driver="test", options=options)
+
+
+async def _failures(
+    kit: Any,
+    driver: type[InfraProvider],
+    failing: type[InfraProvider] | None,
+    caplog: pytest.LogCaptureFixture,
+) -> set[str]:
+    """Run every test of ``kit`` against ``driver`` as pytest would (a fresh
+    opened provider per test), and answer the names of those that failed."""
+    options = (
+        {"limit": kit.upload_limit_bytes, "read_limit": kit.read_limit_bytes}
+        if kit is _StoreKit
+        else {}
+    )
+
+    def make() -> Any:
+        return _built(driver, **options)
+
+    make_failing = (lambda: _built(failing)) if failing is not None else None
+    instance = kit()
+    failed: set[str] = set()
+    for name in sorted(n for n in dir(kit) if n.startswith("test_")):
+        method = getattr(instance, name)
+        parameters = inspect.signature(method).parameters
+        opened = None
+        arguments: dict[str, Any] = {}
+        if "provider" in parameters:
+            opened = make()
+            await opened.aopen()
+            arguments["provider"] = opened
+        if "make_provider" in parameters:
+            arguments["make_provider"] = make
+        if "make_failing_provider" in parameters:
+            arguments["make_failing_provider"] = make_failing
+        if "caplog" in parameters:
+            arguments["caplog"] = caplog
+        # A task keeps whatever the test raised, pytest's outcomes included.
+        run = asyncio.ensure_future(method(**arguments))
+        await asyncio.wait([run])
+        outcome = run.exception()
+        if outcome is not None and not isinstance(outcome, pytest.skip.Exception):
+            failed.add(name)
+        if opened is not None:
+            with suppress(Exception):
+                await opened.aclose()
+    return failed
 
 
 @pytest.mark.parametrize(
-    ("driver", "check"),
-    [
-        (_Broken.WrongContract, "test_implements_the_contract"),
-        (_Broken.NoVersion, "test_states_the_contract_version"),
-        (_Broken.UnknownFeature, "test_advertises_only_defined_features"),
-        (_Broken.Drifting, "test_reports_the_features_it_declares"),
-    ],
+    ("kit", "driver"), [(_NotifierKit, _Notifier), (_StoreKit, _Store)]
 )
-async def test_the_kit_fails_a_broken_driver(driver: type[Any], check: str) -> None:
-    with pytest.raises(AssertionError):
-        await getattr(NotifierConformance(), check)(_built(driver))
+async def test_the_kit_passes_a_driver_that_keeps_the_contract(
+    kit: Any, driver: type[InfraProvider], caplog: pytest.LogCaptureFixture
+) -> None:
+    failing = _Failing if kit is _NotifierKit else None
+    assert await _failures(kit, driver, failing, caplog) == set()
 
 
-async def test_the_kit_accepts_a_compatible_minor_version() -> None:
-    class Minor(_Notifier):
-        contract_version = "v1.2"
+_HARNESS = "test_harness_"
 
-    await NotifierConformance().test_states_the_contract_version(_built(Minor))
+
+@pytest.mark.parametrize(
+    ("kit", "driver", "failing", "check"),
+    [
+        (_NotifierKit, _Broken.WrongContract, None, "implements_the_contract"),
+        (_NotifierKit, _Broken.NoVersion, None, "states_the_contract_version"),
+        (_NotifierKit, _Broken.StringVersion, None, "states_the_contract_version"),
+        (_NotifierKit, _Broken.BoolVersion, None, "states_the_contract_version"),
+        (_NotifierKit, _Broken.OldMajor, None, "states_the_contract_version"),
+        (_NotifierKit, _Broken.UnknownFeature, None, "declares_only_spec_features"),
+        (_NotifierKit, _Broken.Drifting, None, "reports_the_features_it_declares"),
+        (
+            _NotifierKit,
+            _Broken.OverClaiming,
+            None,
+            "reports_the_features_it_declares",
+        ),
+        (_NotifierKit, _Broken.HintsNoOperation, None, "hints_name_only_operations"),
+        (
+            _NotifierKit,
+            _Broken.DevelopmentOnlyNotABool,
+            None,
+            "states_development_only_as_a_bool",
+        ),
+        (_NotifierKit, _Broken.SlowHealth, None, "reports_health_within_the_bound"),
+        (
+            _NotifierKit,
+            _Broken.HealthWithAUrl,
+            None,
+            "reports_health_within_the_bound",
+        ),
+        (
+            _NotifierKit,
+            _Broken.HealthWithAUrlKey,
+            None,
+            "reports_health_within_the_bound",
+        ),
+        (
+            _NotifierKit,
+            _Broken.HealthWithTheSecret,
+            None,
+            "reports_health_within_the_bound",
+        ),
+        (
+            _NotifierKit,
+            _Notifier,
+            _Broken.FailingHealthWithTheSecret,
+            "redacts_the_health_of_a_failing_backend",
+        ),
+        (_NotifierKit, _Broken.NoIdentity, None, "names_its_isolation_domain"),
+        (_NotifierKit, _Broken.UnprefixedIdentity, None, "names_its_isolation_domain"),
+        (
+            _NotifierKit,
+            _Broken.IdentityPerInstance,
+            None,
+            "names_its_isolation_domain",
+        ),
+        (
+            _NotifierKit,
+            _Broken.IdentityNamesTheInstance,
+            None,
+            "names_its_isolation_domain",
+        ),
+        (_NotifierKit, _Broken.RaisingIdentity, None, "names_its_isolation_domain"),
+        (_NotifierKit, _Broken.ClosesOnce, None, "opens_and_closes_twice"),
+        (
+            _NotifierKit,
+            _Broken.SendsAnyChannel,
+            None,
+            "undeclared_behaviours_raise_unsupported",
+        ),
+        (
+            _StoreKit,
+            _Broken.RefusesItsDeclaredLink,
+            None,
+            "declared_behaviours_do_not_raise_unsupported",
+        ),
+        (
+            _StoreKit,
+            _Broken.LinkWithoutTheFeature,
+            None,
+            "undeclared_behaviours_raise_unsupported",
+        ),
+        (
+            _StoreKit,
+            _Broken.RefusesTheWrongFeature,
+            None,
+            "undeclared_behaviours_raise_unsupported",
+        ),
+        (
+            _NotifierKit,
+            _Notifier,
+            _Broken.FailingWithABackendError,
+            "maps_backend_failures_to_infra_errors",
+        ),
+        (
+            _NotifierKit,
+            _Notifier,
+            _Broken.FailingThatSucceeds,
+            "maps_backend_failures_to_infra_errors",
+        ),
+        (
+            _NotifierKit,
+            _Notifier,
+            _Broken.FailingWithTheSecretInTheMessage,
+            "maps_backend_failures_to_infra_errors",
+        ),
+    ],
+    ids=lambda value: value.__name__ if isinstance(value, type) else None,
+)
+async def test_each_harness_check_fails_exactly_its_broken_driver(
+    kit: Any,
+    driver: type[InfraProvider],
+    failing: type[InfraProvider] | None,
+    check: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    if failing is None and kit is _NotifierKit:
+        failing = _Failing
+    assert await _failures(kit, driver, failing, caplog) == {_HARNESS + check}
+
+
+@pytest.mark.parametrize(
+    ("kit", "driver", "check"),
+    [
+        (_NotifierKit, _Broken.RefusesADedupeKey, "test_accepts_a_dedupe_key"),
+        (
+            _StoreKit,
+            _Broken.IgnoresItsLimit,
+            "test_object_upload_over_the_limit_is_too_large",
+        ),
+        (
+            _StoreKit,
+            _Broken.MetadataWithoutAReader,
+            "test_object_metadata",
+        ),
+        (
+            _StoreKit,
+            _Broken.RefusesMetadataWithoutTheFeature,
+            "test_object_metadata",
+        ),
+        (
+            _StoreKit,
+            _Broken.IgnoresItsReadLimit,
+            "test_object_read_over_the_limit_is_too_large",
+        ),
+    ],
+    ids=lambda value: value.__name__ if isinstance(value, type) else None,
+)
+async def test_each_capability_check_fails_exactly_its_broken_driver(
+    kit: Any, driver: type[InfraProvider], check: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    failing = _Failing if kit is _NotifierKit else None
+    assert await _failures(kit, driver, failing, caplog) == {check}
 
 
 async def test_the_kit_gives_each_channel_a_recipient_of_its_kind() -> None:
@@ -471,19 +1041,10 @@ async def test_the_kit_checks_the_logs_on_every_channel(
         )
 
 
-async def test_the_kit_fails_a_second_close_that_raises() -> None:
-    with pytest.raises(RuntimeError, match="already closed"):
-        await NotifierConformance().test_closes_more_than_once(
-            _built(_Broken.ClosesOnce)
-        )
-
-
 @pytest.mark.parametrize("field", ["body", "body_fields"])
 async def test_the_kit_fails_a_driver_that_logs_the_body(
     field: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    import logging
-
     class Leaky(_Notifier):
         async def send(self, notification: Notification) -> None:
             logging.getLogger("leaky.driver").debug(

@@ -90,8 +90,9 @@ def _redis_labels() -> dict[tuple[str, int, int], str]:
         labels.setdefault((p.hostname or "", p.port or 6379, db), name)
 
     infra = json.loads(os.environ.get("INFRA") or "{}")
-    put((infra.get("cache", {}).get("security") or {}).get("url"), "security")
-    put((infra.get("cache", {}).get("idem") or {}).get("url"), "idem")
+    stores = infra.get("atomic_store", {})
+    put((stores.get("security") or {}).get("url"), "security")
+    put((stores.get("idempotency") or {}).get("url"), "idem")
     put((infra.get("eventbus", {}).get("default") or {}).get("url"), "broker")
     put(os.environ.get("CACHE_URL"), "cache")
     put(os.environ.get("BROKER_URL"), "broker")
@@ -99,14 +100,8 @@ def _redis_labels() -> dict[tuple[str, int, int], str]:
 
 
 def _install() -> None:
-    idem = os.environ.get("TAIL_IDEMPOTENCY_INSTANCE")
-    if idem:
-        # EXPERIMENT (write_tail.py --split-idempotency): idempotency records
-        # on their own Redis instance; revocation / block marks stay put.
-        from sandloom.core.idempotency import cache_store as idempotency_cache_store
-        from sandloom.core.infra.access import cache
-
-        idempotency_cache_store._idempotency_cache = lambda: cache(idem)  # type: ignore[assignment]
+    # --split-idempotency needs no patch: write_tail.py declares
+    # INFRA.atomic_store.idempotency and the kernel routes the records to it.
     import asyncpg
     import redis.asyncio.client as rc
     from sqlalchemy.dialects.postgresql import asyncpg as sa_pg
@@ -183,7 +178,6 @@ def _install() -> None:
 
     pool_base._ConnectionFairy._checkout = classmethod(checkout)  # type: ignore[assignment]
 
-    from sandloom.core import unit_of_work as uow
     from sandloom.core.unit_of_work import dispatch as uow_dispatch
 
     orig_round = uow_dispatch.PostCommitDispatcher._process_round

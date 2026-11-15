@@ -10,32 +10,87 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-PACKAGES = (
-    "sandloom",
-    "sandloom-standard",
-    "sandloom-identity",
-    "sandloom-tenancy",
-    "sandloom-billing",
-    "sandloom-admin",
-    "sandloom-s3",
-)
+# The reviewed directory carries release_packages.py and packages.json beside
+# this file (see select_artifacts), so the privileged job needs no checkout.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import release_packages
+
+#: The distributions, from the one list (``packages.json``).
+PACKAGES = release_packages.NAMES
 VERSION = re.compile(r"\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?")
 
 
+REQUIREMENT_NAME = re.compile(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
+
+
+def sibling_requirements(project: dict, package: str) -> set[str]:
+    """The distributions of ``packages.json`` that ``package`` requires, from the
+    ``Requires-Dist`` lines its pyproject declares (dependencies and extras)."""
+    lines = list(project.get("dependencies", ()))
+    for extra in project.get("optional-dependencies", {}).values():
+        lines.extend(extra)
+    names = set()
+    for line in lines:
+        found = REQUIREMENT_NAME.match(line)
+        if found:
+            names.add(re.sub(r"[-_.]+", "-", found[1]).lower())
+    return {name for name in names if name in PACKAGES and name != package}
+
+
+def refuse_unpublished_siblings(
+    projects: dict[str, dict],
+    versions: dict[str, str],
+    selected: list[str],
+    on_pypi: Callable[[str, str], bool],
+) -> None:
+    """A published distribution must not require a sibling that no index has.
+
+    The sibling must be in the same plan or already on PyPI at its source
+    version; otherwise an install of the published package fails (an extra such
+    as ``sandloom[redis]`` names ``sandloom-redis``)."""
+    for name in selected:
+        for sibling in sorted(sibling_requirements(projects[name], name)):
+            if sibling in selected or on_pypi(sibling, versions[sibling]):
+                continue
+            raise ValueError(
+                f"{name} requires {sibling}, which is neither in this release "
+                f"nor on PyPI at {versions[sibling]}: release {sibling} first "
+                f"(the Release workflow with package {sibling}, or package all "
+                "for a coordinated release)"
+            )
+
+
+def pypi_has(project: str, version: str) -> bool:
+    return fetch_release(project, version) is not None
+
+
 def plan_release(
-    root: Path, package: str, event: str, ref: str, *, dry_run: bool, on_main: bool
+    root: Path,
+    package: str,
+    event: str,
+    ref: str,
+    *,
+    dry_run: bool,
+    on_main: bool,
+    on_pypi: Callable[[str, str], bool] = pypi_has,
 ) -> dict:
-    versions = {
+    """``on_pypi(project, version)``: whether PyPI has it; the default asks
+    PyPI, and only for a publication (no network for a dry run)."""
+    projects = {
         name: tomllib.loads((root / "packages" / name / "pyproject.toml").read_text())[
             "project"
-        ]["version"]
+        ]
         for name in PACKAGES
     }
+    versions = {name: project["version"] for name, project in projects.items()}
     if not all(VERSION.fullmatch(value) for value in versions.values()):
         raise ValueError(
             "Package versions must be public X.Y.Z or alpha/beta/rc versions"
@@ -47,6 +102,11 @@ def plan_release(
         if len(matched) != 1:
             raise ValueError(
                 "Release tag must exactly match a known package and its source version"
+            )
+        if not release_packages.by_name(matched[0]).tag_release:
+            raise ValueError(
+                f"{matched[0]} is not released by tag (tag_release is false in "
+                "packages.json); run the Release workflow by hand"
             )
         selected, publish = matched, True
     elif event == "workflow_dispatch":
@@ -66,6 +126,8 @@ def plan_release(
         raise ValueError("Publication requires a commit reachable from origin/main")
     if len(selected) > 1 and len({versions[name] for name in selected}) != 1:
         raise ValueError("A coordinated release requires matching package versions")
+    if publish:
+        refuse_unpublished_siblings(projects, versions, selected, on_pypi)
     return {"packages": selected, "versions": versions, "publish": publish}
 
 
@@ -132,7 +194,8 @@ def select_artifacts(plan: dict, artifacts: Path, output: Path) -> dict:
     )
     version = versions[plan["packages"][0]]
     (output / "release-notes.md").write_text(changelog_section(changelog, version))
-    shutil.copyfile(Path(__file__), output / "pypi_release.py")
+    for tool in ("pypi_release.py", "release_packages.py", "packages.json"):
+        shutil.copyfile(Path(__file__).with_name(tool), output / tool)
     return manifest
 
 

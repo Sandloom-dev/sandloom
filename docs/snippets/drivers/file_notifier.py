@@ -7,11 +7,16 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from sandloom.driverkit import Notification, NotifierProvider
+from sandloom.driverkit import (
+    Notification,
+    NotifierProvider,
+    Unavailable,
+    Unsupported,
+)
 
 
 class FileNotifier(NotifierProvider):
-    contract_version = "v1"
+    contract_version = 2
     supported_features = frozenset({"email"})
 
     def __init__(self, *, name: str, driver: str, options: Mapping[str, Any]) -> None:
@@ -19,9 +24,13 @@ class FileNotifier(NotifierProvider):
         path = options.get("path")
         if not path:
             raise ValueError("the file notification driver needs a 'path' option")
-        self._path = Path(path)
+        self._path = Path(path).absolute()
 
     async def send(self, notification: Notification) -> None:
+        if notification.channel not in self.features():
+            raise Unsupported(
+                notification.channel, capability="notification", instance=self.name
+            )
         line = json.dumps(
             {
                 "channel": notification.channel,
@@ -30,7 +39,19 @@ class FileNotifier(NotifierProvider):
                 "body": notification.body,
             }
         )
-        await asyncio.to_thread(self._append, line)
+        try:
+            await asyncio.to_thread(self._append, line)
+        except OSError as exc:
+            # The contract's error, naming only the type: str(exc) has the path.
+            raise Unavailable(
+                f"could not append: {type(exc).__name__}",
+                capability="notification",
+                instance=self.name,
+            ) from exc
+
+    async def isolation_identity(self) -> str:
+        # Two instances writing one file share it: the file names the store.
+        return f"{self.driver}:{self._path}"
 
     def _append(self, line: str) -> None:
         # Bodies can hold secret links: only the owner may read the file.
