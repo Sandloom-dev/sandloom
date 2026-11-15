@@ -35,11 +35,10 @@ from sandloom.core.drivers import database_lease, memory_lease
 from sandloom.core.drivers.bootstrap import (
     build_infra_registry,
     unverified_noeviction_allowed,
-    with_default_beat_lease,
 )
 from sandloom.core.drivers.database_lease import DatabaseLeaseProvider
 from sandloom.core.drivers.memory_lease import MemoryLeaseProvider
-from sandloom.core.infra.config import InstanceConfig
+from sandloom.core.infra.config import InstanceConfig, load_infra_config
 from sandloom.core.infra.errors import InvalidArgument, PermissionDenied
 from sandloom.core.infra.ports.lease import Lease, LeaseHolder
 from sandloom.core.migrations.backup import LEASE_FENCE_OFFSET, lift_fences
@@ -414,27 +413,30 @@ async def test_a_driver_exclusive_in_one_provider_only_fails_the_shared_race() -
 
 # ------------------------------------------------------------- the registry
 def test_the_three_lease_drivers_are_registered_and_deliver() -> None:
-    registry = build_infra_registry(InMemorySchemaRegistry(), load_plugins=False)
+    registry = build_infra_registry(InMemorySchemaRegistry())
     for driver in ("redis", "memory", "database"):
         registration = registry._registration("lease", driver)
         assert registration is not None
         assert not registration.delivered_by
 
 
-def test_the_kernel_adds_the_beat_lease_instance_when_infra_names_none() -> None:
-    config: dict[str, dict[str, InstanceConfig]] = {}
-    with_default_beat_lease(config)
-    beat = config["lease"]["beat"]
+def test_the_composition_supplies_the_beat_lease_instance_infra_overrides_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "infra", {})
+    beat = load_infra_config(settings)["lease"]["beat"]
     assert (beat.driver, beat.implicit) == ("redis", True)
-    explicit = InstanceConfig("lease", "beat", "database", {"url": "x"})
-    named: dict[str, dict[str, InstanceConfig]] = {"lease": {"beat": explicit}}
-    assert with_default_beat_lease(named)["lease"]["beat"] is explicit
+    monkeypatch.setattr(
+        settings, "infra", {"lease": {"beat": {"driver": "database", "url": "x"}}}
+    )
+    named = load_infra_config(settings)["lease"]["beat"]
+    assert (named.driver, named.implicit) == ("database", False)
 
 
 def test_the_default_registry_builds_the_beat_lease_on_the_cache_url() -> None:
     from sandloom.core.config.settings import settings
 
-    registry = build_infra_registry(InMemorySchemaRegistry(), load_plugins=False)
+    registry = build_infra_registry(InMemorySchemaRegistry())
     store = registry.provider("lease", "beat")  # builds, opens nothing
     assert isinstance(store, RedisLeaseProvider)
     assert store.options["url"] == settings.cache_url
@@ -456,7 +458,7 @@ def _beat_redis(settings: Any, **options: Any) -> Any:
         "lease": {"beat": InstanceConfig("lease", "beat", "redis", dict(options))}
     }
     registry = build_infra_registry(
-        InMemorySchemaRegistry(), settings=settings, config=config, load_plugins=False
+        InMemorySchemaRegistry(), settings=settings, config=config
     )
     return registry.provider("lease", "beat")
 

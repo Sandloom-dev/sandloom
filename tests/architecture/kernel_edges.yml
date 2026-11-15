@@ -1008,6 +1008,7 @@ loader_call_sites:
   - {path: sandloom/sdk/_decl/web.py, symbol: _tenant_models, row: A16, reason: "a module's router imports its own models"}
   - {path: sandloom/core/composition.py, symbol: load_composition_core, reason: the configured composition root (SANDLOOM_COMPOSITION_ROOT)}
   - {path: sandloom/core/composition.py, symbol: load_composition_app, reason: the configured composition root (SANDLOOM_COMPOSITION_ROOT)}
+  - {path: sandloom/core/composition.py, symbol: root_default_infra, reason: "the configured composition root's package exports the driver selection (DEFAULT_INFRA) a process that boots no app reads (SANDLOOM_COMPOSITION_ROOT)"}
   - {path: sandloom/core/rpc/client.py, symbol: _lazy_module, reason: lazy import of the HTTP client stack (cold start)}
   - {path: sandloom/core/infra/registry.py, symbol: _import_target, reason: "a built-in driver row is a lazy module:Class target, imported when an instance selects it, as an entry point is (ADR-0016, ADR-0011 decision 2)"}
   - {path: sandloom/core/infra/registry.py, symbol: _is_installed, reason: "the infra preflight finds a driver's declared packages (celery, redis) without importing them (KB-IC-1, SANDLOOM-B037)"}

@@ -13,6 +13,8 @@ from sandloom.sdk.app import (  # sandloom: advanced composition root
     create_app,
 )
 
+from . import DEFAULT_INFRA
+
 BUNDLED: list[str] = ["identity", "tenancy", "billing"]
 
 #: Who may write each protected token claim, and the module that issues
@@ -35,4 +37,5 @@ CLAIM_AUTHORITIES: dict[str, str] = {
 app = create_app(
     default_modules=[*BUNDLED, *app_modules("helpdesk.modules")],
     claim_authorities=CLAIM_AUTHORITIES,
+    default_infra=DEFAULT_INFRA,
 )

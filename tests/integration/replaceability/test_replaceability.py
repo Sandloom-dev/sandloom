@@ -112,6 +112,27 @@ MIGRATE_ROOT = (
     else {}
 )
 
+
+def _infra(database_url: str, cache_url: str) -> str:
+    """``INFRA`` as JSON: the drivers a root selects (the kernel names none and
+    the roots of this suite pass no ``default_infra``), plus row security on
+    the default database. An instance named in it carries its own options, so
+    the URLs are written out."""
+    return json.dumps(
+        {
+            "database": {
+                "default": {
+                    "driver": "sqlalchemy",
+                    "url": database_url,
+                    "tenant_rls": True,
+                }
+            },
+            "cache": {"default": {"driver": "redis", "url": cache_url}},
+            "atomic_store": {"security": {"driver": "redis", "url": cache_url}},
+        }
+    )
+
+
 UNAVAILABLE_FORGED = "Token claims from 'forged' are unavailable; try again later"
 UNAVAILABLE_ISSUER = (
     "Token claims from 'test_identity' are unavailable; try again later"
@@ -290,6 +311,8 @@ def infra(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Infra]:
                 "BROKER_URL": broker,
                 "JWT_SECRET": f"replace-migrate-{uuid.uuid4().hex}",
                 "SANDLOOM_MODULES": "[]",
+                "EVENT_BUS_BACKEND": "memory",
+                "INFRA": _infra(owner_url, cache),
                 **MIGRATE_ROOT,
             },
             capture_output=True,
@@ -416,7 +439,7 @@ def _base_env(infra: Infra, users: Users) -> dict[str, str]:
         "LOG_FORMAT": "text",
         "POC_ADMINS": users.admin,
         # PostgreSQL row security on the default database.
-        "INFRA": json.dumps({"database": {"default": {"tenant_rls": True}}}),
+        "INFRA": _infra(infra.database_url, infra.cache_url),
     }
 
 

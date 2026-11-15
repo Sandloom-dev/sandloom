@@ -51,6 +51,21 @@ def _seed_test_env() -> None:
 _seed_test_env()
 
 
+#: The driver selection of the framework suite, what a composition root passes
+#: ``create_app(default_infra=...)`` (the kernel names no driver): the Redis,
+#: Celery and SQLAlchemy drivers of ``sandloom-redis``, ``sandloom-celery`` and
+#: the kernel, as ``sandloom_standard`` selects them. The event bus is the
+#: ``memory`` one, selected by ``EVENT_BUS_BACKEND`` in ``.env.test``.
+_SUITE_INFRA = {
+    "database": {"default": {"driver": "sqlalchemy"}},
+    "cache": {"default": {"driver": "redis"}},
+    "broadcast": {"default": {"driver": "redis"}},
+    "taskqueue": {"default": {"driver": "celery"}},
+    "atomic_store": {"security": {"driver": "redis"}},
+    "lease": {"beat": {"driver": "redis"}},
+}
+
+
 def _standard_root_when_installed() -> None:
     """Compose the suite with the standard root when it is installed.
 
@@ -80,6 +95,20 @@ from sandloom.core.testing.fixtures import (  # noqa: E402, F401 - autouse fixtu
 from sandloom.core.testing.workers import apply_worker_env  # noqa: E402
 
 
+def _select_suite_infra() -> None:
+    from sandloom.core.infra.config import use_default_infra
+
+    use_default_infra(_SUITE_INFRA)
+
+
+@pytest.fixture(autouse=True)
+def _suite_default_infra() -> None:
+    """Every test starts on the suite's driver selection: an app a test builds
+    through a composition root (``sandloom_standard.main``) replaces it for the
+    process, and the next test must not inherit that."""
+    _select_suite_infra()
+
+
 def pytest_configure(config: pytest.Config) -> None:
     # A test composition (as the sandloom pytest plugin declares it): the
     # kernel test authority vouches for the test kit's tokens (ADR-0014).
@@ -98,6 +127,13 @@ apply_worker_env()
 # must stay well below the shared server's max_connections
 # (sandloom.core.testing.connections). Before sandloom.core.config.settings is imported.
 apply_test_pool_profile()
+
+
+# The lean root of the kernel-without-batteries venv (``sandloom.main``) passes
+# no selection, and the harness builds its app before any fixture of this file
+# runs: the selection is in place from here on. (A child process of a test
+# boots its own root: ``suite_infra_env`` in ``sandloom.core.tests._root_support``.)
+_select_suite_infra()
 
 
 @pytest.hookimpl(tryfirst=True)

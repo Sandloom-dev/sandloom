@@ -22,6 +22,8 @@ from sandloom.sdk.app import (  # sandloom: advanced composition root
     create_app,
 )
 
+from . import DEFAULT_INFRA
+
 BUNDLED: list[str] = ["tenancy", "billing"]
 
 #: acme_idp under its public name: a process that does not load it (a
@@ -52,4 +54,5 @@ app = create_app(
     title="oidc_identity",
     default_modules=[*BUNDLED, *app_modules("oidc_identity.modules")],
     claim_authorities=CLAIM_AUTHORITIES,
+    default_infra=DEFAULT_INFRA,
 )

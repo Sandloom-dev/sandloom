@@ -193,7 +193,7 @@ async def test_diagnostics_core_reports_the_periodic_needs(
 
     app = FastAPI()
     core = CoreFacade(app=app)
-    core.set_infra(build_infra_registry(InMemorySchemaRegistry(), load_plugins=False))
+    core.set_infra(build_infra_registry(InMemorySchemaRegistry()))
     core.loaded_modules = [_REQUIRED.name, _OPTIONAL.name]
     core.module_descriptors = [_REQUIRED, _OPTIONAL]
     cache = _Cache(None)

@@ -37,6 +37,8 @@ def build_tool_infra() -> InfraRegistry:
     # Imported here: ``infra`` sits below the drivers (the layers of ADR-0007), so
     # the built-in drivers' bootstrap is reached by name, like a driver target.
     bootstrap = importlib.import_module("sandloom.core.drivers.bootstrap")
+    # No app is built, so nothing passed the composition's selection to
+    # ``create_app``: ``load_infra_config`` reads it from the root's package.
     config = {
         capability: instances
         for capability, instances in load_infra_config(settings).items()

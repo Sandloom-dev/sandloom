@@ -91,6 +91,7 @@ from sandloom.core.idempotency.durable import (
     install_durable_capture,
     validate_money_guards,
 )
+from sandloom.core.infra.config import DefaultInfra, use_default_infra
 from sandloom.core.infra.registry import InfraRegistry
 from sandloom.core.loader.manifest import AppManifest
 from sandloom.core.loader.plugin_loader import (
@@ -160,8 +161,17 @@ def create_app(
     default_claim_authorities: Mapping[str, str | Authority] | None = None,
     legacy_tokens: LegacyClaimsTokens | None = None,
     access_providers: Mapping[str, str] | None = None,
+    default_infra: DefaultInfra | None = None,
 ) -> FastAPI:
     """Build a fully wired Sandloom application (kernel + modules + ops API).
+
+    ``default_infra`` is the composition's driver selection, ``{capability:
+    {instance: {"driver": ..., <options>}}}`` as ``INFRA`` is written: what an
+    instance uses when ``INFRA`` does not name it. The kernel names no driver
+    of its own and never falls back to ``memory``: a composition that selects
+    none for the database, the cache, the event bus or the security
+    ``atomic_store`` leaves startup to refuse with SANDLOOM-B037, naming what
+    to select and install. ``INFRA`` overrides it per instance.
 
     ``default_modules`` apply only when the deployment configured no
     ``SANDLOOM_MODULES`` (the platform root passes identity/tenancy/billing); with
@@ -199,6 +209,8 @@ def create_app(
     """
     init_logging()  # ensure logging configured before modules import/log
     init_sentry()  # error reporting (no-op unless SENTRY_DSN set)
+    if default_infra is not None:  # before any check reads the configuration
+        use_default_infra(default_infra)
 
     # Checks the configuration layer cannot run itself (key material, RPC
     # keys / allowlist, the production profile): refuse to boot on any.

@@ -138,7 +138,11 @@ def _registry(*instances: InstanceConfig) -> tuple[InfraRegistry, dict[str, _Spy
 
 def _real_registry() -> InfraRegistry:
     """The registry ``create_app`` builds from the test settings."""
-    return build_infra_registry(InMemorySchemaRegistry(), load_plugins=False)
+    return build_infra_registry(
+        InMemorySchemaRegistry(),
+        load_plugins=False,
+        config=load_infra_config(settings),
+    )
 
 
 # ------------------------------------------------------------- preflight ----
@@ -217,8 +221,8 @@ def test_requires_takes_top_level_names_only() -> None:
 @pytest.mark.parametrize(
     ("capability", "package", "hint"),
     [
-        ("taskqueue", "celery", "pip install 'sandloom[celery]'"),
-        ("cache", "redis", "pip install 'sandloom[redis]'"),
+        ("taskqueue", "sandloom_celery", "pip install sandloom-celery"),
+        ("cache", "sandloom_redis", "pip install sandloom-redis"),
     ],
 )
 def test_builtin_drivers_name_their_package_and_extra(
@@ -244,7 +248,7 @@ def test_builtin_drivers_name_their_package_and_extra(
 def test_the_fix_names_the_features_an_alternative_must_advertise(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setitem(sys.modules, "celery", None)
+    monkeypatch.setitem(sys.modules, "sandloom_celery", None)
     with pytest.raises(DriverUnavailableError) as caught:
         _real_registry().validate_requirement(
             "taskqueue", features=frozenset({"delay"})
@@ -265,7 +269,7 @@ def test_a_module_gets_every_unmet_requirement_in_one_refusal(
     """B037 names the module and, per requirement, capability, instance,
     driver, features, what is missing and the fix; optional ones are handed
     back, not raised."""
-    monkeypatch.setitem(sys.modules, "celery", None)
+    monkeypatch.setitem(sys.modules, "sandloom_celery", None)
     registry = _real_registry()
     requirements = [
         CapabilityRequirement("database"),
@@ -282,8 +286,8 @@ def test_a_module_gets_every_unmet_requirement_in_one_refusal(
         "capability 'taskqueue' (instance 'default', driver 'celery', "
         "features ['delay'])" in message
     )
-    assert "needs the package 'celery', which is not installed" in message
-    assert "pip install 'sandloom[celery]'" in message
+    assert "needs the package 'sandloom_celery', which is not installed" in message
+    assert "pip install sandloom-celery" in message
     assert "capability 'objectstore'" in message and "no_such_feature" in message
     assert "capability 'database'" not in message
     assert message.count("[SANDLOOM-B037]") == 1
@@ -326,7 +330,7 @@ def test_an_explicit_instance_on_an_uninstalled_driver_refuses_startup(
 ) -> None:
     """An operator who selects a driver in INFRA gets B037 at the build of
     the registry, before any module loads; a synthesized default does not."""
-    monkeypatch.setitem(sys.modules, "celery", None)
+    monkeypatch.setitem(sys.modules, "sandloom_celery", None)
     _real_registry()  # the implicit taskqueue/default alone: no refusal
     config = load_infra_config(settings)
     config["taskqueue"]["jobs"] = InstanceConfig(
@@ -339,7 +343,7 @@ def test_an_explicit_instance_on_an_uninstalled_driver_refuses_startup(
         build_infra_registry(
             InMemorySchemaRegistry(), config=config, load_plugins=False
         )
-    assert "taskqueue/jobs: driver 'celery' needs the package 'celery'" in str(
+    assert "taskqueue/jobs: driver 'celery' needs the package 'sandloom_celery'" in str(
         caught.value
     )
 
@@ -496,7 +500,7 @@ def test_the_module_preflight_refuses_with_b037_and_the_load_names_it(
         _preflight_capabilities,
     )
 
-    monkeypatch.setitem(sys.modules, "celery", None)
+    monkeypatch.setitem(sys.modules, "sandloom_celery", None)
     core = CoreFacade(app=FastAPI())
     core.set_infra(_real_registry())
     desc = ModuleDescriptor(

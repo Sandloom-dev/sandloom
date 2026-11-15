@@ -225,7 +225,7 @@
     "docs/modules/between/events.md": {
       "P6": 6,
       "P8": 2,
-      "S4": 18
+      "S4": 17
     },
     "docs/modules/between/projections.md": {
       "P6": 4,
@@ -344,7 +344,7 @@
       "P6": 5,
       "P7": 1,
       "P9": 16,
-      "S4": 13
+      "S4": 12
     },
     "docs/reference/event-contracts.md": {
       "P12": 1,

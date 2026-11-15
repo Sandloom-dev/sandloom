@@ -26,6 +26,7 @@ import pytest
 
 from sandloom.core.composition import composition_root_name
 from sandloom.core.testing import isolation
+from sandloom.core.tests._root_support import suite_infra_env
 
 _ENV_TEST = (
     "ENVIRONMENT=test\nJWT_SECRET=isolation_probe_secret_value_long_enough_0\n"
@@ -62,6 +63,9 @@ def _run_project(root: Path, files: dict[str, str]) -> subprocess.CompletedProce
     # does, and its probes build apps through that root's factory (an issuer
     # needs its trust map, SANDLOOM-B035).
     env["SANDLOOM_COMPOSITION_ROOT"] = composition_root_name()
+    # A root that selects no driver (kernel-only venv), on the child's own URLs.
+    own = dict(u.split("=", 1) for u in _ENV_TEST.splitlines() if "_URL=" in u)
+    env.update(suite_infra_env(own))
     return subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-p", "no:xdist", "-p", "no:randomly"],
         cwd=root,
