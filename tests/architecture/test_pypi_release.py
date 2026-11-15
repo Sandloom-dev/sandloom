@@ -190,6 +190,44 @@ def test_a_sibling_in_the_same_plan_is_not_looked_up(source):
     assert "sandloom-redis" in plan["packages"]
 
 
+def test_a_new_version_of_two_packages_that_require_each_other_goes_out_with_all(
+    source,
+):
+    """The kernel's redis extra requires sandloom-redis, which requires the
+    kernel: neither tag can release a version PyPI has of neither, so a version
+    bump of the pair goes out through a manual run with package all."""
+    _kernel_requires_a_sibling(source)
+    (source / "packages" / "sandloom-redis" / "pyproject.toml").write_text(
+        '[project]\nversion = "0.7.0a2"\ndependencies = ["sandloom>=0.7.0a2,<0.8"]\n'
+    )
+
+    def nothing_published(project, version):
+        return False
+
+    with pytest.raises(ValueError, match="release sandloom-redis first"):
+        _tag_plan(source, on_pypi=nothing_published)
+    with pytest.raises(ValueError, match="release sandloom first"):
+        release.plan_release(
+            source,
+            "all",
+            "push",
+            "refs/tags/sandloom-redis-v0.7.0a2",
+            dry_run=True,
+            on_main=True,
+            on_pypi=nothing_published,
+        )
+    plan = release.plan_release(
+        source,
+        "all",
+        "workflow_dispatch",
+        "refs/heads/main",
+        dry_run=False,
+        on_main=True,
+        on_pypi=nothing_published,
+    )
+    assert {"sandloom", "sandloom-redis"} <= set(plan["packages"])
+
+
 def test_a_dry_run_does_not_ask_pypi(source):
     _kernel_requires_a_sibling(source)
 

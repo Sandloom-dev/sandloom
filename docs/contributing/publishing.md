@@ -154,6 +154,10 @@ git push origin sandloom-v0.7.0a13
 The other tag prefixes are `sandloom-identity-v`, `sandloom-tenancy-v`,
 `sandloom-billing-v` and `sandloom-redis-v`. A driver package's tag releases
 together with, or after, the kernel version it requires (ADR-0016, lockstep).
+The kernel's `redis` extra requires `sandloom-redis`, and `sandloom-redis`
+requires the kernel. The plan step refuses either tag while PyPI has neither at
+the new version. So a version bump of the two goes out through a manual run with
+`all`. A tag then releases a package whose sibling is already on PyPI.
 Every other package, such as `sandloom-standard`, releases through a manual
 run. No tag pattern of the environment allows its tag. Its `tag_release` is
 false in `packages.json`, so the plan step refuses that tag.
