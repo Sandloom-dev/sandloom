@@ -53,6 +53,7 @@ jobs:
           tests/architecture/test_ci_workflow_policy.py
           tests/architecture/test_required_ci.py
           tests/architecture/test_pypi_release.py
+          tests/architecture/test_release_packages.py
           tests/architecture/test_pr_evidence.py
           tests/architecture/test_release_sync.py -q
       - name: Reviewed source and credential patterns
@@ -93,12 +94,14 @@ jobs:
               - 'tools/checks/**'
               - 'tools/packaging/*.py'
               - 'tools/packaging/**/*.py'
+              - 'tools/packaging/packages.json'
               - 'pyproject.toml'
               - 'uv.lock'
               - 'conftest.py'
               - 'architecture_rules.yml'
               - 'guarantees.yml'
               - '.env.test'
+              - '.github/workflows/release.yml'
               - '.github/workflows/ci.yml'
             admin:
               - 'tools/inspection/**'
@@ -153,6 +156,7 @@ jobs:
               - 'NOTICE'
               - 'tools/packaging/*.py'
               - 'tools/packaging/**/*.py'
+              - 'tools/packaging/packages.json'
               - '.github/workflows/packages.yml'
               - '.github/workflows/release.yml'
               - '.github/workflows/ci.yml'
@@ -163,10 +167,12 @@ jobs:
               - 'tools/checks/**'
               - 'tools/packaging/*.py'
               - 'tools/packaging/**/*.py'
+              - 'tools/packaging/packages.json'
               - 'pyproject.toml'
               - 'uv.lock'
               - 'docs/adr/**'
               - 'docs/reference/guarantees.md'
+              - '.github/workflows/release.yml'
               - '.github/workflows/architecture-check.yml'
               - '.github/workflows/ci.yml'
             dependency_review:

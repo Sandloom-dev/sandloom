@@ -59,7 +59,19 @@ pytestmark = [
     ),
 ]
 
-PACKAGES = ("sandloom", "sandloom-standard", *(d for _, d in MODULES.values()))
+sys.path.insert(0, str(REPO / "tools" / "packaging"))
+import release_packages  # noqa: E402  (stdlib only; the one package list)
+
+#: The kernel, the root and the module distributions (not driver packages: a
+#: subset is a set of modules), from the one list, in its release order.
+PACKAGES = tuple(
+    p.name for p in release_packages.PACKAGES if p.kind in ("kernel", "root", "module")
+)
+assert set(PACKAGES) >= {
+    "sandloom",
+    "sandloom-standard",
+    *(d for _, d in MODULES.values()),
+}
 
 
 def _bin(venv: Path, name: str) -> Path:
