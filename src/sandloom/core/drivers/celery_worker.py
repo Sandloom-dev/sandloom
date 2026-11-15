@@ -795,6 +795,8 @@ def install_beat_lease(app: Any, lease: BeatLease) -> Callable[..., None]:
     tick). Returns the receiver, for :func:`remove_beat_lease`.
     """
     signals = _signals()
+    # Bound here: the identity check below narrows ``app`` inside the receiver.
+    beat_clock = app.now
 
     def _on_beat_init(sender: Any = None, **_: Any) -> None:
         if sender is None or getattr(sender, "app", None) is not app:
@@ -809,7 +811,7 @@ def install_beat_lease(app: Any, lease: BeatLease) -> Callable[..., None]:
         # The slot of a send is read on the clock the beat itself ticks on
         # (``app.now``), never a second one: with two clocks a tick due in one
         # minute could claim the slot of the next.
-        sender.scheduler = LeasedScheduler(scheduler, lease, wall_clock=app.now)
+        sender.scheduler = LeasedScheduler(scheduler, lease, wall_clock=beat_clock)
         logger.info("[beat] singleton lease %s installed", lease.name)
 
     signals.beat_init.connect(_on_beat_init, weak=False)
