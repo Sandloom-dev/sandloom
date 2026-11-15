@@ -15,17 +15,18 @@ from sandloom.core.drivers.redis_eventbus.streams_transport_base import (
     _PendingEntry,
     _stream_id_key,
 )
-from sandloom.core.eventing.envelope import EventEnvelope
-from sandloom.core.eventing.transport_base import (
-    _METRIC_TARGETED_SKIPPED,
-    _POISON_SCAN_COUNT,
+from sandloom.driverkit import Delivery, EventEnvelope
+from sandloom.driverkit._builtin_streams import (
+    POISON_SCAN_COUNT,
+    TARGETED_REPLAY_SKIPPED,
+)
+from sandloom.driverkit.eventbus_support import (
     DLQ_REASON_MALFORMED,
     DLQ_REASON_MAX_DELIVERIES,
     DLQ_REASON_SOURCE_MISSING,
     TARGET_GROUP_FIELD,
 )
-from sandloom.core.infra.ports.eventbus import Delivery
-from sandloom.core.observability.metrics_utils import safe_inc
+from sandloom.driverkit.metrics import safe_inc
 
 logger = logging.getLogger("sandloom.core.eventing.transport")
 
@@ -235,7 +236,7 @@ class _StreamsConsume(_StreamsGroups):
         target = fields.get(TARGET_GROUP_FIELD) if isinstance(fields, dict) else None
         if target is None or str(target) == group:
             return False
-        _METRIC_TARGETED_SKIPPED.labels(stream=stream).inc()
+        TARGETED_REPLAY_SKIPPED.labels(stream=stream).inc()
         await client.xack(self.key(stream), group, msg_id)
         self._untrack(stream, group, (msg_id,))
         return True
@@ -381,7 +382,7 @@ class _StreamsConsume(_StreamsGroups):
         await self._reclaim_stale(client, stream, group, consumer, count)
         pending = (
             await self._pending_entries(
-                client, stream, group, max(count, _POISON_SCAN_COUNT), consumer
+                client, stream, group, max(count, POISON_SCAN_COUNT), consumer
             )
             if self._pending_scan_needed(stream, group, consumer)
             else []

@@ -7,18 +7,17 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from sandloom.core.config.eventing import DEFAULT_EVENT_STREAM_RETENTION_SECONDS
-from sandloom.core.config.settings import settings
-from sandloom.core.eventing.transport_base import (
-    _DEFAULT_MAX_DELIVERIES,
-    _DEFAULT_MIN_IDLE_MS,
-    _DEFAULT_RETRY_BASE_MS,
-    _DEFAULT_RETRY_MAX_MS,
-    _RECLAIM_INTERVAL_SECONDS,
+from sandloom.driverkit import Retention
+from sandloom.driverkit._builtin_streams import RECLAIM_INTERVAL_SECONDS
+from sandloom.driverkit.eventbus_support import (
+    DEFAULT_EVENT_STREAM_RETENTION_SECONDS,
+    DEFAULT_MAX_DELIVERIES,
+    DEFAULT_MIN_IDLE_MS,
+    DEFAULT_RETRY_BASE_MS,
+    DEFAULT_RETRY_MAX_MS,
     TransportDefaults,
     retry_delay_ms,
 )
-from sandloom.core.infra.ports.eventbus import Retention
 
 logger = logging.getLogger("sandloom.core.eventing.transport")
 
@@ -76,11 +75,11 @@ class _StreamsTransportBase(TransportDefaults):
         self,
         *,
         client_factory: Callable[[], Awaitable[Any]] | None = None,
-        max_deliveries: int = _DEFAULT_MAX_DELIVERIES,
-        min_idle_ms: int = _DEFAULT_MIN_IDLE_MS,
-        retry_base_ms: int = _DEFAULT_RETRY_BASE_MS,
-        retry_max_ms: int = _DEFAULT_RETRY_MAX_MS,
-        reclaim_interval_seconds: float = _RECLAIM_INTERVAL_SECONDS,
+        max_deliveries: int = DEFAULT_MAX_DELIVERIES,
+        min_idle_ms: int = DEFAULT_MIN_IDLE_MS,
+        retry_base_ms: int = DEFAULT_RETRY_BASE_MS,
+        retry_max_ms: int = DEFAULT_RETRY_MAX_MS,
+        reclaim_interval_seconds: float = RECLAIM_INTERVAL_SECONDS,
         maxlen: int | None = None,
         retention_seconds: int | None = None,
         prefix: str | None = None,
@@ -116,11 +115,10 @@ class _StreamsTransportBase(TransportDefaults):
             if retention_seconds is None
             else retention_seconds
         )
-        self._prefix = (
-            prefix
-            if prefix is not None
-            else str(getattr(settings, "event_stream_prefix", "") or "")
-        )
+        # The key namespace is the transport's own option (the ``streams``
+        # driver's ``prefix``; the kernel fills it from EVENT_STREAM_PREFIX),
+        # never a kernel setting read here.
+        self._prefix = prefix or ""
         self._trim_interval = (
             trim_interval_seconds
             if trim_interval_seconds is not None

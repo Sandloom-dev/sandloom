@@ -788,6 +788,9 @@ writes them from those. `oldest_unacked_age_seconds` drops the `last_delivered_i
   `idk-eventbus-contract` adds the options and `retention()` and moves the three code readers;
   `idk-config-defaults` removes the two settings with the other flat settings (until then
   `core/infra/config.py` fills the options from them, as it does for `CACHE_URL`).
+  `EVENT_STREAM_PREFIX` becomes the `streams` option `prefix` (the namespace of every Streams key)
+  the same way: filled from the setting until `idk-config-defaults` removes it, and filled by the
+  `override_instance` test seam so a streams override stays namespaced.
 - Targeted DLQ replay: a replayed entry carries `target_group`; every other group acks it without
   running handlers (G-EVENT-11).
 

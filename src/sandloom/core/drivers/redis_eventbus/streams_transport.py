@@ -12,14 +12,13 @@ import orjson
 from prometheus_client import Counter
 
 from sandloom.core.drivers.redis_eventbus.streams_consume import _StreamsConsume
-from sandloom.core.eventing.envelope import EventEnvelope
-from sandloom.core.eventing.transport_base import (
+from sandloom.driverkit import DeadLetter, EventEnvelope
+from sandloom.driverkit.eventbus_support import (
     DLQ_REASON_MAX_DELIVERIES,
     TARGET_GROUP_FIELD,
     partial_publish,
 )
-from sandloom.core.infra.ports.eventbus import DeadLetter
-from sandloom.core.observability.metrics_utils import safe_inc
+from sandloom.driverkit.metrics import safe_inc
 
 logger = logging.getLogger("sandloom.core.eventing.transport")
 
