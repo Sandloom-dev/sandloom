@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
 from sandloom.core import idempotency
-from sandloom.core.drivers.redis_atomic_store import RedisAtomicStoreProvider
 from sandloom.core.idempotency import cache_store as idempotency_cache_store
 from sandloom.core.idempotency import fingerprint as idempotency_fingerprint
 from sandloom.core.idempotency import reservation as idempotency_reservation

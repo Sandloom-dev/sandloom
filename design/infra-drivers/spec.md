@@ -58,8 +58,10 @@ different capabilities do not share a file (the exceptions are listed in the las
 - `bootstrap.py` pre-registers **every** built-in driver row of this wave, each as a lazy
   `"module:Class"` target resolved when an instance selects it (as entry points are, ADR-0011
   decision 2), with its `tier`. A row whose file a later slice has not delivered yet is refused
-  when selected (SANDLOOM-B022) with a message naming that slice. Slices 17 and 18 delete the rows
-  they move to entry points.
+  when selected (SANDLOOM-B022) with a message naming that slice. Slices 17 and 18 move the files
+  but keep the rows, now as lazy install-hint rows (target `sandloom_<pkg>…`, `requires` naming the
+  package); `idk-config-defaults` (slice 19) deletes them with the hard-coded redis defaults
+  (13, item 45).
 - `access.py` gains `atomic_store(role)`, `lease(name)` and `broadcast(name)`, typed by the ports
   Protocols. `idk-atomic-adopt` removes `security_cache()` and `idempotency_cache()` when it moves
   their last caller.
@@ -1354,6 +1356,17 @@ For the orchestrator's review; each departs from or details `design.md`.
     `database:<system identifier>/<db>`: the hash keeps credentials out of the string. Its material
     is the backend, host, the `host` query parameter, port and database; the absolute path of a
     SQLite file; a per-instance marker for `:memory:`.
+45. **The rows of a moved driver stay until `idk-config-defaults`** (decided on PR #220,
+    `idk-pkg-redis`; deviates from section 1, which had slices 17 and 18 delete them). A row stays
+    in `BUILTIN_DRIVER_ROWS` as a lazy install-hint row: target `sandloom_<pkg>:<Class>`,
+    `requires=("sandloom_<pkg>", …)`. Without the package the preflight and the first use of an
+    instance refuse with SANDLOOM-B037 and the install hint, and the entry point of the package is
+    the same driver, not a conflict (`driver_target`). The kernel still synthesizes the redis
+    `atomic_store`, `lease` and `broadcast` defaults, so the rows cannot go before slice 19. Before
+    they go, `idk-config-defaults` adds a registry-side policy hook that passes `assume_allowed`
+    (`unverified_noeviction_allowed`) to an `atomic_store` or `lease` built from an entry point.
+    Without it `never_evicts_check=assume` is refused for ever in production, because only the row's
+    `build` passes the policy.
 
 ## 14. Open for the owner
 

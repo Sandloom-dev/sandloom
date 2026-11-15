@@ -8,6 +8,8 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+- The kernel wheel no longer ships the Redis `atomic_store`, `lease` and `broadcast` drivers: they are in the new `sandloom-redis` package. Install `sandloom[redis]` (or `sandloom[standard]`) where an app selects a `redis` driver for one of them.
+
 ## [0.7.0a13]
 
 - Add the optional `sandloom-s3` distribution and align the local and S3 object store contracts.

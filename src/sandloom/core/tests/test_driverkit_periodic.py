@@ -10,13 +10,13 @@ from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
+from sandloom_redis.lease import RedisLeaseProvider
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers.database_lease import DatabaseLeaseProvider
 from sandloom.core.drivers.memory_lease import MemoryLeaseProvider
-from sandloom.core.drivers.redis_lease import RedisLeaseProvider
 from sandloom.core.infra.errors import (
     InvalidArgument,
     PermissionDenied,

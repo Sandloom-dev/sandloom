@@ -1,0 +1,28 @@
+[project]
+name = "sandloom-redis"
+version = "0.7.0a13"
+description = "Redis drivers for Sandloom: atomic store, lease and broadcast"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+dependencies = [
+    "sandloom>=0.7.0a13,<0.8",
+    "pydantic>=2,<3",
+    "redis>=5.2.1,<6",
+]
+
+[project.entry-points."sandloom.drivers"]
+"atomic_store.redis" = "sandloom_redis.atomic_store:RedisAtomicStoreProvider"
+"lease.redis" = "sandloom_redis.lease:RedisLeaseProvider"
+"broadcast.redis" = "sandloom_redis.broadcast:RedisBroadcastProvider"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sandloom_redis"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/LICENSE", "/NOTICE", "/README.md", "/CHANGELOG.md", "/pyproject.toml"]

@@ -3,7 +3,7 @@
 Runs ``tools/packaging/check_package_distributions.py`` (the CI ``packages``
 job): sdists and wheels of ``sandloom``, ``sandloom-standard``,
 ``sandloom-identity``, ``sandloom-tenancy``, ``sandloom-billing`` and
-``sandloom-admin`` and ``sandloom-s3``; the import layering across them (lazy
+``sandloom-admin``, ``sandloom-s3`` and ``sandloom-redis``; the import layering across them (lazy
 imports included);
 ``pip install sandloom`` alone in a clean venv runs every ``sandloom``
 subcommand's ``--help``, ``sandloom docs <name>`` and ``sandloom new``;
@@ -13,6 +13,7 @@ root ``sandloom_standard.main``.
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -55,7 +56,10 @@ def test_every_distribution_installs_and_runs_alone() -> None:
     )
     output = done.stdout + done.stderr
     assert done.returncode == 0, output[-6000:]
-    assert "Import layering OK across 7 distributions" in output
+    listed = json.loads((REPO / "tools" / "packaging" / "packages.json").read_text())
+    assert (
+        f"Import layering OK across {len(listed['packages'])} distributions" in output
+    )
     assert "lean sandloom OK" in output
     assert "standard set OK" in output
     assert "All package distribution checks passed." in output

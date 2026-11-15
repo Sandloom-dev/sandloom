@@ -285,6 +285,7 @@ def uses_artifacts(body: Mapping[str, Any]) -> bool:
 #     L117  backend-tests      -> backend-tests-3.11/3.13/3.14/3.12 fallback (container)
 #     --    backend-tests-isolation -> backend-tests-isolation fallback (container)
 #     --    kernel-without-batteries -> kernel-without-batteries fallback (container)
+#     --    redis-drivers      -> redis-drivers             fallback (container)
 #     --    second-db-test-lane-> second-db-test-lane       fallback (container)
 #     --    skip-ledger        -> not a job: merge the lanes' ledgers by hand
 #     L222  benchmarks-security-> benchmarks-security       fallback (container)
@@ -357,6 +358,14 @@ CI_JOBS: tuple[CiJob, ...] = (
         "ci.yml",
         "kernel-without-batteries",
         "kernel-without-batteries",
+        "container",
+        "fallback",
+        _SERVICES_WHY,
+    ),
+    CiJob(
+        "ci.yml",
+        "redis-drivers",
+        "redis-drivers",
         "container",
         "fallback",
         _SERVICES_WHY,
@@ -452,7 +461,8 @@ FINGERPRINTS: dict[str, str] = {
     "ci.yml:supply-chain": "f97313a67b7eacd0",
     "ci.yml:backend-tests": "1400b9cf9e06ab28",
     "ci.yml:backend-tests-isolation": "1f41c4abed7873f2",
-    "ci.yml:kernel-without-batteries": "ec0b646d6ed5457f",
+    "ci.yml:kernel-without-batteries": "ffd5343d6482ae8f",
+    "ci.yml:redis-drivers": "9efc4fed462d1832",
     "ci.yml:second-db-test-lane": "76d7b93cf72fd8f1",
     "ci.yml:skip-ledger": "a815969227e45e9d",
     "ci.yml:benchmarks-security": "c516a25e95f3072b",
@@ -469,7 +479,7 @@ FINGERPRINTS: dict[str, str] = {
     "ci.yml:architecture": "7fa82238721b3d55",
     "ci.yml:admin-ui": "2381440aadc9830d",
     "ci.yml:dependency-review": "2b19360e2aa6b603",
-    "ci.yml:ci-required": "342ccd27fc26937b",
+    "ci.yml:ci-required": "c9b40cf1d6fbda42",
     "docs.yml:build": "78d8bd064fcb5ee4",
     "architecture-check.yml:check": "c1dd1ca1c5524d5c",
 }
@@ -542,6 +552,7 @@ JOB_SECONDS = {
     # The standard modules, the examples and a generated app on SQLite files.
     # The kernel suites in a venv without module packages (KB-05).
     "kernel-without-batteries": 300,
+    "redis-drivers": 90,
     "second-db-test-lane": 420,
     "microservices-smoke": 45,
     "backend-static": 35,

@@ -1213,8 +1213,10 @@ def _framework_backend(path: Path) -> Path:
 
 
 def _sourced_names(bundled: list[str]) -> list[str]:
-    """The framework distributions an unpublished checkout supplies."""
-    return ["sandloom", *(f"sandloom-{m}" for m in bundled)]
+    """The framework distributions an unpublished checkout supplies:
+    ``sandloom-redis`` too, which the ``sandloom[redis]`` extra of every
+    generated app requires."""
+    return ["sandloom", "sandloom-redis", *(f"sandloom-{m}" for m in bundled)]
 
 
 #: The framework range a generated app depends on (0.x: one minor).
@@ -1347,10 +1349,18 @@ def generate_project(
     # The kernel with its Redis/Celery drivers (the generated compose uses
     # Redis and runs the Celery worker), plus each module package chosen with
     # --with: ecosystem packages, each a compatible range.
+    # In a local checkout (``source_config`` is not empty) ``sandloom-redis`` is
+    # named beside the extra that requires it: uv applies a
+    # ``[tool.uv.sources]`` entry (an unpublished checkout) to direct
+    # dependencies only. A published app gets it through ``sandloom[redis]``.
+    redis_package: list[str] = []
     if framework_req is None:
         framework_req = f"sandloom[redis,celery]{FRAMEWORK_RANGE}"
+        if source_config:
+            redis_package = [f"sandloom-redis{FRAMEWORK_RANGE}"]
     framework_deps = [
         framework_req,
+        *redis_package,
         *(f"sandloom-{m}{FRAMEWORK_RANGE}" for m in bundled),
     ]
     app_module = f"{app}.modules.{sample_module}"

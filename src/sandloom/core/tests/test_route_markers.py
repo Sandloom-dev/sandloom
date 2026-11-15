@@ -43,11 +43,11 @@ from fastapi import (
 )
 from fastapi.routing import APIRoute
 from fastapi.security import OAuth2PasswordBearer
+from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
 from sandloom.core import route_markers
 from sandloom.core.auth import marks, revocation, tokens
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers.redis_atomic_store import RedisAtomicStoreProvider
 from sandloom.core.infra import access
 from sandloom.core.route_markers import (
     is_marker,
