@@ -68,6 +68,7 @@
     {
       "reason": "CI, release gates and contributor guidance; package uploads require explicit publisher configuration.",
       "paths": [
+        ".gitattributes",
         ".github/CODEOWNERS",
         ".github/actions/bench-tools/action.yml",
         ".github/assets/scanned-by-snyk.webp",
@@ -2545,6 +2546,7 @@
         "tests/architecture/test_ledger_migration.py",
         "tests/architecture/test_ledger_static_pins.py",
         "tests/architecture/test_lint_suppression_ratchet.py",
+        "tests/architecture/test_merge_public_source.py",
         "tests/architecture/test_module_boundaries.py",
         "tests/architecture/test_module_rules.py",
         "tests/architecture/test_no_batteries.py",
@@ -2893,6 +2895,7 @@
         "tools/docs/gen_reference_pages.py",
         "tools/docs/test_docs_site.py",
         "tools/packaging/__init__.py",
+        "tools/packaging/merge_public_source.py",
         "tools/packaging/check_package_distributions.py",
         "tools/packaging/check_public_api.py",
         "tools/packaging/check_wheel_rpc_transport.py",

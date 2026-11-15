@@ -73,6 +73,17 @@ subagent): pass no actor on tm calls.
   `uv run sandloom check`, `uv run sandloom generate --check`, a module's
   `uv run sandloom test <module>`, and the CI steps of
   `.claude/agent-reference.md` §2 for packaging, docs site and examples.
+- Two CI jobs no gate above runs, the ones PRs failed most after the static
+  gates:
+  - you changed what the kernel imports (`src/sandloom/core`, `sdk`,
+    `driverkit`, `packages/*`, `pyproject.toml`): run the
+    kernel-without-batteries recipe of `docs/contributing/ci.md`;
+  - you added a test that can skip: it must run on the PostgreSQL lane. A test
+    skipped on every lane fails `skip-ledger`; a deliberate one goes into
+    `tools/ci/skip_ledger_allowlist.json` with its reason.
+- Merging `origin/main` into your branch: `CHANGELOG.md` and
+  `public-source.json` merge by themselves (`.gitattributes`). A conflict
+  left in them is a real one: keep both sides' entries.
 - Other agents test at the same time: pass your own
   `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`,
   `SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER` (your alias) in the
