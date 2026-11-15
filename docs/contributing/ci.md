@@ -245,6 +245,28 @@ must pass. This check found five such tests during the 0.7.0a9 release, and two
 harness bugs. A scanner counted as a client of every index it read, and test
 slots never handed their Redis indexes back.
 
+## Parallel branches and shared registries
+
+Every branch adds lines to `CHANGELOG.md` and to
+`tools/packaging/public-source.json`. Two branches adding beside each other
+used to stop a merge of `main` on a conflict. `.gitattributes` merges both
+files without one:
+
+- `CHANGELOG.md` uses git's union merge: both sides' bullets stay.
+- `public-source.json` is merged as data by
+  `tools/packaging/merge_public_source.py`. Paths are sets, and a new path goes
+  beside its nearest sibling. A key or group that both sides changed
+  differently is still a conflict.
+
+The second one needs the local git config once per clone. Worktrees share it:
+
+```bash
+python3 tools/packaging/merge_public_source.py --install
+```
+
+Without that config, git falls back to its line merge. GitHub merges PRs with
+its own line merge, so merge `main` into the branch locally first.
+
 ## Generated application profiles
 
 Full validation creates applications through a standalone kernel-only CLI,

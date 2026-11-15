@@ -59,7 +59,10 @@ subagent): pass no actor on tm calls.
 - Static gates: one call, after your commit and before the push (about 4
   minutes, Bash `timeout` 600000). It runs the gates of the paths you changed:
   ruff, format, mypy, architecture tests, import contracts, manifest, public
-  API, prose lint, stale symbols. `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`
+  API, prose lint, stale symbols, and ruff / format / mypy of a changed
+  driver package (`packages/sandloom-redis`, `packages/sandloom-celery`),
+  whole, as CI does. The edit hook skips unused imports mid-edit, so this
+  gate is where they surface. `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`
   and `JWT_SECRET` are the dummy values CI gives the same job (nothing
   connects to them); the four `SANDLOOM_TEST_*` are your own test resources,
   which the architecture tests' conftest needs locally (without them it
@@ -73,6 +76,19 @@ subagent): pass no actor on tm calls.
   `uv run sandloom check`, `uv run sandloom generate --check`, a module's
   `uv run sandloom test <module>`, and the CI steps of
   `.claude/agent-reference.md` §2 for packaging, docs site and examples.
+- Two CI jobs no gate above runs, the ones PRs failed most after the static
+  gates:
+  - you changed what the kernel imports (`src/sandloom/core`, `sdk`,
+    `driverkit`, `packages/*`, `pyproject.toml`): run the
+    kernel-without-batteries recipe of `docs/contributing/ci.md`;
+  - you added a test that can skip: it must run on the PostgreSQL lane. A test
+    skipped on every lane fails `skip-ledger`; a deliberate one goes into
+    `tools/ci/skip_ledger_allowlist.json` with its reason.
+- Merging `origin/main` into your branch: `CHANGELOG.md` merges by itself
+  (`.gitattributes`, union), and so does `public-source.json` once the clone
+  has run `python3 tools/packaging/merge_public_source.py --install` (the
+  orchestrator does it once; `git config merge.public-source.driver` shows
+  it). A conflict left in them is a real one: keep both sides' entries.
 - Other agents test at the same time: pass your own
   `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`,
   `SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER` (your alias) in the
@@ -106,15 +122,25 @@ item 2. A task created with `checklist` among its required kinds refuses
    code, comments, guarantees, `docs/infrastructure/write-a-driver.md`,
    "pending / not available yet" notes, allowlist `removed_by` entries. A
    hit that names a slice or task: check its state in tm (`get_task`), never
-   judge by guess whether it is still pending.
+   judge by guess whether it is still pending. Every name your text claims
+   (a class, function, error type, `file:line`, in code, docs, the PR body or
+   the brief you were given) exists where you say: grep each one.
 3. **Refuse, don't go quiet.** An unsupported feature or an error raises or
    refuses; it never turns into an empty list, `None`, a skip or a green
    `/ready`. Catch only the error types you mean: a narrowed catch is an
    allow-list of what it accepts (never a deny-list), with a test that one
-   other failure still raises.
+   other failure still raises. A new or changed branch: grep who feeds it
+   (callers, the error mappings of drivers, producers upstream) and check
+   what they now route into it. A catch-all mapping you rely on (an unknown
+   error maps to `Unavailable`) is part of your change: an outage branch it
+   feeds can park a poison row forever, so test that a non-transient error
+   does not reach the outage branch. Do not classify an error by walking
+   `__context__` / `__cause__` unless a test shows the chained case is meant.
 4. **Deviations recorded.** Anything that departs from `spec.md` or the ADR
    (an API, a default, a measured price) is written into spec/ADR in the
-   same PR.
+   same PR. A behaviour change is written where operators read it, not only
+   in CHANGELOG: grep `docs/` and `guarantees.yml` for the old behaviour
+   (operator reference, concept pages, `G-*` texts) and update every hit.
 5. **Types, not duck-typing.** No `Any`, `getattr` probe or bare `cast`
    where the type is known; call required methods directly.
 6. **Reuse.** No copy of an existing helper, constant or in-memory fake:
