@@ -76,9 +76,9 @@ and never edits `testing.py`. A name whose kit file does not exist yet raises `A
 the slice that delivers it. `__all__` lists the table, and the baseline pins it.
 
 The streams transport is about 1,475 lines in four files (`streams_transport.py`,
-`streams_transport_base.py`, `streams_consume.py`, `streams_groups.py`); `idk-eventbus-contract`
+`streams_transport_base.py`, `streams_consume.py`, `streams_groups.py`); `idk-eventbus-move`
 moves them as a package `core/drivers/redis_eventbus/` (one file per current file) when it makes them
-an `EventTransportProvider`, and `idk-pkg-redis` moves that package whole into `sandloom_redis/eventbus/`.
+an `EventTransportProvider`, and `idk-pkg-redis-streams` moves that package whole into `sandloom_redis/eventbus/`.
 
 ## 2. Shared rules
 

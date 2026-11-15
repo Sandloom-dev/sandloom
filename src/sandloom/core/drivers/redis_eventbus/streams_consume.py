@@ -9,13 +9,13 @@ from typing import Any, cast
 
 import orjson
 
-from sandloom.core.eventing.envelope import EventEnvelope
-from sandloom.core.eventing.streams_groups import _StreamsGroups
-from sandloom.core.eventing.streams_transport_base import (
+from sandloom.core.drivers.redis_eventbus.streams_groups import _StreamsGroups
+from sandloom.core.drivers.redis_eventbus.streams_transport_base import (
     _is_nogroup,
     _PendingEntry,
     _stream_id_key,
 )
+from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.transport_base import (
     _METRIC_TARGETED_SKIPPED,
     _POISON_SCAN_COUNT,

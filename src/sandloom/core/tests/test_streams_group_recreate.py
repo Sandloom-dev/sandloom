@@ -21,9 +21,9 @@ from typing import Any
 import orjson
 import pytest
 
+from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.streams_bus import StreamsEventBus
-from sandloom.core.eventing.streams_transport import RedisStreamsTransport
 from sandloom.core.infra.ports.eventbus import ConsumerInfo
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.testing import reload_test_env

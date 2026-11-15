@@ -251,12 +251,14 @@ def test_the_scan_also_sees_sdk_and_shared() -> None:
 
 IMPORTLINTER = REPO / ".importlinter"
 EVENTING_CONTRACT = "importlinter:contract:eventing-no-transport-impl"
-TRANSPORT_IMPL = {
-    "sandloom.core.eventing.streams_transport",
-    "sandloom.core.eventing.streams_transport_base",
-    "sandloom.core.eventing.streams_consume",
-    "sandloom.core.eventing.streams_groups",
-}
+#: The Redis Streams transport files, which moved to the driver package
+#: ``core/drivers/redis_eventbus`` (idk-eventbus-move): none is in eventing.
+TRANSPORT_FILES = (
+    "streams_transport",
+    "streams_transport_base",
+    "streams_consume",
+    "streams_groups",
+)
 
 
 def _eventing_contract() -> dict[str, str]:
@@ -271,31 +273,25 @@ def _lines(value: str) -> list[str]:
     return [line.strip() for line in value.splitlines() if line.strip()]
 
 
-def test_the_eventing_contract_forbids_every_transport_and_backend() -> None:
+def test_the_eventing_contract_forbids_every_driver_and_backend() -> None:
     contract = _eventing_contract()
     assert contract["type"] == "forbidden"
     forbidden = set(_lines(contract["forbidden_modules"]))
-    assert TRANSPORT_IMPL <= forbidden
     assert {"sandloom.core.drivers", *BACKEND_SDKS} <= forbidden
     # G-KERNEL-04: no kernel contract carries an ignore_imports escape.
     assert "ignore_imports" not in contract
 
 
-def test_every_eventing_module_is_a_delivery_source_or_a_transport_file() -> None:
-    """import-linter does not check a package against a forbidden module inside
-    it, so the contract lists the delivery modules one by one. A new eventing
-    module must be placed on purpose: a source here (and in the contract), or a
-    transport file (TRANSPORT_IMPL, until it moves to a driver)."""
-    sources = set(_lines(_eventing_contract()["source_modules"]))
-    assert not sources & TRANSPORT_IMPL, "a transport file is not a source"
-    on_disk = {
-        f"sandloom.core.eventing.{path.stem}"
-        for path in (CORE / "eventing").glob("*.py")
-        if path.stem != "__init__"
-    }
-    unplaced = on_disk - sources - TRANSPORT_IMPL
-    assert not unplaced, (
-        f"place {sorted(unplaced)} in .importlinter {EVENTING_CONTRACT} "
-        "source_modules (delivery logic) or, if it speaks a backend, in "
-        "TRANSPORT_IMPL and forbidden_modules"
-    )
+def test_the_whole_eventing_package_is_the_contract_source() -> None:
+    """The transport left the package, so the contract holds all of it: a new
+    eventing module is held to the rule without being listed."""
+    sources = _lines(_eventing_contract()["source_modules"])
+    assert sources == ["sandloom.core.eventing"]
+
+
+def test_no_transport_file_is_left_in_eventing() -> None:
+    """The Redis Streams transport lives in ``core/drivers/redis_eventbus``."""
+    left = [n for n in TRANSPORT_FILES if (CORE / "eventing" / f"{n}.py").exists()]
+    assert not left, f"{left} belong in core/drivers/redis_eventbus"
+    package = CORE / "drivers" / "redis_eventbus"
+    assert all((package / f"{n}.py").is_file() for n in TRANSPORT_FILES)
