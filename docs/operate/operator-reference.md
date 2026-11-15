@@ -531,7 +531,7 @@ sandloom backup verify default-20261022T0300Z.dump --database default \
   server; in prod pass a scratch server or `--confirm-production`), checks that
   every chain the instance hosts is at its head, that the core tables exist
   (outbox, audit, inbox, command and idempotency logs, saga tables, projection
-  watermarks, `infra_lease`),
+  watermarks, `infra_lease`, `infra_atomic_store`),
   that indexes / constraints are valid and foreign keys hold, reports the
   newest audit row (your effective RPO) and the outbox backlog, then drops the
   database (`--keep` keeps it). Exit 0 = the backup restores and is current.
@@ -987,7 +987,7 @@ sampled every 5 s by a background task, the outbox age by the relay every
 | `sandloom_db_pool_overflow` | gauge, `database`, `pool` | Open connections beyond `pool_size`. |
 | `sandloom_db_pool_checkout_waiters` | gauge, `database`, `pool` | Checkouts queued at the pool's fair gate — the pool is exhausted. A 5 s sample: short bursts show in request latency first. |
 | `sandloom_cache_operation_errors_total` | counter, `instance`, `operation` | Redis cache operations that failed (connection, timeout, server error); caller errors are not counted. |
-| `sandloom_atomic_store_operation_errors_total` | counter, `instance`, `operation` | Redis `atomic_store` operations (security / idempotency store) that failed (connection, timeout, server error); caller errors are not counted. |
+| `sandloom_atomic_store_operation_errors_total` | counter, `instance`, `operation` | `atomic_store` operations (`redis` and `database` drivers; security / idempotency store) that failed (connection, timeout, server error); caller errors are not counted. |
 | `sandloom_auth_revocation_check_duration_seconds` | histogram, `mode` | The request's live session-record check (`mode` is always `strict`); per-request memo hits are not timed. |
 | `sandloom_rate_limit_rejected_total` | counter, `route` | `429` answers of `rate_limiter` (route template, `unmatched` for 404s). |
 | `sandloom_rate_limit_unavailable_total` | counter, `outcome` | Rate-limit checks without a cache answer: `open` (allowed) / `closed` (503). |

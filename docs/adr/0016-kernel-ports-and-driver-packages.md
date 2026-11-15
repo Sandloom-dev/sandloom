@@ -184,8 +184,9 @@ already works through renderers.
 2. Redis and Celery leave the kernel wheel this wave, as `sandloom-redis` and `sandloom-celery`,
    released in lockstep and installed by the existing extras. No shims.
 3. `lease` on the database: yes, a logged row with a fence and no advisory locks. `atomic_store` on
-   the database: yes, as an option with a stated price (+0.2 to 0.7 ms per authenticated request,
-   twice that on a write), not the standard default. `broadcast` and the task queue stay on Redis
+   the database: yes, as an option with a stated price (+0.2 to 0.7 ms per authenticated request;
+   measured on a write, +1.3 ms for `set_subject_state`, about four times Redis, and +1.1 ms for
+   `add_or_get` on a held key), not the standard default. `broadcast` and the task queue stay on Redis
    and Celery.
 4. Sandloom has its own task API: `@task`, `task.enqueue(payload, delay=, idempotency_key=)` and a
    declarative `@periodic(cron=, id=)` replacing `setup_periodic_tasks(sender)`. The driver dedupes

@@ -71,6 +71,7 @@ CORE_TABLES = (
     "saga_steps",
     "projection_watermarks",
     "infra_lease",
+    "infra_atomic_store",
 )
 #: What a restore adds to every ``infra_lease`` fence (see :func:`lift_fences`).
 #: A restored dump rewinds fences to the snapshot; the holders of the lost
@@ -161,15 +162,19 @@ def _postgres_item(
     )
 
 
-def _atomic_store_roles(atomic: Mapping[str, Any]) -> list[tuple[str, str]]:
-    """``(url, role)`` of every Redis ``atomic_store`` instance."""
+def _atomic_store_roles(
+    atomic: Mapping[str, Any], driver: str = "redis"
+) -> list[tuple[str, str]]:
+    """``(url, role)`` of every ``atomic_store`` instance of ``driver`` (``redis``,
+    or ``database``: the rows of ``infra_atomic_store``)."""
     separate = "idempotency" in atomic
+    where = " (infra_atomic_store)" if driver == "database" else ""
     found: list[tuple[str, str]] = []
     for name, inst in sorted(atomic.items()):
         url = inst.options.get("url")
-        if inst.driver != "redis" or not isinstance(url, str) or not url:
+        if inst.driver != driver or not isinstance(url, str) or not url:
             continue
-        role = f"atomic_store:{name}"
+        role = f"atomic_store:{name}{where}"
         if name == "security":
             role += " [SECURITY: revocation marks, user blocks, RPC nonces"
             role += "]" if separate else ", idempotency]"
@@ -177,6 +182,35 @@ def _atomic_store_roles(atomic: Mapping[str, Any]) -> list[tuple[str, str]]:
             role += " [IDEMPOTENCY: guard / task-enqueue dedupe records]"
         found.append((url, role))
     return found
+
+
+def _database_store_items(
+    atomic: Mapping[str, Any],
+    postgres: dict[str, PlanItem],
+    descriptors: Sequence[ModuleDescriptor],
+) -> list[PlanItem]:
+    """Fold the ``database`` atomic_store instances into the plan.
+
+    An instance on a database the plan already lists adds its role (and, for the
+    security store, the restore warning) to that item; one on a URL of its own
+    becomes an item of its own. ``postgres`` maps libpq URL -> item."""
+    extra: list[PlanItem] = []
+    for url, role in _atomic_store_roles(atomic, "database"):
+        security = "SECURITY" in role
+        key = _libpq_url(url)
+        item = postgres.get(key)
+        if item is None:
+            item = _postgres_item(role.split(" ", 1)[0], url, descriptors)
+            postgres[key] = item
+            extra.append(item)
+        item.roles.append(role)
+        if security:
+            item.restore.append(
+                "infra_atomic_store holds the revocation marks and user blocks: a "
+                "dump older than a later block / revocation LIFTS it silently: run "
+                "sandloom backup reconcile-security --apply before admitting traffic"
+            )
+    return extra
 
 
 def _redis_roles(config: Any, settings: Any) -> dict[str, list[str]]:
@@ -291,10 +325,15 @@ def build_backup_plan(
     (``core.module_settings.records()``), whose secrets the plan lists."""
     config = load_infra_config(settings)
     items: list[PlanItem] = []
+    postgres: dict[str, PlanItem] = {}
     for name, inst in sorted((config.get("database") or {}).items()):
         url = inst.options.get("url")
         if isinstance(url, str) and url:
-            items.append(_postgres_item(name, url, descriptors))
+            items.append(item := _postgres_item(name, url, descriptors))
+            postgres[_libpq_url(url)] = item
+    items.extend(
+        _database_store_items(config.get("atomic_store") or {}, postgres, descriptors)
+    )
     for url, roles in _redis_roles(config, settings).items():
         items.append(_redis_item(url, roles))
     for name, inst in sorted((config.get("objectstore") or {}).items()):

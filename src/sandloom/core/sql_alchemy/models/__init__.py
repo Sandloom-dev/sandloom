@@ -4,6 +4,9 @@ Note: These models are infrastructure-only (e.g., outbox) and must not leak
 into business modules directly. Repositories or services should be injected.
 """
 
+from sandloom.core.sql_alchemy.models.atomic_store import (
+    InfraAtomicStore as InfraAtomicStore,
+)
 from sandloom.core.sql_alchemy.models.consumer_inbox import (
     ConsumerInboxEntry as ConsumerInboxEntry,
 )
@@ -34,6 +37,7 @@ __all__ = [
     "ConsumerInboxEntry",
     "ContractCommandRecord",
     "HttpIdempotencyRecord",
+    "InfraAtomicStore",
     "InfraLease",
     "SagaInstance",
     "SagaStepRecord",

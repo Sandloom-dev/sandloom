@@ -462,10 +462,12 @@ production. **Performance hints.** `get`, `add_or_get`, `set_subject_state`, `co
   - `set_subject_state`: in one transaction, the row read `FOR UPDATE` (expired: absent), ranked in
     the driver with `parse_subject_state` and `decimal.Decimal`, then written; an absent key is
     written by the insert of `add` and the loop repeats once when that insert loses.
-  - `get` filters expired rows; the relay's sweeper purges them later.
+  - `get` filters expired rows; the driver's own periodic task purges them later, on its own
+    engine, with the cutoff computed by the database.
 
   It declares `shared` and `never_evicts`. Its price is stated in its docs page: +0.2-0.7 ms per
-  authenticated request, twice that on a write.
+  authenticated request; measured on a write, +1.3 ms for `set_subject_state` (about four times
+  Redis) and +1.1 ms for `add_or_get` on a held key.
 
 **Kit (`AtomicStoreConformance`).** The cache kit's key-value groups minus eviction tolerance; 50
 concurrent `add`s, one winner; 50 concurrent `add_or_get`s, one creator and every loser sees the
