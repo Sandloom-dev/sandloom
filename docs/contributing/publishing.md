@@ -34,12 +34,15 @@ The GitHub `pypi` environment requires approval by `Maryarty`, including runs
 started by the owner. Administrator bypass is disabled. The owner may approve
 their own run because there is only one maintainer. Allowed deployment refs are
 `main` and the tag patterns of the packages that release by tag:
-`sandloom-v*`, `sandloom-standard-v*`, `sandloom-identity-v*`,
-`sandloom-tenancy-v*` and `sandloom-billing-v*`.
+`sandloom-v*`, `sandloom-identity-v*`, `sandloom-tenancy-v*` and
+`sandloom-billing-v*`.
 
-The workflow starts on `sandloom*-v*`, and the plan step checks the tag against
-`tools/packaging/packages.json`. A tag outside the allowed patterns stops at
-the `pypi` environment until its pattern is allowed there.
+The workflow starts on `sandloom*-v*`. Its plan step checks the tag against
+`tools/packaging/packages.json`: the package must exist and have `tag_release`
+true, which means the environment allows its tag pattern. Any other tag is
+refused there and the run ends. Validation and packaging never start for a tag
+the environment would reject, and the run holds the `pypi-release` concurrency
+group for seconds.
 
 Configure a pending Trusted Publisher for the first `sandloom-s3` release.
 Use a manual release from `main` and include the compatible framework wheel in
@@ -148,21 +151,40 @@ git tag sandloom-v0.7.0a13
 git push origin sandloom-v0.7.0a13
 ```
 
-The other package prefixes are `sandloom-standard-v`, `sandloom-identity-v`,
-`sandloom-tenancy-v` and `sandloom-billing-v`. `sandloom-admin` and `sandloom-s3`
-release through a manual run: the environment's tag patterns do not allow their
-tags yet. Pass `all` or the package name in the `package` input. Release a
-framework version before packages that require it, or use one coordinated
-manual run. Each tag-triggered upload still
-requires the owner's environment approval.
+The other tag prefixes are `sandloom-identity-v`, `sandloom-tenancy-v` and
+`sandloom-billing-v`. Every other package, such as `sandloom-standard`,
+releases through a manual run. No tag pattern of the environment allows its
+tag. Its `tag_release` is false in `packages.json`, so the plan step refuses
+that tag.
+
+Pass `all` or the package name in the `package` input. A manual run can select
+`sandloom-admin` alone, and the owner's approval still gates its upload.
+Release a framework version before packages that require it, or use one
+coordinated manual run. Each tag-triggered upload also requires the owner's
+environment approval.
 
 ## Adding a package
 
 `tools/packaging/packages.json` is the one list of workspace distributions.
-The release, sync and distribution tools read only it. A new package is one
-entry there plus its own `packages/<name>/` files, and no tool changes. The
-entry's `kind` and data set its entry points and its place in the standard set. A test adds a package to a copy of the tooling and runs
-each tool on it.
+The release, sync and distribution tools read it for names, order and
+behavior, and never compare a package name. The loader refuses unknown
+keys and values of the wrong shape. A test adds a package to a copy of the tooling and runs each tool on it. A new
+package still has these steps:
+
+1. The entry in `packages.json`, after the packages it depends on. Set
+   `standard: true` for a package that `sandloom[standard]` installs, a
+   console's `extra`, `route` and `with` where it ships one, and `tag_release`
+   only once step 4 is done.
+2. Its own `packages/<name>/` files.
+3. The kernel's `[project.optional-dependencies]` in
+   `packages/sandloom/pyproject.toml`: an extra for the package, and an entry
+   in `standard` when it is in the standard set. The standard-install check
+   imports what that extra requires.
+4. The `pypi` environment's deployment-tag pattern `<name>-v*`, then
+   `tag_release: true`. Without both, the package releases through a manual run,
+   and the plan step refuses its tag before validation starts.
+5. A Trusted Publisher for the new project, and, for a driver that needs a real
+   service, its own CI lane like `objectstore-s3.yml`.
 
 ## Package metadata and licenses
 

@@ -5,7 +5,9 @@ name: Release (PyPI)
 on:
   push:
     # Any distribution's tag; the plan job refuses a tag that is not exactly
-    # <name>-v<source version> of a package in tools/packaging/packages.json.
+    # <name>-v<source version> of a package in tools/packaging/packages.json
+    # with tag_release true (the packages the pypi environment allows by tag).
+    # validate and publish need plan, so a refused tag stops there.
     tags:
       - "sandloom*-v*"
   workflow_dispatch:

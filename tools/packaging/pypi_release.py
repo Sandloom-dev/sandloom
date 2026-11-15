@@ -48,6 +48,11 @@ def plan_release(
             raise ValueError(
                 "Release tag must exactly match a known package and its source version"
             )
+        if not release_packages.by_name(matched[0]).tag_release:
+            raise ValueError(
+                f"{matched[0]} is not released by tag (tag_release is false in "
+                "packages.json); run the Release workflow by hand"
+            )
         selected, publish = matched, True
     elif event == "workflow_dispatch":
         if package not in (*PACKAGES, "all"):

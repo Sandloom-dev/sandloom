@@ -35,6 +35,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from email.parser import BytesParser
@@ -439,10 +440,13 @@ def _check_kernel_factory(venv: Path, env: dict[str, str], work: Path) -> None:
     _run(
         str(_python(venv)),
         "-c",
-        "import sandloom, sandloom.sdk, sandloom.core.drivers.bootstrap; "
-        "import sandloom.core.drivers.redis_cache; "
-        "import sandloom.core.drivers.celery_taskqueue; "
-        "import sandloom.core.drivers.event_bus_driver; "
+        # Every driver module the kernel wheel ships imports without its
+        # client library; one that moved to a driver package is not in the
+        # wheel, so it is not imported here.
+        "import importlib, pkgutil; "
+        "import sandloom, sandloom.sdk, sandloom.core.drivers as drivers; "
+        "[importlib.import_module(f'{drivers.__name__}.{m.name}') "
+        "for m in pkgutil.iter_modules(drivers.__path__)]; "
         "from sandloom.core.app_factory import create_app; "
         "assert type(create_app()).__name__ == 'FastAPI'; "
         "import sandloom.main as m; assert m.core.loaded_modules == []; "
@@ -450,6 +454,38 @@ def _check_kernel_factory(venv: Path, env: dict[str, str], work: Path) -> None:
         cwd=work,
         env={**env, "SANDLOOM_MODULES": "[]"},
     )
+
+
+def _standard_third_party() -> list[str]:
+    """Third-party distributions the kernel's ``standard`` extra pulls in.
+
+    Read from the kernel's ``pyproject.toml`` (nested ``sandloom[...]`` extras
+    followed; the workspace's own distributions skipped), so the check names no
+    client library: what the extra requires is what must import."""
+    extras = tomllib.loads((PACKAGE_ROOT / KERNEL / "pyproject.toml").read_text())[
+        "project"
+    ]["optional-dependencies"]
+    found: set[str] = set()
+    seen: set[str] = set()
+    pending = ["standard"]
+    while pending:
+        extra = pending.pop()
+        if extra in seen:
+            continue
+        seen.add(extra)
+        for requirement in extras[extra]:
+            name = re.match(r"[A-Za-z0-9][A-Za-z0-9._-]*", requirement)
+            if name is None:
+                raise RuntimeError(f"unreadable requirement: {requirement!r}")
+            canonical = re.sub(r"[-_.]+", "-", name.group()).lower()
+            if canonical == KERNEL:
+                inner = re.search(r"\[([^\]]*)\]", requirement)
+                pending += (
+                    [e.strip() for e in inner.group(1).split(",")] if inner else []
+                )
+            elif canonical not in release_packages.NAMES:
+                found.add(canonical)
+    return sorted(found)
 
 
 def check_standard_install(temp: Path, wheels: dict[str, Path]) -> None:
@@ -464,6 +500,14 @@ def check_standard_install(temp: Path, wheels: dict[str, Path]) -> None:
     members = release_packages.standard_set()
     root = release_packages.of_kind("root")[0]
     loaded = sorted(p.import_name for p in members if p.kind == "module")
+    third_party = _standard_third_party()
+    driver_modules = sorted(
+        {
+            spec["target"].split(":")[0]
+            for p in members
+            for spec in (p.drivers or {}).values()
+        }
+    )
     _run(
         "uv", "pip", "install", "--compile-bytecode", "--python", str(_python(venv)),
         f"sandloom[standard] @ {kernel.resolve().as_uri()}",
@@ -472,7 +516,20 @@ def check_standard_install(temp: Path, wheels: dict[str, Path]) -> None:
     _run(
         str(_python(venv)),
         "-c",
-        f"import redis, celery; import {root.import_name}.main as m; "
+        # What the standard set provides must import: the third-party
+        # distributions of the kernel's `standard` extra (by their top-level
+        # packages) and the modules of standard-set driver packages.
+        "import importlib, importlib.metadata as md; "
+        "owners = md.packages_distributions(); "
+        f"[importlib.import_module(m) for m in {driver_modules!r}]; "
+        f"[importlib.import_module(top) for dist in {third_party!r} "
+        "for top, owned in owners.items() "
+        "if dist in {o.replace('_', '-').replace('.', '-').lower() for o in owned}]; "
+        f"missing = [d for d in {third_party!r} if not any(d in "
+        "{o.replace('_', '-').replace('.', '-').lower() for o in owned} "
+        "for owned in owners.values())]; "
+        "assert not missing, missing; "
+        f"import {root.import_name}.main as m; "
         "from sandloom.core.composition import load_composition_core; "
         "assert type(m.app).__name__ == 'FastAPI'; "
         f"assert m.core.loaded_modules == {loaded!r}, "
