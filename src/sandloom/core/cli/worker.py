@@ -2,7 +2,9 @@
 
     sandloom worker [--queues Q[,Q...]] [--concurrency N] [--loglevel L]
         run a task worker for the loaded modules (every deploy profile's
-        ``<service>-worker``)
+        ``<service>-worker``); the process model is the driver's own option
+        (``worker_pool`` of the celery instance in INFRA: on macOS set solo or
+        threads, the note in docs/modules/background/tasks.md)
     sandloom beat [--loglevel L] [--schedule PATH]
         run the scheduler; it schedules only while it holds the singleton
         lease, a second one stands by (run one per broker and module set)

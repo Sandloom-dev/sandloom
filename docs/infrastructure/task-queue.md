@@ -28,5 +28,7 @@ Celery with a Redis broker. It supports the features `delay`, `periodic` and `re
 | `broker` | the message broker URL; falls back to `BROKER_URL` |
 | `backend` | the result backend URL; falls back to `CACHE_URL` |
 | `dedupe_ttl_seconds` | how long an idempotency key is remembered |
+| `health_timeout_seconds` | the bound of the broker probe behind `/ready`; default 5, at most 300, falls back to `HEALTH_CHECK_TIMEOUT_SECONDS` and is never above it |
+| `worker_pool` | how the worker runs the messages: `prefork` (default), `solo` or `threads`; on macOS set `solo` or `threads` ([the note](../modules/background/tasks.md#the-worker-and-beat)) |
 
 **Limits.** Replacing the task runtime is not a configuration change.

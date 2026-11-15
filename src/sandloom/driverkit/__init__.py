@@ -33,6 +33,7 @@ Guide: ``docs/infrastructure/write-a-driver.md``.
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.infra.capabilities import CapabilityRef, CapabilitySpec
+from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.core.infra.errors import (
     AlreadyExists,
     InfraError,
@@ -150,8 +151,10 @@ __all__ = [
     "TENANT_SETTING",
     "WRITE_LOCK_HELD",
     "CapabilitySpec",
+    "DEFAULT_INSTANCE",
     "HealthResult",
     "InfraProvider",
+    "InstanceConfig",
     "Notification",
     "NotifierProvider",
     "ObjectContent",

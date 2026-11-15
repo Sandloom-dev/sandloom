@@ -51,11 +51,22 @@ def kernel(monkeypatch: pytest.MonkeyPatch) -> _Kernel:
 
 def test_worker_runs_the_worker_with_its_options(kernel: _Kernel) -> None:
     assert worker_cli.worker_main([]) == 0
-    assert kernel.worker == {"queues": None, "concurrency": None, "loglevel": "INFO"}
+    assert kernel.worker == {
+        "queues": None,
+        "concurrency": None,
+        "loglevel": "INFO",
+    }
 
     assert (
         worker_cli.worker_main(
-            ["--queues", "mail,default", "--concurrency", "3", "--loglevel", "DEBUG"]
+            [
+                "--queues",
+                "mail,default",
+                "--concurrency",
+                "3",
+                "--loglevel",
+                "DEBUG",
+            ]
         )
         == 0
     )
@@ -64,6 +75,16 @@ def test_worker_runs_the_worker_with_its_options(kernel: _Kernel) -> None:
         "concurrency": 3,
         "loglevel": "DEBUG",
     }
+
+
+def test_the_worker_has_no_pool_flag_the_pool_is_a_driver_option(
+    kernel: _Kernel, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        worker_cli.worker_main(["--pool", "solo"])
+    assert exit_info.value.code == 2
+    assert "--pool" in capsys.readouterr().err
+    assert kernel.worker is None
 
 
 def test_worker_returns_the_exit_code_of_the_process(kernel: _Kernel) -> None:
@@ -189,7 +210,6 @@ from sandloom.core.cli import worker as worker_cli
 from sandloom.core.drivers.celery_worker import CeleryWorkerHost
 
 app = Celery("dies", broker="memory://", set_as_current=False)
-app.conf.worker_pool = "solo"
 
 
 class Dies(bootsteps.StartStopStep):
@@ -205,7 +225,7 @@ class Provider:
     options = {}
 
     def worker_host(self):
-        return CeleryWorkerHost(lambda: app)
+        return CeleryWorkerHost(lambda: app, worker_pool="solo")
 
     def features(self):
         return frozenset({"delay", "periodic", "redelivery"})

@@ -2,7 +2,7 @@
 
 ``CeleryTaskQueueProvider.health()`` answers with :func:`probe_broker`: one
 kombu connection to the app's broker, opened and released, bounded by
-``HEALTH_CHECK_TIMEOUT_SECONDS`` (the connect timeout and, for the Redis
+the ``health_timeout_seconds`` option (the connect timeout and, for the Redis
 transports, the socket timeouts), with no retry. Building the provider sends
 nothing to the broker, so without this probe a broker outage was invisible to
 every health reader (``/ready``, ``/diagnostics/infra``, ``sandloom doctor``).
@@ -19,8 +19,7 @@ import asyncio
 from typing import Any
 from urllib.parse import urlsplit
 
-from sandloom.core.config.settings import settings
-from sandloom.core.descriptors import HealthResult
+from sandloom.driverkit import HealthResult
 
 #: Broker URL schemes of the kombu Redis transports, which take their socket
 #: timeouts from the transport options (``connect_timeout`` alone does not
@@ -65,9 +64,10 @@ class BrokerUnreachableError(RuntimeError):
     endpoint, a log and a metric label."""
 
 
-async def probe_broker(app: Any, *, limit_seconds: float | None = None) -> HealthResult:
+async def probe_broker(app: Any, *, limit_seconds: float) -> HealthResult:
     """``ok`` when ``app``'s broker accepts a connection within
-    ``limit_seconds`` (default ``HEALTH_CHECK_TIMEOUT_SECONDS``); ``fail`` with
+    ``limit_seconds`` (the driver's ``health_timeout_seconds`` option, which
+    the kernel fills from ``HEALTH_CHECK_TIMEOUT_SECONDS``); ``fail`` with
     the details ``{"error": "timeout"}`` (one token, the shape of every health
     detail) when it does not answer in time. A refused or dropped connection
     raises :class:`BrokerUnreachableError`, which
@@ -79,13 +79,10 @@ async def probe_broker(app: Any, *, limit_seconds: float | None = None) -> Healt
     waits on the broker; the connect and socket timeouts end that thread
     too, so an unreachable broker never leaves one behind.
     """
-    bound = float(
-        settings.health_check_timeout_seconds
-        if limit_seconds is None
-        else limit_seconds
-    )
     try:
-        await asyncio.wait_for(asyncio.to_thread(_connect_once, app, bound), bound)
+        await asyncio.wait_for(
+            asyncio.to_thread(_connect_once, app, limit_seconds), limit_seconds
+        )
     except TimeoutError:
         return HealthResult(status="fail", details={"error": "timeout"})
     except Exception as exc:

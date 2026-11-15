@@ -328,7 +328,8 @@ def run_worker(
     instance: str | None = None,
 ) -> int:
     """``sandloom worker``: boot the composition and run the driver's worker
-    host; the process exit code."""
+    host (its process model is a driver option, not an argument); the process
+    exit code."""
     core = core if core is not None else load_composition_core()
     name = instance or taskqueue_instance()
     provider, host = resolve_worker_host(core, name)
