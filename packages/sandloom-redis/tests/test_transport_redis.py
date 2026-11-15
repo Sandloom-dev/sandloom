@@ -1,6 +1,7 @@
 """RedisStreamsTransport integration tests (real Redis Streams).
 
-Skipped when CACHE_URL is unset or Redis is unreachable. Proves durable
+Skipped (a failure in the ``redis-drivers`` lane) when the test Redis is not
+configured or not reachable. Proves durable
 at-least-once over Streams: published entries persist, unacked entries are
 redelivered to the same consumer (after a retry backoff), acked entries are not,
 poison entries reach the DLQ only after the backoff schedule, and DLQ entries can
@@ -10,28 +11,19 @@ be replayed.
 from __future__ import annotations
 
 import asyncio
-import os
 import time
-from pathlib import Path
 from typing import Any
 
 import orjson
 import pytest
+import redis.asyncio as redis_asyncio
+from _redis_required import redis_unavailable
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 
+from sandloom.core.config.settings import settings
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.transport_base import DLQ_REASON_SOURCE_MISSING
 from sandloom.core.infra.errors import Unavailable
-from sandloom.core.testing import reload_test_env
-
-redis_asyncio = pytest.importorskip("redis.asyncio")
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _load_test_env() -> None:
-    env_test = Path(__file__).resolve().parents[4] / ".env.test"
-    if env_test.exists():
-        reload_test_env(env_test)
 
 
 def _env(event_id: str) -> EventEnvelope:
@@ -47,14 +39,14 @@ def _env(event_id: str) -> EventEnvelope:
 
 @pytest.fixture
 async def redis_stream():
-    cache_url = os.getenv("CACHE_URL")
+    cache_url = settings.cache_url
     if not cache_url:
-        pytest.skip("CACHE_URL not set; Redis Streams integration skipped")
+        redis_unavailable("CACHE_URL not set; Redis Streams integration skipped")
     client = redis_asyncio.from_url(cache_url, encoding="utf-8", decode_responses=True)
     try:
         await client.ping()
     except Exception:  # pragma: no cover  # noqa: BLE001 - test Redis unreachable: skip
-        pytest.skip("Redis unreachable")
+        redis_unavailable("Redis unreachable")
     stream = "test.transport.stream"
     await client.delete(stream, f"{stream}.dlq")
 

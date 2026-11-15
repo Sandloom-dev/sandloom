@@ -632,11 +632,13 @@ jobs:
   redis-drivers:
     # The sandloom-redis package (atomic_store, lease, broadcast, cache drivers and
     # the Streams event bus):
-    # its wheel, style, strict types, its tests and conformance kits against a
+    # its wheel, style, strict types, its tests and conformance kits (the
+    # EventTransportConformance kit of the streams driver included) against a
     # real Redis, and the kernel's tests of the driver rows. The package is
     # tested as its built wheel, so the entry points the registry reads are the
     # ones the wheel ships. The root pytest paths exclude packages/, so no
-    # other job runs these tests.
+    # other job runs these tests. Its skip ledger (lane `redis`) feeds the
+    # skip-ledger job.
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.packages == 'true' }}
     runs-on: ubuntu-latest
@@ -708,14 +710,32 @@ jobs:
       - name: Driver package types
         run: uv run --no-sync mypy packages/sandloom-redis/src
 
+      - name: The tests run against the wheel, not the source tree
+        run: >-
+          uv run --no-sync python -I -c
+          "import sandloom_redis, pathlib;
+          p = pathlib.Path(sandloom_redis.__file__).resolve();
+          assert 'site-packages' in p.parts, p"
+
       - name: Driver tests, their conformance kits and the kernel's driver rows
         run: >-
           uv run --no-sync pytest -q -n 2 --dist loadfile
+          -p sandloom.core.testing.skip_ledger --sandloom-skip-ledger-lane=redis
+          --sandloom-skip-ledger=skip-ledger/redis.json
           packages/sandloom-redis/tests
           src/sandloom/core/tests/test_redis_driver_rows.py
           src/sandloom/core/tests/test_atomic_store.py
           src/sandloom/core/tests/test_lease.py
           src/sandloom/core/tests/test_broadcast_redis.py
+
+      - name: Upload the skip ledger
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: skip-ledger-redis
+          path: skip-ledger/
+          if-no-files-found: error
+          retention-days: 3
 
   celery-drivers:
     # The sandloom-celery package (the `celery` taskqueue driver, its worker
@@ -964,7 +984,7 @@ jobs:
     # Runs when either lane pair ran (backend-tests + the modules step,
     # examples + the examples step); a skipped job uploads nothing, and each
     # ledger present is judged with the ledgers of its other lane.
-    needs: [changes, backend-tests, examples, second-db-test-lane, celery-drivers]
+    needs: [changes, backend-tests, examples, second-db-test-lane, redis-drivers, celery-drivers]
     if: ${{ !cancelled() && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.examples == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
