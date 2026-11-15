@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -90,9 +91,35 @@ def test_the_first_handover_is_refused_with_the_record_and_the_second_passes(
     assert _call(monkeypatch, event) == ""
 
 
-def test_a_broken_run_lets_the_handover_through(
+def test_a_run_that_could_not_happen_is_recorded_once_as_not_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    def timeout(top: str) -> tuple[dict[str, str], str]:
+        raise hook.subprocess.TimeoutExpired("pre-commit", 540)
+
     monkeypatch.setattr(hook, "_git", lambda args, cwd: "x")
-    monkeypatch.setattr(hook, "run_checks", lambda top: ({}, ""))
-    assert _call(monkeypatch, {"agent_type": hook.AGENT, "tool_input": {}}) == ""
+    for broken in (timeout, lambda top: ({}, "uv: command not found")):
+        monkeypatch.setattr(hook, "run_checks", broken)
+        event = {"agent_type": hook.AGENT, "tool_input": {}}
+        answer = json.loads(_call(monkeypatch, event))["hookSpecificOutput"]
+        deliverable = json.loads(answer["permissionDecisionReason"].splitlines()[-1])
+        record = json.loads(deliverable["content"])
+        assert record["results"] == {}
+        assert record["not_run"]
+        event["tool_input"]["deliverables"] = [deliverable]
+        assert _call(monkeypatch, event) == ""
+
+
+def test_the_settings_route_every_tm_server_name_to_the_hook() -> None:
+    settings = json.loads((ROOT / ".claude/settings.json").read_text())
+    matchers = [
+        entry["matcher"]
+        for entry in settings["hooks"]["PreToolUse"]
+        if any("task_done_checks.py" in h["command"] for h in entry["hooks"])
+    ]
+    assert len(matchers) == 1
+    pattern = re.compile(matchers[0])
+    assert pattern.search("mcp__tm__task_done")
+    assert pattern.search("mcp__tm-dev__task_done")
+    assert not pattern.search("mcp__tm__task_done_extra")
+    assert not pattern.search("mcp__tm__task_start")

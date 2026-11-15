@@ -108,9 +108,11 @@ def main() -> int:
     head = _git(["rev-parse", "HEAD"], cwd)
     if not top or not head or already_checked(tool_input, head):
         return 0
-    outcome, tail = run_checks(top)
-    if not outcome:
-        return 0
+    try:
+        outcome, tail = run_checks(top)
+        not_run = "" if outcome else "pre-commit printed no hook result: " + tail[-300:]
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        outcome, tail, not_run = {}, "", f"{type(exc).__name__}: {exc}"[:300]
     record = {
         "commit": head,
         "ran": "pre-commit run --from-ref origin/main --to-ref HEAD",
@@ -118,6 +120,10 @@ def main() -> int:
         "results": outcome,
         "failed": sorted(k for k, v in outcome.items() if v == "Failed"),
     }
+    if not_run:
+        # Recorded once, so the reviewer sees why there is no result; the
+        # second call carries it through like any other record.
+        record["not_run"] = not_run
     if record["failed"]:
         record["tail"] = tail
     deliverable = {"kind": "checks", "content": json.dumps(record, sort_keys=True)}

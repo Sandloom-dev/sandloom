@@ -5,7 +5,6 @@
       "reason": "Agent procedures for supported public workflows.",
       "paths": [
         ".agents/skills/sandloom-docs-brief/SKILL.md",
-        ".tm/fleet-brief.md",
         ".agents/skills/sandloom-docs-concepts/SKILL.md",
         ".agents/skills/sandloom-docs-eval/SKILL.md",
         ".agents/skills/sandloom-docs-positioning/SKILL.md",
@@ -2597,7 +2596,6 @@
         "tests/architecture/test_skip_ledger.py",
         "tests/architecture/test_source_export.py",
         "tests/architecture/test_system_channel_unreachable.py",
-        "tests/architecture/test_task_done_checks.py",
         "tests/architecture/test_task_enqueue_ownership.py",
         "tests/architecture/test_tenant_scoped_models_rule.py",
         "tests/architecture/test_uow_bootstrap_single_source.py",
@@ -3231,7 +3229,9 @@
     ".claude/agents/sandloom-implementer.md": "The owner's fleet agent types for tm-fleet runs in this repository; not part of the framework's public source.",
     ".claude/agents/sandloom-reviewer.md": "The owner's fleet agent types for tm-fleet runs in this repository; not part of the framework's public source.",
     ".claude/agents/sandloom-waiter.md": "The owner's fleet agent types for tm-fleet runs in this repository; not part of the framework's public source.",
-    ".claude/settings.json": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source."
+    ".claude/settings.json": "The owner's local task tracker setup, written and rewritten by `tm setup`; not part of the framework's public source.",
+    "tests/architecture/test_task_done_checks.py": "Tests of the owner's fleet hook (.claude/hooks, excluded); not part of the framework's public source.",
+    ".tm/fleet-brief.md": "The owner's fleet rules for tm agents, like the tm-fleet skill and .claude/hooks; not part of the framework's public source."
   },
   "exclude_trees": {
     ".agents/skills/sandloom-registries": "The owner's fleet-agent reference skill (runs tools/agent_reference.py); not part of the framework's public source.",

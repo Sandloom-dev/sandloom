@@ -8,8 +8,11 @@ reading, checks, the "Before the PR" checklist) are in your agent file.
 - `git fetch origin`, `git reset --hard origin/main` (or the base your prompt
   names), `git checkout -b claude/<alias>`: each its own call. A base that
   moves is merged in; never rebase or force-push.
-- `CHANGELOG.md` and `tools/packaging/public-source.json` merge by themselves
-  (`.gitattributes`); a conflict left in them is real: keep both sides.
+- `CHANGELOG.md` merges by itself (`.gitattributes`, union); so does
+  `tools/packaging/public-source.json` once the clone has run
+  `python3 tools/packaging/merge_public_source.py --install` (worktrees share
+  the clone's config; `git config merge.public-source.driver` shows it). A
+  conflict left in them is real: keep both sides.
 - Shared registries are unguarded in tm: `CHANGELOG.md`,
   `tools/packaging/public-source.json`, `public_api_baseline.json`,
   `guarantees.yml`, `docs/reference/guarantees.md`,

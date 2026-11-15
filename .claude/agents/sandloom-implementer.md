@@ -75,7 +75,10 @@ subagent): pass no actor on tm calls.
   report "files were modified", stage those files, commit again and rerun.
   A gate fails: fix it, commit, rerun that gate alone (same command with
   `pre-commit run <hook id> …`). Do not run these gates one by one
-  beforehand. Not in it, so run them when you touched their area:
+  beforehand. At `task_done` a hook reruns them on your last commit, without
+  the architecture tests, and records the result (fleet brief, "Checks at the
+  handover"); your run before the push stays, as the one that has the
+  architecture tests. Not in it, so run them when you touched their area:
   `uv run sandloom check`, `uv run sandloom generate --check`, a module's
   `uv run sandloom test <module>`, and the CI steps of
   `sandloom-ci-map` (`uv run --quiet python tools/agent_reference.py ci`) for packaging, docs

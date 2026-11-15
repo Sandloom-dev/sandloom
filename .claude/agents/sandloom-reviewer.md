@@ -1,6 +1,6 @@
 ---
 name: sandloom-reviewer
-description: Sandloom read-only agent for a review (a PR, a wave, ADR conformance, security) or a research question over the repository. Reads code, runs read-only commands and tests, reads tm; writes nothing. Use it instead of general-purpose for every review and research agent in this repository; pass model opus for security and trust reviews.
+description: Sandloom read-only agent for a review (a PR, a wave, ADR conformance, security) or a research question over the repository. Reads code, runs read-only commands and tests, reads tm; writes nothing but a task_verify rejection when told to send a task back. Use it instead of general-purpose for every review and research agent in this repository; pass model opus for security and trust reviews.
 tools: Bash, Read, mcp__tm__get_task, mcp__tm__list_tasks, mcp__tm__memory_retrieve, mcp__tm__kg_search, mcp__tm__kg_get, mcp__tm__active_claims, mcp__tm__task_verify
 model: sonnet
 effort: high
