@@ -14,6 +14,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+import sandloom.core.drivers.redis_cache as _redis_cache
 from sandloom.core.drivers.redis_eventbus.streams_transport import (
     RedisStreamsTransport,
 )
@@ -22,9 +23,8 @@ from sandloom.driverkit import (
     HealthResult,
     InfraProvider,
 )
-from sandloom.driverkit import redis_client as _redis_client
+from sandloom.driverkit._builtin_streams import BUS_BLOCK_MS
 from sandloom.driverkit.eventbus_support import (
-    BUS_BLOCK_MS,
     DEFAULT_EVENT_STREAM_RETENTION_SECONDS,
     health_failure_details,
 )
@@ -38,7 +38,9 @@ _DEFAULT_INSTANCE = "default"
 class _InstanceLike(Protocol):
     name: str
     driver: str
-    options: Mapping[str, Any]
+
+    @property
+    def options(self) -> Mapping[str, Any]: ...
 
 
 class EventBusOptions(BaseModel):
@@ -78,10 +80,11 @@ class _LazyRedisClient:
     A named eventbus instance with its own ``url`` connects its own client on
     first use and caches it — a bounded transport client (connect timeout,
     keepalive, health check, the bus's read timeout; see
-    ``sandloom.driverkit.redis_client.build_transport_client``). Because the
+    ``sandloom.core.drivers.redis_cache.build_transport_client``). Because the
     client is owned by this instance (not the shared default), it must be
-    closed on shutdown — :meth:`aclose` does that, and :class:`StreamsEventBusProvider` calls it
-    from ``aclose`` so the dedicated connection pool does not leak.
+    closed on shutdown — :meth:`aclose` does that, and
+    :class:`StreamsEventBusProvider` calls it from its own ``aclose`` so the
+    dedicated connection pool does not leak.
     """
 
     def __init__(
@@ -96,7 +99,7 @@ class _LazyRedisClient:
             options = self._options
             if not options.url:
                 raise ValueError("eventbus instance has no 'url' option")
-            self._client = _redis_client.build_transport_client(
+            self._client = _redis_cache.build_transport_client(
                 options.url,
                 read_timeout=self._read_timeout,
                 socket_connect_timeout_seconds=options.socket_connect_timeout_seconds,
@@ -149,20 +152,18 @@ def _redis_client_factory(
     """
     options = EventBusOptions.model_validate(cfg.options)
     if not options.url:
-        return partial(_redis_client.get_default_transport_client, read_timeout), None
+        return partial(_redis_cache.get_default_transport_client, read_timeout), None
     if cfg.name == _DEFAULT_INSTANCE:
-        transport = _redis_client.RedisCacheOptions(
+        transport = _redis_cache.RedisCacheOptions(
             url=options.url,
             socket_connect_timeout_seconds=options.socket_connect_timeout_seconds,
             health_check_interval_seconds=options.health_check_interval_seconds,
         )
         # The default client may not be configured yet (the cache instance is
         # built lazily); never replaces what the default cache instance set.
-        _redis_client.configure_default_client(transport, replace=False)
+        _redis_cache.configure_default_client(transport, replace=False)
         return (
-            partial(
-                _redis_client.get_default_transport_client, read_timeout, transport
-            ),
+            partial(_redis_cache.get_default_transport_client, read_timeout, transport),
             None,
         )
     lazy = _LazyRedisClient(options, read_timeout=read_timeout)

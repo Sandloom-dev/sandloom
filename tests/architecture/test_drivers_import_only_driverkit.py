@@ -121,9 +121,12 @@ SEEDED: dict[str, frozenset[str]] = {
     ),
     # idk-streams-driverkit: the driver reaches the kernel through the driver kit
     # only. What stays is its own transport, a sibling the package move takes
-    # along (idk-pkg-redis-streams): no kernel internal.
+    # along (idk-pkg-redis-streams): no kernel internal. The default Redis client
+    # helpers are the cache driver's (idk-streams-driverkitb: the driver kit
+    # imports no driver); the package move takes them to sandloom-redis.
     _D + "event_bus_driver.py": frozenset(
         {
+            "sandloom.core.drivers.redis_cache",
             "sandloom.core.drivers.redis_eventbus.streams_transport",
         }
     ),
@@ -659,7 +662,10 @@ def test_the_seed_holds_the_live_allowlist() -> None:
     # scan, not newly added; removed_by idk-pkg-redis-streams.
     # 103 -> 83 (idk-streams-driverkit, -20): the four files of redis_eventbus/
     # (14 pairs) and six of event_bus_driver's seven import only the driver kit.
-    assert sum(len(v) for v in SEEDED.values()) <= 83
+    # 83 -> 84 (idk-streams-driverkitb, +1): event_bus_driver imports redis_cache
+    # directly (the driver kit's redis_client wrapper hid that edge and inverted
+    # the layering); removed_by idk-pkg-redis-streams.
+    assert sum(len(v) for v in SEEDED.values()) <= 84
 
 
 @pytest.mark.parametrize(

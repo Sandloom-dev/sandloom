@@ -16,13 +16,15 @@ from sandloom.core.drivers.redis_eventbus.streams_transport_base import (
     _stream_id_key,
 )
 from sandloom.driverkit import Delivery, EventEnvelope
+from sandloom.driverkit._builtin_streams import (
+    POISON_SCAN_COUNT,
+    TARGETED_REPLAY_SKIPPED,
+)
 from sandloom.driverkit.eventbus_support import (
     DLQ_REASON_MALFORMED,
     DLQ_REASON_MAX_DELIVERIES,
     DLQ_REASON_SOURCE_MISSING,
-    POISON_SCAN_COUNT,
     TARGET_GROUP_FIELD,
-    TARGETED_REPLAY_SKIPPED,
 )
 from sandloom.driverkit.metrics import safe_inc
 

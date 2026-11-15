@@ -23,8 +23,8 @@ from sandloom.driverkit import (
     GroupOwner,
     StreamInfo,
 )
+from sandloom.driverkit._builtin_streams import INVENTORY_STALE_SECONDS
 from sandloom.driverkit.eventbus_support import (
-    INVENTORY_STALE_SECONDS,
     owner_conflict_message,
     owners_match,
 )

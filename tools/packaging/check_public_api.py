@@ -38,6 +38,7 @@ BASELINE_PATH = ROOT / "public_api_baseline.json"
 EXTRA_MODULES = (
     "sandloom.driverkit",
     "sandloom.driverkit.atomic_store",
+    "sandloom.driverkit.eventbus_support",
     "sandloom.driverkit.testing",
     "sandloom.shared",
     "sandloom.shared.authz",

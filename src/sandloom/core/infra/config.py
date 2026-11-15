@@ -32,6 +32,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+import sandloom.core.config.settings as _settings_module
 from sandloom.core.config.common import Environment
 from sandloom.core.config.eventing import DEFAULT_EVENT_STREAM_RETENTION_SECONDS
 from sandloom.core.config.settings import Settings
@@ -407,6 +408,21 @@ def _fill_eventbus_defaults(config: InfraConfig, settings: Any, cache_url: Any) 
             _fill(cfg.options, settings, _TRANSPORT_CLIENT_SETTINGS)
             if cfg.driver == "streams":
                 _fill(cfg.options, settings, _STREAMS_RETENTION_SETTINGS)
+
+
+def fill_streams_override_defaults(options: dict[str, Any]) -> None:
+    """Fill the key namespace (``prefix``) of a ``streams`` event-bus override.
+
+    The test seam ``override_instance`` configures an instance without the
+    kernel's fill from the flat settings; this makes the one fill that keeps a
+    streams override namespaced like the instance it replaces
+    (``EVENT_STREAM_PREFIX``). An option the override sets is left alone.
+    """
+    _fill(
+        options,
+        _settings_module.settings,
+        {"prefix": _STREAMS_RETENTION_SETTINGS["prefix"]},
+    )
 
 
 def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:

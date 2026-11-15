@@ -8,13 +8,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from sandloom.driverkit import Retention
+from sandloom.driverkit._builtin_streams import RECLAIM_INTERVAL_SECONDS
 from sandloom.driverkit.eventbus_support import (
     DEFAULT_EVENT_STREAM_RETENTION_SECONDS,
     DEFAULT_MAX_DELIVERIES,
     DEFAULT_MIN_IDLE_MS,
     DEFAULT_RETRY_BASE_MS,
     DEFAULT_RETRY_MAX_MS,
-    RECLAIM_INTERVAL_SECONDS,
     TransportDefaults,
     retry_delay_ms,
 )
