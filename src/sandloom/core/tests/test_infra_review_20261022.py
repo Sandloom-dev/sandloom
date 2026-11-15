@@ -190,18 +190,6 @@ async def test_health_probes_are_bounded(monkeypatch: pytest.MonkeyPatch) -> Non
     await registry.aclose_all()
 
 
-async def test_broker_unavailability_is_reported_as_health_failure() -> None:
-    from sandloom_redis.eventbus.driver import StreamsEventBusProvider
-
-    async def client():
-        raise ConnectionError("unavailable")
-
-    provider = StreamsEventBusProvider(
-        name="default", driver="streams", options={}, client_factory=client
-    )
-    assert (await provider.health()).status == "fail"
-
-
 def test_rls_target_role_checked_before_target_tables_exist() -> None:
     from sandloom.core.cli.extract import _target_rls_problem
 

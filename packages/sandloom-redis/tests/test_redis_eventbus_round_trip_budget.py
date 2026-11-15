@@ -6,6 +6,10 @@ per batch whatever its size (per-message dispatch paid GET + SET + XACK = 3
 per EVENT, i.e. 192 for a batch of 64). Round trips are counted on the redis
 connections themselves (``send_packed_command``: one per command, one per
 pipeline), so the number is deterministic.
+
+This is the Redis wire of the driver (its commands, not a kernel timing), so it
+lives with the driver package and runs in the ``redis-drivers`` lane, where a
+missing Redis fails the job instead of skipping.
 """
 
 from __future__ import annotations
@@ -19,6 +23,9 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+import redis.asyncio as redis_asyncio
+from _redis_required import redis_unavailable
+from redis.asyncio.connection import Connection
 from sandloom_redis.cache import RedisCacheProvider
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 
@@ -29,17 +36,14 @@ from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.testing.workers import worker_env_values
 
-redis_asyncio = pytest.importorskip("redis.asyncio")
-from redis.asyncio.connection import Connection  # noqa: E402
-
 BATCH = 64
 
 
 def _cache_url() -> str:
-    env = worker_env_values(Path(__file__).resolve().parents[2] / ".env.test")
+    env = worker_env_values(Path(__file__).resolve().parents[3] / ".env.test")
     url = os.environ.get("CACHE_URL") or env.get("CACHE_URL")
     if not url:
-        pytest.skip("CACHE_URL not configured")
+        redis_unavailable("CACHE_URL not configured")
     return str(url)
 
 
@@ -56,8 +60,9 @@ async def redis_env(
     client = redis_asyncio.from_url(url, encoding="utf-8", decode_responses=True)
     try:
         await client.ping()
-    except Exception:  # pragma: no cover  # noqa: BLE001 - test Redis unreachable: skip
-        pytest.skip("Redis unreachable")
+    except Exception:  # noqa: BLE001 - test Redis unreachable: skip, or fail when required
+        await client.aclose()
+        redis_unavailable("Redis unreachable")
     stream = f"budget.stream.{uuid.uuid4().hex[:8]}.v1"
     cache = RedisCacheProvider(
         name="budget", driver="redis", options={"url": url}, shared=False
