@@ -59,7 +59,10 @@ subagent): pass no actor on tm calls.
 - Static gates: one call, after your commit and before the push (about 4
   minutes, Bash `timeout` 600000). It runs the gates of the paths you changed:
   ruff, format, mypy, architecture tests, import contracts, manifest, public
-  API, prose lint, stale symbols. `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`
+  API, prose lint, stale symbols, and ruff / format / mypy of a changed
+  driver package (`packages/sandloom-redis`, `packages/sandloom-celery`),
+  whole, as CI does. The edit hook skips unused imports mid-edit, so this
+  gate is where they surface. `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`
   and `JWT_SECRET` are the dummy values CI gives the same job (nothing
   connects to them); the four `SANDLOOM_TEST_*` are your own test resources,
   which the architecture tests' conftest needs locally (without them it
