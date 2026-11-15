@@ -127,10 +127,14 @@ def test_real_redis_client_survives_two_loops(monkeypatch: pytest.MonkeyPatch) -
 
     async def roundtrip() -> None:
         client = await redis_cache.get_default_client()
+        unanswered: str | None = None
         try:
             await client.ping()
         except Exception as exc:  # noqa: BLE001 - test Redis unreachable: skip, or fail when required
-            redis_unavailable(f"test Redis not reachable: {exc}")
+            # The type only: redis-py's message names host:port.
+            unanswered = type(exc).__name__
+        if unanswered is not None:
+            redis_unavailable(f"test Redis not reachable ({unanswered})")
         await client.set("sandloom:loop-affinity", "1", ex=5)
         assert await client.get("sandloom:loop-affinity") == "1"
 
