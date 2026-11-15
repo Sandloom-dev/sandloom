@@ -545,7 +545,9 @@ async def test_group_owner_transfer_memory_transport() -> None:
 
 async def test_group_owner_transfer_redis_transport() -> None:
     redis_asyncio = pytest.importorskip("redis.asyncio")
-    from sandloom.core.eventing.streams_transport import RedisStreamsTransport
+    from sandloom.core.drivers.redis_eventbus.streams_transport import (
+        RedisStreamsTransport,
+    )
     from sandloom.core.infra.ports.eventbus import GroupOwnedElsewhere, GroupOwner
 
     values = worker_env_values(BACKEND / ".env.test")

@@ -21,11 +21,11 @@ import pytest
 import pytest_asyncio
 
 from sandloom.core.drivers.redis_cache import RedisCacheProvider
+from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
 from sandloom.core.eventing import consumer_inbox as transport_mod
 from sandloom.core.eventing.consumer_inbox import ConsumerInbox
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.streams_bus import StreamsEventBus
-from sandloom.core.eventing.streams_transport import RedisStreamsTransport
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.testing.workers import worker_env_values
 

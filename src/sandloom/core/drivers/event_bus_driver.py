@@ -16,8 +16,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 import sandloom.core.drivers.redis_cache as _redis_cache
 from sandloom.core.descriptors import HealthResult
+from sandloom.core.drivers.redis_eventbus.streams_transport import (
+    RedisStreamsTransport,
+)
 from sandloom.core.eventing.streams_bus import StreamsEventBus
-from sandloom.core.eventing.streams_transport import RedisStreamsTransport
 from sandloom.core.infra.config import (
     DEFAULT_EVENT_STREAM_RETENTION_SECONDS,
     DEFAULT_INSTANCE,

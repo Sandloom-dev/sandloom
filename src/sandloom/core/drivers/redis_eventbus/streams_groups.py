@@ -11,7 +11,7 @@ from typing import Any
 import orjson
 from prometheus_client import Counter
 
-from sandloom.core.eventing.streams_transport_base import (
+from sandloom.core.drivers.redis_eventbus.streams_transport_base import (
     _as_int,
     _stream_id_key,
     _StreamsTransportBase,
