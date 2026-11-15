@@ -117,7 +117,12 @@ _COMMAND = re.compile(
     r"^(uv run|uv export|uvx|python3 |npm run|npm test|node |deploy/|tools/|"
     r"docker compose|\.venv-kernel|\$BIN/)"
 )
-_SKIP_GLOBS = {".github/workflows/ci.yml", "pyproject.toml", "uv.lock"}
+_SKIP_GLOBS = {
+    ".github/workflows/ci.yml",
+    "pyproject.toml",
+    "uv.lock",
+    "tools/packaging/packages.json",
+}
 _WIDTH = 72
 _NOISE = (
     "--self-test",
@@ -196,7 +201,7 @@ def _ci(root: Path) -> str:
     for job_id, area in required.PR_JOBS.items():
         by_area[area].append(job_id)
     lines = [
-        "## 2. CI by path (a path in the filter runs the area's jobs; globs omit .github, pyproject, uv.lock)",
+        "## 2. CI by path (a matching path runs the area's jobs; hidden: .github, pyproject, uv.lock, packages.json)",
         "",
         "Not listed (full suites, SBOM, UI): `uv run sandloom test <module>`, `admin/AGENTS.md`, `tools/ci/ci_local.py --list`.",
         "",
