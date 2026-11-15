@@ -5,6 +5,7 @@
     {"file": "core/cli/dev/services.py", "sdk": "redis", "sites": 1, "removed_by": "idk-test-harness"},
     {"file": "core/cli/extract.py", "sdk": "psycopg2", "sites": 1, "removed_by": "stays: PostgreSQL ops tool (design.md section 4: psycopg2 stays where the ops tools need it); idk-ratchets-close makes the import lazy"},
     {"file": "core/migrations/backup.py", "sdk": "psycopg2", "sites": 2, "removed_by": "stays: PostgreSQL ops tool (design.md section 4: psycopg2 stays where the ops tools need it); idk-ratchets-close makes the import lazy"},
+    {"file": "core/migrations/pg_sync.py", "sdk": "psycopg2", "sites": 4, "removed_by": "stays: the one lazy import of the PostgreSQL ops tools and the test harness (design.md section 4); backup, extract, dev services and the harness name psycopg2 through it"},
     {"file": "core/testing/connections.py", "sdk": "psycopg2", "sites": 1, "removed_by": "stays: PostgreSQL test harness (design.md section 4); idk-ratchets-close makes the import lazy"},
     {"file": "core/testing/migrations.py", "sdk": "psycopg2", "sites": 1, "removed_by": "stays: PostgreSQL test harness (design.md section 4); idk-ratchets-close makes the import lazy"},
     {"file": "core/testing/ownership.py", "sdk": "psycopg2", "sites": 2, "removed_by": "stays: PostgreSQL test harness (design.md section 4); idk-ratchets-close makes the import lazy"},

@@ -283,7 +283,7 @@ def test_an_existing_directory_is_named(tmp_path: Path) -> None:
             app="desk",
             parent=Path("/w"),
             agents=["claude"],
-            framework_req="sandloom[redis,celery]==0.7.0a8",
+            framework_req="sandloom[postgres,redis,celery]==0.7.0a8",
         ),
     ],
 )

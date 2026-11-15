@@ -37,8 +37,8 @@ dependencies = [
     "aiohttp>=3.14.5,<3.15",
     "msgpack>=1.2.3,<2",
     "orjson>=3.13.0,<4",
-    "asyncpg>=0.32.0,<0.33",
-    # the sync driver of `sandloom migrate`, backup and extract-module.
+    # the sync driver of `sandloom migrate`, backup and extract-module. asyncpg,
+    # the async PostgreSQL driver of the application, is the `postgres` extra.
     "psycopg2-binary>=2.9.11,<3",
     "pyjwt>=2.15.1,<3",
     "cryptography>=50.0.2,<51",
@@ -59,6 +59,13 @@ Issues = "https://github.com/Sandloom-dev/sandloom/issues"
 Changelog = "https://github.com/Sandloom-dev/sandloom/blob/main/packages/sandloom/CHANGELOG.md"
 
 [project.optional-dependencies]
+# The async PostgreSQL driver the application connects through
+# (`postgresql+asyncpg://`). Without it the kernel serves a SQLite database
+# (the `sqlite` extra) and refuses a PostgreSQL URL at startup, naming this
+# extra (SANDLOOM-B037).
+postgres = [
+    "asyncpg>=0.32.0,<0.33",
+]
 # The redis-py client, and the package of the Redis atomic_store, lease,
 # broadcast and cache drivers and of the Streams event bus (sandloom-redis).
 redis = [
@@ -72,9 +79,10 @@ celery = [
     "sandloom-celery>=0.7.0a13,<0.8",
 ]
 # The batteries-included set: the standard composition root
-# (sandloom_standard.main), the three standard modules, Redis and Celery.
+# (sandloom_standard.main), the three standard modules, PostgreSQL, Redis and
+# Celery.
 standard = [
-    "sandloom[redis,celery]",
+    "sandloom[postgres,redis,celery]",
     "sandloom-redis>=0.7.0a13,<0.8",
     "sandloom-celery>=0.7.0a13,<0.8",
     "sandloom-standard>=0.7.0a13,<0.8",
@@ -82,8 +90,9 @@ standard = [
     "sandloom-tenancy>=0.7.0a13,<0.8",
     "sandloom-billing>=0.7.0a13,<0.8",
 ]
+# The console serves no task queue: PostgreSQL and the Redis drivers only.
 admin = [
-    "sandloom[redis,celery]",
+    "sandloom[postgres,redis]",
     "sandloom-admin>=0.7.0a13,<0.8",
     "sandloom-identity>=0.7.0a13,<0.8",
 ]

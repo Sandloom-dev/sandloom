@@ -65,6 +65,7 @@ attributes of asyncpg and SQLAlchemy; each is verified once per process
 
 from __future__ import annotations
 
+import importlib.util
 import re
 import uuid
 from collections.abc import Mapping
@@ -539,6 +540,18 @@ class AsyncpgAdapter(DbapiAdapter):
     #: ``citext`` has no SQLAlchemy result processing and asyncpg decodes it to
     #: the same ``str`` (text I/O) on both executors.
     raw_result_only_types = (CITEXT,)
+
+    def config_problem(self, url: str) -> str | None:
+        """asyncpg not installed: it is the optional ``postgres`` extra
+        (SANDLOOM-B037). Build-free: ``find_spec`` imports nothing."""
+        if importlib.util.find_spec("asyncpg") is not None:
+            return None
+        return (
+            "a PostgreSQL URL names the asyncpg DBAPI, which is not installed: "
+            "pip install 'sandloom[postgres]', or point DATABASE_URL at a "
+            "SQLite file (sqlite+aiosqlite:///<path>.db, pip install "
+            "'sandloom[sqlite]') [SANDLOOM-B037]"
+        )
 
     def server_settings(
         self,

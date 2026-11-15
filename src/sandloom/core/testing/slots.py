@@ -48,9 +48,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-import psycopg2  # type: ignore[import-untyped]
 from dotenv import dotenv_values
 
+from sandloom.core.migrations.pg_sync import psycopg2
 from sandloom.core.testing import families
 from sandloom.core.testing.env import LOCAL_ENV_FILE, find_env_file
 from sandloom.core.testing.machine import (

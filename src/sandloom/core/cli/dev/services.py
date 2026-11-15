@@ -14,8 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote, unquote, urlsplit
 
-import psycopg2  # type: ignore[import-untyped]
-from psycopg2 import errors, sql
+from sandloom.core.migrations.pg_sync import errors, psycopg2, sql
 
 #: (user, password) of the generated compose file's local services.
 DEV_CREDENTIALS = ("sandloom", "sandloom")
