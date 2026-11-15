@@ -42,7 +42,7 @@ from sandloom.core.eventing.envelope import (
 )
 from sandloom.core.eventing.origin import envelope_origin
 from sandloom.core.eventing.subscriptions import SubscriptionHandle
-from sandloom.core.infra.errors import InvalidArgument
+from sandloom.core.infra.errors import InvalidArgument, Unsupported
 from sandloom.core.infra.ports.eventbus import EventTransport, Retention
 from sandloom.core.observability.guardrails import enforce_max_size
 from sandloom.core.observability.metrics_utils import safe_inc
@@ -398,4 +398,21 @@ def durable_transport(bus: object) -> EventTransport | None:
             "exposes no transport: a durable bus must name the transport it runs over",
             capability="eventbus",
         )
+    return transport
+
+
+def transport_for(bus: object, feature: str | None = None) -> EventTransport:
+    """The transport of a durable kernel bus for the operation behind ``feature``.
+
+    Raises ``Unsupported`` when the bus has no durable transport (a volatile
+    bus: feature ``durable``) or does not declare ``feature`` (``dlq_ops``,
+    ``inspection``, ``inventory``); ``InvalidArgument`` from
+    :func:`durable_transport` propagates. Group ownership is a required
+    operation of every transport: it passes no feature.
+    """
+    transport = durable_transport(bus)
+    if transport is None or not isinstance(bus, BaseEventBus):
+        raise Unsupported("durable", capability="eventbus")
+    if feature is not None and feature not in bus.bus_features:
+        raise Unsupported(feature, capability="eventbus")
     return transport

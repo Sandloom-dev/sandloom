@@ -2381,6 +2381,8 @@
           },
           "ids": {
             "items": {
+              "maxLength": 80,
+              "pattern": "^[0-9]+-[0-9]+$",
               "type": "string"
             },
             "maxItems": 100,

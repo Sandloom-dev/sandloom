@@ -27,7 +27,7 @@ from typing import Any
 
 from sandloom.core.config.settings import settings
 from sandloom.core.effects import relay_retry_horizon_seconds
-from sandloom.core.eventing.bus_base import durable_transport
+from sandloom.core.eventing.bus_base import transport_for
 from sandloom.core.infra.config import configured_stream_retention_seconds
 from sandloom.core.infra.errors import Unsupported
 from sandloom.core.projections.descriptors import (
@@ -114,8 +114,9 @@ async def oldest_dlq_age_s(
 ) -> float:
     """Age in seconds of the oldest dead-lettered event of ``channels`` (by
     its original stream entry), 0 without a DLQ."""
-    transport = durable_transport(core.event_bus)
-    if transport is None or "dlq_ops" not in core.event_bus.bus_features:
+    try:
+        transport = transport_for(core.event_bus, "dlq_ops")
+    except Unsupported:
         return 0.0
     now_ms = (now or datetime.now(UTC)).timestamp() * 1000.0
     oldest = 0.0

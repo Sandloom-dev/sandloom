@@ -123,8 +123,6 @@ PROBE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
     ("core/projections/operations.py", "list_dlq"): (1, "idk-event-ops"),
     ("core/sagas/runtime.py", "<dynamic>"): (1, "idk-ratchets-close"),
     ("core/sagas/runtime.py", "session_factory"): (1, "idk-ratchets-close"),
-    ("core/tasks/event_ops.py", "release_group_owner"): (1, "idk-event-ops"),
-    ("core/tasks/event_ops.py", "replay_dlq"): (1, "idk-event-ops"),
     ("core/tasks/pool_metrics.py", "pool_stats"): (1, "idk-ratchets-close"),
     ("core/tasks/relay.py", "native_batch_publish"): (1, "idk-eventbus-readers"),
     ("core/tasks/relay.py", "publish_event_batch"): (1, "idk-eventbus-readers"),
