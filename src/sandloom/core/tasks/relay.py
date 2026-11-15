@@ -459,16 +459,24 @@ _UNAVAILABLE_TYPE_NAMES = frozenset(
     }
 )
 #: Redis error-reply prefixes that mean "this server cannot serve writes right
-#: now" (dataset loading, failover to a replica, cluster resharding / down) —
-#: an outage of the broker, never evidence that the EVENT is poison. redis-py
-#: maps LOADING to BusyLoadingError and READONLY to ReadOnlyError, but the
-#: others arrive as a plain ResponseError.
+#: now" (dataset loading, failover to a replica, cluster resharding / down, a
+#: failed background save that stops writes, too few replicas, a key owned by
+#: another cluster node, a blocked read cut by a failover) — an outage of the
+#: broker, never evidence that the EVENT is poison. redis-py maps LOADING to
+#: BusyLoadingError and READONLY to ReadOnlyError, but the others arrive as a
+#: plain ResponseError (or its cluster-redirect subclasses). The Redis drivers
+#: map the same replies to ``Unavailable`` (``sandloom_redis._errors``).
 _UNAVAILABLE_REPLY_PREFIXES = (
     "LOADING ",
     "READONLY ",
     "MASTERDOWN ",
     "TRYAGAIN ",
     "CLUSTERDOWN ",
+    "MISCONF ",
+    "NOREPLICAS ",
+    "MOVED ",
+    "ASK ",
+    "UNBLOCKED ",
 )
 
 
@@ -566,7 +574,8 @@ def is_broker_unavailable(exc: BaseException) -> bool:
     outbox store, which counts no attempt) and it stays.
 
     Connection refused/reset, timeouts, "broker loading" and a failover /
-    cluster reply (READONLY, MASTERDOWN, TRYAGAIN, CLUSTERDOWN) are outages,
+    cluster reply (READONLY, MASTERDOWN, TRYAGAIN, CLUSTERDOWN, MISCONF,
+    NOREPLICAS, MOVED, ASK, UNBLOCKED) are outages,
     not evidence that the EVENT is poison — they must not consume its
     attempts.
     """

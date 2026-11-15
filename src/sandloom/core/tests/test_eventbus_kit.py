@@ -814,7 +814,7 @@ class _FastKit(EventTransportConformance):
     # consume: ``block_ms + outage_seconds``). All kit checks share one loop, so a
     # loaded runner stalls timers; 0.6 s let a stall fail a blocking check of a
     # correct transport (test_the_blocking_checks_survive_a_stalled_event_loop).
-    outage_seconds = 3.0
+    outage_seconds = 1.5
 
 
 # An in-process transport has no backend that can fail.

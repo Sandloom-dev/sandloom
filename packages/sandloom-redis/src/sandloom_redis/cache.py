@@ -37,7 +37,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from functools import cache
 from types import MappingProxyType
-from typing import Any, Self, cast
+from typing import Any, Self, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -402,6 +402,9 @@ def _check_ttl(instance: str, ttl_seconds: object) -> None:
         )
 
 
+_C = TypeVar("_C", bound="RedisCacheProvider")
+
+
 class RedisCacheProvider(CacheProvider):
     """A single Redis cache instance."""
 
@@ -425,7 +428,7 @@ class RedisCacheProvider(CacheProvider):
 
     @classmethod
     def from_config(cls, config: InstanceConfig) -> Self:
-        return cast("Self", create_redis_cache(config))
+        return _build_redis_cache(cls, config)
 
     def __init__(
         self,
@@ -771,10 +774,16 @@ def create_redis_cache(cfg: InstanceConfig) -> RedisCacheProvider:
     The ``default`` instance uses the process-wide default client, built from
     its options; a named instance builds its own.
     """
+    return _build_redis_cache(RedisCacheProvider, cfg)
+
+
+def _build_redis_cache(cls: type[_C], cfg: InstanceConfig) -> _C:
+    """``cls`` over the client the instance's options describe (so a
+    subclass's ``from_config`` returns the subclass)."""
     shared = cfg.name == DEFAULT_INSTANCE
     if shared:
         configure_default_client(RedisCacheOptions.model_validate(cfg.options))
-    return RedisCacheProvider(
+    return cls(
         name=cfg.name,
         driver=cfg.driver,
         options=dict(cfg.options),

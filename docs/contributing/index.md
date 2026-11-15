@@ -56,7 +56,7 @@ review, and `BLE001` / bandit markers must carry a reason: see
 ([reference](../reference/guarantees.md)); `tests/architecture/test_guarantee_ledger.py`
 gates it. Every change that removes or infers a declaration (a marker, a
 dependency, a policy flag) keeps the ledger green and either shows the same
-enforcing tests passing (`uv run pytest -m guarantees src`) or justifies each
+enforcing tests passing (`uv run pytest -m guarantees $(uv run python tools/checks/guarantees.py paths)`) or justifies each
 changed enforcing test in the PR; deleting an entry needs a `removed:` record
 with the reason and the owner's approval.
 
