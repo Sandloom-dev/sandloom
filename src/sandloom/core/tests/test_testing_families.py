@@ -135,14 +135,18 @@ def test_the_redis_family_and_a_fake_satisfy_the_protocol() -> None:
     assert not isinstance(Incomplete(), HarnessFamily)
 
 
-def test_the_builtin_redis_family_is_found_without_an_installed_package(
+def test_the_kernel_package_registers_the_redis_family_in_the_group(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Read from the installed metadata (``packages/sandloom/pyproject.toml``):
+    a stale install without the entry point fails here, not silently."""
     monkeypatch.setattr(families, "_loaded", None)
-    assert [f.name for f in families.harness_families()] == ["redis"]
+    assert [f for f in families.harness_families() if f.name == "redis"] == [
+        redis_family.FAMILY
+    ]
 
 
-def test_an_installed_family_is_loaded_from_the_group_beside_the_builtin(
+def test_a_family_of_an_installed_package_is_loaded_from_the_group(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake = FakeFamily("fake")
@@ -150,15 +154,6 @@ def test_an_installed_family_is_loaded_from_the_group_beside_the_builtin(
     loaded = families.harness_families()
     assert fake in loaded
     assert "redis" in {f.name for f in loaded}
-
-
-def test_an_installed_family_replaces_the_builtin_of_its_name(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    replacement = FakeFamily("redis")
-    _install(monkeypatch, {"redis": replacement})
-    loaded = families.harness_families()
-    assert [f for f in loaded if f.name == "redis"] == [replacement]
 
 
 def test_a_family_that_names_itself_otherwise_is_refused(

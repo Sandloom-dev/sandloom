@@ -15,9 +15,11 @@ installing a package must never change the behaviour of an unrelated test
 suite. The kernel loads the groups it finds when the first hook runs (a process
 with no family is the DB-only harness, with nothing imported).
 
-Until the Redis family moves into ``sandloom-redis`` it is the one built-in
-(``_builtin_families``); an installed package registering the same name
-replaces it.
+Until the Redis family moves into ``sandloom-redis``, the kernel package
+registers it (``packages/sandloom/pyproject.toml``,
+``sandloom.core.testing.redis_family:FAMILY``); the package then registers the
+same name instead. An install made before the entry point existed has no
+family: :func:`require_for_installed` refuses that where it is called.
 
 Imports nothing from the framework (safe before the settings snapshot).
 """
@@ -102,14 +104,6 @@ class HarnessFamily(Protocol):
 _loaded: tuple[HarnessFamily, ...] | None = None
 
 
-def _builtin_families() -> dict[str, HarnessFamily]:
-    """The families the kernel carries itself (the Redis family, until it moves
-    into ``sandloom-redis``)."""
-    from sandloom.core.testing.redis_family import FAMILY  # noqa: PLC0415 - cold: the Redis half of the harness (psycopg2, ownership) loads when the first hook runs, not with the plugin
-
-    return {FAMILY.name: FAMILY}
-
-
 def _as_family(loaded: object, what: str, target: str) -> HarnessFamily:
     if not isinstance(loaded, HarnessFamily):
         raise HarnessFamilyError(
@@ -138,14 +132,11 @@ def _discover() -> tuple[HarnessFamily, ...]:
                 f"names itself {family.name!r}"
             )
         found[entry.name] = family
-    for name, family in _builtin_families().items():
-        found.setdefault(name, family)
     return tuple(found.values())
 
 
 def harness_families() -> tuple[HarnessFamily, ...]:
-    """Every family this process has: the installed ones, then the built-ins
-    no installed one replaces (loaded once)."""
+    """Every family registered in the group, by name (discovered once)."""
     global _loaded
     if _loaded is None:
         _loaded = _discover()
@@ -166,8 +157,8 @@ def require_for_installed(client_installed: Mapping[str, bool]) -> None:
             raise HarnessFamilyError(
                 f"the {name!r} client is installed but no harness family "
                 f"{name!r} is registered (entry-point group {TESTING_GROUP!r}): "
-                "parallel test workers would share one backend; install the "
-                "package that provides it"
+                "parallel test workers would share one backend; (re)install the "
+                "package that provides it (`uv sync`)"
             )
 
 
