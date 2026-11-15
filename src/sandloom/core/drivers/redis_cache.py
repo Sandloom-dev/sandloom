@@ -41,11 +41,12 @@ from typing import Any, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.driverkit import (
+    DEFAULT_INSTANCE,
     CacheProvider,
     HealthResult,
     InfraError,
+    InstanceConfig,
     InvalidArgument,
     PermissionDenied,
     Timeout,
