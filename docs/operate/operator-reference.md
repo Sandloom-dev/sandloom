@@ -304,7 +304,9 @@ This section holds the settings, commands and metrics.
   and consumer group): `sandloom streams dlq-list <channel>`,
   `sandloom streams dlq-replay <channel> [--id <entry>] [--group <g>]`. A replay is
   delivered ONLY to the group that dead-lettered the entry; every other group
-  acks it unprocessed (no repeated side effects elsewhere).
+  acks it unprocessed (no repeated side effects elsewhere). On a driver without
+  the feature, `dlq-list`, `dlq-replay`, `groups` and `consumers` exit with
+  "not supported by this driver: <feature>".
 - Consumer groups are `<module>:<name>`. `sandloom streams groups <channel>` shows
   each group's lag / pending (also `sandloom_streams_group_lag` /
   `sandloom_streams_group_pending` and `/diagnostics/consumers`);

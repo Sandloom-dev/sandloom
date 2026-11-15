@@ -13,15 +13,24 @@ the messaging layer keeps the console from importing the CLI (ADR-0007).
 from __future__ import annotations
 
 import uuid
-from dataclasses import asdict
 from typing import Any
+
+from sandloom.core.eventing.bus_base import durable_transport, transport_for
+from sandloom.core.infra.errors import InvalidArgument, Unsupported
+from sandloom.core.infra.ports.eventbus import (
+    ConsumerInfo,
+    DeadLetter,
+    EventTransport,
+    GroupInfo,
+)
 
 
 class EventOperationUnavailable(SystemExit):
     """The deployment cannot perform this outbox/Streams operation.
 
     A ``SystemExit`` so the CLIs keep exiting with the message; the owner
-    console's operations API catches it and answers ``501``.
+    console's operations API catches it and answers ``501``. A driver
+    without a feature raises ``Unsupported`` instead, mapped the same way.
     """
 
 
@@ -57,23 +66,41 @@ async def outbox_requeue(
     return int(await store.requeue_dead(factory, ids=ids, channel=channel, limit=limit))
 
 
-def event_transport(core: Any) -> Any:
-    transport = getattr(core.event_bus, "transport", None)
-    if transport is None or not hasattr(transport, "replay_dlq"):
+def event_transport(core: Any, feature: str | None = None) -> EventTransport:
+    """The typed transport of the configured bus, for the operation behind ``feature``.
+
+    Exits (``EventOperationUnavailable``) when the bus has no durable transport
+    (the volatile buses) or declares ``durable`` without a transport (a driver
+    misconfiguration). Raises ``Unsupported(feature)`` when the transport does
+    not declare ``feature`` (``dlq_ops``, ``inspection``, ``inventory``). Group
+    ownership is a required operation of every transport: it passes no feature.
+    """
+    bus = core.event_bus
+    try:
+        transport = durable_transport(bus)
+    except InvalidArgument as exc:
         raise EventOperationUnavailable(
-            "error: the configured event bus has no durable transport/DLQ "
+            "error: the configured event bus declares the 'durable' feature "
+            "but exposes no transport (check the event bus driver)"
+        ) from exc
+    if transport is None:
+        raise EventOperationUnavailable(
+            "error: the configured event bus has no durable transport "
             "(EVENT_BUS_BACKEND=streams required)"
         )
-    return transport
+    return transport_for(bus, feature)
+
+
+def unsupported_message(exc: Unsupported) -> str:
+    """The fixed refusal text of an operation the driver does not support."""
+    return f"not supported by this driver: {exc.feature}"
 
 
 async def streams_dlq_list(
     core: Any, channel: str, *, limit: int = 100, after: str | None = None
-) -> list[Any]:
-    entries = await event_transport(core).list_dlq(
-        channel, count=limit, **({"after": after} if after else {})
-    )
-    return [asdict(entry) for entry in entries]
+) -> list[DeadLetter]:
+    transport = event_transport(core, "dlq_ops")
+    return await transport.list_dlq(channel, count=limit, after=after)
 
 
 async def streams_dlq_replay(
@@ -84,27 +111,23 @@ async def streams_dlq_replay(
     limit: int = 100,
     group: str | None = None,
 ) -> int:
-    transport = event_transport(core)
-    return int(await transport.replay_dlq(channel, ids=ids, count=limit, group=group))
+    transport = event_transport(core, "dlq_ops")
+    return await transport.replay_dlq(channel, ids=ids, count=limit, group=group)
 
 
-async def streams_groups(core: Any, channel: str) -> list[dict[str, Any]]:
-    return [asdict(group) for group in await event_transport(core).group_info(channel)]
+async def streams_groups(core: Any, channel: str) -> list[GroupInfo]:
+    return await event_transport(core, "inspection").group_info(channel)
 
 
 async def streams_consumers(
     core: Any, *, include_stale: bool = False
-) -> list[dict[str, Any]]:
-    consumers = await event_transport(core).list_consumers(include_stale=include_stale)
-    return [asdict(consumer) for consumer in consumers]
+) -> list[ConsumerInfo]:
+    transport = event_transport(core, "inventory")
+    return await transport.list_consumers(include_stale=include_stale)
 
 
 async def streams_release_group(core: Any, channel: str, group: str) -> bool:
-    transport = event_transport(core)
-    release = getattr(transport, "release_group_owner", None)
-    if release is None:
-        raise SystemExit("error: the transport does not track group ownership")
-    return bool(await release(channel, group))
+    return await event_transport(core).release_group_owner(channel, group)
 
 
 async def outbox_purge(
@@ -153,4 +176,5 @@ __all__ = [
     "streams_dlq_replay",
     "streams_groups",
     "streams_release_group",
+    "unsupported_message",
 ]

@@ -627,7 +627,7 @@ async def test_streams_cli_operations(
         await t.consume("demo.cli.v1", group="a", consumer="c")
         await t.consume("demo.cli.v1", group="a", consumer="c")  # -> DLQ (a)
         groups = await cli.streams_groups(svc.core, "demo.cli.v1")
-        assert {g["group"] for g in groups} == {"a", "b"}
+        assert {g.group for g in groups} == {"a", "b"}
         assert await cli.streams_dlq_replay(svc.core, "demo.cli.v1", group="b") == 0
         assert await cli.streams_dlq_replay(svc.core, "demo.cli.v1", group="a") == 1
         await t.claim_group_owner("demo.cli.v1", "a", GroupOwner("m", "d"))
@@ -636,7 +636,7 @@ async def test_streams_cli_operations(
             "demo.cli.v1", "a", ConsumerInfo("demo.cli.v1", "a", "m", "d")
         )
         (entry,) = await cli.streams_consumers(svc.core)
-        assert (entry["stream"], entry["group"]) == ("demo.cli.v1", "a")
+        assert (entry.stream, entry.group) == ("demo.cli.v1", "a")
     finally:
         await svc.close()
 
