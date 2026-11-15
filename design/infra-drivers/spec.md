@@ -1173,7 +1173,8 @@ capability.
 | G-SAGA-08 | lease (`beat`) | `acquire`, `renew`, `release` | `shared` | no |
 | G-HTTP-02 | cache (`default`) | `windowed_counter`, fail open on `InfraError` | none | no |
 | G-INBOX-03 | cache (`default`) | `get`, `set`, fail open | none | no |
-| G-RPC-07, -09 | atomic_store (`security`) | `add` with TTL (nonce) | `shared` | "security cache" to "security store" |
+| G-RPC-08 | atomic_store (`security`) | `add` with TTL (nonce) | `shared` | "security cache" to "security store" |
+| G-RPC-07, -09 | none (per-process replay guard; settings validation) | | | no |
 | G-PROFILE-01, -06, -07, -08 (instance attestation) | atomic_store (`security`, `idempotency`), cache (`default`) | lifecycle `isolation_identity()` | `never_evicts`, `shared` | yes (owner decision 8): "declares `never_evicts` and differs from the module cache by `isolation_identity()`"; Redis keeps the `run_id` comparison and gains the `noeviction` check; an absent `INFRA.atomic_store.security` is refused; a `None` or raising identity fails; `never_evicts_check=assume` needs the accepted risk `unverified_noeviction` |
 | G-EVENT-01, -02 | eventbus | `ensure_group`, group ownership | | G-EVENT-02 names `GroupOwnedElsewhere` |
 | G-EVENT-03, -05 | eventbus | `aopen`, `health`, `consume`, `ack` | | no |

@@ -1044,85 +1044,88 @@ uv run pytest -m guarantees src
 
 ## Infrastructure
 
-The infra capability each guarantee rests on: the instance, the operations it calls and
-the features the driver must declare (`without` names a feature that must be absent).
+The infra capability each guarantee rests on, grouped by capability
+(and instance): the operations it calls and the features the driver must
+declare (`without` names a feature that must be absent). An id that is not
+in this table rests on no capability or does not state it yet.
 
-| Id | Capability (instance) | Operations | Features | Note |
+| Capability (instance) | Id | Operations | Features | Note |
 | --- | --- | --- | --- | --- |
-| <span class="sl-id">G-PROFILE-01</span> | `atomic_store` (`security`) | `isolation_identity()` | `shared`, `never_evicts` | instance attestation: lifecycle isolation_identity() |
-| <span class="sl-id">G-PROFILE-01</span> | `atomic_store` (`idempotency`) | `isolation_identity()` | `shared`, `never_evicts` | instance attestation: lifecycle isolation_identity() |
-| <span class="sl-id">G-PROFILE-01</span> | `cache` (`default`) | `isolation_identity()` |  | instance attestation: lifecycle isolation_identity() |
-| <span class="sl-id">G-PROFILE-06</span> | `atomic_store` (`security`) | `isolation_identity()` | `shared`, `never_evicts` | instance attestation: lifecycle isolation_identity() |
-| <span class="sl-id">G-PROFILE-06</span> | `atomic_store` (`idempotency`) | `isolation_identity()` | `shared`, `never_evicts` | instance attestation: lifecycle isolation_identity() |
-| <span class="sl-id">G-PROFILE-06</span> | `cache` (`default`) | `isolation_identity()` |  | instance attestation: lifecycle isolation_identity() |
-| <span class="sl-id">G-PROFILE-07</span> | `atomic_store` (`security`) | `isolation_identity()` | `shared`, `never_evicts` | instance attestation: lifecycle isolation_identity() |
-| <span class="sl-id">G-PROFILE-07</span> | `atomic_store` (`idempotency`) | `isolation_identity()` | `shared`, `never_evicts` | instance attestation: lifecycle isolation_identity() |
-| <span class="sl-id">G-PROFILE-07</span> | `cache` (`default`) | `isolation_identity()` |  | instance attestation: lifecycle isolation_identity() |
-| <span class="sl-id">G-PROFILE-08</span> | `atomic_store` (`security`) | `isolation_identity()` | `shared`, `never_evicts` | instance attestation: lifecycle isolation_identity() |
-| <span class="sl-id">G-PROFILE-08</span> | `atomic_store` (`idempotency`) | `isolation_identity()` | `shared`, `never_evicts` | instance attestation: lifecycle isolation_identity() |
-| <span class="sl-id">G-PROFILE-08</span> | `cache` (`default`) | `isolation_identity()` |  | instance attestation: lifecycle isolation_identity() |
-| <span class="sl-id">G-INBOX-03</span> | `cache` (`default`) | `get`, `set` |  | fails open |
-| <span class="sl-id">G-IDEM-01</span> | `atomic_store` (`idempotency`) | `add_or_get`, `compare_and_set`, `compare_and_delete` | `shared` | compare_and_set renews and finalises, compare_and_delete releases |
-| <span class="sl-id">G-IDEM-02</span> | `atomic_store` (`idempotency`) | `add_or_get`, `compare_and_set`, `compare_and_delete` | `shared` | compare_and_set renews and finalises, compare_and_delete releases |
-| <span class="sl-id">G-IDEM-03</span> | `atomic_store` (`idempotency`) | `add_or_get`, `compare_and_set`, `compare_and_delete` | `shared` | compare_and_set renews and finalises, compare_and_delete releases |
-| <span class="sl-id">G-IDEM-05</span> | `atomic_store` (`idempotency`) | `add_or_get`, `compare_and_set`, `compare_and_delete` | `shared` | compare_and_set renews and finalises, compare_and_delete releases |
-| <span class="sl-id">G-IDEM-08</span> | `atomic_store` (`idempotency`) |  |  | any operation that raises Unavailable or Timeout |
-| <span class="sl-id">G-IDEM-09</span> | `database` | `request_log()` | `http_idempotency` |  |
-| <span class="sl-id">G-IDEM-10</span> | `database` | `request_log()` | `http_idempotency` |  |
-| <span class="sl-id">G-IDEM-11</span> | `database` | `request_log()` | `http_idempotency` |  |
-| <span class="sl-id">G-IDEM-12</span> | `database` | `request_log()` | `http_idempotency` |  |
-| <span class="sl-id">G-IDEM-16</span> | `atomic_store` (`security`) |  |  | instance role: revocation and block marks, request nonces |
-| <span class="sl-id">G-IDEM-16</span> | `atomic_store` (`idempotency`) |  |  | instance role: idempotency reservations |
-| <span class="sl-id">G-IDEM-18</span> | `atomic_store` (`idempotency`) |  |  | any operation that raises Unavailable or Timeout |
-| <span class="sl-id">G-TASK-01</span> | `atomic_store` (`idempotency`) | `add`, `get`, `compare_and_set`, `compare_and_delete` | `shared` |  |
-| <span class="sl-id">G-TASK-01</span> | `taskqueue` | `send(task_id=)` |  | the error classes of send |
-| <span class="sl-id">G-TASK-02</span> | `atomic_store` (`idempotency`) | `add`, `get`, `compare_and_set`, `compare_and_delete` | `shared` |  |
-| <span class="sl-id">G-TASK-02</span> | `taskqueue` | `send(task_id=)` |  | the error classes of send |
-| <span class="sl-id">G-TASK-03</span> | `atomic_store` (`idempotency`) | `add`, `get`, `compare_and_set`, `compare_and_delete` | `shared` |  |
-| <span class="sl-id">G-TASK-03</span> | `taskqueue` | `send(task_id=)` |  | the error classes of send |
-| <span class="sl-id">G-TASK-04</span> | `taskqueue` | `run_worker`, `WorkerBoot` |  | WorkerHost |
-| <span class="sl-id">G-TASK-05</span> | `taskqueue` | `run_worker`, `WorkerBoot` |  | WorkerHost |
-| <span class="sl-id">G-EVENT-01</span> | `eventbus` | `ensure_group` |  | group ownership |
-| <span class="sl-id">G-EVENT-02</span> | `eventbus` | `ensure_group` |  | group ownership |
-| <span class="sl-id">G-EVENT-03</span> | `eventbus` | `aopen`, `health`, `consume`, `ack` |  |  |
-| <span class="sl-id">G-EVENT-05</span> | `eventbus` | `aopen`, `health`, `consume`, `ack` |  |  |
-| <span class="sl-id">G-EVENT-06</span> | `eventbus` | `never_dead_letter` |  | the delivery budget |
-| <span class="sl-id">G-EVENT-07</span> | `eventbus` | `dead_letter` |  |  |
-| <span class="sl-id">G-EVENT-09</span> | `eventbus` | `ensure_group(start_id=)` | `group_start_id` |  |
-| <span class="sl-id">G-EVENT-10</span> | `eventbus` (`streams`) | `redelivery`, `reclaim`, `DLQ order` | `durable` | on Redis, XAUTOCLAIM |
-| <span class="sl-id">G-EVENT-11</span> | `eventbus` | `replay_dlq` | `dlq_ops` |  |
-| <span class="sl-id">G-EVENT-12</span> | `eventbus` | `retention()` |  | driver options |
-| <span class="sl-id">G-EVENT-14</span> | `eventbus` |  | without `durable` | the volatile drivers memory and redis, over broadcast |
-| <span class="sl-id">G-REVOKE-01</span> | `atomic_store` (`security`) | `get`, `set_subject_state` | `shared`, `never_evicts` | never_evicts matters in production |
-| <span class="sl-id">G-REVOKE-02</span> | `atomic_store` (`security`) | `get`, `set_subject_state` | `shared`, `never_evicts` | never_evicts matters in production |
-| <span class="sl-id">G-REVOKE-03</span> | `atomic_store` (`security`) | `set_subject_state` | `shared`, `never_evicts` | never_evicts matters in production |
-| <span class="sl-id">G-REVOKE-10</span> | `atomic_store` (`security`) | `get` |  | one round trip per request; perf hint get: one_round_trip (measured, not read) |
-| <span class="sl-id">G-REVOKE-12</span> | `atomic_store` (`security`) | `get` |  | one round trip per request; perf hint get: one_round_trip (measured, not read) |
-| <span class="sl-id">G-REVOKE-19</span> | `atomic_store` (`security`) |  |  | instance role: revocation and block marks, request nonces |
-| <span class="sl-id">G-REVOKE-19</span> | `atomic_store` (`idempotency`) |  |  | instance role: idempotency reservations |
-| <span class="sl-id">G-REVOKE-21</span> | `atomic_store` (`security`) | `get` |  | one round trip per request; perf hint get: one_round_trip (measured, not read) |
-| <span class="sl-id">G-BLOCK-01</span> | `atomic_store` (`security`) | `set_subject_state`, `compare_and_set` | `shared`, `never_evicts` | compare_and_set unblocks |
-| <span class="sl-id">G-BLOCK-02</span> | `atomic_store` (`security`) | `set_subject_state`, `compare_and_set` | `shared`, `never_evicts` | compare_and_set unblocks |
-| <span class="sl-id">G-BLOCK-03</span> | `atomic_store` (`security`) | `set_subject_state`, `compare_and_set` | `shared`, `never_evicts` | compare_and_set unblocks |
-| <span class="sl-id">G-BLOCK-06</span> | `atomic_store` (`security`) | `set_subject_state`, `compare_and_set` | `shared`, `never_evicts` | compare_and_set unblocks |
-| <span class="sl-id">G-HTTP-02</span> | `cache` (`default`) | `windowed_counter` |  | fails open on InfraError |
-| <span class="sl-id">G-RPC-07</span> | `atomic_store` (`security`) | `add` | `shared` | add with a TTL (the nonce) |
-| <span class="sl-id">G-RPC-09</span> | `atomic_store` (`security`) | `add` | `shared` | add with a TTL (the nonce) |
-| <span class="sl-id">G-INFRA-10</span> | `*` | `required_imports`, `install_hint` |  | every driver |
-| <span class="sl-id">G-INFRA-11</span> | `taskqueue` | `run_scheduler` | `periodic` |  |
-| <span class="sl-id">G-RISK-04</span> | `eventbus` |  | without `durable` | the volatile drivers memory and redis, over broadcast |
-| <span class="sl-id">G-MIGRATE-07</span> | `eventbus` | `transfer_group_owner`, `release_group_owner` |  |  |
-| <span class="sl-id">G-MIGRATE-08</span> | `eventbus` | `transfer_group_owner`, `release_group_owner` |  |  |
-| <span class="sl-id">G-OPS-01</span> | `lease` (`beat`) | `acquire`, `renew`, `release` | `shared` |  |
-| <span class="sl-id">G-OPS-01</span> | `taskqueue` | `run_scheduler(lease=)` |  |  |
-| <span class="sl-id">G-SAGA-08</span> | `lease` (`beat`) | `acquire`, `renew`, `release` | `shared` |  |
-| <span class="sl-id">C-WORKER-01</span> | `taskqueue` | `run_worker`, `WorkerBoot` |  | WorkerHost |
-| <span class="sl-id">C-WORKER-02</span> | `taskqueue` | `run_worker`, `WorkerBoot` |  | WorkerHost |
-| <span class="sl-id">C-WORKER-03</span> | `taskqueue` | `run_worker`, `WorkerBoot` |  | WorkerHost |
-| <span class="sl-id">C-WORKER-04</span> | `taskqueue` | `run_worker`, `WorkerBoot` |  | WorkerHost |
-| <span class="sl-id">C-WORKER-05</span> | `taskqueue` | `run_worker`, `WorkerBoot` |  | WorkerHost |
-| <span class="sl-id">C-WORKER-06</span> | `lease` (`beat`) | `acquire`, `renew`, `release` | `shared` |  |
-| <span class="sl-id">C-WORKER-06</span> | `taskqueue` | `run_scheduler(lease=)` |  |  |
+| `*` | <span class="sl-id">G-INFRA-10</span> | `required_imports`, `install_hint` |  | every driver |
+| `atomic_store` (`idempotency`) | <span class="sl-id">G-PROFILE-01</span> | `isolation_identity` | `shared`, `never_evicts` | instance attestation: lifecycle isolation_identity() |
+| `atomic_store` (`idempotency`) | <span class="sl-id">G-PROFILE-06</span> | `isolation_identity` | `shared`, `never_evicts` | instance attestation: lifecycle isolation_identity() |
+| `atomic_store` (`idempotency`) | <span class="sl-id">G-PROFILE-07</span> | `isolation_identity` | `shared`, `never_evicts` | instance attestation: lifecycle isolation_identity() |
+| `atomic_store` (`idempotency`) | <span class="sl-id">G-PROFILE-08</span> | `isolation_identity` | `shared`, `never_evicts` | instance attestation: lifecycle isolation_identity() |
+| `atomic_store` (`idempotency`) | <span class="sl-id">G-IDEM-01</span> | `add_or_get`, `compare_and_set`, `compare_and_delete` | `shared` | compare_and_set renews and finalises, compare_and_delete releases |
+| `atomic_store` (`idempotency`) | <span class="sl-id">G-IDEM-02</span> | `add_or_get`, `compare_and_set`, `compare_and_delete` | `shared` | compare_and_set renews and finalises, compare_and_delete releases |
+| `atomic_store` (`idempotency`) | <span class="sl-id">G-IDEM-03</span> | `add_or_get`, `compare_and_set`, `compare_and_delete` | `shared` | compare_and_set renews and finalises, compare_and_delete releases |
+| `atomic_store` (`idempotency`) | <span class="sl-id">G-IDEM-05</span> | `add_or_get`, `compare_and_set`, `compare_and_delete` | `shared` | compare_and_set renews and finalises, compare_and_delete releases |
+| `atomic_store` (`idempotency`) | <span class="sl-id">G-IDEM-08</span> |  |  | any operation that raises Unavailable or Timeout |
+| `atomic_store` (`idempotency`) | <span class="sl-id">G-IDEM-16</span> |  |  | instance role: idempotency reservations |
+| `atomic_store` (`idempotency`) | <span class="sl-id">G-IDEM-18</span> |  |  | any operation that raises Unavailable or Timeout |
+| `atomic_store` (`idempotency`) | <span class="sl-id">G-TASK-01</span> | `add`, `get`, `compare_and_set`, `compare_and_delete` | `shared` |  |
+| `atomic_store` (`idempotency`) | <span class="sl-id">G-TASK-02</span> | `add`, `get`, `compare_and_set`, `compare_and_delete` | `shared` |  |
+| `atomic_store` (`idempotency`) | <span class="sl-id">G-TASK-03</span> | `add`, `get`, `compare_and_set`, `compare_and_delete` | `shared` |  |
+| `atomic_store` (`idempotency`) | <span class="sl-id">G-REVOKE-19</span> |  |  | instance role: idempotency reservations |
+| `atomic_store` (`security`) | <span class="sl-id">G-PROFILE-01</span> | `isolation_identity` | `shared`, `never_evicts` | instance attestation: lifecycle isolation_identity() |
+| `atomic_store` (`security`) | <span class="sl-id">G-PROFILE-06</span> | `isolation_identity` | `shared`, `never_evicts` | instance attestation: lifecycle isolation_identity() |
+| `atomic_store` (`security`) | <span class="sl-id">G-PROFILE-07</span> | `isolation_identity` | `shared`, `never_evicts` | instance attestation: lifecycle isolation_identity() |
+| `atomic_store` (`security`) | <span class="sl-id">G-PROFILE-08</span> | `isolation_identity` | `shared`, `never_evicts` | instance attestation: lifecycle isolation_identity() |
+| `atomic_store` (`security`) | <span class="sl-id">G-IDEM-16</span> |  |  | instance role: revocation and block marks, request nonces |
+| `atomic_store` (`security`) | <span class="sl-id">G-REVOKE-01</span> | `get`, `set_subject_state` | `shared`, `never_evicts` | never_evicts matters in production |
+| `atomic_store` (`security`) | <span class="sl-id">G-REVOKE-02</span> | `get`, `set_subject_state` | `shared`, `never_evicts` | never_evicts matters in production |
+| `atomic_store` (`security`) | <span class="sl-id">G-REVOKE-03</span> | `set_subject_state` | `shared`, `never_evicts` | never_evicts matters in production |
+| `atomic_store` (`security`) | <span class="sl-id">G-REVOKE-10</span> | `get` |  | one round trip per request; perf hint get: one_round_trip (measured, not read) |
+| `atomic_store` (`security`) | <span class="sl-id">G-REVOKE-12</span> | `get` |  | one round trip per request; perf hint get: one_round_trip (measured, not read) |
+| `atomic_store` (`security`) | <span class="sl-id">G-REVOKE-19</span> |  |  | instance role: revocation and block marks, request nonces |
+| `atomic_store` (`security`) | <span class="sl-id">G-REVOKE-21</span> | `get` |  | one round trip per request; perf hint get: one_round_trip (measured, not read) |
+| `atomic_store` (`security`) | <span class="sl-id">G-BLOCK-01</span> | `set_subject_state`, `compare_and_set` | `shared`, `never_evicts` | compare_and_set unblocks |
+| `atomic_store` (`security`) | <span class="sl-id">G-BLOCK-02</span> | `set_subject_state`, `compare_and_set` | `shared`, `never_evicts` | compare_and_set unblocks |
+| `atomic_store` (`security`) | <span class="sl-id">G-BLOCK-03</span> | `set_subject_state`, `compare_and_set` | `shared`, `never_evicts` | compare_and_set unblocks |
+| `atomic_store` (`security`) | <span class="sl-id">G-BLOCK-06</span> | `set_subject_state`, `compare_and_set` | `shared`, `never_evicts` | compare_and_set unblocks |
+| `atomic_store` (`security`) | <span class="sl-id">G-RPC-08</span> | `add` | `shared` | add with a TTL (the nonce) |
+| `broadcast` | <span class="sl-id">G-EVENT-14</span> |  |  | the volatile eventbus drivers memory and redis sit over broadcast |
+| `broadcast` | <span class="sl-id">G-RISK-04</span> |  |  | the volatile eventbus drivers memory and redis sit over broadcast |
+| `cache` (`default`) | <span class="sl-id">G-PROFILE-01</span> | `isolation_identity` |  | instance attestation: lifecycle isolation_identity() |
+| `cache` (`default`) | <span class="sl-id">G-PROFILE-06</span> | `isolation_identity` |  | instance attestation: lifecycle isolation_identity() |
+| `cache` (`default`) | <span class="sl-id">G-PROFILE-07</span> | `isolation_identity` |  | instance attestation: lifecycle isolation_identity() |
+| `cache` (`default`) | <span class="sl-id">G-PROFILE-08</span> | `isolation_identity` |  | instance attestation: lifecycle isolation_identity() |
+| `cache` (`default`) | <span class="sl-id">G-INBOX-03</span> | `get`, `set` |  | fails open |
+| `cache` (`default`) | <span class="sl-id">G-HTTP-02</span> | `incr_window` |  | fails open on InfraError |
+| `database` | <span class="sl-id">G-IDEM-09</span> | `request_log` | `http_idempotency` |  |
+| `database` | <span class="sl-id">G-IDEM-10</span> | `request_log` | `http_idempotency` |  |
+| `database` | <span class="sl-id">G-IDEM-11</span> | `request_log` | `http_idempotency` |  |
+| `database` | <span class="sl-id">G-IDEM-12</span> | `request_log` | `http_idempotency` |  |
+| `eventbus` | <span class="sl-id">G-EVENT-01</span> | `ensure_group` |  | group ownership |
+| `eventbus` | <span class="sl-id">G-EVENT-02</span> | `ensure_group` |  | group ownership |
+| `eventbus` | <span class="sl-id">G-EVENT-03</span> | `aopen`, `health`, `consume`, `ack` |  |  |
+| `eventbus` | <span class="sl-id">G-EVENT-05</span> | `aopen`, `health`, `consume`, `ack` |  |  |
+| `eventbus` | <span class="sl-id">G-EVENT-06</span> | `never_dead_letter` |  | the delivery budget |
+| `eventbus` | <span class="sl-id">G-EVENT-07</span> | `dead_letter` |  |  |
+| `eventbus` | <span class="sl-id">G-EVENT-09</span> | `ensure_group` | `group_start_id` | ensure_group takes start_id |
+| `eventbus` | <span class="sl-id">G-EVENT-10</span> | `consume`, `ack`, `dead_letter` | `durable` | the streams driver; redelivery, reclaim and the DLQ order are behaviour of consume, ack and dead_letter, on Redis XAUTOCLAIM |
+| `eventbus` | <span class="sl-id">G-EVENT-11</span> | `replay_dlq` | `dlq_ops` |  |
+| `eventbus` | <span class="sl-id">G-EVENT-12</span> | `retention` |  | driver options |
+| `eventbus` | <span class="sl-id">G-EVENT-14</span> |  | without `durable` | the volatile drivers memory and redis |
+| `eventbus` | <span class="sl-id">G-RISK-04</span> |  | without `durable` | the volatile drivers memory and redis |
+| `eventbus` | <span class="sl-id">G-MIGRATE-07</span> | `transfer_group_owner`, `release_group_owner` |  |  |
+| `eventbus` | <span class="sl-id">G-MIGRATE-08</span> | `transfer_group_owner`, `release_group_owner` |  |  |
+| `lease` (`beat`) | <span class="sl-id">G-OPS-01</span> | `acquire`, `renew`, `release` | `shared` |  |
+| `lease` (`beat`) | <span class="sl-id">G-SAGA-08</span> | `acquire`, `renew`, `release` | `shared` |  |
+| `lease` (`beat`) | <span class="sl-id">C-WORKER-06</span> | `acquire`, `renew`, `release` | `shared` |  |
+| `taskqueue` | <span class="sl-id">G-TASK-01</span> | `send` |  | send takes task_id; the error classes of send |
+| `taskqueue` | <span class="sl-id">G-TASK-02</span> | `send` |  | send takes task_id; the error classes of send |
+| `taskqueue` | <span class="sl-id">G-TASK-03</span> | `send` |  | send takes task_id; the error classes of send |
+| `taskqueue` | <span class="sl-id">G-TASK-04</span> | `run_worker` |  | WorkerHost and WorkerBoot |
+| `taskqueue` | <span class="sl-id">G-TASK-05</span> | `run_worker` |  | WorkerHost and WorkerBoot |
+| `taskqueue` | <span class="sl-id">G-INFRA-11</span> | `run_scheduler` | `periodic` |  |
+| `taskqueue` | <span class="sl-id">G-OPS-01</span> | `run_scheduler` |  |  |
+| `taskqueue` | <span class="sl-id">C-WORKER-01</span> | `run_worker` |  | WorkerHost and WorkerBoot |
+| `taskqueue` | <span class="sl-id">C-WORKER-02</span> | `run_worker` |  | WorkerHost and WorkerBoot |
+| `taskqueue` | <span class="sl-id">C-WORKER-03</span> | `run_worker` |  | WorkerHost and WorkerBoot |
+| `taskqueue` | <span class="sl-id">C-WORKER-04</span> | `run_worker` |  | WorkerHost and WorkerBoot |
+| `taskqueue` | <span class="sl-id">C-WORKER-05</span> | `run_worker` |  | WorkerHost and WorkerBoot |
+| `taskqueue` | <span class="sl-id">C-WORKER-06</span> | `run_scheduler` |  |  |
 
 ## Sources
 

@@ -57,7 +57,7 @@ ENTRY_KEYS = {
     "see",
     "rests_on",
 }
-#: One ``rests_on`` item: the infra capability (instance, operations, features) an entry needs.
+#: One ``rests_on`` item: the infra capability an entry needs (what it names).
 REST_KEYS = {
     "capability",
     "instance",
@@ -145,6 +145,61 @@ def capability_features() -> dict[str, frozenset[str]]:
     from sandloom.core.infra.capabilities import BUILTIN_CAPABILITIES
 
     return {spec.name: frozenset(spec.features) for spec in BUILTIN_CAPABILITIES}
+
+
+#: A port the provider hands out (``TaskQueueProvider.worker_host()`` returns a
+#: ``WorkerHost``): its methods are operations of the capability too.
+_HOST_PORTS = {"WorkerHost": "taskqueue"}
+
+
+def _public_names(cls: type) -> set[str]:
+    return {n for n in dir(cls) if not n.startswith("_")}
+
+
+def capability_operations() -> dict[str, frozenset[str]]:
+    """Capability name -> the operations its port declares: the public members of
+    its provider base class (``core/infra/ports/*``) and of its host port.
+    ``ANY_CAPABILITY`` -> the members every provider has (``InfraProvider``)."""
+    import importlib
+    import pkgutil
+
+    from sandloom.core.infra import ports
+    from sandloom.core.infra.ports._base import InfraProvider
+
+    operations: dict[str, set[str]] = {ANY_CAPABILITY: _public_names(InfraProvider)}
+    for info in pkgutil.iter_modules(ports.__path__):
+        module = importlib.import_module(f"{ports.__name__}.{info.name}")
+        for name, obj in vars(module).items():
+            capability = getattr(obj, "capability", None)
+            if (
+                isinstance(obj, type)
+                and issubclass(obj, InfraProvider)
+                and obj is not InfraProvider
+                and isinstance(capability, str)
+            ):
+                operations.setdefault(capability, set()).update(_public_names(obj))
+            elif isinstance(obj, type) and name in _HOST_PORTS:
+                operations.setdefault(_HOST_PORTS[name], set()).update(
+                    _public_names(obj)
+                )
+    return {cap: frozenset(names) for cap, names in operations.items()}
+
+
+def capability_instances() -> dict[str, frozenset[str]]:
+    """Capability name -> the instance names the kernel itself names: the
+    ``atomic_store`` roles, the beat lease, ``default`` for the cache. Another
+    capability's instance is the deployment's, so a ledger row names none."""
+    from typing import get_args
+
+    from sandloom.core.infra.access import AtomicStoreRole
+    from sandloom.core.infra.config import DEFAULT_INSTANCE
+    from sandloom.core.infra.fenced_lease import BEAT_INSTANCE
+
+    return {
+        "atomic_store": frozenset(get_args(AtomicStoreRole)),
+        "lease": frozenset({BEAT_INSTANCE}),
+        "cache": frozenset({DEFAULT_INSTANCE}),
+    }
 
 
 def load(path: Path = LEDGER) -> Ledger:
@@ -342,7 +397,6 @@ def _rests_on_problems(ledger: Ledger) -> list[str]:
     """``rests_on`` names real capabilities and features they declare (the kernel
     registry is the one list; nothing here repeats it)."""
     problems: list[str] = []
-    declared = capability_features()
     for key in ("guarantees", "capabilities"):
         for item in ledger.raw.get(key) or []:
             if "rests_on" not in item:
@@ -354,45 +408,97 @@ def _rests_on_problems(ledger: Ledger) -> list[str]:
                     f"{where} must be a list (empty: rests on no capability)"
                 )
                 continue
+            rests: list[RestsOn] = []
             for n, raw_rest in enumerate(items):
                 here = f"{where}[{n}]"
                 if not isinstance(raw_rest, dict):
                     problems.append(f"{here} must be a mapping")
                     continue
-                extra = set(raw_rest) - REST_KEYS
-                if extra:
-                    problems.append(f"{here}: unknown keys {sorted(extra)}")
-                rest = _rests_on(raw_rest)
-                if (
-                    rest.capability != ANY_CAPABILITY
-                    and rest.capability not in declared
-                ):
-                    problems.append(
-                        f"{here}: capability {rest.capability!r} is not a kernel "
-                        f"capability (one of {sorted(declared)} or {ANY_CAPABILITY!r})"
-                    )
-                    continue
-                if not (
-                    rest.operations
-                    or rest.features
-                    or rest.without_features
-                    or rest.note
-                ):
-                    problems.append(
-                        f"{here}: names no operation, feature or note — say what is needed"
-                    )
-                if rest.capability == ANY_CAPABILITY:
-                    if rest.features or rest.without_features:
-                        problems.append(f"{here}: {ANY_CAPABILITY!r} names no features")
-                    continue
-                for feature in (*rest.features, *rest.without_features):
-                    if feature not in declared[rest.capability]:
-                        problems.append(
-                            f"{here}: {feature!r} is not a feature of "
-                            f"{rest.capability} (declares {sorted(declared[rest.capability])})"
-                        )
-                if set(rest.features) & set(rest.without_features):
-                    problems.append(f"{here}: a feature is both needed and absent")
+                found = _rest_item_problems(here, raw_rest)
+                problems.extend(found)
+                if not found:
+                    rests.append(_rests_on(raw_rest))
+            problems.extend(_rest_conflicts(where, rests))
+    return problems
+
+
+def _rest_item_problems(here: str, raw_rest: dict[str, Any]) -> list[str]:
+    """One ``rests_on`` item: known keys, a kernel capability, and instance,
+    operations and features the kernel declares for it."""
+    problems: list[str] = []
+    extra = set(raw_rest) - REST_KEYS
+    if extra:
+        problems.append(f"{here}: unknown keys {sorted(extra)}")
+    rest = _rests_on(raw_rest)
+    declared = capability_features()
+    if rest.capability != ANY_CAPABILITY and rest.capability not in declared:
+        return [
+            *problems,
+            f"{here}: capability {rest.capability!r} is not a kernel capability "
+            f"(one of {sorted(declared)} or {ANY_CAPABILITY!r})",
+        ]
+    if not (rest.operations or rest.features or rest.without_features or rest.note):
+        problems.append(
+            f"{here}: names no operation, feature or note — say what is needed"
+        )
+    problems.extend(_rest_instance_problems(here, rest))
+    problems.extend(_rest_operation_problems(here, rest))
+    if rest.capability == ANY_CAPABILITY:
+        if rest.features or rest.without_features:
+            problems.append(f"{here}: {ANY_CAPABILITY!r} names no features")
+        return problems
+    problems.extend(
+        f"{here}: {feature!r} is not a feature of {rest.capability} "
+        f"(declares {sorted(declared[rest.capability])})"
+        for feature in (*rest.features, *rest.without_features)
+        if feature not in declared[rest.capability]
+    )
+    if set(rest.features) & set(rest.without_features):
+        problems.append(f"{here}: a feature is both needed and absent")
+    return problems
+
+
+def _rest_instance_problems(here: str, rest: RestsOn) -> list[str]:
+    """The instance is one the kernel names (the ``atomic_store`` roles, the beat
+    lease, ``default``); a capability the kernel names none for takes none."""
+    if not rest.instance:
+        return []
+    known = capability_instances().get(rest.capability, frozenset())
+    if rest.instance in known:
+        return []
+    return [
+        f"{here}: {rest.instance!r} is not an instance the kernel names for "
+        f"{rest.capability} (one of {sorted(known) or 'none: say it in the note'})"
+    ]
+
+
+def _rest_operation_problems(here: str, rest: RestsOn) -> list[str]:
+    """Each operation is a method of the capability's port; behaviour that is not
+    one goes in ``note``."""
+    known = capability_operations().get(rest.capability, frozenset())
+    return [
+        f"{here}: {op!r} is not an operation of {rest.capability} "
+        f"(a method of its port; say anything else in the note)"
+        for op in rest.operations
+        if op not in known
+    ]
+
+
+def _rest_conflicts(where: str, rests: list[RestsOn]) -> list[str]:
+    """No item needs a feature that another item of the same capability and
+    instance needs absent."""
+    problems: list[str] = []
+    for needs in rests:
+        for absent in rests:
+            clash = (needs.capability, needs.instance) == (
+                absent.capability,
+                absent.instance,
+            ) and set(needs.features) & set(absent.without_features)
+            if clash:
+                problems.append(
+                    f"{where}: {sorted(clash)} needed by one {needs.capability} item "
+                    f"and absent in another"
+                )
     return problems
 
 
@@ -673,34 +779,33 @@ def render(ledger: Ledger | None = None) -> str:
         lines.append("Nothing has been removed.")
     lines += ["", "## Infrastructure", ""]
     lines += [
-        "The infra capability each guarantee rests on: the instance, the operations it calls and",
-        "the features the driver must declare (`without` names a feature that must be absent).",
+        "The infra capability each guarantee rests on, grouped by capability",
+        "(and instance): the operations it calls and the features the driver must",
+        "declare (`without` names a feature that must be absent). An id that is not",
+        "in this table rests on no capability or does not state it yet.",
         "",
-        "| Id | Capability (instance) | Operations | Features | Note |",
+        "| Capability (instance) | Id | Operations | Features | Note |",
         "| --- | --- | --- | --- | --- |",
     ]
-    for entry in entries:
-        for rest in entry.rests_on:
-            name = f"`{rest.capability}`" + (
-                f" (`{rest.instance}`)" if rest.instance else ""
-            )
-            features = [f"`{f}`" for f in rest.features]
-            features += [f"without `{f}`" for f in rest.without_features]
-            lines.append(
-                f"| {_id(entry.id)} | {name} "
-                f"| {', '.join(f'`{_md(o)}`' for o in rest.operations)} "
-                f"| {', '.join(features)} | {_md(rest.note)} |"
-            )
+    rows = [(rest, entry) for entry in entries for rest in entry.rests_on]
+    rows.sort(key=lambda row: (row[0].capability, row[0].instance))
+    for rest, entry in rows:
+        name = f"`{rest.capability}`" + (
+            f" (`{rest.instance}`)" if rest.instance else ""
+        )
+        features = [f"`{f}`" for f in rest.features]
+        features += [f"without `{f}`" for f in rest.without_features]
+        lines.append(
+            f"| {name} | {_id(entry.id)} "
+            f"| {', '.join(f'`{_md(o)}`' for o in rest.operations)} "
+            f"| {', '.join(features)} | {_md(rest.note)} |"
+        )
     lines += ["", "## Sources", ""]
     lines += ["| Id | Source |", "| --- | --- |"]
     for entry in entries:
-        lines.append(
-            f"| {_id(entry.id)} | {'<br>'.join(_md(s) for s in entry.sources)} |"
-        )
+        lines.append(f"| {_id(entry.id)} | {'<br>'.join(_md(s) for s in entry.sources)} |")
     lines += [
-        "",
-        "## Related reading",
-        "",
+        "", "## Related reading", "",
         "- [Guarantee boundaries](../advanced/guarantees.md)",
         "- [Error catalogue](error-codes.md)",
         "",

@@ -9,6 +9,10 @@
 # - tests: pytest node ids relative to the repo root that FAIL if the entry is
 #   weakened; rules: `sandloom check` rule names; import_contracts: .importlinter ids.
 #   No enforcement at all -> `gap` + `gap_size` (S < 40-line test, M ~ a day, L more).
+# - rests_on: the infra capability an entry needs (checked against the kernel). Absent = not
+#   stated; `[]` = rests on no capability; capability `"*"` = every driver. An item names
+#   capability, instance, operations (methods of its port), features (needed) and
+#   without_features (must be absent); `note` holds what those columns cannot.
 # - An id is never reused or silently dropped: `issued` holds the highest number
 #   per prefix; every issued id is either live below or listed under `removed:`
 #   with statement, reason, approved_by (the owner's approval note) and date.
@@ -384,17 +388,17 @@ guarantees:
   rests_on:
   - capability: atomic_store
     instance: security
-    operations: [isolation_identity()]
+    operations: [isolation_identity]
     features: [shared, never_evicts]
     note: 'instance attestation: lifecycle isolation_identity()'
   - capability: atomic_store
     instance: idempotency
-    operations: [isolation_identity()]
+    operations: [isolation_identity]
     features: [shared, never_evicts]
     note: 'instance attestation: lifecycle isolation_identity()'
   - capability: cache
     instance: default
-    operations: [isolation_identity()]
+    operations: [isolation_identity]
     note: 'instance attestation: lifecycle isolation_identity()'
   statement: With ENVIRONMENT=prod and PRODUCTION_PROFILE=multi_tenant_strict, boot refuses (enforce_configuration)
     TENANCY_MODE other than multi, any database instance without tenant_rls, AUTH_REVOCATION_FAIL_CLOSED=false,
@@ -447,17 +451,17 @@ guarantees:
   rests_on:
   - capability: atomic_store
     instance: security
-    operations: [isolation_identity()]
+    operations: [isolation_identity]
     features: [shared, never_evicts]
     note: 'instance attestation: lifecycle isolation_identity()'
   - capability: atomic_store
     instance: idempotency
-    operations: [isolation_identity()]
+    operations: [isolation_identity]
     features: [shared, never_evicts]
     note: 'instance attestation: lifecycle isolation_identity()'
   - capability: cache
     instance: default
-    operations: [isolation_identity()]
+    operations: [isolation_identity]
     note: 'instance attestation: lifecycle isolation_identity()'
   statement: Under the strict profile startup attests that the security atomic_store (and a separate idempotency
     atomic_store) declare never_evicts and shared and differ from the default cache by isolation_identity()
@@ -477,17 +481,17 @@ guarantees:
   rests_on:
   - capability: atomic_store
     instance: security
-    operations: [isolation_identity()]
+    operations: [isolation_identity]
     features: [shared, never_evicts]
     note: 'instance attestation: lifecycle isolation_identity()'
   - capability: atomic_store
     instance: idempotency
-    operations: [isolation_identity()]
+    operations: [isolation_identity]
     features: [shared, never_evicts]
     note: 'instance attestation: lifecycle isolation_identity()'
   - capability: cache
     instance: default
-    operations: [isolation_identity()]
+    operations: [isolation_identity]
     note: 'instance attestation: lifecycle isolation_identity()'
   statement: Under the strict profile an INFRA.atomic_store.idempotency, when declared, must be on a different
     Redis server than the default cache and not the memory driver (refused otherwise), sharing the security
@@ -504,17 +508,17 @@ guarantees:
   rests_on:
   - capability: atomic_store
     instance: security
-    operations: [isolation_identity()]
+    operations: [isolation_identity]
     features: [shared, never_evicts]
     note: 'instance attestation: lifecycle isolation_identity()'
   - capability: atomic_store
     instance: idempotency
-    operations: [isolation_identity()]
+    operations: [isolation_identity]
     features: [shared, never_evicts]
     note: 'instance attestation: lifecycle isolation_identity()'
   - capability: cache
     instance: default
-    operations: [isolation_identity()]
+    operations: [isolation_identity]
     note: 'instance attestation: lifecycle isolation_identity()'
   statement: Security-critical state (revocation marks, blocks, RPC nonces, idempotency records) is written through
     the atomic_store instance of its role (security, idempotency), never plain cache(); idempotency records
@@ -1385,7 +1389,7 @@ guarantees:
 - id: G-IDEM-09
   rests_on:
   - capability: database
-    operations: [request_log()]
+    operations: [request_log]
     features: [http_idempotency]
   statement: 'idempotency_guard(durable=True) claims its record in the request''s DbSession UoW and commits
     it with the response: a retry replays the stored response and the effect runs once; a rolled-back
@@ -1402,7 +1406,7 @@ guarantees:
 - id: G-IDEM-10
   rests_on:
   - capability: database
-    operations: [request_log()]
+    operations: [request_log]
     features: [http_idempotency]
   statement: An in-flight duplicate of a durable-guarded request gets 409 at once (advisory try-lock),
     never a wait on the first request's uncommitted claim.
@@ -1413,7 +1417,7 @@ guarantees:
 - id: G-IDEM-11
   rests_on:
   - capability: database
-    operations: [request_log()]
+    operations: [request_log]
     features: [http_idempotency]
   statement: After an ambiguous COMMIT a durable-guarded retry replays if the transaction committed and
     runs afresh if it did not — never twice.
@@ -1425,7 +1429,7 @@ guarantees:
 - id: G-IDEM-12
   rests_on:
   - capability: database
-    operations: [request_log()]
+    operations: [request_log]
     features: [http_idempotency]
   statement: Durable guard records expire after the guard TTL (taken over then purged); oversized/streamed
     responses replay status only; a route whose response was not captured is refused rather than re-run;
@@ -1508,8 +1512,8 @@ guarantees:
     operations: [add, get, compare_and_set, compare_and_delete]
     features: [shared]
   - capability: taskqueue
-    operations: [send(task_id=)]
-    note: the error classes of send
+    operations: [send]
+    note: send takes task_id; the error classes of send
   statement: enqueue(..., idempotency_key=) publishes one real message for successful retries (task id
     replayed within dedupe_ttl_seconds), including parallel retries; the replay window expires after the
     TTL.
@@ -1528,8 +1532,8 @@ guarantees:
     operations: [add, get, compare_and_set, compare_and_delete]
     features: [shared]
   - capability: taskqueue
-    operations: [send(task_id=)]
-    note: the error classes of send
+    operations: [send]
+    note: send takes task_id; the error classes of send
   statement: Reusing an enqueue idempotency key with other arguments fails with 409; keys are tenant-scoped
     and the payload is snapshotted before reserving.
   sources:
@@ -1545,8 +1549,8 @@ guarantees:
     operations: [add, get, compare_and_set, compare_and_delete]
     features: [shared]
   - capability: taskqueue
-    operations: [send(task_id=)]
-    note: the error classes of send
+    operations: [send]
+    note: send takes task_id; the error classes of send
   statement: 'Enqueue dedupe fails closed: an unavailable dedupe store prevents the publish (503), and
     an ambiguous broker send keeps the key pending (503 task_enqueue_uncertain, never republished) until
     reconciled; deterministic send/serialisation errors release the reservation.'
@@ -1562,8 +1566,8 @@ guarantees:
 - id: G-TASK-04
   rests_on:
   - capability: taskqueue
-    operations: [run_worker, WorkerBoot]
-    note: WorkerHost
+    operations: [run_worker]
+    note: WorkerHost and WorkerBoot
   statement: run_async runs task coroutines on one persistent event loop per worker process (fresh after
     fork, engines disposed on it at shutdown) and refuses to run inside a running loop.
   sources:
@@ -1577,8 +1581,8 @@ guarantees:
 - id: G-TASK-05
   rests_on:
   - capability: taskqueue
-    operations: [run_worker, WorkerBoot]
-    note: WorkerHost
+    operations: [run_worker]
+    note: WorkerHost and WorkerBoot
   statement: Celery tasks store no result by default (task_ignore_result, also on driver-built apps, enqueue
     subscribes no result consumer), the worker prefetches one message, and `at_least_once` stays a per-task
     opt-in.
@@ -1729,8 +1733,9 @@ guarantees:
 - id: G-EVENT-09
   rests_on:
   - capability: eventbus
-    operations: [ensure_group(start_id=)]
+    operations: [ensure_group]
     features: [group_start_id]
+    note: ensure_group takes start_id
   statement: start_from (earliest | latest | timestamp) picks where a NEW group starts and is validated
     together with group=.
   sources:
@@ -1742,10 +1747,9 @@ guarantees:
 - id: G-EVENT-10
   rests_on:
   - capability: eventbus
-    instance: streams
-    operations: [redelivery, reclaim, DLQ order]
+    operations: [consume, ack, dead_letter]
     features: [durable]
-    note: on Redis, XAUTOCLAIM
+    note: the streams driver; redelivery, reclaim and the DLQ order are behaviour of consume, ack and dead_letter, on Redis XAUTOCLAIM
   statement: The Streams transport redelivers unacked entries, reclaims dead consumers' pending entries
     via XAUTOCLAIM, dead-letters an entry to <channel>.dlq after exactly the max deliveries, and acks
     the source only after the DLQ append succeeded.
@@ -1773,7 +1777,7 @@ guarantees:
 - id: G-EVENT-12
   rests_on:
   - capability: eventbus
-    operations: [retention()]
+    operations: [retention]
     note: driver options
   statement: Streams are trimmed by age (EVENT_STREAM_RETENTION_SECONDS) and optionally by length (EVENT_STREAM_MAXLEN)
     on publish.
@@ -1798,7 +1802,9 @@ guarantees:
   rests_on:
   - capability: eventbus
     without_features: [durable]
-    note: the volatile drivers memory and redis, over broadcast
+    note: the volatile drivers memory and redis
+  - capability: broadcast
+    note: the volatile eventbus drivers memory and redis sit over broadcast
   statement: Durable/required consumers are refused on the volatile Pub/Sub bus unless the volatile_event_bus
     risk is accepted, and the memory/redis Pub/Sub drivers are refused in production without it.
   sources:
@@ -3245,7 +3251,7 @@ guarantees:
   rests_on:
   - capability: cache
     instance: default
-    operations: [windowed_counter]
+    operations: [incr_window]
     note: fails open on InfraError
   statement: The global per-IP floor (RATE_LIMIT_GLOBAL_REQUESTS) is off at 0 by default, when set limits
     every route including unknown routes / 404s per IP, and fails open on a cache outage.
@@ -4174,12 +4180,7 @@ guarantees:
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_r5_out_of_range_issue_times_are_expired_not_500
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_clock_skew_beyond_half_the_window_is_counted
 - id: G-RPC-07
-  rests_on:
-  - capability: atomic_store
-    instance: security
-    operations: [add]
-    features: [shared]
-    note: add with a TTL (the nonce)
+  rests_on: []
   statement: The per-process nonce replay guard, consulted only after the tag verified and the caller
     is authorized, refuses a repeated (caller, nonce) within the window with 401 rpc_auth_replayed, keeps
     entries until the request could no longer be fresh, never evicts a live nonce (fails closed 503 rpc_replay_unavailable
@@ -4193,6 +4194,12 @@ guarantees:
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_r3_an_unauthorized_peer_cannot_fill_the_replay_guard
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_one_caller_cannot_take_the_whole_nonce_table
 - id: G-RPC-08
+  rests_on:
+  - capability: atomic_store
+    instance: security
+    operations: [add]
+    features: [shared]
+    note: add with a TTL (the nonce)
   statement: With RPC_REPLAY_GUARD=commands (default) command calls (all calls with `all`) are also claimed
     by an atomic add on the security atomic_store under a collision-free key with a constant 3*skew TTL, so
     a replay landing on another process/replica is refused; a security store outage fails closed in prod and open
@@ -4206,12 +4213,7 @@ guarantees:
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_shared_nonce_layer_outage_fails_closed_in_prod_only
   - src/sandloom/core/tests/test_rpc_pair_mac.py::test_r7_shared_replay_keys_never_collide
 - id: G-RPC-09
-  rests_on:
-  - capability: atomic_store
-    instance: security
-    operations: [add]
-    features: [shared]
-    note: add with a TTL (the nonce)
+  rests_on: []
   statement: RPC_REPLAY_GUARD=local is refused in production, and outside production a startup warning
     says the shared nonce layer fails open.
   sources:
@@ -5368,7 +5370,9 @@ guarantees:
   rests_on:
   - capability: eventbus
     without_features: [durable]
-    note: the volatile drivers memory and redis, over broadcast
+    note: the volatile drivers memory and redis
+  - capability: broadcast
+    note: the volatile eventbus drivers memory and redis sit over broadcast
   statement: In prod the volatile event-bus drivers (memory, redis Pub/Sub) are refused unless volatile_event_bus
     is accepted; required/durable consumers on a Pub/Sub bus are refused even with the risk, and outside
     prod need the risk.
@@ -5668,7 +5672,7 @@ guarantees:
     operations: [acquire, renew, release]
     features: [shared]
   - capability: taskqueue
-    operations: [run_scheduler(lease=)]
+    operations: [run_scheduler]
   statement: 'Celery beat schedules only while it holds a fenced lease: a second beat stands by and
     takes over on release/death, a holder that lost its lease stops at once, a lease backend outage keeps
     scheduling only until a local deadline, and in production beat refuses to start on a lease that is
@@ -7837,8 +7841,8 @@ capabilities:
 - id: C-WORKER-01
   rests_on:
   - capability: taskqueue
-    operations: [run_worker, WorkerBoot]
-    note: WorkerHost
+    operations: [run_worker]
+    note: WorkerHost and WorkerBoot
   statement: '`sandloom worker` and `sandloom beat` boot the composition root, import <pkg>.tasks of every
     LOADED module only (skipping modules without tasks) and run the table derived from its `@task` / `@periodic`
     declarations.'
@@ -7853,8 +7857,8 @@ capabilities:
 - id: C-WORKER-02
   rests_on:
   - capability: taskqueue
-    operations: [run_worker, WorkerBoot]
-    note: WorkerHost
+    operations: [run_worker]
+    note: WorkerHost and WorkerBoot
   statement: The worker takes its host (`TaskQueueProvider.worker_host()`) from the taskqueue capability
     instance named by SANDLOOM_WORKER_TASKQUEUE, rejecting a driver without one and a composition root
     without a core; importing sandloom.core.worker has no side effects and imports no task-queue backend.
@@ -7868,8 +7872,8 @@ capabilities:
 - id: C-WORKER-03
   rests_on:
   - capability: taskqueue
-    operations: [run_worker, WorkerBoot]
-    note: WorkerHost
+    operations: [run_worker]
+    note: WorkerHost and WorkerBoot
   statement: Worker concurrency defaults from the CPU quota (capped, never the host CPU count) with WORKER_CONCURRENCY
     overrides validated.
   sources:
@@ -7883,8 +7887,8 @@ capabilities:
 - id: C-WORKER-04
   rests_on:
   - capability: taskqueue
-    operations: [run_worker, WorkerBoot]
-    note: WorkerHost
+    operations: [run_worker]
+    note: WorkerHost and WorkerBoot
   statement: run_async runs task coroutines on one persistent loop per worker process (fresh after fork,
     refused inside a running loop), draining the dispatcher and disposing engines on that loop at shutdown.
   sources:
@@ -7897,8 +7901,8 @@ capabilities:
 - id: C-WORKER-05
   rests_on:
   - capability: taskqueue
-    operations: [run_worker, WorkerBoot]
-    note: WorkerHost
+    operations: [run_worker]
+    note: WorkerHost and WorkerBoot
   statement: Celery tasks store no result by default and the worker prefetches one message (reliability
     defaults); enqueue never subscribes a result consumer.
   sources:
@@ -7914,7 +7918,7 @@ capabilities:
     operations: [acquire, renew, release]
     features: [shared]
   - capability: taskqueue
-    operations: [run_scheduler(lease=)]
+    operations: [run_scheduler]
   statement: The beat lease is scoped per service (replicas of one service share it, separate services
     do not) and wraps only this app's scheduler; the worker boot runs the tenant RLS role verification.
   sources:
