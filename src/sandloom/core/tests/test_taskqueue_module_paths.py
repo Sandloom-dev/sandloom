@@ -53,9 +53,7 @@ def core() -> Any:
             ),
         },
     }
-    registry = build_infra_registry(
-        InMemorySchemaRegistry(), config=cfg
-    )
+    registry = build_infra_registry(InMemorySchemaRegistry(), config=cfg)
     facade = CoreFacade(app=FastAPI())
     facade.set_infra(registry)
     with use_infra(registry):
