@@ -18,8 +18,10 @@ itself lets the call through.
 
 Only the record this hook emitted passes the second call: its digest is kept in
 ``~/.cache/sandloom-checks`` (outside every checkout), so an agent cannot attach
-a self-written all-green record. Credentials (``scheme://user:pass@``) are
-masked in the output tail stored in tm.
+a self-written all-green record. If that directory cannot be written, the hook
+lets the handover through without a record (the catch-all below) rather than
+refusing a second call it could never accept. Credentials (URL userinfo and
+secret-looking query values) are masked in everything stored in tm.
 
 Trust: the run uses the agent's own checkout, its ``.pre-commit-config.yaml`` and
 ``uv.lock`` included, with this machine's environment, exactly as the agent's own
@@ -47,7 +49,13 @@ CI_ENV = {
 }
 _RESULT = re.compile(r"^(.+?)\.{3,}(?:\(.*\))?(Passed|Failed|Skipped)\s*$")
 # user:pass@ and the password-only :pass@ form (redis://:secret@host).
-_CREDENTIALS = re.compile(r"([A-Za-z][A-Za-z0-9+.-]*)://[^/\s:@]*:[^/\s@]+@")
+# Any userinfo in a URL: user:pass@, :pass@ and a bare token@ (https://<token>@host).
+_CREDENTIALS = re.compile(r"([A-Za-z][A-Za-z0-9+.-]*)://[^/\s@]+@")
+# Secret-looking query values: ?token=..., &password=..., api_key=...
+_SECRET_QUERY = re.compile(
+    r"([?&;](?:[A-Za-z0-9_.-]*?(?:password|passwd|pwd|token|secret|api[_-]?key|access[_-]?key|auth))=)[^&#\s]+",
+    re.IGNORECASE,
+)
 #: Digests of the records this hook emitted, outside every checkout.
 ISSUED = (
     Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "sandloom-checks"
@@ -102,8 +110,9 @@ def already_checked(tool_input: dict, head: str) -> bool:
 
 
 def redact(text: str) -> str:
-    """Credentials out of an output tail stored in tm: ``scheme://user:pass@``."""
-    return _CREDENTIALS.sub(r"\1://***@", text)
+    """Credentials out of text stored in tm: URL userinfo (``user:pass@``,
+    ``:pass@``, ``token@``) and secret-looking query values."""
+    return _SECRET_QUERY.sub(r"\1***", _CREDENTIALS.sub(r"\1://***@", text))
 
 
 def results(output: str) -> dict[str, str]:
