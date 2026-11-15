@@ -1870,6 +1870,7 @@
         "src/sandloom/core/tests/test_registration_ownership.py",
         "src/sandloom/core/tests/test_relational_driver_contract.py",
         "src/sandloom/core/tests/test_relay_batch_publish.py",
+        "src/sandloom/core/tests/test_relay_broker_unavailable.py",
         "src/sandloom/core/tests/test_release_pools.py",
         "src/sandloom/core/tests/test_replay_limits.py",
         "src/sandloom/core/tests/test_review_archcheck.py",

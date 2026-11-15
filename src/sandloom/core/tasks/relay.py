@@ -44,6 +44,8 @@ from sandloom.core.infra.contracts import (
     OutboxStore,
     RelayBatchResult,
 )
+from sandloom.core.infra.errors import InfraError, PermissionDenied
+from sandloom.core.infra.ports.eventbus import PartialPublish
 from sandloom.core.observability.metrics import outbox_oldest_pending_age_seconds
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -470,8 +472,34 @@ _UNAVAILABLE_REPLY_PREFIXES = (
 )
 
 
+#: How many links of a ``__cause__`` / ``__context__`` chain are inspected. A
+#: real chain is a handful deep; the bound (with the seen-set) keeps a cyclic or
+#: pathological chain from looping.
+_CAUSE_CHAIN_LIMIT = 16
+
+
+def _infra_error_is_outage(error: InfraError) -> bool:
+    """The verdict of a capability error (spec 2.1): the driver mapped it.
+
+    ``Unavailable`` and ``Timeout`` (retryable) are outages. ``PermissionDenied``
+    is not retryable but is an outage too: a refused credential is the broker's
+    configuration, not the event's fault, and must not burn its attempts. Any
+    other ``InfraError`` follows ``retryable`` as ``sandloom.core.infra.errors``
+    defines it.
+    """
+    return isinstance(error, PermissionDenied) or error.retryable
+
+
 def is_broker_unavailable(exc: BaseException) -> bool:
     """True when ``exc`` (or its cause chain) is a transport availability error.
+
+    A capability error (:class:`InfraError`) found in the chain decides on its
+    own: see :func:`_infra_error_is_outage`; the chain is not walked past it, so
+    a driver's mapping wins over the raw error it wraps. Everything else is
+    matched on the raw transport errors below, which publishers that do not map
+    their errors yet still raise (the volatile bus, pubsub, Celery's
+    ``BrokerUnavailableError``). That matching goes once those publishers map
+    onto ``InfraError``.
 
     Connection refused/reset, timeouts, "broker loading" and a failover /
     cluster reply (READONLY, MASTERDOWN, TRYAGAIN, CLUSTERDOWN) are outages,
@@ -480,8 +508,15 @@ def is_broker_unavailable(exc: BaseException) -> bool:
     """
     seen: set[int] = set()
     current: BaseException | None = exc
-    while current is not None and id(current) not in seen:
+    for _ in range(_CAUSE_CHAIN_LIMIT):
+        if current is None or id(current) in seen:
+            break
         seen.add(id(current))
+        # PartialPublish is only the batch's wrapper: its ``retryable`` is "the
+        # batch may be sent again" and is True for ANY cause (a poison row
+        # included), so it carries no outage verdict; its cause does.
+        if isinstance(current, InfraError) and not isinstance(current, PartialPublish):
+            return _infra_error_is_outage(current)
         if isinstance(
             current,
             (BrokerUnavailableError, OSError, TimeoutError, asyncio.TimeoutError),
