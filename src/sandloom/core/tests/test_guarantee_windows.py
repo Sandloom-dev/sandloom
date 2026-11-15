@@ -208,14 +208,22 @@ def test_create_app_refuses_in_production(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(settings, "environment", "prod")
     # prod selects the shared Streams bus: name the service (ADR-0012 d. 5).
     monkeypatch.setattr(settings, "sandloom_service_name", "api")
-    # Production declares its security store on every profile (spec 4).
+    # ``.env.test`` selects the memory bus; the composition's streams bus decides.
+    monkeypatch.setattr(settings, "event_bus_backend", "auto")
+    # Production declares its security store on every profile (spec 4). The
+    # rest is what a composition selects (the kernel-only venv has none).
     monkeypatch.setattr(
         settings,
         "infra",
         {
             "atomic_store": {
                 "security": {"driver": "redis", "url": "redis://sec:6379/0"}
-            }
+            },
+            "database": {
+                "default": {"driver": "sqlalchemy", "url": settings.database_url}
+            },
+            "cache": {"default": {"driver": "redis", "url": settings.cache_url}},
+            "eventbus": {"default": {"driver": "streams"}},
         },
     )
     # The bundled modules refuse prod without these while they register,
@@ -229,7 +237,14 @@ def test_create_app_refuses_in_production(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(
         settings,
         "sandloom_accepted_risks",
-        [*settings.sandloom_accepted_risks, *billing, "log_notifier_in_prod"],
+        [
+            *settings.sandloom_accepted_risks,
+            *billing,
+            "log_notifier_in_prod",
+            # The streams driver declares no tier yet (a sandloom-redis follow-up):
+            # until it does, production refuses it as experimental (B023).
+            "experimental_driver",
+        ],
     )
     with pytest.raises(gw.GuaranteeWindowError, match="command_dedupe"):
         create_root_app()

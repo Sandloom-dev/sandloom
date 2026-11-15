@@ -25,7 +25,6 @@ def wired_core() -> CoreFacade:
     registry = build_infra_registry(
         InMemorySchemaRegistry(),
         config=load_infra_config(settings),
-        load_plugins=False,
     )
     core.set_infra(registry)
     return core

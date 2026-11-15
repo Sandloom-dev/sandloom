@@ -182,6 +182,11 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
     options_schema = EventBusOptions
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
+    # Beta, the floor for a driver of this repository (spec 2.5): the
+    # redis-drivers job runs the event-bus kit against a real Redis. The
+    # entry point has no registration call, so an undeclared tier would be
+    # experimental and refused in production (SANDLOOM-B023).
+    tier = "beta"
 
     def __init__(
         self,

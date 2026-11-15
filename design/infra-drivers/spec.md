@@ -58,10 +58,15 @@ different capabilities do not share a file (the exceptions are listed in the las
 - `bootstrap.py` pre-registers **every** built-in driver row of this wave, each as a lazy
   `"module:Class"` target resolved when an instance selects it (as entry points are, ADR-0011
   decision 2), with its `tier`. A row whose file a later slice has not delivered yet is refused
-  when selected (SANDLOOM-B022) with a message naming that slice. Slices 17 and 18 move the files
-  but keep the rows, now as lazy install-hint rows (target `sandloom_<pkg>…`, `requires` naming the
-  package); `idk-config-defaults` (slice 19) deletes them with the hard-coded redis defaults
-  (13, item 45).
+  when selected (SANDLOOM-B022) with a message naming that slice. Slices 17 and 18 moved the files
+  and kept the rows as lazy install-hint rows (target `sandloom_<pkg>…`, `requires` naming the
+  package); `idk-config-defaults` (slice 19) deleted them with the hard-coded defaults (13, item
+  45): the kernel keeps rows only for its own drivers, and a driver package is found by its entry
+  point alone. The kernel selects no driver for `database`, `cache`, `eventbus`, `broadcast`,
+  `taskqueue`, `atomic_store` or `lease`: the composition does (`create_app(default_infra=...)`,
+  `sandloom_standard.DEFAULT_INFRA`), and a process whose composition and `INFRA` select none for
+  an instance it cannot start without refuses with SANDLOOM-B037 in every environment, never
+  falling back to `memory`.
 - `access.py` gains `atomic_store(role)`, `lease(name)` and `broadcast(name)`, typed by the ports
   Protocols. `idk-atomic-adopt` removes `security_cache()` and `idempotency_cache()` when it moves
   their last caller.
@@ -1362,17 +1367,39 @@ For the orchestrator's review; each departs from or details `design.md`.
     `database:<system identifier>/<db>`: the hash keeps credentials out of the string. Its material
     is the backend, host, the `host` query parameter, port and database; the absolute path of a
     SQLite file; a per-instance marker for `:memory:`.
-45. **The rows of a moved driver stay until `idk-config-defaults`** (decided on PR #220,
-    `idk-pkg-redis`; deviates from section 1, which had slices 17 and 18 delete them). A row stays
-    in `BUILTIN_DRIVER_ROWS` as a lazy install-hint row: target `sandloom_<pkg>:<Class>`,
-    `requires=("sandloom_<pkg>", …)`. Without the package the preflight and the first use of an
-    instance refuse with SANDLOOM-B037 and the install hint, and the entry point of the package is
-    the same driver, not a conflict (`driver_target`). The kernel still synthesizes the redis
-    `atomic_store`, `lease` and `broadcast` defaults, so the rows cannot go before slice 19. Before
-    they go, `idk-config-defaults` adds a registry-side policy hook that passes `assume_allowed`
-    (`unverified_noeviction_allowed`) to an `atomic_store` or `lease` built from an entry point.
-    Without it `never_evicts_check=assume` is refused for ever in production, because only the row's
-    `build` passes the policy.
+45. **The rows of a moved driver stayed until `idk-config-defaults`, which deleted them** (decided
+    on PR #220, `idk-pkg-redis`; deviates from section 1, which had slices 17 and 18 delete them).
+    Until then a row stayed in `BUILTIN_DRIVER_ROWS` as a lazy install-hint row, because the kernel
+    still synthesized the redis `atomic_store`, `lease` and `broadcast` defaults. Slice 19 removed
+    the rows `cache.redis`, `taskqueue.celery`, `eventbus.streams`, `atomic_store.redis`,
+    `lease.redis` and `broadcast.redis` with those defaults, and changed three things:
+    - **Defaults come from the composition.** `sandloom.core.infra.config` names no driver other
+      than the in-tree `memory`/`local`/`log` selectors of the flat settings. A composition passes
+      `create_app(default_infra=...)` (`sandloom_standard.DEFAULT_INFRA`, and the explicit `INFRA`
+      that `sandloom new` writes); `INFRA` overrides it per instance. A tool process
+      (`sandloom worker check`) reads the same selection from the root's package
+      (`composition.root_default_infra`). The suite's root `conftest.py` selects the standard
+      drivers and `.env.test` sets `EVENT_BUS_BACKEND=memory`.
+    - **Startup refuses what nothing selects.** The kernel's instances (`database`, `cache`,
+      `eventbus`, and `atomic_store.security`; `REQUIRED_AT_STARTUP`) with no selected driver, or
+      a driver whose package is missing, refuse startup with SANDLOOM-B037 in every environment,
+      one message naming every instance, what to select and the install command. `memory` is
+      selected only by name (`INFRA`, or `EVENT_BUS_BACKEND=memory`), never as a fallback. In
+      production `atomic_store.security` is never taken from a composition default: `INFRA` names
+      it, as `production_profile` already required.
+    - **The install hint is a table, not a row.** `KNOWN_DRIVER_PACKAGES` in
+      `sandloom.core.drivers.bootstrap` maps `(capability, driver)` to the package's import name and
+      its install command (`pip install sandloom-redis`, `pip install sandloom-celery`) and is
+      registered with `InfraRegistry.register_driver_package`. An instance that selects such a
+      driver while the package is absent (no entry point registered, or `find_spec` finds nothing)
+      is refused with the hint; any other unregistered name stays `DriverNotRegisteredError`. A test
+      keeps the table equal to the packages' entry points.
+    - **The policy hook.** `InfraRegistry.set_policy(capability, **hooks)` passes each hook as the
+      constructor argument of that name to a provider class that declares it, whether the class
+      comes from an entry point or a row (a class without it is built by `from_config`).
+      `register_kernel_policies` sets `assume_allowed=unverified_noeviction_allowed` for
+      `atomic_store` and `lease`, so `never_evicts_check=assume` still works in development and
+      under the `unverified_noeviction` accepted risk in production.
 46. **`sandloom-celery` keeps the `taskqueue` row of item 45 and names its modules
     `taskqueue`, `worker` and `broker_probe`** (`idk-pkg-celery-move`). The three files move whole
     to `sandloom_celery/{taskqueue,worker,broker_probe}.py` (section 1 names no file), so the
@@ -1391,7 +1418,7 @@ For the orchestrator's review; each departs from or details `design.md`.
     the real-broker tests skip with their reason. The job writes a skip ledger (lane `celery`)
     that the `skip-ledger` job merges. A shared driverkit helper for the `_REQUIRED` guards is
     the follow-up task `idk-driverkit-required-guard`. The kernel keeps
-    `test_celery_driver_rows` (bootstrap rows), `test_celery_error_mapping` (the kernel enqueue
+    `test_celery_error_mapping` (the kernel enqueue
     layer over the driver) and `test_beat_lease` (the kernel's lease resolution and the Celery
     holder over one fake store).
 

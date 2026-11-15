@@ -30,7 +30,7 @@ from fastapi import FastAPI
 from sandloom.local_modules import default_modules
 from sandloom.sdk.app import create_app as _create_kernel_app
 from sandloom.sdk.infra import CoreFacade
-from sandloom_standard import STANDARD_CLAIM_AUTHORITIES
+from sandloom_standard import DEFAULT_INFRA, STANDARD_CLAIM_AUTHORITIES
 
 
 def standard_modules() -> list[str]:
@@ -43,6 +43,7 @@ def create_app() -> FastAPI:
     return _create_kernel_app(
         default_modules=standard_modules(),
         default_claim_authorities=STANDARD_CLAIM_AUTHORITIES,
+        default_infra=DEFAULT_INFRA,
     )
 
 
@@ -50,6 +51,7 @@ app = create_app()
 core: CoreFacade = app.state.core
 
 __all__ = [
+    "DEFAULT_INFRA",
     "STANDARD_CLAIM_AUTHORITIES",
     "app",
     "core",

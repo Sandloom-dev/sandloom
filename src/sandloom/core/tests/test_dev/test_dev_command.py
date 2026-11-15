@@ -45,6 +45,7 @@ from sandloom.core.cli.dev.state import (
 from sandloom.core.cli.project import generate_project
 from sandloom.core.composition import composition_root_name
 from sandloom.core.testing.machine import machine_id
+from sandloom.core.tests._root_support import suite_infra_env
 
 # --------------------------------------------------------------------------- #
 # Fixtures
@@ -963,6 +964,7 @@ def test_the_cli_prints_one_line_and_debug_shows_the_traceback(
         # root this run does (an issuer needs its trust map, SANDLOOM-B035)
         SANDLOOM_COMPOSITION_ROOT=composition_root_name(),
     )
+    env.update(suite_infra_env(env))  # a root that selects no driver (kernel-only venv)
     entry = "import sys; from sandloom import main; main()"
 
     def run(*args: str, **extra: str) -> subprocess.CompletedProcess[str]:

@@ -252,7 +252,7 @@ def test_the_migration_creates_the_table_logged_with_the_storage_parameters() ->
 
 
 def test_the_registry_builds_the_database_driver_as_an_option() -> None:
-    registry = build_infra_registry(InMemorySchemaRegistry(), load_plugins=False)
+    registry = build_infra_registry(InMemorySchemaRegistry())
     registration = registry._registration("atomic_store", "database")
     assert registration is not None
     assert not registration.delivered_by

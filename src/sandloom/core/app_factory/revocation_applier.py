@@ -86,8 +86,8 @@ def cross_process_bus(cfg: Any) -> bool:
 
     Decided from the driver of the ``default`` eventbus instance, the one the
     composition binds (``create_app``), after the same merge the registry
-    makes: ``EVENT_BUS_BACKEND`` (``auto`` is Streams in production, memory
-    elsewhere) with the ``INFRA`` overlay applied, so
+    makes: ``EVENT_BUS_BACKEND`` (``auto`` leaves the bus to the composition's
+    selection, with no kernel default) with the ``INFRA`` overlay applied, so
     ``INFRA={"eventbus": {"default": {"driver": "streams"}}}`` is a shared
     bus whatever ``EVENT_BUS_BACKEND`` says. Only the in-process ``memory``
     driver has no other receiver; every other driver, a plugin's included,
