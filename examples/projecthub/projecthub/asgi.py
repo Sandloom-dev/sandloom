@@ -12,4 +12,8 @@ from sandloom.sdk.app import (  # sandloom: advanced composition root
     create_app,
 )
 
-app = create_app(default_modules=app_modules("projecthub.modules"))
+from . import DEFAULT_INFRA
+
+app = create_app(
+    default_modules=app_modules("projecthub.modules"), default_infra=DEFAULT_INFRA
+)

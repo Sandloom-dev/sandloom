@@ -10,15 +10,18 @@ from __future__ import annotations
 import importlib
 import logging
 import sys
-from typing import Any
 
 from sandloom.core.config.settings import Settings
 from sandloom.core.config.settings import settings as _default_settings
 from sandloom.core.contracts import SchemaRegistryContract
 from sandloom.core.infra.capabilities import BUILTIN_CAPABILITIES
-from sandloom.core.infra.config import InfraConfig, InstanceConfig, load_infra_config
+from sandloom.core.infra.config import (
+    REQUIRED_AT_STARTUP,
+    InfraConfig,
+    InstanceConfig,
+    load_infra_config,
+)
 from sandloom.core.infra.extra_capabilities import EXTRA_CAPABILITIES
-from sandloom.core.infra.fenced_lease import BEAT_INSTANCE
 from sandloom.core.infra.ports._base import DriverTier, InfraProvider
 from sandloom.core.infra.registry import (
     DevelopmentOnlyDriverRefused,
@@ -32,23 +35,23 @@ from sandloom.core.infra.registry import (
 #: The import name and the extra of the redis-py client.
 _REDIS: tuple[str, ...] = ("redis",)
 _REDIS_INSTALL = "pip install 'sandloom[redis]'"
-#: The Redis drivers of the ``sandloom-redis`` package: the same ``module:Class``
-#: targets its ``sandloom.drivers`` entry points name (a test keeps them equal),
-#: so a row and its entry point are one driver, never a conflict. A build
-#: without the package is refused when an instance selects the driver (B037).
-_REDIS_PACKAGE: tuple[str, ...] = ("sandloom_redis", "redis")
-_REDIS_DRIVERS = {
-    "atomic_store": "sandloom_redis.atomic_store:RedisAtomicStoreProvider",
-    "lease": "sandloom_redis.lease:RedisLeaseProvider",
-    "broadcast": "sandloom_redis.broadcast:RedisBroadcastProvider",
-    "cache": "sandloom_redis.cache:RedisCacheProvider",
-    "eventbus": "sandloom_redis.eventbus.driver:StreamsEventBusProvider",
+#: The drivers of the packages the kernel knows by name, ``(capability, driver)
+#: -> (import name, install command)``: the package registers each through its
+#: ``sandloom.drivers`` entry point, and the kernel keeps no row for it. An
+#: instance that selects one while the package is absent is refused with this
+#: install hint (SANDLOOM-B037, ``InfraRegistry.register_driver_package``). A
+#: test keeps the names equal to the packages' entry points.
+KNOWN_DRIVER_PACKAGES: dict[tuple[str, str], tuple[str, str]] = {
+    ("atomic_store", "redis"): ("sandloom_redis", "pip install sandloom-redis"),
+    ("lease", "redis"): ("sandloom_redis", "pip install sandloom-redis"),
+    ("broadcast", "redis"): ("sandloom_redis", "pip install sandloom-redis"),
+    ("cache", "redis"): ("sandloom_redis", "pip install sandloom-redis"),
+    ("eventbus", "streams"): ("sandloom_redis", "pip install sandloom-redis"),
+    ("taskqueue", "celery"): ("sandloom_celery", "pip install sandloom-celery"),
 }
-#: The Celery taskqueue driver of the ``sandloom-celery`` package: the same
-#: ``module:Class`` target its ``taskqueue.celery`` entry point names (a test
-#: keeps them equal), refused with the install hint when the package is absent.
-_CELERY_PACKAGE: tuple[str, ...] = ("sandloom_celery", "celery")
-_CELERY_DRIVER = "sandloom_celery.taskqueue:CeleryTaskQueueProvider"
+#: The module of the ``sandloom-redis`` cache driver, whose default client
+#: exists once it was imported (:func:`close_default_cache`).
+_REDIS_CACHE_MODULE = "sandloom_redis.cache"
 _DRIVERS = "sandloom.core.drivers"
 
 logger = logging.getLogger("sandloom.core.infra")
@@ -71,14 +74,6 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
     ),
     (
         "cache",
-        "redis",
-        _REDIS_DRIVERS["cache"],
-        _REDIS_PACKAGE,
-        _REDIS_INSTALL,
-        "",
-    ),
-    (
-        "cache",
         "memory",
         f"{_DRIVERS}.memory_cache:MemoryCacheProvider",
         (),
@@ -94,14 +89,6 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
         "",
     ),
     (
-        "taskqueue",
-        "celery",
-        _CELERY_DRIVER,
-        _CELERY_PACKAGE,
-        "pip install 'sandloom[celery]'",
-        "",
-    ),
-    (
         "eventbus",
         "memory",
         "sandloom.core.eventing.volatile_provider:MemoryEventBusProvider",
@@ -114,14 +101,6 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
         "redis",
         "sandloom.core.eventing.volatile_provider:RedisEventBusProvider",
         _REDIS,
-        _REDIS_INSTALL,
-        "",
-    ),
-    (
-        "eventbus",
-        "streams",
-        _REDIS_DRIVERS["eventbus"],
-        _REDIS_PACKAGE,
         _REDIS_INSTALL,
         "",
     ),
@@ -145,14 +124,6 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
     ),
     (
         "atomic_store",
-        "redis",
-        _REDIS_DRIVERS["atomic_store"],
-        _REDIS_PACKAGE,
-        _REDIS_INSTALL,
-        "",
-    ),
-    (
-        "atomic_store",
         "memory",
         f"{_DRIVERS}.memory_atomic_store:MemoryAtomicStoreProvider",
         (),
@@ -169,14 +140,6 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
     ),
     (
         "lease",
-        "redis",
-        _REDIS_DRIVERS["lease"],
-        _REDIS_PACKAGE,
-        _REDIS_INSTALL,
-        "",
-    ),
-    (
-        "lease",
         "memory",
         f"{_DRIVERS}.memory_lease:MemoryLeaseProvider",
         (),
@@ -189,14 +152,6 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
         f"{_DRIVERS}.database_lease:DatabaseLeaseProvider",
         (),
         "",
-        "",
-    ),
-    (
-        "broadcast",
-        "redis",
-        _REDIS_DRIVERS["broadcast"],
-        _REDIS_PACKAGE,
-        _REDIS_INSTALL,
         "",
     ),
     (
@@ -219,23 +174,17 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
 #: mailpit container) is green on main.
 BUILTIN_DRIVER_TIERS: dict[tuple[str, str], DriverTier] = {
     ("database", "sqlalchemy"): "beta",
-    ("cache", "redis"): "beta",
     ("cache", "memory"): "beta",
     ("objectstore", "local"): "beta",
-    ("taskqueue", "celery"): "beta",
     ("eventbus", "memory"): "beta",
     ("eventbus", "redis"): "beta",
-    ("eventbus", "streams"): "beta",
     ("document_store", "memory"): "beta",
     ("notification", "log"): "beta",
     ("notification", "smtp"): "beta",
-    ("atomic_store", "redis"): "beta",
     ("atomic_store", "memory"): "beta",
     ("atomic_store", "database"): "beta",
-    ("lease", "redis"): "beta",
     ("lease", "memory"): "beta",
     ("lease", "database"): "beta",
-    ("broadcast", "redis"): "beta",
     ("broadcast", "memory"): "beta",
 }
 
@@ -289,51 +238,19 @@ def unverified_noeviction_allowed(settings: Settings | None = None) -> bool:
     return not resolved.is_prod or resolved.accepts_risk("unverified_noeviction")
 
 
-#: The drivers that take the kernel's ``never_evicts_check=assume`` policy.
-_NOEVICTION_POLICY_DRIVERS = frozenset({("atomic_store", "redis"), ("lease", "redis")})
-
-
-def _policy_build(
-    registry: InfraRegistry,
-    capability: str,
-    driver: str,
-    settings: Settings | None = None,
-) -> DriverFactory:
-    """The build of a Redis driver whose correctness needs a server that never
-    evicts (``atomic_store``, ``lease``): it constructs the provider class the
-    registry resolves from the driver's row with ``assume_allowed`` stating the
-    kernel's policy on ``never_evicts_check=assume``
-    (:func:`unverified_noeviction_allowed`)."""
-
-    def build(cfg: InstanceConfig) -> InfraProvider:
-        # The row's lazy target is imported by the registry when an instance
-        # selects the driver, never at bootstrap.
-        constructor: Any = registry.driver_class(capability, driver)
-        provider: InfraProvider = constructor(
-            name=cfg.name,
-            driver=cfg.driver,
-            options=dict(cfg.options),
+def register_kernel_policies(
+    registry: InfraRegistry, settings: Settings | None = None
+) -> None:
+    """Hand the kernel's policy to the drivers that take it, whatever builds
+    them (an entry point or a row): the ``atomic_store`` and ``lease`` drivers
+    whose correctness needs a server that never evicts get ``assume_allowed``
+    (:func:`unverified_noeviction_allowed`), so ``never_evicts_check=assume``
+    runs where the policy allows it (spec 13 item 45)."""
+    for capability in ("atomic_store", "lease"):
+        registry.set_policy(
+            capability,
             assume_allowed=lambda: unverified_noeviction_allowed(settings),
         )
-        return provider
-
-    return build
-
-
-def with_default_beat_lease(config: InfraConfig) -> InfraConfig:
-    """``config`` with the instance ``lease.beat`` the kernel needs: when
-    ``INFRA`` names none, a ``redis`` lease on ``CACHE_URL`` (the shared Redis
-    of every deploy profile), marked implicit like the other defaults. It is
-    built on first use, never opened or probed for a process that holds no
-    lease."""
-    if BEAT_INSTANCE in (config.get("lease") or {}):
-        return config
-    default = InstanceConfig(
-        capability="lease", name=BEAT_INSTANCE, driver="redis", options={}
-    )
-    default.implicit = True
-    config.setdefault("lease", {})[BEAT_INSTANCE] = default
-    return config
 
 
 def register_builtin_drivers(
@@ -379,13 +296,16 @@ def register_builtin_drivers(
             sql_dialects=SQLALCHEMY_SQL_DIALECTS if driver == "sqlalchemy" else None,
             build=(
                 _event_bus_build(schema_registry, driver, settings)
-                if capability == "eventbus" and driver != "streams"
-                else _policy_build(registry, capability, driver, settings)
-                if (capability, driver) in _NOEVICTION_POLICY_DRIVERS
+                if capability == "eventbus"
                 else None
             ),
             delivered_by=delivered_by,
             tier=BUILTIN_DRIVER_TIERS[(capability, driver)],
+        )
+    register_kernel_policies(registry, settings)
+    for (capability, driver), (package, install) in KNOWN_DRIVER_PACKAGES.items():
+        registry.register_driver_package(
+            capability, driver, package=package, install=install
         )
 
 
@@ -396,9 +316,15 @@ def build_infra_registry(
     config: InfraConfig | None = None,
     load_plugins: bool = True,
 ) -> InfraRegistry:
-    """Build the registry: drivers + plugins + configuration."""
+    """Build the registry: drivers + plugins + configuration.
+
+    Built from the settings (``config`` omitted), the process refuses to start
+    without a driver for each instance of ``REQUIRED_AT_STARTUP`` that the
+    composition or ``INFRA`` selects (SANDLOOM-B037): the kernel names none and
+    never falls back to ``memory``. An explicit ``config`` (a tool process, a
+    test) is built as given."""
     resolved_settings = settings or _default_settings
-    cfg = with_default_beat_lease(config or load_infra_config(resolved_settings))
+    cfg = config or load_infra_config(resolved_settings)
     _fill_beat_lease_url(cfg, resolved_settings)
     # Strict in production: a driver cannot be registered for a capability with
     # no spec, and a built instance must report the features it declared.
@@ -411,6 +337,8 @@ def build_infra_registry(
     registry.set_config(cfg)
     # Fail fast on a configured instance whose driver was never registered.
     registry.validate()
+    if config is None:
+        registry.require_instances(REQUIRED_AT_STARTUP)
     _refuse_experimental_in_production(registry, resolved_settings)
     _check_driver_tiers_in_production(registry, resolved_settings)
     return registry
@@ -516,7 +444,7 @@ async def close_default_cache() -> None:
     The client exists only once the ``sandloom_redis`` package's cache module
     was imported, so a build without the package has nothing to close.
     """
-    driver = sys.modules.get(_REDIS_DRIVERS["cache"].partition(":")[0])
+    driver = sys.modules.get(_REDIS_CACHE_MODULE)
     if driver is not None:
         await driver.close_default_client()
 
@@ -524,8 +452,9 @@ async def close_default_cache() -> None:
 __all__ = [
     "BUILTIN_DRIVER_ROWS",
     "SQLALCHEMY_SQL_DIALECTS",
+    "KNOWN_DRIVER_PACKAGES",
     "register_builtin_drivers",
-    "with_default_beat_lease",
+    "register_kernel_policies",
     "build_infra_registry",
     "unverified_noeviction_allowed",
     "volatile_event_bus_allowed",

@@ -542,7 +542,7 @@ def _registry(monkeypatch: pytest.MonkeyPatch, infra: dict[str, Any]) -> Any:
     from sandloom.core.schema.registry import InMemorySchemaRegistry
 
     monkeypatch.setattr(settings, "infra", infra)
-    return build_infra_registry(InMemorySchemaRegistry(), load_plugins=False)
+    return build_infra_registry(InMemorySchemaRegistry())
 
 
 async def test_the_default_broadcast_instance_is_redis_on_the_cache_url(

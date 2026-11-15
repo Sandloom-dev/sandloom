@@ -113,7 +113,6 @@ def _registry_store(*, is_prod: bool, risks: tuple[str, ...] = ()) -> Any:
         InMemorySchemaRegistry(),
         settings=registry_settings,
         config=config,
-        load_plugins=False,
     )
     return registry.provider("atomic_store", "default")
 

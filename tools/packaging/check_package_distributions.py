@@ -447,10 +447,21 @@ def _check_kernel_factory(venv: Path, env: dict[str, str], work: Path) -> None:
         "import sandloom, sandloom.sdk, sandloom.core.drivers as drivers; "
         "[importlib.import_module(f'{drivers.__name__}.{m.name}') "
         "for m in pkgutil.iter_modules(drivers.__path__)]; "
-        "from sandloom.core.app_factory import create_app; "
-        "assert type(create_app()).__name__ == 'FastAPI'; "
-        "import sandloom.main as m; assert m.core.loaded_modules == []; "
-        "print('lean sandloom OK: CLI, kernel factory, empty lean root')",
+        # The kernel names no driver and never ``memory``, and a lean install
+        # has no composition that selects one: the factory and the lean root
+        # refuse at startup (SANDLOOM-B037), they do not boot without a cache.
+        "from sandloom.core.app_factory import create_app\n"
+        "from sandloom.core.error_codes import code_for_exception\n"
+        "def refused(build):\n"
+        "    try:\n"
+        "        build()\n"
+        "    except BaseException as exc:\n"
+        "        assert code_for_exception(exc) == 'SANDLOOM-B037', repr(exc)\n"
+        "        return\n"
+        "    raise AssertionError('a lean install must refuse to boot: B037')\n"
+        "refused(create_app)\n"
+        "refused(lambda: importlib.import_module('sandloom.main'))\n"
+        "print('lean sandloom OK: CLI, kernel factory, lean root refused: B037')",
         cwd=work,
         env={**env, "SANDLOOM_MODULES": "[]"},
     )

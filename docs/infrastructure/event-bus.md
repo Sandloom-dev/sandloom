@@ -9,7 +9,7 @@ type: concept
 The event bus carries [events](../modules/between/events.md) between modules. Modules do not call it:
 they publish with `await E(...).publish()` and consume with `@on`.
 
-Choose the driver with `EVENT_BUS_BACKEND`. The default, `auto`, chooses `streams` in production and `memory` elsewhere.
+Choose the driver with `EVENT_BUS_BACKEND`. The default, `auto`, leaves the bus to the composition: `sandloom_standard` selects `streams`. Nothing selects `memory` for you, so name it for development (`EVENT_BUS_BACKEND=memory`).
 A named instance takes the option `url`, its own Redis connection.
 
 ## Drivers

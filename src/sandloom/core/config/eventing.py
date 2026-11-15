@@ -19,15 +19,16 @@ class EventingConfig(BaseModel):
     guardrails.
     """
 
-    # Event bus transport: auto = durable "streams" in prod, in-memory otherwise
-    # (the volatile memory/redis drivers are refused in prod; see infra.config).
+    # Event bus transport: auto = the composition's selection (no kernel default,
+    # never memory); the volatile memory/redis drivers are refused in prod
+    # (see infra.config).
     event_bus_backend: Literal["auto", "memory", "redis", "streams"] = Field(
         default="auto",
         alias="EVENT_BUS_BACKEND",
         description=(
-            "Event transport selector: auto chooses durable Streams in production "
-            "and in-memory delivery elsewhere; volatile production transports "
-            "require accepted risk."
+            "Event transport selector: auto leaves the bus to the composition's "
+            "selection (startup refuses when none names one); volatile "
+            "production transports require accepted risk."
         ),
     )
     # Logical service name of this process (e.g. "billing-api"). It names the

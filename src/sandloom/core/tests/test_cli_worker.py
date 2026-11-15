@@ -173,6 +173,8 @@ def test_worker_check_is_registered_and_boots_nothing(tmp_path: Path) -> None:
     }
     env.update(_SERVICE_ENV)
     env["WORKER_HEARTBEAT_FILE"] = str(beat)
+    # The kernel selects no task queue: this process's composition does, here INFRA.
+    env["INFRA"] = '{"taskqueue": {"default": {"driver": "celery"}}}'
 
     stale = _sandloom("worker", "check", env=env)
     assert stale.returncode == 1

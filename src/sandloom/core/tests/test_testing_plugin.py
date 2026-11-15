@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from sandloom.core.composition import composition_root_name
+from sandloom.core.tests._root_support import suite_infra_env
 
 # Every case runs its own pytest process; the full matrix covers these probes.
 pytestmark = pytest.mark.subprocess_probe
@@ -56,6 +57,8 @@ def _run(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
         for k, v in os.environ.items()
         if not k.startswith(("SANDLOOM_", "PYTEST_", "JWT_")) and k != "ENVIRONMENT"
     }
+    # A root that selects no driver (kernel-only venv), on the child's own URLs.
+    env.update(suite_infra_env(dict(u.split("=", 1) for u in _URLS.splitlines())))
     return subprocess.run(
         [sys.executable, "-m", "pytest", "-q", *args],
         cwd=root,

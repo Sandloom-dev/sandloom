@@ -159,7 +159,7 @@ async def test_the_redis_bus_runs_on_the_redis_of_its_broadcast_instance(
     )
     schemas = InMemorySchemaRegistry()
     schemas.register(channel, "SideBus", {"type": "object"})
-    registry = build_infra_registry(schemas, load_plugins=False)
+    registry = build_infra_registry(schemas)
     got: list[Any] = []
 
     async def on_event(envelope: Any) -> None:

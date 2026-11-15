@@ -136,22 +136,31 @@ def test_the_group_is_named_by_the_service_not_the_database() -> None:
     assert descriptor.durable and descriptor.required
 
 
-@pytest.mark.parametrize(
-    "env",
-    [
-        {"EVENT_BUS_BACKEND": "memory"},
-        {"EVENT_BUS_BACKEND": "auto", "ENVIRONMENT": "dev"},
-    ],
-)
-def test_the_in_process_bus_needs_no_name(env: dict[str, str]) -> None:
+@pytest.mark.parametrize("composition_bus", [None, "memory"])
+def test_the_in_process_bus_needs_no_name(composition_bus: str | None) -> None:
     """No other process receives the in-process bus's events: no group to
-    merge, so the applier runs under ``…@local`` and nothing is refused."""
+    merge, so the applier runs under ``…@local`` and nothing is refused. The bus
+    is named by ``EVENT_BUS_BACKEND`` or, for ``auto``, by the composition."""
     from sandloom.core.app_factory import revocation_applier as applier
+    from sandloom.core.infra.config import use_default_infra
 
-    cfg = _cfg(**env)
+    if composition_bus is None:
+        cfg = _cfg(EVENT_BUS_BACKEND="memory")
+    else:
+        use_default_infra({"eventbus": {"default": {"driver": composition_bus}}})
+        cfg = _cfg(EVENT_BUS_BACKEND="auto", ENVIRONMENT="dev")
     assert not applier.cross_process_bus(cfg)
     assert applier.revocation_applier_config_problem(cfg) is None
     assert applier.applier_group(cfg) == "sandloom:auth@tokens_revoked@local"
+
+
+def test_auto_without_a_composition_bus_counts_as_shared() -> None:
+    """Nothing names the bus: the name is required (fail closed), never memory."""
+    from sandloom.core.app_factory import revocation_applier as applier
+    from sandloom.core.infra.config import use_default_infra
+
+    use_default_infra(None)
+    assert applier.cross_process_bus(_cfg(EVENT_BUS_BACKEND="auto", ENVIRONMENT="dev"))
 
 
 @pytest.mark.parametrize("backend", ["streams", "redis"])

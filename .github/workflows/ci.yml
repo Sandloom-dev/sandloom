@@ -634,7 +634,7 @@ jobs:
     # the Streams event bus):
     # its wheel, style, strict types, its tests and conformance kits (the
     # EventTransportConformance kit of the streams driver included) against a
-    # real Redis, and the kernel's tests of the driver rows. The package is
+    # real Redis, and the kernel's tests over the driver. The package is
     # tested as its built wheel, so the entry points the registry reads are the
     # ones the wheel ships. The root pytest paths exclude packages/, so no
     # other job runs these tests. Its skip ledger (lane `redis`) feeds the
@@ -717,13 +717,12 @@ jobs:
           p = pathlib.Path(sandloom_redis.__file__).resolve();
           assert 'site-packages' in p.parts, p"
 
-      - name: Driver tests, their conformance kits and the kernel's driver rows
+      - name: Driver tests, their conformance kits and the kernel's tests over the driver
         run: >-
           uv run --no-sync pytest -q -n 2 --dist loadfile
           -p sandloom.core.testing.skip_ledger --sandloom-skip-ledger-lane=redis
           --sandloom-skip-ledger=skip-ledger/redis.json
           packages/sandloom-redis/tests
-          src/sandloom/core/tests/test_redis_driver_rows.py
           src/sandloom/core/tests/test_atomic_store.py
           src/sandloom/core/tests/test_lease.py
           src/sandloom/core/tests/test_broadcast_redis.py
@@ -741,7 +740,7 @@ jobs:
     # The sandloom-celery package (the `celery` taskqueue driver, its worker
     # host and its broker probe): its wheel, style, strict types, its tests and
     # the TaskQueueConformance kit (send and host groups) against a real Redis
-    # broker, and the kernel's tests of the driver rows. The package is tested
+    # broker, and the kernel's tests over the driver. The package is tested
     # as its built wheel, so the entry point the registry reads is the one the
     # wheel ships. The root mypy run and pytest paths exclude packages/, so no
     # other job checks this source or runs these tests. An unreachable broker
@@ -833,13 +832,12 @@ jobs:
           p = pathlib.Path(sandloom_celery.__file__).resolve();
           assert 'site-packages' in p.parts, p"
 
-      - name: Driver tests, the conformance kit against a real broker and the kernel's driver rows
+      - name: Driver tests, the conformance kit against a real broker and the kernel's tests over the driver
         run: >-
           uv run --no-sync pytest -q -n 2 --dist loadfile
           -p sandloom.core.testing.skip_ledger --sandloom-skip-ledger-lane=celery
           --sandloom-skip-ledger=skip-ledger/celery.json
           packages/sandloom-celery/tests
-          src/sandloom/core/tests/test_celery_driver_rows.py
           src/sandloom/core/tests/test_celery_error_mapping.py
           src/sandloom/core/tests/test_beat_lease.py
 

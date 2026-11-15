@@ -348,9 +348,10 @@ This section holds the settings, commands and metrics.
   over their read contracts (`SERVICE_BINDINGS` in a split deployment). Run
   them as one-off jobs once the source services are up; never put them in the
   `migrate` one-shot (the sources are not running yet).
-- Run the durable `streams` bus in production (`EVENT_BUS_BACKEND=auto` picks
-  it); the volatile drivers are refused in prod unless the deployment accepts
-  the risk `volatile_event_bus` (`SANDLOOM_ACCEPTED_RISKS`).
+- Run the durable `streams` bus in production (the standard composition selects
+  it under `EVENT_BUS_BACKEND=auto`). The volatile drivers are refused in prod
+  unless the deployment accepts the risk `volatile_event_bus`
+  (`SANDLOOM_ACCEPTED_RISKS`).
 
 ## Sagas
 
