@@ -48,15 +48,17 @@ def _driver_entries() -> list[metadata.EntryPoint]:
 #: bundle is only checkable where their packages are installed.
 _BUNDLE_DRIVER_ROWS = frozenset({"cache.redis", "eventbus.streams"})
 
-pytestmark = [
-    pytest.mark.skipif(
-        not OBS.is_dir(), reason="deploy/observability not in this checkout"
-    ),
-    pytest.mark.skipif(
-        not _BUNDLE_DRIVER_ROWS <= {entry.name for entry in _driver_entries()},
-        reason="the Redis driver package is not installed: the bundle queries its metrics",
-    ),
-]
+pytestmark = pytest.mark.skipif(
+    not OBS.is_dir(), reason="deploy/observability not in this checkout"
+)
+
+#: Only the test that compares the bundle's queries with the live metric
+#: registry needs the driver packages (the alert index, dashboards and overlay
+#: tests do not, so they run without them).
+needs_driver_metrics = pytest.mark.skipif(
+    not _BUNDLE_DRIVER_ROWS <= {entry.name for entry in _driver_entries()},
+    reason="the Redis driver package is not installed: the bundle queries its metrics",
+)
 
 #: Modules that define Prometheus metrics at import time.
 METRIC_MODULES = (
@@ -217,6 +219,7 @@ def test_parser_sees_metrics_labels_and_grouping() -> None:
     assert grouping == {"le", "peer", "job"}
 
 
+@needs_driver_metrics
 def test_every_referenced_metric_and_label_exists() -> None:
     known = {**_registered(), **_recorded(), **SYNTHETIC}
     problems: list[str] = []

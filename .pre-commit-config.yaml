@@ -91,7 +91,7 @@ repos:
     -   id: uv-locks
         name: uv-locks
         entry: >-
-          bash -c 'for l in $(git ls-files "*uv.lock"); do
+          bash -c 'git ls-files -z "*uv.lock" | while IFS= read -r -d "" l; do
           (cd "$(dirname "$l")" && uv lock --check --quiet)
           || { echo "stale: $l (run: cd $(dirname "$l") && uv lock)"; exit 1; }; done'
         language: system
@@ -101,7 +101,9 @@ repos:
     # The driver packages' own static steps, as the redis-drivers and
     # celery-drivers CI jobs run them (the hooks above cover src/ only). Each
     # changed package is checked whole: a merge of main can leave an unused
-    # import in a file the branch never edited.
+    # import in a file the branch never edited. The package list below (and the
+    # `files` pattern) follows the driver-package jobs of .github/workflows/ci.yml:
+    # a new driver package gets a job there and a name here.
     -   id: driver-packages
         name: driver-packages
         entry: >-

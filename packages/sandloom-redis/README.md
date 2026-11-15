@@ -16,7 +16,7 @@ discovers the drivers through the `sandloom.drivers` entry-point group.
 Each driver declares the tier `beta`. The `redis-drivers` job of `ci.yml`
 (required by the aggregate check "CI required") runs the conformance kits
 (`AtomicStoreConformance`, `LeaseConformance`, `BroadcastConformance`,
-`CacheConformance`) against
+`CacheConformance`, `EventTransportConformance`) against
 a real Redis, and this package's tests and types (`mypy` strict).
 
 ```sh
