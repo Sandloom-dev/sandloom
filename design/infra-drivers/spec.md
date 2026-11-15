@@ -1372,11 +1372,22 @@ For the orchestrator's review; each departs from or details `design.md`.
     to `sandloom_celery/{taskqueue,worker,broker_probe}.py` (section 1 names no file), so the
     stable importable Celery app of 8.2 is the module attribute `app` of `sandloom_celery.worker`:
     `celery -A sandloom_celery.worker inspect|call|status` (earlier text said `sandloom_celery.app`).
-    The provider declares `tier = "beta"` (2.5) on the strength of the kernel's own
-    `TaskQueueConformance` runs against a real broker (`test_taskqueue_kit*`); the package's own
-    kit lane and tests follow in `idk-pkg-celery-lane`. Until then the CI job `celery-drivers`
-    builds the wheel, lints and runs strict `mypy packages/sandloom-celery/src` (the root mypy run
-    and pytest paths do not reach `packages/`).
+    The provider declares `tier = "beta"` (2.5) on the strength of `TaskQueueConformance` runs
+    against a real broker. `idk-pkg-celery-lane` moves the driver's tests into
+    `packages/sandloom-celery/tests` (slots, worker pool, broker probe, defaults, the kit's send and
+    host groups) and extends the CI job `celery-drivers`: it builds the wheel, lints, runs strict
+    `mypy packages/sandloom-celery/src`, then the package tests and the kernel's driver-row tests
+    against the built wheel and a Redis broker (the root mypy run and pytest paths do not reach
+    `packages/`). `SANDLOOM_CELERY_REQUIRED=1` (the scheme `SANDLOOM_<PACKAGE>_REQUIRED` of
+    `SANDLOOM_REDIS_REQUIRED`), set by the job, makes an unreachable broker or cache an error, as
+    it does a broker whose scheme is not a network transport (`memory://`) and a run whose
+    `sandloom_celery` is not under `site-packages` (the lane tests the built wheel); without it
+    the real-broker tests skip with their reason. The job writes a skip ledger (lane `celery`)
+    that the `skip-ledger` job merges. A shared driverkit helper for the `_REQUIRED` guards is
+    the follow-up task `idk-driverkit-required-guard`. The kernel keeps
+    `test_celery_driver_rows` (bootstrap rows), `test_celery_error_mapping` (the kernel enqueue
+    layer over the driver) and `test_beat_lease` (the kernel's lease resolution and the Celery
+    holder over one fake store).
 
 ## 14. Open for the owner
 

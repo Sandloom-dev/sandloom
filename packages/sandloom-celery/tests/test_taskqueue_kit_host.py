@@ -1,7 +1,10 @@
 """``TaskQueueConformance`` host groups (spec 8.2) against the celery driver: a
 worker host and two schedulers, each in a forked process, on the real test
 broker and the real test cache. About a minute: its own file, so
-``--dist loadfile`` runs it beside the send groups, not after them."""
+``--dist loadfile`` runs it beside the send groups, not after them.
+
+The CI lane (``celery-drivers``) runs it against a real Redis with
+``SANDLOOM_CELERY_REQUIRED=1``: no broker there is an error, not a skip."""
 
 from __future__ import annotations
 
@@ -18,10 +21,7 @@ import pytest
 from sandloom_celery.taskqueue import create_celery_taskqueue
 from sandloom_redis.lease import RedisLeaseProvider
 
-from sandloom.core.config.settings import settings
-from sandloom.core.infra.config import InstanceConfig
-from sandloom.core.infra.ports.lease import LeaseProvider
-from sandloom.core.infra.ports.taskqueue import TaskQueueProvider
+from sandloom.driverkit import InstanceConfig, LeaseProvider, TaskQueueProvider
 from sandloom.driverkit.testing import TaskQueueConformance
 
 _HOST_GROUP_PREFIXES = ("test_host_", "test_scheduler_", "test_check_")
@@ -58,19 +58,25 @@ def _frozen_beat_clock() -> Iterator[Callable[[], None]]:
 
 
 class TestCeleryTaskQueueHost(TaskQueueConformance):
-    @pytest.fixture
-    def make_provider(self) -> Callable[[], TaskQueueProvider]:
-        return lambda: _celery(settings.broker_url)
+    @pytest.fixture(autouse=True)
+    def _broker(self, real_broker: str) -> str:
+        # Fails the run where the lane requires the broker and it is down
+        # (SANDLOOM_CELERY_REQUIRED=1), skips on a machine without one.
+        return real_broker
 
     @pytest.fixture
-    def make_host_provider(self) -> Callable[[], TaskQueueProvider]:
+    def make_provider(self, real_broker: str) -> Callable[[], TaskQueueProvider]:
+        return lambda: _celery(real_broker)
+
+    @pytest.fixture
+    def make_host_provider(self, real_broker: str) -> Callable[[], TaskQueueProvider]:
         # The forked hosts and the test share the broker: not ``memory://``.
-        return lambda: _celery(settings.broker_url)
+        return lambda: _celery(real_broker)
 
     @pytest.fixture
-    def make_lease_store(self) -> Callable[[], LeaseProvider]:
+    def make_lease_store(self, real_cache: str) -> Callable[[], LeaseProvider]:
         return lambda: RedisLeaseProvider(
-            name="beat", driver="redis", options={"url": settings.cache_url}
+            name="beat", driver="redis", options={"url": real_cache}
         )
 
     @pytest.fixture

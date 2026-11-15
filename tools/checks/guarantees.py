@@ -8,7 +8,8 @@ honest (see ``check``); a simplification wave runs the enforcing tests first::
     uv run python tools/checks/guarantees.py check      # the gate, standalone
     uv run python tools/checks/guarantees.py render     # rewrite docs/reference/guarantees.md
     uv run python tools/checks/guarantees.py nodeids    # the enforcing backend tests
-    uv run pytest -m guarantees src                # the same selection, by marker
+    uv run python tools/checks/guarantees.py paths      # what to pass to pytest
+    uv run pytest -m guarantees $(uv run python tools/checks/guarantees.py paths)
     uv run python tools/checks/guarantees.py show G-TENANT-01
 
 Pure standard library + PyYAML; imported by the architecture test and by the
@@ -34,6 +35,12 @@ REPO = BACKEND
 LEDGER = BACKEND / "guarantees.yml"
 REFERENCE = REPO / "docs" / "reference" / "guarantees.md"
 ADR_DIR = REPO / "docs" / "adr"
+#: Where an enforcing test's node id may start (see ``pytest_paths``).
+PYTEST_ROOTS = ("src/", "tests/", "packages/")
+#: The driver packages the root ``dev`` group installs, so their tests collect in
+#: the root environment. Another package (``sandloom-s3``) runs its tests in its
+#: own CI lane: its rows are evidenced there, not by this marker run.
+DEV_ENV_PACKAGES = frozenset({"sandloom-celery", "sandloom-redis"})
 
 ID_RE = re.compile(r"^(?P<prefix>[GC]-[A-Z]+)-(?P<num>\d{2,3})$")
 GAP_SIZES = ("S", "M", "L")
@@ -319,13 +326,28 @@ def nodeid_problem(nodeid: str) -> str | None:
 
 
 def backend_nodeids(ledger: Ledger) -> list[str]:
-    """Enforcing tests runnable from the repository root (paths relative to it)."""
+    """Enforcing tests runnable from the repository root (paths relative to it):
+    the kernel's and modules' (``src/``, ``tests/``) and a driver package's own
+    (``packages/<package>/tests/``, outside the root ``testpaths``)."""
     out: list[str] = []
     for entry in ledger.entries:
         for nodeid in entry.tests:
-            if nodeid.startswith(("src/", "tests/")) and nodeid not in out:
+            if nodeid.startswith(PYTEST_ROOTS) and nodeid not in out:
                 out.append(nodeid)
     return out
+
+
+def pytest_paths(ledger: Ledger) -> list[str]:
+    """The paths ``pytest -m guarantees`` needs to reach every enforcing test:
+    ``src`` plus the ``packages/<package>/tests`` directory of each package of
+    ``DEV_ENV_PACKAGES`` a row names (``packages/`` as a whole does not collect:
+    a package outside the dev environment fails its collection)."""
+    packages = {
+        "/".join(nodeid.split("/")[:3])
+        for nodeid in backend_nodeids(ledger)
+        if nodeid.startswith("packages/") and nodeid.split("/")[1] in DEV_ENV_PACKAGES
+    }
+    return ["src", *sorted(packages)]
 
 
 def ledger_nodeids_for_marker() -> tuple[str, ...]:
@@ -718,7 +740,7 @@ def render(ledger: Ledger | None = None) -> str:
         "Run exactly the enforcing tests (from the repository root):",
         "",
         "```bash",
-        "uv run pytest -m guarantees src",
+        f"uv run pytest -m guarantees {' '.join(pytest_paths(ledger))}",
         "```",
         "",
     ]
@@ -803,9 +825,13 @@ def render(ledger: Ledger | None = None) -> str:
     lines += ["", "## Sources", ""]
     lines += ["| Id | Source |", "| --- | --- |"]
     for entry in entries:
-        lines.append(f"| {_id(entry.id)} | {'<br>'.join(_md(s) for s in entry.sources)} |")
+        lines.append(
+            f"| {_id(entry.id)} | {'<br>'.join(_md(s) for s in entry.sources)} |"
+        )
     lines += [
-        "", "## Related reading", "",
+        "",
+        "## Related reading",
+        "",
         "- [Guarantee boundaries](../advanced/guarantees.md)",
         "- [Error catalogue](error-codes.md)",
         "",
@@ -839,6 +865,9 @@ def main(argv: list[str]) -> int:
         return 0
     if cmd == "nodeids":
         print("\n".join(backend_nodeids(load())))
+        return 0
+    if cmd == "paths":
+        print(" ".join(pytest_paths(load())))
         return 0
     if cmd == "show":
         entries = load().by_id()

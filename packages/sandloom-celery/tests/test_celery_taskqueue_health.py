@@ -14,24 +14,22 @@ import time
 from typing import Any
 
 import pytest
+from celery import Celery
 from sandloom_celery import broker_probe as probe
 from sandloom_celery.taskqueue import create_celery_taskqueue
 
-from sandloom.core.config.settings import settings
-from sandloom.core.infra.config import InstanceConfig
-
-celery = pytest.importorskip("celery")
+from sandloom.driverkit import InstanceConfig
 
 #: Nothing listens on port 1: refused at once.
 _REFUSED = "redis://:s3cret-pass@127.0.0.1:1/0"
 
 
-def _app(broker: str) -> Any:
-    return celery.Celery("kbic3-probe", broker=broker)
+def _app(broker: str) -> Celery:
+    return Celery("kbic3-probe", broker=broker)
 
 
-async def test_a_reachable_broker_is_ok() -> None:
-    result = await probe.probe_broker(_app(settings.broker_url), limit_seconds=2.0)
+async def test_a_reachable_broker_is_ok(real_broker: str) -> None:
+    result = await probe.probe_broker(_app(real_broker), limit_seconds=2.0)
 
     assert result.status == "ok", result.details
     assert not result.details  # nothing of the broker
@@ -119,9 +117,7 @@ def test_the_connect_is_bounded_and_does_not_retry() -> None:
     assert seen["released"] is True
 
 
-async def test_the_provider_health_probes_its_broker(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_the_provider_health_probes_its_broker(real_broker: str) -> None:
     """``CeleryTaskQueueProvider.health()`` is the probe, per instance
     broker (no longer the contract's default ``ok``), bounded by its
     ``health_timeout_seconds`` option."""
@@ -138,7 +134,7 @@ async def test_the_provider_health_probes_its_broker(
             capability="taskqueue",
             name="kbic3-up",
             driver="celery",
-            options={"broker": settings.broker_url},
+            options={"broker": real_broker},
         )
     )
 
