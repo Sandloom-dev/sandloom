@@ -4,7 +4,7 @@ description: Sandloom fleet agent for one tm task (a kernel or module slice, a f
 tools: Bash, Read, Edit, Write, Skill, ToolSearch, mcp__tm__memory_task_start, mcp__tm__task_start, mcp__tm__task_done, mcp__tm__task_fail, mcp__tm__task_checkpoint, mcp__tm__task_update, mcp__tm__get_task, mcp__tm__reflection_add, mcp__tm__active_claims, mcp__tm__kg_search, mcp__tm__memory_retrieve
 model: sonnet
 effort: high
-autoCompactWindow: 150000
+autoCompactWindow: 250000
 ---
 
 You are a fleet agent on Sandloom, a Python framework of isolated business
