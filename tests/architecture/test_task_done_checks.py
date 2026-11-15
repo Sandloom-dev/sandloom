@@ -41,8 +41,16 @@ def test_pre_commit_results_are_read_per_hook() -> None:
     }
 
 
+@pytest.fixture(autouse=True)
+def _issued(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Each test keeps the hook's issued digests in its own directory."""
+    monkeypatch.setattr(hook, "ISSUED", tmp_path / "issued")
+    return tmp_path / "issued"
+
+
 def test_a_checks_deliverable_counts_only_for_its_own_commit() -> None:
     record = json.dumps({"commit": "abc"})
+    hook.remember(record)
     for raw in (
         [{"kind": "checks", "content": record}],
         json.dumps([{"kind": "checks", "content": record}]),
@@ -51,6 +59,54 @@ def test_a_checks_deliverable_counts_only_for_its_own_commit() -> None:
         assert hook.already_checked(tool_input, "abc")
         assert not hook.already_checked(tool_input, "def")
     assert not hook.already_checked({"deliverables": [{"kind": "git_commit"}]}, "abc")
+
+
+def test_a_self_written_record_does_not_pass() -> None:
+    forged = json.dumps({"commit": "abc", "results": {"ruff": "Passed"}, "failed": []})
+    assert not hook.already_checked(
+        {"deliverables": [{"kind": "checks", "content": forged}]}, "abc"
+    )
+
+
+def test_a_record_that_is_not_a_string_is_ignored() -> None:
+    for content in ({"commit": "abc"}, ["abc"], 7, None):
+        assert not hook.already_checked(
+            {"deliverables": [{"kind": "checks", "content": content}]}, "abc"
+        )
+
+
+def test_credentials_are_masked_in_the_stored_tail() -> None:
+    tail = (
+        "connect postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/x failed"
+    )
+    assert (
+        hook.redact(tail) == "connect postgresql+asyncpg://***@127.0.0.1:5433/x failed"
+    )
+    assert (
+        hook.redact("redis://:secret@localhost:6379/0")
+        == "redis://***@localhost:6379/0"
+    )
+    assert hook.redact("https://example.test/package") == "https://example.test/package"
+
+
+def test_a_not_run_text_is_masked_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        hook,
+        "_git",
+        lambda args, cwd: "/repo" if "--show-toplevel" in args else "c0ffee",
+    )
+    monkeypatch.setattr(
+        hook,
+        "run_checks",
+        lambda top: ({}, "fetch https://u:p4ss@example.test/x failed", 1),
+    )
+    answer = json.loads(
+        _call(monkeypatch, {"agent_type": hook.AGENT, "tool_input": {}})
+    )
+    reason = answer["hookSpecificOutput"]["permissionDecisionReason"]
+    record = json.loads(json.loads(reason.splitlines()[-1])["content"])
+    assert "p4ss" not in record["not_run"]
+    assert "p4ss" not in reason
 
 
 def test_a_handover_by_anyone_but_an_implementer_is_not_checked(
@@ -170,3 +226,27 @@ def test_results_are_dropped_when_head_moves_during_the_run(
     assert record["commit"] == "first"
     assert record["results"] == {}
     assert record["not_run"] == "HEAD moved while the checks ran"
+
+
+def test_a_credential_at_the_cutoff_is_masked_before_the_cut(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = "cut0ff-pass"
+    tail = f"https://user:{secret}@example.test/" + "x" * 280  # last 300 start mid-password
+    monkeypatch.setattr(
+        hook,
+        "_git",
+        lambda args, cwd: "/repo" if "--show-toplevel" in args else "c0ffee",
+    )
+
+    def raise_long(top: str) -> tuple[dict[str, str], str, int]:
+        raise OSError("x" * 270 + f" redis://:{secret}@localhost:6379/0")  # first 300 end on it
+
+    for run in (lambda top: ({}, tail, 1), raise_long):
+        monkeypatch.setattr(hook, "run_checks", run)
+        reason = json.loads(
+            _call(monkeypatch, {"agent_type": hook.AGENT, "tool_input": {}})
+        )["hookSpecificOutput"]["permissionDecisionReason"]
+        # Neither the head of the password (cut after it) nor its tail (cut before).
+        assert "cut0" not in reason
+        assert "f-pass" not in reason

@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import os
 from collections.abc import Mapping
-from typing import Self, cast
+from typing import Self, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -44,6 +44,9 @@ class LocalObjectStoreOptions(BaseModel):
     max_upload_size_bytes: int | None = None
 
 
+_L = TypeVar("_L", bound="LocalObjectStoreProvider")
+
+
 class LocalObjectStoreProvider(ObjectStoreProvider):
     """Filesystem-backed object store.
 
@@ -58,7 +61,7 @@ class LocalObjectStoreProvider(ObjectStoreProvider):
 
     @classmethod
     def from_config(cls, config: InstanceConfig) -> Self:
-        return cast("Self", create_local_objectstore(config))
+        return _build_local_objectstore(cls, config)
 
     def __init__(
         self,
@@ -125,7 +128,12 @@ def get_default_storage() -> Storage:
 
 def create_local_objectstore(cfg: InstanceConfig) -> LocalObjectStoreProvider:
     """Driver factory for ``objectstore`` capability / ``local`` driver."""
+    return _build_local_objectstore(LocalObjectStoreProvider, cfg)
 
+
+def _build_local_objectstore(cls: type[_L], cfg: InstanceConfig) -> _L:
+    """``cls`` over the storage the instance's options describe (so a
+    subclass's ``from_config`` returns the subclass)."""
     if settings.is_prod and not settings.accepts_risk("local_storage_in_prod"):
         raise ValueError(
             "Local object storage in production requires the accepted risk "
@@ -134,7 +142,7 @@ def create_local_objectstore(cfg: InstanceConfig) -> LocalObjectStoreProvider:
             "a shared object store driver"
         )
     if cfg.name == DEFAULT_INSTANCE and not cfg.options.get("path"):
-        return LocalObjectStoreProvider(
+        return cls(
             name=cfg.name,
             driver=cfg.driver,
             options=dict(cfg.options),
@@ -146,7 +154,7 @@ def create_local_objectstore(cfg: InstanceConfig) -> LocalObjectStoreProvider:
         path=str(path) if path else None,
         max_upload_size_bytes=_as_int(cfg.options.get("max_upload_size_bytes")),
     )
-    return LocalObjectStoreProvider(
+    return cls(
         name=cfg.name,
         driver=cfg.driver,
         options=dict(cfg.options),

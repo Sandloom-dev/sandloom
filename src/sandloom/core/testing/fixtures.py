@@ -343,6 +343,14 @@ async def _security_store_on_cache(stack: AsyncExitStack, core: Any, url: str) -
     )
 
 
+async def flush_owned_cache(provider: object) -> None:
+    """Empty the test cache behind ``provider``: the first harness family that
+    owns it flushes it, the others are not asked."""
+    for family in harness_families():
+        if await family.flush_owned(provider):
+            return
+
+
 @pytest_asyncio.fixture
 async def sandloom_cache(sandloom_core: Any) -> AsyncIterator[Any]:
     """The app's ``default`` cache on the test ``CACHE_URL``, emptied first.
@@ -363,9 +371,7 @@ async def sandloom_cache(sandloom_core: Any) -> AsyncIterator[Any]:
         )
         await _security_store_on_cache(stack, sandloom_core, url)
         provider = registry.provider("cache")
-        for family in harness_families():
-            if await family.flush_owned(provider):
-                break
+        await flush_owned_cache(provider)
         yield provider
 
 

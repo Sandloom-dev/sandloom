@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import re
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +52,37 @@ class _RoundTrips:
         self.count = 0
 
 
+def _on_every_send(
+    pool: Any, on_send: Callable[[Any], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Call ``on_send(command)`` for each send of the connections of ``pool``.
+
+    Scoped to the test's own clients: each connection of the pool (those it
+    holds now and those it builds later) gets an instance-level wrapper, so no
+    other client of the session loop is counted and no class is patched.
+    """
+
+    def wrap(connection: Connection) -> None:
+        original = connection.send_packed_command
+
+        async def send(command: Any, check_health: bool = True) -> None:
+            on_send(command)
+            await original(command, check_health)
+
+        monkeypatch.setattr(connection, "send_packed_command", send)
+
+    for held in (*pool._available_connections, *pool._in_use_connections):
+        wrap(held)
+    make = pool.make_connection
+
+    def make_wrapped() -> Connection:
+        connection = make()
+        wrap(connection)
+        return connection
+
+    monkeypatch.setattr(pool, "make_connection", make_wrapped)
+
+
 @pytest_asyncio.fixture
 async def redis_env(
     monkeypatch: pytest.MonkeyPatch,
@@ -69,13 +100,14 @@ async def redis_env(
     )
     monkeypatch.setattr(transport_mod, "cache", lambda name="default": cache)
     trips = _RoundTrips()
-    original = Connection.send_packed_command
 
-    async def counting(self: Any, command: Any, check_health: bool = True) -> None:
+    def count(_command: Any) -> None:
         trips.count += 1
-        await original(self, command, check_health)
 
-    monkeypatch.setattr(Connection, "send_packed_command", counting)
+    # The two clients of the budget: the test's own (the stream) and the inbox
+    # cache's (its ``MGET`` and marks).
+    _on_every_send(client.connection_pool, count, monkeypatch)
+    _on_every_send((await cache.redis_client()).connection_pool, count, monkeypatch)
     try:
         yield client, cache, trips, stream
     finally:
@@ -192,15 +224,15 @@ async def wire_trace(
     """Every send on the wire as the list of command names it carries."""
     client, cache, _trips, stream = redis_env
     sends: list[list[str]] = []
-    counting = Connection.send_packed_command
 
-    async def tracing(self: Any, command: Any, check_health: bool = True) -> None:
+    def trace(command: Any) -> None:
         chunks = [command] if isinstance(command, (bytes, str)) else list(command)
         raw = b"".join(c.encode() if isinstance(c, str) else bytes(c) for c in chunks)
         sends.append([m.decode().upper() for m in _COMMAND.findall(raw)])
-        await counting(self, command, check_health)
 
-    monkeypatch.setattr(Connection, "send_packed_command", tracing)
+    # ``redis_env`` already counts these pools; a second wrapper layers on top.
+    _on_every_send(client.connection_pool, trace, monkeypatch)
+    _on_every_send((await cache.redis_client()).connection_pool, trace, monkeypatch)
     yield client, cache, sends, stream
 
 

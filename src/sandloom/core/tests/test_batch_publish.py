@@ -258,6 +258,13 @@ async def test_preflighted_events_skip_the_repeated_size_check(
         "MASTERDOWN Link with MASTER is down and replica-serve-stale-data is no",
         "TRYAGAIN Multiple keys request during rehashing of slot",
         "CLUSTERDOWN The cluster is down",
+        "MISCONF Redis is configured to save RDB snapshots, but it's currently "
+        "unable to persist to disk.",
+        "NOREPLICAS Not enough good replicas to write.",
+        "MOVED 3999 127.0.0.1:6381",
+        "ASK 3999 127.0.0.1:6381",
+        "UNBLOCKED force unblock from blocking operation, instance state changed "
+        "(master -> replica?)",
     ],
 )
 def test_redis_availability_replies_do_not_burn_relay_attempts(reply: str) -> None:

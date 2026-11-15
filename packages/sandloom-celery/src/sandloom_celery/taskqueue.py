@@ -27,7 +27,7 @@ import os
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from typing import Any, Self, cast
+from typing import Any, Self, TypeVar
 from urllib.parse import urlsplit
 
 import orjson
@@ -107,6 +107,9 @@ def _enqueue_executor() -> ThreadPoolExecutor:
     return _executor
 
 
+_Q = TypeVar("_Q", bound="CeleryTaskQueueProvider")
+
+
 class CeleryTaskQueueProvider(TaskQueueProvider):
     """A single Celery application instance."""
 
@@ -132,7 +135,7 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
 
     @classmethod
     def from_config(cls, config: InstanceConfig) -> Self:
-        return cast("Self", create_celery_taskqueue(config))
+        return _build_celery_taskqueue(cls, config)
 
     def __init__(
         self,
@@ -338,6 +341,12 @@ def create_celery_taskqueue(cfg: InstanceConfig) -> CeleryTaskQueueProvider:
     options the first time); a named instance, or a ``default`` one whose
     broker or backend differ from the default app's, builds its own.
     """
+    return _build_celery_taskqueue(CeleryTaskQueueProvider, cfg)
+
+
+def _build_celery_taskqueue(cls: type[_Q], cfg: InstanceConfig) -> _Q:
+    """``cls`` over the app the instance's options describe (so a subclass's
+    ``from_config`` returns the subclass)."""
     options = CeleryTaskQueueOptions.model_validate(cfg.options)
     if not options.broker:
         raise ValueError(
@@ -358,7 +367,7 @@ def create_celery_taskqueue(cfg: InstanceConfig) -> CeleryTaskQueueProvider:
         return build_named_app(cfg.name, broker, backend)
 
     # The app is built on first use (a publish, a probe, the worker host).
-    return CeleryTaskQueueProvider(
+    return cls(
         name=cfg.name,
         driver=cfg.driver,
         options=dict(cfg.options),

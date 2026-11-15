@@ -18,7 +18,7 @@ import smtplib
 import ssl
 from collections.abc import Mapping
 from email.message import EmailMessage
-from typing import Any, Self, cast
+from typing import Any, Self, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -69,6 +69,9 @@ class SmtpNotifierOptions(NotifierOptions):
         return value.strip() if isinstance(value, str) else value
 
 
+_S = TypeVar("_S", bound="SmtpNotifierProvider")
+
+
 class SmtpNotifierProvider(NotifierProvider):
     """Email notifier backed by ``smtplib`` (host/port/credentials from options)."""
 
@@ -78,7 +81,7 @@ class SmtpNotifierProvider(NotifierProvider):
 
     @classmethod
     def from_config(cls, config: InstanceConfig) -> Self:
-        return cast("Self", create_smtp_notifier(config))
+        return _build_smtp_notifier(cls, config)
 
     async def isolation_identity(self) -> str | None:
         """``smtp:<host>:<port>``: the server the mail goes through, whatever
@@ -159,14 +162,18 @@ def _refuse_cleartext_login_in_prod(options: Mapping[str, Any]) -> None:
         )
 
 
-def create_smtp_notifier(cfg: InstanceConfig) -> SmtpNotifierProvider:
-    """Driver factory for ``notification`` capability / ``smtp`` driver."""
+def _build_smtp_notifier(cls: type[_S], cfg: InstanceConfig) -> _S:
+    """``cls`` over the instance's options (so a subclass's ``from_config``
+    returns the subclass)."""
     if not str(cfg.options.get("host") or "").strip():
         raise ValueError("smtp notifier requires a non-empty host (SMTP_HOST)")
     _refuse_cleartext_login_in_prod(cfg.options)
-    return SmtpNotifierProvider(
-        name=cfg.name, driver=cfg.driver, options=dict(cfg.options)
-    )
+    return cls(name=cfg.name, driver=cfg.driver, options=dict(cfg.options))
+
+
+def create_smtp_notifier(cfg: InstanceConfig) -> SmtpNotifierProvider:
+    """Driver factory for ``notification`` capability / ``smtp`` driver."""
+    return _build_smtp_notifier(SmtpNotifierProvider, cfg)
 
 
 __all__ = [
