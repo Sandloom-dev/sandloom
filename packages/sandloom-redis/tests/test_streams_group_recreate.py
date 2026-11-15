@@ -14,29 +14,21 @@ log and ``streams_group_recreated_at_tail_total``.
 from __future__ import annotations
 
 import asyncio
-import os
-from pathlib import Path
 from typing import Any
 
 import orjson
 import pytest
+import redis.asyncio as redis_asyncio
+from _redis_required import redis_unavailable
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 
+from sandloom.core.config.settings import settings
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.infra.ports.eventbus import ConsumerInfo
 from sandloom.core.schema.registry import InMemorySchemaRegistry
-from sandloom.core.testing import reload_test_env
 
-redis_asyncio = pytest.importorskip("redis.asyncio")
 prometheus_client = pytest.importorskip("prometheus_client")
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _load_test_env() -> None:
-    env_test = Path(__file__).resolve().parents[4] / ".env.test"
-    if env_test.exists():
-        reload_test_env(env_test)
 
 
 def _env(event_id: str) -> EventEnvelope:
@@ -67,14 +59,14 @@ async def _reset(client: Any) -> None:
 
 @pytest.fixture
 async def transport():
-    cache_url = os.getenv("CACHE_URL")
+    cache_url = settings.cache_url
     if not cache_url:
-        pytest.skip("CACHE_URL not set; Redis Streams integration skipped")
+        redis_unavailable("CACHE_URL not set; Redis Streams integration skipped")
     client = redis_asyncio.from_url(cache_url, encoding="utf-8", decode_responses=True)
     try:
         await client.ping()
     except Exception:  # pragma: no cover  # noqa: BLE001 - test Redis unreachable: skip
-        pytest.skip("Redis unreachable")
+        redis_unavailable("Redis unreachable")
     await _reset(client)
 
     async def _factory():

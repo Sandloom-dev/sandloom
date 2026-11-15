@@ -20,9 +20,9 @@ The `cache`, `notification` and `objectstore` contracts are
 (`CacheConformance`, [the cache contract](cache.md)). The `database` backend
 carries the transaction guarantees and is not open to drivers
 ([why](database.md#the-relational-paradigm)). An `eventbus` driver is an
-[`EventTransportProvider`](#an-eventbus-driver). It is kernel-facing: its conformance
-kit, `EventTransportConformance`, exists. The built-in `streams` driver does not yet map
-backend errors, and the contract is not yet public.
+[`EventTransportProvider`](#an-eventbus-driver). It is kernel-facing. Its conformance
+kit is `EventTransportConformance`; the Streams driver in `sandloom-redis`
+(`sandloom_redis/eventbus/`) passes it.
 
 !!! note "Version"
     This guide targets `sandloom==0.7.0a13`. <!-- sandloom-release -->
@@ -54,7 +54,12 @@ a file.
   map the backend's errors to `NotFound`, `InvalidArgument`, `TooLarge`,
   `PermissionDenied`, `Unavailable` or `Timeout`. A call that needs a behaviour feature
   the instance does not declare raises `Unsupported(feature)`. Put the error type in
-  a message, never the backend's text: it can carry a URL with credentials.
+  a message, never the backend's text: it can carry a URL with credentials. Map only a
+  transient fault (a lost connection, a failover) to `Unavailable`. The outbox relay
+  reads it as an outage: no attempt is spent and the row is never dead-lettered.
+  A reply the backend sends for this request alone (an unknown `ERR ...`) is
+  `InvalidArgument`, which is not retryable. The `redis` drivers map through one
+  classifier, `sandloom_redis._errors`.
 - **`supported_features`** names what the driver really does, and is its one declaration.
   A module that requires `features={"email"}` is refused at startup on a driver that does
   not advertise it. If a feature depends on an option, override the classmethod
@@ -152,6 +157,13 @@ override the `make_provider` fixture to return a new, unopened provider. Each ob
 its own test, so a failure names what to fix. The kit needs `pytest` and `pytest-asyncio`.
 It sends real messages: point it at a test backend.
 
+A package that tests against a real backend sets one variable in the CI job that runs
+those tests, `SANDLOOM_<PACKAGE>_REQUIRED=1`. Where its probe finds no backend, the test
+calls `required_or_skip("SANDLOOM_<PACKAGE>_REQUIRED", reason)` from
+`sandloom.driverkit.testing`, not `pytest.skip`: the call fails when the variable is `1`
+and skips otherwise. A backend that did not start then turns the job red, not green with
+every test skipped. Name what is missing in `reason` and leave any URL out of it.
+
 State how far the kit has proven the driver with the class attribute `tier`.
 The default is `experimental`: the driver implements the contract. A `beta` driver passes
 its kit in CI against the real service. Past that, `stable` adds reconnect after an outage
@@ -200,12 +212,12 @@ without it accepts them in `put` and drops them.
 
 #### An eventbus driver
 
-!!! warning "Kernel-facing; not yet a public contract"
+!!! note "Kernel-facing"
     This section describes the contract the kernel's bus runs over. Its conformance kit,
-    `EventTransportConformance`, exists. The built-in `streams` driver passes it, error
-    mapping and outage checks included. The contract is not yet public: `streams` has not
-    moved into its driver package (`idk-pkg-redis-eventbus`). A driver raises `Unavailable`
-    and `Timeout` itself: the kernel does not translate a backend exception.
+    `EventTransportConformance`, exists. The Streams driver, in `sandloom-redis`
+    (`sandloom_redis/eventbus/`), passes it, error mapping and outage checks included. A
+    driver raises `Unavailable` and `Timeout` itself: the kernel does not translate a
+    backend exception.
 
 An `eventbus` driver of the transport shape states `contract_version = 2` and
 subclasses `EventTransportProvider` (`sandloom.driverkit`), an abstract base class. It is

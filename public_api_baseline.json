@@ -4045,6 +4045,14 @@
         "unknown_task"
       ],
       "signature": "()"
+    },
+    "lane_required": {
+      "kind": "function",
+      "signature": "(env_var:POSITIONAL_OR_KEYWORD|str, environ:POSITIONAL_OR_KEYWORD|Mapping[str, str] | None=None) -> bool"
+    },
+    "required_or_skip": {
+      "kind": "function",
+      "signature": "(env_var:POSITIONAL_OR_KEYWORD|str, reason:POSITIONAL_OR_KEYWORD|str) -> NoReturn"
     }
   },
   "sandloom.sdk": {

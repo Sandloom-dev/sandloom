@@ -10,23 +10,14 @@ reaches for the test Redis calls :func:`redis_unavailable`, never ``pytest.skip`
 
 from __future__ import annotations
 
-import os
 from typing import NoReturn
 
-import pytest
+from sandloom.driverkit.testing import required_or_skip
 
 REQUIRED_ENV = "SANDLOOM_REDIS_REQUIRED"
 
 
-def redis_required() -> bool:
-    """Whether this run must have its Redis (``SANDLOOM_REDIS_REQUIRED=1``)."""
-    return os.environ.get(REQUIRED_ENV) == "1"
-
-
 def redis_unavailable(reason: str) -> NoReturn:
-    """Fail when the lane requires Redis, else skip, with ``reason``."""
-    if redis_required():
-        pytest.fail(
-            f"{reason} ({REQUIRED_ENV}=1: this lane may not skip)", pytrace=False
-        )
-    pytest.skip(reason)
+    """Fail when the lane requires Redis, else skip, with ``reason`` (the
+    driverkit guard, bound to this package's variable)."""
+    required_or_skip(REQUIRED_ENV, reason)

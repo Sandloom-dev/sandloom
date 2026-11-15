@@ -71,6 +71,7 @@ from sandloom.driverkit.atomic_store import (
     check_ttl,
     check_value,
 )
+from sandloom_redis._errors import map_redis_error, redis_error_kind
 
 #: Failed operations of the store (connection, timeout, server error), by
 #: instance and operation: the page-level alert on the security store reads it.
@@ -408,19 +409,14 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
 
     def _failure(self, operation: str, exc: BaseException) -> InfraError:
         """The ``InfraError`` for a backend failure: its type, never its text."""
-        exceptions = _exceptions()
         atomic_store_operation_errors_total.labels(self.name, operation).inc()
-        what = f"atomic_store {self.name!r} {operation}: {type(exc).__name__}"
-        kind: type[InfraError]
-        if isinstance(
-            exc, exceptions.AuthenticationError | exceptions.NoPermissionError
-        ):
-            kind = PermissionDenied
-        elif isinstance(exc, exceptions.TimeoutError | TimeoutError):
-            kind = Timeout
-        else:  # connection, failover, loading, a full store (OOM), a bad reply
-            kind = Unavailable
-        return kind(what, capability=self.capability, instance=self.name)
+        # ``from None`` at the call sites: callers branch on the class only.
+        return map_redis_error(
+            exc,
+            capability=self.capability,
+            instance=self.name,
+            what=f"atomic_store {self.name!r} {operation}",
+        )
 
     # ------------------------------------------------------------ operations
     async def get(self, key: str) -> str | None:
@@ -537,10 +533,14 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
     async def _read_policy(self, client: Any) -> str | None:
         """The server's ``maxmemory-policy``, or ``None`` when the read was
         refused (``NOPERM``, a disabled or renamed ``CONFIG``). A connection
-        failure is not a refusal and propagates."""
+        failure or a transient reply (``LOADING``, ``BUSY`` ...) is not a
+        refusal and propagates: recording it would be a standing
+        ``PermissionDenied`` until ``aclose``."""
         try:
             reply = await client.config_get(_POLICY_SETTING)
-        except _exceptions().ResponseError:
+        except _exceptions().ResponseError as exc:
+            if redis_error_kind(exc) in (Unavailable, Timeout):
+                raise
             return None
         policy = reply.get(_POLICY_SETTING) if isinstance(reply, dict) else None
         return policy if isinstance(policy, str) else None

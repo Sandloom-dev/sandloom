@@ -55,6 +55,7 @@ from sandloom.driverkit.lease_limits import (
     MIN_LEASE_TTL_SECONDS,
 )
 from sandloom.driverkit.testing_isolation import isolated_redis_options
+from sandloom_redis._errors import map_redis_error, redis_error_kind
 
 #: The accepted risk that lets ``never_evicts_check=assume`` run in production.
 UNVERIFIED_NOEVICTION_RISK = "unverified_noeviction"
@@ -161,21 +162,18 @@ class RedisLeaseProvider(LeaseProvider):
         the eviction policy again: the server may have come back reconfigured."""
         if isinstance(exc, InfraError):
             return exc
-        label = f"redis lease {what} failed: {type(exc).__name__}"
-        redis_errors = _redis_errors()
-        if isinstance(exc, TimeoutError | redis_errors.TimeoutError):
+        # Chained ``from exc`` at the call sites (as before): the lease is
+        # called by code that may read the chain, and the raw text stays in
+        # ``__cause__`` only.
+        mapped = map_redis_error(
+            exc,
+            capability=self.capability,
+            instance=self.name,
+            what=f"redis lease {what} failed",
+        )
+        if not isinstance(mapped, PermissionDenied):
             self._policy_checked = False
-            return Timeout(label, capability=self.capability, instance=self.name)
-        if isinstance(exc, redis_errors.AuthenticationError):
-            return PermissionDenied(
-                label, capability=self.capability, instance=self.name
-            )
-        if isinstance(exc, redis_errors.ResponseError) and "NOPERM" in str(exc):
-            return PermissionDenied(
-                label, capability=self.capability, instance=self.name
-            )
-        self._policy_checked = False
-        return Unavailable(label, capability=self.capability, instance=self.name)
+        return mapped
 
     async def _redis(self) -> Any:
         loop = asyncio.get_running_loop()
@@ -230,10 +228,14 @@ class RedisLeaseProvider(LeaseProvider):
         )
 
     async def _read_policy(self, client: Any) -> str | None:
-        """``maxmemory-policy`` of the server, ``None`` when it refuses the read."""
+        """``maxmemory-policy`` of the server, ``None`` when it refuses the read
+        (``NOPERM``, ``unknown command``). A transient reply (``LOADING``,
+        ``READONLY`` ...) is no refusal: it propagates, mapped by the caller."""
         try:
             answer = await client.config_get(_POLICY_SETTING)
-        except _redis_errors().ResponseError:
+        except _redis_errors().ResponseError as exc:
+            if redis_error_kind(exc) in (Unavailable, Timeout):
+                raise
             return None
         policy = answer.get(_POLICY_SETTING) if isinstance(answer, dict) else None
         return policy if isinstance(policy, str) else None

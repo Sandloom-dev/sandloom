@@ -20,7 +20,8 @@ is a command here, so the agent runs it and does not have to read the file:
     current_status, target, by_adr) after a row was flipped, as
     ``tests/architecture/test_kernel_edges.py`` counts it.
 
-Standard library and PyYAML. ``.claude/agent-reference.md`` names each command.
+Standard library and PyYAML. ``python3 tools/agent_reference.py registries``
+(the ``sandloom-registries`` skill) names each command.
 """
 
 from __future__ import annotations
