@@ -302,7 +302,11 @@ async def test_a_permission_refusal_of_the_multi_exec_is_not_retryable() -> None
     with pytest.raises(PartialPublish) as caught:
         await transport.publish_many([("s", ENVELOPE), ("s", ENVELOPE)])
     assert caught.value.retryable is False
-    assert isinstance(caught.value.__cause__, redis_exceptions.NoPermissionError)
+    # chained from the MAPPED error (the relay stops there), the raw one below it
+    assert isinstance(caught.value.__cause__, PermissionDenied)
+    assert isinstance(
+        caught.value.__cause__.__cause__, redis_exceptions.NoPermissionError
+    )
 
 
 @pytest.mark.parametrize(
