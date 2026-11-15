@@ -9,10 +9,12 @@ from dataclasses import asdict
 from typing import Any
 
 import orjson
-from prometheus_client import Counter
 
 from sandloom.core.drivers.redis_eventbus.streams_transport_base import (
     _as_int,
+    _backend_errors,
+    _is_absent,
+    _mapped,
     _stream_id_key,
     _StreamsTransportBase,
 )
@@ -22,6 +24,7 @@ from sandloom.driverkit import (
     GroupOwnedElsewhere,
     GroupOwner,
     StreamInfo,
+    observe,
 )
 from sandloom.driverkit._builtin_streams import INVENTORY_STALE_SECONDS
 from sandloom.driverkit.eventbus_support import (
@@ -32,22 +35,23 @@ from sandloom.driverkit.eventbus_support import (
 logger = logging.getLogger("sandloom.core.eventing.transport")
 
 
-_METRIC_GROUP_RECREATED = Counter(
+_METRIC_GROUP_RECREATED = observe.counter(
     "streams_group_recreated_total",
     "Streams consumer groups recreated after NOGROUP (stream/group deleted)",
-    ["stream"],
+    ("stream",),
 )
-_METRIC_GROUP_RECREATED_AT_TAIL = Counter(
+_METRIC_GROUP_RECREATED_AT_TAIL = observe.counter(
     "streams_group_recreated_at_tail_total",
     "Streams consumer groups recreated at '$' after NOGROUP because no last "
     "delivered position was known (entries published meanwhile are skipped)",
-    ["stream"],
+    ("stream",),
 )
 
 
 class _StreamsGroups(_StreamsTransportBase):
     """Group lifecycle and diagnostics, group ownership, subscription inventory."""
 
+    @_mapped
     async def ensure_group(
         self,
         stream: str,
@@ -84,7 +88,11 @@ class _StreamsGroups(_StreamsTransportBase):
                 f"{self._prefix}{self.INVENTORY_KEY}", f"{stream}|{group}"
             )
             entry = orjson.loads(raw) if raw else None
-        except Exception:  # noqa: BLE001 - unknown position
+        except ValueError:  # an undecodable record: unknown position
+            return None
+        except _backend_errors() as exc:
+            if not _is_absent(exc):  # not a key of another type
+                raise
             return None
         if isinstance(entry, dict) and entry.get("last_delivered_id"):
             return str(entry["last_delivered_id"])
@@ -102,7 +110,9 @@ class _StreamsGroups(_StreamsTransportBase):
         key = self.key(stream)
         try:
             newest = await client.xrevrange(key, count=1)
-        except Exception:  # noqa: BLE001 - cannot tell: keep the position
+        except _backend_errors() as exc:
+            if not _is_absent(exc):  # not "cannot tell: keep the position"
+                raise
             return False
         if not newest:
             return False
@@ -193,6 +203,7 @@ class _StreamsGroups(_StreamsTransportBase):
                 raise
         self._groups.add(key)
 
+    @_mapped
     async def group_info(self, stream: str) -> list[GroupInfo]:
         """Groups of ``stream``: pending, lag (Redis >= 7), last-delivered id."""
         client = await self._client()
@@ -218,6 +229,7 @@ class _StreamsGroups(_StreamsTransportBase):
             )
         return info
 
+    @_mapped
     async def stream_info(self, stream: str) -> StreamInfo:
         """Length and newest entry id/age of ``stream`` (diagnostics)."""
         client = await self._client()
@@ -229,8 +241,9 @@ class _StreamsGroups(_StreamsTransportBase):
             newest = await client.xrevrange(key, count=1)
             if newest:
                 last_id = str(newest[0][0])
-        except Exception:  # noqa: BLE001, S110 - diagnostics only
-            pass
+        except _backend_errors() as exc:
+            if not _is_absent(exc):  # not "a key of another type: empty"
+                raise
         age: float | None = None
         if last_id:
             try:
@@ -239,6 +252,7 @@ class _StreamsGroups(_StreamsTransportBase):
                 age = None
         return StreamInfo(length=length, last_id=last_id, last_entry_age_seconds=age)
 
+    @_mapped
     async def oldest_unacked_age_seconds(self, stream: str, group: str) -> float | None:
         """``XINFO GROUPS`` plus at most one O(1)/O(log N) command.
 
@@ -299,6 +313,7 @@ class _StreamsGroups(_StreamsTransportBase):
         """The stored form: the owner plus its stream (it makes a key splittable)."""
         return orjson.dumps({**asdict(owner), "channel": stream}).decode()
 
+    @_mapped
     async def claim_group_owner(
         self, stream: str, group: str, owner: GroupOwner
     ) -> None:
@@ -323,6 +338,7 @@ class _StreamsGroups(_StreamsTransportBase):
                 capability="eventbus",
             )
 
+    @_mapped
     async def group_owner(self, stream: str, group: str) -> GroupOwner | None:
         client = await self._client()
         raw = await client.get(self._owner_key(stream, group))
@@ -333,11 +349,13 @@ class _StreamsGroups(_StreamsTransportBase):
         except Exception:  # noqa: BLE001 - corrupt record reads as absent
             return None
 
+    @_mapped
     async def release_group_owner(self, stream: str, group: str) -> bool:
         """Forget the owner of ``(stream, group)`` (operator, after a move)."""
         client = await self._client()
         return bool(await client.delete(self._owner_key(stream, group)))
 
+    @_mapped
     async def list_group_owners(self) -> list[tuple[str, str, GroupOwner]]:
         client = await self._client()
         marker = f"{self._prefix}sandloom:group-owner:"
@@ -361,6 +379,7 @@ class _StreamsGroups(_StreamsTransportBase):
             out.append((stream, rest[len(stream) + 1 :], owner))
         return sorted(out, key=lambda e: (e[0], e[1]))
 
+    @_mapped
     async def transfer_group_owner(
         self, stream: str, group: str, *, expected: GroupOwner, owner: GroupOwner
     ) -> bool:
@@ -384,6 +403,7 @@ class _StreamsGroups(_StreamsTransportBase):
         new = self._owner_marker(stream, owner)
         return bool(await client.eval(script, 1, key, old, new))
 
+    @_mapped
     async def register_consumer(
         self, stream: str, group: str, info: ConsumerInfo
     ) -> None:
@@ -401,6 +421,7 @@ class _StreamsGroups(_StreamsTransportBase):
             orjson.dumps(entry).decode(),
         )
 
+    @_mapped
     async def list_consumers(
         self, *, include_stale: bool = False
     ) -> list[ConsumerInfo]:
@@ -438,6 +459,7 @@ class _StreamsGroups(_StreamsTransportBase):
         entries.sort(key=lambda e: (e.stream, e.group))
         return entries
 
+    @_mapped
     async def forget_consumer(self, stream: str, group: str) -> bool:
         """Drop an inventory entry (operator cleanup of a retired consumer)."""
         client = await self._client()

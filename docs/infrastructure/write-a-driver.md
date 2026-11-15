@@ -202,10 +202,10 @@ without it accepts them in `put` and drops them.
 
 !!! warning "Kernel-facing; not yet a public contract"
     This section describes the contract the kernel's bus runs over. Its conformance kit,
-    `EventTransportConformance`, exists. The built-in `streams` driver still raises the
-    backend's own errors (`idk-pkg-redis-streams` maps them), so the contract is not yet
-    public. A driver raises `Unavailable` and `Timeout` itself: the kernel does not
-    translate a backend exception.
+    `EventTransportConformance`, exists. The built-in `streams` driver passes it, error
+    mapping and outage checks included. The contract is not yet public: `streams` has not
+    moved into its driver package (`idk-pkg-redis-streams`). A driver raises `Unavailable`
+    and `Timeout` itself: the kernel does not translate a backend exception.
 
 An `eventbus` driver of the transport shape states `contract_version = 2` and
 subclasses `EventTransportProvider` (`sandloom.driverkit`), an abstract base class. It is

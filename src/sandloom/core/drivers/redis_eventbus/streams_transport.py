@@ -9,10 +9,10 @@ from types import MappingProxyType
 from typing import Any, ClassVar
 
 import orjson
-from prometheus_client import Counter
 
 from sandloom.core.drivers.redis_eventbus.streams_consume import _StreamsConsume
-from sandloom.driverkit import DeadLetter, EventEnvelope
+from sandloom.core.drivers.redis_eventbus.streams_transport_base import _mapped
+from sandloom.driverkit import DeadLetter, EventEnvelope, observe
 from sandloom.driverkit.eventbus_support import (
     DLQ_REASON_MAX_DELIVERIES,
     TARGET_GROUP_FIELD,
@@ -23,10 +23,10 @@ from sandloom.driverkit.metrics import safe_inc
 logger = logging.getLogger("sandloom.core.eventing.transport")
 
 
-_METRIC_DLQ_REPLAYED = Counter(
+_METRIC_DLQ_REPLAYED = observe.counter(
     "streams_dlq_replayed_total",
     "Dead-lettered Streams entries re-published by an operator replay",
-    ["stream"],
+    ("stream",),
 )
 
 
@@ -86,9 +86,11 @@ class RedisStreamsTransport(_StreamsConsume):
     )
 
     # -- publish + retention -------------------------------------------------
+    @_mapped
     async def publish(self, stream: str, envelope: EventEnvelope) -> str:
         return await self._append(stream, {"data": orjson.dumps(envelope)})
 
+    @_mapped
     async def publish_many(
         self, items: Sequence[tuple[str, EventEnvelope]]
     ) -> list[str]:
@@ -113,7 +115,7 @@ class RedisStreamsTransport(_StreamsConsume):
                 return [await self.publish(stream, envelope)]
             except Exception as exc:
                 raise partial_publish(
-                    [], f"XADD to {stream!r} failed: {type(exc).__name__}: {exc}", exc
+                    [], f"XADD to {stream!r} failed: {type(exc).__name__}", exc
                 ) from exc
         client = await self._client()
         keys: dict[str, None] = {}
@@ -131,8 +133,7 @@ class RedisStreamsTransport(_StreamsConsume):
         except Exception as exc:
             raise partial_publish(
                 [],
-                f"MULTI/EXEC of {len(items)} XADD(s) failed: "
-                f"{type(exc).__name__}: {exc}",
+                f"MULTI/EXEC of {len(items)} XADD(s) failed: {type(exc).__name__}",
                 exc,
             ) from exc
         ids: list[str] = []
@@ -180,6 +181,7 @@ class RedisStreamsTransport(_StreamsConsume):
             logger.debug("XTRIM MINID failed for %s", key, exc_info=True)
 
     # -- DLQ ----------------------------------------------------------------
+    @_mapped
     async def list_dlq(
         self, stream: str, *, count: int = 100, after: str | None = None
     ) -> list[DeadLetter]:
@@ -214,6 +216,7 @@ class RedisStreamsTransport(_StreamsConsume):
             )
         return listed
 
+    @_mapped
     async def replay_dlq(
         self,
         stream: str,

@@ -45,7 +45,7 @@ RATCHETED_PREFIXES = ("ASYNC", "BLE", "S", "SIM", "RUF", "PERF", "PLC0415", "C90
 NOQA_BASELINE: dict[str, int] = {
     "ASYNC109": 19,
     "ASYNC240": 1,
-    "BLE001": 198,
+    "BLE001": 190,
     "C901": 79,
     "PERF401": 24,
     # 118 (2026-10-28): +1 optional import, testing/ownership.py: `redis` is
@@ -68,7 +68,7 @@ NOQA_BASELINE: dict[str, int] = {
     "S105": 8,
     "S106": 1,
     "S108": 1,
-    "S110": 27,
+    "S110": 26,
     "S112": 3,
     "S301": 0,
     "S311": 9,
