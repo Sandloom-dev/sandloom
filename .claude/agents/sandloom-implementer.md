@@ -49,10 +49,30 @@ subagent): pass no actor on tm calls.
 
 ## Checks
 - Run the tests of what you touched plus every test that references the
-  changed symbols (`grep -rln '<symbol>' src tests`), and the static gates
-  (`uv run sandloom test <module>`, `generate`, `check`). Never
+  changed symbols (`grep -rln '<symbol>' src tests`). Never
   `sandloom test --full`: the orchestrator runs it once per wave. Never a
   serial `pytest -q`.
+- After every Edit / Write a hook formats the file and reports, in the same
+  turn, the NEW ruff findings of a `.py`, the new prose-lint hits of a `.md`
+  and broken JSON. Fix them in your next edit; do not run ruff or the prose
+  lint yourself for that.
+- Static gates: one call, after your commit and before the push (about 4
+  minutes, Bash `timeout` 600000). It runs the gates of the paths you changed:
+  ruff, format, mypy, architecture tests, import contracts, manifest, public
+  API, prose lint, stale symbols. `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`
+  and `JWT_SECRET` are the dummy values CI gives the same job (nothing
+  connects to them); the four `SANDLOOM_TEST_*` are your own test resources,
+  which the architecture tests' conftest needs locally (without them it
+  refuses the shared test database):
+  `env DATABASE_URL=postgresql+asyncpg://ci:ci@127.0.0.1:5433/ci CACHE_URL=redis://127.0.0.1:6380/0 BROKER_URL=redis://127.0.0.1:6380/1 JWT_SECRET=ci-architecture-tests-not-a-real-secret SANDLOOM_TEST_DATABASE_URL=<yours> SANDLOOM_TEST_CACHE_URL=<yours> SANDLOOM_TEST_BROKER_URL=<yours> SANDLOOM_TEST_OWNER=<alias> uv run --locked pre-commit run --from-ref origin/main --to-ref HEAD 2>&1 | grep -vE '^ *(Building|Built|Installed|Uninstalled)'`.
+  The end-of-file and trailing-whitespace hooks rewrite files: if they
+  report "files were modified", stage those files, commit again and rerun.
+  A gate fails: fix it, commit, rerun that gate alone (same command with
+  `pre-commit run <hook id> …`). Do not run these gates one by one
+  beforehand. Not in it, so run them when you touched their area:
+  `uv run sandloom check`, `uv run sandloom generate --check`, a module's
+  `uv run sandloom test <module>`, and the CI steps of
+  `.claude/agent-reference.md` §2 for packaging, docs site and examples.
 - Other agents test at the same time: pass your own
   `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`,
   `SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER` (your alias) in the

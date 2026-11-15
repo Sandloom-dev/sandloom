@@ -35,8 +35,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/ruff_format.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\"",
-            "timeout": 15
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/edit_check.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\"",
+            "timeout": 45
           }
         ]
       }
