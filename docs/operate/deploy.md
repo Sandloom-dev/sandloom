@@ -31,7 +31,7 @@ short or placeholder secret stops the process at startup.
 | `JWT_SECRET` | always | signs access tokens |
 | `INTERNAL_API_TOKEN` | always | unlocks `/diagnostics`, `/contracts`, `/metrics` and `/health` details; it never authenticates calls between services |
 | `TWOFA_ENCRYPTION_KEY` | with identity | encrypts TOTP secrets at rest |
-| `NOTIFIER_BACKEND`, `SMTP_HOST`, `SMTP_FROM` | with identity or tenancy | `smtp` and the sender's host and address: both modules require an email notifier, and the default `log` driver delivers no mail, so production refuses to start on it |
+| `NOTIFIER_BACKEND`, `INFRA` (`notification` instance) | with identity or tenancy | `smtp`, with the `host` and `from_addr` options on the instance: both modules require an email notifier, and the default `log` driver delivers no mail, so production refuses to start on it |
 | `BILLING_PROVIDER` | with billing | `stripe`, with `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` |
 
 For a demo without Stripe, set `BILLING_PROVIDER=fake` and add `billing.fake_psp_in_prod` to
@@ -96,7 +96,7 @@ sets it to 2. Keep
 - Choose how email is sent. The default `log` driver only writes messages to the log,
   so sign-up and password-reset emails from identity don't reach anyone. Identity and
   tenancy require email. A production stack on `log` refuses to start until you set
-  `NOTIFIER_BACKEND=smtp` and `SMTP_*`, or accept `log_notifier_in_prod` for a demo. See
+  `NOTIFIER_BACKEND=smtp` and a `notification` instance in `INFRA`, or accept `log_notifier_in_prod` for a demo. See
   [Notifications](../infrastructure/notifications.md).
 - Choose where files live. The default object store is a local volume on one host, which
   is what the `local_storage_in_prod` risk accepts. See

@@ -194,7 +194,7 @@ class _StreamsTransportBase(TransportDefaults):
             else retention_seconds
         )
         # The key namespace is the transport's own option (the ``streams``
-        # driver's ``prefix``; the kernel fills it from EVENT_STREAM_PREFIX),
+        # driver's ``prefix`` option),
         # never a kernel setting read here.
         self._prefix = prefix or ""
         self._trim_interval = (
@@ -253,7 +253,7 @@ class _StreamsTransportBase(TransportDefaults):
         return self._prefix
 
     def key(self, stream: str) -> str:
-        """The Redis key of logical ``stream`` (``EVENT_STREAM_PREFIX`` applied)."""
+        """The Redis key of logical ``stream`` (the ``prefix`` option applied)."""
         return f"{self._prefix}{stream}"
 
     def _dlq_key(self, stream: str) -> str:

@@ -185,17 +185,30 @@ def test_mail_is_a_production_choice_and_the_demo_risk_is_documented(
     shell = {
         **SHELL,
         "NOTIFIER_BACKEND": "smtp",
-        "SMTP_HOST": "smtp.example.test",
-        "SMTP_FROM": "noreply@example.test",
         "SANDLOOM_ACCEPTED_RISKS": "local_storage_in_prod,billing.fake_psp_in_prod",
     }
+    from sandloom.core.infra.config import load_infra_config
+
     for name, svc in _load(profile)["services"].items():
         if "SANDLOOM_MODULES" not in (svc.get("environment") or {}):
             continue
+        env = _env(svc, shell)
+        # The smtp options are written into INFRA next to the profile's own.
+        infra = json.loads(env["INFRA"])
+        infra["notification"] = {
+            "default": {
+                "driver": "smtp",
+                "host": "smtp.example.test",
+                "from_addr": "noreply@example.test",
+            }
+        }
+        env["INFRA"] = json.dumps(infra)
         with monkeypatch.context() as mp:
-            cfg = _validate(_env(svc, shell), mp)
+            cfg = _validate(env, mp)
             assert cfg.notifier_backend == "smtp", name
-            assert cfg.smtp_host == "smtp.example.test", name
+            options = load_infra_config(cfg)["notification"]["default"].options
+            assert options["host"] == "smtp.example.test", name
+            assert options["use_tls"] is True, name
             assert not cfg.accepts_risk("log_notifier_in_prod"), name
 
 
@@ -292,9 +305,7 @@ PARITY_KEYS = (
     "ENVIRONMENT",
     "SHUTDOWN_BUDGET_SECONDS",
     "EVENT_PAYLOAD_MAX_BYTES",
-    "EVENT_STREAM_RETENTION_SECONDS",
-    "EVENT_STREAM_MAXLEN",
-    "EVENT_STREAM_PREFIX",
+    "INFRA",
     "CACHE_URL",
     "JWT_KID",
     "JWT_ISSUER",
@@ -303,12 +314,6 @@ PARITY_KEYS = (
     "INTERNAL_API_TOKEN",
     "FRONTEND_URL",
     "NOTIFIER_BACKEND",
-    "SMTP_HOST",
-    "SMTP_PORT",
-    "SMTP_USERNAME",
-    "SMTP_PASSWORD",
-    "SMTP_FROM",
-    "SMTP_USE_TLS",
 )
 
 

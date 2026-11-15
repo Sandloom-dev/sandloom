@@ -58,7 +58,7 @@ def test_secret_settings_are_enumerated() -> None:
         "JWT_SECRET",
         "STRIPE_SECRET_KEY",
         "SENTRY_DSN",
-        "S3_ACCESS_KEY_ID",
+        "INTERNAL_API_TOKEN",
     ):
         assert name in SECRET_SETTINGS
 

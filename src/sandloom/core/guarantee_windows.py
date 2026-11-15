@@ -7,8 +7,8 @@ guarantee holds only when they agree:
 
 * ``inbox_purge_below_redelivery`` — a durable-inbox claim must outlive every
   redelivery of its event. The Streams transport keeps entries for its
-  ``retention_seconds`` option (``EVENT_STREAM_RETENTION_SECONDS``; reported by
-  ``retention()``, a group recreated from ``0``, a pending
+  ``retention_seconds`` option (``INFRA.eventbus.<name>.retention_seconds``;
+  reported by ``retention()``, a group recreated from ``0``, a pending
   reclaim, ``dlq-replay`` can redeliver anything still retained), so an
   ``sandloom outbox purge --inbox-days D`` with ``D`` below that retention (plus
   :data:`INBOX_RETENTION_MARGIN_SECONDS`) lets a redelivery apply its effect a
@@ -78,6 +78,9 @@ RISK_IDS: tuple[str, ...] = (
 #: database).
 INBOX_RETENTION_MARGIN_SECONDS = 24 * 60 * 60
 
+#: Where the stream retention an inbox purge is checked against is written.
+RETENTION_OPTION = "INFRA.eventbus.default.retention_seconds"
+
 
 @dataclass(frozen=True, slots=True)
 class Problem:
@@ -132,7 +135,7 @@ def inbox_purge_problems(
                 "(retention_seconds=0), so any redelivery horizon is unbounded: "
                 f"purging inbox claims older than {inbox_days:g} day(s) lets a "
                 "redelivered event apply its effect twice",
-                ("EVENT_STREAM_RETENTION_SECONDS", "--inbox-days"),
+                (RETENTION_OPTION, "--inbox-days"),
             )
         ]
     needed = seconds + INBOX_RETENTION_MARGIN_SECONDS
@@ -141,11 +144,11 @@ def inbox_purge_problems(
             Problem(
                 INBOX_PURGE_BELOW_REDELIVERY,
                 f"--inbox-days {inbox_days:g} purges claims younger than the "
-                f"stream retention (EVENT_STREAM_RETENTION_SECONDS={seconds}) "
+                f"stream retention ({RETENTION_OPTION}={seconds}) "
                 f"+ {INBOX_RETENTION_MARGIN_SECONDS // 3600} h margin: a "
                 "redelivery after the purge applies its effect twice — use "
                 f"--inbox-days >= {needed / 86400.0:g}",
-                ("EVENT_STREAM_RETENTION_SECONDS", "--inbox-days"),
+                (RETENTION_OPTION, "--inbox-days"),
             )
         ]
     return []
@@ -170,7 +173,7 @@ def configured_inbox_purge_problems(settings: Any, inbox_days: float) -> list[Pr
                 "bus without a retention_seconds option): a redelivery after "
                 f"purging inbox claims older than {inbox_days:g} day(s) could "
                 "apply its effect twice",
-                ("EVENT_BUS_BACKEND", "EVENT_STREAM_RETENTION_SECONDS", "--inbox-days"),
+                ("EVENT_BUS_BACKEND", RETENTION_OPTION, "--inbox-days"),
             )
         ]
     return inbox_purge_problems(

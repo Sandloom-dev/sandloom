@@ -9,8 +9,8 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 #: Default age bound of an event stream, in seconds (7 days): the one value of
-#: ``EVENT_STREAM_RETENTION_SECONDS``, the ``streams`` driver's
-#: ``retention_seconds`` option and the transport's own default.
+#: the ``streams`` driver's ``retention_seconds`` option and the transport's own
+#: default.
 DEFAULT_EVENT_STREAM_RETENTION_SECONDS = 7 * 24 * 60 * 60
 
 
@@ -53,30 +53,9 @@ class EventingConfig(BaseModel):
             "module consumer group."
         ),
     )
-    # Streams retention. Every XADD trims the channel stream so it cannot grow
-    # forever: entries older than EVENT_STREAM_RETENTION_SECONDS (MINID ~,
-    # default 7 days) and, when EVENT_STREAM_MAXLEN > 0, beyond that many
-    # entries (MAXLEN ~). 0 disables the respective bound. A consumer offline
-    # longer than the retention window misses the trimmed events (the outbox
-    # still holds them for a requeue).
-    event_stream_retention_seconds: int = Field(
-        default=DEFAULT_EVENT_STREAM_RETENTION_SECONDS,
-        ge=0,
-        alias="EVENT_STREAM_RETENTION_SECONDS",
-        description=(
-            "Approximate maximum Streams entry age in seconds, trimmed during "
-            "publish; zero disables age trimming."
-        ),
-    )
-    event_stream_maxlen: int = Field(
-        default=0,
-        ge=0,
-        alias="EVENT_STREAM_MAXLEN",
-        description=(
-            "Approximate maximum entries retained per channel stream; zero "
-            "disables length trimming."
-        ),
-    )
+    # Streams retention, the key namespace and the other bounds of a stream are
+    # options of the ``streams`` driver (INFRA.eventbus.<name>: retention_seconds,
+    # max_length, prefix): no setting of their own.
     event_handler_timeout_seconds: float = Field(
         default=30.0,
         gt=0,
@@ -96,17 +75,6 @@ class EventingConfig(BaseModel):
         gt=0,
         alias="EVENT_STREAMS_RECONNECT_MAX_SECONDS",
         description=("Maximum Redis Streams reconnect backoff delay in seconds."),
-    )
-    # Optional namespace for every Streams key (streams, DLQs, group-ownership
-    # and inventory keys) so several environments can share one Redis, e.g.
-    # "staging:". Changing it on a live deployment starts from empty streams.
-    event_stream_prefix: str = Field(
-        default="",
-        alias="EVENT_STREAM_PREFIX",
-        description=(
-            "Namespace prepended to Streams, dead-letter and consumer-inventory "
-            "keys; changing it starts a separate stream namespace."
-        ),
     )
     # Entries a Streams consumer reads per XREADGROUP. The batch's inbox
     # dedupe is one MGET, its marks one pipeline and its acks one XACK.

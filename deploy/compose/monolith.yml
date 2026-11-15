@@ -7,7 +7,7 @@
 #   STRIPE_SECRET_KEY=... STRIPE_WEBHOOK_SECRET=... \
 #     docker compose -f deploy/compose/monolith.yml up --build
 #
-# (mail: identity and tenancy need NOTIFIER_BACKEND=smtp + SMTP_HOST + SMTP_FROM;
+# (mail: identity and tenancy need NOTIFIER_BACKEND=smtp + an INFRA notification instance;
 # demo stack without Stripe and without a mail server: BILLING_PROVIDER=fake
 # SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod,log_notifier_in_prod)
 #
@@ -47,9 +47,6 @@ x-app-env: &app-env
   SANDLOOM_COMPOSITION_ROOT: sandloom_standard.main
   SHUTDOWN_BUDGET_SECONDS: ${SHUTDOWN_BUDGET_SECONDS:-30}
   EVENT_PAYLOAD_MAX_BYTES: ${EVENT_PAYLOAD_MAX_BYTES:-262144}
-  EVENT_STREAM_RETENTION_SECONDS: ${EVENT_STREAM_RETENTION_SECONDS:-604800}
-  EVENT_STREAM_MAXLEN: ${EVENT_STREAM_MAXLEN:-0}
-  EVENT_STREAM_PREFIX: ${EVENT_STREAM_PREFIX:-}
   # The weaker guarantees this stack accepts (sandloom.core.config.accepted_risks; logged
   # at every start): demo single-host local storage, shared by every process
   # (not multi-host HA). A demo without Stripe adds billing.fake_psp_in_prod:
@@ -87,16 +84,12 @@ x-app-env: &app-env
   # Mail. identity and tenancy REQUIRE an email notifier (notification +
   # email), so with ENVIRONMENT=prod this stack refuses to start on the default
   # `log` driver, which delivers no mail. Production: NOTIFIER_BACKEND=smtp with
-  # SMTP_HOST, SMTP_FROM, and SMTP_USERNAME / SMTP_PASSWORD over SMTP_USE_TLS=true.
+  # the options of the `notification` instance in INFRA above (host, port,
+  # username, password, from_addr; use_tls stays on): add
+  # "notification": {"default": {"driver": "smtp", "host": "...", "from_addr": "..."}}.
   # A demo that runs without mail adds log_notifier_in_prod to
   # SANDLOOM_ACCEPTED_RISKS (mail is NOT delivered; the risk is logged at every start).
   NOTIFIER_BACKEND: ${NOTIFIER_BACKEND:-log}
-  SMTP_HOST: ${SMTP_HOST:-}
-  SMTP_PORT: ${SMTP_PORT:-25}
-  SMTP_USERNAME: ${SMTP_USERNAME:-}
-  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-  SMTP_FROM: ${SMTP_FROM:-}
-  SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
   # Dedicated contract pool per process (in-process contract calls / claims
   # contributors), on top of DB_POOL_SIZE + DB_MAX_OVERFLOW (README "Sizing").
   # In the monolith EVERY cross-module call is in-process: a request holding a

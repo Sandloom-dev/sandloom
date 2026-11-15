@@ -76,15 +76,14 @@ def app_environment():
 
 def bus_location(env):
     """(container, db index, key prefix) of the Streams bus the app publishes to."""
-    url = None
     try:
-        url = json.loads(env.get("INFRA") or "{}")["eventbus"]["default"]["url"]
+        bus = json.loads(env.get("INFRA") or "{}")["eventbus"]["default"]
     except (KeyError, TypeError, ValueError):
-        url = None
-    url = url or env.get("CACHE_URL") or "redis://cache:6379/0"
+        bus = {}
+    url = bus.get("url") or env.get("CACHE_URL") or "redis://cache:6379/0"
     parts = urlsplit(url)
     db = (parts.path or "/0").lstrip("/") or "0"
-    return f"{PROJECT}-{parts.hostname}-1", db, env.get("EVENT_STREAM_PREFIX", "")
+    return f"{PROJECT}-{parts.hostname}-1", db, bus.get("prefix", "")
 
 
 class Probe:

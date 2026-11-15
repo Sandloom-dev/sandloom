@@ -171,9 +171,13 @@ already works through renderers.
   selects `memory` for development by name. `memory` is never an automatic fallback.
 - The flat settings `CACHE_URL`, `BROKER_URL`, `SMTP_*` and `S3_*` become options read by each
   driver's `options_schema`, in one step with upgrade notes and no aliases. By the same rule the
-  stream retention settings `EVENT_STREAM_RETENTION_SECONDS` and `EVENT_STREAM_MAXLEN` become
-  options of the `streams` driver, which the transport reports, and the three instance settings
-  give way to the role-named instances of decision 2.
+  stream settings `EVENT_STREAM_RETENTION_SECONDS`, `EVENT_STREAM_MAXLEN` and
+  `EVENT_STREAM_PREFIX` become options of the `streams` driver (`retention_seconds`,
+  `max_length`, `prefix`), which the transport reports, and the three instance settings
+  give way to the role-named instances of decision 2. Status: `SMTP_*`, `S3_*` and
+  `EVENT_STREAM_*` are options and removed settings (`config_tiers.REMOVED`). `CACHE_URL` and
+  `BROKER_URL` are still flat settings: the test harness reaches them through its Redis
+  families (`FLAT_VARS`), so their conversion waits for the harness change.
 - Parallel test runs are isolated through a driverkit hook, `test_isolation(options, worker_id)`,
   instead of the kernel rewriting Redis URLs per worker. It takes the options because the
   per-worker options derive from them.

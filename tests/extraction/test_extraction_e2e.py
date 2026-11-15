@@ -67,6 +67,8 @@ BACKEND = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 RUN = uuid.uuid4().hex[:8]
 PREFIX = f"xe2e-{RUN}:"
+#: The key namespace is an option of the ``streams`` bus instance.
+_STREAMS_PREFIX_INFRA = json.dumps({"eventbus": {"default": {"prefix": PREFIX}}})
 INTERNAL_TOKEN = f"extract-internal-{uuid.uuid4().hex}"
 JWT_SECRET = f"extract-jwt-{uuid.uuid4().hex}"
 PASSWORD = "Extract-Passw0rd!x"
@@ -184,7 +186,7 @@ class Proc:
                     allowed_calls=self.allowed,
                 ),
                 "EVENT_BUS_BACKEND": "streams",
-                "EVENT_STREAM_PREFIX": PREFIX,
+                "INFRA": _STREAMS_PREFIX_INFRA,
                 "OUTBOX_RELAY_ENABLED": "on",
                 "INTERNAL_API_TOKEN": INTERNAL_TOKEN,
                 "JWT_SECRET": JWT_SECRET,
@@ -203,7 +205,7 @@ class Proc:
                 ),
             }
         )
-        for key in ("MODULE_REQUIRED", "INFRA", "ACCESS"):
+        for key in ("MODULE_REQUIRED", "ACCESS"):
             env.pop(key, None)
         return env
 
@@ -272,13 +274,13 @@ def _cli(
             "DATABASE_URL": mono_url,
             "SANDLOOM_MODULES": json.dumps([I, T, B]),
             "EVENT_BUS_BACKEND": "streams",
-            "EVENT_STREAM_PREFIX": PREFIX,
+            "INFRA": _STREAMS_PREFIX_INFRA,
             "JWT_SECRET": JWT_SECRET,
             "INTERNAL_API_TOKEN": INTERNAL_TOKEN,
             "BILLING_PROVIDER": "fake",
         }
     )
-    for key in ("MODULE_REQUIRED", "INFRA", "SERVICE_BINDINGS"):
+    for key in ("MODULE_REQUIRED", "SERVICE_BINDINGS"):
         env.pop(key, None)
     return subprocess.run(
         [sys.executable, "-m", "sandloom.core.cli.migrate", *args],

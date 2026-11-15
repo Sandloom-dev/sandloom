@@ -1,7 +1,7 @@
 """The ``streams`` driver reaches the kernel through the driver kit only.
 
-The key namespace is a driver option (``prefix``) the kernel fills from
-``EVENT_STREAM_PREFIX``; the transport reads no setting. The block window the
+The key namespace is a driver option (``prefix``) of the instance; the
+transport reads no setting. The block window the
 driver sizes its client timeout over is the kernel bus's own constant. Every
 ``safe_inc`` counter name of the driver resolves on the kernel metrics module.
 """
@@ -38,11 +38,15 @@ from sandloom.driverkit import _builtin_streams, eventbus_support
 from sandloom.driverkit._builtin_streams import BUS_BLOCK_MS
 
 
-def test_the_kernel_fills_the_prefix_option_from_the_setting(
+def test_the_prefix_option_of_the_instance_namespaces_the_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "event_bus_backend", "streams")
-    monkeypatch.setattr(settings, "event_stream_prefix", "staging:")
+    monkeypatch.setattr(
+        settings,
+        "infra",
+        {"eventbus": {"default": {"driver": "streams", "prefix": "staging:"}}},
+    )
     options = load_infra_config(settings)["eventbus"][DEFAULT_INSTANCE].options
     assert options["prefix"] == "staging:"
     provider = make_streams_driver()(
@@ -98,10 +102,7 @@ async def test_a_subclass_from_config_builds_the_subclass() -> None:
     await provider.aclose()
 
 
-def test_a_prefix_left_out_is_no_namespace_and_reads_no_setting(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(settings, "event_stream_prefix", "from-the-setting:")
+def test_a_prefix_left_out_is_no_namespace() -> None:
     assert EventBusOptions().prefix == ""
     provider = StreamsEventBusProvider(
         name="default", driver="streams", options={"url": "redis://127.0.0.1:6399/0"}
@@ -219,15 +220,10 @@ async def _overridden_options(driver: str, **options: Any) -> dict[str, Any]:
     return dict(registry.configured[0].options)
 
 
-def test_a_streams_override_stays_namespaced_like_the_kernel_filled_instance(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(settings, "event_stream_prefix", "staging:")
+def test_a_streams_override_carries_only_the_options_it_states() -> None:
     assert asyncio.run(_overridden_options("streams", url="redis://h:1/0")) == {
-        "url": "redis://h:1/0",
-        "prefix": "staging:",
+        "url": "redis://h:1/0"
     }
-    # An explicit prefix wins; a driver without the option is left alone.
     explicit = asyncio.run(_overridden_options("streams", prefix="mine:"))
     assert explicit == {"prefix": "mine:"}
     assert asyncio.run(_overridden_options("memory")) == {}

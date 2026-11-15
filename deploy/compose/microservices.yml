@@ -81,9 +81,6 @@ x-common-env: &common-env
   SANDLOOM_COMPOSITION_ROOT: sandloom_standard.main
   SHUTDOWN_BUDGET_SECONDS: ${SHUTDOWN_BUDGET_SECONDS:-30}
   EVENT_PAYLOAD_MAX_BYTES: ${EVENT_PAYLOAD_MAX_BYTES:-262144}
-  EVENT_STREAM_RETENTION_SECONDS: ${EVENT_STREAM_RETENTION_SECONDS:-604800}
-  EVENT_STREAM_MAXLEN: ${EVENT_STREAM_MAXLEN:-0}
-  EVENT_STREAM_PREFIX: ${EVENT_STREAM_PREFIX:-}
   # The weaker guarantees this stack accepts (logged at every start): demo
   # single-host local storage, shared by every process (not multi-host HA). A
   # demo without Stripe adds billing.fake_psp_in_prod.
@@ -135,16 +132,12 @@ x-common-env: &common-env
   # Mail. identity and tenancy REQUIRE an email notifier (notification +
   # email), so with ENVIRONMENT=prod this stack refuses to start on the default
   # `log` driver, which delivers no mail. Production: NOTIFIER_BACKEND=smtp with
-  # SMTP_HOST, SMTP_FROM, and SMTP_USERNAME / SMTP_PASSWORD over SMTP_USE_TLS=true.
+  # the options of the `notification` instance in INFRA above (host, port,
+  # username, password, from_addr; use_tls stays on): add
+  # "notification": {"default": {"driver": "smtp", "host": "...", "from_addr": "..."}}.
   # A demo that runs without mail adds log_notifier_in_prod to
   # SANDLOOM_ACCEPTED_RISKS (mail is NOT delivered; the risk is logged at every start).
   NOTIFIER_BACKEND: ${NOTIFIER_BACKEND:-log}
-  SMTP_HOST: ${SMTP_HOST:-}
-  SMTP_PORT: ${SMTP_PORT:-25}
-  SMTP_USERNAME: ${SMTP_USERNAME:-}
-  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-  SMTP_FROM: ${SMTP_FROM:-}
-  SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
   # Dedicated contract pool (in-process contract calls / claims contributors)
   # per process, on top of DB_POOL_SIZE + DB_MAX_OVERFLOW. Kept small: the
   # connection budget of the whole stack must fit max_connections (db below).

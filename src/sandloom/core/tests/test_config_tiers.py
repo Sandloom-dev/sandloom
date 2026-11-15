@@ -63,10 +63,9 @@ SEMANTIC_BASELINE = frozenset(
         "CONTRACT_COMPAT_CHECK",
         "INTERNAL_ENDPOINTS_OPEN_IN_DEV",
         "DOCS_ENABLED",
-        "SMTP_USE_TLS",
     }
 )
-SEMANTIC_BASELINE_COUNT = 11
+SEMANTIC_BASELINE_COUNT = 10
 #: Total semantic settings (baseline + ADR-argued). Only goes down.
 SEMANTIC_COUNT_CEILING = 14
 
@@ -240,13 +239,19 @@ def test_the_generated_dev_default_is_logged_at_debug(
     assert tiers.active_overrides(prod) == []
 
 
-def test_dev_opt_in_is_logged_at_info(caplog: pytest.LogCaptureFixture) -> None:
-    """A weaker choice made by hand outside prod is reported at INFO."""
-    chosen = _settings(ENVIRONMENT="dev", SMTP_USE_TLS="false")
+def test_dev_opt_in_is_logged_at_info(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A weaker choice made by hand outside prod (one ``sandloom new`` did not
+    generate) is reported at INFO."""
+    monkeypatch.setattr(tiers, "GENERATED_DEV_DEFAULTS", {})
+    chosen = _settings(ENVIRONMENT="dev", INTERNAL_ENDPOINTS_OPEN_IN_DEV="true")
     log = logging.getLogger("sandloom.test.config_tiers")
     with caplog.at_level(logging.DEBUG, logger="sandloom.test.config_tiers"):
         found = tiers.log_overrides(chosen, log)
-    assert [(o.setting, o.profile) for o in found] == [("SMTP_USE_TLS", "dev")]
+    assert [(o.setting, o.profile) for o in found] == [
+        ("INTERNAL_ENDPOINTS_OPEN_IN_DEV", "dev")
+    ]
     assert {r.levelno for r in caplog.records} == {logging.INFO}
 
 

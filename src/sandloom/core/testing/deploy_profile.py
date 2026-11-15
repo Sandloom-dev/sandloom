@@ -77,9 +77,7 @@ SHARED_KEYS: tuple[str, ...] = (
     "ENVIRONMENT",
     "SHUTDOWN_BUDGET_SECONDS",
     "EVENT_PAYLOAD_MAX_BYTES",
-    "EVENT_STREAM_RETENTION_SECONDS",
-    "EVENT_STREAM_MAXLEN",
-    "EVENT_STREAM_PREFIX",
+    "INFRA",
     "EVENT_BUS_BACKEND",
     "CACHE_URL",
     "JWT_ALGORITHM",
@@ -94,12 +92,6 @@ SHARED_KEYS: tuple[str, ...] = (
     "RPC_ALLOWED_CALLS",
     "FRONTEND_URL",
     "NOTIFIER_BACKEND",
-    "SMTP_HOST",
-    "SMTP_PORT",
-    "SMTP_USERNAME",
-    "SMTP_PASSWORD",
-    "SMTP_FROM",
-    "SMTP_USE_TLS",
 )
 
 #: Issuer-only signing material: on the token issuer's processes, nowhere else.

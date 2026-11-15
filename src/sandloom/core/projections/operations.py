@@ -154,8 +154,8 @@ def _stream_retention_s(core: Any, *, force: bool = False) -> float:
         "the stream retention of the deployment's event bus cannot be determined "
         "from its configuration (EVENT_BUS_BACKEND resolves to a bus without a "
         "retention_seconds option; set EVENT_BUS_BACKEND=streams and "
-        "EVENT_STREAM_RETENTION_SECONDS): a replay could resurrect a purged row "
-        "(--force purges anyway)"
+        "INFRA.eventbus.default.retention_seconds): a replay could resurrect a "
+        "purged row (--force purges anyway)"
     )
 
 

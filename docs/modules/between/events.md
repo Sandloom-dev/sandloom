@@ -243,9 +243,9 @@ sandloom streams dlq-replay <channel> [--id DLQ_ID ...] [--limit N]
 - On the producer side, the outbox relay dead-letters a row it cannot send
   after its attempts: see
   [the outbox](../database/units.md#events-and-audit-go-through-the-unit).
-- Streams are trimmed by age (`EVENT_STREAM_RETENTION_SECONDS`, default 7
-  days) and optionally by length (`EVENT_STREAM_MAXLEN`). A consumer offline
-  longer than retention misses events.
+- Streams are trimmed by age (the `retention_seconds` option of the `streams`
+  bus, default 7 days) and optionally by length (`max_length`). A consumer
+  offline longer than retention misses events.
 
 ### No ordering guarantee
 

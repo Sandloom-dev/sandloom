@@ -1615,7 +1615,7 @@ guarantees:
   - src/sandloom/core/tests/test_guarantee_windows.py::test_create_app_refuses_in_production
   startup_checks: 'create_app refuses in prod: GuaranteeWindowError (sandloom.core.guarantee_windows.guarantee_window_problems)'
 - id: G-WINDOW-03
-  statement: sandloom outbox purge --inbox-days D refuses D < EVENT_STREAM_RETENTION_SECONDS + 1 day (any D
+  statement: sandloom outbox purge --inbox-days D refuses D < the eventbus retention_seconds option + 1 day (any D
     when retention is unbounded) unless --force (risk inbox_purge_below_redelivery).
   sources:
   - docs/adr/0005-effect-model.md#6a. Declared requirements and guarantee windows (startup checks)
@@ -1782,7 +1782,7 @@ guarantees:
   - capability: eventbus
     operations: [retention]
     note: driver options
-  statement: Streams are trimmed by age (EVENT_STREAM_RETENTION_SECONDS) and optionally by length (EVENT_STREAM_MAXLEN)
+  statement: Streams are trimmed by age (the retention_seconds option) and optionally by length (the max_length option)
     on publish.
   sources:
   - docs/modules/index.md#What you get by default, and what you declare

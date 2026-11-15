@@ -52,6 +52,32 @@ PostgreSQL row-level security for that instance, with `system_url` /
 `/diagnostics/infra` reports the configured capabilities, instances,
 stability, registered drivers and per-instance health.
 
+## Upgrade: flat settings that became driver options
+
+Three groups of flat settings are removed. Each became an option of the driver
+that read it, written on that driver's instance in `INFRA`. Startup refuses a
+removed setting that carries a value, and names the option to write. An empty
+value only logs a warning. There are no aliases.
+
+| Removed setting | Instance | Option |
+| --- | --- | --- |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | `notification` (`smtp`) | `host`, `port`, `username`, `password` |
+| `SMTP_FROM`, `SMTP_USE_TLS` | `notification` (`smtp`) | `from_addr`, `use_tls` |
+| `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | `objectstore` (`s3`) | `bucket`, `region`, `access_key_id`, `secret_access_key` |
+| `EVENT_STREAM_RETENTION_SECONDS`, `EVENT_STREAM_MAXLEN`, `EVENT_STREAM_PREFIX` | `eventbus` (`streams`) | `retention_seconds`, `max_length`, `prefix` |
+
+For example, move `SMTP_HOST=mail` and `SMTP_USE_TLS=false` to:
+
+```sh
+INFRA='{"notification":{"default":{"driver":"smtp","host":"mail","use_tls":false}}}'
+```
+
+Four details to know. STARTTLS stays on unless you write `use_tls: false`, as
+it did with `SMTP_USE_TLS`, and production still refuses credentials without it.
+Setting `SMTP_USE_TLS=false` fails startup instead of being ignored, so TLS
+never turns back on behind your back. The object store driver is still chosen
+by `STORAGE_TYPE=s3`. Flat settings remain for `CACHE_URL` and `BROKER_URL`.
+
 ## Use a named instance
 
 Modules ask for an instance by name, never by engine or connection string:

@@ -416,7 +416,8 @@ def server_env(cfg: str, *, pool: int, overflow: int, relay: str) -> dict[str, s
         DB_POOL_TIMEOUT="10",
         OUTBOX_RELAY_ENABLED=relay,
         SANDLOOM_ACCEPTED_RISKS="relay_disabled",
-        EVENT_STREAM_MAXLEN="20000",
+        # the streams bus's own option (no flat setting any more)
+        INFRA=json.dumps({"eventbus": {"default": {"max_length": 20000}}}),
     )
     # A/B knobs for both servers: SOAK_SERVER_<SETTING>=value is passed on as
     # <SETTING>=value (e.g. SOAK_SERVER_DB_DEAD_CONNECTION_RETRY=false).

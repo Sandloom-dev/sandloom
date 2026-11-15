@@ -56,13 +56,15 @@ class ServicesConfig(BaseModel):
     )
 
     # Notifications: default "log" delivers by structured log (zero-dependency,
-    # safe everywhere); "smtp" sends email via the SMTP_* settings below.
+    # safe everywhere); "smtp" sends email through the options of
+    # INFRA.notification.default.
     notifier_backend: Literal["log", "smtp"] = Field(
         default="log",
         alias="NOTIFIER_BACKEND",
         description=(
             "Default notifier driver: log records delivery metadata without "
-            "message contents; smtp sends email using SMTP settings."
+            "message contents; smtp sends email with the options of "
+            "INFRA.notification.default."
         ),
     )
     notifier_log_links: bool = Field(
@@ -79,58 +81,7 @@ class ServicesConfig(BaseModel):
     # requires e.g. features={"email"} fails at startup instead of logging
     # mail nobody receives); SANDLOOM_ACCEPTED_RISKS "log_notifier_in_prod" restores
     # them (demo stacks).
-    smtp_host: str | None = Field(
-        default=None,
-        alias="SMTP_HOST",
-        description=("SMTP server hostname used by the email notifier."),
-    )
-    smtp_port: int = Field(
-        default=25,
-        alias="SMTP_PORT",
-        description=("SMTP server TCP port used by the email notifier."),
-    )
-    smtp_username: str | None = Field(
-        default=None,
-        alias="SMTP_USERNAME",
-        description=("Optional SMTP authentication username."),
-    )
-    smtp_password: str | None = Field(
-        default=None,
-        alias="SMTP_PASSWORD",
-        description=("Optional SMTP authentication password."),
-    )
-    smtp_from: str | None = Field(
-        default=None,
-        alias="SMTP_FROM",
-        description=("Sender email address used by the SMTP notifier."),
-    )
-    smtp_use_tls: bool = Field(
-        default=True,
-        alias="SMTP_USE_TLS",
-        description=(
-            "Upgrade SMTP with STARTTLS and certificate verification; disable only "
-            "for a trusted local development inbox."
-        ),
-    )
-
-    # S3 / GCS / YC (optional; required if the matching storage_type is selected)
-    s3_bucket: str | None = Field(
-        default=None,
-        alias="S3_BUCKET",
-        description=("Bucket name supplied to the S3 object-storage driver."),
-    )
-    s3_region: str | None = Field(
-        default=None,
-        alias="S3_REGION",
-        description=("Region supplied to the S3 object-storage driver."),
-    )
-    s3_access_key_id: str | None = Field(
-        default=None,
-        alias="S3_ACCESS_KEY_ID",
-        description=("Access-key ID supplied to the S3 object-storage driver."),
-    )
-    s3_secret_access_key: str | None = Field(
-        default=None,
-        alias="S3_SECRET_ACCESS_KEY",
-        description=("Secret access key supplied to the S3 object-storage driver."),
-    )
+    # The options of the ``smtp`` notifier (host, port, credentials, ``use_tls``)
+    # and of the ``s3`` object store (bucket, region, keys) are driver options of
+    # their INFRA instances (INFRA.notification.default, INFRA.objectstore.default):
+    # no settings of their own.

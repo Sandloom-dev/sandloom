@@ -114,7 +114,7 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   service runs the new version with its
   `sandloom:auth@tokens_revoked@<service>` group running. Then delete the
   old group and its owner record:
-  `redis-cli XGROUP DESTROY <EVENT_STREAM_PREFIX>core.auth.tokens_revoked.v1
+  `redis-cli XGROUP DESTROY <prefix>core.auth.tokens_revoked.v1
   identity:sessions@tokens_revoked`, then `sandloom streams release-group
   core.auth.tokens_revoked.v1 identity:sessions@tokens_revoked`. Its
   inventory entry turns stale after 5 minutes and is listed only by
@@ -299,9 +299,9 @@ This section holds the settings, commands and metrics.
   rows are never purged. On demand / for a large backlog:
   `sandloom outbox purge [--database x] [--hours H] [--batch N]`.
 - **Durable consumer inbox** (`consumer_inbox`) claims are NOT pruned
-  automatically: a claim must outlive every possible redelivery of its event
-  (Streams retention `EVENT_STREAM_RETENTION_SECONDS`, an operator `requeue`
-  of an old dead row) or a late duplicate would apply its effect twice. Prune
+  automatically. A claim must outlive every possible redelivery of its event:
+  the `retention_seconds` option of the `streams` bus, or an operator `requeue`
+  of an old dead row. Otherwise a late duplicate applies its effect twice. Prune
   explicitly with a cutoff well past that window:
   `sandloom outbox purge --inbox-days 30`.
 - Streams consumers dead-letter poison entries to `<channel>.dlq` (with reason
@@ -332,12 +332,16 @@ This section holds the settings, commands and metrics.
   history is re-applied. Entries still PENDING in the old group are not moved —
   drain them first (temporarily pin `group="<name>"`), then
   `XGROUP DESTROY <stream> <name>`.
-- Retention: each stream is trimmed to `EVENT_STREAM_RETENTION_SECONDS`
-  (default 7 days, `XTRIM MINID ~`) and, if set, `EVENT_STREAM_MAXLEN`
+- Retention: each stream is trimmed to the `retention_seconds` option of the
+  `streams` bus (default 7 days, `XTRIM MINID ~`) and, if set, `max_length`
   (`MAXLEN ~`). A consumer offline longer than retention misses the trimmed
   events; recover them from the outbox (`sandloom outbox requeue`) or a projection
-  rebuild. `EVENT_STREAM_PREFIX` namespaces every Streams key when several
-  environments share one Redis.
+  rebuild. The `prefix` option namespaces every Streams key when several
+  environments share one Redis. All three are written on the instance, e.g.
+  `INFRA={"eventbus": {"default": {"driver": "streams", "retention_seconds":
+  604800, "max_length": 100000, "prefix": "staging:"}}}`; the former
+  `EVENT_STREAM_RETENTION_SECONDS`, `EVENT_STREAM_MAXLEN` and
+  `EVENT_STREAM_PREFIX` settings were removed in 1.0 and refuse startup.
 - v1 → v2 channel rollouts: dual-publish both versions
   (`publish_event_versions`) until `sandloom streams consumers` shows no live `.v1`
   group; `sandloom_events_version_starvation_total` /
@@ -1027,7 +1031,7 @@ instance names).
 | `SandloomOutboxBacklogAgeingWarning` | warning | Same, > 10 s for 5m | Early warning for the above. |
 | `SandloomOutboxRelayAbsent` | warning | A job reports `sandloom_startup_duration_seconds` but no outbox age for 10m | No process runs the relay (`OUTBOX_RELAY_ENABLED`, Gunicorn leader election). |
 | `SandloomOutboxDeadLettered` | warning | Any outbox row dead-lettered in 15m | `sandloom outbox list-dead` / `requeue`. [Events](#events-outbox-relay-and-dead-letters). |
-| `SandloomConsumerGroupBehind` | page | A group's oldest unacked entry > 300 s for 10m | A consumer is down, failing or too slow; stream retention (`EVENT_STREAM_RETENTION_SECONDS`) will drop what it has not read. `sandloom streams consumers`. |
+| `SandloomConsumerGroupBehind` | page | A group's oldest unacked entry > 300 s for 10m | A consumer is down, failing or too slow; stream retention (the `retention_seconds` option) will drop what it has not read. `sandloom streams consumers`. |
 | `SandloomEventDeliverySlow` | warning | p99 end-to-end event latency > 30 s for 10m | Compare the outbox age (producer side) with the group age (consumer side) to locate the lag. |
 | `SandloomConsumerFailures` | warning | A consumer's handler fails continuously for 10m | Redeliveries pile up; poison entries end in `<channel>.dlq`. |
 | `SandloomStreamsDeadLettered` | warning | Any Streams entry dead-lettered in 15m | `sandloom streams dlq-list`, then a targeted `dlq-replay` once fixed. |

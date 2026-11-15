@@ -373,8 +373,8 @@ is raw env).
   startup unless `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` are set. Prod
   refuses `fake` unless the module risk `billing.fake_psp_in_prod` is accepted.
   Both are billing's own settings check: a process without billing skips them.
-  `NOTIFIER_BACKEND` (log/smtp; default log) + `SMTP_*`
-  (host/port/username/password/from/use_tls for the email driver).
+  `NOTIFIER_BACKEND` (log/smtp; default log) + the `notification` instance in `INFRA`
+  (host/port/username/password/from_addr/use_tls options for the email driver).
 - **Secrets.** In prod, secrets and tokens must be at least 32 characters and
   not placeholders. `SECRETS_DIR` (Docker/K8s file-based secrets — a setting
   may be supplied as a file named after its field).
