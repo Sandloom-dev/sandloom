@@ -30,6 +30,7 @@ import pytest
 
 from sandloom.core.config.common import INVALID_CONFIGURATION
 from sandloom.core.signing_keys import generate_private_key, public_pem
+from sandloom.core.tests._root_support import lean_root_infra
 from sandloom.core.tests.test_production_profile import _BASE as _STRICT_BASE
 
 pytestmark = pytest.mark.slow
@@ -96,8 +97,10 @@ def _env(values: dict[str, Any]) -> dict[str, str]:
         for name in ("PATH", "HOME", "SYSTEMROOT", "TMPDIR")
         if name in os.environ
     }
+    # The child boots the lean root, which selects no driver: INFRA does.
     for name, value in values.items():
         env[name] = value if isinstance(value, str) else json.dumps(value)
+    env["INFRA"] = lean_root_infra(values)
     return env
 
 

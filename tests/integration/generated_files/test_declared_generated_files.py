@@ -24,6 +24,8 @@ from typing import Any
 
 import pytest
 
+from sandloom.core.tests._root_support import lean_root_infra
+
 pytestmark = [pytest.mark.integration]
 
 BACKEND = Path(__file__).resolve().parents[3]
@@ -66,8 +68,11 @@ def _compose(*modules: str, root: str | None = None) -> dict[str, Any]:
         ),
     }
     env.pop("SANDLOOM_COMPOSITION_ROOT", None)
+    env.pop("INFRA", None)
     if root:
         env["SANDLOOM_COMPOSITION_ROOT"] = root
+    # The lean root (no ``root``) selects no driver: ``INFRA`` does.
+    env["INFRA"] = lean_root_infra(env)
     done = subprocess.run(
         [sys.executable, "-c", _PROBE],
         cwd=BACKEND,

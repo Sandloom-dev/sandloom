@@ -5078,9 +5078,10 @@ guarantees:
     the missing feature or package (periodic for billing, the cache for identity), also for an explicitly
     selected optional module. Proved on the sixteen module subsets with only the probe under test replaced, namely
     Celery and Redis installed with real services (ready, every check ok), a broker nobody listens on (the
-    periodic-only web process stays ready), a missing redis or celery package (identity or billing refused
-    naming the guarantee; on plain sandloom without redis-py every other subset boots and is not ready,
-    its cache check naming the package), and a taskqueue driver without periodic.
+    periodic-only web process stays ready), a missing redis package (every subset refused at startup naming
+    the cache and the security store, which the standard composition selects), a missing celery package
+    (billing refused naming the guarantee), plain sandloom with no driver package (every subset refused,
+    the kernel naming no driver), and a taskqueue driver without periodic.
   sources:
   - docs/adr/0011-driver-api.md
   - design/kernel-boundary/requirements.md#I-19 Every allowed install profile and every module subset boots

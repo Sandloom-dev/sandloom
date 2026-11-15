@@ -140,7 +140,6 @@ def test_build_infra_registry_rejects_unknown_infra_option() -> None:
                     )
                 }
             },
-            load_plugins=False,
         )
     # The actionable fix hint points at the offending INFRA path.
     assert excinfo.value.fix is not None
@@ -165,7 +164,6 @@ def test_build_infra_registry_accepts_valid_infra_option() -> None:
                 )
             }
         },
-        load_plugins=False,
     )
 
 

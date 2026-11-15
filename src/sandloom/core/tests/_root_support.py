@@ -49,6 +49,54 @@ def suite_infra_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
     return {"INFRA": json.dumps(infra)}
 
 
+#: The drivers a child process that boots the lean root (``import sandloom.main``,
+#: ``sandloom worker`` with no ``SANDLOOM_COMPOSITION_ROOT``) selects through
+#: ``INFRA``: the lean root names none, whatever is installed. Flat settings
+#: (``CACHE_URL``, ``BROKER_URL``) fill their options.
+_LEAN_ROOT_DRIVERS: dict[str, dict[str, dict[str, str]]] = {
+    "database": {"default": {"driver": "sqlalchemy"}},
+    "cache": {"default": {"driver": "redis"}},
+    "broadcast": {"default": {"driver": "redis"}},
+    "taskqueue": {"default": {"driver": "celery"}},
+}
+
+
+def lean_root_infra(values: Mapping[str, object]) -> str:
+    """The ``INFRA`` (JSON) a child that boots the lean root needs, given its
+    environment ``values``: this module's driver selection for every instance
+    the child's own ``INFRA`` (a JSON string or a mapping) does not give a
+    driver, so an options-only entry (``{"database": {"default":
+    {"tenant_rls": true}}}``) keeps its options and gains its driver. The
+    durable ``streams`` bus joins where the child sets no ``EVENT_BUS_BACKEND``,
+    and the security store where the child is not ``ENVIRONMENT=prod`` (a
+    production child declares its own, on a server of its own: that refusal is
+    what its test may probe)."""
+    own_raw = values.get("INFRA") or {}
+    own: dict[str, dict[str, dict[str, object]]] = json.loads(
+        own_raw if isinstance(own_raw, str) else json.dumps(own_raw)
+    )
+    wanted = {cap: dict(instances) for cap, instances in _LEAN_ROOT_DRIVERS.items()}
+    if str(values.get("EVENT_BUS_BACKEND", "auto")) == "auto":
+        wanted["eventbus"] = {"default": {"driver": "streams"}}
+    if values.get("ENVIRONMENT") != "prod":
+        wanted["atomic_store"] = {"security": {"driver": "redis"}}
+    merged: dict[str, dict[str, dict[str, object]]] = {
+        cap: {name: dict(spec) for name, spec in instances.items()}
+        for cap, instances in own.items()
+    }
+    for capability, instances in wanted.items():
+        bucket = merged.setdefault(capability, {})
+        for name, spec in instances.items():
+            entry = bucket.setdefault(name, {})
+            entry.setdefault("driver", spec["driver"])
+    # An instance INFRA names carries its own options: the database url is not
+    # filled from DATABASE_URL (the composition's defaults are), so write it.
+    database_url = values.get("DATABASE_URL")
+    if isinstance(database_url, str):
+        merged["database"]["default"].setdefault("url", database_url)
+    return json.dumps(merged)
+
+
 def create_root_app() -> FastAPI:
     """A new app from the composition root's factory, with that root's trust map."""
     return importlib.import_module(composition_root_name()).create_app()  # type: ignore[no-any-return]
