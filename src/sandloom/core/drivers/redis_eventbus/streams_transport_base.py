@@ -13,6 +13,7 @@ from typing import Any, Concatenate, ParamSpec, TypeVar
 from sandloom.driverkit import (
     InfraError,
     InfraProvider,
+    InvalidArgument,
     PermissionDenied,
     Retention,
     Timeout,
@@ -57,24 +58,31 @@ def _backend_errors() -> tuple[type[BaseException], ...]:
     return (_redis_exceptions().RedisError, OSError, TimeoutError)
 
 
-def _is_absent(exc: BaseException) -> bool:
-    """True for a reply that found nothing to read: no such key or group, a key
-    of another type, a command this Redis lacks. A permission refusal, a
-    read-only replica or a full store is a server in trouble, not an absence:
-    it must surface (mapped), never read as an empty answer."""
-    exceptions = _redis_exceptions()
-    return isinstance(exc, exceptions.ResponseError) and not isinstance(
-        exc,
-        exceptions.NoPermissionError
-        | exceptions.ReadOnlyError
-        | exceptions.OutOfMemoryError
-        | exceptions.TryAgainError,
-    )
+#: The replies that mean "nothing there", by their text (the client parses the
+#: code away from some replies: ``ERR no such key`` reads ``no such key``).
+REPLY_NOGROUP = "NOGROUP"  # no such stream key or consumer group
+REPLY_WRONGTYPE = "WRONGTYPE"  # the key holds no stream (another type)
+REPLY_NO_SUCH_KEY = "no such key"
+REPLY_UNKNOWN_COMMAND = "unknown command"  # a Redis-compatible store without it
 
 
-def _reraise_unless_absent(exc: BaseException) -> None:
+def _is_absent(exc: BaseException, *replies: str) -> bool:
+    """True when ``exc`` is one of the ``replies`` a read can answer as "absent".
+
+    An allow-list, never a deny-list: a reply a call site did not name is a
+    server in trouble (``MASTERDOWN``, ``BUSY``, ``LOADING``, ``READONLY``,
+    ``CLUSTERDOWN``, ``MOVED``, ``NOPERM``, ``OOM``, a script or ``EXEC``
+    failure, a module error ...) and must surface mapped, never read as an
+    empty answer. Each site names what it can truly answer as absent."""
+    if type(exc) is not _redis_exceptions().ResponseError:
+        return False  # a subclass is a classified failure (permission, OOM ...)
+    reply = str(exc).removeprefix("ERR ")
+    return reply.startswith(replies)
+
+
+def _reraise_unless_absent(exc: BaseException, *replies: str) -> None:
     """Return when ``exc`` is an absence (:func:`_is_absent`), else raise it."""
-    if not _is_absent(exc):
+    if not _is_absent(exc, *replies):
         raise exc
 
 
@@ -223,10 +231,27 @@ class _StreamsTransportBase(TransportDefaults):
             kind = PermissionDenied
         elif isinstance(exc, exceptions.TimeoutError | TimeoutError):
             kind = Timeout
+        elif isinstance(exc, exceptions.DataError) or (
+            type(exc) is exceptions.ResponseError
+            and str(exc).startswith(REPLY_WRONGTYPE)
+        ):
+            # Not transient: the client refused a value it cannot encode, or a
+            # key holds another type than the transport's layout expects.
+            # Repeating the call cannot succeed, so it must not read as an
+            # outage (``Unavailable`` is retryable and the relay would spin).
+            kind = InvalidArgument
         else:  # connection, failover, loading, a full store (OOM), a bad reply
             kind = Unavailable
         instance = self.name if isinstance(self, InfraProvider) else None
         return kind(what, capability=_CAPABILITY, instance=instance)
+
+    def _cause(self, operation: str, exc: BaseException) -> BaseException:
+        """The mapped error of a backend failure caught inside an operation
+        (so a ``PartialPublish`` built there follows its ``retryable``); any
+        other exception is a bug and stays as it is."""
+        if isinstance(exc, _backend_errors()):
+            return self._failure(operation, exc)
+        return exc
 
     @staticmethod
     def dlq_stream(stream: str) -> str:
@@ -263,7 +288,8 @@ class _StreamsTransportBase(TransportDefaults):
         try:
             raw = await client.xinfo_groups(self.key(stream))
         except _backend_errors() as exc:
-            if not _is_absent(exc):  # not "no such key / unsupported"
+            # No such key, or a store without XINFO: no groups. Nothing else.
+            if not _is_absent(exc, REPLY_NO_SUCH_KEY, REPLY_UNKNOWN_COMMAND):
                 raise
             return []
         groups: list[dict[str, Any]] = []
@@ -279,7 +305,9 @@ class _StreamsTransportBase(TransportDefaults):
                 self.key(stream), min=msg_id, max=msg_id, count=1
             )
         except _backend_errors() as exc:
-            if not _is_absent(exc):  # not "unsupported: treat as gone"
+            # XRANGE of a missing key answers an empty list: the only reply
+            # that says "gone" is a key that holds no stream any more.
+            if not _is_absent(exc, REPLY_WRONGTYPE):
                 raise
             return None
         for _mid, fields in entries or []:

@@ -11,6 +11,7 @@ from typing import Any
 import orjson
 
 from sandloom.core.drivers.redis_eventbus.streams_transport_base import (
+    REPLY_WRONGTYPE,
     _as_int,
     _backend_errors,
     _is_absent,
@@ -91,7 +92,10 @@ class _StreamsGroups(_StreamsTransportBase):
         except ValueError:  # an undecodable record: unknown position
             return None
         except _backend_errors() as exc:
-            if not _is_absent(exc):  # not a key of another type
+            # HGET of a missing field answers nil; only a key of another type
+            # reads as "no position". A BUSY / MASTERDOWN is a server in
+            # trouble: it must not recreate the group at '$'.
+            if not _is_absent(exc, REPLY_WRONGTYPE):
                 raise
             return None
         if isinstance(entry, dict) and entry.get("last_delivered_id"):
@@ -111,7 +115,9 @@ class _StreamsGroups(_StreamsTransportBase):
         try:
             newest = await client.xrevrange(key, count=1)
         except _backend_errors() as exc:
-            if not _is_absent(exc):  # not "cannot tell: keep the position"
+            # XREVRANGE of a missing key answers an empty list; a key of
+            # another type holds no stream to compare: keep the position.
+            if not _is_absent(exc, REPLY_WRONGTYPE):
                 raise
             return False
         if not newest:
@@ -242,7 +248,7 @@ class _StreamsGroups(_StreamsTransportBase):
             if newest:
                 last_id = str(newest[0][0])
         except _backend_errors() as exc:
-            if not _is_absent(exc):  # not "a key of another type: empty"
+            if not _is_absent(exc, REPLY_WRONGTYPE):  # holds no stream: empty
                 raise
         age: float | None = None
         if last_id:

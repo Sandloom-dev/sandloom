@@ -11,6 +11,9 @@ import orjson
 
 from sandloom.core.drivers.redis_eventbus.streams_groups import _StreamsGroups
 from sandloom.core.drivers.redis_eventbus.streams_transport_base import (
+    REPLY_NOGROUP,
+    REPLY_UNKNOWN_COMMAND,
+    REPLY_WRONGTYPE,
     _backend_errors,
     _is_absent,
     _is_nogroup,
@@ -198,7 +201,9 @@ class _StreamsConsume(_StreamsGroups):
                 )
         except _backend_errors() as exc:
             self._pel_known.discard(cursor_key)
-            _reraise_unless_absent(exc)  # "no group / unsupported": empty
+            # No group (the read path recreates it) or a store without
+            # XPENDING: nothing pending. Any other reply surfaces.
+            _reraise_unless_absent(exc, REPLY_NOGROUP, REPLY_UNKNOWN_COMMAND)
             return []
         entries: list[_PendingEntry] = []
         for item in pend or []:
@@ -476,11 +481,18 @@ class _StreamsConsume(_StreamsGroups):
     ) -> None:
         """Move an entry that used its whole delivery budget to the DLQ."""
         frames = await client.xrange(key, min=entry.msg_id, max=entry.msg_id, count=1)
-        if frames and await self._targeted_elsewhere(
-            client, stream, group, entry.msg_id, frames[0][1]
-        ):
-            return
-        raw = await self._fetch_raw(client, stream, entry.msg_id)
+        raw: str | None = None
+        if frames:
+            fields = frames[0][1]
+            if await self._targeted_elsewhere(
+                client, stream, group, entry.msg_id, fields
+            ):
+                return
+            # The payload of THIS read: a second read could fail (or lose the
+            # entry to a trim) and park an entry whose source exists as
+            # SOURCE_MISSING without its data.
+            data = fields.get("data") if isinstance(fields, dict) else None
+            raw = None if data is None else str(data)
         await self._to_dlq(client, stream, group, entry.msg_id, raw, entry.times)
 
     async def _read_new(
@@ -631,13 +643,13 @@ return lost
             summary = await client.xpending(self.key(stream), group)
             pending = int(summary.get("pending", 0) if isinstance(summary, dict) else 0)
         except _backend_errors() as exc:
-            if not _is_absent(exc):  # not "no such group: nothing pending"
+            if not _is_absent(exc, REPLY_NOGROUP, REPLY_WRONGTYPE):  # nothing pending
                 raise
             pending = 0
         try:
             dlq = int(await client.xlen(self._dlq_key(stream)))
         except _backend_errors() as exc:
-            if not _is_absent(exc):  # not "a key of another type: empty"
+            if not _is_absent(exc, REPLY_WRONGTYPE):  # holds no stream: empty
                 raise
             dlq = 0
         return {"pending": pending, "dlq": dlq}

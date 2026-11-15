@@ -134,7 +134,7 @@ class RedisStreamsTransport(_StreamsConsume):
             raise partial_publish(
                 [],
                 f"MULTI/EXEC of {len(items)} XADD(s) failed: {type(exc).__name__}",
-                exc,
+                self._cause("publish_many", exc),
             ) from exc
         ids: list[str] = []
         for result in results:
@@ -142,8 +142,8 @@ class RedisStreamsTransport(_StreamsConsume):
                 raise partial_publish(
                     ids,
                     f"XADD {len(ids)} of {len(items)} failed in EXEC: "
-                    f"{type(result).__name__}: {result}",
-                    result,
+                    f"{type(result).__name__}",
+                    self._cause("publish_many", result),
                 ) from result
             ids.append(str(result))
         for key in keys:
