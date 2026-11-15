@@ -92,13 +92,14 @@ SEEDED: dict[str, frozenset[str]] = {
             "sandloom.core.descriptors",
         }
     ),
+    # idk-worker-port: the contract and error imports became driverkit imports,
+    # and the driver split off its worker host (celery_worker), a sibling file
+    # that imports only sandloom.driverkit and moves to the package with it.
     _D + "celery_taskqueue.py": frozenset(
         {
-            "sandloom.core.descriptors",
             "sandloom.core.drivers.celery_broker_probe",
+            "sandloom.core.drivers.celery_worker",
             "sandloom.core.infra.config",
-            "sandloom.core.infra.contracts",
-            "sandloom.core.infra.errors",
         }
     ),
     _D + "dbapi_aiosqlite.py": frozenset(

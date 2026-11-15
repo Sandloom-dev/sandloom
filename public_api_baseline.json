@@ -2888,6 +2888,22 @@
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
+    "FencedLease": {
+      "kind": "class",
+      "members": [
+        "ensure_async",
+        "fast_path",
+        "fence",
+        "held",
+        "name",
+        "next_check_in",
+        "release_async",
+        "renew_interval",
+        "store",
+        "token"
+      ],
+      "signature": "(store:POSITIONAL_OR_KEYWORD|LeaseStore, name:POSITIONAL_OR_KEYWORD|str, ttl_seconds:KEYWORD_ONLY|int, clock:KEYWORD_ONLY|Callable[[], float]=<builtins.builtin_function_or_method>, identity:KEYWORD_ONLY|str | None=None, label:KEYWORD_ONLY|str='[lease]') -> None"
+    },
     "GroupInfo": {
       "kind": "class",
       "members": [
@@ -3012,6 +3028,16 @@
         "tier"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
+    "LeaseStore": {
+      "kind": "class",
+      "members": [
+        "acquire",
+        "holder",
+        "release",
+        "renew"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
     "LockStatement": {
       "kind": "class",
@@ -3216,12 +3242,12 @@
         "isolation_identity",
         "options_schema",
         "performance_hints",
-        "raw_backend",
         "required_imports",
         "send",
         "supported_features",
         "test_isolation",
-        "tier"
+        "tier",
+        "worker_host"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -3291,6 +3317,27 @@
     },
     "WRITE_LOCK_HELD": {
       "kind": "value"
+    },
+    "WorkerBoot": {
+      "kind": "class",
+      "members": [
+        "before_fork",
+        "boot",
+        "on_process_start",
+        "on_process_stop",
+        "run",
+        "run_coroutine"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "WorkerHost": {
+      "kind": "class",
+      "members": [
+        "check",
+        "run_scheduler",
+        "run_worker"
+      ],
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
     },
     "iter_object_chunks": {
       "kind": "function",

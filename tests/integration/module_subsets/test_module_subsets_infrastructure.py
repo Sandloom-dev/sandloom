@@ -73,6 +73,9 @@ class NoPeriodicQueue(TaskQueueProvider):
     contract_version = 2
     supported_features = frozenset({"delay", "redelivery"})
 
+    def worker_host(self) -> object:
+        raise NotImplementedError
+
     async def send(
         self,
         task: str,

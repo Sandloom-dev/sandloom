@@ -83,13 +83,10 @@ def test_the_kernel_door_lists_the_kernel_facing_names() -> None:
     assert ports.AtomicStore is AtomicStore
 
 
-@pytest.mark.parametrize(
-    ("name", "slice_"),
-    [("WorkerHost", "idk-worker-port")],
-)
-def test_a_name_not_delivered_yet_names_its_slice(name: str, slice_: str) -> None:
-    with pytest.raises(AttributeError, match=slice_):
-        getattr(ports, name)
+def test_the_worker_host_is_delivered() -> None:
+    from sandloom.core.infra.ports import taskqueue
+
+    assert ports.WorkerHost is taskqueue.WorkerHost
 
 
 def test_the_eventbus_transport_is_delivered() -> None:

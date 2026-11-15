@@ -937,17 +937,28 @@ class TaskTable:                                 # idk-task-api
 class WorkerBoot(Protocol):                      # implemented by the kernel, called by the host
     def boot(self) -> TaskTable: ...             # composition, enforce_runtime, task discovery
     def run(self, task: str, payload: bytes, *, task_id: str) -> None: ...  # outside any running loop
-    def on_process_start(self) -> None: ...
+    def before_fork(self) -> None: ...           # once in the main process after boot, before children fork (GC freeze)
+    def on_process_start(self) -> None: ...      # a process that runs messages starts (fresh loop after a fork)
     def on_process_stop(self) -> None: ...       # dispose engines on the worker loop (G-TASK-04)
+    def run_coroutine(self, coro: Coroutine[Any, Any, T]) -> T: ...  # on the persistent loop (the scheduler's lease store)
 
 class WorkerHost(Protocol):
     def run_worker(
         self, boot: WorkerBoot, *, queues: Sequence[str] | None = None,
-        concurrency: int | None = None,
+        concurrency: int | None = None, loglevel: str = "INFO",
     ) -> int: ...                                # blocks; the process exit code
-    def run_scheduler(self, boot: WorkerBoot, *, lease: LeaseStore, lease_name: str) -> int: ...
+    def run_scheduler(
+        self, boot: WorkerBoot, *, lease: LeaseStore, lease_name: str,
+        lease_ttl_seconds: int = 30, loglevel: str = "INFO",
+        state_file: str | None = None,
+    ) -> int: ...
     def check(self, *, timeout_seconds: float) -> HealthResult: ...
 ```
+
+`loglevel` is the process's log level (`sandloom worker|beat --loglevel`). `lease_ttl_seconds` is
+`BEAT_LEASE_TTL_SECONDS`, and `state_file` the scheduler's state file (`sandloom beat --schedule`,
+ignored by a host that keeps none). Both are the kernel's today; revisit them as driver options
+when the Celery host becomes its own package (`idk-pkg-celery`).
 
 **`WorkerHost` is not a capability.** It has no `INFRA` entry, no registration and no major of its
 own: the kernel reaches it only through `TaskQueueProvider.worker_host()`, and it is versioned with

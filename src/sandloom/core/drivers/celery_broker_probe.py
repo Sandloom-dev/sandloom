@@ -28,16 +28,6 @@ from sandloom.core.descriptors import HealthResult
 _REDIS_SCHEMES = frozenset({"redis", "rediss", "sentinel"})
 
 
-def _where(url: str) -> str:
-    """``scheme://host:port`` of a broker URL: never its credentials."""
-    try:
-        parts = urlsplit(url)
-        port = f":{parts.port}" if parts.port else ""
-        return f"{parts.scheme}://{parts.hostname or ''}{port}"
-    except ValueError:
-        return "?"
-
-
 def _transport_options(app: Any, scheme: str, timeout: float) -> dict[str, Any]:
     options = dict(getattr(app.conf, "broker_transport_options", None) or {})
     if scheme in _REDIS_SCHEMES:
@@ -70,7 +60,9 @@ def _connect_once(app: Any, timeout: float) -> None:
 
 class BrokerUnreachableError(RuntimeError):
     """The broker refused or dropped the probe's connection (any transport
-    error); the message names the broker by scheme, host and port."""
+    error); the message carries the error's type name and nothing of the broker
+    (no URL, no credential, no host): a health detail reaches an operator
+    endpoint, a log and a metric label."""
 
 
 async def probe_broker(app: Any, *, limit_seconds: float | None = None) -> HealthResult:
@@ -79,7 +71,7 @@ async def probe_broker(app: Any, *, limit_seconds: float | None = None) -> Healt
     it does not answer in time. A refused or dropped connection raises
     :class:`BrokerUnreachableError`, which every health reader turns into a
     failed probe carrying its type name, never its text (``_capability_health``,
-    ``InfraRegistry.health_all``; spec 2.4).
+    ``InfraRegistry.health_all``; spec 2.4). No detail names the broker.
 
     The blocking connect runs in a worker thread, so the event loop never
     waits on the broker; the connect and socket timeouts end that thread
@@ -90,22 +82,19 @@ async def probe_broker(app: Any, *, limit_seconds: float | None = None) -> Healt
         if limit_seconds is None
         else limit_seconds
     )
-    broker = _where(str(getattr(app.conf, "broker_url", None) or ""))
     try:
         await asyncio.wait_for(asyncio.to_thread(_connect_once, app, bound), bound)
     except TimeoutError:
         return HealthResult(
             status="fail",
-            details={
-                "broker": broker,
-                "error": f"broker {broker} timeout > {bound:g}s",
-            },
+            details={"error": f"broker timeout > {bound:g}s"},
         )
     except Exception as exc:
+        # The type name only: a client error's text can carry the broker URL.
         raise BrokerUnreachableError(
-            f"broker {broker} unreachable: {type(exc).__name__}: {exc}"
+            f"broker unreachable: {type(exc).__name__}"
         ) from exc
-    return HealthResult(status="ok", details={"broker": broker})
+    return HealthResult(status="ok")
 
 
 __all__ = ["BrokerUnreachableError", "probe_broker"]

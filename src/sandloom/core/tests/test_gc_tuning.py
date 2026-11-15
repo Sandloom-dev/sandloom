@@ -251,17 +251,17 @@ def test_worker_gc_tuning_can_be_switched_off() -> None:
 
 
 @pytest.mark.subprocess_probe
-def test_celery_worker_init_freezes_in_the_parent() -> None:
+def test_the_worker_freezes_in_the_parent_before_the_fork() -> None:
+    """``WorkerBoot.before_fork`` freezes the startup heap; the kernel imports no
+    task-queue backend to do it."""
     script = textwrap.dedent(
         """
-        import gc, json
-        from celery import signals
-        from sandloom.core.gc_tuning import GcConfig, install_celery_hooks
+        import gc, json, sys
+        from sandloom.core.gc_tuning import GcConfig, freeze_before_fork
 
         base = gc.get_freeze_count()
-        install_celery_hooks(GcConfig(True, (3000, 10, 50), True))
-        assert gc.get_freeze_count() == base
-        signals.worker_init.send(sender=None)
+        freeze_before_fork(GcConfig(True, (3000, 10, 50), True))
+        assert 'celery' not in sys.modules
         print(json.dumps([gc.get_freeze_count() - base, gc.get_threshold()]))
         """
     )

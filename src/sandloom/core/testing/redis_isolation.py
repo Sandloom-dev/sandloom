@@ -11,7 +11,7 @@ and :func:`rewrite_redis` calls that hook of every configured instance:
 * every named instance ``INFRA`` declares with its own ``url``, any capability,
   the rewritten ``INFRA`` going back to the environment.
 
-One exception, until ``idk-worker-port`` gives the Celery task queue its own
+One exception, until ``idk-worker-port-kit`` gives the Celery task queue its own
 hook: ``BROKER_URL`` has no driver to ask, so :func:`rewrite_redis` moves it
 itself, by the same layout. Nothing else rewrites a URL here.
 
@@ -205,7 +205,7 @@ def rewrite_redis(
         out["CACHE_URL"] = str(moved.get("url", cache))
     if is_redis_url(broker):
         # The one URL the harness moves itself: the Celery task queue has no
-        # test_isolation hook until idk-worker-port; it then goes through the
+        # test_isolation hook until idk-worker-port-kit; it then goes through the
         # hook like the others, and this branch goes away.
         out["BROKER_URL"] = _isolation.moved_redis_url(broker, number, layout)
     if named:

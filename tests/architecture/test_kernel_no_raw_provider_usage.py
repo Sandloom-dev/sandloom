@@ -69,7 +69,6 @@ PROVIDER_NAMES = frozenset(
 #: (file relative to src/sandloom, escape hatch) -> (sites, removed_by).
 RAW_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
     ("core/testing/fixtures.py", "raw_client"): (1, "idk-test-harness"),
-    ("core/worker.py", "raw_backend"): (1, "idk-worker-port"),
 }
 
 #: (file relative to src/sandloom, probed name) -> (sites, removed_by).
@@ -142,8 +141,6 @@ PROBE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
         1,
         "idk-eventbus-readers",
     ),
-    ("core/worker.py", "on_after_finalize"): (1, "idk-worker-port"),
-    ("core/worker.py", "task"): (1, "idk-worker-port"),
     ("core/worker.py", "verify_tenant_rls"): (1, "idk-ratchets-close"),
 }
 

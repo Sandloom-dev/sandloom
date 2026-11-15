@@ -3,7 +3,8 @@
 :class:`FencedLease` is the holder's state machine over a
 :class:`~sandloom.core.infra.ports.lease.LeaseStore` (the instance
 ``INFRA.lease.beat``, :data:`BEAT_INSTANCE`): the Celery beat
-(``sandloom.core.beat_lease``) and the saga timer sweep
+(``sandloom.core.drivers.celery_worker``, through ``WorkerHost.run_scheduler``)
+and the saga timer sweep
 (``sandloom.core.sagas.sweep``) share it. The store owns the lease (owner,
 expiry on its own clock, the fence); this class keeps the rules the contract
 leaves to the holder (spec 5, "Time"):
@@ -149,20 +150,41 @@ class FencedLease:
     ) -> None:
         if ttl_seconds < 3:
             raise ValueError("lease TTL must be at least 3 seconds")
-        self.store = store
-        self.name = name
+        self._store = store
+        self._name = name
         self.ttl_seconds = int(ttl_seconds)
-        self.renew_interval = self.ttl_seconds / 3.0
+        self._renew_interval = self.ttl_seconds / 3.0
         self.label = label
         self._clock = clock
         self._identity = identity or f"{socket.gethostname()}:{os.getpid()}"
         self._lease: Lease | None = None
         #: The fence of the last grant (kept after a release, dropped on a loss).
-        self.fence: int | None = None
+        self._fence: int | None = None
         self._valid_until = 0.0
         self._renew_at = 0.0
         self._retry_at = 0.0
         self._standby_logged_at: float | None = None
+
+    @property
+    def store(self) -> LeaseStore:
+        """The lease store this lease runs against (read-only)."""
+        return self._store
+
+    @property
+    def name(self) -> str:
+        """The leased name (read-only)."""
+        return self._name
+
+    @property
+    def renew_interval(self) -> float:
+        """Seconds between renewals, a third of the TTL (read-only)."""
+        return self._renew_interval
+
+    @property
+    def fence(self) -> int | None:
+        """The fence of the last grant (read-only; kept after a release,
+        ``None`` after a loss)."""
+        return self._fence
 
     @property
     def held(self) -> bool:
@@ -248,7 +270,7 @@ class FencedLease:
                 self._standby_logged_at = now
             return False
         self._lease = lease
-        self.fence = lease.fence
+        self._fence = lease.fence
         self._valid_until = now + self.ttl_seconds
         self._renew_at = now + self.renew_interval
         self._standby_logged_at = None
@@ -301,7 +323,7 @@ class FencedLease:
 
     def _drop(self, retry_at: float) -> None:
         self._lease = None
-        self.fence = None
+        self._fence = None
         self._retry_at = retry_at
 
     async def release_async(self) -> None:

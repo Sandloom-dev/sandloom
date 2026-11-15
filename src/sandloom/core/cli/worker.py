@@ -7,14 +7,17 @@
         run the scheduler; it schedules only while it holds the singleton
         lease, a second one stands by (run one per broker and module set)
     sandloom worker check [--timeout SECONDS]
-        container healthcheck: exit 0 when the worker's heartbeat is fresh
-        (touched within ``--timeout`` seconds, default 60), 1 when missing or
-        stale. It boots nothing: no composition root, no broker.
+        container healthcheck: exit 0 when the worker is alive (the driver's
+        heartbeat touched within ``--timeout`` seconds, default 60), 1 when
+        missing or stale. It boots no composition root and asks no broker.
 
 Each command makes one call into the worker code (:func:`_run_worker`,
-:func:`_run_beat`, :func:`_check`); the rest is argument parsing. They boot the
+:func:`_run_beat`, :func:`_check`), which reaches the taskqueue driver's
+``worker_host()``; the rest is argument parsing. ``worker`` and ``beat`` boot the
 composition root (``SANDLOOM_COMPOSITION_ROOT``) like the API, so the checks of
-``create_app`` run first. See docs/modules/background/tasks.md.
+``create_app`` run first. ``--loglevel`` is the process's log level and
+``--schedule`` the scheduler's state file (the host ignores it when it keeps
+none). See docs/modules/background/tasks.md.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ import math
 import sys
 from collections.abc import Sequence
 
+import sandloom.core.infra.tool_infra as _tool_infra
 import sandloom.core.worker as _worker
 
 #: ``--timeout`` default: the heartbeat is touched every 10 s, so 60 s is six misses.
@@ -32,21 +36,23 @@ DEFAULT_CHECK_TIMEOUT_SECONDS = 60.0
 MAX_CHECK_TIMEOUT_SECONDS = 86400.0
 
 
-def _run_worker(argv: Sequence[str]) -> int:
-    """The one call site of ``sandloom worker`` (today the Celery worker)."""
-    return _worker.run_celery_command(["worker", *argv])
+def _run_worker(
+    queues: list[str] | None, concurrency: int | None, loglevel: str
+) -> int:
+    """The one call site of ``sandloom worker``: the driver's worker host."""
+    return _worker.run_worker(queues=queues, concurrency=concurrency, loglevel=loglevel)
 
 
-def _run_beat(argv: Sequence[str]) -> int:
-    """The one call site of ``sandloom beat`` (today Celery beat)."""
-    return _worker.run_celery_command(["beat", *argv])
+def _run_beat(loglevel: str, schedule: str | None) -> int:
+    """The one call site of ``sandloom beat``: the driver's scheduler host,
+    under the beat lease."""
+    return _worker.run_scheduler(loglevel=loglevel, state_file=schedule)
 
 
 def _check(timeout: float) -> tuple[bool, str]:
-    """The one call site of ``sandloom worker check`` (today the heartbeat file)."""
-    if _worker.heartbeat_is_fresh(max_age=timeout):
-        return True, ""
-    return False, f"worker heartbeat {_worker.heartbeat_path()} missing or stale"
+    """The one call site of ``sandloom worker check``: the driver's host, over
+    an infra registry built from the settings (no application boots)."""
+    return _worker.check_worker(_tool_infra.build_tool_infra(), timeout)
 
 
 def _add_loglevel(parser: argparse.ArgumentParser) -> None:
@@ -120,12 +126,12 @@ def worker_main(argv: Sequence[str] | None = None) -> int:
     )
     _add_loglevel(parser)
     args = parser.parse_args(args_in)
-    options = [f"--loglevel={args.loglevel}"]
-    if args.queues:
-        options.append(f"--queues={args.queues}")
-    if args.concurrency is not None:
-        options.append(f"--concurrency={args.concurrency}")
-    return _run_worker(options)
+    queues = (
+        [q.strip() for q in args.queues.split(",") if q.strip()]
+        if args.queues
+        else None
+    )
+    return _run_worker(queues or None, args.concurrency, args.loglevel)
 
 
 def beat_main(argv: Sequence[str] | None = None) -> int:
@@ -143,10 +149,7 @@ def beat_main(argv: Sequence[str] | None = None) -> int:
         "working directory; containers pass /tmp/celerybeat-schedule)",
     )
     args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
-    options = [f"--loglevel={args.loglevel}"]
-    if args.schedule:
-        options.append(f"--schedule={args.schedule}")
-    return _run_beat(options)
+    return _run_beat(args.loglevel, args.schedule)
 
 
 __all__ = ["beat_main", "worker_main"]

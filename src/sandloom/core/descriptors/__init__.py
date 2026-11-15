@@ -13,12 +13,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal, cast
-
-from fastapi import APIRouter
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sandloom.core.descriptors.derived_capabilities import derived_needs
 from sandloom.core.descriptors.module_names import module_name
+
+if TYPE_CHECKING:  # the container probes import this package without the web framework
+    from fastapi import APIRouter
 
 __all__ = [
     "HealthStatus",

@@ -5387,6 +5387,7 @@ guarantees:
   - src/sandloom/core/tests/test_beat_lease.py::test_a_holder_that_lost_its_token_stops_scheduling_at_once
   - src/sandloom/core/tests/test_beat_lease.py::test_cache_outage_keeps_scheduling_only_until_the_local_deadline
   - src/sandloom/core/tests/test_beat_lease.py::test_beat_refuses_to_start_on_a_lease_that_is_not_shared_in_production
+  - src/sandloom/core/tests/test_beat_lease.py::test_the_scheduler_holds_the_lease_the_kernel_resolved
 - id: G-OPS-02
   statement: /health and /ready answer 503 when degraded; public callers see check statuses only (details
     and /ready topology need X-Internal-Token) and results are cached for HEALTH_CACHE_TTL_SECONDS.
@@ -5427,9 +5428,10 @@ guarantees:
   - docs/operate/topologies.md
   - deploy/README.md#Background work (Celery worker + beat)
   tests:
-  - src/sandloom/core/tests/test_worker.py::test_heartbeat_freshness
+  - src/sandloom/core/tests/test_worker_port.py::test_heartbeat_freshness
   - src/sandloom/core/tests/test_cli_worker.py::test_check_follows_the_heartbeat
-  - src/sandloom/core/tests/test_worker.py::test_heartbeat_step_runs_on_the_worker_timer
+  - src/sandloom/core/tests/test_worker_port.py::test_heartbeat_step_runs_on_the_worker_timer
+  - src/sandloom/core/tests/test_worker_port.py::test_check_follows_the_heartbeat_and_names_no_broker
   - src/sandloom/core/tests/test_deploy_profiles.py::test_workers_are_sized_and_health_checked
 - id: G-OPS-06
   statement: Under gunicorn exactly one elected worker runs the outbox relay and the others are `delegated`;
@@ -5632,7 +5634,7 @@ guarantees:
     periodic-only requirement keeps the process ready on a broker outage (owner decision on
     infrastructure dependencies, answer 3); an optional or absent one is never probed; /health never
     fails on the taskqueue. The celery driver's health() opens one broker connection bounded by
-    HEALTH_CHECK_TIMEOUT_SECONDS, without retry, and names the broker without its credentials.
+    HEALTH_CHECK_TIMEOUT_SECONDS, without retry, and names no broker address or credential in its details.
   sources:
   - docs/operate/operator-reference.md#Observability
   - design/kernel-boundary/owner-decision-infra-deps.md
@@ -5645,7 +5647,8 @@ guarantees:
   - src/sandloom/core/tests/test_ready_taskqueue.py::test_health_never_fails_on_the_taskqueue
   - src/sandloom/core/tests/test_ready_taskqueue.py::test_the_taskqueue_probe_is_cached_like_the_other_readiness_probes
   - src/sandloom/core/tests/test_ready_taskqueue.py::test_one_broker_connection_per_ttl_however_many_ready_hits
-  - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_an_unreachable_broker_fails_naming_it_without_credentials
+  - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_an_unreachable_broker_fails_without_naming_it
+  - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_a_client_error_that_prints_the_url_does_not_reach_the_message
   - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_a_hanging_broker_is_bounded_by_the_timeout
   - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_the_connect_is_bounded_and_does_not_retry
   - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_the_provider_health_probes_its_broker
@@ -6394,7 +6397,7 @@ capabilities:
   - tests/integration/with_batteries/test_worker_bundled_module_tasks.py::test_worker_registers_loaded_module_tasks_and_beat_schedule
   - src/sandloom/core/tests/test_worker.py::test_worker_without_identity_has_no_identity_tasks
   - src/sandloom/core/tests/test_worker.py::test_worker_honours_taskqueue_instance_env
-  - src/sandloom/core/tests/test_worker.py::test_non_celery_taskqueue_is_rejected
+  - src/sandloom/core/tests/test_worker.py::test_a_taskqueue_without_a_worker_host_is_rejected
 - id: C-EFFECT-02
   statement: The sandloom.core.testing seams run_on_commit / bind_test_uow / recording_uow let tests own the
     transaction while still running before_commit checks then on_commit callbacks, and capture required
@@ -7411,7 +7414,7 @@ capabilities:
   tests:
   - src/sandloom/core/tests/test_gc_tuning.py::test_gc_settings_defaults
   - src/sandloom/core/tests/test_gc_tuning.py::test_post_worker_init_wraps_the_app_and_keeps_attributes
-  - src/sandloom/core/tests/test_gc_tuning.py::test_celery_worker_init_freezes_in_the_parent
+  - src/sandloom/core/tests/test_gc_tuning.py::test_the_worker_freezes_in_the_parent_before_the_fork
   - src/sandloom/core/tests/test_gc_tuning.py::test_gc_metrics_buffer_flushes_into_prometheus
 - id: C-OBS-08
   statement: The shipped alert/dashboard bundle references only existing metrics and labels, every alert
@@ -7543,16 +7546,16 @@ capabilities:
   - tests/integration/with_batteries/test_worker_bundled_module_tasks.py::test_worker_registers_loaded_module_tasks_and_beat_schedule
   - src/sandloom/core/tests/test_worker.py::test_worker_without_identity_has_no_identity_tasks
   - src/sandloom/core/tests/test_worker.py::test_discover_skips_modules_without_tasks
-  - src/sandloom/core/tests/test_worker.py::test_real_composition_root_resolves_driver_built_app
+  - src/sandloom/core/tests/test_worker.py::test_real_composition_root_resolves_driver_built_host
 - id: C-WORKER-02
-  statement: The worker takes its Celery app from the taskqueue capability instance named by SANDLOOM_WORKER_TASKQUEUE,
-    rejecting a non-Celery taskqueue and a composition root without a core; importing sandloom.core.worker
-    has no side effects.
+  statement: The worker takes its host (`TaskQueueProvider.worker_host()`) from the taskqueue capability
+    instance named by SANDLOOM_WORKER_TASKQUEUE, rejecting a driver without one and a composition root
+    without a core; importing sandloom.core.worker has no side effects and imports no task-queue backend.
   sources:
   - docs/modules/background/tasks.md
   tests:
   - src/sandloom/core/tests/test_worker.py::test_worker_honours_taskqueue_instance_env
-  - src/sandloom/core/tests/test_worker.py::test_non_celery_taskqueue_is_rejected
+  - src/sandloom/core/tests/test_worker.py::test_a_taskqueue_without_a_worker_host_is_rejected
   - src/sandloom/core/tests/test_worker.py::test_composition_root_must_expose_core
   - src/sandloom/core/tests/test_worker.py::test_import_has_no_side_effects
 - id: C-WORKER-03

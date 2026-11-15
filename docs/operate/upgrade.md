@@ -91,6 +91,28 @@ replacement. There is no alias.
 | `GroupOwnershipError`, `TransportBatchError` | `GroupOwnedElsewhere` (an `AlreadyExists`), `PartialPublish` (an `InfraError`; `published` and `retryable`) |
 | Group owners, DLQ entries, group and inventory records as `dict`s | `GroupOwner`, `DeadLetter`, `GroupInfo`, `StreamInfo`, `ConsumerInfo` (`sandloom.driverkit`) |
 
+## Upgrading a task queue driver or a Celery command to the worker host
+
+The worker and the scheduler are the `taskqueue` driver's host
+([Write a driver](../infrastructure/write-a-driver.md#a-taskqueue-drivers-worker-host)):
+`TaskQueueProvider.worker_host()` is part of the `taskqueue` contract, which is major 2.
+There is no alias for what it replaces.
+
+| Before | After |
+| --- | --- |
+| `TaskQueueProvider.raw_backend()` (the Celery app) | Removed, and no `native()` replaces it. Implement `worker_host()` in a driver; reach the app of a worker through the driver's own importable object |
+| `celery -A sandloom.core.worker inspect\|call\|status` and Flower on `sandloom.core.worker` | `celery -A sandloom.core.drivers.celery_worker inspect\|call\|status`; the app is built from `BROKER_URL`, boots no application and registers no task. It moves to `sandloom_celery.app` with the package |
+| `provider.register_task_table(table, run)` on the Celery provider | Removed: the host registers the table it gets from `WorkerBoot.boot()` |
+| `sandloom.core.worker.build_worker_app`, `get_worker_app`, `run_celery_command`, `install_heartbeat`, `heartbeat_is_fresh` | `sandloom.core.worker.run_worker`, `run_scheduler`, `check_worker` (the kernel side); the Celery side is `sandloom.core.drivers.celery_worker` |
+| `sandloom.core.beat_lease` (`BeatLease`, `LeasedScheduler`, `install_beat_lease`) | Moved to `sandloom.core.drivers.celery_worker`; the lease is resolved by the kernel (`sandloom.core.infra.fenced_lease`) and passed to the scheduler as `lease` and `lease_name` |
+| `sandloom.core.async_runner.install_celery_hooks`, `sandloom.core.gc_tuning.install_celery_hooks` | Removed: the host calls `WorkerBoot.on_process_start`, `on_process_stop` and `before_fork` |
+| A health detail or error of the broker probe naming `scheme://host:port` | The details carry no broker address and no credential; read the error type |
+
+The three commands are unchanged for an operator. `sandloom worker check` now builds the
+infrastructure registry from the settings and asks the driver's host. It needs the same
+`DATABASE_URL`, `CACHE_URL` and `BROKER_URL` as the worker, boots no application and asks
+no broker.
+
 ## Upgrading from 0.7.0a4 to 0.7.0a5
 
 This alpha changes infrastructure extension APIs. Update the framework and
