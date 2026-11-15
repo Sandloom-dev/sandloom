@@ -21,7 +21,6 @@ import pytest
 from sandloom_celery.taskqueue import create_celery_taskqueue
 from sandloom_redis.lease import RedisLeaseProvider
 
-from sandloom.core.config.settings import settings
 from sandloom.driverkit import InstanceConfig, LeaseProvider, TaskQueueProvider
 from sandloom.driverkit.testing import TaskQueueConformance
 
