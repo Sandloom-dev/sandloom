@@ -17,6 +17,8 @@ from sandloom.core.cli import config as config_cli
 from sandloom.core.cli import doctor
 from sandloom.core.config.settings import Settings
 from sandloom.core.descriptors import ContractRequirement, ModuleDescriptor
+from sandloom.core.eventing.memory_transport import MemoryTransport
+from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.infra.ports.eventbus import GroupInfo
 from sandloom.core.migrations import migrations
 from sandloom.core.migrations.migrations import (
@@ -26,6 +28,7 @@ from sandloom.core.migrations.migrations import (
     migration_lock_holders,
 )
 from sandloom.core.migrations.urls import to_sync_url
+from sandloom.core.schema.registry import InMemorySchemaRegistry
 
 
 def _test_database_url() -> str:
@@ -313,7 +316,9 @@ class _Infra:
         self.closed = True
 
 
-class _Transport:
+class _Transport(MemoryTransport):
+    supported_features = frozenset({"inspection"})
+
     async def group_info(self, stream: str) -> list[GroupInfo]:
         return [GroupInfo("billing:seen", None, 0, None, 5000)]
 
@@ -335,7 +340,7 @@ def _core(**infra: _Result) -> Any:
             SimpleNamespace(channel="a.b.v1", group_name="billing:new", required=True),
         ],
         projection_registry=None,
-        event_bus=SimpleNamespace(transport=_Transport()),
+        event_bus=StreamsEventBus(InMemorySchemaRegistry(), _Transport()),
         settings=SimpleNamespace(production_profile="standard", is_prod=False),
     )
 
@@ -371,6 +376,38 @@ async def test_doctor_reports_each_section_and_exit_code() -> None:
     rendered = report.render() + json.dumps(report.to_dict(), default=str)
     assert "topsecret" not in rendered
     assert "FAIL" in report.render()
+
+
+async def test_doctor_consumers_warns_when_the_transport_declares_no_inspection() -> (
+    None
+):
+    """A transport that does not declare ``inspection`` is not "no durable
+    transport": the lag cannot be read, and the report says exactly that."""
+
+    class _Blind(MemoryTransport):
+        supported_features = frozenset({"durable"})
+
+    core = _core(**{"database:default": _Result("ok")})
+    core.event_bus = StreamsEventBus(InMemorySchemaRegistry(), _Blind())
+    report = doctor.Report()
+    await doctor.check_consumers(report, core, 2, lag_warn=1000)
+    (check,) = report.checks
+    assert (check.section, check.name, check.status) == (
+        "consumers",
+        "transport",
+        doctor.WARN,
+    )
+    assert "does not declare 'inspection'" in check.message
+    assert "no durable" not in check.message
+
+    from sandloom.core.eventing.memory_bus import InMemoryEventBus
+
+    core.event_bus = InMemoryEventBus(InMemorySchemaRegistry())
+    volatile = doctor.Report()
+    await doctor.check_consumers(volatile, core, 2, lag_warn=1000)
+    (skipped,) = volatile.checks
+    assert skipped.status == doctor.SKIP
+    assert "no durable" in skipped.message
 
 
 async def test_doctor_exit_codes() -> None:

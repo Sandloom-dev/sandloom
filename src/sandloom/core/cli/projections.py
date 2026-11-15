@@ -91,13 +91,13 @@ async def _run_rebuild(name: str, tenant: str | None) -> int:
     return 0
 
 
-async def _run_purge(name: str, older_than_days: float) -> int:
+async def _run_purge(name: str, older_than_days: float, force: bool = False) -> int:
     app = _build_app()
     core = app.state.core  # type: ignore[attr-defined]
     await _lifecycle.run_startup(core)
     try:
         purged = await _ops.purge_projection_tombstones(
-            name, older_than=timedelta(days=older_than_days), core=core
+            name, older_than=timedelta(days=older_than_days), core=core, force=force
         )
     except (_purge.PurgeRefused, LookupError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -128,6 +128,12 @@ def main(argv: list[str] | None = None) -> int:
     purge.add_argument(
         "--older-than-days", type=float, required=True, help="tombstone age (days)"
     )
+    purge.add_argument(
+        "--force",
+        action="store_true",
+        help="purge although the stream retention of the event bus cannot be "
+        "determined from the configuration (never lowers a known floor)",
+    )
     args = parser.parse_args(argv)
 
     if args.action == "list":
@@ -135,7 +141,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.action == "rebuild":
         return asyncio.run(_run_rebuild(args.name, args.tenant))
     if args.action == "purge":
-        return asyncio.run(_run_purge(args.name, args.older_than_days))
+        return asyncio.run(_run_purge(args.name, args.older_than_days, args.force))
     parser.print_help()
     return 0
 

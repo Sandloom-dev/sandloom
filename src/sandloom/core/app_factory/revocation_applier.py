@@ -46,7 +46,8 @@ from sandloom.core.auth.marks import TOKENS_REVOKED_CHANNEL
 from sandloom.core.config.common import INVALID_CONFIGURATION, ConfigurationError
 from sandloom.core.consumers.callbacks import EventConsumerDescriptor, EventEnvelope
 from sandloom.core.descriptors.module_names import module_name
-from sandloom.core.eventing.streams_bus import StreamsEventBus
+from sandloom.core.eventing.bus_base import durable_transport
+from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.infra.errors import Unsupported
 
 logger = logging.getLogger("sandloom.core.auth.applier")
@@ -445,12 +446,6 @@ async def _channel_dead_letters(
     return counts, False
 
 
-def _declares_dlq_ops(bus: Any) -> bool:
-    """False when ``bus`` is a durable bus over a transport that does not
-    declare ``dlq_ops`` (nothing inspectable to count)."""
-    return not isinstance(bus, StreamsEventBus) or "dlq_ops" in bus.transport_features
-
-
 async def _count_channel(
     list_dlq: Any,
     channel: str,
@@ -495,19 +490,19 @@ async def _dead_letters(
     wanted = set(groups)
     counts: dict[tuple[str, str], int] = {}
     unknown: set[tuple[str, str]] = set()
-    transport = getattr(bus, "transport", None)
-    list_dlq = getattr(transport, "list_dlq", None)
-    if callable(list_dlq):
-        if not _declares_dlq_ops(bus):
+    transport = durable_transport(bus)
+    if transport is not None:
+        if "dlq_ops" not in bus.bus_features:
             return DeadLetterReading()
         for channel in sorted({channel for channel, _ in wanted}):
             mine = {group for ch, group in wanted if ch == channel}
-            await _count_channel(list_dlq, channel, mine, counts, unknown)
+            await _count_channel(transport.list_dlq, channel, mine, counts, unknown)
         return DeadLetterReading(counts=counts, unknown=frozenset(unknown))
-    for channel, _message, _attempt in getattr(bus, "dead_letters", ()) or ():
-        for key in wanted:
-            if key[0] == channel:
-                counts[key] = counts.get(key, 0) + 1
+    if isinstance(bus, InMemoryEventBus):
+        for channel, _message, _attempt in bus.dead_letters:
+            for key in wanted:
+                if key[0] == channel:
+                    counts[key] = counts.get(key, 0) + 1
     return DeadLetterReading(counts=counts)
 
 

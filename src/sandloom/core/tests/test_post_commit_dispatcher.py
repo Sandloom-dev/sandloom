@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import (
 
 from sandloom.core import di
 from sandloom.core import unit_of_work as uow_mod
+from sandloom.core.eventing.bus_base import BusFacts
 from sandloom.core.sql_alchemy.models.outbox import OutboxMessage
 from sandloom.core.sql_alchemy.outbox_store import SQLAlchemyOutboxStore
 from sandloom.core.sql_alchemy.uow import SQLAlchemyUnitOfWork
@@ -81,8 +82,12 @@ class _CountingStore(SQLAlchemyOutboxStore):
         await super().mark_delivered(uow_factory, ids)
 
 
-class _Bus:
+class _Bus(BusFacts):
+    """A plain test bus: its facts are the plainest (no prevalidated publish)
+    except ``in_process``, which a test sets."""
+
     in_process = False
+    supports_prevalidated = False
 
     def __init__(self) -> None:
         self.published: list[dict[str, Any]] = []

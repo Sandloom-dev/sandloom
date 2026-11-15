@@ -49,6 +49,8 @@ def test_default_streams_bus_gets_cache_url_and_the_client_bounds(
         "url": settings.cache_url,
         "socket_connect_timeout_seconds": settings.cache_socket_connect_timeout_seconds,
         "health_check_interval_seconds": settings.cache_health_check_interval_seconds,
+        "retention_seconds": settings.event_stream_retention_seconds,
+        "max_length": settings.event_stream_maxlen,
     }
 
 

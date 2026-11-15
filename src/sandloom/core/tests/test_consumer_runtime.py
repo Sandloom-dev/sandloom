@@ -17,11 +17,13 @@ from sandloom.core.app_factory import _install_ops_endpoints
 from sandloom.core.composition import composition_root_name
 from sandloom.core.consumers.callbacks import EventConsumerDescriptor
 from sandloom.core.consumers.runtime import (
+    ConsumerConfigurationError,
     ConsumerRuntime,
     ConsumerRuntimeSnapshot,
     ConsumerStartupError,
     ConsumerStatus,
 )
+from sandloom.core.eventing.bus_base import BaseEventBus
 from sandloom.core.eventing.event_bus import get_event_bus, set_active_event_bus
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.eventing.pubsub_bus import RedisEventBus
@@ -351,6 +353,39 @@ async def test_permanent_subscription_contract_error_is_not_retried_forever() ->
     assert bus.attempts == 1
     assert runtime.snapshot().consumers[0].state == "failed"
     await runtime.stop()
+
+
+class _DurableBusWithoutTransport(BaseEventBus):
+    """Declares ``durable`` yet exposes no transport: a configuration error."""
+
+    bus_features = frozenset({"durable"})
+
+    async def _publish_to_transport(self, channel: str, message: Any) -> None:
+        raise AssertionError("never published")
+
+    async def subscribe(self, channel: str, callback: Any) -> SubscriptionHandle:
+        raise AssertionError("never subscribed")
+
+    def unsubscribe(self, channel: str, callback: Any) -> None:
+        raise AssertionError("never unsubscribed")
+
+
+@pytest.mark.asyncio
+async def test_a_durable_bus_without_a_transport_never_skips_the_group_owner_claim() -> (
+    None
+):
+    """G-EVENT-02: the claim is not silently skipped for a durable bus that
+    is not a ``StreamsEventBus``; one without a transport refuses startup."""
+    core = CoreFacade(app=FastAPI())
+    core.set_event_bus(_DurableBusWithoutTransport(PermissiveSchemaRegistry()))
+    runtime = ConsumerRuntime(
+        core, session_opener=_session_opener, startup_timeout=0, retry_delay=0
+    )
+    with pytest.raises(ConsumerConfigurationError, match="durable"):
+        await runtime._check_group_owners()
+    # a volatile bus keeps no group ownership: nothing to claim
+    core.set_event_bus(InMemoryEventBus(PermissiveSchemaRegistry()))
+    await runtime._check_group_owners()
 
 
 @pytest.mark.asyncio

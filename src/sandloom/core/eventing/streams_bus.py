@@ -10,9 +10,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import replace
 from functools import partial
-from typing import (
-    Any,
-)
+from typing import Any
 
 from sandloom.core.config.settings import settings
 from sandloom.core.contracts import SchemaRegistryContract
@@ -39,11 +37,14 @@ from sandloom.core.eventing.transport_base import (
     process_consumer_id,
 )
 from sandloom.core.eventing.volatile_provider import VolatileBusProvider
+from sandloom.core.infra.errors import InvalidArgument
 from sandloom.core.infra.ports.eventbus import (
     ConsumerInfo,
+    EventTransport,
     EventTransportProvider,
     GroupOwner,
     PartialPublish,
+    Retention,
 )
 from sandloom.core.observability.metrics_utils import safe_inc
 
@@ -85,14 +86,16 @@ class StreamsEventBus(_StreamsDispatch):
     def __init__(
         self,
         schema_registry: SchemaRegistryContract,
-        transport: Any,
+        transport: EventTransport,
         *,
         poll_interval: float | None = None,
         block_ms: int | None = None,
         read_count: int | None = None,
     ) -> None:
         super().__init__(schema_registry)
-        self._transport = transport
+        self._transport: EventTransport = transport
+        #: The durable transport (operator tooling: DLQ inspection/replay).
+        self.transport: EventTransport = transport
         # Distinguishes several buses inside ONE process (tests, embedded
         # peers): each is its own Streams consumer, so one never re-claims
         # entries another is still handling as if they were its own.
@@ -121,10 +124,11 @@ class StreamsEventBus(_StreamsDispatch):
         else:
             self._block_ms = self._BLOCK_MS
         # What the transport declares, read once: its class says it, nothing is
-        # probed. ``durable`` of the bus derives from it (``BaseEventBus``).
+        # probed. The bus's ``bus_features`` and ``native_batch_publish`` (the
+        # ``one_round_trip`` hint of ``publish_many``) are those declarations.
         self._features = declared_features(transport)
         self.bus_features = self._features
-        self._one_round_trip_batch = (
+        self.native_batch_publish = (
             performance_hint(transport, "publish_many") == "one_round_trip"
         )
         # (channel, group) -> inventory info heartbeated by the consume loop
@@ -135,10 +139,21 @@ class StreamsEventBus(_StreamsDispatch):
         self._last_published: dict[str, float] = {}
         self._audience_checked: dict[str, float] = {}
 
-    @property
-    def transport(self) -> Any:
-        """The durable transport (operator tooling: DLQ inspection/replay)."""
-        return self._transport
+    def retention(self) -> Retention:
+        """What the transport keeps of a stream (``retention()`` of the driver).
+
+        A transport that reports anything but a ``Retention`` breaks the
+        ``EventTransport`` contract: ``InvalidArgument``, never a guess (the
+        purge guards read this value).
+        """
+        retention = self._transport.retention()
+        if not isinstance(retention, Retention):
+            raise InvalidArgument(
+                f"{type(self._transport).__name__}.retention() returned "
+                f"{type(retention).__name__}, not a Retention",
+                capability="eventbus",
+            )
+        return retention
 
     @property
     def transport_features(self) -> frozenset[str]:
@@ -148,15 +163,6 @@ class StreamsEventBus(_StreamsDispatch):
     @staticmethod
     def _is_pattern(channel: str) -> bool:
         return channel.endswith(".*")
-
-    @property
-    def native_batch_publish(self) -> bool:
-        """True when the transport appends a batch in one round trip.
-
-        The transport says so with the performance hint ``one_round_trip`` on
-        ``publish_many``; a looping default (the in-memory transport) does not.
-        """
-        return self._one_round_trip_batch
 
     async def _publish_to_transport(self, channel: str, message: EventEnvelope) -> None:
         await self._transport.publish(channel, message)

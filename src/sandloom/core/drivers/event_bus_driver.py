@@ -18,7 +18,11 @@ import sandloom.core.drivers.redis_cache as _redis_cache
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.eventing.streams_transport import RedisStreamsTransport
-from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
+from sandloom.core.infra.config import (
+    DEFAULT_EVENT_STREAM_RETENTION_SECONDS,
+    DEFAULT_INSTANCE,
+    InstanceConfig,
+)
 from sandloom.core.infra.ports._base import health_failure_details
 from sandloom.core.infra.registry import DriverFactory
 from sandloom.driverkit import EventTransportProvider, InfraProvider
@@ -42,6 +46,13 @@ class EventBusOptions(BaseModel):
     url: str | None = None
     socket_connect_timeout_seconds: float = Field(default=0.5, gt=0)
     health_check_interval_seconds: int = Field(default=30, ge=0)
+    #: Retention of every stream (``retention()``): entries older than
+    #: ``retention_seconds`` are trimmed at publish, and, when ``max_length`` is
+    #: positive, entries beyond that count. Zero disables the respective bound.
+    #: The kernel fills both from ``EVENT_STREAM_RETENTION_SECONDS`` and
+    #: ``EVENT_STREAM_MAXLEN`` until those settings become options.
+    retention_seconds: int = Field(default=DEFAULT_EVENT_STREAM_RETENTION_SECONDS, ge=0)
+    max_length: int = Field(default=0, ge=0)
 
 
 class _LazyRedisClient:
@@ -161,7 +172,13 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
         client_factory: Callable[[], Awaitable[Any]] | None = None,
     ) -> None:
         InfraProvider.__init__(self, name=name, driver=driver, options=options)
-        RedisStreamsTransport.__init__(self, client_factory=client_factory)
+        retention = EventBusOptions.model_validate(options)
+        RedisStreamsTransport.__init__(
+            self,
+            client_factory=client_factory,
+            retention_seconds=retention.retention_seconds,
+            maxlen=retention.max_length,
+        )
         self._owned_client = client
 
     @classmethod

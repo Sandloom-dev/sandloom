@@ -83,6 +83,8 @@ from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.config import tiers
 from sandloom.core.config.common import MULTI_TENANT_STRICT, strict_profile_active
 from sandloom.core.config.settings import settings
+from sandloom.core.eventing.bus_base import BaseEventBus, durable_transport
+from sandloom.core.infra.errors import InvalidArgument
 from sandloom.core.migrations.migrations import migration_status
 from sandloom.core.production_profile import (
     config_problems,
@@ -568,9 +570,13 @@ async def check_consumers(
     if not consumers:
         report.add("consumers", "registered", SKIP, "no durable consumers registered")
         return
-    transport = getattr(getattr(core, "event_bus", None), "transport", None)
-    group_info = getattr(transport, "group_info", None)
-    if transport is None or group_info is None:
+    bus = getattr(core, "event_bus", None)
+    try:
+        transport = durable_transport(bus)
+    except InvalidArgument as exc:
+        report.add("consumers", "transport", FAIL, str(exc))
+        return
+    if transport is None or not isinstance(bus, BaseEventBus):
         report.add(
             "consumers",
             "transport",
@@ -579,6 +585,16 @@ async def check_consumers(
             "transport (EVENT_BUS_BACKEND=streams reports groups and lag)",
         )
         return
+    if "inspection" not in bus.bus_features:
+        report.add(
+            "consumers",
+            "transport",
+            WARN,
+            f"{len(consumers)} consumer(s); the event transport does not declare "
+            "'inspection': consumer lag is not checked",
+        )
+        return
+    group_info = transport.group_info
     infos: dict[str, list[Any]] = {}
     for channel, group, required in consumers:
         try:
