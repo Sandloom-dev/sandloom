@@ -79,9 +79,10 @@ async def probe_broker(app: Any, *, limit_seconds: float) -> HealthResult:
     waits on the broker; the connect and socket timeouts end that thread
     too, so an unreachable broker never leaves one behind.
     """
-    bound = float(limit_seconds)
     try:
-        await asyncio.wait_for(asyncio.to_thread(_connect_once, app, bound), bound)
+        await asyncio.wait_for(
+            asyncio.to_thread(_connect_once, app, limit_seconds), limit_seconds
+        )
     except TimeoutError:
         return HealthResult(status="fail", details={"error": "timeout"})
     except Exception as exc:

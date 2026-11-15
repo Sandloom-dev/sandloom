@@ -82,7 +82,6 @@ from sandloom.core.infra.ports.objectstore import (
     validate_object_key,
 )
 from sandloom.core.infra.ports.taskqueue import (
-    WORKER_POOLS,
     PeriodicSpec,
     TaskQueueProvider,
     TaskSpec,
@@ -165,7 +164,6 @@ __all__ = [
     "TaskSpec",
     "TaskTable",
     "UnitSession",
-    "WORKER_POOLS",
     "WorkerBoot",
     "WorkerHost",
     "DriverCounter",

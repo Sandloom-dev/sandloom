@@ -24,6 +24,7 @@ from sandloom.core.drivers.celery_taskqueue import (
 )
 from sandloom.core.drivers.celery_worker import (
     CeleryWorkerHost,
+    WorkerPool,
     configure_worker_reliability,
     configure_worker_sizing,
     heartbeat_is_fresh,
@@ -42,6 +43,16 @@ from sandloom.core.infra.ports.taskqueue import (
 
 def _celery() -> Celery:
     return Celery("sandloom-worker-test", broker="memory://", backend="cache+memory://")
+
+
+@pytest.fixture(autouse=True)
+def _billiard_forks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The prefork pool is refused where billiard spawns (macOS): the tests of
+    the host's wiring run as on Linux; ``test_celery_worker_pool`` pins the
+    refusal."""
+    import billiard  # type: ignore[import-untyped]
+
+    monkeypatch.setattr(billiard, "get_start_method", lambda *a, **k: "fork")
 
 
 class _Boot:
@@ -317,7 +328,7 @@ def test_the_worker_host_defaults_to_the_default_queue_and_info(
 
 @pytest.mark.parametrize("pool", ["solo", "threads"])
 def test_a_pool_without_children_starts_and_stops_the_process_in_the_host(
-    monkeypatch: pytest.MonkeyPatch, pool: str
+    monkeypatch: pytest.MonkeyPatch, pool: WorkerPool
 ) -> None:
     """solo and threads run the messages in the worker process: Celery sends
     no ``worker_process_init`` / ``worker_process_shutdown`` there, so the host
@@ -334,23 +345,14 @@ def test_a_pool_without_children_starts_and_stops_the_process_in_the_host(
     boot = _Boot(_table())
     app = _celery()
     before = len(signals.worker_shutdown.receivers)
-    CeleryWorkerHost(lambda: app).run_worker(boot, pool=pool)
-    assert seen["argv"] == ["worker", "--loglevel=INFO", f"--pool={pool}"]
-    assert boot.events == ["boot", "before_fork", "start", "stop"]
+    CeleryWorkerHost(lambda: app, worker_pool=pool).run_worker(boot, concurrency=4)
+    expected = ["worker", "--loglevel=INFO", f"--pool={pool}"]
+    if pool == "threads":
+        expected.append("--concurrency=4")
+    assert seen["argv"] == expected  # solo runs one message: no concurrency
+    # no process is forked: no before_fork (the GC freeze children share)
+    assert boot.events == ["boot", "start", "stop"]
     assert len(signals.worker_shutdown.receivers) == before  # disconnected after
-
-
-def test_the_worker_host_refuses_an_unknown_pool(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    seen: dict[str, Any] = {}
-    _fake_celery(monkeypatch, seen)
-    boot = _Boot(_table())
-    app = _celery()
-    with pytest.raises(InvalidArgument, match="pool must be one of"):
-        CeleryWorkerHost(lambda: app).run_worker(boot, pool="gevent")
-    assert "argv" not in seen
-    assert boot.events == []  # refused before the kernel boots anything
 
 
 def test_the_scheduler_argv_carries_the_schedule_file(

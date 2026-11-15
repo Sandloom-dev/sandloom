@@ -3353,9 +3353,6 @@
       ],
       "signature": "(feature:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
     },
-    "WORKER_POOLS": {
-      "kind": "value"
-    },
     "WRITE_LOCK_HELD": {
       "kind": "value"
     },

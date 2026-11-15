@@ -129,7 +129,7 @@ There is no alias for what it replaces.
 | `sandloom.core.beat_lease` (`BeatLease`, `LeasedScheduler`, `install_beat_lease`) | Moved to `sandloom.core.drivers.celery_worker`; the lease is resolved by the kernel (`sandloom.core.infra.fenced_lease`) and passed to the scheduler as `lease` and `lease_name` |
 | `sandloom.core.async_runner.install_celery_hooks`, `sandloom.core.gc_tuning.install_celery_hooks` | Removed: the host calls `WorkerBoot.on_process_start`, `on_process_stop` and `before_fork` |
 | A health detail or error of the broker probe naming `scheme://host:port` | The details carry no broker address and no credential; read the error type |
-| `WorkerHost.run_worker(boot, queues=, concurrency=, loglevel=)` | Also `pool=` (`prefork`, `solo` or `threads`, from `sandloom worker --pool`): raise `InvalidArgument` for another value, `Unsupported` for a pool you cannot run |
+| `sandloom worker` on macOS (the prefork pool never saw the task table) | The worker refuses `prefork` where billiard spawns: set `worker_pool` to `solo` or `threads` in the `celery` taskqueue instance's options (`INFRA`) |
 | The Celery broker probe bounded by `HEALTH_CHECK_TIMEOUT_SECONDS` | The `celery` option `health_timeout_seconds`, filled from that setting when the configuration leaves it out; `probe_broker(app, limit_seconds=)` takes the bound as a required argument |
 
 The three commands are unchanged for an operator. `sandloom worker check` now builds the

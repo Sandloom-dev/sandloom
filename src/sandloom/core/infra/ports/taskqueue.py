@@ -72,12 +72,6 @@ class TaskTable:
     periodic: Sequence[PeriodicSpec]
 
 
-#: The process models of ``sandloom worker --pool`` (the first is the default).
-#: ``prefork`` forks child processes; ``solo`` runs the messages in the worker
-#: process itself; ``threads`` runs them on a thread pool of that process.
-WORKER_POOLS: tuple[str, ...] = ("prefork", "solo", "threads")
-
-
 class WorkerBoot(Protocol):
     """What the kernel gives a worker host (the kernel implements it, the host
     calls it). Every method is synchronous: a host is a blocking process.
@@ -106,8 +100,8 @@ class WorkerBoot(Protocol):
     def before_fork(self) -> None:
         """Called once in the host's main process after :meth:`boot`, right
         before it forks processes that run messages (a host that forks none
-        calls it before its first message): the kernel freezes the startup heap
-        so children share it."""
+        does not call it): the kernel freezes the startup heap so children
+        share it."""
         ...
 
     def on_process_start(self) -> None:
@@ -139,15 +133,14 @@ class WorkerHost(Protocol):
         queues: Sequence[str] | None = None,
         concurrency: int | None = None,
         loglevel: str = "INFO",
-        pool: str = "prefork",
     ) -> int:
         """Consume the queues (``None``: the default queue) and run each message
         through ``boot.run`` until the process is told to stop; ``loglevel`` is
-        the log level of the process. ``pool`` is one of :data:`WORKER_POOLS`
-        (``sandloom worker --pool``): the process model that runs the messages;
-        another value raises ``InvalidArgument`` and a pool the host cannot run
-        raises ``Unsupported``, both before it consumes. Blocks; the return
-        value is the process exit code (non-zero when the worker died)."""
+        the log level of the process. The process model that runs the messages
+        (child processes, one process, threads) is the driver's own option, read
+        from its INFRA options: a configuration the host cannot run raises
+        ``InvalidArgument`` before it consumes. Blocks; the return value is the
+        process exit code (non-zero when the worker died)."""
         ...
 
     def run_scheduler(
@@ -248,7 +241,6 @@ TASKQUEUE_CAPABILITY = CapabilitySpec(
 
 __all__ = [
     "TASKQUEUE_CAPABILITY",
-    "WORKER_POOLS",
     "PeriodicSpec",
     "TaskQueue",
     "TaskQueueProvider",

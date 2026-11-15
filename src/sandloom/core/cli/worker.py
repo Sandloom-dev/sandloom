@@ -1,10 +1,10 @@
 """``sandloom worker`` / ``sandloom beat`` — the background-task processes.
 
-    sandloom worker [--queues Q[,Q...]] [--concurrency N] [--pool P] [--loglevel L]
+    sandloom worker [--queues Q[,Q...]] [--concurrency N] [--loglevel L]
         run a task worker for the loaded modules (every deploy profile's
-        ``<service>-worker``); ``--pool`` is prefork (default), solo or threads,
-        the host's process model: on macOS use solo or threads (the prefork
-        note in docs/modules/background/tasks.md)
+        ``<service>-worker``); the process model is the driver's own option
+        (``worker_pool`` of the celery instance in INFRA: on macOS set solo or
+        threads, the note in docs/modules/background/tasks.md)
     sandloom beat [--loglevel L] [--schedule PATH]
         run the scheduler; it schedules only while it holds the singleton
         lease, a second one stands by (run one per broker and module set)
@@ -31,7 +31,6 @@ from collections.abc import Sequence
 
 import sandloom.core.infra.tool_infra as _tool_infra
 import sandloom.core.worker as _worker
-from sandloom.core.infra.ports.taskqueue import WORKER_POOLS
 
 #: ``--timeout`` default: the heartbeat is touched every 10 s, so 60 s is six misses.
 DEFAULT_CHECK_TIMEOUT_SECONDS = 60.0
@@ -40,12 +39,10 @@ MAX_CHECK_TIMEOUT_SECONDS = 86400.0
 
 
 def _run_worker(
-    queues: list[str] | None, concurrency: int | None, loglevel: str, pool: str
+    queues: list[str] | None, concurrency: int | None, loglevel: str
 ) -> int:
     """The one call site of ``sandloom worker``: the driver's worker host."""
-    return _worker.run_worker(
-        queues=queues, concurrency=concurrency, loglevel=loglevel, pool=pool
-    )
+    return _worker.run_worker(queues=queues, concurrency=concurrency, loglevel=loglevel)
 
 
 def _run_beat(loglevel: str, schedule: str | None) -> int:
@@ -129,15 +126,6 @@ def worker_main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="child processes (default: WORKER_CONCURRENCY, else the CPU quota)",
     )
-    parser.add_argument(
-        "--pool",
-        choices=WORKER_POOLS,
-        default=WORKER_POOLS[0],
-        help="how the messages run: prefork (child processes, the default), "
-        "solo (in the worker process) or threads. On macOS prefork cannot run "
-        "the boot-registered tasks (billiard spawns its children): use solo or "
-        "threads there; see docs/modules/background/tasks.md#the-worker-and-beat",
-    )
     _add_loglevel(parser)
     args = parser.parse_args(args_in)
     queues = (
@@ -145,7 +133,7 @@ def worker_main(argv: Sequence[str] | None = None) -> int:
         if args.queues
         else None
     )
-    return _run_worker(queues or None, args.concurrency, args.loglevel, args.pool)
+    return _run_worker(queues or None, args.concurrency, args.loglevel)
 
 
 def beat_main(argv: Sequence[str] | None = None) -> int:

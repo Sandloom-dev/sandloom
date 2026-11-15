@@ -386,6 +386,22 @@ def _fill(options: dict[str, Any], settings: Any, table: Mapping[str, str]) -> N
             options.setdefault(option, value)
 
 
+def _cap_probe_bound(options: dict[str, Any], settings: Any) -> None:
+    """A ``celery`` probe bound above ``HEALTH_CHECK_TIMEOUT_SECONDS`` is cut to
+    it: the readiness probe stops waiting there (``InfraRegistry.health_all``),
+    so a longer connect would only keep a thread behind an answered probe. A
+    value that is not a number stays for the driver to refuse."""
+    bound = getattr(settings, "health_check_timeout_seconds", None)
+    stated = options.get("health_timeout_seconds")
+    if (
+        isinstance(bound, int | float)
+        and isinstance(stated, int | float)
+        and not isinstance(stated, bool)
+        and stated > bound
+    ):
+        options["health_timeout_seconds"] = bound
+
+
 def _fill_url(options: dict[str, Any], key: str, value: Any) -> None:
     if not options.get(key) and value:
         options[key] = value
@@ -468,6 +484,7 @@ def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
             _fill_url(cfg.options, "broker", getattr(settings, "broker_url", None))
             _fill_url(cfg.options, "backend", cache_url)
             _fill(cfg.options, settings, _CELERY_SETTINGS)
+            _cap_probe_bound(cfg.options, settings)
 
 
 def load_infra_config(settings: Settings) -> InfraConfig:

@@ -306,13 +306,14 @@ The kernel gives the host a `WorkerBoot` and calls nothing else of the driver:
 
 The host answers three calls:
 
-- `run_worker(boot, queues=, concurrency=, loglevel=, pool=)` blocks and returns the process
+- `run_worker(boot, queues=, concurrency=, loglevel=)` blocks and returns the process
   exit code (a worker that died must not return 0). The kernel resolves `concurrency` from the
-  CPU quota. `pool` is one of `WORKER_POOLS` (`prefork`, `solo`, `threads`; `sandloom worker
-  --pool`, default `prefork`): raise `InvalidArgument` for another value and `Unsupported`
-  for a pool you cannot run, before consuming. A pool that runs the messages in the host's
-  own process starts and stops it itself (`boot.on_process_start()` / `on_process_stop()`),
-  since no child announces itself.
+  CPU quota. The process model is not an argument. Keep it as an option of your driver, and
+  raise `InvalidArgument` before consuming for a configuration you cannot run. A host that
+  runs the messages in its own process starts and stops it itself
+  (`boot.on_process_start()` / `on_process_stop()`). No child announces itself there, and
+  `before_fork()` is not called. If the host runs messages inside the loop that fires its
+  liveness timer, it touches the liveness file from a thread of its own.
 - `run_scheduler(boot, lease=, lease_name=, lease_ttl_seconds=, loglevel=, state_file=)`
   sends each periodic task at its cron slots, and only while the process holds
   `lease_name` on `lease` (a `lease` store). Wrap the store in `FencedLease`

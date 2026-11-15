@@ -79,6 +79,9 @@ KERNEL_INTERNAL: frozenset[str] = frozenset(
 #: Top-level driver modules that ship as one package (idk-pkg-celery-move moves
 #: the three celery files together into ``sandloom-celery``): each imports the
 #: others of its group freely, nothing else of Sandloom beyond the driver kit.
+#: removed_by: idk-pkg-celery-move (the group goes when the files move; the
+#: kernel's own copies are then gone and the package scan covers them). A group
+#: member has no allowlist entry: ``test_a_sibling_group_member_has_no_allowlist_entry``.
 SIBLING_GROUPS: tuple[frozenset[str], ...] = (
     frozenset(
         {
@@ -656,6 +659,34 @@ def test_a_sibling_group_exempts_only_its_own_members(
 def test_every_sibling_group_member_is_a_driver_file() -> None:
     found = {_module_name(p, SRC) for p in builtin_driver_files()}
     assert all(group <= found for group in SIBLING_GROUPS)
+
+
+def group_members_with_entries(
+    groups: tuple[frozenset[str], ...], entries: list[dict[str, Any]]
+) -> list[str]:
+    """The allowlist files that are members of a sibling group (a group member
+    imports only the driver kit and its siblings: an entry would hide an import
+    the group's exemption must not cover)."""
+    members = {
+        "src/" + module.replace(".", "/") + ".py"
+        for group in groups
+        for module in group
+    }
+    return sorted({e["file"] for e in entries} & members)
+
+
+def test_a_sibling_group_member_has_no_allowlist_entry() -> None:
+    assert group_members_with_entries(SIBLING_GROUPS, _entries()) == []
+
+
+def test_a_group_member_with_an_allowlist_entry_bites() -> None:
+    entries = [
+        {"file": _D + "celery_worker.py", "imports": ["sandloom.core.x"]},
+        {"file": _D + "redis_cache.py", "imports": ["sandloom.core.y"]},
+    ]
+    assert group_members_with_entries(SIBLING_GROUPS, entries) == [
+        _D + "celery_worker.py"
+    ]
 
 
 def test_the_scan_reaches_the_driver_subpackages() -> None:

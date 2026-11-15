@@ -138,7 +138,7 @@ lists its forms.
 The worker is a framework command:
 
 ```bash
-sandloom worker [--queues Q,Q] [--concurrency N] [--pool prefork|solo|threads]
+sandloom worker [--queues Q,Q] [--concurrency N]
 sandloom beat
 sandloom worker check [--timeout SECONDS]   # the container healthcheck
 ```
@@ -156,15 +156,27 @@ the CPU quota (`WORKER_CONCURRENCY` overrides). `sandloom worker check` asks the
 host whether a worker is alive, without booting the application. It still needs the
 full, valid settings of the worker, `JWT_SECRET` included.
 
-`--pool` picks how the host runs the messages. The default, `prefork`, forks child
-processes; `solo` runs them in the worker process and `threads` on a thread pool of it.
-The kernel runs an `async def` body on one persistent loop per process, so a `threads`
-pool runs async bodies one at a time.
+How the host runs the messages is the driver's own option, not a flag: the `worker_pool`
+option of the `celery` instance. The default, `prefork`, forks child processes. `solo`
+runs the messages in the worker process and `threads` on a thread pool of it. The kernel
+runs an `async def` body on one persistent loop per process. A `threads` pool therefore
+runs async bodies one at a time.
+
+With `solo` or `threads`, the worker touches its heartbeat file from its own thread. A
+task that runs longer than the check window then does not make `sandloom worker check`
+fail. Those pools have no children to recycle. The worker refuses `WORKER_MAX_MEMORY_PER_CHILD`
+and `WORKER_MAX_TASKS_PER_CHILD` with them, and a `WORKER_CONCURRENCY` above 1 with `solo`.
 
 **macOS:** the Celery driver's default prefork pool does not work there. Billiard spawns
 its pool processes on macOS instead of forking them. They never see the task table the
-worker registered at boot and cannot run its messages. Start the worker there with
-`--pool solo` (or `--pool threads`), or run it on Linux, in a container.
+worker registered at boot and cannot run its messages. The worker refuses to start with
+`prefork`. Set `worker_pool` to `solo` or `threads` in `INFRA`:
+
+```bash
+INFRA='{"taskqueue": {"default": {"driver": "celery", "worker_pool": "solo"}}}'
+```
+
+Or run the worker on Linux, in a container.
 
 Start a worker or a scheduler only with `sandloom worker` and `sandloom beat`. The
 importable Celery app of the Celery driver is for `celery inspect` and Flower: a

@@ -120,19 +120,12 @@ def test_a_taskqueue_without_a_worker_host_is_rejected() -> None:
 def test_run_worker_hands_the_host_its_queues_and_size() -> None:
     core = _Core(_Provider(), [])
     assert (
-        worker.run_worker(
-            queues=["mail"], concurrency=3, loglevel="DEBUG", pool="solo", core=core
-        )
+        worker.run_worker(queues=["mail"], concurrency=3, loglevel="DEBUG", core=core)
         == 7
     )
     ((kind, kwargs),) = core.provider.host.calls
     assert kind == "worker"
-    assert kwargs == {
-        "queues": ["mail"],
-        "concurrency": 3,
-        "loglevel": "DEBUG",
-        "pool": "solo",
-    }
+    assert kwargs == {"queues": ["mail"], "concurrency": 3, "loglevel": "DEBUG"}
 
 
 def test_discover_skips_modules_without_tasks(
