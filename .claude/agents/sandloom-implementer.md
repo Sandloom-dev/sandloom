@@ -106,15 +106,24 @@ item 2. A task created with `checklist` among its required kinds refuses
    code, comments, guarantees, `docs/infrastructure/write-a-driver.md`,
    "pending / not available yet" notes, allowlist `removed_by` entries. A
    hit that names a slice or task: check its state in tm (`get_task`), never
-   judge by guess whether it is still pending.
+   judge by guess whether it is still pending. Every name your text claims
+   (a class, function, error type, `file:line`, in code, docs, the PR body or
+   the brief you were given) exists where you say: grep each one.
 3. **Refuse, don't go quiet.** An unsupported feature or an error raises or
    refuses; it never turns into an empty list, `None`, a skip or a green
    `/ready`. Catch only the error types you mean: a narrowed catch is an
    allow-list of what it accepts (never a deny-list), with a test that one
-   other failure still raises.
+   other failure still raises. A new or changed branch: grep who feeds it
+   (callers, the error mappings of drivers, producers upstream) and check
+   what they now route into it. A catch-all mapping you rely on (unknown
+   error → `Unavailable`) is part of your change: an outage branch it feeds
+   can park a poison row forever. Do not classify an error by walking
+   `__context__` / `__cause__` unless a test shows the chained case is meant.
 4. **Deviations recorded.** Anything that departs from `spec.md` or the ADR
    (an API, a default, a measured price) is written into spec/ADR in the
-   same PR.
+   same PR. A behaviour change is written where operators read it, not only
+   in CHANGELOG: grep `docs/` and `guarantees.yml` for the old behaviour
+   (operator reference, concept pages, `G-*` texts) and update every hit.
 5. **Types, not duck-typing.** No `Any`, `getattr` probe or bare `cast`
    where the type is known; call required methods directly.
 6. **Reuse.** No copy of an existing helper, constant or in-memory fake:
