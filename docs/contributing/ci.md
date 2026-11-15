@@ -83,7 +83,7 @@ Locally:
 ```bash
 uv venv .venv-kernel
 uv export --frozen --only-group dev --no-hashes --no-emit-project > /tmp/dev-req.txt
-uv pip install --python .venv-kernel/bin/python -e "packages/sandloom[redis,celery,check,fast,sqlite,sentry]" -r /tmp/dev-req.txt
+uv pip install --python .venv-kernel/bin/python -e "packages/sandloom[redis,celery,check,fast,sqlite,sentry]" -e packages/sandloom-redis -e packages/sandloom-celery -r /tmp/dev-req.txt
 .venv-kernel/bin/python tools/ci/no_batteries.py install
 .venv-kernel/bin/python -m pytest -n auto --dist loadfile -p tools.ci.no_batteries src/sandloom/core/tests tests/sdk tests/architecture tests/integration/replaceability
 ```

@@ -3,7 +3,7 @@
 Runs ``tools/packaging/check_package_distributions.py`` (the CI ``packages``
 job): sdists and wheels of ``sandloom``, ``sandloom-standard``,
 ``sandloom-identity``, ``sandloom-tenancy``, ``sandloom-billing`` and
-``sandloom-admin``, ``sandloom-s3`` and ``sandloom-redis``; the import layering across them (lazy
+``sandloom-admin``, ``sandloom-s3``, ``sandloom-redis`` and ``sandloom-celery``; the import layering across them (lazy
 imports included);
 ``pip install sandloom`` alone in a clean venv runs every ``sandloom``
 subcommand's ``--help``, ``sandloom docs <name>`` and ``sandloom new``;

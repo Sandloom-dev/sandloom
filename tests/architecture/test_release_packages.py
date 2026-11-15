@@ -222,7 +222,6 @@ def test_a_tag_push_is_refused_for_a_package_the_environment_does_not_allow(
     assert allowed == [
         "sandloom",
         "sandloom-billing",
-        "sandloom-celery",
         "sandloom-identity",
         "sandloom-tenancy",
     ]

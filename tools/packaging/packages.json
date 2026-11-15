@@ -49,7 +49,6 @@
       "name": "sandloom-celery",
       "kind": "driver",
       "standard": true,
-      "tag_release": true,
       "drivers": {
         "taskqueue.celery": {
           "target": "sandloom_celery.taskqueue:CeleryTaskQueueProvider",
