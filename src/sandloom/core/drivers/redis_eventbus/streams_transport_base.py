@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from dataclasses import dataclass
-from typing import Any
+from functools import wraps
+from types import ModuleType
+from typing import Any, Concatenate, ParamSpec, TypeVar
 
-from sandloom.driverkit import Retention
+from sandloom.driverkit import (
+    InfraError,
+    InfraProvider,
+    InvalidArgument,
+    PermissionDenied,
+    Retention,
+    Timeout,
+    Unavailable,
+)
 from sandloom.driverkit._builtin_streams import RECLAIM_INTERVAL_SECONDS
 from sandloom.driverkit.eventbus_support import (
     DEFAULT_EVENT_STREAM_RETENTION_SECONDS,
@@ -25,6 +36,76 @@ logger = logging.getLogger("sandloom.core.eventing.transport")
 #: out: entries older than 7 days are trimmed, no length bound (``0``: none).
 DEFAULT_RETENTION_SECONDS = DEFAULT_EVENT_STREAM_RETENTION_SECONDS
 DEFAULT_MAX_LENGTH = 0
+
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+_S = TypeVar("_S", bound="_StreamsTransportBase")
+
+#: The capability this transport serves (what an ``InfraError`` names).
+_CAPABILITY = "eventbus"
+
+
+def _redis_exceptions() -> ModuleType:
+    """``redis.exceptions``, imported when the transport runs: the module
+    imports without ``redis`` (the kernel does not require it)."""
+    return importlib.import_module("redis.exceptions")
+
+
+def _backend_errors() -> tuple[type[BaseException], ...]:
+    """What a Redis backend raises: the client's own errors, a socket's
+    ``OSError`` and a timeout."""
+    return (_redis_exceptions().RedisError, OSError, TimeoutError)
+
+
+#: The replies that mean "nothing there", by their text (the client parses the
+#: code away from some replies: ``ERR no such key`` reads ``no such key``).
+REPLY_NOGROUP = "NOGROUP"  # no such stream key or consumer group
+REPLY_WRONGTYPE = "WRONGTYPE"  # the key holds no stream (another type)
+REPLY_NO_SUCH_KEY = "no such key"
+REPLY_UNKNOWN_COMMAND = "unknown command"  # a Redis-compatible store without it
+
+
+def _is_absent(exc: BaseException, *replies: str) -> bool:
+    """True when ``exc`` is one of the ``replies`` a read can answer as "absent".
+
+    An allow-list, never a deny-list: a reply a call site did not name is a
+    server in trouble (``MASTERDOWN``, ``BUSY``, ``LOADING``, ``READONLY``,
+    ``CLUSTERDOWN``, ``MOVED``, ``NOPERM``, ``OOM``, a script or ``EXEC``
+    failure, a module error ...) and must surface mapped, never read as an
+    empty answer. Each site names what it can truly answer as absent."""
+    if type(exc) is not _redis_exceptions().ResponseError:
+        return False  # a subclass is a classified failure (permission, OOM ...)
+    reply = str(exc).removeprefix("ERR ")
+    return reply.startswith(replies)
+
+
+def _reraise_unless_absent(exc: BaseException, *replies: str) -> None:
+    """Return when ``exc`` is an absence (:func:`_is_absent`), else raise it."""
+    if not _is_absent(exc, *replies):
+        raise exc
+
+
+def _mapped(
+    func: Callable[Concatenate[_S, _P], Coroutine[Any, Any, _R]],
+) -> Callable[Concatenate[_S, _P], Coroutine[Any, Any, _R]]:
+    """The driver boundary of one public operation: a raw backend error leaves
+    it as ``Unavailable`` / ``Timeout`` / ``PermissionDenied``, never as the
+    redis client's own exception (it stays as ``__cause__``). The happy path
+    costs one frame; the error classes are resolved only when one is raised."""
+
+    @wraps(func)
+    async def run(self: _S, /, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        try:
+            return await func(self, *args, **kwargs)
+        except InfraError:
+            raise
+        except _backend_errors() as exc:
+            # Chained, not hidden: the kernel relay tells an outage from a
+            # poison event by walking this chain (``is_broker_unavailable``).
+            raise self._failure(func.__name__, exc) from exc
+
+    return run
 
 
 def _stream_id_key(msg_id: str) -> tuple[int, int]:
@@ -138,6 +219,40 @@ class _StreamsTransportBase(TransportDefaults):
             )
         return await self._client_factory()
 
+    def _failure(self, operation: str, exc: BaseException) -> InfraError:
+        """The ``InfraError`` for a backend failure: its type, never its text
+        (which can carry the broker URL)."""
+        exceptions = _redis_exceptions()
+        what = f"eventbus streams {operation}: {type(exc).__name__}"
+        kind: type[InfraError]
+        if isinstance(
+            exc, exceptions.AuthenticationError | exceptions.NoPermissionError
+        ):
+            kind = PermissionDenied
+        elif isinstance(exc, exceptions.TimeoutError | TimeoutError):
+            kind = Timeout
+        elif isinstance(exc, exceptions.DataError) or (
+            type(exc) is exceptions.ResponseError
+            and str(exc).startswith(REPLY_WRONGTYPE)
+        ):
+            # Not transient: the client refused a value it cannot encode, or a
+            # key holds another type than the transport's layout expects.
+            # Repeating the call cannot succeed, so it must not read as an
+            # outage (``Unavailable`` is retryable and the relay would spin).
+            kind = InvalidArgument
+        else:  # connection, failover, loading, a full store (OOM), a bad reply
+            kind = Unavailable
+        instance = self.name if isinstance(self, InfraProvider) else None
+        return kind(what, capability=_CAPABILITY, instance=instance)
+
+    def _cause(self, operation: str, exc: BaseException) -> BaseException:
+        """The mapped error of a backend failure caught inside an operation
+        (so a ``PartialPublish`` built there follows its ``retryable``); any
+        other exception is a bug and stays as it is."""
+        if isinstance(exc, _backend_errors()):
+            return self._failure(operation, exc)
+        return exc
+
     @staticmethod
     def dlq_stream(stream: str) -> str:
         return f"{stream}.dlq"
@@ -172,7 +287,10 @@ class _StreamsTransportBase(TransportDefaults):
     async def _xinfo_groups(self, client: Any, stream: str) -> list[dict[str, Any]]:
         try:
             raw = await client.xinfo_groups(self.key(stream))
-        except Exception:  # noqa: BLE001 - no such key / unsupported: no groups
+        except _backend_errors() as exc:
+            # No such key, or a store without XINFO: no groups. Nothing else.
+            if not _is_absent(exc, REPLY_NO_SUCH_KEY, REPLY_UNKNOWN_COMMAND):
+                raise
             return []
         groups: list[dict[str, Any]] = []
         for item in raw or []:
@@ -186,7 +304,11 @@ class _StreamsTransportBase(TransportDefaults):
             entries = await client.xrange(
                 self.key(stream), min=msg_id, max=msg_id, count=1
             )
-        except Exception:  # noqa: BLE001 - trimmed/unsupported: treat as gone
+        except _backend_errors() as exc:
+            # XRANGE of a missing key answers an empty list: the only reply
+            # that says "gone" is a key that holds no stream any more.
+            if not _is_absent(exc, REPLY_WRONGTYPE):
+                raise
             return None
         for _mid, fields in entries or []:
             if isinstance(fields, dict):

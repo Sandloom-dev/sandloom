@@ -1939,6 +1939,7 @@
         "src/sandloom/core/tests/test_storage_security.py",
         "src/sandloom/core/tests/test_streams_event_bus.py",
         "src/sandloom/core/tests/test_streams_driverkit.py",
+        "src/sandloom/core/tests/test_streams_error_mapping.py",
         "src/sandloom/core/tests/test_streams_group_recreate.py",
         "src/sandloom/core/tests/test_streams_split_identity.py",
         "src/sandloom/core/tests/test_strict_mode.py",
