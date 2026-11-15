@@ -3,7 +3,8 @@
 :class:`FencedLease` is the holder's state machine over a
 :class:`~sandloom.core.infra.ports.lease.LeaseStore` (the instance
 ``INFRA.lease.beat``, :data:`BEAT_INSTANCE`): the Celery beat
-(``sandloom.core.drivers.celery_worker``, through ``WorkerHost.run_scheduler``) and the saga timer sweep
+(``sandloom.core.drivers.celery_worker``, through ``WorkerHost.run_scheduler``)
+and the saga timer sweep
 (``sandloom.core.sagas.sweep``) share it. The store owns the lease (owner,
 expiry on its own clock, the fence); this class keeps the rules the contract
 leaves to the holder (spec 5, "Time"):

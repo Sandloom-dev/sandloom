@@ -118,8 +118,8 @@ class RuntimeConfig(BaseModel):
             "migration lock."
         ),
     )
-    # Celery beat singleton lease (sandloom.core.worker.run_scheduler; always on, held in the
-    # `lease` instance INFRA.lease.beat): a second
+    # Celery beat singleton lease (sandloom.core.worker.run_scheduler; always on,
+    # held in the `lease` instance INFRA.lease.beat): a second
     # beat for the same broker + module set stands by instead of
     # double-scheduling.
     beat_lease_ttl_seconds: int = Field(
