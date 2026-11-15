@@ -31,14 +31,20 @@ liveness file ``WORKER_HEARTBEAT_FILE`` are read here.
 
 from __future__ import annotations
 
+import asyncio
 import functools
+import hashlib
 import importlib
 import logging
 import os
+import socket
 import time
 from collections.abc import Callable, Coroutine, Sequence
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
+from datetime import time as clock_time
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn
 
 import orjson
 
@@ -47,6 +53,7 @@ from sandloom.driverkit import (
     HealthResult,
     InfraError,
     InvalidArgument,
+    Lease,
     LeaseStore,
     PeriodicSpec,
     TaskTable,
@@ -57,6 +64,8 @@ from sandloom.driverkit import (
 
 logger = logging.getLogger(__name__)
 
+#: The longest owner label a lease store accepts.
+_MAX_OWNER_LENGTH = 255
 #: Recycle a prefork child above this resident size (KiB) after its task.
 WORKER_MAX_MEMORY_ENV = "WORKER_MAX_MEMORY_PER_CHILD"
 #: Recycle a prefork child after this many tasks.
@@ -405,6 +414,131 @@ def _add_periodic_tasks(
         )
 
 
+# ------------------------------------------------------------------ cron slots
+#
+# The scheduler deduplicates a run by (periodic id, slot) (spec 8.2). The slot
+# is the cron slot a run is for: the latest one at or before the moment the run
+# is sent, so two schedulers that send the same slot (a takeover, a send that
+# blocked past the lease TTL) name it identically whatever their own clocks of
+# last run say. The claim of a slot is a lease on a name derived from the
+# scheduler's lease name, the periodic id and the slot (slot_lease_name); it
+# lives from the claim to the next slot plus SLOT_MARGIN_SECONDS, the horizon
+# after which the slot is not the latest one any more.
+
+#: Added to a claim's lifetime: clocks of the schedulers and of the lease
+#: backend differ by less than this.
+SLOT_MARGIN_SECONDS = 60
+#: A schedule with no later slot (a date that does not recur) keeps its claim
+#: this long.
+_NO_NEXT_SLOT_SECONDS = 366 * 24 * 3600
+#: Feb 29 on a given weekday recurs within 28 years.
+_SEARCH_DAYS = 29 * 366
+
+
+@dataclass(frozen=True, slots=True)
+class CronFields:
+    """The five sets of a ``celery.schedules.crontab`` (``day_of_week``:
+    Sunday is 0)."""
+
+    minutes: tuple[int, ...]
+    hours: tuple[int, ...]
+    days_of_month: frozenset[int]
+    months: frozenset[int]
+    days_of_week: frozenset[int]
+
+    @classmethod
+    def of(cls, schedule: Any) -> CronFields:
+        return cls(
+            minutes=tuple(sorted(schedule.minute)),
+            hours=tuple(sorted(schedule.hour)),
+            days_of_month=frozenset(schedule.day_of_month),
+            months=frozenset(schedule.month_of_year),
+            days_of_week=frozenset(schedule.day_of_week),
+        )
+
+    def _day_matches(self, day: date) -> bool:
+        return (
+            day.month in self.months
+            and day.day in self.days_of_month
+            and day.isoweekday() % 7 in self.days_of_week
+        )
+
+    def latest(self, at: datetime) -> datetime | None:
+        """The latest slot at or before ``at`` (naive wall clock), or ``None``."""
+        for back in range(_SEARCH_DAYS):
+            try:
+                day = at.date() - timedelta(days=back)
+            except OverflowError:
+                return None
+            if not self._day_matches(day):
+                continue
+            for hour in reversed(self.hours):
+                for minute in reversed(self.minutes):
+                    candidate = datetime.combine(day, clock_time(hour, minute))
+                    if candidate <= at:
+                        return candidate
+        return None
+
+    def following(self, after: datetime) -> datetime | None:
+        """The first slot strictly after ``after`` (naive wall clock), or ``None``."""
+        for ahead in range(_SEARCH_DAYS):
+            try:
+                day = after.date() + timedelta(days=ahead)
+            except OverflowError:
+                return None
+            if not self._day_matches(day):
+                continue
+            for hour in self.hours:
+                for minute in self.minutes:
+                    candidate = datetime.combine(day, clock_time(hour, minute))
+                    if candidate > after:
+                        return candidate
+        return None
+
+
+@dataclass(frozen=True, slots=True)
+class Slot:
+    """The cron slot a run is for and how long its claim must live."""
+
+    key: str
+    ttl_seconds: int
+
+
+def slot_of(
+    fields: CronFields, now: datetime, *, margin_seconds: int = SLOT_MARGIN_SECONDS
+) -> Slot | None:
+    """The slot of a run sent at ``now`` (naive wall clock of the schedule's
+    timezone): the latest slot at or before it, or ``None`` when the schedule
+    has none."""
+    latest = fields.latest(now)
+    if latest is None:
+        return None
+    following = fields.following(latest)
+    horizon = (
+        _NO_NEXT_SLOT_SECONDS
+        if following is None
+        else int((following - now).total_seconds()) + 1
+    )
+    return Slot(
+        key=latest.strftime("%Y%m%d%H%M"),
+        ttl_seconds=max(horizon, 0) + margin_seconds,
+    )
+
+
+def schedule_wall_clock(schedule: Any, moment: datetime | None = None) -> datetime:
+    """``moment`` (default: now) as the naive wall clock of ``schedule``'s timezone."""
+    instant = (moment or datetime.now(UTC)).astimezone(UTC)
+    return instant.astimezone(schedule.tz).replace(tzinfo=None)
+
+
+def slot_lease_name(lease_name: str, periodic_id: str, slot_key: str) -> str:
+    """The lease name that claims ``slot_key`` of ``periodic_id`` under
+    ``lease_name`` (the id is hashed: it is the author's string, the name's
+    length is bounded)."""
+    digest = hashlib.sha256(periodic_id.encode()).hexdigest()[:16]
+    return f"{lease_name}:slot:{digest}:{slot_key}"
+
+
 # ------------------------------------------------------------------ beat lease
 
 
@@ -427,12 +561,13 @@ class BeatLease:
         clock: Callable[[], float] = time.monotonic,
         identity: str | None = None,
     ) -> None:
+        self._identity = identity or f"{socket.gethostname()}:{os.getpid()}"
         self._holder = FencedLease(
             store,
             name,
             ttl_seconds=ttl_seconds,
             clock=clock,
-            identity=identity,
+            identity=self._identity,
             label="[beat]",
         )
         self._run = runner
@@ -487,13 +622,132 @@ class BeatLease:
         if self.token is not None:
             self._run(self._holder.release_async())
 
+    def claim_slot(self, periodic_id: str, slot: Slot) -> SlotClaim:
+        """Claim the run of ``periodic_id`` for ``slot`` (spec 8.2: a run is
+        deduplicated by ``(id, slot)`` under the lease's fence).
+
+        The claim is a lease on a name derived from this lease's name, the id
+        and the slot, granted once: a second scheduler that held the lease for
+        the same slot (after a takeover, or after a send that blocked past the
+        lease TTL) is refused. Only a holder claims (``not_held`` otherwise: it
+        must not send). A store that cannot answer fails open (``unknown``):
+        ``periodic`` promises at least one run, a run may repeat.
+        """
+        if not self.ensure():
+            return SlotClaim("not_held")
+        fence = self.fence
+        name = slot_lease_name(self.name, periodic_id, slot.key)
+        owner = f"{self._identity}:fence:{fence}"[:_MAX_OWNER_LENGTH]
+        try:
+            lease = self._run(self._claim_async(name, owner, slot.ttl_seconds))
+        except (InfraError, OSError) as exc:  # the store cannot answer: fail open
+            logger.warning(
+                "[beat] cannot claim slot %s of %s (%s); sending without the dedupe",
+                slot.key,
+                periodic_id,
+                type(exc).__name__,
+            )
+            return SlotClaim("unknown")
+        if lease is None:
+            return SlotClaim("taken")
+        return SlotClaim("claimed", lease)
+
+    async def _claim_async(
+        self, name: str, owner: str, ttl_seconds: int
+    ) -> Lease | None:
+        return await asyncio.wait_for(
+            self._holder.store.acquire(name, ttl_seconds=ttl_seconds, owner=owner),
+            timeout=self.renew_interval,
+        )
+
+    def release_slot(self, claim: SlotClaim) -> None:
+        """Give a claimed slot back (best-effort): its send failed, so another
+        scheduler may send it."""
+        if claim.lease is None:
+            return
+        lease = claim.lease
+        try:
+            self._run(self._release_slot_async(lease))
+        except (InfraError, OSError):  # the claim expires with its slot anyway
+            logger.warning("[beat] could not release the claim of slot %s", lease.name)
+
+    async def _release_slot_async(self, lease: Lease) -> None:
+        await asyncio.wait_for(
+            self._holder.store.release(lease), timeout=self.renew_interval
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SlotClaim:
+    """The answer of :meth:`BeatLease.claim_slot`."""
+
+    #: ``claimed`` (send), ``taken`` (another scheduler sent this slot),
+    #: ``not_held`` (the lease is not ours) or ``unknown`` (the store is down).
+    state: Literal["claimed", "taken", "not_held", "unknown"]
+    lease: Lease | None = None
+
+    @property
+    def may_send(self) -> bool:
+        return self.state in ("claimed", "unknown")
+
 
 class LeasedScheduler:
-    """Wrap a Celery beat scheduler: it ticks only while the lease is held."""
+    """Wrap a Celery beat scheduler: it ticks only while the lease is held, and
+    sends each cron slot of a periodic task once (``(id, slot)`` dedupe under
+    the lease, :meth:`BeatLease.claim_slot`).
 
-    def __init__(self, inner: Any, lease: BeatLease) -> None:
+    ``wall_clock`` is the current moment (aware); tests pass a fake one.
+    """
+
+    def __init__(
+        self,
+        inner: Any,
+        lease: BeatLease,
+        *,
+        wall_clock: Callable[[], datetime] | None = None,
+    ) -> None:
         self._inner = inner
         self.lease = lease
+        self._wall_clock = wall_clock
+        send = getattr(inner, "apply_async", None)
+        if send is not None:
+            # Celery's beat sends a due entry through ``apply_async`` of its own
+            # scheduler: the one place every send passes.
+            self._send = send
+            inner.apply_async = self._apply_async
+
+    def _apply_async(
+        self, entry: Any, producer: Any = None, advance: bool = True, **kwargs: Any
+    ) -> Any:
+        crontab = importlib.import_module("celery.schedules").crontab
+        schedule = getattr(entry, "schedule", None)
+        slot = None
+        if isinstance(schedule, crontab):
+            moment = self._wall_clock() if self._wall_clock else None
+            slot = slot_of(
+                CronFields.of(schedule), schedule_wall_clock(schedule, moment)
+            )
+        if slot is None:  # not a cron entry: nothing to name a slot by
+            return self._send(entry, producer, advance, **kwargs)
+        claim = self.lease.claim_slot(entry.name, slot)
+        if not claim.may_send:
+            if advance:
+                self._inner.reserve(entry)
+            logger.warning(
+                "[beat] %s slot %s not sent: %s",
+                entry.name,
+                slot.key,
+                "another scheduler sent it"
+                if claim.state == "taken"
+                else "the lease is not held",
+            )
+            return None
+        try:
+            return self._send(entry, producer, advance, **kwargs)
+        except Exception:
+            # Nothing is known to have been sent: the slot is free again.
+            self.lease.release_slot(claim)
+            raise
 
     def tick(self, *args: Any, **kwargs: Any) -> float:
         if not self.lease.ensure():

@@ -11,9 +11,11 @@ and :func:`rewrite_redis` calls that hook of every configured instance:
 * every named instance ``INFRA`` declares with its own ``url``, any capability,
   the rewritten ``INFRA`` going back to the environment.
 
-One exception, until ``idk-worker-port-kit`` gives the Celery task queue its own
-hook: ``BROKER_URL`` has no driver to ask, so :func:`rewrite_redis` moves it
-itself, by the same layout. Nothing else rewrites a URL here.
+* the default task queue (``BROKER_URL``, which the kernel fills into the
+  instance's ``broker`` option): the ``celery`` driver's hook moves its
+  ``broker`` and ``backend`` URLs.
+
+Nothing here rewrites a URL itself.
 
 The layout is computed here and handed to the drivers
 (:func:`sandloom.core.infra.worker_isolation.set_worker_layout`) before any hook runs,
@@ -62,6 +64,8 @@ REDIS_MAP_ENV = "SANDLOOM_TEST_REDIS_WORKER_DBS"
 #: The driver of the default cache instance, and of a named instance that
 #: names no driver of its own and overrides the default one.
 DEFAULT_CACHE_DRIVER = "redis"
+#: The driver of the default task queue instance (it reads ``BROKER_URL``).
+DEFAULT_TASKQUEUE_DRIVER = "celery"
 
 
 def redis_stride(environ: Mapping[str, str]) -> int:
@@ -204,10 +208,15 @@ def rewrite_redis(
         )
         out["CACHE_URL"] = str(moved.get("url", cache))
     if is_redis_url(broker):
-        # The one URL the harness moves itself: the Celery task queue has no
-        # test_isolation hook until idk-worker-port-kit; it then goes through the
-        # hook like the others, and this branch goes away.
-        out["BROKER_URL"] = _isolation.moved_redis_url(broker, number, layout)
+        # The kernel fills the default task queue's ``broker`` from BROKER_URL:
+        # the driver of that instance says where its worker uses it.
+        broker_driver = (
+            infra.get("taskqueue", {}).get("default", {}).get("driver")
+        ) or DEFAULT_TASKQUEUE_DRIVER
+        moved = _isolated_options(
+            "taskqueue", "default", str(broker_driver), {"broker": broker}, worker_id
+        )
+        out["BROKER_URL"] = str(moved.get("broker", broker))
     if named:
         rewritten: dict[str, Any] = json.loads(infra_raw or "{}")
         for capability, name, spec in named:

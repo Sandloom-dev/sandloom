@@ -165,8 +165,12 @@ the broker of the instance a worker or a beat runs.
 Run exactly one `beat` per broker. A second one stands by. The kernel resolves
 the lease (the `lease` instance `INFRA.lease.beat`; `BEAT_LEASE_TTL_SECONDS`,
 `BEAT_LEASE_NAME`), scoped per service. The driver's scheduler sends periodic
-tasks only while the process holds it. See `deploy/README.md` ("Beat singleton
-lease").
+tasks only while the process holds it, and sends each cron slot once. Each run
+is claimed by its periodic `id` and its slot, under the same lease. After a takeover, a scheduler never repeats the slot the last one sent. A send
+still blocked when the old lease ran out is not repeated either.
+If the lease store cannot answer the claim, the run still goes out: `periodic`
+promises at least one run, and a run may repeat. See `deploy/README.md` ("Beat
+singleton lease").
 
 A tool that inspects the Celery driver's queues (`celery inspect`, Flower) uses
 the driver's importable app, `sandloom.core.drivers.celery_worker.app` (built

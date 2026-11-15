@@ -1669,6 +1669,7 @@
         "src/sandloom/core/tests/test_capabilities.py",
         "src/sandloom/core/tests/test_capability_review_fixes.py",
         "src/sandloom/core/tests/test_celery_error_mapping.py",
+        "src/sandloom/core/tests/test_celery_slots.py",
         "src/sandloom/core/tests/test_celery_taskqueue_health.py",
         "src/sandloom/core/tests/test_check_boot.py",
         "src/sandloom/core/tests/test_claim_read_atoms.py",

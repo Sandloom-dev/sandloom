@@ -22,9 +22,9 @@ The Redis half lives in :mod:`sandloom.core.testing.redis_isolation`, imported
 only by a process that can reach a Redis (the client is installed and a Redis
 setting is present): an application on memory drivers never loads it and needs
 no client to run its tests. It asks the driver of each configured instance (the
-default cache, every named ``INFRA`` instance with a ``url``) through
-``InfraProvider.test_isolation(options, worker_id)``, except ``BROKER_URL``,
-which has no driver to ask until ``idk-worker-port``.
+default cache, the default task queue for ``BROKER_URL``, every named ``INFRA``
+instance with a ``url``) through ``InfraProvider.test_isolation(options,
+worker_id)``.
 
 Without xdist (no ``PYTEST_XDIST_WORKER``) nothing changes.
 

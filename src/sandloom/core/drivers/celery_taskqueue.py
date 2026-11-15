@@ -24,7 +24,7 @@ import asyncio
 import functools
 import importlib.util
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any, Self, cast
@@ -33,7 +33,10 @@ from urllib.parse import urlsplit
 import orjson
 from pydantic import BaseModel, ConfigDict, Field
 
-from sandloom.core.drivers.celery_broker_probe import probe_broker
+from sandloom.core.drivers.celery_broker_probe import (
+    BrokerUnreachableError,
+    probe_broker,
+)
 from sandloom.core.drivers.celery_worker import (
     CeleryWorkerHost,
     build_named_app,
@@ -48,6 +51,7 @@ from sandloom.driverkit import (
     Timeout,
     Unavailable,
 )
+from sandloom.driverkit.testing_isolation import isolated_redis_options
 
 #: Features the Celery task-queue driver supports. ``periodic``: the worker
 #: registers each periodic task of the table and one beat per broker and module
@@ -103,6 +107,14 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
     options_schema = CeleryTaskQueueOptions
     required_imports = ("celery",)
     install_hint = "pip install 'sandloom[celery]'"
+
+    @classmethod
+    def test_isolation(
+        cls, options: Mapping[str, Any], worker_id: str
+    ) -> Mapping[str, Any]:
+        """Another database index of the Redis ``broker`` and ``backend`` URLs
+        for each xdist worker (a ``memory://`` broker needs none)."""
+        return isolated_redis_options(options, worker_id, keys=("broker", "backend"))
 
     @classmethod
     def from_config(cls, config: InstanceConfig) -> Self:
@@ -279,8 +291,12 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         """One bounded connection to this instance's broker
         (:func:`~sandloom.core.drivers.celery_broker_probe.probe_broker`);
         building the provider sends nothing, so without it a broker outage
-        was invisible."""
-        return await probe_broker(self._app)
+        was invisible. A broker that refuses the connection is a failed
+        probe carrying the error's type name (spec 2.4), never its text."""
+        try:
+            return await probe_broker(self._app)
+        except BrokerUnreachableError as exc:
+            return HealthResult(status="fail", details={"error": type(exc).__name__})
 
 
 def _maybe_published(exc: Exception, instance: str) -> Unavailable | Timeout:

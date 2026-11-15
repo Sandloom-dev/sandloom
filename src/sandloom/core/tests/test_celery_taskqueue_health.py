@@ -142,6 +142,8 @@ async def test_the_provider_health_probes_its_broker(
         )
     )
 
-    with pytest.raises(probe.BrokerUnreachableError):
-        await down.health()
+    refused = await down.health()
+    # A failed probe carrying the error's type name, never its text (spec 2.4).
+    assert refused.status == "fail"
+    assert refused.details == {"error": "BrokerUnreachableError"}
     assert (await up.health()).status == "ok"

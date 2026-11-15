@@ -27,6 +27,7 @@ from typing import Any
 import pytest
 
 from sandloom.core.drivers import event_bus_driver, redis_cache
+from sandloom.core.drivers.celery_taskqueue import CeleryTaskQueueProvider
 from sandloom.core.infra.ports._base import InfraProvider
 from sandloom.core.testing import (
     ownership,
@@ -112,6 +113,64 @@ def test_hook_keys_name_the_options_holding_a_url() -> None:
         "backend": "redis://h/32",
         "other": "x",
     }
+
+
+def test_celery_taskqueue_hook_moves_broker_and_backend() -> None:
+    options = {"broker": "redis://h:6380/1", "backend": "redis://h:6380/0", "x": 1}
+    isolated = CeleryTaskQueueProvider.test_isolation(options, "gw2")
+    stride = isolation.DEFAULT_STRIDE * 3
+    assert isolated == {
+        "broker": f"redis://h:6380/{1 + stride}",
+        "backend": f"redis://h:6380/{stride}",
+        "x": 1,
+    }
+    assert options["broker"] == "redis://h:6380/1"  # the input is not mutated
+
+
+def test_celery_taskqueue_hook_leaves_memory_and_other_workers_alone() -> None:
+    memory = {"broker": "memory://", "backend": None}
+    assert CeleryTaskQueueProvider.test_isolation(memory, "gw1") == memory
+    options = {"broker": "redis://h/1"}
+    assert CeleryTaskQueueProvider.test_isolation(options, "master") is options
+
+
+@pytest.mark.parametrize("worker", ["gw0", "gw3"])
+def test_the_harness_moves_broker_url_through_the_celery_hook(worker: str) -> None:
+    base = "redis://127.0.0.1:6380/1"
+    number = int(worker[2:])
+    env = {workers.WORKER_ENV: worker}
+    out = workers.rewrite_for_worker({"BROKER_URL": base}, env)
+    expected = f"redis://127.0.0.1:6380/{1 + isolation.DEFAULT_STRIDE * (number + 1)}"
+    assert out == {"BROKER_URL": expected}
+    hooked = CeleryTaskQueueProvider.test_isolation({"broker": base}, worker)
+    assert hooked["broker"] == expected
+
+
+def test_the_broker_url_of_a_declared_taskqueue_driver_goes_through_its_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The harness asks the driver the instance names, not a hard-wired one."""
+    asked: list[tuple[str, str, str]] = []
+
+    def fake(capability: str, name: str, driver: str) -> type[InfraProvider] | None:
+        asked.append((capability, name, driver))
+
+        class Moved(InfraProvider):
+            capability = "taskqueue"
+
+            @classmethod
+            def test_isolation(cls, options: Any, worker_id: str) -> dict[str, Any]:
+                return {**options, "broker": "redis://moved/9"}
+
+        return Moved
+
+    monkeypatch.setattr(redis_isolation, "_driver_class", fake)
+    infra = json.dumps({"taskqueue": {"default": {"driver": "other"}}})
+    out = workers.rewrite_for_worker(
+        {"BROKER_URL": "redis://h/1", "INFRA": infra}, {workers.WORKER_ENV: "gw1"}
+    )
+    assert out["BROKER_URL"] == "redis://moved/9"
+    assert asked == [("taskqueue", "default", "other")]
 
 
 def test_memory_defaults_keep_their_options() -> None:
