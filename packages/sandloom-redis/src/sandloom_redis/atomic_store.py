@@ -58,6 +58,7 @@ from sandloom.driverkit import (
     InfraError,
     InvalidArgument,
     PermissionDenied,
+    Timeout,
     Unavailable,
     observe,
 )
@@ -70,7 +71,7 @@ from sandloom.driverkit.atomic_store import (
     check_ttl,
     check_value,
 )
-from sandloom_redis._errors import map_redis_error
+from sandloom_redis._errors import map_redis_error, redis_error_kind
 
 #: Failed operations of the store (connection, timeout, server error), by
 #: instance and operation: the page-level alert on the security store reads it.
@@ -532,10 +533,14 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
     async def _read_policy(self, client: Any) -> str | None:
         """The server's ``maxmemory-policy``, or ``None`` when the read was
         refused (``NOPERM``, a disabled or renamed ``CONFIG``). A connection
-        failure is not a refusal and propagates."""
+        failure or a transient reply (``LOADING``, ``BUSY`` ...) is not a
+        refusal and propagates: recording it would be a standing
+        ``PermissionDenied`` until ``aclose``."""
         try:
             reply = await client.config_get(_POLICY_SETTING)
-        except _exceptions().ResponseError:
+        except _exceptions().ResponseError as exc:
+            if redis_error_kind(exc) in (Unavailable, Timeout):
+                raise
             return None
         policy = reply.get(_POLICY_SETTING) if isinstance(reply, dict) else None
         return policy if isinstance(policy, str) else None

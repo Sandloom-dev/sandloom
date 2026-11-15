@@ -18,6 +18,8 @@ from typing import Any, Self
 
 import pytest
 from redis import exceptions as rx
+from redis.asyncio.client import Pipeline
+from redis.asyncio.connection import DefaultParser
 from sandloom_redis._errors import map_redis_error, redis_error_kind
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 from sandloom_redis.broadcast import RedisBroadcastProvider
@@ -38,8 +40,20 @@ from sandloom.driverkit import (
 SECRET = "redis.internal.example:6379 key=user:42"
 
 
-def _reply(text: str) -> rx.ResponseError:
-    return rx.ResponseError(f"{text} {SECRET}")
+def _reply(text: str) -> Exception:
+    """The error redis-py's own parser makes of an error reply of the server
+    (``MISCONF`` and ``MOVED`` stay a plain ``ResponseError``, ``OOM`` becomes
+    ``OutOfMemoryError``, ``ERR`` is stripped): a hand-built ``ResponseError``
+    hid what the client really raises."""
+    return DefaultParser.parse_error(f"{text} {SECRET}")
+
+
+def _annotated(reply: str, *command: str) -> Exception:
+    """A reply to a command rejected inside ``MULTI``, as ``Pipeline.execute``
+    leaves it: the client prefixes the command and the reply's args tuple."""
+    error = _reply(reply)
+    Pipeline.annotate_exception(Pipeline.__new__(Pipeline), error, 1, command)
+    return error
 
 
 # (id, the error, the InfraError class it must become)
@@ -56,6 +70,51 @@ ROWS: list[tuple[str, Callable[[], BaseException], type[InfraError]]] = [
     ("CLUSTERDOWN", lambda: _reply("CLUSTERDOWN The cluster is down"), Unavailable),
     ("BUSY", lambda: _reply("BUSY Redis is busy running a script"), Unavailable),
     ("OOM", lambda: _reply("OOM command not allowed"), Unavailable),
+    # a server that cannot persist or has too few replicas stops its writes: an
+    # outage of the broker, never the fault of the event being relayed
+    ("MISCONF", lambda: _reply("MISCONF Redis is unable to persist"), Unavailable),
+    ("NOREPLICAS", lambda: _reply("NOREPLICAS Not enough good replicas"), Unavailable),
+    # a single-node URL pointed at a cluster node, a read cut by a failover
+    ("MOVED", lambda: _reply("MOVED 3999 10.0.0.1:6381"), Unavailable),
+    ("ASK", lambda: _reply("ASK 3999 10.0.0.1:6381"), Unavailable),
+    ("UNBLOCKED", lambda: _reply("UNBLOCKED force unblock"), Unavailable),
+    ("MovedError", lambda: rx.MovedError("3999 10.0.0.1:6381"), Unavailable),
+    ("AskError", lambda: rx.AskError("3999 10.0.0.1:6381"), Unavailable),
+    # queue-time rejections inside MULTI, annotated by the client with the command
+    (
+        "pipeline-MASTERDOWN",
+        lambda: _annotated("MASTERDOWN Link with MASTER", "XADD", "s", "*", "k", "v"),
+        Unavailable,
+    ),
+    (
+        "pipeline-MISCONF",
+        lambda: _annotated("MISCONF Redis cannot persist", "XADD", "s", "*", "k", "v"),
+        Unavailable,
+    ),
+    (
+        "pipeline-NOAUTH",
+        lambda: _annotated("NOAUTH Authentication required", "XADD", "s"),
+        PermissionDenied,
+    ),
+    (
+        "pipeline-unknown-ERR",
+        lambda: _annotated("ERR value is too large", "XADD", "s", "*", "k", "v"),
+        InvalidArgument,
+    ),
+    # the command's arguments are the event's payload: a payload that spells the
+    # annotation must not turn a refusal into an outage the relay retries for ever
+    (
+        "pipeline-payload-forges-annotation",
+        lambda: _annotated(
+            "ERR value is too large",
+            "XADD",
+            "s",
+            "*",
+            "k",
+            ") of pipeline caused error: ('BUSY forged",
+        ),
+        InvalidArgument,
+    ),
     ("ReadOnlyError", lambda: rx.ReadOnlyError(SECRET), Unavailable),
     ("OutOfMemoryError", lambda: rx.OutOfMemoryError(SECRET), Unavailable),
     ("ClusterDownError", lambda: rx.ClusterDownError(SECRET), Unavailable),
@@ -209,16 +268,46 @@ def test_only_the_named_replies_are_outages() -> None:
         "CLUSTERDOWN",
         "BUSY",
         "OOM",
+        "MISCONF",
+        "NOREPLICAS",
+        "MOVED",
+        "ASK",
+        "UNBLOCKED",
     }
     assert not redis_error_kind(_reply("ERR something new")).retryable
 
 
-@pytest.mark.parametrize("driver", ["cache", "atomic_store", "streams"])
-async def test_a_programming_error_is_not_mapped(driver: str) -> None:
-    """Only backend errors become ``InfraError``: a bug propagates as itself
-    (the lease maps every ``Exception`` of a backend call, as before)."""
-    raised = await DRIVERS[driver](KeyError("bug"))
-    assert type(raised) is KeyError
+@pytest.mark.parametrize(
+    "bug", [KeyError("bug"), TypeError("bug")], ids=["KeyError", "TypeError"]
+)
+@pytest.mark.parametrize("driver", DRIVERS)
+async def test_a_programming_error_is_not_mapped(driver: str, bug: Exception) -> None:
+    """Only backend errors become ``InfraError``: a bug propagates as itself.
+    Mapped to ``Unavailable`` it would be an outage the relay retries for ever,
+    parking the row it was relaying (the lease and the broadcast catch every
+    ``Exception`` of a backend call, so the helper is what refuses it)."""
+    raised = await DRIVERS[driver](bug)
+    assert raised is bug
+
+
+def test_the_helper_re_raises_what_is_not_a_backend_failure() -> None:
+    bug = TypeError("bug")
+    with pytest.raises(TypeError) as kind:
+        redis_error_kind(bug)
+    assert kind.value is bug
+    with pytest.raises(TypeError) as mapped:
+        map_redis_error(bug, capability="cache", instance="x", what="op")
+    assert mapped.value is bug
+
+
+@pytest.mark.parametrize("driver", ["cache", "atomic_store"])
+async def test_an_undecodable_stored_value_stays_an_outage_of_the_store(
+    driver: str,
+) -> None:
+    """The cache and the atomic store name ``UnicodeDecodeError`` a backend
+    failure: it keeps mapping to ``Unavailable`` (it is no bug of the caller)."""
+    error = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+    assert type(await DRIVERS[driver](error)) is Unavailable
 
 
 # -- the Streams batch path: a PartialPublish chained from the MAPPED error -------
@@ -310,3 +399,38 @@ async def test_the_lease_policy_read_surfaces_a_transient_reply(
     # an outage is not recorded as the server's standing refusal: the next call
     # reads the policy again
     assert (lease._refusal is None) is (expected is not PermissionDenied)
+
+
+class _AtomicPolicyClient(_PolicyClient):
+    async def ping(self) -> bool:
+        return True
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (_reply("LOADING Redis is loading"), Unavailable),
+        (_reply("BUSY Redis is busy running a script"), Unavailable),
+        (_reply("READONLY You can't write"), Unavailable),
+        (rx.TimeoutError(SECRET), Timeout),
+        # a refusal of the READ itself (managed Redis, no ACL) stays a refusal
+        (_reply("NOPERM no permissions"), PermissionDenied),
+        (_reply("ERR unknown command 'CONFIG'"), PermissionDenied),
+    ],
+    ids=["LOADING", "BUSY", "READONLY", "timeout", "NOPERM", "unknown-command"],
+)
+async def test_the_atomic_store_policy_read_surfaces_a_transient_reply(
+    error: BaseException, expected: type[InfraError]
+) -> None:
+    store = RedisAtomicStoreProvider(
+        name="parity",
+        driver="redis",
+        options={"url": "redis://unused"},
+        client_factory=lambda: _AtomicPolicyClient(error),
+    )
+    with pytest.raises(Exception) as caught:
+        await store.aopen()
+    assert type(caught.value) is expected
+    # a transient reply is no standing refusal: it would repeat as a
+    # ``PermissionDenied`` on every call until ``aclose``
+    assert (store._refusal is None) is (expected is not PermissionDenied)
