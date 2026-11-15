@@ -18,9 +18,8 @@ of that setting (managed Redis often refuses ``CONFIG GET``) means:
   the same, and ``health`` keeps trying the read (``degraded`` while it stays
   refused). In production ``assume`` needs the accepted risk
   ``unverified_noeviction``; the driver reads no setting, so the kernel states
-  that policy as ``assume_allowed`` when it builds the driver
-  (:func:`make_redis_atomic_store_factory`), and a driver built without it
-  refuses ``assume``.
+  that policy as the constructor argument ``assume_allowed`` when it builds
+  the driver, and a driver built without it refuses ``assume``.
 
 A refused check is not only raised by ``aopen``: a registry outside production
 logs it and keeps the provider, so every operation then raises the same refusal
@@ -49,7 +48,7 @@ import importlib
 from collections.abc import Callable, Mapping, Sequence
 from functools import cache
 from types import ModuleType
-from typing import Any, Literal, NoReturn, Protocol
+from typing import Any, Literal, NoReturn
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -104,17 +103,6 @@ class RedisAtomicStoreOptions(BaseModel):
     retry_attempts: int = Field(default=1, ge=0, le=5)
     never_evicts_check: NeverEvictsCheck = "verify"
     max_value_bytes: int = Field(default=DEFAULT_MAX_VALUE_BYTES, ge=1)
-
-
-class _InstanceLike(Protocol):
-    """The configuration of one instance, as the registry hands it to a factory."""
-
-    @property
-    def name(self) -> str: ...
-    @property
-    def driver(self) -> str: ...
-    @property
-    def options(self) -> Mapping[str, Any]: ...
 
 
 # redis-py is imported on first use: the driver module imports without it, and
@@ -338,6 +326,10 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
     options_schema = RedisAtomicStoreOptions
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
+    # Beta, the floor for a driver of this repository (spec 2.5): the lane
+    # `redis-drivers` job of ci.yml runs AtomicStoreConformance against a real
+    # Redis. An undeclared tier would be experimental.
+    tier = "beta"
 
     def __init__(
         self,
@@ -663,28 +655,9 @@ def _text(raw: Any) -> str:
     return str(raw)
 
 
-def make_redis_atomic_store_factory(
-    *, assume_allowed: Callable[[], bool]
-) -> Callable[[_InstanceLike], RedisAtomicStoreProvider]:
-    """The driver factory the kernel registers (``build=``): it states the
-    policy for ``never_evicts_check=assume``. It has no default, so no caller
-    builds the driver without stating it."""
-
-    def build(cfg: _InstanceLike) -> RedisAtomicStoreProvider:
-        return RedisAtomicStoreProvider(
-            name=cfg.name,
-            driver=cfg.driver,
-            options=dict(cfg.options),
-            assume_allowed=assume_allowed,
-        )
-
-    return build
-
-
 __all__ = [
     "UNVERIFIED_NOEVICTION_RISK",
     "NeverEvictsCheck",
     "RedisAtomicStoreOptions",
     "RedisAtomicStoreProvider",
-    "make_redis_atomic_store_factory",
 ]

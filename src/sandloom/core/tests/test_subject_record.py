@@ -26,10 +26,10 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
 from sandloom.core.auth import blocks, marks, revocation, tokens, verification
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers.redis_atomic_store import RedisAtomicStoreProvider
 from sandloom.core.infra import access
 from sandloom.core.infra.errors import InvalidArgument
 from sandloom.core.infra.ports.atomic_store import parse_subject_state

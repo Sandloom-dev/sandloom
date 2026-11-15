@@ -13,7 +13,7 @@
       "console": {
         "extra": "admin",
         "route": "/admin/{path:path}",
-        "with": ["sandloom-identity", "sandloom-standard"]
+        "with": ["sandloom-identity", "sandloom-redis", "sandloom-standard"]
       }
     },
     {
@@ -23,6 +23,25 @@
         "objectstore.s3": {
           "target": "sandloom_s3:S3ObjectStore",
           "provider": "ObjectStoreProvider"
+        }
+      }
+    },
+    {
+      "name": "sandloom-redis",
+      "kind": "driver",
+      "standard": true,
+      "drivers": {
+        "atomic_store.redis": {
+          "target": "sandloom_redis.atomic_store:RedisAtomicStoreProvider",
+          "provider": "AtomicStoreProvider"
+        },
+        "lease.redis": {
+          "target": "sandloom_redis.lease:RedisLeaseProvider",
+          "provider": "LeaseProvider"
+        },
+        "broadcast.redis": {
+          "target": "sandloom_redis.broadcast:RedisBroadcastProvider",
+          "provider": "BroadcastProvider"
         }
       }
     }

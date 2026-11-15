@@ -59,8 +59,11 @@ Issues = "https://github.com/Sandloom-dev/sandloom/issues"
 Changelog = "https://github.com/Sandloom-dev/sandloom/blob/main/packages/sandloom/CHANGELOG.md"
 
 [project.optional-dependencies]
+# The redis-py client the kernel's cache and event bus use, and the package of
+# the Redis atomic_store, lease and broadcast drivers (sandloom-redis).
 redis = [
     "redis>=5.2.1,<6",
+    "sandloom-redis>=0.7.0a13,<0.8",
 ]
 celery = [
     "celery[redis]>=5.6.3,<6",
@@ -69,6 +72,7 @@ celery = [
 # (sandloom_standard.main), the three standard modules, Redis and Celery.
 standard = [
     "sandloom[redis,celery]",
+    "sandloom-redis>=0.7.0a13,<0.8",
     "sandloom-standard>=0.7.0a13,<0.8",
     "sandloom-identity>=0.7.0a13,<0.8",
     "sandloom-tenancy>=0.7.0a13,<0.8",

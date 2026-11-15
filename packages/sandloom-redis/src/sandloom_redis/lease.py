@@ -17,8 +17,9 @@ what a *refused read* means (managed services often refuse ``CONFIG GET``):
   policy that is not ``noeviction`` is ``InvalidArgument`` in either mode.
 
 The driver reads no setting, so the kernel states whether ``assume`` is allowed
-(production: only under the accepted risk ``unverified_noeviction``) as
-``assume_allowed`` when it builds the driver; without it ``assume`` is refused.
+(production: only under the accepted risk ``unverified_noeviction``) as the
+constructor argument ``assume_allowed`` when it builds the driver; without it
+``assume`` is refused.
 
 The client is built lazily on the running loop (a redis.asyncio client is
 bound to the loop it first ran on); an error a backend raises is mapped to
@@ -34,7 +35,7 @@ import importlib
 import time
 import uuid
 from collections.abc import Callable, Mapping
-from typing import Any, ClassVar, Literal, NoReturn, Protocol
+from typing import Any, ClassVar, Literal, NoReturn
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -59,12 +60,6 @@ from sandloom.driverkit.testing_isolation import isolated_redis_options
 UNVERIFIED_NOEVICTION_RISK = "unverified_noeviction"
 _POLICY_SETTING = "maxmemory-policy"
 _NOEVICTION = "noeviction"
-
-
-class _InstanceLike(Protocol):
-    name: str
-    driver: str
-    options: Mapping[str, Any]
 
 
 def _redis_errors() -> Any:
@@ -122,6 +117,10 @@ class RedisLeaseProvider(LeaseProvider):
     options_schema = RedisLeaseOptions
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
+    # Beta, the floor for a driver of this repository (spec 2.5): the lane
+    # `redis-drivers` job of ci.yml runs LeaseConformance against a real
+    # Redis. An undeclared tier would be experimental.
+    tier = "beta"
 
     @classmethod
     def test_isolation(
@@ -405,27 +404,8 @@ class RedisLeaseProvider(LeaseProvider):
         return LeaseHolder(owner=str(owner), fence=int(fence))
 
 
-def make_redis_lease_factory(
-    *, assume_allowed: Callable[[], bool]
-) -> Callable[[_InstanceLike], RedisLeaseProvider]:
-    """The driver factory the kernel registers (``build=``): it states the
-    policy for ``never_evicts_check=assume``. It has no default, so no caller
-    builds the driver without stating it."""
-
-    def build(cfg: _InstanceLike) -> RedisLeaseProvider:
-        return RedisLeaseProvider(
-            name=cfg.name,
-            driver=cfg.driver,
-            options=dict(cfg.options),
-            assume_allowed=assume_allowed,
-        )
-
-    return build
-
-
 __all__ = [
     "UNVERIFIED_NOEVICTION_RISK",
     "RedisLeaseOptions",
     "RedisLeaseProvider",
-    "make_redis_lease_factory",
 ]

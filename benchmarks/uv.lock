@@ -2572,6 +2572,7 @@ standard = [
     { name = "redis" },
     { name = "sandloom-billing" },
     { name = "sandloom-identity" },
+    { name = "sandloom-redis" },
     { name = "sandloom-standard" },
     { name = "sandloom-tenancy" },
 ]
@@ -2614,6 +2615,8 @@ requires-dist = [
     { name = "sandloom-billing", marker = "extra == 'standard'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sandloom-identity", marker = "extra == 'admin'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sandloom-identity", marker = "extra == 'standard'", specifier = ">=0.7.0a13,<0.8" },
+    { name = "sandloom-redis", marker = "extra == 'redis'", specifier = ">=0.7.0a13,<0.8" },
+    { name = "sandloom-redis", marker = "extra == 'standard'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sandloom-standard", marker = "extra == 'standard'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sandloom-tenancy", marker = "extra == 'standard'", specifier = ">=0.7.0a13,<0.8" },
     { name = "sentry-sdk", marker = "extra == 'sentry'", specifier = ">=2.72.0,<3" },
@@ -2647,6 +2650,7 @@ dependencies = [
     { name = "sandloom", extra = ["fast", "standard"] },
     { name = "sandloom-billing" },
     { name = "sandloom-identity" },
+    { name = "sandloom-redis" },
     { name = "sandloom-standard" },
     { name = "sandloom-tenancy" },
     { name = "sqlalchemy", extra = ["asyncio"] },
@@ -2675,6 +2679,7 @@ requires-dist = [
     { name = "sandloom", extras = ["fast", "standard"], editable = "../packages/sandloom" },
     { name = "sandloom-billing", editable = "../packages/sandloom-billing" },
     { name = "sandloom-identity", editable = "../packages/sandloom-identity" },
+    { name = "sandloom-redis", editable = "../packages/sandloom-redis" },
     { name = "sandloom-standard", editable = "../packages/sandloom-standard" },
     { name = "sandloom-tenancy", editable = "../packages/sandloom-tenancy" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = "==2.1.5" },
@@ -2718,6 +2723,23 @@ requires-dist = [
     { name = "pillow", specifier = ">=13.0.0,<14" },
     { name = "pyotp", specifier = ">=2.10.0,<3" },
     { name = "qrcode", specifier = ">=8.2,<9" },
+    { name = "sandloom", specifier = ">=0.7.0a13,<0.8" },
+]
+
+[[package]]
+name = "sandloom-redis"
+version = "0.7.0a13"
+source = { editable = "../packages/sandloom-redis" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "redis" },
+    { name = "sandloom" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2,<3" },
+    { name = "redis", specifier = ">=5.2.1,<6" },
     { name = "sandloom", specifier = ">=0.7.0a13,<0.8" },
 ]
 

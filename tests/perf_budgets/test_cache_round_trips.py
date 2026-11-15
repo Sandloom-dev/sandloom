@@ -29,11 +29,11 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 from fastapi import Depends, FastAPI
+from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
 from sandloom.core import idempotency
 from sandloom.core.auth import tokens
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers.redis_atomic_store import RedisAtomicStoreProvider
 from sandloom.core.drivers.redis_cache import RedisCacheProvider
 from sandloom.core.idempotency import cache_store as idempotency_cache_store
 from sandloom.core.idempotency import capture as idempotency_capture

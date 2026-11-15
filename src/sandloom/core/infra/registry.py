@@ -627,6 +627,12 @@ class InfraRegistry:
     def has_driver(self, capability: str, driver: str) -> bool:
         return (capability, driver) in self._drivers
 
+    def driver_target(self, capability: str, driver: str) -> str | None:
+        """The lazy ``"module:Class"`` target a driver was pre-registered with
+        (``None`` for a class or a plain factory, or an unknown driver)."""
+        registration = self._drivers.get((capability, driver))
+        return None if registration is None else registration.target
+
     def driver_tier(self, capability: str, driver: str) -> DriverTier | None:
         """The tier of a registered driver, read from its registration
         (build-free: no class is imported); ``None`` when none is registered."""
@@ -665,6 +671,35 @@ class InfraRegistry:
         if registration is None:
             return ()
         return tuple(n for n in registration.requires if not self._is_installed(n))
+
+    def _refuse_unless_implicit(
+        self,
+        capability: str,
+        name: str,
+        cfg: InstanceConfig,
+        unavailable: list[DriverUnavailableError],
+    ) -> None:
+        """A driver of a package that is not installed is not imported: an
+        instance INFRA names is refused (B037); a synthesized default is
+        resolved when first used."""
+        problem = None if cfg.implicit else self._unavailable(capability, name)
+        if problem is not None:
+            unavailable.append(problem)
+
+    def _target_package_missing(self, capability: str, name: str) -> bool:
+        """Whether instance ``capability/name``'s driver is a lazy target whose
+        own package is not installed (a driver package such as ``sandloom-redis``
+        the kernel pre-registers), so the target cannot be imported. Build-free."""
+        cfg = self._config.get(capability, {}).get(name)
+        registration = (
+            None if cfg is None else self._drivers.get((capability, cfg.driver))
+        )
+        if registration is None or not registration.target:
+            return False
+        if registration.provider_class is not None:
+            return False
+        package = registration.target.partition(":")[0].split(".", 1)[0]
+        return package in self.missing_packages(capability, name)
 
     def _unavailable(
         self,
@@ -878,6 +913,14 @@ class InfraRegistry:
                     fix=f"add INFRA[{capability!r}][{name!r}] or request a "
                     "configured instance",
                 )
+            if self._target_package_missing(capability, name):
+                # A lazy row of a driver package that is not installed (an
+                # implicit default is not refused at startup): B037 with the
+                # install hint, before the target is imported, which would
+                # only fail with a generic load error.
+                problem = self._unavailable(capability, name)
+                if problem is not None:
+                    raise problem
             registration = self._registration(capability, instance_cfg.driver)
             if registration is None:
                 self._check_experimental_driver(capability, instance_cfg.driver)
@@ -1252,6 +1295,9 @@ class InfraRegistry:
         unavailable: list[DriverUnavailableError] = []
         for capability, instances in self._config.items():
             for name, cfg in instances.items():
+                if self._target_package_missing(capability, name):
+                    self._refuse_unless_implicit(capability, name, cfg, unavailable)
+                    continue
                 registration = self._registration(capability, cfg.driver)
                 if registration is None:
                     missing.append(f"{capability}/{name} (driver={cfg.driver!r})")
@@ -1556,6 +1602,10 @@ def _load_driver(registry: InfraRegistry, cfg: InstanceConfig) -> None:
     if entry is None:
         return
     if registry.has_driver(cfg.capability, cfg.driver):
+        if registry.driver_target(cfg.capability, cfg.driver) == entry.value:
+            # The kernel's pre-registered row names this very entry point (a
+            # driver package it knows): one driver, registered lazily already.
+            return
         raise DriverConflictError(
             f"Driver {key!r} is built in, and {entry.value} publishes it too",
             fix="rename the driver in that package: another behaviour is another "

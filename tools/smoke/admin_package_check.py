@@ -29,13 +29,14 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKAGES = (
-    "sandloom",
-    "sandloom-identity",
-    "sandloom-tenancy",
-    "sandloom-billing",
-    "sandloom-admin",
-)
+sys.path.insert(0, str(ROOT / "tools" / "packaging"))
+
+import release_packages  # noqa: E402 - the one list of workspace distributions
+
+#: Every wheel of the one list (``tools/packaging/packages.json``): the kernel
+#: extras and the console name drivers and the standard composition, which the
+#: app installs from these wheels, not from an index.
+PACKAGES = release_packages.NAMES
 PASSWORD = "Package-Check-Passw0rd!"  # noqa: S105 - a throwaway local account
 
 
@@ -50,7 +51,9 @@ class Scenario:
 
 SCENARIOS = (
     Scenario("onlyadmin", "admin", "identity", 18731),
-    Scenario("fullshop", "admin,tenancy,billing", "identity,tenancy,billing", 18732, True),
+    Scenario(
+        "fullshop", "admin,tenancy,billing", "identity,tenancy,billing", 18732, True
+    ),
 )
 
 
@@ -96,7 +99,10 @@ def expect(condition: bool, what: str) -> None:
 def check_http(origin: str, app_dir: Path) -> None:
     status, headers, html = fetch(origin, "/admin/")
     expect(status == 200, "the entry page answers 200")
-    expect("script-src 'self'" in headers.get("content-security-policy", ""), "it has a CSP")
+    expect(
+        "script-src 'self'" in headers.get("content-security-policy", ""),
+        "it has a CSP",
+    )
     expect(headers.get("x-frame-options") == "DENY", "it refuses framing")
     expect(headers.get("x-content-type-options") == "nosniff", "it refuses sniffing")
     expect(headers.get("cache-control") == "no-store", "the entry page is not cached")
@@ -109,7 +115,9 @@ def check_http(origin: str, app_dir: Path) -> None:
 
     asset = html.split('src="/admin/')[1].split('"')[0]
     status, headers, _ = fetch(origin, f"/admin/{asset}")
-    expect(status == 200 and "immutable" in headers["cache-control"], "assets are cached")
+    expect(
+        status == 200 and "immutable" in headers["cache-control"], "assets are cached"
+    )
     expect("javascript" in headers["content-type"], "scripts have a script type")
     status, _, _ = fetch(origin, "/admin/assets/gone-0000.js")
     expect(status == 404, "a missing asset is a 404, not HTML")
@@ -151,7 +159,7 @@ def wait_healthy(origin: str, process: subprocess.Popen, log: Path) -> None:
     raise CheckFailed("the application did not become healthy")
 
 
-NOTE_MODULE_ADMIN = '''RESOURCES = [
+NOTE_MODULE_ADMIN = """RESOURCES = [
     {
         "name": "notes",
         "label": "Notes",
@@ -166,12 +174,18 @@ NOTE_MODULE_ADMIN = '''RESOURCES = [
         "scope": {"parameter": None, "label": "Organization"},
     }
 ]
-'''
+"""
 
 
-def scenario_env(args: argparse.Namespace, scenario: Scenario, base: str) -> dict[str, str]:
+def scenario_env(
+    args: argparse.Namespace, scenario: Scenario, base: str
+) -> dict[str, str]:
     return {
-        **{k: v for k, v in os.environ.items() if not k.startswith(("SANDLOOM_", "VIRTUAL_ENV"))},
+        **{
+            k: v
+            for k, v in os.environ.items()
+            if not k.startswith(("SANDLOOM_", "VIRTUAL_ENV"))
+        },
         "DATABASE_URL": base.replace("postgresql://", "postgresql+asyncpg://"),
         "CACHE_URL": f"{args.redis_url}/{scenario.port % 10 + 2}",
         "BROKER_URL": f"{args.redis_url}/{scenario.port % 10 + 4}",
@@ -193,12 +207,17 @@ def own_screen(app_dir: Path, app: str, env: dict[str, str]) -> None:
             "    user: CurrentUser,\n"
             "    skip: Annotated[int, Query(ge=0)] = 0,\n"
             "    limit: Annotated[int, Query(ge=1, le=100)] = 20,\n",
-        ).replace("services.list_items(limit=limit)", "services.list_items(limit=limit, skip=skip)")
+        ).replace(
+            "services.list_items(limit=limit)",
+            "services.list_items(limit=limit, skip=skip)",
+        )
     )
     services = (module / "services.py").read_text()
     (module / "services.py").write_text(
-        services.replace("async def list_items(*, limit: int)", "async def list_items(*, limit: int, skip: int = 0)")
-        .replace(".limit(limit)", ".offset(skip).limit(limit)")
+        services.replace(
+            "async def list_items(*, limit: int)",
+            "async def list_items(*, limit: int, skip: int = 0)",
+        ).replace(".limit(limit)", ".offset(skip).limit(limit)")
     )
     run(["uv", "run", "sandloom", "generate"], app_dir, env)
     manifest = json.loads((app_dir / app / "shared/admin-manifest.json").read_text())
@@ -208,24 +227,36 @@ def own_screen(app_dir: Path, app: str, env: dict[str, str]) -> None:
     )
 
 
-def run_scenario(args: argparse.Namespace, scenario: Scenario, wheels: Path, work: Path) -> None:
+def run_scenario(
+    args: argparse.Namespace, scenario: Scenario, wheels: Path, work: Path
+) -> None:
     print(f"\n=== scenario {scenario.name}: --with {scenario.batteries}", flush=True)
     app = scenario.name
     database = f"admincheck_{app}_{secrets.token_hex(4)}"
     base_env = dict(os.environ)
     run(
         [
-            str(Path(sys.executable).with_name("sandloom")), "new", app,
-            "--with", scenario.batteries, "--module", "notes", "--dir", str(work),
+            str(Path(sys.executable).with_name("sandloom")),
+            "new",
+            app,
+            "--with",
+            scenario.batteries,
+            "--module",
+            "notes",
+            "--dir",
+            str(work),
         ],
         ROOT,
         base_env,
     )
     app_dir = work / app
     pyproject = app_dir / "pyproject.toml"
-    expect("sandloom-admin" in pyproject.read_text(), "the app depends on sandloom-admin")
     expect(
-        '"admin"' in (app_dir / app / "asgi.py").read_text(), "asgi.py loads the console"
+        "sandloom-admin" in pyproject.read_text(), "the app depends on sandloom-admin"
+    )
+    expect(
+        '"admin"' in (app_dir / app / "asgi.py").read_text(),
+        "asgi.py loads the console",
     )
     # An app generated from a checkout points at it; the check wants the real wheels.
     project = re.sub(
@@ -256,19 +287,33 @@ def run_scenario(args: argparse.Namespace, scenario: Scenario, wheels: Path, wor
             "editable" not in installed.split("sandloom-admin")[1].splitlines()[0],
             "from the wheel, not the source tree",
         )
-        wheel_console = list((app_dir / ".venv").rglob("sandloom_admin/console/index.html"))
+        wheel_console = list(
+            (app_dir / ".venv").rglob("sandloom_admin/console/index.html")
+        )
         expect(len(wheel_console) == 1, "the wheel carries the built console")
         run(["uv", "run", "sandloom", "generate"], app_dir, env)
         run(["uv", "run", "sandloom", "generate", "--check"], app_dir, env)
         if scenario.with_own_screen:
             own_screen(app_dir, app, env)
-        run(["uv", "run", "sandloom", "migrate", "upgrade-all", "--apply"], app_dir, env)
+        run(
+            ["uv", "run", "sandloom", "migrate", "upgrade-all", "--apply"], app_dir, env
+        )
 
         log = work / f"{app}.log"
         with log.open("w") as out:
             process = subprocess.Popen(  # noqa: S603 - the generated app's own entry point
-                ["uv", "run", "uvicorn", f"{app}.asgi:app", "--port", str(scenario.port)],  # noqa: S607
-                cwd=app_dir, env=env, stdout=out, stderr=subprocess.STDOUT,
+                [
+                    "uv",
+                    "run",
+                    "uvicorn",
+                    f"{app}.asgi:app",
+                    "--port",
+                    str(scenario.port),
+                ],  # noqa: S607
+                cwd=app_dir,
+                env=env,
+                stdout=out,
+                stderr=subprocess.STDOUT,
             )
         wait_healthy(origin, process, log)
         check_http(origin, app_dir)
@@ -276,7 +321,8 @@ def run_scenario(args: argparse.Namespace, scenario: Scenario, wheels: Path, wor
         admin, member = f"owner@{app}.example.com", f"member@{app}.example.com"
         for address in (admin, member):
             status, _, _ = fetch(
-                origin, "/auth/register",
+                origin,
+                "/auth/register",
                 data={"email": address, "full_name": "Check", "password": PASSWORD},
             )
             expect(status == 202, f"{address} registered")
@@ -288,7 +334,11 @@ def run_scenario(args: argparse.Namespace, scenario: Scenario, wheels: Path, wor
         grant = ["uv", "run", "sandloom", "security", "grant-admin"]
         missing = subprocess.run(  # noqa: S603 - fixed command
             [*grant, "--email", "nobody@example.com"],
-            cwd=app_dir, env=env, capture_output=True, text=True, check=False,
+            cwd=app_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         expect(
             missing.returncode != 0 and "sandloom admin create" in missing.stderr,
@@ -296,7 +346,11 @@ def run_scenario(args: argparse.Namespace, scenario: Scenario, wheels: Path, wor
         )
         unverified = subprocess.run(  # noqa: S603 - fixed command
             [*grant, "--email", admin, "--apply", "--reason", "first admin"],
-            cwd=app_dir, env=env, capture_output=True, text=True, check=False,
+            cwd=app_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         expect(
             unverified.returncode != 0 and "--take-over" in unverified.stderr,
@@ -305,8 +359,12 @@ def run_scenario(args: argparse.Namespace, scenario: Scenario, wheels: Path, wor
         create = ["uv", "run", "sandloom", "admin", "create", "--email", admin]
         done = subprocess.run(  # noqa: S603 - fixed command
             [*create, "--take-over", "--password-stdin"],
-            cwd=app_dir, env=env, input=PASSWORD + "\n",
-            capture_output=True, text=True, check=False,
+            cwd=app_dir,
+            env=env,
+            input=PASSWORD + "\n",
+            capture_output=True,
+            text=True,
+            check=False,
         )
         expect(done.returncode == 0, "admin create --take-over sets the password")
         run([*create, "--if-missing"], app_dir, env)
@@ -322,7 +380,9 @@ def run_scenario(args: argparse.Namespace, scenario: Scenario, wheels: Path, wor
         with urlopen(request, timeout=10) as response:  # noqa: S310 - loopback
             audit = json.loads(response.read())
         expect(
-            any(r["action"] == "identity.user.platform_admin_taken_over" for r in audit),
+            any(
+                r["action"] == "identity.user.platform_admin_taken_over" for r in audit
+            ),
             "the take-over is in the audit log",
         )
 
@@ -333,12 +393,20 @@ def run_scenario(args: argparse.Namespace, scenario: Scenario, wheels: Path, wor
             "SANDLOOM_CONSOLE_MEMBER": member,
             "SANDLOOM_CONSOLE_PASSWORD": PASSWORD,
             "SANDLOOM_CONSOLE_MODULES": scenario.modules,
-            **({"SANDLOOM_CONSOLE_APP_RESOURCE": "Notes"} if scenario.with_own_screen else {}),
+            **(
+                {"SANDLOOM_CONSOLE_APP_RESOURCE": "Notes"}
+                if scenario.with_own_screen
+                else {}
+            ),
         }
         run(
             [
-                shutil.which("npx") or "npx", "playwright", "test",
-                "--config", "playwright.package.config.ts", "--reporter=line",
+                shutil.which("npx") or "npx",
+                "playwright",
+                "test",
+                "--config",
+                "playwright.package.config.ts",
+                "--reporter=line",
             ],
             ROOT / "admin",
             browser_env,
@@ -374,7 +442,15 @@ def main() -> int:
     try:
         for name in PACKAGES:
             run(
-                ["uv", "build", "--wheel", "-q", "--out-dir", str(wheels), f"packages/{name}"],
+                [
+                    "uv",
+                    "build",
+                    "--wheel",
+                    "-q",
+                    "--out-dir",
+                    str(wheels),
+                    f"packages/{name}",
+                ],
                 ROOT,
                 dict(os.environ),
             )

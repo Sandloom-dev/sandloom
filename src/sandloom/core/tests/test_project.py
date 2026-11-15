@@ -187,6 +187,7 @@ def test_apps_depend_on_sandloom_and_each_chosen_module_package(
     shop = tomllib.loads(_read(tmp_path / "shop", "pyproject.toml"))
     assert shop["project"]["dependencies"] == [
         "sandloom[redis,celery]>=0.7.0a13,<0.8",
+        "sandloom-redis>=0.7.0a13,<0.8",
         "sandloom-identity>=0.7.0a13,<0.8",
     ]
 
@@ -194,7 +195,19 @@ def test_apps_depend_on_sandloom_and_each_chosen_module_package(
     # the generated compose runs redis and the Celery worker).
     generate_project("probe", tmp_path)
     probe = tomllib.loads(_read(tmp_path / "probe", "pyproject.toml"))
-    assert probe["project"]["dependencies"] == ["sandloom[redis,celery]>=0.7.0a13,<0.8"]
+    assert probe["project"]["dependencies"] == [
+        "sandloom[redis,celery]>=0.7.0a13,<0.8",
+        "sandloom-redis>=0.7.0a13,<0.8",
+    ]
+
+    # A published app (no local checkout, so no `[tool.uv.sources]`) gets
+    # sandloom-redis through the `redis` extra alone.
+    generate_project("published", tmp_path, framework_source="pypi")
+    published = tomllib.loads(_read(tmp_path / "published", "pyproject.toml"))
+    assert published["project"]["dependencies"] == [
+        "sandloom[redis,celery]>=0.7.0a13,<0.8",
+    ]
+    assert "tool" not in published or "sources" not in published["tool"].get("uv", {})
 
 
 def test_generated_app_installs_the_fast_extra(tmp_path: Path) -> None:

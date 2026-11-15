@@ -11,6 +11,7 @@ dependencies = [
     "sandloom[standard,check,fast,sentry,sqlite]",
     "sandloom-billing",
     "sandloom-identity",
+    "sandloom-redis",
     "sandloom-standard",
     "sandloom-tenancy",
 ]
@@ -71,6 +72,10 @@ editable = true
 
 [tool.uv.sources.sandloom-identity]
 path = "packages/sandloom-identity"
+editable = true
+
+[tool.uv.sources.sandloom-redis]
+path = "packages/sandloom-redis"
 editable = true
 
 [tool.uv.sources.sandloom-s3]

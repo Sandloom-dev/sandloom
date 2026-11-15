@@ -19,9 +19,9 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from sandloom_redis.lease import RedisLeaseProvider
 
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers.redis_lease import RedisLeaseProvider
 from sandloom.core.infra.ports.lease import LeaseProvider
 from sandloom.core.infra.ports.taskqueue import TaskQueueProvider
 from sandloom.driverkit import HealthResult

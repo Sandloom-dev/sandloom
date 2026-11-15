@@ -1,7 +1,8 @@
 """The sixteen module subsets boot from built wheels in clean venvs (slow, KB-04).
 
-The wheels of ``sandloom``, ``sandloom-standard`` and the four module
-distributions are built from this tree once, then:
+The wheels of ``sandloom``, ``sandloom-standard``, the four module
+distributions and the driver packages of the standard set (``sandloom-redis``)
+are built from this tree once, then:
 
 - **P2** (I-19): one clean venv per subset with plain ``sandloom`` and exactly
   the subset's module wheels, each with only the dependencies its published
@@ -62,10 +63,14 @@ pytestmark = [
 sys.path.insert(0, str(REPO / "tools" / "packaging"))
 import release_packages  # noqa: E402  (stdlib only; the one package list)
 
-#: The kernel, the root and the module distributions (not driver packages: a
-#: subset is a set of modules), from the one list, in its release order.
+#: The kernel, the root and the module distributions, from the one list, in its
+#: release order, and the driver packages of the standard set (a subset is a set
+#: of modules, but the ``sandloom[standard]`` extra requires those drivers, so
+#: the extras install resolves them from these wheels).
 PACKAGES = tuple(
-    p.name for p in release_packages.PACKAGES if p.kind in ("kernel", "root", "module")
+    p.name
+    for p in release_packages.PACKAGES
+    if p.kind in ("kernel", "root", "module") or (p.kind == "driver" and p.standard)
 )
 assert set(PACKAGES) >= {
     "sandloom",
