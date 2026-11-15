@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from sandloom_redis.eventbus.driver import make_streams_driver
 
 from sandloom.core.config.common import Environment
 from sandloom.core.config.settings import settings
@@ -85,8 +84,8 @@ def test_driver_refuses_volatile_bus_in_prod(monkeypatch: pytest.MonkeyPatch) ->
     for driver in ("memory", "redis"):
         cfg = InstanceConfig(capability="eventbus", name="side", driver=driver)
         assert drivers[driver](cfg).bus() is not None
-    streams = InstanceConfig(capability="eventbus", name="side", driver="streams")
-    assert "durable" in make_streams_driver()(streams).features()
+    # The policy covers the volatile drivers only: no durable driver is in its table.
+    assert set(drivers) == {"memory", "redis"}
 
 
 def _registry_for(resolved: Any) -> Any:
