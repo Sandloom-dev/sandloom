@@ -10,11 +10,9 @@ under ``SANDLOOM_CELERY_REQUIRED=1``, a skip elsewhere).
 
 from __future__ import annotations
 
-import os
-
 import pytest
 import sandloom_celery
-from _celery_broker_guard import broker_required, require_broker, source_tree_gap
+from _celery_broker_guard import require_broker, source_tree_gap
 
 from sandloom.core.config.settings import settings
 
@@ -23,9 +21,7 @@ from sandloom.core.config.settings import settings
 def _tests_run_against_the_built_wheel() -> None:
     """Where the lane is required (``SANDLOOM_CELERY_REQUIRED=1``) the package
     must be the installed wheel, not the source tree (see ``source_tree_gap``)."""
-    gap = source_tree_gap(
-        sandloom_celery.__file__, required=broker_required(os.environ)
-    )
+    gap = source_tree_gap(sandloom_celery.__file__)
     if gap:
         pytest.fail(gap, pytrace=False)
 
@@ -34,7 +30,7 @@ def _tests_run_against_the_built_wheel() -> None:
 def real_broker() -> str:
     """The URL of the real test broker; fails or skips where it is down (see
     ``_celery_broker_guard``). Asked once per process."""
-    require_broker(settings.broker_url, required=broker_required(os.environ))
+    require_broker(settings.broker_url)
     return settings.broker_url
 
 
@@ -42,7 +38,5 @@ def real_broker() -> str:
 def real_cache() -> str:
     """The URL of the real test cache (the lease store of the host groups); fails
     or skips where it is down, by the rules of ``real_broker``."""
-    require_broker(
-        settings.cache_url, required=broker_required(os.environ), what="cache"
-    )
+    require_broker(settings.cache_url, what="cache")
     return settings.cache_url

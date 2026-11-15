@@ -1762,8 +1762,8 @@ guarantees:
   - packages/sandloom-redis/tests/test_redis_eventbus_maintenance.py::test_reclaim_advances_server_scan_cursor
   - src/sandloom/core/tests/test_transport.py::test_poison_dead_lettered_after_exactly_max_deliveries
   - packages/sandloom-redis/tests/test_redis_eventbus_maintenance.py::test_dlq_append_failure_leaves_source_message_unacked
-  - src/sandloom/core/tests/test_eventbus_kit.py::TestTheStreamsDriver::test_max_deliveries_moves_the_entry_to_the_dlq
-  - src/sandloom/core/tests/test_eventbus_kit.py::TestTheStreamsDriver::test_the_source_is_acked_only_after_the_dlq_append
+  - packages/sandloom-redis/tests/test_redis_eventbus_kit.py::TestTheStreamsDriver::test_max_deliveries_moves_the_entry_to_the_dlq
+  - packages/sandloom-redis/tests/test_redis_eventbus_kit.py::TestTheStreamsDriver::test_the_source_is_acked_only_after_the_dlq_append
 - id: G-EVENT-11
   rests_on:
   - capability: eventbus
@@ -7465,7 +7465,7 @@ capabilities:
   tests:
   - packages/sandloom-redis/tests/test_redis_eventbus_split_identity.py::test_dlq_replay_reaches_only_the_failed_group
   - src/sandloom/core/tests/test_streams_split_identity.py::test_memory_dlq_replay_is_targeted_too
-  - src/sandloom/core/tests/test_transport_redis.py::test_dlq_replay_republishes_and_clears
+  - packages/sandloom-redis/tests/test_transport_redis.py::test_dlq_replay_republishes_and_clears
 - id: C-OPS-04
   statement: sandloom streams groups <channel> | consumers [--all] | release-group <ch> <g> report group lag/pending,
     live consumers (flagging starved channel versions) and release a group.
