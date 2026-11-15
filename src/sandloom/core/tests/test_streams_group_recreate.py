@@ -20,8 +20,8 @@ from typing import Any
 
 import orjson
 import pytest
+from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 
-from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.infra.ports.eventbus import ConsumerInfo

@@ -4,7 +4,7 @@ This directory defines the nine publishable distributions Sandloom ships, per
 [ADR-0001](../docs/adr/0001-framework-distribution.md): the framework,
 `sandloom`, the standard composition root, `sandloom-standard`
 ([ADR-0012](../docs/adr/0012-kernel-boundary.md) decision 3), and four
-ecosystem module packages built the way a third party ships a module. The optional driver distributions are `sandloom-s3` (the S3-compatible object store), `sandloom-redis` (the Redis `atomic_store`, `lease` and `broadcast` drivers) and `sandloom-celery` (the Celery `taskqueue` driver). The source of truth stays in the monorepo tree (`src/sandloom`,
+ecosystem module packages built the way a third party ships a module. The optional driver distributions are `sandloom-s3` (the S3-compatible object store), `sandloom-redis` (the Redis `atomic_store`, `lease`, `broadcast` and `cache` drivers and the Streams `eventbus` driver) and `sandloom-celery` (the Celery `taskqueue` driver). The source of truth stays in the monorepo tree (`src/sandloom`,
 `src/sandloom_identity`, `src/sandloom_tenancy`, `src/sandloom_billing`,
 `src/sandloom_admin`); each
 package here builds a wheel and a self-contained source archive through the
@@ -22,7 +22,7 @@ checks, Alembic `env.py`, docker mounts, documentation imports) is undisturbed.
 | `sandloom-tenancy` | `sandloom_tenancy` (organizations, membership, invitations) | `sandloom>=0.7.0a13,<0.8`, email-validator | none | `sandloom.modules`: `tenancy = "sandloom_tenancy"` |
 | `sandloom-billing` | `sandloom_billing` (plans, subscriptions, credits, Stripe) | `sandloom>=0.7.0a13,<0.8` | none | `sandloom.modules`: `billing = "sandloom_billing"` |
 | `sandloom-admin` | `sandloom_admin` (the prebuilt owner console, served at `/admin/`) | `sandloom>=0.7.0a13,<0.8` | none | `sandloom.modules`: `admin = "sandloom_admin"` |
-| `sandloom-redis` | `sandloom_redis` (Redis `atomic_store`, `lease`, `broadcast` and `cache` drivers) | `sandloom>=0.7.0a13,<0.8`, redis, pydantic | none | `sandloom.drivers`: `atomic_store.redis`, `lease.redis`, `broadcast.redis`, `cache.redis` (`sandloom_redis.<capability>:<Provider>`) |
+| `sandloom-redis` | `sandloom_redis` (Redis `atomic_store`, `lease`, `broadcast` and `cache` drivers, the Streams `eventbus` driver) | `sandloom>=0.7.0a13,<0.8`, redis, pydantic, orjson | none | `sandloom.drivers`: `atomic_store.redis`, `lease.redis`, `broadcast.redis`, `cache.redis` (`sandloom_redis.<capability>:<Provider>`), `eventbus.streams` (`sandloom_redis.eventbus.driver:StreamsEventBusProvider`) |
 | `sandloom-celery` | `sandloom_celery` (the Celery `taskqueue` driver, its worker and scheduler host and its broker probe) | `sandloom>=0.7.0a13,<0.8`, celery[redis], pydantic, orjson | none | `sandloom.drivers`: `taskqueue.celery = "sandloom_celery.taskqueue:CeleryTaskQueueProvider"` |
 | `sandloom-s3` | `sandloom_s3` (S3-compatible object storage) | `sandloom>=0.7.0a13,<0.8`, boto3, botocore, anyio, pydantic | none | `sandloom.drivers`: `objectstore.s3 = "sandloom_s3:S3ObjectStore"` |
 
@@ -30,7 +30,7 @@ Extras of `sandloom`:
 
 | extra | adds | for |
 | --- | --- | --- |
-| `redis` | `redis`, `sandloom-redis` (`>=0.7.0a13,<0.8`) | the Streams event bus, and the Redis `atomic_store`, `lease`, `broadcast` and `cache` drivers |
+| `redis` | `redis`, `sandloom-redis` (`>=0.7.0a13,<0.8`) | the Redis `atomic_store`, `lease`, `broadcast` and `cache` drivers and the Streams event bus |
 | `celery` | `celery[redis]`, `sandloom-celery` (`>=0.7.0a13,<0.8`) | the Celery task queue, its worker host and scheduler |
 | `standard` | `sandloom[redis,celery]`, `sandloom-redis`, `sandloom-celery`, `sandloom-standard`, `sandloom-identity`, `sandloom-tenancy`, `sandloom-billing` (each `>=0.7.0a13,<0.8`) | the batteries-included set and its composition root <!-- sandloom-release --> |
 | `admin` | `sandloom[redis,celery]`, `sandloom-admin`, `sandloom-identity` | the admin console; deliberately not in `standard`, because an installed module joins `sandloom.main` and a console is a decision |

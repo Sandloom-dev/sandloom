@@ -61,7 +61,7 @@ def test_no_driver_module_is_imported_until_an_instance_selects_it() -> None:
     for unselected in (
         "sandloom_redis.cache",
         "sandloom_celery.taskqueue",
-        "sandloom.core.drivers.event_bus_driver",
+        "sandloom_redis.eventbus.driver",
         "sandloom.core.drivers.sqlalchemy_database",
         "sandloom.core.drivers.local_objectstore",
     ):

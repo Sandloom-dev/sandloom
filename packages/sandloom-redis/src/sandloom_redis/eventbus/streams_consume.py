@@ -9,19 +9,6 @@ from typing import Any, cast
 
 import orjson
 
-from sandloom.core.drivers.redis_eventbus.streams_groups import _StreamsGroups
-from sandloom.core.drivers.redis_eventbus.streams_transport_base import (
-    REPLY_NOGROUP,
-    REPLY_UNKNOWN_COMMAND,
-    REPLY_WRONGTYPE,
-    _backend_errors,
-    _is_absent,
-    _is_nogroup,
-    _mapped,
-    _PendingEntry,
-    _reraise_unless_absent,
-    _stream_id_key,
-)
 from sandloom.driverkit import Delivery, EventEnvelope
 from sandloom.driverkit._builtin_streams import (
     POISON_SCAN_COUNT,
@@ -34,6 +21,19 @@ from sandloom.driverkit.eventbus_support import (
     TARGET_GROUP_FIELD,
 )
 from sandloom.driverkit.metrics import safe_inc
+from sandloom_redis.eventbus.streams_groups import _StreamsGroups
+from sandloom_redis.eventbus.streams_transport_base import (
+    REPLY_NOGROUP,
+    REPLY_UNKNOWN_COMMAND,
+    REPLY_WRONGTYPE,
+    _backend_errors,
+    _is_absent,
+    _is_nogroup,
+    _mapped,
+    _PendingEntry,
+    _reraise_unless_absent,
+    _stream_id_key,
+)
 
 logger = logging.getLogger("sandloom.core.eventing.transport")
 

@@ -17,8 +17,8 @@ from typing import Any
 
 import orjson
 import pytest
+from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 
-from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.transport_base import DLQ_REASON_SOURCE_MISSING
 from sandloom.core.infra.errors import Unavailable
@@ -577,7 +577,7 @@ async def test_forced_pending_scan_finds_entries_claimed_into_our_pel(
 async def test_read_batch_decodes_each_entry_once_and_notes_the_last(
     transport, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from sandloom.core.drivers.redis_eventbus import streams_consume as transport_mod
+    from sandloom_redis.eventbus import streams_consume as transport_mod
 
     t, stream, _client = transport
     await t.ensure_group(stream, "g")

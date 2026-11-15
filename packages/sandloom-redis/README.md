@@ -11,6 +11,7 @@ discovers the drivers through the `sandloom.drivers` entry-point group.
 | `lease.redis` | `lease` | `sandloom_redis.lease:RedisLeaseProvider` |
 | `broadcast.redis` | `broadcast` | `sandloom_redis.broadcast:RedisBroadcastProvider` |
 | `cache.redis` | `cache` | `sandloom_redis.cache:RedisCacheProvider` |
+| `eventbus.streams` | `eventbus` | `sandloom_redis.eventbus.driver:StreamsEventBusProvider` |
 
 Each driver declares the tier `beta`. The `redis-drivers` job of `ci.yml`
 (required by the aggregate check "CI required") runs the conformance kits

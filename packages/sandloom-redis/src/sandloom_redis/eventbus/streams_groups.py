@@ -10,15 +10,6 @@ from typing import Any
 
 import orjson
 
-from sandloom.core.drivers.redis_eventbus.streams_transport_base import (
-    REPLY_WRONGTYPE,
-    _as_int,
-    _backend_errors,
-    _is_absent,
-    _mapped,
-    _stream_id_key,
-    _StreamsTransportBase,
-)
 from sandloom.driverkit import (
     ConsumerInfo,
     GroupInfo,
@@ -31,6 +22,15 @@ from sandloom.driverkit._builtin_streams import INVENTORY_STALE_SECONDS
 from sandloom.driverkit.eventbus_support import (
     owner_conflict_message,
     owners_match,
+)
+from sandloom_redis.eventbus.streams_transport_base import (
+    REPLY_WRONGTYPE,
+    _as_int,
+    _backend_errors,
+    _is_absent,
+    _mapped,
+    _stream_id_key,
+    _StreamsTransportBase,
 )
 
 logger = logging.getLogger("sandloom.core.eventing.transport")

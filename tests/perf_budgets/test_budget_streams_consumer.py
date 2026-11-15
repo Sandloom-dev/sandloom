@@ -20,8 +20,8 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from sandloom_redis.cache import RedisCacheProvider
+from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 
-from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
 from sandloom.core.eventing import consumer_inbox as transport_mod
 from sandloom.core.eventing.consumer_inbox import ConsumerInbox
 from sandloom.core.eventing.envelope import EventEnvelope

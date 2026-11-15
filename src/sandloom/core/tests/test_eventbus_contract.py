@@ -6,8 +6,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from sandloom_redis.eventbus.driver import StreamsEventBusProvider
 
-from sandloom.core.drivers.event_bus_driver import StreamsEventBusProvider
 from sandloom.core.eventing.memory_transport import MemoryTransport
 from sandloom.core.eventing.streams_bus import StreamsEventBus, build_event_bus
 from sandloom.core.eventing.transport_base import declared_features, partial_publish

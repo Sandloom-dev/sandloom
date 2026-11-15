@@ -1,13 +1,14 @@
 [project]
 name = "sandloom-redis"
 version = "0.7.0a13"
-description = "Redis drivers for Sandloom: atomic store, lease, broadcast and cache"
+description = "Redis drivers for Sandloom: atomic store, lease, broadcast, cache and the Streams event bus"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 dependencies = [
     "sandloom>=0.7.0a13,<0.8",
+    "orjson>=3.13.0,<4",
     "pydantic>=2,<3",
     "redis>=5.2.1,<6",
 ]
@@ -17,6 +18,7 @@ dependencies = [
 "lease.redis" = "sandloom_redis.lease:RedisLeaseProvider"
 "broadcast.redis" = "sandloom_redis.broadcast:RedisBroadcastProvider"
 "cache.redis" = "sandloom_redis.cache:RedisCacheProvider"
+"eventbus.streams" = "sandloom_redis.eventbus.driver:StreamsEventBusProvider"
 
 [build-system]
 requires = ["hatchling>=1.27"]

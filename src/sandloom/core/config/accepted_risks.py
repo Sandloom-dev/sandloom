@@ -93,7 +93,7 @@ RISKS: tuple[Risk, ...] = (
         "A volatile event bus (memory / Redis Pub/Sub): in prod the driver is "
         "admitted and events can be lost; outside prod durable consumers may "
         "run on Pub/Sub (lost or duplicated deliveries).",
-        "event-bus driver (sandloom.core.drivers.event_bus_driver) and the "
+        "volatile bus provider (sandloom.core.eventing.volatile_provider) and the "
         "consumer runtime (sandloom.core.consumers.callbacks)",
         outside_prod=True,
     ),

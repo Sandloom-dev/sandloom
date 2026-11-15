@@ -59,7 +59,7 @@ NOQA_BASELINE: dict[str, int] = {
     # up` ask a .env database's renderer for schema_from_models (SQLite) only
     # when .env names one; importing the renderers costs the dev CLI 0.3 s
     # and loads the settings.
-    "PLC0415": 104,  # -8 +1 (idk-pkg-redis-streams): the cache driver moved into sandloom-redis, event_bus_driver imports it lazily; -6: the Celery halves move to the driver, which imports by importlib (idk-worker-port); -3 (idk-pkg-celery-move)
+    "PLC0415": 103,  # -1 (idk-pkg-redis-eventbus): the streams driver moved into sandloom-redis and imports its cache module at the top; -8 +1 (idk-pkg-redis-streams): the cache driver moved into sandloom-redis; -6: the Celery halves move to the driver, which imports by importlib (idk-worker-port); -3 (idk-pkg-celery-move)
     "RUF001": 4,
     "RUF005": 2,
     "RUF012": 3,  # -1 in the kernel, +1 in sandloom_celery/worker.py (idk-pkg-celery-move)

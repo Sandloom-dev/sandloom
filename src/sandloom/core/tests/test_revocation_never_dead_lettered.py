@@ -338,7 +338,7 @@ async def test_redis_streams_never_dead_letter_group_survives_the_old_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     redis_asyncio = pytest.importorskip("redis.asyncio")
-    from sandloom.core.drivers.redis_eventbus.streams_transport import (
+    from sandloom_redis.eventbus.streams_transport import (
         RedisStreamsTransport,
     )
 

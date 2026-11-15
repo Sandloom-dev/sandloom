@@ -21,8 +21,8 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 
-from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
 from sandloom.core.eventing.bus_metrics import get_event_bus_metrics
 from sandloom.core.eventing.envelope import EventEnvelope, OutboundEvent
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
