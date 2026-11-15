@@ -86,6 +86,15 @@ def test_credentials_are_masked_in_the_stored_tail() -> None:
         hook.redact("redis://:secret@localhost:6379/0")
         == "redis://***@localhost:6379/0"
     )
+    assert (
+        hook.redact("fatal: https://ghp_T0KEN@github.com/o/r.git not found")
+        == "fatal: https://***@github.com/o/r.git not found"
+    )
+    assert (
+        hook.redact("GET /x?user=a&password=hunter2&api_key=K3Y#f")
+        == "GET /x?user=a&password=***&api_key=***#f"
+    )
+    assert hook.redact("see docs/a.md and ?page=2") == "see docs/a.md and ?page=2"
     assert hook.redact("https://example.test/package") == "https://example.test/package"
 
 
@@ -232,7 +241,9 @@ def test_a_credential_at_the_cutoff_is_masked_before_the_cut(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     secret = "cut0ff-pass"
-    tail = f"https://user:{secret}@example.test/" + "x" * 280  # last 300 start mid-password
+    tail = (
+        f"https://user:{secret}@example.test/" + "x" * 280
+    )  # last 300 start mid-password
     monkeypatch.setattr(
         hook,
         "_git",
@@ -240,7 +251,9 @@ def test_a_credential_at_the_cutoff_is_masked_before_the_cut(
     )
 
     def raise_long(top: str) -> tuple[dict[str, str], str, int]:
-        raise OSError("x" * 270 + f" redis://:{secret}@localhost:6379/0")  # first 300 end on it
+        raise OSError(
+            "x" * 270 + f" redis://:{secret}@localhost:6379/0"
+        )  # first 300 end on it
 
     for run in (lambda top: ({}, tail, 1), raise_long):
         monkeypatch.setattr(hook, "run_checks", run)
