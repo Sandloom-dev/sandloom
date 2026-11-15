@@ -43,9 +43,10 @@ from sandloom.core.drivers.celery_worker import (
     default_app_matches,
     get_default_app,
 )
-from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.driverkit import (
+    DEFAULT_INSTANCE,
     HealthResult,
+    InstanceConfig,
     InvalidArgument,
     TaskQueueProvider,
     Timeout,
@@ -78,6 +79,10 @@ class CeleryTaskQueueOptions(BaseModel):
     #: The kernel's record TTL (``RECORD_TTL_SECONDS``, one day), written out:
     #: the driver imports no kernel module (test_replay_limits keeps them equal).
     dedupe_ttl_seconds: int = Field(default=24 * 60 * 60, ge=1, le=604800)
+    #: The bound of the broker probe behind ``health()`` (connect and socket
+    #: timeouts included); the kernel fills it from ``HEALTH_CHECK_TIMEOUT_SECONDS``
+    #: (``fill_driver_defaults``): the driver reads no kernel setting.
+    health_timeout_seconds: float = Field(default=5.0, gt=0, le=300)
 
 
 #: Threads that run the blocking broker publish of ``send``.
@@ -134,6 +139,9 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         super().__init__(name=name, driver=driver, options=options)
         self._built_app = app
         self._app_factory: Callable[[], Any] = app_factory or (lambda: app)
+        self._health_timeout = CeleryTaskQueueOptions.model_validate(
+            options
+        ).health_timeout_seconds
 
     @property
     def _app(self) -> Any:
@@ -294,7 +302,7 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         was invisible. A broker that refuses the connection is a failed
         probe carrying the error's type name (spec 2.4), never its text."""
         try:
-            return await probe_broker(self._app)
+            return await probe_broker(self._app, limit_seconds=self._health_timeout)
         except BrokerUnreachableError as exc:
             return HealthResult(status="fail", details={"error": type(exc).__name__})
 

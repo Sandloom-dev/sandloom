@@ -115,6 +115,8 @@ def _ops_app(
         monkeypatch.setattr(settings, "broker_url", broker)
     app = FastAPI()
     core = CoreFacade(app=app)
+    # Before the registry: the kernel fills the celery probe's bound from it.
+    monkeypatch.setattr(settings, "health_check_timeout_seconds", 2.0)
     # The registry ``create_app`` binds: the default taskqueue is ``celery``.
     core.set_infra(build_infra_registry(InMemorySchemaRegistry(), load_plugins=False))
 
@@ -126,7 +128,6 @@ def _ops_app(
     core.module_descriptors = [_DESCRIPTORS[name] for name in loaded]
     monkeypatch.setattr(settings, "service_bindings", {})
     monkeypatch.setattr(settings, "health_cache_ttl_seconds", ttl)
-    monkeypatch.setattr(settings, "health_check_timeout_seconds", 2.0)
     monkeypatch.setattr(settings, "module_required", [])
     monkeypatch.setattr(settings, "sandloom_modules", loaded)
     monkeypatch.setattr(settings, "internal_api_token", _TOKEN)

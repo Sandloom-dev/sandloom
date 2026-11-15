@@ -357,6 +357,12 @@ _REDIS_CLIENT_SETTINGS: dict[str, str] = {
     "retry_attempts": "cache_retry_attempts",
 }
 
+#: ``option -> setting``: what a ``celery`` task queue's broker probe is
+#: bounded by.
+_CELERY_SETTINGS: dict[str, str] = {
+    "health_timeout_seconds": "health_check_timeout_seconds",
+}
+
 #: ``option -> setting``: the bounds of a ``redis`` / ``streams`` event bus
 #: client (its read timeout is the bus's own).
 _TRANSPORT_CLIENT_SETTINGS: dict[str, str] = {
@@ -436,7 +442,7 @@ def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
     timeout and health-check interval, and the ``default`` one ``url`` too
     (a named bus without one shares the default transport); ``streams`` buses
     their ``retention_seconds``, ``max_length`` and ``prefix``; ``celery`` task
-    queues ``broker`` and ``backend``.
+    queues ``broker``, ``backend`` and the probe bound ``health_timeout_seconds``.
     """
     cache_url = getattr(settings, "cache_url", None)
     for cfg in (config.get("cache") or {}).values():
@@ -461,6 +467,7 @@ def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
         if cfg.driver == "celery":
             _fill_url(cfg.options, "broker", getattr(settings, "broker_url", None))
             _fill_url(cfg.options, "backend", cache_url)
+            _fill(cfg.options, settings, _CELERY_SETTINGS)
 
 
 def load_infra_config(settings: Settings) -> InfraConfig:

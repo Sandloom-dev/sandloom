@@ -290,6 +290,7 @@ def test_the_worker_host_boots_registers_and_wires_the_process_hooks(
     assert seen["argv"] == [
         "worker",
         "--loglevel=DEBUG",
+        "--pool=prefork",
         "--queues=mail,default",
         "--concurrency=3",
     ]
@@ -309,9 +310,47 @@ def test_the_worker_host_defaults_to_the_default_queue_and_info(
     _fake_celery(monkeypatch, seen)
     app = _celery()
     CeleryWorkerHost(lambda: app).run_worker(_Boot())
-    assert seen["argv"] == ["worker", "--loglevel=INFO"]
+    assert seen["argv"] == ["worker", "--loglevel=INFO", "--pool=prefork"]
     CeleryWorkerHost(lambda: app).run_worker(_Boot(), loglevel="nonsense")
-    assert seen["argv"] == ["worker", "--loglevel=INFO"]
+    assert seen["argv"] == ["worker", "--loglevel=INFO", "--pool=prefork"]
+
+
+@pytest.mark.parametrize("pool", ["solo", "threads"])
+def test_a_pool_without_children_starts_and_stops_the_process_in_the_host(
+    monkeypatch: pytest.MonkeyPatch, pool: str
+) -> None:
+    """solo and threads run the messages in the worker process: Celery sends
+    no ``worker_process_init`` / ``worker_process_shutdown`` there, so the host
+    starts the process on ``worker_init`` and stops it on ``worker_shutdown``."""
+    seen: dict[str, Any] = {}
+
+    def run(app: Any, argv: Any) -> int:
+        seen["argv"] = list(argv)
+        signals.worker_init.send(sender=None)
+        signals.worker_shutdown.send(sender=None)
+        return 0
+
+    monkeypatch.setattr(celery_worker, "_run_celery", run)
+    boot = _Boot(_table())
+    app = _celery()
+    before = len(signals.worker_shutdown.receivers)
+    CeleryWorkerHost(lambda: app).run_worker(boot, pool=pool)
+    assert seen["argv"] == ["worker", "--loglevel=INFO", f"--pool={pool}"]
+    assert boot.events == ["boot", "before_fork", "start", "stop"]
+    assert len(signals.worker_shutdown.receivers) == before  # disconnected after
+
+
+def test_the_worker_host_refuses_an_unknown_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+    _fake_celery(monkeypatch, seen)
+    boot = _Boot(_table())
+    app = _celery()
+    with pytest.raises(InvalidArgument, match="pool must be one of"):
+        CeleryWorkerHost(lambda: app).run_worker(boot, pool="gevent")
+    assert "argv" not in seen
+    assert boot.events == []  # refused before the kernel boots anything
 
 
 def test_the_scheduler_argv_carries_the_schedule_file(

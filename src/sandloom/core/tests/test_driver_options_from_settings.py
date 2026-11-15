@@ -84,13 +84,50 @@ def test_a_named_instance_gets_what_it_leaves_out_and_keeps_what_it_says() -> No
     VolatileBusOptions.model_validate(side)
     assert config["eventbus"]["mem"].options == {}
     jobs = config["taskqueue"]["jobs"].options
-    assert jobs == {"broker": "redis://b/2", "backend": settings.cache_url}
+    assert jobs == {
+        "broker": "redis://b/2",
+        "backend": settings.cache_url,
+        "health_timeout_seconds": settings.health_check_timeout_seconds,
+    }
     celery_taskqueue.CeleryTaskQueueOptions.model_validate(jobs)
 
 
-def test_the_default_taskqueue_gets_broker_and_backend() -> None:
+def test_the_default_taskqueue_gets_broker_backend_and_the_probe_bound() -> None:
     options = load_infra_config(settings)["taskqueue"][DEFAULT_INSTANCE].options
-    assert options == {"broker": settings.broker_url, "backend": settings.cache_url}
+    assert options == {
+        "broker": settings.broker_url,
+        "backend": settings.cache_url,
+        "health_timeout_seconds": settings.health_check_timeout_seconds,
+    }
+
+
+def test_the_probe_bound_follows_the_setting_and_a_stated_one_wins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "health_check_timeout_seconds", 1.5)
+    config = {
+        "taskqueue": {
+            "a": _cfg("taskqueue", "a", "celery"),
+            "b": _cfg("taskqueue", "b", "celery", health_timeout_seconds=9.0),
+        }
+    }
+    fill_driver_defaults(config, settings)
+    assert config["taskqueue"]["a"].options["health_timeout_seconds"] == 1.5
+    assert config["taskqueue"]["b"].options["health_timeout_seconds"] == 9.0
+
+
+@pytest.mark.parametrize("bound", [0, -1, 301, "soon"])
+def test_a_bad_probe_bound_is_refused_at_build(bound: object) -> None:
+    with pytest.raises(ValueError, match="health_timeout_seconds"):
+        celery_taskqueue.create_celery_taskqueue(
+            _cfg(
+                "taskqueue",
+                "jobs",
+                "celery",
+                broker="redis://b/2",
+                health_timeout_seconds=bound,
+            )
+        )
 
 
 def test_a_redis_cache_built_from_options_ignores_the_settings(

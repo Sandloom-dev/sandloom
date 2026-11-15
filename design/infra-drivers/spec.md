@@ -949,6 +949,7 @@ class WorkerHost(Protocol):
     def run_worker(
         self, boot: WorkerBoot, *, queues: Sequence[str] | None = None,
         concurrency: int | None = None, loglevel: str = "INFO",
+        pool: str = "prefork",                   # idk-pkg-celery: one of WORKER_POOLS
     ) -> int: ...                                # blocks; the process exit code
     def run_scheduler(
         self, boot: WorkerBoot, *, lease: LeaseStore, lease_name: str,
@@ -958,6 +959,13 @@ class WorkerHost(Protocol):
     def check(self, *, timeout_seconds: float) -> HealthResult: ...
 ```
 
+`pool` (idk-pkg-celery, a deviation from the first draft) is `sandloom worker --pool`, one of
+`WORKER_POOLS = ("prefork", "solo", "threads")`, default `prefork`: the host's process model. A
+value outside the tuple raises `InvalidArgument`, a pool the host cannot run `Unsupported`, both
+before it consumes. The `solo` and `threads` pools run messages in the host's own process, so the
+Celery host calls `on_process_start` / `on_process_stop` itself there (no pool child announces
+itself); on macOS prefork cannot run the boot-registered table (billiard spawns), which is why
+the option exists.
 `loglevel` is the process's log level (`sandloom worker|beat --loglevel`). `lease_ttl_seconds` is
 `BEAT_LEASE_TTL_SECONDS`, and `state_file` the scheduler's state file (`sandloom beat --schedule`,
 ignored by a host that keeps none). Both are the kernel's today; revisit them as driver options

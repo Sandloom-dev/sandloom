@@ -324,11 +324,12 @@ def run_worker(
     queues: list[str] | None = None,
     concurrency: int | None = None,
     loglevel: str = "INFO",
+    pool: str = "prefork",
     core: Any | None = None,
     instance: str | None = None,
 ) -> int:
     """``sandloom worker``: boot the composition and run the driver's worker
-    host; the process exit code."""
+    host (``pool``: one of ``WORKER_POOLS``); the process exit code."""
     core = core if core is not None else load_composition_core()
     name = instance or taskqueue_instance()
     provider, host = resolve_worker_host(core, name)
@@ -338,6 +339,7 @@ def run_worker(
         queues=queues,
         concurrency=concurrency if concurrency is not None else worker_concurrency(),
         loglevel=loglevel,
+        pool=pool,
     )
 
 

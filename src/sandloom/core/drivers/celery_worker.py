@@ -46,6 +46,7 @@ from typing import Any, NoReturn
 import orjson
 
 from sandloom.driverkit import (
+    WORKER_POOLS,
     FencedLease,
     HealthResult,
     InfraError,
@@ -727,6 +728,37 @@ def _loglevel(requested: str) -> str:
     )
 
 
+def _process_hooks(
+    signals: Any, boot: WorkerBoot, *, forks: bool
+) -> list[tuple[Any, Callable[..., None]]]:
+    """The ``(signal, receiver)`` pairs that call the boot's process hooks.
+
+    ``prefork`` children announce themselves (``worker_process_init`` /
+    ``worker_process_shutdown``). ``solo`` and ``threads`` run the messages in
+    the worker process and send neither, so the host starts that process on
+    ``worker_init`` and stops it on ``worker_shutdown``."""
+
+    def on_worker_init(**_: Any) -> None:
+        boot.before_fork()
+        if not forks:
+            boot.on_process_start()
+
+    def on_process_init(**_: Any) -> None:
+        boot.on_process_start()
+
+    def on_process_shutdown(**_: Any) -> None:
+        boot.on_process_stop()
+
+    connected: list[tuple[Any, Callable[..., None]]] = [
+        (signals.worker_init, on_worker_init),
+        (signals.worker_process_init, on_process_init),
+        (signals.worker_process_shutdown, on_process_shutdown),
+    ]
+    if not forks:
+        connected.append((signals.worker_shutdown, on_process_shutdown))
+    return connected
+
+
 def _run_celery(app: Any, argv: Sequence[str]) -> int:
     """Run one Celery command (``["worker", ...]``, ``["beat", ...]``) bound to
     ``app`` and return its exit code.
@@ -791,7 +823,13 @@ class CeleryWorkerHost:
         queues: Sequence[str] | None = None,
         concurrency: int | None = None,
         loglevel: str = "INFO",
+        pool: str = "prefork",
     ) -> int:
+        if pool not in WORKER_POOLS:
+            raise InvalidArgument(
+                f"pool must be one of {', '.join(WORKER_POOLS)}, got {pool!r}",
+                capability="taskqueue",
+            )
         signals = _signals()
         app = self._app
         app._sandloom_hosted = True
@@ -800,23 +838,10 @@ class CeleryWorkerHost:
         configure_worker_reliability(app)
         install_heartbeat(app)
 
-        def on_worker_init(**_: Any) -> None:
-            boot.before_fork()
-
-        def on_process_init(**_: Any) -> None:
-            boot.on_process_start()
-
-        def on_process_shutdown(**_: Any) -> None:
-            boot.on_process_stop()
-
-        connected = (
-            (signals.worker_init, on_worker_init),
-            (signals.worker_process_init, on_process_init),
-            (signals.worker_process_shutdown, on_process_shutdown),
-        )
+        connected = _process_hooks(signals, boot, forks=pool == "prefork")
         for signal, receiver in connected:
             signal.connect(receiver, weak=False)
-        argv = ["worker", f"--loglevel={_loglevel(loglevel)}"]
+        argv = ["worker", f"--loglevel={_loglevel(loglevel)}", f"--pool={pool}"]
         if queues:
             argv.append(f"--queues={','.join(queues)}")
         if concurrency is not None:

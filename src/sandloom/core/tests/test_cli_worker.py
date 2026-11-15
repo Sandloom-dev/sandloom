@@ -51,11 +51,25 @@ def kernel(monkeypatch: pytest.MonkeyPatch) -> _Kernel:
 
 def test_worker_runs_the_worker_with_its_options(kernel: _Kernel) -> None:
     assert worker_cli.worker_main([]) == 0
-    assert kernel.worker == {"queues": None, "concurrency": None, "loglevel": "INFO"}
+    assert kernel.worker == {
+        "queues": None,
+        "concurrency": None,
+        "loglevel": "INFO",
+        "pool": "prefork",
+    }
 
     assert (
         worker_cli.worker_main(
-            ["--queues", "mail,default", "--concurrency", "3", "--loglevel", "DEBUG"]
+            [
+                "--queues",
+                "mail,default",
+                "--concurrency",
+                "3",
+                "--loglevel",
+                "DEBUG",
+                "--pool",
+                "threads",
+            ]
         )
         == 0
     )
@@ -63,7 +77,35 @@ def test_worker_runs_the_worker_with_its_options(kernel: _Kernel) -> None:
         "queues": ["mail", "default"],
         "concurrency": 3,
         "loglevel": "DEBUG",
+        "pool": "threads",
     }
+
+
+@pytest.mark.parametrize("pool", ["prefork", "solo", "threads"])
+def test_worker_passes_each_pool_to_the_host(kernel: _Kernel, pool: str) -> None:
+    assert worker_cli.worker_main(["--pool", pool]) == 0
+    assert kernel.worker is not None
+    assert kernel.worker["pool"] == pool
+
+
+def test_worker_refuses_an_unknown_pool(
+    kernel: _Kernel, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        worker_cli.worker_main(["--pool", "gevent"])
+    assert exit_info.value.code == 2
+    assert "invalid choice: 'gevent'" in capsys.readouterr().err
+    assert kernel.worker is None
+
+
+def test_the_pool_option_names_the_macos_note(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit):
+        worker_cli.worker_main(["--help"])
+    out = " ".join(capsys.readouterr().out.split())
+    assert "macOS" in out
+    assert "docs/modules/background/tasks.md" in out
 
 
 def test_worker_returns_the_exit_code_of_the_process(kernel: _Kernel) -> None:

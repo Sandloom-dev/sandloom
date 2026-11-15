@@ -123,14 +123,14 @@ async def test_the_provider_health_probes_its_broker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``CeleryTaskQueueProvider.health()`` is the probe, per instance
-    broker (no longer the contract's default ``ok``)."""
-    monkeypatch.setattr(settings, "health_check_timeout_seconds", 2.0)
+    broker (no longer the contract's default ``ok``), bounded by its
+    ``health_timeout_seconds`` option."""
     down = create_celery_taskqueue(
         InstanceConfig(
             capability="taskqueue",
             name="kbic3",
             driver="celery",
-            options={"broker": _REFUSED},
+            options={"broker": _REFUSED, "health_timeout_seconds": 2.0},
         )
     )
     up = create_celery_taskqueue(

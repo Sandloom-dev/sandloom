@@ -2747,6 +2747,9 @@
     "DBAPI_CAPABILITIES": {
       "kind": "value"
     },
+    "DEFAULT_INSTANCE": {
+      "kind": "value"
+    },
     "DbapiAdapter": {
       "kind": "class",
       "members": [
@@ -2997,6 +3000,17 @@
         "tier"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
+    "InstanceConfig": {
+      "kind": "class",
+      "members": [
+        "capability",
+        "driver",
+        "implicit",
+        "name",
+        "options"
+      ],
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str, driver:POSITIONAL_OR_KEYWORD|str, options:POSITIONAL_OR_KEYWORD|dict[str, Any]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, implicit:POSITIONAL_OR_KEYWORD|bool=False) -> None"
     },
     "InvalidArgument": {
       "kind": "class",
@@ -3338,6 +3352,9 @@
         "with_traceback"
       ],
       "signature": "(feature:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+    },
+    "WORKER_POOLS": {
+      "kind": "value"
     },
     "WRITE_LOCK_HELD": {
       "kind": "value"

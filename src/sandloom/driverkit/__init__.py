@@ -33,6 +33,7 @@ Guide: ``docs/infrastructure/write-a-driver.md``.
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.infra.capabilities import CapabilityRef, CapabilitySpec
+from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.core.infra.errors import (
     AlreadyExists,
     InfraError,
@@ -81,6 +82,7 @@ from sandloom.core.infra.ports.objectstore import (
     validate_object_key,
 )
 from sandloom.core.infra.ports.taskqueue import (
+    WORKER_POOLS,
     PeriodicSpec,
     TaskQueueProvider,
     TaskSpec,
@@ -150,8 +152,10 @@ __all__ = [
     "TENANT_SETTING",
     "WRITE_LOCK_HELD",
     "CapabilitySpec",
+    "DEFAULT_INSTANCE",
     "HealthResult",
     "InfraProvider",
+    "InstanceConfig",
     "Notification",
     "NotifierProvider",
     "ObjectContent",
@@ -161,6 +165,7 @@ __all__ = [
     "TaskSpec",
     "TaskTable",
     "UnitSession",
+    "WORKER_POOLS",
     "WorkerBoot",
     "WorkerHost",
     "DriverCounter",
