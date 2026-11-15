@@ -3566,6 +3566,8 @@
         "requires_feature",
         "spec",
         "test_a_key_is_gone_after_its_ttl",
+        "test_a_key_over_1024_bytes_is_invalid",
+        "test_a_ttl_below_one_is_invalid",
         "test_absent_key_reads_none",
         "test_add_creates_only_an_absent_key",
         "test_compare_and_delete_deletes_only_on_equality",

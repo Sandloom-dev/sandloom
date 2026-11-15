@@ -53,6 +53,7 @@ from sandloom.driverkit import (
     Unavailable,
     observe,
 )
+from sandloom.driverkit.atomic_store import MAX_KEY_BYTES, MAX_TTL_SECONDS
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 
 #: Redis / socket failures of cache operations (a caller's ValueError or
@@ -351,6 +352,51 @@ async def close_default_client() -> None:
             await client.close()
 
 
+def _check_key(instance: str, key: object) -> None:
+    """``InvalidArgument`` unless ``key`` is a non-empty string of at most
+    ``MAX_KEY_BYTES`` UTF-8 bytes: the memory driver's rule, so both drivers
+    refuse the same keys (spec 3)."""
+    if not isinstance(key, str) or not key:
+        raise InvalidArgument(
+            "a cache key is a non-empty string", capability="cache", instance=instance
+        )
+    if key.isascii():  # the common case: one byte a character, no encoding
+        size = len(key)
+    else:
+        try:
+            size = len(key.encode("utf-8"))
+        except UnicodeEncodeError:
+            raise InvalidArgument(
+                "a cache key must be encodable as UTF-8",
+                capability="cache",
+                instance=instance,
+            ) from None
+    if size > MAX_KEY_BYTES:
+        raise InvalidArgument(
+            f"a cache key is at most {MAX_KEY_BYTES} bytes",
+            capability="cache",
+            instance=instance,
+        )
+
+
+def _check_ttl(instance: str, ttl_seconds: object) -> None:
+    """``InvalidArgument`` unless ``ttl_seconds`` is ``None`` (no expiry) or a
+    whole number of seconds from 1 to ``MAX_TTL_SECONDS``: ``0`` or a negative
+    TTL never means "no expiry" (the memory driver's rule, spec 3)."""
+    if ttl_seconds is None:
+        return
+    if (
+        isinstance(ttl_seconds, bool)
+        or not isinstance(ttl_seconds, int)
+        or not 1 <= ttl_seconds <= MAX_TTL_SECONDS
+    ):
+        raise InvalidArgument(
+            f"a cache TTL is a whole number of seconds from 1 to {MAX_TTL_SECONDS}",
+            capability="cache",
+            instance=instance,
+        )
+
+
 class RedisCacheProvider(CacheProvider):
     """A single Redis cache instance."""
 
@@ -435,6 +481,7 @@ class RedisCacheProvider(CacheProvider):
 
     # ---- portable operations ------------------------------------------------
     async def get(self, key: str) -> str | None:
+        _check_key(self.name, key)
         try:
             client = await self._client_obj()
             value = await client.get(key)
@@ -445,9 +492,11 @@ class RedisCacheProvider(CacheProvider):
     async def set(
         self, key: str, value: str, *, ttl_seconds: int | None = None
     ) -> None:
+        _check_key(self.name, key)
+        _check_ttl(self.name, ttl_seconds)
         try:
             client = await self._client_obj()
-            if ttl_seconds is not None and ttl_seconds > 0:
+            if ttl_seconds is not None:
                 await client.set(key, value, ex=ttl_seconds)
             else:
                 await client.set(key, value)
@@ -456,6 +505,8 @@ class RedisCacheProvider(CacheProvider):
 
     async def get_many(self, keys: Sequence[str]) -> list[str | None]:
         """One ``MGET`` round trip for every key."""
+        for key in keys:
+            _check_key(self.name, key)
         try:
             if not keys:
                 return []
@@ -469,11 +520,14 @@ class RedisCacheProvider(CacheProvider):
         self, items: Mapping[str, str], *, ttl_seconds: int | None = None
     ) -> None:
         """Every ``SET`` in ONE pipelined round trip (not a MULTI transaction)."""
+        for key in items:
+            _check_key(self.name, key)
+        _check_ttl(self.name, ttl_seconds)
         try:
             if not items:
                 return
             client = await self._client_obj()
-            ttl = ttl_seconds if ttl_seconds is not None and ttl_seconds > 0 else None
+            ttl = ttl_seconds
             pipeline = getattr(client, "pipeline", None)
             if pipeline is None:  # test doubles without pipelining
                 for key, value in items.items():
@@ -492,9 +546,11 @@ class RedisCacheProvider(CacheProvider):
     async def add(
         self, key: str, value: str, *, ttl_seconds: int | None = None
     ) -> bool:
+        _check_key(self.name, key)
+        _check_ttl(self.name, ttl_seconds)
         try:
             client = await self._client_obj()
-            if ttl_seconds is not None and ttl_seconds > 0:
+            if ttl_seconds is not None:
                 stored = await client.set(key, value, nx=True, ex=ttl_seconds)
             else:
                 stored = await client.set(key, value, nx=True)
@@ -503,6 +559,7 @@ class RedisCacheProvider(CacheProvider):
             raise _map_error(self.name, "add", exc) from None
 
     async def delete(self, key: str) -> None:
+        _check_key(self.name, key)
         try:
             client = await self._client_obj()
             await client.delete(key)
@@ -510,9 +567,11 @@ class RedisCacheProvider(CacheProvider):
             raise _map_error(self.name, "delete", exc) from None
 
     async def incr(self, key: str, *, ttl_seconds: int | None = None) -> int:
+        _check_key(self.name, key)
+        _check_ttl(self.name, ttl_seconds)
         try:
             client = await self._client_obj()
-            ttl = ttl_seconds if ttl_seconds and ttl_seconds > 0 else 0
+            ttl = ttl_seconds or 0
             # Atomic INCR+EXPIRE (Lua); fall back to two ops for fakes/mocks that
             # lack script support (test doubles).
             try:
@@ -536,9 +595,12 @@ class RedisCacheProvider(CacheProvider):
     async def windowed_counter(
         self, key: str, previous_key: str, *, ttl_seconds: int
     ) -> tuple[int, str | None]:
+        _check_key(self.name, key)
+        _check_key(self.name, previous_key)
+        _check_ttl(self.name, ttl_seconds)
         try:
             client = await self._client_obj()
-            ttl = ttl_seconds if ttl_seconds > 0 else 0
+            ttl = ttl_seconds or 0
             try:
                 count, previous = await _run_script(
                     client,
@@ -586,9 +648,11 @@ class RedisCacheProvider(CacheProvider):
         *,
         ttl_seconds: int | None = None,
     ) -> bool:
+        _check_key(self.name, key)
+        _check_ttl(self.name, ttl_seconds)
         try:
             client = await self._client_obj()
-            ttl = ttl_seconds if ttl_seconds and ttl_seconds > 0 else 0
+            ttl = ttl_seconds or 0
             try:
                 return bool(
                     int(
@@ -611,6 +675,7 @@ class RedisCacheProvider(CacheProvider):
             raise _map_error(self.name, "compare_and_set", exc) from None
 
     async def compare_and_delete(self, key: str, expected: str) -> bool:
+        _check_key(self.name, key)
         try:
             client = await self._client_obj()
             try:
@@ -697,6 +762,13 @@ def _map_error(instance: str, operation: str, exc: BaseException) -> InfraError:
     if isinstance(exc, exceptions.ResponseError) and "not an integer" in str(exc):
         return InvalidArgument(
             f"cache {instance!r} {operation}: the stored value is not an integer",
+            capability="cache",
+            instance=instance,
+        )
+    if isinstance(exc, exceptions.ResponseError) and str(exc).startswith("WRONGTYPE"):
+        # the key holds another Redis type (a list, a hash): retrying never helps
+        return InvalidArgument(
+            f"cache {instance!r} {operation}: the key holds a value of another type",
             capability="cache",
             instance=instance,
         )

@@ -109,6 +109,29 @@ async def test_arguments_outside_the_contract_are_refused() -> None:
     assert await provider.get("k") is None
 
 
+async def test_the_harness_cache_speaks_the_contract() -> None:
+    """``InMemoryCache`` (unit tests) declares only the spec feature, fails with
+    the infra error a driver raises, and refuses a non-integer ``incr``."""
+    from sandloom.core.infra.errors import Unavailable
+    from sandloom.core.testing import InMemoryCache
+
+    cache = InMemoryCache()
+    assert cache.features() == {"cas"}
+    await cache.set("text", "not a number")
+    with pytest.raises(InvalidArgument):
+        await cache.incr("text")
+    assert await cache.incr("count") == 1
+    down = InMemoryCache(broken=True)
+    for call in (
+        lambda: down.get("k"),
+        lambda: down.set("k", "v"),
+        lambda: down.incr("k"),
+        lambda: down.get_many(["k"]),
+    ):
+        with pytest.raises(Unavailable):
+            await call()
+
+
 # ----------------------------------------------------- tier and selection
 def _config(driver: str = "memory") -> dict[str, dict[str, InstanceConfig]]:
     return {"cache": {"default": InstanceConfig("cache", "default", driver, {})}}

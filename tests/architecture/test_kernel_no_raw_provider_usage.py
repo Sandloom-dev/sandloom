@@ -5,8 +5,8 @@ modules. This test holds the KERNEL (``src/sandloom/core`` outside
 ``core/drivers`` and the kernel's own unit tests) to the same line, in two
 rules:
 
-1. **No escape hatch.** No ``raw_client()``, ``raw_backend()``, ``raw()`` or
-   ``native()`` call, and no reflective read of those names. A kernel that
+1. **No escape hatch.** No ``raw_client()``, ``raw_backend()``, ``raw()``,
+   ``redis_client()`` or ``native()`` call, and no reflective read of those names. A kernel that
    holds a backend SDK object cannot run with another driver.
 2. **No undeclared probe.** No ``getattr(x, "name")`` / ``hasattr(x, "name")``
    where either
@@ -67,7 +67,10 @@ PROVIDER_NAMES = frozenset(
 )
 
 #: (file relative to src/sandloom, escape hatch) -> (sites, removed_by).
-RAW_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {}
+RAW_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
+    # the test harness flushes the Redis cache driver's own database
+    ("core/testing/fixtures.py", "redis_client"): (1, "idk-ratchets-close"),
+}
 
 #: (file relative to src/sandloom, probed name) -> (sites, removed_by).
 #: ``idk-ratchets-close`` classifies the rest: a ``<dynamic>`` probe of a
@@ -105,7 +108,7 @@ PROBE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
     ("core/tasks/pool_metrics.py", "pool_stats"): (1, "idk-ratchets-close"),
     ("core/testing/fixtures.py", "_contract_engine"): (1, "idk-ratchets-close"),
     ("core/testing/fixtures.py", "_engine"): (1, "idk-ratchets-close"),
-    ("core/testing/fixtures.py", "redis_client"): (1, "idk-test-harness"),
+    ("core/testing/fixtures.py", "redis_client"): (1, "idk-ratchets-close"),
     ("core/worker.py", "verify_tenant_rls"): (1, "idk-ratchets-close"),
 }
 
@@ -303,12 +306,15 @@ def test_the_scanner_finds_each_escape_hatch(tmp_path: Path) -> None:
         "    d = c.raw()\n"
         "    e = c.native()\n"
         "    g = getattr(c, 'raw_client')\n"
+        "    h = await c.redis_client()\n"
+        "    i = getattr(c, 'redis_client', None)\n"
     )
     assert dict(escape_hatch_sites(sample)) == {
         "raw_client": 2,
         "raw_backend": 1,
         "raw": 1,
         "native": 1,
+        "redis_client": 2,
     }
 
 

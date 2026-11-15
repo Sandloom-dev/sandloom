@@ -80,11 +80,7 @@ class ConsumerInbox:
         try:
             provider = cache()
             keys = [self._key(event_id) for event_id in event_ids]
-            get_many = getattr(provider, "get_many", None)
-            if get_many is not None:
-                values = await get_many(keys)
-            else:  # a cache without the batch op (test doubles)
-                values = [await provider.get(key) for key in keys]
+            values = await provider.get_many(keys)
         except Exception:  # noqa: BLE001 - degrade to at-least-once
             return set()
         return {
@@ -100,11 +96,6 @@ class ConsumerInbox:
         try:
             provider = cache()
             items = {self._key(event_id): "1" for event_id in event_ids}
-            set_many = getattr(provider, "set_many", None)
-            if set_many is not None:
-                await set_many(items, ttl_seconds=self._ttl)
-            else:  # a cache without the batch op (test doubles)
-                for key, value in items.items():
-                    await provider.set(key, value, ttl_seconds=self._ttl)
+            await provider.set_many(items, ttl_seconds=self._ttl)
         except Exception:  # noqa: BLE001, S110 - best effort; redelivery is still safe
             pass

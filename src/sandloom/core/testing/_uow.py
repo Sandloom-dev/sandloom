@@ -49,7 +49,7 @@ from sandloom.core.infra.contracts import (
     OutboxHandle,
     OutboxStore,
 )
-from sandloom.core.infra.errors import Unavailable
+from sandloom.core.infra.errors import InvalidArgument, Unavailable
 from sandloom.core.infra.ports.atomic_store import (
     check_subject_state,
     subject_state_rank,
@@ -278,7 +278,9 @@ class InMemoryCache(CacheProvider):
     """Dict-backed :class:`CacheProvider` (incl. ``cas``) for unit tests.
 
     TTLs are accepted and ignored. ``broken=True`` makes every operation raise
-    ``ConnectionError`` (a cache outage). Install it where the code under test
+    ``Unavailable`` (a cache outage, the error a real driver raises).
+    ``incr`` of a stored non-integer raises ``InvalidArgument``, as the
+    contract says. Install it where the code under test
     resolves the cache, e.g. ``monkeypatch.setattr(cache_store, "cache",
     lambda name="default": mem)`` (``sandloom.core.idempotency.cache_store``) for
     the idempotency / contract-dedupe store.
@@ -287,7 +289,7 @@ class InMemoryCache(CacheProvider):
     driver = "memory"
 
     def features(self) -> frozenset[str]:
-        return frozenset({"get", "set", "add", "delete", "incr", "cas"})
+        return frozenset({"cas"})
 
     def __init__(self, *, broken: bool = False) -> None:
         self.store: dict[str, str] = {}
@@ -295,7 +297,7 @@ class InMemoryCache(CacheProvider):
 
     def _check(self) -> None:
         if self.broken:
-            raise ConnectionError("cache down")
+            raise Unavailable("cache down", capability="cache")
 
     async def get(self, key: str) -> str | None:
         self._check()
@@ -322,7 +324,12 @@ class InMemoryCache(CacheProvider):
 
     async def incr(self, key: str, *, ttl_seconds: int | None = None) -> int:
         self._check()
-        value = int(self.store.get(key, "0")) + 1
+        try:
+            value = int(self.store.get(key, "0")) + 1
+        except ValueError:
+            raise InvalidArgument(
+                "the stored value is not an integer", capability="cache"
+            ) from None
         self.store[key] = str(value)
         return value
 

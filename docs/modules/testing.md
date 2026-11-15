@@ -264,7 +264,7 @@ hook until `idk-worker-port` adds it. Nothing else in the harness rewrites a URL
 An application on memory drivers needs no Redis client to run its tests. In a
 process that cannot import `redis`, the harness rewrites, claims, allocates and
 resets no Redis index, `auto` included. A test of a run on a memory cache driver
-belongs to the cache contract work (`idk-cache-contract`, `idk-config-defaults`):
+belongs to the configuration defaults work (`idk-config-defaults`):
 it needs settings that accept non-redis URLs. Today's harness test runs with
 Redis URLs in `.env.test` that nothing connects to.
 

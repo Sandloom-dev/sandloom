@@ -30,7 +30,12 @@ Each operation raises only an `InfraError`:
 
 - `InvalidArgument` for a bad key, a TTL below 1, or an `incr` on a value that is not an integer;
 - `TooLarge` for a value over the driver's limit;
-- `Unavailable` or `Timeout` when the backend fails.
+- `Unavailable` or `Timeout` when the backend fails;
+- `PermissionDenied` when the backend refuses the credentials.
+
+A TTL of 0 or less never means "no expiry": both drivers refuse it with `InvalidArgument`, as
+they refuse a key over 1024 bytes. A key that holds a value of another Redis type is also
+`InvalidArgument`, since a retry cannot help.
 
 ### Atomic operations
 

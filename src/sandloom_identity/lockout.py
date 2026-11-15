@@ -99,14 +99,8 @@ def lock_seconds_for(failures: int) -> int:
 
 
 async def _get_keys(provider: Any, keys: list[str]) -> list[Any]:
-    """Read ``keys`` — one round trip via ``get_many`` when the cache has it."""
-    get_many = getattr(provider, "get_many", None)
-    if get_many is not None:
-        values = await get_many(keys)
-        if isinstance(values, dict):
-            return [values.get(key) for key in keys]
-        return list(values)
-    return [await provider.get(key) for key in keys]
+    """Read ``keys`` in one round trip (``get_many``)."""
+    return list(await provider.get_many(keys))
 
 
 async def _incr_two(provider: Any, first: str, second: str) -> tuple[int, int]:

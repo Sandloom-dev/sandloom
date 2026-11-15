@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from functools import partial
 from typing import Any
+from uuid import uuid4
 
 import pytest
 
@@ -72,6 +73,27 @@ async def test_the_real_server_identity_is_its_run_id() -> None:
         await provider.aclose()
 
 
+async def test_a_key_of_another_redis_type_is_invalid_not_unavailable() -> None:
+    """A WRONGTYPE reply is the caller's key clash, not a retryable outage."""
+    provider = _redis()
+    await provider.aopen()
+    try:
+        key = f"kit:wrongtype:{uuid4().hex}"
+        client = await provider.redis_client()
+        await client.rpush(key, "a")
+        try:
+            for call in (
+                partial(provider.get, key),
+                partial(provider.incr, key, ttl_seconds=30),
+            ):
+                with pytest.raises(InvalidArgument):
+                    await call()
+        finally:
+            await client.delete(key)
+    finally:
+        await provider.aclose()
+
+
 # ----------------------------------------------- the kit bites a broken driver
 class _Dict(CacheProvider):
     """A correct driver: a dict, atomic because nothing awaits inside an
@@ -90,26 +112,55 @@ class _Dict(CacheProvider):
         super().__init__(name=name, driver=driver, options=options or {})
         self.store: dict[str, str] = {}
 
+    def _check(self, *keys: str, ttl_seconds: int | None = None) -> None:
+        if ttl_seconds is not None and ttl_seconds < 1:
+            raise InvalidArgument("ttl below 1", capability="cache")
+        if any(len(key.encode("utf-8")) > 1024 for key in keys):
+            raise InvalidArgument("key too long", capability="cache")
+
     async def get(self, key: str) -> str | None:
+        self._check(key)
         return self.store.get(key)
 
     async def set(
         self, key: str, value: str, *, ttl_seconds: int | None = None
     ) -> None:
+        self._check(key, ttl_seconds=ttl_seconds)
         self.store[key] = value
 
     async def add(
         self, key: str, value: str, *, ttl_seconds: int | None = None
     ) -> bool:
+        self._check(key, ttl_seconds=ttl_seconds)
         if key in self.store:
             return False
         self.store[key] = value
         return True
 
     async def delete(self, key: str) -> None:
+        self._check(key)
         self.store.pop(key, None)
 
+    async def get_many(self, keys: Sequence[str]) -> list[str | None]:
+        self._check(*keys)
+        return [self.store.get(key) for key in keys]
+
+    async def set_many(
+        self, items: Mapping[str, str], *, ttl_seconds: int | None = None
+    ) -> None:
+        self._check(*items, ttl_seconds=ttl_seconds)
+        self.store.update(items)
+
+    async def windowed_counter(
+        self, key: str, previous_key: str, *, ttl_seconds: int
+    ) -> tuple[int, str | None]:
+        self._check(key, previous_key, ttl_seconds=ttl_seconds)
+        return await super().windowed_counter(
+            key, previous_key, ttl_seconds=ttl_seconds
+        )
+
     async def incr(self, key: str, *, ttl_seconds: int | None = None) -> int:
+        self._check(key, ttl_seconds=ttl_seconds)
         try:
             count = int(self.store.get(key, "0")) + 1
         except ValueError:
@@ -144,6 +195,7 @@ class _NonAtomicAdd(_Dict):
     async def add(
         self, key: str, value: str, *, ttl_seconds: int | None = None
     ) -> bool:
+        self._check(key, ttl_seconds=ttl_seconds)
         absent = key not in self.store
         await asyncio.sleep(0)  # the check and the write are two steps
         if absent:
@@ -153,6 +205,7 @@ class _NonAtomicAdd(_Dict):
 
 class _LostUpdateIncr(_Dict):
     async def incr(self, key: str, *, ttl_seconds: int | None = None) -> int:
+        self._check(key, ttl_seconds=ttl_seconds)
         if not self.store.get(key, "0").isdigit():
             raise InvalidArgument("not an integer", capability="cache")
         current = int(self.store.get(key, "0"))
@@ -169,6 +222,13 @@ class _PreIncrementCount(_Dict):
         return count - 1, await self.get(previous_key)
 
 
+class _NoArgumentChecks(_Dict):
+    """Stores a key under a TTL of 0 and a key of any length."""
+
+    def _check(self, *keys: str, ttl_seconds: int | None = None) -> None:
+        return None
+
+
 class _CasDeclaredButUnsupported(_Dict):
     async def compare_and_set(self, *args: Any, **kwargs: Any) -> bool:
         raise Unsupported("cas", capability="cache", instance=self.name)
@@ -180,6 +240,7 @@ class _CasWorksWithoutTheFeature(_Dict):
 
 class _IncrOverwritesText(_Dict):
     async def incr(self, key: str, *, ttl_seconds: int | None = None) -> int:
+        self._check(key, ttl_seconds=ttl_seconds)
         count = int(self.store[key]) + 1 if self.store.get(key, "").isdigit() else 1
         self.store[key] = str(count)
         return count
@@ -259,6 +320,10 @@ _CASES: dict[type[_Dict], set[str]] = {
         "test_without_cas_both_calls_raise_unsupported",
     },
     _IncrOverwritesText: {"test_incr_of_a_non_integer_is_invalid"},
+    _NoArgumentChecks: {
+        "test_a_ttl_below_one_is_invalid",
+        "test_a_key_over_1024_bytes_is_invalid",
+    },
 }
 
 

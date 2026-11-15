@@ -38,7 +38,7 @@ BUSINESS_MODULES = [
 ]
 
 
-assert FORBIDDEN_METHODS == {"raw_client", "raw_backend", "raw"}
+assert FORBIDDEN_METHODS == {"raw_client", "raw_backend", "raw", "redis_client"}
 
 
 @pytest.mark.parametrize("module_name", BUSINESS_MODULES)
@@ -57,7 +57,7 @@ def test_module_has_no_raw_provider_usage(module_name: str) -> None:
             f"Provider escape-hatch used in module '{module_name}'. Use the "
             "portable capability surface (cache.get/set, taskqueue.enqueue, "
             "objectstore.put/get, …) — raw_client()/raw_backend()/raw() are for "
-            "framework/plugin authors only and couple the module to one "
+            "framework/plugin authors only (redis_client() included) and couple the module to one "
             "backend.\n" + "".join(offences),
             pytrace=False,
         )
@@ -74,6 +74,23 @@ def test_analyzer_detects_raw_call(tmp_path: Path) -> None:
     )
     found = find_raw_provider_calls(sample)
     assert len(found) == 3, found
+
+
+def test_analyzer_detects_the_redis_cache_client(tmp_path: Path) -> None:
+    """``cache().redis_client()`` hands a module the whole Redis API (flush,
+    lockout counters): refused like ``raw_client()``."""
+    sample = tmp_path / "leaky_cache.py"
+    sample.write_text(
+        "from sandloom.sdk import cache\n"
+        "async def f():\n"
+        "    client = await cache().redis_client()\n"
+        "    await client.flushdb()\n"
+        "    return getattr(cache(), 'redis_client')\n"
+    )
+    found = find_raw_provider_calls(sample)
+    assert len(found) == 2, found
+    assert any(".redis_client(" in hit for hit in found), found
+    assert any("'redis_client'" in hit for hit in found), found
 
 
 def test_analyzer_detects_reflective_raw_access() -> None:

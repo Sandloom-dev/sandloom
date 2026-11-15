@@ -181,6 +181,48 @@ class CacheConformance(ProviderConformance[CacheProvider]):
             await provider.get(key) == "not a number", "a refused incr changes nothing"
         )
 
+    # ----------------------------------------------------------- arguments
+    async def test_a_ttl_below_one_is_invalid(self, provider: CacheProvider) -> None:
+        """``None`` is "no expiry"; ``0`` or a negative TTL is never that."""
+        key = _key("bad-ttl")
+        for ttl in (0, -1):
+            calls: dict[str, Call] = {
+                "set": partial(provider.set, key, "v", ttl_seconds=ttl),
+                "add": partial(provider.add, key, "v", ttl_seconds=ttl),
+                "incr": partial(provider.incr, key, ttl_seconds=ttl),
+                "set_many": partial(provider.set_many, {key: "v"}, ttl_seconds=ttl),
+                "windowed_counter": partial(
+                    provider.windowed_counter, key, key + ":p", ttl_seconds=ttl
+                ),
+            }
+            for name, call in calls.items():
+                with pytest.raises(InvalidArgument):
+                    await call()
+                require(
+                    await provider.get(key) is None,
+                    f"{name} with ttl_seconds={ttl} stored a key",
+                )
+
+    async def test_a_key_over_1024_bytes_is_invalid(
+        self, provider: CacheProvider
+    ) -> None:
+        longest = "k" * 1024
+        await provider.set(longest, "v", ttl_seconds=30)  # at the limit: valid
+        await provider.delete(longest)
+        for key in ("k" * 1025, "é" * 513):  # 1025 bytes; 1026 bytes
+            calls: dict[str, Call] = {
+                "get": partial(provider.get, key),
+                "set": partial(provider.set, key, "v", ttl_seconds=30),
+                "delete": partial(provider.delete, key),
+                "add": partial(provider.add, key, "v", ttl_seconds=30),
+                "incr": partial(provider.incr, key, ttl_seconds=30),
+                "get_many": partial(provider.get_many, [key]),
+                "set_many": partial(provider.set_many, {key: "v"}, ttl_seconds=30),
+            }
+            for call in calls.values():
+                with pytest.raises(InvalidArgument):
+                    await call()
+
     # -------------------------------------------------- windowed_counter
     async def test_windowed_counter_counts_and_reads_the_previous_window(
         self, provider: CacheProvider

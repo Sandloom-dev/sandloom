@@ -673,7 +673,9 @@ class InMemoryCache(CacheProvider)(*, broken: bool = False) -> None
 Dict-backed `CacheProvider` (incl. `cas`) for unit tests.
 
 TTLs are accepted and ignored. `broken=True` makes every operation raise
-`ConnectionError` (a cache outage). Install it where the code under test
+`Unavailable` (a cache outage, the error a real driver raises).
+`incr` of a stored non-integer raises `InvalidArgument`, as the
+contract says. Install it where the code under test
 resolves the cache, e.g. `monkeypatch.setattr(cache_store, "cache",
 lambda name="default": mem)` (`sandloom.core.idempotency.cache_store`) for
 the idempotency / contract-dedupe store.

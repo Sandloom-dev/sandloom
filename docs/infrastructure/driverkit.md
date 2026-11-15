@@ -11,8 +11,8 @@ The API a [driver package](write-a-driver.md) implements. Most code should use
 package ([SANDLOOM-C004](../reference/error-codes.md#sandloom-c004)), and the kernel never imports
 it. It ships inside `sandloom`.
 
-A module-facing contract is public with its conformance kit, so `cache` and `taskqueue` are
-not here yet. `notification` and `objectstore` are.
+A module-facing contract is public with its conformance kit, so `taskqueue` is not here
+yet. `cache`, `notification` and `objectstore` are.
 
 The kernel-facing contracts are final and exported before their kits, so a driver package can
 build on them. A driver is conformant only once it passes its kit. A module never resolves a
