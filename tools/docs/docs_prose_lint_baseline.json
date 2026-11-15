@@ -220,7 +220,7 @@
       "S4": 21
     },
     "docs/modules/between/event-versioning.md": {
-      "S4": 4
+      "S4": 3
     },
     "docs/modules/between/events.md": {
       "P6": 6,
@@ -316,7 +316,7 @@
       "P8": 1,
       "P9": 54,
       "S11": 1,
-      "S4": 64
+      "S4": 63
     },
     "docs/operate/service-rpc.md": {
       "P6": 1,
