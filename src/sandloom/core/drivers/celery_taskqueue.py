@@ -39,13 +39,15 @@ from sandloom.core.drivers.celery_broker_probe import (
 )
 from sandloom.core.drivers.celery_worker import (
     CeleryWorkerHost,
+    WorkerPool,
     build_named_app,
     default_app_matches,
     get_default_app,
 )
-from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.driverkit import (
+    DEFAULT_INSTANCE,
     HealthResult,
+    InstanceConfig,
     InvalidArgument,
     TaskQueueProvider,
     Timeout,
@@ -78,6 +80,15 @@ class CeleryTaskQueueOptions(BaseModel):
     #: The kernel's record TTL (``RECORD_TTL_SECONDS``, one day), written out:
     #: the driver imports no kernel module (test_replay_limits keeps them equal).
     dedupe_ttl_seconds: int = Field(default=24 * 60 * 60, ge=1, le=604800)
+    #: The bound of the broker probe behind ``health()`` (connect and socket
+    #: timeouts included); the kernel fills it from ``HEALTH_CHECK_TIMEOUT_SECONDS``
+    #: (``fill_driver_defaults``), and never above it (the readiness probe's own
+    #: bound): the driver reads no kernel setting.
+    health_timeout_seconds: float = Field(default=5.0, gt=0, le=300)
+    #: How the worker host runs the messages: ``prefork`` (child processes),
+    #: ``solo`` (in the worker process) or ``threads``. On macOS billiard cannot
+    #: fork its children: set ``solo`` or ``threads`` there.
+    worker_pool: WorkerPool = "prefork"
 
 
 #: Threads that run the blocking broker publish of ``send``.
@@ -128,12 +139,16 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         options: dict[str, object],
         app: Any | None = None,
         app_factory: Callable[[], Any] | None = None,
+        validated: CeleryTaskQueueOptions | None = None,
     ) -> None:
         if (app is None) == (app_factory is None):
             raise ValueError("pass exactly one of app and app_factory")
         super().__init__(name=name, driver=driver, options=options)
         self._built_app = app
         self._app_factory: Callable[[], Any] = app_factory or (lambda: app)
+        # The factory hands over the object it already validated: ``options``
+        # is not parsed a second time.
+        self._typed = validated or CeleryTaskQueueOptions.model_validate(options)
 
     @property
     def _app(self) -> Any:
@@ -285,7 +300,7 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         kernel's task table declares and runs the beat under the kernel's
         lease (:mod:`sandloom.core.drivers.celery_worker`). Connects to
         nothing."""
-        return CeleryWorkerHost(lambda: self._app)
+        return CeleryWorkerHost(lambda: self._app, worker_pool=self._typed.worker_pool)
 
     async def health(self) -> HealthResult:
         """One bounded connection to this instance's broker
@@ -294,7 +309,9 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         was invisible. A broker that refuses the connection is a failed
         probe carrying the error's type name (spec 2.4), never its text."""
         try:
-            return await probe_broker(self._app)
+            return await probe_broker(
+                self._app, limit_seconds=self._typed.health_timeout_seconds
+            )
         except BrokerUnreachableError as exc:
             return HealthResult(status="fail", details={"error": type(exc).__name__})
 
@@ -343,6 +360,7 @@ def create_celery_taskqueue(cfg: InstanceConfig) -> CeleryTaskQueueProvider:
         driver=cfg.driver,
         options=dict(cfg.options),
         app_factory=build,
+        validated=options,
     )
 
 

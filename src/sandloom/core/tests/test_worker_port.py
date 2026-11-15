@@ -24,6 +24,7 @@ from sandloom.core.drivers.celery_taskqueue import (
 )
 from sandloom.core.drivers.celery_worker import (
     CeleryWorkerHost,
+    WorkerPool,
     configure_worker_reliability,
     configure_worker_sizing,
     heartbeat_is_fresh,
@@ -42,6 +43,16 @@ from sandloom.core.infra.ports.taskqueue import (
 
 def _celery() -> Celery:
     return Celery("sandloom-worker-test", broker="memory://", backend="cache+memory://")
+
+
+@pytest.fixture(autouse=True)
+def _billiard_forks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The prefork pool is refused where billiard spawns (macOS): the tests of
+    the host's wiring run as on Linux; ``test_celery_worker_pool`` pins the
+    refusal."""
+    import billiard  # type: ignore[import-untyped]
+
+    monkeypatch.setattr(billiard, "get_start_method", lambda *a, **k: "fork")
 
 
 class _Boot:
@@ -290,6 +301,7 @@ def test_the_worker_host_boots_registers_and_wires_the_process_hooks(
     assert seen["argv"] == [
         "worker",
         "--loglevel=DEBUG",
+        "--pool=prefork",
         "--queues=mail,default",
         "--concurrency=3",
     ]
@@ -309,9 +321,38 @@ def test_the_worker_host_defaults_to_the_default_queue_and_info(
     _fake_celery(monkeypatch, seen)
     app = _celery()
     CeleryWorkerHost(lambda: app).run_worker(_Boot())
-    assert seen["argv"] == ["worker", "--loglevel=INFO"]
+    assert seen["argv"] == ["worker", "--loglevel=INFO", "--pool=prefork"]
     CeleryWorkerHost(lambda: app).run_worker(_Boot(), loglevel="nonsense")
-    assert seen["argv"] == ["worker", "--loglevel=INFO"]
+    assert seen["argv"] == ["worker", "--loglevel=INFO", "--pool=prefork"]
+
+
+@pytest.mark.parametrize("pool", ["solo", "threads"])
+def test_a_pool_without_children_starts_and_stops_the_process_in_the_host(
+    monkeypatch: pytest.MonkeyPatch, pool: WorkerPool
+) -> None:
+    """solo and threads run the messages in the worker process: Celery sends
+    no ``worker_process_init`` / ``worker_process_shutdown`` there, so the host
+    starts the process on ``worker_init`` and stops it on ``worker_shutdown``."""
+    seen: dict[str, Any] = {}
+
+    def run(app: Any, argv: Any) -> int:
+        seen["argv"] = list(argv)
+        signals.worker_init.send(sender=None)
+        signals.worker_shutdown.send(sender=None)
+        return 0
+
+    monkeypatch.setattr(celery_worker, "_run_celery", run)
+    boot = _Boot(_table())
+    app = _celery()
+    before = len(signals.worker_shutdown.receivers)
+    CeleryWorkerHost(lambda: app, worker_pool=pool).run_worker(boot, concurrency=4)
+    expected = ["worker", "--loglevel=INFO", f"--pool={pool}"]
+    if pool == "threads":
+        expected.append("--concurrency=4")
+    assert seen["argv"] == expected  # solo runs one message: no concurrency
+    # no process is forked: no before_fork (the GC freeze children share)
+    assert boot.events == ["boot", "start", "stop"]
+    assert len(signals.worker_shutdown.receivers) == before  # disconnected after
 
 
 def test_the_scheduler_argv_carries_the_schedule_file(

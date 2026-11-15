@@ -357,6 +357,12 @@ _REDIS_CLIENT_SETTINGS: dict[str, str] = {
     "retry_attempts": "cache_retry_attempts",
 }
 
+#: ``option -> setting``: what a ``celery`` task queue's broker probe is
+#: bounded by.
+_CELERY_SETTINGS: dict[str, str] = {
+    "health_timeout_seconds": "health_check_timeout_seconds",
+}
+
 #: ``option -> setting``: the bounds of a ``redis`` / ``streams`` event bus
 #: client (its read timeout is the bus's own).
 _TRANSPORT_CLIENT_SETTINGS: dict[str, str] = {
@@ -378,6 +384,22 @@ def _fill(options: dict[str, Any], settings: Any, table: Mapping[str, str]) -> N
         value = getattr(settings, setting, None)
         if value is not None:
             options.setdefault(option, value)
+
+
+def _cap_probe_bound(options: dict[str, Any], settings: Any) -> None:
+    """A ``celery`` probe bound above ``HEALTH_CHECK_TIMEOUT_SECONDS`` is cut to
+    it: the readiness probe stops waiting there (``InfraRegistry.health_all``),
+    so a longer connect would only keep a thread behind an answered probe. A
+    value that is not a number stays for the driver to refuse."""
+    bound = getattr(settings, "health_check_timeout_seconds", None)
+    stated = options.get("health_timeout_seconds")
+    if (
+        isinstance(bound, int | float)
+        and isinstance(stated, int | float)
+        and not isinstance(stated, bool)
+        and stated > bound
+    ):
+        options["health_timeout_seconds"] = bound
 
 
 def _fill_url(options: dict[str, Any], key: str, value: Any) -> None:
@@ -436,7 +458,7 @@ def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
     timeout and health-check interval, and the ``default`` one ``url`` too
     (a named bus without one shares the default transport); ``streams`` buses
     their ``retention_seconds``, ``max_length`` and ``prefix``; ``celery`` task
-    queues ``broker`` and ``backend``.
+    queues ``broker``, ``backend`` and the probe bound ``health_timeout_seconds``.
     """
     cache_url = getattr(settings, "cache_url", None)
     for cfg in (config.get("cache") or {}).values():
@@ -461,6 +483,8 @@ def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
         if cfg.driver == "celery":
             _fill_url(cfg.options, "broker", getattr(settings, "broker_url", None))
             _fill_url(cfg.options, "backend", cache_url)
+            _fill(cfg.options, settings, _CELERY_SETTINGS)
+            _cap_probe_bound(cfg.options, settings)
 
 
 def load_infra_config(settings: Settings) -> InfraConfig:

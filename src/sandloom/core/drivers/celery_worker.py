@@ -37,11 +37,12 @@ import importlib
 import logging
 import os
 import socket
+import threading
 import time
 from collections.abc import Callable, Coroutine, Sequence
 from datetime import UTC, datetime, tzinfo
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn
 
 import orjson
 
@@ -79,6 +80,13 @@ WORKER_MAX_TASKS_ENV = "WORKER_MAX_TASKS_PER_CHILD"
 HEARTBEAT_FILE_ENV = "WORKER_HEARTBEAT_FILE"
 DEFAULT_HEARTBEAT_FILE = "/tmp/sandloom-worker-heartbeat"  # noqa: S108 - default liveness file; WORKER_HEARTBEAT_FILE overrides
 HEARTBEAT_INTERVAL_SECONDS = 10.0
+#: The pools of the ``worker_pool`` option (the first is the default): ``prefork``
+#: forks child processes, ``solo`` runs the messages in the worker process
+#: itself (inside Celery's event loop), ``threads`` on a thread pool of it.
+WorkerPool = Literal["prefork", "solo", "threads"]
+#: The operator's worker concurrency (the kernel resolves it; ``solo`` runs one
+#: message at a time, so an explicit value above 1 is refused there).
+WORKER_CONCURRENCY_ENV = "WORKER_CONCURRENCY"
 #: The broker of the importable app (the kernel's ``BROKER_URL`` setting).
 BROKER_URL_ENV = "BROKER_URL"
 #: Celery CLI global options whose click ``envvar`` (``APP``, ``BROKER_URL``,
@@ -260,6 +268,48 @@ def configure_worker_sizing(
         conf.worker_max_tasks_per_child = max_tasks
 
 
+def refuse_unusable_pool(pool: WorkerPool, env: dict[str, str] | None = None) -> None:
+    """Refuse, before anything boots, a ``worker_pool`` the process cannot run
+    as configured (:class:`InvalidArgument`, naming the option or setting):
+
+    - ``prefork`` where billiard does not start its children with ``fork``
+      (macOS: it spawns, and a spawned child never sees the boot-registered
+      task table): set ``worker_pool`` to ``solo`` or ``threads``;
+    - ``solo`` / ``threads`` with ``WORKER_MAX_MEMORY_PER_CHILD`` or
+      ``WORKER_MAX_TASKS_PER_CHILD`` set: they recycle prefork children, and
+      those pools have none;
+    - ``solo`` with ``WORKER_CONCURRENCY`` above 1: it runs one message at a time.
+    """
+    source = os.environ if env is None else env
+    if pool == "prefork":
+        method = importlib.import_module("billiard").get_start_method()
+        if method != "fork":
+            raise InvalidArgument(
+                "worker_pool 'prefork' needs billiard to fork its children, and "
+                f"here it starts them with {method!r} (macOS): set worker_pool to "
+                "'solo' or 'threads' in the taskqueue instance's options (INFRA), "
+                "or run the worker on Linux",
+                capability="taskqueue",
+            )
+        return
+    for key in (WORKER_MAX_MEMORY_ENV, WORKER_MAX_TASKS_ENV):
+        if _positive_int_env(source, key) is not None:
+            raise InvalidArgument(
+                f"{key} recycles prefork children and worker_pool {pool!r} has "
+                "none: unset it or set worker_pool to 'prefork'",
+                capability="taskqueue",
+            )
+    if pool == "solo":
+        concurrency = _positive_int_env(source, WORKER_CONCURRENCY_ENV)
+        if concurrency is not None and concurrency > 1:
+            raise InvalidArgument(
+                f"{WORKER_CONCURRENCY_ENV}={concurrency} but worker_pool 'solo' "
+                "runs one message at a time: unset it, or set worker_pool to "
+                "'threads' or 'prefork'",
+                capability="taskqueue",
+            )
+
+
 def configure_worker_reliability(app: Any) -> None:
     """Framework delivery defaults of the worker's Celery app.
 
@@ -289,7 +339,48 @@ def heartbeat_path(env: dict[str, str] | None = None) -> str:
     return (source.get(HEARTBEAT_FILE_ENV) or "").strip() or DEFAULT_HEARTBEAT_FILE
 
 
-def install_heartbeat(app: Any, path: str | None = None) -> None:
+def _touch(target: Path) -> None:
+    try:
+        target.touch()
+    except OSError:  # pragma: no cover - read-only fs
+        logger.warning("[worker] cannot touch heartbeat %s", target)
+
+
+class _HeartbeatThread:
+    """A daemon thread that calls ``beat`` every ``interval`` seconds until
+    stopped (the heartbeat of a pool that runs messages inside the timer's
+    loop)."""
+
+    def __init__(self, beat: Callable[[], None], interval: float) -> None:
+        self._beat = beat
+        self._interval = interval
+        self._halt = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run, name="sandloom-heartbeat", daemon=True
+        )
+
+    def _run(self) -> None:
+        while not self._halt.wait(self._interval):
+            self._beat()
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._halt.set()
+        self._thread.join(timeout=self._interval + 1)
+
+    def is_alive(self) -> bool:
+        return self._thread.is_alive()
+
+
+def install_heartbeat(
+    app: Any,
+    path: str | None = None,
+    *,
+    thread: bool = False,
+    interval: float = HEARTBEAT_INTERVAL_SECONDS,
+) -> None:
     """Touch a heartbeat file from the worker's own timer (liveness probe).
 
     The timer runs in the worker's main process event machinery, so the file
@@ -297,6 +388,12 @@ def install_heartbeat(app: Any, path: str | None = None) -> None:
     busy. ``sandloom worker check`` checks its age without booting the app (no
     broker round-trip, no second copy of the composition root inside the
     container's memory limit, unlike ``celery inspect ping``).
+
+    ``thread=True`` (the ``solo`` and ``threads`` pools) touches the file from a
+    daemon thread instead: ``solo`` runs a message inside the same event loop
+    as the timer, so a task longer than the check window would starve the timer
+    and ``sandloom worker check`` would declare a busy worker dead. The price:
+    the file no longer shows a loop wedged by something other than a task.
     """
     bootsteps = importlib.import_module("celery.bootsteps")
 
@@ -313,23 +410,26 @@ def install_heartbeat(app: Any, path: str | None = None) -> None:
             super().__init__(parent, **kwargs)
             self.tref: Any = None
             self.stopped = False
+            self.ticker: _HeartbeatThread | None = None
 
         def _beat(self, *_: Any) -> None:
-            if self.stopped:
-                return
-            try:
-                target.touch()
-            except OSError:  # pragma: no cover - read-only fs
-                logger.warning("[worker] cannot touch heartbeat %s", target)
+            if not self.stopped:
+                _touch(target)
 
         def start(self, parent: Any) -> None:
             self._beat()
-            self.tref = parent.timer.call_repeatedly(
-                HEARTBEAT_INTERVAL_SECONDS, self._beat, (), priority=10
-            )
+            if thread:
+                self.ticker = _HeartbeatThread(self._beat, interval)
+                self.ticker.start()
+            else:
+                self.tref = parent.timer.call_repeatedly(
+                    interval, self._beat, (), priority=10
+                )
 
         def stop(self, parent: Any) -> None:
             self.stopped = True
+            if self.ticker is not None:
+                self.ticker.stop()
             if self.tref is not None:
                 self.tref.cancel()
             target.unlink(missing_ok=True)
@@ -695,6 +795,8 @@ def install_beat_lease(app: Any, lease: BeatLease) -> Callable[..., None]:
     tick). Returns the receiver, for :func:`remove_beat_lease`.
     """
     signals = _signals()
+    # Bound here: the identity check below narrows ``app`` inside the receiver.
+    beat_clock = app.now
 
     def _on_beat_init(sender: Any = None, **_: Any) -> None:
         if sender is None or getattr(sender, "app", None) is not app:
@@ -706,7 +808,10 @@ def install_beat_lease(app: Any, lease: BeatLease) -> Callable[..., None]:
         scheduler = sender.scheduler
         if isinstance(scheduler, LeasedScheduler):
             return
-        sender.scheduler = LeasedScheduler(scheduler, lease)
+        # The slot of a send is read on the clock the beat itself ticks on
+        # (``app.now``), never a second one: with two clocks a tick due in one
+        # minute could claim the slot of the next.
+        sender.scheduler = LeasedScheduler(scheduler, lease, wall_clock=beat_clock)
         logger.info("[beat] singleton lease %s installed", lease.name)
 
     signals.beat_init.connect(_on_beat_init, weak=False)
@@ -725,6 +830,40 @@ def _loglevel(requested: str) -> str:
     return (
         level if level in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"} else "INFO"
     )
+
+
+def _process_hooks(
+    signals: Any, boot: WorkerBoot, *, forks: bool
+) -> list[tuple[Any, Callable[..., None]]]:
+    """The ``(signal, receiver)`` pairs that call the boot's process hooks.
+
+    ``prefork`` children announce themselves (``worker_process_init`` /
+    ``worker_process_shutdown``). ``solo`` and ``threads`` run the messages in
+    the worker process and send neither, so the host starts that process on
+    ``worker_init`` and stops it on ``worker_shutdown``; no process is forked
+    there, so ``before_fork`` (the kernel's GC freeze that children share) is
+    not called."""
+
+    def on_worker_init(**_: Any) -> None:
+        if forks:
+            boot.before_fork()
+        else:
+            boot.on_process_start()
+
+    def on_process_init(**_: Any) -> None:
+        boot.on_process_start()
+
+    def on_process_shutdown(**_: Any) -> None:
+        boot.on_process_stop()
+
+    connected: list[tuple[Any, Callable[..., None]]] = [
+        (signals.worker_init, on_worker_init),
+        (signals.worker_process_init, on_process_init),
+        (signals.worker_process_shutdown, on_process_shutdown),
+    ]
+    if not forks:
+        connected.append((signals.worker_shutdown, on_process_shutdown))
+    return connected
 
 
 def _run_celery(app: Any, argv: Sequence[str]) -> int:
@@ -775,8 +914,11 @@ def _run_celery(app: Any, argv: Sequence[str]) -> int:
 class CeleryWorkerHost:
     """The worker host of one Celery app (``CeleryTaskQueueProvider.worker_host``)."""
 
-    def __init__(self, app_factory: Callable[[], Any]) -> None:
+    def __init__(
+        self, app_factory: Callable[[], Any], *, worker_pool: WorkerPool = "prefork"
+    ) -> None:
         self._app_factory = app_factory
+        self._worker_pool: WorkerPool = worker_pool
 
     @property
     def _app(self) -> Any:
@@ -792,35 +934,27 @@ class CeleryWorkerHost:
         concurrency: int | None = None,
         loglevel: str = "INFO",
     ) -> int:
+        pool = self._worker_pool
+        # Refused before the kernel boots anything.
+        refuse_unusable_pool(pool)
         signals = _signals()
         app = self._app
         app._sandloom_hosted = True
         register_task_table(app, boot.boot(), boot.run)
-        configure_worker_sizing(app, concurrency=concurrency)
+        # A solo pool runs one message at a time: Celery ignores a larger value.
+        sized = None if pool == "solo" else concurrency
+        configure_worker_sizing(app, concurrency=sized)
         configure_worker_reliability(app)
-        install_heartbeat(app)
+        install_heartbeat(app, thread=pool != "prefork")
 
-        def on_worker_init(**_: Any) -> None:
-            boot.before_fork()
-
-        def on_process_init(**_: Any) -> None:
-            boot.on_process_start()
-
-        def on_process_shutdown(**_: Any) -> None:
-            boot.on_process_stop()
-
-        connected = (
-            (signals.worker_init, on_worker_init),
-            (signals.worker_process_init, on_process_init),
-            (signals.worker_process_shutdown, on_process_shutdown),
-        )
+        connected = _process_hooks(signals, boot, forks=pool == "prefork")
         for signal, receiver in connected:
             signal.connect(receiver, weak=False)
-        argv = ["worker", f"--loglevel={_loglevel(loglevel)}"]
+        argv = ["worker", f"--loglevel={_loglevel(loglevel)}", f"--pool={pool}"]
         if queues:
             argv.append(f"--queues={','.join(queues)}")
-        if concurrency is not None:
-            argv.append(f"--concurrency={concurrency}")
+        if sized is not None:
+            argv.append(f"--concurrency={sized}")
         try:
             return _run_celery(app, argv)
         finally:
@@ -887,6 +1021,7 @@ __all__ = [
     "BeatLease",
     "CeleryWorkerHost",
     "LeasedScheduler",
+    "WorkerPool",
     "build_named_app",
     "configure_worker_reliability",
     "configure_worker_sizing",
@@ -896,6 +1031,7 @@ __all__ = [
     "heartbeat_path",
     "install_beat_lease",
     "install_heartbeat",
+    "refuse_unusable_pool",
     "register_task_table",
     "remove_beat_lease",
 ]

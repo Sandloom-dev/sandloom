@@ -84,13 +84,81 @@ def test_a_named_instance_gets_what_it_leaves_out_and_keeps_what_it_says() -> No
     VolatileBusOptions.model_validate(side)
     assert config["eventbus"]["mem"].options == {}
     jobs = config["taskqueue"]["jobs"].options
-    assert jobs == {"broker": "redis://b/2", "backend": settings.cache_url}
+    assert jobs == {
+        "broker": "redis://b/2",
+        "backend": settings.cache_url,
+        "health_timeout_seconds": settings.health_check_timeout_seconds,
+    }
     celery_taskqueue.CeleryTaskQueueOptions.model_validate(jobs)
 
 
-def test_the_default_taskqueue_gets_broker_and_backend() -> None:
+def test_the_default_taskqueue_gets_broker_backend_and_the_probe_bound() -> None:
     options = load_infra_config(settings)["taskqueue"][DEFAULT_INSTANCE].options
-    assert options == {"broker": settings.broker_url, "backend": settings.cache_url}
+    assert options == {
+        "broker": settings.broker_url,
+        "backend": settings.cache_url,
+        "health_timeout_seconds": settings.health_check_timeout_seconds,
+    }
+
+
+def test_the_probe_bound_follows_the_setting_and_a_lower_stated_one_wins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "health_check_timeout_seconds", 5.0)
+    config = {
+        "taskqueue": {
+            "a": _cfg("taskqueue", "a", "celery"),
+            "b": _cfg("taskqueue", "b", "celery", health_timeout_seconds=1.0),
+        }
+    }
+    fill_driver_defaults(config, settings)
+    assert config["taskqueue"]["a"].options["health_timeout_seconds"] == 5.0
+    assert config["taskqueue"]["b"].options["health_timeout_seconds"] == 1.0
+
+
+def test_a_stated_probe_bound_never_exceeds_the_readiness_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``/ready`` stops waiting at ``HEALTH_CHECK_TIMEOUT_SECONDS``: a connect
+    allowed 300 s would only outlive its answered probe (option 300, setting 5:
+    the probe is bounded by 5)."""
+    monkeypatch.setattr(settings, "health_check_timeout_seconds", 5.0)
+    config = {
+        "taskqueue": {
+            "b": _cfg("taskqueue", "b", "celery", health_timeout_seconds=300),
+        }
+    }
+    fill_driver_defaults(config, settings)
+    assert config["taskqueue"]["b"].options["health_timeout_seconds"] == 5.0
+    options = config["taskqueue"]["b"].options
+    provider = celery_taskqueue.create_celery_taskqueue(
+        _cfg("taskqueue", "b", "celery", **{**options, "broker": "redis://b/2"})
+    )
+    assert provider._typed.health_timeout_seconds == 5.0
+
+
+@pytest.mark.parametrize("raw", ["0", "-1", "301", "soon"])
+def test_a_bad_health_check_timeout_is_refused_naming_the_variable(raw: str) -> None:
+    from pydantic import ValidationError
+
+    from sandloom.core.config.settings import Settings
+
+    with pytest.raises(ValidationError, match="HEALTH_CHECK_TIMEOUT_SECONDS"):
+        Settings(_env_file=None, HEALTH_CHECK_TIMEOUT_SECONDS=raw)
+
+
+@pytest.mark.parametrize("bound", [0, -1, 301, "soon"])
+def test_a_bad_probe_bound_is_refused_at_build(bound: object) -> None:
+    with pytest.raises(ValueError, match="health_timeout_seconds"):
+        celery_taskqueue.create_celery_taskqueue(
+            _cfg(
+                "taskqueue",
+                "jobs",
+                "celery",
+                broker="redis://b/2",
+                health_timeout_seconds=bound,
+            )
+        )
 
 
 def test_a_redis_cache_built_from_options_ignores_the_settings(

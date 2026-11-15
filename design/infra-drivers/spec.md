@@ -960,10 +960,24 @@ class WorkerHost(Protocol):
     def check(self, *, timeout_seconds: float) -> HealthResult: ...
 ```
 
+The process model is not an argument of the port (idk-pkg-celery, review of PR 221: a pool is Celery
+vocabulary, not what every host has). It is the `celery` option `worker_pool: Literal["prefork",
+"solo", "threads"] = "prefork"`, set in `INFRA` on the taskqueue instance, and the host reads it from
+its own options. The `solo` and `threads` pools run messages in the host's own process, so the
+Celery host calls `on_process_start` / `on_process_stop` itself there (no pool child announces
+itself) and never calls `before_fork` (nothing forks, so no heap is frozen for children). Before it
+boots anything the host raises `InvalidArgument`, naming the option or setting, for `prefork` where
+billiard does not fork its children (macOS: spawned children never see the boot-registered table;
+set `solo` or `threads`), for `WORKER_MAX_MEMORY_PER_CHILD` or `WORKER_MAX_TASKS_PER_CHILD` with
+`solo` or `threads` (they recycle prefork children, which those pools lack) and for
+`WORKER_CONCURRENCY` above 1 with `solo`. `solo` runs a message inside the loop that fires the
+host's liveness timer, so in `solo` and `threads` the heartbeat file is touched from a daemon thread
+(a task longer than the `check` window must not read as a dead worker); the file then no longer
+shows a loop wedged by something other than a task.
 `loglevel` is the process's log level (`sandloom worker|beat --loglevel`). `lease_ttl_seconds` is
 `BEAT_LEASE_TTL_SECONDS`, and `state_file` the scheduler's state file (`sandloom beat --schedule`,
-ignored by a host that keeps none). Both are the kernel's today; revisit them as driver options
-when the Celery host becomes its own package (`idk-pkg-celery`).
+ignored by a host that keeps none). Both stay kernel-owned: they are the kernel's lease and file
+settings, passed through the port, and not options of any driver.
 
 **`WorkerHost` is not a capability.** It has no `INFRA` entry, no registration and no major of its
 own: the kernel reaches it only through `TaskQueueProvider.worker_host()`, and it is versioned with
@@ -1012,7 +1026,8 @@ the Celery-only halves of `core/worker.py`, `core/beat_lease.py`, `core/async_ru
   driver's own interface, not a shim (owner decision 9).
 
 **Errors.** `send`: `InvalidArgument`, `TooLarge`, `Unsupported("delay")`, `Unavailable`, `Timeout`,
-`PermissionDenied`. `enqueue` (kernel layer) keeps its HTTP errors: `TaskEnqueueConflict` (409),
+`PermissionDenied`. `WorkerHost.run_worker`: `InvalidArgument` for a configuration the host cannot
+run (above), before it consumes. `enqueue` (kernel layer) keeps its HTTP errors: `TaskEnqueueConflict` (409),
 `TaskEnqueueUnavailable` and `TaskEnqueueUncertain` (503) (`enqueue.py:26-60`).
 
 **Features.**

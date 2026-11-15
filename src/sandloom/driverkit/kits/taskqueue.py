@@ -66,6 +66,8 @@ _PAYLOAD = b'{"conformance":true}'
 #: The tasks of the kit's table. Never confused with ``known_task`` (send groups).
 SYNC_TASK = "sandloom.conformance.host.sync"
 ASYNC_TASK = "sandloom.conformance.host.run_async"
+#: The prefix of the periodic task's name: each test's table names its own
+#: (``_Session.tick_task``).
 TICK_TASK = "sandloom.conformance.host.tick"
 UNKNOWN_HOST_TASK = "sandloom.conformance.host.unknown"
 PERIODIC_ID = "sandloom-conformance-every-minute"
@@ -129,6 +131,13 @@ class _Session:
         self.seen: list[dict[str, Any]] = []
         #: The task ids this test sent.
         self.sent: set[str] = set()
+        #: The periodic task of this test's table, named for it: the scheduler
+        #: sends it under an id the test does not know, so a tick another test
+        #: left in the shared broker is told apart by its name (an unknown task
+        #: runs nothing: it never reaches ``runs``).
+        #: The last dot segment stays an identifier: a host may name a function
+        #: after it (Celery does).
+        self.tick_task = f"{TICK_TASK}_{uuid4().hex}"
         self._children: list[_Child] = []
         self._tmp = tempfile.TemporaryDirectory(prefix="sandloom-kit-")
 
@@ -172,7 +181,7 @@ class _Session:
             for r in self.seen
             if r["kind"] == "run"
             and (task is None or r["task"] == task)
-            and (r["task"] == TICK_TASK or r["task_id"] in self.sent)
+            and (r["task"] == self.tick_task or r["task_id"] in self.sent)
         ]
 
     def of(self, kind: str) -> list[dict[str, Any]]:
@@ -239,10 +248,16 @@ class _KitBoot:
             tasks={
                 SYNC_TASK: TaskSpec(),
                 ASYNC_TASK: TaskSpec(),
-                TICK_TASK: TaskSpec(),
+                self._session.tick_task: TaskSpec(),
             },
             periodic=(
-                [PeriodicSpec(id=PERIODIC_ID, cron="* * * * *", task=TICK_TASK)]
+                [
+                    PeriodicSpec(
+                        id=PERIODIC_ID,
+                        cron="* * * * *",
+                        task=self._session.tick_task,
+                    )
+                ]
                 if self._periodic
                 else []
             ),
@@ -745,7 +760,7 @@ class TaskQueueConformance(ProviderConformance[TaskQueueProvider]):
                 session.settle(2.0)  # the second one tries the lease and stands by
                 advance()
                 session.wait(
-                    lambda: bool(session.runs(TICK_TASK)),
+                    lambda: bool(session.runs(session.tick_task)),
                     "run of the periodic task",
                     timeout=_WAIT_SECONDS + 70.0,
                 )
@@ -764,7 +779,7 @@ class TaskQueueConformance(ProviderConformance[TaskQueueProvider]):
         async with self._schedulers(
             make_host_provider, make_lease_store, scheduler_clock
         ) as beat:
-            ticks = beat.session.runs(TICK_TASK)
+            ticks = beat.session.runs(beat.session.tick_task)
             after = await beat.store.holder(beat.lease_name)
             beat.first.stop()
         require(
@@ -791,7 +806,7 @@ class TaskQueueConformance(ProviderConformance[TaskQueueProvider]):
         async with self._schedulers(
             make_host_provider, make_lease_store, scheduler_clock
         ) as beat:
-            before = len(beat.session.runs(TICK_TASK))
+            before = len(beat.session.runs(beat.session.tick_task))
             beat.first.stop()
             taken = None
             deadline = time.monotonic() + _LEASE_TTL_SECONDS + _WAIT_SECONDS
@@ -808,7 +823,7 @@ class TaskQueueConformance(ProviderConformance[TaskQueueProvider]):
                 f"stopped, within {_LEASE_TTL_SECONDS + _WAIT_SECONDS:.0f}s",
             )
             beat.session.settle(4.0)  # the new holder's ticks inside the same slot
-            ticks = beat.session.runs(TICK_TASK)
+            ticks = beat.session.runs(beat.session.tick_task)
         require(
             before == 1,
             f"the first scheduler sent the periodic task {before} times for one slot",

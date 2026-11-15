@@ -100,8 +100,8 @@ class WorkerBoot(Protocol):
     def before_fork(self) -> None:
         """Called once in the host's main process after :meth:`boot`, right
         before it forks processes that run messages (a host that forks none
-        calls it before its first message): the kernel freezes the startup heap
-        so children share it."""
+        does not call it): the kernel freezes the startup heap so children
+        share it."""
         ...
 
     def on_process_start(self) -> None:
@@ -136,8 +136,11 @@ class WorkerHost(Protocol):
     ) -> int:
         """Consume the queues (``None``: the default queue) and run each message
         through ``boot.run`` until the process is told to stop; ``loglevel`` is
-        the log level of the process. Blocks; the return value is the process
-        exit code (non-zero when the worker died)."""
+        the log level of the process. The process model that runs the messages
+        (child processes, one process, threads) is the driver's own option, read
+        from its INFRA options: a configuration the host cannot run raises
+        ``InvalidArgument`` before it consumes. Blocks; the return value is the
+        process exit code (non-zero when the worker died)."""
         ...
 
     def run_scheduler(

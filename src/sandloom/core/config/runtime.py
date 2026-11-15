@@ -180,6 +180,8 @@ class RuntimeConfig(BaseModel):
     )
     health_check_timeout_seconds: float = Field(
         default=5.0,
+        gt=0,
+        le=300,
         alias="HEALTH_CHECK_TIMEOUT_SECONDS",
         description=("Timeout in seconds applied to health-check execution."),
     )
