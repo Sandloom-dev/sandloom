@@ -1,10 +1,10 @@
 # Sandloom distributions (ADR-0001)
 
-This directory defines the seven publishable distributions Sandloom ships, per
+This directory defines the eight publishable distributions Sandloom ships, per
 [ADR-0001](../docs/adr/0001-framework-distribution.md): the framework,
 `sandloom`, the standard composition root, `sandloom-standard`
 ([ADR-0012](../docs/adr/0012-kernel-boundary.md) decision 3), and four
-ecosystem module packages built the way a third party ships a module. The optional `sandloom-s3` distribution ships the S3-compatible object store driver. The source of truth stays in the monorepo tree (`src/sandloom`,
+ecosystem module packages built the way a third party ships a module. The optional `sandloom-s3` distribution ships the S3-compatible object store driver, and `sandloom-redis` the Redis drivers. The source of truth stays in the monorepo tree (`src/sandloom`,
 `src/sandloom_identity`, `src/sandloom_tenancy`, `src/sandloom_billing`,
 `src/sandloom_admin`); each
 package here builds a wheel and a self-contained source archive through the

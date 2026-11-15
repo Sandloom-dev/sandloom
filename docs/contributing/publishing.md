@@ -4,16 +4,16 @@ type: how-to
 
 # Publishing packages to PyPI
 
-Sandloom publishes seven distributions through
+Sandloom publishes eight distributions through
 [Release (PyPI)](https://github.com/Sandloom-dev/sandloom/actions/workflows/release.yml):
 `sandloom`, `sandloom-standard`, `sandloom-identity`, `sandloom-tenancy`,
-`sandloom-billing`, `sandloom-admin` and `sandloom-s3`. `sandloom-standard` holds the standard
+`sandloom-billing`, `sandloom-admin`, `sandloom-s3` and `sandloom-redis`. `sandloom-standard` holds the standard
 composition root (`sandloom_standard.main`) that `sandloom[standard]` installs:
 release it before or together with a `sandloom` version whose `standard` extra
 requires it.
 Versions are independent. A manual run can select one package or `all` for a
 coordinated release. A per-package tag selects only that package.
-The current coordinated alpha is `0.7.0a13` for all seven packages. <!-- sandloom-release -->
+The current coordinated alpha is `0.7.0a13` for all eight packages. <!-- sandloom-release -->
 
 ## Authentication and approval
 
@@ -34,8 +34,8 @@ The GitHub `pypi` environment requires approval by `Maryarty`, including runs
 started by the owner. Administrator bypass is disabled. The owner may approve
 their own run because there is only one maintainer. Allowed deployment refs are
 `main` and the tag patterns of the packages that release by tag:
-`sandloom-v*`, `sandloom-identity-v*`, `sandloom-tenancy-v*` and
-`sandloom-billing-v*`.
+`sandloom-v*`, `sandloom-identity-v*`, `sandloom-tenancy-v*`,
+`sandloom-billing-v*` and `sandloom-redis-v*`.
 
 The workflow starts on `sandloom*-v*`. Its plan step checks the tag against
 `tools/packaging/packages.json`: the package must exist and have `tag_release`
@@ -114,7 +114,7 @@ uv run python tools/checks/check_benchmark_dependencies.py --write
 
 <!-- sandloom-release --> The command above prepares the `0.7.0a13` release.
 The canonical current framework version is `packages/sandloom/pyproject.toml`.
-The helper updates all seven package versions, compatible dependency floors,
+The helper updates all eight package versions, compatible dependency floors,
 example manifests, scaffold requirements, CLI help and current documentation.
 It discovers package pins in source documentation; prose that describes the
 current release carries an inline `<!-- sandloom-release -->` marker.
@@ -152,10 +152,11 @@ git push origin sandloom-v0.7.0a13
 ```
 
 The other tag prefixes are `sandloom-identity-v`, `sandloom-tenancy-v`,
-`sandloom-billing-v` and `sandloom-redis-v`. Every other package, such as `sandloom-standard`,
-releases through a manual run. No tag pattern of the environment allows its
-tag. Its `tag_release` is false in `packages.json`, so the plan step refuses
-that tag.
+`sandloom-billing-v` and `sandloom-redis-v`. A driver package's tag releases
+together with, or after, the kernel version it requires (ADR-0016, lockstep).
+Every other package, such as `sandloom-standard`, releases through a manual
+run. No tag pattern of the environment allows its tag. Its `tag_release` is
+false in `packages.json`, so the plan step refuses that tag.
 
 Pass `all` or the package name in the `package` input. A manual run can select
 `sandloom-admin` alone, and the owner's approval still gates its upload.
