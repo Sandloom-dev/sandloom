@@ -96,6 +96,7 @@ def test_the_tag_allowed_packages_are_the_environment_allowed_ones():
         "sandloom-identity",
         "sandloom-tenancy",
         "sandloom-billing",
+        "sandloom-redis",
     }
     assert UNTAGGED, "a list with no manual-only package hides the refusal path"
 

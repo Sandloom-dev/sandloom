@@ -151,8 +151,8 @@ git tag sandloom-v0.7.0a13
 git push origin sandloom-v0.7.0a13
 ```
 
-The other tag prefixes are `sandloom-identity-v`, `sandloom-tenancy-v` and
-`sandloom-billing-v`. Every other package, such as `sandloom-standard`,
+The other tag prefixes are `sandloom-identity-v`, `sandloom-tenancy-v`,
+`sandloom-billing-v` and `sandloom-redis-v`. Every other package, such as `sandloom-standard`,
 releases through a manual run. No tag pattern of the environment allows its
 tag. Its `tag_release` is false in `packages.json`, so the plan step refuses
 that tag.
