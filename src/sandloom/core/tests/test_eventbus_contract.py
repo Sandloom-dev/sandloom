@@ -31,7 +31,6 @@ from sandloom.core.infra.ports.eventbus import (
     GroupOwnedElsewhere,
     GroupOwner,
     PartialPublish,
-    Retention,
 )
 from sandloom.core.infra.registry import FeatureUnsupportedError, InfraRegistry
 from sandloom.core.schema.registry import InMemorySchemaRegistry
