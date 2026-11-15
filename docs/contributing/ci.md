@@ -67,6 +67,13 @@ every lane ([the skip ledger](../reference/testing.md#the-skip-ledger)). Only
 validation collects every suite; there an allowlist entry that matches no
 test fails too (`--strict-allowlist`).
 
+`redis-drivers` and `celery-drivers` run their driver package's tests against
+a real Redis. The conformance kits are included. The tests run on the
+package's built wheel (`--no-sync`, so the editable source never replaces it). A Redis that is
+down fails those lanes instead of skipping (`SANDLOOM_REDIS_REQUIRED`,
+`SANDLOOM_CELERY_REQUIRED`). Each uploads a skip ledger, lanes `redis` and
+`celery`, that the `skip-ledger` job reads.
+
 `kernel-without-batteries` runs the kernel's own test suites in a venv with
 the `sandloom` package alone (ADR-0012). It also runs
 the replaceability fixtures in `tests/integration/replaceability`. There,
