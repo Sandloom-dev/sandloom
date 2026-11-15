@@ -400,9 +400,9 @@ def test_every_public_contract_has_a_kit() -> None:
 
 
 def test_a_kit_not_delivered_yet_names_its_slice() -> None:
-    with pytest.raises(AttributeError, match="idk-cache-contract") as caught:
-        _ = sandloom.driverkit.testing.CacheConformance
-    assert "sandloom.driverkit.kits.cache" in str(caught.value)
+    with pytest.raises(AttributeError, match="idk-eventbus-kit") as caught:
+        _ = sandloom.driverkit.testing.EventTransportConformance
+    assert "sandloom.driverkit.kits.eventbus" in str(caught.value)
     with pytest.raises(AttributeError, match="no attribute 'NoSuchKit'"):
         _ = sandloom.driverkit.testing.NoSuchKit
     assert "LeaseConformance" in dir(sandloom.driverkit.testing)
@@ -435,7 +435,7 @@ def test_only_a_kit_of_driverkit_testing_is_pinned_pending(
     api = _api_gate()
     monkeypatch.setattr(api, "_public_modules", lambda: ["sandloom.driverkit.testing"])
     kits = api.snapshot()["sandloom.driverkit.testing"]
-    assert kits["CacheConformance"] == {"kind": "pending"}
+    assert kits["EventTransportConformance"] == {"kind": "pending"}
     assert kits["ObjectStoreConformance"]["kind"] == "class"
 
     forgotten = ModuleType("sandloom_api_gate_probe")

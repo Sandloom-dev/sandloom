@@ -2439,8 +2439,6 @@ guarantees:
   - docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks
   tests:
   - src/sandloom/core/tests/test_subject_record.py::test_value_domain
-  - src/sandloom/core/tests/test_subject_record.py::test_portable_order
-  - src/sandloom/core/tests/test_subject_record.py::test_portable_writer_refuses_without_cas
   - src/sandloom/core/tests/test_subject_record.py::test_a_revocation_concurrent_with_a_block_never_unblocks
   - src/sandloom/core/tests/test_subject_record.py::test_redis_subject_state_order_and_ttl
   - src/sandloom/core/tests/test_subject_record.py::test_redis_concurrent_block_and_revocations_end_blocked
@@ -6764,8 +6762,8 @@ capabilities:
   - src/sandloom/core/tests/test_infra_hardening.py::test_objectstore_rejects_traversal
   - src/sandloom/core/tests/test_infra_hardening.py::test_objectstore_rejects_symlink_escaping_root
 - id: C-INFRA-09
-  statement: The cache capability is operation-based (get/set/add/delete/incr, cas compare_and_set/compare_and_delete,
-    fused incr_window/incr_many/set_nx_get/set_max) and never hands modules a raw client.
+  statement: The cache capability is operation-based (get/set/add/delete/incr, get_many/set_many, windowed_counter,
+    cas compare_and_set/compare_and_delete) and never hands modules a raw client.
   sources:
   - docs/infrastructure/index.md
   tests:

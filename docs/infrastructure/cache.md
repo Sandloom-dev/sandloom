@@ -21,8 +21,13 @@ await cache().set("reports:last", "...", ttl_seconds=60)
 
 - `get`, `set`, `add`, `delete`, `incr`, `get_many`, `set_many`;
 - `compare_and_set`, `compare_and_delete`, behind the feature `cas`;
-- `incr_window`, `incr_many`, `set_nx_get`, `set_max`: one round trip on Redis and a portable
-  fallback elsewhere.
+- `windowed_counter(key, previous_key, ttl_seconds=...)`: increments `key` and reads
+  `previous_key`, the step of the sliding-window rate limiter. It is one round trip on Redis and
+  two operations elsewhere.
+
+The cache may evict a key before its TTL. The rate limiter and the consumer inbox fail open when
+it raises an `InfraError`. Revocation, blocks and idempotency records live on
+[`atomic_store`](atomic-store.md), not here.
 
 ## Drivers
 

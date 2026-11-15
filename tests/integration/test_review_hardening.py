@@ -330,7 +330,7 @@ async def test_rate_limit_key_gets_ttl_atomically(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The Lua path must be preferred: ONE script call sets count AND TTL and
-    reads the previous window (``incr_window`` — a single round trip).
+    reads the previous window (``windowed_counter`` — a single round trip).
 
     The atomic primitive now lives in the CacheProvider, so the limiter
     delegates through di.cache() -> the shared Redis provider -> the client

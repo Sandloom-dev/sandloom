@@ -110,6 +110,12 @@ class _FakeCache:
         v = self.store.get(key)
         return None if v is None else str(v)
 
+    async def windowed_counter(
+        self, key: str, previous_key: str, *, ttl_seconds: int
+    ) -> tuple[int, str | None]:
+        count = await self.incr(key, ttl_seconds=ttl_seconds)
+        return count, await self.get(previous_key)
+
 
 def _req(ip: str = "203.0.113.7") -> SimpleNamespace:
     return SimpleNamespace(

@@ -18,7 +18,10 @@ class ConsumerInbox:
     it needs no new storage; a longer TTL trades memory for a wider dedupe
     window.
 
-    This inbox is FAIL-OPEN and TTL-bounded: a cache outage degrades to
+    This inbox is FAIL-OPEN and TTL-bounded, as the ``cache`` contract states
+    (it may evict, and the kernel's users fail open on an ``InfraError``; any
+    other exception from the cache is a driver bug and is treated the same
+    way): a cache outage degrades to
     at-least-once and a handler whose side effect ran but whose mark was lost
     can re-run. That is correct for IDEMPOTENT / non-critical handlers. For
     money / orders / provisioning — where the effect must run exactly once —

@@ -67,9 +67,7 @@ PROVIDER_NAMES = frozenset(
 )
 
 #: (file relative to src/sandloom, escape hatch) -> (sites, removed_by).
-RAW_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
-    ("core/testing/fixtures.py", "raw_client"): (1, "idk-test-harness"),
-}
+RAW_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {}
 
 #: (file relative to src/sandloom, probed name) -> (sites, removed_by).
 #: ``idk-ratchets-close`` classifies the rest: a ``<dynamic>`` probe of a
@@ -81,26 +79,8 @@ _NOT_A_PROVIDER = (
 )
 PROBE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
     ("core/admin/api/platform.py", "storage"): (1, _NOT_A_PROVIDER),
-    ("core/app_factory/revocation_applier.py", "dead_letters"): (
-        1,
-        "idk-eventbus-readers",
-    ),
-    ("core/app_factory/revocation_applier.py", "list_dlq"): (
-        1,
-        "idk-eventbus-readers",
-    ),
-    ("core/app_factory/revocation_applier.py", "transport"): (
-        1,
-        "idk-eventbus-readers",
-    ),
-    ("core/cli/doctor.py", "group_info"): (1, "idk-eventbus-readers"),
     ("core/cli/doctor.py", "verify_tenant_rls"): (1, "idk-ratchets-close"),
-    ("core/cli/extract.py", "list_group_owners"): (1, "idk-eventbus-readers"),
-    ("core/cli/extract.py", "transfer_group_owner"): (1, "idk-eventbus-readers"),
     ("core/cli/generated.py", "<dynamic>"): (2, "idk-ratchets-close"),
-    ("core/consumers/callbacks.py", "durable"): (1, "idk-eventbus-readers"),
-    ("core/consumers/callbacks.py", "in_process"): (1, "idk-eventbus-readers"),
-    ("core/consumers/runtime.py", "claim_group_owner"): (1, "idk-eventbus-readers"),
     ("core/di.py", "_sandloom_read_only_uow_factory"): (
         1,
         "stays: an optional contract-pool unit factory of the SQL driver, probed by name (justified in idk-ratchets-close)",
@@ -120,27 +100,12 @@ PROBE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
         "stays: an optional contract-pool unit factory of the SQL driver, probed by name (justified in idk-ratchets-close)",
     ),
     ("core/production_profile.py", "tenant_rls_coverage"): (1, "idk-ratchets-close"),
-    ("core/projections/operations.py", "list_dlq"): (1, "idk-event-ops"),
     ("core/sagas/runtime.py", "<dynamic>"): (1, "idk-ratchets-close"),
     ("core/sagas/runtime.py", "session_factory"): (1, "idk-ratchets-close"),
     ("core/tasks/pool_metrics.py", "pool_stats"): (1, "idk-ratchets-close"),
-    ("core/tasks/relay.py", "native_batch_publish"): (1, "idk-eventbus-readers"),
-    ("core/tasks/relay.py", "publish_event_batch"): (1, "idk-eventbus-readers"),
     ("core/testing/fixtures.py", "_contract_engine"): (1, "idk-ratchets-close"),
     ("core/testing/fixtures.py", "_engine"): (1, "idk-ratchets-close"),
-    ("core/unit_of_work/dispatch.py", "in_process"): (1, "idk-eventbus-readers"),
-    ("core/unit_of_work/dispatch.py", "publish_event_batch"): (
-        1,
-        "idk-eventbus-readers",
-    ),
-    ("core/unit_of_work/dispatch.py", "supports_batch_publish"): (
-        1,
-        "idk-eventbus-readers",
-    ),
-    ("core/unit_of_work/dispatch.py", "supports_prevalidated"): (
-        1,
-        "idk-eventbus-readers",
-    ),
+    ("core/testing/fixtures.py", "redis_client"): (1, "idk-test-harness"),
     ("core/worker.py", "verify_tenant_rls"): (1, "idk-ratchets-close"),
 }
 
@@ -351,7 +316,8 @@ def test_the_scanner_finds_an_undeclared_probe_and_spares_a_declared_one(
     tmp_path: Path,
 ) -> None:
     declared = declared_members()
-    assert {"features", "driver", "get_many", "raw_client"} <= declared
+    assert {"features", "driver", "get_many", "windowed_counter"} <= declared
+    assert "raw_client" not in declared
     assert "native_batch_publish" not in declared
     sample = tmp_path / "probe.py"
     sample.write_text(

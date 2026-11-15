@@ -362,14 +362,11 @@ async def sandloom_cache(sandloom_core: Any) -> AsyncIterator[Any]:
         )
         await _security_store_on_cache(stack, sandloom_core, url)
         provider = registry.provider("cache")
-        raw = getattr(provider, "raw_client", None)
-        if raw is not None:
+        redis_client = getattr(provider, "redis_client", None)
+        if redis_client is not None:
             from sandloom.core.testing.ownership import flush_owned_redis  # noqa: PLC0415 - cold: plugin entry - pytest imports it on every run; the heavy harness part loads with the fixture that needs it
 
-            client = raw()
-            if hasattr(client, "__await__"):
-                client = await client
-            await flush_owned_redis(client)
+            await flush_owned_redis(await redis_client())
         yield provider
 
 

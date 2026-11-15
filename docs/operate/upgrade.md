@@ -91,6 +91,28 @@ replacement. There is no alias.
 | `GroupOwnershipError`, `TransportBatchError` | `GroupOwnedElsewhere` (an `AlreadyExists`), `PartialPublish` (an `InfraError`; `published` and `retryable`) |
 | Group owners, DLQ entries, group and inventory records as `dict`s | `GroupOwner`, `DeadLetter`, `GroupInfo`, `StreamInfo`, `ConsumerInfo` (`sandloom.driverkit`) |
 
+## Upgrading a cache driver or a cache caller to contract major 2
+
+The `cache` contract is major 2 and holds the operations of a module. These are `get`, `set`,
+`delete`, `add`, `incr`, `get_many`, `set_many` and `windowed_counter`. `compare_and_set` and
+`compare_and_delete` are behind the feature `cas`. The cache may evict a key. What a security
+guarantee needs lives on `atomic_store`. There is no alias for what leaves.
+
+| Before | After |
+| --- | --- |
+| `cache().incr_window(key, previous_key, ttl_seconds=...)` | `cache().windowed_counter(key, previous_key, ttl_seconds=...)`; `ttl_seconds` is required |
+| `cache().incr_many(keys, ttl_seconds=...)` | `incr` for each key, with `asyncio.gather` where the round trips should overlap |
+| `cache().set_nx_get(key, value, ttl_seconds=...)` | `add`, then `get` when it answers `False` |
+| `cache().set_max(key, value, ...)` | Removed. A monotonic mark is `atomic_store` `set_subject_state` |
+| `provider.set_subject_state(...)` on a `CacheProvider` | `atomic_store` `set_subject_state` |
+| `provider.raw_client()` on a cache | Removed, and no `native()` replaces it. The Redis driver has the non-portable `redis_client()` for its own tests |
+| `CacheProvider.compare_and_set` raising `NotImplementedError` without `cas` | Raises `Unsupported("cas")` |
+| `contract_version = 1` in a cache driver | `contract_version = 2`; `incr_window` becomes `windowed_counter`, and the hints `incr_many`, `set_nx_get`, `set_max` and `set_subject_state` go |
+| `CacheContentionError`, `portable_set_max`, `portable_set_subject_state`, `parse_plain_decimal`, `SET_MAX_MAX_ROUNDS` (`sandloom.core.infra.contracts`) | Removed. `parse_subject_state` and `SUBJECT_STATE_RANKS` are in `sandloom.core.infra.ports.atomic_store` |
+| A Redis cache failure raised as a `redis.exceptions` error | `Unavailable`, `Timeout` or `PermissionDenied`; an `incr` of a stored non-integer raises `InvalidArgument` |
+
+Test a cache driver with `CacheConformance` from `sandloom.driverkit.testing`.
+
 ## Upgrading a task queue driver or a Celery command to the worker host
 
 The worker and the scheduler are the `taskqueue` driver's host

@@ -39,10 +39,11 @@ def rate_limiter(
 
         estimate = previous * (1 - elapsed_fraction) + current
 
-    using only the operation-based cache contract (``incr_window`` — one
-    round trip on Redis, ``incr`` + ``get`` elsewhere), so it stays
-    backend-agnostic. Each window counter lives for two periods so the
-    previous one is still readable while the current one fills.
+    using only the cache contract's ``windowed_counter`` (one round trip on
+    Redis, ``incr`` + ``get`` elsewhere), so it stays backend-agnostic. A cache
+    ``InfraError`` is the contract's fail-open case (any other exception is a
+    driver bug and is treated the same way). Each window counter lives for two
+    periods so the previous one is still readable while the current one fills.
 
     Args:
         requests: Max allowed requests within the (sliding) window.
@@ -109,24 +110,18 @@ async def _sliding_window_estimate(base: str, period: int) -> float:
     """Count one hit on ``base`` and return the sliding-window estimate.
 
     ``previous * (1 - elapsed_fraction) + current`` over two fixed windows
-    whose counters live two periods. ``incr_window`` (one round trip on Redis)
-    atomically increments and sets the TTL on the first hit, so no counter can
-    leak without an expiry; duck-typed providers without it use incr + get.
+    whose counters live two periods. ``windowed_counter`` (one round trip on
+    Redis) increments, sets the TTL on the first hit, so no counter can leak
+    without an expiry, and reads the previous window.
     """
     now = time.time()
     window = int(now) // period
     elapsed_fraction = (now - window * period) / period
     key = f"{base}:{window}"
     previous_key = f"{base}:{window - 1}"
-    provider = cache()
-    incr_window = getattr(provider, "incr_window", None)
-    if incr_window is not None:
-        count, previous_raw = await incr_window(
-            key, previous_key, ttl_seconds=2 * period
-        )
-    else:
-        count = await provider.incr(key, ttl_seconds=2 * period)
-        previous_raw = await provider.get(previous_key)
+    count, previous_raw = await cache().windowed_counter(
+        key, previous_key, ttl_seconds=2 * period
+    )
     try:
         previous = int(previous_raw) if previous_raw is not None else 0
     except (TypeError, ValueError):

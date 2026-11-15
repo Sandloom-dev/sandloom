@@ -35,6 +35,7 @@ import asyncio
 import hashlib
 import logging
 from collections.abc import Mapping, Sequence
+from functools import cache
 from types import MappingProxyType
 from typing import Any, Self, cast
 
@@ -42,13 +43,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
-from sandloom.core.infra.contracts import (
-    CacheProvider,
-    parse_plain_decimal,
-    parse_subject_state,
-)
+from sandloom.core.infra.contracts import CacheProvider
 from sandloom.core.infra.ports._base import health_failure_details
-from sandloom.driverkit import observe
+from sandloom.driverkit import (
+    InfraError,
+    InvalidArgument,
+    PermissionDenied,
+    Timeout,
+    Unavailable,
+    observe,
+)
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 
 #: Redis / socket failures of cache operations (a caller's ValueError or
@@ -64,18 +68,7 @@ REDIS_CACHE_FEATURES = frozenset({"cas"})
 
 #: The batch and fused operations the Redis driver does in one round trip.
 REDIS_CACHE_PERFORMANCE_HINTS = MappingProxyType(
-    dict.fromkeys(
-        (
-            "get_many",
-            "set_many",
-            "incr_window",
-            "incr_many",
-            "set_nx_get",
-            "set_max",
-            "set_subject_state",
-        ),
-        "one_round_trip",
-    )
+    dict.fromkeys(("get_many", "set_many", "windowed_counter"), "one_round_trip")
 )
 
 
@@ -361,7 +354,7 @@ async def close_default_client() -> None:
 class RedisCacheProvider(CacheProvider):
     """A single Redis cache instance."""
 
-    contract_version = 1
+    contract_version = 2
     supported_features = REDIS_CACHE_FEATURES
     performance_hints = REDIS_CACHE_PERFORMANCE_HINTS
     options_schema = RedisCacheOptions
@@ -414,25 +407,6 @@ class RedisCacheProvider(CacheProvider):
     """
     _INCR_WINDOW_SHA = _script_sha(_INCR_WINDOW_LUA)
 
-    # INCR (+EXPIRE on create) every key in one round trip.
-    _INCR_MANY_LUA = """
-    local out = {}
-    for i, key in ipairs(KEYS) do
-        local count = redis.call('INCR', key)
-        if count == 1 and tonumber(ARGV[1]) > 0 then
-            redis.call('EXPIRE', key, ARGV[1])
-        end
-        out[i] = count
-    end
-    return out
-    """
-    _INCR_MANY_SHA = _script_sha(_INCR_MANY_LUA)
-
-    #: Set once the server rejected ``SET … NX GET`` (Redis < 7.0).
-    _nx_get_unsupported = False
-    #: Set once a client without scripting made ``set_max`` fall back (logged once).
-    _set_max_fallback_warned = False
-
     async def _client_obj(self) -> Any:
         if self._shared:
             # The default instance reuses the one process-wide client so there
@@ -453,8 +427,10 @@ class RedisCacheProvider(CacheProvider):
             self._client_loop = loop
         return self._client
 
-    async def raw_client(self) -> Any:
-        """Redis exposes its client for transport-level needs (pub/sub)."""
+    async def redis_client(self) -> Any:
+        """The driver's Redis client. NOT part of the ``cache`` contract and not
+        portable: for this driver's own tests and the test harness (flushing the
+        test database, counting round trips), never for module or kernel code."""
         return await self._client_obj()
 
     # ---- portable operations ------------------------------------------------
@@ -463,9 +439,8 @@ class RedisCacheProvider(CacheProvider):
             client = await self._client_obj()
             value = await client.get(key)
             return value if value is None else str(value)
-        except Exception as exc:
-            _note_error(self.name, "get", exc)
-            raise
+        except _backend_errors() as exc:
+            raise _map_error(self.name, "get", exc) from None
 
     async def set(
         self, key: str, value: str, *, ttl_seconds: int | None = None
@@ -476,9 +451,8 @@ class RedisCacheProvider(CacheProvider):
                 await client.set(key, value, ex=ttl_seconds)
             else:
                 await client.set(key, value)
-        except Exception as exc:
-            _note_error(self.name, "set", exc)
-            raise
+        except _backend_errors() as exc:
+            raise _map_error(self.name, "set", exc) from None
 
     async def get_many(self, keys: Sequence[str]) -> list[str | None]:
         """One ``MGET`` round trip for every key."""
@@ -488,9 +462,8 @@ class RedisCacheProvider(CacheProvider):
             client = await self._client_obj()
             values = await client.mget(list(keys))
             return [v if v is None else str(v) for v in values]
-        except Exception as exc:
-            _note_error(self.name, "get_many", exc)
-            raise
+        except _backend_errors() as exc:
+            raise _map_error(self.name, "get_many", exc) from None
 
     async def set_many(
         self, items: Mapping[str, str], *, ttl_seconds: int | None = None
@@ -513,9 +486,8 @@ class RedisCacheProvider(CacheProvider):
                     else:
                         pipe.set(key, value)
                 await pipe.execute()
-        except Exception as exc:
-            _note_error(self.name, "set_many", exc)
-            raise
+        except _backend_errors() as exc:
+            raise _map_error(self.name, "set_many", exc) from None
 
     async def add(
         self, key: str, value: str, *, ttl_seconds: int | None = None
@@ -527,17 +499,15 @@ class RedisCacheProvider(CacheProvider):
             else:
                 stored = await client.set(key, value, nx=True)
             return bool(stored)
-        except Exception as exc:
-            _note_error(self.name, "add", exc)
-            raise
+        except _backend_errors() as exc:
+            raise _map_error(self.name, "add", exc) from None
 
     async def delete(self, key: str) -> None:
         try:
             client = await self._client_obj()
             await client.delete(key)
-        except Exception as exc:
-            _note_error(self.name, "delete", exc)
-            raise
+        except _backend_errors() as exc:
+            raise _map_error(self.name, "delete", exc) from None
 
     async def incr(self, key: str, *, ttl_seconds: int | None = None) -> int:
         try:
@@ -560,16 +530,15 @@ class RedisCacheProvider(CacheProvider):
                 if count == 1 and ttl:
                     await client.expire(key, ttl)
                 return count
-        except Exception as exc:
-            _note_error(self.name, "incr", exc)
-            raise
+        except _backend_errors() as exc:
+            raise _map_error(self.name, "incr", exc) from None
 
-    async def incr_window(
-        self, key: str, previous_key: str, *, ttl_seconds: int | None = None
+    async def windowed_counter(
+        self, key: str, previous_key: str, *, ttl_seconds: int
     ) -> tuple[int, str | None]:
         try:
             client = await self._client_obj()
-            ttl = ttl_seconds if ttl_seconds and ttl_seconds > 0 else 0
+            ttl = ttl_seconds if ttl_seconds > 0 else 0
             try:
                 count, previous = await _run_script(
                     client,
@@ -579,220 +548,12 @@ class RedisCacheProvider(CacheProvider):
                     [ttl],
                 )
             except (AttributeError, NotImplementedError):
-                return await super().incr_window(
+                return await super().windowed_counter(
                     key, previous_key, ttl_seconds=ttl_seconds
                 )
             return int(count), (None if previous is None else str(previous))
-        except Exception as exc:
-            _note_error(self.name, "incr_window", exc)
-            raise
-
-    async def incr_many(
-        self, keys: Sequence[str], *, ttl_seconds: int | None = None
-    ) -> list[int]:
-        try:
-            if not keys:
-                return []
-            client = await self._client_obj()
-            ttl = ttl_seconds if ttl_seconds and ttl_seconds > 0 else 0
-            try:
-                counts = await _run_script(
-                    client, self._INCR_MANY_LUA, self._INCR_MANY_SHA, list(keys), [ttl]
-                )
-            except (AttributeError, NotImplementedError):
-                return await super().incr_many(keys, ttl_seconds=ttl_seconds)
-            return [int(c) for c in counts]
-        except Exception as exc:
-            _note_error(self.name, "incr_many", exc)
-            raise
-
-    async def set_nx_get(
-        self, key: str, value: str, *, ttl_seconds: int | None = None
-    ) -> tuple[bool, str | None]:
-        try:
-            if RedisCacheProvider._nx_get_unsupported:
-                return await super().set_nx_get(key, value, ttl_seconds=ttl_seconds)
-            from redis.exceptions import ResponseError  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
-
-            client = await self._client_obj()
-            ex = ttl_seconds if ttl_seconds is not None and ttl_seconds > 0 else None
-            try:
-                # SET key value NX GET [EX ttl] (Redis >= 7.0): nil = we created it.
-                existing = await client.set(key, value, nx=True, get=True, ex=ex)
-            except ResponseError as exc:
-                if "syntax" not in str(exc).lower():
-                    raise
-                # Redis < 7.0 rejects NX together with GET: degrade for good.
-                RedisCacheProvider._nx_get_unsupported = True
-                logger.info("Redis has no SET NX GET (< 7.0); using SET NX + GET")
-                return await super().set_nx_get(key, value, ttl_seconds=ttl_seconds)
-            except TypeError:  # test double without the ``get`` flag
-                return await super().set_nx_get(key, value, ttl_seconds=ttl_seconds)
-            if existing is None:
-                return True, None
-            return False, str(existing)
-        except Exception as exc:
-            _note_error(self.name, "set_nx_get", exc)
-            raise
-
-    # Monotonic "set if greater" (CacheProvider.set_max) in ONE atomic script.
-    # Values are plain non-negative decimals compared EXACTLY as digit strings
-    # (Lua numbers are doubles: 16+ significant digits would round), byte by
-    # byte (``<`` on strings is locale-collated in Lua 5.1). A stored value
-    # that is not a plain decimal is corrupt and replaced. The TTL is applied
-    # only when ARGV[1] is written; a winning stored value keeps its own.
-    _SET_MAX_LUA = """
-    local function parse(s)
-        if not s then return nil end
-        local i, f = string.match(s, '^%s*(%d+)%.?(%d*)%s*$')
-        if not i then return nil end
-        i = (string.gsub(i, '^0+', ''))
-        f = (string.gsub(f, '0+$', ''))
-        return i, f
-    end
-    local function digits_less(a, b)
-        for k = 1, #a do
-            local x, y = string.byte(a, k), string.byte(b, k)
-            if x ~= y then return x < y end
-        end
-        return false
-    end
-    local function less(ai, af, bi, bf)
-        if #ai ~= #bi then return #ai < #bi end
-        if ai ~= bi then return digits_less(ai, bi) end
-        local n = math.max(#af, #bf)
-        af = af .. string.rep('0', n - #af)
-        bf = bf .. string.rep('0', n - #bf)
-        return digits_less(af, bf)
-    end
-    local oi, of = parse(ARGV[1])
-    if not oi then
-        return redis.error_reply('set_max: value is not a plain decimal')
-    end
-    local cur = redis.call('GET', KEYS[1])
-    if cur then
-        local ci, cf = parse(cur)
-        if ci and not less(ci, cf, oi, of) then return cur end
-    end
-    if tonumber(ARGV[2]) > 0 then
-        redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
-    else
-        redis.call('SET', KEYS[1], ARGV[1])
-    end
-    return ARGV[1]
-    """
-    _SET_MAX_SHA = _script_sha(_SET_MAX_LUA)
-
-    async def set_max(
-        self, key: str, value: str, *, ttl_seconds: int | None = None
-    ) -> str:
-        try:
-            if parse_plain_decimal(value) is None:
-                raise ValueError(
-                    f"set_max value must be a plain non-negative decimal: {value!r}"
-                )
-            client = await self._client_obj()
-            if not callable(getattr(client, "evalsha", None)):
-                # Only a client WITHOUT scripting (a test double) takes the
-                # portable loop; an error raised inside the script path is a bug
-                # and propagates instead of silently switching implementations.
-                if not RedisCacheProvider._set_max_fallback_warned:
-                    RedisCacheProvider._set_max_fallback_warned = True
-                    logger.warning(
-                        "Redis client %s has no Lua scripting (evalsha): set_max "
-                        "uses the portable read / compare-and-set loop",
-                        type(client).__name__,
-                    )
-                return await super().set_max(key, value, ttl_seconds=ttl_seconds)
-            ttl = ttl_seconds if ttl_seconds and ttl_seconds > 0 else 0
-            stored = await _run_script(
-                client, self._SET_MAX_LUA, self._SET_MAX_SHA, [key], [value, ttl]
-            )
-            if isinstance(stored, bytes):
-                return stored.decode("utf-8", "replace")
-            return str(stored)
-        except Exception as exc:
-            _note_error(self.name, "set_max", exc)
-            raise
-
-    # The subject-state record (CacheProvider.set_subject_state) in ONE atomic
-    # script: values ``v1:after:<decimal>`` / ``v1:blocked:<decimal>``; every
-    # ``blocked`` ranks above every ``after``, within a kind the decimal is
-    # compared exactly (the set_max digit comparison). A stored value outside
-    # the domain is corrupt and replaced. The TTL applies only when ARGV[1] is
-    # written (``0``: none, which also clears an older value's TTL).
-    _SUBJECT_STATE_LUA = """
-    local function parse(s)
-        if not s then return nil end
-        local k, i, f = string.match(s, '^v1:(%a+):(%d+)%.?(%d*)$')
-        if not k then return nil end
-        local rank
-        if k == 'after' then rank = 0 elseif k == 'blocked' then rank = 1
-        else return nil end
-        i = (string.gsub(i, '^0+', ''))
-        f = (string.gsub(f, '0+$', ''))
-        return rank, i, f
-    end
-    local function digits_less(a, b)
-        for k = 1, #a do
-            local x, y = string.byte(a, k), string.byte(b, k)
-            if x ~= y then return x < y end
-        end
-        return false
-    end
-    local function less(ar, ai, af, br, bi, bf)
-        if ar ~= br then return ar < br end
-        if #ai ~= #bi then return #ai < #bi end
-        if ai ~= bi then return digits_less(ai, bi) end
-        local n = math.max(#af, #bf)
-        af = af .. string.rep('0', n - #af)
-        bf = bf .. string.rep('0', n - #bf)
-        return digits_less(af, bf)
-    end
-    local orank, oi, of = parse(ARGV[1])
-    if not orank then
-        return redis.error_reply('set_subject_state: not a subject-state value')
-    end
-    local cur = redis.call('GET', KEYS[1])
-    if cur then
-        local crank, ci, cf = parse(cur)
-        if crank and not less(crank, ci, cf, orank, oi, of) then return cur end
-    end
-    if tonumber(ARGV[2]) > 0 then
-        redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
-    else
-        redis.call('SET', KEYS[1], ARGV[1])
-    end
-    return ARGV[1]
-    """
-    _SUBJECT_STATE_SHA = _script_sha(_SUBJECT_STATE_LUA)
-
-    async def set_subject_state(
-        self, key: str, value: str, *, ttl_seconds: int | None = None
-    ) -> str:
-        try:
-            if parse_subject_state(value) is None:
-                raise ValueError(f"not a subject-state value: {value!r}")
-            client = await self._client_obj()
-            if not callable(getattr(client, "evalsha", None)):
-                # A client WITHOUT scripting (a test double): the portable loop.
-                return await super().set_subject_state(
-                    key, value, ttl_seconds=ttl_seconds
-                )
-            ttl = ttl_seconds if ttl_seconds and ttl_seconds > 0 else 0
-            stored = await _run_script(
-                client,
-                self._SUBJECT_STATE_LUA,
-                self._SUBJECT_STATE_SHA,
-                [key],
-                [value, ttl],
-            )
-            if isinstance(stored, bytes):
-                return stored.decode("utf-8", "replace")
-            return str(stored)
-        except Exception as exc:
-            _note_error(self.name, "set_subject_state", exc)
-            raise
+        except _backend_errors() as exc:
+            raise _map_error(self.name, "windowed_counter", exc) from None
 
     # Compare-and-set / compare-and-delete as single Lua scripts (atomic on the
     # server): the value is only replaced/removed when it still equals the
@@ -846,9 +607,8 @@ class RedisCacheProvider(CacheProvider):
                     return False
                 await self.set(key, value, ttl_seconds=ttl_seconds)
                 return True
-        except Exception as exc:
-            _note_error(self.name, "compare_and_set", exc)
-            raise
+        except _backend_errors() as exc:
+            raise _map_error(self.name, "compare_and_set", exc) from None
 
     async def compare_and_delete(self, key: str, expected: str) -> bool:
         try:
@@ -866,9 +626,8 @@ class RedisCacheProvider(CacheProvider):
                     return False
                 await self.delete(key)
                 return True
-        except Exception as exc:
-            _note_error(self.name, "compare_and_delete", exc)
-            raise
+        except _backend_errors() as exc:
+            raise _map_error(self.name, "compare_and_delete", exc) from None
 
     async def health(self) -> HealthResult:
         try:
@@ -881,27 +640,25 @@ class RedisCacheProvider(CacheProvider):
             # The type only: a redis error text names the host (spec 2.4).
             return HealthResult(status="fail", details=health_failure_details(exc))
 
-    async def deployment_identity(self) -> str:
-        """Attest the reached Redis process, including through DNS aliases.
-
-        Requires the Redis ACL permission for ``INFO server``. This is a
-        startup diagnostic, never a per-request security-state operation.
-        """
+    async def isolation_identity(self) -> str:
+        """``redis:<run_id>`` of the reached server, in the format of the Redis
+        atomic store's ``isolation_identity`` (spec 12): the strict profile
+        compares the two to refuse a store that shares the cache's server (and
+        so its eviction policy). Attests the process, including through DNS
+        aliases; needs the Redis ACL permission for ``INFO server``. A startup
+        diagnostic, never a per-request operation."""
         client = await self._client_obj()
         info = await client.info(section="server")
         identity = info.get("run_id") or info.get(b"run_id")
         if isinstance(identity, bytes):
             identity = identity.decode("ascii")
         if not isinstance(identity, str) or not identity:
-            raise RuntimeError("Redis INFO server returned no process identity")
-        return identity
-
-    async def isolation_identity(self) -> str:
-        """``redis:<run_id>`` of the reached server, in the format of the Redis
-        atomic store's ``isolation_identity`` (spec 12): the strict profile
-        compares the two to refuse a store that shares the cache's server (and
-        so its eviction policy)."""
-        return f"redis:{await self.deployment_identity()}"
+            raise Unavailable(
+                f"cache {self.name!r}: INFO server returned no process identity",
+                capability=self.capability,
+                instance=self.name,
+            )
+        return f"redis:{identity}"
 
     async def aclose(self) -> None:
         if self._shared:
@@ -916,16 +673,42 @@ class RedisCacheProvider(CacheProvider):
                 await client.close()
 
 
-def _note_error(instance: str, operation: str, exc: BaseException) -> None:
-    """Count a Redis / socket failure (not a caller's ValueError / TypeError).
+@cache
+def _backend_errors() -> tuple[type[BaseException], ...]:
+    """What a Redis backend raises: redis-py's errors, socket errors, a timeout
+    and an undecodable stored value. Nothing else is caught: any other
+    exception is a caller's or a driver bug and propagates (spec 2.1)."""
+    from redis import exceptions  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
 
-    Called from an ``except`` clause in each operation: a ``try`` costs
-    nothing on success, unlike a wrapping coroutine (one frame per call).
+    return (exceptions.RedisError, OSError, TimeoutError, UnicodeDecodeError)
+
+
+def _map_error(instance: str, operation: str, exc: BaseException) -> InfraError:
+    """The ``InfraError`` for a Redis / socket failure (one of
+    :func:`_backend_errors`), counted.
+
+    The error carries its type, never the backend's text (a Redis error names
+    the host). Called from an ``except`` clause in each operation: a ``try``
+    costs nothing on success, unlike a wrapping coroutine (one frame per call).
     """
-    from redis.exceptions import RedisError  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
+    from redis import exceptions  # noqa: PLC0415 - cold: redis-py is imported when the driver first builds a client
 
-    if isinstance(exc, RedisError | OSError | TimeoutError):
-        cache_operation_errors_total.labels(instance, operation).inc()
+    what = f"cache {instance!r} {operation}: {type(exc).__name__}"
+    if isinstance(exc, exceptions.ResponseError) and "not an integer" in str(exc):
+        return InvalidArgument(
+            f"cache {instance!r} {operation}: the stored value is not an integer",
+            capability="cache",
+            instance=instance,
+        )
+    cache_operation_errors_total.labels(instance, operation).inc()
+    kind: type[InfraError]
+    if isinstance(exc, exceptions.AuthenticationError | exceptions.NoPermissionError):
+        kind = PermissionDenied
+    elif isinstance(exc, exceptions.TimeoutError | TimeoutError):
+        kind = Timeout
+    else:  # connection, failover, loading, a full store (OOM), a bad reply
+        kind = Unavailable
+    return kind(what, capability="cache", instance=instance)
 
 
 def create_redis_cache(cfg: InstanceConfig) -> RedisCacheProvider:

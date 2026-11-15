@@ -2,8 +2,8 @@
 
 ``sandloom:auth:subject:{id}`` holds ``v1:after:<us>`` (revocation, TTL, monotonic)
 or ``v1:blocked:<since>`` (no TTL), and every ``blocked`` value ranks above
-every ``after`` value. Pinned here, against both the portable writer (an
-in-memory cache with ``compare_and_set``) and the Redis Lua script:
+every ``after`` value. Pinned here, against the in-memory and the Redis
+``atomic_store``:
 
 * a revocation concurrent with (or later than) a block never unblocks;
 * an unblock swaps ``blocked`` for ``after:<now + skew>`` by compare-and-set,
@@ -31,15 +31,10 @@ from sandloom.core.auth import blocks, marks, revocation, tokens, verification
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers.redis_atomic_store import RedisAtomicStoreProvider
 from sandloom.core.infra import access
-from sandloom.core.infra.contracts import (
-    CacheProvider,
-    parse_subject_state,
-    portable_set_subject_state,
-)
 from sandloom.core.infra.errors import InvalidArgument
+from sandloom.core.infra.ports.atomic_store import parse_subject_state
 from sandloom.core.testing import (
     InMemoryAtomicStore,
-    InMemoryCache,
     recording_uow,
     run_on_commit,
 )
@@ -90,38 +85,6 @@ def test_value_domain() -> None:
     assert parse_subject_state("v1:blocked:12") is not None
     for bad in ("12.5", "v1:after:", "v1:after:-1", "v2:after:1", "v1:x:1", "", None):
         assert parse_subject_state(bad) is None
-
-
-@pytest.mark.parametrize(
-    ("stored", "offered", "kept"),
-    [
-        (None, "v1:after:5", "v1:after:5"),
-        ("v1:after:5", "v1:after:4.999999", "v1:after:5"),
-        ("v1:after:5", "v1:after:5.000001", "v1:after:5.000001"),
-        ("v1:after:5", "v1:blocked:1", "v1:blocked:1"),  # a block outranks
-        ("v1:blocked:1", "v1:after:9999999999", "v1:blocked:1"),  # never unblocks
-        ("v1:blocked:1", "v1:blocked:2", "v1:blocked:2"),
-        ("garbage", "v1:after:0", "v1:after:0"),  # corrupt: replaced
-    ],
-)
-async def test_portable_order(stored: str | None, offered: str, kept: str) -> None:
-    cache = InMemoryCache()
-    if stored is not None:
-        cache.store["k"] = stored
-    assert await portable_set_subject_state(cache, "k", offered) == kept
-    assert cache.store["k"] == kept
-
-
-async def test_portable_writer_refuses_without_cas() -> None:
-    class _NoCas(InMemoryCache):
-        compare_and_set = CacheProvider.compare_and_set  # type: ignore[assignment]
-
-    cache = _NoCas()
-    cache.store["k"] = "v1:blocked:1"
-    with pytest.raises(NotImplementedError):
-        await portable_set_subject_state(cache, "k", "v1:blocked:2")
-    with pytest.raises(ValueError):
-        await portable_set_subject_state(cache, "k", "12")
 
 
 # --------------------------------------------------------------------------- #

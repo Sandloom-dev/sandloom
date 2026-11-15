@@ -85,16 +85,16 @@ async def get(self, key: str) -> str | None
 async def set(self, key: str, value: str, *, ttl_seconds: int | None = None) -> None
 ```
 
-#### `Cache.add`
-
-```python
-async def add(self, key: str, value: str, *, ttl_seconds: int | None = None) -> bool
-```
-
 #### `Cache.delete`
 
 ```python
 async def delete(self, key: str) -> None
+```
+
+#### `Cache.add`
+
+```python
+async def add(self, key: str, value: str, *, ttl_seconds: int | None = None) -> bool
 ```
 
 #### `Cache.incr`
@@ -120,6 +120,18 @@ async def set_many(
 ) -> None
 ```
 
+#### `Cache.windowed_counter`
+
+```python
+async def windowed_counter(
+    self,
+    key: str,
+    previous_key: str,
+    *,
+    ttl_seconds: int,
+) -> tuple[int, str | None]
+```
+
 #### `Cache.compare_and_set`
 
 ```python
@@ -137,47 +149,6 @@ async def compare_and_set(
 
 ```python
 async def compare_and_delete(self, key: str, expected: str) -> bool
-```
-
-#### `Cache.incr_window`
-
-```python
-async def incr_window(
-    self,
-    key: str,
-    previous_key: str,
-    *,
-    ttl_seconds: int | None = None,
-) -> tuple[int, str | None]
-```
-
-#### `Cache.incr_many`
-
-```python
-async def incr_many(
-    self,
-    keys: Sequence[str],
-    *,
-    ttl_seconds: int | None = None,
-) -> list[int]
-```
-
-#### `Cache.set_nx_get`
-
-```python
-async def set_nx_get(
-    self,
-    key: str,
-    value: str,
-    *,
-    ttl_seconds: int | None = None,
-) -> tuple[bool, str | None]
-```
-
-#### `Cache.set_max`
-
-```python
-async def set_max(self, key: str, value: str, *, ttl_seconds: int | None = None) -> str
 ```
 
 ### `cache`
