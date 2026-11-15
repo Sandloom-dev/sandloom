@@ -16,17 +16,17 @@ from sandloom.core.drivers.redis_eventbus.streams_transport_base import (
     _stream_id_key,
     _StreamsTransportBase,
 )
-from sandloom.core.eventing.transport_base import (
-    INVENTORY_STALE_SECONDS,
-    _owner_conflict_message,
-    _owners_match,
-)
-from sandloom.core.infra.ports.eventbus import (
+from sandloom.driverkit import (
     ConsumerInfo,
     GroupInfo,
     GroupOwnedElsewhere,
     GroupOwner,
     StreamInfo,
+)
+from sandloom.driverkit._builtin_streams import INVENTORY_STALE_SECONDS
+from sandloom.driverkit.eventbus_support import (
+    owner_conflict_message,
+    owners_match,
 )
 
 logger = logging.getLogger("sandloom.core.eventing.transport")
@@ -316,10 +316,10 @@ class _StreamsGroups(_StreamsTransportBase):
             except Exception:  # noqa: BLE001 - corrupt marker: re-own it
                 await client.set(key, value)
                 return
-            if existing is None or _owners_match(existing, owner):
+            if existing is None or owners_match(existing, owner):
                 return
             raise GroupOwnedElsewhere(
-                _owner_conflict_message(stream, group, existing, owner),
+                owner_conflict_message(stream, group, existing, owner),
                 capability="eventbus",
             )
 

@@ -32,6 +32,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+import sandloom.core.config.settings as _settings_module
 from sandloom.core.config.common import Environment
 from sandloom.core.config.eventing import DEFAULT_EVENT_STREAM_RETENTION_SECONDS
 from sandloom.core.config.settings import Settings
@@ -363,11 +364,12 @@ _TRANSPORT_CLIENT_SETTINGS: dict[str, str] = {
     "health_check_interval_seconds": "cache_health_check_interval_seconds",
 }
 
-#: ``option -> setting``: the retention of a ``streams`` event bus's streams
-#: (until ``idk-config-defaults`` turns the settings into options).
+#: ``option -> setting``: the retention and key namespace of a ``streams`` event
+#: bus's streams (until ``idk-config-defaults`` turns the settings into options).
 _STREAMS_RETENTION_SETTINGS: dict[str, str] = {
     "retention_seconds": "event_stream_retention_seconds",
     "max_length": "event_stream_maxlen",
+    "prefix": "event_stream_prefix",
 }
 
 
@@ -408,6 +410,21 @@ def _fill_eventbus_defaults(config: InfraConfig, settings: Any, cache_url: Any) 
                 _fill(cfg.options, settings, _STREAMS_RETENTION_SETTINGS)
 
 
+def fill_streams_override_defaults(options: dict[str, Any]) -> None:
+    """Fill the key namespace (``prefix``) of a ``streams`` event-bus override.
+
+    The test seam ``override_instance`` configures an instance without the
+    kernel's fill from the flat settings; this makes the one fill that keeps a
+    streams override namespaced like the instance it replaces
+    (``EVENT_STREAM_PREFIX``). An option the override sets is left alone.
+    """
+    _fill(
+        options,
+        _settings_module.settings,
+        {"prefix": _STREAMS_RETENTION_SETTINGS["prefix"]},
+    )
+
+
 def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
     """Fill the options the built-in drivers read from the flat settings.
 
@@ -418,7 +435,7 @@ def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
     and the client bounds; ``redis`` / ``streams`` event buses the connect
     timeout and health-check interval, and the ``default`` one ``url`` too
     (a named bus without one shares the default transport); ``streams`` buses
-    their ``retention_seconds`` and ``max_length``; ``celery`` task
+    their ``retention_seconds``, ``max_length`` and ``prefix``; ``celery`` task
     queues ``broker`` and ``backend``.
     """
     cache_url = getattr(settings, "cache_url", None)
