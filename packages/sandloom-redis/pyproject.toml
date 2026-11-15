@@ -8,6 +8,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 dependencies = [
     "sandloom>=0.7.0a13,<0.8",
+    "orjson>=3.13.0,<4",
     "pydantic>=2,<3",
     "redis>=5.2.1,<6",
 ]

@@ -260,17 +260,15 @@ def _event_bus_build(
     driver: str,
     settings: Settings | None = None,
 ) -> DriverFactory:
-    """The build of an event bus driver. ``streams`` is a transport the kernel
-    builds its bus over; ``memory`` and ``redis`` are the kernel's volatile
-    buses, which need the application's schema registry (``from_config``
-    cannot reach it) and the policy of the registry's own ``settings``."""
+    """The build of a volatile event bus driver: ``memory`` and ``redis`` are the
+    kernel's volatile buses, which need the application's schema registry
+    (``from_config`` cannot reach it) and the policy of the registry's own
+    ``settings``. ``streams`` has no build here: it is a transport of the
+    ``sandloom-redis`` package, which the kernel builds its bus over, and its
+    row's class builds itself (``from_config``)."""
 
     def build(cfg: InstanceConfig) -> InfraProvider:
         # Imported when an instance selects the driver, never at bootstrap.
-        if driver == "streams":
-            event_bus_driver = importlib.import_module("sandloom_redis.eventbus.driver")
-            streams: DriverFactory = event_bus_driver.make_streams_driver()
-            return streams(cfg)
         volatile = importlib.import_module("sandloom.core.eventing.volatile_provider")
         factory: DriverFactory = volatile.make_volatile_bus_drivers(
             schema_registry,
@@ -381,7 +379,7 @@ def register_builtin_drivers(
             sql_dialects=SQLALCHEMY_SQL_DIALECTS if driver == "sqlalchemy" else None,
             build=(
                 _event_bus_build(schema_registry, driver, settings)
-                if capability == "eventbus"
+                if capability == "eventbus" and driver != "streams"
                 else _policy_build(registry, capability, driver, settings)
                 if (capability, driver) in _NOEVICTION_POLICY_DRIVERS
                 else None

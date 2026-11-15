@@ -9,6 +9,7 @@ import pytest
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 from sandloom_redis.broadcast import RedisBroadcastProvider
 from sandloom_redis.cache import RedisCacheProvider
+from sandloom_redis.eventbus.driver import StreamsEventBusProvider
 from sandloom_redis.lease import RedisLeaseProvider
 
 import sandloom.core.infra.registry as registry_module
@@ -208,6 +209,29 @@ def test_first_use_of_a_lazy_row_without_the_package_names_the_install_hint(
     assert caught.value.missing == ("sandloom_redis",)
     assert "sandloom_redis" in str(caught.value)
     assert "pip install 'sandloom[redis]'" in str(caught.value)
+
+
+async def test_the_streams_row_builds_the_provider_with_its_redis_client() -> None:
+    """The row has no kernel build: the registry builds the package's class
+    through ``from_config``, so the provider carries its client factory (a
+    transport without one refuses every call)."""
+    config = {
+        "eventbus": {
+            "default": InstanceConfig(
+                "eventbus", "default", "streams", {"url": "redis://127.0.0.1:6399/0"}
+            )
+        }
+    }
+    registry = build_infra_registry(
+        InMemorySchemaRegistry(), config=config, load_plugins=False
+    )
+    provider = registry.provider("eventbus", "default")
+    assert isinstance(provider, StreamsEventBusProvider)
+    assert registry.driver_target("eventbus", "streams") == (
+        "sandloom_redis.eventbus.driver:StreamsEventBusProvider"
+    )
+    assert provider._client_factory is not None
+    await registry.aclose_all()
 
 
 def test_the_streams_bus_without_the_package_is_refused_not_an_import_error(
