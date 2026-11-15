@@ -1,0 +1,30 @@
+{
+  "_comment": "The one list of workspace distributions (packages/<name>). Release, sync and distribution tooling read only this file: adding a package is one entry here plus packages/<name>/ itself. Order is release order. kind: kernel (the one version source), root (composition root), module (sandloom.modules entry point `module` = import name), driver (sandloom.drivers entry points in `drivers`). standard: installed by sandloom[standard]. tag_release: a <name>-v<version> tag push may release it (true only where the pypi environment allows that tag; the plan job refuses any other tag before validation). console: the distribution ships a web console served from its import package.",
+  "packages": [
+    {"name": "sandloom", "kind": "kernel", "tag_release": true},
+    {"name": "sandloom-standard", "kind": "root", "standard": true},
+    {"name": "sandloom-identity", "kind": "module", "module": "identity", "standard": true, "tag_release": true},
+    {"name": "sandloom-tenancy", "kind": "module", "module": "tenancy", "standard": true, "tag_release": true},
+    {"name": "sandloom-billing", "kind": "module", "module": "billing", "standard": true, "tag_release": true},
+    {
+      "name": "sandloom-admin",
+      "kind": "module",
+      "module": "admin",
+      "console": {
+        "extra": "admin",
+        "route": "/admin/{path:path}",
+        "with": ["sandloom-identity", "sandloom-standard"]
+      }
+    },
+    {
+      "name": "sandloom-s3",
+      "kind": "driver",
+      "drivers": {
+        "objectstore.s3": {
+          "target": "sandloom_s3:S3ObjectStore",
+          "provider": "ObjectStoreProvider"
+        }
+      }
+    }
+  ]
+}

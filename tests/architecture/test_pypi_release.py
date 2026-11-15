@@ -59,7 +59,11 @@ def candidate(tmp_path, plan):
     return out, manifest
 
 
-@pytest.mark.parametrize("project", release.PACKAGES)
+TAGGED = tuple(p.name for p in release.release_packages.PACKAGES if p.tag_release)
+UNTAGGED = tuple(n for n in release.PACKAGES if n not in TAGGED)
+
+
+@pytest.mark.parametrize("project", TAGGED)
 def test_tag_selects_only_its_matching_package(source, project):
     plan = release.plan_release(
         source,
@@ -71,6 +75,29 @@ def test_tag_selects_only_its_matching_package(source, project):
     )
     assert plan["packages"] == [project]
     assert plan["publish"] is True
+
+
+@pytest.mark.parametrize("project", UNTAGGED)
+def test_a_tag_of_a_package_the_environment_does_not_allow_is_refused(source, project):
+    with pytest.raises(ValueError, match="not released by tag"):
+        release.plan_release(
+            source,
+            "all",
+            "push",
+            f"refs/tags/{project}-v0.7.0a2",
+            dry_run=True,
+            on_main=True,
+        )
+
+
+def test_the_tag_allowed_packages_are_the_environment_allowed_ones():
+    assert set(TAGGED) == {
+        "sandloom",
+        "sandloom-identity",
+        "sandloom-tenancy",
+        "sandloom-billing",
+    }
+    assert UNTAGGED, "a list with no manual-only package hides the refusal path"
 
 
 @pytest.mark.parametrize(
