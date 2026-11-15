@@ -4,8 +4,7 @@ description: Sandloom read-only agent for a review (a PR, a wave, ADR conformanc
 tools: Bash, Read, mcp__tm__get_task, mcp__tm__list_tasks, mcp__tm__memory_retrieve, mcp__tm__kg_search, mcp__tm__kg_get, mcp__tm__active_claims
 model: sonnet
 effort: high
-experimental:
-  cacheTtl: "1h"
+autoCompactWindow: 150000
 ---
 
 You review or research one thing in Sandloom, a Python framework of isolated
