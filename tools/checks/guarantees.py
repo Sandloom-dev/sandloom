@@ -55,8 +55,34 @@ ENTRY_KEYS = {
     "gap",
     "gap_size",
     "see",
+    "rests_on",
 }
+#: One ``rests_on`` item: the infra capability (instance, operations, features) an entry needs.
+REST_KEYS = {
+    "capability",
+    "instance",
+    "operations",
+    "features",
+    "without_features",
+    "note",
+}
+#: ``capability: "*"`` names every capability (a rule every driver meets).
+ANY_CAPABILITY = "*"
 REMOVED_KEYS = {"id", "statement", "reason", "approved_by", "date", "replaced_by"}
+
+
+@dataclass(frozen=True)
+class RestsOn:
+    """The infra capability an entry needs (spec §12): which instance, which
+    operations, which features it needs (``features``) or needs absent
+    (``without_features``); ``note`` carries what the columns cannot."""
+
+    capability: str
+    instance: str
+    operations: tuple[str, ...]
+    features: tuple[str, ...]
+    without_features: tuple[str, ...]
+    note: str
 
 
 @dataclass(frozen=True)
@@ -72,6 +98,10 @@ class Entry:
     gap: str
     gap_size: str
     see: tuple[str, ...]
+    #: Empty for an entry that rests on no infra capability; ``rests_on_declared``
+    #: tells ``rests_on: []`` (stated: none) from the key being absent.
+    rests_on: tuple[RestsOn, ...] = ()
+    rests_on_declared: bool = False
 
     @property
     def enforced(self) -> bool:
@@ -99,6 +129,24 @@ def _tuple(value: Any) -> tuple[str, ...]:
     return tuple(str(v) for v in value)
 
 
+def _rests_on(item: dict[str, Any]) -> RestsOn:
+    return RestsOn(
+        capability=str(item.get("capability", "") or "").strip(),
+        instance=str(item.get("instance", "") or "").strip(),
+        operations=_tuple(item.get("operations")),
+        features=_tuple(item.get("features")),
+        without_features=_tuple(item.get("without_features")),
+        note=str(item.get("note", "") or "").strip(),
+    )
+
+
+def capability_features() -> dict[str, frozenset[str]]:
+    """Capability name -> the features its spec declares (the kernel registry)."""
+    from sandloom.core.infra.capabilities import BUILTIN_CAPABILITIES
+
+    return {spec.name: frozenset(spec.features) for spec in BUILTIN_CAPABILITIES}
+
+
 def load(path: Path = LEDGER) -> Ledger:
     return parse(yaml.safe_load(path.read_text(encoding="utf-8")) or {})
 
@@ -120,6 +168,12 @@ def parse(raw: dict[str, Any]) -> Ledger:
                     gap=str(item.get("gap", "") or "").strip(),
                     gap_size=str(item.get("gap_size", "") or "").strip(),
                     see=_tuple(item.get("see")),
+                    rests_on=tuple(
+                        _rests_on(r)
+                        for r in item.get("rests_on") or []
+                        if isinstance(r, dict)
+                    ),
+                    rests_on_declared="rests_on" in item,
                 )
             )
     ledger.removed = list(raw.get("removed") or [])
@@ -284,6 +338,64 @@ def known_import_contracts() -> set[str]:
     }
 
 
+def _rests_on_problems(ledger: Ledger) -> list[str]:
+    """``rests_on`` names real capabilities and features they declare (the kernel
+    registry is the one list; nothing here repeats it)."""
+    problems: list[str] = []
+    declared = capability_features()
+    for key in ("guarantees", "capabilities"):
+        for item in ledger.raw.get(key) or []:
+            if "rests_on" not in item:
+                continue
+            where = f"{item.get('id')}: rests_on"
+            items = item["rests_on"]
+            if not isinstance(items, list):
+                problems.append(
+                    f"{where} must be a list (empty: rests on no capability)"
+                )
+                continue
+            for n, raw_rest in enumerate(items):
+                here = f"{where}[{n}]"
+                if not isinstance(raw_rest, dict):
+                    problems.append(f"{here} must be a mapping")
+                    continue
+                extra = set(raw_rest) - REST_KEYS
+                if extra:
+                    problems.append(f"{here}: unknown keys {sorted(extra)}")
+                rest = _rests_on(raw_rest)
+                if (
+                    rest.capability != ANY_CAPABILITY
+                    and rest.capability not in declared
+                ):
+                    problems.append(
+                        f"{here}: capability {rest.capability!r} is not a kernel "
+                        f"capability (one of {sorted(declared)} or {ANY_CAPABILITY!r})"
+                    )
+                    continue
+                if not (
+                    rest.operations
+                    or rest.features
+                    or rest.without_features
+                    or rest.note
+                ):
+                    problems.append(
+                        f"{here}: names no operation, feature or note — say what is needed"
+                    )
+                if rest.capability == ANY_CAPABILITY:
+                    if rest.features or rest.without_features:
+                        problems.append(f"{here}: {ANY_CAPABILITY!r} names no features")
+                    continue
+                for feature in (*rest.features, *rest.without_features):
+                    if feature not in declared[rest.capability]:
+                        problems.append(
+                            f"{here}: {feature!r} is not a feature of "
+                            f"{rest.capability} (declares {sorted(declared[rest.capability])})"
+                        )
+                if set(rest.features) & set(rest.without_features):
+                    problems.append(f"{here}: a feature is both needed and absent")
+    return problems
+
+
 def check(ledger: Ledger | None = None, adr_dir: Path = ADR_DIR) -> list[str]:
     """Every problem with the ledger (empty list = green)."""
     ledger = ledger or load()
@@ -344,6 +456,7 @@ def check(ledger: Ledger | None = None, adr_dir: Path = ADR_DIR) -> list[str]:
         for ref in entry.see:
             if ref not in seen:
                 problems.append(f"{entry.id}: see: {ref} is not a ledger id")
+    problems.extend(_rests_on_problems(ledger))
 
     # -- removals: an id is never reused and never silently dropped ---------
     removed_ids: set[str] = set()
@@ -558,12 +671,36 @@ def render(ledger: Ledger | None = None) -> str:
             )
     else:
         lines.append("Nothing has been removed.")
+    lines += ["", "## Infrastructure", ""]
+    lines += [
+        "The infra capability each guarantee rests on: the instance, the operations it calls and",
+        "the features the driver must declare (`without` names a feature that must be absent).",
+        "",
+        "| Id | Capability (instance) | Operations | Features | Note |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for entry in entries:
+        for rest in entry.rests_on:
+            name = f"`{rest.capability}`" + (
+                f" (`{rest.instance}`)" if rest.instance else ""
+            )
+            features = [f"`{f}`" for f in rest.features]
+            features += [f"without `{f}`" for f in rest.without_features]
+            lines.append(
+                f"| {_id(entry.id)} | {name} "
+                f"| {', '.join(f'`{_md(o)}`' for o in rest.operations)} "
+                f"| {', '.join(features)} | {_md(rest.note)} |"
+            )
     lines += ["", "## Sources", ""]
     lines += ["| Id | Source |", "| --- | --- |"]
     for entry in entries:
-        lines.append(f"| {_id(entry.id)} | {'<br>'.join(_md(s) for s in entry.sources)} |")
+        lines.append(
+            f"| {_id(entry.id)} | {'<br>'.join(_md(s) for s in entry.sources)} |"
+        )
     lines += [
-        "", "## Related reading", "",
+        "",
+        "## Related reading",
+        "",
         "- [Guarantee boundaries](../advanced/guarantees.md)",
         "- [Error catalogue](error-codes.md)",
         "",

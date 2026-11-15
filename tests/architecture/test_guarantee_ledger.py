@@ -78,6 +78,89 @@ def test_ledger_is_not_empty(raw: dict[str, Any]) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# rests_on: the infra capability, operations and features an entry needs
+# (design/infra-drivers/spec.md section 12, ADR-0016 section 7).
+
+#: The entries spec section 12 lists. Each carries ``rests_on``; the three bus-logic
+#: entries state ``rests_on: []`` (no capability). Later slices extend this set.
+REST_ON_IDS = (
+    *(f"G-REVOKE-{n:02d}" for n in (1, 2, 3, 10, 12, 19, 21)),
+    *(f"G-BLOCK-{n:02d}" for n in (1, 2, 3, 6)),
+    *(f"G-IDEM-{n:02d}" for n in (1, 2, 3, 5, 8, 9, 10, 11, 12, 16, 18)),
+    *(f"G-TASK-{n:02d}" for n in (1, 2, 3, 4, 5)),
+    *(f"C-WORKER-{n:02d}" for n in range(1, 7)),
+    "G-INFRA-10",
+    "G-INFRA-11",
+    "G-OPS-01",
+    "G-SAGA-08",
+    "G-HTTP-02",
+    "G-INBOX-03",
+    "G-RPC-07",
+    "G-RPC-09",
+    *(f"G-PROFILE-{n:02d}" for n in (1, 6, 7, 8)),
+    *(f"G-EVENT-{n:02d}" for n in range(1, 15)),
+    "G-RISK-04",
+    "G-MIGRATE-07",
+    "G-MIGRATE-08",
+)
+NO_CAPABILITY_IDS = ("G-EVENT-04", "G-EVENT-08", "G-EVENT-13")
+
+
+def test_spec_section_12_entries_carry_rests_on() -> None:
+    entries = ledger_mod.load().by_id()
+    missing = [i for i in REST_ON_IDS if i not in entries]
+    assert not missing, f"not in the ledger: {missing}"
+    unstated = [i for i in REST_ON_IDS if not entries[i].rests_on_declared]
+    assert not unstated, f"no rests_on (spec section 12): {unstated}"
+    empty = [i for i in REST_ON_IDS if not entries[i].rests_on]
+    assert set(empty) == set(NO_CAPABILITY_IDS), (
+        f"only the bus-logic entries rest on no capability: {empty}"
+    )
+
+
+def test_rests_on_capabilities_are_the_kernel_registry() -> None:
+    from sandloom.core.infra.capabilities import BUILTIN_CAPABILITIES
+
+    declared = ledger_mod.capability_features()
+    assert set(declared) == {spec.name for spec in BUILTIN_CAPABILITIES}
+    used = {
+        rest.capability
+        for entry in ledger_mod.load().entries
+        for rest in entry.rests_on
+        if rest.capability != ledger_mod.ANY_CAPABILITY
+    }
+    assert used <= set(declared)
+
+
+def test_detects_unknown_rests_on_capability(raw: dict[str, Any]) -> None:
+    mutated = copy.deepcopy(raw)
+    entry = next(e for e in mutated["guarantees"] if e.get("rests_on"))
+    entry["rests_on"] = [{"capability": "redis", "operations": ["get"]}]
+    assert any("is not a kernel capability" in p for p in _problems(mutated))
+
+
+def test_detects_undeclared_rests_on_feature(raw: dict[str, Any]) -> None:
+    mutated = copy.deepcopy(raw)
+    entry = next(e for e in mutated["guarantees"] if e.get("rests_on"))
+    entry["rests_on"] = [
+        {"capability": "atomic_store", "operations": ["get"], "features": ["nope"]}
+    ]
+    assert any(
+        "'nope' is not a feature of atomic_store" in p for p in _problems(mutated)
+    )
+
+
+def test_detects_malformed_rests_on(raw: dict[str, Any]) -> None:
+    mutated = copy.deepcopy(raw)
+    first, second = (e for e in mutated["guarantees"][:2])
+    first["rests_on"] = [{"capability": "lease", "feature": ["shared"]}]
+    second["rests_on"] = [{"capability": "lease"}]
+    problems = _problems(mutated)
+    assert any("unknown keys ['feature']" in p for p in problems)
+    assert any("names no operation, feature or note" in p for p in problems)
+
+
+# --------------------------------------------------------------------------- #
 # Positive detection: the gate catches each failure it promises to catch.
 
 
