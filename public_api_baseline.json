@@ -2893,9 +2893,13 @@
       "members": [
         "ensure_async",
         "fast_path",
+        "fence",
         "held",
+        "name",
         "next_check_in",
         "release_async",
+        "renew_interval",
+        "store",
         "token"
       ],
       "signature": "(store:POSITIONAL_OR_KEYWORD|LeaseStore, name:POSITIONAL_OR_KEYWORD|str, ttl_seconds:KEYWORD_ONLY|int, clock:KEYWORD_ONLY|Callable[[], float]=<builtins.builtin_function_or_method>, identity:KEYWORD_ONLY|str | None=None, label:KEYWORD_ONLY|str='[lease]') -> None"

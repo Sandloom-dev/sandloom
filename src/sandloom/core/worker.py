@@ -55,16 +55,20 @@ import os
 import sys
 from collections.abc import Coroutine, Iterable
 from types import ModuleType
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
-from sandloom.core import async_runner, cpu_quota
+from sandloom.core import cpu_quota
 from sandloom.core.composition import COMPOSITION_ROOT_ENV, CompositionRootError
 from sandloom.core.composition import load_composition_core as _load_root_core
 from sandloom.core.config.common import strict_profile_active
 from sandloom.core.config.settings import settings
 from sandloom.core.gc_tuning import freeze_before_fork
 from sandloom.core.infra.errors import InfraError
-from sandloom.core.infra.fenced_lease import LeaseNotSharedError, resolve_beat_lease
+from sandloom.core.infra.fenced_lease import (
+    LeaseNotSharedError,
+    broker_url_of,
+    resolve_beat_lease,
+)
 from sandloom.core.infra.ports.taskqueue import TaskTable, WorkerHost
 from sandloom.core.infra.registry import CapabilityUnavailable, InfraRegistryError
 from sandloom.core.tasks.registry import build_task_table, run_task
@@ -72,6 +76,14 @@ from sandloom.core.tasks.registry import build_task_table, run_task
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+def _async_runner() -> ModuleType:
+    """:mod:`sandloom.core.async_runner`, imported where a worker process needs
+    it: it pulls in the unit of work and the web framework, which
+    ``sandloom worker check`` (a healthcheck every 30 s) must not load."""
+    return importlib.import_module("sandloom.core.async_runner")
+
 
 #: Logical taskqueue instance whose host the worker runs (default ``default``).
 TASKQUEUE_INSTANCE_ENV = "SANDLOOM_WORKER_TASKQUEUE"
@@ -285,7 +297,7 @@ class KernelWorkerBoot:
         global _teardown_core
         verify_worker_infra(self._core)
         _teardown_core = self._core
-        async_runner.add_loop_cleanup(dispose_worker_infra)
+        _async_runner().add_loop_cleanup(dispose_worker_infra)
         modules = discover_task_modules(list(self._core.loaded_modules))
         table = build_task_table(m.__name__ for m in modules)
         check_task_table_features(table, self._provider, self._instance)
@@ -298,13 +310,13 @@ class KernelWorkerBoot:
         freeze_before_fork()
 
     def on_process_start(self) -> None:
-        async_runner.reset_loop()
+        _async_runner().reset_loop()
 
     def on_process_stop(self) -> None:
-        async_runner.shutdown_loop()
+        _async_runner().shutdown_loop()
 
     def run_coroutine(self, coro: Coroutine[Any, Any, T]) -> T:
-        return async_runner.run_async(coro)
+        return cast(T, _async_runner().run_async(coro))
 
 
 def run_worker(
@@ -349,7 +361,7 @@ def run_scheduler(
     try:
         lease, lease_name = resolve_beat_lease(
             core,
-            broker_url=_broker_of(provider),
+            broker_url=broker_url_of(core, name),
             instance=name,
             shared_required=settings.is_prod,
         )
@@ -366,11 +378,6 @@ def run_scheduler(
     )
 
 
-def _broker_of(provider: Any) -> str | None:
-    broker = provider.options.get("broker")
-    return broker if isinstance(broker, str) else None
-
-
 def check_worker(
     infra: Any, timeout_seconds: float, *, instance: str | None = None
 ) -> tuple[bool, str]:
@@ -378,7 +385,7 @@ def check_worker(
 
     It boots no composition root (no module, no database, no broker round
     trip): ``infra`` is a registry built from the settings alone
-    (:func:`sandloom.core.app_factory.lifecycle.build_tool_infra`), whose
+    (:func:`sandloom.core.infra.tool_infra.build_tool_infra`), whose
     providers are lazy; the host of the worker's taskqueue instance answers.
     """
     name = instance or taskqueue_instance()

@@ -205,10 +205,20 @@ def test_lease_scope_separates_services_and_shares_replicas() -> None:
 
 class _Core:
     def __init__(self, store: LeaseProvider) -> None:
-        self.infra = SimpleNamespace(provider=self._provider)
+        self.infra = SimpleNamespace(
+            provider=self._provider, instance_config=self._instance_config
+        )
         self.store = store
         self.asked: list[tuple[str, str]] = []
         self.loaded_modules = ["sandloom_billing"]
+
+    def _instance_config(self, capability: str, name: str) -> InstanceConfig:
+        return InstanceConfig(
+            capability=capability,
+            name=name,
+            driver="fake",
+            options={"broker": "redis://broker.invalid:6379/1"},
+        )
 
     def _provider(self, capability: str, name: str = "default") -> LeaseProvider:
         self.asked.append((capability, name))
@@ -230,9 +240,16 @@ def test_beat_init_wraps_the_scheduler_of_this_app_only(tmp_path: Any) -> None:
         assert isinstance(service.scheduler, LeasedScheduler)
         assert service.scheduler.lease is lease  # the first receiver wraps once
 
+        # A scheduler on another app (``celery -A other beat``, the ``APP`` env)
+        # would run WITHOUT the lease: the process stops, it never schedules.
         foreign = Service(other, schedule_filename=str(tmp_path / "other"))
-        signals.beat_init.send(sender=foreign)
+        with pytest.raises(SystemExit) as refused:
+            signals.beat_init.send(sender=foreign)
+        assert refused.value.code == 1
         assert not isinstance(foreign.scheduler, LeasedScheduler)
+        with pytest.raises(SystemExit) as no_sender:
+            signals.beat_init.send(sender=None)
+        assert no_sender.value.code == 1
 
         assert service.scheduler.tick() > 0
         assert lease.held
@@ -241,6 +258,20 @@ def test_beat_init_wraps_the_scheduler_of_this_app_only(tmp_path: Any) -> None:
     finally:
         remove_beat_lease(receiver)
         remove_beat_lease(standby_receiver)
+
+
+def test_fenced_lease_exposes_read_only_name_fence_interval_and_store() -> None:
+    """What ``BeatLease`` (the Celery host) reads is a pinned, read-only surface."""
+    store = _Store(_Clock())
+    lease = FencedLease(store, _NAME, ttl_seconds=30)
+    assert lease.name == _NAME
+    assert lease.store is store
+    assert lease.renew_interval == 10.0
+    assert lease.fence is None
+    for attribute in ("name", "store", "renew_interval", "fence"):
+        assert isinstance(getattr(FencedLease, attribute), property)
+        with pytest.raises(AttributeError):
+            setattr(lease, attribute, object())
 
 
 class _Boot:
@@ -307,7 +338,12 @@ def test_the_scheduler_holds_the_lease_the_kernel_resolved() -> None:
     assert core.asked == [("lease", "beat")]  # the instance INFRA.lease.beat
     (call,) = core.provider.scheduled
     assert call["lease"] is store
-    assert call["lease_name"].startswith(fenced_lease.LEASE_KEY_PREFIX)
+    # scoped by the instance's own broker (the one ``broker_url_of`` reads)
+    assert call[
+        "lease_name"
+    ] == fenced_lease.LEASE_KEY_PREFIX + fenced_lease.beat_scope(
+        "redis://broker.invalid:6379/1", "jobs", core
+    )
     assert call["lease_ttl_seconds"] == settings.beat_lease_ttl_seconds
 
 

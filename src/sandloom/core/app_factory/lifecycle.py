@@ -21,7 +21,6 @@ from sandloom.core.config.common import strict_profile_active
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult, ModuleLoadSummary
 from sandloom.core.drivers.bootstrap import (
-    build_infra_registry,
     close_default_cache,
     close_default_database,
 )
@@ -43,13 +42,6 @@ from sandloom.core.rpc import (
 )
 from sandloom.core.runtime import use_active_core
 from sandloom.core.schema.registry import InMemorySchemaRegistry
-
-
-def build_tool_infra() -> InfraRegistry:
-    """The infra registry of a process that boots no application, from the
-    settings alone (``sandloom worker check``): its providers are built on first
-    use, so asking one for a cheap answer connects to nothing."""
-    return build_infra_registry(InMemorySchemaRegistry())
 
 
 async def _core_health() -> HealthResult:

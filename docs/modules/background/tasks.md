@@ -153,7 +153,14 @@ The kernel runs no message loop of its own. The driver's host consumes the
 queues and runs each message through the kernel: an `async def` body on one
 persistent loop per process, a sync body directly. Concurrency defaults from
 the CPU quota (`WORKER_CONCURRENCY` overrides). `sandloom worker check` asks the
-host whether a worker is alive, without booting the application.
+host whether a worker is alive, without booting the application. It still needs the
+full, valid settings of the worker, `JWT_SECRET` included.
+
+Start a worker or a scheduler only with `sandloom worker` and `sandloom beat`. The
+importable Celery app of the Celery driver is for `celery inspect` and Flower: a
+`celery -A ... worker` or `beat` on it stops with exit code 1. The environment
+(`APP`, `BROKER_URL`, `CELERY_BROKER_URL` and the like) cannot replace the app or
+the broker of the instance a worker or a beat runs.
 
 Run exactly one `beat` per broker. A second one stands by. The kernel resolves
 the lease (the `lease` instance `INFRA.lease.beat`; `BEAT_LEASE_TTL_SECONDS`,

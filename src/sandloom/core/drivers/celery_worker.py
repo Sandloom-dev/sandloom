@@ -38,7 +38,7 @@ import os
 import time
 from collections.abc import Callable, Coroutine, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import orjson
 
@@ -67,6 +67,20 @@ DEFAULT_HEARTBEAT_FILE = "/tmp/sandloom-worker-heartbeat"  # noqa: S108 - defaul
 HEARTBEAT_INTERVAL_SECONDS = 10.0
 #: The broker of the importable app (the kernel's ``BROKER_URL`` setting).
 BROKER_URL_ENV = "BROKER_URL"
+#: Celery CLI global options whose click ``envvar`` (``APP``, ``BROKER_URL``,
+#: ``RESULT_BACKEND``, ``LOADER``, ``CONFIG_MODULE``) must not reach a host run.
+_CLI_ENV_OPTIONS = frozenset({"app", "broker", "result_backend", "loader", "config"})
+#: Names ``app.conf`` / the loader read from ``os.environ`` on every use; the
+#: host's app and options decide, so they are hidden for the run.
+_CONF_ENV = (
+    "CELERY_APP",
+    "CELERY_BROKER_URL",
+    "CELERY_BROKER_READ_URL",
+    "CELERY_BROKER_WRITE_URL",
+    "CELERY_RESULT_BACKEND",
+    "CELERY_LOADER",
+    "CELERY_CONFIG_MODULE",
+)
 
 #: Process-wide ``default`` Celery app, built lazily, and the ``(broker,
 #: backend)`` it was built from.
@@ -125,15 +139,70 @@ def __getattr__(name: str) -> Any:
     # ``celery``); building lazily keeps a plain import free of side effects.
     if name in {"app", "celery", "celery_app"}:
         if _default_app is not None:
-            return _default_app
+            return _refuse_unhosted_runs(_default_app)
         broker = (os.environ.get(BROKER_URL_ENV) or "").strip()
         if not broker:
             raise AttributeError(
                 f"the importable Celery app needs {BROKER_URL_ENV} (the broker "
                 "of the default taskqueue instance)"
             )
-        return get_default_app(broker, None)
+        return _refuse_unhosted_runs(get_default_app(broker, None))
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _refuse(message: str) -> NoReturn:
+    """Stop the process with exit code 1. ``SystemExit`` is not an ``Exception``,
+    so Celery's signal dispatch lets it through."""
+    logger.critical("%s", message)
+    raise SystemExit(1)
+
+
+_refusal_connected = False
+
+
+def _refuse_unhosted_runs(app: Any) -> Any:
+    """Mark ``app`` as the importable one and make ``celery -A
+    sandloom.core.drivers.celery_worker worker|beat`` refuse to start.
+
+    The importable app registers no task (the task table is built by
+    ``sandloom worker`` / ``sandloom beat``): a worker on it would consume
+    messages and drop them as unknown tasks, a beat would run without the
+    lease. A host run (:meth:`CeleryWorkerHost.run_worker` /
+    :meth:`CeleryWorkerHost.run_scheduler`) marks its app hosted and passes.
+    """
+    global _refusal_connected
+    app._sandloom_importable = True
+    if not _refusal_connected:
+        signals = _signals()
+        signals.worker_init.connect(_refuse_worker_init, weak=False)
+        signals.beat_init.connect(_refuse_beat_init, weak=False)
+        _refusal_connected = True
+    return app
+
+
+def _is_unhosted_importable(sender: Any) -> bool:
+    app = getattr(sender, "app", None)
+    return (
+        app is not None
+        and getattr(app, "_sandloom_importable", False)
+        and not getattr(app, "_sandloom_hosted", False)
+    )
+
+
+def _refuse_worker_init(sender: Any = None, **_: Any) -> None:
+    if _is_unhosted_importable(sender):
+        _refuse(
+            "the importable Celery app runs no tasks (the task table is built "
+            "by the kernel): start the worker with `sandloom worker`"
+        )
+
+
+def _refuse_beat_init(sender: Any = None, **_: Any) -> None:
+    if _is_unhosted_importable(sender):
+        _refuse(
+            "the importable Celery app has no beat lease: "
+            "start the scheduler with `sandloom beat`"
+        )
 
 
 # ---------------------------------------------------------------- app settings
@@ -454,7 +523,11 @@ def install_beat_lease(app: Any, lease: BeatLease) -> Callable[..., None]:
 
     def _on_beat_init(sender: Any = None, **_: Any) -> None:
         if sender is None or getattr(sender, "app", None) is not app:
-            return
+            # A scheduler on another app would tick WITHOUT the lease: never run.
+            _refuse(
+                "the beat scheduler is not the host's app, so it would run "
+                f"without the singleton lease {lease.name}: refusing to schedule"
+            )
         scheduler = sender.scheduler
         if isinstance(scheduler, LeasedScheduler):
             return
@@ -487,13 +560,40 @@ def _run_celery(app: Any, argv: Sequence[str]) -> int:
     worker that died would exit 0 and its container would never restart.
     """
     celery_cli = importlib.import_module("celery.bin.celery").celery
+    # The environment must not choose the app, the broker or the backend of a
+    # process whose lease name and task table come from the host's app.
+    # Celery reads it two ways: the CLI's global options (``APP``, ``BROKER_URL``,
+    # ``RESULT_BACKEND``, ``LOADER``, ``CONFIG_MODULE``, as click ``envvar``) and
+    # ``app.conf`` itself (``CELERY_BROKER_URL`` and the other ``CELERY_*``
+    # names, on every read). The first is switched off on the command, the
+    # second removed from ``os.environ`` for the run: Celery reads that mapping
+    # directly, so a copy would not be seen.
+    cli_options = [p for p in celery_cli.params if p.name in _CLI_ENV_OPTIONS]
+    saved_envvars = {p.name: p.envvar for p in cli_options}
+    saved_environ = {k: os.environ.pop(k) for k in _CONF_ENV if k in os.environ}
+    args = list(argv)
+    # The host's own broker and backend, passed explicitly (they win over every
+    # default; the CLI mirrors them into ``CELERY_BROKER_URL`` for the run).
+    broker = app.conf.broker_url
+    if broker:
+        args = ["--broker", str(broker), *args]
+    backend = app.conf.result_backend
+    if backend:
+        args = ["--result-backend", str(backend), *args]
+    for p in cli_options:
+        p.envvar = None
     celery_cli.params[0].default = app
     try:
         # standalone_mode=False: click returns the exit code (``ctx.exit(code)``)
         # instead of calling sys.exit.
-        code = celery_cli.main(args=list(argv), standalone_mode=False)
+        code = celery_cli.main(args=args, standalone_mode=False)
     finally:
         celery_cli.params[0].default = None
+        for p in cli_options:
+            p.envvar = saved_envvars[p.name]
+        for key in _CONF_ENV:
+            os.environ.pop(key, None)
+        os.environ.update(saved_environ)
     return code if isinstance(code, int) else 0
 
 
@@ -519,6 +619,7 @@ class CeleryWorkerHost:
     ) -> int:
         signals = _signals()
         app = self._app
+        app._sandloom_hosted = True
         register_task_table(app, boot.boot(), boot.run)
         configure_worker_sizing(app, concurrency=concurrency)
         configure_worker_reliability(app)
@@ -562,6 +663,7 @@ class CeleryWorkerHost:
         state_file: str | None = None,
     ) -> int:
         app = self._app
+        app._sandloom_hosted = True
         register_task_table(app, boot.boot(), boot.run)
         configure_worker_reliability(app)
         beat_lease = BeatLease(

@@ -166,7 +166,8 @@ def test_worker_check_is_registered_and_boots_nothing(tmp_path: Path) -> None:
             "-c",
             "import sys; sys.argv = ['sandloom', 'worker', 'check']; import sandloom\n"
             "try:\n    sandloom.main()\nexcept SystemExit as e:\n"
-            "    print(e.code, 'celery' in sys.modules)\n",
+            "    print(e.code, 'celery' in sys.modules, 'fastapi' in sys.modules,\n"
+            "          'sandloom.core.app_factory.lifecycle' in sys.modules)\n",
         ],
         env=env,
         capture_output=True,
@@ -174,7 +175,9 @@ def test_worker_check_is_registered_and_boots_nothing(tmp_path: Path) -> None:
         timeout=60,
         check=False,
     )
-    assert loaded.stdout.split() == ["0", "False"], loaded.stderr
+    # No Celery, no web framework, no application lifecycle: the container probe
+    # runs every 30 s with a 5 s timeout.
+    assert loaded.stdout.split() == ["0", "False", "False", "False"], loaded.stderr
 
 
 _DYING_WORKER = """
@@ -267,6 +270,97 @@ def test_celery_commands_bind_the_app_and_return_the_exit_code(
 
     monkeypatch.setattr(celery_cli, "main", fake_main)
     assert celery_worker._run_celery(app, ["beat", "--loglevel=INFO"]) == 3
-    assert seen["args"][0] == "beat" and seen["standalone"] is False
+    # the host's own broker goes first, explicitly; then the command
+    assert seen["args"] == ["--broker", "memory://", "beat", "--loglevel=INFO"]
+    assert seen["standalone"] is False
     assert seen["bound"] is app
     assert celery_cli.params[0].default is None
+
+
+def test_the_tool_infra_configures_the_taskqueue_and_no_other_capability() -> None:
+    """The probe asks the worker host: validating the database or the event bus
+    would import their drivers (and the web framework) for nothing."""
+    from sandloom.core.infra.tool_infra import build_tool_infra
+
+    infra = build_tool_infra()
+    configured = set(infra._config)
+    assert "taskqueue" in configured
+    assert configured.isdisjoint({"database", "eventbus", "cache", "objectstore"})
+    host = infra.provider("taskqueue", "default").worker_host()
+    assert hasattr(host, "check")
+
+
+_ENV_ISOLATION_NAMES = (
+    "APP",
+    "BROKER_URL",
+    "RESULT_BACKEND",
+    "LOADER",
+    "CONFIG_MODULE",
+    "CELERY_APP",
+    "CELERY_BROKER_URL",
+    "CELERY_BROKER_READ_URL",
+    "CELERY_BROKER_WRITE_URL",
+    "CELERY_RESULT_BACKEND",
+    "CELERY_LOADER",
+    "CELERY_CONFIG_MODULE",
+)
+
+
+def test_celery_cli_env_cannot_replace_the_hosts_broker_or_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``BROKER_URL`` fills the CLI's ``--broker`` and ``CELERY_BROKER_URL`` wins
+    over ``app.conf`` on every read: an instance with its own broker must keep
+    it (its lease scope was computed from it), and ``APP`` must not swap the app
+    (the beat lease is installed on the host's)."""
+    from celery import Celery
+
+    from sandloom.core.drivers import celery_worker
+
+    app = Celery("mine", broker="memory://mine", set_as_current=False)
+    for name in _ENV_ISOLATION_NAMES:
+        monkeypatch.setenv(name, "memory://hijacked" if "URL" in name else "other.app")
+    seen: dict[str, Any] = {}
+
+    from celery.bin.celery import celery as celery_cli
+
+    def fake_main(*, args: list[str], standalone_mode: bool) -> int:
+        seen["bound"] = celery_cli.params[0].default
+        seen["envvars"] = {
+            p.name: p.envvar for p in celery_cli.params if p.name == "broker"
+        }
+        seen["conf_broker"] = app.conf.broker_url
+        seen["environ"] = {n: os.environ.get(n) for n in _ENV_ISOLATION_NAMES}
+        seen["args"] = args
+        return 0
+
+    monkeypatch.setattr(celery_cli, "main", fake_main)
+    assert celery_worker._run_celery(app, ["worker"]) == 0
+    assert seen["conf_broker"] == "memory://mine"
+    assert seen["envvars"] == {"broker": None}  # the CLI reads no env for it
+    assert seen["bound"] is app
+    assert seen["args"][:2] == ["--broker", "memory://mine"]
+    for name in ("CELERY_BROKER_URL", "CELERY_APP", "CELERY_BROKER_READ_URL"):
+        assert seen["environ"][name] is None, name
+    # restored for the rest of the process, option envvars included
+    assert os.environ["CELERY_BROKER_URL"] == "memory://hijacked"
+    assert os.environ["BROKER_URL"] == "memory://hijacked"
+    assert os.environ["APP"] == "other.app"
+    assert [p.envvar for p in celery_cli.params if p.name == "broker"] == ["BROKER_URL"]
+
+
+def test_celery_cli_runs_the_hosts_app_whatever_the_environment(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Through the real CLI: ``celery report`` prints the app it ran on."""
+    from celery import Celery
+
+    from sandloom.core.drivers import celery_worker
+
+    app = Celery("mine", broker="memory://mine", set_as_current=False)
+    for name in _ENV_ISOLATION_NAMES:
+        monkeypatch.setenv(name, "memory://hijacked" if "URL" in name else "other.app")
+    assert celery_worker._run_celery(app, ["report"]) == 0
+    out = capsys.readouterr().out
+    assert "memory://mine" in out
+    assert "hijacked" not in out

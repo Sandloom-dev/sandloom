@@ -1446,6 +1446,7 @@
         "src/sandloom/core/infra/fenced_lease.py",
         "src/sandloom/core/infra/extra_capabilities.py",
         "src/sandloom/core/infra/registry.py",
+        "src/sandloom/core/infra/tool_infra.py",
         "src/sandloom/core/infra/worker_isolation.py",
         "src/sandloom/core/ingress/__init__.py",
         "src/sandloom/core/ingress/client_ip.py",

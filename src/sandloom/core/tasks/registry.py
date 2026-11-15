@@ -13,6 +13,7 @@ Nothing here imports a backend: the table is data.
 
 from __future__ import annotations
 
+import importlib
 import inspect
 import sys
 import threading
@@ -25,7 +26,6 @@ from typing import Any
 import orjson
 from pydantic import BaseModel
 
-from sandloom.core.async_runner import run_async
 from sandloom.core.infra.errors import InvalidArgument
 from sandloom.core.infra.ports.taskqueue import PeriodicSpec, TaskSpec, TaskTable
 from sandloom.core.tasks.cron import max_interval, parse_cron
@@ -258,7 +258,11 @@ def run_task(name: str, payload: bytes) -> None:
                 capability="taskqueue",
             ) from None
     if declared.is_async:
-        run_async(declared.function(*arguments))
+        # Imported here: the runner pulls in the unit of work and the web
+        # framework, which ``sandloom worker check`` (via this module) must not load.
+        importlib.import_module("sandloom.core.async_runner").run_async(
+            declared.function(*arguments)
+        )
     else:
         declared.function(*arguments)
 

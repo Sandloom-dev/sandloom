@@ -27,7 +27,7 @@ import math
 import sys
 from collections.abc import Sequence
 
-import sandloom.core.app_factory.lifecycle as _lifecycle
+import sandloom.core.infra.tool_infra as _tool_infra
 import sandloom.core.worker as _worker
 
 #: ``--timeout`` default: the heartbeat is touched every 10 s, so 60 s is six misses.
@@ -52,7 +52,7 @@ def _run_beat(loglevel: str, schedule: str | None) -> int:
 def _check(timeout: float) -> tuple[bool, str]:
     """The one call site of ``sandloom worker check``: the driver's host, over
     an infra registry built from the settings (no application boots)."""
-    return _worker.check_worker(_lifecycle.build_tool_infra(), timeout)
+    return _worker.check_worker(_tool_infra.build_tool_infra(), timeout)
 
 
 def _add_loglevel(parser: argparse.ArgumentParser) -> None:

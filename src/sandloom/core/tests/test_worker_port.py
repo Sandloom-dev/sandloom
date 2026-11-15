@@ -370,3 +370,51 @@ def test_the_importable_app_is_the_default_app_built_from_the_broker_url(
     assert provider._app is app
     with pytest.raises(AttributeError):
         celery_worker.nothing_else  # noqa: B018
+
+
+class _Sender:
+    """What Celery sends a signal as: a ``WorkController`` / ``beat.Service``
+    (hashable, with the app it runs)."""
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+
+def test_the_importable_app_refuses_to_run_a_worker_or_a_beat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``celery -A sandloom.core.drivers.celery_worker worker`` would consume
+    messages of a table with no task (each dropped as unknown) and a beat would
+    tick without the lease: both stop with exit code 1 and name the command."""
+    monkeypatch.setattr(celery_worker, "_default_app", None)
+    monkeypatch.setattr(celery_worker, "_default_app_urls", None)
+    monkeypatch.setenv("BROKER_URL", "redis://127.0.0.1:1/9")
+    app = celery_worker.app
+
+    for signal in (signals.worker_init, signals.beat_init):
+        with pytest.raises(SystemExit) as refused:
+            signal.send(sender=_Sender(app))
+        assert refused.value.code == 1
+        # a process of another app, or a signal with no sender, is none of its business
+        signal.send(sender=_Sender(_celery()))
+        signal.send(sender=None)
+
+    # a host run marks its app: the same default app then runs normally
+    app._sandloom_hosted = True
+    signals.worker_init.send(sender=_Sender(app))
+    signals.beat_init.send(sender=_Sender(app))
+
+
+def test_the_refusals_point_to_the_sandloom_commands(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = _celery()
+    celery_worker._refuse_unhosted_runs(app)
+    for signal, command in (
+        (signals.worker_init, "`sandloom worker`"),
+        (signals.beat_init, "`sandloom beat`"),
+    ):
+        caplog.clear()
+        with pytest.raises(SystemExit):
+            signal.send(sender=_Sender(app))
+        assert command in caplog.text
