@@ -84,6 +84,23 @@ repos:
         files: ^(src/|tools/packaging/check_public_api\.py|architecture_rules\.yml|public_api_baseline\.json)
         pass_filenames: false
 
+    # The driver packages' own static steps, as the redis-drivers and
+    # celery-drivers CI jobs run them (the hooks above cover src/ only). Each
+    # changed package is checked whole: a merge of main can leave an unused
+    # import in a file the branch never edited.
+    -   id: driver-packages
+        name: driver-packages
+        entry: >-
+          bash -c 'for p in sandloom-redis sandloom-celery; do
+          git diff --quiet "${PRE_COMMIT_FROM_REF:-HEAD}" "${PRE_COMMIT_TO_REF:-HEAD}" -- "packages/$p" pyproject.toml uv.lock
+          && [ -n "${PRE_COMMIT_FROM_REF:-}" ] && continue;
+          uv run --locked ruff check --no-fix "packages/$p" &&
+          uv run --locked ruff format --check "packages/$p" &&
+          uv run --locked mypy "packages/$p/src" || exit 1; done'
+        language: system
+        files: ^(packages/sandloom-(redis|celery)/|pyproject\.toml|uv\.lock)
+        pass_filenames: false
+
     # The two fast docs gates of the CI docs job (under a second each): prose
     # ratchet and stale code references. The site build stays a pre-push check.
     -   id: docs-prose-lint
