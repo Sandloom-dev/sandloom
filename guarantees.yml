@@ -1590,9 +1590,9 @@ guarantees:
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   tests:
-  - src/sandloom/core/tests/test_cache_batch_and_celery_defaults.py::test_worker_reliability_defaults
-  - src/sandloom/core/tests/test_cache_batch_and_celery_defaults.py::test_driver_built_apps_ignore_results_by_default
-  - src/sandloom/core/tests/test_cache_batch_and_celery_defaults.py::test_enqueue_never_subscribes_a_result_consumer
+  - packages/sandloom-celery/tests/test_celery_defaults.py::test_worker_reliability_defaults
+  - packages/sandloom-celery/tests/test_celery_defaults.py::test_driver_built_apps_ignore_results_by_default
+  - packages/sandloom-celery/tests/test_celery_defaults.py::test_enqueue_never_subscribes_a_result_consumer
 - id: G-WINDOW-01
   statement: guarantee_window_problems reports command_dedupe_below_retry_horizon when CONTRACT_COMMAND_DEDUPE_TTL_SECONDS
     is below the relay redelivery horizon (OUTBOX_RELAY_MAX_ATTEMPTS x capped backoff); defaults satisfy
@@ -5689,15 +5689,15 @@ guarantees:
   - src/sandloom/core/tests/test_beat_lease.py::test_cache_outage_keeps_scheduling_only_until_the_local_deadline
   - src/sandloom/core/tests/test_beat_lease.py::test_beat_refuses_to_start_on_a_lease_that_is_not_shared_in_production
   - src/sandloom/core/tests/test_beat_lease.py::test_the_scheduler_holds_the_lease_the_kernel_resolved
-  - src/sandloom/core/tests/test_celery_slots.py::test_ten_minutely_slots_are_sent_once_each_under_one_lease_name
-  - src/sandloom/core/tests/test_celery_slots.py::test_a_takeover_inside_a_slot_does_not_resend_it
-  - src/sandloom/core/tests/test_celery_slots.py::test_a_takeover_after_the_holder_died_does_not_resend_the_slot
-  - src/sandloom/core/tests/test_celery_slots.py::test_the_repeated_hour_of_a_fall_back_runs_once_on_each_reading
-  - src/sandloom/core/tests/test_celery_slots.py::test_the_gap_of_a_spring_forward_does_not_double_send
-  - src/sandloom/core/tests/test_celery_slots.py::test_a_store_that_does_not_answer_lets_the_slot_through
-  - src/sandloom/core/tests/test_celery_slots.py::test_a_store_that_refuses_the_claim_sends_nothing
-  - src/sandloom/core/tests/test_celery_slots.py::test_a_scheduler_killed_between_claim_and_send_loses_that_slot
-  - src/sandloom/core/tests/test_celery_slots.py::test_a_scheduler_lease_name_too_long_for_a_slot_refuses_to_start
+  - packages/sandloom-celery/tests/test_celery_slots.py::test_ten_minutely_slots_are_sent_once_each_under_one_lease_name
+  - packages/sandloom-celery/tests/test_celery_slots.py::test_a_takeover_inside_a_slot_does_not_resend_it
+  - packages/sandloom-celery/tests/test_celery_slots.py::test_a_takeover_after_the_holder_died_does_not_resend_the_slot
+  - packages/sandloom-celery/tests/test_celery_slots.py::test_the_repeated_hour_of_a_fall_back_runs_once_on_each_reading
+  - packages/sandloom-celery/tests/test_celery_slots.py::test_the_gap_of_a_spring_forward_does_not_double_send
+  - packages/sandloom-celery/tests/test_celery_slots.py::test_a_store_that_does_not_answer_lets_the_slot_through
+  - packages/sandloom-celery/tests/test_celery_slots.py::test_a_store_that_refuses_the_claim_sends_nothing
+  - packages/sandloom-celery/tests/test_celery_slots.py::test_a_scheduler_killed_between_claim_and_send_loses_that_slot
+  - packages/sandloom-celery/tests/test_celery_slots.py::test_a_scheduler_lease_name_too_long_for_a_slot_refuses_to_start
   - src/sandloom/core/tests/test_driverkit_periodic.py::test_ten_minutely_slots_create_one_lease_name_in_memory
   - src/sandloom/core/tests/test_driverkit_periodic.py::test_ten_minutely_slots_create_one_lease_name_on_redis
   - src/sandloom/core/tests/test_driverkit_periodic.py::test_ten_minutely_slots_create_one_lease_row_in_a_database
@@ -5961,11 +5961,11 @@ guarantees:
   - src/sandloom/core/tests/test_ready_taskqueue.py::test_health_never_fails_on_the_taskqueue
   - src/sandloom/core/tests/test_ready_taskqueue.py::test_the_taskqueue_probe_is_cached_like_the_other_readiness_probes
   - src/sandloom/core/tests/test_ready_taskqueue.py::test_one_broker_connection_per_ttl_however_many_ready_hits
-  - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_an_unreachable_broker_fails_without_naming_it
-  - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_a_client_error_that_prints_the_url_does_not_reach_the_message
-  - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_a_hanging_broker_is_bounded_by_the_timeout
-  - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_the_connect_is_bounded_and_does_not_retry
-  - src/sandloom/core/tests/test_celery_taskqueue_health.py::test_the_provider_health_probes_its_broker
+  - packages/sandloom-celery/tests/test_celery_taskqueue_health.py::test_an_unreachable_broker_fails_without_naming_it
+  - packages/sandloom-celery/tests/test_celery_taskqueue_health.py::test_a_client_error_that_prints_the_url_does_not_reach_the_message
+  - packages/sandloom-celery/tests/test_celery_taskqueue_health.py::test_a_hanging_broker_is_bounded_by_the_timeout
+  - packages/sandloom-celery/tests/test_celery_taskqueue_health.py::test_the_connect_is_bounded_and_does_not_retry
+  - packages/sandloom-celery/tests/test_celery_taskqueue_health.py::test_the_provider_health_probes_its_broker
 - id: G-OPS-24
   statement: Every completed Billing intent reconciler run writes its time. The billing_reconciler
     check in /health reports missing or overdue progress and outstanding compensation failures.
@@ -7924,9 +7924,9 @@ capabilities:
   sources:
   - docs/modules/index.md#What you get by default, and what you declare
   tests:
-  - src/sandloom/core/tests/test_cache_batch_and_celery_defaults.py::test_worker_reliability_defaults
-  - src/sandloom/core/tests/test_cache_batch_and_celery_defaults.py::test_driver_built_apps_ignore_results_by_default
-  - src/sandloom/core/tests/test_cache_batch_and_celery_defaults.py::test_enqueue_never_subscribes_a_result_consumer
+  - packages/sandloom-celery/tests/test_celery_defaults.py::test_worker_reliability_defaults
+  - packages/sandloom-celery/tests/test_celery_defaults.py::test_driver_built_apps_ignore_results_by_default
+  - packages/sandloom-celery/tests/test_celery_defaults.py::test_enqueue_never_subscribes_a_result_consumer
 - id: C-WORKER-06
   rests_on:
   - capability: lease

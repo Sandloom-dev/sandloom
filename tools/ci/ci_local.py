@@ -286,7 +286,7 @@ def uses_artifacts(body: Mapping[str, Any]) -> bool:
 #     --    backend-tests-isolation -> backend-tests-isolation fallback (container)
 #     --    kernel-without-batteries -> kernel-without-batteries fallback (container)
 #     --    redis-drivers      -> redis-drivers             fallback (container)
-#     --    celery-drivers     -> celery-drivers            act
+#     --    celery-drivers     -> celery-drivers            fallback (container)
 #     --    second-db-test-lane-> second-db-test-lane       fallback (container)
 #     --    skip-ledger        -> not a job: merge the lanes' ledgers by hand
 #     L222  benchmarks-security-> benchmarks-security       fallback (container)
@@ -371,7 +371,19 @@ CI_JOBS: tuple[CiJob, ...] = (
         "fallback",
         _SERVICES_WHY,
     ),
-    CiJob("ci.yml", "celery-drivers", "celery-drivers", "container", "act"),
+    # Postgres service + `docker run redis -p 6380`, reached at localhost:5433/6380:
+    # the same service reach as redis-drivers, so the fallback runner (its own
+    # services and network), not act. It builds the wheel with `uv build` and
+    # installs it into the job venv, and writes the skip ledger the run
+    # directory collects.
+    CiJob(
+        "ci.yml",
+        "celery-drivers",
+        "celery-drivers",
+        "container",
+        "fallback",
+        _SERVICES_WHY,
+    ),
     CiJob(
         "ci.yml",
         "second-db-test-lane",
@@ -465,9 +477,9 @@ FINGERPRINTS: dict[str, str] = {
     "ci.yml:backend-tests-isolation": "1f41c4abed7873f2",
     "ci.yml:kernel-without-batteries": "d55a77ade044144c",
     "ci.yml:redis-drivers": "25937c0702403fef",
-    "ci.yml:celery-drivers": "91ad4cfce1e6a48d",
+    "ci.yml:celery-drivers": "7dda401f2f61fbb7",
     "ci.yml:second-db-test-lane": "76d7b93cf72fd8f1",
-    "ci.yml:skip-ledger": "a815969227e45e9d",
+    "ci.yml:skip-ledger": "88fc43f78fbd0804",
     "ci.yml:benchmarks-security": "c516a25e95f3072b",
     "ci.yml:examples": "99a77603e8e3895f",
     "ci.yml:quickstart": "0f6563faeb3c2d10",
@@ -556,7 +568,8 @@ JOB_SECONDS = {
     # The kernel suites in a venv without module packages (KB-05).
     "kernel-without-batteries": 300,
     "redis-drivers": 90,
-    "celery-drivers": 60,
+    # The wheel build, the strict types and the host groups (about a minute).
+    "celery-drivers": 120,
     "second-db-test-lane": 420,
     "microservices-smoke": 45,
     "backend-static": 35,

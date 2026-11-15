@@ -98,6 +98,81 @@ def test_a_driver_package_lane_is_required_when_its_code_changes(job, area):
     assert gate.check(needs, full_validation=True, pull_request=False)
 
 
+def _celery_lane_gaps(job: dict) -> list[str]:
+    """What the `celery-drivers` job lacks to prove the driver against a real
+    broker: the broker, the guard that makes its absence an error, the built
+    wheel (installed, and not synced away before the tests: ``--no-sync`` on the
+    pytest command) and the package tests with their skip ledger."""
+    commands = "\n".join(str(step.get("run", "")) for step in job["steps"])
+    pytest_commands = [
+        str(step.get("run", ""))
+        for step in job["steps"]
+        if "pytest" in str(step.get("run", ""))
+    ]
+    gaps = []
+    if "redis-server" not in commands:
+        gaps.append("no Redis broker is started")
+    if job.get("env", {}).get("SANDLOOM_CELERY_REQUIRED") != "1":
+        gaps.append("an unreachable broker is not an error")
+    if "uv build packages/sandloom-celery" not in commands or (
+        "uv pip install --reinstall --no-deps" not in commands
+    ):
+        gaps.append("the wheel is not built and installed")
+    if "pytest" not in commands or "packages/sandloom-celery/tests" not in commands:
+        gaps.append("the package tests do not run")
+    elif not all("--no-sync" in command for command in pytest_commands):
+        gaps.append("pytest may sync the wheel away (no --no-sync)")
+    if "--sandloom-skip-ledger-lane=celery" not in commands:
+        gaps.append("the lane writes no skip ledger")
+    return gaps
+
+
+def test_the_celery_lane_runs_the_package_tests_on_the_wheel_and_a_real_broker():
+    document = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    job = document["jobs"]["celery-drivers"]
+    assert _celery_lane_gaps(job) == []
+
+    def without(key: str, value: object) -> dict:
+        return {**job, key: value}
+
+    no_guard = without("env", {**job["env"], "SANDLOOM_CELERY_REQUIRED": "0"})
+    assert _celery_lane_gaps(no_guard) == ["an unreachable broker is not an error"]
+    no_tests = without(
+        "steps", [s for s in job["steps"] if "pytest" not in str(s.get("run", ""))]
+    )
+    assert _celery_lane_gaps(no_tests) == [
+        "the package tests do not run",
+        "the lane writes no skip ledger",
+    ]
+
+    def with_pytest(edit) -> dict:
+        return without(
+            "steps",
+            [
+                {**s, "run": edit(str(s["run"]))}
+                if "pytest" in str(s.get("run"))
+                else s
+                for s in job["steps"]
+            ],
+        )
+
+    # `uv run` without --no-sync re-syncs the environment to the lockfile,
+    # which replaces the wheel with the editable source tree.
+    resyncing = with_pytest(lambda run: run.replace("--no-sync ", ""))
+    assert _celery_lane_gaps(resyncing) == [
+        "pytest may sync the wheel away (no --no-sync)"
+    ]
+    no_ledger = with_pytest(
+        lambda run: run.replace("--sandloom-skip-ledger-lane=celery", "")
+    )
+    assert _celery_lane_gaps(no_ledger) == ["the lane writes no skip ledger"]
+    no_broker = without(
+        "steps",
+        [s for s in job["steps"] if "redis-server" not in str(s.get("run", ""))],
+    )
+    assert _celery_lane_gaps(no_broker) == ["no Redis broker is started"]
+
+
 def test_missing_classifier_output_and_new_unclassified_jobs_block_merge():
     needs = planned_needs()
     del needs["changes"]["outputs"]["backend"]

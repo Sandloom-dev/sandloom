@@ -154,7 +154,8 @@ def pytest_collection_modifyitems(
 ) -> None:
     """Mark the guarantee ledger's enforcing tests ``guarantees``.
 
-    ``uv run pytest -m guarantees src`` then runs exactly the tests that prove
+    ``uv run pytest -m guarantees src packages/<package>/tests`` (the paths:
+    ``tools/checks/guarantees.py paths``) then runs exactly the tests that prove
     the ledger (``guarantees.yml``) — what a simplification wave runs
     first. The ledger is read only when ``-m`` mentions the marker.
     """

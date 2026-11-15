@@ -718,20 +718,55 @@ jobs:
 
   celery-drivers:
     # The sandloom-celery package (the `celery` taskqueue driver, its worker
-    # host and its broker probe): its wheel, style and strict types. The root
-    # mypy run and pytest paths exclude packages/, so no other job checks this
-    # source. The package's tests and a real-broker lane come with
-    # idk-pkg-celery-lane; until then the kernel suites (`backend-tests`) run
-    # the driver through the kernel's own tests.
+    # host and its broker probe): its wheel, style, strict types, its tests and
+    # the TaskQueueConformance kit (send and host groups) against a real Redis
+    # broker, and the kernel's tests of the driver rows. The package is tested
+    # as its built wheel, so the entry point the registry reads is the one the
+    # wheel ships. The root mypy run and pytest paths exclude packages/, so no
+    # other job checks this source or runs these tests. An unreachable broker
+    # is an error here, not a skip (SANDLOOM_CELERY_REQUIRED), and so is a run
+    # against the source tree instead of the wheel. Its skip ledger (lane
+    # `celery`) feeds the skip-ledger job.
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.packages == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: .
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sandloom_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
+      CACHE_URL: redis://127.0.0.1:6380/0
+      BROKER_URL: redis://127.0.0.1:6380/14
+      JWT_SECRET: ci-celery-drivers-not-a-real-secret
+      SANDLOOM_TEST_OWNER: ci-celery-drivers
+      SANDLOOM_CELERY_REQUIRED: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Start Redis with enough databases for every xdist worker
+        working-directory: .
+        run: |
+          docker run -d --name redis -p 6380:6379 redis:7 \
+            redis-server --databases 256 --save "" --appendonly no
+          for _ in $(seq 1 30); do
+            docker exec redis redis-cli ping | grep -q PONG && break
+            sleep 1
+          done
 
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -769,6 +804,32 @@ jobs:
           assert e == {'taskqueue.celery': 'sandloom_celery.taskqueue:CeleryTaskQueueProvider'}, e;
           import sandloom_celery.taskqueue, sandloom_celery.worker;
           assert 'celery' not in sys.modules, 'celery imported at import time'"
+
+      - name: The tests run against the wheel, not the source tree
+        run: >-
+          uv run --no-sync python -I -c
+          "import sandloom_celery, pathlib;
+          p = pathlib.Path(sandloom_celery.__file__).resolve();
+          assert 'site-packages' in p.parts, p"
+
+      - name: Driver tests, the conformance kit against a real broker and the kernel's driver rows
+        run: >-
+          uv run --no-sync pytest -q -n 2 --dist loadfile
+          -p sandloom.core.testing.skip_ledger --sandloom-skip-ledger-lane=celery
+          --sandloom-skip-ledger=skip-ledger/celery.json
+          packages/sandloom-celery/tests
+          src/sandloom/core/tests/test_celery_driver_rows.py
+          src/sandloom/core/tests/test_celery_error_mapping.py
+          src/sandloom/core/tests/test_beat_lease.py
+
+      - name: Upload the skip ledger
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: skip-ledger-celery
+          path: skip-ledger/
+          if-no-files-found: error
+          retention-days: 3
 
   second-db-test-lane:
     # The second database (spec: design/infra-agnostic/spec.md, section 6).
@@ -902,7 +963,7 @@ jobs:
     # Runs when either lane pair ran (backend-tests + the modules step,
     # examples + the examples step); a skipped job uploads nothing, and each
     # ledger present is judged with the ledgers of its other lane.
-    needs: [changes, backend-tests, examples, second-db-test-lane]
+    needs: [changes, backend-tests, examples, second-db-test-lane, celery-drivers]
     if: ${{ !cancelled() && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.examples == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

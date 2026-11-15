@@ -31,9 +31,7 @@ from sandloom_celery.worker import (
     refuse_unusable_pool,
 )
 
-from sandloom.core.infra.config import InstanceConfig
-from sandloom.core.infra.errors import InvalidArgument
-from sandloom.core.infra.ports.taskqueue import TaskTable
+from sandloom.driverkit import InstanceConfig, InvalidArgument, TaskTable
 
 
 class _Boot:

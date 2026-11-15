@@ -1,6 +1,6 @@
 """Two Celery schedulers on one real Redis lease send a cron slot once (spec 8.2).
 
-The scheduler logic runs on a fake lease store in ``test_celery_slots``; the
+The scheduler logic runs on a fake lease store in the package's ``test_celery_slots``; the
 helper's claims on the three stores in ``test_driverkit_periodic``. This one
 puts the two together on Redis, where the claim's TTL is the store's own."""
 
