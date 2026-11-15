@@ -168,7 +168,7 @@ def _build_smtp_notifier(cls: type[_S], cfg: InstanceConfig) -> _S:
     returns the subclass)."""
     if not str(cfg.options.get("host") or "").strip():
         raise ValueError(
-            "smtp notifier requires a non-empty `host` option on the instance"
+            "smtp notifier requires a non-empty host option on the instance"
         )
     _refuse_cleartext_login_in_prod(cfg.options)
     return cls(name=cfg.name, driver=cfg.driver, options=dict(cfg.options))
