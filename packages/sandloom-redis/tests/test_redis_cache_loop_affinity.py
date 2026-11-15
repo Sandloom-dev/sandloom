@@ -16,8 +16,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import sandloom_redis.cache as redis_cache
+from _redis_required import redis_unavailable
 
-from sandloom.core.drivers import redis_cache
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.testing.workers import worker_env_values
 
@@ -113,7 +114,7 @@ def test_named_instance_client_follows_the_loop(fake_redis: list[_FakeClient]) -
 
 
 def _test_cache_url() -> str | None:
-    env = worker_env_values(Path(__file__).resolve().parents[4] / ".env.test")
+    env = worker_env_values(Path(__file__).resolve().parents[3] / ".env.test")
     return os.getenv("CACHE_URL") or env.get("CACHE_URL")
 
 
@@ -121,15 +122,15 @@ def test_real_redis_client_survives_two_loops(monkeypatch: pytest.MonkeyPatch) -
     """End to end against the test Redis: two loops, no 'Event loop is closed'."""
     url = _test_cache_url()
     if not url:
-        pytest.skip("no test CACHE_URL configured")
+        redis_unavailable("no test CACHE_URL configured")
     _fresh_default(monkeypatch, url)
 
     async def roundtrip() -> None:
         client = await redis_cache.get_default_client()
         try:
             await client.ping()
-        except Exception as exc:  # noqa: BLE001 - test Redis unreachable: skip
-            pytest.skip(f"test Redis not reachable: {exc}")
+        except Exception as exc:  # noqa: BLE001 - test Redis unreachable: skip, or fail when required
+            redis_unavailable(f"test Redis not reachable: {exc}")
         await client.set("sandloom:loop-affinity", "1", ex=5)
         assert await client.get("sandloom:loop-affinity") == "1"
 

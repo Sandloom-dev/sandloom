@@ -32,7 +32,9 @@
 #
 # loader_call_sites: the only places where a dynamic import with a computed argument is
 # allowed (I-02), each with its reason; not_edges: literals that match a pattern but name no
-# module. Both only shrink: an entry that matches nothing fails.
+# module; driver_package_imports: the kernel files that still import a driver package, by exact
+# file and target, each with the task that removes it. All three only shrink: an entry that
+# matches nothing fails.
 
 version: 1
 seeded_from: design/kernel-boundary/edges.yml (merged baseline c9b9b05)
@@ -1024,3 +1026,9 @@ loader_call_sites:
 not_edges:
   - {path: sandloom/core/rpc_transport.py, literal: identity, reason: "the HTTP content coding (Accept-Encoding: identity), not the module"}
   - {path: sandloom/core/testing/ownership.py, literal: sandloom_test.last_used, reason: "a Redis key of the test harness, not a package path"}
+
+# Driver packages (ADR-0016) are no module edge, but the kernel imports none: a static import of
+# one is a finding unless listed here by its exact kernel file and exact target, with the task
+# that removes it. The list only shrinks (an entry matching no finding fails).
+driver_package_imports:
+  - {path: sandloom/core/drivers/event_bus_driver.py, literal: sandloom_redis.cache, removed_by: idk-pkg-redis-eventbus}

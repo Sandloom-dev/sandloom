@@ -1,97 +1,23 @@
-"""The ``CacheConformance`` kit against the ``redis`` cache driver, and against
-deliberately broken drivers (each breaks one obligation of spec section 3 and
-must fail exactly the kit tests that name it).
+"""The ``CacheConformance`` kit against deliberately broken drivers (each breaks
+one obligation of spec section 3 and must fail exactly the kit tests that name
+it). The kit against the ``redis`` driver runs in its package
+(``packages/sandloom-redis/tests/test_redis_cache.py``).
 """
 
 from __future__ import annotations
 
 import asyncio
 import inspect
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import suppress
-from functools import partial
 from typing import Any
-from uuid import uuid4
 
 import pytest
 
-from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
-from sandloom.core.drivers.redis_cache import RedisCacheProvider
 from sandloom.core.infra.errors import InvalidArgument, Unsupported
 from sandloom.core.infra.ports.cache import CacheProvider
 from sandloom.driverkit.testing import CacheConformance
-
-
-def _redis(**options: Any) -> RedisCacheProvider:
-    options.setdefault("url", settings.cache_url)
-    return RedisCacheProvider(name="kit", driver="redis", options=options, shared=False)
-
-
-class TestRedisCache(CacheConformance):
-    @pytest.fixture
-    def make_provider(self) -> Callable[[], CacheProvider]:
-        # The kit's races open 50 connections at once: the production defaults
-        # (0.5 s socket and connect timeouts) time out on a loaded CI runner.
-        return partial(
-            _redis,
-            socket_timeout_seconds=5.0,
-            socket_connect_timeout_seconds=5.0,
-            pool_timeout_seconds=5.0,
-        )
-
-    @pytest.fixture
-    def make_failing_provider(self) -> Callable[[], CacheProvider]:
-        # Nothing listens on port 1; the "password" is the kit's secret.
-        url = f"redis://:{self.leak_marker}@127.0.0.1:1/0"
-        return lambda: _redis(url=url, retry_attempts=0)
-
-    # The driver declares ``cas``, so the check of a driver without it is
-    # skipped on every lane; a ``None`` attribute is not collected.
-    test_without_cas_both_calls_raise_unsupported = None  # type: ignore[assignment]
-
-
-def test_redis_declares_cas_and_its_hints() -> None:
-    provider = _redis()
-    assert provider.contract_version == 2
-    assert provider.features() == {"cas"}
-    assert provider.development_only is False
-    assert set(provider.performance_hints) == {
-        "get_many",
-        "set_many",
-        "windowed_counter",
-    }
-
-
-async def test_the_real_server_identity_is_its_run_id() -> None:
-    provider = _redis()
-    await provider.aopen()
-    try:
-        info = await (await provider.redis_client()).info(section="server")
-        assert await provider.isolation_identity() == f"redis:{info['run_id']}"
-    finally:
-        await provider.aclose()
-
-
-async def test_a_key_of_another_redis_type_is_invalid_not_unavailable() -> None:
-    """A WRONGTYPE reply is the caller's key clash, not a retryable outage."""
-    provider = _redis()
-    await provider.aopen()
-    try:
-        key = f"kit:wrongtype:{uuid4().hex}"
-        client = await provider.redis_client()
-        await client.rpush(key, "a")
-        try:
-            for call in (
-                partial(provider.get, key),
-                partial(provider.incr, key, ttl_seconds=30),
-            ):
-                with pytest.raises(InvalidArgument):
-                    await call()
-        finally:
-            await client.delete(key)
-    finally:
-        await provider.aclose()
 
 
 # ----------------------------------------------- the kit bites a broken driver

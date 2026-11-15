@@ -45,7 +45,7 @@ RATCHETED_PREFIXES = ("ASYNC", "BLE", "S", "SIM", "RUF", "PERF", "PLC0415", "C90
 NOQA_BASELINE: dict[str, int] = {
     "ASYNC109": 19,
     "ASYNC240": 1,
-    "BLE001": 198,
+    "BLE001": 186,  # 198: -8 streams error mapping (idk-streams-errors); -5 in the kernel and +1 in packages/sandloom-redis/src where the Redis cache driver moved (idk-pkg-redis-streams)
     "C901": 79,
     "PERF401": 24,
     # 118 (2026-10-28): +1 optional import, testing/ownership.py: `redis` is
@@ -59,7 +59,7 @@ NOQA_BASELINE: dict[str, int] = {
     # up` ask a .env database's renderer for schema_from_models (SQLite) only
     # when .env names one; importing the renderers costs the dev CLI 0.3 s
     # and loads the settings.
-    "PLC0415": 111,  # -6: the Celery halves move to the driver, which imports by importlib (idk-worker-port); -3 (idk-pkg-celery-move)
+    "PLC0415": 104,  # -8 +1 (idk-pkg-redis-streams): the cache driver moved into sandloom-redis, event_bus_driver imports it lazily; -6: the Celery halves move to the driver, which imports by importlib (idk-worker-port); -3 (idk-pkg-celery-move)
     "RUF001": 4,
     "RUF005": 2,
     "RUF012": 3,  # -1 in the kernel, +1 in sandloom_celery/worker.py (idk-pkg-celery-move)
@@ -68,7 +68,7 @@ NOQA_BASELINE: dict[str, int] = {
     "S105": 8,
     "S106": 1,
     "S108": 1,  # the worker heartbeat default moved to sandloom_celery/worker.py (idk-pkg-celery-move)
-    "S110": 27,
+    "S110": 26,
     "S112": 3,
     "S301": 0,
     "S311": 9,

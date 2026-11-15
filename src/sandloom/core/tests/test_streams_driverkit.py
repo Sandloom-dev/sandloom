@@ -15,9 +15,9 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import sandloom_redis.cache as redis_cache
 
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers import redis_cache
 from sandloom.core.drivers.event_bus_driver import (
     EventBusOptions,
     StreamsEventBusProvider,

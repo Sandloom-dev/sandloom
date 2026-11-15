@@ -444,6 +444,111 @@ def test_a_static_import_of_a_module_package_fails(tmp_path: Path, source: str) 
     assert "would be class b, type import" in problem
 
 
+_DRIVER_IMPORT = {
+    "path": "sandloom/core/x.py",
+    "literal": "sandloom_redis.cache",
+    "removed_by": "idk-pkg-redis-eventbus",
+}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import sandloom_redis.cache as cache\n",
+        "from sandloom_redis import cache\n",
+        "from sandloom_redis.cache import build_transport_client\n",
+    ],
+)
+def test_a_listed_driver_package_import_is_no_module_edge(
+    tmp_path: Path, source: str
+) -> None:
+    """``sandloom_redis`` ships drivers (ADR-0016): the kernel's built-in streams
+    driver names it until idk-pkg-redis-eventbus, as a ``driver_package_imports``
+    entry of its exact file and target. A module package beside it is still a
+    finding, and the string naming a driver package (the driver table) is none."""
+    register = _register(driver_package_imports=[_DRIVER_IMPORT])
+    src = _tree(tmp_path, {"sandloom/core/x.py": source})
+    assert _problems(src, register) == []
+    planted = _tree(
+        tmp_path / "other", {"sandloom/core/x.py": "import sandloom_crm.api\n"}
+    )
+    problems = _problems(planted, register)
+    assert any("static-import 'sandloom_crm.api'" in p for p in problems)
+    named = _tree(
+        tmp_path / "named",
+        {
+            "sandloom/core/x.py": 'NAME = "sandloom_redis.cache"\nimport sandloom_redis.cache\n'
+        },
+    )
+    assert _problems(named, register) == []
+
+
+@pytest.mark.parametrize(
+    ("path", "source", "entry"),
+    [
+        # another kernel file importing the driver package
+        (
+            "sandloom/core/y.py",
+            "import sandloom_redis.cache\n",
+            _DRIVER_IMPORT,
+        ),
+        # the listed file importing another target of the package
+        (
+            "sandloom/core/x.py",
+            "import sandloom_redis.lease\n",
+            _DRIVER_IMPORT,
+        ),
+        # a function-local import is scanned too
+        (
+            "sandloom/core/y.py",
+            "def f():\n    from sandloom_redis import lease\n",
+            _DRIVER_IMPORT,
+        ),
+    ],
+)
+def test_an_unlisted_driver_package_import_fails(
+    tmp_path: Path, path: str, source: str, entry: dict[str, str]
+) -> None:
+    """The exemption is keyed by exact file and exact target: any other kernel
+    import of a driver package is a finding."""
+    files = {"sandloom/core/x.py": "X = 1\n", path: source}
+    src = _tree(tmp_path, files)
+    problems = _problems(src, _register(driver_package_imports=[entry]))
+    assert any(f"{path}:" in p and "imports a driver package" in p for p in problems), (
+        problems
+    )
+
+
+def test_a_driver_package_import_entry_matching_nothing_is_stale(
+    tmp_path: Path,
+) -> None:
+    """An entry whose import is gone fails, naming the task that removes it
+    (the list only shrinks); one without ``removed_by`` is malformed."""
+    src = _tree(tmp_path, {"sandloom/core/x.py": "X = 1\n"})
+    (problem,) = _problems(src, _register(driver_package_imports=[_DRIVER_IMPORT]))
+    assert (
+        "driver_package_imports entry sandloom/core/x.py 'sandloom_redis.cache' "
+        "matches no finding (removed by idk-pkg-redis-eventbus)"
+    ) in problem
+    with pytest.raises(ke.RegisterError, match="removed_by"):
+        _register(
+            driver_package_imports=[{"path": "a.py", "literal": "sandloom_redis"}]
+        )
+
+
+def test_the_live_register_lists_only_the_streams_driver_import() -> None:
+    """The one driver-package import of the kernel (cap 1): the streams driver,
+    until idk-pkg-redis-eventbus."""
+    entries = ke.load_register().driver_imports
+    assert entries == (
+        ke.DriverImport(
+            "sandloom/core/drivers/event_bus_driver.py",
+            "sandloom_redis.cache",
+            "idk-pkg-redis-eventbus",
+        ),
+    )
+
+
 def test_kernel_and_relative_imports_are_not_findings(tmp_path: Path) -> None:
     """Imports of the kernel, the standard library and relative imports name no module."""
     source = "import os\nfrom sandloom.core import x\nfrom . import crm\nfrom .crm import y\n"

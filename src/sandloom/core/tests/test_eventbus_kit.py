@@ -303,8 +303,7 @@ def _streams(**options: Any) -> _StreamsUnderTest:
 class TestTheStreamsDriver(EventTransportConformance):
     redelivery_timeout_seconds = 15.0
     settle_seconds = 0.6
-    # The streams driver is of the stable tier: every hook is given (its outage
-    # test stays out until idk-pkg-redis-streams, below).
+    # The streams driver is of the stable tier: every hook is given.
     require_stable_hooks = True
 
     @pytest.fixture(autouse=True)
@@ -358,13 +357,6 @@ class TestTheStreamsDriver(EventTransportConformance):
                 Retention(max_age_seconds=None, max_length=None),
             ),
         ]
-
-    # The streams transport raises the redis client's own errors today; the
-    # driver slice (idk-pkg-redis-streams) maps them to InfraError and drops
-    # these two (the outage hook above already cuts the connections: a cut
-    # blocked consume raises redis' ConnectionError, not Unavailable).
-    test_harness_maps_backend_failures_to_infra_errors = None  # type: ignore[assignment]
-    test_an_outage_during_consume_raises_unavailable_and_consuming_resumes = None  # type: ignore[assignment]
 
 
 # ------------------------------------------------ the kit bites a broken transport

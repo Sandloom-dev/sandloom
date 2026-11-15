@@ -62,7 +62,7 @@ RULES: list[tuple[str, tuple[str, ...], tuple[str, ...] | None]] = [
             "hiredis",
             "sandloom/core/auth/blocks.py",
             "sandloom/core/auth/freshness.py",
-            "sandloom/core/drivers/redis_cache.py",
+            "sandloom_redis/cache.py",
             "sandloom/core/infra/access.py",
         ),
         None,
@@ -297,7 +297,7 @@ PERF_RULES: list[tuple[str, tuple[str, ...], tuple[str, ...]]] = [
         (
             "/redis/",
             "auth_freshness.py",
-            "redis_cache.py",
+            "sandloom_redis/cache.py",
             "_read_marks",
             "token_access_status",
             "ensure_token_not_revoked",

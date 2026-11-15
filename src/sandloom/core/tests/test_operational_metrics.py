@@ -366,8 +366,8 @@ def test_pool_snapshot_skips_pools_without_accounting() -> None:
 
 async def test_redis_cache_counts_backend_errors_not_caller_errors() -> None:
     from redis.exceptions import ConnectionError as RedisConnectionError
+    from sandloom_redis.cache import RedisCacheProvider
 
-    from sandloom.core.drivers.redis_cache import RedisCacheProvider
     from sandloom.core.infra.errors import Unavailable
 
     class _Client:

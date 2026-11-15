@@ -260,8 +260,9 @@ async def test_payload_is_snapshotted_before_reserving(queue, monkeypatch) -> No
 
 
 async def test_replay_window_expires_on_real_redis(queue, monkeypatch) -> None:
+    from sandloom_redis.cache import RedisCacheProvider
+
     from sandloom.core.di import bind_tenant
-    from sandloom.core.drivers.redis_cache import RedisCacheProvider
 
     env = worker_env_values(Path(__file__).resolve().parents[4] / ".env.test")
     store = RedisCacheProvider(

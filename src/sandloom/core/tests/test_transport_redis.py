@@ -21,6 +21,7 @@ import pytest
 from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.transport_base import DLQ_REASON_SOURCE_MISSING
+from sandloom.core.infra.errors import Unavailable
 from sandloom.core.testing import reload_test_env
 
 redis_asyncio = pytest.importorskip("redis.asyncio")
@@ -549,7 +550,7 @@ async def test_lost_xreadgroup_reply_forces_a_rescan(redis_stream) -> None:
     await t.consume(stream, group="g", consumer="c1")
     await t.publish(stream, _env("lost"))
     log.fail_after_xreadgroup = True
-    with pytest.raises(ConnectionError):
+    with pytest.raises(Unavailable):  # the lost reply, mapped at the boundary
         await t.consume(stream, group="g", consumer="c1")
 
     batch = await t.consume(stream, group="g", consumer="c1")

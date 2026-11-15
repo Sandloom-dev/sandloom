@@ -22,9 +22,9 @@ from unittest.mock import patch
 import pytest
 import pytest_asyncio
 from fastapi import HTTPException
+from sandloom_redis.cache import RedisCacheProvider
 
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers.redis_cache import RedisCacheProvider
 
 #: Generous wall-clock bound (the configured timeout is 0.5s): a regression to
 #: an unbounded client hangs until the outer ``wait_for`` guard instead.

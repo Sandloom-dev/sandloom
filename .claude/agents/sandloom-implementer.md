@@ -1,6 +1,6 @@
 ---
 name: sandloom-implementer
-description: Sandloom fleet agent for one tm task (a kernel or module slice, a fix, docs). Lean tool list and the repository's working rules built in. Use for every implementation agent a tm-fleet run starts in this repository; architecture and risky reviews use Opus with the default agent instead.
+description: Sandloom fleet agent for one tm task (a kernel or module slice, a fix, docs). Lean tool list and the repository's working rules built in. Use for every implementation agent a tm-fleet run starts in this repository; reviews use sandloom-reviewer instead (Opus only for the security review).
 tools: Bash, Read, Edit, Write, Skill, ToolSearch, mcp__tm__memory_task_start, mcp__tm__task_start, mcp__tm__task_done, mcp__tm__task_fail, mcp__tm__task_checkpoint, mcp__tm__task_update, mcp__tm__get_task, mcp__tm__reflection_add, mcp__tm__active_claims, mcp__tm__kg_search, mcp__tm__memory_retrieve
 model: sonnet
 effort: high
@@ -30,37 +30,122 @@ subagent): pass no actor on tm calls.
   admin, examples).
 - Never hand-edit what `sandloom generate` writes (`sandloom/shared/contracts/*`,
   `sandloom/shared/events/*.json`, `module.snapshot.json`): run it.
-- One simple command per call in a worktree: no `for` loop, `source`, `&&`
-  chain or heredoc around `git`, since the worktree isolation check refuses
-  them. Temp files, logs and helper scripts live in `.agent-tmp/` inside
-  your own worktree (gitignored), never outside it. Several steps or
-  multi-line Python: Write a file into `.agent-tmp/` and run it with one
-  command; no heredoc.
+- One plain command per Bash call, run from your worktree. The worktree
+  isolation check refuses any command it cannot verify: a heredoc
+  (`cat > f <<EOF`, `python3 - <<EOF`), a `;` / `&&` chain or pipe that
+  includes `git`, `git -C`, `cd … &&`, `source`, a `for` loop. So:
+  - change code with Edit (one Edit per place) and create files with Write,
+    never with a heredoc or a Python replace script;
+  - `git` alone in its call: `git status --short`, `git diff --stat`,
+    `git log --oneline -3`;
+  - do not Write into `.agent-tmp/`: tm's claim guard refuses it (it is not
+    in your area). Logs go there by shell redirect (`> .agent-tmp/x.log`).
+- A file outside your area that you must change (a test of the code you
+  change): `task_update` with the full area plus that file, before the edit.
+- tm calls (`task_update`, `task_checkpoint`, `task_done`) go in a response
+  of their own, never beside a Bash call: a tm call its hook changes voids
+  auto mode's review of the other calls ("no verdict"). A call that comes
+  back "no verdict": issue it again alone, once.
 
 ## Checks
 - Run the tests of what you touched plus every test that references the
-  changed symbols (`grep -rln '<symbol>' src tests`), and the static gates
-  (`uv run sandloom test <module>`, `generate`, `check`). Never
+  changed symbols (`grep -rln '<symbol>' src tests`). Never
   `sandloom test --full`: the orchestrator runs it once per wave. Never a
   serial `pytest -q`.
-- Other agents test at the same time: export your own
+- After every Edit / Write a hook formats the file and reports, in the same
+  turn, the NEW ruff findings of a `.py`, the new prose-lint hits of a `.md`
+  and broken JSON. Fix them in your next edit; do not run ruff or the prose
+  lint yourself for that.
+- Static gates: one call, after your commit and before the push (about 4
+  minutes, Bash `timeout` 600000). It runs the gates of the paths you changed:
+  ruff, format, mypy, architecture tests, import contracts, manifest, public
+  API, prose lint, stale symbols. `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`
+  and `JWT_SECRET` are the dummy values CI gives the same job (nothing
+  connects to them); the four `SANDLOOM_TEST_*` are your own test resources,
+  which the architecture tests' conftest needs locally (without them it
+  refuses the shared test database):
+  `env DATABASE_URL=postgresql+asyncpg://ci:ci@127.0.0.1:5433/ci CACHE_URL=redis://127.0.0.1:6380/0 BROKER_URL=redis://127.0.0.1:6380/1 JWT_SECRET=ci-architecture-tests-not-a-real-secret SANDLOOM_TEST_DATABASE_URL=<yours> SANDLOOM_TEST_CACHE_URL=<yours> SANDLOOM_TEST_BROKER_URL=<yours> SANDLOOM_TEST_OWNER=<alias> uv run --locked pre-commit run --from-ref origin/main --to-ref HEAD 2>&1 | grep -vE '^ *(Building|Built|Installed|Uninstalled)'`.
+  The end-of-file and trailing-whitespace hooks rewrite files: if they
+  report "files were modified", stage those files, commit again and rerun.
+  A gate fails: fix it, commit, rerun that gate alone (same command with
+  `pre-commit run <hook id> …`). Do not run these gates one by one
+  beforehand. Not in it, so run them when you touched their area:
+  `uv run sandloom check`, `uv run sandloom generate --check`, a module's
+  `uv run sandloom test <module>`, and the CI steps of
+  `.claude/agent-reference.md` §2 for packaging, docs site and examples.
+- Other agents test at the same time: pass your own
   `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`,
-  `SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER` (your alias) before
-  any test run.
+  `SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER` (your alias) in the
+  same command, `env SANDLOOM_TEST_OWNER=<alias> … uv run pytest … -q`: no
+  env file, no `source`.
 - Never run `ruff check` on the whole repository: pyproject has `fix = true`.
   Lint the paths you changed, or pass `--no-fix`.
 - A failure prints a code: `uv run sandloom explain <code>`. A name's
   signature: `uv run sandloom docs <name>`.
-- A run longer than a minute or two goes in the background
-  (`run_in_background`); wait for its notification, no `until` / `sleep`
-  polling loops.
+- A long check runs in the foreground with the Bash `timeout` raised (up to
+  600000 ms), its output filtered to failures and the summary. You have no
+  Monitor and `sleep` is blocked, so never start a run in the background
+  only to wait for it.
+
+## Before the PR: what review keeps sending back
+Before you push, run `git diff origin/main --stat`, then read your diff
+file by file against this list and fix what fails. These nine classes were
+~3/4 of the review findings of the infra-drivers waves, each costing a whole
+fix-up agent. Hand the result in on `task_done` as a deliverable
+`{"kind": "checklist", "content": "..."}`: one line per item, `1 ok` /
+`1 fixed: <what>` / `1 n/a: <why>`, through 9, with the `grep` you ran for
+item 2. A task created with `checklist` among its required kinds refuses
+`task_done` without it; give it on every task anyway.
+1. **Checks that bite.** Every new check, kit hook or test fails on a
+   deliberately broken implementation (a broken-driver / meta test proves
+   it): one bite per changed branch, not one per feature. None passes with
+   zero cases, skips silently, checks presence only or greps file names
+   instead of running the thing.
+2. **No leftovers after a rename or move.** `grep -rn '<old name>'` over
+   `src tests docs benchmarks examples guarantees.yml` finds nothing stale:
+   code, comments, guarantees, `docs/infrastructure/write-a-driver.md`,
+   "pending / not available yet" notes, allowlist `removed_by` entries. A
+   hit that names a slice or task: check its state in tm (`get_task`), never
+   judge by guess whether it is still pending.
+3. **Refuse, don't go quiet.** An unsupported feature or an error raises or
+   refuses; it never turns into an empty list, `None`, a skip or a green
+   `/ready`. Catch only the error types you mean: a narrowed catch is an
+   allow-list of what it accepts (never a deny-list), with a test that one
+   other failure still raises.
+4. **Deviations recorded.** Anything that departs from `spec.md` or the ADR
+   (an API, a default, a measured price) is written into spec/ADR in the
+   same PR.
+5. **Types, not duck-typing.** No `Any`, `getattr` probe or bare `cast`
+   where the type is known; call required methods directly.
+6. **Reuse.** No copy of an existing helper, constant or in-memory fake:
+   `grep -rn` for it first and import it.
+7. **Registered in every gate.** A new module, escape hatch or file is in
+   the gates that track it: public API (`EXTRA_MODULES`, baseline),
+   `RAW_PROVIDER_METHODS`, the CI explicit lists, `public-source.json`,
+   globs that must see subpackages.
+8. **Input bounds.** TTLs, key lengths, ids, schemas are validated at the
+   boundary, with a test.
+9. **Layers.** No dialect or driver detail in kernel models; `driverkit`
+   and the kernel never import a driver.
+
+## Tokens: batch independent calls
+- Look-ups that do not depend on each other (several `grep -n`, several
+  `Read` ranges, `git status` beside a `grep`) go out as parallel tool calls
+  in ONE response. Every response re-sends your whole context, so five
+  single-grep turns cost five times one. Only a call that needs the previous
+  result waits for it.
 
 ## Tokens: keep the context small
 - Test and lint output: failures and the summary only (`-q`, then
   `grep -E '^(FAILED|ERROR|E )' -A6 | head -60`).
-- Never print a whole snapshot, baseline, JSON schema or log. Read a file
-  once, whole, or find the lines with `grep -n`; do not re-read ranges with
-  `sed -n` after each edit, trust your Edit results.
+- Never print a whole snapshot, baseline, JSON schema or log. Do not re-read
+  ranges with `sed -n` after each edit: trust your Edit results.
+- Whatever you read stays in context and is re-sent on every later turn, so
+  read only what you need. A file over ~200 lines (tests, kits, docs pages,
+  `spec.md`): `grep -n` for the symbol or heading first, then `Read` with
+  `offset`/`limit` around it. Never `cat` / `cat -n` a whole file and never
+  `Read` a big one without a range. A small file: once, whole. The spec
+  sections your brief names, by those line numbers only.
 - Before opening a registry, CI config or kernel entry point, read the matching
   section of `.claude/agent-reference.md` (registry formats and commands, CI by
   path, `file:line` kernel map, plan index).

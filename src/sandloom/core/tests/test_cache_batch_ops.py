@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from sandloom.core.drivers.redis_cache import RedisCacheProvider
+from sandloom_redis.cache import RedisCacheProvider
+
 from sandloom.core.testing import InMemoryCache
 from sandloom.core.testing.workers import worker_env_values
 

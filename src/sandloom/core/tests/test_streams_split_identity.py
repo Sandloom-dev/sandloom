@@ -76,9 +76,7 @@ def _fake_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _get_cache():
         return _FakeRedis()
 
-    monkeypatch.setattr(
-        "sandloom.core.drivers.redis_cache.get_default_client", _get_cache
-    )
+    monkeypatch.setattr("sandloom_redis.cache.get_default_client", _get_cache)
 
 
 @pytest.fixture

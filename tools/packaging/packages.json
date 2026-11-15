@@ -42,6 +42,10 @@
         "broadcast.redis": {
           "target": "sandloom_redis.broadcast:RedisBroadcastProvider",
           "provider": "BroadcastProvider"
+        },
+        "cache.redis": {
+          "target": "sandloom_redis.cache:RedisCacheProvider",
+          "provider": "CacheProvider"
         }
       }
     },
