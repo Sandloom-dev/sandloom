@@ -3423,6 +3423,69 @@
       "signature": "(raw:POSITIONAL_OR_KEYWORD|str | None) -> tuple[int, Decimal] | None"
     }
   },
+  "sandloom.driverkit.eventbus_support": {
+    "DEFAULT_EVENT_STREAM_RETENTION_SECONDS": {
+      "kind": "value"
+    },
+    "DEFAULT_MAX_DELIVERIES": {
+      "kind": "value"
+    },
+    "DEFAULT_MIN_IDLE_MS": {
+      "kind": "value"
+    },
+    "DEFAULT_RETRY_BASE_MS": {
+      "kind": "value"
+    },
+    "DEFAULT_RETRY_MAX_MS": {
+      "kind": "value"
+    },
+    "DLQ_REASON_MALFORMED": {
+      "kind": "value"
+    },
+    "DLQ_REASON_MAX_DELIVERIES": {
+      "kind": "value"
+    },
+    "DLQ_REASON_SOURCE_MISSING": {
+      "kind": "value"
+    },
+    "TARGET_GROUP_FIELD": {
+      "kind": "value"
+    },
+    "TransportDefaults": {
+      "kind": "class",
+      "members": [
+        "ack",
+        "ack_many",
+        "dead_letters_by_count",
+        "never_dead_letter",
+        "publish",
+        "publish_many",
+        "renew_interval_seconds",
+        "renew_pending"
+      ],
+      "signature": "()"
+    },
+    "health_failure_details": {
+      "kind": "function",
+      "signature": "(exc:POSITIONAL_OR_KEYWORD|BaseException) -> dict[str, object]"
+    },
+    "owner_conflict_message": {
+      "kind": "function",
+      "signature": "(stream:POSITIONAL_OR_KEYWORD|str, group:POSITIONAL_OR_KEYWORD|str, existing:POSITIONAL_OR_KEYWORD|GroupOwner, owner:POSITIONAL_OR_KEYWORD|GroupOwner) -> str"
+    },
+    "owners_match": {
+      "kind": "function",
+      "signature": "(existing:POSITIONAL_OR_KEYWORD|GroupOwner, owner:POSITIONAL_OR_KEYWORD|GroupOwner) -> bool"
+    },
+    "partial_publish": {
+      "kind": "function",
+      "signature": "(published:POSITIONAL_OR_KEYWORD|Sequence[str], message:POSITIONAL_OR_KEYWORD|str, cause:POSITIONAL_OR_KEYWORD|BaseException) -> PartialPublish"
+    },
+    "retry_delay_ms": {
+      "kind": "function",
+      "signature": "(deliveries:POSITIONAL_OR_KEYWORD|int, base_ms:KEYWORD_ONLY|int, max_ms:KEYWORD_ONLY|int) -> int"
+    }
+  },
   "sandloom.driverkit.testing": {
     "AtomicStoreConformance": {
       "kind": "class",

@@ -37,6 +37,10 @@ _METRIC_TARGETED_SKIPPED = Counter(
 INVENTORY_STALE_SECONDS = 300.0
 #: Stream-entry field marking a DLQ replay meant for ONE consumer group only.
 TARGET_GROUP_FIELD = "target_group"
+#: Server-side wait (``XREADGROUP BLOCK``) the kernel's durable bus asks of a
+#: transport per idle consume: bounded so its loop notices stop/unsubscribe and
+#: due retries promptly. A transport sizes its client's read timeout above it.
+BUS_BLOCK_MS = 2_000
 
 
 def _owner_conflict_message(

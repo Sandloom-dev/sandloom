@@ -119,17 +119,15 @@ SEEDED: dict[str, frozenset[str]] = {
             "sandloom.core.sql_alchemy.portable",
         }
     ),
+    # idk-streams-driverkit: the driver reaches the kernel through the driver kit
+    # only. What stays is its own transport, a sibling the package move takes
+    # along (idk-pkg-redis-streams): no kernel internal. The default Redis client
+    # helpers are the cache driver's (idk-streams-driverkitb: the driver kit
+    # imports no driver); the package move takes them to sandloom-redis.
     _D + "event_bus_driver.py": frozenset(
         {
-            "sandloom.core.descriptors",
             "sandloom.core.drivers.redis_cache",
-            # idk-eventbus-move: the transport moved into the driver package,
-            # so this pair follows it (no pair is added: the count is unchanged).
             "sandloom.core.drivers.redis_eventbus.streams_transport",
-            "sandloom.core.eventing.streams_bus",
-            "sandloom.core.infra.config",
-            "sandloom.core.infra.ports._base",
-            "sandloom.core.infra.registry",
         }
     ),
     _D + "filesystem_storage.py": frozenset(
@@ -176,40 +174,6 @@ SEEDED: dict[str, frozenset[str]] = {
             "sandloom.core.infra.config",
             "sandloom.core.infra.contracts",
             "sandloom.core.infra.ports._base",
-        }
-    ),
-    # idk-eventbus-moveb: the pairs of the four files idk-eventbus-move moved out
-    # of core/eventing into this subpackage. Pre-existing imports, newly counted
-    # (the scan now reaches driver subpackages), not newly added. Imports of the
-    # package by itself are exempt by rule, so they are not listed.
-    _D + "redis_eventbus/streams_consume.py": frozenset(
-        {
-            "sandloom.core.eventing.envelope",
-            "sandloom.core.eventing.transport_base",
-            "sandloom.core.infra.ports.eventbus",
-            "sandloom.core.observability.metrics_utils",
-        }
-    ),
-    _D + "redis_eventbus/streams_groups.py": frozenset(
-        {
-            "sandloom.core.eventing.transport_base",
-            "sandloom.core.infra.ports.eventbus",
-        }
-    ),
-    _D + "redis_eventbus/streams_transport.py": frozenset(
-        {
-            "sandloom.core.eventing.envelope",
-            "sandloom.core.eventing.transport_base",
-            "sandloom.core.infra.ports.eventbus",
-            "sandloom.core.observability.metrics_utils",
-        }
-    ),
-    _D + "redis_eventbus/streams_transport_base.py": frozenset(
-        {
-            "sandloom.core.config.eventing",
-            "sandloom.core.config.settings",
-            "sandloom.core.eventing.transport_base",
-            "sandloom.core.infra.ports.eventbus",
         }
     ),
     _D + "schema_reset.py": frozenset(
@@ -696,7 +660,12 @@ def test_the_seed_holds_the_live_allowlist() -> None:
     # 89 -> 103 once (idk-eventbus-moveb, +14): pre-existing imports of the files
     # idk-eventbus-move moved out of core/eventing, newly counted by the subpackage
     # scan, not newly added; removed_by idk-pkg-redis-streams.
-    assert sum(len(v) for v in SEEDED.values()) <= 103
+    # 103 -> 83 (idk-streams-driverkit, -20): the four files of redis_eventbus/
+    # (14 pairs) and six of event_bus_driver's seven import only the driver kit.
+    # 83 -> 84 (idk-streams-driverkitb, +1): event_bus_driver imports redis_cache
+    # directly (the driver kit's redis_client wrapper hid that edge and inverted
+    # the layering); removed_by idk-pkg-redis-streams.
+    assert sum(len(v) for v in SEEDED.values()) <= 84
 
 
 @pytest.mark.parametrize(

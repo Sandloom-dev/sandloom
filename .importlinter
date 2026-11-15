@@ -144,6 +144,18 @@ forbidden_modules =
     psycopg
     psycopg2
 
+; The driver kit imports no driver (idk-streams-driverkitb): a driver depends on
+; the kit, never the reverse. In a package split the kit stays in the kernel
+; wheel, which cannot import a driver package. The source is the whole kit, so a
+; new kit module is held to it. No ignore_imports (G-KERNEL-04).
+[importlinter:contract:driverkit-no-driver]
+name = sandloom.driverkit imports no built-in driver (ADR-0016)
+type = forbidden
+source_modules =
+    sandloom.driverkit
+forbidden_modules =
+    sandloom.core.drivers
+
 ; ---------------------------------------------------------------- sandloom.sdk
 ; Public API 1.0 (spec §3, ADR-0010; text supplied by WS-B at H0). sandloom.sdk
 ; sits above the kernel: it may import only the public kernel surface (the

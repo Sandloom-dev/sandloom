@@ -32,6 +32,7 @@ from sandloom.core.eventing.envelope import (
 from sandloom.core.eventing.streams_dispatch import _StreamsDispatch
 from sandloom.core.eventing.subscriptions import SubscriptionHandle, SubscriptionState
 from sandloom.core.eventing.transport_base import (
+    BUS_BLOCK_MS,
     declared_features,
     performance_hint,
     process_consumer_id,
@@ -79,7 +80,7 @@ class StreamsEventBus(_StreamsDispatch):
     _POLL_INTERVAL_SECONDS = 0.5
     # Server-side wait (XREADGROUP BLOCK) per idle consume; bounded so the loop
     # notices stop/unsubscribe and due retries promptly.
-    _BLOCK_MS = 2_000
+    _BLOCK_MS = BUS_BLOCK_MS
     # Subscription-inventory heartbeat + lag/pending gauge refresh interval.
     _HEARTBEAT_SECONDS = 30.0
 
