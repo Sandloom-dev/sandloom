@@ -1,6 +1,6 @@
 ---
 name: sandloom-implementer
-description: Sandloom fleet agent for one tm task (a kernel or module slice, a fix, docs). Lean tool list and the repository's working rules built in. Use for every implementation agent a tm-fleet run starts in this repository; architecture and risky reviews use Opus with the default agent instead.
+description: Sandloom fleet agent for one tm task (a kernel or module slice, a fix, docs). Lean tool list and the repository's working rules built in. Use for every implementation agent a tm-fleet run starts in this repository; reviews use sandloom-reviewer instead (Opus only for the security review).
 tools: Bash, Read, Edit, Write, Skill, ToolSearch, mcp__tm__memory_task_start, mcp__tm__task_start, mcp__tm__task_done, mcp__tm__task_fail, mcp__tm__task_checkpoint, mcp__tm__task_update, mcp__tm__get_task, mcp__tm__reflection_add, mcp__tm__active_claims, mcp__tm__kg_search, mcp__tm__memory_retrieve
 model: sonnet
 effort: high
@@ -78,15 +78,20 @@ item 2. A task created with `checklist` among its required kinds refuses
 `task_done` without it; give it on every task anyway.
 1. **Checks that bite.** Every new check, kit hook or test fails on a
    deliberately broken implementation (a broken-driver / meta test proves
-   it). None passes with zero cases, skips silently, checks presence only or
-   greps file names instead of running the thing.
+   it): one bite per changed branch, not one per feature. None passes with
+   zero cases, skips silently, checks presence only or greps file names
+   instead of running the thing.
 2. **No leftovers after a rename or move.** `grep -rn '<old name>'` over
    `src tests docs benchmarks examples guarantees.yml` finds nothing stale:
    code, comments, guarantees, `docs/infrastructure/write-a-driver.md`,
-   "pending / not available yet" notes, allowlist `removed_by` entries.
+   "pending / not available yet" notes, allowlist `removed_by` entries. A
+   hit that names a slice or task: check its state in tm (`get_task`), never
+   judge by guess whether it is still pending.
 3. **Refuse, don't go quiet.** An unsupported feature or an error raises or
    refuses; it never turns into an empty list, `None`, a skip or a green
-   `/ready`. Catch only the error types you mean.
+   `/ready`. Catch only the error types you mean: a narrowed catch is an
+   allow-list of what it accepts (never a deny-list), with a test that one
+   other failure still raises.
 4. **Deviations recorded.** Anything that departs from `spec.md` or the ADR
    (an API, a default, a measured price) is written into spec/ADR in the
    same PR.
