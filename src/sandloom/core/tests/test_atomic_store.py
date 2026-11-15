@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Callable
+from functools import partial
 from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlsplit
@@ -162,7 +163,14 @@ class TestRedisAtomicStore(AtomicStoreConformance):
 
     @pytest.fixture
     def make_provider(self) -> Callable[[], AtomicStoreProvider]:
-        return _redis
+        # The kit's races open 50 connections at once: the production defaults
+        # (0.5 s socket and connect timeouts) time out on a loaded CI runner.
+        return partial(
+            _redis,
+            socket_timeout_seconds=5.0,
+            socket_connect_timeout_seconds=5.0,
+            pool_timeout_seconds=5.0,
+        )
 
     @pytest.fixture
     def make_failing_provider(self) -> Callable[[], AtomicStoreProvider]:
