@@ -377,9 +377,9 @@ def test_the_public_contract_changes_only_with_its_version() -> None:
 
 #: Kernel-facing contracts exported before their kit (PR #190 review, C4):
 #: their capability slices deliver these kits. Remove an entry when its kit
-#: lands; the test fails until you do. ``EventTransportProvider`` is removed by
-#: ``idk-eventbus-kit``.
-_KIT_PENDING: frozenset[str] = frozenset({"EventTransportProvider"})
+#: lands; the test fails until you do. Empty since ``idk-eventbus-kit``
+#: delivered ``EventTransportConformance``.
+_KIT_PENDING: frozenset[str] = frozenset()
 
 
 def test_every_public_contract_has_a_kit() -> None:
@@ -399,10 +399,16 @@ def test_every_public_contract_has_a_kit() -> None:
         assert delivered, f"{name} has no kit: {kit}"
 
 
-def test_a_kit_not_delivered_yet_names_its_slice() -> None:
-    with pytest.raises(AttributeError, match="idk-eventbus-kit") as caught:
-        _ = sandloom.driverkit.testing.EventTransportConformance
-    assert "sandloom.driverkit.kits.eventbus" in str(caught.value)
+def test_a_kit_not_delivered_yet_names_its_slice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Every kit is delivered: a table entry whose file does not exist stands in.
+    monkeypatch.setitem(
+        sandloom.driverkit.testing._TABLE, "GhostConformance", ("ghost", "idk-ghost")
+    )
+    with pytest.raises(AttributeError, match="idk-ghost") as caught:
+        _ = sandloom.driverkit.testing.GhostConformance
+    assert "sandloom.driverkit.kits.ghost" in str(caught.value)
     with pytest.raises(AttributeError, match="no attribute 'NoSuchKit'"):
         _ = sandloom.driverkit.testing.NoSuchKit
     assert "LeaseConformance" in dir(sandloom.driverkit.testing)
@@ -435,7 +441,7 @@ def test_only_a_kit_of_driverkit_testing_is_pinned_pending(
     api = _api_gate()
     monkeypatch.setattr(api, "_public_modules", lambda: ["sandloom.driverkit.testing"])
     kits = api.snapshot()["sandloom.driverkit.testing"]
-    assert kits["EventTransportConformance"] == {"kind": "pending"}
+    assert kits["EventTransportConformance"]["kind"] == "class"
     assert kits["ObjectStoreConformance"]["kind"] == "class"
 
     forgotten = ModuleType("sandloom_api_gate_probe")

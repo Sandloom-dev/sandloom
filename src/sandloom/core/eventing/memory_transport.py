@@ -22,6 +22,7 @@ from sandloom.core.eventing.transport_base import (
     _owners_match,
     retry_delay_ms,
 )
+from sandloom.core.infra.errors import InfraError
 from sandloom.core.infra.ports.eventbus import (
     ConsumerInfo,
     DeadLetter,
@@ -135,6 +136,19 @@ class MemoryTransport(TransportDefaults):
             arrival.set()
         return msg_id
 
+    def _park(
+        self,
+        stream: str,
+        msg_id: str,
+        envelope: EventEnvelope,
+        attempts: int,
+        group: str,
+    ) -> None:
+        """Append to the stream's dead-letter queue: the one place that does,
+        and the seam for a test that makes the append fail (it raises
+        :class:`InfraError`; the source is acked only after this returns)."""
+        self._dlq.setdefault(stream, []).append((msg_id, envelope, attempts, group))
+
     def _collect(self, stream: str, group: str, count: int) -> list[Delivery]:
         key = (stream, group)
         pending = self._pending[key]
@@ -153,7 +167,22 @@ class MemoryTransport(TransportDefaults):
             if attempts >= self._max_deliveries and self.dead_letters_by_count(
                 stream, group
             ):
-                self._dlq.setdefault(stream, []).append((msg_id, env, attempts, group))
+                try:
+                    self._park(stream, msg_id, env, attempts, group)
+                except InfraError:
+                    # Ack the source only after the DLQ append succeeded: it
+                    # stays pending and the append is tried again on a later
+                    # consume (G-EVENT-10), as the Streams driver does.
+                    safe_inc("streams_dlq_append_failures_total", {"stream": stream})
+                    logger.error(
+                        "Failed to dead-letter memory message; leaving it pending "
+                        "stream=%s group=%s id=%s",
+                        stream,
+                        group,
+                        msg_id,
+                        exc_info=True,
+                    )
+                    continue
                 pending.pop(msg_id, None)
                 self._delivery_count.pop(dkey, None)
                 self._delivered_at.pop(dkey, None)
@@ -230,8 +259,8 @@ class MemoryTransport(TransportDefaults):
     async def dead_letter(self, delivery: Delivery, *, reason: str) -> None:
         dkey = (delivery.stream, delivery.group, delivery.id)
         attempts = self._delivery_count.get(dkey, 0)
-        self._dlq.setdefault(delivery.stream, []).append(
-            (delivery.id, delivery.envelope, attempts, delivery.group)
+        self._park(
+            delivery.stream, delivery.id, delivery.envelope, attempts, delivery.group
         )
         await self.ack(delivery)
         safe_inc("streams_messages_dlq_total", {"stream": delivery.stream})

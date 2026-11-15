@@ -21,7 +21,8 @@ The `cache`, `notification` and `objectstore` contracts are
 carries the transaction guarantees and is not open to drivers
 ([why](database.md#the-relational-paradigm)). An `eventbus` driver is an
 [`EventTransportProvider`](#an-eventbus-driver). It is kernel-facing: its conformance
-kit is pending (`idk-eventbus-kit`) and it is not yet a public contract.
+kit, `EventTransportConformance`, exists. The built-in `streams` driver does not yet map
+backend errors, and the contract is not yet public.
 
 !!! note "Version"
     This guide targets `sandloom==0.7.0a13`. <!-- sandloom-release -->
@@ -199,11 +200,12 @@ without it accepts them in `put` and drops them.
 
 #### An eventbus driver
 
-!!! warning "Kernel-facing; the conformance kit is pending"
-    This section describes the contract the kernel's bus runs over. Its conformance kit
-    is pending (`idk-eventbus-kit`) and it is not yet a public contract. Mapping backend
-    errors to `Unavailable` and `Timeout` is pending with the kit. Until then a driver
-    raises them itself, and the kernel does not translate a backend exception.
+!!! warning "Kernel-facing; not yet a public contract"
+    This section describes the contract the kernel's bus runs over. Its conformance kit,
+    `EventTransportConformance`, exists. The built-in `streams` driver still raises the
+    backend's own errors (`idk-pkg-redis-streams` maps them), so the contract is not yet
+    public. A driver raises `Unavailable` and `Timeout` itself: the kernel does not
+    translate a backend exception.
 
 An `eventbus` driver of the transport shape states `contract_version = 2` and
 subclasses `EventTransportProvider` (`sandloom.driverkit`), an abstract base class. It is
@@ -236,6 +238,41 @@ driver that declares the feature overrides them. `publish_many` returns one id p
 
 `publish_many` and `ack_many` say `one_round_trip` in `performance_hints` when each is one
 round trip.
+
+**The kit.** Subclass `EventTransportConformance` (`sandloom.driverkit.testing`) and
+override `make_provider`. The harness checks the contract and the features first. A
+declared feature's call must not raise `Unsupported`, and an undeclared one's must. The
+kit then runs the core groups. They cover delivery, the dead-letter queue, ordered
+batches, group ownership and retention. It runs one more group for each behaviour
+feature you declare. The `shared` group checks that two providers of one configuration
+see the same streams.
+
+- Build the provider with `max_deliveries` equal to `EventTransportConformance.max_deliveries`
+  and no retry backoff beyond a few milliseconds.
+- With `lease_renewal`, build it with a reclaim idle time of about a second. The kit
+  renews for five intervals and expects the entry to stay with its consumer, then to be
+  reclaimed once renewal stops.
+- Override `refused_stream(provider, stream)` and `failing_dlq_append(provider)` to make
+  the backend fail. Each returns a context that holds the failure while it is open.
+  `failing_dlq_append` covers an explicit `dead_letter` and the dead-lettering that
+  `max_deliveries` triggers. In both the source entry must stay unacked until the
+  dead-letter append succeeds.
+- Override `retention_cases()` to give `(options, retention)` pairs. Override
+  `make_provider_with_options(provider, options)` when `from_config` cannot rebuild the
+  provider with other options. The kit gives `feature_calls(provider)`, one call per
+  behaviour feature. Override it only when one of those calls does not suit the driver.
+- Override `parked_ids(provider, stream)` when the driver has no `dlq_ops`. It returns the
+  event ids parked in the dead-letter queue. With neither, the checks that an entry is
+  parked are skipped, because a parked entry and a dropped one cannot be told apart.
+- Override `interrupt_connections(provider)` to cut the provider's connections. The
+  outage group, required of a stable-tier driver, then expects `consume` to raise
+  `Unavailable` and consuming to resume without loss. Build the provider so that it does
+  not retry the cut call silently.
+
+A check without its hook is skipped, never passed. A stable-tier driver sets
+`require_stable_hooks = True`, and then a missing hook fails the check. Such a driver
+gives every hook above, or sets the test of a check it cannot run to `None` in its own
+class, on the record.
 
 The names of the previous major are gone, with no alias. A module or driver that names
 `publish`, `subscribe`, `volatile`, `at_least_once` or `consumer_groups` is refused at
