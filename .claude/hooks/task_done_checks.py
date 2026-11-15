@@ -78,7 +78,7 @@ def results(output: str) -> dict[str, str]:
     return found
 
 
-def run_checks(top: str) -> tuple[dict[str, str], str]:
+def run_checks(top: str) -> tuple[dict[str, str], str, int]:
     env = {**os.environ, **CI_ENV, "SKIP": SKIP}
     argv = ["uv", "run", "--locked", "pre-commit", "run"]
     argv += ["--from-ref", "origin/main", "--to-ref", "HEAD"]
@@ -95,7 +95,7 @@ def run_checks(top: str) -> tuple[dict[str, str], str]:
     failed = [
         ln for ln in output.splitlines() if ln.strip() and not _RESULT.match(ln.strip())
     ]
-    return results(output), "\n".join(failed[-25:])
+    return results(output), "\n".join(failed[-25:]), done.returncode
 
 
 def main() -> int:
@@ -108,9 +108,13 @@ def main() -> int:
     head = _git(["rev-parse", "HEAD"], cwd)
     if not top or not head or already_checked(tool_input, head):
         return 0
+    exit_status: int | None = None
     try:
-        outcome, tail = run_checks(top)
+        outcome, tail, exit_status = run_checks(top)
         not_run = "" if outcome else "pre-commit printed no hook result: " + tail[-300:]
+        if _git(["rev-parse", "HEAD"], cwd) != head:
+            # The tree moved under the run: its results belong to no commit.
+            outcome, not_run = {}, "HEAD moved while the checks ran"
     except (subprocess.TimeoutExpired, OSError) as exc:
         outcome, tail, not_run = {}, "", f"{type(exc).__name__}: {exc}"[:300]
     record = {
@@ -119,12 +123,15 @@ def main() -> int:
         "skipped": SKIP.split(","),
         "results": outcome,
         "failed": sorted(k for k, v in outcome.items() if v == "Failed"),
+        "exit_status": exit_status,
     }
     if not_run:
         # Recorded once, so the reviewer sees why there is no result; the
         # second call carries it through like any other record.
         record["not_run"] = not_run
-    if record["failed"]:
+    if record["failed"] or exit_status not in (0, None):
+        # A nonzero exit with no failed hook is an errored or partial run:
+        # keep its output, so it never reads as a clean pass.
         record["tail"] = tail
     deliverable = {"kind": "checks", "content": json.dumps(record, sort_keys=True)}
     reason = (

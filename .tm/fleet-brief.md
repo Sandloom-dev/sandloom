@@ -5,9 +5,12 @@ only your task and what is particular to it. The working rules (isolation,
 reading, checks, the "Before the PR" checklist) are in your agent file.
 
 ## Branch and PR
-- `git fetch origin`, `git reset --hard origin/main` (or the base your prompt
-  names), `git checkout -b claude/<alias>`: each its own call. A base that
-  moves is merged in; never rebase or force-push.
+- A new task: `git fetch origin`, `git reset --hard origin/main` (or the base
+  your prompt names), `git checkout -b claude/<alias>`: each its own call.
+- A review round or a resumed checkpoint (the branch exists): never reset.
+  `git fetch origin`, `git checkout -B claude/<alias> origin/claude/<alias>`
+  (or the branch your prompt names), then merge `origin/main` if it moved.
+- A base that moves is merged in; never rebase or force-push.
 - `CHANGELOG.md` merges by itself (`.gitattributes`, union); so does
   `tools/packaging/public-source.json` once the clone has run
   `python3 tools/packaging/merge_public_source.py --install` (worktrees share

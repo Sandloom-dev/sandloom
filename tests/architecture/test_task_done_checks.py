@@ -57,7 +57,7 @@ def test_a_handover_by_anyone_but_an_implementer_is_not_checked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ran: list[str] = []
-    monkeypatch.setattr(hook, "run_checks", lambda top: ran.append(top) or ({}, ""))
+    monkeypatch.setattr(hook, "run_checks", lambda top: ran.append(top) or ({}, "", 0))
     for agent in (None, "sandloom-reviewer"):
         event = {"tool_name": "mcp__tm__task_done", "tool_input": {}}
         if agent:
@@ -77,7 +77,7 @@ def test_the_first_handover_is_refused_with_the_record_and_the_second_passes(
     monkeypatch.setattr(
         hook,
         "run_checks",
-        lambda top: ({"ruff": "Passed", "mypy": "Failed"}, "error: x"),
+        lambda top: ({"ruff": "Passed", "mypy": "Failed"}, "error: x", 1),
     )
     event = {"agent_type": hook.AGENT, "tool_input": {"task": "t"}, "cwd": "/repo"}
     answer = json.loads(_call(monkeypatch, event))["hookSpecificOutput"]
@@ -98,7 +98,7 @@ def test_a_run_that_could_not_happen_is_recorded_once_as_not_run(
         raise hook.subprocess.TimeoutExpired("pre-commit", 540)
 
     monkeypatch.setattr(hook, "_git", lambda args, cwd: "x")
-    for broken in (timeout, lambda top: ({}, "uv: command not found")):
+    for broken in (timeout, lambda top: ({}, "uv: command not found", 127)):
         monkeypatch.setattr(hook, "run_checks", broken)
         event = {"agent_type": hook.AGENT, "tool_input": {}}
         answer = json.loads(_call(monkeypatch, event))["hookSpecificOutput"]
@@ -123,3 +123,50 @@ def test_the_settings_route_every_tm_server_name_to_the_hook() -> None:
     assert pattern.search("mcp__tm-dev__task_done")
     assert not pattern.search("mcp__tm__task_done_extra")
     assert not pattern.search("mcp__tm__task_start")
+
+
+def test_an_errored_run_with_passing_hooks_keeps_its_exit_status_and_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        hook,
+        "_git",
+        lambda args, cwd: "/repo" if "--show-toplevel" in args else "c0ffee",
+    )
+    monkeypatch.setattr(
+        hook, "run_checks", lambda top: ({"ruff": "Passed"}, "Traceback: boom", 3)
+    )
+    answer = json.loads(
+        _call(monkeypatch, {"agent_type": hook.AGENT, "tool_input": {}})
+    )
+    record = json.loads(
+        json.loads(
+            answer["hookSpecificOutput"]["permissionDecisionReason"].splitlines()[-1]
+        )["content"]
+    )
+    assert record["exit_status"] == 3
+    assert record["failed"] == []
+    assert record["tail"] == "Traceback: boom"
+
+
+def test_results_are_dropped_when_head_moves_during_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    heads = iter(["first", "second"])
+    monkeypatch.setattr(
+        hook,
+        "_git",
+        lambda args, cwd: "/repo" if "--show-toplevel" in args else next(heads),
+    )
+    monkeypatch.setattr(hook, "run_checks", lambda top: ({"ruff": "Passed"}, "", 0))
+    answer = json.loads(
+        _call(monkeypatch, {"agent_type": hook.AGENT, "tool_input": {}})
+    )
+    record = json.loads(
+        json.loads(
+            answer["hookSpecificOutput"]["permissionDecisionReason"].splitlines()[-1]
+        )["content"]
+    )
+    assert record["commit"] == "first"
+    assert record["results"] == {}
+    assert record["not_run"] == "HEAD moved while the checks ran"
