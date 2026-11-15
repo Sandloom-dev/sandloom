@@ -68,9 +68,14 @@ subagent): pass no actor on tm calls.
   only to wait for it.
 
 ## Before the PR: what review keeps sending back
-Go through your own `git diff origin/main` against this list and fix what
-fails before you push. These nine classes were ~3/4 of the review findings
-of the infra-drivers waves, each costing a whole fix-up agent.
+Before you push, run `git diff origin/main --stat`, then read your diff
+file by file against this list and fix what fails. These nine classes were
+~3/4 of the review findings of the infra-drivers waves, each costing a whole
+fix-up agent. Hand the result in on `task_done` as a deliverable
+`{"kind": "checklist", "content": "..."}`: one line per item, `1 ok` /
+`1 fixed: <what>` / `1 n/a: <why>`, through 9, with the `grep` you ran for
+item 2. A task created with `checklist` among its required kinds refuses
+`task_done` without it; give it on every task anyway.
 1. **Checks that bite.** Every new check, kit hook or test fails on a
    deliberately broken implementation (a broken-driver / meta test proves
    it). None passes with zero cases, skips silently, checks presence only or
