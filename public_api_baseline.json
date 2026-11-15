@@ -2614,6 +2614,38 @@
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
+    "CacheProvider": {
+      "kind": "class",
+      "members": [
+        "aclose",
+        "add",
+        "aopen",
+        "capability",
+        "compare_and_delete",
+        "compare_and_set",
+        "delete",
+        "development_only",
+        "features",
+        "features_for",
+        "from_config",
+        "get",
+        "get_many",
+        "health",
+        "incr",
+        "install_hint",
+        "isolation_identity",
+        "options_schema",
+        "performance_hints",
+        "required_imports",
+        "set",
+        "set_many",
+        "supported_features",
+        "test_isolation",
+        "tier",
+        "windowed_counter"
+      ],
+      "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
+    },
     "CapabilityRef": {
       "kind": "class",
       "members": [

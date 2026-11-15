@@ -24,6 +24,7 @@ A breaking change is a new contract version ([versioning](../contributing/versio
 
 | Name | What it is |
 | --- | --- |
+| `CacheProvider` | The contract of the `cache` capability, major 2: implement `get`, `set`, `delete`, `add` and `incr`; `get_many`, `set_many` and `windowed_counter` have defaults. Run `CacheConformance` against it. See [cache](cache.md). |
 | `NotifierProvider` | The contract of the `notification` capability: implement `async send(notification)`. |
 | `ObjectStoreProvider` | The contract of the `objectstore` capability: implement `async put(key, data, *, content_type, metadata)`, `get(key)`, `delete(key)` and `url(key)`. Keys are logical names, never filesystem paths. |
 | `ObjectContent` | What `put` accepts as `data`: bytes, or an async reader whose `read(size)` returns up to `size` bytes and `b""` at the end. A reader whose `read()` takes no size is not accepted. |
