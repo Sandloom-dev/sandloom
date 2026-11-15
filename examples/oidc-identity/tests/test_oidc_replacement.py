@@ -184,6 +184,10 @@ def _migrate_env(
         "ACME_IDP_CLIENT_ID": CLIENT_ID,
         "SANDLOOM_COMPOSITION_ROOT": "oidc_identity.asgi",
         "SANDLOOM_MODULES": json.dumps(ALL),
+        # The migration runs no consumer: it needs no bus. The root's
+        # DEFAULT_INFRA selects Streams, whose durable revocation applier asks
+        # for a service name, so the bus is named in-process here.
+        "EVENT_BUS_BACKEND": "memory",
     }
 
 

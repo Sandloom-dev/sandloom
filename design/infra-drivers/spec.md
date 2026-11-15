@@ -1418,7 +1418,7 @@ For the orchestrator's review; each departs from or details `design.md`.
     the real-broker tests skip with their reason. The job writes a skip ledger (lane `celery`)
     that the `skip-ledger` job merges. A shared driverkit helper for the `_REQUIRED` guards is
     the follow-up task `idk-driverkit-required-guard`. The kernel keeps
-    `test_celery_driver_rows` (bootstrap rows), `test_celery_error_mapping` (the kernel enqueue
+    `test_celery_error_mapping` (the kernel enqueue
     layer over the driver) and `test_beat_lease` (the kernel's lease resolution and the Celery
     holder over one fake store).
 

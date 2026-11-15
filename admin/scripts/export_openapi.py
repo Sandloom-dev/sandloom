@@ -19,6 +19,9 @@ sys.path.insert(0, str(ROOT / 'src'))
 os.environ['SANDLOOM_MODULES'] = '["sandloom_identity", "sandloom_tenancy", "sandloom_billing"]'
 os.environ['ENVIRONMENT'] = 'dev'
 os.environ['BILLING_PROVIDER'] = 'fake'
+# The standard composition selects the Streams bus (and so asks for a service
+# name); export starts no consumer, so the bus is named in-process.
+os.environ['EVENT_BUS_BACKEND'] = 'memory'
 # Settings require connection URLs, but export never connects (no lifespan):
 # inert defaults keep a fresh checkout / CI runner without a .env working.
 for _name, _value in (
