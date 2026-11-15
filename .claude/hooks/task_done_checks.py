@@ -46,7 +46,8 @@ CI_ENV = {
     "JWT_SECRET": "ci-architecture-tests-not-a-real-secret",
 }
 _RESULT = re.compile(r"^(.+?)\.{3,}(?:\(.*\))?(Passed|Failed|Skipped)\s*$")
-_CREDENTIALS = re.compile(r"([A-Za-z][A-Za-z0-9+.-]*)://[^/\s:@]+:[^/\s@]+@")
+# user:pass@ and the password-only :pass@ form (redis://:secret@host).
+_CREDENTIALS = re.compile(r"([A-Za-z][A-Za-z0-9+.-]*)://[^/\s:@]*:[^/\s@]+@")
 #: Digests of the records this hook emitted, outside every checkout.
 ISSUED = (
     Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "sandloom-checks"
@@ -165,7 +166,7 @@ def main() -> int:
     if not_run:
         # Recorded once, so the reviewer sees why there is no result; the
         # second call carries it through like any other record.
-        record["not_run"] = not_run
+        record["not_run"] = redact(not_run)
     if record["failed"] or exit_status not in (0, None):
         # A nonzero exit with no failed hook is an errored or partial run:
         # keep its output, so it never reads as a clean pass.

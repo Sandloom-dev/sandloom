@@ -82,6 +82,31 @@ def test_credentials_are_masked_in_the_stored_tail() -> None:
     assert (
         hook.redact(tail) == "connect postgresql+asyncpg://***@127.0.0.1:5433/x failed"
     )
+    assert (
+        hook.redact("redis://:secret@localhost:6379/0")
+        == "redis://***@localhost:6379/0"
+    )
+    assert hook.redact("https://example.test/package") == "https://example.test/package"
+
+
+def test_a_not_run_text_is_masked_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        hook,
+        "_git",
+        lambda args, cwd: "/repo" if "--show-toplevel" in args else "c0ffee",
+    )
+    monkeypatch.setattr(
+        hook,
+        "run_checks",
+        lambda top: ({}, "fetch https://u:p4ss@example.test/x failed", 1),
+    )
+    answer = json.loads(
+        _call(monkeypatch, {"agent_type": hook.AGENT, "tool_input": {}})
+    )
+    reason = answer["hookSpecificOutput"]["permissionDecisionReason"]
+    record = json.loads(json.loads(reason.splitlines()[-1])["content"])
+    assert "p4ss" not in record["not_run"]
+    assert "p4ss" not in reason
 
 
 def test_a_handover_by_anyone_but_an_implementer_is_not_checked(
