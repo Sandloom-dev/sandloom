@@ -11,8 +11,8 @@ from typing import Any, ClassVar
 import orjson
 from prometheus_client import Counter
 
+from sandloom.core.drivers.redis_eventbus.streams_consume import _StreamsConsume
 from sandloom.core.eventing.envelope import EventEnvelope
-from sandloom.core.eventing.streams_consume import _StreamsConsume
 from sandloom.core.eventing.transport_base import (
     DLQ_REASON_MAX_DELIVERIES,
     TARGET_GROUP_FIELD,

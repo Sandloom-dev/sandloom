@@ -92,7 +92,7 @@ class Stack:
         )
 
         from sandloom.core.eventing.streams_bus import StreamsEventBus
-        from sandloom.core.eventing.streams_transport import RedisStreamsTransport
+        from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
         from sandloom.core.drivers.redis_cache import build_transport_client
         from sandloom.core.schema.registry import InMemorySchemaRegistry
         from sandloom.core.sql_alchemy.outbox_store.audit import SQLAlchemyAuditStore

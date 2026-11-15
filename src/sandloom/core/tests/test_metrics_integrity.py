@@ -40,8 +40,9 @@ def test_every_safe_inc_name_resolves_to_a_metric() -> None:
 def test_streams_maintenance_failure_metric_is_defined() -> None:
     # GLM review #11: XAUTOCLAIM / XTRIM failures were swallowed without a
     # signal (DLQ-append failures already count streams_dlq_append_failures).
-    # The emission sites live in sandloom/core/eventing/streams_transport*.py
-    # (_reclaim_stale, _maybe_trim_by_age) and are wired by the eventing owner.
+    # The emission sites live in
+    # sandloom/core/drivers/redis_eventbus/streams_transport*.py (_reclaim_stale,
+    # _maybe_trim_by_age) and are wired by the eventing owner.
     counter = metrics.streams_maintenance_failures_total
     assert counter._name == "sandloom_streams_maintenance_failures"
     assert counter._labelnames == ("stream", "operation")

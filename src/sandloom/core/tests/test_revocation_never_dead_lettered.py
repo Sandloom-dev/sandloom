@@ -338,7 +338,9 @@ async def test_redis_streams_never_dead_letter_group_survives_the_old_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     redis_asyncio = pytest.importorskip("redis.asyncio")
-    from sandloom.core.eventing.streams_transport import RedisStreamsTransport
+    from sandloom.core.drivers.redis_eventbus.streams_transport import (
+        RedisStreamsTransport,
+    )
 
     url = os.getenv("SANDLOOM_TEST_CACHE_URL") or os.getenv("CACHE_URL")
     if not url:

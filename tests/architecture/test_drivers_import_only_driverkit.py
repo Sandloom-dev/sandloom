@@ -123,8 +123,10 @@ SEEDED: dict[str, frozenset[str]] = {
         {
             "sandloom.core.descriptors",
             "sandloom.core.drivers.redis_cache",
+            # idk-eventbus-move: the transport moved into the driver package,
+            # so this pair follows it (no pair is added: the count is unchanged).
+            "sandloom.core.drivers.redis_eventbus.streams_transport",
             "sandloom.core.eventing.streams_bus",
-            "sandloom.core.eventing.streams_transport",
             "sandloom.core.infra.config",
             "sandloom.core.infra.ports._base",
             "sandloom.core.infra.registry",
