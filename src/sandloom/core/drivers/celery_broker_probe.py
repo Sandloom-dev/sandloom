@@ -67,11 +67,13 @@ class BrokerUnreachableError(RuntimeError):
 
 async def probe_broker(app: Any, *, limit_seconds: float | None = None) -> HealthResult:
     """``ok`` when ``app``'s broker accepts a connection within
-    ``limit_seconds`` (default ``HEALTH_CHECK_TIMEOUT_SECONDS``); ``fail`` when
-    it does not answer in time. A refused or dropped connection raises
-    :class:`BrokerUnreachableError`, which every health reader turns into a
-    failed probe carrying its type name, never its text (``_capability_health``,
-    ``InfraRegistry.health_all``; spec 2.4). No detail names the broker.
+    ``limit_seconds`` (default ``HEALTH_CHECK_TIMEOUT_SECONDS``); ``fail`` with
+    the details ``{"error": "timeout"}`` (one token, the shape of every health
+    detail) when it does not answer in time. A refused or dropped connection
+    raises :class:`BrokerUnreachableError`, which
+    ``CeleryTaskQueueProvider.health`` turns into a failed probe carrying its
+    type name, never its text (spec 2.4); any other reader of the probe does the
+    same. No detail names the broker.
 
     The blocking connect runs in a worker thread, so the event loop never
     waits on the broker; the connect and socket timeouts end that thread
@@ -85,10 +87,7 @@ async def probe_broker(app: Any, *, limit_seconds: float | None = None) -> Healt
     try:
         await asyncio.wait_for(asyncio.to_thread(_connect_once, app, bound), bound)
     except TimeoutError:
-        return HealthResult(
-            status="fail",
-            details={"error": f"broker timeout > {bound:g}s"},
-        )
+        return HealthResult(status="fail", details={"error": "timeout"})
     except Exception as exc:
         # The type name only: a client error's text can carry the broker URL.
         raise BrokerUnreachableError(

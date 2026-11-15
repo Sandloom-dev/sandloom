@@ -81,7 +81,7 @@ async def test_a_hanging_broker_is_bounded_by_the_timeout(
     result = await probe.probe_broker(_app(_REFUSED), limit_seconds=0.2)
 
     assert result.status == "fail"
-    assert result.details == {"error": "broker timeout > 0.2s"}
+    assert result.details == {"error": "timeout"}
     assert _leaks(str(result.details)) == []
     assert time.monotonic() - started < 1.0
 
@@ -142,6 +142,8 @@ async def test_the_provider_health_probes_its_broker(
         )
     )
 
-    with pytest.raises(probe.BrokerUnreachableError):
-        await down.health()
+    refused = await down.health()
+    # A failed probe carrying the error's type name, never its text (spec 2.4).
+    assert refused.status == "fail"
+    assert refused.details == {"error": "BrokerUnreachableError"}
     assert (await up.health()).status == "ok"

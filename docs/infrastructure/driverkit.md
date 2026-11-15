@@ -68,6 +68,23 @@ class. A driver therefore never re-sends `add`, `add_or_get`, `compare_and_set` 
 caller that won. A driver may re-send the idempotent ones only: `get`, `set`, `delete`,
 `set_subject_state`.
 
+## `sandloom.driverkit.eventbus_support`
+
+What a third-party event transport shares with the kernel's own bus, so the driver states no
+number of its own and imports nothing of the kernel. The kernel's in-memory transport follows
+the same model.
+
+| Name | What it is |
+| --- | --- |
+| `TransportDefaults` | A mixin of the operations the built-in transports implement alike: `publish_many` and `ack_many` loop over `publish` and `ack`, `never_dead_letter` records the groups exempt from dead-lettering by count (`dead_letters_by_count` reads it), and `renew_pending` raises `Unsupported("lease_renewal")`. You implement `publish` and `ack`. A transport with a native batch overrides the batch forms. |
+| `retry_delay_ms` | The idle time a failed entry must reach before its next delivery: `retry_delay_ms(deliveries, base_ms=, max_ms=)`, doubled per delivery and capped. |
+| `partial_publish` | Builds the `PartialPublish` that `publish_many` raises after a partial append: `partial_publish(published, message, cause)`. Its `retryable` follows the cause. |
+| `DLQ_REASON_MAX_DELIVERIES`, `DLQ_REASON_SOURCE_MISSING`, `DLQ_REASON_MALFORMED` | The reason markers a dead-letter entry carries, so a dead letter reads the same on every transport. |
+| `TARGET_GROUP_FIELD` | The stream-entry field that marks a dead-letter replay meant for one consumer group only. |
+| `DEFAULT_MAX_DELIVERIES`, `DEFAULT_MIN_IDLE_MS`, `DEFAULT_RETRY_BASE_MS`, `DEFAULT_RETRY_MAX_MS`, `DEFAULT_EVENT_STREAM_RETENTION_SECONDS` | The defaults of the reliability model: deliveries before an entry is dead-lettered, the idle time before a reclaim, the retry backoff bounds and the retention offered when `retention_seconds` is left out. |
+| `owners_match`, `owner_conflict_message` | The group-owner rule for `claim_group_owner`: two owners match when `module` and `database` match (`service` is informational), and the message to raise in `GroupOwnedElsewhere` when they do not. |
+| `health_failure_details` | The `details` of a failed health probe: the error type, never its text. |
+
 ## `sandloom.driverkit.testing`
 
 Each provider kit is a pytest class with one test per obligation. Subclass it and
@@ -77,22 +94,17 @@ harness checks first
 ([Check it against the contract](write-a-driver.md#4-check-it-against-the-contract)).
 The kits need `pytest` and `pytest-asyncio`.
 
-The names of the kits still to come are listed already. Until its capability lands, such
-a name raises `AttributeError` naming the work that delivers it:
-<!-- lookup -->
-
-- `AtomicStoreConformance`
-- `CacheConformance`
-- `LeaseConformance`
-- `TaskQueueConformance`
-
 | Name | What it is |
 | --- | --- |
+| `AtomicStoreConformance` | The kit of an `atomic_store` driver; point `make_provider` at a test backend. Set `value_limit_bytes` to the largest value the provider accepts; `None` skips the `TooLarge` checks. |
 | `BroadcastConformance` | The kit of a `broadcast` driver; point `make_provider` at a test backend. It publishes on channels of its own. Set `payload_limit_bytes` to the limit the driver declares (at least 1 MiB). Override `interrupt_connections(provider)` to cut the provider's connections, as an outage would, to run the outage group. `delivery_seconds` and `quiet_seconds` set the waits. |
+| `CacheConformance` | The kit of a `cache` driver; point `make_provider` at a test backend. See [cache](cache.md). |
 | `DatabaseProviderConformance` | The kit of a `database` driver; point `make_provider` at a database the test owns (empty, or a scratch one it may create tables in). It runs units through `uow_factory()` with `sqlalchemy` constructs and checks commit, rollback, savepoints, that each store method answers a store exactly when its feature is declared, that an event enqueued in a unit that rolls back is never written, `planner_adapter` (`None` allowed), `has_pending_changes` and `ensure_model_schema`. A driver on another engine overrides `execute(session, statement)` and `begin_savepoint(session)`, and `prepare_outbox_schema(provider)` when its schema comes from migrations. |
 | `EventTransportConformance` | The kit of an `eventbus` driver of the transport shape. The core groups cover publish and consume, at-least-once delivery, the dead-letter queue, ordered batches, consumer groups, group ownership and `retention()`. One group runs for each behaviour feature the driver declares (`blocking_consume`, `group_start_id`, `lease_renewal`, `dlq_ops`, `inspection`, `inventory`), and `shared` checks that two providers see the same streams. Build the provider with `max_deliveries` equal to the kit's, and with `lease_renewal` a reclaim idle time of about a second. Override `refused_stream(provider, stream)` and `failing_dlq_append(provider)` to make the backend fail; the second covers an explicit `dead_letter` and the dead-lettering at `max_deliveries`. Override `parked_ids(provider, stream)` to read the dead-letter queue when the driver has no `dlq_ops`. Override `retention_cases()` to state what `retention()` answers for given options, and `make_provider_with_options(provider, options)` when `from_config` cannot rebuild the provider. Override `feature_calls(provider)` only when the kit's call for a feature does not suit the driver. Override `interrupt_connections(provider)` to run the outage group: `consume` raises `Unavailable` and consuming resumes without loss. A check without its hook is skipped, never passed. A stable-tier driver sets `require_stable_hooks = True`, and a missing hook then fails the check. |
+| `LeaseConformance` | The kit of a `lease` driver; point `make_provider` at a test backend. |
 | `NotifierConformance` | The kit of a `notification` driver. Override `recipients` for your test backend. Each channel is a behaviour feature: an undeclared channel raises `Unsupported(channel)`. |
 | `ObjectStoreConformance` | The kit of an `objectstore` driver; point `make_provider` at a test namespace. Set `upload_limit_bytes` and `read_limit_bytes` to the test instance's limits. A driver declaring `metadata` overrides `read_metadata(provider, key)` to read them back. |
+| `TaskQueueConformance` | The kit of a `taskqueue` driver: the send groups, then the host groups (a worker and two schedulers, each in a forked process). Set `known_task`, and `unknown_task` when `send` can refuse an unknown name. Override `make_provider` for the send groups and `make_host_provider` for a backend the forked hosts share (default: `make_provider`). A driver that declares `periodic` must override `make_lease_store`, a shared unopened `lease` store; the scheduler groups fail without it. Override `scheduler_clock` (optional) to freeze the driver's clock before a cron slot; the context it enters returns `advance`. A host that is `None` or raises `NotImplementedError` fails. |
 | `SqlDialectConformance` | A pytest class for a SQL dialect renderer. Subclass it and set `renderer` and `dialect`. It compiles each form the renderer writes, the optional `prefix_pattern` / `prefix_match` pair included. A renderer declaring `json_path` overrides `read_json_paths(document, paths)` to run it on the database; one stating `aware_times` overrides `read_aware_time(value)` to read an aware time back from it. |
 | `JSON_PATH_DOCUMENT` | The JSON text `read_json_paths` stores, numbers as written. |
 | `JSON_PATH_READS` | What `json_path` must read at each path of `JSON_PATH_DOCUMENT`: the scalar's JSON text as stored. |
