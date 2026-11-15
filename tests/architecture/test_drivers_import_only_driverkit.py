@@ -178,6 +178,40 @@ SEEDED: dict[str, frozenset[str]] = {
             "sandloom.core.infra.ports._base",
         }
     ),
+    # idk-eventbus-moveb: the pairs of the four files idk-eventbus-move moved out
+    # of core/eventing into this subpackage. Pre-existing imports, newly counted
+    # (the scan now reaches driver subpackages), not newly added. Imports of the
+    # package by itself are exempt by rule, so they are not listed.
+    _D + "redis_eventbus/streams_consume.py": frozenset(
+        {
+            "sandloom.core.eventing.envelope",
+            "sandloom.core.eventing.transport_base",
+            "sandloom.core.infra.ports.eventbus",
+            "sandloom.core.observability.metrics_utils",
+        }
+    ),
+    _D + "redis_eventbus/streams_groups.py": frozenset(
+        {
+            "sandloom.core.eventing.transport_base",
+            "sandloom.core.infra.ports.eventbus",
+        }
+    ),
+    _D + "redis_eventbus/streams_transport.py": frozenset(
+        {
+            "sandloom.core.eventing.envelope",
+            "sandloom.core.eventing.transport_base",
+            "sandloom.core.infra.ports.eventbus",
+            "sandloom.core.observability.metrics_utils",
+        }
+    ),
+    _D + "redis_eventbus/streams_transport_base.py": frozenset(
+        {
+            "sandloom.core.config.eventing",
+            "sandloom.core.config.settings",
+            "sandloom.core.eventing.transport_base",
+            "sandloom.core.infra.ports.eventbus",
+        }
+    ),
     _D + "schema_reset.py": frozenset(
         {
             "sandloom.core.drivers.dbapi_aiosqlite",
@@ -343,13 +377,30 @@ def _row_modules() -> set[str]:
 
 def builtin_driver_files() -> list[Path]:
     """Every built-in driver module this checkout has."""
-    files = {p for p in DRIVERS.glob("*.py") if p.name not in NOT_DRIVERS}
+    # rglob: a driver subpackage (drivers/<pkg>/) is scanned file by file, its
+    # ``__init__.py`` too. NOT_DRIVERS names the top-level kernel modules only.
+    files = {p for p in DRIVERS.rglob("*.py") if not _not_a_driver(p)}
     for module in _row_modules() - KERNEL_INTERNAL:
         base = SRC.joinpath(*module.split("."))
         for candidate in (base.with_suffix(".py"), base / "__init__.py"):
-            if candidate.is_file() and candidate.name not in NOT_DRIVERS:
+            if candidate.is_file() and not _not_a_driver(candidate):
                 files.add(candidate)
     return sorted(files)
+
+
+def _not_a_driver(path: Path) -> bool:
+    """A top-level ``core/drivers/__init__.py`` or ``bootstrap.py``: the kernel's."""
+    return path.name in NOT_DRIVERS and path.parent == DRIVERS
+
+
+def _own_package(path: Path, root: Path) -> str:
+    """The ``drivers/<pkg>`` module a file of a driver subpackage belongs to
+    (``""`` for a top-level driver file): imports inside it stay in the driver."""
+    parts = path.relative_to(root).with_suffix("").parts
+    base = ("sandloom", "core", "drivers")
+    if len(parts) > len(base) + 1 and parts[: len(base)] == base:
+        return ".".join(parts[: len(base) + 1])
+    return ""
 
 
 def package_files() -> list[Path]:
@@ -372,10 +423,14 @@ def violations(
     for path in files:
         rel = path.relative_to(repo).as_posix()
         listed = set(allowed.get(rel, ()))
+        own = _own_package(path, root)
         found = {
             name
             for name in sandloom_imports(path, _module_name(path, root))
             if not _is_driverkit(name)
+            # a file of drivers/<pkg>/ importing its own package is not a
+            # kernel import: the package moves as one
+            and not (own and (name == own or name.startswith(own + ".")))
         }
         out.extend(f"{rel}: {name}" for name in sorted(found - listed))
     return out
@@ -579,6 +634,39 @@ def test_a_new_import_bites_and_a_stale_entry_does_not(tmp_path: Path) -> None:
     assert violations([path], src, tmp_path, allowed) == []
 
 
+def test_a_driver_subpackage_is_scanned_and_its_own_imports_are_exempt(
+    tmp_path: Path,
+) -> None:
+    src = _plant(
+        tmp_path,
+        {
+            "sandloom/core/drivers/sub/__init__.py": "",
+            "sandloom/core/drivers/sub/a.py": "from . import b\n",
+            "sandloom/core/drivers/sub/b.py": (
+                "from sandloom.core.drivers.sub.a import A\n"
+                "from sandloom.driverkit import observe\n"
+            ),
+            "sandloom/core/drivers/sub/x.py": (
+                "from sandloom.core.config import settings\n"
+                "from sandloom.core.drivers.sub_other import y\n"
+                "from sandloom.core.drivers.sub import a\n"
+            ),
+        },
+    )
+    files = sorted((src / "sandloom/core/drivers/sub").glob("*.py"))
+    assert violations(files, src, tmp_path, {}) == [
+        "src/sandloom/core/drivers/sub/x.py: sandloom.core.config",
+        "src/sandloom/core/drivers/sub/x.py: sandloom.core.drivers.sub_other",
+    ]
+
+
+def test_the_scan_reaches_the_driver_subpackages() -> None:
+    found = {p.relative_to(DRIVERS).as_posix() for p in builtin_driver_files()}
+    assert "redis_eventbus/streams_transport.py" in found
+    assert "__init__.py" not in found
+    assert "bootstrap.py" not in found
+
+
 def test_a_package_importing_beyond_the_driverkit_bites(tmp_path: Path) -> None:
     src = _plant(
         tmp_path,
@@ -605,7 +693,10 @@ def test_the_seed_holds_the_live_allowlist() -> None:
         assert set(entry["imports"]) <= SEEDED.get(entry["file"], frozenset())
     assert all(f.startswith(_D) for f in SEEDED)
     # The seed itself only shrinks: lower this number with every pair removed.
-    assert sum(len(v) for v in SEEDED.values()) <= 89
+    # 89 -> 103 once (idk-eventbus-moveb, +14): pre-existing imports of the files
+    # idk-eventbus-move moved out of core/eventing, newly counted by the subpackage
+    # scan, not newly added; removed_by idk-pkg-redis-streams.
+    assert sum(len(v) for v in SEEDED.values()) <= 103
 
 
 @pytest.mark.parametrize(
