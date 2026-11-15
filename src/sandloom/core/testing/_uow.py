@@ -48,9 +48,8 @@ from sandloom.core.infra.contracts import (
     CacheProvider,
     OutboxHandle,
     OutboxStore,
-    parse_plain_decimal,
 )
-from sandloom.core.infra.errors import Unavailable
+from sandloom.core.infra.errors import InvalidArgument, Unavailable
 from sandloom.core.infra.ports.atomic_store import (
     check_subject_state,
     subject_state_rank,
@@ -276,11 +275,12 @@ def _capture_typed_events(
 
 
 class InMemoryCache(CacheProvider):
-    """Dict-backed :class:`CacheProvider` (incl. ``cas`` and an atomic
-    ``set_max``) for unit tests.
+    """Dict-backed :class:`CacheProvider` (incl. ``cas``) for unit tests.
 
     TTLs are accepted and ignored. ``broken=True`` makes every operation raise
-    ``ConnectionError`` (a cache outage). Install it where the code under test
+    ``Unavailable`` (a cache outage, the error a real driver raises).
+    ``incr`` of a stored non-integer raises ``InvalidArgument``, as the
+    contract says. Install it where the code under test
     resolves the cache, e.g. ``monkeypatch.setattr(cache_store, "cache",
     lambda name="default": mem)`` (``sandloom.core.idempotency.cache_store``) for
     the idempotency / contract-dedupe store.
@@ -289,7 +289,7 @@ class InMemoryCache(CacheProvider):
     driver = "memory"
 
     def features(self) -> frozenset[str]:
-        return frozenset({"get", "set", "add", "delete", "incr", "cas"})
+        return frozenset({"cas"})
 
     def __init__(self, *, broken: bool = False) -> None:
         self.store: dict[str, str] = {}
@@ -297,7 +297,7 @@ class InMemoryCache(CacheProvider):
 
     def _check(self) -> None:
         if self.broken:
-            raise ConnectionError("cache down")
+            raise Unavailable("cache down", capability="cache")
 
     async def get(self, key: str) -> str | None:
         self._check()
@@ -324,7 +324,12 @@ class InMemoryCache(CacheProvider):
 
     async def incr(self, key: str, *, ttl_seconds: int | None = None) -> int:
         self._check()
-        value = int(self.store.get(key, "0")) + 1
+        try:
+            value = int(self.store.get(key, "0")) + 1
+        except ValueError:
+            raise InvalidArgument(
+                "the stored value is not an integer", capability="cache"
+            ) from None
         self.store[key] = str(value)
         return value
 
@@ -348,29 +353,6 @@ class InMemoryCache(CacheProvider):
             return False
         del self.store[key]
         return True
-
-    async def set_max(
-        self, key: str, value: str, *, ttl_seconds: int | None = None
-    ) -> str:
-        """Atomic monotonic write.
-
-        Reads through :meth:`get` first, so a subclass's fault injection
-        (an outage simulated in ``get``) applies, then decides and writes on
-        the store with no await in between — atomic even when ``get`` yields.
-        """
-        self._check()
-        ours = parse_plain_decimal(value)
-        if ours is None:
-            raise ValueError(
-                f"set_max value must be a plain non-negative decimal: {value!r}"
-            )
-        await self.get(key)
-        current = self.store.get(key)
-        existing = parse_plain_decimal(current)
-        if current is not None and existing is not None and existing >= ours:
-            return current
-        self.store[key] = value
-        return value
 
     async def health(self) -> HealthResult:
         return HealthResult(status="fail" if self.broken else "ok")

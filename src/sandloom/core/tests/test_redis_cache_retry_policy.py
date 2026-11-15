@@ -3,7 +3,7 @@
 Code review 2026-10-21 (Infra #6): redis-py applies a connection's ``Retry``
 to a whole command — send AND reply — when ``retry_on_error`` is set; a
 connection dropped after Redis executed an ``INCR`` / Lua script (CAS,
-``incr_window``, ``incr_many``, ``set_max``) or ``SET NX`` would then re-run
+``windowed_counter``) or ``SET NX`` would then re-run
 it (a counter moves twice; a CAS that already swapped returns 0 and
 ``idempotency_guard`` believes it lost ownership). With the pinned redis-py
 5.2.1 and no ``retry_on_error`` a command is sent once, so these tests pass
@@ -28,6 +28,7 @@ import pytest_asyncio
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from sandloom.core.drivers.redis_cache import RedisCacheProvider
+from sandloom.core.infra.errors import Unavailable
 from sandloom.core.testing.workers import worker_env_values
 
 
@@ -91,7 +92,7 @@ async def test_cas_whose_reply_was_lost_is_not_resent(live: RedisCacheProvider) 
     fault = await _arm(live, "EVALSHA")
     # Before: the retry re-ran the CAS, saw its own new value and returned
     # False ("lost ownership") although the swap happened.
-    with pytest.raises(RedisConnectionError):
+    with pytest.raises(Unavailable):
         await live.compare_and_set(key, "owner-1:pending", "owner-1:done")
     assert fault.calls == 1
     assert await live.get(key) == "owner-1:done"
@@ -101,7 +102,7 @@ async def test_incr_whose_reply_was_lost_counts_once(live: RedisCacheProvider) -
     key = f"sandloom:test:incr:{uuid4()}"
     assert await live.incr(key, ttl_seconds=60) == 1  # script loaded
     fault = await _arm(live, "EVALSHA")
-    with pytest.raises(RedisConnectionError):
+    with pytest.raises(Unavailable):
         await live.incr(key, ttl_seconds=60)
     assert fault.calls == 1
     assert await live.get(key) == "2"  # not 3
@@ -112,7 +113,7 @@ async def test_set_nx_whose_reply_was_lost_is_not_resent(
 ) -> None:
     key = f"sandloom:test:add:{uuid4()}"
     fault = await _arm(live, "SET")
-    with pytest.raises(RedisConnectionError):
+    with pytest.raises(Unavailable):
         await live.add(key, "v", ttl_seconds=60)
     assert fault.calls == 1
     assert await live.get(key) == "v"

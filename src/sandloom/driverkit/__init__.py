@@ -52,6 +52,7 @@ from sandloom.core.infra.ports.broadcast import (
     BroadcastProvider,
     Subscription,
 )
+from sandloom.core.infra.ports.cache import CacheProvider
 from sandloom.core.infra.ports.database import UnitSession
 from sandloom.core.infra.ports.eventbus import (
     ConsumerInfo,
@@ -120,6 +121,7 @@ __all__ = [
     "AtomicStoreProvider",
     "BroadcastMessage",
     "BroadcastProvider",
+    "CacheProvider",
     "ConsumerInfo",
     "DeadLetter",
     "Delivery",

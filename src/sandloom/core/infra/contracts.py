@@ -32,17 +32,7 @@ module knows nothing concrete about (``"default"``, ``"analytics"``, …).
 from __future__ import annotations
 
 from sandloom.core.infra.ports._base import InfraProvider
-from sandloom.core.infra.ports.cache import (
-    SET_MAX_MAX_ROUNDS,
-    SUBJECT_STATE_RANKS,
-    Cache,
-    CacheContentionError,
-    CacheProvider,
-    parse_plain_decimal,
-    parse_subject_state,
-    portable_set_max,
-    portable_set_subject_state,
-)
+from sandloom.core.infra.ports.cache import Cache, CacheProvider
 from sandloom.core.infra.ports.database import (
     AuditStore,
     BrokerUnavailableError,
@@ -98,13 +88,6 @@ __all__ = [
     "UnitSession",
     "RelationalProvider",
     "CacheProvider",
-    "CacheContentionError",
-    "SET_MAX_MAX_ROUNDS",
-    "parse_plain_decimal",
-    "portable_set_max",
-    "portable_set_subject_state",
-    "parse_subject_state",
-    "SUBJECT_STATE_RANKS",
     "ObjectContent",
     "ObjectReader",
     "ObjectStoreProvider",

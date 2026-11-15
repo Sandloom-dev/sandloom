@@ -5,8 +5,8 @@ blackholed or hung Redis made every cache call await forever — the
 fail-open / fail-closed branches of the rate limiter, token revocation,
 idempotency and login lockout never ran; the request just hung. Now every
 operation raises within ~(1 + retries) x CACHE_SOCKET_TIMEOUT_SECONDS and each
-caller's policy branch runs. Plus the fused single-round-trip operations
-(``incr_window`` / ``incr_many`` / ``set_nx_get``) against the real test Redis.
+caller's policy branch runs. Plus the fused single-round-trip operation
+(``windowed_counter``) against the real test Redis.
 
 Moved from ``sandloom/core/tests/test_redis_cache_bounded.py`` (KB-05): these tests need
 the bundled modules, so they run where the batteries are installed.

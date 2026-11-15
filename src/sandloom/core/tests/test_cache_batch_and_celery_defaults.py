@@ -41,11 +41,11 @@ async def test_redis_batch_ops_round_trip() -> None:
         except Exception:  # pragma: no cover  # noqa: BLE001 - test Redis unreachable: skip
             pytest.skip("Redis unreachable")
         assert await cache.get_many(keys) == ["x", None, "z"]
-        client = await cache.raw_client()
+        client = await cache.redis_client()
         assert 0 < await client.ttl(keys[0]) <= 30
         assert {"get_many", "set_many"} <= set(cache.performance_hints)
     finally:
-        client = await cache.raw_client()
+        client = await cache.redis_client()
         await client.delete(*keys)
         await cache.aclose()
 

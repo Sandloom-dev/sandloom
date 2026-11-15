@@ -433,7 +433,7 @@ def test_global_floor_fails_open_on_cache_outage(
         async def incr(self, key: str, *, ttl_seconds: int | None = None) -> int:
             raise ConnectionError("cache down")
 
-        async def incr_window(self, *args: Any, **kwargs: Any) -> Any:
+        async def windowed_counter(self, *args: Any, **kwargs: Any) -> Any:
             raise ConnectionError("cache down")
 
     client = TestClient(_floor_app(monkeypatch, 1, _Down()))

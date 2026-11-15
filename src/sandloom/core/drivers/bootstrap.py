@@ -64,7 +64,7 @@ BUILTIN_DRIVER_ROWS: tuple[tuple[str, str, str, tuple[str, ...], str, str], ...]
         f"{_DRIVERS}.memory_cache:MemoryCacheProvider",
         (),
         "",
-        "idk-cache-contract",
+        "",
     ),
     (
         "objectstore",

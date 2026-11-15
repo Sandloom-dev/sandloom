@@ -15,8 +15,9 @@ as an email API or a Google Cloud Storage store. Use it also for a
 [capability of your own](own-capability.md).
 
 **Do not use it** for business logic: that is a [module](../modules/create.md). A contract is
-public only with a conformance kit, so the `cache` and `taskqueue` contracts are not
-available yet. The `notification` and `objectstore` contracts are. The `database` backend
+public only with a conformance kit, so the `taskqueue` contract is not available yet.
+The `cache`, `notification` and `objectstore` contracts are
+(`CacheConformance`, [the cache contract](cache.md)). The `database` backend
 carries the transaction guarantees and is not open to drivers
 ([why](database.md#the-relational-paradigm)). An `eventbus` driver is an
 [`EventTransportProvider`](#an-eventbus-driver). It is kernel-facing: its conformance

@@ -1,5 +1,4 @@
-"""``CacheProvider.set_max`` (the cache contract's monotonic "set if greater") and
-the revocation mark's behaviour under contention on the security ``atomic_store``.
+"""The revocation mark's behaviour under contention on the security ``atomic_store``.
 
 Regression: the revocation mark used a read / add / compare-and-set loop
 bounded at 8 attempts. Under contention (40 concurrent revocations of one
@@ -7,82 +6,22 @@ subject on a loaded machine) a writer could lose 8 races in a row to LOWER
 marks and give up — ``revoke_user_tokens`` returned ``False`` ("mark kept
 changing under contention"), the stored mark stayed below its value (tokens
 minted in between remained valid until the durable applier ran) and a
-``require_immediate`` change was refused with a spurious 503. Every lost race
-means another writer changed the key, so the decision only has to be re-taken
-while the stored mark is still below ours; Redis now does it in one atomic
-Lua round trip.
+``require_immediate`` change was refused with a spurious 503. The store's
+``set_subject_state`` is one atomic ranked write, so a lost race cannot make a
+writer give up.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 import random
 import time
 import uuid
-from collections.abc import AsyncIterator
-from decimal import Decimal
-from typing import Any
 
 import pytest
-import pytest_asyncio
 
 from sandloom.core.auth import marks, revocation
-from sandloom.core.drivers.redis_cache import RedisCacheProvider
-from sandloom.core.infra.contracts import (
-    CacheContentionError,
-    CacheProvider,
-    parse_plain_decimal,
-    portable_set_max,
-)
-from sandloom.core.testing import InMemoryAtomicStore, InMemoryCache
-
-
-class _AdversarialCache:
-    """Duck-typed cache (get / add / compare_and_set / set, NO ``set_max``)
-    that yields to the event loop a seeded-random number of times between
-    every read and every write — a loaded machine's scheduling, made
-    reproducible. Counts lost races."""
-
-    def __init__(self, seed: int = 0) -> None:
-        self.store: dict[str, str] = {}
-        self.lost = 0
-        self._rng = random.Random(seed)
-
-    async def _yield(self) -> None:
-        for _ in range(self._rng.randrange(6)):
-            await asyncio.sleep(0)
-
-    async def get(self, key: str) -> str | None:
-        value = self.store.get(key)
-        await self._yield()
-        return value
-
-    async def set(
-        self, key: str, value: str, *, ttl_seconds: int | None = None
-    ) -> None:
-        await self._yield()
-        self.store[key] = value
-
-    async def add(
-        self, key: str, value: str, *, ttl_seconds: int | None = None
-    ) -> bool:
-        await self._yield()
-        if key in self.store:
-            self.lost += 1
-            return False
-        self.store[key] = value
-        return True
-
-    async def compare_and_set(
-        self, key: str, expected: str, value: str, *, ttl_seconds: int | None = None
-    ) -> bool:
-        await self._yield()
-        if self.store.get(key) != expected:
-            self.lost += 1
-            return False
-        self.store[key] = value
-        return True
+from sandloom.core.testing import InMemoryAtomicStore
 
 
 def _marks(n: int, seed: int) -> tuple[list[float], list[float]]:
@@ -91,90 +30,6 @@ def _marks(n: int, seed: int) -> tuple[list[float], list[float]]:
     order = mark_values[:]
     random.Random(seed).shuffle(order)
     return mark_values, order
-
-
-# --------------------------------------------------------------------------- #
-# Value domain
-# --------------------------------------------------------------------------- #
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ("17", Decimal("17")),
-        ("1700000000.000001", Decimal("1700000000.000001")),
-        (" 5. ", Decimal("5")),
-        (b"007.50", Decimal("7.5")),
-        ("1e9", None),
-        ("-1", None),
-        (".5", None),
-        ("nan", None),
-        ("", None),
-        (None, None),
-    ],
-)
-def test_parse_plain_decimal(raw: Any, expected: Decimal | None) -> None:
-    assert parse_plain_decimal(raw) == expected
-
-
-# --------------------------------------------------------------------------- #
-# Portable loop and the in-memory double
-# --------------------------------------------------------------------------- #
-async def test_portable_set_max_semantics() -> None:
-    cache = _AdversarialCache()
-    assert await portable_set_max(cache, "k", "10.5") == "10.5"
-    assert await portable_set_max(cache, "k", "10.49") == "10.5"  # lower: kept
-    assert await portable_set_max(cache, "k", "10.500") == "10.5"  # equal: kept
-    assert await portable_set_max(cache, "k", "11") == "11"
-    cache.store["k"] = "garbage"  # corrupt: replaced
-    assert await portable_set_max(cache, "k", "1") == "1"
-    with pytest.raises(ValueError):
-        await portable_set_max(cache, "k", "1e3")
-
-
-async def test_portable_set_max_under_forced_interleaving_ends_at_max() -> None:
-    """200 concurrent writers, a yield between every read and write: nobody
-    fails, the stored value is the maximum, and the scenario really is
-    contended (far more lost races than the old 8-attempt bound absorbed)."""
-    cache = _AdversarialCache()
-    values = [f"{1_700_000_000 + i}.{i:06d}" for i in range(200)]
-    random.Random(3).shuffle(values)
-    results = await asyncio.gather(*(portable_set_max(cache, "k", v) for v in values))
-    top = max(values, key=Decimal)
-    assert cache.store["k"] == top
-    assert all(Decimal(r) >= Decimal(v) for r, v in zip(results, values, strict=True))
-    assert cache.lost > 8
-
-
-async def test_portable_set_max_gives_up_only_on_a_livelock(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A writer that keeps resetting the key LOWER (non-monotonic) is the only
-    way to exhaust the safety bound."""
-    import sandloom.core.infra.ports.cache as cache_port
-
-    monkeypatch.setattr(cache_port, "SET_MAX_MAX_ROUNDS", 5)
-
-    class _Resetting(_AdversarialCache):
-        async def compare_and_set(self, *a: Any, **kw: Any) -> bool:
-            self.store["k"] = "0"
-            return False
-
-    cache = _Resetting()
-    cache.store["k"] = "0"
-    with pytest.raises(CacheContentionError):
-        await portable_set_max(cache, "k", "5")
-
-
-async def test_in_memory_cache_set_max() -> None:
-    mem = InMemoryCache()
-    assert await mem.set_max("k", "2") == "2"
-    assert await mem.set_max("k", "1.999999") == "2"
-    assert await mem.set_max("k", "2.000001") == "2.000001"
-    mem.store["k"] = "x"
-    assert await mem.set_max("k", "0") == "0"
-    with pytest.raises(ValueError):
-        await mem.set_max("k", "-3")
-    with pytest.raises(ConnectionError):
-        await InMemoryCache(broken=True).set_max("k", "1")
 
 
 # --------------------------------------------------------------------------- #
@@ -306,165 +161,3 @@ async def test_require_immediate_is_not_refused_by_contention(
     )  # would raise RevocationUnavailableError on a lost-race give-up
     stored = store.store[marks.subject_key(sub)]
     assert marks._parse_mark_us(stored) >= marks._seconds_to_us(max(mark_values))
-
-
-# --------------------------------------------------------------------------- #
-# Redis: one atomic Lua round trip
-# --------------------------------------------------------------------------- #
-@pytest_asyncio.fixture
-async def live() -> AsyncIterator[RedisCacheProvider]:
-    from pathlib import Path
-
-    from sandloom.core.testing.workers import worker_env_values
-
-    env_test = Path(__file__).resolve().parents[4] / ".env.test"
-    url = os.getenv("CACHE_URL") or worker_env_values(env_test).get("CACHE_URL")
-    if not url:
-        pytest.skip("CACHE_URL not configured")
-    provider = RedisCacheProvider(
-        name="set_max", driver="redis", options={"url": url}, shared=False
-    )
-    try:
-        await asyncio.wait_for(provider.get("sandloom:test:ping"), 5)
-    except Exception:  # noqa: BLE001 - test Redis unreachable: skip
-        await provider.aclose()
-        pytest.skip("test Redis not reachable")
-    yield provider
-    await provider.aclose()
-
-
-async def test_redis_set_max_semantics_and_ttl(live: RedisCacheProvider) -> None:
-    assert live.performance_hints["set_max"] == "one_round_trip"
-    key = f"t:setmax:{uuid.uuid4()}"
-    client = await live.raw_client()
-    assert await live.set_max(key, "100.5", ttl_seconds=30) == "100.5"
-    assert 0 < await client.ttl(key) <= 30
-    # Lower / equal: kept, and its TTL is neither shortened nor extended.
-    assert await live.set_max(key, "100.4999999", ttl_seconds=5) == "100.5"
-    assert await live.set_max(key, "100.50", ttl_seconds=5) == "100.5"
-    assert await client.ttl(key) > 5
-    # Greater: written with the new TTL.
-    assert await live.set_max(key, "100.5000001", ttl_seconds=90) == "100.5000001"
-    assert 30 < await client.ttl(key) <= 90
-    # Corrupt: replaced; no TTL -> persistent.
-    await live.set(key, "not-a-mark")
-    assert await live.set_max(key, "1") == "1"
-    assert await client.ttl(key) == -1
-    with pytest.raises(ValueError):
-        await live.set_max(key, "1e20")
-    await live.delete(key)
-
-
-@pytest.mark.parametrize(
-    ("low", "high"),
-    [
-        # Differ beyond double precision (17 significant digits).
-        ("1700000000.0000001", "1700000000.0000002"),
-        ("9007199254740993", "9007199254740994"),
-        ("99", "100"),
-        ("0099.9", "100"),
-        ("5.09", "5.1"),
-    ],
-)
-async def test_redis_set_max_compares_exactly(
-    live: RedisCacheProvider, low: str, high: str
-) -> None:
-    key = f"t:setmax:{uuid.uuid4()}"
-    assert await live.set_max(key, high, ttl_seconds=30) == high
-    assert await live.set_max(key, low, ttl_seconds=30) == high
-    await live.delete(key)
-    assert await live.set_max(key, low, ttl_seconds=30) == low
-    assert await live.set_max(key, high, ttl_seconds=30) == high
-    await live.delete(key)
-
-
-async def test_redis_set_max_concurrent_writers_end_at_max(
-    live: RedisCacheProvider,
-) -> None:
-    key = f"t:setmax:{uuid.uuid4()}"
-    values = [f"{1_700_000_000 + i // 7}.{i:06d}" for i in range(300)]
-    random.Random(11).shuffle(values)
-    # 16 writers in flight at a time: still concurrent read-compare-write
-    # races on one key, without opening 300 connections at once (each a
-    # getaddrinfo + connect that times out on a loaded machine).
-    gate = asyncio.Semaphore(16)
-
-    async def write(value: str) -> str:
-        async with gate:
-            return await live.set_max(key, value, ttl_seconds=30)
-
-    results = await asyncio.gather(*(write(v) for v in values))
-    top = max(values, key=Decimal)
-    assert await live.get(key) == top
-    assert all(Decimal(r) >= Decimal(v) for r, v in zip(results, values, strict=True))
-    await live.delete(key)
-
-
-# --------------------------------------------------------------------------- #
-# Fallbacks never hide bugs, and never lower a revocation mark
-# --------------------------------------------------------------------------- #
-class _NoCasCache(InMemoryCache):
-    """A cache WITHOUT ``cas`` and without its own ``set_max``: the contract's
-    default (portable loop) and ``compare_and_set`` raises NotImplementedError."""
-
-    set_max = CacheProvider.set_max  # type: ignore[assignment]
-    compare_and_set = CacheProvider.compare_and_set  # type: ignore[assignment]
-
-
-async def test_portable_set_max_without_cas_overwrites_unless_strict() -> None:
-    cache = _NoCasCache()
-    cache.store["k"] = "5"
-    # Documented best-effort: without ``cas`` the default overwrites (can lower
-    # a value a concurrent writer raised between the read and the write).
-    assert await portable_set_max(cache, "k", "6") == "6"
-    with pytest.raises(NotImplementedError):
-        await portable_set_max(cache, "k", "7", overwrite_without_cas=False)
-    assert cache.store["k"] == "6"
-
-
-def _redis_with(client: Any) -> RedisCacheProvider:
-    provider = RedisCacheProvider(
-        name="fake", driver="redis", options={"url": "redis://unused:1/0"}, shared=False
-    )
-
-    async def _client() -> Any:
-        return client
-
-    provider._client_obj = _client  # type: ignore[method-assign]
-    return provider
-
-
-async def test_redis_set_max_falls_back_only_for_a_client_without_scripting(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    class _NoScripting:
-        def __init__(self) -> None:
-            self.store: dict[str, str] = {}
-
-        async def get(self, key: str) -> str | None:
-            return self.store.get(key)
-
-        async def set(self, key: str, value: str, **kw: Any) -> Any:
-            if kw.get("nx") and key in self.store:
-                return None
-            self.store[key] = value
-            return True
-
-    client = _NoScripting()
-    provider = _redis_with(client)
-    with caplog.at_level("WARNING"):
-        assert await provider.set_max("k", "3", ttl_seconds=5) == "3"
-        assert await provider.set_max("k", "2", ttl_seconds=5) == "3"
-    assert "no Lua scripting" in caplog.text
-
-
-async def test_redis_set_max_does_not_swallow_attribute_errors() -> None:
-    """A genuine bug inside the Lua path (here: an AttributeError raised by the
-    client call) propagates instead of silently switching to the loop."""
-
-    class _Broken:
-        async def evalsha(self, *args: Any) -> Any:
-            raise AttributeError("bug in the script path")
-
-    with pytest.raises(AttributeError, match="bug in the script path"):
-        await _redis_with(_Broken()).set_max("k", "1")

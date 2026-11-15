@@ -490,7 +490,7 @@ async def test_retry_of_an_issued_checkout_after_its_session_expired_is_410(
             .values(psp_session_expires_at=datetime.now(UTC) - timedelta(minutes=1))
         )
         await db.commit()
-    client = await sandloom_cache.raw_client()
+    client = await sandloom_cache.redis_client()
     await client.flushdb()
 
     retry = await async_client.post(
@@ -527,7 +527,7 @@ async def test_retry_of_a_legacy_issued_checkout_uses_the_psp_default_lifetime(
             )
         )
         await db.commit()
-    client = await sandloom_cache.raw_client()
+    client = await sandloom_cache.redis_client()
     await client.flushdb()
 
     retry = await async_client.post(

@@ -51,7 +51,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`Headers`](#headers) | callable | dict() -> new empty dictionary dict(mapping) -> new dictionary initialized from a mapping object's     (key, value) pairs dict(iterable)... |
 | [`in_process_rpc_client`](#in_process_rpc_client) | function | An HTTP client whose requests hit `core`'s internal RPC routes in-process (authenticated and bound under `settings`, default the core's). |
 | [`InMemoryAtomicStore`](#inmemoryatomicstore) | class | Dict-backed `atomic_store` (every operation of the port) for unit tests. |
-| [`InMemoryCache`](#inmemorycache) | class | Dict-backed `CacheProvider` (incl. `cas` and an atomic `set_max`) for unit tests. |
+| [`InMemoryCache`](#inmemorycache) | class | Dict-backed `CacheProvider` (incl. `cas`) for unit tests. |
 | [`keyed_rpc_settings`](#keyed_rpc_settings) | function | A copy of `cfg` keyed as `service_id` calling ITSELF. |
 | [`migrate_module`](#migrate_module) | function | Move `package`'s own chain in `url` to `revision`. |
 | [`migration_chains`](#migration_chains) | function | The core chain plus the chain of every loaded module that has one. |
@@ -670,11 +670,12 @@ async def health(self) -> HealthResult
 class InMemoryCache(CacheProvider)(*, broken: bool = False) -> None
 ```
 
-Dict-backed `CacheProvider` (incl. `cas` and an atomic
-`set_max`) for unit tests.
+Dict-backed `CacheProvider` (incl. `cas`) for unit tests.
 
 TTLs are accepted and ignored. `broken=True` makes every operation raise
-`ConnectionError` (a cache outage). Install it where the code under test
+`Unavailable` (a cache outage, the error a real driver raises).
+`incr` of a stored non-integer raises `InvalidArgument`, as the
+contract says. Install it where the code under test
 resolves the cache, e.g. `monkeypatch.setattr(cache_store, "cache",
 lambda name="default": mem)` (`sandloom.core.idempotency.cache_store`) for
 the idempotency / contract-dedupe store.
@@ -716,9 +717,7 @@ async def add(self, key: str, value: str, *, ttl_seconds: int | None = None) -> 
 
 Atomically store `value` ONLY if `key` is absent (SET NX).
 
-Returns `True` when this call created the key, `False` when it
-already existed. The atomic primitive behind reserve-or-conflict
-guards (idempotency keys).
+Of concurrent calls for one key exactly one answers `True`.
 
 #### `InMemoryCache.delete`
 
@@ -736,9 +735,9 @@ async def incr(self, key: str, *, ttl_seconds: int | None = None) -> int
 
 Atomically increment the integer at `key` and return the new value.
 
-When the key is first created (result `1`) and `ttl_seconds` is
-given, the expiry is set in the same atomic step — the primitive behind
-fixed-window rate limiting (no counter can leak without a TTL).
+When the key is created (result `1`) and `ttl_seconds` is given, the
+expiry is set in the same atomic step, so no counter leaks without a TTL.
+A stored value that is not an integer raises `InvalidArgument`.
 
 #### `InMemoryCache.compare_and_set`
 
@@ -753,13 +752,11 @@ async def compare_and_set(
 ) -> bool
 ```
 
-Atomically replace `key` with `value` ONLY if it equals `expected`.
+Replace `key` with `value` ONLY if it holds `expected` (`cas`).
 
-Returns `True` when swapped, `False` when the key is absent or holds
-something else. The primitive behind owner-checked state transitions
-(an idempotency reservation must only be finalised by its owner).
-Optional: drivers advertise it via the `cas` feature; the default
-raises `NotImplementedError` so callers can detect its absence.
+`False` when the key is absent or holds something else. `ttl_seconds`
+`None` removes any earlier TTL. Without `cas` this raises
+`Unsupported("cas")`; a driver that declares `cas` overrides it.
 
 #### `InMemoryCache.compare_and_delete`
 
@@ -767,19 +764,7 @@ raises `NotImplementedError` so callers can detect its absence.
 async def compare_and_delete(self, key: str, expected: str) -> bool
 ```
 
-Atomically delete `key` ONLY if it equals `expected` (`cas`).
-
-#### `InMemoryCache.set_max`
-
-```python
-async def set_max(self, key: str, value: str, *, ttl_seconds: int | None = None) -> str
-```
-
-Atomic monotonic write.
-
-Reads through `get` first, so a subclass's fault injection
-(an outage simulated in `get`) applies, then decides and writes on
-the store with no await in between — atomic even when `get` yields.
+Delete `key` ONLY if it holds `expected` (`cas`).
 
 #### `InMemoryCache.health`
 

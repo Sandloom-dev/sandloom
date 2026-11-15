@@ -73,7 +73,7 @@ async def counted_cache(
         name="budget", driver="redis", options={"url": _cache_url()}
     )
     counter = RedisCommandCounter()
-    counter.wrap(await provider.raw_client(), monkeypatch)
+    counter.wrap(await provider.redis_client(), monkeypatch)
     counter.wrap(await store._client_of(retrying=True), monkeypatch)
     counter.wrap(await store._client_of(retrying=False), monkeypatch)
     monkeypatch.setattr(rl, "cache", lambda name="default": provider)
@@ -82,7 +82,7 @@ async def counted_cache(
     monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: store)
     monkeypatch.setattr(settings, "rate_limit_enabled", True)
     # Warm the Lua script cache (a NOSCRIPT reload is a one-off per server).
-    await provider.incr_window(f"warm:{uuid4()}", "warm:prev", ttl_seconds=5)
+    await provider.windowed_counter(f"warm:{uuid4()}", "warm:prev", ttl_seconds=5)
     await store.compare_and_set(f"warm:{uuid4()}", "a", "b", ttl_seconds=5)
     await store.add_or_get(f"warm:{uuid4()}", "a", ttl_seconds=5)
     await store.set_subject_state(f"warm:{uuid4()}", "v1:after:1.000000", ttl_seconds=5)
