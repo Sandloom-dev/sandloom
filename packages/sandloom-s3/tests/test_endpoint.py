@@ -15,14 +15,18 @@ from sandloom_s3 import S3ObjectStore
 from sandloom.core.config.settings import settings
 from sandloom.core.tests._root_support import create_root_app
 from sandloom.driverkit import NotFound, ObjectStoreProvider, PermissionDenied
-from sandloom.driverkit.testing import ObjectStoreConformance
+from sandloom.driverkit.testing import ObjectStoreConformance, required_or_skip
 from sandloom.sdk.infra import objectstore
+
+#: The lane that runs this suite against a real endpoint sets it: a missing
+#: bucket is then an error, not a skipped suite.
+REQUIRED_ENV = "SANDLOOM_S3_REQUIRED"
 
 
 def _options() -> dict[str, Any]:
     bucket = os.environ.get("SANDLOOM_S3_TEST_BUCKET")
     if not bucket:
-        pytest.skip("set SANDLOOM_S3_TEST_BUCKET to run the S3 endpoint suite")
+        required_or_skip(REQUIRED_ENV, "SANDLOOM_S3_TEST_BUCKET is not set")
     options: dict[str, Any] = {"bucket": bucket, "max_upload_size_bytes": 1024}
     if endpoint := os.environ.get("SANDLOOM_S3_TEST_ENDPOINT"):
         options.update(endpoint_url=endpoint, addressing_style="path")

@@ -13,13 +13,14 @@ a broker that cannot be down proves nothing about the driver. The name follows
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
 from celery import Celery
 from kombu.exceptions import OperationalError  # type: ignore[import-untyped]
+
+from sandloom.driverkit.testing import lane_required, required_or_skip
 
 REQUIRED_ENV = "SANDLOOM_CELERY_REQUIRED"
 
@@ -31,18 +32,16 @@ NETWORK_SCHEMES = frozenset({"redis", "rediss", "amqp", "amqps", "sentinel"})
 _CONNECT_SECONDS = 3.0
 
 
-def broker_required(environ: Mapping[str, str]) -> bool:
-    """Whether ``environ`` makes an unreachable broker an error: only ``1``."""
-    return environ.get(REQUIRED_ENV) == "1"
-
-
-def source_tree_gap(module_file: str, *, required: bool) -> str | None:
-    """The reason the lane may not run, or ``None``: where ``required`` the
-    package under test must be the installed wheel (a ``site-packages`` path),
-    not the source tree an editable install points at. The lane exists to test
-    the wheel's entry point and contents; a source-tree run would be green for a
-    wheel that is broken."""
-    if not required or "site-packages" in Path(module_file).resolve().parts:
+def source_tree_gap(module_file: str) -> str | None:
+    """The reason the lane may not run, or ``None``: where the lane is required
+    the package under test must be the installed wheel (a ``site-packages``
+    path), not the source tree an editable install points at. The lane exists to
+    test the wheel's entry point and contents; a source-tree run would be green
+    for a wheel that is broken."""
+    if (
+        not lane_required(REQUIRED_ENV)
+        or "site-packages" in Path(module_file).resolve().parts
+    ):
         return None
     return (
         f"sandloom_celery is imported from the source tree, not the built wheel "
@@ -51,13 +50,13 @@ def source_tree_gap(module_file: str, *, required: bool) -> str | None:
     )
 
 
-def require_broker(url: str, *, required: bool, what: str = "broker") -> None:
+def require_broker(url: str, *, what: str = "broker") -> None:
     """Return when the server at ``url`` accepts a connection; otherwise fail
-    (``required``) or skip. Where ``required``, a URL that is not a network
-    transport fails too. ``what`` names the server in the messages (``broker``,
-    ``cache``), which carry no URL: it can carry a password."""
+    (the lane is required) or skip. Where the lane is required, a URL that is
+    not a network transport fails too. ``what`` names the server in the messages
+    (``broker``, ``cache``), which carry no URL: it can carry a password."""
     scheme = urlsplit(url).scheme.lower()
-    if required and scheme not in NETWORK_SCHEMES:
+    if lane_required(REQUIRED_ENV) and scheme not in NETWORK_SCHEMES:
         pytest.fail(
             f"the test {what} scheme {scheme!r} is not a network transport "
             f"({sorted(NETWORK_SCHEMES)}); {REQUIRED_ENV}=1 needs a real broker",
@@ -66,6 +65,7 @@ def require_broker(url: str, *, required: bool, what: str = "broker") -> None:
     connection = Celery("sandloom-celery-tests", broker=url).connection_for_write(
         connect_timeout=_CONNECT_SECONDS
     )
+    unanswered: str | None = None
     try:
         connection.ensure_connection(
             max_retries=1,
@@ -75,9 +75,12 @@ def require_broker(url: str, *, required: bool, what: str = "broker") -> None:
             timeout=_CONNECT_SECONDS,
         )
     except (OperationalError, OSError) as exc:
-        reason = f"the test {what} does not answer ({type(exc).__name__})"
-        if required:
-            pytest.fail(f"{reason}; {REQUIRED_ENV}=1 makes this an error")
-        pytest.skip(f"{reason}; {REQUIRED_ENV}=1 would make this an error")
+        unanswered = type(exc).__name__
     finally:
         connection.release()
+    if unanswered is not None:
+        # outside the handler: the failure does not chain the connection error,
+        # whose text carries the host
+        required_or_skip(
+            REQUIRED_ENV, f"the test {what} does not answer ({unanswered})"
+        )

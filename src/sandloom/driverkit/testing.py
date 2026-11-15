@@ -1,4 +1,6 @@
 """Conformance kits: subclass one in your driver's tests, provide ``make_provider``.
+Also the required-backend guard of a package's test lane (``required_or_skip``,
+``lane_required``).
 
 Each obligation is its own test, so a failure names what to fix; every
 provider kit runs the shared harness first (lifecycle, ``contract_version``,
@@ -15,6 +17,7 @@ raises ``AttributeError`` naming the slice that delivers it.
 from __future__ import annotations
 
 import importlib
+from collections.abc import Callable
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
@@ -46,6 +49,12 @@ if TYPE_CHECKING:
     from sandloom.driverkit.kits.objectstore import (
         ObjectStoreConformance as ObjectStoreConformance,
     )
+    from sandloom.driverkit.kits.required import (
+        lane_required as lane_required,
+    )
+    from sandloom.driverkit.kits.required import (
+        required_or_skip as required_or_skip,
+    )
     from sandloom.driverkit.kits.sql_dialect import (
         JSON_PATH_DOCUMENT as JSON_PATH_DOCUMENT,
     )
@@ -74,32 +83,46 @@ _TABLE: dict[str, tuple[str, str]] = {
     "ObjectStoreConformance": ("objectstore", "idk-kit-harness"),
     "SqlDialectConformance": ("sql_dialect", "idk-kit-harness"),
     "TaskQueueConformance": ("taskqueue", "idk-task-api"),
+    "lane_required": ("required", "idk-driverkit-required-guard"),
+    "required_or_skip": ("required", "idk-driverkit-required-guard"),
 }
 
 __all__ = sorted(_TABLE)
 
 
+#: Kit file -> its import, a literal ``import_module`` each (SANDLOOM-T017).
+_LOADERS: dict[str, Callable[[], ModuleType]] = {
+    "atomic_store": lambda: importlib.import_module(
+        "sandloom.driverkit.kits.atomic_store"
+    ),
+    "broadcast": lambda: importlib.import_module("sandloom.driverkit.kits.broadcast"),
+    "cache": lambda: importlib.import_module("sandloom.driverkit.kits.cache"),
+    "database": lambda: importlib.import_module("sandloom.driverkit.kits.database"),
+    "eventbus": lambda: importlib.import_module("sandloom.driverkit.kits.eventbus"),
+    "lease": lambda: importlib.import_module("sandloom.driverkit.kits.lease"),
+    "notification": lambda: importlib.import_module(
+        "sandloom.driverkit.kits.notification"
+    ),
+    "objectstore": lambda: importlib.import_module(
+        "sandloom.driverkit.kits.objectstore"
+    ),
+    "required": lambda: importlib.import_module("sandloom.driverkit.kits.required"),
+    "sql_dialect": lambda: importlib.import_module(
+        "sandloom.driverkit.kits.sql_dialect"
+    ),
+    "taskqueue": lambda: importlib.import_module("sandloom.driverkit.kits.taskqueue"),
+}
+
+
 def _kit(kit: str) -> ModuleType:
-    """The kit file ``kit``, by a literal import each (SANDLOOM-T017)."""
-    if kit == "atomic_store":
-        return importlib.import_module("sandloom.driverkit.kits.atomic_store")
-    if kit == "broadcast":
-        return importlib.import_module("sandloom.driverkit.kits.broadcast")
-    if kit == "cache":
-        return importlib.import_module("sandloom.driverkit.kits.cache")
-    if kit == "database":
-        return importlib.import_module("sandloom.driverkit.kits.database")
-    if kit == "eventbus":
-        return importlib.import_module("sandloom.driverkit.kits.eventbus")
-    if kit == "lease":
-        return importlib.import_module("sandloom.driverkit.kits.lease")
-    if kit == "notification":
-        return importlib.import_module("sandloom.driverkit.kits.notification")
-    if kit == "objectstore":
-        return importlib.import_module("sandloom.driverkit.kits.objectstore")
-    if kit == "taskqueue":
-        return importlib.import_module("sandloom.driverkit.kits.taskqueue")
-    return importlib.import_module("sandloom.driverkit.kits.sql_dialect")
+    """The kit file ``kit``; a table entry without a loader is a kit file not
+    delivered yet, as a missing file is."""
+    loader = _LOADERS.get(kit)
+    if loader is None:
+        raise ModuleNotFoundError(
+            f"no kit file {kit!r}", name=f"sandloom.driverkit.kits.{kit}"
+        )
+    return loader()
 
 
 def __getattr__(name: str) -> Any:
