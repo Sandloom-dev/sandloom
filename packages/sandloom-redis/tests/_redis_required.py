@@ -30,11 +30,14 @@ def redis_unavailable(reason: str) -> NoReturn:
 async def require_redis(url: str) -> None:
     """Return when the Redis at ``url`` answers ``PING``; else
     :func:`redis_unavailable`. For a test that builds its own provider on the
-    test Redis and has no fixture probing it."""
+    test Redis and has no fixture probing it. The reason never names the URL
+    (it can carry credentials); an unset URL is unavailable too."""
+    if not url:
+        redis_unavailable("test Redis URL not set")
     client = Redis.from_url(url)
     try:
         await asyncio.wait_for(client.ping(), 5)
     except (OSError, RedisError, TimeoutError):
-        redis_unavailable(f"test Redis not reachable at {url}")
+        redis_unavailable("test Redis not reachable")
     finally:
         await client.aclose()

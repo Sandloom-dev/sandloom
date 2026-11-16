@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from _redis_required import REQUIRED_ENV, redis_unavailable
+from _redis_required import REQUIRED_ENV, redis_unavailable, require_redis
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -83,6 +83,23 @@ def _outcome(test: str, *, required: bool) -> str:
         timeout=120,
     )
     return done.stdout + done.stderr
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["", "redis://user:s3cret-pw@127.0.0.1:1/0"],
+    ids=["unset", "dead-with-password"],
+)
+async def test_require_redis_names_no_url_and_handles_an_unset_one(
+    url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unset URL is unavailable too, and the failure reason never carries
+    the URL (it can hold credentials)."""
+    monkeypatch.setenv(REQUIRED_ENV, "1")
+    with pytest.raises(pytest.fail.Exception) as caught:
+        await require_redis(url)
+    assert "s3cret-pw" not in str(caught.value)
+    assert "redis://" not in str(caught.value)
 
 
 @pytest.mark.parametrize("test", _NEEDING_REDIS)
