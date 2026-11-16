@@ -53,15 +53,17 @@ class FakeGh:
         state: str = "OPEN",
         mergeable: str | list[str] = "MERGEABLE",
         merge_code: int = 0,
+        required: set[str] | None = None,
     ) -> None:
         self.polls = polls
+        # Names branch protection requires; None: every check the poll lists.
+        self.required = required
         self.head = head
         self.state = state
         self.mergeable = mergeable
         self.merge_code = merge_code
         self.calls: list[list[str]] = []
         self._view = 0
-        self._checks = 0
 
     def __call__(self, args: Sequence[str]) -> object:
         self.calls.append(list(args))
@@ -77,8 +79,10 @@ class FakeGh:
             }
             return pr_wait.Result(0, json.dumps(body))
         if args[:2] == ["pr", "checks"]:
-            rows = self.polls[min(self._checks, len(self.polls) - 1)]
-            self._checks += 1
+            # A poll is one view, then its checks calls (required, full list).
+            rows = self.polls[min(self._view - 1, len(self.polls) - 1)]
+            if "--required" in args and self.required is not None:
+                rows = [r for r in rows if r["name"] in self.required]
             return pr_wait.Result(
                 8 if any(r["bucket"] == "pending" for r in rows) else 0,
                 json.dumps(rows),
@@ -182,6 +186,56 @@ def test_timeout_lists_what_is_still_pending() -> None:
     code, lines, _ = run(gh, timeout=100)
     assert code == pr_wait.TIMEOUT
     assert lines[0].startswith("TIMEOUT") and lines[-1] == "pending (1): slow"
+
+
+def test_half_registered_ci_is_not_judged_until_the_required_check_appears() -> None:
+    # Right after a push: three finished non-required checks, the required one
+    # not registered yet. The merge must wait for it, not be refused by policy.
+    early = [check("a", "pass"), check("b", "pass"), check("c", "skipping")]
+    gh = FakeGh(
+        [early, early, [*early, check("gate", "pass")]],
+        required={"gate"},
+    )
+    code, lines, slept = run(gh, merge=True)
+    assert code == pr_wait.GREEN and lines[0].startswith("MERGED")
+    assert slept == [30, 30]
+    assert len(gh.merges) == 1
+
+
+def test_required_set_is_read_even_without_the_required_flag() -> None:
+    gh = FakeGh([[check("a", "pass")]])
+    run(gh)
+    required_calls = [c for c in gh.calls if c[:2] == ["pr", "checks"]]
+    assert any("--required" in c for c in required_calls)
+    assert any("--required" not in c for c in required_calls)
+
+
+def test_required_check_never_registering_times_out_without_merging() -> None:
+    gh = FakeGh([[check("a", "pass")]], required={"gate"})
+    code, lines, _ = run(gh, merge=True, timeout=100)
+    assert code == pr_wait.TIMEOUT
+    assert lines[-1].startswith("no required check registered")
+    assert gh.merges == []
+
+
+def test_required_check_pending_blocks_the_verdict() -> None:
+    gh = FakeGh(
+        [[check("a", "pass"), check("gate", "pending")]],
+        required={"gate"},
+    )
+    code, lines, _ = run(gh, merge=True, timeout=100)
+    assert code == pr_wait.TIMEOUT and lines[-1] == "pending (1): gate"
+    assert gh.merges == []
+
+
+def test_failed_required_check_is_red_once_registered() -> None:
+    gh = FakeGh(
+        [[check("a", "pass")], [check("a", "pass"), check("gate", "fail")]],
+        required={"gate"},
+    )
+    code, lines, slept = run(gh, merge=True)
+    assert code == pr_wait.RED and "gate" in lines[1]
+    assert slept == [30] and gh.merges == []
 
 
 def test_required_flag_reaches_gh() -> None:
