@@ -2481,6 +2481,10 @@
       "kind": "function",
       "signature": "(path:POSITIONAL_OR_KEYWORD|str | os.PathLike[str]) -> None"
     },
+    "resolved_cache_url": {
+      "kind": "function",
+      "signature": "(environ:POSITIONAL_OR_KEYWORD|Mapping[str, str] | None=None) -> str"
+    },
     "revocation_mark_key": {
       "kind": "function",
       "signature": "(user_id:POSITIONAL_OR_KEYWORD|Any) -> str"
@@ -7312,6 +7316,10 @@
     "reload_test_env": {
       "kind": "function",
       "signature": "(path:POSITIONAL_OR_KEYWORD|str | os.PathLike[str]) -> None"
+    },
+    "resolved_cache_url": {
+      "kind": "function",
+      "signature": "(environ:POSITIONAL_OR_KEYWORD|Mapping[str, str] | None=None) -> str"
     },
     "revocation_mark_key": {
       "kind": "function",
