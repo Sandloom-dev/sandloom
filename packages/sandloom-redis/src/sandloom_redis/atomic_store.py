@@ -26,11 +26,20 @@ and a registry outside production only logs a refused one. So every operation
 judges the policy itself until one check has passed, and raises the refusal
 meanwhile. A failed ``health`` probe (policy lost or unreadable, or the probe
 itself failing with a connection error), an operation failing with
-``Unavailable`` or ``Timeout``, and a pooled connection that reconnects (the
-retrying client reconnects a dropped socket without raising, so the pool's
-``redis_connect_func`` is the hook) open the check again, so a ``noeviction``
-lost at runtime is refused by the next operation. A client given by
-``client_factory`` (a test seam) has no pool, so it has no reconnect hook.
+``Unavailable`` or ``Timeout`` and a client rebuilt for another loop open the
+check again, so a ``noeviction`` lost at runtime is refused by the next
+operation.
+
+**Every socket is judged on itself.** A flag cannot judge a connection it did
+not see: the retrying client and the pool's liveness probe reconnect a dropped
+socket without raising, and a pool that grows opens new ones, after a failover
+or a DNS repoint possibly to a reconfigured server. So the pool's
+``redis_connect_func`` (:mod:`sandloom_redis._eviction_guard`) sends ``CONFIG
+GET maxmemory-policy`` on each new socket, the first one included, before any
+command, and the same refusal rules apply (an evicting policy is
+``InvalidArgument``, a refused read ``PermissionDenied`` under ``verify``). The
+price is one round trip per new socket. A client given by ``client_factory`` (a
+test seam) has no pool, so no such hook.
 
 **A lost reply is never answered by running the command again.** A connection
 error after the server ran ``add``, ``add_or_get``, ``compare_and_set`` or
@@ -52,7 +61,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import importlib
-import weakref
 from collections.abc import Callable, Mapping, Sequence
 from functools import cache
 from types import ModuleType
@@ -83,6 +91,7 @@ from sandloom.driverkit.shared_endpoints import redis_endpoint
 from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom_redis._errors import map_redis_error, redis_error_kind
+from sandloom_redis._eviction_guard import Judge, connect_func, refusal_of
 from sandloom_redis._settings_fill import ATOMIC_STORE_FILL, require_url
 
 #: Failed operations of the store (connection, timeout, server error), by
@@ -163,30 +172,11 @@ def _running_loop() -> asyncio.AbstractEventLoop | None:
         return None
 
 
-def _reconnect_hook(on_reconnect: Callable[[], None]) -> Callable[[Any], Any]:
-    """The ``redis_connect_func`` of a pool: it runs the connection's own
-    ``on_connect`` (auth, ``SELECT``, client setup), then calls ``on_reconnect``
-    when that connection had been connected before. A retrying client reconnects
-    a dropped socket without raising, so this is the one place the driver sees a
-    lost connection. The first connect of a pooled connection is not a loss
-    (a growing pool opens new ones), so it does not call it."""
-
-    seen: weakref.WeakSet[Any] = weakref.WeakSet()
-
-    async def connect(connection: Any) -> None:
-        await connection.on_connect()
-        if connection in seen:
-            on_reconnect()
-        seen.add(connection)
-
-    return connect
-
-
 def _build_client(
     options: RedisAtomicStoreOptions,
     *,
     retrying: bool,
-    on_reconnect: Callable[[], None] | None = None,
+    judge: Judge | None = None,
 ) -> Any:
     """A bounded client: timeouts, keepalive, a periodic health check and a
     capped BLOCKING pool, so an unreachable or hung Redis makes an operation
@@ -219,9 +209,9 @@ def _build_client(
             supported_errors=(exceptions.ConnectionError,),
         ),
         retry_on_error=[exceptions.ConnectionError] if retrying else [],
-        redis_connect_func=(
-            None if on_reconnect is None else _reconnect_hook(on_reconnect)
-        ),
+        # Every socket of the pool, the first included, is judged on itself
+        # before it carries a command (_eviction_guard).
+        redis_connect_func=None if judge is None else connect_func(judge),
     )
     client: Any = redis.Redis.from_pool(pool)
     return client
@@ -396,13 +386,44 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         # every operation judges the policy itself (a worker or a CLI process
         # never runs ``aopen``; a registry outside production only logs a
         # refused one), so an evicting store is never served. A health probe
-        # that finds the policy lost, and a lost connection, clear it again.
+        # that finds the policy lost, and a failed operation, clear it again.
+        # A new socket needs no flag: the pool judges each one on itself.
         self._policy_checked = False
 
-    def _reopen_policy_check(self) -> None:
-        """The next operation judges the eviction policy again: the server
-        behind a lost connection may have come back reconfigured."""
-        self._policy_checked = False
+    def _connection_refusal(self, policy: str | None) -> InfraError | None:
+        """The refusal for the policy one connection reported (``None``: the
+        read was refused), or ``None`` when the server is fit. The pool runs it
+        on every new socket; ``_check_policy`` and ``health`` share its rules."""
+        if self._assume_refused():
+            return PermissionDenied(
+                f"atomic_store instance {self.name!r}: never_evicts_check='assume' "
+                f"needs the accepted risk {UNVERIFIED_NOEVICTION_RISK!r} in production "
+                "(fix: set never_evicts_check='verify' and grant CONFIG GET "
+                f"{_POLICY_SETTING}, or accept the risk with "
+                f'SANDLOOM_ACCEPTED_RISKS=["{UNVERIFIED_NOEVICTION_RISK}"])',
+                capability=self.capability,
+                instance=self.name,
+            )
+        if policy is not None and policy != _NOEVICTION:
+            return InvalidArgument(
+                f"atomic_store instance {self.name!r}: the Redis server evicts "
+                f"keys ({_POLICY_SETTING} is {policy!r}), so a revocation mark or "
+                "an idempotency reservation could vanish before its TTL "
+                f"(fix: set {_POLICY_SETTING} to {_NOEVICTION!r})",
+                capability=self.capability,
+                instance=self.name,
+            )
+        if policy is None and self._options.never_evicts_check == "verify":
+            return PermissionDenied(
+                f"atomic_store instance {self.name!r}: the Redis server refused "
+                f"CONFIG GET {_POLICY_SETTING}, so the driver cannot verify that "
+                f"it never evicts (fix: grant CONFIG GET {_POLICY_SETTING} to "
+                "this user, or vouch for the policy with the option "
+                "never_evicts_check='assume')",
+                capability=self.capability,
+                instance=self.name,
+            )
+        return None
 
     # ---------------------------------------------------------------- client
     async def _client_obj(self) -> Any:
@@ -430,6 +451,9 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
             # A redis.asyncio client is bound to the loop it first ran on.
             stale = (self._client, self._once_client)
             self._client = self._once_client = None
+            # The new pools judge each of their sockets; the flag opens too, so
+            # the next operation reads the policy again (as the lease does).
+            self._policy_checked = False
             for old in dict.fromkeys(c for c in stale if c is not None):
                 await _close_quietly(old)
         if self._client_factory is not None:
@@ -446,17 +470,13 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         if retrying:
             if self._client is None:
                 self._client = _build_client(
-                    self._options,
-                    retrying=True,
-                    on_reconnect=self._reopen_policy_check,
+                    self._options, retrying=True, judge=self._connection_refusal
                 )
                 self._client_loop = loop
             return self._client
         if self._once_client is None:
             self._once_client = _build_client(
-                self._options,
-                retrying=False,
-                on_reconnect=self._reopen_policy_check,
+                self._options, retrying=False, judge=self._connection_refusal
             )
             self._client_loop = loop
         return self._once_client
@@ -464,6 +484,12 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
     def _failure(self, operation: str, exc: BaseException) -> InfraError:
         """The ``InfraError`` for a backend failure: its type, never its text."""
         atomic_store_operation_errors_total.labels(self.name, operation).inc()
+        refusal = refusal_of(exc)
+        if refusal is not None:
+            # A socket's server evicts (or cannot be verified): the pool refused
+            # it before any command. The operations judge the policy again.
+            self._policy_checked = False
+            return refusal
         # ``from None`` at the call sites: callers branch on the class only.
         mapped = map_redis_error(
             exc,
@@ -614,17 +640,10 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         stays open until one passes (``aopen`` and the first operation of a
         process that never ran it)."""
         self._policy_checked = False
-        mode = self._options.never_evicts_check
-        if self._assume_refused():
-            raise PermissionDenied(
-                f"atomic_store instance {self.name!r}: never_evicts_check='assume' "
-                f"needs the accepted risk {UNVERIFIED_NOEVICTION_RISK!r} in production "
-                "(fix: set never_evicts_check='verify' and grant CONFIG GET "
-                f"{_POLICY_SETTING}, or accept the risk with "
-                f'SANDLOOM_ACCEPTED_RISKS=["{UNVERIFIED_NOEVICTION_RISK}"])',
-                capability=self.capability,
-                instance=self.name,
-            )
+        if self._assume_refused():  # refused before the server is asked
+            refusal = self._connection_refusal(None)
+            if refusal is not None:
+                raise refusal
         try:
             client = await self._client_obj()
             policy = await self._read_policy(client)
@@ -634,25 +653,9 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
             raise
         except _backend_errors() as exc:
             raise self._failure(operation, exc) from None
-        if policy is not None and policy != _NOEVICTION:
-            raise InvalidArgument(
-                f"atomic_store instance {self.name!r}: the Redis server evicts "
-                f"keys ({_POLICY_SETTING} is {policy!r}), so a revocation mark or "
-                "an idempotency reservation could vanish before its TTL "
-                f"(fix: set {_POLICY_SETTING} to {_NOEVICTION!r})",
-                capability=self.capability,
-                instance=self.name,
-            )
-        if policy is None and mode == "verify":
-            raise PermissionDenied(
-                f"atomic_store instance {self.name!r}: the Redis server refused "
-                f"CONFIG GET {_POLICY_SETTING}, so the driver cannot verify that "
-                f"it never evicts (fix: grant CONFIG GET {_POLICY_SETTING} to "
-                "this user, or vouch for the policy with the option "
-                "never_evicts_check='assume')",
-                capability=self.capability,
-                instance=self.name,
-            )
+        refusal = self._connection_refusal(policy)
+        if refusal is not None:
+            raise refusal
         self._policy_checked = True
 
     async def aopen(self) -> None:
@@ -684,6 +687,14 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
             # policy again. The type only: a redis error text names the host
             # (spec 2.4).
             self._policy_checked = False
+            refusal = refusal_of(exc)
+            if refusal is not None:  # the pool refused a socket of the server
+                reason = (
+                    "evicting_policy"
+                    if isinstance(refusal, InvalidArgument)
+                    else "noeviction_unverifiable"
+                )
+                return HealthResult(status="fail", details={"reason": reason})
             return HealthResult(status="fail", details=_failure_details(exc))
         if policy is None:
             if self._options.never_evicts_check == "verify":

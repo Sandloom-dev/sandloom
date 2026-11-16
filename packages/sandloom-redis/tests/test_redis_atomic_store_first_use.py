@@ -10,11 +10,13 @@ server configuration is changed, and the tests need no Redis.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Any
 
 import pytest
 import redis.exceptions as redis_errors
+from sandloom_redis._eviction_guard import refusal_of
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 from sandloom_redis.lease import RedisLeaseProvider
 
@@ -239,40 +241,226 @@ async def test_a_health_probe_that_fails_on_the_connection_reopens_the_check() -
 
 
 class _Connection:
-    """A pooled connection that never dials: ``on_connect`` is recorded."""
+    """A pooled connection that never dials: it records what the pool's connect
+    function sends and answers ``CONFIG GET`` with ``reply`` (an exception
+    instance is raised, as redis-py raises an error reply)."""
 
-    def __init__(self) -> None:
-        self.on_connect_calls = 0
+    def __init__(self, reply: object) -> None:
+        self.reply = reply
+        self.sent: list[tuple[object, ...]] = []
 
     async def on_connect(self) -> None:
-        self.on_connect_calls += 1
+        self.sent.append(("on_connect",))
+
+    async def send_command(self, *args: object) -> None:
+        self.sent.append(args)
+
+    async def read_response(self) -> object:
+        if isinstance(self.reply, BaseException):
+            raise self.reply
+        return self.reply
 
 
-async def _connect_func(store: RedisAtomicStoreProvider, *, retrying: bool) -> Any:
-    client = await store._client_of(retrying=retrying)
+def _answer(policy: str) -> list[str]:
+    return ["maxmemory-policy", policy]  # a RESP2 CONFIG GET reply
+
+
+_CONFIG_GET = ("CONFIG GET", "maxmemory-policy")
+
+
+async def _pool_connect_func(
+    provider: RedisAtomicStoreProvider | RedisLeaseProvider, *, retrying: bool = True
+) -> Any:
+    """The ``redis_connect_func`` the provider put on the pool of its client."""
+    if isinstance(provider, RedisAtomicStoreProvider):
+        client = await provider._client_of(retrying=retrying)
+    else:
+        client = await provider._redis()
     try:
         return client.connection_pool.connection_kwargs["redis_connect_func"]
     finally:
         await client.aclose(close_connection_pool=True)
 
 
-@pytest.mark.parametrize("retrying", [True, False])
-async def test_a_reconnected_pool_connection_reopens_the_check(retrying: bool) -> None:
-    """The retrying client reconnects a dropped socket without raising, so the
-    pool's connect function is where the store sees the loss. A first connect
-    (a pool that grows) is not a loss."""
-    store = RedisAtomicStoreProvider(
-        name="security", driver="redis", options={"url": _URL}
+def _url_store(**options: Any) -> RedisAtomicStoreProvider:
+    return RedisAtomicStoreProvider(
+        name="security",
+        driver="redis",
+        options={"url": _URL, **options},
+        assume_allowed=lambda: True,
     )
-    connect = await _connect_func(store, retrying=retrying)
-    first, second = _Connection(), _Connection()
 
-    store._policy_checked = True
-    await connect(first)
-    await connect(second)
-    assert store._policy_checked is True  # new connections, no loss
-    assert (first.on_connect_calls, second.on_connect_calls) == (1, 1)  # auth kept
 
-    await connect(first)  # the dropped socket of `first` was dialled again
+def _url_lease(**options: Any) -> RedisLeaseProvider:
+    return RedisLeaseProvider(
+        name="beat",
+        driver="redis",
+        options={"url": _URL, **options},
+        assume_allowed=lambda: True,
+    )
+
+
+@pytest.mark.parametrize("kind", ["store-retrying", "store-once", "lease"])
+async def test_every_connect_of_a_pool_is_judged_on_that_connection(kind: str) -> None:
+    """The first connect and each reconnect of the same socket: `on_connect`
+    (auth, SELECT) first, then CONFIG GET on the connection itself, before any
+    command. A dropped socket dialled again is judged again."""
+    if kind == "lease":
+        provider: RedisAtomicStoreProvider | RedisLeaseProvider = _url_lease()
+    else:
+        provider = _url_store()
+    connect = await _pool_connect_func(provider, retrying=kind != "store-once")
+    connection = _Connection(_answer("noeviction"))
+    await connect(connection)
+    await connect(connection)  # the same socket, dialled again after a drop
+    assert connection.sent == [("on_connect",), _CONFIG_GET] * 2
+
+
+@pytest.mark.parametrize("kind", ["store", "lease"])
+@pytest.mark.parametrize(
+    "reply", [_answer("allkeys-lru"), {"maxmemory-policy": "allkeys-lru"}]
+)
+async def test_a_connection_to_an_evicting_server_is_refused_before_any_command(
+    kind: str, reply: object
+) -> None:
+    """RESP2 list and RESP3 mapping alike. The check does not read the flag:
+    one that a racing task set to True cannot wave a socket through."""
+    provider: RedisAtomicStoreProvider | RedisLeaseProvider = (
+        _url_store() if kind == "store" else _url_lease()
+    )
+    connect = await _pool_connect_func(provider)
+    provider._policy_checked = True
+    connection = _Connection(reply)
+    with pytest.raises(redis_errors.ConnectionError) as caught:
+        await connect(connection)
+    refusal = refusal_of(caught.value)
+    assert isinstance(refusal, InvalidArgument)
+    assert "allkeys-lru" in str(refusal)
+    assert connection.sent == [("on_connect",), _CONFIG_GET]  # nothing else sent
+
+
+async def test_a_refused_read_follows_never_evicts_check_on_every_connect() -> None:
+    refused = redis_errors.NoPermissionError("NOPERM CONFIG")
+    verify = await _pool_connect_func(_url_store(never_evicts_check="verify"))
+    with pytest.raises(redis_errors.ConnectionError) as caught:
+        await verify(_Connection(refused))
+    assert isinstance(refusal_of(caught.value), PermissionDenied)
+    assume = await _pool_connect_func(_url_store(never_evicts_check="assume"))
+    await assume(_Connection(refused))  # vouched for: the socket is used
+    lease_verify = await _pool_connect_func(_url_lease())
+    with pytest.raises(redis_errors.ConnectionError) as caught:
+        await lease_verify(_Connection(refused))
+    assert isinstance(refusal_of(caught.value), PermissionDenied)
+
+
+async def test_assume_without_the_accepted_risk_refuses_every_connect() -> None:
+    store = RedisAtomicStoreProvider(
+        name="security",
+        driver="redis",
+        options={"url": _URL, "never_evicts_check": "assume"},
+    )
+    connect = await _pool_connect_func(store)
+    with pytest.raises(redis_errors.ConnectionError) as caught:
+        await connect(_Connection(_answer("noeviction")))
+    refusal = refusal_of(caught.value)
+    assert isinstance(refusal, PermissionDenied)
+    assert "unverified_noeviction" in str(refusal)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        redis_errors.ResponseError("LOADING Redis is loading the dataset"),
+        redis_errors.ConnectionError("reset"),
+        redis_errors.TimeoutError("slow"),
+    ],
+)
+async def test_a_failed_read_of_the_policy_is_no_refusal(failure: Exception) -> None:
+    """An outage while reading the policy is not a verdict: it propagates as
+    itself (and maps to Unavailable / Timeout), never as a standing refusal."""
+    connect = await _pool_connect_func(_url_store())
+    with pytest.raises(type(failure)) as caught:
+        await connect(_Connection(failure))
+    assert caught.value is failure
+    assert refusal_of(caught.value) is None
+
+
+async def test_a_refusal_of_a_pooled_connection_is_the_operations_error() -> None:
+    """The carried refusal, not ``Unavailable``, is what the operation raises,
+    and it opens the check; any other connection error stays ``Unavailable``."""
+    store, server = _store("noeviction")
+    connect = await _pool_connect_func(_url_store())
+    with pytest.raises(redis_errors.ConnectionError) as caught:
+        await connect(_Connection(_answer("volatile-ttl")))
+    refused = caught.value
+
+    async def refuse(*_: object, **__: object) -> bool:
+        raise refused
+
+    await store.set("k", "v")  # judged and passed
+    server.set = refuse  # type: ignore[method-assign]
+    with pytest.raises(InvalidArgument, match="volatile-ttl"):
+        await store.set("k", "v")
     assert store._policy_checked is False
-    assert first.on_connect_calls == 2
+
+    async def down(*_: object, **__: object) -> bool:
+        raise redis_errors.ConnectionError("down")
+
+    server.set = down  # type: ignore[method-assign]
+    with pytest.raises(Unavailable):
+        await store.set("k", "v")
+
+
+async def test_a_refusal_of_a_pooled_connection_is_the_leases_error() -> None:
+    provider, server = _lease("noeviction")
+    connect = await _pool_connect_func(_url_lease())
+    with pytest.raises(redis_errors.ConnectionError) as caught:
+        await connect(_Connection(_answer("allkeys-lfu")))
+    refused = caught.value
+    await provider.aopen()
+
+    async def refuse(*_: object) -> int:
+        raise refused
+
+    server.eval = refuse  # type: ignore[method-assign]
+    with pytest.raises(InvalidArgument, match="allkeys-lfu"):
+        await provider.acquire("n", ttl_seconds=30, owner="o")
+    assert provider._policy_checked is False
+
+
+async def test_a_health_probe_refused_by_the_pool_reports_the_reason() -> None:
+    store, server = _store("noeviction")
+    connect = await _pool_connect_func(_url_store())
+    with pytest.raises(redis_errors.ConnectionError) as caught:
+        await connect(_Connection(_answer("allkeys-random")))
+    refused = caught.value
+
+    async def refuse() -> bool:
+        raise refused
+
+    server.ping = refuse  # type: ignore[method-assign]
+    await store.aopen()
+    health = await store.health()
+    assert (health.status, health.details) == ("fail", {"reason": "evicting_policy"})
+    assert store._policy_checked is False
+
+
+def test_a_client_rebuilt_for_another_loop_reopens_the_check() -> None:
+    """A loop change rebuilds both clients: the new pool judges each of its
+    sockets, and the flag opens so the next operation reads the policy too."""
+    store = _url_store()
+    clients: list[Any] = []
+
+    async def first_loop() -> None:
+        clients.append(await store._client_of(retrying=True))
+        store._policy_checked = True
+
+    async def second_loop() -> None:
+        clients.append(await store._client_of(retrying=True))
+        await clients[1].aclose(close_connection_pool=True)
+
+    asyncio.run(first_loop())
+    asyncio.run(second_loop())
+    assert clients[0] is not clients[1]
+    assert store._policy_checked is False
+    assert clients[1].connection_pool.connection_kwargs["redis_connect_func"]

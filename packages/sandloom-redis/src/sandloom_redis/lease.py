@@ -16,6 +16,12 @@ what a *refused read* means (managed services often refuse ``CONFIG GET``):
   refused read, health is ``degraded`` (``noeviction_unverified``). A readable
   policy that is not ``noeviction`` is ``InvalidArgument`` in either mode.
 
+A flag cannot judge a socket it did not see, and the pool reconnects a dropped
+one without raising (an evicted fence key would repeat a fence). So the pool's
+``redis_connect_func`` (:mod:`sandloom_redis._eviction_guard`) reads the policy
+on each new socket, the first one included, before any command, under the same
+rules; the price is one round trip per new socket.
+
 The driver reads no setting, so the kernel states whether ``assume`` is allowed
 (production: only under the accepted risk ``unverified_noeviction``) as the
 constructor argument ``assume_allowed`` when it builds the driver; without it
@@ -59,6 +65,7 @@ from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_redis._errors import map_redis_error, redis_error_kind
+from sandloom_redis._eviction_guard import connect_func, refusal_of
 from sandloom_redis._settings_fill import LEASE_FILL, require_url
 
 #: The accepted risk that lets ``never_evicts_check=assume`` run in production.
@@ -167,6 +174,12 @@ class RedisLeaseProvider(LeaseProvider):
         the eviction policy again: the server may have come back reconfigured."""
         if isinstance(exc, InfraError):
             return exc
+        refusal = refusal_of(exc)
+        if refusal is not None:
+            # The pool refused a socket whose server evicts (or cannot be
+            # verified) before any command: judge the policy again next time.
+            self._policy_checked = False
+            return refusal
         # Chained ``from exc`` at the call sites (as before): the lease is
         # called by code that may read the chain, and the raw text stays in
         # ``__cause__`` only.
@@ -204,6 +217,10 @@ class RedisLeaseProvider(LeaseProvider):
             socket_connect_timeout=self._opts.socket_connect_timeout_seconds,
             max_connections=self._opts.max_connections,
             timeout=self._opts.pool_timeout_seconds,
+            # Every socket of the pool, the first included, is judged on itself
+            # before it carries a command: the pool reconnects a dropped socket
+            # silently, and an evicted fence key would repeat a fence.
+            redis_connect_func=connect_func(self._connection_refusal),
         )
         self._client = redis.Redis(connection_pool=pool)
         self._loop = loop
@@ -245,12 +262,11 @@ class RedisLeaseProvider(LeaseProvider):
         policy = answer.get(_POLICY_SETTING) if isinstance(answer, dict) else None
         return policy if isinstance(policy, str) else None
 
-    async def _check_policy(self, client: Any) -> bool:
-        """Judge the server's eviction policy (the refusals are recorded):
-        ``True`` when it could not be read and ``assume`` vouches for it."""
-        self._refusal = None
+    def _verdict(self, policy: str | None) -> tuple[type[InfraError], str] | None:
+        """The refusal for the policy a server reported (``None``: the read was
+        refused), or ``None`` when the server is fit."""
         if self._assume_refused():
-            self._refuse(
+            return (
                 PermissionDenied,
                 f"lease instance {self.name!r}: never_evicts_check='assume' needs "
                 f"the accepted risk {UNVERIFIED_NOEVICTION_RISK!r} in production "
@@ -258,9 +274,8 @@ class RedisLeaseProvider(LeaseProvider):
                 f"{_POLICY_SETTING}, or accept the risk with "
                 f'SANDLOOM_ACCEPTED_RISKS=["{UNVERIFIED_NOEVICTION_RISK}"])',
             )
-        policy = await self._read_policy(client)
         if policy is not None and policy != _NOEVICTION:
-            self._refuse(
+            return (
                 InvalidArgument,
                 f"lease instance {self.name!r}: the Redis server evicts keys "
                 f"({_POLICY_SETTING} is {policy!r}), so the fence counter could "
@@ -268,13 +283,35 @@ class RedisLeaseProvider(LeaseProvider):
                 f"(fix: set {_POLICY_SETTING} to {_NOEVICTION!r})",
             )
         if policy is None and self._opts.never_evicts_check == "verify":
-            self._refuse(
+            return (
                 PermissionDenied,
                 f"lease instance {self.name!r}: the Redis server refused CONFIG "
                 f"GET {_POLICY_SETTING}, so the driver cannot verify that it never "
                 "evicts (fix: grant CONFIG GET to this user, or vouch for the "
                 "policy with the option never_evicts_check='assume')",
             )
+        return None
+
+    def _connection_refusal(self, policy: str | None) -> InfraError | None:
+        """The pool's judge of one new socket (see ``_eviction_guard``)."""
+        verdict = self._verdict(policy)
+        if verdict is None:
+            return None
+        kind, message = verdict
+        return kind(message, capability=self.capability, instance=self.name)
+
+    async def _check_policy(self, client: Any) -> bool:
+        """Judge the server's eviction policy (the refusals are recorded):
+        ``True`` when it could not be read and ``assume`` vouches for it."""
+        self._refusal = None
+        if self._assume_refused():  # refused before the server is asked
+            verdict = self._verdict(None)
+            if verdict is not None:
+                self._refuse(*verdict)
+        policy = await self._read_policy(client)
+        verdict = self._verdict(policy)
+        if verdict is not None:
+            self._refuse(*verdict)
         return policy is None
 
     async def _ready(self) -> Any:
