@@ -910,9 +910,13 @@ def local_jobs(root: Path) -> list[LocalJob]:
     wfs = load_workflows(root)
     jobs: list[LocalJob] = []
     for spec in CI_JOBS:
-        body = (wfs.get(spec.workflow) or {}).get("jobs", {}).get(spec.job)
+        doc = wfs.get(spec.workflow) or {}
+        body = (doc.get("jobs") or {}).get(spec.job)
         if body is None:
             continue
+        # A workflow-level `env:` reaches every job of the workflow (the job's
+        # own keys win), as on GitHub: `HYPOTHESIS_PROFILE` is set there.
+        body = {**body, "env": {**(doc.get("env") or {}), **(body.get("env") or {})}}
         combos = _expand_matrix(body)
         for combo in combos:
             # A path value (examples' `path: examples/linkly`) names nothing

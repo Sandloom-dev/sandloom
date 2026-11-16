@@ -157,11 +157,14 @@ def _lane(
 #: - ``identity``: refused for a missing redis driver, boots with a missing celery
 #:   or a queue without ``periodic``;
 #: - ``billing``: refused for ``periodic``, reports the reconciler in the background;
+#: - ``identity`` + ``billing``: one real combination, because the proof above
+#:   assumes the modules act independently and this boots the assumption once;
 #: - ``tenancy`` + ``admin``: the modules that require none of what a lane breaks.
 FAILURE_SUBSETS: tuple[tuple[str, ...], ...] = (
     (),
     ("identity",),
     ("billing",),
+    ("identity", "billing"),
     ("tenancy", "admin"),
 )
 

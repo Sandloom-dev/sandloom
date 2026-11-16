@@ -4,4 +4,4 @@
 
 ### Changed
 
-- **A faster test suite** (ci-dedup-2b). The in-memory lease runs the kit on a fake clock (about 8 s less per run). The four failure lanes of the infrastructure module-subset matrix boot four subsets that stand for every class (none, identity, billing, tenancy with admin) instead of all sixteen. A pull request and a local run use a `ci` Hypothesis profile with a quarter of each property's examples; `HYPOTHESIS_PROFILE=full` (set by the full validation) runs them all.
+- **A faster test suite** (ci-dedup-2b). The in-memory lease runs the kit on a fake clock (about 8 s less per run). The four failure lanes of the infrastructure module-subset matrix boot five subsets that stand for every class (none, identity, billing, identity with billing, tenancy with admin) instead of all sixteen. A pull request and a local run use a `ci` Hypothesis profile with a quarter of each property's examples (the authz laws keep 400); `HYPOTHESIS_PROFILE=full` (set by the full validation, and by `ci_local` through the workflow-level env) runs them all.

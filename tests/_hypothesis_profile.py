@@ -12,6 +12,14 @@ A test names its full count through :func:`examples`, so no property is dropped,
 only its example count shrinks. ``tests/conftest.py`` loads the profile, so the
 tests that name no count follow it too. An unknown name is refused, never a
 quiet fallback to one of the two.
+
+The loaded profile is process-global (``settings.load_profile``), so it is
+session-wide: in a pytest session that also collects ``src/`` (for example
+``src/sandloom/core/tests/test_guarantee_lattice.py``), a test with no explicit
+count runs 25 examples under ``ci`` instead of Hypothesis's default 100.
+
+A property whose assertion is reached by few generated inputs (the authz laws)
+names a fixed ``max_examples`` instead of :func:`examples`, so every profile keeps it.
 """
 
 from __future__ import annotations

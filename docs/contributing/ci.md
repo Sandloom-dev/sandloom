@@ -243,7 +243,14 @@ The full workflow also runs every Hypothesis property with all of its examples
 (`HYPOTHESIS_PROFILE=full`, set by `ci.yml` for a full validation). A pull request
 and a local run use the `ci` profile, a quarter of each count (at least 20).
 A test names its full count through `examples(400)` of `tests/_hypothesis_profile.py`,
-and `tests/conftest.py` loads the profile.
+and `tests/conftest.py` loads the profile. The profile is process-global
+(`settings.load_profile`), so it is session-wide. In a pytest session that also
+collects `src/`, such as `src/sandloom/core/tests/`, a test that names no count
+drops from 100 to 25 examples under `ci`.
+
+The authz laws (`tests/laws/test_authz_algebra_laws.py`) keep 400 examples in
+every profile. Their fail-closed laws reach the assertion on few generated trees,
+so a quarter of the count would barely exercise them.
 
 The full workflow remains opt-in. Data extraction has no nightly schedule;
 it can also be requested manually or with the `extraction-e2e` PR label.

@@ -4,6 +4,7 @@ example counts, ``full`` keeps them, an unknown profile is refused."""
 from __future__ import annotations
 
 import pytest
+import test_authz_algebra_laws as authz
 from _hypothesis_profile import (
     CI_DIVISOR,
     MIN_EXAMPLES,
@@ -53,3 +54,8 @@ def test_the_loaded_profile_gives_a_test_naming_no_count_its_examples(
     finally:
         settings.load_profile(previous)
     assert PROFILES["ci"] < PROFILES["full"]
+
+
+def test_the_authz_laws_keep_400_examples_in_every_profile() -> None:
+    """Their fail-closed laws reach the assertion on few trees: not a quarter."""
+    assert authz.LAWS.max_examples == 400
