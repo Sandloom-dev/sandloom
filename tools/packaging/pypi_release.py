@@ -146,6 +146,14 @@ def select_artifacts(plan: dict, artifacts: Path, output: Path) -> dict:
         or not set(plan["packages"]) <= set(PACKAGES)
     ):
         raise ValueError("Incomplete release plan")
+    if len(plan["packages"]) != 1:
+        # The root CHANGELOG.md is the notes of a coordinated release; fragments
+        # not folded into it yet would be missing from them. Refused before any
+        # output exists. Imported here: the reviewed directory carries only the
+        # three files copied at the end.
+        import changelog_fragments
+
+        changelog_fragments.refuse_unfolded(Path.cwd())
     expected = {
         filename
         for project in PACKAGES

@@ -107,9 +107,20 @@ When you change the public surface, update the docstrings and run
 
 Published documentation is English. Historical reviews/design drafts preserve
 their original language and date; they are evidence, not the current reference.
-`CHANGELOG.md` is the authoritative implementation changelog; the portal
-changelog is a reader-facing digest and must be reconciled before tagging a
-release. Do not infer release readiness from an old benchmark or design note.
+`CHANGELOG.md` is the authoritative implementation changelog.
+
+A change adds its entry as a fragment, `changelog.d/<task-alias>.md`, never as
+an edit of `CHANGELOG.md`. Bullets sit under `### Added`, `### Changed`,
+`### Fixed` or one of the other kinds named in `changelog.d/README.md`. Two
+branches then touch different files, so a merged PR does not turn the others
+conflicting. `python3 tools/packaging/changelog_fragments.py --check` validates
+the fragments. The release preparation folds them into `CHANGELOG.md` with
+`--fold <version>`, and `pypi_release.py` refuses a coordinated release while
+fragments are left.
+
+The portal changelog is a reader-facing digest and must be reconciled before
+tagging a release. Do not infer release readiness from an old benchmark or
+design note.
 
 ## Conventions recap
 

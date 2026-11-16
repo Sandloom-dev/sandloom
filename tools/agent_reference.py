@@ -134,7 +134,11 @@ beside its nearest sibling; owner-local: `classify <paths> --exclude-file "<reas
 Never hand-edit: `uv run python tools/packaging/check_public_api.py [--update]`. A new public name
 is an API decision (upgrade steps). Find: `grep -n '^  "sandloom\\.sdk' public_api_baseline.json`.
 
-**CHANGELOG.md**: a bullet under `## [Unreleased]`, in its `###` kind.
+**changelog.d/<your-alias>.md** (your entry; never edit `CHANGELOG.md` for a new one: GitHub ignores its
+union merge, so two PRs conflict). One file per branch, bullets under `### <kind>`, the kind one of
+Breaking changes, Security, Deprecated, Added, Changed, Fixed. Check:
+`python3 tools/packaging/changelog_fragments.py --check`. The release preparation folds the files into
+`CHANGELOG.md` (`--fold <version>`).
 """
 
 #: Names a CI command line must start with to be listed.
