@@ -96,7 +96,11 @@ instance uses when `INFRA` does not name it. The kernel names no driver
 of its own and never falls back to `memory`: a composition that selects
 none for the database, the cache, the event bus or the security
 `atomic_store` leaves startup to refuse with SANDLOOM-B037, naming what
-to select and install. `INFRA` overrides it per instance.
+to select and install. `INFRA` overrides it per instance. Passing none
+drops the selection an earlier `create_app` of the process set, and the
+app adopts the one the composition root's package exports
+(`DEFAULT_INFRA`), or none; a selection set by `use_default_infra`
+itself (a tool, a test suite) stays.
 
 `default_modules` apply only when the deployment configured no
 `SANDLOOM_MODULES` (the platform root passes identity/tenancy/billing); with
