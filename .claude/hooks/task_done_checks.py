@@ -83,6 +83,7 @@ _SECRET_QUERY = re.compile(
     r"([?&;](?:[A-Za-z0-9_.-]*?(?:password|passwd|pwd|token|secret|api[_-]?key|access[_-]?key|auth))=)[^&#\s]+",
     re.IGNORECASE,
 )
+_SKIPPED = re.compile(r"\b(\d+) skipped\b")
 _SHA = re.compile(r"\b[0-9a-fA-F]{7,40}\b")
 #: Digests of the records this hook emitted, outside every checkout.
 ISSUED = (
@@ -358,7 +359,9 @@ STEPS = (
             "src/sandloom/core/tests/test_celery_error_mapping.py",
             "src/sandloom/core/tests/test_beat_lease.py",
         ),
-        env=(("SANDLOOM_CELERY_REQUIRED", "1"),),
+        # No SANDLOOM_CELERY_REQUIRED: it demands the built wheel, which the
+        # hook cannot install without replacing the agent's .venv. Without it a
+        # missing broker skips, and a skipped lane is not_run (see _run_step).
         needs_env=_LANE_ENV,
     ),
 )
@@ -464,7 +467,13 @@ def _run_step(
         return "not_run", f"not found: {exc.filename or exc}"
     except Exception as exc:  # noqa: BLE001 - an in-process check that raised failed
         return "Failed", f"{type(exc).__name__}: {exc}"
-    return ("Failed", out.strip()[-400:]) if code else ("Passed", "")
+    if code:
+        return "Failed", out.strip()[-400:]
+    skipped = _SKIPPED.search(out)
+    if step.needs_env and skipped:
+        # A lane that skips without its servers has not been run.
+        return "not_run", f"the lane skipped {skipped.group(1)} tests"
+    return "Passed", ""
 
 
 def run_ci_steps(top: str, budget: float = STAGE_BUDGET) -> dict[str, dict]:

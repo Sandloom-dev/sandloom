@@ -640,6 +640,36 @@ def test_a_driver_lane_runs_only_with_the_agents_own_test_resources(
     assert env["PYTHONDONTWRITEBYTECODE"] == "1"
 
 
+def test_a_driver_lane_that_skipped_its_tests_was_not_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resources = dict.fromkeys(hook._LANE_ENV, "x")
+    summary = "30 passed, 105 skipped in 5.10s"
+    record = _stage(
+        monkeypatch,
+        ["packages/sandloom-celery/src/x.py"],
+        lambda argv, cwd, env, timeout: (0, summary),
+        **resources,
+    )
+    assert record["celery-drivers"]["status"] == "not_run"
+    assert "105 tests" in record["celery-drivers"]["reason"]
+    # A step that is no lane keeps its pass: only a lane skips for want of servers.
+    record = _stage(
+        monkeypatch,
+        ["docs/a.md"],
+        lambda argv, cwd, env, timeout: (0, summary),
+    )
+    assert {v["status"] for v in record.values()} == {"Passed"}
+
+
+def test_the_celery_lane_does_not_demand_the_built_wheel() -> None:
+    # SANDLOOM_CELERY_REQUIRED=1 makes the tests refuse a source-tree import, and
+    # the hook must not replace the agent's .venv with a wheel.
+    steps = {s.name: s for s in hook.STEPS}
+    assert "SANDLOOM_CELERY_REQUIRED" not in dict(steps["celery-drivers"].env)
+    assert dict(steps["redis-drivers"].env) == {"SANDLOOM_REDIS_REQUIRED": "1"}
+
+
 def test_a_driver_lane_that_fails_is_failed(monkeypatch: pytest.MonkeyPatch) -> None:
     resources = dict.fromkeys(hook._LANE_ENV, "x")
     record = _stage(
