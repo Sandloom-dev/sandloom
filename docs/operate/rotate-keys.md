@@ -173,8 +173,8 @@ settings, roll every service together, then give the new value to whatever
 sends the `X-Internal-Token` header, such as the metrics scraper. In
 production the two tokens must differ.
 
-Database and cache passwords rotate at the server. Then update
-`DATABASE_URL` or `CACHE_URL` and roll the processes that use them.
+Database and Redis passwords rotate at the server. Then update
+`DATABASE_URL` or the instance `url` in `INFRA` and roll the processes that use them.
 
 ## After a key leaks
 
