@@ -62,8 +62,8 @@ _T = TypeVar("_T")
 
 
 class RedisBroadcastOptions(BaseModel):
-    """Options of the ``redis`` driver. The kernel fills ``url`` and the client
-    bounds left out from the ``CACHE_*`` settings."""
+    """Options of the ``redis`` driver. The instance states ``url`` in ``INFRA``;
+    the kernel fills nothing, and a bound left out takes the default here."""
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 

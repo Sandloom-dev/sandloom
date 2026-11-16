@@ -1,12 +1,12 @@
 """The Redis drivers read options, not settings; the kernel fills them (ADR-0016).
 
 The ``redis`` cache, broadcast, atomic store and lease, and the ``redis`` /
-``streams`` event buses read no kernel setting: what they used to read
-(``CACHE_URL``, the ``CACHE_*`` client bounds) is put into their instances'
-options by :func:`fill_driver_defaults`, as each driver's class declares it
-(``InfraProvider.settings_fill``), so behaviour is unchanged. The engine, which
-names no driver, is ``sandloom.core.tests.test_driver_options_fill`` (it runs
-where nothing is installed).
+``streams`` event buses read no kernel setting, and the kernel fills none of
+their options: every url and client bound is an option of the instance in
+``INFRA`` (``CACHE_URL`` and the ``CACHE_*`` bounds are removed settings, see
+``sandloom.core.tests.test_config_tiers``). The engine, which names no driver,
+is ``sandloom.core.tests.test_driver_options_fill`` (it runs where nothing is
+installed).
 """
 
 from __future__ import annotations
@@ -19,15 +19,11 @@ import pytest
 import sandloom_redis.cache as redis_cache
 from sandloom_redis.cache import RedisCacheOptions
 
-from sandloom.core.config.settings import Settings, settings
 from sandloom.core.drivers.bootstrap import build_infra_registry
-from sandloom.core.eventing.volatile_provider import VolatileBusOptions
 from sandloom.core.infra.config import (
     DEFAULT_INSTANCE,
-    FILLABLE_SETTINGS,
     InfraConfig,
     InstanceConfig,
-    load_infra_config,
 )
 from sandloom.core.infra.registry import (
     configured_stream_retention,
@@ -36,15 +32,6 @@ from sandloom.core.infra.registry import (
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.tests._driver_fill import fill, registry_for
 
-_BOUNDS = {
-    "socket_timeout_seconds": "cache_socket_timeout_seconds",
-    "socket_connect_timeout_seconds": "cache_socket_connect_timeout_seconds",
-    "health_check_interval_seconds": "cache_health_check_interval_seconds",
-    "max_connections": "cache_max_connections",
-    "pool_timeout_seconds": "cache_pool_timeout_seconds",
-    "retry_attempts": "cache_retry_attempts",
-}
-
 
 def _cfg(capability: str, name: str, driver: str, **options: Any) -> InstanceConfig:
     return InstanceConfig(
@@ -52,56 +39,53 @@ def _cfg(capability: str, name: str, driver: str, **options: Any) -> InstanceCon
     )
 
 
-def _loaded() -> InfraConfig:
-    return fill(load_infra_config(settings))
+_DECLARING_DRIVERS = [
+    ("cache", "redis"),
+    ("broadcast", "redis"),
+    ("atomic_store", "redis"),
+    ("lease", "redis"),
+    ("eventbus", "streams"),
+    ("eventbus", "redis"),
+]
 
 
-def test_the_default_cache_gets_cache_url_and_every_bound(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(settings, "cache_max_connections", 7)
-    monkeypatch.setattr(settings, "cache_socket_timeout_seconds", 0.25)
-    options = _loaded()["cache"][DEFAULT_INSTANCE].options
-    assert options["url"] == settings.cache_url
-    for option, setting in _BOUNDS.items():
-        assert options[option] == getattr(settings, setting), option
-    parsed = RedisCacheOptions.model_validate(options)  # the schema accepts it
-    assert parsed.max_connections == 7
-    assert parsed.socket_timeout_seconds == 0.25
-
-
-def test_a_named_instance_gets_what_it_leaves_out_and_keeps_what_it_says() -> None:
-    config = {
-        "cache": {
-            "sessions": _cfg("cache", "sessions", "redis", max_connections=3),
-            "other": _cfg("cache", "other", "memory"),
-        },
-        "eventbus": {
-            DEFAULT_INSTANCE: _cfg("eventbus", DEFAULT_INSTANCE, "streams"),
-            "side": _cfg("eventbus", "side", "redis"),
-            "mem": _cfg("eventbus", "mem", "memory"),
-        },
+@pytest.mark.parametrize(("capability", "driver"), _DECLARING_DRIVERS)
+def test_a_redis_driver_declares_no_settings_fill(capability: str, driver: str) -> None:
+    """None of them takes an option from a flat setting: no ``settings_fill``."""
+    config: InfraConfig = {
+        capability: {DEFAULT_INSTANCE: _cfg(capability, DEFAULT_INSTANCE, driver)}
     }
-    fill(config)
-    sessions = config["cache"]["sessions"].options
-    assert sessions["url"] == settings.cache_url
-    assert sessions["max_connections"] == 3  # stated: kept
-    assert config["cache"]["other"].options == {}  # not a redis cache
-    default_bus = config["eventbus"][DEFAULT_INSTANCE].options
-    assert default_bus["url"] == settings.cache_url
-    side = config["eventbus"]["side"].options
-    assert "url" not in side  # a named bus without one shares the default
-    assert side["health_check_interval_seconds"] == (
-        settings.cache_health_check_interval_seconds
+    assert registry_for(config).settings_fill(capability, driver) is None
+
+
+@pytest.mark.parametrize(("capability", "driver"), _DECLARING_DRIVERS)
+def test_the_kernel_fills_no_option_of_a_redis_instance(
+    capability: str, driver: str
+) -> None:
+    """A url or a bound an instance leaves out stays out (its own refusal, not a
+    value from another instance or a setting); what it states stays as stated."""
+    bare = _cfg(capability, DEFAULT_INSTANCE, driver)
+    stated = _cfg(
+        capability, "side", driver, url="redis://own-host/9", max_connections=4
     )
-    VolatileBusOptions.model_validate(side)
-    assert config["eventbus"]["mem"].options == {}
+    config: InfraConfig = {capability: {DEFAULT_INSTANCE: bare, "side": stated}}
+    fill(config)
+    assert bare.options == {}
+    assert stated.options == {"url": "redis://own-host/9", "max_connections": 4}
+
+
+def test_a_redis_instance_without_a_url_refuses_naming_its_infra_option() -> None:
+    from sandloom_redis._settings_fill import MissingUrlError, require_url
+
+    with pytest.raises(MissingUrlError, match=r"cache\.sessions\.url") as raised:
+        require_url("cache", "sessions", None)
+    assert raised.value.fatal_at_startup is True
 
 
 def test_a_redis_cache_built_from_options_ignores_the_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """What the driver connects to is the option, whatever CACHE_URL says."""
+    """What the driver connects to is the option, whatever the settings say."""
     built: list[RedisCacheOptions] = []
 
     class _Client:
@@ -113,7 +97,6 @@ def test_a_redis_cache_built_from_options_ignores_the_settings(
         return _Client()
 
     monkeypatch.setattr(redis_cache, "_build_client", _build)
-    monkeypatch.setattr(settings, "cache_url", "redis://settings-host:1/0")
     provider = redis_cache.create_redis_cache(
         _cfg(
             "cache",
@@ -184,129 +167,23 @@ def test_an_unconfigured_default_client_says_why() -> None:
         redis_cache._default_client, redis_cache._default_options = original
 
 
-def test_an_explicit_config_is_filled_alike_for_every_driver_incl_the_lease() -> None:
-    """An explicit config asking for the fill gets the lease url and the cache
-    url alike: one rule for every driver, not a kernel special case."""
-    config: InfraConfig = {
-        "lease": {DEFAULT_INSTANCE: _cfg("lease", DEFAULT_INSTANCE, "redis")},
-        "cache": {DEFAULT_INSTANCE: _cfg("cache", DEFAULT_INSTANCE, "redis")},
-    }
-    build_infra_registry(
-        InMemorySchemaRegistry(),
-        settings=settings,
-        config=config,
-        fill_from_settings=True,
-    )
-    assert config["lease"][DEFAULT_INSTANCE].options["url"] == settings.cache_url
-    assert config["cache"][DEFAULT_INSTANCE].options["url"] == settings.cache_url
-
-
-def test_a_broadcast_url_is_its_own_not_the_caches() -> None:
-    """No follow: a ``cache.default`` url stated in INFRA is not the broadcast's;
-    it takes CACHE_URL, or a url it states itself."""
-
-    def broadcast_url(cache: InstanceConfig | None) -> str | None:
-        config: InfraConfig = {"broadcast": {"b": _cfg("broadcast", "b", "redis")}}
-        if cache is not None:
-            config["cache"] = {DEFAULT_INSTANCE: cache}
-        fill(config)
-        return config["broadcast"]["b"].options["url"]
-
-    own = _cfg("cache", DEFAULT_INSTANCE, "redis", url="redis://own-host/9")
-    assert broadcast_url(own) == settings.cache_url  # not the cache's INFRA url
-    assert broadcast_url(_cfg("cache", DEFAULT_INSTANCE, "redis")) == settings.cache_url
-    assert broadcast_url(None) == settings.cache_url
-    stated = _cfg("broadcast", "b", "redis", url="redis://b-host/1")
-    config: InfraConfig = {"broadcast": {"b": stated}}
-    fill(config)
-    assert stated.options["url"] == "redis://b-host/1"
-
-
-def test_the_atomic_store_url_is_the_flat_setting_on_a_synthesized_instance_only() -> (
-    None
-):
-    synthesized = _cfg("atomic_store", "security", "redis")
-    synthesized.implicit = True
-    declared = _cfg("atomic_store", "security2", "redis", max_connections=4)
-    config = {
-        "cache": {
-            DEFAULT_INSTANCE: _cfg(
-                "cache", DEFAULT_INSTANCE, "redis", url="redis://c/1"
-            )
-        },
-        "atomic_store": {"security": synthesized, "security2": declared},
-    }
-    fill(config)
-    # CACHE_URL, not the cache.default INFRA url (no follow)
-    assert synthesized.options["url"] == settings.cache_url
-    assert "url" not in declared.options  # its url is its own, never the cache's
-    assert declared.options["max_connections"] == 4
-    assert synthesized.options["max_connections"] == settings.cache_max_connections
-
-
-def test_a_streams_bus_gets_the_url_on_the_default_instance_only() -> None:
-    config = {
-        "eventbus": {
-            DEFAULT_INSTANCE: _cfg("eventbus", DEFAULT_INSTANCE, "streams"),
-            "side": _cfg("eventbus", "side", "streams"),
+def test_an_explicit_config_is_built_as_given_with_or_without_the_fill() -> None:
+    """The registry fills nothing into a Redis instance, asked or not: the options
+    it was built with are the ones it keeps."""
+    for ask in (False, True):
+        config: InfraConfig = {
+            "cache": {
+                DEFAULT_INSTANCE: _cfg(
+                    "cache", DEFAULT_INSTANCE, "redis", url="redis://x/0"
+                )
+            }
         }
-    }
-    fill(config)
-    assert config["eventbus"][DEFAULT_INSTANCE].options["url"] == settings.cache_url
-    assert "url" not in config["eventbus"]["side"].options
-    assert "socket_connect_timeout_seconds" in config["eventbus"]["side"].options
-
-
-_DECLARING_DRIVERS = [
-    ("cache", "redis"),
-    ("broadcast", "redis"),
-    ("atomic_store", "redis"),
-    ("lease", "redis"),
-    ("eventbus", "streams"),
-    ("eventbus", "redis"),
-]
-
-
-@pytest.mark.parametrize(("capability", "driver"), _DECLARING_DRIVERS)
-def test_every_declared_fill_names_settings_that_exist(
-    capability: str, driver: str
-) -> None:
-    config: InfraConfig = {
-        capability: {DEFAULT_INSTANCE: _cfg(capability, DEFAULT_INSTANCE, driver)}
-    }
-    declared = registry_for(config).settings_fill(capability, driver)
-    assert declared is not None, (capability, driver)
-    named = {
-        *declared.urls.values(),
-        *declared.bounds.values(),
-        *declared.caps.values(),
-    }
-    assert named, (capability, driver)
-    assert named <= set(Settings.model_fields), named - set(Settings.model_fields)
-    assert named <= FILLABLE_SETTINGS
-
-
-def _redis_cache_config() -> InfraConfig:
-    return {
-        "cache": {
-            DEFAULT_INSTANCE: _cfg(
-                "cache", DEFAULT_INSTANCE, "redis", url="redis://x/0"
-            )
-        }
-    }
-
-
-def test_an_explicit_config_is_built_as_given_unless_the_caller_asks() -> None:
-    given = build_infra_registry(InMemorySchemaRegistry(), config=_redis_cache_config())
-    options = given.instance_config("cache", DEFAULT_INSTANCE)
-    assert options is not None and "max_connections" not in options.options
-    asked = build_infra_registry(
-        InMemorySchemaRegistry(), config=_redis_cache_config(), fill_from_settings=True
-    )
-    options = asked.instance_config("cache", DEFAULT_INSTANCE)
-    assert options is not None
-    assert options.options["url"] == "redis://x/0"  # stated: kept
-    assert options.options["max_connections"] == settings.cache_max_connections
+        built = build_infra_registry(
+            InMemorySchemaRegistry(), config=config, fill_from_settings=ask
+        )
+        options = built.instance_config("cache", DEFAULT_INSTANCE)
+        assert options is not None
+        assert options.options == {"url": "redis://x/0"}, ask
 
 
 # -- the retention a deployment's bus is configured with -------------------------

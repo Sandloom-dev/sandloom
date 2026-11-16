@@ -41,21 +41,22 @@ from sandloom.core.schema.registry import InMemorySchemaRegistry
 _URL = "redis://127.0.0.1:6399/0"  # never connected: clients connect lazily
 
 
-def test_default_streams_bus_gets_cache_url_and_the_client_bounds(
+def test_default_streams_bus_keeps_exactly_the_options_infra_states(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The kernel fills the options the driver reads (it reads no setting);
-    the default instance still shares the default transport client (below)."""
+    """The kernel fills no option of the bus (the driver reads no setting): the
+    instance keeps what ``INFRA`` states; the default instance still shares the
+    default transport client (below)."""
     monkeypatch.setattr(settings, "event_bus_backend", "streams")
+    monkeypatch.setattr(
+        settings,
+        "infra",
+        {"eventbus": {"default": {"url": _URL, "socket_connect_timeout_seconds": 3}}},
+    )
     registry = build_infra_registry(InMemorySchemaRegistry())
     bus = registry.instance_config("eventbus", DEFAULT_INSTANCE)
     assert bus is not None
-    options = bus.options
-    assert options == {
-        "url": settings.cache_url,
-        "socket_connect_timeout_seconds": settings.cache_socket_connect_timeout_seconds,
-        "health_check_interval_seconds": settings.cache_health_check_interval_seconds,
-    }
+    assert bus.options == {"url": _URL, "socket_connect_timeout_seconds": 3}
 
 
 @pytest.fixture

@@ -68,9 +68,17 @@ def test_the_helper_reads_the_redis_lane_variable(
 def _outcome(test: str, *, required: bool) -> str:
     """Run one package test in a fresh pytest against a dead Redis; its summary line."""
     env = {k: v for k, v in os.environ.items() if k != REQUIRED_ENV}
+    # The run's own overrides each need the instance of ``INFRA`` they replace
+    # (the harness refuses an override it cannot place): state both, dead.
     env.update(
-        INFRA=json.dumps({"cache": {"default": {"url": _DEAD_URL}}}),
+        INFRA=json.dumps(
+            {
+                "cache": {"default": {"url": _DEAD_URL}},
+                "taskqueue": {"default": {"broker": _DEAD_URL}},
+            }
+        ),
         SANDLOOM_TEST_CACHE_URL=_DEAD_URL,
+        SANDLOOM_TEST_BROKER_URL=_DEAD_URL,
     )
     if required:
         env[REQUIRED_ENV] = "1"
@@ -114,11 +122,12 @@ async def test_require_redis_names_no_url_and_handles_an_unset_one(
 def test_an_unconfigured_cache_url_skips_locally_and_fails_in_the_lane(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """No ``INFRA`` cache url and no flat ``CACHE_URL``: ``cache_url_or_unavailable``
-    is unavailable (a skip, a failure in the lane), never a bare ``RuntimeError``
-    and never an empty url handed to a driver."""
-    for var in ("INFRA", "CACHE_URL"):
-        monkeypatch.delenv(var, raising=False)
+    """No ``INFRA`` cache url: ``cache_url_or_unavailable`` is unavailable (a
+    skip, a failure in the lane), never a bare ``RuntimeError`` and never an
+    empty url handed to a driver. ``CACHE_URL`` is a removed setting and names
+    no url here."""
+    monkeypatch.delenv("INFRA", raising=False)
+    monkeypatch.setenv("CACHE_URL", _DEAD_URL)
     monkeypatch.delenv(REQUIRED_ENV, raising=False)
     with pytest.raises(pytest.skip.Exception):
         cache_url_or_unavailable()

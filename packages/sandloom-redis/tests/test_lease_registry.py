@@ -42,13 +42,35 @@ def test_the_composition_supplies_the_beat_lease_instance_infra_overrides_it(
     assert (named.driver, named.implicit) == ("database", False)
 
 
-def test_the_default_registry_builds_the_beat_lease_on_the_cache_url() -> None:
+def test_the_default_registry_builds_the_beat_lease_on_the_url_infra_states(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The lease takes its url from its own ``INFRA`` entry, never from the
+    cache's; an entry without one is refused when the lease is built."""
+    monkeypatch.setattr(
+        settings, "infra", {"lease": {"beat": {"url": "redis://lease-host:6390/3"}}}
+    )
     registry = build_infra_registry(InMemorySchemaRegistry())
     store = registry.provider("lease", "beat")  # builds, opens nothing
     assert isinstance(store, RedisLeaseProvider)
-    assert store.options["url"] == settings.cache_url
+    assert store.options["url"] == "redis://lease-host:6390/3"
     assert store.features() == {"shared"}
     assert registry.provider("lease", "beat") is store
+
+
+async def test_a_beat_lease_without_a_url_is_refused_not_pointed_at_the_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sandloom_redis._settings_fill import MissingUrlError
+
+    monkeypatch.setattr(
+        settings,
+        "infra",
+        {"cache": {"default": {"driver": "redis", "url": "redis://cache-host:6390/4"}}},
+    )
+    registry = build_infra_registry(InMemorySchemaRegistry())
+    with pytest.raises(MissingUrlError, match=r"lease\.beat\.url"):
+        await registry.provider("lease", "beat").aopen()
 
 
 def _prod(*risks: str) -> Any:
@@ -56,7 +78,6 @@ def _prod(*risks: str) -> Any:
         is_prod=True,
         accepts_risk=lambda risk: risk in risks,
         infra={},
-        cache_url="redis://h/0",
     )
 
 

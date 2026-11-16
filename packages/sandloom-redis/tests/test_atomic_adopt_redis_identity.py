@@ -29,19 +29,40 @@ from sandloom.core.tests.test_atomic_adopt import (
 from sandloom.core.tests.test_production_profile import _settings
 
 
-def test_development_builds_the_security_store_on_the_cache_redis_only_outside_prod() -> (
-    None
-):
-    """With ``sandloom-redis`` installed the security store defaults to the
-    cache's Redis (without it the kernel selects ``memory``)."""
+def test_development_selects_the_redis_security_store_on_the_url_infra_states(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With ``sandloom-redis`` installed the composition selects ``redis`` for
+    the security store (without it the kernel selects ``memory``); the url is
+    the one its own ``INFRA`` entry states, never the cache's."""
+    monkeypatch.delenv("INFRA", raising=False)
+    infra = {
+        "cache": {"default": {"driver": "redis", "url": "redis://cache-redis:6379/4"}},
+        "atomic_store": {"security": {"url": "redis://security-redis:6379/5"}},
+    }
     dev = Settings(  # type: ignore[call-arg]
-        _env_file=None, ENVIRONMENT="dev", CACHE_URL="redis://cache-redis:6379/4"
+        _env_file=None, ENVIRONMENT="dev", INFRA=infra
     )
     config = fill(load_infra_config(dev), dev)
     security = config["atomic_store"]["security"]
-    assert security.driver == "redis" and security.implicit
-    assert security.options["url"] == "redis://cache-redis:6379/4"
+    assert security.driver == "redis"
+    assert security.options["url"] == "redis://security-redis:6379/5"
     assert "idempotency" not in config["atomic_store"]
+
+
+def test_the_security_store_takes_no_url_from_the_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("INFRA", raising=False)
+    infra = {
+        "cache": {"default": {"driver": "redis", "url": "redis://cache-redis:6379/4"}}
+    }
+    dev = Settings(  # type: ignore[call-arg]
+        _env_file=None, ENVIRONMENT="dev", INFRA=infra
+    )
+    security = fill(load_infra_config(dev), dev)["atomic_store"]["security"]
+    assert security.driver == "redis"
+    assert "url" not in security.options
 
 
 async def test_strict_profile_attests_real_redis_identity(

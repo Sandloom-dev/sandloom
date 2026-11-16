@@ -42,17 +42,23 @@ def _plain(url: str, name: str) -> str:
 
 
 def _configured_redis() -> dict[str, str]:
-    """This run's configured Redis URLs (``CACHE_URL`` / ``BROKER_URL``):
-    ``.env.test`` with the ``SANDLOOM_TEST_*`` overrides, before any xdist
-    worker rewrite — the base indexes the run's own processes use."""
+    """This run's configured Redis URLs (``cache``: ``cache.default.url``,
+    ``broker``: ``taskqueue.default.broker`` of ``INFRA``): ``.env.test`` with
+    the ``SANDLOOM_TEST_*`` overrides, before any xdist worker rewrite — the
+    base indexes the run's own processes use."""
     values = {
         k: v for k, v in dotenv_values(BACKEND / ".env.test").items() if v is not None
     }
-    values.update(workers.explicit_test_overrides())
+    values.update(workers.explicit_test_overrides(current=values))
+    infra = json.loads(values.get("INFRA") or "{}")
+    stated = {
+        "cache": infra.get("cache", {}).get("default", {}).get("url"),
+        "broker": infra.get("taskqueue", {}).get("default", {}).get("broker"),
+    }
     return {
-        var: values[var]
-        for var in ("CACHE_URL", "BROKER_URL")
-        if (values.get(var) or "").startswith(("redis://", "rediss://"))
+        key: url
+        for key, url in stated.items()
+        if (url or "").startswith(("redis://", "rediss://"))
     }
 
 
@@ -102,10 +108,10 @@ def checkout(tmp_path: Path) -> Iterator[tuple[Path, str]]:
     psycopg2 = pytest.importorskip("psycopg2")
     base = _test_url("DATABASE_URL")
     configured = _configured_redis()
-    if not base.startswith("postgresql") or "CACHE_URL" not in configured:
+    if not base.startswith("postgresql") or "cache" not in configured:
         redis_unavailable("PostgreSQL / Redis test URLs not configured")
-    cache = configured["CACHE_URL"]
-    broker = configured.get("BROKER_URL", cache)
+    cache = configured["cache"]
+    broker = configured.get("broker", cache)
     before = _redis_owners({cache, broker})
     name = f"sandloom_test_slots_{uuid.uuid4().hex[:8]}"
     root = tmp_path / "app"

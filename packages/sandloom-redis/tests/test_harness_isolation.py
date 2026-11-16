@@ -1,15 +1,14 @@
 """The test harness has no Redis in it: isolation goes through the driver hook.
 
 * ``InfraProvider.test_isolation(options, worker_id)`` of the Redis drivers moves
-  the database index of the instance's URL; the harness's own rewrite of
-  ``CACHE_URL`` / ``BROKER_URL`` (``sandloom_redis.testing.isolation``, the
-  Redis half of the harness, registered by this package) gives the same answer;
+  the database index of the instance's URL; the harness's own rewrite of the
+  urls ``INFRA`` states (``sandloom_redis.testing.isolation``, the Redis half
+  of the harness, registered by this package) gives the same answer;
 * an application on memory drivers runs its tests, parallel included, with the
   redis client not importable: a real ``pytest -n 2`` child whose import
   system refuses ``redis`` passes, its workers each on their own URLs, and the
-  client was never loaded. (Settings still require ``redis://`` URLs for
-  ``CACHE_URL`` / ``BROKER_URL``; the probe's name no server and nothing
-  connects to them.)
+  client was never loaded. (Its ``INFRA`` states ``redis://`` urls; the probe's
+  name no server and nothing connects to them.)
 """
 
 from __future__ import annotations
@@ -59,6 +58,21 @@ REDIS_DRIVERS: tuple[tuple[type[InfraProvider], str], ...] = (
 )
 
 
+def _harness_url(
+    base: str,
+    env: dict[str, str],
+    *,
+    capability: str = "cache",
+    driver: str = "redis",
+    option: str = "url",
+) -> str:
+    """What the harness makes of the one url ``INFRA`` states for the default
+    instance of ``capability`` (the only place a url is stated)."""
+    infra = {capability: {"default": {"driver": driver, option: base}}}
+    out = workers.rewrite_for_worker({"INFRA": json.dumps(infra)}, env)
+    return str(json.loads(out["INFRA"])[capability]["default"][option])
+
+
 @pytest.mark.parametrize(("driver", "key"), REDIS_DRIVERS)
 @pytest.mark.parametrize("worker", ["gw0", "gw1", "gw7"])
 def test_redis_driver_hook_moves_the_database_index(
@@ -81,7 +95,7 @@ def test_redis_driver_hook_matches_the_harness_layout(
     base = "redis://127.0.0.1:6380/1"
     for number in (0, 3, 9):
         env = {workers.WORKER_ENV: f"gw{number}"}
-        harness = workers.rewrite_for_worker({"CACHE_URL": base}, env)["CACHE_URL"]
+        harness = _harness_url(base, env)
         assert driver.test_isolation({key: base}, f"gw{number}")[key] == harness
 
 
@@ -138,18 +152,20 @@ def test_celery_taskqueue_hook_leaves_memory_and_other_workers_alone() -> None:
 
 
 @pytest.mark.parametrize("worker", ["gw0", "gw3"])
-def test_the_harness_moves_broker_url_through_the_celery_hook(worker: str) -> None:
+def test_the_harness_moves_the_broker_through_the_celery_hook(worker: str) -> None:
     base = "redis://127.0.0.1:6380/1"
     number = int(worker[2:])
     env = {workers.WORKER_ENV: worker}
-    out = workers.rewrite_for_worker({"BROKER_URL": base}, env)
     expected = f"redis://127.0.0.1:6380/{1 + isolation.DEFAULT_STRIDE * (number + 1)}"
-    assert out == {"BROKER_URL": expected}
+    moved = _harness_url(
+        base, env, capability="taskqueue", driver="celery", option="broker"
+    )
+    assert moved == expected
     hooked = CeleryTaskQueueProvider.test_isolation({"broker": base}, worker)
     assert hooked["broker"] == expected
 
 
-def test_the_broker_url_of_a_declared_taskqueue_driver_goes_through_its_hook(
+def test_the_broker_of_a_declared_taskqueue_driver_goes_through_its_hook(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The harness asks the driver the instance names, not a hard-wired one."""
@@ -168,11 +184,13 @@ def test_the_broker_url_of_a_declared_taskqueue_driver_goes_through_its_hook(
         return Moved
 
     monkeypatch.setattr(family_seams, "_driver_class", fake)
-    infra = json.dumps({"taskqueue": {"default": {"driver": "other"}}})
-    out = workers.rewrite_for_worker(
-        {"BROKER_URL": "redis://h/1", "INFRA": infra}, {workers.WORKER_ENV: "gw1"}
+    infra = json.dumps(
+        {"taskqueue": {"default": {"driver": "other", "broker": "redis://h/1"}}}
     )
-    assert out["BROKER_URL"] == "redis://moved/9"
+    out = workers.rewrite_for_worker({"INFRA": infra}, {workers.WORKER_ENV: "gw1"})
+    assert json.loads(out["INFRA"])["taskqueue"]["default"]["broker"] == (
+        "redis://moved/9"
+    )
     assert asked == [("taskqueue", "default", "other")]
 
 
@@ -188,21 +206,23 @@ def test_memory_defaults_keep_their_options() -> None:
 
 def test_auto_layout_is_the_harness_only(monkeypatch: pytest.MonkeyPatch) -> None:
     """Under ``auto`` the controller's mapping decides; the harness rewrites
-    ``CACHE_URL`` from it, the hook keeps its fixed layout."""
+    the cache url from it, the hook keeps its fixed layout."""
     env = {
         workers.WORKER_ENV: "gw1",
         redis_isolation.REDIS_STRIDE_ENV: "auto",
         redis_isolation.REDIS_MAP_ENV: "0=40,41,42",
     }
-    rewritten = workers.rewrite_for_worker({"CACHE_URL": "redis://h/0"}, env)
-    assert rewritten == {"CACHE_URL": "redis://h/41"}
+    assert _harness_url("redis://h/0", env) == "redis://h/41"
 
 
 # ---- the harness calls the hook (one layout, named instances) ------------
 
 INFRA = json.dumps(
     {
-        "cache": {"sessions": {"driver": "redis", "url": "redis://h:6380/3"}},
+        "cache": {
+            "default": {"driver": "redis", "url": "redis://h:6380/0"},
+            "sessions": {"driver": "redis", "url": "redis://h:6380/3"},
+        },
         "eventbus": {"fanout": {"driver": "streams", "url": "redis://h:6380/5"}},
         "objectstore": {"exports": {"driver": "local", "path": "./exports"}},
     }
@@ -210,11 +230,12 @@ INFRA = json.dumps(
 
 
 def test_a_named_instance_url_is_moved_by_the_harness() -> None:
-    values = {"CACHE_URL": "redis://h:6380/0", "INFRA": INFRA}
+    values = {"INFRA": INFRA}
     env = {workers.WORKER_ENV: "gw1"}
     out = workers.rewrite_for_worker(values, env)
-    assert out["CACHE_URL"] == "redis://h:6380/32"
+    assert set(out) == {"INFRA"}
     infra = json.loads(out["INFRA"])
+    assert infra["cache"]["default"]["url"] == "redis://h:6380/32"
     assert infra["cache"]["sessions"]["url"] == "redis://h:6380/35"
     assert infra["eventbus"]["fanout"]["url"] == "redis://h:6380/37"
     assert infra["objectstore"] == {"exports": {"driver": "local", "path": "./exports"}}
@@ -223,10 +244,10 @@ def test_a_named_instance_url_is_moved_by_the_harness() -> None:
 def test_a_named_instance_url_is_claimed(monkeypatch: pytest.MonkeyPatch) -> None:
     claimed: list[str] = []
     monkeypatch.setattr(redis_family, "claim_redis", claimed.append)
-    values = {"CACHE_URL": "redis://h:6380/0", "INFRA": INFRA}
+    values = {"INFRA": INFRA}
     out = workers.rewrite_for_worker(values, {workers.WORKER_ENV: "gw2"})
     ownership.claim_test_resources({**values, **out})
-    assert "redis://h:6380/48" in claimed  # CACHE_URL
+    assert "redis://h:6380/48" in claimed  # cache instance "default"
     assert "redis://h:6380/51" in claimed  # cache instance "sessions"
     assert "redis://h:6380/53" in claimed  # eventbus instance "fanout"
 
@@ -235,20 +256,25 @@ def test_apply_worker_env_moves_infra_once(monkeypatch: pytest.MonkeyPatch) -> N
     """Applying twice never shifts twice (gw0: 1 -> 17, not 33)."""
     env = {
         workers.WORKER_ENV: "gw0",
-        "CACHE_URL": "redis://h/0",
         "INFRA": json.dumps(
-            {"cache": {"s": {"driver": "redis", "url": "redis://h/1"}}}
+            {
+                "cache": {
+                    "default": {"driver": "redis", "url": "redis://h/0"},
+                    "s": {"driver": "redis", "url": "redis://h/1"},
+                }
+            }
         ),
     }
     monkeypatch.setattr(workers, "_applied", {})
     workers.apply_worker_env(env, create_database=False)
     workers.apply_worker_env(env, create_database=False)
-    assert json.loads(env["INFRA"])["cache"]["s"]["url"] == "redis://h/17"
-    assert env["CACHE_URL"] == "redis://h/16"
+    cache = json.loads(env["INFRA"])["cache"]
+    assert cache["s"]["url"] == "redis://h/17"
+    assert cache["default"]["url"] == "redis://h/16"
 
 
-#: ``INFRA`` of a ``.env.test`` with no flat ``CACHE_URL`` / ``BROKER_URL``: every
-#: instance carries its own url, the task queue its ``broker`` and ``backend``.
+#: ``INFRA`` of a ``.env.test``: every instance carries its own url, the task
+#: queue its ``broker`` and ``backend``.
 FLAT_FREE_INFRA = json.dumps(
     {
         "cache": {"default": {"driver": "redis", "url": "redis://h:6380/15"}},
@@ -265,7 +291,7 @@ FLAT_FREE_INFRA = json.dumps(
 
 
 def test_infra_alone_moves_every_instance_and_the_celery_broker() -> None:
-    """No flat variable: the worker still gets its own index everywhere."""
+    """The worker gets its own index everywhere INFRA states a url."""
     out = workers.rewrite_for_worker(
         {"INFRA": FLAT_FREE_INFRA}, {workers.WORKER_ENV: "gw1"}
     )
@@ -278,20 +304,6 @@ def test_infra_alone_moves_every_instance_and_the_celery_broker() -> None:
         "broker": "redis://h:6380/46",
         "backend": "redis://h:6380/45",
     }
-
-
-def test_infra_and_the_flat_variables_together_move_once_each() -> None:
-    values = {
-        "CACHE_URL": "redis://h:6380/15",
-        "BROKER_URL": "redis://h:6380/14",
-        "INFRA": FLAT_FREE_INFRA,
-    }
-    out = workers.rewrite_for_worker(values, {workers.WORKER_ENV: "gw1"})
-    assert out["CACHE_URL"] == "redis://h:6380/47"
-    assert out["BROKER_URL"] == "redis://h:6380/46"
-    infra = json.loads(out["INFRA"])
-    assert infra["cache"]["default"]["url"] == "redis://h:6380/47"
-    assert infra["taskqueue"]["default"]["broker"] == "redis://h:6380/46"
 
 
 def test_the_celery_broker_of_infra_is_a_redis_url_the_run_claims(
@@ -314,37 +326,17 @@ def test_the_celery_broker_of_infra_is_a_redis_url_the_run_claims(
     assert redis_urls.infra_redis_urls(memory) == []
 
 
-def test_the_seams_say_which_options_a_driver_takes_from_a_flat_setting() -> None:
-    from sandloom.core.testing import family_seams
-
-    assert family_seams.flat_url_options("cache", "default", "redis") == {
-        "url": "cache_url"
-    }
-    assert family_seams.flat_url_options("taskqueue", "default", "celery") == {
-        "broker": "broker_url",
-        "backend": "cache_url",
-    }
-    # the Streams bus takes the flat url on its default instance only
-    assert family_seams.flat_url_options("eventbus", "default", "streams") == {
-        "url": "cache_url"
-    }
-    assert family_seams.flat_url_options("eventbus", "fanout", "streams") == {}
-    assert family_seams.flat_url_options("cache", "default", "memory") == {}  # built in
-
-
-def test_the_override_names_the_url_of_a_default_instance_infra_only_selects() -> None:
+def test_the_override_replaces_the_url_infra_states_and_creates_none() -> None:
     infra = json.dumps(
         {
-            "cache": {"default": {"driver": "redis"}},
-            "taskqueue": {"default": {"driver": "celery"}},
+            "cache": {"default": {"driver": "redis", "url": "redis://h/1"}},
+            "taskqueue": {"default": {"driver": "celery", "broker": "redis://h/2"}},
             "eventbus": {"default": {"driver": "streams"}},
         }
     )
     merged = json.loads(
         workers.infra_with_overrides(
-            infra,
-            {"CACHE_URL": "redis://h/11", "BROKER_URL": "redis://h/12"},
-            root_name="sandloom.main",
+            infra, {"CACHE_URL": "redis://h/11", "BROKER_URL": "redis://h/12"}
         )
         or ""
     )
@@ -354,6 +346,10 @@ def test_the_override_names_the_url_of_a_default_instance_infra_only_selects() -
         "broker": "redis://h/12",
     }
     assert merged["eventbus"]["default"] == {"driver": "streams"}  # no url of its own
+    # an instance INFRA only selects has no url to replace: refused, not created
+    only_selected = json.dumps({"cache": {"default": {"driver": "redis"}}})
+    with pytest.raises(workers.UnmatchedOverrideError):
+        workers.infra_with_overrides(only_selected, {"CACHE_URL": "redis://h/11"})
 
 
 @pytest.mark.parametrize(("driver", "key"), REDIS_DRIVERS)
@@ -366,7 +362,7 @@ def test_hook_is_the_harness_under_any_stride(
         env = {workers.WORKER_ENV: f"gw{number}"}
         if stride:
             env[redis_isolation.REDIS_STRIDE_ENV] = stride
-        harness = workers.rewrite_for_worker({"CACHE_URL": base}, env)["CACHE_URL"]
+        harness = _harness_url(base, env)
         # the harness handed its layout to the drivers before this call
         assert driver.test_isolation({key: base}, f"gw{number}")[key] == harness
     if stride:
@@ -382,7 +378,7 @@ def test_hook_is_the_harness_under_auto(driver: type[InfraProvider], key: str) -
             redis_isolation.REDIS_STRIDE_ENV: "auto",
             redis_isolation.REDIS_MAP_ENV: "1=70,71,72",
         }
-        harness = workers.rewrite_for_worker({"CACHE_URL": base}, env)["CACHE_URL"]
+        harness = _harness_url(base, env)
         assert harness == f"redis://127.0.0.1:6380/{70 + number}"
         assert driver.test_isolation({key: base}, f"gw{number}")[key] == harness
 
@@ -406,14 +402,13 @@ def test_auto_without_a_client_skips_redis_entirely(
     }
     values = {
         "DATABASE_URL": "sqlite+aiosqlite:///./x.db",
-        "CACHE_URL": "redis://h/0",
-        "BROKER_URL": "redis://h/1",
         "INFRA": INFRA,
     }
     out = workers.rewrite_for_worker(values, env)
     assert set(out) == {"DATABASE_URL"}
     assert redis_urls.redis_urls(values) == []
-    assert session_checks.worker_targets(values, 2)[1]["CACHE_URL"] == "redis://h/0"
+    # no client: the urls INFRA states stay as written, on every worker
+    assert session_checks.worker_targets(values, 2)[1]["INFRA"] == INFRA
     session_checks.allocate_worker_resources(
         values, 2
     )  # no client: nothing to allocate
@@ -446,26 +441,22 @@ def test_the_settings_choose_only_the_default_event_bus() -> None:
 
 
 @pytest.mark.parametrize("worker", ["gw0", "gw1", "gw3"])
-def test_a_broker_url_with_no_task_queue_driver_moves_like_the_cache_url(
+def test_a_broker_with_no_task_queue_driver_is_not_moved(
     monkeypatch: pytest.MonkeyPatch, worker: str
 ) -> None:
-    """No composition selects a task queue, yet a test may point a celery queue at
-    BROKER_URL: it moves per worker as CACHE_URL does, never shared."""
+    """No composition selects a task queue and INFRA names no driver for it: the
+    harness cannot ask a driver for the hook, so it moves nothing (the registry
+    refuses the instance when the settings load) instead of guessing Celery. A
+    non-redis broker is not touched either."""
     monkeypatch.setattr(redis_isolation, "default_driver", lambda *_: None)
     env = {workers.WORKER_ENV: worker}
-    number = int(worker[2:])
-    out = workers.rewrite_for_worker({"BROKER_URL": "redis://h/1"}, env)
-    assert out == {
-        "BROKER_URL": f"redis://h/{1 + isolation.DEFAULT_STRIDE * (number + 1)}"
-    }
-    same = workers.rewrite_for_worker(
-        {"CACHE_URL": "redis://h/1", "BROKER_URL": "redis://h/1"}, env
+    declared = json.dumps({"taskqueue": {"default": {"broker": "redis://h/1"}}})
+    out = workers.rewrite_for_worker({"INFRA": declared}, env)
+    assert json.loads(out["INFRA"]) == json.loads(declared)
+    memory = json.dumps(
+        {"taskqueue": {"default": {"driver": "celery", "broker": "memory://"}}}
     )
-    assert same["BROKER_URL"] == same["CACHE_URL"]
-    # a non-redis broker is not touched
-    assert "BROKER_URL" not in workers.rewrite_for_worker(
-        {"BROKER_URL": "memory://"}, env
-    )
+    assert workers.rewrite_for_worker({"INFRA": memory}, env) == {}
 
 
 def test_auto_without_a_redis_url_needs_no_mapping() -> None:
@@ -543,9 +534,14 @@ _ENV_TEST = """\
 ENVIRONMENT=test
 JWT_SECRET=harness_probe_secret_value_long_enough_0123
 DATABASE_URL=sqlite+aiosqlite:///{db}
-CACHE_URL=redis://127.0.0.1:1/0
-BROKER_URL=redis://127.0.0.1:1/1
+INFRA='{infra}'
 """
+
+#: A Redis url INFRA states, which a process that cannot import the client
+#: never rewrites or claims.
+_PROBE_INFRA = json.dumps(
+    {"lease": {"beat": {"driver": "redis", "url": "redis://127.0.0.1:1/0"}}}
+)
 
 _TESTS = """\
 import os
@@ -560,12 +556,11 @@ def test_env_is_isolated_per_worker_without_redis():
     assert worker.startswith("gw")
     assert os.environ["DATABASE_URL"].endswith(f"_{worker}.db")
     # no client: this process reaches no Redis, so no URL is rewritten or claimed
-    assert os.environ["CACHE_URL"] == "redis://127.0.0.1:1/0"
-    assert os.environ["BROKER_URL"] == "redis://127.0.0.1:1/1"
+    assert "127.0.0.1:1/0" in os.environ["INFRA"]
 
 
 def test_the_second_test_runs_too():
-    assert os.environ["CACHE_URL"].startswith("redis://127.0.0.1:1/")
+    assert "redis://127.0.0.1:1/0" in os.environ["INFRA"]
 
 
 def test_redis_client_never_loaded():
@@ -609,13 +604,15 @@ def test_an_app_with_no_redis_runs_its_tests_in_parallel(tmp_path: Path) -> None
     (site / "sitecustomize.py").write_text(_BLOCKER)
     (app / "pyproject.toml").write_text(_PYPROJECT)
     (app / "fakeroot.py").write_text(_ROOT)
-    (app / ".env.test").write_text(_ENV_TEST.format(db=app / "run_test.db"))
+    (app / ".env.test").write_text(
+        _ENV_TEST.format(db=app / "run_test.db", infra=_PROBE_INFRA)
+    )
     (app / "test_app.py").write_text(textwrap.dedent(_TESTS))
     env = {
         k: v
         for k, v in os.environ.items()
         if not k.startswith(("SANDLOOM_", "PYTEST_", "JWT_"))
-        and k not in {"ENVIRONMENT", "DATABASE_URL", "CACHE_URL", "BROKER_URL"}
+        and k not in {"ENVIRONMENT", "DATABASE_URL", "INFRA"}
     }
     env["PYTHONPATH"] = os.pathsep.join(
         [str(site), *filter(None, [env.get("PYTHONPATH")])]
