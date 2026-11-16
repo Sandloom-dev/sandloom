@@ -180,6 +180,7 @@ def test_another_unknown_event_bus_backend_is_still_refused() -> None:
     ("value", "refused"),
     [
         ("${EVENT_BUS_BACKEND:-}", False),  # unset: the composition's selection
+        ("  ", False),  # blank: unset, as the settings read it
         ("streams", False),
         ("memory", True),
         ("redis", True),

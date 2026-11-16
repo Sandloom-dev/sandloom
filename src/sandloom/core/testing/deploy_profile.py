@@ -721,7 +721,7 @@ def _shared_settings(procs: dict[str, dict[str, Any]], problem: Any) -> None:
         # selection, which startup refuses when it names none: a profile cannot
         # see the composition, so it accepts unset and refuses every other
         # driver. ``auto`` is no longer a value (the settings refuse it).
-        if interpolate(env.get("EVENT_BUS_BACKEND", "")) not in {"", "streams"}:
+        if interpolate(env.get("EVENT_BUS_BACKEND", "")).strip() not in {"", "streams"}:
             problem(f"{name}: events cross services: EVENT_BUS_BACKEND=streams")
         if ":?" not in str(env.get("INTERNAL_API_TOKEN", "")):
             problem(f"{name}: INTERNAL_API_TOKEN must be required (${{...:?...}})")
