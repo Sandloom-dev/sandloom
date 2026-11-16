@@ -45,10 +45,10 @@ refused there and the run ends. Validation and packaging never start for a tag
 the environment would reject, and the run holds the `pypi-release` concurrency
 group for seconds.
 
-Configure a pending Trusted Publisher for the first release of `sandloom-s3`,
-`sandloom-redis` and `sandloom-celery` (the last two first ship in the
-coordinated release, run by hand). Use a manual release from `main` and include
-the compatible framework wheel in the same run or publish the framework first.
+A package's first release needs a pending Trusted Publisher on PyPI.
+`sandloom-redis` and `sandloom-celery` first shipped in the coordinated
+0.7.0a14 release, run by hand. A first release is a manual run from `main`. It
+includes the compatible framework wheel, or the framework is published first.
 
 The plan step also refuses publication from a feature branch or a tag whose
 commit is not reachable from `origin/main`. A tag must exactly match the selected
@@ -170,7 +170,7 @@ git push origin sandloom-v0.7.0a14
 
 The other tag prefixes are `sandloom-identity-v`, `sandloom-tenancy-v`,
 `sandloom-billing-v` and `sandloom-redis-v`. A driver package's tag releases
-together with, or after, the kernel version it requires (ADR-0016, lockstep).
+that package alone, once the kernel version it requires is on PyPI (ADR-0016).
 The kernel's `redis` extra requires `sandloom-redis`, and `sandloom-redis`
 requires the kernel. The plan step refuses either tag while PyPI has neither at
 the new version. So a version bump of the two goes out through a manual run with
@@ -180,8 +180,8 @@ run. No tag pattern of the environment allows its tag. Its `tag_release` is
 false in `packages.json`, so the plan step refuses that tag.
 
 A new driver package is first released with `all`, after the version bump. It
-gets its `tag_release` only after that release. `sandloom-redis` got it after
-0.7.0a14; `sandloom-celery` has none yet.
+gets its `tag_release` only after that release. `sandloom-redis` has it since
+its first release, 0.7.0a14; `sandloom-celery` has none yet.
 
 Pass `all` or the package name in the `package` input. A manual run can select
 `sandloom-admin` alone, and the owner's approval still gates its upload.
