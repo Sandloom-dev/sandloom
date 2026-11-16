@@ -21,7 +21,8 @@ judged) only when every check passed and GitHub reports the PR mergeable.
 
 Exit codes: 0 green (merged with ``--merge``), 1 a check failed or was
 cancelled, 2 not mergeable / head moved / PR closed / merge refused,
-3 timed out with checks still pending. Standard library and ``gh`` only.
+3 timed out (checks pending or a required check not registered).
+Standard library and ``gh`` only.
 """
 
 from __future__ import annotations
@@ -37,6 +38,10 @@ from typing import Any
 
 GREEN, RED, NOT_MERGEABLE, TIMEOUT = 0, 1, 2, 3
 FAILED_BUCKETS = frozenset({"fail", "cancel"})
+# ``gh pr checks`` exit codes with JSON on stdout: 0 all passed, 8 some pending.
+PENDING_OR_OK = (0, 8)
+# What gh prints to stderr (exit 1, stdout empty) before any check registered.
+NO_CHECKS_MESSAGES = ("no checks reported", "no required checks reported")
 
 Runner = Callable[[Sequence[str]], "Result"]
 
@@ -68,6 +73,9 @@ class State:
     # The checks branch protection requires, as GitHub reports them now. Right
     # after a push only some checks are registered: a required one missing from
     # this list means the CI is not fully registered yet, whatever else passed.
+    # The settled rule is "some required check is present", which equals "every
+    # required check" only while branch protection requires one check
+    # ("CI required"): gh cannot list a required check that is not registered.
     required: list[dict[str, Any]] = field(default_factory=list)
 
     @property
@@ -114,8 +122,18 @@ def _checks(pr: str, required: bool, gh: Runner) -> list[dict[str, Any]]:
     if required:
         args.append("--required")
     # gh pr checks exits 8 while checks are pending and 1 when one failed;
-    # the JSON on stdout is what counts. No checks reported yet: stdout empty.
+    # the JSON on stdout is what counts. No checks reported yet: stdout empty
+    # and gh says so on stderr (exit 1). Any other empty-stdout failure (auth,
+    # network, rate limit) is a broken gh, not a CI that has not registered.
     checks = gh(args)
+    if (
+        checks.code not in PENDING_OR_OK
+        and not checks.out.strip()
+        and not any(m in checks.err for m in NO_CHECKS_MESSAGES)
+    ):
+        raise RuntimeError(
+            f"gh pr checks {pr}: {checks.err.strip() or f'exit {checks.code}'}"
+        )
     try:
         rows: list[dict[str, Any]] = (
             json.loads(checks.out) if checks.out.strip() else []

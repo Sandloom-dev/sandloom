@@ -238,6 +238,61 @@ def test_failed_required_check_is_red_once_registered() -> None:
     assert slept == [30] and gh.merges == []
 
 
+def _checks_failing(code: int, err: str) -> FakeGh:
+    """``gh`` whose ``pr checks`` calls fail with empty stdout, as gh does."""
+
+    class Failing(FakeGh):
+        def __call__(self, args: Sequence[str]) -> object:
+            if args[:2] == ["pr", "checks"]:
+                self.calls.append(list(args))
+                return pr_wait.Result(code, "", err)
+            return super().__call__(args)
+
+    return Failing([[check("a", "pass")]])
+
+
+@pytest.mark.parametrize("err", ["HTTP 401: Bad credentials", "", "connection reset"])
+def test_broken_gh_with_empty_checks_raises_instead_of_polling(err: str) -> None:
+    gh = _checks_failing(1, err)
+    with pytest.raises(RuntimeError, match="gh pr checks 276"):
+        run(gh, timeout=100)
+
+
+@pytest.mark.parametrize(
+    "err",
+    [
+        "no checks reported on the 'claude/x' branch",
+        "no required checks reported on the 'claude/x' branch",
+    ],
+)
+def test_no_checks_reported_message_keeps_polling(err: str) -> None:
+    gh = _checks_failing(1, err)
+    code, lines, slept = run(gh, timeout=100)
+    assert code == pr_wait.TIMEOUT and slept
+    assert lines[-1].startswith("no required check registered")
+
+
+def test_broken_gh_exits_error_code_2_from_main(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fake_run(cmd: Sequence[str], **_: object) -> object:
+        import subprocess
+
+        if cmd[2] == "view":
+            body = {
+                "headRefOid": HEAD,
+                "state": "OPEN",
+                "mergeStateStatus": "CLEAN",
+                "mergeable": "MERGEABLE",
+            }
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(body), "")
+        return subprocess.CompletedProcess(cmd, 1, "", "HTTP 401: Bad credentials")
+
+    monkeypatch.setattr(pr_wait.subprocess, "run", fake_run)
+    assert pr_wait.main(["276", "--timeout", "1"]) == pr_wait.NOT_MERGEABLE
+    assert capsys.readouterr().out.startswith("ERROR gh pr checks 276: HTTP 401")
+
+
 def test_required_flag_reaches_gh() -> None:
     gh = FakeGh([[check("a", "pass")]])
     run(gh, required=True)
