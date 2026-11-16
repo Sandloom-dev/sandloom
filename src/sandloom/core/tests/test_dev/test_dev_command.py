@@ -539,8 +539,13 @@ def test_a_running_service_keeps_its_port(
 
 _VALUES = {
     "DATABASE_URL": "postgresql+asyncpg://sandloom:sandloom@127.0.0.1:24001/shop",
-    "CACHE_URL": "redis://127.0.0.1:24002/1",
-    "BROKER_URL": "redis://127.0.0.1:24002/2",
+    "INFRA": json.dumps(
+        {
+            "cache": {"default": {"url": "redis://127.0.0.1:24002/1"}},
+            "taskqueue": {"default": {"broker": "redis://127.0.0.1:24002/2"}},
+        },
+        separators=(",", ":"),
+    ),
 }
 
 
@@ -586,24 +591,153 @@ def test_a_torn_block_keeps_every_user_line(tmp_path: Path) -> None:
         f"{envfile.BEGIN}\n"
         "DATABASE_URL=postgresql://old/db\n"
         "STRIPE_KEY=sk_test_keep\n"
-        "export CACHE_URL=redis://old/1\n"
+        "export DATABASE_URL=postgresql://older/db\n"
         "FEATURE_X=on\n"
     )
     urls = {
         "DATABASE_URL": "postgresql://127.0.0.1:1/shop",
-        "CACHE_URL": "redis://127.0.0.1:2/1",
-        "BROKER_URL": "redis://127.0.0.1:2/2",
+        "INFRA": _VALUES["INFRA"],
     }
     assert envfile.write_env_block(env, urls)
     text = env.read_text()
     for kept in ("JWT_SECRET=s", "STRIPE_KEY=sk_test_keep", "FEATURE_X=on"):
         assert f"\n{kept}\n" in f"\n{text}"
     assert "# (moved into the sandloom dev block below) DATABASE_URL=" in text
-    assert "# (moved into the sandloom dev block below) export CACHE_URL=" in text
+    assert "# (moved into the sandloom dev block below) export DATABASE_URL=" in text
     assert text.count(envfile.BEGIN) == 1 and text.count(envfile.END) == 1
     assert envfile.read_block(text) == urls
     # Stable from now on: a second write changes nothing.
     assert not envfile.write_env_block(env, urls)
+
+
+_MINE = (
+    'INFRA=\'{"cache":{"default":{"url":"redis://mine/3"}},'
+    '"notification":{"default":{"driver":"smtp","host":"smtp.example.test"}}}\'\n'
+)
+
+
+def _winning_infra(env: Path) -> dict[str, Any]:
+    from dotenv import dotenv_values
+
+    value = dotenv_values(env)["INFRA"]
+    assert value is not None
+    parsed: dict[str, Any] = json.loads(value)
+    return parsed
+
+
+def test_a_user_infra_above_the_block_is_merged_and_kept(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text(_MINE + "A=1\n")
+    assert envfile.write_env_block(env, _VALUES)
+    text = env.read_text()
+    assert text.startswith(_MINE)  # the user's line stays as written
+    merged = _winning_infra(env)  # the block comes later and wins
+    assert merged["cache"]["default"] == {"url": "redis://mine/3"}  # theirs wins
+    assert merged["taskqueue"] == {  # only ours: kept
+        "default": {"broker": "redis://127.0.0.1:24002/2"}
+    }
+    assert merged["notification"]["default"]["host"] == "smtp.example.test"
+    assert not envfile.write_env_block(env, _VALUES)  # stable
+
+
+def test_a_user_infra_below_the_block_is_set_aside_and_still_merged(
+    tmp_path: Path,
+) -> None:
+    env = tmp_path / ".env"
+    env.write_text(envfile.render_block(_VALUES) + _MINE)
+    assert envfile.write_env_block(env, _VALUES)
+    text = env.read_text()
+    assert "# (your INFRA, merged into the sandloom dev block above) INFRA=" in text
+    assert _winning_infra(env)["cache"]["default"] == {"url": "redis://mine/3"}
+    assert not envfile.write_env_block(env, _VALUES)  # stable
+    # The set-aside line is the source of the next merge: ours moves, theirs stay.
+    moved = json.dumps(
+        {"taskqueue": {"default": {"broker": "redis://127.0.0.1:9/9"}}},
+        separators=(",", ":"),
+    )
+    assert envfile.write_env_block(env, {**_VALUES, "INFRA": moved})
+    merged = _winning_infra(env)
+    assert merged["taskqueue"]["default"]["broker"] == "redis://127.0.0.1:9/9"
+    assert merged["cache"]["default"] == {"url": "redis://mine/3"}
+    # ... even when this run manages no INFRA of its own.
+    assert envfile.write_env_block(env, {"DATABASE_URL": _VALUES["DATABASE_URL"]})
+    assert _winning_infra(env)["cache"]["default"] == {"url": "redis://mine/3"}
+
+
+def test_a_broken_user_infra_is_refused_and_the_file_untouched(
+    tmp_path: Path,
+) -> None:
+    env = tmp_path / ".env"
+    for bad in ("INFRA='{not json'\n", "INFRA='[1]'\n", "INFRA='{\"cache\":1}'\n"):
+        env.write_text(bad)
+        with pytest.raises(envfile.InvalidInfra):
+            envfile.write_env_block(env, _VALUES)
+        assert env.read_text() == bad
+    # Not managed in this run, so not read: no refusal for a line dev ignores.
+    env.write_text("INFRA='{not json'\n")
+    assert envfile.write_env_block(env, {"DATABASE_URL": _VALUES["DATABASE_URL"]})
+
+
+def test_infra_with_a_quote_cannot_be_written_into_the_block(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text("")
+    quoted = {"cache": {"default": {"url": "redis://:pa'ss@h/0"}}}
+    with pytest.raises(envfile.InvalidInfra, match="quote"):
+        envfile.write_env_block(env, {"INFRA": json.dumps(quoted)})
+
+
+def test_managed_infra_gives_each_redis_instance_its_own_url() -> None:
+    selection = {
+        "database": {"default": {"driver": "sqlalchemy"}},
+        "cache": {"default": {"driver": "redis"}},
+        "broadcast": {"default": {"driver": "redis"}},
+        "eventbus": {"default": {"driver": "streams"}},
+        "atomic_store": {"security": {"driver": "redis"}},
+        "lease": {"beat": {"driver": "redis"}},
+        "taskqueue": {"default": {"driver": "celery"}},
+        "objectstore": {"default": {"driver": "local"}},
+    }
+    managed = envfile.managed_infra(
+        selection,
+        cache_url="redis://h/1",
+        persistent_url="redis://h/2",
+        memory_bus=False,
+    )
+    assert managed == {
+        "cache": {"default": {"url": "redis://h/1"}},
+        "broadcast": {"default": {"url": "redis://h/1"}},
+        "eventbus": {"default": {"url": "redis://h/2"}},
+        "atomic_store": {"security": {"url": "redis://h/2"}},
+        "lease": {"beat": {"url": "redis://h/2"}},
+        "taskqueue": {"default": {"broker": "redis://h/2"}},
+    }
+    # No persistent instance shares the cache's database.
+    cache_url = managed["cache"]["default"]["url"]
+    persistent = [
+        spec
+        for capability in ("eventbus", "atomic_store", "lease", "taskqueue")
+        for instances in [managed[capability]]
+        for spec in instances.values()
+    ]
+    assert all(cache_url not in spec.values() for spec in persistent)
+    # The in-process bus takes no url; an instance that names its own keeps it.
+    memory = envfile.managed_infra(
+        selection,
+        cache_url="redis://h/1",
+        persistent_url="redis://h/2",
+        memory_bus=True,
+    )
+    assert "eventbus" not in memory and "lease" in memory
+    named = {"cache": {"default": {"driver": "redis", "url": "redis://own/0"}}}
+    assert (
+        envfile.managed_infra(
+            named,
+            cache_url="redis://h/1",
+            persistent_url="redis://h/2",
+            memory_bus=False,
+        )
+        == {}
+    )
 
 
 def test_an_edit_during_the_write_is_merged(
@@ -657,6 +791,55 @@ def test_a_new_worktree_gets_a_seeded_env(
     assert ctx.identity.database != "shop"
     local = (worktree / ".env.test.local").read_text()
     assert f"/{ctx.identity.test_database}\n" in local
+
+
+_SELECTION = {
+    "database": {"default": {"driver": "sqlalchemy"}},
+    "cache": {"default": {"driver": "redis"}},
+    "eventbus": {"default": {"driver": "streams"}},
+    "atomic_store": {"security": {"driver": "redis"}},
+    "taskqueue": {"default": {"driver": "celery"}},
+}
+
+
+def test_the_block_names_each_redis_instance_of_the_composition(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(commands, "composition_selection", lambda c, text: _SELECTION)
+    environ.pop("EVENT_BUS_BACKEND", None)
+    ctx = _ctx(repo, environ)
+    state = _state(ctx)
+    row = commands.checkout_row(ctx, state)
+    (repo / ".env").write_text("EVENT_BUS_BACKEND=memory\n")
+    infra = json.loads(commands.checkout_urls(ctx, state, row)["INFRA"])
+    # The in-process bus is selected in .env: no url for it.
+    assert set(infra) == {"cache", "atomic_store", "taskqueue"}
+    redis = ctx.redis(state)
+    assert infra["cache"]["default"]["url"] == redis.url(row.cache_index)
+    assert infra["atomic_store"]["security"]["url"] == redis.url(row.broker_index)
+    assert infra["taskqueue"]["default"]["broker"] == redis.url(row.broker_index)
+    (repo / ".env").write_text("EVENT_BUS_BACKEND=streams\n")
+    again = json.loads(commands.checkout_urls(ctx, state, row)["INFRA"])
+    assert again["eventbus"]["default"]["url"] == redis.url(row.broker_index)
+    # The summary lists every instance's url.
+    lines = commands._infra_lines(commands.checkout_urls(ctx, state, row))
+    assert any("eventbus.default url=" in line for line in lines)
+
+
+def test_a_composition_that_cannot_be_read_stops_dev_up(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(repo, environ)
+    monkeypatch.setattr(
+        "sandloom.core.composition.root_default_infra",
+        lambda name=None: (_ for _ in ()).throw(ImportError("boom")),
+    )
+    with pytest.raises(commands.DevError, match="DEFAULT_INFRA.*boom"):
+        commands.composition_selection(ctx, "")
+    monkeypatch.setattr(
+        "sandloom.core.composition.root_default_infra", lambda name=None: None
+    )
+    assert commands.composition_selection(ctx, "") == {}
 
 
 def test_localhost_is_never_written(
@@ -963,11 +1146,13 @@ def test_the_cli_prints_one_line_and_debug_shows_the_traceback(
     }
     env.update(
         DATABASE_URL="postgresql+asyncpg://u:p@127.0.0.1:1/x",
-        CACHE_URL="redis://127.0.0.1:2/0",
-        BROKER_URL="redis://127.0.0.1:2/1",
         JWT_SECRET="x" * 64,
         ENVIRONMENT="dev",
         SANDLOOM_HOME=str(tmp_path / "home"),
+        # Read by the support helper below (tests/_root_support.py, which the
+        # slice that moves the suite onto INFRA owns), not by the child.
+        CACHE_URL="redis://127.0.0.1:2/0",
+        BROKER_URL="redis://127.0.0.1:2/1",
         # The stderr oracle below filters the human-readable log format.
         LOG_FORMAT="text",
         # stripped above with the other SANDLOOM_*: the child composes the
@@ -1382,7 +1567,7 @@ def test_dev_run_serves_a_database_named_in_env_without_dev_services(
     (repo / ".env").write_text(
         envfile.empty_block()
         + "DATABASE_URL=sqlite+aiosqlite:///./data/app.db\n"
-        + "CACHE_URL=redis://127.0.0.1:6379/0\n"
+        + 'INFRA=\'{"cache":{"default":{"url":"redis://127.0.0.1:6379/0"}}}\'\n'
     )
     monkeypatch.setattr(commands, "up", lambda c, o: pytest.fail("started"))
     monkeypatch.setattr(commands, "app_port", lambda port, sticky=None: 8123)

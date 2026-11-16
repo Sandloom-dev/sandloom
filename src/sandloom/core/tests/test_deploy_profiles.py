@@ -307,7 +307,6 @@ PARITY_KEYS = (
     "SHUTDOWN_BUDGET_SECONDS",
     "EVENT_PAYLOAD_MAX_BYTES",
     "INFRA",
-    "CACHE_URL",
     "JWT_KID",
     "JWT_ISSUER",
     "JWT_AUDIENCE",
@@ -343,13 +342,19 @@ def _app_processes(profile: str) -> dict[str, dict[str, Any]]:
 
 @pytest.mark.parametrize("profile", PROFILES)
 def test_security_relevant_settings_identical_across_processes(profile: str) -> None:
+    from sandloom.core.testing.deploy_profile import _comparable
+
     procs = _app_processes(profile)
     assert len(procs) >= 4
     for key in (*PARITY_KEYS, *PROFILE_PARITY_KEYS[profile]):
         values = {name: svc["environment"].get(key) for name, svc in procs.items()}
         missing = sorted(n for n, v in values.items() if v is None)
         assert not missing, f"{key} missing in {missing} ({profile})"
-        assert len(set(values.values())) == 1, f"{key} differs: {values}"
+        # INFRA is shared but for each service's own Celery broker.
+        same = {
+            json.dumps(_comparable(key, v), sort_keys=True) for v in values.values()
+        }
+        assert len(same) == 1, f"{key} differs: {values}"
 
 
 def test_parity_keys_default_identically_in_both_profiles() -> None:
@@ -471,10 +476,15 @@ def test_idempotency_cache_opt_in_is_shared_and_durable(profile: str) -> None:
     """INFRA (it carries INFRA.atomic_store.security and .idempotency) is
     identical in every process, and a dedicated idempotency Redis fsyncs
     every write and never evicts, like a security Redis."""
+    from sandloom.core.testing.deploy_profile import _comparable
+
     procs = _app_processes(profile)
     for key in ("INFRA",):
         values = {name: svc["environment"].get(key) for name, svc in procs.items()}
-        assert len(set(values.values())) == 1, f"{key} differs: {values}"
+        same = {
+            json.dumps(_comparable(key, v), sort_keys=True) for v in values.values()
+        }
+        assert len(same) == 1, f"{key} differs: {values}"
     services = _load(profile)["services"]
     if "idempotency-redis" in services:
         cmd = services["idempotency-redis"]["command"]
@@ -864,10 +874,12 @@ _TENANCY_ID = "  RPC_SERVICE_ID: tenancy\n"
             {
                 "compose/microservices.yml": (
                     _TENANCY_ID,
-                    _TENANCY_ID + "  CACHE_URL: redis://redis:6379/9\n",
+                    _TENANCY_ID
+                    + '  INFRA: \'{"cache": {"default": {"url": '
+                    + '"redis://redis:6379/9"}}}\'\n',
                 )
             },
-            "CACHE_URL differs between processes",
+            "INFRA differs between processes",
         ),
         (
             {
@@ -908,7 +920,7 @@ _TENANCY_ID = "  RPC_SERVICE_ID: tenancy\n"
         ),
     ],
     ids=[
-        "cache-url",
+        "infra",
         "internal-route",
         "issuer-only",
         "migrate",
@@ -922,6 +934,33 @@ def test_the_split_invariants_report_what_breaks_them(
 
     problems = profile_problems(_broken(tmp_path, edits)).problems
     assert any(expected in p and "SANDLOOM-T014" in p for p in problems), problems
+
+
+def test_a_service_broker_alone_may_differ_in_infra() -> None:
+    """Each service has its own Celery broker database inside the shared INFRA:
+    the comparison drops ``taskqueue.*.broker`` and nothing else (the ``infra``
+    case above is the profile-level bite: any other difference is reported)."""
+    from sandloom.core.testing.deploy_profile import _comparable
+
+    def infra(cache_db: int, broker_db: int | None) -> str:
+        body: dict[str, object] = {
+            "cache": {"default": {"url": f"redis://redis:6379/{cache_db}"}}
+        }
+        if broker_db is not None:
+            body["taskqueue"] = {
+                "default": {"broker": f"redis://redis:6379/{broker_db}"}
+            }
+        return json.dumps(body)
+
+    assert _comparable("INFRA", infra(0, 2)) == _comparable("INFRA", infra(0, 3))
+    assert _comparable("INFRA", infra(0, 2)) == _comparable("INFRA", infra(0, None))
+    assert _comparable("INFRA", infra(0, 2)) != _comparable("INFRA", infra(9, 2))
+    # Another taskqueue option is not the broker: it still counts.
+    tuned = json.loads(infra(0, 2))
+    tuned["taskqueue"]["default"]["concurrency"] = 8
+    assert _comparable("INFRA", json.dumps(tuned)) != _comparable(
+        "INFRA", infra(0, 2)
+    )
 
 
 @pytest.mark.parametrize(
@@ -1049,7 +1088,10 @@ def test_a_worker_check_service_does_not_consume_the_beats_tasks(
 ) -> None:
     from sandloom.core.testing.static_checks import periodic_beat_problems
 
-    env = {"SANDLOOM_MODULES": '["sandloom_tenancy"]', "BROKER_URL": "redis://b"}
+    env = {
+        "SANDLOOM_MODULES": '["sandloom_tenancy"]',
+        "INFRA": '{"taskqueue": {"default": {"broker": "redis://b"}}}',
+    }
     profile = tmp_path / "compose/microservices.yml"
     profile.parent.mkdir(parents=True)
     profile.write_text(

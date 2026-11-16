@@ -208,13 +208,49 @@ def write_state_env(ctx: Context, state: State) -> None:
     atomic_write(ctx.state_dir / STATE_ENV, "\n".join(lines) + "\n")
 
 
+def composition_selection(
+    ctx: Context, env_text: str
+) -> Mapping[str, Mapping[str, Mapping[str, object]]]:
+    """The driver selection (``DEFAULT_INFRA``) of the app's composition root:
+    which instances exist, so which ones get a Redis url. ``{}`` when the root
+    has no package or exports none (a checkout of the framework itself)."""
+    named, _ = _envfile.winning_assignment(env_text, "SANDLOOM_COMPOSITION_ROOT")
+    root = ctx.environ.get("SANDLOOM_COMPOSITION_ROOT") or named
+    name = (root or f"{ctx.identity.app}.asgi").partition(":")[0].strip()
+    from sandloom.core.composition import root_default_infra  # noqa: PLC0415 - cold: dev command - the settings module loads only when a url block is built
+
+    try:
+        return root_default_infra(name) or {}
+    except (ImportError, SyntaxError) as exc:
+        raise DevError(
+            f"cannot read DEFAULT_INFRA of the composition root {name!r}: {exc}. "
+            "Fix the import (or SANDLOOM_COMPOSITION_ROOT in .env), then run "
+            "`uv run sandloom dev up` again"
+        ) from exc
+
+
 def checkout_urls(ctx: Context, state: State, row: CheckoutRow) -> dict[str, str]:
+    """``DATABASE_URL`` and, when the composition has Redis instances, the
+    managed ``INFRA`` (JSON): the cache instances on this checkout's cache
+    index, every persistent one (security store, lease, event streams, Celery
+    broker) on its broker index, never on the cache's."""
     redis = ctx.redis(state)
-    return {
-        "DATABASE_URL": ctx.postgres(state).url(row.database),
-        "CACHE_URL": redis.url(row.cache_index),
-        "BROKER_URL": redis.url(row.broker_index),
-    }
+    urls = {"DATABASE_URL": ctx.postgres(state).url(row.database)}
+    try:
+        env_text = (Path(row.path) / _envfile.ENV_FILE).read_text(encoding="utf-8")
+    except OSError:
+        env_text = ""
+    bus, _ = _envfile.winning_assignment(env_text, "EVENT_BUS_BACKEND")
+    managed = _envfile.managed_infra(
+        composition_selection(ctx, env_text),
+        cache_url=redis.url(row.cache_index),
+        persistent_url=redis.url(row.broker_index),
+        memory_bus=(ctx.environ.get("EVENT_BUS_BACKEND") or bus).strip().lower()
+        == "memory",
+    )
+    if managed:
+        urls["INFRA"] = json.dumps(managed, separators=(",", ":"))
+    return urls
 
 
 def test_urls(ctx: Context, state: State, row: CheckoutRow) -> dict[str, str]:
@@ -290,7 +326,14 @@ def write_checkout_files(ctx: Context, state: State, row: CheckoutRow) -> list[s
     notes = []
     if _envfile.seed_env(root):
         notes.append(f"created {root / '.env'} from .env.example (fresh JWT_SECRET)")
-    if _envfile.write_env_block(root / ".env", checkout_urls(ctx, state, row)):
+    try:
+        wrote = _envfile.write_env_block(root / ".env", checkout_urls(ctx, state, row))
+    except _envfile.InvalidInfra as exc:
+        raise DevError(
+            f"{root / '.env'}: {exc}. `dev up` merges your INFRA into its block "
+            "and does not guess: fix that line, then run it again"
+        ) from exc
+    if wrote:
         notes.append(f"wrote the sandloom dev block of {root / '.env'}")
     if _envfile.write_test_local(root, test_urls(ctx, state, row)):
         notes.append(f"wrote {root / '.env.test.local'}")
@@ -579,9 +622,8 @@ def up(ctx: Context, options: UpOptions) -> int:
             f"this checkout uses its own database (DATABASE_URL={own} in .env, "
             "outside the sandloom dev block), whose schema comes from the "
             "models: `dev up` starts nothing for it and leaves .env as it is. "
-            "Serve the app with `uv run sandloom dev run` (CACHE_URL and "
-            "BROKER_URL in .env name your Redis); to use the dev services "
-            "instead, remove that line"
+            "Serve the app with `uv run sandloom dev run` (the INFRA in .env "
+            "names your Redis); to use the dev services instead, remove that line"
         )
     if _wants_external(ctx, options):
         return up_external(ctx, options)
@@ -998,6 +1040,17 @@ def _finish_up(ctx: Context, state: State, options: UpOptions) -> int:
     return 0
 
 
+def _infra_lines(urls: Mapping[str, str]) -> list[str]:
+    """One line per Redis instance of the managed ``INFRA`` of ``urls``."""
+    managed = json.loads(urls.get("INFRA") or "{}")
+    return [
+        f"           INFRA {capability}.{name} {option}={value}"
+        for capability, instances in managed.items()
+        for name, spec in instances.items()
+        for option, value in spec.items()
+    ]
+
+
 def _print_summary(
     ctx: Context, state: State, row: CheckoutRow, *, migrate: bool
 ) -> None:
@@ -1025,8 +1078,7 @@ def _print_summary(
             [
                 ctx.style.green(heading),
                 f"  app      DATABASE_URL={urls['DATABASE_URL']}",
-                f"           CACHE_URL={urls['CACHE_URL']}",
-                f"           BROKER_URL={urls['BROKER_URL']}",
+                *_infra_lines(urls),
                 "  tests    SANDLOOM_TEST_DATABASE_URL="
                 + tests["SANDLOOM_TEST_DATABASE_URL"],
                 f"  GUI      {gui}",
