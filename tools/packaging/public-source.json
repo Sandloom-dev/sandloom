@@ -2561,6 +2561,7 @@
         "tests/architecture/test_commit_pipeline.py",
         "tests/architecture/test_contract_methods_no_session.py",
         "tests/architecture/test_core_kernel_layering.py",
+        "tests/architecture/test_default_infra_copies.py",
         "tests/architecture/test_distribution_imports.py",
         "tests/architecture/test_docs_generated.py",
         "tests/architecture/test_driverkit_import_contract.py",

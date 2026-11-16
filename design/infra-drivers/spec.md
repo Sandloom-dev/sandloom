@@ -1,3 +1,4 @@
+<!-- agent-reference: index -->
 # Spec: kernel ports and driver contracts, per capability
 
 Status: **written for `idk-adr`, 2026-11-14**, against `design.md` at `9330edfe` (all nine owner
@@ -43,7 +44,7 @@ different capabilities do not share a file (the exceptions are listed in the las
 | one capability's kit | `src/sandloom/driverkit/kits/<capability>.py` | `<Capability>Conformance`; the shared harness is `driverkit/kits/_harness.py` |
 | public kit names | `src/sandloom/driverkit/testing.py` | the only import path for kits (pinned in the API baseline); resolves names lazily from a table, see below |
 | built-in drivers until the split | `src/sandloom/core/drivers/<backend>_<capability>.py` | `redis_atomic_store.py`, `memory_lease.py`, `database_lease.py`, `database_atomic_store.py`, `celery_worker.py`, … |
-| built-in drivers after the split | `packages/sandloom-redis/src/sandloom_redis/<capability>.py`, `packages/sandloom-celery/src/sandloom_celery/<capability>.py` | slices 17 and 18 move the files whole |
+| built-in drivers after the split | `packages/sandloom-redis/src/sandloom_redis/<capability>.py`, `packages/sandloom-celery/src/sandloom_celery/<capability>.py`; for `eventbus` the package `packages/sandloom-redis/src/sandloom_redis/eventbus/` (`driver.py` and the four `streams_*.py` files) | slices 17 and 18 move the files whole |
 | tables of the `database` drivers | `src/sandloom/core/sql_alchemy/models/<table>.py`, a revision in the core chain `migrations/core/versions/`, the table name in the owned set of `migrations/core/env.py` | `idk-lease` (`infra_lease`), `idk-atomic-store-db` (`infra_atomic_store`) |
 | shared by several slices | `core/infra/capabilities.py`, `core/drivers/bootstrap.py`, `core/infra/access.py`, `core/infra/registry.py`, `core/infra/ports/__init__.py`, `driverkit/testing.py` | touched once by `idk-foundation`, see "Registry files" below |
 
@@ -223,7 +224,8 @@ class ProviderLifecycle(Protocol):
 - **`isolation_identity`.** An opaque string naming the failure and eviction domain of the backing
   store: two instances with the same identity share eviction and memory. It starts with the driver
   name and a colon, so two drivers never collide: Redis `redis:<run_id>` from `INFO server` (today
-  `RedisCache.deployment_identity`, `redis_cache.py:775`); database `database:<system
+  `RedisCache.deployment_identity`, `redis_cache.py:775`), Streams event bus `streams:<run_id>`
+  (the same `run_id`, behind the driver name; 13, item 47); database `database:<system
   identifier>/<database name>`; `memory` `memory:<per-process id>`; other capabilities name their
   backing store the same way (`smtp:<host>:<port>`, `s3:<endpoint>/<bucket>`). It carries no
   credential. The ABC default is `None` (unknown), which fails the kit and fails attestation
@@ -278,7 +280,8 @@ capability's own:
    registration, 2.5);
 6. `isolation_identity()`: two providers built from the same options, and one built under another
    instance name with the same driver and options, return equal, non-`None` identities, each
-   starting with `<driver>:` (the identity names the backing store, not the instance);
+   starting with `<driver>:` (the identity names the backing store, not the instance: `redis:<run_id>`,
+   `streams:<run_id>`, `sqlalchemy:<hash>`);
 7. each feature group runs only when the feature is declared, and a declared-absent behaviour
    feature raises `Unsupported(feature)` from its call;
 8. the error-mapping group: a provider built to fail (the kit's `make_failing_provider` fixture,
@@ -652,9 +655,9 @@ raise `Unavailable` and a resubscribe works after it.
 `probe_transport_capabilities` (`core/eventing/transport_capabilities.py:33-104`), the bus flags
 read with `getattr` (`core/eventing/bus_base.py:88-102`: `durable`, `in_process`,
 `supports_batch_publish`, `supports_prevalidated`, `native_batch_publish`), and the methods only the
-Streams transport has (`streams_groups.py:213` `stream_info`, :293 `group_owner`, :304
-`release_group_owner`, :394 `forget_consumer`; `streams_consume.py:544-584` `renew_pending`, :614
-`stats`). The bus logic above the transport stays kernel code: `streams_bus`, `streams_dispatch`,
+Streams transport has (in `packages/sandloom-redis/src/sandloom_redis/eventbus/`:
+`streams_groups.py` `stream_info`, `group_owner`, `release_group_owner`, `forget_consumer`;
+`streams_consume.py` `renew_pending`, `stats`). The bus logic above the transport stays kernel code: `streams_bus`, `streams_dispatch`,
 `streams_inventory`, `streams_lease`, schema validation and payload limits.
 
 **Drivers and the bus.** The `eventbus` capability keeps its user-facing driver names:
@@ -681,8 +684,9 @@ and `features()`. What differs is what the kernel builds over it:
 The in-memory transport (`memory_transport.py`, `MemoryTransport`) is the kit's reference transport
 and the test harness's, not an `INFRA` choice.
 
-**Feature vocabulary.** The features of today's `EVENTBUS_CAPABILITY` (`core/infra/capabilities.py:213-231`)
-and `EVENTBUS_DRIVER_FEATURES` (`core/drivers/event_bus_driver.py:119-129`) map as below. Feature
+**Feature vocabulary.** The features of `EVENTBUS_CAPABILITY` (`core/infra/ports/eventbus.py`)
+and of the Streams driver's `supported_features`
+(`packages/sandloom-redis/src/sandloom_redis/eventbus/streams_transport.py`) map as below. Feature
 names a module declares in `CapabilityRequirement("eventbus", features=...)` are public API: a
 removed name is refused at load like any undefined feature (`registry.py:992-998`), and
 `EVENTBUS_CAPABILITY` carries a rename table so the refusal's fix names the replacement. Upgrade
@@ -696,7 +700,7 @@ note in `idk-eventbus-contract`, no alias.
 | `durable` | `durable` | guarantee | unchanged name; `app_factory/__init__.py:408` keeps refusing a production bus without it |
 | `at_least_once` | removed, use `durable` | | every transport delivers at least once (Semantics below), and only transports declare `durable` |
 | `consumer_groups` | removed, use `durable` | | groups are required operations of every transport |
-| `wildcard_subscribe` | `wildcard_subscribe` | behaviour | volatile-bus shape only: a `prefix.*` subscription; `memory` declares it, `redis` declares it and refuses at `aopen` a `broadcast` instance without `pattern_subscribe`; no transport declares it (`streams_bus.py:261` refuses it today) |
+| `wildcard_subscribe` | `wildcard_subscribe` | behaviour | volatile-bus shape only: a `prefix.*` subscription; `memory` declares it, `redis` declares it and refuses at `aopen` a `broadcast` instance without `pattern_subscribe`; no transport declares it (`core/eventing/streams_bus.py` refuses it) |
 | (new) | `shared`, `blocking_consume`, `group_start_id`, `lease_renewal`, `dlq_ops`, `inspection`, `inventory` | see the table below | transport shape |
 
 ```python
@@ -767,7 +771,7 @@ class EventTransportProvider(InfraProvider, EventTransport):
 ```
 
 `DeadLetter`, `GroupInfo`, `StreamInfo` and `ConsumerInfo` are frozen dataclasses with the fields
-the `dict`s carry today (`streams_transport.py:166`, `streams_groups.py:189,213,361`); `idk-eventbus-contract`
+the `dict`s carried (`sandloom_redis/eventbus/streams_transport.py`, `streams_groups.py`); `idk-eventbus-contract`
 writes them from those. `oldest_unacked_age_seconds` drops the `last_delivered_id`, `pending` and
 `lag` hints of `transport_base.py:245-253`: the transport reads them itself.
 
@@ -797,7 +801,7 @@ writes them from those. `oldest_unacked_age_seconds` drops the `last_delivered_i
   (they are tiered at `tiers.py:506-509`), with upgrade notes and no alias (design section 5: flat
   settings become driver options). Every reader moves to `retention()` or the options:
   `core/guarantee_windows.py:93`, `core/projections/operations.py:139`, the settings fallback of
-  `streams_transport_base.py:107-112`, and the deploy-profile list `core/testing/deploy_profile.py:80-81`.
+  `sandloom_redis/eventbus/streams_transport_base.py`, and the deploy-profile list `core/testing/deploy_profile.py:80-81`.
   `idk-eventbus-contract` adds the options and `retention()` and moves the three code readers;
   `idk-config-defaults` removes the two settings with the other flat settings (until then
   `core/infra/config.py` fills the options from them, as it does for `CACHE_URL`).
@@ -1270,7 +1274,7 @@ For the orchestrator's review; each departs from or details `design.md`.
 16. **Retention becomes `streams` driver options**, reported by `retention()` on the transport.
     `EVENT_STREAM_RETENTION_SECONDS` and `EVENT_STREAM_MAXLEN` are removed in one step (design
     section 5, the same rule as the flat connection settings), and their readers
-    (`guarantee_windows.py:93`, `projections/operations.py:139`, `streams_transport_base.py:107-112`)
+    (`guarantee_windows.py:93`, `projections/operations.py:139`, `sandloom_redis/eventbus/streams_transport_base.py`)
     move to `retention()` or the options.
 17. **Task API shape.** Sync **and** async task functions (Django 6, accepted by the owner; no
     refusal of sync functions), one pydantic payload or none; names derived as today,
@@ -1427,6 +1431,17 @@ For the orchestrator's review; each departs from or details `design.md`.
     `test_celery_error_mapping` (the kernel enqueue
     layer over the driver) and `test_beat_lease` (the kernel's lease resolution and the Celery
     holder over one fake store).
+47. **The Streams event bus's `isolation_identity` is `streams:<run_id>`**
+    (`idk-pkg-redis-streams`): the driver-name prefix of 2.4, then the `run_id` of the reached
+    Redis server from `INFO server`, as the other Redis drivers read it
+    (`StreamsEventBusProvider.isolation_identity`,
+    `packages/sandloom-redis/src/sandloom_redis/eventbus/driver.py`). The provider is built by
+    `StreamsEventBusProvider.from_config` through the registry; the kernel's bootstrap builds
+    none (it keeps no `eventbus.streams` row, item 45). Two consequences for a later attestation:
+    the cache, `atomic_store` and the event bus on one Redis answer `redis:<run_id>` and
+    `streams:<run_id>`, equal strings never, so an attestation that puts the event bus in one
+    failure domain with `cache` or `atomic_store` on the same Redis (shared eviction and memory)
+    must compare the `run_id` part after the driver prefix, not the whole string.
 
 ## 14. Open for the owner
 
