@@ -300,17 +300,42 @@ def _stale_sites(rel: str, sites: dict[str, int]) -> list[str]:
     ]
 
 
+def _stale_entries(root: Path) -> list[str]:
+    """Every stale problem of ``SEEDED``, one line each: a file that is gone (its
+    entries all go) or a site count the scan no longer finds."""
+    stale: list[str] = []
+    for rel in sorted({rel for rel, _ in SEEDED}):
+        path = root / rel
+        if not path.is_file():
+            stale.append(f"{rel}: file is gone, drop its entries")
+            continue
+        stale.extend(
+            f"{rel}: {problem}"
+            for problem in _stale_sites(rel, _constructor_sites(path))
+        )
+    return stale
+
+
 def test_no_seeded_entry_is_stale() -> None:
     """Every entry matches the scan exactly: the commit that removes a site
     drops or lowers its entry."""
-    stale = [
-        f"{rel}: {problem}"
-        for rel in sorted({rel for rel, _ in SEEDED})
-        for problem in _stale_sites(rel, _constructor_sites(SANDLOOM_ROOT / rel))
-    ]
+    stale = _stale_entries(SANDLOOM_ROOT)
     assert stale == [], "stale SEEDED entries (lower or drop them):\n" + "\n".join(
         stale
     )
+
+
+def test_a_seeded_file_that_is_gone_is_reported_as_stale(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A deleted file used to raise a bare ``FileNotFoundError`` from the scan."""
+    monkeypatch.setitem(SEEDED, ("core/gone.py", "psycopg2.connect"), (1, "stays: x"))
+    assert "core/gone.py: file is gone, drop its entries" in _stale_entries(tmp_path)
+    (tmp_path / "core").mkdir()
+    (tmp_path / "core" / "gone.py").write_text("x = 1\n")  # present, no site left
+    assert [
+        line for line in _stale_entries(tmp_path) if line.startswith("core/gone.py")
+    ] == ["core/gone.py: psycopg2.connect(...) listed x1, found x0"]
 
 
 def test_every_seeded_entry_says_why_it_stays() -> None:

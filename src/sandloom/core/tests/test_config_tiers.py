@@ -22,6 +22,7 @@ import pytest
 from sandloom.core.cli import doctor
 from sandloom.core.config import accepted_risks, tiers
 from sandloom.core.config.settings import Settings
+from sandloom.core.drivers.smtp_notifier import NotifierOptions, SmtpNotifierOptions
 
 _STRONG = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
 _BASE = {
@@ -260,6 +261,16 @@ def test_smtp_tls_off_is_an_override_in_every_profile(
 )
 def test_smtp_tls_left_on_or_unset_is_no_override(infra: dict[str, Any]) -> None:
     assert tiers.active_overrides(_settings(ENVIRONMENT="prod", INFRA=infra)) == []
+
+
+def test_the_unset_tls_default_is_the_smtp_drivers_own() -> None:
+    """``_INFRA_OPTION_UNSET`` repeats the smtp driver's ``use_tls`` default: the
+    override report would call a driver default an override (or hide a weakening)
+    if the two drifted. Read from the driver's options class, not copied."""
+    unset = tiers._INFRA_OPTION_UNSET["notification.use_tls"]
+    assert isinstance(unset, bool)
+    for options in (NotifierOptions, SmtpNotifierOptions):
+        assert options.model_fields["use_tls"].default is unset
 
 
 def test_smtp_tls_off_in_the_composition_selection_is_an_override(

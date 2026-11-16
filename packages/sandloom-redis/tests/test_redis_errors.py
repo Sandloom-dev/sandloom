@@ -257,6 +257,58 @@ def test_the_helper_table(
     assert (mapped.capability, mapped.instance) == ("cache", "x")
 
 
+REDIRECT_IDS = {"MOVED", "ASK", "MovedError", "AskError"}
+
+
+@pytest.mark.parametrize("driver", DRIVERS)
+@pytest.mark.parametrize(("_id", "make", "expected"), ROWS, ids=IDS)
+async def test_only_a_cluster_redirect_carries_the_hint(
+    driver: str, _id: str, make: Callable[[], BaseException], expected: type[InfraError]
+) -> None:
+    """The relay's log line says "is the client cluster-aware?" for ``MOVED`` /
+    ``ASK`` (by text or by the cluster client's class), for no other error, and
+    the fixed sentence never holds the address of the reply."""
+    mapped = await DRIVERS[driver](make())
+    assert isinstance(mapped, InfraError)
+    if _id in REDIRECT_IDS:
+        assert mapped.hint == "cluster redirect: is the client cluster-aware?"
+        assert "10.0.0.1" not in mapped.hint and "3999" not in mapped.hint
+    else:
+        assert mapped.hint is None
+
+
+def test_the_mapping_works_on_a_kernel_whose_infra_error_has_no_hint_keyword(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The package pins an older kernel (``sandloom>=0.7.0a13``): ``InfraError``
+    there rejects ``hint=``, and a ``TypeError`` out of the mapping would reach
+    the relay as poison on an outage. The hint is set as an attribute."""
+
+    def old_init(
+        self: InfraError, message: str, *, capability: str, instance: str | None = None
+    ) -> None:
+        self.capability = capability
+        self.instance = instance
+        Exception.__init__(self, message)
+
+    monkeypatch.setattr(InfraError, "__init__", old_init)
+    with pytest.raises(TypeError):  # the stand-in really rejects the keyword
+        InfraError("x", capability="cache", hint="h")  # type: ignore[call-arg]
+    moved = map_redis_error(
+        rx.ResponseError("MOVED 3999 10.0.0.1:6379"),
+        capability="cache",
+        instance="x",
+        what="op",
+    )
+    assert type(moved) is Unavailable
+    assert moved.hint == "cluster redirect: is the client cluster-aware?"
+    plain = map_redis_error(
+        rx.ConnectionError("down"), capability="cache", instance="x", what="op"
+    )
+    assert type(plain) is Unavailable
+    assert not hasattr(plain, "hint")
+
+
 def test_only_the_named_replies_are_outages() -> None:
     """An allow-list: a reply that is not named is NOT retryable."""
     retryable = {name for name, make, kind in ROWS if kind.retryable and name.isupper()}
