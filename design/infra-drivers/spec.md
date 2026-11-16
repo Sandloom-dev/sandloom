@@ -1468,10 +1468,35 @@ For the orchestrator's review; each departs from or details `design.md`.
       have no such option, so nothing is configured. Deviation: a driver whose package is not
       installed in the tool process answers `None` (it was seven days for `streams`), and a
       volatile bus that states `retention_seconds` (refused at startup) answers that value.
-    - **Left as it was.** `_fill_beat_lease_url` in `sandloom.core.drivers.bootstrap` still gives a
-      `redis` lease the `CACHE_URL`; the synthesized task-queue instance still carries
-      `BROKER_URL` and `CACHE_URL` (`_synthesize_defaults`, no driver named). Removing the flat
-      settings stays the later step of ADR-0016.
+      Review batch 4: `configured_stream_retention` answers a `ConfiguredRetention` (`seconds`,
+      and a `reason` when `seconds` is `None`), so the refusals of `sandloom outbox purge` and the
+      inbox-window problem say why: a driver package missing here names the package and its
+      install command (`KNOWN_DRIVER_PACKAGES`, reached by name from the infra layer), and a
+      package installed but failing to load is a reason, not an error out of a read-only probe
+      (only `DriverLoadError` and `DriverConflictError` are caught). `_seconds` stays as the
+      `seconds` of it.
+    - **What a fill may name.** `SettingsFill` refuses, when built, a setting outside
+      `FILLABLE_SETTINGS`: the `CacheConfig` fields (`cache_url`, `broker_url`, the `cache_*`
+      bounds) and `health_check_timeout_seconds`. A driver reads no kernel setting (ADR-0016): a
+      secret such as `jwt_secret`, or a typo, fails at import of the driver instead of copying a
+      secret into options or leaving an option unfilled.
+    - **The lease is one more driver.** The `redis` lease declares `LEASE_FILL` like the four
+      others; the kernel's `_fill_beat_lease_url` is gone, so an explicit `config` is filled for
+      every driver alike (only with `fill_from_settings=True`), and `build_infra_registry` treats
+      `config={}` as given, not as absent.
+    - **Tools fill too.** `sandloom backup plan` reads `filled_infra_config`
+      (`sandloom.core.infra.tool_infra`): the configuration with each driver's fill applied
+      (built-in rows and the entry points the configuration selects, nothing validated or built),
+      so the Redis targets of `CACHE_URL` and `BROKER_URL` are listed again.
+    - **The resolved selection.** `resolved_instances(settings, capability)` is the composition's
+      selection under the flat selector and `INFRA`. The override report
+      (`config/tiers.py`) and the strict profile read `notification.use_tls` from it, so a
+      composition pin with `use_tls: false` counts. Under `multi_tenant_strict` in production
+      `use_tls: false` refuses the start (`production_profile.config_problems`), with no accepted
+      risk: nothing weaker is admitted there.
+    - **Left as it was.** The synthesized task-queue instance still carries `BROKER_URL` and
+      `CACHE_URL` (`_synthesize_defaults`, no driver named). Removing the flat settings stays the
+      later step of ADR-0016.
 
 ## 14. Open for the owner
 
