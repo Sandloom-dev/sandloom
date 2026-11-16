@@ -3852,6 +3852,7 @@
         "make_provider",
         "make_renamed_provider",
         "operation_calls",
+        "pass_time",
         "protocol",
         "provider",
         "pytestmark",

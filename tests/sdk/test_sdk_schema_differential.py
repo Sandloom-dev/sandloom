@@ -44,6 +44,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 import pytest
+from _hypothesis_profile import examples
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from pydantic import (
@@ -744,7 +745,7 @@ def _chained(draw: st.DrawFn) -> tuple[Schema, Schema]:
 
 
 @settings(
-    max_examples=300,
+    max_examples=examples(300),
     derandomize=True,
     deadline=None,
     database=None,

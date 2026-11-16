@@ -239,6 +239,12 @@ workflows. It does not publish or deploy anything. Review every called job's
 result on the exact release commit before releasing; fix failures, do not
 interpret skips or an older green PR run as a completed release gate.
 
+The full workflow also runs every Hypothesis property with all of its examples
+(`HYPOTHESIS_PROFILE=full`, set by `ci.yml` for a full validation). A pull request
+and a local run use the `ci` profile, a quarter of each count (at least 20).
+A test names its full count through `examples(400)` of `tests/_hypothesis_profile.py`,
+and `tests/conftest.py` loads the profile.
+
 The full workflow remains opt-in. Data extraction has no nightly schedule;
 it can also be requested manually or with the `extraction-e2e` PR label.
 Comparative load benchmarks retain their explicit manual/label opt-in.

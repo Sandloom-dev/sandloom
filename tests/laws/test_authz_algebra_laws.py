@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
+from _hypothesis_profile import examples
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -191,7 +192,7 @@ def _extend(children: st.SearchStrategy[Tree]) -> st.SearchStrategy[Tree]:
 
 trees: st.SearchStrategy[Tree] = st.recursive(atom(), _extend, max_leaves=10)
 
-LAWS = settings(max_examples=400, deadline=None)
+LAWS = settings(max_examples=examples(400), deadline=None)
 
 
 # --------------------------------------------------------------------------- #

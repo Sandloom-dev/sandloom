@@ -27,6 +27,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 import msgpack
+from _hypothesis_profile import examples
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from pydantic import BaseModel
@@ -40,7 +41,7 @@ from sandloom.core.contract_wire import (
     wire_plan,
 )
 
-LAWS = settings(max_examples=300, deadline=None)
+LAWS = settings(max_examples=examples(300), deadline=None)
 
 
 class Color(Enum):
