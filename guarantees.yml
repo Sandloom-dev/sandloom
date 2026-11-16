@@ -1523,9 +1523,11 @@ guarantees:
   - docs/modules/background/tasks.md
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
-  - src/sandloom/core/tests/test_enqueue_deduplication.py::test_successful_retries_publish_one_real_message
-  - src/sandloom/core/tests/test_enqueue_deduplication.py::test_parallel_retries_never_publish_twice
-  - src/sandloom/core/tests/test_enqueue_deduplication.py::test_replay_window_expires_on_real_redis
+  - src/sandloom/core/tests/test_enqueue_deduplication.py::test_retries_with_the_key_send_one_message
+  - src/sandloom/core/tests/test_enqueue_deduplication.py::test_parallel_retries_send_one_message
+  - packages/sandloom-celery/tests/test_celery_enqueue_deduplication.py::test_successful_retries_publish_one_real_message
+  - packages/sandloom-celery/tests/test_celery_enqueue_deduplication.py::test_parallel_retries_never_publish_twice
+  - packages/sandloom-celery/tests/test_celery_enqueue_deduplication.py::test_replay_window_expires_on_real_redis
   - src/sandloom/core/tests/test_enqueue_deduplication.py::test_lost_finalize_ack_keeps_the_original_id_on_retry
 - id: G-TASK-02
   rests_on:
@@ -1562,9 +1564,10 @@ guarantees:
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - src/sandloom/core/tests/test_enqueue_deduplication.py::test_unavailable_store_prevents_publish
-  - src/sandloom/core/tests/test_enqueue_deduplication.py::test_uncertain_broker_ack_is_not_republished
-  - src/sandloom/core/tests/test_enqueue_deduplication.py::test_ambiguous_send_error_still_keeps_the_key_pending
-  - src/sandloom/core/tests/test_enqueue_deduplication.py::test_deterministic_send_error_releases_the_reservation
+  - src/sandloom/core/tests/test_enqueue_deduplication.py::test_an_ambiguous_driver_error_keeps_the_key_pending
+  - packages/sandloom-celery/tests/test_celery_enqueue_deduplication.py::test_uncertain_broker_ack_is_not_republished
+  - packages/sandloom-celery/tests/test_celery_enqueue_deduplication.py::test_ambiguous_send_error_still_keeps_the_key_pending
+  - packages/sandloom-celery/tests/test_celery_enqueue_deduplication.py::test_deterministic_send_error_releases_the_reservation
 - id: G-TASK-04
   rests_on:
   - capability: taskqueue
@@ -5068,7 +5071,8 @@ guarantees:
   - src/sandloom/core/tests/test_module_capability_derivation.py::test_an_undeclared_derived_capability_is_required
   - src/sandloom/core/tests/test_module_capability_derivation.py::test_a_declaration_keeps_required_and_instance
   - src/sandloom/core/tests/test_module_capability_derivation.py::test_bundled_modules_need_what_the_decision_says
-  - src/sandloom/core/tests/test_module_capability_derivation.py::test_periodic_is_a_taskqueue_feature_only_celery_advertises
+  - src/sandloom/core/tests/test_module_capability_derivation.py::test_periodic_is_a_taskqueue_capability_feature
+  - packages/sandloom-celery/tests/test_celery_features.py::test_celery_advertises_periodic_and_only_capability_features
   - src/sandloom/core/tests/test_module_capability_derivation.py::test_a_send_only_driver_cannot_serve_a_periodic_task
   - src/sandloom/core/tests/test_module_capability_derivation.py::test_the_c033_analyzer
   - tests/integration/module_subsets/test_module_subsets_infrastructure.py::test_a_taskqueue_driver_without_periodic_refuses_billing
@@ -5686,9 +5690,9 @@ guarantees:
   - docs/modules/background/tasks.md
   - deploy/README.md#Background work (Celery worker + beat)
   tests:
-  - src/sandloom/core/tests/test_beat_lease.py::test_second_beat_stands_by_and_takes_over_after_release
-  - src/sandloom/core/tests/test_beat_lease.py::test_a_holder_that_lost_its_token_stops_scheduling_at_once
-  - src/sandloom/core/tests/test_beat_lease.py::test_cache_outage_keeps_scheduling_only_until_the_local_deadline
+  - packages/sandloom-celery/tests/test_celery_beat_lease.py::test_second_beat_stands_by_and_takes_over_after_release
+  - packages/sandloom-celery/tests/test_celery_beat_lease.py::test_a_holder_that_lost_its_token_stops_scheduling_at_once
+  - packages/sandloom-celery/tests/test_celery_beat_lease.py::test_cache_outage_keeps_scheduling_only_until_the_local_deadline
   - src/sandloom/core/tests/test_beat_lease.py::test_beat_refuses_to_start_on_a_lease_that_is_not_shared_in_production
   - src/sandloom/core/tests/test_beat_lease.py::test_the_scheduler_holds_the_lease_the_kernel_resolved
   - packages/sandloom-celery/tests/test_celery_slots.py::test_ten_minutely_slots_are_sent_once_each_under_one_lease_name
@@ -5703,7 +5707,7 @@ guarantees:
   - src/sandloom/core/tests/test_driverkit_periodic.py::test_ten_minutely_slots_create_one_lease_name_in_memory
   - packages/sandloom-redis/tests/test_redis_periodic_slots.py::test_ten_minutely_slots_create_one_lease_name_on_redis
   - src/sandloom/core/tests/test_driverkit_periodic.py::test_ten_minutely_slots_create_one_lease_row_in_a_database
-  - src/sandloom/core/tests/test_periodic_dedupe.py::test_two_schedulers_share_one_slot_on_real_redis
+  - packages/sandloom-celery/tests/test_celery_periodic_dedupe.py::test_two_schedulers_share_one_slot_on_real_redis
 - id: G-OPS-02
   statement: /health and /ready answer 503 when degraded; public callers see check statuses only (details
     and /ready topology need X-Internal-Token) and results are cached for HEALTH_CACHE_TTL_SECONDS.
@@ -5744,10 +5748,10 @@ guarantees:
   - docs/operate/topologies.md
   - deploy/README.md#Background work (Celery worker + beat)
   tests:
-  - src/sandloom/core/tests/test_worker_port.py::test_heartbeat_freshness
+  - packages/sandloom-celery/tests/test_celery_worker_host.py::test_heartbeat_freshness
   - src/sandloom/core/tests/test_cli_worker.py::test_check_follows_the_heartbeat
-  - src/sandloom/core/tests/test_worker_port.py::test_heartbeat_step_runs_on_the_worker_timer
-  - src/sandloom/core/tests/test_worker_port.py::test_check_follows_the_heartbeat_and_names_no_broker
+  - packages/sandloom-celery/tests/test_celery_worker_host.py::test_heartbeat_step_runs_on_the_worker_timer
+  - packages/sandloom-celery/tests/test_celery_worker_host.py::test_check_follows_the_heartbeat_and_names_no_broker
   - src/sandloom/core/tests/test_deploy_profiles.py::test_workers_are_sized_and_health_checked
 - id: G-OPS-06
   statement: Under gunicorn exactly one elected worker runs the outbox relay and the others are `delegated`;
@@ -5956,14 +5960,14 @@ guarantees:
   - docs/operate/operator-reference.md#Observability
   - design/kernel-boundary/owner-decision-infra-deps.md
   tests:
-  - src/sandloom/core/tests/test_ready_taskqueue.py::test_ready_fails_naming_the_taskqueue_when_its_broker_is_down
+  - packages/sandloom-celery/tests/test_celery_ready_taskqueue.py::test_ready_fails_naming_the_taskqueue_when_its_broker_is_down
   - src/sandloom/core/tests/test_ready_taskqueue.py::test_ready_fails_when_the_driver_cannot_open
-  - src/sandloom/core/tests/test_ready_taskqueue.py::test_a_periodic_only_module_keeps_the_web_process_ready_on_a_broker_outage
-  - src/sandloom/core/tests/test_ready_taskqueue.py::test_a_request_path_module_beside_a_periodic_one_still_gates
+  - packages/sandloom-celery/tests/test_celery_ready_taskqueue.py::test_a_periodic_only_module_keeps_the_web_process_ready_on_a_broker_outage
+  - packages/sandloom-celery/tests/test_celery_ready_taskqueue.py::test_a_request_path_module_beside_a_periodic_one_still_gates
   - src/sandloom/core/tests/test_ready_taskqueue.py::test_the_taskqueue_is_not_probed_without_a_required_requirement
-  - src/sandloom/core/tests/test_ready_taskqueue.py::test_health_never_fails_on_the_taskqueue
+  - packages/sandloom-celery/tests/test_celery_ready_taskqueue.py::test_health_never_fails_on_the_taskqueue
   - src/sandloom/core/tests/test_ready_taskqueue.py::test_the_taskqueue_probe_is_cached_like_the_other_readiness_probes
-  - src/sandloom/core/tests/test_ready_taskqueue.py::test_one_broker_connection_per_ttl_however_many_ready_hits
+  - packages/sandloom-celery/tests/test_celery_ready_taskqueue.py::test_one_broker_connection_per_ttl_however_many_ready_hits
   - packages/sandloom-celery/tests/test_celery_taskqueue_health.py::test_an_unreachable_broker_fails_without_naming_it
   - packages/sandloom-celery/tests/test_celery_taskqueue_health.py::test_a_client_error_that_prints_the_url_does_not_reach_the_message
   - packages/sandloom-celery/tests/test_celery_taskqueue_health.py::test_a_hanging_broker_is_bounded_by_the_timeout
@@ -7945,8 +7949,8 @@ capabilities:
   - deploy/README.md#Background work (Celery worker + beat)
   tests:
   - src/sandloom/core/tests/test_beat_lease.py::test_lease_scope_separates_services_and_shares_replicas
-  - src/sandloom/core/tests/test_beat_lease.py::test_beat_init_wraps_the_scheduler_of_this_app_only
-  - src/sandloom/core/tests/test_beat_lease.py::test_two_leases_on_real_redis
+  - packages/sandloom-celery/tests/test_celery_beat_lease.py::test_beat_init_wraps_the_scheduler_of_this_app_only
+  - packages/sandloom-celery/tests/test_celery_beat_lease.py::test_two_leases_on_real_redis
   - src/sandloom/core/tests/test_worker.py::test_worker_boot_runs_tenant_rls_role_verification
 
 # A removal record (the entry moves here; its id is never reused):

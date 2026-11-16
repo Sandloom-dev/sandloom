@@ -76,7 +76,7 @@ class CeleryTaskQueueOptions(BaseModel):
     broker: str | None = None
     backend: str | None = None
     #: The kernel's record TTL (``RECORD_TTL_SECONDS``, one day), written out:
-    #: the driver imports no kernel module (test_replay_limits keeps them equal).
+    #: the driver imports no kernel module (test_celery_replay_limits keeps them equal).
     dedupe_ttl_seconds: int = Field(default=24 * 60 * 60, ge=1, le=604800)
     #: The bound of the broker probe behind ``health()`` (connect and socket
     #: timeouts included); the kernel fills it from ``HEALTH_CHECK_TIMEOUT_SECONDS``

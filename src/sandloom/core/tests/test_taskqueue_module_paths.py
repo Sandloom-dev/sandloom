@@ -17,17 +17,31 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
-from sandloom_celery.taskqueue import CeleryTaskQueueProvider
 
 from sandloom.core import di
-from sandloom.core.drivers.bootstrap import build_infra_registry
+from sandloom.core.drivers.bootstrap import register_builtin_drivers
 from sandloom.core.facade import CoreFacade
 from sandloom.core.infra.active import use_infra
 from sandloom.core.infra.capabilities import CapabilityRef
 from sandloom.core.infra.config import InstanceConfig
+from sandloom.core.infra.ports.taskqueue import TaskQueueProvider
+from sandloom.core.infra.registry import InfraRegistry
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.tasks.queue import KernelTaskQueue
 from sandloom.sdk import infra as sdk_infra
+
+
+class _StubQueue(TaskQueueProvider):
+    """A task-queue driver the kernel never heard of: it sends nothing."""
+
+    contract_version = 2
+    supported_features = frozenset({"delay"})
+
+    def worker_host(self) -> Any:
+        raise NotImplementedError
+
+    async def send(self, *args: Any, **kwargs: Any) -> str:
+        return "id"
 
 
 @pytest.fixture
@@ -40,20 +54,16 @@ def core() -> Any:
         },
         "taskqueue": {
             "default": InstanceConfig(
-                capability="taskqueue",
-                name="default",
-                driver="celery",
-                options={"broker": "memory://"},
+                capability="taskqueue", name="default", driver="stub"
             ),
-            "side": InstanceConfig(
-                capability="taskqueue",
-                name="side",
-                driver="celery",
-                options={"broker": "memory://"},
-            ),
+            "side": InstanceConfig(capability="taskqueue", name="side", driver="stub"),
         },
     }
-    registry = build_infra_registry(InMemorySchemaRegistry(), config=cfg)
+    registry = InfraRegistry(strict_capabilities=True)
+    register_builtin_drivers(registry, InMemorySchemaRegistry())
+    registry.register_driver("taskqueue", "stub", _StubQueue)
+    registry.set_config(cfg)
+    registry.validate()
     facade = CoreFacade(app=FastAPI())
     facade.set_infra(registry)
     with use_infra(registry):
@@ -67,8 +77,8 @@ def _wrapped(queue: object, name: str = "default") -> None:
 
 def test_the_kernel_facade_keeps_the_provider(core) -> None:
     # The kernel's own facade (the worker) is not module-facing.
-    assert isinstance(core.taskqueue(), CeleryTaskQueueProvider)
-    assert isinstance(core.capability("taskqueue"), CeleryTaskQueueProvider)
+    assert isinstance(core.taskqueue(), _StubQueue)
+    assert isinstance(core.capability("taskqueue"), _StubQueue)
 
 
 def test_core_runtime_taskqueue_and_capability(core) -> None:

@@ -1104,9 +1104,12 @@ def _pending_tree(
     sources: dict[str, str] | None = None,
 ) -> str:
     (root / "tools/ci").mkdir(parents=True)
-    (root / "tools/ci/no_redis.py").write_text(
-        (ROOT / "tools/ci/no_redis.py").read_text(encoding="utf-8"), encoding="utf-8"
-    )
+    # The real tool with fixed ceilings: the repository's own go down to 0 as
+    # tests leave the pending list, and these cases test the hook, not them.
+    tool = (ROOT / "tools/ci/no_redis.py").read_text(encoding="utf-8")
+    tool = re.sub(r"(?m)^CEILING_FILES = \d+$", "CEILING_FILES = 5", tool)
+    tool = re.sub(r"(?m)^CEILING_TESTS = \d+$", "CEILING_TESTS = 100", tool)
+    (root / "tools/ci/no_redis.py").write_text(tool, encoding="utf-8")
     pending = {"files": {"why": list(files)}, "tests": {"why": list(tests)}}
     (root / "tools/ci/no_redis_pending.json").write_text(json.dumps(pending))
     for rel, text in (sources or {}).items():

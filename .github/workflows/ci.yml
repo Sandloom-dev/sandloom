@@ -1041,7 +1041,6 @@ jobs:
           -p sandloom.core.testing.skip_ledger --sandloom-skip-ledger-lane=celery
           --sandloom-skip-ledger=skip-ledger/celery.json
           packages/sandloom-celery/tests
-          src/sandloom/core/tests/test_celery_error_mapping.py
           src/sandloom/core/tests/test_beat_lease.py
 
       - name: Upload the skip ledger

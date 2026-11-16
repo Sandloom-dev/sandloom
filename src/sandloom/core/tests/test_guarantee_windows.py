@@ -105,7 +105,7 @@ def test_the_inbox_window_requires_the_retention_it_is_checked_against() -> None
         # streams configured with the 7 days default
         ({"event_bus_backend": "streams"}, 0.5, True),
         # (the default itself, seven days, is the driver's: asserted where the
-        # package is installed, test_driver_options_from_settings)
+        # package is installed, test_redis_options_from_settings)
         (
             {
                 "event_bus_backend": "streams",
