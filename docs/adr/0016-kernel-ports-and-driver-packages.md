@@ -167,8 +167,10 @@ already works through renderers.
 ### 5. Configuration
 
 - `core/infra/config.py` stops hard-coding `sqlalchemy`, `redis` and `celery` as defaults. The
-  standard composition and the `sandloom new` template write `INFRA` explicitly; the template
-  selects `memory` for development by name. `memory` is never an automatic fallback.
+  standard composition and the `sandloom new` template select the drivers
+  (`create_app(default_infra=...)`, the `DEFAULT_INFRA` each exports; `INFRA` overrides it per
+  instance); the template selects `memory` for the development bus by name. `memory` is never
+  an automatic fallback: a capability nothing selects refuses startup with SANDLOOM-B037.
 - The flat settings `CACHE_URL`, `BROKER_URL`, `SMTP_*` and `S3_*` become options read by each
   driver's `options_schema`, in one step with upgrade notes and no aliases. By the same rule the
   stream settings `EVENT_STREAM_RETENTION_SECONDS`, `EVENT_STREAM_MAXLEN` and

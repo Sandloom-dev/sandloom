@@ -91,7 +91,11 @@ from sandloom.core.idempotency.durable import (
     install_durable_capture,
     validate_money_guards,
 )
-from sandloom.core.infra.config import DefaultInfra, use_default_infra
+from sandloom.core.infra.config import (
+    DefaultInfra,
+    forget_app_default_infra,
+    use_default_infra,
+)
 from sandloom.core.infra.registry import InfraRegistry
 from sandloom.core.loader.manifest import AppManifest
 from sandloom.core.loader.plugin_loader import (
@@ -171,7 +175,11 @@ def create_app(
     of its own and never falls back to ``memory``: a composition that selects
     none for the database, the cache, the event bus or the security
     ``atomic_store`` leaves startup to refuse with SANDLOOM-B037, naming what
-    to select and install. ``INFRA`` overrides it per instance.
+    to select and install. ``INFRA`` overrides it per instance. Passing none
+    drops the selection an earlier ``create_app`` of the process set, and the
+    app adopts the one the composition root's package exports
+    (``DEFAULT_INFRA``), or none; a selection set by ``use_default_infra``
+    itself (a tool, a test suite) stays.
 
     ``default_modules`` apply only when the deployment configured no
     ``SANDLOOM_MODULES`` (the platform root passes identity/tenancy/billing); with
@@ -209,8 +217,13 @@ def create_app(
     """
     init_logging()  # ensure logging configured before modules import/log
     init_sentry()  # error reporting (no-op unless SENTRY_DSN set)
-    if default_infra is not None:  # before any check reads the configuration
-        use_default_infra(default_infra)
+    # Before any check reads the configuration. Every call sets the selection
+    # of its own app: one that passes none adopts its root's, never the
+    # selection a previous ``create_app`` of this process left behind.
+    if default_infra is not None:
+        use_default_infra(default_infra, from_app=True)
+    else:
+        forget_app_default_infra()
 
     # Checks the configuration layer cannot run itself (key material, RPC
     # keys / allowlist, the production profile): refuse to boot on any.
