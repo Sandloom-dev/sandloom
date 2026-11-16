@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import fnmatch
 import importlib.util
+import json
 import re
 import subprocess
 import sys
@@ -65,7 +65,7 @@ def test_boundary_gates_run_even_for_a_docs_only_change(runner, base, full):
         ).eval()
         for name, expr in outputs.items()
     }
-    mandatory = {"backend", "examples", "packages", "architecture", "image"}
+    mandatory = {"backend", "kernel", "examples", "packages", "architecture", "image"}
     assert actual == {
         name: "true"
         if full or (base == "arch/kernel-boundary" and name in mandatory)
@@ -240,27 +240,50 @@ def test_heavy_jobs_are_opt_in_and_still_runnable_locally(runner, name):
         (".github/branch-protection.json", set()),
         ("tools/packaging/public-source.json", set()),
         # The SQLite lane's own tooling runs the lane (backend).
-        ("tools/ci/ci_local.py", {"backend", "typecheck"}),
-        ("tools/smoke/quickstart_check.py", {"backend", "typecheck"}),
+        ("tools/ci/ci_local.py", {"backend", "kernel", "typecheck"}),
+        ("tools/smoke/quickstart_check.py", {"backend", "kernel", "typecheck"}),
+        # A kernel part the console's export script never loads: the kernel
+        # lanes, not the admin console.
+        (
+            "src/sandloom/core/testing/auth.py",
+            {"backend", "kernel", "docs", "packages", "architecture"},
+        ),
+        # The kernel the export loads (the unit of work among it).
         (
             "src/sandloom/core/unit_of_work/runtime.py",
-            {"backend", "admin", "docs", "packages", "architecture"},
+            {"backend", "kernel", "admin", "docs", "packages", "architecture"},
         ),
+        # The packages workflow alone still selects the driver lanes.
+        (".github/workflows/packages.yml", {"kernel", "packages"}),
+        # The console's backend: the HTTP stack, the OpenAPI it serves.
+        (
+            "src/sandloom/core/http/app.py",
+            {"backend", "kernel", "admin", "docs", "packages", "architecture"},
+        ),
+        # A bundled module: its own tests, the console (its routes are in the
+        # generated contracts), never the kernel lanes.
         (
             "src/sandloom_billing/api.py",
             {"backend", "admin", "docs", "packages", "architecture"},
         ),
-        ("tests/architecture/test_api_no_orm_leakage.py", {"backend", "architecture"}),
+        (
+            "tests/architecture/test_api_no_orm_leakage.py",
+            {"backend", "kernel", "architecture"},
+        ),
         (
             "tools/packaging/package_build.py",
-            {"backend", "packages", "architecture", "typecheck"},
+            {"backend", "kernel", "packages", "architecture", "typecheck"},
         ),
-        ("tools/checks/check_secrets.py", {"backend", "architecture", "typecheck"}),
-        ("migrations/core/0001_init.py", {"backend", "packages"}),
+        (
+            "tools/checks/check_secrets.py",
+            {"backend", "kernel", "architecture", "typecheck"},
+        ),
+        ("migrations/core/0001_init.py", {"backend", "kernel", "admin", "packages"}),
         (
             "pyproject.toml",
             {
                 "backend",
+                "kernel",
                 "admin",
                 "docs",
                 "packages",
@@ -268,7 +291,7 @@ def test_heavy_jobs_are_opt_in_and_still_runnable_locally(runner, name):
                 "dependency_review",
             },
         ),
-        ("conftest.py", {"backend"}),
+        ("conftest.py", {"backend", "kernel"}),
         ("admin/src/app/router.tsx", {"admin"}),
         (
             "examples/academy/academy/modules/catalog/api.py",
@@ -281,11 +304,11 @@ def test_heavy_jobs_are_opt_in_and_still_runnable_locally(runner, name):
         ("benchmarks/ladder/cg/requirements.txt", {"benchmarks", "dependency_review"}),
         (
             "packages/sandloom-identity/pyproject.toml",
-            {"backend", "packages", "architecture", "dependency_review"},
+            {"backend", "kernel", "packages", "architecture", "dependency_review"},
         ),
         (
             "tools/checks/check_benchmark_dependencies.py",
-            {"backend", "architecture", "benchmarks", "typecheck"},
+            {"backend", "kernel", "architecture", "benchmarks", "typecheck"},
         ),
     ],
 )
@@ -300,8 +323,7 @@ def test_change_filters_do_not_expand_docs_or_policy_into_backend(path, expected
         name
         for name, patterns in filters.items()
         # The image area has its own test (it needs a second filter step).
-        if not name.startswith("image")
-        and any(fnmatch.fnmatchcase(path, p) for p in patterns)
+        if not name.startswith("image") and any(glob_match(path, p) for p in patterns)
     }
     assert selected == expected
 
@@ -450,33 +472,334 @@ def test_the_kernel_lane_is_two_parallel_jobs_that_drop_nothing():
     )
     first, second = _runs(with_redis), _runs(without_redis)
     # The run with sandloom-redis installed: the hook alone, Redis kept. The
-    # 82 s oracle test is deselected here and runs in the other job.
+    # 82 s oracle test is deselected here and runs in the run without Redis.
     assert (
         "src/sandloom/core/tests tests/sdk tests/architecture"
         " tests/integration/replaceability" in first
     )
     assert f"--deselect {oracle}" in first
-    assert "--deselect" not in second
+    # slow-marked: backend-tests filters slow on a PR, so the run without Redis
+    # (no marker filter) names it.
+    assert oracle in second
+    assert "not slow" not in second
     assert "-n auto --dist loadfile --durations=25 --sandloom-shuffle=random" in first
     assert "-p tools.ci.no_batteries" in first
     assert "no_redis" not in first
     assert "uninstall" not in first
-    # The run without it: the client and both drivers removed, the same
-    # suites under the no_redis plugin, then asyncpg removed for SQLite.
+    # The run without it: the client, both drivers, celery and kombu removed
+    # (and asserted gone), then asyncpg removed for SQLite.
     assert "uv pip uninstall" in second
-    assert "redis hiredis sandloom-redis sandloom-celery" in second
-    # tests/architecture is whole in the other job and in backend-static; here
-    # only this lane's own ratchet test.
-    assert (
-        "src/sandloom/core/tests tests/sdk tests/architecture/test_no_redis.py"
-        " tests/integration/replaceability" in second
-    )
-    assert "tests/architecture " not in second
-    assert "-n auto --dist loadfile --no-cov --durations=25" in second
+    assert "redis hiredis sandloom-redis sandloom-celery celery kombu" in second
+    assert "'sandloom_celery', 'celery', 'kombu')" in second
     assert "-p tools.ci.no_batteries -p tools.ci.no_redis" in second
     assert "asyncpg" in second
     assert "src/sandloom/core/tests/test_postgres_extra.py" in second
     assert "test_postgres_extra" not in first
+
+
+def test_the_kernel_lane_deselects_only_tests_that_another_job_runs_whole():
+    """Each deselect of the batteries run names a test that exists and that a
+    job without the kernel venv runs: backend-tests (root testpaths, `src`) for
+    the two under src/, the always-on workflow-policy job or backend-static
+    (the whole tests/architecture directory) for the rest."""
+    jobs = workflow("ci.yml")["jobs"]
+    runs = _runs(jobs["kernel-without-batteries"])
+    deselected = re.findall(r"--deselect (\S+)", runs)
+    assert deselected, "no deselect left: drop this test"
+    assert len(deselected) == 7
+    architecture = _runs(jobs["backend-static"])
+    assert " tests/architecture/ " in architecture
+    policy = _runs(jobs["workflow-policy"])
+    for node in deselected:
+        path, _, test = node.partition("::")
+        text = (ROOT / path).read_text()
+        assert not test or f"def {test}(" in text, node
+        if path.startswith("tests/architecture/"):
+            assert path in policy, node
+        else:
+            assert path.startswith("src/"), node
+        if test and _is_slow(text, test):
+            # A PR's backend-tests runs `-m "not slow"`: a slow-marked test
+            # deselected here runs only where a job names it and filters no
+            # marker.
+            assert _unfiltered_runners(jobs, node), (
+                f"{node} is slow-marked and no PR job runs it"
+            )
+    # backend-tests runs the root testpaths (`src` among them) apart from the
+    # slow tests of a PR (the marker filter above).
+    backend = _runs(jobs["backend-tests"])
+    assert "--deselect" not in backend
+    assert '    "src",' in (ROOT / "pyproject.toml").read_text()
+
+
+def _is_slow(text: str, test: str) -> bool:
+    """Whether `def <test>(` carries `@pytest.mark.slow` among its decorators."""
+    lines = text.splitlines()
+    index = next(i for i, line in enumerate(lines) if f"def {test}(" in line)
+    while index > 0 and lines[index - 1].lstrip().startswith("@"):
+        index -= 1
+        if "pytest.mark.slow" in lines[index]:
+            return True
+    return False
+
+
+def _unfiltered_runners(jobs: dict, node: str) -> list[str]:
+    """The jobs other than the deselecting one that name `node` in a run with no
+    `not slow` marker filter."""
+    return [
+        name
+        for name, job in jobs.items()
+        if name != "kernel-without-batteries"
+        and "steps" in job  # a called workflow has none
+        and node in _runs(job)
+        and "not slow" not in _runs(job)
+    ]
+
+
+def test_a_slow_marked_deselect_that_no_unfiltered_job_runs_is_refused():
+    """The slow check bites: the oracle test is slow-marked, and a job that
+    filters slow (or names another test) is no runner of it."""
+    source = (ROOT / "src/sandloom/core/tests/test_nesting_policy.py").read_text()
+    assert _is_slow(source, "test_nested_units_match_the_oracle_at_length")
+    assert not _is_slow(source, "test_nested_units_match_the_oracle")
+    node = "src/x/test_y.py::test_z"
+
+    def job(run: str) -> dict:
+        return {"steps": [{"run": run}]}
+
+    assert _unfiltered_runners({"a": job(f"pytest {node}")}, node) == ["a"]
+    assert not _unfiltered_runners({"a": job(f'pytest -m "not slow" {node}')}, node)
+    assert not _unfiltered_runners({"a": job("pytest src/x/test_y.py::other")}, node)
+    assert not _unfiltered_runners({"kernel-without-batteries": job(node)}, node)
+
+
+def test_the_policy_job_runs_every_test_the_context_paths_depend_on():
+    """AGENTS.md, .claude/**, docs/adr/**, .importlinter and the public API
+    baseline select no job that checks them: these five tests run on every PR,
+    in the always-on job, with the setting the generator needs."""
+    job = workflow("ci.yml")["jobs"]["workflow-policy"]
+    step = next(
+        s for s in job["steps"] if "test_agent_context_budget" in s.get("run", "")
+    )
+    commands = " ".join(step["run"].replace("\\\n", " ").split())
+    for name in (
+        "test_agent_context_budget",
+        "test_agent_reference",
+        "test_pages_workflow",
+        "test_guarantee_ledger",
+        "test_docs_generated",
+    ):
+        assert f"tests/architecture/{name}.py" in commands, name
+        assert (ROOT / f"tests/architecture/{name}.py").is_file(), name
+    assert "--noconftest" in commands
+    assert step["env"]["SANDLOOM_SERVICE_NAME"]
+    for variable in ("DATABASE_URL", "CACHE_URL", "BROKER_URL", "JWT_SECRET"):
+        assert step["env"][variable], variable
+
+
+def test_docs_and_admin_workflows_do_not_repeat_what_a_step_or_job_already_runs():
+    docs = workflow("docs.yml")["jobs"]["build"]["steps"]
+    commands = " ".join(s.get("run", "") for s in docs)
+    assert "docs_prose_lint.py --self-test" in commands
+    assert "docs_code_check.py --self-test" in commands
+    site = next(s for s in docs if "test_docs_site.py" in s.get("run", ""))
+    # The tests of the lint scopes skip the second run only because the steps
+    # above run both lints in full.
+    assert site["env"]["SANDLOOM_DOCS_LINTS_RUN_AS_STEPS"] == "1"
+    admin = " ".join(
+        s.get("run", "") for s in workflow("admin.yml")["jobs"]["admin"]["steps"]
+    )
+    assert "contracts:check" not in admin
+    assert "npm run contracts:check" in _runs(
+        workflow("ci.yml")["jobs"]["admin-contracts"]
+    )
+    # The celery lane runs the package: the kernel's beat-lease test is celery
+    # free and runs in the kernel lane and backend-tests.
+    celery = _runs(workflow("ci.yml")["jobs"]["celery-drivers"])
+    assert "packages/sandloom-celery/tests" in celery
+    assert "test_beat_lease" not in celery
+
+
+def test_the_no_redis_lane_runs_the_pending_files_and_collects_every_kernel_suite():
+    """The lane runs what tools/ci/no_redis_pending.json names (read when the
+    step runs, never copied into the workflow), its two ratchet files, and
+    collects every kernel suite so a module-level Redis import still fails."""
+    body = workflow("ci.yml")["jobs"]["kernel-without-redis"]
+    step = next(s for s in body["steps"] if "tools.ci.no_redis" in s.get("run", ""))
+    commands = " ".join(step["run"].replace("\\\n", " ").split())
+    suites = (
+        "src/sandloom/core/tests tests/sdk tests/architecture"
+        " tests/integration/replaceability"
+    )
+    # Collection of the whole kernel under the plugins, no xdist, nothing run.
+    assert (
+        f"--collect-only -qq --no-cov -p no:xdist -p tools.ci.no_batteries -p tools.ci.no_redis {suites}"
+        in commands
+    )
+    # The run: the files the JSON names at run time, then the lane's own tests.
+    assert (
+        'pending=$(.venv-kernel/bin/python -c "from tools.ci.no_redis import load_pending;'
+        in commands
+    )
+    # The slow-marked oracle test rides in this run: no PR job that filters
+    # slow would run it.
+    oracle = (
+        "src/sandloom/core/tests/test_nesting_policy.py"
+        "::test_nested_units_match_the_oracle_at_length"
+    )
+    assert (
+        f"-p tools.ci.no_batteries -p tools.ci.no_redis $pending {oracle}"
+        " tests/architecture/test_no_redis.py tests/architecture/test_no_batteries.py"
+    ) in commands
+    assert "not slow" not in commands
+    # No file of the pending list is copied into the workflow: the selector is
+    # the JSON, so a shrinking list shrinks the lane.
+    pending = json.loads((ROOT / "tools/ci/no_redis_pending.json").read_text())
+    for why in pending["tests"].values():
+        for node in why:
+            assert node.split("::", 1)[0] not in commands, node
+
+
+def test_the_no_redis_selector_prints_the_files_of_the_pending_tests(tmp_path):
+    """The selector expression of the step, run against a pending file of its
+    own: it prints each test file once, sorted, and nothing for an empty list."""
+    body = workflow("ci.yml")["jobs"]["kernel-without-redis"]
+    step = next(s for s in body["steps"] if "pending=$(" in s.get("run", ""))
+    selector = step["run"].split("pending=$(", 1)[1].split("\n", 1)[0]
+    expression = selector.split('-c "', 1)[1].rsplit('")', 1)[0]
+    assert "load_pending()[1]" in expression
+    code = expression.replace("load_pending()", "load_pending(Path(sys.argv[1]))")
+    code = "import sys; from pathlib import Path; " + code
+
+    def selected(tests: dict[str, list[str]]) -> str:
+        pending = tmp_path / "pending.json"
+        pending.write_text(json.dumps({"files": {}, "tests": tests}))
+        return subprocess.run(
+            [sys.executable, "-c", code, str(pending)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    assert selected(
+        {"a": ["z/test_b.py::t1", "z/test_a.py::t2", "z/test_b.py::t3"]}
+    ) == ("z/test_a.py z/test_b.py")
+    assert selected({}) == ""
+
+
+def test_module_only_changes_skip_the_kernel_lanes_and_kernel_changes_run_them(runner):
+    """`kernel` is the backend filter less the bundled modules: a PR that only
+    changes a module skips both halves of the kernel lane and the two driver
+    lanes, a kernel, test, tooling or package change runs them."""
+    filters = yaml.safe_load(_filter_steps()["filter"]["with"]["filters"])
+    selects = {
+        path: any(glob_match(path, p) for p in filters["kernel"])
+        for path in (
+            "src/sandloom_billing/api.py",
+            "src/sandloom_identity/tests/test_login.py",
+            "src/sandloom_catalog/models.py",
+            "src/sandloom/core/runtime.py",
+            "src/sandloom/sdk/testing/plugin.py",
+            "tests/sdk/test_sdk_recipes.py",
+            "tools/ci/no_redis.py",
+            "packages/sandloom-redis/src/sandloom_redis/cache.py",
+            "pyproject.toml",
+            "uv.lock",
+        )
+    }
+    assert [path for path, hit in selects.items() if not hit] == [
+        "src/sandloom_billing/api.py",
+        "src/sandloom_identity/tests/test_login.py",
+        "src/sandloom_catalog/models.py",
+    ]
+    jobs = workflow("ci.yml")["jobs"]
+    for name in (
+        "kernel-without-batteries",
+        "kernel-without-redis",
+        "redis-drivers",
+        "celery-drivers",
+    ):
+        for outputs, expected in (
+            ({"backend": "true", "packages": "true", "kernel": "false"}, False),
+            ({"backend": "false", "packages": "false", "kernel": "true"}, True),
+        ):
+            context = {
+                "inputs": {"full_validation": False, "reused_jobs": "[]"},
+                "needs": {"changes": {"outputs": outputs}},
+            }
+            assert runner.eval_if(jobs[name]["if"], context, "success") is expected
+
+
+@pytest.mark.parametrize(
+    ("path", "console"),
+    [
+        # The console and what it generates its contracts from.
+        ("admin/src/app/router.tsx", True),
+        ("tools/inspection/test_viewer.mjs", True),
+        ("tools/smoke/admin_live_acceptance.py", True),
+        ("src/sandloom_admin/compiler.py", True),
+        ("src/sandloom_billing/api.py", True),
+        ("src/sandloom_identity/api.py", True),
+        ("src/sandloom_tenancy/api.py", True),
+        ("packages/sandloom-standard/src/sandloom_standard/main.py", True),
+        ("migrations/core/versions/0001_init.py", True),
+        ("src/sandloom/sdk/web.py", True),
+        ("src/sandloom/core/composition.py", True),
+        ("src/sandloom/core/app_factory/routes.py", True),
+        ("src/sandloom/core/http/app.py", True),
+        ("src/sandloom/core/auth/tokens.py", True),
+        ("src/sandloom/core/migrations/runner.py", True),
+        ("src/sandloom/core/config/settings.py", True),
+        ("src/sandloom/core/error_codes.py", True),
+        ("pyproject.toml", True),
+        ("uv.lock", True),
+        # What the export script imports besides (measured by listing the
+        # src/sandloom files loaded by admin/scripts/export_openapi.py).
+        ("src/sandloom/shared/authz/__init__.py", True),
+        ("src/sandloom/shared/subject.py", True),
+        ("src/sandloom/core/cli/generation_input.py", True),
+        ("src/sandloom/core/descriptors/module_names.py", True),
+        ("src/sandloom/core/module_api/__init__.py", True),
+        ("src/sandloom/core/facade/__init__.py", True),
+        ("src/sandloom/core/unit_of_work/runtime.py", True),
+        ("src/sandloom/core/infra/cache.py", True),
+        ("src/sandloom/core/route_policy.py", True),
+        ("src/sandloom/driverkit/metrics.py", True),
+        ("src/sandloom/local_modules.py", True),
+        # Kernel parts the export never loads, other drivers, tests and docs.
+        ("src/sandloom/core/cli/backup.py", False),
+        ("src/sandloom/core/archcheck/analyzers.py", False),
+        ("src/sandloom/core/testing/auth.py", False),
+        ("src/sandloom/core/tests/test_nesting_policy.py", False),
+        ("tests/architecture/test_no_redis.py", False),
+        ("packages/sandloom-redis/src/sandloom_redis/cache.py", False),
+        ("tools/ci/no_redis.py", False),
+        ("docs/index.md", False),
+    ],
+)
+def test_the_admin_filter_is_a_positive_list_of_what_the_console_reads(path, console):
+    filters = yaml.safe_load(_filter_steps()["filter"]["with"]["filters"])
+    assert any(glob_match(path, p) for p in filters["admin"]) is console
+
+
+def test_every_kernel_directory_is_in_the_admin_filter_or_named_as_left_out():
+    """A new `sandloom.core` directory is classified: either the export script
+    may load it (the admin filter lists it) or it is named here as one the
+    export never imports (verified by listing the loaded src/sandloom files)."""
+    filters = yaml.safe_load(_filter_steps()["filter"]["with"]["filters"])
+    left_out = {"archcheck", "cli", "testing", "tests"}
+    core = ROOT / "src/sandloom/core"
+    directories = {
+        p.name for p in core.iterdir() if p.is_dir() and p.name != "__pycache__"
+    }
+    assert left_out <= directories
+    for name in sorted(directories - left_out):
+        probe = f"src/sandloom/core/{name}/_probe.py"
+        assert any(glob_match(probe, p) for p in filters["admin"]), name
+    for name in sorted(left_out - {"cli"}):
+        probe = f"src/sandloom/core/{name}/_probe.py"
+        assert not any(glob_match(probe, p) for p in filters["admin"]), name
 
 
 def test_architecture_tests_of_backend_static_run_on_four_workers_with_a_server():

@@ -14,6 +14,8 @@ from typing import Any
 AREAS = frozenset(
     {
         "backend",
+        # The backend filter less the bundled modules: the kernel lanes.
+        "kernel",
         "admin",
         "examples",
         "deploy",
@@ -34,15 +36,15 @@ AREA_JOBS = {
     "supply-chain": ("backend",),
     "backend-tests": ("backend",),
     # The kernel suites with no module package importable (ADR-0012, KB-05).
-    "kernel-without-batteries": ("backend",),
-    # The same suites with no Redis client or driver package, and the SQLite
-    # boot without asyncpg; a job of its own, parallel to the one above.
-    "kernel-without-redis": ("backend",),
+    "kernel-without-batteries": ("kernel",),
+    # The kernel's Redis-free ratchet and the SQLite boot without asyncpg; a
+    # job of its own, parallel to the one above.
+    "kernel-without-redis": ("kernel",),
     # The sandloom-redis package: its tests and types (the root testpaths and
-    # the CI mypy run do not reach packages/).
-    "redis-drivers": ("backend", "packages"),
+    # the CI mypy run do not reach packages/). The kernel area holds packages/**.
+    "redis-drivers": ("kernel",),
     # The sandloom-celery package: its wheel, style and types (same reason).
-    "celery-drivers": ("backend", "packages"),
+    "celery-drivers": ("kernel",),
     # The second database (SQLite) and the merge of the lanes' skip ledgers.
     "second-db-test-lane": ("backend", "examples"),
     "skip-ledger": ("backend", "examples"),

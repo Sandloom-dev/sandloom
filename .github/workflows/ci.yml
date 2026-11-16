@@ -56,6 +56,28 @@ jobs:
           tests/architecture/test_release_packages.py
           tests/architecture/test_pr_evidence.py
           tests/architecture/test_release_sync.py -q
+      - name: Agent context, guarantee ledger, Pages and generated-docs tests
+        # Paths no area job checks (AGENTS.md, .claude/**, docs/adr/**,
+        # .importlinter, public_api_baseline.json) trigger only the docs and
+        # architecture jobs, which a change outside docs/** and src/** does not
+        # select. These five tests read repository files, so they run on every
+        # PR here; the kernel lane deselects them (backend-static runs the whole
+        # tests/architecture directory on a backend change). The generated-docs
+        # test runs the generator in a child process: the service name is the
+        # one setting the kernel needs that no conftest supplies here.
+        run: >-
+          uv run pytest --noconftest -p no:cacheprovider -c /dev/null -o addopts=''
+          tests/architecture/test_agent_context_budget.py
+          tests/architecture/test_agent_reference.py
+          tests/architecture/test_pages_workflow.py
+          tests/architecture/test_guarantee_ledger.py
+          tests/architecture/test_docs_generated.py -q
+        env:
+          DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5433/ci
+          CACHE_URL: redis://127.0.0.1:6380/0
+          BROKER_URL: redis://127.0.0.1:6380/1
+          JWT_SECRET: ci-workflow-policy-not-a-real-secret
+          SANDLOOM_SERVICE_NAME: ci-workflow-policy
       - name: Reviewed source and credential patterns
         run: |
           python3 tools/packaging/sync_release.py
@@ -69,6 +91,7 @@ jobs:
     # even when a PR only changes docs or policy; main keeps its path selection.
     outputs:
       backend: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || steps.filter.outputs.backend }}
+      kernel: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || steps.filter.outputs.kernel }}
       admin: ${{ inputs.full_validation && 'true' || steps.filter.outputs.admin }}
       examples: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || steps.filter.outputs.examples }}
       deploy: ${{ inputs.full_validation && 'true' || steps.filter.outputs.deploy }}
@@ -114,13 +137,86 @@ jobs:
             typecheck:
               - 'tools/**/*.py'
               - '.claude/hooks/*.py'
+            # What the kernel lanes (kernel-without-batteries, -without-redis,
+            # redis-drivers, celery-drivers) read: the backend filter less the
+            # bundled modules (src/sandloom_*), plus the packages workflow
+            # (which also gates the driver packages). A module-only PR skips
+            # them; a kernel, test, tooling, driver or dependency change runs them.
+            kernel:
+              - 'src/sandloom/**'
+              - 'tests/**'
+              - 'tools/ci/**'
+              - 'tools/smoke/**'
+              - 'migrations/**'
+              - 'packages/**'
+              - 'tools/checks/**'
+              - 'tools/packaging/*.py'
+              - 'tools/packaging/**/*.py'
+              - 'tools/packaging/packages.json'
+              - 'LICENSE'
+              - 'NOTICE'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'conftest.py'
+              - 'architecture_rules.yml'
+              - 'guarantees.yml'
+              - '.env.test'
+              - '.github/workflows/packages.yml'
+              - '.github/workflows/release.yml'
+              - '.github/workflows/ci.yml'
+            # A positive list of what the console, its generated contracts
+            # (the standard composition's OpenAPI) and its live backend read.
             admin:
               - 'tools/inspection/**'
               - 'admin/**'
-              - 'src/**'
+              - 'tools/smoke/admin_live_acceptance.py'
               - 'pyproject.toml'
               - 'uv.lock'
-              - 'tools/smoke/admin_live_acceptance.py'
+              - 'src/sandloom_admin/**'
+              - 'src/sandloom_identity/**'
+              - 'src/sandloom_tenancy/**'
+              - 'src/sandloom_billing/**'
+              - 'packages/sandloom-standard/**'
+              - 'migrations/**'
+              # The kernel the export script (admin/scripts/export_openapi.py:
+              # the OpenAPI snapshot and the manifest) imports and reads:
+              # every file under src/sandloom it loads, listed with the
+              # directories that stay out (core/archcheck, core/testing,
+              # core/tests, and core/cli but generation_input.py). A new
+              # core directory or file the export loads is listed here;
+              # test_the_admin_filter_is_a_positive_list_of_what_the_console_reads.
+              - 'src/sandloom/*.py'
+              - 'src/sandloom/sdk/**'
+              - 'src/sandloom/shared/**'
+              - 'src/sandloom/driverkit/**'
+              - 'src/sandloom/core/*.py'
+              - 'src/sandloom/core/cli/generation_input.py'
+              - 'src/sandloom/core/_internal/**'
+              - 'src/sandloom/core/admin/**'
+              - 'src/sandloom/core/app_factory/**'
+              - 'src/sandloom/core/auth/**'
+              - 'src/sandloom/core/config/**'
+              - 'src/sandloom/core/consumers/**'
+              - 'src/sandloom/core/contracts/**'
+              - 'src/sandloom/core/descriptors/**'
+              - 'src/sandloom/core/drivers/**'
+              - 'src/sandloom/core/eventing/**'
+              - 'src/sandloom/core/facade/**'
+              - 'src/sandloom/core/http/**'
+              - 'src/sandloom/core/idempotency/**'
+              - 'src/sandloom/core/infra/**'
+              - 'src/sandloom/core/ingress/**'
+              - 'src/sandloom/core/loader/**'
+              - 'src/sandloom/core/migrations/**'
+              - 'src/sandloom/core/module_api/**'
+              - 'src/sandloom/core/observability/**'
+              - 'src/sandloom/core/projections/**'
+              - 'src/sandloom/core/rpc/**'
+              - 'src/sandloom/core/sagas/**'
+              - 'src/sandloom/core/schema/**'
+              - 'src/sandloom/core/sql_alchemy/**'
+              - 'src/sandloom/core/tasks/**'
+              - 'src/sandloom/core/unit_of_work/**'
               - '.github/workflows/admin.yml'
               - '.github/workflows/ci.yml'
             examples:
@@ -627,7 +723,7 @@ jobs:
     # The same suites without Redis and the SQLite boot without asyncpg run in
     # `kernel-without-redis`, in parallel with this job.
     needs: changes
-    if: ${{ needs.changes.outputs.backend == 'true' }}
+    if: ${{ needs.changes.outputs.kernel == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -702,13 +798,26 @@ jobs:
           .venv-kernel/bin/python tools/ci/no_batteries.py check
 
       - name: Kernel suites and the replaceability fixtures
-        # test_nested_units_match_the_oracle_at_length (82 s x 2 parameters)
-        # is deselected here: `kernel-without-redis` runs it, on the same
-        # kernel without batteries (so it still runs in one job).
+        # Deselected here, each run whole by a job that needs no kernel venv:
+        # test_nested_units_match_the_oracle_at_length (82 s x 2 parameters,
+        # marked slow) in `kernel-without-redis`, which names it and filters
+        # no marker (`backend-tests` runs `-m "not slow"` on a PR, so it is
+        # not run there except in the full-validation slow Pythons); the
+        # architecture checker test (src/sandloom/core/tests) in
+        # `backend-tests` and `backend-static`; the CI-policy and generated-docs
+        # tests of tests/architecture in `workflow-policy` and `backend-static`
+        # (they read workflows and docs, never the kernel). The rest of
+        # tests/architecture stays: it runs with the batteries hidden.
         run: >-
           .venv-kernel/bin/python -m pytest -q -n auto --dist loadfile
           --durations=25 --sandloom-shuffle=random -p tools.ci.no_batteries
           --deselect src/sandloom/core/tests/test_nesting_policy.py::test_nested_units_match_the_oracle_at_length
+          --deselect src/sandloom/core/tests/test_architecture.py::test_architecture_checker_runs_without_violations
+          --deselect tests/architecture/test_docs_generated.py
+          --deselect tests/architecture/test_ci_workflow_policy.py
+          --deselect tests/architecture/test_required_ci.py
+          --deselect tests/architecture/test_ci_local_runner.py
+          --deselect tests/architecture/test_pr_evidence.py
           src/sandloom/core/tests tests/sdk tests/architecture
           tests/integration/replaceability
 
@@ -716,11 +825,12 @@ jobs:
     # The second half of the kernel lane (ADR-0012 / ADR-0016), a job of its
     # own so it runs in parallel with `kernel-without-batteries` (the two
     # pytest runs used to follow one another in one job: the PR's wall time).
-    # Same venv as that job, then the Redis client and both driver packages
-    # are removed and the same suites run on the kernel's memory drivers;
+    # Same venv as that job, then the Redis client, both driver packages and
+    # celery/kombu are removed: every kernel suite must still collect, and the
+    # files of the Redis-pending ratchet run on the kernel's memory drivers;
     # a last step removes asyncpg and boots the kernel on SQLite.
     needs: changes
-    if: ${{ needs.changes.outputs.backend == 'true' }}
+    if: ${{ needs.changes.outputs.kernel == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -797,27 +907,50 @@ jobs:
 
       - name: The kernel without Redis (no client, no driver package) runs its suites
         # ADR-0016: the kernel wheel names no Redis. This step uninstalls the
-        # client and both driver packages that bring it (sandloom-redis, and
-        # sandloom-celery through celery[redis]); the suite then selects the
-        # kernel's memory drivers (conftest.py) and the test harness loads no
-        # family. tools/ci/no_redis.py refuses the run while one of them
-        # imports, and lists (a ratchet, only down) the kernel tests that
-        # still need a Redis or Celery driver. `kernel-without-batteries` runs
-        # the same suites with sandloom-redis installed: that is the lane that
-        # has it. tests/architecture is not run here but for test_no_redis.py
-        # (this lane's own ratchet): the other tests there scan sources and do
-        # not depend on Redis; `kernel-without-batteries` and backend-static run them.
-        # test_nesting_policy's oracle test runs here and not there (82 s).
+        # client, both driver packages that bring it (sandloom-redis, and
+        # sandloom-celery through celery[redis]) and celery with kombu (the
+        # drivers' own dependencies; no kernel test or code path imports them);
+        # the suite then selects the kernel's memory drivers (conftest.py) and
+        # the test harness loads no family. tools/ci/no_redis.py refuses the
+        # run while a Redis name imports, and lists (a ratchet, only down) the
+        # kernel tests that still need a Redis or Celery driver.
+        # What runs here, in three parts:
+        # 1. a collect-only pass over every kernel suite in this venv: a test
+        #    module that imports a Redis or Celery name at module level fails
+        #    the collection, a stale pending entry refuses the run; with the
+        #    import scan of tests/architecture/test_no_redis.py (a test body
+        #    that imports one belongs in the pending list) this is the guard
+        #    "a new kernel test that needs Redis fails the lane";
+        # 2. the files the pending list names (tools/ci/no_redis_pending.json,
+        #    read here at run time: its tests are strict xfails, so one that
+        #    passes without Redis fails until its entry is removed; the other
+        #    tests of those files must pass without Redis);
+        # 3. the two ratchet test files of the lane;
+        # 4. the test_nesting_policy oracle test at length (slow-marked, 82 s
+        #    x 2 parameters): `kernel-without-batteries` deselects it and a
+        #    PR's `backend-tests` filters slow, so this run, which filters no
+        #    marker, is the PR job that runs it (tests/architecture/
+        #    test_ci_workflow_policy.py refuses a slow deselect nobody runs).
+        # The remaining kernel tests run in `kernel-without-batteries`, which
+        # has sandloom-redis installed and is the lane that needs it; they
+        # select memory drivers and ran here until the pending list shrank to
+        # the files above.
         run: |
           uv pip uninstall --python .venv-kernel/bin/python \
-            redis hiredis sandloom-redis sandloom-celery
-          .venv-kernel/bin/python -c "import importlib.util as u; assert not [m for m in ('redis', 'sandloom_redis', 'sandloom_celery') if u.find_spec(m)]"
+            redis hiredis sandloom-redis sandloom-celery celery kombu
+          .venv-kernel/bin/python -c "import importlib.util as u; assert not [m for m in ('redis', 'sandloom_redis', 'sandloom_celery', 'celery', 'kombu') if u.find_spec(m)]"
+          .venv-kernel/bin/python -m pytest --collect-only -qq --no-cov -p no:xdist \
+            -p tools.ci.no_batteries -p tools.ci.no_redis \
+            src/sandloom/core/tests tests/sdk tests/architecture \
+            tests/integration/replaceability
+          pending=$(.venv-kernel/bin/python -c "from tools.ci.no_redis import load_pending; print(*sorted({t.split('::', 1)[0] for t in load_pending()[1]}))")
           .venv-kernel/bin/python -m pytest -q -n auto --dist loadfile --no-cov \
             --durations=25 --sandloom-shuffle=random \
             -p tools.ci.no_batteries -p tools.ci.no_redis \
-            src/sandloom/core/tests tests/sdk \
+            $pending \
+            src/sandloom/core/tests/test_nesting_policy.py::test_nested_units_match_the_oracle_at_length \
             tests/architecture/test_no_redis.py \
-            tests/integration/replaceability
+            tests/architecture/test_no_batteries.py
 
       - name: The kernel without asyncpg (the `postgres` extra) boots on SQLite
         # asyncpg is the optional `postgres` extra: uninstalled, the kernel
@@ -845,7 +978,7 @@ jobs:
     # other job runs these tests. Its skip ledger (lane `redis`) feeds the
     # skip-ledger job.
     needs: changes
-    if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.packages == 'true' }}
+    if: ${{ needs.changes.outputs.kernel == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -944,7 +1077,7 @@ jobs:
     # The sandloom-celery package (the `celery` taskqueue driver, its worker
     # host and its broker probe): its wheel, style, strict types, its tests and
     # the TaskQueueConformance kit (send and host groups) against a real Redis
-    # broker, and the kernel's tests over the driver. The package is tested
+    # broker. The package is tested
     # as its built wheel, so the entry point the registry reads is the one the
     # wheel ships. The root mypy run and pytest paths exclude packages/, so no
     # other job checks this source or runs these tests. An unreachable broker
@@ -952,7 +1085,7 @@ jobs:
     # against the source tree instead of the wheel. Its skip ledger (lane
     # `celery`) feeds the skip-ledger job.
     needs: changes
-    if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.packages == 'true' }}
+    if: ${{ needs.changes.outputs.kernel == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -1036,13 +1169,12 @@ jobs:
           p = pathlib.Path(sandloom_celery.__file__).resolve();
           assert 'site-packages' in p.parts, p"
 
-      - name: Driver tests, the conformance kit against a real broker and the kernel's tests over the driver
+      - name: Driver tests and the conformance kit against a real broker
         run: >-
           uv run --no-sync pytest -q -n 2 --dist loadfile
           -p sandloom.core.testing.skip_ledger --sandloom-skip-ledger-lane=celery
           --sandloom-skip-ledger=skip-ledger/celery.json
           packages/sandloom-celery/tests
-          src/sandloom/core/tests/test_beat_lease.py
 
       - name: Upload the skip ledger
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -1717,7 +1849,7 @@ jobs:
     # The admin console's generated contracts are current: contracts/openapi.json
     # is what the backend serves and src/api/generated.ts is what
     # openapi-typescript makes of it (`npm run contracts:check`). admin.yml runs
-    # the whole console pipeline; the same Node runner checks the standalone
+    # the rest of the console pipeline, not this check; the same Node runner checks the standalone
     # architecture viewer's geometry/report regressions without another CI job.
     # This gate runs with the framework's PR gates
     # (and tools/ci/ci_local.sh), so a backend route change or an openapi.json

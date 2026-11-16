@@ -9,6 +9,7 @@ xfail, and an entry that names nothing is stale.
 
 from __future__ import annotations
 
+import ast
 import os
 import subprocess
 import sys
@@ -37,6 +38,68 @@ def test_every_listed_file_and_test_names_an_existing_file() -> None:
     assert no_redis.stale_files(files, REPO) == []
     for test in tests:
         assert (REPO / test.split("::", 1)[0]).is_file(), test
+
+
+#: What the no-Redis venv lacks, by top-level import name (the client, its C
+#: parser, both driver packages and the Celery stack the Celery driver needs).
+REDIS_STACK = frozenset(
+    {"redis", "hiredis", "sandloom_redis", "sandloom_celery", "celery", "kombu"}
+)
+#: The kernel suites the no-Redis lane collects (.github/workflows/ci.yml).
+KERNEL_SUITES = (
+    "src/sandloom/core/tests",
+    "tests/sdk",
+    "tests/architecture",
+    "tests/integration/replaceability",
+)
+
+
+def redis_stack_importers(files: list[Path], root: Path = REPO) -> dict[str, list[str]]:
+    """``{path: names}`` of the files that import a name of :data:`REDIS_STACK`
+    anywhere (module level or inside a function body: the latter only fails
+    when the test runs)."""
+    found: dict[str, list[str]] = {}
+    for path in files:
+        names = set()
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                names.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names.add(node.module.split(".")[0])
+        if hit := sorted(names & REDIS_STACK):
+            found[path.relative_to(root).as_posix()] = hit
+    return found
+
+
+def test_only_pending_kernel_tests_import_the_redis_stack() -> None:
+    """A kernel test file that imports Redis or Celery without being named by
+    tools/ci/no_redis_pending.json would pass the collect-only pass of the lane
+    (a function-level import fails only when it runs) and then run, unchecked,
+    only where the driver is installed: it belongs in the pending list or in
+    the driver package's tests."""
+    files, tests = no_redis.load_pending()
+    pending = set(files) | {test.split("::", 1)[0] for test in tests}
+    sources = [path for suite in KERNEL_SUITES for path in (REPO / suite).rglob("*.py")]
+    assert sources
+    importers = redis_stack_importers(sources)
+    assert sorted(set(importers) - pending) == []
+
+
+def test_the_import_scan_sees_a_function_level_and_a_dotted_import(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "t_dotted.py").write_text("import redis.asyncio\n")
+    (tmp_path / "t_nested.py").write_text(
+        "def test_a():\n    from sandloom_celery.worker import CeleryWorkerHost\n"
+    )
+    (tmp_path / "t_clean.py").write_text(
+        "import sandloom.core\nfrom . import redis\nNAME = 'import celery'\n"
+    )
+    paths = sorted(tmp_path.glob("*.py"))
+    assert redis_stack_importers(paths, tmp_path) == {
+        "t_dotted.py": ["redis"],
+        "t_nested.py": ["sandloom_celery"],
+    }
 
 
 def test_the_pending_list_never_grows_past_its_ceilings() -> None:

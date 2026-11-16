@@ -53,7 +53,9 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 #: Byte limits an agent can read whole: a topic, the plan index.
-MAX_BYTES = 4096
+#: 4608: the ci topic lists the admin filter's kernel directories (the files
+#: the OpenAPI export loads), about 300 bytes more than the old short list.
+MAX_BYTES = 4608
 MAX_PLAN_BYTES = 6144
 #: Test files listed per capability and owner in the infra map.
 _TESTS_SHOWN = 5
@@ -171,7 +173,8 @@ _NOISE = (
     "tutorial_check",
     "twine",
 )
-_SKIP_AREAS = ("benchmarks", "dependency_review")
+# `kernel`: every job it selects is in _SKIP_JOBS (the kernel lanes).
+_SKIP_AREAS = ("benchmarks", "dependency_review", "kernel")
 _SKIP_JOBS = (
     "kernel-without-batteries",
     "kernel-without-redis",
@@ -203,6 +206,8 @@ def _env(values: dict[str, Any] | None) -> str:
         text = str(value)
         if "${{" in text:
             pairs.append(f"{key}=<ci>")
+        elif "not-a-real" in text:  # a throwaway credential: any value works
+            pairs.append(f"{key}=<dummy>")
         elif re.fullmatch(r"[\w.:/@+,=-]*", text):
             pairs.append(f"{key}={text}")
         else:
@@ -240,6 +245,32 @@ def _commands(job: dict[str, Any]) -> list[str]:
             if line not in found:
                 found.append(line)
     return found
+
+
+def _braces(globs: list[str]) -> list[str]:
+    """Globs that differ only in their last directory (or file) name, as one
+    brace glob: ``src/a/**`` and ``src/b/**`` become ``src/{a,b}/**``. Order is
+    that of the first glob of each group; a group of one stays as it is."""
+    groups: dict[tuple[str, str], list[str]] = {}
+    for glob in globs:
+        tail = "/**" if glob.endswith("/**") else ""
+        parent, _, name = glob.removesuffix(tail).rpartition("/")
+        groups.setdefault((parent, tail), []).append(name)
+    out = []
+    for (parent, tail), names in groups.items():
+        base = f"{parent}/" if parent else ""
+        if len(names) == 1:
+            out.append(f"{base}{names[0]}{tail}")
+            continue
+        # A shared stem up to its last `_` or `-` comes out of the braces.
+        same = itertools.takewhile(
+            lambda chars: len(set(chars)) == 1, zip(*names, strict=False)
+        )
+        stem = "".join(chars[0] for chars in same)
+        stem = stem[: max(stem.rfind("_"), stem.rfind("-")) + 1]
+        inner = ",".join(name[len(stem) :] for name in names)
+        out.append(f"{base}{stem}{{{inner}}}{tail}")
+    return out
 
 
 def _yaml(text: str) -> Any:
@@ -301,7 +332,7 @@ def _ci(root: Path) -> str:
             and not g.startswith(".github/")
             and not g.endswith("**/*.py")
         ]
-        lines.append(f"**{area}**: " + " ".join(globs))
+        lines.append(f"**{area}**: " + " ".join(_braces(globs)))
         repeated = [j for j in area_jobs if j in shown]
         for job_id in area_jobs:
             cmds = commands(job_id)
@@ -313,6 +344,9 @@ def _ci(root: Path) -> str:
                 lines.append(f"  env for {job_id}: {job_env}")
         if repeated:
             lines.append(f"- also {', '.join(repeated)} (commands above)")
+        if not globs and lines[-1].startswith(f"**{area}**"):
+            lines.pop()  # no path and no command: nothing to tell
+            continue
         lines.append("")
     return "\n".join(lines)
 
