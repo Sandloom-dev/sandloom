@@ -451,8 +451,9 @@ production. **Performance hints.** `get`, `add_or_get`, `set_subject_state`, `co
 **Driver obligations.**
 
 - `redis`: keeps the current Lua scripts (one round trip each), each treating an expired key as
-  absent (Redis does by itself). On `aopen` and in `health` it reads `maxmemory-policy` and refuses
-  unless it is `noeviction` (no such check exists today). The option `never_evicts_check` is
+  absent (Redis does by itself). On `aopen`, in `health` and on the first operation of a process that
+  never ran `aopen` (a worker, a CLI) it reads `maxmemory-policy` and refuses unless it is
+  `noeviction`; a failed `health` probe or a lost connection opens the check again. The option `never_evicts_check` is
   `verify` (default) or `assume`:
   - with `verify`, a refused `CONFIG GET` is `PermissionDenied` at `aopen`, with a fix naming the
     option;

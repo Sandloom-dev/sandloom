@@ -1,0 +1,8 @@
+### Breaking changes
+
+- **Every production profile now refuses a `security` or `idempotency` atomic_store whose driver does not declare `shared` and `never_evicts`** (idk-review-a-fixes). Before, only `PRODUCTION_PROFILE=multi_tenant_strict` checked the features, at startup after the instances opened; the default profile refused only an undeclared or `memory` store. Now `create_app` reads the features each driver declares for the instance's options, before anything opens, and refuses to start with `INFRA["atomic_store"]["<role>"]: driver '<name>' does not declare [...]`. The kernel judges the declaration, never the driver name. Upgrade: a `database` store on SQLite is not `shared` (a file belongs to one host), so move `INFRA.atomic_store.security` (and `idempotency`, when declared) to a `redis` store or to a `database` store on PostgreSQL. A third-party driver must declare both features to serve these roles.
+
+### Fixed
+
+- **Revocation marks, user blocks and idempotency reservations are no longer written to an evicting Redis by a worker or a CLI process** (idk-review-a-fixes). Only the API lifespan runs `aopen`; a process that never did served the `redis` atomic_store without reading `maxmemory-policy`. The first operation now does it, as the lease already did, with the same `never_evicts_check` semantics.
+- **A `noeviction` lost at runtime now refuses operations** (idk-review-a-fixes). A failed `health` probe (the lease and the `redis` atomic_store) and a lost connection (the atomic_store) open the eviction check again, so the next operation re-reads the policy and refuses until it is `noeviction` again. Before, `health` reported `fail` while leases were still granted and marks still written.

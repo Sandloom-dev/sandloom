@@ -105,6 +105,7 @@ from sandloom.core.loader.plugin_loader import (
 from sandloom.core.observability.logging import init_logging
 from sandloom.core.observability.observability import init_sentry
 from sandloom.core.orm import Base
+from sandloom.core.production_profile import atomic_store_feature_problems
 from sandloom.core.rpc import (
     install_service_rpc_routes,
 )
@@ -241,6 +242,14 @@ def create_app(
     core_facade.register_schema_registry(schema_registry_service)
 
     infra = _bind_infrastructure(core_facade, schema_registry_service)
+    if settings.is_prod:
+        # Spec section 4, every profile: the security and idempotency stores are
+        # shared and never evict (the driver's declaration, build-free).
+        feature_problems = atomic_store_feature_problems(infra)
+        if feature_problems:
+            raise ConfigurationError(
+                INVALID_CONFIGURATION + "; ".join(feature_problems)
+            )
     _register_infra_lifecycle(core_facade, schema_registry_service, infra)
 
     # Register core baseline event schemas early (idempotent)
