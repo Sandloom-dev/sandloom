@@ -27,6 +27,11 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # tests/_hypothesis_profile.py: a PR runs a quarter of every property's
+  # examples, the manual full validation all of them.
+  HYPOTHESIS_PROFILE: ${{ inputs.full_validation && 'full' || 'ci' }}
+
 jobs:
   workflow-policy:
     if: ${{ github.event.action != 'closed' }}

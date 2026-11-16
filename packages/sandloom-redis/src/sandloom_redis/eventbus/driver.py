@@ -27,6 +27,9 @@ from sandloom.driverkit._builtin_streams import BUS_BLOCK_MS
 from sandloom.driverkit.eventbus_support import (
     DEFAULT_EVENT_STREAM_RETENTION_SECONDS,
 )
+from sandloom.driverkit.shared_endpoints import redis_endpoint
+from sandloom.driverkit.shared_endpoints import register as register_endpoint
+from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_redis._settings_fill import STREAMS_FILL, require_url
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
@@ -238,6 +241,17 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
                 _redis_cache.default_client_url(),
                 fallback="the default cache client",
             )
+        own = EventBusOptions.model_validate(self.options).url
+        register_endpoint(
+            "eventbus",
+            self.name,
+            redis_endpoint(
+                _redis_cache.default_client_url() if self._uses_default_client else own
+            ),
+            "persistent",
+            option=f"eventbus.{self.name}.url",
+            declared=not self.implicit,
+        )
 
     async def health(self) -> HealthResult:
         try:
@@ -272,6 +286,7 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
         # Close the instance-owned Redis client (if any) so its connection pool
         # does not leak. The shared default client has no _LazyRedisClient and
         # is owned by the cache lifecycle.
+        unregister_endpoint("eventbus", self.name, "persistent")
         if self._owned_client is not None:
             await self._owned_client.aclose()
 

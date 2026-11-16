@@ -78,6 +78,12 @@ a file.
 - **`Notification.body_fields`** holds the values `body` was built from, for a driver that
   renders its own template. It is as sensitive as the body: never log it.
 
+A driver whose instance must not lose a key on a Redis registers its endpoint in `aopen` and
+unregisters it in `aclose`. That covers an `atomic_store`, a `lease`, an event transport and a
+task queue. The helper is
+[`sandloom.driverkit.shared_endpoints`](driverkit.md#sandloomdriverkitshared_endpoints). The
+operator is warned at startup when the instance shares a database with `cache.default`.
+
 A connection option (a url, a broker, a pool bound) is an option of your instance, written in
 `INFRA`, with a default in the options schema. Do not read it from a flat setting, and do not
 take it from another instance. No instance inherits another's url, so a driver that needs a

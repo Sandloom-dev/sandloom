@@ -470,13 +470,16 @@ def test_the_composition_default_names_the_driver_of_an_instance(
     monkeypatch.setattr(
         family_seams,
         "root_default_infra",
-        lambda: {"cache": {"default": {"driver": "fake-cache"}}, "x": {"y": "bad"}},
+        lambda root=None: {
+            "cache": {"default": {"driver": "fake-cache"}},
+            "x": {"y": "bad"},
+        },
     )
     assert family_seams.default_driver("cache", "default") == "fake-cache"
     assert family_seams.default_driver("cache", "other") is None
     assert family_seams.default_driver("eventbus", "default") is None
     assert family_seams.default_driver("x", "y") is None  # not an instance mapping
-    monkeypatch.setattr(family_seams, "root_default_infra", lambda: None)
+    monkeypatch.setattr(family_seams, "root_default_infra", lambda root=None: None)
     assert family_seams.default_driver("cache", "default") is None
 
 

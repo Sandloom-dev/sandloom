@@ -45,6 +45,9 @@ from sandloom.driverkit import (
     Timeout,
     Unavailable,
 )
+from sandloom.driverkit.shared_endpoints import redis_endpoint
+from sandloom.driverkit.shared_endpoints import register as register_endpoint
+from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_celery.broker_probe import BrokerUnreachableError, probe_broker
 from sandloom_celery.worker import (
@@ -177,6 +180,23 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         # The factory hands over the object it already validated: ``options``
         # is not parsed a second time.
         self._typed = validated or CeleryTaskQueueOptions.model_validate(options)
+
+    async def aopen(self) -> None:
+        """Warn (never refuse) when the broker is the Redis database of
+        ``cache.default``: an evicting cache can drop queued tasks. The cache's
+        driver registers its endpoint in ``sandloom.driverkit.shared_endpoints``
+        and this driver its broker's, so no driver package imports another."""
+        register_endpoint(
+            "taskqueue",
+            self.name,
+            redis_endpoint(self._typed.broker),
+            "persistent",
+            option=f"taskqueue.{self.name}.broker",
+            declared=not self.implicit,
+        )
+
+    async def aclose(self) -> None:
+        unregister_endpoint("taskqueue", self.name, "persistent")
 
     @property
     def _app(self) -> Any:

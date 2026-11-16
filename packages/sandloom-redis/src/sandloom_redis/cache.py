@@ -53,6 +53,9 @@ from sandloom.driverkit import (
     observe,
 )
 from sandloom.driverkit.atomic_store import MAX_KEY_BYTES, MAX_TTL_SECONDS
+from sandloom.driverkit.shared_endpoints import redis_endpoint
+from sandloom.driverkit.shared_endpoints import register as register_endpoint
+from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_redis._errors import map_redis_error
 from sandloom_redis._settings_fill import CACHE_FILL, require_url
@@ -344,6 +347,7 @@ async def get_default_transport_client(
 async def close_default_client() -> None:
     """Dispose the process-wide ``default`` cache client (idempotent)."""
     global _default_client, _default_client_origin
+    unregister_endpoint("cache", DEFAULT_INSTANCE, "cache_default")
     while _default_transport:
         _, (_, transport) = _default_transport.popitem()
         await _close_quietly(transport)
@@ -800,7 +804,11 @@ def _build_redis_cache(cls: type[_C], cfg: InstanceConfig) -> _C:
     subclass's ``from_config`` returns the subclass)."""
     shared = cfg.name == DEFAULT_INSTANCE
     if shared:
-        configure_default_client(RedisCacheOptions.model_validate(cfg.options))
+        options = RedisCacheOptions.model_validate(cfg.options)
+        configure_default_client(options)
+        register_endpoint(
+            "cache", DEFAULT_INSTANCE, redis_endpoint(options.url), "cache_default"
+        )
     return cls(
         name=cfg.name,
         driver=cfg.driver,
