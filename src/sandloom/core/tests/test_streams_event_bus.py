@@ -14,32 +14,22 @@ from typing import Any
 
 import pytest
 
+from sandloom.core.eventing import consumer_inbox
 from sandloom.core.eventing.consumer_inbox import ConsumerInbox
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.memory_transport import MemoryTransport
 from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.eventing.subscriptions import SubscriptionHandle, SubscriptionState
+from sandloom.core.testing import InMemoryCache
 from sandloom.core.tests._schemas import PermissiveSchemaRegistry
 
 
 @pytest.fixture(autouse=True)
 def _fake_cache(monkeypatch: pytest.MonkeyPatch) -> None:
-    store: dict[str, str] = {}
-
-    class _FakeRedis:
-        async def set(self, key, value, nx=False, ex=None):
-            if nx and key in store:
-                return None
-            store[key] = value
-            return True
-
-        async def get(self, key):
-            return store.get(key)
-
-    async def _get_cache():
-        return _FakeRedis()
-
-    monkeypatch.setattr("sandloom_redis.cache.get_default_client", _get_cache)
+    """The dedupe inbox reads its cache through ``infra.access.cache``: an
+    in-memory one, so no driver package (Redis included) is involved."""
+    store = InMemoryCache()
+    monkeypatch.setattr(consumer_inbox, "cache", lambda name="default": store)
 
 
 def _bus(transport: MemoryTransport) -> StreamsEventBus:

@@ -38,7 +38,7 @@ PENDING = Path(__file__).with_name("no_redis_pending.json")
 #: How many files / tests the pending list may hold. They only go down: lower
 #: a ceiling with the entries it lost, never raise one (review holds that).
 CEILING_FILES = 0
-CEILING_TESTS = 100
+CEILING_TESTS = 51
 
 
 def importable_redis() -> list[str]:
