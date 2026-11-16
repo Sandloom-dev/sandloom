@@ -199,12 +199,12 @@ line.
 
 This is optional. Add `sqlite` to the application's dev requirement on the
 framework (`sandloom[check,testing,sqlite]`), then set the database in `.env`,
-outside the `sandloom dev` block. Redis stays required:
+outside the `sandloom dev` block. Redis stays required, and each Redis instance
+keeps its own `url` in `INFRA` (the example lists the instances of a generated app):
 
 ```bash
 DATABASE_URL=sqlite+aiosqlite:///./data/app.db
-CACHE_URL=redis://127.0.0.1:6379/0
-BROKER_URL=redis://127.0.0.1:6379/1
+INFRA='{"cache":{"default":{"url":"redis://127.0.0.1:6379/0"}},"eventbus":{"default":{"url":"redis://127.0.0.1:6379/2"}},"broadcast":{"default":{"url":"redis://127.0.0.1:6379/3"}},"atomic_store":{"security":{"url":"redis://127.0.0.1:6379/4"}},"lease":{"beat":{"url":"redis://127.0.0.1:6379/5"}},"taskqueue":{"default":{"broker":"redis://127.0.0.1:6379/1"}}}'
 ```
 
 `uv run sandloom dev run` builds the schema from your models at startup;

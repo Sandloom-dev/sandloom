@@ -868,18 +868,25 @@ Two kinds of state live in Redis:
   durable in the provider database (`contract_command_log`); only the cache
   fallback for a database without that log goes through the idempotency store.
 
-The framework routes the second kind to the `atomic_store` instance
+The framework routes the second kind to the `atomic_store` instance <!-- prose-ok: P6 series pre-exist, a list of settings -->
 `INFRA.atomic_store.security`: a durable key-value store with atomic
 operations that never evicts. Idempotency records can opt into their own
 instance, see below. Declare it on its own Redis. In production an absent
 instance is a startup refusal in every production deployment, whatever
 `PRODUCTION_PROFILE` is, and it is never built from the cache's options.
-Development builds one on the cache's Redis, outside production only:
+No instance inherits another's url, in development too: the cache and the
+security store each state their own `url`. A Redis instance with no url
+refuses startup.
 
 ```bash
-INFRA='{"atomic_store": {"security": {"driver": "redis", "url": "rediss://:<pw>@security-redis:6379/0"}}}'
-CACHE_URL=redis://cache-redis:6379/0        # best-effort cache (may evict)
+INFRA='{"atomic_store": {"security": {"driver": "redis", "url": "rediss://:<pw>@security-redis:6379/0"}},
+        "cache": {"default": {"url": "redis://cache-redis:6379/0"}}}'   # the cache is best-effort (may evict)
 ```
+
+A security instance that shares `cache.default`'s Redis host, port and database <!-- prose-ok: P6 a list of instances -->
+logs a startup warning that names both instances. An evicting cache may drop the
+keys they hold. The check covers `atomic_store.security`, `lease.beat`,
+the event bus and the task queue broker.
 
 `SECURITY_CACHE_INSTANCE` and `IDEMPOTENCY_CACHE_INSTANCE` are removed. A
 leftover one fails startup with this note. To upgrade, delete the setting.
@@ -899,10 +906,10 @@ Recommended configuration of the security Redis:
   primary endpoint, or a TCP proxy / HAProxy that tracks the Sentinel master),
   or install a Sentinel-aware atomic_store driver package. Redis
   Cluster is not supported by the built-in driver (no cluster client ships);
-- the same `INFRA.atomic_store.security` URL in **every** service (revocation
-  marks written by one service must be read by all of them), like `CACHE_URL`
-  today; the built-in driver reads from the URL it is given, so point it at
-  the primary, not a read replica.
+- the same `INFRA.atomic_store.security` URL in **every** service. Revocation
+  marks written by one service must be read by all of them, like the
+  `cache.default` url. The built-in driver reads from the URL it is given, so
+  point it at the primary, not a read replica.
 
 **Separate idempotency store (opt-in).** `INFRA.atomic_store.idempotency`
 (absent: the `security` instance) holds the idempotency records — `idempotency_guard`

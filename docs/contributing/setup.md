@@ -49,8 +49,8 @@ with `openssl rand -hex 32` and set `JWT_SECRET` in `.env` to that value:
 cp .env.example .env
 ```
 
-The four mandatory settings are `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`, and
-`JWT_SECRET`. The example sets `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main`, the
+`DATABASE_URL` and `JWT_SECRET` are mandatory, and so is `INFRA`: it gives each Redis <!-- prose-ok: P6 a list of settings and commands -->
+instance and the Celery broker its own url. The example sets `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main`, the
 root that `sandloom migrate`, `sandloom generate`, the worker and the other `sandloom`
 commands build; keep it. A checkout or worktree without a `.env` gets the lean root.
 Every command that builds the app then refuses with `SANDLOOM-B035`, `sandloom test`

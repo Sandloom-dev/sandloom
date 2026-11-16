@@ -20,8 +20,8 @@ below). Background: [Migrations](migrations.md).
 
 ## Prerequisites
 
-- The environment the app runs with: `DATABASE_URL`, `CACHE_URL`,
-  `BROKER_URL` and any named databases. `sandloom migrate` boots the composition
+- The environment the app runs with: `DATABASE_URL`, `INFRA` (the urls of the Redis
+  instances and the Celery broker) and any named databases. `sandloom migrate` boots the composition
   root (`SANDLOOM_COMPOSITION_ROOT`; an app made by `sandloom new` sets
   `<app>.asgi`) to learn which modules are loaded and where their tables
   live. `SANDLOOM_MODULES`, when set, limits it to those modules.

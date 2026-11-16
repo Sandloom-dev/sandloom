@@ -376,12 +376,12 @@ uv run pytest -n 4 --dist loadfile src/my_module/tests
 An application from `sandloom new` runs on a file. Its `uv sync` installs the
 driver: the `sqlite` extra is in its `dev` dependencies. Set the database in
 `.env`, outside the `sandloom dev` block. Redis stays: SQLite replaces
-PostgreSQL only.
+PostgreSQL only. Each Redis instance the app selects keeps its own `url` in `INFRA`
+(the example lists the instances of a generated app):
 
 ```bash
 DATABASE_URL=sqlite+aiosqlite:///./data/app.db
-CACHE_URL=redis://127.0.0.1:6379/0
-BROKER_URL=redis://127.0.0.1:6379/1
+INFRA='{"cache":{"default":{"url":"redis://127.0.0.1:6379/0"}},"eventbus":{"default":{"url":"redis://127.0.0.1:6379/2"}},"broadcast":{"default":{"url":"redis://127.0.0.1:6379/3"}},"atomic_store":{"security":{"url":"redis://127.0.0.1:6379/4"}},"lease":{"beat":{"url":"redis://127.0.0.1:6379/5"}},"taskqueue":{"default":{"broker":"redis://127.0.0.1:6379/1"}}}'
 ```
 
 `uv run sandloom dev run` reads that `DATABASE_URL` as the checkout's own

@@ -268,18 +268,18 @@ uv run sandloom dev run                         # http://127.0.0.1:8000/docs
 ## 8. See where the infrastructure comes from
 
 Your modules called `db()` and never named a database engine. The backend is chosen in
-`.env` (`sandloom dev up` wrote these three lines into its marked block):
+`.env` (`sandloom dev up` writes these settings into its marked block):
 
 ```text
 DATABASE_URL=postgresql+asyncpg://...   # the database
-CACHE_URL=redis://...                   # the cache
-BROKER_URL=redis://...                  # the background task queue
+INFRA='{"cache":{"default":{"url":"redis://..."}},"taskqueue":{"default":{"broker":"redis://..."}}}'
 ```
 
-Each setting configures a default **driver**, the piece of code that connects Sandloom to
-a backend. Pointing a setting at another server, or selecting another driver in `INFRA`,
-changes no module code. You have now used both main parts of Sandloom: modules hold your product,
-and drivers connect it to the outside world. See
+`DATABASE_URL` configures the default database **driver**, the piece of code that connects
+Sandloom to a backend. Each Redis instance, such as the cache, takes its own url in `INFRA`;
+the task queue takes a `broker`. Pointing a url at another server, or selecting another
+driver in `INFRA`, changes no module code. You have now used both main parts of Sandloom:
+modules hold your product, and drivers connect it to the outside world. See
 [what is included](../infrastructure/index.md#what-is-included) and
 [how to write a driver](../infrastructure/write-a-driver.md).
 

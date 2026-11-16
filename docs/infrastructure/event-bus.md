@@ -10,7 +10,7 @@ The event bus carries [events](../modules/between/events.md) between modules. Mo
 they publish with `await E(...).publish()` and consume with `@on`.
 
 Choose the driver with `EVENT_BUS_BACKEND`. Unset (the default), it leaves the bus to the composition: `sandloom_standard` selects `streams`. Nothing selects `memory` for you, so name it for development (`EVENT_BUS_BACKEND=memory`). `EVENT_BUS_BACKEND=auto` is refused at startup: unset the variable.
-A named instance takes the option `url`, its own Redis connection.
+The `streams` and `redis` drivers take the option `url`, their own Redis connection, on every instance: `INFRA.eventbus.default.url` for the default bus. The bus does not inherit the cache's url.
 
 ## Drivers
 
