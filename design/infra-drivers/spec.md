@@ -1397,7 +1397,7 @@ For the orchestrator's review; each departs from or details `design.md`.
       driver while the package is absent (no entry point registered, or `find_spec` finds nothing)
       is refused with the hint; any other unregistered name stays `DriverNotRegisteredError`. A test
       keeps the table equal to the packages' entry points, and each package tests its own entry
-      points in its CI job (`packages/*/tests/test_driver_entry_points.py`: the class, the kit's
+      points in its CI job (`packages/sandloom-<name>/tests/test_<name>_driver_entry_points.py`: the class, the kit's
       provider base, a tier production accepts).
     - **The policy hook.** `InfraRegistry.set_policy(capability, **hooks)` passes each hook as the
       constructor argument of that name to a provider class that declares it, whether the class
