@@ -29,7 +29,7 @@ from sandloom.core.config.settings import settings
 from sandloom.core.effects import relay_retry_horizon_seconds
 from sandloom.core.eventing.bus_base import transport_for
 from sandloom.core.infra.errors import Unsupported
-from sandloom.core.infra.registry import configured_stream_retention_seconds
+from sandloom.core.infra.registry import configured_stream_retention
 from sandloom.core.projections.descriptors import (
     ProjectionConsumerDescriptor,
     ProjectionRebuildResult,
@@ -145,16 +145,14 @@ def _stream_retention_s(core: Any, *, force: bool = False) -> float:
     letters as bounds (the stream term is one second: positive, so it does not
     read as unbounded).
     """
-    seconds = configured_stream_retention_seconds(core.settings)
-    if seconds is not None:
-        return float(seconds)
+    found = configured_stream_retention(core.settings)
+    if found.seconds is not None:
+        return float(found.seconds)
     if force:
         return 1.0
     raise PurgeRefused(
         "the stream retention of the deployment's event bus cannot be determined "
-        "from its configuration (EVENT_BUS_BACKEND resolves to a bus without a "
-        "retention_seconds option; set EVENT_BUS_BACKEND=streams and "
-        "INFRA.eventbus.default.retention_seconds): a replay could resurrect a "
+        f"from its configuration: {found.reason}. A replay could resurrect a "
         "purged row (--force purges anyway)"
     )
 

@@ -59,7 +59,7 @@ from typing import Any
 from sandloom.core.config import accepted_risks as _risks
 from sandloom.core.effects import relay_retry_horizon_seconds
 from sandloom.core.infra.ports.eventbus import Retention
-from sandloom.core.infra.registry import configured_stream_retention_seconds
+from sandloom.core.infra.registry import configured_stream_retention
 
 logger = logging.getLogger("sandloom.core.guarantee_windows")
 
@@ -163,21 +163,20 @@ def configured_inbox_purge_problems(settings: Any, inbox_days: float) -> list[Pr
     bus, a driver without a ``retention_seconds`` option) is a problem too: the
     purge cannot prove it stays outside the redelivery window.
     """
-    seconds = configured_stream_retention_seconds(settings)
-    if seconds is None:
+    found = configured_stream_retention(settings)
+    if found.seconds is None:
         return [
             Problem(
                 INBOX_PURGE_BELOW_REDELIVERY,
                 "the stream retention of the deployment's event bus cannot be "
-                "determined from its configuration (EVENT_BUS_BACKEND resolves to a "
-                "bus without a retention_seconds option): a redelivery after "
-                f"purging inbox claims older than {inbox_days:g} day(s) could "
-                "apply its effect twice",
+                f"determined from its configuration: {found.reason}. A "
+                f"redelivery after purging inbox claims older than "
+                f"{inbox_days:g} day(s) could apply its effect twice",
                 ("EVENT_BUS_BACKEND", RETENTION_OPTION, "--inbox-days"),
             )
         ]
     return inbox_purge_problems(
-        Retention(max_age_seconds=seconds or None, max_length=None), inbox_days
+        Retention(max_age_seconds=found.seconds or None, max_length=None), inbox_days
     )
 
 

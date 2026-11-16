@@ -1997,39 +1997,103 @@ def _declared_class(capability: str, driver: str) -> type[InfraProvider] | None:
     return check_driver_class(key, _load_plugin(entry, f"Driver {key!r}"), None)
 
 
-def configured_stream_retention_seconds(
+@dataclass(frozen=True, slots=True)
+class ConfiguredRetention:
+    """What :func:`configured_stream_retention` found: ``seconds`` (``0``:
+    never trimmed by age), or ``None`` with the ``reason`` it cannot be
+    determined, worded for the operator (it names what to install or change)."""
+
+    seconds: int | None
+    reason: str | None = None
+
+
+def _known_driver_install(capability: str, driver: str) -> str | None:
+    """The install command of a driver of a package the kernel knows by name
+    (``KNOWN_DRIVER_PACKAGES``), ``None`` for any other driver. Reached by name:
+    the bootstrap sits above the infra layer (ADR-0007), and only the failure
+    path of a configuration read needs it."""
+    bootstrap = importlib.import_module("sandloom.core.drivers.bootstrap")
+    known = bootstrap.KNOWN_DRIVER_PACKAGES.get((capability, driver))
+    return None if known is None else str(known[1])
+
+
+def configured_stream_retention(
     settings: Any, instance: str = DEFAULT_INSTANCE
-) -> int | None:
-    """The age bound, in seconds, the eventbus ``instance`` is CONFIGURED with
-    (``0``: entries are never trimmed by age): its ``retention_seconds`` option,
-    else the default its driver's ``options_schema`` gives that option (a
-    ``streams`` bus that leaves it out has seven days).
+) -> ConfiguredRetention:
+    """The age bound the eventbus ``instance`` is CONFIGURED with
+    (``seconds``; ``0``: entries are never trimmed by age): its
+    ``retention_seconds`` option, else the default its driver's
+    ``options_schema`` gives that option (a ``streams`` bus that leaves it out
+    has seven days).
 
     A pure configuration read: no bus is built and no process's live bus is
     asked, so a tool running in another process (a CLI with a volatile bus of
-    its own) learns the retention of the deployment's bus. ``None`` when it
-    cannot be determined: the instance is not configured, or it states no
-    ``retention_seconds`` and its driver, as an installed package publishes it,
-    has no such option with a default (a volatile ``memory`` / ``redis`` bus
-    keeps no stream; a driver whose package is not installed here has no class
-    to ask).
+    its own) learns the retention of the deployment's bus. ``seconds`` is
+    ``None``, with the ``reason``, when it cannot be determined: the instance
+    is not configured; it states an invalid value; its driver's package is not
+    installed in this process (the reason names the package to install) or is
+    installed but fails to load; or the driver has no ``retention_seconds``
+    option with a default (a volatile ``memory`` / ``redis`` bus keeps no
+    stream). Nothing here raises for a driver package: a read-only probe
+    (``check``, ``doctor``, purge) must still say why.
     """
     found = resolved_eventbus(settings).get(instance)
     if found is None:
-        return None
+        return ConfiguredRetention(
+            None, f"no eventbus instance {instance!r} is configured"
+        )
     value = found.options.get("retention_seconds")
     if value is None:
-        provider_class = _declared_class("eventbus", found.driver)
+        driver = found.driver
+        try:
+            provider_class = _declared_class("eventbus", driver)
+        except (DriverLoadError, DriverConflictError) as exc:
+            return ConfiguredRetention(
+                None,
+                f"the {driver!r} event bus driver is installed but cannot be "
+                f"loaded ({exc}): fix the installation",
+            )
+        if provider_class is None:
+            install = _known_driver_install("eventbus", driver)
+            if install is not None:
+                return ConfiguredRetention(
+                    None,
+                    f"the {driver!r} event bus is configured but its driver "
+                    f"package is not installed in this process ({install}): "
+                    "install it where this command runs",
+                )
         schema = provider_class.options_schema if provider_class else None
         if isinstance(schema, type) and issubclass(schema, BaseModel):
             declared = schema.model_fields.get("retention_seconds")
             value = None if declared is None else declared.get_default()
+        if value is None or not isinstance(value, int):
+            return ConfiguredRetention(
+                None,
+                f"the {driver!r} event bus has no retention_seconds option with "
+                "a default (a volatile bus keeps no stream): select the streams "
+                "bus (EVENT_BUS_BACKEND=streams) and set "
+                "INFRA.eventbus.default.retention_seconds",
+            )
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        return None
-    return value
+        return ConfiguredRetention(
+            None,
+            f"retention_seconds of eventbus {instance!r} is {value!r}: it must "
+            "be a non-negative integer",
+        )
+    return ConfiguredRetention(value)
+
+
+def configured_stream_retention_seconds(
+    settings: Any, instance: str = DEFAULT_INSTANCE
+) -> int | None:
+    """:func:`configured_stream_retention`'s ``seconds``: ``None`` when the
+    retention cannot be determined (it does not say why)."""
+    return configured_stream_retention(settings, instance).seconds
 
 
 __all__ = [
+    "ConfiguredRetention",
+    "configured_stream_retention",
     "configured_stream_retention_seconds",
     "versions_compatible",
     "check_driver_class",

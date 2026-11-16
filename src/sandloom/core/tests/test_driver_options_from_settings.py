@@ -22,6 +22,7 @@ from sandloom_celery import taskqueue as celery_taskqueue
 from sandloom_redis.cache import RedisCacheOptions
 
 import sandloom.core.infra.config as infra_config
+import sandloom.core.infra.registry as registry_module
 from sandloom.core.config.settings import Settings, settings
 from sandloom.core.drivers.bootstrap import build_infra_registry
 from sandloom.core.eventing.volatile_provider import VolatileBusOptions
@@ -600,6 +601,77 @@ def test_a_driver_without_a_retention_option_has_none_configured(driver: str) ->
         configured_stream_retention_seconds(_bus_settings(driver, retention_seconds=9))
         == 9  # only what the configuration states: no class to refute it
     )
+
+
+def _without_plugins(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A process where no driver package publishes an entry point."""
+    monkeypatch.setattr(registry_module, "_one_plugin", lambda group, name: None)
+
+
+def test_a_missing_driver_package_is_named_with_its_install_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _without_plugins(monkeypatch)
+    found = registry_module.configured_stream_retention(_bus_settings("streams"))
+    assert found.seconds is None
+    assert found.reason is not None
+    assert "not installed" in found.reason
+    assert "pip install sandloom-redis" in found.reason
+    assert "EVENT_BUS_BACKEND" not in found.reason  # the setting is not the fault
+    # what the configuration states is still what it states
+    stated = _bus_settings("streams", retention_seconds=60)
+    assert registry_module.configured_stream_retention(stated).seconds == 60
+
+
+def test_a_driver_that_fails_to_load_is_a_reason_not_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken(capability: str, driver: str) -> None:
+        raise registry_module.DriverLoadError("boom: broken import")
+
+    monkeypatch.setattr(registry_module, "_declared_class", broken)
+    found = registry_module.configured_stream_retention(_bus_settings("streams"))
+    assert found.seconds is None
+    assert found.reason is not None
+    assert "cannot be loaded" in found.reason and "boom" in found.reason
+
+
+def test_a_failure_that_is_not_a_plugin_error_still_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected(capability: str, driver: str) -> None:
+        raise RuntimeError("not a driver error")
+
+    monkeypatch.setattr(registry_module, "_declared_class", unexpected)
+    with pytest.raises(RuntimeError, match="not a driver error"):
+        registry_module.configured_stream_retention(_bus_settings("streams"))
+
+
+def test_a_volatile_bus_and_an_unconfigured_instance_say_why() -> None:
+    volatile = registry_module.configured_stream_retention(_bus_settings("memory"))
+    assert volatile.reason is not None
+    assert "no retention_seconds option" in volatile.reason
+    assert "EVENT_BUS_BACKEND=streams" in volatile.reason
+    absent = registry_module.configured_stream_retention(
+        _bus_settings("streams"), "nope"
+    )
+    assert absent.seconds is None and absent.reason is not None
+    assert "'nope'" in absent.reason
+    assert (
+        registry_module.configured_stream_retention(_bus_settings("streams")).reason
+        is None
+    )
+
+
+def test_the_purge_refusal_carries_the_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sandloom.core.projections.operations import _stream_retention_s
+    from sandloom.core.projections.purge import PurgeRefused
+
+    _without_plugins(monkeypatch)
+    core = SimpleNamespace(settings=_bus_settings("streams"))
+    with pytest.raises(PurgeRefused, match="pip install sandloom-redis"):
+        _stream_retention_s(core)
+    assert _stream_retention_s(core, force=True) == 1.0
 
 
 @pytest.mark.parametrize("bad", [-1, True, "7", 1.5])
