@@ -362,7 +362,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "AuditUnavailableError": {
       "kind": "class",
@@ -465,7 +465,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "InvalidArgument": {
       "kind": "class",
@@ -475,7 +475,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "MissingTenantError": {
       "kind": "class",
@@ -495,7 +495,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Notification": {
       "kind": "class",
@@ -529,7 +529,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "PlannedReads": {
       "kind": "callable",
@@ -669,7 +669,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "TooLarge": {
       "kind": "class",
@@ -679,7 +679,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Unavailable": {
       "kind": "class",
@@ -689,7 +689,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "UnitOfWorkRequiredError": {
       "kind": "class",
@@ -2547,7 +2547,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "AtomicStoreProvider": {
       "kind": "class",
@@ -2951,7 +2951,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "GroupOwner": {
       "kind": "class",
@@ -2978,7 +2978,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "InfraProvider": {
       "kind": "class",
@@ -3022,7 +3022,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Lease": {
       "kind": "class",
@@ -3098,7 +3098,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Notification": {
       "kind": "class",
@@ -3197,7 +3197,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Retention": {
       "kind": "class",
@@ -3330,7 +3330,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "TooLarge": {
       "kind": "class",
@@ -3340,7 +3340,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Unavailable": {
       "kind": "class",
@@ -3350,7 +3350,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "UnitSession": {
       "kind": "class",
@@ -5825,7 +5825,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "CLAIMS_CONTRACT_SUFFIX": {
       "kind": "value"
@@ -5973,7 +5973,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "InvalidArgument": {
       "kind": "class",
@@ -5983,7 +5983,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "NotFound": {
       "kind": "class",
@@ -5993,7 +5993,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Notification": {
       "kind": "class",
@@ -6027,7 +6027,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "ShutdownTask": {
       "kind": "value"
@@ -6050,7 +6050,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "TooLarge": {
       "kind": "class",
@@ -6060,7 +6060,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Unavailable": {
       "kind": "class",
@@ -6070,7 +6070,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Unsupported": {
       "kind": "class",

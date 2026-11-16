@@ -257,6 +257,26 @@ def test_the_helper_table(
     assert (mapped.capability, mapped.instance) == ("cache", "x")
 
 
+REDIRECT_IDS = {"MOVED", "ASK", "MovedError", "AskError"}
+
+
+@pytest.mark.parametrize("driver", DRIVERS)
+@pytest.mark.parametrize(("_id", "make", "expected"), ROWS, ids=IDS)
+async def test_only_a_cluster_redirect_carries_the_hint(
+    driver: str, _id: str, make: Callable[[], BaseException], expected: type[InfraError]
+) -> None:
+    """The relay's log line says "is the client cluster-aware?" for ``MOVED`` /
+    ``ASK`` (by text or by the cluster client's class), for no other error, and
+    the fixed sentence never holds the address of the reply."""
+    mapped = await DRIVERS[driver](make())
+    assert isinstance(mapped, InfraError)
+    if _id in REDIRECT_IDS:
+        assert mapped.hint == "cluster redirect: is the client cluster-aware?"
+        assert "10.0.0.1" not in mapped.hint and "3999" not in mapped.hint
+    else:
+        assert mapped.hint is None
+
+
 def test_only_the_named_replies_are_outages() -> None:
     """An allow-list: a reply that is not named is NOT retryable."""
     retryable = {name for name, make, kind in ROWS if kind.retryable and name.isupper()}

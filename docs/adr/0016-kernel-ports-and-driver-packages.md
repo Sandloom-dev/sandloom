@@ -251,7 +251,7 @@ These follow from the rules above and were settled in the spec's review, not put
   driver written for the old contract is refused at load (SANDLOOM-B022) instead of misbehaving.
 - The `idk-ratchets` slice adds shrink-only allowlists: no backend SDK in `core/`, no `raw_*` call
   or undeclared provider attribute, no transport protocol in `core/eventing`. `idk-ratchets-close`
-  empties them.
+  prunes them to the rows that state why they stay.
 - Rejected, with reasons in the design: `atomic_store` as a feature of `cache`; the private `lock`
   as the lease; a `native()` accessor; aliases for the old settings and the old worker command;
   moving the database driver out this wave.
