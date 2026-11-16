@@ -21,7 +21,7 @@ the checked-out ``src/`` and ``benchmarks/`` mounted read-only, then for
 
 It records login RPS and latency, the read's latency, and the container's
 cgroup CPU (``usage_usec``, throttling). Run from ``benchmarks/`` with
-``DATABASE_URL`` / ``CACHE_URL`` / ``BROKER_URL`` of the stand's own database
+``DATABASE_URL`` / ``BENCH_REDIS_URL`` / ``BENCH_CELERY_BROKER`` of the stand's own database
 (localhost is rewritten to ``host.docker.internal``)::
 
     uv run --frozen python ladder/login_concurrency.py --limits 1,2,4 \\
@@ -60,14 +60,18 @@ def _container_env(limit: str, workers: int) -> dict[str, str]:
     sys.path.insert(0, str(HERE))
     from write_login import TWOFA_KEY
 
+    from benchsuite import common
     from benchsuite import platform as plat
 
     env = dict(plat.server_env())
     env.update(
         {
             "DATABASE_URL": _docker_url(env["DATABASE_URL"]),
-            "CACHE_URL": _docker_url(env["CACHE_URL"]),
-            "BROKER_URL": _docker_url(env["BROKER_URL"]),
+            "INFRA": common.infra_env(
+                instances=common.STANDARD_REDIS,
+                url=_docker_url(common.redis_url()),
+                broker=_docker_url(common.celery_broker()),
+            ),
             "TWOFA_ENCRYPTION_KEY": TWOFA_KEY,
             "OUTBOX_RELAY_ENABLED": "off",
             "SANDLOOM_ACCEPTED_RISKS": "relay_disabled",

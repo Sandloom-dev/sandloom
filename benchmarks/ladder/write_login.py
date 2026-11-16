@@ -137,7 +137,7 @@ async def _release_group_owners() -> None:
 
     from benchsuite import common
 
-    for url in {common.cache_url(), common.broker_url()}:
+    for url in {common.redis_url(), common.celery_broker()}:
         client = redis.Redis.from_url(url)
         try:
             keys = [k async for k in client.scan_iter("sandloom:group-owner:*")]

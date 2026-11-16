@@ -73,8 +73,6 @@ def _setup_path(src: str | None) -> None:
         sys.path.insert(0, str(Path(src).resolve()))
     os.environ.setdefault("ENVIRONMENT", "dev")
     os.environ["DATABASE_URL"] = f"{PG}/{DB}"
-    os.environ["CACHE_URL"] = REDIS
-    os.environ.setdefault("BROKER_URL", REDIS)
     # a non-secret placeholder: the stand mints no tokens (settings need one)
     os.environ.setdefault("JWT_SECRET", "outbox-delivery-stand-not-a-secret-000000")
     os.environ.setdefault("LOG_LEVEL", "WARNING")

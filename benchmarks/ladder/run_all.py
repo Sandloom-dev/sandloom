@@ -1,7 +1,7 @@
 """Run the whole ladder; every measurement in a fresh process.
 
     cd benchmarks
-    export DATABASE_URL=... CACHE_URL=... BROKER_URL=...
+    export DATABASE_URL=... BENCH_REDIS_URL=... BENCH_CELERY_BROKER=...
     uv run python -m benchsuite.setup_db          # once
     uv run python ladder/run_all.py rt alloc calls memray   # deterministic
     ladder/cg/run_cg.sh $(uv run python ladder/run_all.py rungs)  # instructions

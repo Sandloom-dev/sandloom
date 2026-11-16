@@ -23,8 +23,8 @@ class AuthError(Exception):
 def make_redis() -> redis.Redis:
     """A Redis client configured like Sandloom's default cache driver."""
     pool = redis.BlockingConnectionPool.from_url(
-        common.cache_url(),
-        max_connections=common.cache_max_connections(),
+        common.redis_url(),
+        max_connections=common.redis_max_connections(),
         timeout=5.0,
         encoding="utf-8",
         decode_responses=True,

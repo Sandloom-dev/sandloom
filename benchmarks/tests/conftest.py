@@ -17,10 +17,12 @@ framework, and the app role is per worker (``test_s5_secure_read.ROLE``).
 
 from __future__ import annotations
 
+import os
 from collections.abc import Generator
 from pathlib import Path
 
 import pytest
+from redis_env import worker_redis_url
 
 from sandloom.core.testing.fixtures import *  # noqa: F403
 from sandloom.core.testing.fixtures import load_test_env
@@ -31,6 +33,10 @@ from sandloom.core.testing.fixtures import load_test_env
 # workers' Redis indexes from it), the SANDLOOM_TEST_* overrides, the small pools
 # of a test process, and this xdist worker's own database / Redis DBs.
 load_test_env([Path(__file__).resolve().parents[2]])
+
+# The stands read their Redis from ``BENCH_REDIS_URL`` (benchsuite.common): this
+# worker's own database, not the stands' local default.
+os.environ["BENCH_REDIS_URL"] = worker_redis_url()
 
 
 def pytest_configure(config: pytest.Config) -> None:

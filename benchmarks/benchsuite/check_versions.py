@@ -61,8 +61,6 @@ def main() -> int:
 
     os.environ.setdefault("ENVIRONMENT", "dev")
     os.environ.setdefault("DATABASE_URL", common.database_url())
-    os.environ.setdefault("CACHE_URL", common.cache_url())
-    os.environ.setdefault("BROKER_URL", common.broker_url())
     os.environ.setdefault("JWT_SECRET", common.jwt_secret())
     from sandloom.core.auth.marks import REVOCATION_KEY_PREFIX
 
