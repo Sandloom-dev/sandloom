@@ -336,14 +336,27 @@ def test_the_settings_choose_only_the_default_event_bus() -> None:
     assert chosen({"EVENT_BUS_BACKEND": "memory"}, "cache", "default") is None
 
 
-def test_a_broker_url_with_no_task_queue_driver_is_left_alone(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("worker", ["gw0", "gw1", "gw3"])
+def test_a_broker_url_with_no_task_queue_driver_moves_like_the_cache_url(
+    monkeypatch: pytest.MonkeyPatch, worker: str
 ) -> None:
-    """No composition selects a task queue: BROKER_URL has no instance to move."""
+    """No composition selects a task queue, yet a test may point a celery queue at
+    BROKER_URL: it moves per worker as CACHE_URL does, never shared."""
     monkeypatch.setattr(redis_isolation, "default_driver", lambda *_: None)
-    env = {workers.WORKER_ENV: "gw1"}
+    env = {workers.WORKER_ENV: worker}
+    number = int(worker[2:])
     out = workers.rewrite_for_worker({"BROKER_URL": "redis://h/1"}, env)
-    assert "BROKER_URL" not in out
+    assert out == {
+        "BROKER_URL": f"redis://h/{1 + isolation.DEFAULT_STRIDE * (number + 1)}"
+    }
+    same = workers.rewrite_for_worker(
+        {"CACHE_URL": "redis://h/1", "BROKER_URL": "redis://h/1"}, env
+    )
+    assert same["BROKER_URL"] == same["CACHE_URL"]
+    # a non-redis broker is not touched
+    assert "BROKER_URL" not in workers.rewrite_for_worker(
+        {"BROKER_URL": "memory://"}, env
+    )
 
 
 def test_auto_without_a_redis_url_needs_no_mapping() -> None:

@@ -305,8 +305,9 @@ def test_dev_one_beat_for_the_periodic_module() -> None:
 
 def test_dev_durable_event_bus() -> None:
     """Events cross services now (catalog -> enrollment -> progress ...): every
-    HTTP service runs the durable bus (``auto`` is streams in prod)."""
+    HTTP service runs the durable bus (unset leaves it to the composition, whose
+    selection is streams; any other driver is refused)."""
     for name, svc in _http().items():
         env = _env(svc)
         assert env.get("ENVIRONMENT", "") == "prod", name
-        assert env.get("EVENT_BUS_BACKEND", "auto") in {"auto", "streams"}, name
+        assert env.get("EVENT_BUS_BACKEND", "") in {"", "streams"}, name
