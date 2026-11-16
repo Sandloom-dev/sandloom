@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 import importlib.util
 import re
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -404,12 +405,21 @@ def test_benchmarks_filter_leaves_out_only_the_dx_harness():
     selects unrelated files): a new one must be listed, `dx` must not be."""
     filters = yaml.safe_load(_filter_steps()["filter"]["with"]["filters"])
     patterns = filters["benchmarks"]
-    children = [p for p in (ROOT / "benchmarks").iterdir() if p.is_dir()]
-    assert any(p.name == "dx" for p in children)  # the exclusion has a subject
+    # Tracked files only: benchmarks/ is its own uv project, so an untracked
+    # `.venv` or cache directory must not count as a maintained source directory.
+    tracked = subprocess.run(
+        ["git", "ls-files", "benchmarks"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    children = sorted({path.split("/")[1] for path in tracked if path.count("/") >= 2})
+    assert "dx" in children  # the exclusion has a subject
     for child in children:
-        probe = f"benchmarks/{child.name}/some/deeper/file.py"
+        probe = f"benchmarks/{child}/some/deeper/file.py"
         listed = any(glob_match(probe, p) for p in patterns)
-        assert listed is (child.name != "dx"), child.name
+        assert listed is (child != "dx"), child
     for top_level in ("benchmarks/README.md", "benchmarks/uv.lock"):
         assert any(glob_match(top_level, p) for p in patterns), top_level
 
