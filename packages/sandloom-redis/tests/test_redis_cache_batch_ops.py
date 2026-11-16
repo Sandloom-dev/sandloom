@@ -4,23 +4,16 @@ single-key defaults of the kernel's in-memory cache are tested in
 
 from __future__ import annotations
 
-import os
 import uuid
-from pathlib import Path
 
 import pytest
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from sandloom_redis.cache import RedisCacheProvider
-
-from sandloom.core.testing.workers import worker_env_values
 
 
 @pytest.mark.asyncio
 async def test_redis_batch_ops_round_trip() -> None:
-    env = worker_env_values(Path(__file__).resolve().parents[3] / ".env.test")
-    url = os.environ.get("CACHE_URL") or env.get("CACHE_URL")
-    if not url:
-        redis_unavailable("CACHE_URL not configured")
+    url = cache_url_or_unavailable()
     cache = RedisCacheProvider(
         name="batch", driver="redis", options={"url": url}, shared=False
     )

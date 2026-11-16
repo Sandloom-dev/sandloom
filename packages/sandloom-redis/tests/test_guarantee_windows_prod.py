@@ -12,6 +12,7 @@ from __future__ import annotations
 from importlib.util import find_spec
 
 import pytest
+from _redis_required import cache_url_or_unavailable
 
 from sandloom.core import guarantee_windows as gw
 
@@ -41,7 +42,9 @@ def test_create_app_refuses_in_production(monkeypatch: pytest.MonkeyPatch) -> No
             "database": {
                 "default": {"driver": "sqlalchemy", "url": settings.database_url}
             },
-            "cache": {"default": {"driver": "redis", "url": settings.cache_url}},
+            "cache": {
+                "default": {"driver": "redis", "url": cache_url_or_unavailable()}
+            },
             "eventbus": {"default": {"driver": "streams"}},
         },
     )

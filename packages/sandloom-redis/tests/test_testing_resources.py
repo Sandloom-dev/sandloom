@@ -10,7 +10,6 @@ tested with its own tests.
 from __future__ import annotations
 
 import json
-import os
 import time
 import uuid
 from collections.abc import Iterator
@@ -18,11 +17,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from sandloom_redis.testing import resources
 from sandloom_redis.testing.ownership import REDIS_LAST_USED_KEY, REDIS_OWNER_KEY
 
-from sandloom.core.testing import ownership, session_checks, workers
+from sandloom.core.testing import ownership, session_checks
 from sandloom.core.testing.resources import Resource, verdict
 
 BACKEND = Path(__file__).resolve().parents[3]
@@ -59,10 +58,9 @@ def test_scan_redis_disconnects_its_client_before_a_prune(
 
 
 def _redis_url() -> str:
-    values = workers.worker_env_values(BACKEND / ".env.test")
-    url = os.environ.get("CACHE_URL") or values.get("CACHE_URL") or ""
+    url = cache_url_or_unavailable()
     if not url.startswith("redis"):
-        redis_unavailable("Redis CACHE_URL not configured")
+        redis_unavailable("the test cache url is not a Redis one")
     return url
 
 

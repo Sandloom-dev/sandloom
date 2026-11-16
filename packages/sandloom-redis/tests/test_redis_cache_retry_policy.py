@@ -17,32 +17,22 @@ internals and bypassed the transport fault seams other suites rely on.)
 from __future__ import annotations
 
 import asyncio
-import os
 from collections.abc import AsyncIterator
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from redis.exceptions import ConnectionError as RedisConnectionError
 from sandloom_redis.cache import RedisCacheProvider
 
 from sandloom.core.infra.errors import Unavailable
-from sandloom.core.testing.workers import worker_env_values
 
 
 @pytest_asyncio.fixture
 async def live() -> AsyncIterator[RedisCacheProvider]:
-    env_test = Path(__file__).resolve().parents[3] / ".env.test"
-    url = (
-        os.getenv("SANDLOOM_TEST_CACHE_URL")
-        or os.getenv("CACHE_URL")
-        or worker_env_values(env_test).get("CACHE_URL")
-    )
-    if not url:
-        redis_unavailable("CACHE_URL not configured")
+    url = cache_url_or_unavailable()
     provider = RedisCacheProvider(
         name="retry-policy", driver="redis", options={"url": url}, shared=False
     )

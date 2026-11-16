@@ -1,5 +1,5 @@
 """The ``CacheConformance`` kit against the ``redis`` cache driver (a real Redis,
-``settings.cache_url``), and what the kit cannot know: the scripting probe of
+``cache_url_or_unavailable()``), and what the kit cannot know: the scripting probe of
 ``health`` and the server identity.
 
 The kit's own bite on deliberately broken drivers stays in the kernel
@@ -15,15 +15,15 @@ from uuid import uuid4
 
 import pytest
 import redis.exceptions as redis_errors
+from _redis_required import cache_url_or_unavailable
 from sandloom_redis.cache import RedisCacheProvider
 
-from sandloom.core.config.settings import settings
 from sandloom.driverkit import CacheProvider, InvalidArgument
 from sandloom.driverkit.testing import CacheConformance
 
 
 def _redis(**options: Any) -> RedisCacheProvider:
-    options.setdefault("url", settings.cache_url)
+    options.setdefault("url", cache_url_or_unavailable())
     return RedisCacheProvider(name="kit", driver="redis", options=options, shared=False)
 
 

@@ -8,7 +8,7 @@
   ``unblock_user`` lifts it only after commit.
 * Redis down: fail-closed answers 503; fail-open (outside prod) accepts.
 
-Real Redis (test ``CACHE_URL``) and Postgres (test ``DATABASE_URL``).
+Real Redis (the test cache url) and Postgres (test ``DATABASE_URL``).
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 import pytest_asyncio
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from fastapi import Depends, FastAPI
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 from sqlalchemy import Table, select, text
@@ -66,9 +66,7 @@ def _claims(sub: str) -> dict[str, Any]:
 
 
 def _redis_url() -> str:
-    url = os.getenv("CACHE_URL")
-    if not url:
-        redis_unavailable("no test CACHE_URL configured")
+    url = cache_url_or_unavailable()
     return url
 
 

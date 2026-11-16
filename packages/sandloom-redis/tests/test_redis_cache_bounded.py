@@ -12,7 +12,6 @@ caller's policy branch runs. Plus the fused single-round-trip operation
 from __future__ import annotations
 
 import asyncio
-import os
 import socket
 import time
 from collections.abc import AsyncIterator
@@ -23,7 +22,7 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 import sandloom_redis.cache as redis_cache
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from fastapi import Depends, FastAPI, HTTPException
 from sandloom_redis.cache import RedisCacheOptions, RedisCacheProvider
 
@@ -298,14 +297,7 @@ async def test_idempotency_branches_on_hung_redis(
 # --------------------------------------------------------------------------- #
 @pytest_asyncio.fixture
 async def live() -> AsyncIterator[RedisCacheProvider]:
-    from pathlib import Path
-
-    from sandloom.core.testing.workers import worker_env_values
-
-    env_test = Path(__file__).resolve().parents[3] / ".env.test"
-    url = os.getenv("CACHE_URL") or worker_env_values(env_test).get("CACHE_URL")
-    if not url:
-        redis_unavailable("CACHE_URL not configured")
+    url = cache_url_or_unavailable()
     provider = _provider(url)
     try:
         await asyncio.wait_for(provider.get("sandloom:test:ping"), 5)

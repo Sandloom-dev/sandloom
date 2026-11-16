@@ -11,16 +11,13 @@ running loop changes (closing the stale one best-effort).
 from __future__ import annotations
 
 import asyncio
-import os
-from pathlib import Path
 from typing import Any
 
 import pytest
 import sandloom_redis.cache as redis_cache
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 
 from sandloom.core.infra.config import InstanceConfig
-from sandloom.core.testing.workers import worker_env_values
 
 
 class _FakeClient:
@@ -113,16 +110,9 @@ def test_named_instance_client_follows_the_loop(fake_redis: list[_FakeClient]) -
     assert fake_redis[0].closed
 
 
-def _test_cache_url() -> str | None:
-    env = worker_env_values(Path(__file__).resolve().parents[3] / ".env.test")
-    return os.getenv("CACHE_URL") or env.get("CACHE_URL")
-
-
 def test_real_redis_client_survives_two_loops(monkeypatch: pytest.MonkeyPatch) -> None:
     """End to end against the test Redis: two loops, no 'Event loop is closed'."""
-    url = _test_cache_url()
-    if not url:
-        redis_unavailable("no test CACHE_URL configured")
+    url = cache_url_or_unavailable()
     _fresh_default(monkeypatch, url)
 
     async def roundtrip() -> None:
