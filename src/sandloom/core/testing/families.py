@@ -41,6 +41,9 @@ TESTING_GROUP = "sandloom.testing"
 FLAT_VARS = ("CACHE_URL", "BROKER_URL")
 #: The setting declaring named infrastructure instances (JSON).
 INFRA_VAR = "INFRA"
+#: The options of an ``INFRA`` instance that hold a service URL: ``url`` (the
+#: Redis drivers) and the Celery task queue's ``broker`` and ``backend``.
+INSTANCE_URL_OPTIONS = ("url", "broker", "backend")
 
 
 class HarnessFamilyError(RuntimeError):
@@ -222,6 +225,7 @@ def require_for_installed(client_installed: Mapping[str, bool]) -> None:
 __all__ = [
     "FLAT_VARS",
     "INFRA_VAR",
+    "INSTANCE_URL_OPTIONS",
     "TESTING_GROUP",
     "HarnessFamily",
     "HarnessFamilyError",

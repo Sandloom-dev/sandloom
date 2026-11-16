@@ -50,7 +50,8 @@ Fixtures
     the revocation cache; ``revoked_tokens.available = False`` simulates an
     unreachable revocation store (the mark is reported as not written).
 ``sandloom_cache``
-    The app's ``default`` cache pointed at ``.env.test``'s ``CACHE_URL`` for
+    The app's ``default`` cache pointed at the test cache url (``.env.test``'s
+    ``INFRA`` ``cache.default.url``, else its ``CACHE_URL``) for
     the test, FLUSHDB'd before it (yields the ``CacheProvider``; the previous
     instance is restored afterwards).
 ``scratch_database``
@@ -92,6 +93,7 @@ from sandloom.core.testing.infra import (
     DB_FEATURE_MARKER,
     db_feature_skip_reason,
     override_instance,
+    resolved_cache_url,
 )
 from sandloom.core.testing.server_errors import ALLOW_MARKER, raise_server_errors
 
@@ -322,7 +324,7 @@ async def _security_store_on_cache(stack: AsyncExitStack, core: Any, url: str) -
 
     The synthesized ``atomic_store.security`` instance (no ``INFRA`` entry) is
     built on the cache's Redis, taken from the settings snapshot — which names
-    another database than the test ``CACHE_URL`` where the shell exports a
+    another database than the test cache url where the shell exports a
     ``CACHE_URL`` of its own (CI) or the app was imported before ``.env.test``
     was loaded. A fixture that moves the ``cache`` instance onto the test URL
     moves it along, so revocation marks, blocks and idempotency keys the app
@@ -353,18 +355,20 @@ async def flush_owned_cache(provider: object) -> None:
 
 @pytest_asyncio.fixture
 async def sandloom_cache(sandloom_core: Any) -> AsyncIterator[Any]:
-    """The app's ``default`` cache on the test ``CACHE_URL``, emptied first.
+    """The app's ``default`` cache on the test cache url, emptied first.
 
+    The url is the ``INFRA`` instance ``cache.default``'s (the harness merges
+    ``SANDLOOM_TEST_CACHE_URL`` into it), else the flat ``CACHE_URL``.
     Yields the ``CacheProvider`` the app itself resolves (``core.cache()``,
     rate limits). The Redis database is FLUSHDB'd before the test so keys
-    never leak between tests — so ``CACHE_URL`` must name a disposable test
+    never leak between tests — so that url must name a disposable test
     database. Also needed where the app was imported before ``.env.test`` was
     loaded (its settings snapshot names another cache), as in the framework's
     own suite. The implicit development ``security`` store (revocation marks,
     blocks, idempotency) follows it onto the same database.
     """
     driver = _configured_driver(sandloom_core, "cache", "redis")
-    url = _required_env("CACHE_URL")
+    url = resolved_cache_url()
     async with AsyncExitStack() as stack:
         registry = await stack.enter_async_context(
             override_instance(sandloom_core, "cache", driver=driver, url=url)
@@ -385,7 +389,7 @@ async def real_uow_client(
     """HTTP client whose requests run through the REAL request UoW.
 
     No ``get_db`` override: the app's ``default`` database (and cache) are
-    pointed at the test ``DATABASE_URL`` / ``CACHE_URL``, so every request
+    pointed at the test ``DATABASE_URL`` / cache url, so every request
     commits or rolls back exactly as in production — a 4xx rolls its writes
     back (committed rows are emptied by the next test's ``db_engine``). An
     unhandled endpoint error re-raises like with ``client``
@@ -401,19 +405,20 @@ async def real_uow_client(
             "`client` overrides the request session"
         )
     async with AsyncExitStack() as stack:
-        for capability, env, fallback in (
-            ("database", "DATABASE_URL", "sqlalchemy"),
-            ("cache", "CACHE_URL", "redis"),
+        cache_url = resolved_cache_url()
+        for capability, url, fallback in (
+            ("database", _required_env("DATABASE_URL"), "sqlalchemy"),
+            ("cache", cache_url, "redis"),
         ):
             await stack.enter_async_context(
                 override_instance(
                     sandloom_core,
                     capability,
                     driver=_configured_driver(sandloom_core, capability, fallback),
-                    url=_required_env(env),
+                    url=url,
                 )
             )
-        await _security_store_on_cache(stack, sandloom_core, _required_env("CACHE_URL"))
+        await _security_store_on_cache(stack, sandloom_core, cache_url)
         http = await stack.enter_async_context(
             httpx.AsyncClient(
                 transport=httpx.ASGITransport(
