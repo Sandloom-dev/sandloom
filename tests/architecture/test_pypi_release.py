@@ -21,6 +21,7 @@ spec.loader.exec_module(release)
 #: A coordinated release: a wheel and an sdist per distribution (the GitHub
 #: release adds sha256.json and release-manifest.json).
 ARCHIVES = 2 * len(release.PACKAGES)
+NOTES = "# Changelog\n\n## [Unreleased]\n\n## [0.7.0a2] — 2026-01-01\n\n{body}"
 
 
 @pytest.fixture
@@ -374,6 +375,80 @@ def test_coordinated_release_refuses_mixed_versions_before_upload(source):
             dry_run=False,
             on_main=True,
         )
+
+
+def _plan_all(source):
+    return release.plan_release(
+        source,
+        "all",
+        "workflow_dispatch",
+        "refs/heads/main",
+        dry_run=True,
+        on_main=False,
+    )
+
+
+def _notes_of_size(size):
+    """A section body whose ``changelog_section`` is exactly ``size`` characters."""
+    line = "- " + "x" * 98 + "\n"
+    body = line * (size // len(line))
+    return body + "-" * (size - len(body) - 1) + "\n"
+
+
+def test_notes_at_the_github_limit_are_accepted_and_over_it_refused_before_any_build(
+    source,
+):
+    (source / "CHANGELOG.md").write_text(
+        NOTES.format(body=_notes_of_size(release.NOTES_LIMIT))
+    )
+    assert _plan_all(source)["packages"] == list(release.PACKAGES)
+    (source / "CHANGELOG.md").write_text(
+        NOTES.format(body=_notes_of_size(release.NOTES_LIMIT + 1))
+    )
+    with pytest.raises(ValueError, match=r"125,001 characters, over the 125,000"):
+        _plan_all(source)
+
+
+def _plan_redis(source):
+    return release.plan_release(
+        source,
+        "sandloom-redis",
+        "workflow_dispatch",
+        "refs/heads/main",
+        dry_run=True,
+        on_main=False,
+    )
+
+
+def test_a_single_package_is_measured_by_its_own_changelog(source):
+    huge = NOTES.format(body=_notes_of_size(release.NOTES_LIMIT + 1))
+    (source / "CHANGELOG.md").write_text(huge)
+    changelog = source / "packages/sandloom-redis/CHANGELOG.md"
+    changelog.write_text(NOTES.format(body="- A change.\n"))
+    assert _plan_redis(source)["packages"] == ["sandloom-redis"]
+    changelog.write_text(huge)
+    with pytest.raises(ValueError, match="over the 125,000"):
+        _plan_redis(source)
+
+
+def test_the_plan_leaves_a_missing_section_to_the_artifact_selection(source):
+    (source / "CHANGELOG.md").write_text("# Changelog\n\n## [Unreleased]\n")
+    assert _plan_all(source)["packages"] == list(release.PACKAGES)
+    with pytest.raises(ValueError, match="Missing changelog notes for 0.7.0a2"):
+        release.release_notes(source, list(release.PACKAGES), "0.7.0a2")
+
+
+def test_the_notes_of_a_release_are_refused_over_the_limit_when_selected(source):
+    (source / "CHANGELOG.md").write_text(
+        NOTES.format(body=_notes_of_size(release.NOTES_LIMIT))
+    )
+    notes = release.release_notes(source, list(release.PACKAGES), "0.7.0a2")
+    assert len(notes) == release.NOTES_LIMIT
+    (source / "CHANGELOG.md").write_text(
+        NOTES.format(body=_notes_of_size(release.NOTES_LIMIT + 1))
+    )
+    with pytest.raises(ValueError, match="over the 125,000"):
+        release.release_notes(source, list(release.PACKAGES), "0.7.0a2")
 
 
 def test_release_notes_and_checksums_are_prepared_without_publishing(candidate):

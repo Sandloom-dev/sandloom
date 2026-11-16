@@ -8,6 +8,8 @@ Per-package entries are aggregated in the repository-level [docs/changelog.md](.
 
 ## [Unreleased]
 
+## [0.7.0a14] — 2026-11-16
+
 - The kernel wheel no longer ships the Streams event bus driver (`sandloom.core.drivers.event_bus_driver`) and its transport (`sandloom.core.drivers.redis_eventbus`): they are `sandloom_redis.eventbus.driver` and `sandloom_redis.eventbus.streams_*` in `sandloom-redis`.
 - The kernel wheel no longer ships the Redis `cache` driver (`sandloom.core.drivers.redis_cache`): it is `sandloom_redis.cache` in `sandloom-redis`. `sandloom.driverkit.health_failure_details` moved from `eventbus_support` to the top level.
 - The kernel wheel no longer ships the Celery `taskqueue` driver, its worker and scheduler host and its broker probe: they are in the new `sandloom-celery` package. Install `sandloom[celery]` (or `sandloom[standard]`) where an app selects the `celery` taskqueue driver; `celery -A` tools use `sandloom_celery.worker`.

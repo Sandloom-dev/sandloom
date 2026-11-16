@@ -43,7 +43,7 @@ Production requires `local_storage_in_prod` in `SANDLOOM_ACCEPTED_RISKS`.
 
 ### `s3`
 
-This driver requires Sandloom 0.7.0a13 or later in the 0.7 series.
+This driver requires Sandloom 0.7.0a14 or later in the 0.7 series. <!-- sandloom-release -->
 Add the driver to your application.
 
 ```sh

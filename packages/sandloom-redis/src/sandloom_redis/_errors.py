@@ -209,9 +209,10 @@ def map_redis_error(
         f"{what}: {type(exc).__name__}", capability=capability, instance=instance
     )
     if _is_cluster_redirect(exc):
-        # An attribute, not a ``hint=`` keyword: this package pins an older
-        # kernel (``sandloom>=0.7.0a13``) whose ``InfraError`` has no such
-        # keyword, and a ``TypeError`` here would reach the relay as poison on
-        # an outage. A kernel that does not read the hint just never prints it.
+        # An attribute, not a ``hint=`` keyword, from when this package also
+        # supported ``sandloom>=0.7.0a13``, whose ``InfraError`` has no such
+        # keyword. The floor is ``>=0.7.0a14``, which has ``hint``, so the
+        # fallback is dead now and ``hint=`` would do; it stays until a release
+        # that changes this code on purpose.
         error.hint = CLUSTER_REDIRECT_HINT
     return error

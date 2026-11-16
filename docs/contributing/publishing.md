@@ -45,9 +45,10 @@ refused there and the run ends. Validation and packaging never start for a tag
 the environment would reject, and the run holds the `pypi-release` concurrency
 group for seconds.
 
-Configure a pending Trusted Publisher for the first `sandloom-s3` release.
-Use a manual release from `main` and include the compatible framework wheel in
-the same run or publish the framework first.
+Configure a pending Trusted Publisher for the first release of `sandloom-s3`,
+`sandloom-redis` and `sandloom-celery` (the last two first ship in the
+coordinated release, run by hand). Use a manual release from `main` and include
+the compatible framework wheel in the same run or publish the framework first.
 
 The plan step also refuses publication from a feature branch or a tag whose
 commit is not reachable from `origin/main`. A tag must exactly match the selected
@@ -84,7 +85,8 @@ After PyPI publication and hash verification succeed, a separate job creates
 an initially private draft GitHub Release, uploads the same reviewed archives,
 `SHA256SUMS` and the source manifest, verifies their hashes, then publishes it.
 Release notes come from the selected version's changelog section, captured
-before owner approval. Only this job receives `contents: write`; it has no
+before owner approval. The plan step refuses a section over 125,000 characters,
+the most GitHub accepts in a release body, before any build. Only this job receives `contents: write`; it has no
 PyPI token or OIDC permission and does no checkout, build or installation.
 
 A coordinated `all` release requires matching package versions and creates
