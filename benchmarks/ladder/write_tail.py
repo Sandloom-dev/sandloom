@@ -127,6 +127,9 @@ def _env(
             "driver": "redis",
             "url": f"redis://{REDIS['idem'][0]}:6379/0",
         }
+    infra["cache"] = {
+        "default": {"driver": "redis", "url": f"redis://{REDIS['cache'][0]}:6379/0"}
+    }
     infra["eventbus"] = {
         "default": {
             "driver": "streams",
@@ -136,8 +139,6 @@ def _env(
     env.update(
         {
             "DATABASE_URL": _docker_url(env["DATABASE_URL"], pg_host),
-            "CACHE_URL": f"redis://{REDIS['cache'][0]}:6379/0",
-            "BROKER_URL": f"redis://{REDIS['broker'][0]}:6379/1",
             "INFRA": json.dumps(infra),
             "AUTH_REVOCATION_FAIL_CLOSED": "true",
             "OUTBOX_RELAY_ENABLED": "auto",

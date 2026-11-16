@@ -24,13 +24,19 @@ PAT = ("pytest", "soak.py", "soak_app", "run_int", "server_bench")
 
 
 def foreign() -> list[str]:
-    out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True,
-                         text=True).stdout
+    out = subprocess.run(
+        ["ps", "-axo", "pid=,command="], capture_output=True, text=True
+    ).stdout
     me = str(os.getpid())
     hits = []
     for line in out.splitlines():
         pid, _, cmd = line.strip().partition(" ")
-        if pid == me or "guard.py" in cmd or "grep" in cmd or cmd.startswith(("/bin/zsh", "zsh ", "/bin/sh", "bash ")):
+        if (
+            pid == me
+            or "guard.py" in cmd
+            or "grep" in cmd
+            or cmd.startswith(("/bin/zsh", "zsh ", "/bin/sh", "bash "))
+        ):
             # shell wrappers: the real test / soak process is listed on its own
             continue
         if any(p in cmd for p in PAT):
@@ -45,9 +51,9 @@ def main() -> None:
     want_db = os.environ.get("RPC_GUARD_DB", "sandloom_bench_rpcdecomp")
     want_cache = os.environ.get("RPC_GUARD_CACHE", ":6390/")
     if want_db not in os.environ.get("DATABASE_URL", "") or want_cache not in (
-        os.environ.get("CACHE_URL", "")
+        os.environ.get("BENCH_REDIS_URL", "")
     ):
-        sys.exit("guard: wrong DATABASE_URL / CACHE_URL in env")
+        sys.exit("guard: wrong DATABASE_URL / BENCH_REDIS_URL in env")
     cmd = sys.argv[sys.argv.index("--") + 1 :]
     quiet_since = time.time() if not foreign() else None
     while quiet_since is None or time.time() - quiet_since < QUIET:
@@ -65,13 +71,32 @@ def main() -> None:
         sys.exit(1)
     rec = json.loads(lines[-1])
     rec.update(extra)
-    rec.update(foreign_before=before, foreign_after=after,
-               loadavg_before=la0[0], loadavg_after=la1[0],
-               interfered=bool(before or after), ts=time.strftime("%H:%M:%S"))
+    rec.update(
+        foreign_before=before,
+        foreign_after=after,
+        loadavg_before=la0[0],
+        loadavg_after=la1[0],
+        interfered=bool(before or after),
+        ts=time.strftime("%H:%M:%S"),
+    )
     with open(out, "a") as f:
         f.write(json.dumps(rec) + "\n")
-    print(json.dumps({k: rec.get(k) for k in ("rung", "tenant", "cpu_us",
-          "client_cpu_us", "server_cpu_us", "interfered")}), flush=True)
+    print(
+        json.dumps(
+            {
+                k: rec.get(k)
+                for k in (
+                    "rung",
+                    "tenant",
+                    "cpu_us",
+                    "client_cpu_us",
+                    "server_cpu_us",
+                    "interfered",
+                )
+            }
+        ),
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

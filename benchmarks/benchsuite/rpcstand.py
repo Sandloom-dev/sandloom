@@ -112,8 +112,7 @@ def server_env(*, planner_opt: bool = False) -> dict[str, str]:
         "OUTBOX_RELAY_ENABLED": "off",
         "DOCS_ENABLED": "false",
         "DATABASE_URL": common.database_url(),
-        "CACHE_URL": common.cache_url(),
-        "BROKER_URL": common.broker_url(),
+        "INFRA": common.infra_env(),
         "JWT_SECRET": common.jwt_secret(),
         "PLANNER_OPTIMIZED_EXECUTOR": "true" if planner_opt else "false",
         # The stand's provider is a split-production process with the shared

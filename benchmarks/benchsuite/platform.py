@@ -53,8 +53,7 @@ def server_env() -> dict[str, str]:
         "DOCS_ENABLED": "false",
         "BILLING_PROVIDER": "fake",
         "DATABASE_URL": common.database_url(),
-        "CACHE_URL": common.cache_url(),
-        "BROKER_URL": common.broker_url(),
+        "INFRA": common.infra_env(instances=common.STANDARD_REDIS),
         "JWT_SECRET": common.jwt_secret(),
     }
 

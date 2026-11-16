@@ -50,6 +50,7 @@ import pytest
 import pytest_asyncio
 from fastapi import Depends, Query
 from fastapi.routing import APIRoute
+from redis_env import worker_redis_url
 from sqlalchemy import select
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -466,9 +467,7 @@ async def bt(
             )
         )
         await stack.enter_async_context(
-            override_instance(
-                core, "cache", driver="redis", url=os.environ["CACHE_URL"]
-            )
+            override_instance(core, "cache", driver="redis", url=worker_redis_url())
         )
         h = Hot(
             app=app,

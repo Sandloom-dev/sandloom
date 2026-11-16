@@ -18,7 +18,7 @@ deterministic sequence of random ids (1..9999):
     H*   the hot-path profiling stand's own rungs (hot_paths.py)
     WL*  the write / login profiling stand's own rungs (write_login.py)
 
-Usage (from ``benchmarks/``; DATABASE_URL / CACHE_URL / BROKER_URL in env)::
+Usage (from ``benchmarks/``; DATABASE_URL / BENCH_REDIS_URL / BENCH_CELERY_BROKER in env)::
 
     uv run python ladder/ladder.py list
     uv run python ladder/ladder.py cpu    L3 --n 5000 --reps 5 [--conc 64] [--loop uvloop]
@@ -185,7 +185,9 @@ async def _l0s1():
         tenant = str(uuid.UUID(_TENANT))  # validated -> safe to inline
         async with pool.acquire() as c:
             await c.execute(
-                "BEGIN; SELECT set_config('sandloom.tenant_id', '" + tenant + "', true), "
+                "BEGIN; SELECT set_config('sandloom.tenant_id', '"
+                + tenant
+                + "', true), "
                 "set_config('sandloom.tenant_bypass', '', true)"
             )
             try:
@@ -510,7 +512,10 @@ async def _l3t():
     return op, db.engine.dispose
 
 
-@rung("L3g", "L3t + Sandloom's tenant guard installed (do_orm_execute + Session.get patch)")
+@rung(
+    "L3g",
+    "L3t + Sandloom's tenant guard installed (do_orm_execute + Session.get patch)",
+)
 async def _l3g():
     import sandloom.core.tenant  # noqa: F401  - installs the guard at import
 
@@ -1052,7 +1057,9 @@ def _bare_router(app: Any) -> Any:
 )
 async def _l6ro():
     if "sandloom.core.config.settings" in sys.modules:
-        raise RuntimeError("DB_READ_ONLY_SESSIONS must be set before importing sandloom")
+        raise RuntimeError(
+            "DB_READ_ONLY_SESSIONS must be set before importing sandloom"
+        )
     os.environ["DB_READ_ONLY_SESSIONS"] = "true"
     app, life = await _fast_app()
     return _asgi_op(app, "/ro/"), life.aclose
@@ -1144,19 +1151,27 @@ async def _fast_app():
     return fastpath.app, _FastLife(life)
 
 
-@rung("L7u", "Sandloom app + fast path F1: DbSession UoW, column select -> orjson Response")
+@rung(
+    "L7u",
+    "Sandloom app + fast path F1: DbSession UoW, column select -> orjson Response",
+)
 async def _l7u():
     app, life = await _fast_app()
     return _asgi_op(app, "/fast/uow/"), life.aclose
 
 
-@rung("L7a", "Sandloom app + fast path F2: Core AUTOCOMMIT conn, column select -> orjson")
+@rung(
+    "L7a", "Sandloom app + fast path F2: Core AUTOCOMMIT conn, column select -> orjson"
+)
 async def _l7a():
     app, life = await _fast_app()
     return _asgi_op(app, "/fast/core/"), life.aclose
 
 
-@rung("L7A", "Sandloom app + fast path F2b: Core on a dedicated AUTOCOMMIT engine -> orjson")
+@rung(
+    "L7A",
+    "Sandloom app + fast path F2b: Core on a dedicated AUTOCOMMIT engine -> orjson",
+)
 async def _l7A():
     app, life = await _fast_app()
     return _asgi_op(app, "/fast/core2/"), life.aclose

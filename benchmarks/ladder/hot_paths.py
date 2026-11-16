@@ -216,6 +216,7 @@ async def _contract_dto(ns: Any) -> Any:
     from sandloom.core.module_api import contract_read_scope
     from sandloom_standard.main import app
     from sandloom.sdk import Contract
+
     # the consumer's generated copy (billing consumes tenancy.membership.v1);
     # the provider's contract has no shared stub any more
     from sandloom_billing._generated.contracts.tenancy_membership_v1 import (
@@ -339,7 +340,7 @@ async def _reset_streams() -> None:
 
     from benchsuite import common
 
-    for url in {common.cache_url(), common.broker_url()}:
+    for url in {common.redis_url(), common.celery_broker()}:
         client = redis.Redis.from_url(url)
         try:
             await client.delete(common.EVENT_CHANNEL, f"{common.EVENT_CHANNEL}.dlq")

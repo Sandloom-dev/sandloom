@@ -28,7 +28,7 @@ this connection). Over internal RPC, add one RPC call (see the RPC stand,
 Run with the backend venv from ``benchmarks/``::
 
     DATABASE_URL=postgresql+asyncpg://test_user:test_password@localhost:5433 \\
-    CACHE_URL=redis://localhost:6380/198 \\
+    BENCH_REDIS_URL=redis://localhost:6380/198 \\
     ../.venv/bin/python ladder/saga_rung.py --n 1000 \\
         --json ladder/results/saga_rung_$(date +%F).json
 
@@ -55,14 +55,21 @@ SERVER = os.environ.get(
     "DATABASE_URL", "postgresql+asyncpg://test_user:test_password@localhost:5433"
 ).rstrip("/")
 DB = os.environ.get("SAGA_RUNG_DB", "sandloom_bench_saga")
-REDIS = os.environ.get("CACHE_URL", "redis://localhost:6380/198")
+REDIS = os.environ.get("BENCH_REDIS_URL", "redis://localhost:6380/198")
 
 
 def _setup_env() -> None:
     server = SERVER.rsplit("/", 1)[0] if SERVER.count("/") > 2 else SERVER
     os.environ["DATABASE_URL"] = f"{server}/{DB}"
-    os.environ["CACHE_URL"] = REDIS
-    os.environ.setdefault("BROKER_URL", REDIS)
+    from benchsuite import common
+
+    # the in-memory bus (EVENT_BUS_BACKEND below) takes no url: every other
+    # Redis instance of the standard composition gets the stand's own
+    os.environ["INFRA"] = common.infra_env(
+        instances=tuple(i for i in common.STANDARD_REDIS if i != "eventbus"),
+        url=REDIS,
+        broker=REDIS,
+    )
     os.environ["ENVIRONMENT"] = "dev"
     os.environ["SANDLOOM_MODULES"] = "[]"
     os.environ["EVENT_BUS_BACKEND"] = "memory"
@@ -114,7 +121,13 @@ def _build() -> tuple[Any, Any, Any]:
     from pydantic import BaseModel
 
     from sandloom_standard.main import create_app
-    from sandloom.core.module_api import Saga, SagaContext, contract_method, local_step, step
+    from sandloom.core.module_api import (
+        Saga,
+        SagaContext,
+        contract_method,
+        local_step,
+        step,
+    )
     from sandloom.core.sagas import SagaRuntime
     from sandloom.core.sagas.registry import NUDGE_SCHEMA, build_registry
 

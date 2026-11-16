@@ -57,6 +57,7 @@ import asyncpg
 import pytest
 import pytest_asyncio
 from fastapi import Depends, Query
+from redis_env import worker_redis_url
 from fastapi.responses import RedirectResponse
 from fastapi.routing import APIRoute
 from prometheus_client import REGISTRY
@@ -691,9 +692,7 @@ async def hot(
             )
         )
         await stack.enter_async_context(
-            override_instance(
-                core, "cache", driver="redis", url=os.environ["CACHE_URL"]
-            )
+            override_instance(core, "cache", driver="redis", url=worker_redis_url())
         )
         await cache().delete(f"links:url:{LINK_CODE}")
         h = Hot(

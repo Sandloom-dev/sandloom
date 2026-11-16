@@ -193,10 +193,8 @@ def tail(exp, variant):
         }
         if split:
             infra = json.loads(env["INFRA"])
-            broker = (infra.get("eventbus", {}).get("default") or {}).get("url") or env[
-                "BROKER_URL"
-            ]
-            base = broker.rsplit("/", 1)[0]
+            bus = infra["eventbus"]["default"]["url"]
+            base = bus.rsplit("/", 1)[0]
             infra.setdefault("cache", {})["idem"] = {
                 "driver": "redis",
                 "url": f"{base}/{exp.args.idem_db}",

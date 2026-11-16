@@ -76,11 +76,13 @@ def app_environment():
 
 def bus_location(env):
     """(container, db index, key prefix) of the Streams bus the app publishes to."""
+    infra = json.loads(env.get("INFRA") or "{}")
     try:
-        bus = json.loads(env.get("INFRA") or "{}")["eventbus"]["default"]
-    except (KeyError, TypeError, ValueError):
+        bus = infra["eventbus"]["default"]
+    except (KeyError, TypeError):
         bus = {}
-    url = bus.get("url") or env.get("CACHE_URL") or "redis://cache:6379/0"
+    cache = (infra.get("cache") or {}).get("default") or {}
+    url = bus.get("url") or cache.get("url") or "redis://cache:6379/0"
     parts = urlsplit(url)
     db = (parts.path or "/0").lstrip("/") or "0"
     return f"{PROJECT}-{parts.hostname}-1", db, bus.get("prefix", "")

@@ -22,8 +22,8 @@ fail-closed revocation, identity loaded, RLS), and measures it:
           server's user / system CPU per request from ``/proc``.
 
 Env (the ladder's): DATABASE_URL (owner DSN; the app connects as
-S5_APP_ROLE), CACHE_URL, BROKER_URL, SECURITY_CACHE_URL (another Redis
-SERVER: the strict profile refuses a shared one).
+S5_APP_ROLE), BENCH_REDIS_URL, BENCH_CELERY_BROKER, BENCH_SECURITY_REDIS_URL
+(another Redis SERVER: the strict profile refuses a shared one).
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ def _fernet_key() -> str:
 
 
 def server_env(variant: str) -> dict[str, str]:
-    from benchsuite import s5
+    from benchsuite import common, s5
 
     env = s5.server_env(variant)
     env.update(
@@ -64,14 +64,11 @@ def server_env(variant: str) -> dict[str, str]:
             "PRODUCTION_PROFILE": "multi_tenant_strict",
             "SANDLOOM_MODULES": '["sandloom_identity", "benchsuite.bench"]',
             "MODULE_REQUIRED": '["sandloom_identity", "benchsuite.bench"]',
-            "INFRA": json.dumps(
+            "INFRA": common.infra_env(
                 {
                     "database": {"default": {"tenant_rls": True}},
                     "atomic_store": {
-                        "security": {
-                            "driver": "redis",
-                            "url": os.environ["SECURITY_CACHE_URL"],
-                        }
+                        "security": {"url": os.environ["BENCH_SECURITY_REDIS_URL"]}
                     },
                 }
             ),

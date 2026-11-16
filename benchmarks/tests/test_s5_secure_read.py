@@ -36,6 +36,7 @@ import jwt
 import pytest
 import pytest_asyncio
 from fastapi import APIRouter, HTTPException
+from redis_env import worker_redis_url
 from sqlalchemy import column, select, table, text
 from sqlalchemy.engine import make_url
 from tests.perf_budgets.pgcount import PgCountingProxy
@@ -534,7 +535,7 @@ async def s5(
             )
             await stack.enter_async_context(
                 override_instance(
-                    sandloom_core, "cache", driver="redis", url=os.environ["CACHE_URL"]
+                    sandloom_core, "cache", driver="redis", url=worker_redis_url()
                 )
             )
             http = await stack.enter_async_context(

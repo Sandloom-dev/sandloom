@@ -913,7 +913,7 @@ def agent_env(task: Task, label: str) -> dict[str, str]:
         k: v
         for k, v in os.environ.items()
         if not k.startswith(("SANDLOOM_", "VIRTUAL_ENV", "CLAUDE_CODE_SSE"))
-        and k not in {"DATABASE_URL", "CACHE_URL", "BROKER_URL", "JWT_SECRET"}
+        and k not in {"DATABASE_URL", "INFRA", "JWT_SECRET"}
     }
     # One index pair per task id, for good, marked for this run at once:
     # concurrent runs never share one (see task_redis_indexes). An earlier
@@ -1384,9 +1384,10 @@ def gate_env(wt: Path, env: dict[str, str]) -> dict[str, str]:
         for k, v in dotenv_values(wt / ".env.test").items()
         if v is not None and k != "ENVIRONMENT"
     }
-    for var in ("DATABASE_URL", "CACHE_URL", "BROKER_URL"):
-        if env.get(f"SANDLOOM_TEST_{var}"):
-            values[var] = env[f"SANDLOOM_TEST_{var}"]
+    # the Redis urls stay SANDLOOM_TEST_CACHE_URL / SANDLOOM_TEST_BROKER_URL in
+    # ``env``: the harness merges them into INFRA and they win over .env.test
+    if env.get("SANDLOOM_TEST_DATABASE_URL"):
+        values["DATABASE_URL"] = env["SANDLOOM_TEST_DATABASE_URL"]
     merged = {**values, **env}
     # Taking over a borrowed index is for the agent's first run only; the
     # harness's own ownership tests fail with it set.
