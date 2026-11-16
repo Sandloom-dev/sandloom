@@ -28,6 +28,7 @@ _SELECTION = commands.CompositionSelection(
     },
     {"cache.redis": "url", "taskqueue.celery": "broker"},
 )
+_BOTH = {"CACHE_URL", "BROKER_URL"}
 _CACHE = {"cache": {"default": {"url": "redis://127.0.0.1:6380/15"}}}
 _QUEUE = {"taskqueue": {"default": {"broker": "redis://127.0.0.1:6380/14"}}}
 
@@ -95,9 +96,35 @@ def _env(infra: dict[str, Any]) -> str:
             ),
             {"CACHE_URL"},
         ),
-        # no INFRA in ``.env.test``, or no file: the selection decides
-        ("JWT_SECRET=x\n", _SELECTION, {"CACHE_URL", "BROKER_URL"}),
-        (None, _SELECTION, {"CACHE_URL", "BROKER_URL"}),
+        # no INFRA in ``.env.test``, or no file: the harness has no instance for an
+        # override and raises ``UnmatchedOverrideError``, so none is written
+        ("JWT_SECRET=x\n", _SELECTION, set()),
+        (None, _SELECTION, set()),
+        # the harness reads ``.env.test`` with python-dotenv: the same three
+        # inputs a hand parse gets wrong must still name both overrides
+        (
+            _env({**_CACHE, **_QUEUE}).rstrip() + "  # the shared test redis\n",
+            _SELECTION,
+            _BOTH,
+        ),
+        (
+            "REDIS=redis://127.0.0.1:6380\n"
+            'INFRA=\'{"cache":{"default":{"url":"${REDIS}/15"}},'
+            '"taskqueue":{"default":{"broker":"${REDIS}/14"}}}\'\n',
+            _SELECTION,
+            _BOTH,
+        ),
+        (
+            "INFRA='" + json.dumps({**_CACHE, **_QUEUE}, indent=2) + "'\n",
+            _SELECTION,
+            _BOTH,
+        ),
+        # an unresolved ``${VAR}`` is no Redis url
+        (
+            'INFRA=\'{"cache":{"default":{"url":"${NOT_SET_ANYWHERE}"}}}\'\n',
+            _SELECTION,
+            set(),
+        ),
     ],
     ids=[
         "both",
@@ -108,6 +135,10 @@ def _env(infra: dict[str, Any]) -> str:
         "queue-unselected",
         "no-infra-in-env-test",
         "no-env-test",
+        "trailing-comment",
+        "interpolated-var",
+        "multi-line-value",
+        "unresolved-var",
     ],
 )
 def test_dev_up_writes_the_overrides_the_harness_can_apply(
@@ -120,10 +151,6 @@ def test_dev_up_writes_the_overrides_the_harness_can_apply(
 
 
 def test_the_names_are_the_harness_own_map() -> None:
-    assert workers.INFRA_URL_CAPABILITIES == {
-        "CACHE_URL": "cache",
-        "BROKER_URL": "taskqueue",
-    }
     assert set(workers.INFRA_URL_CAPABILITIES) == set(workers.REDIS_VARS)
 
 

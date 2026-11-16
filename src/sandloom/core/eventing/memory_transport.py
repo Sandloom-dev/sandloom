@@ -22,7 +22,7 @@ from sandloom.core.eventing.transport_base import (
     _owners_match,
     retry_delay_ms,
 )
-from sandloom.core.infra.errors import InfraError
+from sandloom.core.infra.errors import InfraError, InvalidArgument
 from sandloom.core.infra.ports.eventbus import (
     ConsumerInfo,
     DeadLetter,
@@ -36,6 +36,17 @@ from sandloom.core.infra.ports.eventbus import (
 from sandloom.core.observability.metrics_utils import safe_inc
 
 logger = logging.getLogger("sandloom.core.eventing.transport")
+
+
+def _entry_key(entry_id: str) -> tuple[int, ...]:
+    """Order key of an entry id (``<ms>-<seq>``); any other shape is refused."""
+    try:
+        return tuple(map(int, entry_id.split("-")))
+    except ValueError:
+        raise InvalidArgument(
+            "a DLQ cursor is not an entry id of this transport (<ms>-<seq>)",
+            capability="eventbus",
+        ) from None
 
 
 class MemoryTransport(TransportDefaults):
@@ -375,6 +386,7 @@ class MemoryTransport(TransportDefaults):
     async def list_dlq(
         self, stream: str, *, count: int = 100, after: str | None = None
     ) -> list[DeadLetter]:
+        after_key = None if after is None else _entry_key(after)
         return [
             DeadLetter(
                 id=msg_id,
@@ -388,9 +400,7 @@ class MemoryTransport(TransportDefaults):
             for msg_id, env, attempts, group in [
                 row
                 for row in self._dlq.get(stream, [])
-                if after is None
-                or tuple(map(int, row[0].split("-")))
-                > tuple(map(int, after.split("-")))
+                if after_key is None or _entry_key(row[0]) > after_key
             ][:count]
         ]
 

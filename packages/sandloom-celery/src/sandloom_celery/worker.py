@@ -221,8 +221,11 @@ def __getattr__(name: str) -> Any:
             _refuse_foreign_conf(app, broker, backend)
             _default.app = app
             _default.urls = (broker, backend)
+        # Current only after every step that can fail (the refusal's signal
+        # wiring imports celery.signals): nothing half-set stays current.
+        _refuse_unhosted_runs(app)
         app.set_current()
-        return _refuse_unhosted_runs(app)
+        return app
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

@@ -333,12 +333,11 @@ def checkout_urls(
 
 def _test_env_infra(row: CheckoutRow) -> str | None:
     """The ``INFRA`` of the checkout's ``.env.test`` (what the harness merges the
-    test overrides into), ``None`` when that file states none."""
-    try:
-        text = (Path(row.path) / ".env.test").read_text(encoding="utf-8")
-    except OSError:
-        return None
-    return _envfile.winning_assignment(text, "INFRA")[0] or None
+    test overrides into), ``None`` when that file states none.
+
+    Read with ``dotenv_values``, as the harness does (``worker_env_values``): a
+    trailing comment, a ``${VAR}`` and a multi-line value come out the same."""
+    return dotenv_values(Path(row.path) / ".env.test").get("INFRA") or None
 
 
 def _selects_url_instance(selection: CompositionSelection, capability: str) -> bool:
@@ -364,8 +363,9 @@ def test_urls(
     that capability's ``default`` instance: the harness refuses an override with
     no instance to replace, so a checkout that wrote one could not run its tests.
     An empty selection (the framework's own checkout, no composition) is judged by
-    ``.env.test`` alone; a ``.env.test`` with no ``INFRA`` by the selection
-    alone."""
+    ``.env.test`` alone. A ``.env.test`` with no ``INFRA`` takes none: the harness
+    raises ``UnmatchedOverrideError`` on an override it has no instance for, so
+    ``dev up`` writes none and the tests run on what ``.env.test`` names."""
     redis = ctx.redis(state, test=True)
     urls = {
         "SANDLOOM_TEST_DATABASE_URL": ctx.postgres(state, test=True).url(
@@ -375,11 +375,10 @@ def test_urls(
     if selection is None:
         selection = row_selection(ctx, row)
     indexes = {"CACHE_URL": TEST_CACHE_INDEX, "BROKER_URL": TEST_BROKER_INDEX}
-    infra = _test_env_infra(row)
-    takes = None if infra is None else _workers.overrides_infra_can_take(infra)
+    takes = _workers.overrides_infra_can_take(_test_env_infra(row))
     for name, capability in _workers.INFRA_URL_CAPABILITIES.items():
         wanted = not selection.infra or _selects_url_instance(selection, capability)
-        if wanted and (takes is None or name in takes):
+        if wanted and name in takes:
             urls[f"{_workers.OVERRIDE_PREFIX}{name}"] = redis.url(indexes[name])
     return urls
 
