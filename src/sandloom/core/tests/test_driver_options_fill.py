@@ -371,6 +371,38 @@ def test_a_driver_that_cannot_load_stops_the_url_option_read(
         registry_module.declared_url_options(selection)
 
 
+def test_the_redis_free_infra_overrides_every_redis_instance_of_a_generated_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``redis_free_infra_env`` reads the instances from the app template's own
+    ``DEFAULT_INFRA`` (no second list), so each Redis-driver instance is moved
+    to ``memory`` and no other one is named."""
+    import json
+
+    from sandloom.core.tests import _root_support
+
+    default = _root_support.generated_default_infra()
+    redis_instances = {
+        (capability, name)
+        for capability, instances in default.items()
+        for name, spec in instances.items()
+        if spec["driver"] == "redis"
+    }
+    assert ("cache", "default") in redis_instances  # the read found the template
+    monkeypatch.setattr(_root_support.importlib.util, "find_spec", lambda _n: None)
+    overridden = json.loads(_root_support.redis_free_infra_env()["INFRA"])
+    assert {
+        (capability, name)
+        for capability, instances in overridden.items()
+        for name in instances
+    } == redis_instances
+    assert all(
+        spec == {"driver": "memory"}
+        for instances in overridden.values()
+        for spec in instances.values()
+    )
+
+
 def test_an_instance_that_is_not_a_mapping_is_refused_by_the_url_option_read() -> None:
     with pytest.raises(TypeError, match=r"cache\.default"):
         registry_module.declared_url_options({"cache": {"default": "redis"}})  # type: ignore[dict-item]

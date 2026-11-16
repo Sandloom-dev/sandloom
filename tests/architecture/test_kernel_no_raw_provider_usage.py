@@ -193,18 +193,27 @@ def declared_members() -> frozenset[str]:
     return frozenset(names)
 
 
+def driver_sources(
+    drivers: Path = DRIVERS, packages: Path = REPO / "packages"
+) -> list[Path]:
+    """Where provider classes are defined: ``core/drivers/*.py`` and every
+    source file of a driver package."""
+    return [*drivers.glob("*.py"), *packages.glob("*/src/**/*.py")]
+
+
 def driver_only_members() -> frozenset[str]:
     """Public names a driver's provider class defines that no Protocol declares.
 
-    A provider class is a class in ``core/drivers`` named ``*Provider`` (the
-    class that implements a capability; option models, adapters and value types
-    carry generic names such as ``path`` or ``host``). These names are the
+    A provider class is a class named ``*Provider`` in ``core/drivers`` or in a
+    driver package (``packages/*/src``, where the Redis and Celery providers
+    live): the class that implements a capability; option models, adapters and
+    value types carry generic names such as ``path`` or ``host``. These names are the
     backend-specific extras (``verify_tenant_rls``, ...): a kernel ``getattr`` /
     ``hasattr`` of one of them is a probe whatever the receiver is called, so
     renaming ``provider`` to ``p`` hides nothing.
     """
     names: set[str] = set()
-    for path in DRIVERS.glob("*.py"):
+    for path in driver_sources():
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if not (isinstance(node, ast.ClassDef) and node.name.endswith("Provider")):
                 continue
@@ -429,6 +438,24 @@ def test_a_driver_only_probe_is_caught_whatever_the_receiver_is_called(
     # the same file without the driver-member table sees none of them: the
     # receiver-name rule alone is what the first version had
     assert dict(probe_sites(sample, declared)) == {}
+
+
+def test_a_provider_class_of_a_driver_package_is_a_driver_only_source(
+    tmp_path: Path,
+) -> None:
+    drivers = tmp_path / "drivers"
+    drivers.mkdir()
+    package = tmp_path / "packages" / "sandloom-x" / "src" / "sandloom_x" / "sub"
+    package.mkdir(parents=True)
+    source = package / "thing.py"
+    source.write_text("class XProvider:\n    def backend_only_extra(self): ...\n")
+    assert driver_sources(drivers, tmp_path / "packages") == [source]
+    # The real tree: the Redis and Celery providers are scanned, so a name only
+    # they define (``RedisCacheProvider.redis_client``) is a driver-only member.
+    real = {p.relative_to(REPO).parts[:2] for p in driver_sources()}
+    assert ("packages", "sandloom-redis") in real
+    assert ("packages", "sandloom-celery") in real
+    assert "redis_client" in driver_only_members()
 
 
 def test_a_new_site_fails_and_a_stale_entry_does_not() -> None:

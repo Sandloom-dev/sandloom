@@ -11,6 +11,7 @@ kernel-without-batteries venv. Both factories take no arguments.
 
 from __future__ import annotations
 
+import ast
 import importlib
 import importlib.util
 import json
@@ -72,16 +73,28 @@ def redis_free_infra_env() -> dict[str, str]:
     if importlib.util.find_spec("sandloom_redis") is not None:
         return {}
     memory = {"driver": "memory"}
-    return {
-        "INFRA": json.dumps(
-            {
-                "cache": {"default": memory},
-                "broadcast": {"default": memory},
-                "atomic_store": {"security": memory},
-                "lease": {"beat": memory},
-            }
-        )
-    }
+    redis_instances: dict[str, dict[str, dict[str, str]]] = {}
+    for capability, instances in generated_default_infra().items():
+        for name, spec in instances.items():
+            if spec.get("driver") == "redis":
+                redis_instances.setdefault(capability, {})[name] = memory
+    return {"INFRA": json.dumps(redis_instances)}
+
+
+def generated_default_infra() -> dict[str, dict[str, dict[str, str]]]:
+    """The ``DEFAULT_INFRA`` ``sandloom new`` writes into an app's
+    ``__init__.py``, read from the template itself so a capability or instance
+    the template adds is seen here without a second list."""
+    from sandloom.core.cli import project
+
+    tree = ast.parse(project._APP_INIT.substitute(app="probe"))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and [
+            t.id for t in node.targets if isinstance(t, ast.Name)
+        ] == ["DEFAULT_INFRA"]:
+            infra: dict[str, dict[str, dict[str, str]]] = ast.literal_eval(node.value)
+            return infra
+    raise AssertionError("the app template no longer defines DEFAULT_INFRA")
 
 
 #: The drivers a child process that boots the lean root (``import sandloom.main``,

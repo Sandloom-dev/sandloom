@@ -289,7 +289,9 @@ def test_broken_gh_exits_error_code_2_from_main(
         return subprocess.CompletedProcess(cmd, 1, "", "HTTP 401: Bad credentials")
 
     monkeypatch.setattr(pr_wait.subprocess, "run", fake_run)
-    assert pr_wait.main(["276", "--timeout", "1"]) == pr_wait.NOT_MERGEABLE
+    # Interval 0: the tolerated failures are retried at once, the third raises.
+    argv = ["276", "--timeout", "100", "--interval", "0"]
+    assert pr_wait.main(argv) == pr_wait.NOT_MERGEABLE
     assert capsys.readouterr().out.startswith("ERROR gh pr checks 276: HTTP 401")
 
 
@@ -304,3 +306,83 @@ def test_required_flag_reaches_gh() -> None:
         "name,bucket,link,workflow",
         "--required",
     ] in gh.calls
+
+
+@pytest.mark.parametrize("bucket", ["fail", "cancel", "stale", "unknown", ""])
+def test_a_bucket_outside_the_allow_list_is_red(bucket: str) -> None:
+    gh = FakeGh([[check("a", "pass"), check("b", bucket)]])
+    code, lines, _ = run(gh, merge=True)
+    assert code == pr_wait.RED and "b" in lines[1]
+    assert gh.merges == []
+
+
+@pytest.mark.parametrize("bucket", ["pass", "skipping"])
+def test_pass_and_skipping_are_not_red(bucket: str) -> None:
+    code, _, _ = run(FakeGh([[check("a", bucket)]]))
+    assert code == pr_wait.GREEN
+
+
+class Flaky(FakeGh):
+    """``pr view`` fails ``failures`` times in a row, then answers."""
+
+    def __init__(self, failures: int, polls: list[list[dict[str, str]]]) -> None:
+        super().__init__(polls)
+        self.failures = failures
+
+    def __call__(self, args: Sequence[str]) -> object:
+        if args[:2] == ["pr", "view"] and self.failures:
+            self.failures -= 1
+            self.calls.append(list(args))
+            return pr_wait.Result(1, "", "connection reset")
+        return super().__call__(args)
+
+
+def test_two_consecutive_gh_failures_are_tolerated() -> None:
+    gh = Flaky(pr_wait.TOLERATED_GH_FAILURES, [[check("a", "pass")]])
+    code, _, slept = run(gh)
+    assert code == pr_wait.GREEN
+    assert slept == [30] * pr_wait.TOLERATED_GH_FAILURES
+
+
+def test_the_third_consecutive_gh_failure_raises() -> None:
+    gh = Flaky(pr_wait.TOLERATED_GH_FAILURES + 1, [[check("a", "pass")]])
+    with pytest.raises(RuntimeError, match="gh pr view 276: connection reset"):
+        run(gh)
+
+
+def test_a_success_between_failures_resets_the_count() -> None:
+    class Alternating(FakeGh):
+        def __init__(self) -> None:
+            super().__init__([[check("a", "pending")]] * 2 + [[check("a", "pass")]])
+            self.views = 0
+
+        def __call__(self, args: Sequence[str]) -> object:
+            if args[:2] == ["pr", "view"]:
+                self.views += 1
+                if self.views % 3 != 0:
+                    self.calls.append(list(args))
+                    return pr_wait.Result(1, "", "connection reset")
+            return super().__call__(args)
+
+    code, _, _ = run(Alternating(), timeout=10_000)
+    assert code == pr_wait.GREEN
+
+
+def test_a_failure_past_the_deadline_raises_at_once() -> None:
+    gh = Flaky(1, [[check("a", "pass")]])
+    with pytest.raises(RuntimeError, match="gh pr view 276"):
+        run(gh, timeout=0)
+
+
+def test_a_second_required_check_that_is_not_registered_is_not_seen() -> None:
+    # Pins the assumption of ``State.required``: gh lists only registered
+    # required checks, so "some required check present" equals "every required
+    # check" only while branch protection requires one. With a second required
+    # check still unregistered the verdict is settled. If this starts failing,
+    # the rule was changed: update the comment on ``State.required`` with it.
+    gh = FakeGh(
+        [[check("gate", "pass")]],
+        required={"gate"},
+    )
+    code, lines, _ = run(gh)
+    assert code == pr_wait.GREEN and lines[0].startswith("GREEN")

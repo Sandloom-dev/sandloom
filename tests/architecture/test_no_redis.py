@@ -54,10 +54,27 @@ KERNEL_SUITES = (
 )
 
 
+#: Calls that import a module by the string they get. ``find_spec`` is left
+#: out on purpose: it only probes, which is how a kernel test skips itself on a
+#: lean venv without importing the driver.
+DYNAMIC_IMPORTS = frozenset({"import_module", "__import__"})
+
+
+def _called_name(call: ast.Call) -> str:
+    """``f`` of ``f(...)``, ``attr`` of ``x.attr(...)``, else ``""``."""
+    func = call.func
+    if isinstance(func, ast.Name):
+        return func.id
+    return func.attr if isinstance(func, ast.Attribute) else ""
+
+
 def redis_stack_importers(files: list[Path], root: Path = REPO) -> dict[str, list[str]]:
     """``{path: names}`` of the files that import a name of :data:`REDIS_STACK`
     anywhere (module level or inside a function body: the latter only fails
-    when the test runs)."""
+    when the test runs), through an import statement or through a string
+    constant given as the first argument of ``import_module`` / ``__import__``
+    (a name built at run time is not seen; a ``find_spec`` probe imports
+    nothing and is not counted)."""
     found: dict[str, list[str]] = {}
     for path in files:
         names = set()
@@ -66,6 +83,14 @@ def redis_stack_importers(files: list[Path], root: Path = REPO) -> dict[str, lis
                 names.update(alias.name.split(".")[0] for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
                 names.add(node.module.split(".")[0])
+            elif (
+                isinstance(node, ast.Call)
+                and _called_name(node) in DYNAMIC_IMPORTS
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                names.add(node.args[0].value.split(".")[0])
         if hit := sorted(names & REDIS_STACK):
             found[path.relative_to(root).as_posix()] = hit
     return found
@@ -99,6 +124,25 @@ def test_the_import_scan_sees_a_function_level_and_a_dotted_import(
     assert redis_stack_importers(paths, tmp_path) == {
         "t_dotted.py": ["redis"],
         "t_nested.py": ["sandloom_celery"],
+    }
+
+
+def test_the_import_scan_sees_a_string_given_to_a_dynamic_import(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "t_import_module.py").write_text(
+        "import importlib\n\ndef test_a():\n    importlib.import_module('celery.app')\n"
+    )
+    (tmp_path / "t_dunder.py").write_text("m = __import__('hiredis')\n")
+    (tmp_path / "t_clean.py").write_text(
+        "import importlib\nimportlib.import_module('sandloom.core')\n"
+        "importlib.import_module(name)\nprint('redis')\n"
+        "OK = importlib.util.find_spec('kombu') is not None\n"
+    )
+    paths = sorted(tmp_path.glob("*.py"))
+    assert redis_stack_importers(paths, tmp_path) == {
+        "t_dunder.py": ["hiredis"],
+        "t_import_module.py": ["celery"],
     }
 
 
@@ -150,6 +194,11 @@ def test_a_venv_with_a_redis_name_importable_refuses_the_run(
     monkeypatch.setattr(no_redis, "importable_redis", lambda: ["sandloom_redis"])
     with pytest.raises(pytest.UsageError, match="sandloom_redis importable"):
         no_redis.pytest_configure(SimpleNamespace(rootpath=REPO))
+
+
+def test_the_lane_refusal_and_the_importer_scan_name_the_same_stack() -> None:
+    assert set(no_redis.REDIS_DISTRIBUTIONS) == REDIS_STACK
+    assert len(no_redis.REDIS_DISTRIBUTIONS) == len(REDIS_STACK)
 
 
 def test_importable_redis_sees_an_importable_module(

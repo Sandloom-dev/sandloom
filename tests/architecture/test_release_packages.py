@@ -496,6 +496,46 @@ KERNEL_CASES = {
         KERNEL_METADATA,
         "carries Redis protocol code 'XREADGROUP'",
     ),
+    "a stream read command the old list missed": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "c.execute_command('XPENDING', k)\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'XPENDING'",
+    ),
+    "a command with a subcommand": (
+        {
+            **DEV_SERVICES,
+            "sandloom/core/a.py": "c.execute_command('XINFO STREAM', k)\n",
+        },
+        KERNEL_METADATA,
+        "carries Redis protocol code 'XINFO STREAM'",
+    ),
+    "EVAL in upper case": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "c.execute_command('EVAL', s, 0)\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'EVAL'",
+    ),
+    "SCRIPT LOAD": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "c.execute_command('SCRIPT LOAD', s)\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'SCRIPT LOAD'",
+    ),
+    "ZADD": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "c.execute_command('ZADD', k, 1, m)\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'ZADD'",
+    ),
+    "ordinary words and a sentence that starts with a command name": (
+        {
+            **DEV_SERVICES,
+            "sandloom/core/a.py": (
+                "KINDS = ('script', 'eval', 'zadd', 'Script')\n"
+                "MSG = 'XADD is slow'\n"
+                "TEXT = 'script failed: see the log'\n"
+            ),
+        },
+        KERNEL_METADATA,
+        "",
+    ),
     "a Lua script": (
         {
             **DEV_SERVICES,
