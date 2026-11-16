@@ -958,9 +958,7 @@ def test_a_service_broker_alone_may_differ_in_infra() -> None:
     # Another taskqueue option is not the broker: it still counts.
     tuned = json.loads(infra(0, 2))
     tuned["taskqueue"]["default"]["concurrency"] = 8
-    assert _comparable("INFRA", json.dumps(tuned)) != _comparable(
-        "INFRA", infra(0, 2)
-    )
+    assert _comparable("INFRA", json.dumps(tuned)) != _comparable("INFRA", infra(0, 2))
 
 
 @pytest.mark.parametrize(
