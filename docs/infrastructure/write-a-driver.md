@@ -78,16 +78,17 @@ a file.
 - **`Notification.body_fields`** holds the values `body` was built from, for a driver that
   renders its own template. It is as sensitive as the body: never log it.
 
-A driver whose option the flat settings still feed (`CACHE_URL`, `BROKER_URL`, the `CACHE_*`
-client bounds) declares it with `settings_fill`, a `SettingsFill` on the class. It says which
-setting fills which option when an instance leaves the option out. The kernel applies it
-without naming your driver, once the registry has your class. An option the instance states
-always wins.
+A connection option (a url, a broker, a pool bound) is an option of your instance, written in
+`INFRA`, with a default in the options schema. Do not read it from a flat setting, and do not
+take it from another instance. No instance inherits another's url, so a driver that needs a
+url refuses startup when its instance has none. A driver whose option a flat setting still
+feeds (`DATABASE_URL`, the readiness probe's bound) declares it with `settings_fill`. That is
+a `SettingsFill` on the class. It says which setting fills which option when an instance
+leaves the option out. The kernel applies it without naming your driver, once the registry has your
+class. An option the instance states always wins.
 
 - `urls` fill an unset or empty option from a setting. `urls_for` picks the instances:
   every one, only `default`, or only one the kernel synthesized.
-- `follows="cache"` takes the resolved url of the `cache` capability's `default` instance,
-  when that instance runs your driver. Otherwise the setting fills it.
 - `bounds` fill an option left out. `caps` cut a number above the setting down to it.
 - A table may name only the flat infrastructure settings (their `Settings` attributes):
   the URLs, the client bounds and the readiness probe's bound. `SettingsFill` refuses any

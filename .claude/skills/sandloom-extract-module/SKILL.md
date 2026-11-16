@@ -47,7 +47,7 @@ must load the module. `--from` / `--to` take an instance name or a URL.
    and checksums against the manifest).
 5. **Cut over:**
    - Start the module's service on its own `DATABASE_URL`, with the same
-     `CACHE_URL`, bus and JWT settings.
+     `INFRA` Redis urls, bus and JWT settings.
    - Remove the module from the monolith's `SANDLOOM_MODULES`.
    - Add the `SERVICE_BINDINGS` and `RPC_ALLOWED_CALLS` entries.
    - Switch the gateway routes (`deploy/AGENTS.md`).

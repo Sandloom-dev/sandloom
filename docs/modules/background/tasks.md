@@ -181,7 +181,7 @@ Or run the worker on Linux, in a container.
 Start a worker or a scheduler only with `sandloom worker` and `sandloom beat`. The
 importable Celery app of the Celery driver is for `celery inspect` and Flower: a
 `celery -A ... worker` or `beat` on it stops with exit code 1. The environment
-(`APP`, `BROKER_URL`, `CELERY_BROKER_URL` and the like) cannot replace the app or
+(`APP`, `CELERY_BROKER_URL` and the like) cannot replace the app or
 the broker of the instance a worker or a beat runs.
 
 Run exactly one `beat` per broker. A second one stands by. The kernel resolves
@@ -202,7 +202,7 @@ claim. See `deploy/README.md` ("Beat singleton lease").
 
 A tool that inspects the Celery driver's queues (`celery inspect`, Flower) uses
 the driver's importable app, `sandloom_celery.worker.app` (built from
-`BROKER_URL`, with no application booted): `celery -A sandloom_celery.worker
+`taskqueue.default.broker` of `INFRA`, with no application booted): `celery -A sandloom_celery.worker
 inspect active`. It is the driver's own interface, in the `sandloom-celery`
 package (`pip install 'sandloom[celery]'`).
 

@@ -69,12 +69,12 @@ subagent): pass no actor on tm calls.
   API, prose lint, stale symbols, and ruff / format / mypy of a changed
   driver package (`packages/sandloom-redis`, `packages/sandloom-celery`),
   whole, as CI does. The edit hook skips unused imports mid-edit, so this
-  gate is where they surface. `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`
-  and `JWT_SECRET` are the dummy values CI gives the same job (nothing
-  connects to them); the four `SANDLOOM_TEST_*` are your own test resources,
+  gate is where they surface. `DATABASE_URL` and `JWT_SECRET`
+  are the dummy values CI gives the same job (nothing connects to them; no
+  Redis url is set: each Redis instance takes its own `url` from `INFRA`); the four `SANDLOOM_TEST_*` are your own test resources,
   which the architecture tests' conftest needs locally (without them it
   refuses the shared test database):
-  `env DATABASE_URL=postgresql+asyncpg://ci:ci@127.0.0.1:5433/ci CACHE_URL=redis://127.0.0.1:6380/0 BROKER_URL=redis://127.0.0.1:6380/1 JWT_SECRET=ci-architecture-tests-not-a-real-secret SANDLOOM_TEST_DATABASE_URL=<yours> SANDLOOM_TEST_CACHE_URL=<yours> SANDLOOM_TEST_BROKER_URL=<yours> SANDLOOM_TEST_OWNER=<alias> uv run --locked pre-commit run --from-ref origin/main --to-ref HEAD 2>&1 | grep -vE '^ *(Building|Built|Installed|Uninstalled)'`.
+  `env DATABASE_URL=postgresql+asyncpg://ci:ci@127.0.0.1:5433/ci JWT_SECRET=ci-architecture-tests-not-a-real-secret SANDLOOM_TEST_DATABASE_URL=<yours> SANDLOOM_TEST_CACHE_URL=<yours> SANDLOOM_TEST_BROKER_URL=<yours> SANDLOOM_TEST_OWNER=<alias> uv run --locked pre-commit run --from-ref origin/main --to-ref HEAD 2>&1 | grep -vE '^ *(Building|Built|Installed|Uninstalled)'`.
   The end-of-file and trailing-whitespace hooks rewrite files: if they
   report "files were modified", stage those files, commit again and rerun.
   A gate fails: fix it, commit, rerun that gate alone (same command with

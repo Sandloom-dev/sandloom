@@ -110,7 +110,7 @@ each requirement in the layer that every path crosses:
      ownership transfer works with no declaration.
    - It **travels in the MAC-covered RPC context** to remote commands, whose
      provider registers the same check on its own UoW against the shared
-     `CACHE_URL`.
+     security atomic store (`INFRA.atomic_store.security`).
    - Local and remote behave the same. The guarantee is unchanged:
      serializable, not linearizable (ADR-0003).
 

@@ -82,8 +82,6 @@ AGENT = "sandloom-implementer"
 SKIP = "architecture-tests,end-of-file-fixer,trailing-whitespace"
 CI_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://ci:ci@127.0.0.1:5433/ci",
-    "CACHE_URL": "redis://127.0.0.1:6380/0",
-    "BROKER_URL": "redis://127.0.0.1:6380/1",
     "JWT_SECRET": "ci-architecture-tests-not-a-real-secret",
 }
 _RESULT = re.compile(r"^(.+?)\.{3,}(?:\(.*\))?(Passed|Failed|Skipped)\s*$")

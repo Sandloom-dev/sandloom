@@ -86,8 +86,17 @@ idempotency records live on [`atomic_store`](atomic-store.md), not here.
 
 ### `redis`
 
-Set `CACHE_URL`, or the option `url` on a named instance. It declares the feature `cas`. It does
-`get_many`, `set_many` and `windowed_counter` in one round trip.
+Write the option `url` on the instance: `cache.default.url` for the default cache, the same
+option on each named instance. No other instance's url is inherited. It declares the feature
+`cas`. It does `get_many`, `set_many` and `windowed_counter` in one round trip. For example:
+
+```json
+{"cache": {"default": {"url": "redis://cache-redis:6379/0"}}}
+```
+
+The connection bounds are options too: `socket_timeout_seconds`, `socket_connect_timeout_seconds`,
+`health_check_interval_seconds`, `max_connections`, `pool_timeout_seconds` and `retry_attempts`.
+Their defaults suit most deployments.
 
 **Limits.** It connects to a single Redis endpoint, with no built-in Sentinel or Cluster client.
 Use a managed primary endpoint with failover, or a driver package.
