@@ -407,6 +407,7 @@ def _static(node: ast.expr, env: dict[str, Any]) -> Any:
 def _constants(source: str) -> dict[str, Any]:
     env: dict[str, Any] = {}
     for node in ast.parse(source).body:
+        targets: list[ast.expr]
         if isinstance(node, ast.AnnAssign) and node.value is not None:
             targets = [node.target]
         elif isinstance(node, ast.Assign):
@@ -431,7 +432,9 @@ def _classes(path: Path) -> dict[str, ast.ClassDef]:
 def _declared_tier(cls: ast.ClassDef) -> str:
     """The class-level ``tier`` a driver declares; the port's default otherwise."""
     for node in cls.body:
-        target = node.target if isinstance(node, ast.AnnAssign) else None
+        target: ast.expr | None = (
+            node.target if isinstance(node, ast.AnnAssign) else None
+        )
         if isinstance(node, ast.Assign) and len(node.targets) == 1:
             target = node.targets[0]
         value = getattr(node, "value", None)
