@@ -57,6 +57,7 @@ it is safe to use before the settings snapshot is taken.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import re
@@ -255,10 +256,11 @@ def _point_default_instance(
 ) -> None:
     """Give ``capability``'s ``default`` instance in ``parsed`` its ``option``
     (created when missing) if its driver takes that option from ``setting``."""
-    from sandloom.core.testing import (  # noqa: PLC0415 - cold: settings snapshot - importing the seams loads the registry; only a run that overrides a URL needs them
-        family_seams,
-    )
-
+    # Reached by name, like ``config.py`` reaches the composition: the seams
+    # import the composition and the registry, which put the settings module in
+    # ``sys.modules`` (the late-import warning of ``load_test_env`` reads it),
+    # and only a run that overrides a URL needs them.
+    family_seams = importlib.import_module("sandloom.core.testing.family_seams")
     instances = parsed.get(capability, {})
     spec = instances.get("default", {}) if isinstance(instances, dict) else None
     if not isinstance(spec, dict):
