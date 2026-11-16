@@ -14,7 +14,7 @@ release it before or together with a `sandloom` version whose `standard` extra
 requires it.
 Versions are independent. A manual run can select one package or `all` for a
 coordinated release. A per-package tag selects only that package.
-The current coordinated alpha is `0.7.0a13` for all nine packages. <!-- sandloom-release -->
+The current coordinated alpha is `0.7.0a14` for all nine packages. <!-- sandloom-release -->
 
 ## Authentication and approval
 
@@ -88,7 +88,7 @@ before owner approval. Only this job receives `contents: write`; it has no
 PyPI token or OIDC permission and does no checkout, build or installation.
 
 A coordinated `all` release requires matching package versions and creates
-`v<version>` (for example `v0.7.0a13`). A single-package release creates <!-- sandloom-release -->
+`v<version>` (for example `v0.7.0a14`). A single-package release creates <!-- sandloom-release -->
 `<package>-v<version>`. Alpha, beta and release candidates are marked as
 GitHub prereleases. The tag must point to the manifest's exact source commit.
 Reruns can fill missing assets in a draft but never overwrite a tag or a
@@ -107,13 +107,13 @@ still stop publication. A successful PyPI upload does not need to be repeated.
 For a coordinated release, run this from the repository root:
 
 ```bash
-python tools/packaging/sync_release.py --version 0.7.0a13 --write
+python tools/packaging/sync_release.py --version 0.7.0a14 --write
 uv lock
 uv lock --project benchmarks
 uv run python tools/checks/check_benchmark_dependencies.py --write
 ```
 
-<!-- sandloom-release --> The command above prepares the `0.7.0a13` release.
+<!-- sandloom-release --> The command above prepares the `0.7.0a14` release.
 The canonical current framework version is `packages/sandloom/pyproject.toml`.
 The helper updates all nine package versions, compatible dependency floors,
 example manifests, scaffold requirements, CLI help and current documentation.
@@ -126,8 +126,8 @@ Unreleased changes live as fragments in `changelog.d/`. In the same release
 preparation PR, fold them into the new changelog section:
 
 ```bash
-python3 tools/packaging/changelog_fragments.py --fold 0.7.0a13
-python3 tools/packaging/changelog_fragments.py --fold 0.7.0a13 --package sandloom-redis
+python3 tools/packaging/changelog_fragments.py --fold 0.7.0a14
+python3 tools/packaging/changelog_fragments.py --fold 0.7.0a14 --package sandloom-redis
 ```
 
 The first folds the root `CHANGELOG.md`, the notes of a coordinated release. The
@@ -148,7 +148,7 @@ A release PR describes its candidate version. Successful publication from
 
 After the owner merges the PR, open **Actions → Release (PyPI) → Run workflow**:
 
-- Select `main` and one package, or `all` for the coordinated `0.7.0a13` release. <!-- sandloom-release -->
+- Select `main` and one package, or `all` for the coordinated `0.7.0a14` release. <!-- sandloom-release -->
 - Leave **dry_run** checked for validation and artifacts without an upload.
 - For publication, uncheck **dry_run**. The workflow still validates first and
   stops at the `pypi` environment for owner approval before obtaining credentials.
@@ -162,8 +162,8 @@ environment. A real publication from a feature branch is refused.
 A per-package tag on a reviewed `main` commit requests that package's release:
 
 ```bash
-git tag sandloom-v0.7.0a13
-git push origin sandloom-v0.7.0a13
+git tag sandloom-v0.7.0a14
+git push origin sandloom-v0.7.0a14
 ```
 
 The other tag prefixes are `sandloom-identity-v`, `sandloom-tenancy-v` and

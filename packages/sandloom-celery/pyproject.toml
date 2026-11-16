@@ -1,13 +1,13 @@
 [project]
 name = "sandloom-celery"
-version = "0.7.0a13"
+version = "0.7.0a14"
 description = "Celery driver for Sandloom: taskqueue, worker host and scheduler"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 dependencies = [
-    "sandloom>=0.7.0a13,<0.8",
+    "sandloom>=0.7.0a14,<0.8",
     "pydantic>=2,<3",
     "orjson>=3.13.0,<4",
     "celery[redis]>=5.6.3,<6",
