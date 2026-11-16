@@ -105,6 +105,8 @@ tools = [
     "sandloom.core.testing.slots",
     "sandloom.core.testing.session_checks",
     "sandloom.core.testing.migrations",
+    "sandloom.core.testing.connections",
+    "sandloom.core.testing.workers",
 ]
 for name in tools:
     importlib.import_module(name)

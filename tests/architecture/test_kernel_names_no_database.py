@@ -15,8 +15,8 @@ The remaining sites are listed in ``kernel_dialect_allowlist.json``, each with
 the reason it stays: an ops or migration path SQLite never reaches
 (SANDLOOM-B028), or the test harness's per-database provisioning. The list is
 a ratchet: a file may not gain a site, a file not listed may have none, and a
-count that dropped must be lowered in the list in the same change, so it
-only shrinks.
+count that dropped must be lowered in the list in the same change: the list
+is exact, and a stale entry fails.
 """
 
 from __future__ import annotations
@@ -218,18 +218,29 @@ def test_the_kernel_gains_no_database_specific_site() -> None:
     )
 
 
-def test_the_allowlist_only_shrinks() -> None:
-    allowed = allowed_sites()
-    found = current()
-    stale = {
+def stale_entries(
+    allowed: dict[str, int], found: dict[str, int]
+) -> dict[str, tuple[int, int]]:
+    """``path: (listed, found)`` for each entry that lists more sites than found."""
+    return {
         path: (n, found.get(path, 0))
         for path, n in allowed.items()
         if found.get(path, 0) < n
     }
+
+
+def test_the_allowlist_is_exact() -> None:
+    stale = stale_entries(allowed_sites(), current())
     assert not stale, (
         "sites were removed: lower kernel_dialect_allowlist.json to "
         f"{ {p: f for p, (_, f) in stale.items()} } (drop the zeros)"
     )
+
+
+def test_a_stale_entry_is_found() -> None:
+    assert stale_entries({"a.py": 2}, {"a.py": 2}) == {}
+    assert stale_entries({"a.py": 2}, {"a.py": 1}) == {"a.py": (2, 1)}
+    assert stale_entries({"gone.py": 1}, {}) == {"gone.py": (1, 0)}
 
 
 def test_the_check_counts_each_kind_of_site(tmp_path: Path) -> None:
