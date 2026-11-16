@@ -5082,12 +5082,14 @@ guarantees:
     require (declared or derived) has a configured, installed driver with the required features; otherwise
     startup refuses with SANDLOOM-B037 naming the module, the capability, the instance, the driver, and
     the missing feature or package (periodic for billing, the cache for identity), also for an explicitly
-    selected optional module. Proved on the sixteen module subsets with only the probe under test replaced, namely
-    Celery and Redis installed with real services (ready, every check ok), a broker nobody listens on (the
-    periodic-only web process stays ready), a missing redis package (every subset refused at startup naming
-    the cache and the security store, which the standard composition selects), a missing celery package
-    (billing refused naming the guarantee), plain sandloom with no driver package (every subset refused,
-    the kernel naming no driver), and a taskqueue driver without periodic.
+    selected optional module. Proved with only the probe under test replaced, namely Celery and Redis
+    installed with real services on all sixteen module subsets (ready, every check ok), and, on the four
+    subsets that stand for every class of subset (no module, identity, billing, tenancy with admin), a
+    broker nobody listens on (the periodic-only web process stays ready), a missing redis package (every
+    subset refused at startup naming the cache and the security store, which the standard composition
+    selects), a missing celery package (billing refused naming the guarantee), and a taskqueue driver
+    without periodic; plain sandloom with no driver package (every subset refused, the kernel naming no
+    driver) is proved on all sixteen.
   sources:
   - docs/adr/0011-driver-api.md
   - design/kernel-boundary/requirements.md#I-19 Every allowed install profile and every module subset boots

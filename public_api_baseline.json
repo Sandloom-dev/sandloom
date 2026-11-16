@@ -3229,11 +3229,10 @@
       "members": [
         "bounds",
         "caps",
-        "follows",
         "urls",
         "urls_for"
       ],
-      "signature": "(urls:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, urls_for:POSITIONAL_OR_KEYWORD|Literal['all', 'default', 'implicit']='all', follows:POSITIONAL_OR_KEYWORD|str | None=None, bounds:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, caps:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+      "signature": "(urls:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, urls_for:POSITIONAL_OR_KEYWORD|Literal['all', 'default', 'implicit']='all', bounds:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, caps:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
     },
     "SqlDialect": {
       "kind": "class",
@@ -3515,6 +3514,28 @@
     "retry_delay_ms": {
       "kind": "function",
       "signature": "(deliveries:POSITIONAL_OR_KEYWORD|int, base_ms:KEYWORD_ONLY|int, max_ms:KEYWORD_ONLY|int) -> int"
+    }
+  },
+  "sandloom.driverkit.shared_endpoints": {
+    "Role": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "redis_endpoint": {
+      "kind": "function",
+      "signature": "(url:POSITIONAL_OR_KEYWORD|str | None) -> str | None"
+    },
+    "register": {
+      "kind": "function",
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, instance:POSITIONAL_OR_KEYWORD|str, endpoint:POSITIONAL_OR_KEYWORD|str | None, role:POSITIONAL_OR_KEYWORD|Role, option:KEYWORD_ONLY|str='', declared:KEYWORD_ONLY|bool=True) -> None"
+    },
+    "reset": {
+      "kind": "function",
+      "signature": "() -> None"
+    },
+    "unregister": {
+      "kind": "function",
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, instance:POSITIONAL_OR_KEYWORD|str, role:POSITIONAL_OR_KEYWORD|Role) -> None"
     }
   },
   "sandloom.driverkit.testing": {
@@ -3852,6 +3873,7 @@
         "make_provider",
         "make_renamed_provider",
         "operation_calls",
+        "pass_time",
         "protocol",
         "provider",
         "pytestmark",

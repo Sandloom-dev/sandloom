@@ -39,6 +39,7 @@ EXTRA_MODULES = (
     "sandloom.driverkit",
     "sandloom.driverkit.atomic_store",
     "sandloom.driverkit.eventbus_support",
+    "sandloom.driverkit.shared_endpoints",
     "sandloom.driverkit.testing",
     "sandloom.shared",
     "sandloom.shared.authz",
