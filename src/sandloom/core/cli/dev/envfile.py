@@ -161,23 +161,25 @@ def _infra_object(raw: str, source: str) -> InfraMap:
 
 
 def _user_infra_raw(text: str) -> tuple[str | None, bool]:
-    """``(the raw value, whether it was already set aside)``: the winning
-    ``INFRA`` assignment outside the block, else the last one a previous run
-    commented out (:data:`_INFRA_NOTE`). ``(None, False)`` without either."""
+    """``(the raw value, whether a previous run set one aside)``: the winning
+    ``INFRA`` outside the block, in file order and the last one wins, a line a
+    previous run commented out (:data:`_INFRA_NOTE`, it stood below the block
+    and won there) counting as the assignment it was. So an ``INFRA`` above the
+    block and another below it keep the below one winning across runs.
+    ``(None, False)`` without any."""
     before, _, after = _split(text)
-    active: str | None = None
-    noted: str | None = None
+    winner: str | None = None
+    set_aside = False
     for line in [*before, *after]:
         match = _ASSIGN.match(line)
         if match and match.group(1) == INFRA:
-            active = match.group(2)
+            winner = match.group(2)
         elif line.startswith(_INFRA_NOTE):
             kept = _ASSIGN.match(line.removeprefix(_INFRA_NOTE))
             if kept and kept.group(1) == INFRA:
-                noted = kept.group(2)
-    if active is not None:
-        return active, False
-    return noted, noted is not None
+                winner = kept.group(2)
+                set_aside = True
+    return winner, set_aside
 
 
 def user_infra(text: str) -> InfraMap:

@@ -55,7 +55,11 @@ _SELECTION = {
 def _composition(monkeypatch: pytest.MonkeyPatch) -> None:
     """The test apps are not importable packages: give ``dev up`` the
     composition a generated app has."""
-    monkeypatch.setattr(commands, "composition_selection", lambda ctx, text: _SELECTION)
+    monkeypatch.setattr(
+        commands,
+        "composition_selection",
+        lambda ctx, text, checkout=None: _SELECTION,
+    )
 
 
 #: The ``databases`` setting of the stand-in server (a Redis default is 16, the

@@ -151,6 +151,20 @@ def interpolate(value: object, shell: Mapping[str, str] | None = None) -> str:
     return _VAR.sub(repl, str(value))
 
 
+def interpolate_known(value: object) -> str:
+    """``value`` with each ``${VAR:-default}`` replaced by its default and every
+    other reference (``${VAR}``, ``${VAR:?msg}``) left as written. A comparison
+    of two processes' values uses this, so that two hosts naming different
+    variables are never made equal by both being blanked."""
+
+    def repl(m: re.Match[str]) -> str:
+        if m.group(2) in (":-", "-"):
+            return m.group(3) or ""
+        return m.group(0)
+
+    return _VAR.sub(repl, str(value))
+
+
 def required_variables(text: str) -> list[str]:
     """Variables the profile requires (``${VAR:?...}``), in order."""
     return list(
@@ -682,7 +696,7 @@ def _comparable(key: str, value: Any) -> Any:
     if key != "INFRA" or value is None:
         return value
     try:
-        infra = json.loads(interpolate(value))
+        infra = json.loads(interpolate_known(value))
     except ValueError:
         return value
     if not isinstance(infra, dict):
@@ -720,12 +734,12 @@ def _effective_default_url(env: Mapping[str, Any], capability: str) -> str | Non
     setting that fills it). ``None`` when neither names one. An ``INFRA`` that
     is not a JSON object is the shared-key comparison's to report, here it
     names no url."""
-    flat = interpolate(env.get("CACHE_URL", "")).strip() or None
+    flat = interpolate_known(env.get("CACHE_URL", "")).strip() or None
     raw = env.get("INFRA")
     if raw is None:
         return flat
     try:
-        infra = json.loads(interpolate(raw))
+        infra = json.loads(interpolate_known(raw))
     except ValueError:
         return flat
     instances = infra.get(capability) if isinstance(infra, dict) else None

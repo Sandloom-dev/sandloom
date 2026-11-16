@@ -32,7 +32,6 @@ from typing import Any, TextIO
 from dotenv import dotenv_values
 
 import sandloom.core.cli.ui as _ui
-import sandloom.core.composition as _composition
 from sandloom.core.cli.dev import docker as _docker
 from sandloom.core.cli.dev import envfile as _envfile
 from sandloom.core.cli.dev import errors as _errors
@@ -209,23 +208,54 @@ def write_state_env(ctx: Context, state: State) -> None:
     atomic_write(ctx.state_dir / STATE_ENV, "\n".join(lines) + "\n")
 
 
+#: Run in the checkout (its own directory first on ``sys.path``): reads the
+#: ``DEFAULT_INFRA`` the composition root's package exports and prints it as
+#: one JSON line. A child process, so that the app's package is the CHECKOUT's
+#: (never the one this interpreter happens to import) and that nothing of it,
+#: not even its settings, is imported into the CLI.
+_READ_SELECTION = (
+    "import json, sys\n"
+    "from sandloom.core.composition import root_default_infra\n"
+    "print(json.dumps(root_default_infra(sys.argv[1]) or {}))\n"
+)
+
+
 def composition_selection(
-    ctx: Context, env_text: str
+    ctx: Context, env_text: str, checkout: Path | None = None
 ) -> Mapping[str, Mapping[str, Mapping[str, object]]]:
-    """The driver selection (``DEFAULT_INFRA``) of the app's composition root:
+    """The driver selection (``DEFAULT_INFRA``) of the app's composition root,
+    read in ``checkout`` (default: the repository root) by a child process:
     which instances exist, so which ones get a Redis url. ``{}`` when the root
-    has no package or exports none (a checkout of the framework itself)."""
+    has no package or exports none (a checkout of the framework itself). Any
+    failure of the read, of any kind, stops the command naming the root."""
     named, _ = _envfile.winning_assignment(env_text, "SANDLOOM_COMPOSITION_ROOT")
     root = ctx.environ.get("SANDLOOM_COMPOSITION_ROOT") or named
     name = (root or f"{ctx.identity.app}.asgi").partition(":")[0].strip()
+    refusal = (
+        f"cannot read DEFAULT_INFRA of the composition root {name!r}: %s. "
+        "Fix the import (or SANDLOOM_COMPOSITION_ROOT in .env), then run "
+        "`uv run sandloom dev up` again"
+    )
     try:
-        return _composition.root_default_infra(name) or {}
-    except (ImportError, SyntaxError) as exc:
-        raise DevError(
-            f"cannot read DEFAULT_INFRA of the composition root {name!r}: {exc}. "
-            "Fix the import (or SANDLOOM_COMPOSITION_ROOT in .env), then run "
-            "`uv run sandloom dev up` again"
-        ) from exc
+        proc = _process.run(
+            [sys.executable, "-c", _READ_SELECTION, name],
+            env=ctx.environ,
+            cwd=checkout or ctx.root,
+            timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise DevError(refusal % (str(exc) or type(exc).__name__)) from exc
+    lines = proc.stdout.strip().splitlines()
+    if proc.returncode != 0 or not lines:
+        tail = (proc.stderr.strip().splitlines() or ["it printed nothing"])[-1]
+        raise DevError(refusal % tail)
+    try:
+        selection = json.loads(lines[-1])
+    except ValueError as exc:
+        raise DevError(refusal % f"its answer is not JSON ({exc})") from exc
+    if not isinstance(selection, dict):
+        raise DevError(refusal % "its answer is not an object")
+    return selection
 
 
 def checkout_urls(ctx: Context, state: State, row: CheckoutRow) -> dict[str, str]:
@@ -241,7 +271,7 @@ def checkout_urls(ctx: Context, state: State, row: CheckoutRow) -> dict[str, str
         env_text = ""
     bus, _ = _envfile.winning_assignment(env_text, "EVENT_BUS_BACKEND")
     managed = _envfile.managed_infra(
-        composition_selection(ctx, env_text),
+        composition_selection(ctx, env_text, Path(row.path)),
         cache_url=redis.url(row.cache_index),
         persistent_url=redis.url(row.broker_index),
         memory_bus=(ctx.environ.get("EVENT_BUS_BACKEND") or bus).strip().lower()

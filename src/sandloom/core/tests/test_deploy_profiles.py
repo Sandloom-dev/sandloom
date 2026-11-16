@@ -358,13 +358,18 @@ def test_security_relevant_settings_identical_across_processes(profile: str) -> 
 
 
 def test_parity_keys_default_identically_in_both_profiles() -> None:
+    from sandloom.core.testing.deploy_profile import _comparable
+
     mono = next(iter(_app_processes(PROFILES[0]).values()))["environment"]
     split = next(iter(_app_processes(PROFILES[1]).values()))["environment"]
     for key in PARITY_KEYS:
         if key in ("INTERNAL_API_TOKEN", "JWT_KID"):
             # optional in the monolith, mandatory between services
             continue
-        assert _interpolate(mono[key], SHELL) == _interpolate(split[key], SHELL), key
+        # A service's own Celery broker is the one allowed difference in INFRA.
+        assert _comparable(key, _interpolate(mono[key], SHELL)) == _comparable(
+            key, _interpolate(split[key], SHELL)
+        ), key
 
 
 @pytest.mark.parametrize("profile", PROFILES)
@@ -969,6 +974,32 @@ def test_a_service_broker_alone_may_differ_in_infra() -> None:
     tuned = json.loads(infra(0, 2))
     tuned["taskqueue"]["default"]["concurrency"] = 8
     assert _comparable("INFRA", json.dumps(tuned)) != _comparable("INFRA", infra(0, 2))
+
+
+def test_unresolved_references_never_make_two_processes_equal() -> None:
+    """Two services whose INFRA url is a different unset ``${VAR}`` are not the
+    same url: a reference without a default stays as written, one with a
+    default is its default."""
+    from sandloom.core.testing.deploy_profile import (
+        _comparable,
+        _effective_default_url,
+    )
+
+    def infra(url: str) -> str:
+        return json.dumps({"cache": {"default": {"url": url}}})
+
+    assert _comparable("INFRA", infra("${HOST_A}")) != _comparable(
+        "INFRA", infra("${HOST_B}")
+    )
+    assert _comparable("INFRA", infra("${HOST_A:?set it}")) != _comparable(
+        "INFRA", infra("")
+    )
+    assert _comparable("INFRA", infra("${HOST:-redis://r/0}")) == _comparable(
+        "INFRA", infra("redis://r/0")
+    )
+    assert _effective_default_url({"CACHE_URL": "${A}"}, "cache") != (
+        _effective_default_url({"CACHE_URL": "${B}"}, "cache")
+    )
 
 
 def test_the_default_cache_url_is_the_infra_url_else_the_flat_one() -> None:

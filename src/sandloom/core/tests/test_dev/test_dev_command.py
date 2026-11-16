@@ -664,6 +664,29 @@ def test_a_user_infra_below_the_block_is_set_aside_and_still_merged(
     assert _winning_infra(env)["cache"]["default"] == {"url": "redis://mine/3"}
 
 
+def test_an_infra_above_and_below_the_block_keeps_the_below_one_winning(
+    tmp_path: Path,
+) -> None:
+    """As in a dotenv file the last assignment wins: with one above the block
+    and one below it, the below one keeps winning after it is set aside, on
+    every later run (it never gives way to the one above)."""
+    above = 'INFRA=\'{"cache":{"default":{"url":"redis://above/1"}}}\'\n'
+    below = 'INFRA=\'{"cache":{"default":{"url":"redis://below/2"}}}\'\n'
+    env = tmp_path / ".env"
+    env.write_text(above + envfile.render_block(_VALUES) + below)
+    assert envfile.write_env_block(env, _VALUES)
+    assert _winning_infra(env)["cache"]["default"] == {"url": "redis://below/2"}
+    assert not envfile.write_env_block(env, _VALUES)  # stable
+    moved = json.dumps(
+        {"taskqueue": {"default": {"broker": "redis://127.0.0.1:9/9"}}},
+        separators=(",", ":"),
+    )
+    assert envfile.write_env_block(env, {**_VALUES, "INFRA": moved})
+    assert _winning_infra(env)["cache"]["default"] == {"url": "redis://below/2"}
+    assert envfile.write_env_block(env, {"DATABASE_URL": _VALUES["DATABASE_URL"]})
+    assert _winning_infra(env)["cache"]["default"] == {"url": "redis://below/2"}
+
+
 def test_a_broken_user_infra_is_refused_and_the_file_untouched(
     tmp_path: Path,
 ) -> None:
@@ -805,7 +828,9 @@ _SELECTION = {
 def test_the_block_names_each_redis_instance_of_the_composition(
     repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(commands, "composition_selection", lambda c, text: _SELECTION)
+    monkeypatch.setattr(
+        commands, "composition_selection", lambda c, text, checkout=None: _SELECTION
+    )
     environ.pop("EVENT_BUS_BACKEND", None)
     ctx = _ctx(repo, environ)
     state = _state(ctx)
@@ -826,20 +851,50 @@ def test_the_block_names_each_redis_instance_of_the_composition(
     assert any("eventbus.default url=" in line for line in lines)
 
 
-def test_a_composition_that_cannot_be_read_stops_dev_up(
-    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+def _app_package(root: Path, body: str) -> None:
+    (root / "shopapp").mkdir(exist_ok=True)
+    (root / "shopapp" / "__init__.py").write_text(body)
+
+
+def test_the_composition_is_read_in_the_checkout_by_a_child_process(
+    repo: Path, worktree: Path, environ: dict[str, str]
 ) -> None:
+    """Each checkout answers with ITS package (a sibling worktree's selection
+    never comes from the app this interpreter imports), and no settings load
+    in the CLI process."""
+    environ["SANDLOOM_COMPOSITION_ROOT"] = "shopapp.asgi"
     ctx = _ctx(repo, environ)
-    monkeypatch.setattr(
-        "sandloom.core.composition.root_default_infra",
-        lambda name=None: (_ for _ in ()).throw(ImportError("boom")),
+    _app_package(repo, 'DEFAULT_INFRA = {"cache": {"default": {"driver": "redis"}}}\n')
+    _app_package(
+        worktree, 'DEFAULT_INFRA = {"lease": {"default": {"driver": "redis"}}}\n'
     )
-    with pytest.raises(commands.DevError, match="DEFAULT_INFRA.*boom"):
-        commands.composition_selection(ctx, "")
-    monkeypatch.setattr(
-        "sandloom.core.composition.root_default_infra", lambda name=None: None
-    )
-    assert commands.composition_selection(ctx, "") == {}
+    assert set(commands.composition_selection(ctx, "", repo)) == {"cache"}
+    assert set(commands.composition_selection(ctx, "", worktree)) == {"lease"}
+    # No package or none exporting a selection: nothing to manage.
+    _app_package(repo, "")
+    assert commands.composition_selection(ctx, "", repo) == {}
+    environ["SANDLOOM_COMPOSITION_ROOT"] = "absentapp.asgi"
+    assert commands.composition_selection(ctx, "", repo) == {}
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ("raise ImportError('boom')\n", "boom"),
+        ("raise RuntimeError('config exploded')\n", "config exploded"),
+        ("def broken(:\n", "SyntaxError"),
+        ("DEFAULT_INFRA = {'cache': {'default': object()}}\n", "not JSON|TypeError"),
+    ],
+    ids=["import-error", "other-error", "syntax-error", "not-serializable"],
+)
+def test_a_composition_that_cannot_be_read_stops_dev_up(
+    repo: Path, environ: dict[str, str], body: str, message: str
+) -> None:
+    environ["SANDLOOM_COMPOSITION_ROOT"] = "shopapp.asgi"
+    ctx = _ctx(repo, environ)
+    _app_package(repo, body)
+    with pytest.raises(commands.DevError, match=f"DEFAULT_INFRA.*shopapp.*{message}"):
+        commands.composition_selection(ctx, "", repo)
 
 
 def test_localhost_is_never_written(
