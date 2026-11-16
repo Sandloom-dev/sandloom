@@ -71,9 +71,11 @@ from sandloom.driverkit.atomic_store import (
     check_ttl,
     check_value,
 )
+from sandloom.driverkit.shared_endpoints import redis_endpoint
+from sandloom.driverkit.shared_endpoints import register as register_endpoint
+from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom_redis._errors import map_redis_error, redis_error_kind
 from sandloom_redis._settings_fill import ATOMIC_STORE_FILL, require_url
-from sandloom_redis.shared_cache import warn_if_shares_default_cache
 
 #: Failed operations of the store (connection, timeout, server error), by
 #: instance and operation: the page-level alert on the security store reads it.
@@ -557,7 +559,14 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         self._refusal = None
         if self._client_factory is None:  # a client of its own needs the url
             require_url("atomic_store", self.name, self._options.url)
-        warn_if_shares_default_cache("atomic_store", self.name, self._options.url)
+        register_endpoint(
+            "atomic_store",
+            self.name,
+            redis_endpoint(self._options.url),
+            "persistent",
+            option=f"atomic_store.{self.name}.url",
+            declared=not self.implicit,
+        )
         mode = self._options.never_evicts_check
         if mode == "assume" and not (
             self._assume_allowed is not None and self._assume_allowed()
@@ -644,6 +653,7 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         return f"redis:{run_id}"
 
     async def aclose(self) -> None:
+        unregister_endpoint("atomic_store", self.name, "persistent")
         clients = dict.fromkeys(
             c for c in (self._client, self._once_client) if c is not None
         )

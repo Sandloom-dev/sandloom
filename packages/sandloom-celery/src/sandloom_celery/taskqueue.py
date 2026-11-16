@@ -45,6 +45,9 @@ from sandloom.driverkit import (
     Timeout,
     Unavailable,
 )
+from sandloom.driverkit.shared_endpoints import redis_endpoint
+from sandloom.driverkit.shared_endpoints import register as register_endpoint
+from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_celery.broker_probe import BrokerUnreachableError, probe_broker
 from sandloom_celery.worker import (
@@ -180,15 +183,20 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
 
     async def aopen(self) -> None:
         """Warn (never refuse) when the broker is the Redis database of
-        ``cache.default``: an evicting cache can drop queued tasks. Only a
-        Redis cache can share it, so without ``sandloom-redis`` there is nothing
-        to compare (the check reads the default cache's url from that driver)."""
-        if importlib.util.find_spec("sandloom_redis") is None:
-            return
-        # Function-local: sandloom-redis is an optional companion of this driver.
-        from sandloom_redis.shared_cache import warn_if_shares_default_cache
+        ``cache.default``: an evicting cache can drop queued tasks. The cache's
+        driver registers its endpoint in ``sandloom.driverkit.shared_endpoints``
+        and this driver its broker's, so no driver package imports another."""
+        register_endpoint(
+            "taskqueue",
+            self.name,
+            redis_endpoint(self._typed.broker),
+            "persistent",
+            option=f"taskqueue.{self.name}.broker",
+            declared=not self.implicit,
+        )
 
-        warn_if_shares_default_cache("taskqueue", self.name, self._typed.broker)
+    async def aclose(self) -> None:
+        unregister_endpoint("taskqueue", self.name, "persistent")
 
     @property
     def _app(self) -> Any:

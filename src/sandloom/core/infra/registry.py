@@ -1099,6 +1099,7 @@ class InfraRegistry:
                 raise self._import_failure(
                     capability, name, instance_cfg, registration, exc
                 ) from exc
+            provider.implicit = instance_cfg.implicit
             self._check_contract(capability, name, provider)
             if self._strict:
                 self._check_declared_features(

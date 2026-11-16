@@ -54,10 +54,12 @@ from sandloom.driverkit.lease_limits import (
     MAX_LEASE_NAME_LENGTH,
     MIN_LEASE_TTL_SECONDS,
 )
+from sandloom.driverkit.shared_endpoints import redis_endpoint
+from sandloom.driverkit.shared_endpoints import register as register_endpoint
+from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_redis._errors import map_redis_error, redis_error_kind
 from sandloom_redis._settings_fill import LEASE_FILL, require_url
-from sandloom_redis.shared_cache import warn_if_shares_default_cache
 
 #: The accepted risk that lets ``never_evicts_check=assume`` run in production.
 UNVERIFIED_NOEVICTION_RISK = "unverified_noeviction"
@@ -310,10 +312,18 @@ class RedisLeaseProvider(LeaseProvider):
     async def aopen(self) -> None:
         if self._client_factory is None:  # a client of its own needs the url
             require_url("lease", self.name, self._opts.url)
-        warn_if_shares_default_cache("lease", self.name, self._opts.url)
+        register_endpoint(
+            "lease",
+            self.name,
+            redis_endpoint(self._opts.url),
+            "persistent",
+            option=f"lease.{self.name}.url",
+            declared=not self.implicit,
+        )
         await self._ready()
 
     async def aclose(self) -> None:
+        unregister_endpoint("lease", self.name, "persistent")
         client, self._client = self._client, None
         self._loop = None
         self._policy_checked = False
