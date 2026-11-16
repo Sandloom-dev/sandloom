@@ -31,6 +31,7 @@ from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_redis._settings_fill import STREAMS_FILL, require_url
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 from sandloom_redis.eventbus.streams_transport_base import _mapped
+from sandloom_redis.shared_cache import warn_if_shares_default_cache
 
 #: The name of the ``default`` instance of a capability (the kernel's
 #: ``DEFAULT_INSTANCE``): it shares the process-wide default transport client.
@@ -238,6 +239,12 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
                 _redis_cache.default_client_url(),
                 fallback="the default cache client",
             )
+        own = EventBusOptions.model_validate(self.options).url
+        warn_if_shares_default_cache(
+            "eventbus",
+            self.name,
+            _redis_cache.default_client_url() if self._uses_default_client else own,
+        )
 
     async def health(self) -> HealthResult:
         try:

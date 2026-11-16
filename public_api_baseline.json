@@ -3229,11 +3229,10 @@
       "members": [
         "bounds",
         "caps",
-        "follows",
         "urls",
         "urls_for"
       ],
-      "signature": "(urls:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, urls_for:POSITIONAL_OR_KEYWORD|Literal['all', 'default', 'implicit']='all', follows:POSITIONAL_OR_KEYWORD|str | None=None, bounds:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, caps:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
+      "signature": "(urls:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, urls_for:POSITIONAL_OR_KEYWORD|Literal['all', 'default', 'implicit']='all', bounds:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, caps:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
     },
     "SqlDialect": {
       "kind": "class",

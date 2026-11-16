@@ -178,6 +178,18 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         # is not parsed a second time.
         self._typed = validated or CeleryTaskQueueOptions.model_validate(options)
 
+    async def aopen(self) -> None:
+        """Warn (never refuse) when the broker is the Redis database of
+        ``cache.default``: an evicting cache can drop queued tasks. Only a
+        Redis cache can share it, so without ``sandloom-redis`` there is nothing
+        to compare (the check reads the default cache's url from that driver)."""
+        if importlib.util.find_spec("sandloom_redis") is None:
+            return
+        # Function-local: sandloom-redis is an optional companion of this driver.
+        from sandloom_redis.shared_cache import warn_if_shares_default_cache
+
+        warn_if_shares_default_cache("taskqueue", self.name, self._typed.broker)
+
     @property
     def _app(self) -> Any:
         """The Celery app, built on first use: the provider is built for a

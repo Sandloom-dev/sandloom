@@ -201,7 +201,10 @@ def test_an_explicit_config_is_filled_alike_for_every_driver_incl_the_lease() ->
     assert config["cache"][DEFAULT_INSTANCE].options["url"] == settings.cache_url
 
 
-def test_an_option_that_follows_reads_the_resolved_default_of_its_capability() -> None:
+def test_a_broadcast_url_is_its_own_not_the_caches() -> None:
+    """No follow: a ``cache.default`` url stated in INFRA is not the broadcast's;
+    it takes CACHE_URL, or a url it states itself."""
+
     def broadcast_url(cache: InstanceConfig | None) -> str | None:
         config: InfraConfig = {"broadcast": {"b": _cfg("broadcast", "b", "redis")}}
         if cache is not None:
@@ -210,16 +213,16 @@ def test_an_option_that_follows_reads_the_resolved_default_of_its_capability() -
         return config["broadcast"]["b"].options["url"]
 
     own = _cfg("cache", DEFAULT_INSTANCE, "redis", url="redis://own-host/9")
-    assert broadcast_url(own) == "redis://own-host/9"  # INFRA's, not CACHE_URL
+    assert broadcast_url(own) == settings.cache_url  # not the cache's INFRA url
     assert broadcast_url(_cfg("cache", DEFAULT_INSTANCE, "redis")) == settings.cache_url
-    # a cache of another driver has no url the broadcast could share
-    assert (
-        broadcast_url(_cfg("cache", DEFAULT_INSTANCE, "memory")) == settings.cache_url
-    )
     assert broadcast_url(None) == settings.cache_url
+    stated = _cfg("broadcast", "b", "redis", url="redis://b-host/1")
+    config: InfraConfig = {"broadcast": {"b": stated}}
+    fill(config)
+    assert stated.options["url"] == "redis://b-host/1"
 
 
-def test_the_atomic_store_url_follows_the_cache_on_a_synthesized_instance_only() -> (
+def test_the_atomic_store_url_is_the_flat_setting_on_a_synthesized_instance_only() -> (
     None
 ):
     synthesized = _cfg("atomic_store", "security", "redis")
@@ -234,7 +237,8 @@ def test_the_atomic_store_url_follows_the_cache_on_a_synthesized_instance_only()
         "atomic_store": {"security": synthesized, "security2": declared},
     }
     fill(config)
-    assert synthesized.options["url"] == "redis://c/1"
+    # CACHE_URL, not the cache.default INFRA url (no follow)
+    assert synthesized.options["url"] == settings.cache_url
     assert "url" not in declared.options  # its url is its own, never the cache's
     assert declared.options["max_connections"] == 4
     assert synthesized.options["max_connections"] == settings.cache_max_connections

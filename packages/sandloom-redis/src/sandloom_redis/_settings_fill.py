@@ -47,17 +47,15 @@ CACHE_FILL = SettingsFill(urls=_URL, bounds=CLIENT_BOUNDS)
 #: Redis, as the beat lease always has).
 LEASE_FILL = SettingsFill(urls=_URL)
 
-#: A ``redis`` broadcast: the url follows the resolved ``cache.default`` (an
-#: ``INFRA`` override of its url included), else ``CACHE_URL``.
-BROADCAST_FILL = SettingsFill(urls=_URL, follows="cache", bounds=TRANSPORT_BOUNDS)
+#: A ``redis`` broadcast: the url of ``CACHE_URL`` when ``INFRA`` leaves it out.
+#: No instance follows another: a ``cache.default`` url stated in ``INFRA`` is
+#: not the broadcast's (state ``broadcast.<instance>.url`` too).
+BROADCAST_FILL = SettingsFill(urls=_URL, bounds=TRANSPORT_BOUNDS)
 
-#: A ``redis`` atomic store: the client bounds, and the url only on the
-#: development instance the kernel synthesizes (it follows the resolved
-#: ``cache.default``): the url of one ``INFRA`` declares is its own, never the
-#: cache's.
-ATOMIC_STORE_FILL = SettingsFill(
-    urls=_URL, urls_for="implicit", follows="cache", bounds=CLIENT_BOUNDS
-)
+#: A ``redis`` atomic store: the client bounds, and the url of ``CACHE_URL``
+#: only on the development instance the kernel synthesizes: the url of one
+#: ``INFRA`` declares is its own, never the cache's.
+ATOMIC_STORE_FILL = SettingsFill(urls=_URL, urls_for="implicit", bounds=CLIENT_BOUNDS)
 
 #: A ``streams`` bus: the url of ``CACHE_URL`` on the ``default`` instance (a
 #: named bus without one shares the default transport) and the transport bounds.
