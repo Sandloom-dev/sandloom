@@ -997,7 +997,7 @@ provider are put back — so a lazily built, process-wide provider (e.g. the
 
 ```python
 async with override_instance(core, "cache", driver="redis",
-                             url=os.environ["CACHE_URL"]):
+                             url=resolved_cache_url()):
     ...
 ```
 
