@@ -36,6 +36,7 @@ for _key, _value in _DOCS_BUILD_ENV.items():
     os.environ.setdefault(_key, _value)
 
 from pydantic import BaseModel  # noqa: E402
+from pydantic.fields import FieldInfo  # noqa: E402
 from pydantic_core import PydanticUndefined  # noqa: E402
 
 from sandloom.core.config import module_settings, tiers  # noqa: E402
@@ -236,7 +237,7 @@ def _description(field: object) -> str:
 
 def render_pages() -> dict[str, str]:
     # Bucket fields by category, preserving declaration order within a category.
-    buckets: dict[str, list[tuple[str, object]]] = {cat: [] for cat in _CATEGORY_ORDER}
+    buckets: dict[str, list[tuple[str, FieldInfo]]] = {cat: [] for cat in _CATEGORY_ORDER}
     for name, field in Settings.model_fields.items():
         alias = field.alias or name.upper()
         category = _CATEGORIES.get(alias, "Other")

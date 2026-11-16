@@ -25,13 +25,17 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools" / "packaging"))
 
-import release_packages  # noqa: E402 - the one list of workspace distributions
+if TYPE_CHECKING:
+    from tools.packaging import release_packages
+else:
+    import release_packages  # the one list of workspace distributions
 
 #: Every wheel of the one list (``tools/packaging/packages.json``): the kernel
 #: extras and the console name drivers and the standard composition, which the
@@ -75,10 +79,12 @@ def run(
 
 
 def fetch(
-    origin: str, path: str, *, data: dict | None = None
+    origin: str, path: str, *, data: dict[str, Any] | None = None
 ) -> tuple[int, dict[str, str], str]:
     """One request with the path sent exactly as written: no client normalization."""
     parts = urlsplit(origin)
+    if parts.hostname is None:
+        raise ValueError(f"no host in {origin}")
     connection = http.client.HTTPConnection(parts.hostname, parts.port, timeout=20)
     body = json.dumps(data) if data is not None else None
     headers = {"Content-Type": "application/json"} if data is not None else {}
@@ -145,7 +151,7 @@ def check_http(origin: str, app_dir: Path) -> None:
     expect(status == 401, "the platform views still require a sign-in")
 
 
-def wait_healthy(origin: str, process: subprocess.Popen, log: Path) -> None:
+def wait_healthy(origin: str, process: subprocess.Popen[bytes], log: Path) -> None:
     for _ in range(150):
         if process.poll() is not None:
             print(log.read_text()[-3000:])
@@ -269,7 +275,7 @@ def run_scenario(
     pyproject.write_text(project + sources)
     env = scenario_env(args, scenario, f"{args.postgres_url}/{database}")
     origin = f"http://127.0.0.1:{scenario.port}"
-    create = (
+    create_database = (
         "import asyncio, asyncpg, sys\n"
         "async def main():\n"
         f"    c = await asyncpg.connect('{args.postgres_url}/postgres')\n"
@@ -277,7 +283,7 @@ def run_scenario(
         "    await c.close()\n"
         "asyncio.run(main())\n"
     )
-    run(["uv", "run", "python", "-c", create, "CREATE"], ROOT, base_env)
+    run(["uv", "run", "python", "-c", create_database, "CREATE"], ROOT, base_env)
     process = None
     try:
         run(["uv", "sync", "-q"], app_dir, env)

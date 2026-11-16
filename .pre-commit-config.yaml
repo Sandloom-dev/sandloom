@@ -50,9 +50,10 @@ repos:
 
     -   id: mypy
         name: mypy
-        entry: bash -c 'uv run --locked mypy src/'
+        # tools/ and the fleet hooks too: CI runs the same paths (backend-static).
+        entry: bash -c 'uv run --locked mypy src/ tools/ .claude/hooks/'
         language: system
-        files: ^(src/|tests/|pyproject\.toml|uv\.lock)
+        files: ^(src/|tests/|tools/.*\.py$|\.claude/hooks/.*\.py$|pyproject\.toml|uv\.lock)
         pass_filenames: false
 
     -   id: architecture-tests

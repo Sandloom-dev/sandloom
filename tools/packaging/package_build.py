@@ -15,7 +15,9 @@ import re
 import tempfile
 import tomllib
 from pathlib import Path
+from typing import Any
 
+from hatchling.builders.config import BuilderConfig
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 
@@ -23,12 +25,14 @@ def _excluded(target: Path, excluded: list[Path]) -> bool:
     return any(target == path or path in target.parents for path in excluded)
 
 
-class CustomBuildHook(BuildHookInterface):
+class CustomBuildHook(BuildHookInterface[BuilderConfig]):
     _temporary: tempfile.TemporaryDirectory[str] | None = None
 
-    def _config(self) -> dict:
+    def _config(self) -> dict[str, Any]:
         root = Path(self.root)
-        return tomllib.loads((root / "pyproject.toml").read_text())["tool"]["sandloom"]
+        project = tomllib.loads((root / "pyproject.toml").read_text())
+        config: dict[str, Any] = project["tool"]["sandloom"]
+        return config
 
     def _runtime_files(self) -> dict[str, str]:
         root = Path(self.root)
@@ -62,7 +66,7 @@ class CustomBuildHook(BuildHookInterface):
             {Path(dest).parts[0] for dest in self._config()["sources"].values()}
         )
 
-    def initialize(self, version: str, build_data: dict) -> None:
+    def initialize(self, version: str, build_data: dict[str, Any]) -> None:
         # Keep standalone package notices aligned with the canonical root copies.
         # Sdists retain local copies and remove this monorepo-only hook below.
         repository = Path(__file__).resolve().parents[2]
@@ -105,7 +109,7 @@ class CustomBuildHook(BuildHookInterface):
         project.write_text(source)
         build_data["force_include"][str(project)] = "pyproject.toml"
 
-    def finalize(self, version: str, build_data: dict, artifact_path: str) -> None:
+    def finalize(self, version: str, build_data: dict[str, Any], artifact_path: str) -> None:
         if self._temporary is not None:
             self._temporary.cleanup()
             self._temporary = None

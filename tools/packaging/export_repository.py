@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -113,7 +114,7 @@ def forbidden(name: str) -> bool:
     )
 
 
-def approved_paths(groups: list[dict]) -> dict[str, str]:
+def approved_paths(groups: list[dict[str, Any]]) -> dict[str, str]:
     approved: dict[str, str] = {}
     for group in groups:
         if not group["reason"].strip():
@@ -179,8 +180,8 @@ def candidates(root: Path, tracked: set[str]) -> set[str]:
 
 
 def inspect_file(
-    root: Path, name: str, reason: str, approved: dict, symlinks: dict
-) -> dict:
+    root: Path, name: str, reason: str, approved: dict[str, Any], symlinks: dict[str, Any]
+) -> dict[str, Any]:
     source = root / name
     # One packaging namespace link is intentional. No directory-link
     # traversal is permitted; its target bytes are reviewed separately.
@@ -237,7 +238,7 @@ def inspect_file(
     }
 
 
-def inspect_source(root: Path = ROOT) -> dict:
+def inspect_source(root: Path = ROOT) -> dict[str, Any]:
     approved, excluded, prefixes = load_policy(root)
     tracked = tracked_files(root)
     unknown = sorted(
@@ -293,7 +294,7 @@ def git_environment() -> dict[str, str]:
     return env
 
 
-def export_source(destination: Path, report: dict, root: Path = ROOT) -> None:
+def export_source(destination: Path, report: dict[str, Any], root: Path = ROOT) -> None:
     destination = destination.expanduser()
     if destination.is_symlink():
         raise ExportError("Destination cannot be a symlink")

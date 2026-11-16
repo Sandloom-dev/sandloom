@@ -81,6 +81,7 @@ import tomllib
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -444,7 +445,7 @@ class Runner:
         path: str,
         status: int,
         body: object = None,
-        headers: dict | None = None,
+        headers: dict[str, str] | None = None,
     ) -> str:
         sent = {"Content-Type": "application/json", **(headers or {})}
         got, text = self.http(method, path, body, sent)
@@ -501,7 +502,7 @@ class Runner:
             self.expect("GET", "/api/v1/billing/credits", 200, headers=auth)
 
     def http(
-        self, method: str, path: str, body: object = None, headers: dict | None = None
+        self, method: str, path: str, body: object = None, headers: dict[str, str] | None = None
     ) -> tuple[int, str]:
         data = None if body is None else json.dumps(body).encode()
         req = urllib.request.Request(  # noqa: S310 - the local app only

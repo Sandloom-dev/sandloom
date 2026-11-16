@@ -12,12 +12,16 @@ import json
 import subprocess
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 
-def predicates(inventory: dict, proof: dict | None) -> dict[str, bool]:
+def predicates(inventory: dict[str, Any], proof: dict[str, Any] | None) -> dict[str, bool]:
     """Recheck component absence and mitigation conditions against fresh evidence."""
     tools = inventory["tools"]
-    absent = lambda *names: all(name in tools and tools[name] is None for name in names)
+
+    def absent(*names: str) -> bool:
+        return all(name in tools and tools[name] is None for name in names)
+
     return {
         "absent-acl-tools": absent("getfacl", "setfacl", "chacl"),
         "absent-attr-tools": absent("getfattr", "setfattr"),
@@ -61,7 +65,7 @@ def predicates(inventory: dict, proof: dict | None) -> dict[str, bool]:
     }
 
 
-def assess(review: dict, inventory: dict, scan: dict, proof: dict | None) -> dict:
+def assess(review: dict[str, Any], inventory: dict[str, Any], scan: dict[str, Any], proof: dict[str, Any] | None) -> dict[str, Any]:
     """Invalidate changed assumptions and reject CVEs missing from the review."""
     known = {row["id"] for row in review["findings"]}
     present = {row["id"] for row in scan.get("vulnerabilities", [])}

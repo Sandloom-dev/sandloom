@@ -40,15 +40,19 @@ import tarfile
 import tempfile
 import tomllib
 import zipfile
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from email.parser import BytesParser
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import distribution_imports
-import inspection_smoke
-import release_packages
+if TYPE_CHECKING:
+    from tools.packaging import distribution_imports, inspection_smoke, release_packages
+else:
+    import distribution_imports
+    import inspection_smoke
+    import release_packages
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = BACKEND_ROOT / "packages"
@@ -432,10 +436,10 @@ def _check_battery_handoff(sandloom: Path, env: dict[str, str], work: Path) -> N
     every = (*batteries, ",".join(batteries))
     with ThreadPoolExecutor(max_workers=len(every)) as pool:
         created_apps = list(pool.map(new_with, every))
-    for batteries, created in zip(every, created_apps, strict=True):
+    for chosen, created in zip(every, created_apps, strict=True):
         if "ModuleLoadError" in created.stdout or "run `uv sync`" not in created.stdout:
             raise RuntimeError(
-                f"bare CLI with {batteries}: unclear dependency handoff:\n{created.stdout}"
+                f"bare CLI with {chosen}: unclear dependency handoff:\n{created.stdout}"
             )
         if created.stdout.index("uv run sandloom generate") > created.stdout.index(
             "uv run sandloom test"
@@ -511,7 +515,7 @@ def check_lean_install(temp: Path, wheel: Path) -> None:
     # directories under `work`, the RPC smoke in its own temporary one): side
     # by side; the first failure, in this order, is raised after all ran.
     with ThreadPoolExecutor(max_workers=6) as pool:
-        lean_checks = [
+        lean_checks: list[Future[Any]] = [
             pool.submit(_check_docs, sandloom, env, work),
             pool.submit(inspection_smoke.check, _python(venv), work),
             pool.submit(_check_new_app, sandloom, env, work),

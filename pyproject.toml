@@ -42,6 +42,8 @@ dev = [
     "pre-commit==4.7.0",
     "import-linter==2.15",
     "pyright==1.1.414",
+    # Typed (py.typed): mypy checks tools/packaging/package_build.py, the build hook.
+    "hatchling==1.33.0",
     "types-redis==4.6.0.20241004",
     "types-requests==2.33.0.20261006",
     "types-Pillow==10.2.0.20240822",
@@ -172,7 +174,7 @@ max-complexity = 10
 quote-style = "double"
 
 [tool.mypy]
-mypy_path = "src:packages/sandloom-redis/src"
+mypy_path = "src:packages/sandloom-redis/src:packages/sandloom-standard/src"
 files = [
     "src/",
     "packages/sandloom-standard/src/",
@@ -201,6 +203,8 @@ module = [
     "uvicorn.*",
     "opentelemetry.*",
     "msgpack.*",
+    # fontTools ships no types (tools/docs/brand_assets.py).
+    "fontTools.*",
 ]
 ignore_missing_imports = true
 

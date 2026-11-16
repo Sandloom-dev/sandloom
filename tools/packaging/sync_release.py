@@ -17,10 +17,14 @@ import re
 import sys
 import tomllib
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import release_packages
+if TYPE_CHECKING:
+    from tools.packaging import release_packages
+else:
+    import release_packages
 
 ROOT = Path(__file__).resolve().parents[2]
 #: The distributions, from the one list (``packages.json``).
@@ -53,9 +57,8 @@ HISTORY = (
 
 
 def version(root: Path) -> str:
-    value = tomllib.loads((root / "packages" / KERNEL / "pyproject.toml").read_text())[
-        "project"
-    ]["version"]
+    project = tomllib.loads((root / "packages" / KERNEL / "pyproject.toml").read_text())
+    value: str = project["project"]["version"]
     if not VALID_VERSION.fullmatch(value):
         raise ValueError(f"Invalid canonical version: {value}")
     return value
@@ -82,7 +85,7 @@ def current_files(root: Path) -> list[Path]:
         "packages/*/pyproject.toml",
     ):
         # Restrict README discovery to source directories, excluding build/venvs.
-        bases = (root,)
+        bases: tuple[Path, ...] = (root,)
         if pattern == "**/README.md":
             selected.add(root / "README.md")
             bases = tuple(

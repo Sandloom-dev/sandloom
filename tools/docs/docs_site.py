@@ -201,7 +201,7 @@ class SiteScripts(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if self.nav_depth or (not self.navigation and "data-sandloom-navigation" in dict(attrs)):
             self.nav_depth += 1
-            self.navigation.append(self.get_starttag_text())
+            self.navigation.append(self.get_starttag_text() or "")
         if tag == "script":
             self.current = dict(attrs)
             self.body = ""
@@ -237,7 +237,8 @@ def site_runtime() -> dict[str, object]:
     config["base"] = "/docs/"
     config["features"] = ["search.highlight"]
     config["search"] = "/docs/" + config["search"].removeprefix("./")
-    bundle = next(attrs["src"] for attrs, _ in scripts.scripts if "/bundle." in (attrs.get("src") or ""))
+    sources = [attrs.get("src") or "" for attrs, _ in scripts.scripts]
+    bundle = next(src for src in sources if "/bundle." in src)
     bootstrap = next(body for _, body in scripts.scripts if body.startswith("__md_scope="))
     if not scripts.navigation or scripts.nav_depth:
         raise ValueError("The docs build did not provide a complete shared navigation tree")
@@ -343,8 +344,8 @@ def build(*, public_url: str | None = None, preview_url: str = "http://127.0.0.1
     write_redirects(SITE / "docs")
     broken = broken_links(SITE)
     if broken:
-        for page, target in broken:
-            print(f"{page}: broken link {target}", file=sys.stderr)
+        for page, link in broken:
+            print(f"{page}: broken link {link}", file=sys.stderr)
         return 1
     version_site_assets()
     finalize_metadata(origin, public=public_url is not None)
