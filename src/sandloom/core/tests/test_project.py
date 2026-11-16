@@ -9,6 +9,7 @@ that never absolute-import the app's own package.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import re
 import subprocess
@@ -438,11 +439,15 @@ def test_generated_env_and_compose_give_each_redis_instance_its_own_url(
     database (the startup warning)."""
     generate_project("probe", tmp_path)
     root = tmp_path / "probe"
-    namespace: dict[str, Any] = {}
-    exec(_read(root, "probe/__init__.py"), namespace)  # noqa: S102 - the generated selection, a literal
+    spec = importlib.util.spec_from_file_location(
+        "probe_selection", root / "probe" / "__init__.py"
+    )
+    assert spec is not None and spec.loader is not None
+    selection = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(selection)
     selected = {
         (capability, name)
-        for capability, instances in namespace["DEFAULT_INFRA"].items()
+        for capability, instances in selection.DEFAULT_INFRA.items()
         for name in instances
     } - {("database", "default")}
     for file, key, bus in (

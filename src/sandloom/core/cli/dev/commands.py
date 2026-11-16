@@ -32,6 +32,7 @@ from typing import Any, TextIO
 from dotenv import dotenv_values
 
 import sandloom.core.cli.ui as _ui
+import sandloom.core.composition as _composition
 from sandloom.core.cli.dev import docker as _docker
 from sandloom.core.cli.dev import envfile as _envfile
 from sandloom.core.cli.dev import errors as _errors
@@ -217,10 +218,8 @@ def composition_selection(
     named, _ = _envfile.winning_assignment(env_text, "SANDLOOM_COMPOSITION_ROOT")
     root = ctx.environ.get("SANDLOOM_COMPOSITION_ROOT") or named
     name = (root or f"{ctx.identity.app}.asgi").partition(":")[0].strip()
-    from sandloom.core.composition import root_default_infra  # noqa: PLC0415 - cold: dev command - the settings module loads only when a url block is built
-
     try:
-        return root_default_infra(name) or {}
+        return _composition.root_default_infra(name) or {}
     except (ImportError, SyntaxError) as exc:
         raise DevError(
             f"cannot read DEFAULT_INFRA of the composition root {name!r}: {exc}. "
