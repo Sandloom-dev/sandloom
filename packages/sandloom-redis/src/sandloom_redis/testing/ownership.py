@@ -19,14 +19,13 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from sandloom_redis.testing.urls import is_redis_url, redis_client_installed
-
 from sandloom.driverkit.testing_family import (
     already_claimed,
     check_holder,
     current_owner,
     record_claim,
 )
+from sandloom_redis.testing.urls import is_redis_url, redis_client_installed
 
 #: Redis key carrying the owner of a database index.
 REDIS_OWNER_KEY = "sandloom:test:owner"

@@ -19,6 +19,12 @@ from collections.abc import Iterable, Mapping, MutableMapping
 from typing import Protocol, runtime_checkable
 from urllib.parse import urlsplit, urlunsplit
 
+from sandloom.driverkit.testing_family import (
+    FLAT_VARS,
+    INFRA_VAR,
+    OWNER_ENV,
+    current_owner,
+)
 from sandloom_redis.testing import resources
 from sandloom_redis.testing.ownership import claim_redis, flush_owned_redis
 from sandloom_redis.testing.urls import (
@@ -26,13 +32,6 @@ from sandloom_redis.testing.urls import (
     is_redis_url,
     redis_client_installed,
     redis_urls,
-)
-
-from sandloom.driverkit.testing_family import (
-    FLAT_VARS,
-    INFRA_VAR,
-    OWNER_ENV,
-    current_owner,
 )
 
 

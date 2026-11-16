@@ -36,13 +36,12 @@ from collections.abc import Sequence
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from sandloom.driverkit.testing_family import Resource, TestResourceOwnershipError
 from sandloom_redis.testing.ownership import (
     REDIS_LAST_USED_KEY,
     REDIS_OWNER_KEY,
     decoded,
 )
-
-from sandloom.driverkit.testing_family import Resource, TestResourceOwnershipError
 
 #: Keys sampled for a legacy index's idle time.
 _IDLE_SAMPLE = 200
