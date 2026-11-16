@@ -906,7 +906,19 @@ def _test_local(
     monkeypatch: pytest.MonkeyPatch,
     infra: dict[str, Any],
 ) -> dict[str, str]:
-    """``dev up``'s ``.env.test.local`` for a composition selecting ``infra``."""
+    """``dev up``'s ``.env.test.local`` for a composition selecting ``infra``, in
+    an app whose ``.env.test`` declares a url on the cache and task queue defaults
+    (the case ``test_dev_test_overrides`` covers for every other ``.env.test``)."""
+    (repo / ".env.test").write_text(
+        "INFRA='"
+        + json.dumps(
+            {
+                "cache": {"default": {"url": "redis://127.0.0.1:6380/15"}},
+                "taskqueue": {"default": {"broker": "redis://127.0.0.1:6380/14"}},
+            }
+        )
+        + "'\n"
+    )
     monkeypatch.setattr(
         commands,
         "composition_selection",

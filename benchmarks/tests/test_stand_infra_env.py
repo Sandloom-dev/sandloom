@@ -249,11 +249,15 @@ def test_the_qualification_compose_selects_its_security_store_only_as_on_main() 
     assert restored["INFRA"] == env["INFRA"]  # the app's selection, unchanged
 
 
-def test_the_production_compose_selects_its_bus_and_cache_names_as_on_main() -> None:
+def test_the_production_compose_selects_its_bus_and_security_store() -> None:
     compose = _compose("compose.production.yml")
     env = compose["services"]["app"]["environment"]  # type: ignore[index]
     assert not [k for k in FLAT if k in env]
     infra = json.loads(env["INFRA"])
-    assert set(infra) == {"database", "cache", "eventbus"}
-    assert set(infra["cache"]) == {"security"}
+    assert set(infra) == {"database", "atomic_store", "eventbus"}
+    # The revocation store is an ``atomic_store`` instance: under ``cache`` the
+    # stand had no security store, and the tail probe (``ladder/tail_probe.py``
+    # reads ``atomic_store.security``) never labelled its Redis.
+    assert set(infra["atomic_store"]) == {"security"}
+    assert infra["atomic_store"]["security"]["url"] == "redis://security:6379/0"
     assert set(infra["eventbus"]) == {"default"}

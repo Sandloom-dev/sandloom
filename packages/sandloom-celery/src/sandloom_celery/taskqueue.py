@@ -427,6 +427,9 @@ def _build_celery_taskqueue(cls: type[_Q], cfg: InstanceConfig) -> _Q:
         # followed. Checked on the provider's first use (the process-wide app
         # included: an earlier build already holds it) and on each later one.
         check(app)
+        # Built not current (a refused app must not stay ``celery.current_app``):
+        # current once the check has passed.
+        app.set_current()
         return app
 
     def check(app: Any) -> None:

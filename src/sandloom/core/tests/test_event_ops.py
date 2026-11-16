@@ -15,7 +15,7 @@ from sandloom.core.cli import events as cli_events
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.eventing.memory_transport import MemoryTransport
 from sandloom.core.eventing.streams_bus import StreamsEventBus
-from sandloom.core.infra.errors import Unsupported
+from sandloom.core.infra.errors import InvalidArgument, Unsupported
 from sandloom.core.infra.ports.eventbus import (
     ConsumerInfo,
     DeadLetter,
@@ -187,6 +187,15 @@ async def test_a_declared_feature_works_and_ownership_needs_none() -> None:
     await transport.claim_group_owner("a.b.v1", "g", GroupOwner("m", "d"))
     assert await event_ops.streams_release_group(core, "a.b.v1", "g") is True
     assert await event_ops.streams_release_group(core, "a.b.v1", "g") is False
+
+
+@pytest.mark.parametrize("cursor", ["abc", "x", "1-", "-1", "1-a"])
+async def test_the_listing_refuses_a_cursor_that_is_no_entry_id(cursor: str) -> None:
+    transport = MemoryTransport()
+    core = _core(transport)
+    await _dead_letter_one(transport, "a.b.v1")
+    with pytest.raises(InvalidArgument):
+        await event_ops.streams_dlq_list(core, "a.b.v1", after=cursor)
 
 
 async def test_a_full_transport_serves_every_operation_typed() -> None:

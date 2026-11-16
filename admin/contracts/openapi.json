@@ -2382,7 +2382,7 @@
           "ids": {
             "items": {
               "maxLength": 80,
-              "pattern": "^[0-9]+-[0-9]+$",
+              "pattern": "^[A-Za-z0-9_.:-]{1,80}$",
               "type": "string"
             },
             "maxItems": 100,
@@ -6147,7 +6147,7 @@
     },
     "/api/v1/platform/billing/streams/dlq": {
       "get": {
-        "description": "Inspect this service's DLQ, continuing after the last Redis entry ID.",
+        "description": "Inspect this service's DLQ, continuing after the last entry ID.",
         "operationId": "stream_dead_letters_api_v1_platform_billing_streams_dlq_get",
         "parameters": [
           {
@@ -6181,7 +6181,7 @@
               "anyOf": [
                 {
                   "maxLength": 80,
-                  "pattern": "^[0-9]+-[0-9]+$",
+                  "pattern": "^[A-Za-z0-9_.:-]{1,80}$",
                   "type": "string"
                 },
                 {
@@ -6999,7 +6999,7 @@
     },
     "/api/v1/platform/identity/streams/dlq": {
       "get": {
-        "description": "Inspect this service's DLQ, continuing after the last Redis entry ID.",
+        "description": "Inspect this service's DLQ, continuing after the last entry ID.",
         "operationId": "stream_dead_letters_api_v1_platform_identity_streams_dlq_get",
         "parameters": [
           {
@@ -7033,7 +7033,7 @@
               "anyOf": [
                 {
                   "maxLength": 80,
-                  "pattern": "^[0-9]+-[0-9]+$",
+                  "pattern": "^[A-Za-z0-9_.:-]{1,80}$",
                   "type": "string"
                 },
                 {
@@ -7840,7 +7840,7 @@
     },
     "/api/v1/platform/tenancy/streams/dlq": {
       "get": {
-        "description": "Inspect this service's DLQ, continuing after the last Redis entry ID.",
+        "description": "Inspect this service's DLQ, continuing after the last entry ID.",
         "operationId": "stream_dead_letters_api_v1_platform_tenancy_streams_dlq_get",
         "parameters": [
           {
@@ -7874,7 +7874,7 @@
               "anyOf": [
                 {
                   "maxLength": 80,
-                  "pattern": "^[0-9]+-[0-9]+$",
+                  "pattern": "^[A-Za-z0-9_.:-]{1,80}$",
                   "type": "string"
                 },
                 {

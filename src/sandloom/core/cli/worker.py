@@ -29,6 +29,7 @@ import math
 import sys
 from collections.abc import Sequence
 
+import sandloom.core.infra.registry as _registry
 import sandloom.core.infra.tool_infra as _tool_infra
 import sandloom.core.worker as _worker
 
@@ -104,7 +105,17 @@ def worker_main(argv: Sequence[str] | None = None) -> int:
             help="the heartbeat counts as stale after this many seconds "
             f"(default {DEFAULT_CHECK_TIMEOUT_SECONDS:g})",
         )
-        ok, reason = _check(check.parse_args(args_in[1:]).timeout)
+        timeout = check.parse_args(args_in[1:]).timeout
+        try:
+            ok, reason = _check(timeout)
+        except (
+            _registry.DriverUnavailableError,
+            _registry.InstanceNotConfiguredError,
+        ) as exc:
+            # A lean install without the taskqueue driver (SANDLOOM-B037), or no
+            # taskqueue instance in INFRA: a healthcheck says so in one message
+            # (code and fix included), never as a traceback.
+            ok, reason = False, str(exc)
         if not ok:
             print(reason, file=sys.stderr)
         return 0 if ok else 1

@@ -136,8 +136,8 @@ def _register_infra_lifecycle(
         the app serve traffic that fails on first use. In dev it stays
         best-effort so a missing optional backend does not block local work:
         ``aopen_all`` then raises only for a failure that carries
-        ``fatal_at_startup`` (a configuration mistake, e.g. a Redis driver with
-        no url), and the task is critical in every environment so that failure
+        ``fatal_at_startup`` (a configuration mistake, e.g. a driver option
+        with no value), and the task is critical in every environment so that failure
         aborts startup instead of being logged while token revocation reads an
         unreachable store as "not revoked".
         """

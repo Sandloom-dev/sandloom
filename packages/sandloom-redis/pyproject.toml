@@ -13,6 +13,10 @@ dependencies = [
     "redis>=5.2.1,<6",
 ]
 
+[project.optional-dependencies]
+# The hiredis parser of the Redis client (faster reply parsing); optional.
+hiredis = ["redis[hiredis]>=5.2.1,<6"]
+
 [project.entry-points."sandloom.drivers"]
 "atomic_store.redis" = "sandloom_redis.atomic_store:RedisAtomicStoreProvider"
 "lease.redis" = "sandloom_redis.lease:RedisLeaseProvider"

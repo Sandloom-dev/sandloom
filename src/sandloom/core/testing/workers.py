@@ -83,8 +83,9 @@ OVERRIDE_PREFIX = "SANDLOOM_TEST_"
 OVERRIDABLE_VARS = (*DATABASE_VARS, *REDIS_VARS)
 #: The capability whose ``default`` instance each Redis override replaces the
 #: URL of in ``INFRA``; the option that holds it is whichever of
-#: :data:`_URL_OPTIONS` the instance states.
-_INFRA_URLS = {
+#: :data:`_URL_OPTIONS` the instance states. The one map of the overrides:
+#: ``sandloom dev up`` reads it to decide which names it may write.
+INFRA_URL_CAPABILITIES = {
     "CACHE_URL": "cache",
     "BROKER_URL": "taskqueue",
 }
@@ -240,7 +241,11 @@ def infra_with_overrides(
     A malformed ``INFRA`` is returned unchanged (the settings refuse it when they
     load); without an override so is a missing one.
     """
-    wanted = {var: url for var, url in overrides.items() if url and var in _INFRA_URLS}
+    wanted = {
+        var: url
+        for var, url in overrides.items()
+        if url and var in INFRA_URL_CAPABILITIES
+    }
     if not wanted:
         return infra_raw
     try:
@@ -250,7 +255,7 @@ def infra_with_overrides(
     if not isinstance(parsed, dict):
         return infra_raw
     for var, url in wanted.items():
-        capability = _INFRA_URLS[var]
+        capability = INFRA_URL_CAPABILITIES[var]
         base = _declared_url(parsed, capability, "default")
         if not base:
             raise UnmatchedOverrideError(
@@ -261,6 +266,25 @@ def infra_with_overrides(
             )
         _replace_on_database(parsed, base, url)
     return json.dumps(parsed)
+
+
+def overrides_infra_can_take(infra_raw: str | None) -> tuple[str, ...]:
+    """The override names (``CACHE_URL`` / ``BROKER_URL``) that
+    :func:`infra_with_overrides` accepts for ``infra_raw``: those whose capability's
+    ``default`` instance declares a Redis URL. The harness raises
+    :class:`UnmatchedOverrideError` for any other, so ``sandloom dev up`` writes
+    only these. A malformed or missing ``INFRA`` takes none."""
+    try:
+        parsed = json.loads(infra_raw) if infra_raw else {}
+    except ValueError:
+        return ()
+    if not isinstance(parsed, dict):
+        return ()
+    return tuple(
+        var
+        for var, capability in INFRA_URL_CAPABILITIES.items()
+        if _declared_url(parsed, capability, "default")
+    )
 
 
 def _replace_on_database(parsed: dict[str, Any], base: str, url: str) -> None:

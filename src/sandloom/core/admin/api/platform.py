@@ -37,7 +37,7 @@ from sandloom.core.config.module_settings import declared_console
 from sandloom.core.descriptors.module_names import module_name as _module_name
 from sandloom.core.guard_order import authenticates
 from sandloom.core.idempotency import idempotency_guard
-from sandloom.core.infra.errors import Unsupported
+from sandloom.core.infra.errors import InvalidArgument, Unsupported
 from sandloom.core.lifecycle import aggregate_health
 from sandloom.core.rpc import check_remote_service_bindings
 from sandloom.core.tasks.event_ops import (
@@ -232,11 +232,17 @@ class RequeueIn(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
 
 
+#: A dead-letter entry id (and the page cursor): an opaque, bounded token. The
+#: event transport mints it (a Redis stream id is ``1700000000000-0``, another
+#: transport may use a UUID), so the API checks its shape and no more.
+_DLQ_ENTRY_ID = r"^[A-Za-z0-9_.:-]{1,80}$"
+
+
 class ReplayIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     channel: str = Field(min_length=1, max_length=200, pattern=r"^[a-z0-9_.-]+$")
     group: str = Field(min_length=1, max_length=200)
-    ids: list[Annotated[str, Field(max_length=80, pattern=r"^[0-9]+-[0-9]+$")]] = Field(
+    ids: list[Annotated[str, Field(max_length=80, pattern=_DLQ_ENTRY_ID)]] = Field(
         min_length=1, max_length=100
     )
     reason: str = Field(min_length=3, max_length=500)
@@ -408,6 +414,22 @@ async def _unavailable_as_501() -> AsyncIterator[None]:
         raise HTTPException(501, unsupported_message(exc)) from exc
 
 
+@asynccontextmanager
+async def _entry_id_refused_as_422() -> AsyncIterator[None]:
+    """A DLQ id or cursor the transport does not accept is the caller's input.
+
+    The API checks only the opaque token shape (``_DLQ_ENTRY_ID``); the id format
+    belongs to the transport, which refuses its own with ``InvalidArgument``.
+    The text is fixed: it never echoes the value or the backend's message.
+    """
+    try:
+        yield
+    except InvalidArgument as exc:
+        raise HTTPException(
+            422, "Not an entry id of this event transport's dead-letter queue"
+        ) from exc
+
+
 def _outbox_routes(router: APIRouter, core: Any, source: _Source) -> None:
     @router.get("/outbox/dead", response_model=list[DeadLetterView], dependencies=_READ)
     async def dead_letters(
@@ -493,12 +515,12 @@ def _stream_routes(router: APIRouter, core: Any, source: _Source) -> None:
         request: Request,
         channel: str = Query(max_length=200, pattern=r"^[a-z0-9_.-]+$"),
         limit: int = Query(100, ge=1, le=200),
-        cursor: str | None = Query(None, max_length=80, pattern=r"^[0-9]+-[0-9]+$"),
+        cursor: str | None = Query(None, max_length=80, pattern=_DLQ_ENTRY_ID),
     ) -> JSONResponse:
-        """Inspect this service's DLQ, continuing after the last Redis entry ID."""
+        """Inspect this service's DLQ, continuing after the last entry ID."""
         if channel not in _local_channels(request):
             raise HTTPException(404, "No consumer of this channel runs in this service")
-        async with _unavailable_as_501():
+        async with _unavailable_as_501(), _entry_id_refused_as_422():
             entries = await streams_dlq_list(
                 core, channel, limit=limit + 1, after=cursor
             )
@@ -545,7 +567,7 @@ def _stream_routes(router: APIRouter, core: Any, source: _Source) -> None:
                 database=source.database,
             )
             await db.flush()
-            async with _unavailable_as_501():
+            async with _unavailable_as_501(), _entry_id_refused_as_422():
                 applied = await streams_dlq_replay(
                     core,
                     data.channel,

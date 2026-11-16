@@ -22,7 +22,7 @@ from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.transport_base import DLQ_REASON_SOURCE_MISSING
-from sandloom.core.infra.errors import Unavailable
+from sandloom.core.infra.errors import InvalidArgument, Unavailable
 
 
 def _env(event_id: str) -> EventEnvelope:
@@ -365,6 +365,50 @@ async def test_dlq_replay_republishes_and_clears(redis_stream) -> None:
     # Fresh delivery with the SAME envelope id (consumers dedupe on it).
     again = await t.consume(stream, group="g", consumer="c1")
     assert [d.envelope["id"] for d in again] == ["poison"]
+
+
+_NOT_A_STREAM_ID = ["abc", "x", "1700000000000", "1-", "-1", "(1-0", "1-0 ", "+", "-"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cursor", _NOT_A_STREAM_ID)
+async def test_dlq_listing_refuses_a_cursor_that_is_no_entry_id(
+    redis_stream, cursor: str
+) -> None:
+    """A malformed cursor is the caller's input (``InvalidArgument``), not a
+    Redis ResponseError mapped to an outage (``Unavailable``)."""
+    factory, stream, _client = redis_stream
+    t = RedisStreamsTransport(client_factory=factory)
+    with pytest.raises(InvalidArgument):
+        await t.list_dlq(stream, after=cursor)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry_id", _NOT_A_STREAM_ID)
+async def test_dlq_replay_refuses_an_id_that_is_no_entry_id_and_replays_nothing(
+    redis_stream, entry_id: str
+) -> None:
+    factory, stream, client = redis_stream
+    t = RedisStreamsTransport(client_factory=factory, retry_base_ms=0, max_deliveries=1)
+    await t.ensure_group(stream, "g")
+    await t.publish(stream, _env("poison"))
+    await t.consume(stream, group="g", consumer="c1")
+    assert await t.consume(stream, group="g", consumer="c1") == []
+    (valid,) = await t.list_dlq(stream)
+
+    # The valid id leads the list: the refusal comes before anything is replayed.
+    with pytest.raises(InvalidArgument):
+        await t.replay_dlq(stream, ids=[valid.id, entry_id])
+    assert await client.xlen(f"{stream}.dlq") == 1
+
+
+@pytest.mark.asyncio
+async def test_dlq_listing_continues_after_a_valid_cursor(redis_stream) -> None:
+    factory, stream, client = redis_stream
+    t = RedisStreamsTransport(client_factory=factory)
+    first = await client.xadd(f"{stream}.dlq", {"group": "g", "reason": "r"})
+    second = await client.xadd(f"{stream}.dlq", {"group": "g", "reason": "r"})
+    assert [d.id for d in await t.list_dlq(stream, after=first)] == [second]
 
 
 @pytest.mark.asyncio

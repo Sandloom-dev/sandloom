@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
@@ -10,7 +11,7 @@ from typing import Any, ClassVar
 
 import orjson
 
-from sandloom.driverkit import DeadLetter, EventEnvelope, observe
+from sandloom.driverkit import DeadLetter, EventEnvelope, InvalidArgument, observe
 from sandloom.driverkit.eventbus_support import (
     DLQ_REASON_MAX_DELIVERIES,
     TARGET_GROUP_FIELD,
@@ -28,6 +29,26 @@ _METRIC_DLQ_REPLAYED = observe.counter(
     "Dead-lettered Streams entries re-published by an operator replay",
     ("stream",),
 )
+
+
+#: An entry id the stream mints (``<ms>-<seq>``). A DLQ id or page cursor from a
+#: caller is checked against it before it reaches XRANGE: Redis answers any
+#: other shape with a ResponseError, which would surface as an outage.
+_STREAM_ENTRY_ID = re.compile(r"[0-9]{1,20}-[0-9]{1,20}")
+
+
+def _require_entry_id(value: str, what: str) -> str:
+    if _STREAM_ENTRY_ID.fullmatch(value) is None:
+        raise InvalidArgument(
+            f"{what} is not a Redis stream entry id (<ms>-<seq>)",
+            capability="eventbus",
+        )
+    return value
+
+
+def _require_entry_ids(ids: Sequence[str] | None) -> None:
+    for entry_id in ids or ():
+        _require_entry_id(entry_id, "a replay id")
 
 
 class RedisStreamsTransport(_StreamsConsume):
@@ -187,6 +208,8 @@ class RedisStreamsTransport(_StreamsConsume):
     async def list_dlq(
         self, stream: str, *, count: int = 100, after: str | None = None
     ) -> list[DeadLetter]:
+        if after:
+            _require_entry_id(after, "the cursor")
         client = await self._client()
         entries = await client.xrange(
             self._dlq_key(stream),
@@ -238,6 +261,7 @@ class RedisStreamsTransport(_StreamsConsume):
         longer exists is left in the DLQ (nobody would process it). The DLQ
         entry is deleted only after the re-append succeeds.
         """
+        _require_entry_ids(ids)
         client = await self._client()
         dlq = self._dlq_key(stream)
         if ids is not None:

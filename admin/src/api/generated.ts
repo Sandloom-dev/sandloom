@@ -842,7 +842,7 @@ export interface paths {
         };
         /**
          * Stream Dead Letters
-         * @description Inspect this service's DLQ, continuing after the last Redis entry ID.
+         * @description Inspect this service's DLQ, continuing after the last entry ID.
          */
         get: operations["stream_dead_letters_api_v1_platform_billing_streams_dlq_get"];
         put?: never;
@@ -1125,7 +1125,7 @@ export interface paths {
         };
         /**
          * Stream Dead Letters
-         * @description Inspect this service's DLQ, continuing after the last Redis entry ID.
+         * @description Inspect this service's DLQ, continuing after the last entry ID.
          */
         get: operations["stream_dead_letters_api_v1_platform_identity_streams_dlq_get"];
         put?: never;
@@ -1391,7 +1391,7 @@ export interface paths {
         };
         /**
          * Stream Dead Letters
-         * @description Inspect this service's DLQ, continuing after the last Redis entry ID.
+         * @description Inspect this service's DLQ, continuing after the last entry ID.
          */
         get: operations["stream_dead_letters_api_v1_platform_tenancy_streams_dlq_get"];
         put?: never;
