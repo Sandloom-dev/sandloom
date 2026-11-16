@@ -164,25 +164,17 @@ class Infra:
     """The database (every module's chain at head), Redis and the provider."""
 
     database_url: str
-    cache_url: str
-    broker_url: str
+    infra: str
     logs: Path
     idp: ExternalIssuer
 
 
-def _migrate_env(
-    url: str, cache: str, broker: str, idp: ExternalIssuer
-) -> dict[str, str]:
+def _migrate_env(url: str, infra: str, idp: ExternalIssuer) -> dict[str, str]:
     return {
         **_child_base_env(),
         "ENVIRONMENT": "test",
         "DATABASE_URL": url,
-        "INFRA": json.dumps(
-            {
-                "cache": {"default": {"driver": "redis", "url": cache}},
-                "taskqueue": {"default": {"driver": "celery", "broker": broker}},
-            }
-        ),
+        "INFRA": infra,
         "JWT_SECRET": f"oidc-migrate-{uuid.uuid4().hex}",
         "ACME_IDP_ISSUER": idp.url,
         "ACME_IDP_CLIENT_ID": CLIENT_ID,
@@ -200,10 +192,15 @@ def infra(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Infra]:
     """A fresh database migrated through the example's own root."""
     values = worker_env_values(HERE / ".env.test")
     base = values.get("DATABASE_URL", "")
-    cache = values.get("CACHE_URL", "")
-    broker = values.get("BROKER_URL", "")
-    if not base.startswith("postgresql") or not cache.startswith("redis"):
-        _unavailable("needs a PostgreSQL DATABASE_URL and a Redis CACHE_URL")
+    infra_json = values.get("INFRA", "")
+    try:
+        cache = json.loads(infra_json)["cache"]["default"]["url"]
+    except (ValueError, KeyError, TypeError):
+        cache = ""
+    if not base.startswith("postgresql") or not str(cache).startswith("redis"):
+        _unavailable(
+            "needs a PostgreSQL DATABASE_URL and INFRA's cache.default.url on Redis"
+        )
     if not _reachable(base, 5432) or not _reachable(cache, 6379):
         _unavailable("PostgreSQL or Redis is not reachable")
     name = f"sandloom_oidc_{RUN}"
@@ -227,7 +224,7 @@ def infra(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Infra]:
                     "--apply",
                 ],
                 cwd=HERE,
-                env=_migrate_env(url, cache, broker, idp),
+                env=_migrate_env(url, infra_json, idp),
                 capture_output=True,
                 text=True,
                 timeout=180,
@@ -238,8 +235,7 @@ def infra(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Infra]:
             )
             yield Infra(
                 database_url=url,
-                cache_url=cache,
-                broker_url=broker,
+                infra=infra_json,
                 logs=tmp_path_factory.mktemp("oidc-logs"),
                 idp=idp,
             )
@@ -389,14 +385,7 @@ def _base_env(infra: Infra) -> dict[str, str]:
     return {
         **_child_base_env(),
         "DATABASE_URL": infra.database_url,
-        "INFRA": json.dumps(
-            {
-                "cache": {"default": {"driver": "redis", "url": infra.cache_url}},
-                "taskqueue": {
-                    "default": {"driver": "celery", "broker": infra.broker_url}
-                },
-            }
-        ),
+        "INFRA": infra.infra,
         "EVENT_BUS_BACKEND": "memory",
         "ENVIRONMENT": "dev",
         "OUTBOX_RELAY_ENABLED": "off",

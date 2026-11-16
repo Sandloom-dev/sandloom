@@ -15,7 +15,7 @@ when nothing is connected to it and its last use is known and older than
 ``--days`` (minimum 1): a Redis index is emptied by an atomic check-and-FLUSHDB
 (skipped if its marker / stamp changed since the scan), a database is dropped
 with a plain DROP DATABASE (PostgreSQL refuses it while anything is
-connected). The servers default to ``.env.test``'s DATABASE_URL / CACHE_URL
+connected). The servers default to ``.env.test``'s DATABASE_URL / INFRA cache url
 (the ``SANDLOOM_TEST_*`` overrides win); ``--redis`` / ``--database`` pick others.
 """
 
@@ -33,6 +33,7 @@ BACKEND = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BACKEND / "src"))
 
 from sandloom.core.testing import resources  # noqa: E402
+from sandloom.core.testing.families import parse_infra  # noqa: E402
 from sandloom.core.testing.ownership import current_owner  # noqa: E402
 
 
@@ -43,7 +44,9 @@ def _defaults() -> tuple[str, str]:
     database = os.environ.get("SANDLOOM_TEST_DATABASE_URL") or values.get(
         "DATABASE_URL"
     )
-    redis = os.environ.get("SANDLOOM_TEST_CACHE_URL") or values.get("CACHE_URL")
+    redis = os.environ.get("SANDLOOM_TEST_CACHE_URL") or (
+        parse_infra(values.get("INFRA")).get("cache", {}).get("default", {}).get("url")
+    )
     return str(database or ""), str(redis or "")
 
 

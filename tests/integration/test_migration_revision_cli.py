@@ -98,6 +98,8 @@ def _env(tmp_path: Path, database_url: str, **extra: str) -> dict[str, str]:
             "INFRA": json.dumps(
                 {
                     "cache": {"default": {"url": "redis://127.0.0.1:6379/0"}},
+                    "broadcast": {"default": {"url": "redis://127.0.0.1:6379/0"}},
+                    "atomic_store": {"security": {"url": "redis://127.0.0.1:6379/0"}},
                     "taskqueue": {"default": {"broker": "redis://127.0.0.1:6379/1"}},
                 }
             ),

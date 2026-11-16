@@ -68,7 +68,7 @@ from sandloom.core.testing.served import (
     probe,
     spawn_served,
 )
-from sandloom.sdk.testing import split_env
+from sandloom.sdk.testing import resolved_cache_url, split_env
 
 pytestmark = [pytest.mark.integration, pytest.mark.e2e, pytest.mark.slow]
 
@@ -275,7 +275,6 @@ class Infra:
 
     database_url: str
     cache_url: str
-    broker_url: str
     logs: Path
 
 
@@ -289,10 +288,12 @@ def infra(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Infra]:
     """
     values = worker_env_values(BACKEND / ".env.test")
     base = values.get("DATABASE_URL", "")
-    cache = values.get("CACHE_URL", "")
-    broker = values.get("BROKER_URL", "")
+    try:
+        cache = resolved_cache_url()
+    except RuntimeError:
+        cache = ""
     if not base.startswith("postgresql") or not cache.startswith("redis"):
-        _unavailable("needs a PostgreSQL DATABASE_URL and a Redis CACHE_URL")
+        _unavailable("needs a PostgreSQL DATABASE_URL and a Redis cache.default url")
     if not _reachable(base, 5432) or not _reachable(cache, 6379):
         _unavailable("PostgreSQL or Redis is not reachable")
     name = f"sandloom_replace_{RUN}"
@@ -338,7 +339,6 @@ def infra(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Infra]:
         yield Infra(
             database_url=_with_credentials(owner_url, role, password),
             cache_url=cache,
-            broker_url=broker,
             logs=tmp_path_factory.mktemp("replaceability-logs"),
         )
     finally:

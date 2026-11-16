@@ -127,10 +127,7 @@ def test_log_levels_are_normalized(level: str) -> None:
     cfg = Settings(
         _env_file=None,
         DATABASE_URL=settings.database_url,
-        INFRA={
-            "cache": {"default": {"url": settings.cache_url}},
-            "taskqueue": {"default": {"broker": settings.broker_url}},
-        },
+        INFRA=settings.infra,
         JWT_SECRET=settings.jwt_secret,
         LOG_LEVEL=level,
     )

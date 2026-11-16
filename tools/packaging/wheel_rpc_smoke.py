@@ -50,19 +50,6 @@ os.environ.update(
     {
         "ENVIRONMENT": "dev",
         "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
-        "INFRA": json.dumps(
-            {
-                "cache": {
-                    "default": {"driver": "redis", "url": "redis://localhost:6379/0"}
-                },
-                "taskqueue": {
-                    "default": {
-                        "driver": "celery",
-                        "broker": "redis://localhost:6379/1",
-                    }
-                },
-            }
-        ),
         "JWT_SECRET": "wheel-rpc-smoke-not-a-real-secret",
         "EVENT_BUS_BACKEND": "memory",
         "SANDLOOM_MODULES": "[]",

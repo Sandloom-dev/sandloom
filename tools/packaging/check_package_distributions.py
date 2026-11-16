@@ -72,16 +72,6 @@ MODULES = {
 KERNEL_PROVIDES = ("fastapi", "starlette", "sqlalchemy", "alembic", "pydantic", "httpx")
 SMOKE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
-    "INFRA": json.dumps(
-        {
-            "cache": {
-                "default": {"driver": "redis", "url": "redis://localhost:6379/0"}
-            },
-            "taskqueue": {
-                "default": {"driver": "celery", "broker": "redis://localhost:6379/1"}
-            },
-        }
-    ),
     "JWT_SECRET": "local-package-check-not-a-real-secret",
     "EVENT_BUS_BACKEND": "memory",
 }
@@ -618,8 +608,7 @@ _HARNESS_APP = {
         "ENVIRONMENT=test\n"
         "JWT_SECRET=harness_probe_secret_value_long_enough_0123\n"
         "DATABASE_URL=sqlite+aiosqlite:///{db}\n"
-        "CACHE_URL=redis://127.0.0.1:1/0\n"
-        "BROKER_URL=redis://127.0.0.1:1/1\n"
+        'INFRA=\'{"cache":{"default":{"url":"redis://127.0.0.1:1/0"}}}\'\n'
     ),
     "test_lean_harness.py": (
         "import os\n"
@@ -630,7 +619,7 @@ _HARNESS_APP = {
         '    assert worker.startswith("gw"), worker\n'
         '    assert os.environ["DATABASE_URL"].endswith(f"_{worker}.db")\n'
         "    assert harness_families() == ()\n"
-        '    assert os.environ["CACHE_URL"] == "redis://127.0.0.1:1/0"\n\n\n'
+        '    assert "redis://127.0.0.1:1/0" in os.environ["INFRA"]\n\n\n'
         "def test_no_redis_module_is_loaded():\n"
         '    assert not [m for m in sys.modules if m.split(".")[0] in '
         '("redis", "sandloom_redis", "sandloom_celery")]\n'
@@ -668,7 +657,7 @@ def check_lean_test_harness(temp: Path, wheel: Path) -> None:
     env = {
         k: v
         for k, v in _smoke_environment().items()
-        if k not in {"DATABASE_URL", "CACHE_URL", "BROKER_URL", "JWT_SECRET"}
+        if k not in {"DATABASE_URL", "INFRA", "JWT_SECRET"}
         and not k.startswith("PYTEST_")
     }
     done = _run(

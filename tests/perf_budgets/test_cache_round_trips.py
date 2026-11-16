@@ -22,7 +22,6 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import AsyncIterator
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -49,15 +48,9 @@ BUDGET_IDEMPOTENT_FIRST = 2  # + the auth check
 
 
 def _cache_url() -> str:
-    import os
+    from sandloom.core.testing.infra import resolved_cache_url
 
-    from sandloom.core.testing.workers import worker_env_values
-
-    env = worker_env_values(Path(__file__).resolve().parents[2] / ".env.test")
-    url = os.getenv("CACHE_URL") or env.get("CACHE_URL")
-    if not url:
-        pytest.skip("no test CACHE_URL configured")
-    return str(url)
+    return resolved_cache_url()
 
 
 @pytest_asyncio.fixture

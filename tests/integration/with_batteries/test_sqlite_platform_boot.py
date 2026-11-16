@@ -75,14 +75,7 @@ def _boot(
     env = {
         "JWT_SECRET": "sqlite-boot-test-secret-0123456789abcdef0123",
         "DATABASE_URL": _url(database),
-        "INFRA": json.dumps(
-            {
-                "cache": {"default": {"driver": "redis", "url": settings.cache_url}},
-                "taskqueue": {
-                    "default": {"driver": "celery", "broker": settings.broker_url}
-                },
-            }
-        ),
+        "INFRA": json.dumps(settings.infra),
         # The standard root selects the durable Redis bus; this boot is about
         # the database, so it runs on the in-process one, chosen explicitly.
         "EVENT_BUS_BACKEND": "memory",

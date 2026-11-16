@@ -20,6 +20,8 @@ from collections.abc import Mapping
 from fastapi import FastAPI
 
 from sandloom.core.composition import composition_root_name
+from sandloom.core.testing.families import parse_infra
+from sandloom.core.testing.infra import resolved_cache_url
 
 
 def suite_infra_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -34,7 +36,13 @@ def suite_infra_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
     if importlib.util.find_spec("sandloom_standard") is not None:
         return {}
     env = os.environ if environ is None else environ
-    cache = env["CACHE_URL"]
+    cache = resolved_cache_url(env)
+    broker = (
+        parse_infra(env.get("INFRA"))
+        .get("taskqueue", {})
+        .get("default", {})
+        .get("broker", "")
+    )
     redis_installed = importlib.util.find_spec("sandloom_redis") is not None
     memory: dict[str, str] = {"driver": "memory"}
 
@@ -49,13 +57,7 @@ def suite_infra_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
         "lease": {"beat": redis_backed()},
     }
     if importlib.util.find_spec("sandloom_celery") is not None:
-        infra["taskqueue"] = {
-            "default": {
-                "driver": "celery",
-                "broker": env["BROKER_URL"],
-                "backend": cache,
-            }
-        }
+        infra["taskqueue"] = {"default": {"driver": "celery", "broker": broker}}
     return {"INFRA": json.dumps(infra)}
 
 
@@ -84,8 +86,8 @@ def redis_free_infra_env() -> dict[str, str]:
 
 #: The drivers a child process that boots the lean root (``import sandloom.main``,
 #: ``sandloom worker`` with no ``SANDLOOM_COMPOSITION_ROOT``) selects through
-#: ``INFRA``: the lean root names none, whatever is installed. Flat settings
-#: (``CACHE_URL``, ``BROKER_URL``) fill their options.
+#: ``INFRA``: the lean root names none, whatever is installed. The child's own
+#: ``INFRA`` states the url of each instance.
 _LEAN_ROOT_DRIVERS: dict[str, dict[str, dict[str, str]]] = {
     "database": {"default": {"driver": "sqlalchemy"}},
     "cache": {"default": {"driver": "redis"}},

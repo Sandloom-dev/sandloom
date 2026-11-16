@@ -186,6 +186,7 @@ NOTE_MODULE_ADMIN = """RESOURCES = [
 def scenario_env(
     args: argparse.Namespace, scenario: Scenario, base: str
 ) -> dict[str, str]:
+    cache_url = f"{args.redis_url}/{scenario.port % 10 + 2}"
     return {
         **{
             k: v
@@ -193,11 +194,15 @@ def scenario_env(
             if not k.startswith(("SANDLOOM_", "VIRTUAL_ENV"))
         },
         "DATABASE_URL": base.replace("postgresql://", "postgresql+asyncpg://"),
+        # Every Redis instance the app selects states its own url (none follows
+        # another): the cache, broadcast, security store and beat lease share
+        # one database here, the task queue broker has its own.
         "INFRA": json.dumps(
             {
-                "cache": {
-                    "default": {"url": f"{args.redis_url}/{scenario.port % 10 + 2}"}
-                },
+                "cache": {"default": {"url": cache_url}},
+                "broadcast": {"default": {"url": cache_url}},
+                "atomic_store": {"security": {"url": cache_url}},
+                "lease": {"beat": {"url": cache_url}},
                 "taskqueue": {
                     "default": {"broker": f"{args.redis_url}/{scenario.port % 10 + 4}"}
                 },
