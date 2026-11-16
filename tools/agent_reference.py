@@ -53,7 +53,9 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 #: Byte limits an agent can read whole: a topic, the plan index.
-MAX_BYTES = 4096
+#: 4608: the ci topic lists the admin filter's kernel directories (the files
+#: the OpenAPI export loads), about 300 bytes more than the old short list.
+MAX_BYTES = 4608
 MAX_PLAN_BYTES = 6144
 #: Test files listed per capability and owner in the infra map.
 _TESTS_SHOWN = 5

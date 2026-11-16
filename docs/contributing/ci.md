@@ -34,7 +34,7 @@ commit, and the owner reviews compatibility with the current `main`.
 | Every PR | Workflow-policy regressions, reviewed source allowlist, credential-pattern scan; the agent-context, guarantee-ledger, Pages-workflow and generated-docs tests (they cover `AGENTS.md`, `.claude/**`, `docs/adr/**` and the baselines, which select no other job); change classification |
 | Backend source/tests, migrations, package/build code or dependencies | Static gates, fast backend suite on Python 3.12, the SQLite lane (`second-db-test-lane`) and the skip ledger, production image build only when something the image is built from changed (see below); package checks for their declared paths |
 | The kernel, tests, tooling, driver packages or dependencies (the `kernel` area: the backend paths less the bundled modules `src/sandloom_*`) | The kernel suites without module packages (`kernel-without-batteries`) and, in a job of its own that runs in parallel, without Redis and without asyncpg (`kernel-without-redis`), the Redis driver package's tests and types (`redis-drivers`), the Celery driver package's wheel, style and types (`celery-drivers`). A PR that changes only a bundled module skips them |
-| The admin console, the bundled modules, the standard composition, migrations, the SDK, or the kernel's composition, app factory, HTTP, auth, admin, migrations and config code, `error_codes.py` and dependencies | Admin contract drift and the admin workflow (a positive path list in `ci.yml`; other kernel code does not select them) |
+| The admin console, the bundled modules, the standard composition, migrations, the SDK, or the kernel code the export script imports (`admin/scripts/export_openapi.py`: all of `src/sandloom` but `core/archcheck`, `core/testing`, `core/tests` and `core/cli` apart from `generation_input.py`) and dependencies | Admin contract drift and the admin workflow (a positive path list in `ci.yml`; the other kernel code does not select them) |
 | Documentation, website, tutorial examples, SDK or documentation tooling | Strict site build, stale-symbol lint and website acceptance tests |
 | Example applications | All five example applications' gates and migrations |
 | Deployment profiles | Compose/observability validation and production image build (the image build is gated on what the image is built from, see below) |
@@ -88,8 +88,11 @@ the replaceability fixtures in `tests/integration/replaceability`. There,
 test modules replace the bundled modules, in one process and split.
 `tools/ci/no_batteries.py` hides the bundled modules from every import, the
 checkout's `src/` included. It deselects what another job runs whole.
-`backend-tests` runs `test_nested_units_match_the_oracle_at_length` (82 s per
-parameter) and `test_architecture_checker_runs_without_violations`. The
+`kernel-without-redis` runs `test_nested_units_match_the_oracle_at_length`
+(82 s per parameter). The test is marked `slow` and a PR's `backend-tests`
+filters `slow`. So the run that names it and filters no marker is the PR job
+that runs it. A policy test refuses a slow-marked deselect that no such job
+runs. `backend-tests` runs `test_architecture_checker_runs_without_violations`. The
 `workflow-policy` job runs five files of `tests/architecture` on every PR (the
 CI-policy and docs-generator ones: see the `--deselect` list in `ci.yml`).
 A kernel test that needs a bundled module belongs
@@ -114,7 +117,7 @@ client, both driver packages (`sandloom-celery` brings that client through
 `celery[redis]`), `celery` and `kombu`. It asserts that none of those names
 imports. The suite then selects the kernel's `memory` drivers (`conftest.py`),
 and the test harness loads no family. `tools/ci/no_redis.py` refuses the run
-while a Redis name imports. The job runs three things:
+while a Redis name imports. The job runs four things:
 
 1. Collect-only over every kernel suite in that venv. A test module that
    imports Redis or Celery at module level fails the collection, and so does a
@@ -126,6 +129,7 @@ while a Redis name imports. The job runs three things:
    `test_no_redis.py` also scans the kernel test files for a Redis or Celery
    import anywhere in the file, a test body included. It fails on a file the
    pending list does not name.
+4. The nested-units oracle test at length, named by its test id (see above).
 
 The scan and the collect-only pass guard against a new kernel test that needs
 Redis. The remaining kernel tests run in `kernel-without-batteries`, which has

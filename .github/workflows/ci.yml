@@ -139,8 +139,9 @@ jobs:
               - '.claude/hooks/*.py'
             # What the kernel lanes (kernel-without-batteries, -without-redis,
             # redis-drivers, celery-drivers) read: the backend filter less the
-            # bundled modules (src/sandloom_*). A module-only PR skips them; a
-            # kernel, test, tooling, driver or dependency change runs them.
+            # bundled modules (src/sandloom_*), plus the packages workflow
+            # (which also gates the driver packages). A module-only PR skips
+            # them; a kernel, test, tooling, driver or dependency change runs them.
             kernel:
               - 'src/sandloom/**'
               - 'tests/**'
@@ -160,6 +161,7 @@ jobs:
               - 'architecture_rules.yml'
               - 'guarantees.yml'
               - '.env.test'
+              - '.github/workflows/packages.yml'
               - '.github/workflows/release.yml'
               - '.github/workflows/ci.yml'
             # A positive list of what the console, its generated contracts
@@ -176,15 +178,45 @@ jobs:
               - 'src/sandloom_billing/**'
               - 'packages/sandloom-standard/**'
               - 'migrations/**'
+              # The kernel the export script (admin/scripts/export_openapi.py:
+              # the OpenAPI snapshot and the manifest) imports and reads:
+              # every file under src/sandloom it loads, listed with the
+              # directories that stay out (core/archcheck, core/testing,
+              # core/tests, and core/cli but generation_input.py). A new
+              # core directory or file the export loads is listed here;
+              # test_the_admin_filter_is_a_positive_list_of_what_the_console_reads.
+              - 'src/sandloom/*.py'
               - 'src/sandloom/sdk/**'
-              - 'src/sandloom/core/composition.py'
-              - 'src/sandloom/core/app_factory/**'
-              - 'src/sandloom/core/http/**'
-              - 'src/sandloom/core/auth/**'
+              - 'src/sandloom/shared/**'
+              - 'src/sandloom/driverkit/**'
+              - 'src/sandloom/core/*.py'
+              - 'src/sandloom/core/cli/generation_input.py'
+              - 'src/sandloom/core/_internal/**'
               - 'src/sandloom/core/admin/**'
-              - 'src/sandloom/core/migrations/**'
+              - 'src/sandloom/core/app_factory/**'
+              - 'src/sandloom/core/auth/**'
               - 'src/sandloom/core/config/**'
-              - 'src/sandloom/core/error_codes.py'
+              - 'src/sandloom/core/consumers/**'
+              - 'src/sandloom/core/contracts/**'
+              - 'src/sandloom/core/descriptors/**'
+              - 'src/sandloom/core/drivers/**'
+              - 'src/sandloom/core/eventing/**'
+              - 'src/sandloom/core/facade/**'
+              - 'src/sandloom/core/http/**'
+              - 'src/sandloom/core/idempotency/**'
+              - 'src/sandloom/core/infra/**'
+              - 'src/sandloom/core/ingress/**'
+              - 'src/sandloom/core/loader/**'
+              - 'src/sandloom/core/migrations/**'
+              - 'src/sandloom/core/module_api/**'
+              - 'src/sandloom/core/observability/**'
+              - 'src/sandloom/core/projections/**'
+              - 'src/sandloom/core/rpc/**'
+              - 'src/sandloom/core/sagas/**'
+              - 'src/sandloom/core/schema/**'
+              - 'src/sandloom/core/sql_alchemy/**'
+              - 'src/sandloom/core/tasks/**'
+              - 'src/sandloom/core/unit_of_work/**'
               - '.github/workflows/admin.yml'
               - '.github/workflows/ci.yml'
             examples:
@@ -767,9 +799,11 @@ jobs:
 
       - name: Kernel suites and the replaceability fixtures
         # Deselected here, each run whole by a job that needs no kernel venv:
-        # test_nested_units_match_the_oracle_at_length (82 s x 2 parameters)
-        # in `backend-tests` (the PR's two parts and every full-validation
-        # Python); the architecture checker test (src/sandloom/core/tests) in
+        # test_nested_units_match_the_oracle_at_length (82 s x 2 parameters,
+        # marked slow) in `kernel-without-redis`, which names it and filters
+        # no marker (`backend-tests` runs `-m "not slow"` on a PR, so it is
+        # not run there except in the full-validation slow Pythons); the
+        # architecture checker test (src/sandloom/core/tests) in
         # `backend-tests` and `backend-static`; the CI-policy and generated-docs
         # tests of tests/architecture in `workflow-policy` and `backend-static`
         # (they read workflows and docs, never the kernel). The rest of
@@ -891,12 +925,16 @@ jobs:
         #    read here at run time: its tests are strict xfails, so one that
         #    passes without Redis fails until its entry is removed; the other
         #    tests of those files must pass without Redis);
-        # 3. the two ratchet test files of the lane.
+        # 3. the two ratchet test files of the lane;
+        # 4. the test_nesting_policy oracle test at length (slow-marked, 82 s
+        #    x 2 parameters): `kernel-without-batteries` deselects it and a
+        #    PR's `backend-tests` filters slow, so this run, which filters no
+        #    marker, is the PR job that runs it (tests/architecture/
+        #    test_ci_workflow_policy.py refuses a slow deselect nobody runs).
         # The remaining kernel tests run in `kernel-without-batteries`, which
         # has sandloom-redis installed and is the lane that needs it; they
         # select memory drivers and ran here until the pending list shrank to
-        # the files above (the test_nesting_policy oracle test runs in
-        # backend-tests, see that job's step).
+        # the files above.
         run: |
           uv pip uninstall --python .venv-kernel/bin/python \
             redis hiredis sandloom-redis sandloom-celery celery kombu
@@ -910,6 +948,7 @@ jobs:
             --durations=25 --sandloom-shuffle=random \
             -p tools.ci.no_batteries -p tools.ci.no_redis \
             $pending \
+            src/sandloom/core/tests/test_nesting_policy.py::test_nested_units_match_the_oracle_at_length \
             tests/architecture/test_no_redis.py \
             tests/architecture/test_no_batteries.py
 
