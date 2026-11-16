@@ -149,15 +149,8 @@ def test_composition_root_must_expose_core(monkeypatch: pytest.MonkeyPatch) -> N
         worker.load_composition_core("fake_root_no_core")
 
 
-def test_real_composition_root_resolves_driver_built_host() -> None:
-    """End to end against the suite's composition root: the host is the
-    taskqueue driver's and the boot derives the table of the loaded modules."""
-    core = worker.load_composition_core()
-    provider, host = worker.resolve_worker_host(core, "default")
-    assert host is not None and hasattr(host, "run_worker")
-    table = worker.KernelWorkerBoot(core, provider, "default").boot()
-    if "sandloom_identity" in core.loaded_modules:
-        assert "sandloom_identity.tasks.audit_user_activity" in table.tasks
+# The host a taskqueue driver builds, end to end against the suite's root: the
+# Celery package's ``test_celery_worker_composition.py``.
 
 
 # --------------------------------------------------------------------------- #

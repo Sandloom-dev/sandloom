@@ -284,25 +284,8 @@ async def test_the_registry_redacts_a_health_detail_keyed_by_free_text() -> None
     }
 
 
-@pytest.mark.asyncio
-async def test_the_redis_health_names_the_error_type() -> None:
-    from sandloom_redis.cache import create_redis_cache
-
-    provider = create_redis_cache(
-        InstanceConfig(
-            "cache",
-            "probe",
-            "redis",
-            {"url": "redis://user:s3cret-marker@127.0.0.1:1/0"},
-        )
-    )
-    try:
-        result = await provider.health()
-    finally:
-        await provider.aclose()
-    assert result.status == "fail"
-    assert result.details is not None
-    assert str(result.details["error"]).isidentifier()
+# The Redis cache's health naming the error type: the sandloom-redis package's
+# ``test_redis_cache_health_error_type.py``.
 
 
 @pytest.mark.asyncio

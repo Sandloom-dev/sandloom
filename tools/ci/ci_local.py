@@ -490,16 +490,16 @@ CHECKED_WORKFLOWS = ("ci.yml", "docs.yml", "architecture-check.yml")
 # new commands) and a failure of the architecture test, so the change gets
 # reviewed here. Print the current values with `tools/ci/ci_local.py --check`.
 FINGERPRINTS: dict[str, str] = {
-    "ci.yml:workflow-policy": "c947663e86853b87",
-    "ci.yml:changes": "4b429a587daf9e88",
+    "ci.yml:workflow-policy": "642e498078549a5f",
+    "ci.yml:changes": "3cdff8546e19f580",
     "ci.yml:backend-static": "cf4a86aea9644f5d",
     "ci.yml:supply-chain": "f97313a67b7eacd0",
     "ci.yml:backend-tests": "1400b9cf9e06ab28",
     "ci.yml:backend-tests-isolation": "1f41c4abed7873f2",
-    "ci.yml:kernel-without-batteries": "d6cf59e8bc7d3bde",
-    "ci.yml:kernel-without-redis": "d77817ad02ad7377",
-    "ci.yml:redis-drivers": "93a98e6d716b4fbf",
-    "ci.yml:celery-drivers": "d1443e9030560916",
+    "ci.yml:kernel-without-batteries": "69bbae8dd7cbe877",
+    "ci.yml:kernel-without-redis": "b21fc110763e41b7",
+    "ci.yml:redis-drivers": "216cf7fca321f58d",
+    "ci.yml:celery-drivers": "694d207912c6ef46",
     "ci.yml:second-db-test-lane": "76d7b93cf72fd8f1",
     "ci.yml:skip-ledger": "26c3a5f95f413506",
     "ci.yml:benchmarks-security": "c516a25e95f3072b",
@@ -517,7 +517,7 @@ FINGERPRINTS: dict[str, str] = {
     "ci.yml:admin-ui": "2381440aadc9830d",
     "ci.yml:dependency-review": "2b19360e2aa6b603",
     "ci.yml:ci-required": "2f64e441c11407a6",
-    "docs.yml:build": "78d8bd064fcb5ee4",
+    "docs.yml:build": "339b44c753baded2",
     "architecture-check.yml:check": "c1dd1ca1c5524d5c",
 }
 
@@ -855,6 +855,7 @@ class LocalJob:
                     "outputs": dict.fromkeys(
                         (
                             "backend",
+                            "kernel",
                             "admin",
                             "examples",
                             "deploy",

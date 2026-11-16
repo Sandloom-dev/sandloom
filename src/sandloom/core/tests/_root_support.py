@@ -27,25 +27,35 @@ def suite_infra_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
     driver: ``{}`` with the batteries installed (``sandloom_standard`` selects
     them), the suite's drivers in the kernel-without-batteries venv, whose lean
     root names none. An ``INFRA`` instance carries its own options, so the
-    URLs are the ones of ``environ`` (the child's, default this process's)."""
+    URLs are the ones of ``environ`` (the child's, default this process's).
+    Where ``sandloom-redis`` is not installed (``kernel-without-redis``) the
+    Redis-backed instances are the kernel's ``memory`` drivers, and the task
+    queue joins only where ``sandloom-celery`` is installed."""
     if importlib.util.find_spec("sandloom_standard") is not None:
         return {}
     env = os.environ if environ is None else environ
     cache = env["CACHE_URL"]
-    infra = {
+    redis_installed = importlib.util.find_spec("sandloom_redis") is not None
+    memory: dict[str, str] = {"driver": "memory"}
+
+    def redis_backed() -> dict[str, str]:
+        return {"driver": "redis", "url": cache} if redis_installed else dict(memory)
+
+    infra: dict[str, dict[str, dict[str, str]]] = {
         "database": {"default": {"driver": "sqlalchemy", "url": env["DATABASE_URL"]}},
-        "cache": {"default": {"driver": "redis", "url": cache}},
-        "broadcast": {"default": {"driver": "redis", "url": cache}},
-        "taskqueue": {
+        "cache": {"default": redis_backed()},
+        "broadcast": {"default": redis_backed()},
+        "atomic_store": {"security": redis_backed()},
+        "lease": {"beat": redis_backed()},
+    }
+    if importlib.util.find_spec("sandloom_celery") is not None:
+        infra["taskqueue"] = {
             "default": {
                 "driver": "celery",
                 "broker": env["BROKER_URL"],
                 "backend": cache,
             }
-        },
-        "atomic_store": {"security": {"driver": "redis", "url": cache}},
-        "lease": {"beat": {"driver": "redis", "url": cache}},
-    }
+        }
     return {"INFRA": json.dumps(infra)}
 
 

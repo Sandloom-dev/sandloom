@@ -31,6 +31,7 @@ from sandloom.core.cli.project import (
     quickstart,
     write_generated_files,
 )
+from sandloom.core.tests._root_support import redis_free_infra_env
 
 BACKEND = Path(__file__).resolve().parents[4]
 REPO = BACKEND
@@ -254,7 +255,13 @@ def test_sandloom_test_runs_serially_without_xdist(
     assert " -n " not in out.out
 
 
-def test_sandloom_new_writes_the_generated_files(tmp_path: Path) -> None:
+def test_sandloom_new_writes_the_generated_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The generate child boots the app, whose own selection names the Redis
+    # drivers: without ``sandloom-redis`` they are the ``memory`` drivers.
+    for key, value in redis_free_infra_env().items():
+        monkeypatch.setenv(key, value)
     generate_project("fresh", tmp_path, framework_source="pypi")
     root = tmp_path / "fresh"
     assert write_generated_files(root) is None
