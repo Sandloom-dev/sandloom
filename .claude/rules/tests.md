@@ -1,7 +1,7 @@
 ---
 paths:
-  - "**/tests/**"
-  - "**/test_*.py"
+  - "src/sandloom_*/**/tests/**"
+  - "examples/*/*/modules/**/tests/**"
 ---
 # Tests
 
