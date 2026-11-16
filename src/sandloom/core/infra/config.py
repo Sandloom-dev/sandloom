@@ -142,6 +142,15 @@ def use_default_infra(defaults: DefaultInfra | None) -> None:
     _COMPOSITION_ADOPTED = True
 
 
+def clear_default_infra() -> None:
+    """Forget the selection a previous app of this process set: the next reader
+    adopts the composition root's own (``DEFAULT_INFRA``), as in a fresh
+    process, so an app that passes no selection never inherits another's."""
+    global _COMPOSITION_ADOPTED
+    _COMPOSITION_DEFAULTS.clear()
+    _COMPOSITION_ADOPTED = False
+
+
 def _adopt_root_selection() -> None:
     """A process that boots no app (``sandloom migrate``, ``worker check``, the
     backup tools) never ran ``create_app(default_infra=...)``: take the

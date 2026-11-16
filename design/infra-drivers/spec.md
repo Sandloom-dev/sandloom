@@ -1375,11 +1375,14 @@ For the orchestrator's review; each departs from or details `design.md`.
     `lease.redis` and `broadcast.redis` with those defaults, and changed three things:
     - **Defaults come from the composition.** `sandloom.core.infra.config` names no driver other
       than the in-tree `memory`/`local`/`log` selectors of the flat settings. A composition passes
-      `create_app(default_infra=...)` (`sandloom_standard.DEFAULT_INFRA`, and the explicit `INFRA`
-      that `sandloom new` writes); `INFRA` overrides it per instance. A tool process
-      (`sandloom worker check`) reads the same selection from the root's package
-      (`composition.root_default_infra`). The suite's root `conftest.py` selects the standard
-      drivers and `.env.test` sets `EVENT_BUS_BACKEND=memory`.
+      `create_app(default_infra=...)` (`sandloom_standard.DEFAULT_INFRA`, and the `DEFAULT_INFRA`
+      that `sandloom new` writes into `<app>/__init__.py`); `INFRA` overrides it per instance. A
+      tool process (`sandloom worker check`) reads the same selection from the root's package
+      (`composition.root_default_infra`). Every `create_app` call sets the selection of its own
+      app: one that passes none clears what an earlier call of the process set
+      (`clear_default_infra`) and adopts its root's `DEFAULT_INFRA`, or none (B037), never the
+      previous app's. The suite's root `conftest.py` selects the standard drivers and
+      `.env.test` sets `EVENT_BUS_BACKEND=memory`.
     - **Startup refuses what nothing selects.** The kernel's instances (`database`, `cache`,
       `eventbus`, and `atomic_store.security`; `REQUIRED_AT_STARTUP`) with no selected driver, or
       a driver whose package is missing, refuse startup with SANDLOOM-B037 in every environment,
@@ -1393,15 +1396,17 @@ For the orchestrator's review; each departs from or details `design.md`.
       registered with `InfraRegistry.register_driver_package`. An instance that selects such a
       driver while the package is absent (no entry point registered, or `find_spec` finds nothing)
       is refused with the hint; any other unregistered name stays `DriverNotRegisteredError`. A test
-      keeps the table equal to the packages' entry points.
+      keeps the table equal to the packages' entry points, and each package tests its own entry
+      points in its CI job (`packages/*/tests/test_driver_entry_points.py`: the class, the kit's
+      provider base, a tier production accepts).
     - **The policy hook.** `InfraRegistry.set_policy(capability, **hooks)` passes each hook as the
       constructor argument of that name to a provider class that declares it, whether the class
       comes from an entry point or a row (a class without it is built by `from_config`).
       `register_kernel_policies` sets `assume_allowed=unverified_noeviction_allowed` for
       `atomic_store` and `lease`, so `never_evicts_check=assume` still works in development and
       under the `unverified_noeviction` accepted risk in production.
-46. **`sandloom-celery` keeps the `taskqueue` row of item 45 and names its modules
-    `taskqueue`, `worker` and `broker_probe`** (`idk-pkg-celery-move`). The three files move whole
+46. **`sandloom-celery` names its modules `taskqueue`, `worker` and `broker_probe`**
+    (`idk-pkg-celery-move`; the kernel's `taskqueue` row it kept is gone, item 45). The three files move whole
     to `sandloom_celery/{taskqueue,worker,broker_probe}.py` (section 1 names no file), so the
     stable importable Celery app of 8.2 is the module attribute `app` of `sandloom_celery.worker`:
     `celery -A sandloom_celery.worker inspect|call|status` (earlier text said `sandloom_celery.app`).
@@ -1409,8 +1414,8 @@ For the orchestrator's review; each departs from or details `design.md`.
     against a real broker. `idk-pkg-celery-lane` moves the driver's tests into
     `packages/sandloom-celery/tests` (slots, worker pool, broker probe, defaults, the kit's send and
     host groups) and extends the CI job `celery-drivers`: it builds the wheel, lints, runs strict
-    `mypy packages/sandloom-celery/src`, then the package tests and the kernel's driver-row tests
-    against the built wheel and a Redis broker (the root mypy run and pytest paths do not reach
+    `mypy packages/sandloom-celery/src`, then the package tests (the entry point and its tier
+    included) and the kernel tests over the driver against the built wheel and a Redis broker (the root mypy run and pytest paths do not reach
     `packages/`). `SANDLOOM_CELERY_REQUIRED=1` (the scheme `SANDLOOM_<PACKAGE>_REQUIRED` of
     `SANDLOOM_REDIS_REQUIRED`), set by the job, makes an unreachable broker or cache an error, as
     it does a broker whose scheme is not a network transport (`memory://`) and a run whose

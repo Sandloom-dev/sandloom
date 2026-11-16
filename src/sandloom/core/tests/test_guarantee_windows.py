@@ -230,9 +230,6 @@ def test_create_app_refuses_in_production(monkeypatch: pytest.MonkeyPatch) -> No
             *settings.sandloom_accepted_risks,
             *billing,
             "log_notifier_in_prod",
-            # The streams driver declares no tier yet (a sandloom-redis follow-up):
-            # until it does, production refuses it as experimental (B023).
-            "experimental_driver",
         ],
     )
     with pytest.raises(gw.GuaranteeWindowError, match="command_dedupe"):
