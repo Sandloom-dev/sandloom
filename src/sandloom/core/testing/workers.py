@@ -221,7 +221,11 @@ def infra_with_overrides(
       when its driver (the declared one, else the composition root's) takes that
       URL from the flat setting (``InfraProvider.settings_fill``). A process
       whose composition names no such driver is left alone: it has no instance
-      to point;
+      to point. Where ``flat`` still carries ``CACHE_URL`` / ``BROKER_URL``
+      (the run's ``.env.test`` sets it) and ``INFRA`` declares no URL for the
+      default, none is created: the flat setting, which the override is copied
+      onto, already fills the default, and an ``INFRA`` entry would shadow the
+      flat value a test passes to ``Settings(...)`` itself;
     * every other declared instance (any capability) whose ``url`` / ``broker``
       is the SAME Redis server and database as the default's takes it too (the
       default's own is its declared option, else the flat ``CACHE_URL`` /
@@ -248,16 +252,17 @@ def infra_with_overrides(
         return infra_raw
     for var, url in wanted.items():
         capability, option, setting = _INFRA_URLS[var]
-        base = _declared_option(parsed, capability, "default", option) or (
-            (flat or {}).get(var)
-        )
+        declared = _declared_option(parsed, capability, "default", option)
+        carried = (flat or {}).get(var)
+        base = declared or carried
         if base:
             for instances in parsed.values():
                 for spec in instances.values() if isinstance(instances, dict) else ():
                     stated = spec.get(option) if isinstance(spec, dict) else None
                     if _same_redis_database(stated, base):
                         _set_url(spec, option, url)
-        _point_default_instance(parsed, capability, option, setting, url, root_name)
+        if declared or not carried:
+            _point_default_instance(parsed, capability, option, setting, url, root_name)
     return json.dumps(parsed)
 
 

@@ -371,14 +371,17 @@ def test_the_flat_cache_url_names_the_default_when_infra_declares_none(
         )
         or ""
     )
-    assert merged["cache"]["default"]["url"] == MINE_CACHE  # created
+    # the flat variable (which the override is copied onto) fills the default:
+    # no INFRA entry is created to shadow what a test passes to Settings itself
+    assert "cache" not in merged
     assert merged["lease"]["beat"]["url"] == MINE_CACHE
     assert merged["lease"]["apart"]["url"] == "redis://localhost:6380/3"
     # without the flat variable nothing names the default's database: only the
-    # default itself is pointed
+    # default itself is pointed (and created)
     alone = json.loads(
         workers.infra_with_overrides(infra, {"CACHE_URL": MINE_CACHE}) or ""
     )
+    assert alone["cache"]["default"]["url"] == MINE_CACHE
     assert alone["lease"]["beat"]["url"] == "redis://localhost:6380/15"
 
 
