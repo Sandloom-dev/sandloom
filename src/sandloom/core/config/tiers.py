@@ -40,11 +40,13 @@ shows the profile table.
 
 Pure data + pure functions of a settings object: no I/O, no import of
 ``sandloom.core.config.settings`` (the settings validator and the docs build both use
-it).
+it). The one reach above it is the override report's read of the resolved
+``INFRA`` options (:func:`_resolved_options`), by name and at call time.
 """
 
 from __future__ import annotations
 
+import importlib
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -262,6 +264,7 @@ SEMANTIC: tuple[SemanticSetting, ...] = (
         "clear without it); the smtp driver defaults to on.",
         profile=_all(True),
         strength=_BOOL_WEAK_FALSE,
+        refused=frozenset({"prod_strict"}),
         infra_option=True,
     ),
     # ---- authentication / tokens
@@ -801,13 +804,34 @@ def _fmt(value: object) -> str:
     return "unset" if value is None else str(value)
 
 
+def _resolved_options(cfg: Any, capability: str) -> dict[str, Mapping[str, Any]]:
+    """The options of each instance of ``capability`` as the application
+    resolves them: the composition's selection under ``INFRA``, not ``INFRA``
+    alone (a ``DEFAULT_INFRA`` pin that sets ``use_tls`` false is a choice too).
+
+    Reached by name: ``infra`` sits above this leaf (ADR-0007). A malformed
+    ``INFRA`` falls back to what the setting itself declares: loading the
+    configuration refuses it, with its own message, at startup."""
+    infra_config = importlib.import_module("sandloom.core.infra.config")
+    try:
+        resolved = infra_config.resolved_instances(cfg, capability)
+    except infra_config.InfraConfigError:
+        infra = getattr(cfg, "infra", None) or {}
+        declared = infra.get(capability) if isinstance(infra, Mapping) else None
+        if not isinstance(declared, Mapping):
+            return {}
+        return {
+            str(name): options
+            for name, options in declared.items()
+            if isinstance(options, Mapping)
+        }
+    return {name: inst.options for name, inst in resolved.items()}
+
+
 def _infra_options(cfg: Any, capability: str, option: str) -> list[tuple[str, object]]:
     """(``INFRA.<cap>.<instance>.<option>``, value) of every declared instance."""
-    infra = getattr(cfg, "infra", None) or {}
-    declared = infra.get(capability) if isinstance(infra, Mapping) else None
     instances: dict[str, object] = {"default": {}}
-    if isinstance(declared, Mapping):
-        instances.update({str(k): v for k, v in declared.items()})
+    instances.update(_resolved_options(cfg, capability))
     out = []
     for name, options in sorted(instances.items()):
         opts = options if isinstance(options, Mapping) else {}

@@ -430,19 +430,40 @@ def resolved_eventbus(settings: Any) -> dict[str, InstanceConfig]:
     """The eventbus instances: ``EVENT_BUS_BACKEND`` resolved, ``INFRA`` applied
     (options not filled from the flat settings: a driver's declaration does
     that, once the registry has its class)."""
+    return _resolved_capability(settings, "eventbus", _eventbus_selector(settings))
+
+
+def resolved_instances(settings: Any, capability: str) -> dict[str, InstanceConfig]:
+    """The instances of ``capability`` as the application resolves them: the
+    composition's selection, the flat selector of its ``default`` driver
+    (``EVENT_BUS_BACKEND``, ``NOTIFIER_BACKEND``) and ``INFRA`` applied. Reads
+    nothing else (options are not filled from the flat settings), so a check of
+    the configuration (the override report, the production profile) sees what a
+    ``DEFAULT_INFRA`` pin or the composition root selects, not only what
+    ``INFRA`` writes."""
+    selector = {
+        "eventbus": "event_bus_backend",
+        "notification": "notifier_backend",
+    }.get(capability)
+    selected = getattr(settings, selector, None) if selector else None
+    return _resolved_capability(settings, capability, selected)
+
+
+def _resolved_capability(
+    settings: Any, capability: str, selected: str | None
+) -> dict[str, InstanceConfig]:
     config: InfraConfig = {
-        "eventbus": _composition_instances().get("eventbus", {}),
+        capability: _composition_instances().get(capability, {}),
     }
-    selected = _eventbus_selector(settings)
     if selected is not None:
-        _select(config, "eventbus", selected, {})
+        _select(config, capability, selected, {})
     raw = getattr(settings, "infra", None)
     if raw:
         if not isinstance(raw, Mapping):
             raise InfraConfigError("INFRA must be a JSON object")
-        if "eventbus" in raw:
-            _overlay(config, {"eventbus": raw["eventbus"]})
-    return config["eventbus"]
+        if capability in raw:
+            _overlay(config, {capability: raw[capability]})
+    return config[capability]
 
 
 def _gets_url(cfg: InstanceConfig, fill: SettingsFill) -> bool:
@@ -551,4 +572,5 @@ __all__ = [
     "InfraConfigError",
     "load_infra_config",
     "resolved_eventbus",
+    "resolved_instances",
 ]
