@@ -11,7 +11,6 @@ from __future__ import annotations
 import functools
 import re
 import sys
-import time
 import zipfile
 from collections import Counter
 from pathlib import Path
@@ -135,11 +134,27 @@ def test_the_plan_closes_every_design_row() -> None:
     assert design <= named, sorted(design - named)
     rows = ke.load_register().rows
     assert f"has {len(rows)} rows" in closure
-    """No extra I/O: the check reads source only; it stays well under the
-    architecture suite's budget (measured: about 1 s on the full tree)."""
-    started = time.perf_counter()
+
+
+def test_the_check_reads_each_file_a_bounded_number_of_times(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No extra I/O, counted instead of timed so runner load cannot flake it:
+    the check reads files of this checkout only, each at most twice (once by
+    the scan, once to resolve an anchor), never once per register row."""
+    reads: Counter[Path] = Counter()
+    read_text = Path.read_text
+
+    def counting(self: Path, *args: Any, **kwargs: Any) -> str:
+        reads[self] += 1
+        return read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counting)
     ke.check(ke.load_register())
-    assert time.perf_counter() - started < 15
+    assert reads, "the check read nothing: the counter does not see its I/O"
+    outside = [p for p in reads if not p.is_relative_to(ke.REPO)]
+    assert not outside, outside
+    assert max(reads.values()) <= 2, reads.most_common(3)
 
 
 def test_modules_are_discovered_not_listed() -> None:

@@ -49,6 +49,7 @@ def planned_needs(*areas, full=False, pr=True):
         ("backend", "admin", "packages", "architecture"),
         ("examples", "dependency_review"),
         ("deploy",),
+        ("image",),
     ],
 )
 def test_selected_successes_and_unrelated_skips_allow_merge(areas):
@@ -67,6 +68,9 @@ def test_selected_successes_and_unrelated_skips_allow_merge(areas):
         "changes",
         "workflow-policy",
         "backend-tests",
+        "kernel-without-batteries",
+        "kernel-without-redis",
+        "docker-build",
         "redis-drivers",
         "celery-drivers",
         "admin-ui",
@@ -79,6 +83,27 @@ def test_selected_successes_and_unrelated_skips_allow_merge(areas):
 def test_a_required_check_never_accepts_missing_or_unsuccessful_work(job, status):
     needs = planned_needs(*gate.AREAS)
     needs[job]["result"] = status
+    assert gate.check(needs, full_validation=False, pull_request=True)
+
+
+def test_the_image_build_is_required_by_the_image_area_alone():
+    """A tests-only change (backend, no image) leaves the build skipped and the
+    gate green; a change to what the image copies requires it."""
+    assert gate.AREA_JOBS["docker-build"] == ("image",)
+    needs = planned_needs("backend")
+    assert needs["docker-build"]["result"] == "skipped"
+    assert gate.check(needs, full_validation=False, pull_request=True) == []
+    for status in ("failure", "skipped", "cancelled"):
+        needs = planned_needs("image")
+        needs["docker-build"]["result"] = status
+        assert gate.check(needs, full_validation=False, pull_request=True)
+
+
+@pytest.mark.parametrize("job", ["kernel-without-batteries", "kernel-without-redis"])
+def test_both_halves_of_the_kernel_lane_are_required_with_backend(job):
+    assert gate.AREA_JOBS[job] == ("backend",)
+    needs = planned_needs("backend")
+    needs[job]["result"] = "skipped"
     assert gate.check(needs, full_validation=False, pull_request=True)
 
 

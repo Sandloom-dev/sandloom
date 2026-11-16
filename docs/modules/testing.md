@@ -396,7 +396,9 @@ The harness protects concurrent runs on one machine from each other:
 - **Pre-push hook.** `backend-full-tests` refuses to run the full suite unless
   `SANDLOOM_TEST_DATABASE_URL` names this checkout's own database
   (`tools/checks/prepush_full_tests.sh`; `SKIP=backend-full-tests` skips
-  it once). It runs the suite in a fresh seeded order and prints the seed.
+  it once). It runs the fast suite (`-m "not slow"`, like CI's pull-request
+  lane; the full validation runs the slow suites) in a fresh seeded order and
+  prints the seed.
 
 ### Test isolation
 

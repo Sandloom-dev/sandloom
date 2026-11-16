@@ -357,7 +357,7 @@ def test_act_jobs_with_artifacts_run_a_private_copy(ci_local: ModuleType) -> Non
     jobs = {j.name: j for j in ci_local.local_jobs(REPO) if j.spec.engine == "act"}
     assert ci_local.uses_artifacts(jobs["docs"].body)
     assert ci_local.uses_artifacts(jobs["supply-chain"].body)
-    assert not ci_local.uses_artifacts(jobs["backend-static"].body)
+    assert not ci_local.uses_artifacts(jobs["deploy-profiles"].body)
     assert "--artifact-server-path" not in SCRIPT.read_text()
 
 
