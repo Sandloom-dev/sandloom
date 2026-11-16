@@ -49,6 +49,9 @@ def _smtp(host: str, port: int, *, name: str = "default", **options: Any) -> Any
                 "host": host,
                 "port": port,
                 "from_addr": "sandloom@example.com",
+                # mailpit runs plain (no STARTTLS, no auth): STARTTLS is the
+                # driver's default, so the conformance server turns it off.
+                "use_tls": False,
                 **options,
             },
         )
