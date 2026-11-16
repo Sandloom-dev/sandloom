@@ -73,6 +73,11 @@ jobs:
       examples: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || steps.filter.outputs.examples }}
       deploy: ${{ inputs.full_validation && 'true' || steps.filter.outputs.deploy }}
       benchmarks: ${{ inputs.full_validation && 'true' || steps.filter.outputs.benchmarks }}
+      # What the production image is built from (deploy/docker/Dockerfile):
+      # a change to tests only does not rebuild it. Two filter steps, because a
+      # negated glob needs `predicate-quantifier: every` and a filter list of
+      # positive globs needs the default one.
+      image: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || (steps.filter.outputs.image_inputs == 'true' || steps.filter_image.outputs.image_src == 'true' || steps.filter_image.outputs.image_packages == 'true') && 'true' || 'false' }}
       docs: ${{ inputs.full_validation && 'true' || steps.filter.outputs.docs }}
       packages: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || steps.filter.outputs.packages }}
       architecture: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || steps.filter.outputs.architecture }}
@@ -122,10 +127,37 @@ jobs:
               - '.dockerignore'
               - '.github/workflows/ci.yml'
             benchmarks:
-              - 'benchmarks/**'
+              # Every part of benchmarks/ but benchmarks/dx (the DX eval
+              # harness: nothing of the benchmarks-security job reads it).
+              # A new subdirectory of benchmarks/ is listed here;
+              # test_benchmarks_filter_covers_every_benchmarks_path fails until it is.
+              - 'benchmarks/*'
+              - 'benchmarks/benchsuite/**'
+              - 'benchmarks/boot/**'
+              - 'benchmarks/ci/**'
+              - 'benchmarks/ladder/**'
+              - 'benchmarks/qualification/**'
+              - 'benchmarks/tests/**'
               - 'tools/checks/check_benchmark_dependencies.py'
               - '.github/workflows/ci.yml'
-
+            image_inputs:
+              # The files the production image copies or runs that need no
+              # exclusion (the rest: the filter_image step below).
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'README.md'
+              - 'LICENSE'
+              - 'NOTICE'
+              - 'migrations/**'
+              # The Dockerfile copies tools/packaging; as for `backend`, its
+              # code and package list count, public-source.json does not.
+              - 'tools/packaging/*.py'
+              - 'tools/packaging/**/*.py'
+              - 'tools/packaging/packages.json'
+              - 'tools/checks/runtime_inventory.py'
+              - 'deploy/**'
+              - '.dockerignore'
+              - '.github/workflows/ci.yml'
             docs:
               - 'docs/**'
               - 'examples/**'
@@ -188,10 +220,26 @@ jobs:
               - '.github/workflows/dependency-review.yml'
               - '.github/workflows/release.yml'
               - '.github/workflows/ci.yml'
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        if: ${{ !inputs.full_validation }}
+        id: filter_image
+        with:
+          # `every`: a file selects a filter only when it matches all of its
+          # globs, so a `!` glob removes the tests from src/ and packages/.
+          # Each filter below has one positive glob.
+          predicate-quantifier: every
+          filters: |
+            image_src:
+              - 'src/**'
+              - '!src/**/tests/**'
+            image_packages:
+              - 'packages/**'
+              - '!packages/**/tests/**'
 
   backend-static:
-    # Lint / format / types / architecture: no services, runs in parallel with
-    # the test matrix (it used to be serialized in front of the suite).
+    # Lint / format / types / architecture: runs in parallel with the test
+    # matrix (it used to be serialized in front of the suite). Its one service
+    # is the PostgreSQL server the architecture tests' xdist workers need.
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' && !contains(fromJSON(inputs.reused_jobs || '[]'), 'backend-static') }}
     runs-on: ubuntu-latest
@@ -199,6 +247,25 @@ jobs:
     defaults:
       run:
         working-directory: .
+    services:
+      # The architecture tests run on 4 xdist workers (`-n 4`): each worker's
+      # conftest creates its own test database (sandloom_test_gwN) on the
+      # server .env.test names, and a worker cannot start without one. The
+      # tests themselves do not use it; without the service the workers
+      # crash at collection.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sandloom_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     env:
       # Importing the package instantiates Settings at module load, so the
       # architecture-test collection needs a valid (dummy) settings env.
@@ -252,7 +319,7 @@ jobs:
         run: uv run mypy src/
 
       - name: Architecture tests
-        run: uv run pytest tests/architecture/ -q --no-cov -p no:cacheprovider
+        run: uv run pytest tests/architecture/ -q --no-cov -p no:cacheprovider -n 4 --dist loadfile
 
       - name: Import-boundary manifest
         run: uv run python tools/checks/check_architecture.py
@@ -547,6 +614,8 @@ jobs:
     # Its pending list is empty and only goes down (a ceiling in the tool):
     # a new kernel test that needs a battery fails here; put it in
     # tests/integration/with_batteries or the module's own tests.
+    # The same suites without Redis and the SQLite boot without asyncpg run in
+    # `kernel-without-redis`, in parallel with this job.
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
@@ -629,6 +698,89 @@ jobs:
           src/sandloom/core/tests tests/sdk tests/architecture
           tests/integration/replaceability
 
+  kernel-without-redis:
+    # The second half of the kernel lane (ADR-0012 / ADR-0016), a job of its
+    # own so it runs in parallel with `kernel-without-batteries` (the two
+    # pytest runs used to follow one another in one job: the PR's wall time).
+    # Same venv as that job, then the Redis client and both driver packages
+    # are removed and the same suites run on the kernel's memory drivers;
+    # a last step removes asyncpg and boots the kernel on SQLite.
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: .
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sandloom_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
+      CACHE_URL: redis://127.0.0.1:6380/0
+      BROKER_URL: redis://127.0.0.1:6380/14
+      JWT_SECRET: ci-kernel-lane-not-a-real-secret
+      SANDLOOM_TEST_OWNER: ci-kernel-without-redis
+      # The replaceability topologies are real uvicorn processes: missing
+      # PostgreSQL/Redis fails the job instead of skipping.
+      SANDLOOM_E2E_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Start Redis with enough databases for every xdist worker
+        # The Redis server stays (as in the job this one was split from): the
+        # suites select memory drivers, but the settings URLs and the
+        # replaceability processes still point at it.
+        working-directory: .
+        run: |
+          docker run -d --name redis -p 6380:6379 redis:7 \
+            redis-server --databases 256 --save "" --appendonly no
+          for _ in $(seq 1 30); do
+            docker exec redis redis-cli ping | grep -q PONG && break
+            sleep 1
+          done
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          save-cache: false
+
+      - name: A venv with the kernel package and no module package
+        # The same venv as `kernel-without-batteries` (the redis and celery
+        # extras and both driver packages included): the next step removes
+        # them, so this lane starts from the state that job tests with.
+        run: |
+          uv venv --python 3.12 .venv-kernel
+          uv export --frozen --only-group dev --no-hashes --no-emit-project \
+            > "$RUNNER_TEMP/dev-requirements.txt"
+          uv pip install --python .venv-kernel/bin/python \
+            -e "packages/sandloom[postgres,redis,celery,check,fast,sqlite,sentry]" \
+            -e packages/sandloom-redis \
+            -e packages/sandloom-celery \
+            -r "$RUNNER_TEMP/dev-requirements.txt"
+          .venv-kernel/bin/python tools/ci/no_batteries.py install
+          .venv-kernel/bin/python tools/ci/no_batteries.py check
+
       - name: The kernel without Redis (no client, no driver package) runs its suites
         # ADR-0016: the kernel wheel names no Redis. This step uninstalls the
         # client and both driver packages that bring it (sandloom-redis, and
@@ -636,8 +788,9 @@ jobs:
         # kernel's memory drivers (conftest.py) and the test harness loads no
         # family. tools/ci/no_redis.py refuses the run while one of them
         # imports, and lists (a ratchet, only down) the kernel tests that
-        # still need a Redis or Celery driver. The steps before this one run
-        # with sandloom-redis installed: that is the lane that has it.
+        # still need a Redis or Celery driver. `kernel-without-batteries` runs
+        # the same suites with sandloom-redis installed: that is the lane that
+        # has it.
         run: |
           uv pip uninstall --python .venv-kernel/bin/python \
             redis hiredis sandloom-redis sandloom-celery
@@ -1509,7 +1662,7 @@ jobs:
   docker-build:
     # Build the production image so a broken Dockerfile fails CI, not deploy.
     needs: changes
-    if: ${{ (needs.changes.outputs.backend == 'true' || needs.changes.outputs.deploy == 'true') && !contains(fromJSON(inputs.reused_jobs || '[]'), 'docker-build') }}
+    if: ${{ needs.changes.outputs.image == 'true' && !contains(fromJSON(inputs.reused_jobs || '[]'), 'docker-build') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1637,6 +1790,7 @@ jobs:
       - backend-tests
       - backend-tests-isolation
       - kernel-without-batteries
+      - kernel-without-redis
       - redis-drivers
       - celery-drivers
       - second-db-test-lane

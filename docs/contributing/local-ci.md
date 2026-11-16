@@ -120,8 +120,8 @@ a full run.**
 
 | job | engine | why |
 |---|---|---|
-| `backend-static`, `supply-chain`, `architecture-check`, `docs`, `deploy-profiles`, `docker-build` | **act** — the real workflow job | — |
-| `backend-tests-3.11/3.12/3.13`, `second-db-test-lane`, `benchmarks-security`, `examples-*` | fallback (container) | ci.yml reaches its services at `localhost:5433` / `localhost:6380`. Under act that only works with host networking, where those ports are the shared dev containers `sandloom_postgres_test` / `sandloom_redis_test` (tests would truncate them); `backend-tests` also starts `docker run --name redis -p 6380:6379`, which collides by name and port |
+| `supply-chain`, `architecture-check`, `docs`, `deploy-profiles`, `docker-build` | **act** (the real workflow job) | none |
+| `backend-static`, `backend-tests-3.11/3.12/3.13`, `kernel-without-batteries`, `kernel-without-redis`, `second-db-test-lane`, `benchmarks-security`, `examples-*` | fallback (container) | ci.yml reaches its services at `localhost:5433` / `localhost:6380`. Under act that only works with host networking, where those ports are the shared dev containers `sandloom_postgres_test` / `sandloom_redis_test` (tests would truncate them); `backend-tests` also starts `docker run --name redis -p 6380:6379`, which collides by name and port |
 | `quickstart` | fallback (container) | the documented quickstart (`tools/smoke/quickstart_check.py`) against the job's own Postgres `:5433` / Redis `:6380`, which under act would be the shared dev containers |
 | `app-recipes` | fallback (container) | the `sandloom docs` recipes run in a generated app (`tools/smoke/recipes_check.py`), against the job's own Postgres / Redis like `quickstart` |
 | `microservices-smoke` | fallback (host docker) | the step hard-codes the gateway at `localhost:8080` and the stack's default subnet; two stacks would collide |

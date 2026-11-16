@@ -21,6 +21,8 @@ AREAS = frozenset(
         "packages",
         "architecture",
         "dependency_review",
+        # What the production image is built from (not tests, tooling or docs).
+        "image",
     }
 )
 ALWAYS = {"changes", "workflow-policy"}
@@ -30,6 +32,9 @@ AREA_JOBS = {
     "backend-tests": ("backend",),
     # The kernel suites with no module package importable (ADR-0012, KB-05).
     "kernel-without-batteries": ("backend",),
+    # The same suites with no Redis client or driver package, and the SQLite
+    # boot without asyncpg; a job of its own, parallel to the one above.
+    "kernel-without-redis": ("backend",),
     # The sandloom-redis package: its tests and types (the root testpaths and
     # the CI mypy run do not reach packages/).
     "redis-drivers": ("backend", "packages"),
@@ -41,7 +46,9 @@ AREA_JOBS = {
     "benchmarks-security": ("benchmarks",),
     "examples": ("examples",),
     "deploy-profiles": ("deploy",),
-    "docker-build": ("backend", "deploy"),
+    # The production image: built only when something it copies changed (a
+    # tests-only change does not rebuild it).
+    "docker-build": ("image",),
     "admin-contracts": ("admin",),
 }
 FULL_JOBS = {
