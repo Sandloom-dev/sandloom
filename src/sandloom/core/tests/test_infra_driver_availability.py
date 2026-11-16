@@ -100,6 +100,15 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     return attempts
 
 
+@pytest.fixture(autouse=True)
+def _no_process_infra(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The process ``INFRA`` (.env.test) states a url for each Redis instance,
+    which makes them instances INFRA names. These tests are about the ones the
+    composition synthesizes (never refused for a missing package) and about
+    what a test declares itself: it sets ``settings.infra`` when it needs one."""
+    monkeypatch.setattr(settings, "infra", {})
+
+
 @pytest.fixture
 def probe_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """An installed package that writes a marker file when imported."""

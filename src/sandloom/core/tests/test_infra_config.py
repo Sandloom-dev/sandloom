@@ -28,6 +28,8 @@ def redis_selection(monkeypatch: pytest.MonkeyPatch) -> None:
     (``kernel-without-redis``), so these tests pin theirs."""
     monkeypatch.setattr(config_module, "_PIN", None)
     monkeypatch.setattr(config_module, "_APP", None)
+    # The process INFRA (.env.test) names instances this selection does not.
+    monkeypatch.setattr(settings, "infra", {}, raising=False)
     use_default_infra(
         {
             "database": {"default": {"driver": "sqlalchemy"}},
