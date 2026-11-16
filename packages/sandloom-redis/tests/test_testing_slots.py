@@ -217,7 +217,7 @@ def test_a_released_slot_hands_back_its_redis_indexes(
     claimed = list(slot.claimed_urls)
     if not claimed:
         slot.release()
-        pytest.skip("no Redis URLs or no free index on the shared test server")
+        redis_unavailable("no Redis URLs or no free index on the shared test server")
     slot.release()
     for url in claimed:
         client = redis.Redis.from_url(url)

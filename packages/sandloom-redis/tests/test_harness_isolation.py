@@ -34,7 +34,7 @@ from sandloom_redis.testing import urls as redis_urls
 
 from sandloom.core.infra.ports._base import InfraProvider
 from sandloom.core.testing import (
-    _driver_seams,
+    family_seams,
     ownership,
     session_checks,
     workers,
@@ -167,7 +167,7 @@ def test_the_broker_url_of_a_declared_taskqueue_driver_goes_through_its_hook(
 
         return Moved
 
-    monkeypatch.setattr(_driver_seams, "_driver_class", fake)
+    monkeypatch.setattr(family_seams, "_driver_class", fake)
     infra = json.dumps({"taskqueue": {"default": {"driver": "other"}}})
     out = workers.rewrite_for_worker(
         {"BROKER_URL": "redis://h/1", "INFRA": infra}, {workers.WORKER_ENV: "gw1"}

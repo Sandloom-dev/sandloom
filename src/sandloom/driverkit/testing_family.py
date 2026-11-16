@@ -53,10 +53,10 @@ def default_driver(capability: str, name: str) -> str | None:
     """The driver the composition root selects for instance ``capability/name``
     (its package's ``DEFAULT_INFRA``); ``None`` when it selects none."""
     # Imported on call: the harness loads a family before the settings
-    # snapshot, and the seams import the whole driver table.
-    from sandloom.core.testing import _driver_seams
+    # snapshot, and the seams import the composition and the registry.
+    from sandloom.core.testing import family_seams
 
-    return _driver_seams.default_driver(capability, name)
+    return family_seams.default_driver(capability, name)
 
 
 def isolated_instance_options(
@@ -70,9 +70,9 @@ def isolated_instance_options(
     ``capability/name`` uses (``InfraProvider.test_isolation``); ``options``
     unchanged for a plain factory, which has no class to ask. Nothing is
     built or opened."""
-    from sandloom.core.testing import _driver_seams
+    from sandloom.core.testing import family_seams
 
-    return _driver_seams.isolated_instance_options(
+    return family_seams.isolated_instance_options(
         capability, name, driver, options, worker_id
     )
 

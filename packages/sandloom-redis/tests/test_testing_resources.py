@@ -86,7 +86,7 @@ def scratch_index() -> Iterator[tuple[str, int, str]]:
     except redis.exceptions.ConnectionError as exc:
         redis_unavailable(f"Redis unreachable: {exc}")
     except ownership.TestResourceOwnershipError:
-        pytest.skip("no free Redis index on the shared test server")
+        redis_unavailable("no free Redis index on the shared test server")
     (index,) = next(iter(mapping.values()))
     try:
         yield url, index, owner
@@ -170,7 +170,7 @@ def test_allocation_never_hands_out_an_index_someone_is_connected_to(
         try:
             mapping = resources.allocate_worker_redis([url], 1, other)
         except ownership.TestResourceOwnershipError:
-            pytest.skip("no free Redis index on the shared test server")
+            redis_unavailable("no free Redis index on the shared test server")
         (got,) = next(iter(mapping.values()))
         try:
             assert got != index

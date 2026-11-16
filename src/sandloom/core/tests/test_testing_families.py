@@ -18,6 +18,7 @@ import pytest
 
 from sandloom.core.testing import (
     families,
+    family_seams,
     ownership,
     plugin,
     session_checks,
@@ -456,3 +457,46 @@ async def test_the_cache_flush_asks_every_family_when_none_owns_the_provider(
     only(*chain)
     await flush_owned_cache(object())  # nobody's provider: nothing flushed, no error
     assert [len(f.calls) for f in chain] == [1, 1]
+
+
+# --------------------------------------------------------------------------- #
+# The seams a family package reaches through sandloom.driverkit.testing_family
+# --------------------------------------------------------------------------- #
+
+
+def test_the_composition_default_names_the_driver_of_an_instance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        family_seams,
+        "root_default_infra",
+        lambda: {"cache": {"default": {"driver": "fake-cache"}}, "x": {"y": "bad"}},
+    )
+    assert family_seams.default_driver("cache", "default") == "fake-cache"
+    assert family_seams.default_driver("cache", "other") is None
+    assert family_seams.default_driver("eventbus", "default") is None
+    assert family_seams.default_driver("x", "y") is None  # not an instance mapping
+    monkeypatch.setattr(family_seams, "root_default_infra", lambda: None)
+    assert family_seams.default_driver("cache", "default") is None
+
+
+def test_a_built_in_driver_keeps_the_options_it_was_given() -> None:
+    options = {"url": "memory://"}
+    moved = family_seams.isolated_instance_options(
+        "cache", "default", "memory", options, "gw1"
+    )
+    assert moved is options
+
+
+def test_a_driver_an_installed_package_publishes_says_where_the_copy_lives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Moved:
+        @classmethod
+        def test_isolation(cls, options: Any, worker_id: str) -> dict[str, Any]:
+            return {**options, "worker": worker_id}
+
+    monkeypatch.setattr(family_seams, "_driver_class", lambda *_: Moved)
+    assert family_seams.isolated_instance_options(
+        "cache", "default", "other", {"a": 1}, "gw3"
+    ) == {"a": 1, "worker": "gw3"}
