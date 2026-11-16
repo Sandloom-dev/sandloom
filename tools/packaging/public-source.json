@@ -1169,6 +1169,7 @@
         "packages/sandloom-celery/tests/test_celery_driver_entry_points.py",
         "packages/sandloom-celery/tests/test_celery_from_config.py",
         "packages/sandloom-celery/tests/test_celery_worker_pool.py",
+        "packages/sandloom-celery/tests/test_celery_task_names.py",
         "packages/sandloom-celery/tests/test_celery_taskqueue_health.py",
         "packages/sandloom-celery/tests/test_celery_slots.py",
         "packages/sandloom-celery/tests/conftest.py",

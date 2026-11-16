@@ -474,7 +474,10 @@ def _celery_task_for(name: str, run: Callable[..., None]) -> Any:
     def body(self: Any, **payload: Any) -> None:
         run(name, orjson.dumps(payload), task_id=str(self.request.id or ""))
 
-    body.__name__ = name.rsplit(".", 1)[-1]
+    # The body keeps its own fixed identifier: Celery builds the task signature
+    # with exec() from __name__, so a name derived from the declared one breaks
+    # on a segment that is not an identifier. The declared name reaches Celery
+    # only as ``name=``.
     return body
 
 
