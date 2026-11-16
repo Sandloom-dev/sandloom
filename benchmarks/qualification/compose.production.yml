@@ -23,7 +23,7 @@ services:
       - objects:/app/data
     environment:
       <<: *modules
-      INFRA: '{"database":{"default":{"tenant_rls":true}},"cache":{"default":{"driver":"redis","url":"redis://cache:6379/0"}},"atomic_store":{"security":{"driver":"redis","url":"redis://security:6379/0"}},"eventbus":{"default":{"driver":"streams","url":"redis://broker:6379/0"}}}'
+      INFRA: '{"database":{"default":{"tenant_rls":true}},"cache":{"security":{"driver":"redis","url":"redis://security:6379/0"}},"eventbus":{"default":{"driver":"streams","url":"redis://broker:6379/0"}}}'
       GUNICORN_KEEPALIVE: '120'
       PLANNER_OPTIMIZED_EXECUTOR: ${SANDLOOM_PRODUCTION_PLANNER_OPTIMIZED:-true}
       BENCH_EDGE_TRACE: '1'

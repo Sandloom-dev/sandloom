@@ -178,14 +178,22 @@ _REDIS_INSTANCES: dict[str, tuple[str, str, str, str]] = {
     "security": ("atomic_store", "security", "redis", "url"),
     "taskqueue": ("taskqueue", "default", "celery", "broker"),
 }
-#: What a lean-root stand (``sandloom.main``, no module battery) selects.
-LEAN_REDIS = ("cache", "eventbus", "security")
-#: What the standard root (``sandloom_standard.main``) selects.
-STANDARD_REDIS = (*LEAN_REDIS, "broadcast", "lease", "taskqueue")
+#: What the standard root (``sandloom_standard.main``) selects. A lean root
+#: (``create_app()`` with no composition selection: ``benchsuite.apps.sandloom_app``)
+#: selects no Redis instance, so a lean-root stand names none (a stand that
+#: names one selects it).
+STANDARD_REDIS = (
+    "cache",
+    "eventbus",
+    "security",
+    "broadcast",
+    "lease",
+    "taskqueue",
+)
 
 
 def redis_infra(
-    instances: tuple[str, ...] = LEAN_REDIS,
+    instances: tuple[str, ...],
     *,
     url: str | None = None,
     broker: str | None = None,
@@ -204,19 +212,13 @@ def redis_infra(
 
 
 def infra_env(
-    extra: dict[str, dict[str, dict[str, object]]] | None = None,
     *,
-    instances: tuple[str, ...] = LEAN_REDIS,
+    instances: tuple[str, ...],
     url: str | None = None,
     broker: str | None = None,
 ) -> str:
-    """The ``INFRA`` JSON of a stand: :func:`redis_infra` with ``extra``
-    (instance options such as ``tenant_rls``) merged over it, option by option."""
-    infra = redis_infra(instances, url=url, broker=broker)
-    for capability, named in (extra or {}).items():
-        for name, options in named.items():
-            infra.setdefault(capability, {}).setdefault(name, {}).update(options)
-    return json.dumps(infra)
+    """The ``INFRA`` JSON of a stand: :func:`redis_infra` as a string."""
+    return json.dumps(redis_infra(instances, url=url, broker=broker))
 
 
 def jwt_secret() -> str:

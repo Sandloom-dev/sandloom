@@ -353,11 +353,25 @@ def mix_prepare(exp, variant):
         if size and owner != "sandloom_perf_cb_mixfull":
             raise RuntimeError("Redis DB 5 is not owned by this full-mix fixture")
         command([*cli, "FLUSHDB"])
-        command([*cli, "SET", "sandloom:qualification:owner", "sandloom_perf_cb_mixfull"])
+        command(
+            [*cli, "SET", "sandloom:qualification:owner", "sandloom_perf_cb_mixfull"]
+        )
     infra = json.loads(env["INFRA"])
-    infra["cache"]["default"]["url"] = "redis://cache:6379/5"
     infra["atomic_store"]["security"]["url"] = "redis://security:6379/5"
     infra["eventbus"]["default"]["url"] = "redis://broker:6379/5"
+    # The seed runs the STANDARD root (``mix.seed``), which also selects the
+    # cache, broadcast, lease and task queue: each gets the url the flat
+    # CACHE_URL / BROKER_URL gave it. The app (``runtime`` below) runs the lean
+    # root and keeps exactly the instances of the container's INFRA.
+    from benchsuite import common
+
+    seed_infra = json.loads(json.dumps(infra))
+    for capability, named in common.redis_infra(
+        ("cache", "broadcast", "lease", "taskqueue"),
+        url="redis://cache:6379/5",
+        broker="redis://broker:6379/5",
+    ).items():
+        seed_infra.setdefault(capability, {}).update(named)
     secrets = dict(
         line.split("=", 1)
         for line in (exp.fixture / ".state/.env").read_text().splitlines()
@@ -371,7 +385,7 @@ def mix_prepare(exp, variant):
         + "@db:5432/sandloom_perf_cb",
         PYTHONPATH="/benchmarks:/examples/helpdesk:/examples/projecthub:/examples/linkly",
         BILLING_PROVIDER="fake",
-        INFRA=json.dumps(infra),
+        INFRA=json.dumps(seed_infra),
     )
     private = exp.out / "mix-seed.env"
     if any("\n" in v for v in env.values()):

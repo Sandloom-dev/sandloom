@@ -56,7 +56,7 @@ def _fernet_key() -> str:
 
 
 def server_env(variant: str) -> dict[str, str]:
-    from benchsuite import common, s5
+    from benchsuite import s5
 
     env = s5.server_env(variant)
     env.update(
@@ -64,11 +64,17 @@ def server_env(variant: str) -> dict[str, str]:
             "PRODUCTION_PROFILE": "multi_tenant_strict",
             "SANDLOOM_MODULES": '["sandloom_identity", "benchsuite.bench"]',
             "MODULE_REQUIRED": '["sandloom_identity", "benchsuite.bench"]',
-            "INFRA": common.infra_env(
+            # the lean root: the database option and the one Redis instance
+            # this stand names (as on main); no ``common.infra_env``, which
+            # would also select a cache and a streams bus
+            "INFRA": json.dumps(
                 {
                     "database": {"default": {"tenant_rls": True}},
                     "atomic_store": {
-                        "security": {"url": os.environ["BENCH_SECURITY_REDIS_URL"]}
+                        "security": {
+                            "driver": "redis",
+                            "url": os.environ["BENCH_SECURITY_REDIS_URL"],
+                        }
                     },
                 }
             ),

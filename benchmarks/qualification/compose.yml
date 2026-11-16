@@ -7,7 +7,7 @@ x-env: &env
   BENCH_S5: '1'
   BENCH_WRITE_DIAG: '1'
   DATABASE_URL: postgresql+asyncpg://qualification_app:${APP_PASSWORD:?run prepare}@db:5432/qualification
-  INFRA: '{"database":{"default":{"tenant_rls":true}},"cache":{"default":{"driver":"redis","url":"redis://cache:6379/0"}},"eventbus":{"default":{"driver":"streams","url":"redis://cache:6379/0"}},"atomic_store":{"security":{"driver":"redis","url":"redis://security:6379/0"}}}'
+  INFRA: '{"database":{"default":{"tenant_rls":true}},"atomic_store":{"security":{"driver":"redis","url":"redis://security:6379/0"}}}'
   JWT_SECRET: ${JWT_SECRET:?run prepare}
   TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?run prepare}
   INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?run prepare}
@@ -74,7 +74,7 @@ services:
       ENVIRONMENT: dev
       PRODUCTION_PROFILE: standard
       DATABASE_URL: postgresql+asyncpg://qualification_owner:${DB_PASSWORD}@db:5432/qualification
-      INFRA: '{"cache":{"default":{"driver":"redis","url":"redis://cache:6379/0"}},"eventbus":{"default":{"driver":"streams","url":"redis://cache:6379/0"}},"atomic_store":{"security":{"driver":"redis","url":"redis://security:6379/0"}}}'
+      INFRA: '{}'
       S5_APP_ROLE: qualification_app
       S5_APP_PASSWORD: ${APP_PASSWORD}
     depends_on:
@@ -103,7 +103,6 @@ services:
     environment:
       <<: *env
       DATABASE_URL: postgresql+asyncpg://qualification_app:${APP_PASSWORD}@db:5432/${RESTORE_DATABASE:-qualification_restore}
-      INFRA: '{"database":{"default":{"tenant_rls":true}},"cache":{"default":{"driver":"redis","url":"redis://restored-cache:6379/0"}},"eventbus":{"default":{"driver":"streams","url":"redis://restored-cache:6379/0"}},"atomic_store":{"security":{"driver":"redis","url":"redis://security:6379/0"}}}'
     ports:
       - '127.0.0.1:18223:2222'
 

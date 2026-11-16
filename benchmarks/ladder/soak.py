@@ -409,9 +409,6 @@ def server_env(cfg: str, *, pool: int, overflow: int, relay: str) -> dict[str, s
         os.environ.update(saved)
     if "ssl=" not in env["DATABASE_URL"]:
         env["DATABASE_URL"] += "?ssl=disable"
-    infra = json.loads(env["INFRA"])
-    # the streams bus's own option, over the stand's instances (urls, tenant_rls)
-    infra["eventbus"]["default"]["max_length"] = 20000
     env.update(
         DB_RLS_MERGED_BEGIN=merged,
         DB_POOL_SIZE=str(pool),
@@ -419,7 +416,9 @@ def server_env(cfg: str, *, pool: int, overflow: int, relay: str) -> dict[str, s
         DB_POOL_TIMEOUT="10",
         OUTBOX_RELAY_ENABLED=relay,
         SANDLOOM_ACCEPTED_RISKS="relay_disabled",
-        INFRA=json.dumps(infra),
+        # the streams bus's own option (no flat setting any more); the lean
+        # root selects no other Redis instance, as on main
+        INFRA=json.dumps({"eventbus": {"default": {"max_length": 20000}}}),
     )
     # A/B knobs for both servers: SOAK_SERVER_<SETTING>=value is passed on as
     # <SETTING>=value (e.g. SOAK_SERVER_DB_DEAD_CONNECTION_RETRY=false).

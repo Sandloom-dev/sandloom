@@ -112,7 +112,10 @@ def server_env(*, planner_opt: bool = False) -> dict[str, str]:
         "OUTBOX_RELAY_ENABLED": "off",
         "DOCS_ENABLED": "false",
         "DATABASE_URL": common.database_url(),
-        "INFRA": common.infra_env(),
+        # The stand's provider and in-process rungs run the STANDARD root
+        # (``sandloom_standard.main``): on main its flat CACHE_URL / BROKER_URL
+        # reached every instance that root selects, so each gets its own url.
+        "INFRA": common.infra_env(instances=common.STANDARD_REDIS),
         "JWT_SECRET": common.jwt_secret(),
         "PLANNER_OPTIMIZED_EXECUTOR": "true" if planner_opt else "false",
         # The stand's provider is a split-production process with the shared

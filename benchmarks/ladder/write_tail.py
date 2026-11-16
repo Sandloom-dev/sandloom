@@ -127,9 +127,6 @@ def _env(
             "driver": "redis",
             "url": f"redis://{REDIS['idem'][0]}:6379/0",
         }
-    infra["cache"] = {
-        "default": {"driver": "redis", "url": f"redis://{REDIS['cache'][0]}:6379/0"}
-    }
     infra["eventbus"] = {
         "default": {
             "driver": "streams",

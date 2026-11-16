@@ -193,16 +193,13 @@ def tail(exp, variant):
         }
         if split:
             infra = json.loads(env["INFRA"])
-            # the bus url (as before: the Redis the idempotency database sits
-            # beside), else the cache's: the container no longer has BROKER_URL
-            bus = (infra.get("eventbus", {}).get("default") or {}).get("url") or (
-                infra.get("cache", {}).get("default") or {}
-            ).get("url")
-            if not bus:
-                raise SystemExit(
-                    "the app container's INFRA names no eventbus.default or "
-                    "cache.default url: no Redis to put the idempotency db on"
-                )
+            # the bus url (the Redis the idempotency database sits beside); the
+            # base compose names no bus, and its flat BROKER_URL (the fallback
+            # until now) was ``redis://cache:6379/2``: the same Redis, the
+            # compose's ``cache`` service
+            bus = (infra.get("eventbus", {}).get("default") or {}).get(
+                "url"
+            ) or "redis://cache:6379/2"
             base = bus.rsplit("/", 1)[0]
             infra.setdefault("cache", {})["idem"] = {
                 "driver": "redis",

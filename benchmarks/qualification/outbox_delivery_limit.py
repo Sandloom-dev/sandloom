@@ -76,13 +76,13 @@ def app_environment():
 
 def bus_location(env):
     """(container, db index, key prefix) of the Streams bus the app publishes to."""
-    infra = json.loads(env.get("INFRA") or "{}")
     try:
-        bus = infra["eventbus"]["default"]
-    except (KeyError, TypeError):
+        bus = json.loads(env.get("INFRA") or "{}")["eventbus"]["default"]
+    except (KeyError, TypeError, ValueError):
         bus = {}
-    cache = (infra.get("cache") or {}).get("default") or {}
-    url = bus.get("url") or cache.get("url") or "redis://cache:6379/0"
+    # the base compose names no bus: its Redis is the ``cache`` service (what
+    # its CACHE_URL said until the flat settings went)
+    url = bus.get("url") or "redis://cache:6379/0"
     parts = urlsplit(url)
     db = (parts.path or "/0").lstrip("/") or "0"
     return f"{PROJECT}-{parts.hostname}-1", db, bus.get("prefix", "")
