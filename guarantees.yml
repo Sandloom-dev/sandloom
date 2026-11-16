@@ -473,7 +473,7 @@ guarantees:
   - docs/modules/database/multi-tenancy.md
   tests:
   - src/sandloom/core/tests/test_atomic_adopt.py::test_strict_runtime_attests_each_instance_apart_from_the_cache
-  - src/sandloom/core/tests/test_atomic_adopt.py::test_strict_profile_attests_real_redis_identity
+  - packages/sandloom-redis/tests/test_atomic_adopt_redis_identity.py::test_strict_profile_attests_real_redis_identity
   - src/sandloom/core/tests/test_atomic_adopt.py::test_an_unknown_or_failing_identity_fails_attestation
   - src/sandloom/core/tests/test_atomic_adopt.py::test_a_cache_without_an_identity_fails_attestation
   - src/sandloom/core/tests/test_atomic_adopt.py::test_a_security_store_must_declare_never_evicts_and_shared
@@ -1351,7 +1351,7 @@ guarantees:
   - docs/modules/index.md#What you get by default, and what you declare
   - docs/advanced/security-model.md#Idempotency
   tests:
-  - src/sandloom/core/tests/test_idempotency_cas.py::test_redis_cas_primitives
+  - packages/sandloom-redis/tests/test_redis_atomic_cas.py::test_redis_cas_primitives
   - src/sandloom/core/tests/test_idempotency_cas.py::test_expired_owner_cannot_release_a_retrys_reservation
   - src/sandloom/core/tests/test_idempotency_cas.py::test_expired_owner_cannot_finalise_over_a_retrys_reservation
 - id: G-IDEM-06
@@ -1825,7 +1825,7 @@ guarantees:
   - docs/adr/0005-effect-model.md#4. Mechanism matrix
   tests:
   - src/sandloom/core/tests/test_audit_and_secrets.py::test_record_audit_writes_in_uow
-  - src/sandloom/core/tests/test_revocation_freshness.py::test_block_write_outage_is_503_and_rolls_back_audit
+  - packages/sandloom-redis/tests/test_revocation_freshness.py::test_block_write_outage_is_503_and_rolls_back_audit
   - src/sandloom/core/tests/test_fused_effect_rows.py::test_outbox_and_audit_rows_are_one_statement
   gap: No generic test that a plain record_audit followed by a UoW rollback leaves no audit_log row; only
     the block_user path proves it.
@@ -2406,9 +2406,9 @@ guarantees:
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
   tests:
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_revocation_fail_closed_defaults_by_environment
-  - src/sandloom/core/tests/test_revocation_freshness.py::test_redis_down_fail_closed
-  - src/sandloom/core/tests/test_revocation_freshness.py::test_redis_down_fail_open_outside_prod
-  - src/sandloom/core/tests/test_revocation_freshness.py::test_copy_expiring_during_block_read_fails_closed_on_outage
+  - packages/sandloom-redis/tests/test_revocation_freshness.py::test_redis_down_fail_closed
+  - packages/sandloom-redis/tests/test_revocation_freshness.py::test_redis_down_fail_open_outside_prod
+  - packages/sandloom-redis/tests/test_revocation_freshness.py::test_copy_expiring_during_block_read_fails_closed_on_outage
 - id: G-REVOKE-12
   rests_on:
   - capability: atomic_store
@@ -2424,7 +2424,7 @@ guarantees:
   - docs/adr/0003-fewer-sync-rpc-membership-reads.md#Decisions so far
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
   tests:
-  - src/sandloom/core/tests/test_revocation_freshness.py::test_strict_default_sees_revocation_on_next_request
+  - packages/sandloom-redis/tests/test_revocation_freshness.py::test_strict_default_sees_revocation_on_next_request
   - tests/integration/test_revocation_pipeline.py::test_c_in_flight_request_completes_and_the_next_one_is_rejected
   - src/sandloom/core/tests/test_auth_rotation_revocation.py::test_revocation_lookup_runs_once_per_request
   - src/sandloom/core/tests/test_subject_record.py::test_the_hot_path_reads_one_key
@@ -2493,9 +2493,9 @@ guarantees:
   - docs/adr/0009-route-policy-and-session-freshness.md#Checks (deterministic; each error names its fix)
   tests:
   - src/sandloom/core/tests/test_subject_record.py::test_the_hot_path_reads_one_key
-  - src/sandloom/core/tests/test_revocation_freshness.py::test_strict_default_sees_revocation_on_next_request
-  - src/sandloom/core/tests/test_revocation_freshness.py::test_revocation_in_one_process_invalidates_another
-  - src/sandloom/core/tests/test_revocation_freshness.py::test_the_freshness_knobs_are_gone
+  - packages/sandloom-redis/tests/test_revocation_freshness.py::test_strict_default_sees_revocation_on_next_request
+  - packages/sandloom-redis/tests/test_revocation_freshness.py::test_revocation_in_one_process_invalidates_another
+  - packages/sandloom-redis/tests/test_revocation_freshness.py::test_the_freshness_knobs_are_gone
   - tests/integration/test_platform_routes_strict.py::test_every_authenticated_platform_route_refuses_a_withdrawn_session
   - tests/perf_budgets/test_cache_round_trips.py::test_authenticated_get_budget
 - id: G-REVOKE-22
@@ -2618,7 +2618,7 @@ guarantees:
   - docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks
   - docs/adr/0009-route-policy-and-session-freshness.md#Defaults every route gets (nothing to declare)
   tests:
-  - src/sandloom/core/tests/test_revocation_freshness.py::test_block_applies_on_next_request_even_on_budget_routes
+  - packages/sandloom-redis/tests/test_revocation_freshness.py::test_block_applies_on_next_request_even_on_budget_routes
   - src/sandloom/core/tests/test_revocation_immediate_and_corrupt.py::test_any_block_value_blocks
   - src/sandloom_billing/tests/test_billing_route_classes.py::test_blocked_user_rejected_on_every_route_like_before
   - src/sandloom/core/tests/test_route_markers.py::test_differential_strict_budgeted_revoked_blocked
@@ -2638,9 +2638,9 @@ guarantees:
   - docs/advanced/security-model.md#Authentication
   - docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks
   tests:
-  - src/sandloom/core/tests/test_revocation_freshness.py::test_block_requires_uow_and_reason
-  - src/sandloom/core/tests/test_revocation_freshness.py::test_block_mark_is_written_last
-  - src/sandloom/core/tests/test_revocation_freshness.py::test_block_write_outage_is_503_and_rolls_back_audit
+  - packages/sandloom-redis/tests/test_revocation_freshness.py::test_block_requires_uow_and_reason
+  - packages/sandloom-redis/tests/test_revocation_freshness.py::test_block_mark_is_written_last
+  - packages/sandloom-redis/tests/test_revocation_freshness.py::test_block_write_outage_is_503_and_rolls_back_audit
 - id: G-BLOCK-03
   rests_on:
   - capability: atomic_store
@@ -2656,7 +2656,7 @@ guarantees:
   - docs/advanced/security-model.md#Authentication
   - docs/adr/0009-route-policy-and-session-freshness.md#One subject-state record replaces the two marks
   tests:
-  - src/sandloom/core/tests/test_revocation_freshness.py::test_unblock_lifts_the_mark_only_after_commit
+  - packages/sandloom-redis/tests/test_revocation_freshness.py::test_unblock_lifts_the_mark_only_after_commit
   - src/sandloom_identity/tests/api/test_user_safety.py::test_block_status_unblock_round_trip
   - src/sandloom/core/tests/test_subject_record.py::test_a_rolled_back_unblock_keeps_the_block
 - id: G-BLOCK-04
@@ -2701,8 +2701,8 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_subject_record.py::test_value_domain
   - src/sandloom/core/tests/test_subject_record.py::test_a_revocation_concurrent_with_a_block_never_unblocks
-  - src/sandloom/core/tests/test_subject_record.py::test_redis_subject_state_order_and_ttl
-  - src/sandloom/core/tests/test_subject_record.py::test_redis_concurrent_block_and_revocations_end_blocked
+  - packages/sandloom-redis/tests/test_redis_subject_record.py::test_redis_subject_state_order_and_ttl
+  - packages/sandloom-redis/tests/test_redis_subject_record.py::test_redis_concurrent_block_and_revocations_end_blocked
 - id: G-BLOCK-07
   statement: 'Unblock replaces blocked with after:<now+skew> by compare-and-set after commit and never deletes
     the record: tokens issued before the block stay revoked, and a rolled-back unblock keeps the block.'
@@ -2711,7 +2711,7 @@ guarantees:
   tests:
   - src/sandloom/core/tests/test_subject_record.py::test_unblock_never_resurrects_pre_block_tokens
   - src/sandloom/core/tests/test_subject_record.py::test_a_rolled_back_unblock_keeps_the_block
-  - src/sandloom/core/tests/test_subject_record.py::test_redis_unblock_swaps_and_never_deletes
+  - packages/sandloom-redis/tests/test_redis_subject_record.py::test_redis_unblock_swaps_and_never_deletes
 - id: G-BLOCK-08
   statement: 'SANDLOOM-B035: startup refuses a module declared issues_tokens=True that neither registers a
     durable core.auth.user_blocked.v1 consumer (a volatile one or another module''s does not count) nor
@@ -5126,7 +5126,7 @@ guarantees:
   - docs/adr/0009-route-policy-and-session-freshness.md#Removed from the internal API before the initial public alpha
   tests:
   - src/sandloom/core/tests/test_config_tiers.py::test_removed_setting_fails_unless_inert
-  - src/sandloom/core/tests/test_revocation_freshness.py::test_the_freshness_knobs_are_gone
+  - packages/sandloom-redis/tests/test_revocation_freshness.py::test_the_freshness_knobs_are_gone
   - tests/architecture/test_operation_classes.py::test_strict_path_prefix_satisfies_strictness
   startup_checks: Settings validator raises ValueError 'is no longer supported' (sandloom.core.config.tiers.REMOVED)
 - id: G-CONFIG-04
@@ -5700,7 +5700,7 @@ guarantees:
   - packages/sandloom-celery/tests/test_celery_slots.py::test_a_scheduler_killed_between_claim_and_send_loses_that_slot
   - packages/sandloom-celery/tests/test_celery_slots.py::test_a_scheduler_lease_name_too_long_for_a_slot_refuses_to_start
   - src/sandloom/core/tests/test_driverkit_periodic.py::test_ten_minutely_slots_create_one_lease_name_in_memory
-  - src/sandloom/core/tests/test_driverkit_periodic.py::test_ten_minutely_slots_create_one_lease_name_on_redis
+  - packages/sandloom-redis/tests/test_redis_periodic_slots.py::test_ten_minutely_slots_create_one_lease_name_on_redis
   - src/sandloom/core/tests/test_driverkit_periodic.py::test_ten_minutely_slots_create_one_lease_row_in_a_database
   - src/sandloom/core/tests/test_periodic_dedupe.py::test_two_schedulers_share_one_slot_on_real_redis
 - id: G-OPS-02
@@ -7090,7 +7090,7 @@ capabilities:
   sources:
   - docs/infrastructure/index.md
   tests:
-  - src/sandloom/core/tests/test_infra_hardening.py::test_cache_provider_operations
+  - packages/sandloom-redis/tests/test_redis_cache_operations.py::test_cache_provider_operations
 - id: C-INFRA-10
   statement: /diagnostics/infra reports configured capabilities, instances, stability, registered drivers
     and per-instance health (registry.describe()).
