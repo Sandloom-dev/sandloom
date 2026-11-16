@@ -15,17 +15,17 @@ import sandloom_celery
 from _celery_broker_guard import require_broker, source_tree_gap
 
 from sandloom.driverkit.process_config import process_instance
+from sandloom.sdk.testing import resolved_cache_url
 
 
-def _instance_url(capability: str, option: str) -> str:
-    """The url the test configuration gives ``capability.default`` (the harness
-    resources, ``SANDLOOM_TEST_BROKER_URL`` / ``SANDLOOM_TEST_CACHE_URL``). A
-    configuration with none fails: a test that needs the server must not skip
-    for want of a url."""
-    instance = process_instance(capability)
-    url = None if instance is None else instance.options.get(option)
+def _broker_url() -> str:
+    """The broker the test configuration gives ``taskqueue.default`` (the harness
+    resource, ``SANDLOOM_TEST_BROKER_URL``). A configuration with none fails: a
+    test that needs the server must not skip for want of a url."""
+    instance = process_instance("taskqueue")
+    url = None if instance is None else instance.options.get("broker")
     if not isinstance(url, str) or not url:
-        pytest.fail(f"the test configuration has no {capability}.default {option}")
+        pytest.fail("the test configuration has no taskqueue.default broker")
     return url
 
 
@@ -42,7 +42,7 @@ def _tests_run_against_the_built_wheel() -> None:
 def real_broker() -> str:
     """The URL of the real test broker; fails or skips where it is down (see
     ``_celery_broker_guard``). Asked once per process."""
-    url = _instance_url("taskqueue", "broker")
+    url = _broker_url()
     require_broker(url)
     return url
 
@@ -51,6 +51,6 @@ def real_broker() -> str:
 def real_cache() -> str:
     """The URL of the real test cache (the lease store of the host groups); fails
     or skips where it is down, by the rules of ``real_broker``."""
-    url = _instance_url("cache", "url")
+    url = resolved_cache_url()
     require_broker(url, what="cache")
     return url

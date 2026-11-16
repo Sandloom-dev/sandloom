@@ -112,7 +112,7 @@ application does and opens nothing.
 
 | Name | What it is |
 | --- | --- |
-| `process_instance` | `process_instance(capability, name="default")`: the configured instance as an `InstanceConfig` copy, or `None` when the configuration declares none. The configuration is `Settings` (environment, `.env`), the composition's selection, `INFRA` over it, and the options each installed driver still takes from a flat setting. Check `driver` before reading an option: the instance may run another driver. An invalid configuration stops the process with the configuration error, as at every entry point. |
+| `process_instance` | `process_instance(capability, name="default")`: the configured instance as an `InstanceConfig` copy, or `None` when the configuration declares none. The configuration is `Settings` (environment, `.env`), the composition's selection, `INFRA` over it, and the options each installed driver still takes from a flat setting. Only `taskqueue` is answered, as `sandloom worker check` configures it; any other capability raises `ValueError`, and no other capability's driver is imported. It returns the options as configured, secrets included: it is for a process that boots no application, not for one that serves requests. Check `driver` before reading an option: the instance may run another driver. An invalid configuration stops the process with the configuration error, as at every entry point; a task queue driver that cannot be loaded raises the registry's error. |
 
 ## `sandloom.driverkit.testing`
 

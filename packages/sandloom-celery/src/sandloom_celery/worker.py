@@ -22,8 +22,10 @@ inspect|call|status`` and Flower use the module attribute ``app`` (also
 options of the ``default`` taskqueue instance (``INFRA.taskqueue.default.broker``,
 read through ``Settings`` by :mod:`sandloom.driverkit.process_config`; no result
 backend unless the instance states one), with no composition root and no task
-registered. A missing broker is an ``AttributeError`` naming that option. It is
-the driver's own interface, not a shim.
+registered. A missing broker is an ``AttributeError`` naming that option, and so
+is a ``CELERY_BROKER_URL`` / ``CELERY_RESULT_BACKEND`` in the environment that
+differs from ``INFRA`` (Celery's CLI writes them from ``-b`` / ``BROKER_URL`` and
+``app.conf`` prefers them). It is the driver's own interface, not a shim.
 
 **Process options.** The port carries the log level and the scheduler's state
 file (``state_file``: Celery beat's ``--schedule``, default ``celerybeat-schedule``
@@ -63,7 +65,6 @@ from sandloom.driverkit import (
     TooLarge,
     Unavailable,
     WorkerBoot,
-    process_config,
 )
 from sandloom.driverkit.periodic import (
     CronSchedule,
@@ -110,6 +111,12 @@ _CONF_ENV = (
     "CELERY_LOADER",
     "CELERY_CONFIG_MODULE",
 )
+
+#: Where ``app.conf`` reads the broker and the result backend from the
+#: environment before it reads the app's own (``celery/app/utils.py``); the
+#: importable app refuses a value other than ``INFRA``'s.
+_BROKER_ENV = ("CELERY_BROKER_URL", "CELERY_BROKER_READ_URL", "CELERY_BROKER_WRITE_URL")
+_BACKEND_ENV = "CELERY_RESULT_BACKEND"
 
 #: Process-wide ``default`` Celery app, built lazily, and the ``(broker,
 #: backend)`` it was built from.
@@ -178,8 +185,22 @@ def _importable_app_urls() -> tuple[str, str | None]:
     """The ``broker`` and ``backend`` of the importable app: the options of the
     ``default`` taskqueue instance, as the application resolves them (``INFRA``
     through ``Settings``; no environment variable of this driver). The backend is
-    ``None`` unless the instance states one."""
-    instance = process_config.process_instance("taskqueue", DEFAULT_INSTANCE)
+    ``None`` unless the instance states one.
+
+    Celery's own CLI would replace them: ``celery -b`` (envvar ``BROKER_URL``) and
+    ``--result-backend`` (``RESULT_BACKEND``) write ``CELERY_BROKER_URL`` and
+    ``CELERY_RESULT_BACKEND`` into the environment before ``-A`` is resolved, and
+    ``app.conf`` prefers those (and ``CELERY_BROKER_READ_URL`` /
+    ``CELERY_BROKER_WRITE_URL``) over the app's own ``broker=``. So the importable
+    app, which ``inspect``, ``call``, ``control`` and Flower use, refuses (an
+    ``AttributeError`` naming the variable, never its value) a variable that
+    differs from what ``INFRA`` states: it would send to, or read from, a broker
+    the operator did not configure."""
+    # Imported here: it pulls the kernel's infra registry, which a plain
+    # ``import sandloom_celery.worker`` (the provider, the worker host) must not.
+    from sandloom.driverkit.process_config import process_instance
+
+    instance = process_instance("taskqueue", DEFAULT_INSTANCE)
     if instance is None or instance.driver != "celery":
         selected = "none" if instance is None else repr(instance.driver)
         raise AttributeError(
@@ -196,7 +217,29 @@ def _importable_app_urls() -> tuple[str, str | None]:
     backend = instance.options.get("backend")
     if backend is not None and not isinstance(backend, str):
         raise AttributeError("the INFRA option taskqueue.default.backend must be a url")
-    return broker.strip(), backend.strip() if backend else None
+    broker = broker.strip()
+    backend = backend.strip() if backend else None
+    for key in _BROKER_ENV:
+        _refuse_foreign_env(key, broker, f"the INFRA option {_BROKER_OPTION}")
+    _refuse_foreign_env(
+        _BACKEND_ENV, backend, "the INFRA option taskqueue.default.backend"
+    )
+    return broker, backend
+
+
+def _refuse_foreign_env(key: str, stated: str | None, option: str) -> None:
+    """Refuse a Celery environment variable that is set and not what ``option``
+    states (``stated``, ``None`` for an option left out). Celery treats a blank
+    value as unset, as does this. The message names the variable, never its
+    value: it is a URL, with a password."""
+    value = os.environ.get(key)
+    if value and value != stated:
+        raise AttributeError(
+            f"{key} is set and is not {option}: Celery would use it instead of "
+            "the configured one. Unset it (a `celery -b` / `--result-backend` "
+            "option or a BROKER_URL / RESULT_BACKEND variable writes it), or "
+            f"set it to what {option} states"
+        )
 
 
 def _refuse(message: str) -> NoReturn:

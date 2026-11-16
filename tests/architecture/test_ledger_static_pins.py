@@ -91,6 +91,7 @@ def test_monolith_migrate_one_shot_gates_every_process() -> None:
 #: config, test/bootstrap switches). The count may only go DOWN (G-CONFIG-06).
 RAW_ENV_BASELINE: dict[str, int] = {
     "sandloom_billing/migrations/versions/0005_billing_subscription_origin.py": 1,
+    "sandloom_celery/worker.py": 1,
     "sandloom/core/app_factory/config.py": 1,
     "sandloom/core/auth/hashing.py": 2,
     "sandloom/core/cli/extract.py": 1,

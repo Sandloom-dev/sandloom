@@ -36,6 +36,8 @@ from sandloom.core.config.settings import settings
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.errors import InvalidArgument
 from sandloom.core.infra.ports.taskqueue import PeriodicSpec, TaskSpec, TaskTable
+from sandloom.core.infra.registry import DriverNotRegisteredError
+from sandloom.driverkit import process_config
 
 
 def _celery() -> Celery:
@@ -388,6 +390,9 @@ def _importable_app_infra(
         "infra",
         {} if default is None else {"taskqueue": {"default": default}},
     )
+    # the variables Celery's CLI writes and ``app.conf`` reads: none ambient
+    for key in (*celery_worker._BROKER_ENV, celery_worker._BACKEND_ENV):
+        monkeypatch.delenv(key, raising=False)
 
 
 def test_the_importable_app_names_the_infra_option_when_it_has_no_broker(
@@ -406,14 +411,20 @@ def test_the_importable_app_refuses_a_default_taskqueue_that_is_not_celery(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _importable_app_infra(monkeypatch, None)
-    monkeypatch.setattr(
-        celery_worker.process_config, "process_instance", lambda *_: None
-    )
+    monkeypatch.setattr(process_config, "process_instance", lambda *_: None)
     with pytest.raises(AttributeError, match="celery driver.*none"):
         celery_worker.app  # noqa: B018
+    # another installed task queue driver on the default instance
+    other = InstanceConfig(
+        capability="taskqueue", name="default", driver="rq", options={"broker": "x"}
+    )
+    monkeypatch.setattr(process_config, "process_instance", lambda *_: other)
+    with pytest.raises(AttributeError, match="'rq'"):
+        celery_worker.app  # noqa: B018
+    # a driver nobody installed is the registry's refusal, not an empty answer
     monkeypatch.undo()
     _importable_app_infra(monkeypatch, {"driver": "memory"})
-    with pytest.raises(AttributeError, match="'memory'"):
+    with pytest.raises(DriverNotRegisteredError, match="taskqueue/default"):
         celery_worker.app  # noqa: B018
 
 
@@ -434,6 +445,63 @@ def test_the_importable_app_has_no_result_backend_unless_infra_states_one(
         },
     )
     assert celery_worker.app.conf.result_backend == "redis://127.0.0.1:1/8"
+
+
+_INFRA_BROKER = "redis://user:infra-secret@127.0.0.1:1/9"
+
+
+@pytest.mark.parametrize(
+    "variable",
+    ["CELERY_BROKER_URL", "CELERY_BROKER_READ_URL", "CELERY_BROKER_WRITE_URL"],
+)
+def test_the_importable_app_refuses_a_celery_broker_variable_other_than_infra(
+    monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    """``celery -b`` (``BROKER_URL``) writes ``CELERY_BROKER_URL`` and ``app.conf``
+    prefers it over the app's broker: ``inspect`` / ``call`` / Flower would use
+    a broker INFRA does not state. The refusal names the variable, never a URL."""
+    _importable_app_infra(monkeypatch, {"driver": "celery", "broker": _INFRA_BROKER})
+    monkeypatch.setenv(variable, "redis://user:stray-secret@127.0.0.1:1/7")
+    with pytest.raises(AttributeError) as refused:
+        celery_worker.app  # noqa: B018
+    assert variable in str(refused.value)
+    assert "stray-secret" not in str(refused.value)
+    assert "infra-secret" not in str(refused.value)
+    assert celery_worker._default_app is None
+
+
+def test_the_importable_app_accepts_celery_variables_equal_to_infra_or_blank(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CLI mirrors ``-b`` into ``CELERY_BROKER_URL``: the value INFRA states
+    passes, and a blank one is unset to Celery."""
+    _importable_app_infra(
+        monkeypatch,
+        {
+            "driver": "celery",
+            "broker": _INFRA_BROKER,
+            "backend": "redis://127.0.0.1:1/8",
+        },
+    )
+    monkeypatch.setenv("CELERY_BROKER_URL", _INFRA_BROKER)
+    monkeypatch.setenv("CELERY_BROKER_READ_URL", "")
+    monkeypatch.setenv("CELERY_RESULT_BACKEND", "redis://127.0.0.1:1/8")
+    assert celery_worker.app.conf.broker_url == _INFRA_BROKER
+
+
+def test_the_importable_app_refuses_a_result_backend_variable_other_than_infra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for backend in (None, "redis://127.0.0.1:1/8"):
+        options: dict[str, object] = {"driver": "celery", "broker": _INFRA_BROKER}
+        if backend is not None:
+            options["backend"] = backend
+        _importable_app_infra(monkeypatch, options)
+        monkeypatch.setenv("CELERY_RESULT_BACKEND", "redis://u:stray-secret@h:1/3")
+        with pytest.raises(AttributeError, match="CELERY_RESULT_BACKEND") as refused:
+            celery_worker.app  # noqa: B018
+        assert "stray-secret" not in str(refused.value)
+        assert celery_worker._default_app is None
 
 
 def test_the_importable_app_is_the_default_app_built_from_the_infra_broker(
