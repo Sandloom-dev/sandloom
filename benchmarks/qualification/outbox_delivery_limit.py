@@ -80,7 +80,9 @@ def bus_location(env):
         bus = json.loads(env.get("INFRA") or "{}")["eventbus"]["default"]
     except (KeyError, TypeError, ValueError):
         bus = {}
-    url = bus.get("url") or env.get("CACHE_URL") or "redis://cache:6379/0"
+    # the base compose names no bus: its Redis is the ``cache`` service (what
+    # its CACHE_URL said until the flat settings went)
+    url = bus.get("url") or "redis://cache:6379/0"
     parts = urlsplit(url)
     db = (parts.path or "/0").lstrip("/") or "0"
     return f"{PROJECT}-{parts.hostname}-1", db, bus.get("prefix", "")

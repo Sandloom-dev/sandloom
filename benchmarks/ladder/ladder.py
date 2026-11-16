@@ -18,7 +18,7 @@ deterministic sequence of random ids (1..9999):
     H*   the hot-path profiling stand's own rungs (hot_paths.py)
     WL*  the write / login profiling stand's own rungs (write_login.py)
 
-Usage (from ``benchmarks/``; DATABASE_URL / CACHE_URL / BROKER_URL in env)::
+Usage (from ``benchmarks/``; DATABASE_URL / BENCH_REDIS_URL / BENCH_CELERY_BROKER in env)::
 
     uv run python ladder/ladder.py list
     uv run python ladder/ladder.py cpu    L3 --n 5000 --reps 5 [--conc 64] [--loop uvloop]

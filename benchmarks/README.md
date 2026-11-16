@@ -92,8 +92,10 @@ writing the lock has no wheel for:
   `uv.lock`; `python -m benchsuite.check_versions` fails the job when
   they drift (bump them together with the framework lock).
 - **Same backends and pool.** Real Postgres 16 and Redis 7 service containers
-  per job. Every app reads the same `DATABASE_URL` / `CACHE_URL` / `JWT_SECRET`
-  and uses Sandloom's default pool shape (SQLAlchemy LIFO pool, 10 + 20 overflow,
+  per job. Every app reads the same `DATABASE_URL` / `BENCH_REDIS_URL` / `JWT_SECRET`
+  (the other stands give Sandloom the Redis url on each instance of its `INFRA`;
+  the `benchsuite.run` stand selects no Redis instance, as before the flat
+  `CACHE_URL` / `BROKER_URL` went) and uses Sandloom's default pool shape (SQLAlchemy LIFO pool, 10 + 20 overflow,
   no pre-ping; Redis blocking pool of 64, hiredis everywhere).
 - **Same tables.** All implementations read `bench_items` and write
   `bench_writes`. The bare apps write their event into `bare_outbox_messages`,
@@ -279,7 +281,7 @@ for x in base:<commit-a> new:<commit-b>; do
 done
 cd benchmarks
 export DATABASE_URL=postgresql+asyncpg://test_user:test_password@localhost:5433/<own_db> \
-       CACHE_URL=redis://localhost:6380/9 BROKER_URL=redis://localhost:6380/8
+       BENCH_REDIS_URL=redis://localhost:6380/9 BENCH_CELERY_BROKER=redis://localhost:6380/8
 uv run python -m benchsuite.setup_db          # S5 table, RLS policy, bench_s5_get, role
 uv run python -m benchsuite.s5 smoke all      # contract of every variant
 export STAGES=base=$SP/base,new=$SP/new
@@ -417,7 +419,7 @@ skipped with a note; wrk2 has no maintained macOS package — build it with
 cd benchmarks
 uv sync
 export DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/sandloom_bench
-export CACHE_URL=redis://localhost:6379/5 BROKER_URL=redis://localhost:6379/6
+export BENCH_REDIS_URL=redis://localhost:6379/5 BENCH_CELERY_BROKER=redis://localhost:6379/6
 uv run python -m benchsuite.check_versions
 uv run python -m benchsuite.setup_db           # creates the DB if missing
 uv run python -m benchsuite.run --impls sandloom,fastapi \

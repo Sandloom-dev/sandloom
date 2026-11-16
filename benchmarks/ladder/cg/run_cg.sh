@@ -1,6 +1,6 @@
 #!/bin/sh
 # Build the image and run the cachegrind ladder (host with docker).
-#   DATABASE_URL=... CACHE_URL=... BROKER_URL=... ladder/cg/run_cg.sh L0 L2 L3 ...
+#   DATABASE_URL=... BENCH_REDIS_URL=... BENCH_CELERY_BROKER=... ladder/cg/run_cg.sh L0 L2 L3 ...
 # localhost / 127.0.0.1 in the URLs become host.docker.internal in the container.
 #
 # The checkout is mounted, not installed: the core migration chain comes from
@@ -49,8 +49,8 @@ PY
 fix() { echo "$1" | sed 's/localhost/host.docker.internal/; s/127\.0\.0\.1/host.docker.internal/'; }
 docker run --rm \
   -e DATABASE_URL="$(fix "$DATABASE_URL")" \
-  -e CACHE_URL="$(fix "$CACHE_URL")" \
-  -e BROKER_URL="$(fix "$BROKER_URL")" \
+  -e BENCH_REDIS_URL="$(fix "$BENCH_REDIS_URL")" \
+  -e BENCH_CELERY_BROKER="$(fix "${BENCH_CELERY_BROKER:-$BENCH_REDIS_URL}")" \
   -e CG_K="${CG_K:-200}" \
   -e SANDLOOM_COMPOSITION_ROOT="${SANDLOOM_COMPOSITION_ROOT:-sandloom_standard.main}" \
   -e SANDLOOM_SERVICE_NAME="${SANDLOOM_SERVICE_NAME:-ladder}" \

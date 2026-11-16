@@ -87,6 +87,11 @@ def _sandloom_env() -> dict[str, str]:
         "ENVIRONMENT": "prod",
         "SANDLOOM_MODULES": '["benchsuite.bench"]',
         "MODULE_REQUIRED": '["benchsuite.bench"]',
+        # No INFRA: the lean root (``create_app()`` with no composition
+        # selection) selects no Redis instance, so the flat CACHE_URL /
+        # BROKER_URL this stand carried on main never reached one. Giving it
+        # INFRA now would add a Redis cache, a streams bus and a security store
+        # and break comparability with the recorded baselines.
         # Fairness: no per-request log lines in ANY implementation (uvicorn /
         # granian access logs are off too). Sandloom's prod JSON log format stays.
         "LOG_LEVEL": "WARNING",
@@ -466,8 +471,6 @@ class Session:
         self.base_env = {
             **os.environ,
             "DATABASE_URL": common.database_url(),
-            "CACHE_URL": common.cache_url(),
-            "BROKER_URL": common.broker_url(),
             "JWT_SECRET": common.jwt_secret(),
             "PYTHONUNBUFFERED": "1",
         }
