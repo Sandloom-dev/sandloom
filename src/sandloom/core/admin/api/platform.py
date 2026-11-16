@@ -232,11 +232,17 @@ class RequeueIn(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
 
 
+#: A dead-letter entry id (and the page cursor): an opaque, bounded token. The
+#: event transport mints it (a Redis stream id is ``1700000000000-0``, another
+#: transport may use a UUID), so the API checks its shape and no more.
+_DLQ_ENTRY_ID = r"^[A-Za-z0-9_.:-]{1,80}$"
+
+
 class ReplayIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     channel: str = Field(min_length=1, max_length=200, pattern=r"^[a-z0-9_.-]+$")
     group: str = Field(min_length=1, max_length=200)
-    ids: list[Annotated[str, Field(max_length=80, pattern=r"^[0-9]+-[0-9]+$")]] = Field(
+    ids: list[Annotated[str, Field(max_length=80, pattern=_DLQ_ENTRY_ID)]] = Field(
         min_length=1, max_length=100
     )
     reason: str = Field(min_length=3, max_length=500)
@@ -493,9 +499,9 @@ def _stream_routes(router: APIRouter, core: Any, source: _Source) -> None:
         request: Request,
         channel: str = Query(max_length=200, pattern=r"^[a-z0-9_.-]+$"),
         limit: int = Query(100, ge=1, le=200),
-        cursor: str | None = Query(None, max_length=80, pattern=r"^[0-9]+-[0-9]+$"),
+        cursor: str | None = Query(None, max_length=80, pattern=_DLQ_ENTRY_ID),
     ) -> JSONResponse:
-        """Inspect this service's DLQ, continuing after the last Redis entry ID."""
+        """Inspect this service's DLQ, continuing after the last entry ID."""
         if channel not in _local_channels(request):
             raise HTTPException(404, "No consumer of this channel runs in this service")
         async with _unavailable_as_501():

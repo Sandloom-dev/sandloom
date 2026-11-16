@@ -965,7 +965,7 @@ restore the interpreter's own behaviour exactly.
 
   | the module requires | a broker outage |
   |---|---|
-  | the queue on the request path (no feature, or `delay`, `idempotency_key`) | `/ready` 503, `taskqueue_status: fail`, naming the instance |
+  | the queue on the request path (no feature, or `delay`) | `/ready` 503, `taskqueue_status: fail`, naming the instance |
   | only `periodic` (Billing) | the web process can stay ready. `taskqueue_status` is `unused`, and internal details list the module under `background_modules`. |
   | it optionally (identity's cleanup), or not at all | never probed |
 

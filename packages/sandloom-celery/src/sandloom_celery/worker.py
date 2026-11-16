@@ -171,8 +171,13 @@ def get_default_app(broker: str, backend: str | None) -> Any:
 
 
 def _new_default_app(broker: str, backend: str | None) -> Any:
+    # Not current yet: ``Celery(...)`` would make it ``celery.current_app`` at
+    # construction, and an app refused by the conf check would stay current. The
+    # caller makes it current (``app.set_current()``) once the check has passed.
     return _apply_framework_defaults(
-        _celery_module().Celery("project", broker=broker, backend=backend)
+        _celery_module().Celery(
+            "project", broker=broker, backend=backend, set_as_current=False
+        )
     )
 
 
@@ -183,9 +188,16 @@ def default_app_matches(broker: str, backend: str | None) -> bool:
 
 
 def build_named_app(name: str, broker: str, backend: str | None) -> Any:
-    """A Celery app of a named instance (its own broker and namespace)."""
+    """A Celery app of a named instance (its own broker and namespace). Not
+    current: the caller makes it so (``app.set_current()``) once the conf check
+    has passed."""
     return _apply_framework_defaults(
-        _celery_module().Celery(f"sandloom-{name}", broker=broker, backend=backend)
+        _celery_module().Celery(
+            f"sandloom-{name}",
+            broker=broker,
+            backend=backend,
+            set_as_current=False,
+        )
     )
 
 
@@ -203,11 +215,13 @@ def __getattr__(name: str) -> Any:
         else:
             broker, backend = _importable_app_urls()
             # Built in a local and stored only once every check passed: a refused
-            # app is neither the process-wide one nor reachable from the module.
+            # app is neither the process-wide one nor reachable from the module,
+            # and (built not current) never ``celery.current_app`` either.
             app = _new_default_app(broker, backend)
             _refuse_foreign_conf(app, broker, backend)
             _default.app = app
             _default.urls = (broker, backend)
+        app.set_current()
         return _refuse_unhosted_runs(app)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

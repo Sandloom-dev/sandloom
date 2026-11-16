@@ -272,12 +272,13 @@ Your modules called `db()` and never named a database engine. The backend is cho
 
 ```text
 DATABASE_URL=postgresql+asyncpg://...   # the database
-INFRA='{"cache":{"default":{"url":"redis://..."}},"taskqueue":{"default":{"broker":"redis://..."}}}'
+INFRA='{"cache":{"default":{"url":"redis://..."}},"atomic_store":{"security":{"url":"redis://..."}},"lease":{"beat":{"url":"redis://..."}},"broadcast":{"default":{"url":"redis://..."}},"taskqueue":{"default":{"broker":"redis://..."}}}'
 ```
 
 `DATABASE_URL` configures the default database **driver**, the piece of code that connects
-Sandloom to a backend. Each Redis instance, such as the cache, takes its own url in `INFRA`;
-the task queue takes a `broker`. Pointing a url at another server, or selecting another
+Sandloom to a backend. Each Redis instance of the app takes its own url in `INFRA`.
+These are the cache, the security store, the beat lease and the broadcast. The task
+queue takes a `broker`, and the event bus a `url` where the app selects Streams. Pointing a url at another server, or selecting another
 driver in `INFRA`, changes no module code. You have now used both main parts of Sandloom:
 modules hold your product, and drivers connect it to the outside world. See
 [what is included](../infrastructure/index.md#what-is-included) and

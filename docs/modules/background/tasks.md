@@ -184,8 +184,8 @@ importable Celery app of the Celery driver is for `celery inspect` and Flower: a
 from `INFRA.taskqueue.default.broker`, through `Settings`, when the app is first
 used. With no broker it fails and names that option. It has no result backend
 unless that instance states `backend`. The environment cannot replace the app
-or the broker of a worker or a beat. `APP`, `BROKER_URL` and `CELERY_BROKER_URL`
-have no effect there. The importable app is stricter. `celery -b` writes
+or the broker of a worker or a beat. On a worker or a beat `APP`, `BROKER_URL`
+and `CELERY_BROKER_URL` have no effect. The importable app is stricter. `celery -b` writes
 `CELERY_BROKER_URL` and `--result-backend` writes `CELERY_RESULT_BACKEND`. Celery
 prefers both over the app's own broker. So the app raises an error that names the
 variable when one differs from `INFRA`. The same holds for

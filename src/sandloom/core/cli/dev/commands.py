@@ -32,6 +32,7 @@ from typing import Any, TextIO
 from dotenv import dotenv_values
 
 import sandloom.core.cli.ui as _ui
+import sandloom.core.testing.workers as _workers
 from sandloom.core.cli.dev import docker as _docker
 from sandloom.core.cli.dev import envfile as _envfile
 from sandloom.core.cli.dev import errors as _errors
@@ -215,12 +216,20 @@ def write_state_env(ctx: Context, state: State) -> None:
 #: interpreter happens to import) and that nothing of it, not even its
 #: settings, is imported into the CLI.
 _READ_SELECTION = (
-    "import json, sys\n"
+    "import json, os, sys\n"
+    # ``python -c`` puts the cwd first on ``sys.path``, unless PYTHONSAFEPATH=1
+    # drops it: the checkout's own package would not be found then.
+    "sys.path.insert(0, os.getcwd())\n"
     "from sandloom.core.composition import root_default_infra\n"
     "from sandloom.core.infra.registry import declared_url_options\n"
     "infra = root_default_infra(sys.argv[1]) or {}\n"
-    "print(json.dumps({'infra': infra, 'url_options': declared_url_options(infra)}))\n"
+    "print(sys.argv[2] + json.dumps({'infra': infra, "
+    "'url_options': declared_url_options(infra)}))\n"
 )
+
+#: Prefix of the answer line: the app may print at import or at exit, so the
+#: answer is the line that starts with it, never the last line of stdout.
+_SELECTION_SENTINEL = "SANDLOOM-DEV-SELECTION:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,14 +261,18 @@ def composition_selection(
     )
     try:
         proc = _process.run(
-            [sys.executable, "-c", _READ_SELECTION, name],
+            [sys.executable, "-c", _READ_SELECTION, name, _SELECTION_SENTINEL],
             env=ctx.environ,
             cwd=checkout or ctx.root,
             timeout=120,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise DevError(refusal % (str(exc) or type(exc).__name__)) from exc
-    lines = proc.stdout.strip().splitlines()
+    lines = [
+        line.removeprefix(_SELECTION_SENTINEL)
+        for line in proc.stdout.splitlines()
+        if line.startswith(_SELECTION_SENTINEL)
+    ]
     if proc.returncode != 0 or not lines:
         tail = (proc.stderr.strip().splitlines() or ["it printed nothing"])[-1]
         raise DevError(refusal % tail)
@@ -318,10 +331,14 @@ def checkout_urls(
     return urls
 
 
-#: The test override of each Redis-url capability: ``SANDLOOM_TEST_<name>`` replaces
-#: the url of that capability's ``default`` instance, and the harness refuses it
-#: (``UnmatchedOverrideError``) where ``INFRA`` has none to replace.
-_TEST_OVERRIDES = {"cache": "CACHE_URL", "taskqueue": "BROKER_URL"}
+def _test_env_infra(row: CheckoutRow) -> str | None:
+    """The ``INFRA`` of the checkout's ``.env.test`` (what the harness merges the
+    test overrides into), ``None`` when that file states none."""
+    try:
+        text = (Path(row.path) / ".env.test").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return _envfile.winning_assignment(text, "INFRA")[0] or None
 
 
 def _selects_url_instance(selection: CompositionSelection, capability: str) -> bool:
@@ -342,9 +359,13 @@ def test_urls(
 ) -> dict[str, str]:
     """The test resources of ``row``: always the database; the cache and broker
     override names only where the composition has a ``default`` instance of that
-    capability on a url driver: the harness refuses an override with no instance
-    to replace, so a checkout that wrote one could not run its tests. An empty
-    selection (the framework's own checkout, no composition) keeps both."""
+    capability on a url driver, and where the ``INFRA`` of the checkout's
+    ``.env.test`` (the one the harness merges them into) declares a Redis url on
+    that capability's ``default`` instance: the harness refuses an override with
+    no instance to replace, so a checkout that wrote one could not run its tests.
+    An empty selection (the framework's own checkout, no composition) is judged by
+    ``.env.test`` alone; a ``.env.test`` with no ``INFRA`` by the selection
+    alone."""
     redis = ctx.redis(state, test=True)
     urls = {
         "SANDLOOM_TEST_DATABASE_URL": ctx.postgres(state, test=True).url(
@@ -354,9 +375,12 @@ def test_urls(
     if selection is None:
         selection = row_selection(ctx, row)
     indexes = {"CACHE_URL": TEST_CACHE_INDEX, "BROKER_URL": TEST_BROKER_INDEX}
-    for capability, name in _TEST_OVERRIDES.items():
-        if not selection.infra or _selects_url_instance(selection, capability):
-            urls[f"SANDLOOM_TEST_{name}"] = redis.url(indexes[name])
+    infra = _test_env_infra(row)
+    takes = None if infra is None else _workers.overrides_infra_can_take(infra)
+    for name, capability in _workers.INFRA_URL_CAPABILITIES.items():
+        wanted = not selection.infra or _selects_url_instance(selection, capability)
+        if wanted and (takes is None or name in takes):
+            urls[f"{_workers.OVERRIDE_PREFIX}{name}"] = redis.url(indexes[name])
     return urls
 
 

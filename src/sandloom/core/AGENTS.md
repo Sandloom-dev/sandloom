@@ -73,8 +73,10 @@ Each gate below fails with a code; `uv run sandloom explain <code>` gives the wh
 
 - **Drivers construct backends.** A backend constructor
   (`create_async_engine`, `redis.from_url`, `Celery(...)`, `Storage(...)`)
-  appears only in `sandloom.core.drivers/**`, built lazily by `get_default_*()`
-  factories (`test_infra_constructed_only_in_drivers`).
+  appears only in a driver: `sandloom.core.drivers/**` for the kernel's own, or a
+  driver package (`packages/sandloom-*`), which imports only `sandloom.driverkit`.
+  Built lazily by the driver's own factory (`test_infra_constructed_only_in_drivers`
+  scans the kernel for any other construction site).
 - **SQLAlchemy stays inside the relational surface**: `orm`, `tenant`, `di`,
   `sql_alchemy/`, `projections/upsert`, `migrations/` and the drivers
   (`test_relational_paradigm_boundary`; `TYPE_CHECKING` imports exempt).

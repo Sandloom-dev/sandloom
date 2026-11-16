@@ -11,7 +11,14 @@ dependencies = [
     "pydantic>=2,<3",
     "orjson>=3.13.0,<4",
     "celery[redis]>=5.6.3,<6",
+    # The same bound as sandloom-redis: the Redis client is imported through the
+    # celery extra, which would otherwise accept any release.
+    "redis>=5.2.1,<6",
 ]
+
+[project.optional-dependencies]
+# The hiredis parser of the Redis client (faster reply parsing); optional.
+hiredis = ["redis[hiredis]>=5.2.1,<6"]
 
 [project.entry-points."sandloom.drivers"]
 "taskqueue.celery" = "sandloom_celery.taskqueue:CeleryTaskQueueProvider"
