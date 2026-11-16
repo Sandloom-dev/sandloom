@@ -21,22 +21,22 @@
   },
   "core/testing/connections.py": {
     "sites": 1,
-    "reason": "test provisioning: the PostgreSQL server's connection headroom (psycopg2); a SQLite file has none. Follow-up: a test-database provisioner behind the driver"
+    "reason": "test provisioning: the PostgreSQL server's connection headroom (psycopg2); a SQLite file has none. The harness provisions the test database itself, with the sync PostgreSQL driver (design.md section 4), beside the SQLAlchemy driver"
   },
   "core/testing/ownership.py": {
     "sites": 3,
-    "reason": "test provisioning: the ownership mark lives in a PostgreSQL database comment or beside a SQLite file (<file>.owner). Follow-up: a test-database provisioner behind the driver"
+    "reason": "test provisioning: the ownership mark lives in a PostgreSQL database comment or beside a SQLite file (<file>.owner). The harness provisions the test database itself, with the sync PostgreSQL driver (design.md section 4), beside the SQLAlchemy driver"
   },
   "core/testing/session_checks.py": {
     "sites": 1,
-    "reason": "test provisioning: the 'start your own PostgreSQL' hint applies to a PostgreSQL server only. Follow-up: a test-database provisioner behind the driver"
+    "reason": "test provisioning: the 'start your own PostgreSQL' hint applies to a PostgreSQL server only. The harness provisions the test database itself, with the sync PostgreSQL driver (design.md section 4), beside the SQLAlchemy driver"
   },
   "core/testing/slots.py": {
     "sites": 1,
-    "reason": "test provisioning: a .env.test.local slot leases a PostgreSQL server's database names. Follow-up: a test-database provisioner behind the driver"
+    "reason": "test provisioning: a .env.test.local slot leases a PostgreSQL server's database names. The harness provisions the test database itself, with the sync PostgreSQL driver (design.md section 4), beside the SQLAlchemy driver"
   },
   "core/testing/workers.py": {
     "sites": 4,
-    "reason": "test provisioning: one database per xdist worker is a PostgreSQL CREATE DATABASE or a SQLite file beside the configured one. Follow-up: a test-database provisioner behind the driver"
+    "reason": "test provisioning: one database per xdist worker is a PostgreSQL CREATE DATABASE or a SQLite file beside the configured one. The harness provisions the test database itself, with the sync PostgreSQL driver (design.md section 4), beside the SQLAlchemy driver"
   }
 }

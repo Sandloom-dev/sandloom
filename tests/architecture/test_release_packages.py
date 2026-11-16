@@ -400,3 +400,148 @@ def test_every_package_tag_triggers_the_release_workflow():
         assert any(fnmatch.fnmatchcase(tag, p) for p in patterns), tag
     options = workflow[True]["workflow_dispatch"]["inputs"]["package"]
     assert options["type"] == "string", "a dropdown would repeat the package list"
+
+
+GUARDED_REDIS = (
+    "import importlib\n\n\ndef client():\n    try:\n"
+    "        return importlib.import_module('redis')\n"
+    "    except ImportError:\n        return None\n"
+)
+KERNEL_METADATA = (
+    "Metadata-Version: 2.4\nName: sandloom\nVersion: 0.1.0\n"
+    "Requires-Dist: asyncpg>=0.32; extra == 'postgres'\n"
+    "Provides-Extra: postgres\n"
+)
+
+
+def kernel_wheel(path: Path, sources: dict[str, str], metadata: str) -> Path:
+    with zipfile.ZipFile(path, "w") as archive:
+        for package in (
+            "sandloom",
+            "sandloom/core",
+            "sandloom/core/cli",
+            "sandloom/core/cli/dev",
+        ):
+            archive.writestr(f"{package}/__init__.py", "")
+        for name, source in sources.items():
+            archive.writestr(name, source)
+        archive.writestr("sandloom-0.1.0.dist-info/METADATA", metadata)
+    return path
+
+
+DEV_SERVICES = {"sandloom/core/cli/dev/services.py": GUARDED_REDIS}
+KERNEL_CASES = {
+    "clean": (DEV_SERVICES, KERNEL_METADATA, ""),
+    "docstring and comment name a command": (
+        {
+            **DEV_SERVICES,
+            "sandloom/core/a.py": '"""XADD and redis.call( in prose."""\n# XADD\n',
+        },
+        KERNEL_METADATA,
+        "",
+    ),
+    "redis import": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "import redis\n"},
+        KERNEL_METADATA,
+        "sandloom.core.a:1 imports redis",
+    ),
+    "redis from-import in a function": (
+        {
+            **DEV_SERVICES,
+            "sandloom/core/a.py": "def f():\n    from redis.asyncio import Redis\n",
+        },
+        KERNEL_METADATA,
+        "sandloom.core.a:2 imports redis.asyncio.Redis",
+    ),
+    "guarded redis import elsewhere": (
+        {**DEV_SERVICES, "sandloom/core/a.py": GUARDED_REDIS},
+        KERNEL_METADATA,
+        "sandloom.core.a:6 imports redis",
+    ),
+    "unguarded redis import in the exempt module": (
+        {"sandloom/core/cli/dev/services.py": "import redis\n"},
+        KERNEL_METADATA,
+        "sandloom.core.cli.dev.services:1 imports redis",
+    ),
+    "exemption gone stale": (
+        {"sandloom/core/cli/dev/services.py": "x = 1\n"},
+        KERNEL_METADATA,
+        "stale exemption",
+    ),
+    "celery import": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "import celery\n"},
+        KERNEL_METADATA,
+        "sandloom.core.a:1 imports celery",
+    ),
+    "kombu import by name": (
+        {
+            **DEV_SERVICES,
+            "sandloom/core/a.py": "import importlib\nimportlib.import_module('kombu')\n",
+        },
+        KERNEL_METADATA,
+        "sandloom.core.a:2 imports kombu",
+    ),
+    "a Redis command": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "c.execute_command('XREADGROUP', 1)\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'XREADGROUP'",
+    ),
+    "a Lua script": (
+        {
+            **DEV_SERVICES,
+            "sandloom/core/a.py": "S = \"return redis.call('GET', KEYS[1])\"\n",
+        },
+        KERNEL_METADATA,
+        "carries Redis protocol code",
+    ),
+    "asyncpg is a base requirement": (
+        DEV_SERVICES,
+        KERNEL_METADATA + "Requires-Dist: asyncpg>=0.32\n",
+        "base requirements ['asyncpg']",
+    ),
+    "a Redis client is a base requirement": (
+        DEV_SERVICES,
+        KERNEL_METADATA + "Requires-Dist: redis>=5\n",
+        "base requirements ['redis']",
+    ),
+    "a driver package is a base requirement": (
+        DEV_SERVICES,
+        KERNEL_METADATA + "Requires-Dist: sandloom-celery\n",
+        "base requirements ['sandloom-celery']",
+    ),
+    "asyncpg missing from the postgres extra": (
+        DEV_SERVICES,
+        "Metadata-Version: 2.4\nName: sandloom\nVersion: 0.1.0\n",
+        "asyncpg is not declared by the 'postgres' extra",
+    ),
+}
+
+
+def test_the_kernel_wheel_check_bites_on_each_backend_leak(tooling, tmp_path):
+    wheels = {
+        name: str(kernel_wheel(tmp_path / f"{index}.whl", sources, metadata))
+        for index, (name, (sources, metadata, _)) in enumerate(KERNEL_CASES.items())
+    }
+    result = run(
+        tooling,
+        f"""
+        import json, pathlib, check_package_distributions as c
+
+        def verdict(path):
+            try:
+                c.check_kernel_backends(pathlib.Path(path))
+            except RuntimeError as error:
+                return str(error)
+            return "ok"
+
+        print(json.dumps({{n: verdict(p) for n, p in {wheels!r}.items()}}))
+        """,
+    )
+    assert isinstance(result, dict)
+    assert set(result) == set(KERNEL_CASES)
+    for name, (_, _, expected) in KERNEL_CASES.items():
+        if expected:
+            assert expected in str(result[name]), (name, result[name])
+            assert "the kernel wheel is not backend-free" in str(result[name])
+        else:
+            assert result[name] == "ok", (name, result[name])

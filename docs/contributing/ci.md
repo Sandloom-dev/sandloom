@@ -118,6 +118,16 @@ and its `testing` and `sqlite` extras alone
 (`tools/packaging/check_package_distributions.py`). Two xdist workers each run
 on their own SQLite database, with no Redis client and no family.
 
+The same checker reads the built kernel wheel and refuses a Redis or Celery
+leak. It fails on three things:
+
+- a `.py` file that imports `redis`, `aioredis`, `celery` or `kombu`. One
+  guarded import in `sandloom dev` is the named exception;
+- a Redis wire command or a Lua call as a code string;
+- a base requirement on `asyncpg`, a Redis client or a driver package.
+
+Only the `postgres` extra declares `asyncpg`.
+
 A last step uninstalls `asyncpg` (the `postgres` extra) and runs
 `src/sandloom/core/tests/test_postgres_extra.py` on a SQLite file. The kernel
 boots without it and imports neither asyncpg nor psycopg2. It refuses a
