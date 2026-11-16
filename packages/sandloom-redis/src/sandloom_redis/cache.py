@@ -425,6 +425,7 @@ class RedisCacheProvider(CacheProvider):
     supported_features = REDIS_CACHE_FEATURES
     performance_hints = REDIS_CACHE_PERFORMANCE_HINTS
     options_schema = RedisCacheOptions
+    url_option = "url"
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
     # Beta, the floor for a driver of this repository (spec 2.5): the

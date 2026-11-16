@@ -181,6 +181,7 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
 
     contract_version = 2
     options_schema = EventBusOptions
+    url_option = "url"
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
     # Beta, the floor for a driver of this repository (spec 2.5): the

@@ -1,3 +1,7 @@
 ### Breaking changes
 
 - **The `celery` task queue driver fills only `health_timeout_seconds` from a setting** (idk-flat-urls-z). `BROKER_URL` and `CACHE_URL` are removed settings: the broker is the `broker` option of the `taskqueue` instance and the result backend is the `backend` option, off unless stated. The driver's `settings_fill` keeps the readiness probe's bound (`HEALTH_CHECK_TIMEOUT_SECONDS` into `health_timeout_seconds`, as cap and bound). Upgrade: [Upgrading to 0.7.0a14](docs/operate/upgrade.md).
+
+### Security
+
+- **The app a `taskqueue` provider publishes through refuses a `CELERY_*` broker or backend that differs from `INFRA`** (idk-flat-urls-z). Celery's `app.conf` prefers `CELERY_BROKER_URL`, `CELERY_BROKER_READ_URL`, `CELERY_BROKER_WRITE_URL` and `CELERY_RESULT_BACKEND` (and a config module) over the url the app was built with, so a stray one silently redirected every publish. On the provider's first use its final `app.conf` is compared with the instance's `broker` and `backend` and a difference raises `ForeignCeleryConfError`, not an outage (nothing was sent), naming the option and the instance, never a url. A value equal to `INFRA`, or blank, passes. The importable app already did this.

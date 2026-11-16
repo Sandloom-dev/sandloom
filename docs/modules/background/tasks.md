@@ -192,6 +192,13 @@ variable when one differs from `INFRA`. The same holds for
 `CELERY_BROKER_READ_URL` and `CELERY_BROKER_WRITE_URL`. The error never shows the
 value.
 
+Both apps are checked against `INFRA` on their final `app.conf`: `broker_url`,
+`broker_read_url`, `broker_write_url` and `result_backend`, with a config module
+or a `celeryconfig.py` included. The importable app refuses a difference when it
+is first used. So does the app that publishes your tasks, on its first publish. A
+`CELERY_*` variable that differs from the instance's `broker` or `backend` stops
+it with a `ForeignCeleryConfError`. That is not an outage: nothing was sent.
+
 Run exactly one `beat` per broker. A second one stands by. The kernel resolves
 the lease (the `lease` instance `INFRA.lease.beat`; `BEAT_LEASE_TTL_SECONDS`,
 `BEAT_LEASE_NAME`), scoped per service. The driver's scheduler sends periodic

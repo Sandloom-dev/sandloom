@@ -197,6 +197,13 @@ class InfraProvider(abc.ABC):
     tier: ClassVar[DriverTier] = "experimental"
     #: Optional pydantic model validating an instance's options before building.
     options_schema: ClassVar[type[Any] | None] = None
+    #: The name of the option holding the url of the one server this driver
+    #: connects to (``"url"``, a Celery ``"broker"``), ``None`` for a driver
+    #: that reaches no server by url. Every reader of "which instances need a
+    #: url" (``sandloom dev up`` writing the checkout's ``INFRA``) reads it
+    #: here, so the kernel names no driver. It must be a field of
+    #: ``options_schema``.
+    url_option: ClassVar[str | None] = None
     #: The options this driver takes from the flat settings (the readiness
     #: probe's ``HEALTH_CHECK_TIMEOUT_SECONDS``) when an instance leaves them
     #: out: which setting fills which option. The kernel applies it

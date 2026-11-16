@@ -102,6 +102,13 @@ The fill is skipped when your package, or a package you require, is missing. It 
 import error: the registry refuses an instance that cannot run. A driver that reads no flat
 setting declares none.
 
+A driver that connects to one server by url sets `url_option` on its class. The value is the
+name of that option: `"url"`, or `"broker"` for a task queue. It must be a field of
+`options_schema`.
+`sandloom dev up` reads it. It writes a url into the checkout's `INFRA` for each instance on
+your driver, so the kernel keeps no list of driver names. A driver that reaches no server by
+url leaves it `None`.
+
 A driver records metrics through `sandloom.driverkit.observe`:
 `counter(name, documentation, labelnames)` and `histogram(...)` return metrics on the
 kernel's registry. A driver imports no metrics registry and no settings of the kernel.

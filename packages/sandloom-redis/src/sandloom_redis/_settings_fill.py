@@ -10,12 +10,6 @@ from __future__ import annotations
 
 import json
 
-#: ``None``: the drivers declare no ``settings_fill``. Kept only while the
-#: lease and atomic store modules still import them (removed with those files'
-#: next change; ``InfraProvider.settings_fill`` is ``None`` by default).
-LEASE_FILL = None
-ATOMIC_STORE_FILL = None
-
 
 class MissingUrlError(ValueError):
     """A ``redis`` instance has no ``url``: a configuration mistake that aborts

@@ -209,23 +209,37 @@ def write_state_env(ctx: Context, state: State) -> None:
 
 
 #: Run in the checkout (its own directory first on ``sys.path``): reads the
-#: ``DEFAULT_INFRA`` the composition root's package exports and prints it as
-#: one JSON line. A child process, so that the app's package is the CHECKOUT's
-#: (never the one this interpreter happens to import) and that nothing of it,
-#: not even its settings, is imported into the CLI.
+#: ``DEFAULT_INFRA`` the composition root's package exports and prints it, with
+#: the url option each selected driver declares, as one JSON line. A child
+#: process, so that the app's package is the CHECKOUT's (never the one this
+#: interpreter happens to import) and that nothing of it, not even its
+#: settings, is imported into the CLI.
 _READ_SELECTION = (
     "import json, sys\n"
     "from sandloom.core.composition import root_default_infra\n"
-    "print(json.dumps(root_default_infra(sys.argv[1]) or {}))\n"
+    "from sandloom.core.infra.registry import declared_url_options\n"
+    "infra = root_default_infra(sys.argv[1]) or {}\n"
+    "print(json.dumps({'infra': infra, 'url_options': declared_url_options(infra)}))\n"
 )
+
+
+@dataclass(frozen=True, slots=True)
+class CompositionSelection:
+    """What the composition root selects: ``infra`` is its ``DEFAULT_INFRA`` and
+    ``url_options`` the option holding the url of each selected driver that
+    connects to a server (``{"<capability>.<driver>": option}``), as the drivers
+    declare it."""
+
+    infra: Mapping[str, Mapping[str, Mapping[str, object]]]
+    url_options: Mapping[str, str]
 
 
 def composition_selection(
     ctx: Context, env_text: str, checkout: Path | None = None
-) -> Mapping[str, Mapping[str, Mapping[str, object]]]:
+) -> CompositionSelection:
     """The driver selection (``DEFAULT_INFRA``) of the app's composition root,
     read in ``checkout`` (default: the repository root) by a child process:
-    which instances exist, so which ones get a Redis url. ``{}`` when the root
+    which instances exist, so which ones get a Redis url. Empty when the root
     has no package or exports none (a checkout of the framework itself). Any
     failure of the read, of any kind, stops the command naming the root."""
     named, _ = _envfile.winning_assignment(env_text, "SANDLOOM_COMPOSITION_ROOT")
@@ -250,12 +264,16 @@ def composition_selection(
         tail = (proc.stderr.strip().splitlines() or ["it printed nothing"])[-1]
         raise DevError(refusal % tail)
     try:
-        selection = json.loads(lines[-1])
+        answer = json.loads(lines[-1])
     except ValueError as exc:
         raise DevError(refusal % f"its answer is not JSON ({exc})") from exc
-    if not isinstance(selection, dict):
+    if (
+        not isinstance(answer, dict)
+        or not isinstance(answer.get("infra"), dict)
+        or not isinstance(answer.get("url_options"), dict)
+    ):
         raise DevError(refusal % "its answer is not an object")
-    return selection
+    return CompositionSelection(answer["infra"], answer["url_options"])
 
 
 def checkout_urls(ctx: Context, state: State, row: CheckoutRow) -> dict[str, str]:
@@ -270,8 +288,10 @@ def checkout_urls(ctx: Context, state: State, row: CheckoutRow) -> dict[str, str
     except OSError:
         env_text = ""
     bus, _ = _envfile.winning_assignment(env_text, "EVENT_BUS_BACKEND")
+    selection = composition_selection(ctx, env_text, Path(row.path))
     managed = _envfile.managed_infra(
-        composition_selection(ctx, env_text, Path(row.path)),
+        selection.infra,
+        selection.url_options,
         cache_url=redis.url(row.cache_index),
         persistent_url=redis.url(row.broker_index),
         memory_bus=(ctx.environ.get("EVENT_BUS_BACKEND") or bus).strip().lower()

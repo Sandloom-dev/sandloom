@@ -227,6 +227,51 @@ def _refuse_foreign_conf(app: Any, broker: str, backend: str | None) -> None:
     Celery falls back to ``broker_url`` for a read / write url left unset, and
     stores no backend when none is set. The message names the option, never its
     value: it is a URL, with a password."""
+    option = _foreign_conf_option(app, broker, backend)
+    if option is not None:
+        raise AttributeError(
+            f"the importable Celery app's {option} is not what the INFRA "
+            "option of the default taskqueue instance states: a config "
+            "module (`celery --config`, CELERY_CONFIG_MODULE), a loader "
+            "(`--loader default` reads celeryconfig.py) or a Celery "
+            "environment variable set it. Remove that setting, or state it "
+            "in INFRA"
+        )
+
+
+class ForeignCeleryConfError(RuntimeError):
+    """The Celery app of a ``taskqueue`` instance resolves a broker or result
+    backend other than the instance's ``INFRA`` options: a ``CELERY_*``
+    environment variable, a config module or a loader set it, and Celery prefers
+    those over the url the app was built with. Publishing would go to a broker
+    the operator did not configure. Not a transient fault: nothing was sent."""
+
+
+def refuse_foreign_app_conf(
+    app: Any, broker: str, backend: str | None, instance: str
+) -> None:
+    """Refuse (:class:`ForeignCeleryConfError`) an app whose final ``app.conf``
+    names another broker or result backend than the instance states: the enqueue
+    side's twin of the importable app's check, for the app a provider publishes
+    through. The message names the option and the instance, never a url: it
+    carries a password."""
+    option = _foreign_conf_option(app, broker, backend)
+    if option is not None:
+        raise ForeignCeleryConfError(
+            f"the Celery app of taskqueue instance {instance!r} resolves a {option} "
+            f"that is not the INFRA option taskqueue.{instance}."
+            f"{'backend' if option == 'result_backend' else 'broker'} states: a "
+            "CELERY_BROKER_URL / CELERY_BROKER_READ_URL / CELERY_BROKER_WRITE_URL / "
+            "CELERY_RESULT_BACKEND environment variable, a config module "
+            "(CELERY_CONFIG_MODULE) or a loader set it. Remove that setting, or "
+            "state it in INFRA"
+        )
+
+
+def _foreign_conf_option(app: Any, broker: str, backend: str | None) -> str | None:
+    """The first of the app's final ``broker_url``, ``broker_read_url``,
+    ``broker_write_url`` and ``result_backend`` that is not what ``broker`` /
+    ``backend`` state, ``None`` when all are."""
     conf = app.conf
     # Attribute access, not ``conf.get``: only the attribute applies the
     # ``broker_url`` fallback of a read / write url left unset.
@@ -240,14 +285,8 @@ def _refuse_foreign_conf(app: Any, broker: str, backend: str | None) -> None:
         if isinstance(found, str):
             found = found.strip()
         if found != expected:
-            raise AttributeError(
-                f"the importable Celery app's {option} is not what the INFRA "
-                "option of the default taskqueue instance states: a config "
-                "module (`celery --config`, CELERY_CONFIG_MODULE), a loader "
-                "(`--loader default` reads celeryconfig.py) or a Celery "
-                "environment variable set it. Remove that setting, or state it "
-                "in INFRA"
-            )
+            return option
+    return None
 
 
 def _importable_app_urls() -> tuple[str, str | None]:
@@ -1162,6 +1201,7 @@ class CeleryWorkerHost:
 __all__ = [
     "BeatLease",
     "CeleryWorkerHost",
+    "ForeignCeleryConfError",
     "LeasedScheduler",
     "WorkerPool",
     "build_named_app",
@@ -1173,6 +1213,7 @@ __all__ = [
     "heartbeat_path",
     "install_beat_lease",
     "install_heartbeat",
+    "refuse_foreign_app_conf",
     "refuse_unusable_pool",
     "register_task_table",
     "remove_beat_lease",

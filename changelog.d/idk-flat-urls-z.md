@@ -8,3 +8,7 @@
 
 - **A synthesized instance on the cache's Redis database is a WARNING in production** (idk-flat-urls-z). `InfraProvider.implicit` is `True` only in development: the registry reports no instance as kernel-synthesized in production, so a `lease` or `atomic_store` that shares the cache's database logs the WARNING, not the INFO of a development start.
 - **`redis_endpoint` never echoes a password split by `?` or `#`** (idk-flat-urls-z). A url whose path, query or fragment holds an `@` (an unencoded `?` or `#` in the password) gives `None`, so no part of the credential reaches a log line, and a database path of thousands of digits gives `None` instead of raising at startup.
+
+### Added
+
+- **`InfraProvider.url_option` names the option holding a driver's server url** (idk-flat-urls-z). `sandloom dev up` reads it from the installed drivers (`declared_url_options`) to write a url into the checkout's `INFRA` for each instance on a driver that connects by url, so the kernel keeps no table of driver names: its `_URL_OPTION` table and the ratchet test that guarded it are deleted. The Redis cache, broadcast, lease, atomic store and streams drivers set `"url"`, the Celery driver `"broker"`. A driver package that connects by url sets it on its provider class.

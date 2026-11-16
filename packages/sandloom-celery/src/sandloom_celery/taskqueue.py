@@ -56,6 +56,7 @@ from sandloom_celery.worker import (
     build_named_app,
     default_app_matches,
     get_default_app,
+    refuse_foreign_app_conf,
 )
 
 
@@ -136,6 +137,7 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
     contract_version = 2
     supported_features = CELERY_TASKQUEUE_FEATURES
     options_schema = CeleryTaskQueueOptions
+    url_option = "broker"
     # The broker and the result backend are options of the instance (``INFRA``):
     # no setting fills them. The probe bound is ``HEALTH_CHECK_TIMEOUT_SECONDS``,
     # and never above it.
@@ -409,8 +411,15 @@ def _build_celery_taskqueue(cls: type[_Q], cfg: InstanceConfig) -> _Q:
 
     def build() -> Any:
         if cfg.name == DEFAULT_INSTANCE and default_app_matches(broker, backend):
-            return get_default_app(broker, backend)
-        return build_named_app(cfg.name, broker, backend)
+            app = get_default_app(broker, backend)
+        else:
+            app = build_named_app(cfg.name, broker, backend)
+        # Celery prefers a CELERY_* variable or a config module over the url the
+        # app was built with, and a publish would follow it: refused, never
+        # followed. Checked on every provider's first use, the process-wide
+        # app included (an earlier build already holds it).
+        refuse_foreign_app_conf(app, broker, backend, cfg.name)
+        return app
 
     # The app is built on first use (a publish, a probe, the worker host).
     return cls(

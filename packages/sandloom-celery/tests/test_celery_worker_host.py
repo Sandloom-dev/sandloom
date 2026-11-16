@@ -633,17 +633,12 @@ def test_the_importable_app_refuses_the_default_loaders_celeryconfig(
 def test_the_importable_app_refuses_a_foreign_conf_where_the_provider_built_it_first(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The cached ``_default`` app skips the build, not the check."""
+    """The cached ``_default`` app skips the build, not the check. Built here
+    through ``get_default_app`` (the provider checks the final conf of the app it
+    builds, which loads the config module: one set later would never apply)."""
     _importable_app_infra(monkeypatch, {"driver": "celery", "broker": _INFRA_BROKER})
-    provider = create_celery_taskqueue(
-        InstanceConfig(
-            capability="taskqueue",
-            name="default",
-            driver="celery",
-            options={"broker": _INFRA_BROKER},
-        )
-    )
-    assert provider._app is celery_worker._default.app is not None
+    built = celery_worker.get_default_app(_INFRA_BROKER, None)
+    assert built is celery_worker._default.app is not None
     _config_module(
         monkeypatch,
         tmp_path,

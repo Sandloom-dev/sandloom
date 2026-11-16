@@ -720,8 +720,17 @@ def test_managed_infra_gives_each_redis_instance_its_own_url() -> None:
         "taskqueue": {"default": {"driver": "celery"}},
         "objectstore": {"default": {"driver": "local"}},
     }
+    url_options = {
+        "cache.redis": "url",
+        "broadcast.redis": "url",
+        "eventbus.streams": "url",
+        "atomic_store.redis": "url",
+        "lease.redis": "url",
+        "taskqueue.celery": "broker",
+    }
     managed = envfile.managed_infra(
         selection,
+        url_options,
         cache_url="redis://h/1",
         persistent_url="redis://h/2",
         memory_bus=False,
@@ -746,6 +755,7 @@ def test_managed_infra_gives_each_redis_instance_its_own_url() -> None:
     # The in-process bus takes no url; an instance that names its own keeps it.
     memory = envfile.managed_infra(
         selection,
+        url_options,
         cache_url="redis://h/1",
         persistent_url="redis://h/2",
         memory_bus=True,
@@ -755,12 +765,33 @@ def test_managed_infra_gives_each_redis_instance_its_own_url() -> None:
     assert (
         envfile.managed_infra(
             named,
+            url_options,
             cache_url="redis://h/1",
             persistent_url="redis://h/2",
             memory_bus=False,
         )
         == {}
     )
+    # A driver that declares no url option gets no url, whatever its name: the
+    # table is the drivers' declaration, not a list of names in the kernel.
+    assert (
+        envfile.managed_infra(
+            selection,
+            {},
+            cache_url="redis://h/1",
+            persistent_url="redis://h/2",
+            memory_bus=False,
+        )
+        == {}
+    )
+    other = {"cache": {"default": {"driver": "valkey"}}}
+    assert envfile.managed_infra(
+        other,
+        {"cache.valkey": "dsn"},
+        cache_url="redis://h/1",
+        persistent_url="redis://h/2",
+        memory_bus=False,
+    ) == {"cache": {"default": {"dsn": "redis://h/1"}}}
 
 
 def test_an_edit_during_the_write_is_merged(
@@ -823,13 +854,24 @@ _SELECTION = {
     "atomic_store": {"security": {"driver": "redis"}},
     "taskqueue": {"default": {"driver": "celery"}},
 }
+#: What the installed drivers declare (``InfraProvider.url_option``).
+_URL_OPTIONS = {
+    "cache.redis": "url",
+    "eventbus.streams": "url",
+    "atomic_store.redis": "url",
+    "taskqueue.celery": "broker",
+}
 
 
 def test_the_block_names_each_redis_instance_of_the_composition(
     repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        commands, "composition_selection", lambda c, text, checkout=None: _SELECTION
+        commands,
+        "composition_selection",
+        lambda c, text, checkout=None: commands.CompositionSelection(
+            _SELECTION, _URL_OPTIONS
+        ),
     )
     environ.pop("EVENT_BUS_BACKEND", None)
     ctx = _ctx(repo, environ)
@@ -868,13 +910,14 @@ def test_the_composition_is_read_in_the_checkout_by_a_child_process(
     _app_package(
         worktree, 'DEFAULT_INFRA = {"lease": {"default": {"driver": "redis"}}}\n'
     )
-    assert set(commands.composition_selection(ctx, "", repo)) == {"cache"}
-    assert set(commands.composition_selection(ctx, "", worktree)) == {"lease"}
+    assert set(commands.composition_selection(ctx, "", repo).infra) == {"cache"}
+    assert set(commands.composition_selection(ctx, "", worktree).infra) == {"lease"}
     # No package or none exporting a selection: nothing to manage.
+    nothing = commands.CompositionSelection({}, {})
     _app_package(repo, "")
-    assert commands.composition_selection(ctx, "", repo) == {}
+    assert commands.composition_selection(ctx, "", repo) == nothing
     environ["SANDLOOM_COMPOSITION_ROOT"] = "absentapp.asgi"
-    assert commands.composition_selection(ctx, "", repo) == {}
+    assert commands.composition_selection(ctx, "", repo) == nothing
 
 
 @pytest.mark.parametrize(

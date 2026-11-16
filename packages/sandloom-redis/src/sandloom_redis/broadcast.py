@@ -390,6 +390,7 @@ class RedisBroadcastProvider(BroadcastProvider):
     contract_version = 1
     supported_features = frozenset({"pattern_subscribe", "shared"})
     options_schema: ClassVar[type[RedisBroadcastOptions]] = RedisBroadcastOptions
+    url_option = "url"
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
     # Beta, the floor for a driver of this repository (spec 2.5): the lane

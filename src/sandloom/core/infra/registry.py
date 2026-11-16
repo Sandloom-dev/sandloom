@@ -2003,6 +2003,34 @@ def _declared_class(capability: str, driver: str) -> type[InfraProvider] | None:
     return check_driver_class(key, _load_plugin(entry, f"Driver {key!r}"), None)
 
 
+def declared_url_options(
+    selection: Mapping[str, Mapping[str, Mapping[str, object]]],
+) -> dict[str, str]:
+    """``{"<capability>.<driver>": url option}`` for every driver ``selection``
+    (``{capability: {instance: {"driver": ...}}}``) names whose installed package
+    declares one (``InfraProvider.url_option``): which instances connect to a
+    server by url, read from the drivers and never from a table of the kernel.
+    A driver with no package (a kernel driver, or one not installed) and one that
+    declares none are left out; a package that fails to load raises as the
+    registry does."""
+    found: dict[str, str] = {}
+    for capability, instances in selection.items():
+        for name, spec in instances.items():
+            if not isinstance(spec, Mapping):
+                raise TypeError(
+                    f"the selection of {capability}.{name} must be a mapping of "
+                    f"options, not {type(spec).__name__}"
+                )
+            driver = spec.get("driver")
+            key = f"{capability}.{driver}"
+            if not isinstance(driver, str) or key in found:
+                continue
+            provider_class = _declared_class(capability, driver)
+            if provider_class is not None and provider_class.url_option is not None:
+                found[key] = provider_class.url_option
+    return found
+
+
 @dataclass(frozen=True, slots=True)
 class ConfiguredRetention:
     """What :func:`configured_stream_retention` found: ``seconds`` (``0``:

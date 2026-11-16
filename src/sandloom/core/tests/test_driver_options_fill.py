@@ -328,3 +328,49 @@ def test_the_purge_refusal_carries_the_reason(monkeypatch: pytest.MonkeyPatch) -
     with pytest.raises(PurgeRefused, match="pip install sandloom-redis"):
         _stream_retention_s(core)
     assert _stream_retention_s(core, force=True) == 1.0
+
+
+class _UrlDriver(InfraProvider):
+    contract_version = 1
+    url_option = "dsn"
+
+
+class _NoUrlDriver(InfraProvider):
+    contract_version = 1
+
+
+def test_url_options_are_what_the_installed_drivers_declare(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    classes = {("cache", "valkey"): _UrlDriver, ("objectstore", "local"): _NoUrlDriver}
+    monkeypatch.setattr(
+        registry_module,
+        "_declared_class",
+        lambda cap, driver: classes.get((cap, driver)),
+    )
+    selection = {
+        "cache": {"default": {"driver": "valkey"}, "other": {"driver": "valkey"}},
+        "objectstore": {"default": {"driver": "local"}},
+        # no package publishes it (a kernel driver or one not installed)
+        "database": {"default": {"driver": "sqlalchemy"}},
+        # an instance that names no driver keeps the composition's: nothing to read
+        "lease": {"beat": {}},
+    }
+    assert registry_module.declared_url_options(selection) == {"cache.valkey": "dsn"}
+
+
+def test_a_driver_that_cannot_load_stops_the_url_option_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken(capability: str, driver: str) -> None:
+        raise registry_module.DriverLoadError("boom: broken import")
+
+    monkeypatch.setattr(registry_module, "_declared_class", broken)
+    selection = {"cache": {"default": {"driver": "redis"}}}
+    with pytest.raises(registry_module.DriverLoadError, match="boom"):
+        registry_module.declared_url_options(selection)
+
+
+def test_an_instance_that_is_not_a_mapping_is_refused_by_the_url_option_read() -> None:
+    with pytest.raises(TypeError, match=r"cache\.default"):
+        registry_module.declared_url_options({"cache": {"default": "redis"}})  # type: ignore[dict-item]
