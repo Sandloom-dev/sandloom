@@ -338,12 +338,7 @@ LAYER_RULES: tuple[tuple[str, str, frozenset[str] | None, bool], ...] = (
         frozenset({"run_password_hashing", "ahash_password", "averify_password"}),
         True,
     ),
-    (
-        "claims collection",
-        "/sandloom/core/facade/",
-        frozenset({"collect_claims"}),
-        True,
-    ),
+    ("claims collection", "/sandloom/core/facade/", frozenset({"collect_claims"}), True),
     (
         "idempotency reserve",
         "/sandloom/core/idempotency/",
@@ -369,12 +364,7 @@ LAYER_RULES: tuple[tuple[str, str, frozenset[str] | None, bool], ...] = (
         frozenset({"ensure_user_not_blocked"}),
         True,
     ),
-    (
-        "JWT mint",
-        "/sandloom/core/auth/tokens.py",
-        frozenset({"create_access_token"}),
-        True,
-    ),
+    ("JWT mint", "/sandloom/core/auth/tokens.py", frozenset({"create_access_token"}), True),
     (
         "outbox/audit enqueue",
         "/sandloom/core/unit_of_work/",

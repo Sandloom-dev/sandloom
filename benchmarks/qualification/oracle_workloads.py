@@ -353,9 +353,7 @@ def mix_prepare(exp, variant):
         if size and owner != "sandloom_perf_cb_mixfull":
             raise RuntimeError("Redis DB 5 is not owned by this full-mix fixture")
         command([*cli, "FLUSHDB"])
-        command(
-            [*cli, "SET", "sandloom:qualification:owner", "sandloom_perf_cb_mixfull"]
-        )
+        command([*cli, "SET", "sandloom:qualification:owner", "sandloom_perf_cb_mixfull"])
     infra = json.loads(env["INFRA"])
     infra["cache"]["default"]["url"] = "redis://cache:6379/5"
     infra["atomic_store"]["security"]["url"] = "redis://security:6379/5"

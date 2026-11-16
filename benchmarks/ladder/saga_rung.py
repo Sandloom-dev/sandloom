@@ -121,13 +121,7 @@ def _build() -> tuple[Any, Any, Any]:
     from pydantic import BaseModel
 
     from sandloom_standard.main import create_app
-    from sandloom.core.module_api import (
-        Saga,
-        SagaContext,
-        contract_method,
-        local_step,
-        step,
-    )
+    from sandloom.core.module_api import Saga, SagaContext, contract_method, local_step, step
     from sandloom.core.sagas import SagaRuntime
     from sandloom.core.sagas.registry import NUDGE_SCHEMA, build_registry
 

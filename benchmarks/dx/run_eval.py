@@ -913,7 +913,9 @@ def agent_env(task: Task, label: str) -> dict[str, str]:
         k: v
         for k, v in os.environ.items()
         if not k.startswith(("SANDLOOM_", "VIRTUAL_ENV", "CLAUDE_CODE_SSE"))
-        and k not in {"DATABASE_URL", "INFRA", "JWT_SECRET"}
+        # CACHE_URL / BROKER_URL stay until the flat settings are removed (Z):
+        # a shell-exported one must not leak into an agent run
+        and k not in {"DATABASE_URL", "CACHE_URL", "BROKER_URL", "INFRA", "JWT_SECRET"}
     }
     # One index pair per task id, for good, marked for this run at once:
     # concurrent runs never share one (see task_redis_indexes). An earlier

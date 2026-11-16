@@ -622,9 +622,7 @@ async def _cpu(
         )
     elif mode == "dispatch":
         d = uow_mod_dispatch.post_commit_dispatcher()
-        d.submit(
-            uow_mod_dispatch._DispatchJob(st.bus, st.store, st.factory, tuple(warm), ())
-        )
+        d.submit(uow_mod_dispatch._DispatchJob(st.bus, st.store, st.factory, tuple(warm), ()))
         await uow_mod_dispatch.drain_post_commit()
     events = await _insert_rows(st, n, 30.0 if mode == "relay" else 0.0) if n else []
     # cachegrind: both runs insert the same rows, only one delivers them
@@ -672,9 +670,7 @@ async def _cpu(
         for start in range(0, len(jobs), burst):
             d = uow_mod_dispatch.post_commit_dispatcher()
             for job in jobs[start : start + burst]:
-                d.submit(
-                    uow_mod_dispatch._DispatchJob(st.bus, st.store, st.factory, job, ())
-                )
+                d.submit(uow_mod_dispatch._DispatchJob(st.bus, st.store, st.factory, job, ()))
             await uow_mod_dispatch.drain_post_commit()
     cpu = time.process_time() - cpu0
     wall = time.perf_counter() - wall0

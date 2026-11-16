@@ -24,19 +24,13 @@ PAT = ("pytest", "soak.py", "soak_app", "run_int", "server_bench")
 
 
 def foreign() -> list[str]:
-    out = subprocess.run(
-        ["ps", "-axo", "pid=,command="], capture_output=True, text=True
-    ).stdout
+    out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True,
+                         text=True).stdout
     me = str(os.getpid())
     hits = []
     for line in out.splitlines():
         pid, _, cmd = line.strip().partition(" ")
-        if (
-            pid == me
-            or "guard.py" in cmd
-            or "grep" in cmd
-            or cmd.startswith(("/bin/zsh", "zsh ", "/bin/sh", "bash "))
-        ):
+        if pid == me or "guard.py" in cmd or "grep" in cmd or cmd.startswith(("/bin/zsh", "zsh ", "/bin/sh", "bash ")):
             # shell wrappers: the real test / soak process is listed on its own
             continue
         if any(p in cmd for p in PAT):
@@ -71,32 +65,13 @@ def main() -> None:
         sys.exit(1)
     rec = json.loads(lines[-1])
     rec.update(extra)
-    rec.update(
-        foreign_before=before,
-        foreign_after=after,
-        loadavg_before=la0[0],
-        loadavg_after=la1[0],
-        interfered=bool(before or after),
-        ts=time.strftime("%H:%M:%S"),
-    )
+    rec.update(foreign_before=before, foreign_after=after,
+               loadavg_before=la0[0], loadavg_after=la1[0],
+               interfered=bool(before or after), ts=time.strftime("%H:%M:%S"))
     with open(out, "a") as f:
         f.write(json.dumps(rec) + "\n")
-    print(
-        json.dumps(
-            {
-                k: rec.get(k)
-                for k in (
-                    "rung",
-                    "tenant",
-                    "cpu_us",
-                    "client_cpu_us",
-                    "server_cpu_us",
-                    "interfered",
-                )
-            }
-        ),
-        flush=True,
-    )
+    print(json.dumps({k: rec.get(k) for k in ("rung", "tenant", "cpu_us",
+          "client_cpu_us", "server_cpu_us", "interfered")}), flush=True)
 
 
 if __name__ == "__main__":

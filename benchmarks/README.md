@@ -93,7 +93,9 @@ writing the lock has no wheel for:
   they drift (bump them together with the framework lock).
 - **Same backends and pool.** Real Postgres 16 and Redis 7 service containers
   per job. Every app reads the same `DATABASE_URL` / `BENCH_REDIS_URL` / `JWT_SECRET`
-  (Sandloom gets the Redis url on each instance of its `INFRA`) and uses Sandloom's default pool shape (SQLAlchemy LIFO pool, 10 + 20 overflow,
+  (the other stands give Sandloom the Redis url on each instance of its `INFRA`;
+  the `benchsuite.run` stand selects no Redis instance, as before the flat
+  `CACHE_URL` / `BROKER_URL` went) and uses Sandloom's default pool shape (SQLAlchemy LIFO pool, 10 + 20 overflow,
   no pre-ping; Redis blocking pool of 64, hiredis everywhere).
 - **Same tables.** All implementations read `bench_items` and write
   `bench_writes`. The bare apps write their event into `bare_outbox_messages`,

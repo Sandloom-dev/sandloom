@@ -8,6 +8,8 @@ and the Celery task queue its own broker. Pure functions: no Redis, no database.
 from __future__ import annotations
 
 import json
+import sys
+import types
 
 import pytest
 
@@ -104,6 +106,24 @@ def test_no_stand_names_the_flat_redis_settings(name: str, env: object) -> None:
     urls = _urls(json.loads(built["INFRA"]))
     assert urls["cache.default"] == REDIS, name
     assert urls["atomic_store.security"] == REDIS, name
+
+
+def test_the_prod_stand_selects_no_redis_instance_as_on_main(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``benchsuite.run``'s lean-root prod stand selected nothing from Redis
+    before the flat settings went (its CACHE_URL reached no instance): INFRA
+    here would add a cache, a bus and a security store and break comparability
+    with the recorded baselines."""
+    # the runner imports psutil (process-tree CPU), a benchmarks-only dependency
+    # the root environment lacks; the env builder does not use it
+    monkeypatch.setitem(sys.modules, "psutil", types.ModuleType("psutil"))
+    monkeypatch.delitem(sys.modules, "benchsuite.run", raising=False)
+    from benchsuite import run
+
+    built = run._sandloom_env()
+    assert "INFRA" not in built
+    assert not [k for k in FLAT if k in built]
 
 
 def test_the_rls_stand_keeps_tenant_rls_beside_its_urls() -> None:

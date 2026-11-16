@@ -193,7 +193,16 @@ def tail(exp, variant):
         }
         if split:
             infra = json.loads(env["INFRA"])
-            bus = infra["eventbus"]["default"]["url"]
+            # the bus url (as before: the Redis the idempotency database sits
+            # beside), else the cache's: the container no longer has BROKER_URL
+            bus = (infra.get("eventbus", {}).get("default") or {}).get("url") or (
+                infra.get("cache", {}).get("default") or {}
+            ).get("url")
+            if not bus:
+                raise SystemExit(
+                    "the app container's INFRA names no eventbus.default or "
+                    "cache.default url: no Redis to put the idempotency db on"
+                )
             base = bus.rsplit("/", 1)[0]
             infra.setdefault("cache", {})["idem"] = {
                 "driver": "redis",
