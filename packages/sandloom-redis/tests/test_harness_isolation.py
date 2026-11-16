@@ -331,6 +331,7 @@ def test_the_settings_choose_only_the_default_event_bus() -> None:
     assert chosen({"EVENT_BUS_BACKEND": "Memory "}, "eventbus", "default") == "memory"
     assert chosen({"EVENT_BUS_BACKEND": "auto"}, "eventbus", "default") is None
     assert chosen({}, "eventbus", "default") is None
+    assert chosen({"EVENT_BUS_BACKEND": ""}, "eventbus", "default") is None
     assert chosen({"EVENT_BUS_BACKEND": "memory"}, "eventbus", "other") is None
     assert chosen({"EVENT_BUS_BACKEND": "memory"}, "cache", "default") is None
 

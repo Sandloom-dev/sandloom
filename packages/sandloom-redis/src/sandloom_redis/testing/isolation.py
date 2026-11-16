@@ -124,10 +124,11 @@ def _chosen_driver(
     values: Mapping[str, str | None], capability: str, name: str
 ) -> str | None:
     """The driver of a ``default`` instance the settings name outside ``INFRA``:
-    the bus ``EVENT_BUS_BACKEND`` names (``auto`` leaves it to the composition)."""
+    the bus ``EVENT_BUS_BACKEND`` names (unset leaves it to the composition)."""
     if (capability, name) == ("eventbus", "default"):
-        backend = (values.get("EVENT_BUS_BACKEND") or "auto").strip().lower()
-        return None if backend == "auto" else backend
+        backend = (values.get("EVENT_BUS_BACKEND") or "").strip().lower()
+        # The retired spelling ``auto`` still means unset until a release refuses it.
+        return None if backend in ("", "auto") else backend
     return None
 
 
