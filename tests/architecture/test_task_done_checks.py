@@ -45,6 +45,7 @@ def test_pre_commit_results_are_read_per_hook() -> None:
 def _issued(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Each test keeps the hook's issued digests in its own directory."""
     monkeypatch.setattr(hook, "ISSUED", tmp_path / "issued")
+    monkeypatch.setattr(hook, "_is_dir", lambda p: True)  # the listed trees are fakes
     return tmp_path / "issued"
 
 
@@ -331,7 +332,7 @@ def test_a_commit_no_worktree_holds_is_recorded_not_run_without_a_run(
     assert ran == []
     assert record["commit"] == missing
     assert record["results"] == {}
-    assert "no worktree" in record["not_run"]
+    assert "no usable worktree" in record["not_run"]
     event["tool_input"]["deliverables"].append(deliverable)
     assert _call(monkeypatch, event) == ""
 
@@ -395,3 +396,55 @@ def test_a_clean_worktree_wins_over_a_dirty_one_at_the_same_commit(
         _commit(_AGENT_HEAD),
     )
     assert ran == ["/repo/.claude/worktrees/fix"]
+
+
+def test_a_later_resolvable_sha_wins_over_an_unknown_full_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    content = f"{'deadbeef' * 5} then {_AGENT_HEAD[:9]}"
+    ran, record = _checked_tree(
+        monkeypatch, _fake_git, {"kind": "git_commit", "content": content}
+    )
+    assert ran == ["/repo/.claude/worktrees/fix"]
+    assert record["commit"] == _AGENT_HEAD
+
+
+def test_a_listed_worktree_that_is_gone_is_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listing = (
+        f"worktree /repo/.claude/worktrees/gone\nHEAD {_AGENT_HEAD}\ndetached\n\n"
+        f"worktree /repo/.claude/worktrees/fix\nHEAD {_AGENT_HEAD}\ndetached\n"
+    )
+    monkeypatch.setattr(hook, "_is_dir", lambda p: not p.endswith("/gone"))
+    ran, _ = _checked_tree(
+        monkeypatch,
+        lambda args, cwd: _fake_git(args, cwd, listing),
+        _commit(_AGENT_HEAD),
+    )
+    assert ran == ["/repo/.claude/worktrees/fix"]
+
+
+def test_an_unresolved_handover_is_not_satisfied_by_the_cwds_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(hook, "_git", _fake_git)
+    cwd_record = json.dumps({"commit": _MAIN_HEAD})
+    hook.remember(cwd_record)
+    event = {
+        "agent_type": hook.AGENT,
+        "cwd": "/repo",
+        "tool_input": {
+            "deliverables": [
+                {"kind": "git_commit", "content": "PR #254 (abcdefg)"},
+                {"kind": "checks", "content": cwd_record},
+            ]
+        },
+    }
+    answer = json.loads(_call(monkeypatch, event))["hookSpecificOutput"]
+    deliverable = json.loads(answer["permissionDecisionReason"].splitlines()[-1])
+    record = json.loads(deliverable["content"])
+    assert record["commit"].startswith("unresolved:")
+    assert "names no commit" in record["not_run"]
+    event["tool_input"]["deliverables"].append(deliverable)
+    assert _call(monkeypatch, event) == ""

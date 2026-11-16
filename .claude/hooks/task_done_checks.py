@@ -152,9 +152,10 @@ def run_checks(top: str) -> tuple[dict[str, str], str, int]:
 def handed_over(tool_input: dict, cwd: str) -> tuple[bool, str | None]:
     """``(named, sha)``: whether a ``git_commit`` deliverable is attached, and
     the full SHA of the first commit of this clone it names. An abbreviated
-    SHA is resolved (``rev-parse <sha>^{commit}``); a full one that does not
-    resolve is kept, so the record names what was handed over."""
+    SHA is resolved (``rev-parse <sha>^{commit}``); when nothing resolves, the
+    first full SHA named is kept, so the record names what was handed over."""
     named = False
+    unresolved: str | None = None
     for item in _deliverables(tool_input):
         if item.get("kind") != "git_commit":
             continue
@@ -166,16 +167,31 @@ def handed_over(tool_input: dict, cwd: str) -> tuple[bool, str | None]:
             )
             if full:
                 return True, full.lower()
-            if len(token) == 40:
-                return True, token.lower()
-    return named, None
+            if len(token) == 40 and unresolved is None:
+                unresolved = token.lower()
+    return named, unresolved
+
+
+_is_dir = os.path.isdir
+
+
+def _clean(tree: str) -> bool | None:
+    """Whether ``tree`` has no changes; ``None`` when it cannot be probed (a
+    worktree deleted but not yet pruned is still listed)."""
+    if not _is_dir(tree):
+        return None
+    try:
+        return not _git(["status", "--porcelain"], tree)
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 
 def checkout_at(sha: str, cwd: str) -> str | None:
     """The worktree of this clone whose HEAD is ``sha``: the agent's own, not
     the session's cwd (an agent that made its own worktree still reports the
     main checkout as its cwd). Of several at that commit (a stale named
-    worktree beside the agent's), a clean one wins."""
+    worktree beside the agent's), a clean one wins; one that cannot be probed
+    is skipped."""
     listing = _git(["worktree", "list", "--porcelain"], cwd)
     path = None
     at: list[str] = []
@@ -184,10 +200,22 @@ def checkout_at(sha: str, cwd: str) -> str | None:
             path = line[len("worktree ") :]
         elif line.startswith("HEAD ") and line[len("HEAD ") :].lower() == sha and path:
             at.append(path)
-    for tree in at:
-        if not _git(["status", "--porcelain"], tree):
+    usable = [(tree, clean) for tree in at if (clean := _clean(tree)) is not None]
+    for tree, clean in usable:
+        if clean:
             return tree
-    return at[0] if at else None
+    return usable[0][0] if usable else None
+
+
+def _unresolved_id(tool_input: dict) -> str:
+    """A stable identity for a handover whose ``git_commit`` names no commit:
+    the same retry matches its own record, the cwd's HEAD never does."""
+    texts = [
+        str(item.get("content") or item.get("reference") or "")
+        for item in _deliverables(tool_input)
+        if item.get("kind") == "git_commit"
+    ]
+    return "unresolved:" + _digest("\n".join(texts))[:16]
 
 
 def locate(tool_input: dict, cwd: str) -> tuple[str, str, str]:
@@ -200,10 +228,13 @@ def locate(tool_input: dict, cwd: str) -> tuple[str, str, str]:
         top = checkout_at(sha, cwd)
         if top:
             return top, sha, ""
-        return "", sha, f"no worktree of this clone is at the handed-over {sha[:12]}"
+        return "", sha, f"no usable worktree of this clone is at {sha[:12]}"
     if named:
-        head = _git(["rev-parse", "HEAD"], cwd)
-        return "", head, "the git_commit deliverable names no commit of this clone"
+        return (
+            "",
+            _unresolved_id(tool_input),
+            "the git_commit deliverable names no commit of this clone",
+        )
     top = _git(["rev-parse", "--show-toplevel"], cwd)
     return top, _git(["rev-parse", "HEAD"], top or cwd), ""
 
