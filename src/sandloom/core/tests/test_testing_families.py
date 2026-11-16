@@ -116,7 +116,10 @@ def _patch_entry_points(
     real = metadata.entry_points
 
     def entry_points() -> Any:
-        everything = [*real(), *points]
+        # ``real()`` is a dict of groups on Python 3.11 (``SelectableGroups``),
+        # so iterating it yields group names: select the harness's group, which
+        # both versions answer with entry points.
+        everything = [*real().select(group=families.TESTING_GROUP), *points]
         return metadata.EntryPoints(everything)
 
     monkeypatch.setattr(metadata, "entry_points", entry_points)
