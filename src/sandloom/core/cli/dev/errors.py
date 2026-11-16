@@ -25,8 +25,8 @@ traceback instead; a ``--debug`` after the subcommand belongs to it
 (``sandloom test -- --debug`` reaches pytest).
 
 :func:`warn_env_drift` warns when an exported ``DATABASE_URL`` /
-``CACHE_URL`` / ``BROKER_URL`` differs from the ``.env`` block ``sandloom dev up``
-wrote (the process environment wins over ``.env``).
+``INFRA`` differs from the ``.env`` block ``sandloom dev up`` wrote (the
+process environment wins over ``.env``).
 """
 
 from __future__ import annotations

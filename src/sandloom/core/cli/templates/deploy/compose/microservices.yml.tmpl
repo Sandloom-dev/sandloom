@@ -4,7 +4,8 @@
 # service, created by postgres/init-databases.sh). Modules keep communicating
 # exactly as in the monolith:
 #   * events  — the durable Redis Streams bus (EVENT_BUS_BACKEND=streams) on the
-#     shared CACHE_URL; each service's outbox lives in its own database;
+#     shared eventbus.default url (INFRA); each service's outbox lives in its own
+#     database;
 #   * sync contracts — a co-deployed provider is called in-process, otherwise
 #     SERVICE_BINDINGS supplies a generated internal RPC proxy to the owning
 #     service. Each call is authenticated with an HMAC under a key only the
@@ -85,21 +86,27 @@ x-common-env: &common-env
   # demo without Stripe adds fake_psp_in_prod.
   SANDLOOM_ACCEPTED_RISKS: ${SANDLOOM_ACCEPTED_RISKS:-local_storage_in_prod}
   # Shared Redis: cache + the Streams event bus every service publishes to and
-  # consumes from. Celery brokers are per service (BROKER_URL per service).
-  # Invariant: CACHE_URL is the SAME for every service — access-token
+  # consumes from. One explicit url per Redis instance in INFRA (nothing
+  # inherits another's): the cache and broadcast on /0; what must survive on
+  # /1, never on the cache's database (a persistent instance sharing the
+  # cache's host, port and database logs a startup warning): the security
+  # store (revocation marks, blocks, RPC nonces, idempotency records), the
+  # beat lease and the event streams. The `redis` service below is persistent
+  # and non-evicting. The strict production profile wants its own Redis for the
+  # security store (docs/advanced/security-model.md).
+  # Invariant: INFRA is the SAME for every service except the Celery broker
+  # (taskqueue.default.broker, per service, in each service's own INFRA: the
+  # generated blocks below copy this shared JSON and add the broker; `sandloom
+  # add deploy --refresh` re-copies it after an edit here). Access-token
   # revocation marks, rate-limit buckets, idempotency keys and the event bus
-  # live there; a per-service cache would let a revoked token through on
-  # every service but the one that revoked it.
-  CACHE_URL: redis://redis:6379/0
-  # The security store (revocation marks, blocks, RPC nonces, idempotency
-  # records): the persistent, non-evicting `redis` service below. The strict
-  # production profile wants its own Redis (docs/advanced/security-model.md).
-  INFRA: '{"atomic_store": {"security": {"driver": "redis", "url": "redis://redis:6379/0"}}}'
+  # live in the shared instances; a per-service cache would let a revoked
+  # token through on every service but the one that revoked it.
+  INFRA: '{"atomic_store": {"security": {"driver": "redis", "url": "redis://redis:6379/1"}}, "cache": {"default": {"url": "redis://redis:6379/0"}}, "broadcast": {"default": {"url": "redis://redis:6379/0"}}, "lease": {"beat": {"url": "redis://redis:6379/1"}}, "eventbus": {"default": {"url": "redis://redis:6379/1"}}}'
   # Opt-in (off by default): idempotency records on their own Redis instead of
   # the security store (deploy/README.md -> "Separate idempotency Redis").
   # Enable together with the idempotency-redis service below, identically in
-  # EVERY process:
-  # INFRA: '{"atomic_store": {"security": {"driver": "redis", "url": "redis://redis:6379/0"}, "idempotency": {"driver": "redis", "url": "redis://idempotency-redis:6379/0"}}}'
+  # EVERY process (add this instance to the JSON above):
+  # "atomic_store": {"security": {...}, "idempotency": {"driver": "redis", "url": "redis://idempotency-redis:6379/0"}}
   EVENT_BUS_BACKEND: streams
   # Asymmetric access tokens (a shared HS secret would let every service mint
   # tokens). Public keys by kid — every key still accepted during a rotation;
