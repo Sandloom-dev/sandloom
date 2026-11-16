@@ -297,12 +297,17 @@ slots never handed their Redis indexes back.
 
 ## Parallel branches and shared registries
 
-Every branch adds lines to `CHANGELOG.md` and to
-`tools/packaging/public-source.json`. Two branches adding beside each other
-used to stop a merge of `main` on a conflict. `.gitattributes` merges both
-files without one:
+Every branch adds a file of its own under `changelog.d/` and lines to
+`tools/packaging/public-source.json`. A branch never edits `CHANGELOG.md` or a
+package changelog. GitHub ignores merge drivers, so two PRs adding bullets to
+the same changelog went CONFLICTING each time the other merged. A fragment is a
+file nobody else touches, and the release preparation folds them
+(`changelog.d/README.md`). Two branches adding beside each other in
+`public-source.json` used to stop a merge of `main` on a conflict.
+`.gitattributes` merges it without one:
 
-- `CHANGELOG.md` uses git's union merge: both sides' bullets stay.
+- `CHANGELOG.md` keeps git's union merge for what is still edited by hand: the
+  loose bullets from before fragments, and the fold in the release PR.
 - `public-source.json` is merged as data by
   `tools/packaging/merge_public_source.py`. Paths are sets, and a new path goes
   beside its nearest sibling. A key or group that both sides changed

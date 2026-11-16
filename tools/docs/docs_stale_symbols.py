@@ -81,11 +81,7 @@ STALE: tuple[tuple[str, str, str], ...] = (
         "nothing: every authenticated route checks the session live (G-REVOKE-21)",
     ),
     # Appendix C, status renamed.
-    (
-        "revocation_at_commit",
-        _ident("revocation_at_commit"),
-        "sandloom.sdk.web.at_commit()",
-    ),
+    ("revocation_at_commit", _ident("revocation_at_commit"), "sandloom.sdk.web.at_commit()"),
     ("db_session", _ident("db_session"), "sandloom.sdk.data.open_uow()"),
     ("make_user_headers", _ident("make_user_headers"), "sandloom.sdk.testing.as_user"),
     ("deliver_event", _ident("deliver_event"), "sandloom.sdk.testing.deliver"),
@@ -122,11 +118,7 @@ STALE: tuple[tuple[str, str, str], ...] = (
         _DASHED.format(re.escape("sandloom-scaffold")),
         "sandloom add module <name>",
     ),
-    (
-        "sandloom-migrate",
-        _DASHED.format(re.escape("sandloom-migrate")),
-        "sandloom migrate <command>",
-    ),
+    ("sandloom-migrate", _DASHED.format(re.escape("sandloom-migrate")), "sandloom migrate <command>"),
     (
         "sandloom scaffold",
         r"(?<![\w-])sandloom scaffold\b",

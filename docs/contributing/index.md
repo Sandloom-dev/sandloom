@@ -113,10 +113,12 @@ A change adds its entry as a fragment, `changelog.d/<task-alias>.md`, never as
 an edit of `CHANGELOG.md`. Bullets sit under `### Added`, `### Changed`,
 `### Fixed` or one of the other kinds named in `changelog.d/README.md`. Two
 branches then touch different files, so a merged PR does not turn the others
-conflicting. `python3 tools/packaging/changelog_fragments.py --check` validates
-the fragments. The release preparation folds them into `CHANGELOG.md` with
-`--fold <version>`, and `pypi_release.py` refuses a coordinated release while
-fragments are left.
+conflicting. A change to one package's own `CHANGELOG.md` goes in
+`changelog.d/<package>/<task-alias>.md`.
+`python3 tools/packaging/changelog_fragments.py --check` validates the
+fragments. The release preparation folds them with `--fold <version>`
+(`--package <package>` for a package), and `pypi_release.py plan` refuses a
+release while fragments of its scope are left.
 
 The portal changelog is a reader-facing digest and must be reconciled before
 tagging a release. Do not infer release readiness from an old benchmark or

@@ -47,15 +47,34 @@ def tools(monkeypatch: pytest.MonkeyPatch):
     return changelog_fragments, pypi_release
 
 
+PACKAGE = "sandloom-redis"
+PACKAGE_CHANGELOG = """# Changelog — sandloom-redis
+
+- Not a release heading.
+
+## [0.7.0a13]
+
+- Older package notes.
+"""
+
+
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     (tmp_path / "changelog.d").mkdir()
     (tmp_path / "CHANGELOG.md").write_text(CHANGELOG)
+    # The framework package carries the coordinated version, a package its own.
+    for name in ("sandloom", PACKAGE):
+        folder = tmp_path / "packages" / name
+        folder.mkdir(parents=True)
+        (folder / "pyproject.toml").write_text('[project]\nversion = "0.7.0a14"\n')
+    (tmp_path / "packages" / PACKAGE / "CHANGELOG.md").write_text(PACKAGE_CHANGELOG)
     return tmp_path
 
 
-def write(repo: Path, name: str, text: str) -> None:
-    (repo / "changelog.d" / name).write_text(text)
+def write(repo: Path, name: str, text: str, package: str | None = None) -> None:
+    folder = repo / "changelog.d" / (package or "")
+    folder.mkdir(exist_ok=True)
+    (folder / name).write_text(text)
 
 
 def test_the_repository_fragments_are_sound(tools):
@@ -119,7 +138,7 @@ def test_check_refuses_two_names_that_differ_only_in_case(tools, repo, monkeypat
     monkeypatch.setattr(
         fragments,
         "fragment_paths",
-        lambda root: [folder / "Alpha.md", folder / "alpha.md"],
+        lambda root, package=None: [folder / "Alpha.md", folder / "alpha.md"],
     )
     assert any("ignoring case" in e for e in fragments.check(repo))
 
@@ -144,14 +163,17 @@ def test_fold_writes_the_section_in_kind_order_and_deletes_the_fragments(tools, 
         "# Release Notes\n\n## [Unreleased]\n\n## [0.7.0a14] — 2026-11-20\n"
     )
     section = release.changelog_section(repo / "CHANGELOG.md", "0.7.0a14")
+    # The loose legacy bullets are the first of "### Changed": nothing precedes
+    # "### Breaking changes" in the section.
+    assert section.startswith("### Breaking changes")
     order = [
         section.index(part)
         for part in (
-            "A legacy loose bullet.",
             "### Breaking changes",
             "Break B.",
             "### Added",
             "- **One** (alpha). Text.\n  A continuation line.\n- Two.",
+            "### Changed\n\n- A legacy loose bullet.",
             "### Fixed",
             "- Three.\n- Fix B.",
         )
@@ -182,8 +204,15 @@ def test_fold_keeps_the_readme_and_works_without_legacy_bullets(tools, repo):
         ("v1", GOOD, CHANGELOG, "Not a release version"),
         ("0.7.0a13", GOOD, CHANGELOG, "already has a section"),
         ("0.7.0a14", "- x\n", CHANGELOG, "Fragments are not sound"),
-        ("0.7.0a14", GOOD, "## [0.7.0a13]\n", r"no '## \[Unreleased\]' heading"),
+        ("0.7.0a14", GOOD, "# Notes\n", "nor release section"),
         ("0.7.0a14", None, "## [Unreleased]\n\n## [0.7.0a13]\n", "Nothing to fold"),
+        ("0.7.0a15", GOOD, CHANGELOG, "is not the package version 0.7.0a14"),
+        (
+            "0.7.0a14",
+            GOOD,
+            "## [Unreleased]\n\n### Added\n\n- Hand-made.\n",
+            "has '###' headings",
+        ),
     ],
 )
 def test_fold_refuses_and_leaves_every_file_as_it_was(
@@ -243,9 +272,141 @@ def test_a_single_package_release_reads_its_own_changelog_and_ignores_fragments(
     only = release.PACKAGES[0]
     plan["packages"] = [only]
     package = repo / "packages" / only
-    package.mkdir(parents=True)
+    package.mkdir(parents=True, exist_ok=True)
     (package / "CHANGELOG.md").write_text("## [0.7.0a14]\n\n- Own notes.\n")
     write(repo, "alpha.md", GOOD)
+    write(repo, "alpha.md", GOOD, PACKAGE)  # another package's fragment: not its scope
     monkeypatch.chdir(repo)
     release.select_artifacts(plan, validated, reviewed)
     assert (reviewed / "release-notes.md").read_text() == "- Own notes.\n"
+
+
+def test_a_package_release_refuses_the_fragments_of_that_package(
+    tools, repo, tmp_path_factory, monkeypatch
+):
+    _, release = tools
+    work = tmp_path_factory.mktemp("release")
+    plan, validated, reviewed = release_inputs(release, work, repo)
+    plan["packages"] = [PACKAGE]
+    write(repo, "alpha.md", GOOD, PACKAGE)
+    monkeypatch.chdir(repo)
+    with pytest.raises(ValueError, match=f"Unfolded.*{PACKAGE}/alpha.md.*--package"):
+        release.select_artifacts(plan, validated, reviewed)
+    assert not reviewed.exists()
+
+
+def test_a_coordinated_release_also_refuses_a_package_fragment(
+    tools, repo, tmp_path_factory, monkeypatch
+):
+    _, release = tools
+    work = tmp_path_factory.mktemp("release")
+    plan, validated, reviewed = release_inputs(release, work, repo)
+    write(repo, "alpha.md", GOOD, PACKAGE)
+    monkeypatch.chdir(repo)
+    with pytest.raises(ValueError, match=f"Unfolded.*{PACKAGE}/alpha.md"):
+        release.select_artifacts(plan, validated, reviewed)
+
+
+@pytest.mark.parametrize(
+    ("package", "fragment_of", "refused"),
+    [
+        ("all", None, True),
+        ("all", PACKAGE, True),
+        (PACKAGE, PACKAGE, True),
+        (PACKAGE, None, False),
+        (PACKAGE, "sandloom-s3", False),
+    ],
+)
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_the_plan_refuses_unfolded_fragments_even_for_a_dry_run(
+    tools, repo, package, fragment_of, refused, dry_run
+):
+    _, release = tools
+    for name in release.PACKAGES:
+        folder = repo / "packages" / name
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "pyproject.toml").write_text('[project]\nversion = "0.7.0a14"\n')
+    (repo / "packages" / "sandloom-s3" / "CHANGELOG.md").write_text(PACKAGE_CHANGELOG)
+    write(repo, "alpha.md", GOOD, fragment_of)
+
+    def plan():
+        return release.plan_release(
+            repo,
+            package,
+            "workflow_dispatch",
+            "refs/heads/main",
+            dry_run=dry_run,
+            on_main=True,
+            on_pypi=lambda *_: True,
+        )
+
+    if refused:
+        with pytest.raises(ValueError, match="Unfolded changelog fragments"):
+            plan()
+    else:
+        assert plan()["packages"] == [package]
+
+
+def test_fold_of_a_package_writes_its_own_changelog_and_only_its_fragments(tools, repo):
+    fragments, release = tools
+    write(repo, "alpha.md", GOOD, PACKAGE)
+    write(repo, "root.md", GOOD)
+    fragments.fold(repo, "0.7.0a14", "2026-11-20", PACKAGE)
+    changelog = repo / "packages" / PACKAGE / "CHANGELOG.md"
+    # The package changelog had no Unreleased heading: it gets one, empty.
+    assert changelog.read_text().startswith(
+        "# Changelog — sandloom-redis\n\n- Not a release heading.\n\n"
+        "## [Unreleased]\n\n## [0.7.0a14] — 2026-11-20\n\n### Added\n"
+    )
+    assert release.changelog_section(changelog, "0.7.0a14").endswith("- Three.\n")
+    assert (
+        release.changelog_section(changelog, "0.7.0a13") == "- Older package notes.\n"
+    )
+    assert not (repo / "changelog.d" / PACKAGE / "alpha.md").exists()
+    assert (repo / "changelog.d" / "root.md").exists()
+    assert (repo / "CHANGELOG.md").read_text() == CHANGELOG
+
+
+def test_fold_of_a_package_checks_the_version_of_that_package(tools, repo):
+    fragments, _ = tools
+    (repo / "packages" / PACKAGE / "pyproject.toml").write_text(
+        '[project]\nversion = "0.7.0a13"\n'
+    )
+    write(repo, "alpha.md", GOOD, PACKAGE)
+    with pytest.raises(ValueError, match="is not the package version 0.7.0a13"):
+        fragments.fold(repo, "0.7.0a14", "2026-11-20", PACKAGE)
+    with pytest.raises(ValueError, match="No changelog at"):
+        fragments.fold(repo, "0.7.0a14", "2026-11-20", "sandloom-nothing")
+    assert (repo / "changelog.d" / PACKAGE / "alpha.md").exists()
+
+
+@pytest.mark.parametrize("date", ["tomorrow", "2026-13-45", "20261120", "2026-1-2"])
+def test_fold_refuses_a_date_that_is_not_an_iso_date(tools, repo, date):
+    fragments, _ = tools
+    write(repo, "alpha.md", GOOD)
+    with pytest.raises(ValueError, match="date|month|day"):
+        fragments.fold(repo, "0.7.0a14", date)
+    assert (repo / "CHANGELOG.md").read_text() == CHANGELOG
+    assert (repo / "changelog.d" / "alpha.md").exists()
+
+
+def test_check_covers_package_directories_and_refuses_unknown_ones(tools, repo):
+    fragments, _ = tools
+    write(repo, "alpha.md", "- x\n", PACKAGE)
+    (repo / "changelog.d" / "not-a-package").mkdir()
+    errors = "\n".join(fragments.check(repo))
+    assert f"changelog.d/{PACKAGE}/alpha.md:1" in errors
+    assert "changelog.d/not-a-package" in errors
+    write(repo, "alpha.md", GOOD, PACKAGE)
+    (repo / "changelog.d" / "not-a-package").rmdir()
+    assert fragments.check(repo) == []
+
+
+def test_main_folds_a_package_through_the_command_line(tools, repo, capsys):
+    fragments, _ = tools
+    write(repo, "alpha.md", GOOD, PACKAGE)
+    base = ["--root", str(repo), "--date", "2026-11-20"]
+    assert fragments.main(["--fold", "0.7.0a15", "--package", PACKAGE, *base]) == 1
+    assert "is not the package version" in capsys.readouterr().err
+    assert fragments.main(["--fold", "0.7.0a14", "--package", PACKAGE, *base]) == 0
+    assert "## [0.7.0a14]" in (repo / "packages" / PACKAGE / "CHANGELOG.md").read_text()

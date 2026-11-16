@@ -72,6 +72,21 @@ def pypi_has(project: str, version: str) -> bool:
     return fetch_release(project, version) is not None
 
 
+def refuse_unfolded_fragments(root: Path, packages: list[str]) -> None:
+    """Refuse a release whose notes miss changelog fragments (changelog.d/).
+
+    A single package's notes are its own changelog; a coordinated release also
+    carries the root ``CHANGELOG.md``. Imported here: the reviewed directory
+    carries only the three files ``select_artifacts`` copies at the end.
+    """
+    import changelog_fragments
+
+    scopes: list[str | None] = list(packages)
+    if len(packages) > 1:
+        scopes.append(None)
+    changelog_fragments.refuse_unfolded(root, scopes)
+
+
 def plan_release(
     root: Path,
     package: str,
@@ -126,6 +141,8 @@ def plan_release(
         raise ValueError("Publication requires a commit reachable from origin/main")
     if len(selected) > 1 and len({versions[name] for name in selected}) != 1:
         raise ValueError("A coordinated release requires matching package versions")
+    # Before any build: a dry run fails on a fragment that is not folded too.
+    refuse_unfolded_fragments(root, selected)
     if publish:
         refuse_unpublished_siblings(projects, versions, selected, on_pypi)
     return {"packages": selected, "versions": versions, "publish": publish}
@@ -146,14 +163,8 @@ def select_artifacts(plan: dict, artifacts: Path, output: Path) -> dict:
         or not set(plan["packages"]) <= set(PACKAGES)
     ):
         raise ValueError("Incomplete release plan")
-    if len(plan["packages"]) != 1:
-        # The root CHANGELOG.md is the notes of a coordinated release; fragments
-        # not folded into it yet would be missing from them. Refused before any
-        # output exists. Imported here: the reviewed directory carries only the
-        # three files copied at the end.
-        import changelog_fragments
-
-        changelog_fragments.refuse_unfolded(Path.cwd())
+    # Again, as the plan job did: this one runs on the artifacts' own checkout.
+    refuse_unfolded_fragments(Path.cwd(), plan["packages"])
     expected = {
         filename
         for project in PACKAGES
