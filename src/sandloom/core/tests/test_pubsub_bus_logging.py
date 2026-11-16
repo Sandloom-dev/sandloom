@@ -52,13 +52,9 @@ def _assert_type_only(caplog: pytest.LogCaptureFixture, type_name: str) -> None:
 
 
 def _assert_no_value_or_traceback(record: logging.LogRecord) -> None:
-    """``exc_info`` may carry the class (it keeps ruff's BLE001 satisfied), never
-    the error value or the traceback: they hold the driver's error text."""
-    if record.exc_info is None:
-        return
-    _type, value, traceback = record.exc_info
-    assert value is None, "the error value carries the error text"
-    assert traceback is None, "the traceback carries the error text"
+    """No ``exc_info``: the error value and the traceback hold the driver's
+    error text."""
+    assert record.exc_info is None, "no traceback: it carries the error text"
 
 
 @pytest.mark.asyncio

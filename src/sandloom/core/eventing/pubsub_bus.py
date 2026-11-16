@@ -225,7 +225,7 @@ class RedisEventBus(BaseEventBus):
                 raise ConnectionError("the broadcast subscription ended")
             except asyncio.CancelledError:
                 break
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - logged by type and counted; the loop resubscribes
                 for handle in self._handles(channel):
                     handle.mark_retrying(exc)
                 # The error type only, no traceback (host, port and payload text).
@@ -236,7 +236,6 @@ class RedisEventBus(BaseEventBus):
                     channel,
                     type(exc).__name__,
                     reconnect_delay,
-                    exc_info=(type(exc), None, None),
                 )
                 _event_bus_metrics["redis_reconnect_attempts"] += 1
                 if self._stopped:
@@ -260,14 +259,9 @@ class RedisEventBus(BaseEventBus):
             if envelope is None:
                 return
             await self._fan_out(subscribed, message.channel, envelope)
-        except Exception as exc:
-            # The error type only: ``exc_info`` carries the class and no value
-            # or traceback (they hold host, port and payload text).
-            logger.error(
-                "Error processing broadcast message (%s)",
-                type(exc).__name__,
-                exc_info=(type(exc), None, None),
-            )
+        except Exception as exc:  # noqa: BLE001 - logged by type and counted; one message must not stop the loop
+            # The error type only, no traceback (host, port and payload text).
+            logger.error("Error processing broadcast message (%s)", type(exc).__name__)
             safe_inc(
                 "events_delivered_total",
                 {
