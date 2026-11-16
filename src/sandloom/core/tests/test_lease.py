@@ -37,7 +37,6 @@ from sandloom.core.drivers.bootstrap import (
 )
 from sandloom.core.drivers.database_lease import DatabaseLeaseProvider
 from sandloom.core.drivers.memory_lease import MemoryLeaseProvider
-from sandloom.core.infra.config import load_infra_config
 from sandloom.core.infra.errors import InvalidArgument
 from sandloom.core.infra.ports.lease import Lease, LeaseHolder
 from sandloom.core.migrations.backup import LEASE_FENCE_OFFSET, lift_fences
@@ -411,26 +410,15 @@ async def test_a_driver_exclusive_in_one_provider_only_fails_the_shared_race() -
 
 
 # ------------------------------------------------------------- the registry
-# (the ``redis`` beat lease the registry builds: packages/sandloom-redis/tests/test_lease_registry.py)
+# (the ``redis`` beat lease the registry builds, and the beat instance the
+# composition selects when the driver is installed:
+# packages/sandloom-redis/tests/test_lease_registry.py)
 def test_the_memory_and_database_lease_drivers_are_registered_and_deliver() -> None:
     registry = build_infra_registry(InMemorySchemaRegistry())
     for driver in ("memory", "database"):
         registration = registry._registration("lease", driver)
         assert registration is not None
         assert not registration.delivered_by
-
-
-def test_the_composition_supplies_the_beat_lease_instance_infra_overrides_it(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(settings, "infra", {})
-    beat = load_infra_config(settings)["lease"]["beat"]
-    assert (beat.driver, beat.implicit) == ("redis", True)
-    monkeypatch.setattr(
-        settings, "infra", {"lease": {"beat": {"driver": "database", "url": "x"}}}
-    )
-    named = load_infra_config(settings)["lease"]["beat"]
-    assert (named.driver, named.implicit) == ("database", False)
 
 
 def _prod(*risks: str) -> Any:

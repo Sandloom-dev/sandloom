@@ -40,10 +40,13 @@ unchanged except where "Evidence now on the in-memory store" below says otherwis
   `test_revocation_freshness.py` rows above.
 
 Kernel-only assertions that the first split moved into the package stay in the
-kernel (`test_lease.py`: the `memory` and `database` registrations, the beat
-instance synthesis, `unverified_noeviction_allowed`; `test_atomic_adopt.py`: the
-development configuration of the security store). The package keeps only the
-`isinstance(RedisLeaseProvider)` and the real-identity assertions.
+kernel: `test_lease.py` holds the `memory` and `database` registrations and
+`unverified_noeviction_allowed`. The package keeps the `redis` registration, the
+`isinstance(RedisLeaseProvider)` and real-identity assertions, and two
+config-synthesis tests (the beat lease instance, the development security
+store): they assert the `redis` default, which exists only where `sandloom-redis`
+is installed (the kernel without Redis selects `memory`; they failed in the
+no-Redis step when tried in the kernel).
 
 The `redis-drivers` lane runs all of them (`SANDLOOM_REDIS_REQUIRED=1`), with the
 rest of `packages/sandloom-redis/tests`.

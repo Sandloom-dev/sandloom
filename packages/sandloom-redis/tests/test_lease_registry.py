@@ -13,8 +13,9 @@ from typing import Any
 import pytest
 from sandloom_redis.lease import RedisLeaseProvider
 
+from sandloom.core.config.settings import settings
 from sandloom.core.drivers.bootstrap import build_infra_registry
-from sandloom.core.infra.config import InstanceConfig
+from sandloom.core.infra.config import InstanceConfig, load_infra_config
 from sandloom.core.infra.errors import PermissionDenied
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
@@ -26,9 +27,22 @@ def test_the_redis_lease_driver_is_registered_and_delivers() -> None:
     assert not registration.delivered_by
 
 
-def test_the_default_registry_builds_the_beat_lease_on_the_cache_url() -> None:
-    from sandloom.core.config.settings import settings
+def test_the_composition_supplies_the_beat_lease_instance_infra_overrides_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With ``sandloom-redis`` installed the beat lease defaults to ``redis``
+    (without it the kernel selects ``memory``, so this is not a kernel test)."""
+    monkeypatch.setattr(settings, "infra", {})
+    beat = load_infra_config(settings)["lease"]["beat"]
+    assert (beat.driver, beat.implicit) == ("redis", True)
+    monkeypatch.setattr(
+        settings, "infra", {"lease": {"beat": {"driver": "database", "url": "x"}}}
+    )
+    named = load_infra_config(settings)["lease"]["beat"]
+    assert (named.driver, named.implicit) == ("database", False)
 
+
+def test_the_default_registry_builds_the_beat_lease_on_the_cache_url() -> None:
     registry = build_infra_registry(InMemorySchemaRegistry())
     store = registry.provider("lease", "beat")  # builds, opens nothing
     assert isinstance(store, RedisLeaseProvider)
