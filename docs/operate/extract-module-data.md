@@ -138,7 +138,7 @@ services use.
 ### 4. Cut over
 
 1. Start the module's service on its own `DATABASE_URL`, with the same
-   `CACHE_URL`, event bus and JWT settings as the other services.
+   `INFRA` Redis urls, event bus and JWT settings as the other services.
 2. Remove the module from the monolith's `SANDLOOM_MODULES`.
 3. Deploy the bindings and gateway routes that
    [`sandloom add deploy`](split-into-services.md) wrote for the service.

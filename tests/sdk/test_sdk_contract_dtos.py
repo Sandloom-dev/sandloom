@@ -26,6 +26,7 @@ from types import ModuleType
 from typing import Any
 
 import pytest
+from _hypothesis_profile import examples
 from fastapi import FastAPI
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
@@ -377,7 +378,7 @@ def _outcome(cls: type[BaseModel], payload: Any, *, json: bool) -> Any:
 
 
 @settings(
-    max_examples=300,
+    max_examples=examples(300),
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )

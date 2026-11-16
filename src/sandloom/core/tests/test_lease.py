@@ -12,6 +12,7 @@ by default are in ``packages/sandloom-redis/tests/test_lease_registry.py``.
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
@@ -51,10 +52,32 @@ _PG_URL = settings.database_url
 
 
 # ----------------------------------------------------------- the drivers
+class _FakeClock:
+    """A clock the test moves: ``MemoryLeaseProvider(clock=...)`` reads it."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
 class TestMemoryLease(LeaseConformance):
+    _clock: _FakeClock
+
     @pytest.fixture
     def make_provider(self) -> Callable[[], MemoryLeaseProvider]:
-        return lambda: MemoryLeaseProvider(name="beat", driver="memory", options={})
+        # the in-memory driver reads a clock of its own: the kit's TTL waits advance it
+        clock = self._clock = _FakeClock()
+        return lambda: MemoryLeaseProvider(
+            name="beat", driver="memory", options={}, clock=clock
+        )
+
+    async def pass_time(self, seconds: float) -> None:
+        self._clock.advance(seconds)
 
     # A backend that cannot fail and does not declare ``shared``: these groups do
     # not apply (set to None, so no lane reports them skipped on every lane).
@@ -293,15 +316,23 @@ class _Broken:
 
 
 class _Kit(LeaseConformance):
-    """The kit with a memory provider swapped in by each test."""
+    """The kit with a memory provider swapped in by each test, and a clock the
+    kit's ``pass_time`` advances (hand ``clock`` to the provider)."""
+
+    def __init__(self) -> None:
+        self.clock = _FakeClock()
+
+    async def pass_time(self, seconds: float) -> None:
+        self.clock.advance(seconds)
 
 
 async def _fails(broken: type[MemoryLeaseProvider], test: str) -> bool:
     """Whether kit test ``test`` fails on ``broken`` (an assertion, not an error)."""
-    provider = broken(name="beat", driver="memory", options={})
+    kit = _Kit()
+    provider = broken(name="beat", driver="memory", options={}, clock=kit.clock)
     await provider.aopen()
     try:
-        await getattr(_Kit(), f"test_{test}")(provider)
+        await getattr(kit, f"test_{test}")(provider)
     except AssertionError:
         return True
     except Failed:
@@ -360,6 +391,43 @@ async def test_a_broken_driver_passes_the_tests_of_what_it_keeps(
     broken: type[MemoryLeaseProvider], test: str
 ) -> None:
     assert not await _fails(broken, test)
+
+
+@pytest.mark.parametrize(
+    ("test", "factor"),
+    [
+        # no time passes: the lease never expires, the expiry test fails
+        ("expiry_hands_over_with_a_greater_fence", 0.0),
+        # far too much passes: the lease is gone before its renew, the renew test fails
+        ("renew_extends_past_the_original_ttl", 10.0),
+    ],
+)
+async def test_the_kits_ttl_waits_go_through_pass_time(
+    test: str, factor: float
+) -> None:
+    """A ``pass_time`` that misreports time makes the kit test fail, so the kit
+    does take its waits from the seam."""
+
+    class _Skewed(_Kit):
+        async def pass_time(self, seconds: float) -> None:
+            self.clock.advance(seconds * factor)
+
+    kit = _Skewed()
+    provider = MemoryLeaseProvider(
+        name="beat", driver="memory", options={}, clock=kit.clock
+    )
+    await provider.aopen()
+    try:
+        with pytest.raises((AssertionError, Failed)):
+            await getattr(kit, f"test_{test}")(provider)
+    finally:
+        await provider.aclose()
+
+
+async def test_the_default_pass_time_waits_for_real() -> None:
+    started = time.monotonic()
+    await LeaseConformance().pass_time(0.05)
+    assert time.monotonic() - started >= 0.04
 
 
 @pytest.mark.parametrize(

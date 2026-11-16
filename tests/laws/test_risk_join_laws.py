@@ -20,6 +20,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from _hypothesis_profile import examples
 from fastapi import APIRouter, Depends
 from fastapi.routing import APIRoute
 from hypothesis import given, settings
@@ -31,7 +32,7 @@ from sandloom.sdk.effects import sensitive_effect
 from sandloom.sdk.web import CurrentUser, sensitive
 from sandloom.shared.authz import And, Not, Or, Requirement
 
-LAWS = settings(max_examples=200, deadline=None)
+LAWS = settings(max_examples=examples(200), deadline=None)
 
 # --------------------------------------------------------------------------- #
 # Requirements

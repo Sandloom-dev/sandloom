@@ -38,6 +38,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import pytest
+from _hypothesis_profile import examples
 from hypothesis import HealthCheck, given, reject, settings
 from hypothesis import strategies as st
 from pydantic import (
@@ -653,7 +654,7 @@ def check_round_trip(cls: type[Any], event: Any) -> None:
 # --------------------------------------------------------------------------- #
 
 _SETTINGS = settings(
-    max_examples=250,
+    max_examples=examples(250),
     derandomize=True,
     deadline=None,
     database=None,

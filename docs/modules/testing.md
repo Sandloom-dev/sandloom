@@ -65,8 +65,14 @@ committed and names this repository's test servers.
 ### Your own database and Redis (shared machines)
 
 `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL` and `SANDLOOM_TEST_BROKER_URL` win
-over `.env.test` on every load path. A plain shell `DATABASE_URL` /
-`CACHE_URL` does not: `.env.test` overrides those for the test sessions.
+over `.env.test` on every load path. A plain shell `DATABASE_URL` does not: `.env.test`
+overrides it for the test sessions.
+
+The harness merges the two Redis names into `INFRA`, since no instance inherits another's
+url. `SANDLOOM_TEST_CACHE_URL` becomes the `url` of `cache.default` and of every other
+Redis instance that has one (`lease.beat`, `atomic_store.security`, `broadcast.default`,
+`eventbus.default`). `SANDLOOM_TEST_BROKER_URL` becomes `taskqueue.default.broker`. The
+harness reads the cache url from the resolved `INFRA`.
 
 - The database is created on first use.
 - Pick two Redis indexes no one else uses (`tools/checks/test_resources.py list`).
@@ -79,21 +85,6 @@ export SANDLOOM_TEST_CACHE_URL=redis://127.0.0.1:6380/120 SANDLOOM_TEST_BROKER_U
 
 The harness refuses to reset any database other than the one
 `SANDLOOM_TEST_DATABASE_URL` names (or its pytest-xdist `_gw<N>` copies).
-
-**`CACHE_URL` and `SANDLOOM_TEST_CACHE_URL`: do they have to differ?**
-
-- **The old requirement.** A comment in `.github/workflows/ci.yml` says the
-  settings-level `CACHE_URL` must name a different Redis database than the
-  test cache. The reason given: the billing conftest pointed its idempotency
-  cache at the test `CACHE_URL`, and the redis driver shares its process-wide
-  client only when the two URLs are equal, so billing failed closed with 503.
-- **It no longer reproduces.** Measured on 2026-10-25, with the snapshot
-  `CACHE_URL` equal to `SANDLOOM_TEST_CACHE_URL` (what the fresh-checkout seeding
-  produces):
-  - the billing suite (307 passed);
-  - the whole fast suite (3,783 passed).
-- **CI still sets different values.** Keep them different if you run the
-  slow suites with a hand-written `.env` and see 503s from billing.
 
 ## Activate the harness (once per application)
 
@@ -251,15 +242,14 @@ implements `test_isolation(options, worker_id)` and returns the options of that
 worker's instance. The Redis drivers move the database index of their URL. The
 default returns the options unchanged, which is right for `memory`.
 
-The harness calls the hook of the default cache (`CACHE_URL`) and of every named
-instance in `INFRA` that has its own `url`. It calls it once per instance and
+The harness calls the hook of every instance in `INFRA` that has its own `url`, the
+default cache included. It calls it once per instance and
 claims each URL the hook returns. The layout is the harness's: the fixed stride
 or the `auto` allocation. It hands the layout to the drivers before the hooks
 run, so a hook and the harness give one answer.
 
-One URL is not asked of a driver yet. The harness moves `BROKER_URL` itself,
-with the same layout, because the Celery task queue has no `test_isolation`
-hook until `idk-worker-port` adds it. Nothing else in the harness rewrites a URL.
+The Celery `broker` of `taskqueue.default` moves with the same layout. Nothing else in the
+harness rewrites a URL.
 
 An application on memory drivers needs no Redis client to run its tests. In a
 process that cannot import `redis`, the harness rewrites, claims, allocates and

@@ -191,6 +191,11 @@ def _extend(children: st.SearchStrategy[Tree]) -> st.SearchStrategy[Tree]:
 
 trees: st.SearchStrategy[Tree] = st.recursive(atom(), _extend, max_leaves=10)
 
+# The authz laws keep 400 examples in every profile, never ``examples(400)``:
+# they run in memory (cheap), and the fail-closed laws only reach their assertion
+# on a tree that is allowed AND holds an indeterminate atom, which is rare
+# (measured: 40-55 of 400 examples, 6-14 of 100). A quarter of the count would
+# leave those laws nearly unexercised on a pull request.
 LAWS = settings(max_examples=400, deadline=None)
 
 
