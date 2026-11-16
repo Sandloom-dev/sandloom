@@ -18,8 +18,16 @@ Everything Celery-specific about running tasks lives here, behind the port
 
 **The importable Celery app.** ``celery -A sandloom_celery.worker
 inspect|call|status`` and Flower use the module attribute ``app`` (also
-``celery`` and ``celery_app``): the ``default`` app, built lazily from
-``BROKER_URL``, with no composition root and no task registered. It is the
+``celery`` and ``celery_app``): the ``default`` app, built lazily from the
+options of the ``default`` taskqueue instance (``INFRA.taskqueue.default.broker``,
+read through ``Settings`` by :mod:`sandloom.driverkit.process_config`; no result
+backend unless the instance states one), with no composition root and no task
+registered. A missing broker is an ``AttributeError`` naming that option, and so
+is a ``CELERY_BROKER_URL`` / ``CELERY_RESULT_BACKEND`` in the environment that
+differs from ``INFRA`` (Celery's CLI writes them from ``-b`` / ``BROKER_URL`` and
+``app.conf`` prefers them). The finished ``app.conf`` (``broker_url``,
+``broker_read_url``, ``broker_write_url``, ``result_backend``) is compared with
+``INFRA`` too: a config module or the default loader can set them. It is the
 driver's own interface, not a shim.
 
 **Process options.** The port carries the log level and the scheduler's state
@@ -47,6 +55,7 @@ from typing import Any, Literal, NoReturn
 import orjson
 
 from sandloom.driverkit import (
+    DEFAULT_INSTANCE,
     FencedLease,
     HealthResult,
     InfraError,
@@ -87,10 +96,12 @@ WorkerPool = Literal["prefork", "solo", "threads"]
 #: The operator's worker concurrency (the kernel resolves it; ``solo`` runs one
 #: message at a time, so an explicit value above 1 is refused there).
 WORKER_CONCURRENCY_ENV = "WORKER_CONCURRENCY"
-#: The broker of the importable app (the kernel's ``BROKER_URL`` setting).
-BROKER_URL_ENV = "BROKER_URL"
+#: The option the importable app reads its broker from.
+_BROKER_OPTION = "taskqueue.default.broker"
 #: Celery CLI global options whose click ``envvar`` (``APP``, ``BROKER_URL``,
 #: ``RESULT_BACKEND``, ``LOADER``, ``CONFIG_MODULE``) must not reach a host run.
+#: ``BROKER_URL`` is no setting of this driver, but the Celery CLI reads it: a stray
+#: one in the environment must not replace the broker the instance states.
 _CLI_ENV_OPTIONS = frozenset({"app", "broker", "result_backend", "loader", "config"})
 #: Names ``app.conf`` / the loader read from ``os.environ`` on every use; the
 #: host's app and options decide, so they are hidden for the run.
@@ -104,10 +115,29 @@ _CONF_ENV = (
     "CELERY_CONFIG_MODULE",
 )
 
-#: Process-wide ``default`` Celery app, built lazily, and the ``(broker,
-#: backend)`` it was built from.
-_default_app: Any | None = None
-_default_app_urls: tuple[str, str | None] | None = None
+#: Where ``app.conf`` reads the broker and the result backend from the
+#: environment before it reads the app's own (``celery/app/utils.py``); the
+#: importable app refuses a value other than ``INFRA``'s.
+_BROKER_ENV = ("CELERY_BROKER_URL", "CELERY_BROKER_READ_URL", "CELERY_BROKER_WRITE_URL")
+_BACKEND_ENV = "CELERY_RESULT_BACKEND"
+
+
+class _DefaultApp:
+    """The process-wide ``default`` Celery app, built lazily, and the ``(broker,
+    backend)`` it was built from.
+
+    A holder, never a module global: ``celery -A sandloom_celery.worker`` falls
+    back to scanning ``vars(module)`` for any ``Celery`` instance once ``app`` and
+    ``celery`` raise (``celery.app.utils.find_app``), so an app kept in a module
+    attribute would be returned unchecked after the foreign-conf refusal, with its
+    ``_sandloom_importable`` mark unset. No module-level name of this file holds a
+    Celery instance."""
+
+    app: Any | None = None
+    urls: tuple[str, str | None] | None = None
+
+
+_default = _DefaultApp()
 
 
 def _celery_module() -> Any:
@@ -134,19 +164,22 @@ def _apply_framework_defaults(app: Any) -> Any:
 def get_default_app(broker: str, backend: str | None) -> Any:
     """Return the process-wide ``default`` Celery app (built once, from the
     ``default`` instance's ``broker`` and ``backend``)."""
-    global _default_app, _default_app_urls
-    if _default_app is None:
-        _default_app = _apply_framework_defaults(
-            _celery_module().Celery("project", broker=broker, backend=backend)
-        )
-        _default_app_urls = (broker, backend)
-    return _default_app
+    if _default.app is None:
+        _default.app = _new_default_app(broker, backend)
+        _default.urls = (broker, backend)
+    return _default.app
+
+
+def _new_default_app(broker: str, backend: str | None) -> Any:
+    return _apply_framework_defaults(
+        _celery_module().Celery("project", broker=broker, backend=backend)
+    )
 
 
 def default_app_matches(broker: str, backend: str | None) -> bool:
     """Whether the ``default`` instance may use the process-wide app: it is not
     built yet, or was built from these URLs."""
-    return _default_app is None or _default_app_urls == (broker, backend)
+    return _default.app is None or _default.urls == (broker, backend)
 
 
 def build_named_app(name: str, broker: str, backend: str | None) -> Any:
@@ -160,16 +193,122 @@ def __getattr__(name: str) -> Any:
     # ``celery -A sandloom_celery.worker`` looks up ``app`` (or
     # ``celery``); building lazily keeps a plain import free of side effects.
     if name in {"app", "celery", "celery_app"}:
-        if _default_app is not None:
-            return _refuse_unhosted_runs(_default_app)
-        broker = (os.environ.get(BROKER_URL_ENV) or "").strip()
-        if not broker:
-            raise AttributeError(
-                f"the importable Celery app needs {BROKER_URL_ENV} (the broker "
-                "of the default taskqueue instance)"
-            )
-        return _refuse_unhosted_runs(get_default_app(broker, None))
+        if _default.app is not None and _default.urls is not None:
+            # Built first by the provider (or by an earlier lookup): its options
+            # are the ones it was built from, and the final conf is checked
+            # against them just the same.
+            broker, backend = _default.urls
+            app = _default.app
+            _refuse_foreign_conf(app, broker, backend)
+        else:
+            broker, backend = _importable_app_urls()
+            # Built in a local and stored only once every check passed: a refused
+            # app is neither the process-wide one nor reachable from the module.
+            app = _new_default_app(broker, backend)
+            _refuse_foreign_conf(app, broker, backend)
+            _default.app = app
+            _default.urls = (broker, backend)
+        return _refuse_unhosted_runs(app)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _refuse_foreign_conf(app: Any, broker: str, backend: str | None) -> None:
+    """Refuse an importable app whose final ``app.conf`` names another broker or
+    result backend than ``INFRA`` states.
+
+    The environment check of :func:`_importable_app_urls` covers the variables
+    Celery's CLI writes; the rest of what feeds ``app.conf`` it does not see: a
+    config module (``celery --config``, ``CELERY_CONFIG_MODULE``), the default
+    loader (``--loader default`` imports ``celeryconfig.py`` from the working
+    directory) can still set ``broker_read_url``, ``broker_write_url`` and
+    ``result_backend``. So the finished conf is read (which loads the config
+    module) and compared: ``inspect``, ``call``, ``control`` and Flower would
+    otherwise send to, or read from, a broker the operator did not configure.
+    Celery falls back to ``broker_url`` for a read / write url left unset, and
+    stores no backend when none is set. The message names the option, never its
+    value: it is a URL, with a password."""
+    conf = app.conf
+    # Attribute access, not ``conf.get``: only the attribute applies the
+    # ``broker_url`` fallback of a read / write url left unset.
+    final = {
+        "broker_url": (conf.broker_url, broker),
+        "broker_read_url": (conf.broker_read_url, broker),
+        "broker_write_url": (conf.broker_write_url, broker),
+        "result_backend": (conf.result_backend, backend),
+    }
+    for option, (found, expected) in final.items():
+        if isinstance(found, str):
+            found = found.strip()
+        if found != expected:
+            raise AttributeError(
+                f"the importable Celery app's {option} is not what the INFRA "
+                "option of the default taskqueue instance states: a config "
+                "module (`celery --config`, CELERY_CONFIG_MODULE), a loader "
+                "(`--loader default` reads celeryconfig.py) or a Celery "
+                "environment variable set it. Remove that setting, or state it "
+                "in INFRA"
+            )
+
+
+def _importable_app_urls() -> tuple[str, str | None]:
+    """The ``broker`` and ``backend`` of the importable app: the options of the
+    ``default`` taskqueue instance, as the application resolves them (``INFRA``
+    through ``Settings``; no environment variable of this driver). The backend is
+    ``None`` unless the instance states one.
+
+    Celery's own CLI would replace them: ``celery -b`` (envvar ``BROKER_URL``) and
+    ``--result-backend`` (``RESULT_BACKEND``) write ``CELERY_BROKER_URL`` and
+    ``CELERY_RESULT_BACKEND`` into the environment before ``-A`` is resolved, and
+    ``app.conf`` prefers those (and ``CELERY_BROKER_READ_URL`` /
+    ``CELERY_BROKER_WRITE_URL``) over the app's own ``broker=``. So the importable
+    app, which ``inspect``, ``call``, ``control`` and Flower use, refuses (an
+    ``AttributeError`` naming the variable, never its value) a variable that
+    differs from what ``INFRA`` states: it would send to, or read from, a broker
+    the operator did not configure."""
+    # Imported here: it pulls the kernel's infra registry, which a plain
+    # ``import sandloom_celery.worker`` (the provider, the worker host) must not.
+    from sandloom.driverkit.process_config import process_instance
+
+    instance = process_instance("taskqueue", DEFAULT_INSTANCE)
+    if instance is None or instance.driver != "celery":
+        selected = "none" if instance is None else repr(instance.driver)
+        raise AttributeError(
+            "the importable Celery app reads the broker of the default taskqueue "
+            f"instance, which must run the celery driver (here: {selected}): set "
+            f"the INFRA option {_BROKER_OPTION} and select the celery driver"
+        )
+    broker = instance.options.get("broker")
+    if not isinstance(broker, str) or not broker.strip():
+        raise AttributeError(
+            f"the importable Celery app needs the INFRA option {_BROKER_OPTION} "
+            "(the broker of the default taskqueue instance)"
+        )
+    backend = instance.options.get("backend")
+    if backend is not None and not isinstance(backend, str):
+        raise AttributeError("the INFRA option taskqueue.default.backend must be a url")
+    broker = broker.strip()
+    backend = backend.strip() if backend else None
+    for key in _BROKER_ENV:
+        _refuse_foreign_env(key, broker, f"the INFRA option {_BROKER_OPTION}")
+    _refuse_foreign_env(
+        _BACKEND_ENV, backend, "the INFRA option taskqueue.default.backend"
+    )
+    return broker, backend
+
+
+def _refuse_foreign_env(key: str, stated: str | None, option: str) -> None:
+    """Refuse a Celery environment variable that is set and not what ``option``
+    states (``stated``, ``None`` for an option left out). Celery treats a blank
+    value as unset, as does this. The message names the variable, never its
+    value: it is a URL, with a password."""
+    value = os.environ.get(key)
+    if value and value != stated:
+        raise AttributeError(
+            f"{key} is set and is not {option}: Celery would use it instead of "
+            "the configured one. Unset it (a `celery -b` / `--result-backend` "
+            "option or a BROKER_URL / RESULT_BACKEND variable writes it), or "
+            f"set it to what {option} states"
+        )
 
 
 def _refuse(message: str) -> NoReturn:

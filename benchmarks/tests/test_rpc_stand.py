@@ -27,6 +27,7 @@ from typing import Any
 import asyncpg
 import pytest
 import pytest_asyncio
+from redis_env import worker_redis_url
 from sqlalchemy.engine import make_url
 from test_s5_secure_read import _dsn, _url, pg_proxy  # noqa: F401 - fixture
 from tests.perf_budgets.pgcount import PgCountingProxy
@@ -167,7 +168,7 @@ async def _backends(
         )
         await stack.enter_async_context(
             override_instance(
-                stand.core, "cache", driver="redis", url=os.environ["CACHE_URL"]
+                stand.core, "cache", driver="redis", url=worker_redis_url()
             )
         )
         yield

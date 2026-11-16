@@ -218,8 +218,7 @@ def server_env(full: bool = False) -> dict[str, str]:
         "DOCS_ENABLED": "false",
         "BILLING_PROVIDER": "fake",
         "DATABASE_URL": database_url(),
-        "CACHE_URL": common.cache_url(),
-        "BROKER_URL": common.broker_url(),
+        "INFRA": common.infra_env(instances=common.STANDARD_REDIS),
         "JWT_SECRET": common.jwt_secret(),
     }
     if full:

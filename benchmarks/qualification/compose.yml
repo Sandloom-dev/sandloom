@@ -7,8 +7,6 @@ x-env: &env
   BENCH_S5: '1'
   BENCH_WRITE_DIAG: '1'
   DATABASE_URL: postgresql+asyncpg://qualification_app:${APP_PASSWORD:?run prepare}@db:5432/qualification
-  CACHE_URL: redis://cache:6379/0
-  BROKER_URL: redis://cache:6379/2
   INFRA: '{"database":{"default":{"tenant_rls":true}},"atomic_store":{"security":{"driver":"redis","url":"redis://security:6379/0"}}}'
   JWT_SECRET: ${JWT_SECRET:?run prepare}
   TWOFA_ENCRYPTION_KEY: ${TWOFA_ENCRYPTION_KEY:?run prepare}
@@ -105,8 +103,6 @@ services:
     environment:
       <<: *env
       DATABASE_URL: postgresql+asyncpg://qualification_app:${APP_PASSWORD}@db:5432/${RESTORE_DATABASE:-qualification_restore}
-      CACHE_URL: redis://restored-cache:6379/0
-      BROKER_URL: redis://restored-cache:6379/2
     ports:
       - '127.0.0.1:18223:2222'
 

@@ -94,8 +94,8 @@ def _redis_labels() -> dict[tuple[str, int, int], str]:
     put((stores.get("security") or {}).get("url"), "security")
     put((stores.get("idempotency") or {}).get("url"), "idem")
     put((infra.get("eventbus", {}).get("default") or {}).get("url"), "broker")
-    put(os.environ.get("CACHE_URL"), "cache")
-    put(os.environ.get("BROKER_URL"), "broker")
+    put((infra.get("cache", {}).get("default") or {}).get("url"), "cache")
+    put((infra.get("taskqueue", {}).get("default") or {}).get("broker"), "broker")
     return labels
 
 

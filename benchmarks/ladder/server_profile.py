@@ -22,8 +22,8 @@ fail-closed revocation, identity loaded, RLS), and measures it:
           server's user / system CPU per request from ``/proc``.
 
 Env (the ladder's): DATABASE_URL (owner DSN; the app connects as
-S5_APP_ROLE), CACHE_URL, BROKER_URL, SECURITY_CACHE_URL (another Redis
-SERVER: the strict profile refuses a shared one).
+S5_APP_ROLE), BENCH_REDIS_URL, BENCH_CELERY_BROKER, BENCH_SECURITY_REDIS_URL
+(another Redis SERVER: the strict profile refuses a shared one).
 """
 
 from __future__ import annotations
@@ -64,13 +64,16 @@ def server_env(variant: str) -> dict[str, str]:
             "PRODUCTION_PROFILE": "multi_tenant_strict",
             "SANDLOOM_MODULES": '["sandloom_identity", "benchsuite.bench"]',
             "MODULE_REQUIRED": '["sandloom_identity", "benchsuite.bench"]',
+            # the lean root: the database option and the one Redis instance
+            # this stand names (as on main); no ``common.infra_env``, which
+            # would also select a cache and a streams bus
             "INFRA": json.dumps(
                 {
                     "database": {"default": {"tenant_rls": True}},
                     "atomic_store": {
                         "security": {
                             "driver": "redis",
-                            "url": os.environ["SECURITY_CACHE_URL"],
+                            "url": os.environ["BENCH_SECURITY_REDIS_URL"],
                         }
                     },
                 }

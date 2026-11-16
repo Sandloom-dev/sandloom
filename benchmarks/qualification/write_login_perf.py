@@ -193,10 +193,14 @@ def tail(exp, variant):
         }
         if split:
             infra = json.loads(env["INFRA"])
-            broker = (infra.get("eventbus", {}).get("default") or {}).get("url") or env[
-                "BROKER_URL"
-            ]
-            base = broker.rsplit("/", 1)[0]
+            # the bus url (the Redis the idempotency database sits beside); the
+            # base compose names no bus, and its flat BROKER_URL (the fallback
+            # until now) was ``redis://cache:6379/2``: the same Redis, the
+            # compose's ``cache`` service
+            bus = (infra.get("eventbus", {}).get("default") or {}).get(
+                "url"
+            ) or "redis://cache:6379/2"
+            base = bus.rsplit("/", 1)[0]
             infra.setdefault("cache", {})["idem"] = {
                 "driver": "redis",
                 "url": f"{base}/{exp.args.idem_db}",

@@ -106,8 +106,8 @@ def _mono_lane(
         "reset": [db],
         "env": {
             "DATABASE_URL": f"{PG_SA}/{db}?ssl=disable",
-            "CACHE_URL": f"{redis_url}/{redis[0]}",
-            "BROKER_URL": f"{redis_url}/{redis[1]}",
+            "BENCH_REDIS_URL": f"{redis_url}/{redis[0]}",
+            "BENCH_CELERY_BROKER": f"{redis_url}/{redis[1]}",
             "JWT_SECRET": JWT,
         },
         "jobs": jobs,
@@ -142,8 +142,8 @@ def _s5_lane(old: str, new: str) -> dict:
         "reset": [],
         "env": {
             "DATABASE_URL": f"{PG_SA}/bench_rp_s5?ssl=disable",
-            "CACHE_URL": "redis://localhost:6390/5",
-            "BROKER_URL": "redis://localhost:6390/6",
+            "BENCH_REDIS_URL": "redis://localhost:6390/5",
+            "BENCH_CELERY_BROKER": "redis://localhost:6390/6",
             "JWT_SECRET": JWT,
             "DB_RLS_MERGED_BEGIN": "true",
             "S5_APP_ROLE": "bench_app",
@@ -188,8 +188,8 @@ def _split_lane(root: str, prefix: str, redis: tuple[int, int]) -> dict:
         "env": {
             "DATABASE_URL": f"{PG_SA}/{prefix}_identity?ssl=disable",
             "LADDER_MIX_SPLIT_PREFIX": prefix,
-            "CACHE_URL": f"redis://localhost:6390/{redis[0]}",
-            "BROKER_URL": f"redis://localhost:6390/{redis[1]}",
+            "BENCH_REDIS_URL": f"redis://localhost:6390/{redis[0]}",
+            "BENCH_CELERY_BROKER": f"redis://localhost:6390/{redis[1]}",
             "JWT_SECRET": JWT,
         },
         "jobs": jobs,

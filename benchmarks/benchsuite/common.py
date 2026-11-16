@@ -1,9 +1,10 @@
 """Constants and configuration shared by every implementation and the runner.
 
-All servers read the SAME environment variables (``DATABASE_URL``,
-``CACHE_URL``, ``JWT_SECRET``, ``DB_POOL_SIZE``, ``DB_MAX_OVERFLOW``) — the Sandloom
-app reads them through its own settings, the bare apps through this module — so
-no implementation gets a differently sized pool or a different backend.
+All servers read the SAME inputs (``DATABASE_URL``, ``BENCH_REDIS_URL``,
+``JWT_SECRET``, ``DB_POOL_SIZE``, ``DB_MAX_OVERFLOW``) — the Sandloom app reads
+the Redis one through ``INFRA`` (:func:`infra_env`: one url on every Redis
+instance it selects), the bare apps through this module — so no implementation
+gets a differently sized pool or a different backend.
 
 Scenario semantics (identical across implementations):
 
@@ -37,11 +38,12 @@ S5  ``GET /s5/{id}``     -> the realistic SaaS read (Sandloom only): access JWT
 
 from __future__ import annotations
 
+import json
 import os
 import re
 
 DEFAULT_DATABASE_URL = "postgresql+asyncpg://bench:bench@127.0.0.1:5432/bench"
-DEFAULT_CACHE_URL = "redis://127.0.0.1:6379/0"
+DEFAULT_REDIS_URL = "redis://127.0.0.1:6379/0"
 # Local-only default. The workflow generates a random secret per job.
 DEFAULT_JWT_SECRET = "bench-local-secret-0123456789abcdef0123456789abcdef"
 
@@ -154,13 +156,69 @@ def asyncpg_dsn() -> str:
     return re.sub(r"([?&])ssl=", r"\1sslmode=", dsn)
 
 
-def cache_url() -> str:
-    return os.environ.get("CACHE_URL", DEFAULT_CACHE_URL)
+def redis_url() -> str:
+    """The Redis the stand's cache, revocation marks and event bus live on
+    (``BENCH_REDIS_URL``)."""
+    return os.environ.get("BENCH_REDIS_URL") or DEFAULT_REDIS_URL
 
 
-def broker_url() -> str:
-    """Sandloom's Celery/broker URL (unused by the bare apps)."""
-    return os.environ.get("BROKER_URL", cache_url())
+def celery_broker() -> str:
+    """Sandloom's Celery broker (``BENCH_CELERY_BROKER``; unused by the bare apps)."""
+    return os.environ.get("BENCH_CELERY_BROKER") or redis_url()
+
+
+#: ``INFRA`` instance -> ``(capability, instance, driver, url option)`` of the
+#: Redis-backed instances a stand can select. Each carries its OWN url (no
+#: instance follows another's).
+_REDIS_INSTANCES: dict[str, tuple[str, str, str, str]] = {
+    "cache": ("cache", "default", "redis", "url"),
+    "eventbus": ("eventbus", "default", "streams", "url"),
+    "broadcast": ("broadcast", "default", "redis", "url"),
+    "lease": ("lease", "beat", "redis", "url"),
+    "security": ("atomic_store", "security", "redis", "url"),
+    "taskqueue": ("taskqueue", "default", "celery", "broker"),
+}
+#: What the standard root (``sandloom_standard.main``) selects. A lean root
+#: (``create_app()`` with no composition selection: ``benchsuite.apps.sandloom_app``)
+#: selects no Redis instance, so a lean-root stand names none (a stand that
+#: names one selects it).
+STANDARD_REDIS = (
+    "cache",
+    "eventbus",
+    "security",
+    "broadcast",
+    "lease",
+    "taskqueue",
+)
+
+
+def redis_infra(
+    instances: tuple[str, ...],
+    *,
+    url: str | None = None,
+    broker: str | None = None,
+) -> dict[str, dict[str, dict[str, object]]]:
+    """The ``INFRA`` mapping giving each of ``instances`` its own Redis url
+    (``url``: :func:`redis_url`; the Celery broker: ``broker``, else
+    :func:`celery_broker`)."""
+    out: dict[str, dict[str, dict[str, object]]] = {}
+    for key in instances:
+        capability, name, driver, option = _REDIS_INSTANCES[key]
+        value = (
+            (broker or celery_broker()) if key == "taskqueue" else (url or redis_url())
+        )
+        out.setdefault(capability, {})[name] = {"driver": driver, option: value}
+    return out
+
+
+def infra_env(
+    *,
+    instances: tuple[str, ...],
+    url: str | None = None,
+    broker: str | None = None,
+) -> str:
+    """The ``INFRA`` JSON of a stand: :func:`redis_infra` as a string."""
+    return json.dumps(redis_infra(instances, url=url, broker=broker))
 
 
 def jwt_secret() -> str:
@@ -177,6 +235,6 @@ def max_overflow() -> int:
     return int(os.environ.get("DB_MAX_OVERFLOW", "20"))
 
 
-def cache_max_connections() -> int:
-    """Same default as Sandloom's ``CACHE_MAX_CONNECTIONS``."""
-    return int(os.environ.get("CACHE_MAX_CONNECTIONS", "64"))
+def redis_max_connections() -> int:
+    """Same default as the Redis cache driver's ``max_connections`` option."""
+    return int(os.environ.get("BENCH_REDIS_MAX_CONNECTIONS", "64"))

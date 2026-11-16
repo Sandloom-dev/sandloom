@@ -3520,6 +3520,12 @@
       "signature": "(deliveries:POSITIONAL_OR_KEYWORD|int, base_ms:KEYWORD_ONLY|int, max_ms:KEYWORD_ONLY|int) -> int"
     }
   },
+  "sandloom.driverkit.process_config": {
+    "process_instance": {
+      "kind": "function",
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str='default') -> InstanceConfig | None"
+    }
+  },
   "sandloom.driverkit.shared_endpoints": {
     "Role": {
       "kind": "callable",

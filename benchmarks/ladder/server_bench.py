@@ -9,7 +9,7 @@ client is. Wall time / rps are reported as secondary numbers.
 
 ``--app``: ``sandloom`` (benchsuite Sandloom app), ``fastapi`` (bare FastAPI app),
 ``fast`` (Sandloom app + ladder/fastpath.py prototypes; use ``--path /fast/core/``).
-Env: DATABASE_URL / CACHE_URL / BROKER_URL as for ladder.py.
+Env: DATABASE_URL / BENCH_REDIS_URL / BENCH_CELERY_BROKER as for ladder.py.
 """
 
 from __future__ import annotations
