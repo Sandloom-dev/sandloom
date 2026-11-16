@@ -121,10 +121,23 @@ _CONF_ENV = (
 _BROKER_ENV = ("CELERY_BROKER_URL", "CELERY_BROKER_READ_URL", "CELERY_BROKER_WRITE_URL")
 _BACKEND_ENV = "CELERY_RESULT_BACKEND"
 
-#: Process-wide ``default`` Celery app, built lazily, and the ``(broker,
-#: backend)`` it was built from.
-_default_app: Any | None = None
-_default_app_urls: tuple[str, str | None] | None = None
+
+class _DefaultApp:
+    """The process-wide ``default`` Celery app, built lazily, and the ``(broker,
+    backend)`` it was built from.
+
+    A holder, never a module global: ``celery -A sandloom_celery.worker`` falls
+    back to scanning ``vars(module)`` for any ``Celery`` instance once ``app`` and
+    ``celery`` raise (``celery.app.utils.find_app``), so an app kept in a module
+    attribute would be returned unchecked after the foreign-conf refusal, with its
+    ``_sandloom_importable`` mark unset. No module-level name of this file holds a
+    Celery instance."""
+
+    app: Any | None = None
+    urls: tuple[str, str | None] | None = None
+
+
+_default = _DefaultApp()
 
 
 def _celery_module() -> Any:
@@ -151,19 +164,22 @@ def _apply_framework_defaults(app: Any) -> Any:
 def get_default_app(broker: str, backend: str | None) -> Any:
     """Return the process-wide ``default`` Celery app (built once, from the
     ``default`` instance's ``broker`` and ``backend``)."""
-    global _default_app, _default_app_urls
-    if _default_app is None:
-        _default_app = _apply_framework_defaults(
-            _celery_module().Celery("project", broker=broker, backend=backend)
-        )
-        _default_app_urls = (broker, backend)
-    return _default_app
+    if _default.app is None:
+        _default.app = _new_default_app(broker, backend)
+        _default.urls = (broker, backend)
+    return _default.app
+
+
+def _new_default_app(broker: str, backend: str | None) -> Any:
+    return _apply_framework_defaults(
+        _celery_module().Celery("project", broker=broker, backend=backend)
+    )
 
 
 def default_app_matches(broker: str, backend: str | None) -> bool:
     """Whether the ``default`` instance may use the process-wide app: it is not
     built yet, or was built from these URLs."""
-    return _default_app is None or _default_app_urls == (broker, backend)
+    return _default.app is None or _default.urls == (broker, backend)
 
 
 def build_named_app(name: str, broker: str, backend: str | None) -> Any:
@@ -177,16 +193,21 @@ def __getattr__(name: str) -> Any:
     # ``celery -A sandloom_celery.worker`` looks up ``app`` (or
     # ``celery``); building lazily keeps a plain import free of side effects.
     if name in {"app", "celery", "celery_app"}:
-        if _default_app is not None and _default_app_urls is not None:
+        if _default.app is not None and _default.urls is not None:
             # Built first by the provider (or by an earlier lookup): its options
             # are the ones it was built from, and the final conf is checked
             # against them just the same.
-            broker, backend = _default_app_urls
-            app = _default_app
+            broker, backend = _default.urls
+            app = _default.app
+            _refuse_foreign_conf(app, broker, backend)
         else:
             broker, backend = _importable_app_urls()
-            app = get_default_app(broker, backend)
-        _refuse_foreign_conf(app, broker, backend)
+            # Built in a local and stored only once every check passed: a refused
+            # app is neither the process-wide one nor reachable from the module.
+            app = _new_default_app(broker, backend)
+            _refuse_foreign_conf(app, broker, backend)
+            _default.app = app
+            _default.urls = (broker, backend)
         return _refuse_unhosted_runs(app)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

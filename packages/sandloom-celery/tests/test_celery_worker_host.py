@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 from celery import Celery, signals
+from celery.app.utils import find_app
 from sandloom_celery import worker as celery_worker
 from sandloom_celery.taskqueue import (
     CeleryTaskQueueProvider,
@@ -382,8 +383,8 @@ def _importable_app_infra(
 ) -> None:
     """The ``INFRA`` the importable app reads through ``Settings``, with no flat
     ``BROKER_URL`` / ``CACHE_URL`` to fill what it leaves out."""
-    monkeypatch.setattr(celery_worker, "_default_app", None)
-    monkeypatch.setattr(celery_worker, "_default_app_urls", None)
+    monkeypatch.setattr(celery_worker._default, "app", None)
+    monkeypatch.setattr(celery_worker._default, "urls", None)
     monkeypatch.setattr(settings, "broker_url", None)
     monkeypatch.setattr(settings, "cache_url", None)
     monkeypatch.setattr(
@@ -405,7 +406,7 @@ def test_the_importable_app_names_the_infra_option_when_it_has_no_broker(
         _importable_app_infra(monkeypatch, default)
         with pytest.raises(AttributeError, match=r"taskqueue\.default\.broker"):
             celery_worker.app  # noqa: B018
-    assert celery_worker._default_app is None
+    assert celery_worker._default.app is None
 
 
 def test_the_importable_app_refuses_a_default_taskqueue_that_is_not_celery(
@@ -468,7 +469,7 @@ def test_the_importable_app_refuses_a_celery_broker_variable_other_than_infra(
     assert variable in str(refused.value)
     assert "stray-secret" not in str(refused.value)
     assert "infra-secret" not in str(refused.value)
-    assert celery_worker._default_app is None
+    assert celery_worker._default.app is None
 
 
 def test_the_importable_app_accepts_celery_variables_equal_to_infra_or_blank(
@@ -502,7 +503,7 @@ def test_the_importable_app_refuses_a_result_backend_variable_other_than_infra(
         with pytest.raises(AttributeError, match="CELERY_RESULT_BACKEND") as refused:
             celery_worker.app  # noqa: B018
         assert "stray-secret" not in str(refused.value)
-        assert celery_worker._default_app is None
+        assert celery_worker._default.app is None
 
 
 def _config_module(
@@ -558,6 +559,61 @@ def test_the_importable_app_refuses_a_config_module_that_changes_a_url(
         celery_worker.app  # noqa: B018
 
 
+def _celery_instances_in_the_module() -> list[str]:
+    """What ``celery.app.utils.find_app`` scans for once ``app`` / ``celery`` raise."""
+    return [
+        name for name, value in vars(celery_worker).items() if isinstance(value, Celery)
+    ]
+
+
+@pytest.mark.parametrize("provider_first", [False, True])
+def test_celery_dash_a_finds_no_app_to_use_after_a_foreign_conf_refusal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, provider_first: bool
+) -> None:
+    """``celery -A sandloom_celery.worker`` resolves through ``find_app``, which
+    scans ``vars(module)`` for a ``Celery`` instance after ``app`` and ``celery``
+    raise: the refused app must not be there (it would run with the foreign conf
+    and no ``_sandloom_importable`` mark), whether the lookup built it or the
+    provider did."""
+    _importable_app_infra(monkeypatch, {"driver": "celery", "broker": _INFRA_BROKER})
+    if provider_first:
+        create_celery_taskqueue(
+            InstanceConfig(
+                capability="taskqueue",
+                name="default",
+                driver="celery",
+                options={"broker": _INFRA_BROKER},
+            )
+        )
+    _config_module(
+        monkeypatch,
+        tmp_path,
+        "foreign_celery_config_c",
+        'broker_write_url = "redis://user:foreign-secret@127.0.0.1:1/5"\n',
+    )
+    with pytest.raises(AttributeError, match="broker_write_url") as refused:
+        find_app("sandloom_celery.worker")
+    assert "foreign-secret" not in str(refused.value)
+    assert _celery_instances_in_the_module() == []
+    if not provider_first:
+        # nothing of the refused app is kept for the next lookup or the provider
+        assert celery_worker._default.app is None
+        assert celery_worker._default.urls is None
+
+
+def test_celery_dash_a_finds_the_marked_importable_app_when_the_conf_is_infras(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other side of the scan test: with nothing foreign, ``find_app`` returns
+    the process-wide app, marked importable (so ``worker`` / ``beat`` refuse)."""
+    _importable_app_infra(monkeypatch, {"driver": "celery", "broker": _INFRA_BROKER})
+    monkeypatch.delenv("CELERY_CONFIG_MODULE", raising=False)
+    found = find_app("sandloom_celery.worker")
+    assert found is celery_worker._default.app
+    assert found._sandloom_importable is True
+    assert _celery_instances_in_the_module() == []
+
+
 def test_the_importable_app_refuses_the_default_loaders_celeryconfig(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -579,7 +635,7 @@ def test_the_importable_app_refuses_the_default_loaders_celeryconfig(
 def test_the_importable_app_refuses_a_foreign_conf_where_the_provider_built_it_first(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The ``_default_app`` shortcut skips the build, not the check."""
+    """The cached ``_default`` app skips the build, not the check."""
     _importable_app_infra(monkeypatch, {"driver": "celery", "broker": _INFRA_BROKER})
     provider = create_celery_taskqueue(
         InstanceConfig(
@@ -589,7 +645,7 @@ def test_the_importable_app_refuses_a_foreign_conf_where_the_provider_built_it_f
             options={"broker": _INFRA_BROKER},
         )
     )
-    assert provider._app is celery_worker._default_app is not None
+    assert provider._app is celery_worker._default.app is not None
     _config_module(
         monkeypatch,
         tmp_path,
