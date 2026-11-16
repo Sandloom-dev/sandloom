@@ -161,6 +161,12 @@ In production the kernel synthesizes no `security` store: declare it. A synthesi
 instance that shares the cache's Redis database logs a WARNING there, not the INFO of a
 development start.
 
+A `CELERY_BROKER_URL`, `CELERY_BROKER_READ_URL`, `CELERY_BROKER_WRITE_URL` or
+`CELERY_RESULT_BACKEND` can sit in the environment of a web process. If it differs from
+the `taskqueue` instance's `broker` or `backend`, the first publish now stops with a
+`ForeignCeleryConfError`. Celery used to follow the variable and publish to that broker.
+Unset it, or state its value in `INFRA`.
+
 ## Upgrading from 0.7.0a4 to 0.7.0a5
 
 This alpha changes infrastructure extension APIs. Update the framework and
