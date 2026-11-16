@@ -685,7 +685,7 @@ bundled modules and examples. `CoreFacade` appears once, only in a test comment.
 | `core.testing.deliver_event` | aja.sdk.testing.deliver | renamed | 0 | channel, payload, times, event_id, session, core |  |
 | `core.testing.email_of` | aja.sdk.testing | kept | 8 | user_id |  |
 | `core.testing.fake_access_fact` | aja.sdk.testing; `owner=` added (KB-34) | changed | 0 | name, value, deny_category, core, owner |  |
-| `core.testing.flush_owned_redis` | aja.sdk.testing | kept | 2 | client, owner | G-OPS-07 |
+| `core.testing.flush_owned_redis` | moved (idk-pkg-redis-harness2): `sandloom_redis.testing.flush_owned_redis`, the driver package's test helper; no `aja.sdk` name | replaced | 2 | client, owner | G-OPS-07 |
 | `core.testing.make_user_headers` | aja.sdk.testing.as_user | renamed | 23 | user_id, tenant_id, email, email_verified, tenant, claims |  |
 | `core.testing.migrate_module` | aja.sdk.testing | kept | 4 | url, package, revision, downgrade, chain |  |
 | `core.testing.migration_chains` | aja.sdk.testing (advanced) | kept | 0 | core |  |

@@ -20,11 +20,13 @@ layers silently off. In ``ENVIRONMENT=prod`` it requires:
    idempotency records; contract-command dedupe is already durable in the
    provider database) in a declared ``INFRA.atomic_store.security`` instance
    (never built from the cache's options or from memory) whose server differs
-   from the best-effort cache's: it declares ``never_evicts`` and ``shared``,
-   and at startup its ``isolation_identity()`` must differ from the module
-   cache's (a ``None`` or raising identity fails). When
-   ``INFRA.atomic_store.idempotency`` moves the idempotency records out, that
-   instance meets the same requirement;
+   from the best-effort cache's: at startup its ``isolation_identity()`` must
+   differ from the module cache's (a ``None`` or raising identity fails).
+   When ``INFRA.atomic_store.idempotency`` moves the idempotency records out,
+   that instance meets the same requirement. Every production profile (not
+   only the strict one) also requires the declared atomic-store instances to
+   declare ``never_evicts`` and ``shared``
+   (``atomic_store_feature_problems``);
 5. split deployments (``SERVICE_BINDINGS`` set): the contract compatibility
    check on (``CONTRACT_COMPAT_CHECK`` not ``off``) and asymmetric token
    signing (``JWT_ALGORITHM`` EdDSA / RS256 / ES256: ``JWT_PRIVATE_KEY`` on
@@ -33,7 +35,10 @@ layers silently off. In ``ENVIRONMENT=prod`` it requires:
    ``shared_hs_secret_split`` is refused. A process that loads no token
    issuer is split too even without bindings: the kernel's startup role check
    (:func:`sandloom.core.auth.tokens.token_signing_problem`) refuses an HS secret
-   there under this profile, with no opt-out.
+   there under this profile, with no opt-out;
+6. no notification instance with ``use_tls`` false, whatever selects it (the
+   composition, a pin or ``INFRA``): recovery links and SMTP credentials never
+   travel in clear (no opt-out).
 
 Configuration problems refuse the boot
 (:func:`sandloom.core.app_factory.enforce_configuration`, run by ``create_app``);
@@ -47,13 +52,17 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 import sandloom.core.tenant as _tenant
 from sandloom.core import rpc_pair_mac
 from sandloom.core.config import accepted_risks
 from sandloom.core.config.common import strict_profile_active
+from sandloom.core.infra import config as infra_config
+
+if TYPE_CHECKING:
+    from sandloom.core.infra.registry import InfraRegistry
 
 logger = logging.getLogger("sandloom.production_profile")
 
@@ -81,12 +90,12 @@ def _database_instances(infra: Mapping[str, Any]) -> dict[str, Mapping[str, Any]
     return instances
 
 
-def _cache_default_url(cfg: Any, infra: Mapping[str, Any]) -> object:
+def _cache_default_url(infra: Mapping[str, Any]) -> object:
     caches = infra.get("cache") or {}
     default_opts = caches.get("default") if isinstance(caches, Mapping) else None
-    if isinstance(default_opts, Mapping) and default_opts.get("url"):
+    if isinstance(default_opts, Mapping):
         return default_opts.get("url")
-    return getattr(cfg, "cache_url", None)
+    return None
 
 
 def _atomic_instance(infra: Mapping[str, Any], role: str) -> Mapping[str, Any] | None:
@@ -128,6 +137,45 @@ def atomic_store_security_problem(cfg: Any) -> str | None:
     return None
 
 
+#: What the kernel requires of the ``security`` and ``idempotency`` atomic_store
+#: instances in production (spec section 4): visible to every replica, and never
+#: losing a revocation mark or a reservation before its TTL.
+REQUIRED_STORE_FEATURES = ("shared", "never_evicts")
+_FEATURE_CHECKED_ROLES = ("security", "idempotency")
+
+
+def atomic_store_feature_problems(infra: InfraRegistry) -> list[str]:
+    """The production refusal of spec section 4, on every profile: each
+    configured ``security`` / ``idempotency`` atomic_store instance runs on a
+    driver that declares :data:`REQUIRED_STORE_FEATURES` for its options (a
+    database store on SQLite is not ``shared``). Build-free: the features are
+    the driver's declaration, read from the registry; a driver that declares
+    none of them is refused whatever its name."""
+    problems: list[str] = []
+    for role in _FEATURE_CHECKED_ROLES:
+        configured = infra.instance_config("atomic_store", role)
+        if configured is None:
+            continue  # an undeclared security instance has its own refusal
+        features = infra.declared_features("atomic_store", role)
+        if features is None:
+            problems.append(
+                f'INFRA["atomic_store"]["{role}"]: driver {configured.driver!r} is '
+                "not registered, so its features cannot be checked (install it "
+                "or fix the driver name)"
+            )
+            continue
+        missing = [name for name in REQUIRED_STORE_FEATURES if name not in features]
+        if missing:
+            problems.append(
+                f'INFRA["atomic_store"]["{role}"]: driver {configured.driver!r} '
+                f"does not declare {missing} for these options: revocation marks "
+                "and idempotency records need a store that is shared by every "
+                "replica and never evicts (e.g. a redis store, or a database "
+                "store on PostgreSQL)"
+            )
+    return problems
+
+
 def _atomic_instance_problems(
     cfg: Any, infra: Mapping[str, Any], role: str, options: Mapping[str, Any]
 ) -> list[str]:
@@ -140,7 +188,7 @@ def _atomic_instance_problems(
     if (
         driver == "redis"
         and server is not None
-        and server == _server(_cache_default_url(cfg, infra))
+        and server == _server(_cache_default_url(infra))
     ):
         return [
             f"atomic_store/{role} runs on the same Redis server as the "
@@ -175,6 +223,23 @@ def _atomic_store_problems(
     return problems
 
 
+def _notification_problems(cfg: Any) -> list[str]:
+    """A notification instance that sends without TLS (``use_tls`` false) puts
+    credentials and recovery links on the wire in clear: refused, whatever
+    selected it (the composition's ``DEFAULT_INFRA``, a pin, or ``INFRA``)."""
+    try:
+        instances = infra_config.resolved_instances(cfg, "notification")
+    except infra_config.InfraConfigError:
+        return []  # a malformed INFRA is refused by loading the configuration
+    return [
+        f"notification/{name}: use_tls is false — recovery links and SMTP "
+        "credentials travel in clear; remove use_tls (it defaults to on) or set "
+        "it true"
+        for name, inst in sorted(instances.items())
+        if inst.options.get("use_tls") is False
+    ]
+
+
 def config_problems(cfg: Any) -> tuple[list[str], list[str]]:  # noqa: C901
     """``(errors, warnings)`` of ``cfg`` against ``multi_tenant_strict``.
 
@@ -203,6 +268,7 @@ def config_problems(cfg: Any) -> tuple[list[str], list[str]]:  # noqa: C901
                 "BYPASSRLS / ownership; see docs/advanced/security-model.md)"
             )
     errors += _atomic_store_problems(cfg, infra, warnings)
+    errors += _notification_problems(cfg)
     if getattr(cfg, "service_bindings", None):
         if getattr(cfg, "contract_compat_check", "ready") == "off":
             errors.append(
@@ -333,7 +399,7 @@ async def _attest_separate_from_default(core: Any, role: str) -> None:
             f"Cannot attest the {role} atomic_store apart from the default cache: "
             "a driver returned no isolation identity"
         )
-    missing = sorted({"never_evicts", "shared"} - set(store.features()))
+    missing = sorted(set(REQUIRED_STORE_FEATURES) - set(store.features()))
     if missing:
         raise ProductionProfileError(
             f"The {role} atomic_store driver does not declare {missing}: "
@@ -350,7 +416,9 @@ async def _attest_separate_from_default(core: Any, role: str) -> None:
 
 
 __all__ = [
+    "REQUIRED_STORE_FEATURES",
     "ProductionProfileError",
+    "atomic_store_feature_problems",
     "atomic_store_security_problem",
     "config_problems",
     "enforce_runtime",

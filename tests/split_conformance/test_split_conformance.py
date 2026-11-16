@@ -48,7 +48,7 @@ import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NoReturn
@@ -76,6 +76,7 @@ from sandloom.core.testing.connections import (
     check_headroom,
     pool_connections,
 )
+from sandloom.core.testing.families import parse_infra
 from sandloom.core.testing.served import (
     ReservedPort,
     SpawnedServer,
@@ -83,6 +84,7 @@ from sandloom.core.testing.served import (
     probe,
     spawn_served,
 )
+from sandloom.sdk.testing import resolved_cache_url
 
 pytestmark = [pytest.mark.split_conformance, pytest.mark.e2e, pytest.mark.slow]
 
@@ -186,7 +188,7 @@ INPUT_DIVERGED_DENIALS = frozenset({401, 403, 404})
 def _test_env() -> dict[str, str]:
     # Worker-aware under pytest-xdist (own database / Redis DBs per worker).
     values = worker_env_values(BACKEND / ".env.test")
-    for key in ("DATABASE_URL", "CACHE_URL", "BROKER_URL"):
+    for key in ("DATABASE_URL", "INFRA"):
         if os.environ.get(f"E2E_{key}"):
             values[key] = os.environ[f"E2E_{key}"]
     return values
@@ -535,6 +537,16 @@ def _bindings(
     return out
 
 
+def _infra_with_prefix(environ: Mapping[str, str], prefix: str) -> str:
+    """The run's own ``INFRA`` (every instance's url) plus the key namespace,
+    an option of the ``streams`` bus instance, whose url defaults to the cache's."""
+    infra = parse_infra(environ.get("INFRA"))
+    bus = infra.setdefault("eventbus", {}).setdefault("default", {})
+    bus["prefix"] = prefix
+    bus.setdefault("url", resolved_cache_url(environ))
+    return json.dumps(infra)
+
+
 def _proc_env(
     base: dict[str, str], dep: Deployment, proc: Proc, base_db_url: str
 ) -> dict[str, str]:
@@ -554,7 +566,8 @@ def _proc_env(
             ),
             "SANDLOOM_SERVICE_NAME": f"{dep.name}-{proc.label}",
             "EVENT_BUS_BACKEND": "streams",
-            "EVENT_STREAM_PREFIX": f"conf-{RUN}-{dep.name}:",
+            # the key namespace is an option of the ``streams`` bus instance
+            "INFRA": _infra_with_prefix(env, f"conf-{RUN}-{dep.name}:"),
             "INTERNAL_API_TOKEN": INTERNAL_TOKEN,
             "JWT_ALGORITHM": "EdDSA",
             "JWT_PUBLIC_KEYS": JWT_PUBLIC_KEYS,
@@ -577,7 +590,7 @@ def _proc_env(
         }
     )
     env.update(_rpc_identity_env(dep, proc))
-    for key in ("MODULE_REQUIRED", "INFRA", "ACCESS"):
+    for key in ("MODULE_REQUIRED", "ACCESS"):
         env.pop(key, None)
     env.update(proc.extra_env)
     return env
@@ -1383,9 +1396,12 @@ class Matrix:
 def matrix(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Matrix]:
     base = _test_env()
     db_url = base.get("DATABASE_URL", "")
-    cache_url = base.get("CACHE_URL", "")
+    try:
+        cache_url = resolved_cache_url({**os.environ, **base})
+    except RuntimeError:
+        cache_url = ""
     if not db_url or not cache_url:
-        _unavailable("DATABASE_URL / CACHE_URL not configured")
+        _unavailable("DATABASE_URL / INFRA cache.default.url not configured")
     if not _reachable(db_url, 5432):
         _unavailable(f"PostgreSQL unavailable at {urlparse(db_url).netloc}")
     if not _reachable(cache_url, 6379):

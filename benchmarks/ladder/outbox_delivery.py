@@ -73,8 +73,6 @@ def _setup_path(src: str | None) -> None:
         sys.path.insert(0, str(Path(src).resolve()))
     os.environ.setdefault("ENVIRONMENT", "dev")
     os.environ["DATABASE_URL"] = f"{PG}/{DB}"
-    os.environ["CACHE_URL"] = REDIS
-    os.environ.setdefault("BROKER_URL", REDIS)
     # a non-secret placeholder: the stand mints no tokens (settings need one)
     os.environ.setdefault("JWT_SECRET", "outbox-delivery-stand-not-a-secret-000000")
     os.environ.setdefault("LOG_LEVEL", "WARNING")
@@ -92,8 +90,8 @@ class Stack:
         )
 
         from sandloom.core.eventing.streams_bus import StreamsEventBus
-        from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
-        from sandloom.core.drivers.redis_cache import build_transport_client
+        from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
+        from sandloom_redis.cache import build_transport_client
         from sandloom.core.schema.registry import InMemorySchemaRegistry
         from sandloom.core.sql_alchemy.outbox_store.audit import SQLAlchemyAuditStore
         from sandloom.core.sql_alchemy.outbox_store import SQLAlchemyOutboxStore

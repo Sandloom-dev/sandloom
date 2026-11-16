@@ -4,8 +4,11 @@ A driver's tests subclass the kit and override ``make_provider`` (an unopened
 provider; the harness checks that it opens, closes twice, declares its
 features, reports health and its isolation domain before these groups). The
 groups below need real time for the TTL (a 3 second lease is the shortest the
-contract allows), so a whole run takes about ten seconds. Every test uses names
-of its own: a lease outlives a test on a shared backend.
+contract allows), so a whole run takes about ten seconds. A driver whose clock
+is its own (the in-memory one takes a ``clock=``) overrides ``pass_time`` to
+advance that clock instead of waiting; a driver whose clock is its backend's
+keeps the real wait. Every test uses names of its own: a lease outlives a test
+on a shared backend.
 """
 
 from __future__ import annotations
@@ -57,6 +60,14 @@ class LeaseConformance(ProviderConformance[LeaseProvider]):
     contract = LeaseProvider
     protocol = LeaseStore
     spec = LEASE_CAPABILITY
+
+    async def pass_time(self, seconds: float) -> None:
+        """Let ``seconds`` of the driver's clock go by (the default waits for real).
+
+        Override it where the driver reads a clock the test controls, to advance
+        that clock; a backend that keeps time itself needs the real wait.
+        """
+        await asyncio.sleep(seconds)
 
     def operation_calls(self, provider: LeaseProvider) -> Mapping[str, Call]:
         name = _name()
@@ -204,7 +215,7 @@ class LeaseConformance(ProviderConformance[LeaseProvider]):
             await provider.acquire(name, ttl_seconds=_TTL, owner="kit:b") is None,
             "a lease within its TTL must not be granted",
         )
-        await asyncio.sleep(_AFTER_EXPIRY_SECONDS)
+        await self.pass_time(_AFTER_EXPIRY_SECONDS)
         require(
             await provider.holder(name) is None,
             "an expired lease must read as free (holder answers None)",
@@ -230,9 +241,9 @@ class LeaseConformance(ProviderConformance[LeaseProvider]):
     ) -> None:
         name = _name()
         lease = _granted(await provider.acquire(name, ttl_seconds=_TTL, owner="kit"))
-        await asyncio.sleep(_TTL - 1.0)
+        await self.pass_time(_TTL - 1.0)
         require(await provider.renew(lease), "the holder's renew must answer True")
-        await asyncio.sleep(_TTL - 1.0)  # past the first TTL, inside the renewed one
+        await self.pass_time(_TTL - 1.0)  # past the first TTL, inside the renewed one
         holder = await provider.holder(name)
         require(
             holder is not None and holder.owner == "kit",

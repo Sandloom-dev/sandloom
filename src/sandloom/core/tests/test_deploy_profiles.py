@@ -185,17 +185,31 @@ def test_mail_is_a_production_choice_and_the_demo_risk_is_documented(
     shell = {
         **SHELL,
         "NOTIFIER_BACKEND": "smtp",
-        "SMTP_HOST": "smtp.example.test",
-        "SMTP_FROM": "noreply@example.test",
         "SANDLOOM_ACCEPTED_RISKS": "local_storage_in_prod,billing.fake_psp_in_prod",
     }
+    from sandloom.core.infra.config import load_infra_config
+
     for name, svc in _load(profile)["services"].items():
         if "SANDLOOM_MODULES" not in (svc.get("environment") or {}):
             continue
+        env = _env(svc, shell)
+        # The smtp options are written into INFRA next to the profile's own.
+        infra = json.loads(env["INFRA"])
+        infra["notification"] = {
+            "default": {
+                "driver": "smtp",
+                "host": "smtp.example.test",
+                "from_addr": "noreply@example.test",
+            }
+        }
+        env["INFRA"] = json.dumps(infra)
         with monkeypatch.context() as mp:
-            cfg = _validate(_env(svc, shell), mp)
+            cfg = _validate(env, mp)
             assert cfg.notifier_backend == "smtp", name
-            assert cfg.smtp_host == "smtp.example.test", name
+            options = load_infra_config(cfg)["notification"]["default"].options
+            assert options["host"] == "smtp.example.test", name
+            # TLS is the smtp driver's own default: the profile never turns it off.
+            assert options.get("use_tls") is not False, name
             assert not cfg.accepts_risk("log_notifier_in_prod"), name
 
 
@@ -292,10 +306,7 @@ PARITY_KEYS = (
     "ENVIRONMENT",
     "SHUTDOWN_BUDGET_SECONDS",
     "EVENT_PAYLOAD_MAX_BYTES",
-    "EVENT_STREAM_RETENTION_SECONDS",
-    "EVENT_STREAM_MAXLEN",
-    "EVENT_STREAM_PREFIX",
-    "CACHE_URL",
+    "INFRA",
     "JWT_KID",
     "JWT_ISSUER",
     "JWT_AUDIENCE",
@@ -303,12 +314,6 @@ PARITY_KEYS = (
     "INTERNAL_API_TOKEN",
     "FRONTEND_URL",
     "NOTIFIER_BACKEND",
-    "SMTP_HOST",
-    "SMTP_PORT",
-    "SMTP_USERNAME",
-    "SMTP_PASSWORD",
-    "SMTP_FROM",
-    "SMTP_USE_TLS",
 )
 
 
@@ -337,23 +342,34 @@ def _app_processes(profile: str) -> dict[str, dict[str, Any]]:
 
 @pytest.mark.parametrize("profile", PROFILES)
 def test_security_relevant_settings_identical_across_processes(profile: str) -> None:
+    from sandloom.core.testing.deploy_profile import _comparable
+
     procs = _app_processes(profile)
     assert len(procs) >= 4
     for key in (*PARITY_KEYS, *PROFILE_PARITY_KEYS[profile]):
         values = {name: svc["environment"].get(key) for name, svc in procs.items()}
         missing = sorted(n for n, v in values.items() if v is None)
         assert not missing, f"{key} missing in {missing} ({profile})"
-        assert len(set(values.values())) == 1, f"{key} differs: {values}"
+        # INFRA is shared but for each service's own Celery broker.
+        same = {
+            json.dumps(_comparable(key, v), sort_keys=True) for v in values.values()
+        }
+        assert len(same) == 1, f"{key} differs: {values}"
 
 
 def test_parity_keys_default_identically_in_both_profiles() -> None:
+    from sandloom.core.testing.deploy_profile import _comparable
+
     mono = next(iter(_app_processes(PROFILES[0]).values()))["environment"]
     split = next(iter(_app_processes(PROFILES[1]).values()))["environment"]
     for key in PARITY_KEYS:
         if key in ("INTERNAL_API_TOKEN", "JWT_KID"):
             # optional in the monolith, mandatory between services
             continue
-        assert _interpolate(mono[key], SHELL) == _interpolate(split[key], SHELL), key
+        # A service's own Celery broker is the one allowed difference in INFRA.
+        assert _comparable(key, _interpolate(mono[key], SHELL)) == _comparable(
+            key, _interpolate(split[key], SHELL)
+        ), key
 
 
 @pytest.mark.parametrize("profile", PROFILES)
@@ -465,10 +481,15 @@ def test_idempotency_cache_opt_in_is_shared_and_durable(profile: str) -> None:
     """INFRA (it carries INFRA.atomic_store.security and .idempotency) is
     identical in every process, and a dedicated idempotency Redis fsyncs
     every write and never evicts, like a security Redis."""
+    from sandloom.core.testing.deploy_profile import _comparable
+
     procs = _app_processes(profile)
     for key in ("INFRA",):
         values = {name: svc["environment"].get(key) for name, svc in procs.items()}
-        assert len(set(values.values())) == 1, f"{key} differs: {values}"
+        same = {
+            json.dumps(_comparable(key, v), sort_keys=True) for v in values.values()
+        }
+        assert len(same) == 1, f"{key} differs: {values}"
     services = _load(profile)["services"]
     if "idempotency-redis" in services:
         cmd = services["idempotency-redis"]["command"]
@@ -858,10 +879,12 @@ _TENANCY_ID = "  RPC_SERVICE_ID: tenancy\n"
             {
                 "compose/microservices.yml": (
                     _TENANCY_ID,
-                    _TENANCY_ID + "  CACHE_URL: redis://redis:6379/9\n",
+                    _TENANCY_ID
+                    + '  INFRA: \'{"cache": {"default": {"url": '
+                    + '"redis://redis:6379/9"}}}\'\n',
                 )
             },
-            "CACHE_URL differs between processes",
+            "INFRA differs between processes",
         ),
         (
             {
@@ -900,13 +923,25 @@ _TENANCY_ID = "  RPC_SERVICE_ID: tenancy\n"
             },
             "SANDLOOM_COMPOSITION_ROOT differs between processes",
         ),
+        (
+            {
+                "compose/microservices.yml": (
+                    _TENANCY_ID,
+                    _TENANCY_ID
+                    + '  INFRA: \'{"cache": {"default": {"url": '
+                    + '"redis://redis:6379/9"}}}\'\n',
+                )
+            },
+            "the cache.default url differs between processes",
+        ),
     ],
     ids=[
-        "cache-url",
+        "infra",
         "internal-route",
         "issuer-only",
         "migrate",
         "composition-root",
+        "per-service-cache-url",
     ],
 )
 def test_the_split_invariants_report_what_breaks_them(
@@ -916,6 +951,96 @@ def test_the_split_invariants_report_what_breaks_them(
 
     problems = profile_problems(_broken(tmp_path, edits)).problems
     assert any(expected in p and "SANDLOOM-T014" in p for p in problems), problems
+
+
+def test_a_service_broker_alone_may_differ_in_infra() -> None:
+    """Each service has its own Celery broker database inside the shared INFRA:
+    the comparison drops ``taskqueue.*.broker`` and nothing else (the ``infra``
+    case above is the profile-level bite: any other difference is reported)."""
+    from sandloom.core.testing.deploy_profile import _comparable
+
+    def infra(cache_db: int, broker_db: int | None) -> str:
+        body: dict[str, object] = {
+            "cache": {"default": {"url": f"redis://redis:6379/{cache_db}"}}
+        }
+        if broker_db is not None:
+            body["taskqueue"] = {
+                "default": {"broker": f"redis://redis:6379/{broker_db}"}
+            }
+        return json.dumps(body)
+
+    assert _comparable("INFRA", infra(0, 2)) == _comparable("INFRA", infra(0, 3))
+    assert _comparable("INFRA", infra(0, 2)) == _comparable("INFRA", infra(0, None))
+    assert _comparable("INFRA", infra(0, 2)) != _comparable("INFRA", infra(9, 2))
+    # Another taskqueue option is not the broker: it still counts.
+    tuned = json.loads(infra(0, 2))
+    tuned["taskqueue"]["default"]["concurrency"] = 8
+    assert _comparable("INFRA", json.dumps(tuned)) != _comparable("INFRA", infra(0, 2))
+
+
+def test_unresolved_references_never_make_two_processes_equal() -> None:
+    """Two services whose INFRA url is a different unset ``${VAR}`` are not the
+    same url: a reference without a default stays as written, one with a
+    default is its default."""
+    from sandloom.core.testing.deploy_profile import (
+        _comparable,
+        _effective_default_url,
+    )
+
+    def infra(url: str) -> str:
+        return json.dumps({"cache": {"default": {"url": url}}})
+
+    assert _comparable("INFRA", infra("${HOST_A}")) != _comparable(
+        "INFRA", infra("${HOST_B}")
+    )
+    assert _comparable("INFRA", infra("${HOST_A:?set it}")) != _comparable(
+        "INFRA", infra("")
+    )
+    assert _comparable("INFRA", infra("${HOST:-redis://r/0}")) == _comparable(
+        "INFRA", infra("redis://r/0")
+    )
+    assert _effective_default_url({"INFRA": infra("${A}")}, "cache") != (
+        _effective_default_url({"INFRA": infra("${B}")}, "cache")
+    )
+
+
+def test_the_default_cache_url_is_the_one_the_infra_states() -> None:
+    """What each process resolves ``cache.default`` to: the url its INFRA
+    states, none otherwise (no flat setting fills it). Equal resolutions pass,
+    one different process is reported (the profile-level bite is the
+    ``per-service-cache-url`` case above)."""
+    from sandloom.core.testing.deploy_profile import (
+        _effective_default_url,
+        _same_default_urls,
+    )
+
+    both = (
+        '{"cache": {"default": {"url": "redis://a/0"}},'
+        ' "broadcast": {"default": {"url": "redis://a/0"}}}'
+    )
+    other = (
+        '{"cache": {"default": {"url": "redis://c/0"}},'
+        ' "broadcast": {"default": {"url": "redis://c/0"}}}'
+    )
+    assert _effective_default_url({"INFRA": both}, "cache") == "redis://a/0"
+    assert _effective_default_url({"INFRA": "{}"}, "cache") is None
+    assert _effective_default_url({"INFRA": "not json"}, "cache") is None
+    assert _effective_default_url({}, "cache") is None
+
+    found: list[str] = []
+    same = {"api": {"INFRA": both}, "web": {"INFRA": both}}
+    _same_default_urls(
+        {n: {"environment": env} for n, env in same.items()}, found.append
+    )
+    assert found == []
+    split = {"api": {"INFRA": both}, "web": {"INFRA": other}}
+    _same_default_urls(
+        {n: {"environment": env} for n, env in split.items()}, found.append
+    )
+    assert [p.split(" url ")[0] for p in found] == [
+        "the cache.default",
+        "the broadcast.default",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -1043,7 +1168,10 @@ def test_a_worker_check_service_does_not_consume_the_beats_tasks(
 ) -> None:
     from sandloom.core.testing.static_checks import periodic_beat_problems
 
-    env = {"SANDLOOM_MODULES": '["sandloom_tenancy"]', "BROKER_URL": "redis://b"}
+    env = {
+        "SANDLOOM_MODULES": '["sandloom_tenancy"]',
+        "INFRA": '{"taskqueue": {"default": {"broker": "redis://b"}}}',
+    }
     profile = tmp_path / "compose/microservices.yml"
     profile.parent.mkdir(parents=True)
     profile.write_text(

@@ -1,7 +1,7 @@
 ---
 paths:
-  - "**/tests/**"
-  - "**/test_*.py"
+  - "src/sandloom_*/**/tests/**"
+  - "examples/*/*/modules/**/tests/**"
 ---
 # Tests
 
@@ -15,6 +15,9 @@ orchestrator (alone: once at the end). Never a serial `pytest -q` after each fix
 - **Imports.** Module tests import only `sandloom.sdk` (`sandloom.sdk.testing` for the
   kit), the generated stubs and DTOs, and their own package (C013). Seed
   other modules through their HTTP API, contracts or events, never their code.
+  One more path is supported: a driver package's `testing` module
+  (`sandloom_redis.testing`, e.g. `flush_owned_redis`) for that driver's own
+  test resources. The SDK has no seam for it, and none is added.
 - **The kit** (`from sandloom.sdk.testing import ...`; fixtures come from the
   `sandloom.sdk.testing.plugin`):
   - `client` shares the rolled-back `db`, so a 4xx does not roll back what
@@ -29,7 +32,10 @@ orchestrator (alone: once at the end). Never a serial `pytest -q` after each fix
   - Never create identity rows from another module's tests.
 - **Environment.** `.env.test` is loaded for you.
   - Use your own resources on a shared machine: `SANDLOOM_TEST_OWNER`,
-    `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`, `SANDLOOM_TEST_BROKER_URL`.
+    `SANDLOOM_TEST_DATABASE_URL`, and `SANDLOOM_TEST_CACHE_URL` /
+    `SANDLOOM_TEST_BROKER_URL` for the cache and task queue that `INFRA` declares
+    (the harness merges the two Redis ones into the `url` of each Redis instance in
+    `INFRA`, and refuses one whose capability `INFRA` declares no url for).
   - Never `pkill` by pattern.
 - **Gate on `settings.is_prod`, never on `is_test`.** A `DeprecationWarning`
   from `sandloom.*` is an error.

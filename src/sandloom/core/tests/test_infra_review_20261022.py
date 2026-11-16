@@ -127,8 +127,7 @@ def test_log_levels_are_normalized(level: str) -> None:
     cfg = Settings(
         _env_file=None,
         DATABASE_URL=settings.database_url,
-        CACHE_URL=settings.cache_url,
-        BROKER_URL=settings.broker_url,
+        INFRA=settings.infra,
         JWT_SECRET=settings.jwt_secret,
         LOG_LEVEL=level,
     )
@@ -188,18 +187,6 @@ async def test_health_probes_are_bounded(monkeypatch: pytest.MonkeyPatch) -> Non
     assert result["cache:default"].status == "fail"
     assert result["cache:sessions"].status == "ok"
     await registry.aclose_all()
-
-
-async def test_broker_unavailability_is_reported_as_health_failure() -> None:
-    from sandloom.core.drivers.event_bus_driver import StreamsEventBusProvider
-
-    async def client():
-        raise ConnectionError("unavailable")
-
-    provider = StreamsEventBusProvider(
-        name="default", driver="streams", options={}, client_factory=client
-    )
-    assert (await provider.health()).status == "fail"
 
 
 def test_rls_target_role_checked_before_target_tables_exist() -> None:

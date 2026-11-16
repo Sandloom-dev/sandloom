@@ -34,7 +34,9 @@ repos:
 
     -   id: ruff
         name: ruff
-        entry: bash -c 'uv run --locked ruff check src/'
+        # --no-fix like CI: pyproject has fix = true, which would rewrite every
+        # fixable file under src/ and leave unrelated files dirty.
+        entry: bash -c 'uv run --locked ruff check --no-fix src/'
         language: system
         files: ^(src/|tests/|pyproject\.toml|uv\.lock)
         pass_filenames: false
@@ -48,16 +50,17 @@ repos:
 
     -   id: mypy
         name: mypy
-        entry: bash -c 'uv run --locked mypy src/'
+        # tools/ and the fleet hooks too: CI runs the same paths (backend-static).
+        entry: bash -c 'uv run --locked mypy src/ tools/ .claude/hooks/'
         language: system
-        files: ^(src/|tests/|pyproject\.toml|uv\.lock)
+        files: ^(src/|tests/|tools/.*\.py$|\.claude/hooks/.*\.py$|pyproject\.toml|uv\.lock)
         pass_filenames: false
 
     -   id: architecture-tests
         name: architecture-tests
-        entry: bash -c 'uv run --locked pytest tests/architecture/'
+        entry: bash -c 'uv run --locked pytest -n auto --dist loadfile tests/architecture/'
         language: system
-        files: ^((src/|architecture_rules\.yml|\.importlinter|pyproject\.toml|uv\.lock|guarantees\.yml|tools/checks/guarantees\.py)|docs/adr/|docs/reference/guarantees\.md)
+        files: ^((src/|tests/architecture/|tools/checks/|tools/packaging/|architecture_rules\.yml|\.importlinter|pyproject\.toml|uv\.lock|guarantees\.yml)|docs/adr/|docs/reference/guarantees\.md)
         pass_filenames: false
 
     # Kernel import contracts (ADR-0007): layers, acyclic packages, config leaf.
@@ -75,11 +78,69 @@ repos:
         files: ^(src/|tools/checks/check_architecture\.py|architecture_rules\.yml)
         pass_filenames: false
 
+    # Changelog fragments (changelog.d/<alias>.md) are well formed; CI runs the
+    # same check as tests/architecture/test_changelog_fragments.py.
+    -   id: changelog-fragments
+        name: changelog-fragments
+        entry: python3 tools/packaging/changelog_fragments.py --check
+        language: system
+        files: ^(changelog\.d/|tools/packaging/changelog_fragments\.py)
+        pass_filenames: false
+
     -   id: public-api
         name: public-api
         entry: bash -c 'uv run --locked python tools/packaging/check_public_api.py'
         language: system
         files: ^(src/|tools/packaging/check_public_api\.py|architecture_rules\.yml|public_api_baseline\.json)
+        pass_filenames: false
+
+    # Every tracked uv.lock, not only the root one: benchmarks/ keeps its own
+    # lock over the workspace packages, so a dependency added to a package's
+    # pyproject.toml must relock it too (CI's benchmarks-security job fails
+    # otherwise, PR #234). New locks are picked up by `git ls-files`.
+    -   id: uv-locks
+        name: uv-locks
+        entry: >-
+          bash -c 'git ls-files -z "*uv.lock" | while IFS= read -r -d "" l; do
+          (cd "$(dirname "$l")" && uv lock --check --quiet)
+          || { echo "stale: $l (run: cd $(dirname "$l") && uv lock)"; exit 1; }; done'
+        language: system
+        files: (^|/)(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
+
+    # The driver packages' own static steps, as the redis-drivers and
+    # celery-drivers CI jobs run them (the hooks above cover src/ only). Each
+    # changed package is checked whole: a merge of main can leave an unused
+    # import in a file the branch never edited. The package list below (and the
+    # `files` pattern) follows the driver-package jobs of .github/workflows/ci.yml:
+    # a new driver package gets a job there and a name here.
+    -   id: driver-packages
+        name: driver-packages
+        entry: >-
+          bash -c 'for p in sandloom-redis sandloom-celery; do
+          git diff --quiet "${PRE_COMMIT_FROM_REF:-HEAD}" "${PRE_COMMIT_TO_REF:-HEAD}" -- "packages/$p" pyproject.toml uv.lock
+          && [ -n "${PRE_COMMIT_FROM_REF:-}" ] && continue;
+          uv run --locked ruff check --no-fix "packages/$p" &&
+          uv run --locked ruff format --check "packages/$p" &&
+          uv run --locked mypy "packages/$p/src" || exit 1; done'
+        language: system
+        files: ^(packages/sandloom-(redis|celery)/|pyproject\.toml|uv\.lock)
+        pass_filenames: false
+
+    # The two fast docs gates of the CI docs job (under a second each): prose
+    # ratchet and stale code references. The site build stays a pre-push check.
+    -   id: docs-prose-lint
+        name: docs-prose-lint
+        entry: python3 tools/docs/docs_prose_lint.py
+        language: system
+        files: (\.md$|^tools/docs/docs_prose_lint)
+        pass_filenames: false
+
+    -   id: docs-stale-symbols
+        name: docs-stale-symbols
+        entry: python3 tools/docs/docs_stale_symbols.py
+        language: system
+        files: (\.md$|^src/|^tools/docs/docs_stale_symbols)
         pass_filenames: false
 
     # Heavy checks mirror the CI jobs and run once per push, not once per

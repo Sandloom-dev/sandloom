@@ -99,6 +99,7 @@ class RedisEventBusProvider(VolatileBusProvider):
     """``eventbus`` / ``redis``: the volatile bus over a ``broadcast`` instance."""
 
     supported_features = frozenset({"wildcard_subscribe"})
+    # No url: the bus runs over a ``broadcast`` instance (option ``broadcast``).
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
 

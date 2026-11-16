@@ -23,10 +23,6 @@ An outcome is one of:
   does: billing needs only ``periodic`` (the worker and beat run it) and
   identity's queue is optional, so the web process reports ``unused`` and a
   missing driver is a startup refusal instead (B037, KB-IC-1);
-- **not ready, cache**: boots, ``/health`` and ``/ready`` answer 503 with the
-  ``cache`` check failing because the redis package is not installed (the
-  kernel's own cache, revocation and security state; the unstubbed lanes show
-  it, a stub hides it);
 - **refused**: startup stops before serving, only for a reason in
   :data:`PREDEFINED_REFUSALS`, with its code and a message naming what is
   missing (owner answer #4). On today's declarations no bundled module
@@ -83,11 +79,6 @@ PREDEFINED_REFUSALS: dict[str, str] = {
     "configuration": "a selected module refuses its configuration",
 }
 
-#: Modules whose required capabilities need a driver extra plain ``sandloom``
-#: lacks (KB-IC-1): identity requires the cache (redis-py), billing the
-#: taskqueue with ``periodic`` (Celery). Their subsets refuse with B037 there.
-NEEDS_DRIVER_EXTRAS = frozenset({"identity", "billing"})
-
 #: What a B037 refusal names, per module (owner decision, answer #8): the
 #: module, the capability and, for ``periodic``, the feature and the driver
 #: package: the guarantee that is missing, not only a package.
@@ -99,13 +90,28 @@ REFUSAL_NAMES: dict[str, tuple[str, ...]] = {
 #: The environment every probe runs with: placeholders only, nothing listens.
 PROBE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:1/db",
-    "CACHE_URL": "redis://127.0.0.1:1/0",
-    "BROKER_URL": "redis://127.0.0.1:1/1",
+    # No ``INFRA``: the lean root selects no driver, and the matrix is about
+    # what a subset's own capabilities ask for (B037 names the missing driver).
+    # A run with the drivers installed adds ``REDIS_INFRA``.
     "JWT_SECRET": "module-subset-matrix-not-a-real-secret",
     "EVENT_BUS_BACKEND": "memory",
     "HEALTH_CACHE_TTL_SECONDS": "0",
     "INTERNAL_API_TOKEN": "module-subset-matrix-internal-token",
 }
+
+#: The ``INFRA`` of a probe that boots with the Redis and Celery drivers
+#: installed and every probe stubbed: each instance the standard composition
+#: selects states its own url (nothing is inherited, no flat url exists); the
+#: urls name no server.
+REDIS_INFRA = json.dumps(
+    {
+        "cache": {"default": {"url": "redis://127.0.0.1:1/0"}},
+        "atomic_store": {"security": {"url": "redis://127.0.0.1:1/0"}},
+        "lease": {"beat": {"url": "redis://127.0.0.1:1/0"}},
+        "broadcast": {"default": {"url": "redis://127.0.0.1:1/0"}},
+        "taskqueue": {"default": {"broker": "redis://127.0.0.1:1/1"}},
+    }
+)
 
 #: Variables of the parent kept in a probe's environment (the rest, ``.env.test``
 #: and every ``SANDLOOM_*`` included, never reach it).
@@ -116,15 +122,21 @@ _KEPT = ("PATH", "HOME", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT", "LANG", "LC_ALL"
 class Outcome:
     """What one subset is expected to do, or did."""
 
-    #: "ready" | "ready_ops_degraded" | "not_ready_taskqueue" | "not_ready_cache" | "refused"
+    #: "ready" | "ready_ops_degraded" | "not_ready_taskqueue" | "refused"
     kind: str
     taskqueue: str | None = None  # /ready's taskqueue_status
     refusal: str | None = None  # a PREDEFINED_REFUSALS key
 
 
 def expected(subset: Sequence[str], *, celery: bool) -> Outcome:
-    """The expected outcome of ``subset`` (I-19's table) with or without Celery."""
-    if not celery and NEEDS_DRIVER_EXTRAS.intersection(subset):
+    """The expected outcome of ``subset`` (I-19's table) with or without the
+    driver packages (``celery`` stands for ``sandloom[standard]``'s drivers).
+
+    Plain ``sandloom`` (no driver package, no composition that selects one)
+    refuses every subset, the empty one included: the kernel names no driver
+    and never ``memory``, so the cache, the event bus and the security store
+    have none (SANDLOOM-B037)."""
+    if not celery:
         return Outcome("refused", refusal="SANDLOOM-B037")
     # No bundled module uses the queue on the request path (KB-IC-3): the
     # web process never probes it, with or without Celery.
@@ -134,25 +146,18 @@ def expected(subset: Sequence[str], *, celery: bool) -> Outcome:
 def expected_unstubbed(
     subset: Sequence[str],
     *,
-    redis: bool = True,
     celery: bool = True,
     periodic: bool = True,
 ) -> Outcome:
     """The expected outcome with real health probes (KB-IC-4, I-19).
 
-    ``redis`` / ``celery``: the package is installed. ``periodic``: the
+    ``celery``: the package is installed. ``periodic``: the
     selected taskqueue driver advertises it. A module whose required
     capability has no installed driver with its features is refused (B037);
-    identity requires the cache, billing the taskqueue with ``periodic``.
-    Without redis-py the kernel's own cache still fails its check, so every
-    other subset boots but is not ready. Everything present: ready.
+    billing requires the taskqueue with ``periodic``. Everything present: ready.
     """
-    if (not redis and "identity" in subset) or (
-        not (celery and periodic) and "billing" in subset
-    ):
+    if not (celery and periodic) and "billing" in subset:
         return Outcome("refused", refusal="SANDLOOM-B037")
-    if not redis:
-        return Outcome("not_ready_cache")
     if "billing" in subset:
         return Outcome("ready_ops_degraded", taskqueue="unused")
     return Outcome("ready", taskqueue="unused")
@@ -177,7 +182,16 @@ started = time.perf_counter()
 try:
     if root == "kernel":
         from sandloom.sdk.app import create_app
-        app = create_app()
+        # The kernel factory selects no driver: the composition does, here the
+        # standard one's DEFAULT_INFRA where it is installed.
+        standard = importlib.util.find_spec("sandloom_standard")
+        app = create_app(
+            default_infra=(
+                importlib.import_module("sandloom_standard").DEFAULT_INFRA
+                if standard
+                else None
+            )
+        )
     else:
         app = importlib.import_module(root).app
 except SystemExit as exc:
@@ -274,13 +288,6 @@ class SubsetRun:
             and failures == {"billing_reconciler"}
         ):
             return Outcome("ready_ops_degraded", taskqueue=probe["taskqueue"])
-        cache = checks.get("cache", {})
-        if (
-            probe["health"] == 503
-            and probe["ready"] == 503
-            and cache.get("status") == "fail"
-        ):
-            return Outcome("not_ready_cache")
         return Outcome(f"health {probe['health']}, ready {probe['ready']}")
 
 
@@ -384,7 +391,9 @@ def check_run(
         assert probe.get("message"), f"{run.subset}: a refusal names what is missing"
         if got.refusal == "SANDLOOM-B037":
             for module in run.subset:
-                for token in (names or REFUSAL_NAMES).get(module, ()):
+                for token in (REFUSAL_NAMES if names is None else names).get(
+                    module, ()
+                ):
                     assert token in probe["message"], (
                         f"{run.subset}: the refusal does not name {token!r}\n{context}"
                     )

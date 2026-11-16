@@ -32,6 +32,7 @@ from typing import Any, TextIO
 from dotenv import dotenv_values
 
 import sandloom.core.cli.ui as _ui
+import sandloom.core.testing.workers as _workers
 from sandloom.core.cli.dev import docker as _docker
 from sandloom.core.cli.dev import envfile as _envfile
 from sandloom.core.cli.dev import errors as _errors
@@ -208,24 +209,178 @@ def write_state_env(ctx: Context, state: State) -> None:
     atomic_write(ctx.state_dir / STATE_ENV, "\n".join(lines) + "\n")
 
 
-def checkout_urls(ctx: Context, state: State, row: CheckoutRow) -> dict[str, str]:
+#: Run in the checkout (its own directory first on ``sys.path``): reads the
+#: ``DEFAULT_INFRA`` the composition root's package exports and prints it, with
+#: the url option each selected driver declares, as one JSON line. A child
+#: process, so that the app's package is the CHECKOUT's (never the one this
+#: interpreter happens to import) and that nothing of it, not even its
+#: settings, is imported into the CLI.
+_READ_SELECTION = (
+    "import json, os, sys\n"
+    # ``python -c`` puts the cwd first on ``sys.path``, unless PYTHONSAFEPATH=1
+    # drops it: the checkout's own package would not be found then.
+    "sys.path.insert(0, os.getcwd())\n"
+    "from sandloom.core.composition import root_default_infra\n"
+    "from sandloom.core.infra.registry import declared_url_options\n"
+    "infra = root_default_infra(sys.argv[1]) or {}\n"
+    "print(sys.argv[2] + json.dumps({'infra': infra, "
+    "'url_options': declared_url_options(infra)}))\n"
+)
+
+#: Prefix of the answer line: the app may print at import or at exit, so the
+#: answer is the line that starts with it, never the last line of stdout.
+_SELECTION_SENTINEL = "SANDLOOM-DEV-SELECTION:"
+
+
+@dataclass(frozen=True, slots=True)
+class CompositionSelection:
+    """What the composition root selects: ``infra`` is its ``DEFAULT_INFRA`` and
+    ``url_options`` the option holding the url of each selected driver that
+    connects to a server (``{"<capability>.<driver>": option}``), as the drivers
+    declare it."""
+
+    infra: Mapping[str, Mapping[str, Mapping[str, object]]]
+    url_options: Mapping[str, str]
+
+
+def composition_selection(
+    ctx: Context, env_text: str, checkout: Path | None = None
+) -> CompositionSelection:
+    """The driver selection (``DEFAULT_INFRA``) of the app's composition root,
+    read in ``checkout`` (default: the repository root) by a child process:
+    which instances exist, so which ones get a Redis url. Empty when the root
+    has no package or exports none (a checkout of the framework itself). Any
+    failure of the read, of any kind, stops the command naming the root."""
+    named, _ = _envfile.winning_assignment(env_text, "SANDLOOM_COMPOSITION_ROOT")
+    root = ctx.environ.get("SANDLOOM_COMPOSITION_ROOT") or named
+    name = (root or f"{ctx.identity.app}.asgi").partition(":")[0].strip()
+    refusal = (
+        f"cannot read DEFAULT_INFRA of the composition root {name!r}: %s. "
+        "Fix the import (or SANDLOOM_COMPOSITION_ROOT in .env), then run "
+        "`uv run sandloom dev up` again"
+    )
+    try:
+        proc = _process.run(
+            [sys.executable, "-c", _READ_SELECTION, name, _SELECTION_SENTINEL],
+            env=ctx.environ,
+            cwd=checkout or ctx.root,
+            timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise DevError(refusal % (str(exc) or type(exc).__name__)) from exc
+    lines = [
+        line.removeprefix(_SELECTION_SENTINEL)
+        for line in proc.stdout.splitlines()
+        if line.startswith(_SELECTION_SENTINEL)
+    ]
+    if proc.returncode != 0 or not lines:
+        tail = (proc.stderr.strip().splitlines() or ["it printed nothing"])[-1]
+        raise DevError(refusal % tail)
+    try:
+        answer = json.loads(lines[-1])
+    except ValueError as exc:
+        raise DevError(refusal % f"its answer is not JSON ({exc})") from exc
+    if (
+        not isinstance(answer, dict)
+        or not isinstance(answer.get("infra"), dict)
+        or not isinstance(answer.get("url_options"), dict)
+    ):
+        raise DevError(refusal % "its answer is not an object")
+    return CompositionSelection(answer["infra"], answer["url_options"])
+
+
+def _env_text(row: CheckoutRow) -> str:
+    try:
+        return (Path(row.path) / _envfile.ENV_FILE).read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def row_selection(ctx: Context, row: CheckoutRow) -> CompositionSelection:
+    """The composition selection of ``row``'s checkout (a child process: callers
+    that need it twice pass the answer on)."""
+    return composition_selection(ctx, _env_text(row), Path(row.path))
+
+
+def checkout_urls(
+    ctx: Context,
+    state: State,
+    row: CheckoutRow,
+    selection: CompositionSelection | None = None,
+) -> dict[str, str]:
+    """``DATABASE_URL`` and, when the composition has Redis instances, the
+    managed ``INFRA`` (JSON): the cache instances on this checkout's cache
+    index, every persistent one (security store, lease, event streams, Celery
+    broker) on its broker index, never on the cache's."""
     redis = ctx.redis(state)
-    return {
-        "DATABASE_URL": ctx.postgres(state).url(row.database),
-        "CACHE_URL": redis.url(row.cache_index),
-        "BROKER_URL": redis.url(row.broker_index),
-    }
+    urls = {"DATABASE_URL": ctx.postgres(state).url(row.database)}
+    env_text = _env_text(row)
+    bus, _ = _envfile.winning_assignment(env_text, "EVENT_BUS_BACKEND")
+    if selection is None:
+        selection = row_selection(ctx, row)
+    managed = _envfile.managed_infra(
+        selection.infra,
+        selection.url_options,
+        cache_url=redis.url(row.cache_index),
+        persistent_url=redis.url(row.broker_index),
+        memory_bus=(ctx.environ.get("EVENT_BUS_BACKEND") or bus).strip().lower()
+        == "memory",
+    )
+    if managed:
+        urls["INFRA"] = json.dumps(managed, separators=(",", ":"))
+    return urls
 
 
-def test_urls(ctx: Context, state: State, row: CheckoutRow) -> dict[str, str]:
+def _test_env_infra(row: CheckoutRow) -> str | None:
+    """The ``INFRA`` of the checkout's ``.env.test`` (what the harness merges the
+    test overrides into), ``None`` when that file states none.
+
+    Read with ``dotenv_values``, as the harness does (``worker_env_values``): a
+    trailing comment, a ``${VAR}`` and a multi-line value come out the same."""
+    return dotenv_values(Path(row.path) / ".env.test").get("INFRA") or None
+
+
+def _selects_url_instance(selection: CompositionSelection, capability: str) -> bool:
+    """The composition's ``default`` instance of ``capability`` runs on a driver
+    that connects by url."""
+    spec = selection.infra.get(capability, {}).get("default")
+    return (
+        spec is not None
+        and f"{capability}.{spec.get('driver')}" in selection.url_options
+    )
+
+
+def test_urls(
+    ctx: Context,
+    state: State,
+    row: CheckoutRow,
+    selection: CompositionSelection | None = None,
+) -> dict[str, str]:
+    """The test resources of ``row``: always the database; the cache and broker
+    override names only where the composition has a ``default`` instance of that
+    capability on a url driver, and where the ``INFRA`` of the checkout's
+    ``.env.test`` (the one the harness merges them into) declares a Redis url on
+    that capability's ``default`` instance: the harness refuses an override with
+    no instance to replace, so a checkout that wrote one could not run its tests.
+    An empty selection (the framework's own checkout, no composition) is judged by
+    ``.env.test`` alone. A ``.env.test`` with no ``INFRA`` takes none: the harness
+    raises ``UnmatchedOverrideError`` on an override it has no instance for, so
+    ``dev up`` writes none and the tests run on what ``.env.test`` names."""
     redis = ctx.redis(state, test=True)
-    return {
+    urls = {
         "SANDLOOM_TEST_DATABASE_URL": ctx.postgres(state, test=True).url(
             row.test_database
-        ),
-        "SANDLOOM_TEST_CACHE_URL": redis.url(TEST_CACHE_INDEX),
-        "SANDLOOM_TEST_BROKER_URL": redis.url(TEST_BROKER_INDEX),
+        )
     }
+    if selection is None:
+        selection = row_selection(ctx, row)
+    indexes = {"CACHE_URL": TEST_CACHE_INDEX, "BROKER_URL": TEST_BROKER_INDEX}
+    takes = _workers.overrides_infra_can_take(_test_env_infra(row))
+    for name, capability in _workers.INFRA_URL_CAPABILITIES.items():
+        wanted = not selection.infra or _selects_url_instance(selection, capability)
+        if wanted and name in takes:
+            urls[f"{_workers.OVERRIDE_PREFIX}{name}"] = redis.url(indexes[name])
+    return urls
 
 
 def redis_problem(server: _services.RedisServer) -> str | None:
@@ -290,9 +445,19 @@ def write_checkout_files(ctx: Context, state: State, row: CheckoutRow) -> list[s
     notes = []
     if _envfile.seed_env(root):
         notes.append(f"created {root / '.env'} from .env.example (fresh JWT_SECRET)")
-    if _envfile.write_env_block(root / ".env", checkout_urls(ctx, state, row)):
+    selection = row_selection(ctx, row)
+    try:
+        wrote = _envfile.write_env_block(
+            root / ".env", checkout_urls(ctx, state, row, selection)
+        )
+    except _envfile.InvalidInfra as exc:
+        raise DevError(
+            f"{root / '.env'}: {exc}. `dev up` merges your INFRA into its block "
+            "and does not guess: fix that line, then run it again"
+        ) from exc
+    if wrote:
         notes.append(f"wrote the sandloom dev block of {root / '.env'}")
-    if _envfile.write_test_local(root, test_urls(ctx, state, row)):
+    if _envfile.write_test_local(root, test_urls(ctx, state, row, selection)):
         notes.append(f"wrote {root / '.env.test.local'}")
     return notes
 
@@ -579,9 +744,8 @@ def up(ctx: Context, options: UpOptions) -> int:
             f"this checkout uses its own database (DATABASE_URL={own} in .env, "
             "outside the sandloom dev block), whose schema comes from the "
             "models: `dev up` starts nothing for it and leaves .env as it is. "
-            "Serve the app with `uv run sandloom dev run` (CACHE_URL and "
-            "BROKER_URL in .env name your Redis); to use the dev services "
-            "instead, remove that line"
+            "Serve the app with `uv run sandloom dev run` (the INFRA in .env "
+            "names your Redis); to use the dev services instead, remove that line"
         )
     if _wants_external(ctx, options):
         return up_external(ctx, options)
@@ -998,13 +1162,25 @@ def _finish_up(ctx: Context, state: State, options: UpOptions) -> int:
     return 0
 
 
+def _infra_lines(urls: Mapping[str, str]) -> list[str]:
+    """One line per Redis instance of the managed ``INFRA`` of ``urls``."""
+    managed = json.loads(urls.get("INFRA") or "{}")
+    return [
+        f"           INFRA {capability}.{name} {option}={value}"
+        for capability, instances in managed.items()
+        for name, spec in instances.items()
+        for option, value in spec.items()
+    ]
+
+
 def _print_summary(
     ctx: Context, state: State, row: CheckoutRow, *, migrate: bool
 ) -> None:
     """The URLs, then the next command: the migrations only for a database
     that was just created or holds no table yet."""
-    urls = checkout_urls(ctx, state, row)
-    tests = test_urls(ctx, state, row)
+    selection = row_selection(ctx, row)
+    urls = checkout_urls(ctx, state, row, selection)
+    tests = test_urls(ctx, state, row, selection)
     gui = ctx.postgres(state).url(row.database, driver="postgresql")
     port = state.app_ports.get(row.path)
     serve = "uv run sandloom dev run" + (f" (http://127.0.0.1:{port})" if port else "")
@@ -1025,8 +1201,7 @@ def _print_summary(
             [
                 ctx.style.green(heading),
                 f"  app      DATABASE_URL={urls['DATABASE_URL']}",
-                f"           CACHE_URL={urls['CACHE_URL']}",
-                f"           BROKER_URL={urls['BROKER_URL']}",
+                *_infra_lines(urls),
                 "  tests    SANDLOOM_TEST_DATABASE_URL="
                 + tests["SANDLOOM_TEST_DATABASE_URL"],
                 f"  GUI      {gui}",
@@ -1097,8 +1272,9 @@ def _checkout_status(ctx: Context, state: State, data: dict[str, Any]) -> None:
     if row is not None:
         data["database"] = row.database
         data["redis_indexes"] = list(row.indexes)
-        data["urls"] = checkout_urls(ctx, state, row)
-        data["test_urls"] = test_urls(ctx, state, row)
+        selection = row_selection(ctx, row)
+        data["urls"] = checkout_urls(ctx, state, row, selection)
+        data["test_urls"] = test_urls(ctx, state, row, selection)
         data["gui_url"] = ctx.postgres(state).url(row.database, driver="postgresql")
         run = live_run(ctx.root)
         if run:

@@ -103,8 +103,6 @@ env:
   WRK2_SHA: "44a94c17d8e6a0bac8559b53da76848e430cb7a7"
   UV_VERSION: "0.13.4"
   DATABASE_URL: postgresql+asyncpg://bench:bench@127.0.0.1:5432/bench
-  CACHE_URL: redis://127.0.0.1:6379/0
-  BROKER_URL: redis://127.0.0.1:6379/1
   PYTHONUNBUFFERED: "1"
   BENCH_SCENARIOS: ${{ (inputs.scenarios || 's1,s2,s3,s4') }}
   BENCH_DURATION: ${{ (inputs.duration || '10') }}

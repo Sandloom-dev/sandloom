@@ -68,7 +68,7 @@ from sandloom.core.testing.served import (
     probe,
     spawn_served,
 )
-from sandloom.sdk.testing import split_env
+from sandloom.sdk.testing import resolved_cache_url, split_env
 
 pytestmark = [pytest.mark.integration, pytest.mark.e2e, pytest.mark.slow]
 
@@ -111,6 +111,42 @@ MIGRATE_ROOT = (
     if importlib.util.find_spec("sandloom_standard") is not None
     else {}
 )
+
+
+#: The Redis drivers (``sandloom-redis``) are installed: the topologies run on
+#: them; otherwise on the kernel's ``memory`` ones.
+REDIS_DRIVER_INSTALLED = importlib.util.find_spec("sandloom_redis") is not None
+
+
+def _infra(database_url: str, cache_url: str) -> str:
+    """``INFRA`` as JSON: the drivers a root selects (the kernel names none and
+    the roots of this suite pass no ``default_infra``), plus row security on
+    the default database. An instance named in it carries its own options, so
+    the URLs are written out. Without ``sandloom-redis`` (the
+    ``kernel-without-redis`` lane) the cache is the kernel's ``memory`` driver
+    and the security store its ``database`` one: the trust rows hold on both."""
+    if REDIS_DRIVER_INSTALLED:
+        cache: dict[str, object] = {"driver": "redis", "url": cache_url}
+        security: dict[str, object] = {"driver": "redis", "url": cache_url}
+    else:
+        cache = {"driver": "memory"}
+        # Revocation marks must reach every process of a split topology: the
+        # ``database`` store is shared through PostgreSQL, ``memory`` is not.
+        security = {"driver": "database", "url": database_url}
+    return json.dumps(
+        {
+            "database": {
+                "default": {
+                    "driver": "sqlalchemy",
+                    "url": database_url,
+                    "tenant_rls": True,
+                }
+            },
+            "cache": {"default": cache},
+            "atomic_store": {"security": security},
+        }
+    )
+
 
 UNAVAILABLE_FORGED = "Token claims from 'forged' are unavailable; try again later"
 UNAVAILABLE_ISSUER = (
@@ -239,7 +275,6 @@ class Infra:
 
     database_url: str
     cache_url: str
-    broker_url: str
     logs: Path
 
 
@@ -253,12 +288,22 @@ def infra(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Infra]:
     """
     values = worker_env_values(BACKEND / ".env.test")
     base = values.get("DATABASE_URL", "")
-    cache = values.get("CACHE_URL", "")
-    broker = values.get("BROKER_URL", "")
-    if not base.startswith("postgresql") or not cache.startswith("redis"):
-        _unavailable("needs a PostgreSQL DATABASE_URL and a Redis CACHE_URL")
-    if not _reachable(base, 5432) or not _reachable(cache, 6379):
-        _unavailable("PostgreSQL or Redis is not reachable")
+    # Redis is needed only where the topologies run on the Redis drivers; on the
+    # kernel's ``memory`` ones (``kernel-without-redis``) no server is touched.
+    cache = ""
+    if REDIS_DRIVER_INSTALLED:
+        try:
+            cache = resolved_cache_url()
+        except RuntimeError:
+            cache = ""
+        if not cache.startswith("redis"):
+            _unavailable("needs a Redis cache.default url")
+        if not _reachable(cache, 6379):
+            _unavailable("Redis is not reachable")
+    if not base.startswith("postgresql"):
+        _unavailable("needs a PostgreSQL DATABASE_URL")
+    if not _reachable(base, 5432):
+        _unavailable("PostgreSQL is not reachable")
     name = f"sandloom_replace_{RUN}"
     role = f"sandloom_replace_app_{RUN}"
     password = uuid.uuid4().hex
@@ -286,10 +331,10 @@ def infra(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Infra]:
                 **_child_base_env(),
                 "ENVIRONMENT": "test",
                 "DATABASE_URL": owner_url,
-                "CACHE_URL": cache,
-                "BROKER_URL": broker,
                 "JWT_SECRET": f"replace-migrate-{uuid.uuid4().hex}",
                 "SANDLOOM_MODULES": "[]",
+                "EVENT_BUS_BACKEND": "memory",
+                "INFRA": _infra(owner_url, cache),
                 **MIGRATE_ROOT,
             },
             capture_output=True,
@@ -302,7 +347,6 @@ def infra(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Infra]:
         yield Infra(
             database_url=_with_credentials(owner_url, role, password),
             cache_url=cache,
-            broker_url=broker,
             logs=tmp_path_factory.mktemp("replaceability-logs"),
         )
     finally:
@@ -406,8 +450,6 @@ def _base_env(infra: Infra, users: Users) -> dict[str, str]:
     return {
         **_child_base_env(),
         "DATABASE_URL": infra.database_url,
-        "CACHE_URL": infra.cache_url,
-        "BROKER_URL": infra.broker_url,
         "EVENT_BUS_BACKEND": "memory",
         "ENVIRONMENT": "dev",
         "OUTBOX_RELAY_ENABLED": "off",
@@ -416,7 +458,7 @@ def _base_env(infra: Infra, users: Users) -> dict[str, str]:
         "LOG_FORMAT": "text",
         "POC_ADMINS": users.admin,
         # PostgreSQL row security on the default database.
-        "INFRA": json.dumps({"database": {"default": {"tenant_rls": True}}}),
+        "INFRA": _infra(infra.database_url, infra.cache_url),
     }
 
 

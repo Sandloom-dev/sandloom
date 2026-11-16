@@ -7,8 +7,8 @@ It also writes ``reference/configuration-tiers.md`` — the settings by tier and
 the semantic tier's per-profile table — from ``sandloom.core.config.tiers``.
 
 Importing the framework instantiates the module-level ``settings`` singleton,
-which validates a handful of mandatory env vars (DATABASE_URL, CACHE_URL,
-BROKER_URL, JWT_SECRET). We seed harmless dummy values *before* importing so a
+which validates a handful of mandatory env vars (DATABASE_URL, JWT_SECRET). We
+seed harmless dummy values *before* importing so a
 docs build needs no real infrastructure config. Real env vars (e.g. in CI)
 always win because we only set a default when the variable is absent.
 """
@@ -25,14 +25,16 @@ from pathlib import Path
 _DOCS_BUILD_ENV = {
     "ENVIRONMENT": "dev",
     "DATABASE_URL": "postgresql+asyncpg://docs:docs@localhost:5432/docs",
-    "CACHE_URL": "redis://localhost:6379/0",
-    "BROKER_URL": "redis://localhost:6379/1",
     "JWT_SECRET": "docs-build-placeholder-secret-not-used-at-runtime",
+    # No composition is booted here: name the in-process bus, so the revocation
+    # applier's service-name check (a shared bus needs one) has nothing to ask.
+    "EVENT_BUS_BACKEND": "memory",
 }
 for _key, _value in _DOCS_BUILD_ENV.items():
     os.environ.setdefault(_key, _value)
 
 from pydantic import BaseModel  # noqa: E402
+from pydantic.fields import FieldInfo  # noqa: E402
 from pydantic_core import PydanticUndefined  # noqa: E402
 
 from sandloom.core.config import module_settings, tiers  # noqa: E402
@@ -93,8 +95,6 @@ _CATEGORIES: dict[str, str] = {
     "DB_POOL_SIZE": "Infrastructure",
     "DB_MAX_OVERFLOW": "Infrastructure",
     "DB_POOL_TIMEOUT": "Infrastructure",
-    "CACHE_URL": "Infrastructure",
-    "BROKER_URL": "Infrastructure",
     # Eventing
     "EVENT_BUS_BACKEND": "Eventing & Outbox",
     "OUTBOX_RELAY_ENABLED": "Eventing & Outbox",
@@ -104,9 +104,6 @@ _CATEGORIES: dict[str, str] = {
     "OUTBOX_RELAY_CIRCUIT_BASE_SECONDS": "Eventing & Outbox",
     "OUTBOX_RELAY_CIRCUIT_MAX_SECONDS": "Eventing & Outbox",
     "SANDLOOM_SERVICE_NAME": "Eventing & Outbox",
-    "EVENT_STREAM_RETENTION_SECONDS": "Eventing & Outbox",
-    "EVENT_STREAM_MAXLEN": "Eventing & Outbox",
-    "EVENT_STREAM_PREFIX": "Eventing & Outbox",
     "SANDLOOM_COMPOSITION_ROOT": "Core & Modules",
     "EVENT_CALLBACK_TIME_BUDGET_SECONDS": "Eventing & Outbox",
     "EVENT_PAYLOAD_MAX_BYTES": "Eventing & Outbox",
@@ -126,18 +123,8 @@ _CATEGORIES: dict[str, str] = {
     "STORAGE_PATH": "Storage",
     "MAX_UPLOAD_SIZE_BYTES": "Storage",
     "MAX_REQUEST_BODY_BYTES": "Storage",
-    "S3_BUCKET": "Storage",
-    "S3_REGION": "Storage",
-    "S3_ACCESS_KEY_ID": "Storage",
-    "S3_SECRET_ACCESS_KEY": "Storage",
     # Notifications
     "NOTIFIER_BACKEND": "Notifications",
-    "SMTP_HOST": "Notifications",
-    "SMTP_PORT": "Notifications",
-    "SMTP_USERNAME": "Notifications",
-    "SMTP_PASSWORD": "Notifications",
-    "SMTP_FROM": "Notifications",
-    "SMTP_USE_TLS": "Notifications",
     # Security / JWT
     "JWT_SECRET": "Security & JWT",
     "PRODUCTION_PROFILE": "Security & JWT",
@@ -246,7 +233,9 @@ def _description(field: object) -> str:
 
 def render_pages() -> dict[str, str]:
     # Bucket fields by category, preserving declaration order within a category.
-    buckets: dict[str, list[tuple[str, object]]] = {cat: [] for cat in _CATEGORY_ORDER}
+    buckets: dict[str, list[tuple[str, FieldInfo]]] = {
+        cat: [] for cat in _CATEGORY_ORDER
+    }
     for name, field in Settings.model_fields.items():
         alias = field.alias or name.upper()
         category = _CATEGORIES.get(alias, "Other")
@@ -277,8 +266,11 @@ def render_pages() -> dict[str, str]:
     lines.append("")
     lines.append(
         '!!! info "Required settings"\n'
-        "    `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`, and `JWT_SECRET` are "
-        "mandatory; the process aborts at startup if any is missing or invalid. "
+        "    `DATABASE_URL` and `JWT_SECRET` are mandatory; the process aborts at "
+        "startup if either is missing or invalid. An app that selects a Redis or "
+        "Celery driver gives each instance its own url in `INFRA` (no flat "
+        "`CACHE_URL` / `BROKER_URL` setting exists), and startup refuses an "
+        "instance that has none. "
         "In production, `JWT_SECRET` must be at least 32 random characters."
     )
     lines.append("")

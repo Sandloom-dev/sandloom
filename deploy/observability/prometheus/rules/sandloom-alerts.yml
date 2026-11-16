@@ -76,7 +76,7 @@ groups:
           summary: "Group {{ $labels.group }} on {{ $labels.stream }} is {{ $value | humanizeDuration }} behind"
           description: >-
             A consumer is down, failing or too slow; stream retention
-            (EVENT_STREAM_RETENTION_SECONDS) will drop what it has not read.
+            (the streams bus `retention_seconds`) will drop what it has not read.
             Check `sandloom streams consumers` and the handler's failures.
           runbook_url: https://github.com/Sandloom-dev/sandloom/blob/main/docs/operate/operator-reference.md#events-outbox-relay-and-dead-letters
 

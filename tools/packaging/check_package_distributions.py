@@ -10,7 +10,9 @@ This is the local/pre-push equivalent of ``.github/workflows/packages.yml``:
 3. ``pip install sandloom`` alone, in a clean environment: no Redis/Celery,
    every ``sandloom`` subcommand's ``--help``, ``sandloom docs <name>``,
    ``sandloom new`` and the kernel app factory work; the RPC transport
-   smoke runs from the installed wheel;
+   smoke runs from the installed wheel; the kernel's test harness (the pytest
+   plugin, with the ``testing`` and ``sqlite`` extras) runs two xdist workers
+   with no Redis client and so no harness family;
 4. ``sandloom[standard]`` (every wheel but the console): the standard root
    ``sandloom_standard.main:app`` (the ``sandloom-standard`` distribution, the
    one ``SANDLOOM_COMPOSITION_ROOT`` names in the image and the profiles)
@@ -26,6 +28,7 @@ This is the local/pre-push equivalent of ``.github/workflows/packages.yml``:
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -37,15 +40,19 @@ import tarfile
 import tempfile
 import tomllib
 import zipfile
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from email.parser import BytesParser
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import distribution_imports
-import inspection_smoke
-import release_packages
+if TYPE_CHECKING:
+    from tools.packaging import distribution_imports, inspection_smoke, release_packages
+else:
+    import distribution_imports
+    import inspection_smoke
+    import release_packages
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = BACKEND_ROOT / "packages"
@@ -65,8 +72,6 @@ MODULES = {
 KERNEL_PROVIDES = ("fastapi", "starlette", "sqlalchemy", "alembic", "pydantic", "httpx")
 SMOKE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
-    "CACHE_URL": "redis://localhost:6379/0",
-    "BROKER_URL": "redis://localhost:6379/1",
     "JWT_SECRET": "local-package-check-not-a-real-secret",
     "EVENT_BUS_BACKEND": "memory",
 }
@@ -79,11 +84,12 @@ def _run(
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
     capture_output: bool = False,
+    check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     print("+", " ".join(command), flush=True)
     return subprocess.run(
         command,
-        check=True,
+        check=check,
         cwd=cwd,
         env=env,
         text=True,
@@ -102,6 +108,9 @@ def _script(venv: Path, name: str) -> Path:
 def _smoke_environment() -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith("SANDLOOM_")}
     env.pop("VIRTUAL_ENV", None)
+    # A checkout's test seed (``.env.test``) states url-only instances that a
+    # kernel-only install cannot complete with a driver: the smoke selects none.
+    env.pop("INFRA", None)
     return {**env, **SMOKE_ENV}
 
 
@@ -220,6 +229,119 @@ def _check_contents(package: str, wheel: Path) -> None:
         raise RuntimeError(
             f"{wheel.name}: expected the {', '.join(drivers)} driver entry point"
         )
+    if package == KERNEL:
+        check_kernel_backends(wheel)
+
+
+#: Backend client libraries the kernel wheel never imports (ADR-0016): the
+#: Redis and Celery stacks belong to the driver packages ``sandloom-redis`` and
+#: ``sandloom-celery``. ``asyncpg`` is the kernel's one backend client, and it
+#: stays an extra (``sandloom[postgres]``): imported, never required.
+KERNEL_BANNED_IMPORTS = frozenset({"redis", "aioredis", "celery", "kombu"})
+#: The one kernel module that may name ``redis``: ``sandloom dev`` pings and
+#: inspects the developer's own Redis server through the client when the
+#: ``redis`` extra installed it (``importlib.import_module("redis")`` inside
+#: ``except ImportError``; without it the check stops at a TCP connect). A
+#: guarded import only: the kernel wheel requires no Redis client.
+KERNEL_GUARDED_REDIS = "sandloom.core.cli.dev.services"
+#: Requirements the kernel wheel never declares unconditionally: a base
+#: requirement installs with ``pip install sandloom``.
+KERNEL_BANNED_BASE_REQUIREMENTS = KERNEL_BANNED_IMPORTS | {
+    "asyncpg",
+    "hiredis",
+    "sandloom-redis",
+    "sandloom-celery",
+}
+#: The extra that carries ``asyncpg``.
+POSTGRES_EXTRA = "postgres"
+#: Redis wire commands as a whole string constant (``execute_command("XADD")``),
+#: and a Lua script calling the server (``redis.call(``): protocol code, which
+#: lives in ``sandloom_redis``. A name in a comment or a docstring is not one.
+#: The stream commands and ``EVALSHA`` are distinctive in any case; ``EVAL``,
+#: ``SCRIPT`` and ``ZADD`` are ordinary words in lower case, so only the upper
+#: case spelling counts. What follows the command is a subcommand (``GROUP``) or
+#: an argument that is not a word (``*``, ``0-0``): a sentence that starts with
+#: a command name ("XADD is slow") is prose and passes.
+_WIRE_COMMAND = re.compile(
+    r"(?:(?i:X(?:ADD|READGROUP|AUTOCLAIM|GROUP|ACK|TRIM|CLAIM|PENDING|INFO|LEN"
+    r"|REVRANGE|RANGE)|EVALSHA)|EVAL|SCRIPT|ZADD)"
+    r"(?:\s+(?:[A-Z][A-Z_]*\b|[^A-Za-z\s]).*)?",
+    re.DOTALL,
+)
+_LUA_CALL = re.compile(r"\bredis\.(?:p?call)\(")
+
+
+def _wire_code_strings(source: str) -> list[str]:
+    """String constants of ``source`` that are Redis protocol code."""
+    tree = ast.parse(source)
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(
+            node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
+        )
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+    }
+    return [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in docstrings
+        and (_WIRE_COMMAND.fullmatch(node.value) or _LUA_CALL.search(node.value))
+    ]
+
+
+def check_kernel_backends(wheel: Path) -> None:
+    """The kernel wheel names no Redis or Celery and requires no database client.
+
+    Three rules, read from the built wheel: no ``.py`` file imports ``redis``,
+    ``aioredis``, ``celery`` or ``kombu`` (at any depth), but the one guarded
+    import of :data:`KERNEL_GUARDED_REDIS` (and that module must still have
+    it); no code string is a Redis wire command or a Lua call; and no
+    base requirement installs a Redis, Celery or ``asyncpg`` distribution, with
+    ``asyncpg`` declared by the ``postgres`` extra (the kernel serves SQLite
+    without it)."""
+    built = distribution_imports.read_wheel(wheel)
+    problems: list[str] = []
+    guarded_seen = False
+    for module, source in sorted(built.modules.items()):
+        imports = distribution_imports.module_imports(
+            source, module, is_package=module in built.packages
+        )
+        for found in imports:
+            if found.target.split(".")[0] not in KERNEL_BANNED_IMPORTS:
+                continue
+            if (
+                module == KERNEL_GUARDED_REDIS
+                and found.optional
+                and found.target.split(".")[0] == "redis"
+            ):
+                guarded_seen = True
+            else:
+                problems.append(f"{module}:{found.line} imports {found.target}")
+        problems.extend(
+            f"{module} carries Redis protocol code {text[:40]!r}"
+            for text in _wire_code_strings(source)
+        )
+    if not guarded_seen:
+        problems.append(
+            f"stale exemption: {KERNEL_GUARDED_REDIS} no longer has a guarded "
+            "redis import; drop KERNEL_GUARDED_REDIS"
+        )
+    required = built.requires & KERNEL_BANNED_BASE_REQUIREMENTS
+    if required:
+        problems.append(f"base requirements {sorted(required)} (extras only)")
+    postgres = {name for name, _extras in built.optional.get(POSTGRES_EXTRA, set())}
+    if "asyncpg" not in postgres:
+        problems.append(f"asyncpg is not declared by the {POSTGRES_EXTRA!r} extra")
+    if problems:
+        raise RuntimeError(
+            f"{wheel.name}: the kernel wheel is not backend-free:\n  "
+            + "\n  ".join(problems)
+        )
 
 
 def _entry_points(wheel: Path) -> dict[str, dict[str, str]]:
@@ -322,10 +444,10 @@ def _check_battery_handoff(sandloom: Path, env: dict[str, str], work: Path) -> N
     every = (*batteries, ",".join(batteries))
     with ThreadPoolExecutor(max_workers=len(every)) as pool:
         created_apps = list(pool.map(new_with, every))
-    for batteries, created in zip(every, created_apps, strict=True):
+    for chosen, created in zip(every, created_apps, strict=True):
         if "ModuleLoadError" in created.stdout or "run `uv sync`" not in created.stdout:
             raise RuntimeError(
-                f"bare CLI with {batteries}: unclear dependency handoff:\n{created.stdout}"
+                f"bare CLI with {chosen}: unclear dependency handoff:\n{created.stdout}"
             )
         if created.stdout.index("uv run sandloom generate") > created.stdout.index(
             "uv run sandloom test"
@@ -353,6 +475,8 @@ def check_lean_install(temp: Path, wheel: Path) -> None:
     leaked = names & {
         "redis",
         "celery",
+        # The `postgres` extra: the kernel serves SQLite without it.
+        "asyncpg",
         "sentry-sdk",
         # The `otel` extra: imported only when TRACING_URL is set.
         "opentelemetry-api",
@@ -399,7 +523,7 @@ def check_lean_install(temp: Path, wheel: Path) -> None:
     # directories under `work`, the RPC smoke in its own temporary one): side
     # by side; the first failure, in this order, is raised after all ran.
     with ThreadPoolExecutor(max_workers=6) as pool:
-        lean_checks = [
+        lean_checks: list[Future[Any]] = [
             pool.submit(_check_docs, sandloom, env, work),
             pool.submit(inspection_smoke.check, _python(venv), work),
             pool.submit(_check_new_app, sandloom, env, work),
@@ -447,13 +571,114 @@ def _check_kernel_factory(venv: Path, env: dict[str, str], work: Path) -> None:
         "import sandloom, sandloom.sdk, sandloom.core.drivers as drivers; "
         "[importlib.import_module(f'{drivers.__name__}.{m.name}') "
         "for m in pkgutil.iter_modules(drivers.__path__)]; "
-        "from sandloom.core.app_factory import create_app; "
-        "assert type(create_app()).__name__ == 'FastAPI'; "
-        "import sandloom.main as m; assert m.core.loaded_modules == []; "
-        "print('lean sandloom OK: CLI, kernel factory, empty lean root')",
+        # The kernel names no driver and never ``memory``, and a lean install
+        # has no composition that selects one: the factory and the lean root
+        # refuse at startup (SANDLOOM-B037), they do not boot without a cache.
+        "from sandloom.core.app_factory import create_app\n"
+        "from sandloom.core.error_codes import code_for_exception\n"
+        "def refused(build):\n"
+        "    try:\n"
+        "        build()\n"
+        "    except BaseException as exc:\n"
+        "        assert code_for_exception(exc) == 'SANDLOOM-B037', repr(exc)\n"
+        "        return\n"
+        "    raise AssertionError('a lean install must refuse to boot: B037')\n"
+        "refused(create_app)\n"
+        "refused(lambda: importlib.import_module('sandloom.main'))\n"
+        "print('lean sandloom OK: CLI, kernel factory, lean root refused: B037')",
         cwd=work,
         env={**env, "SANDLOOM_MODULES": "[]"},
     )
+
+
+#: An application that composes no module, on SQLite: what a lean install's
+#: test harness (``sandloom.core.testing.plugin``) runs when no driver package
+#: is installed.
+_HARNESS_APP = {
+    "pyproject.toml": (
+        "[tool.pytest.ini_options]\n"
+        'pythonpath = ["."]\n'
+        'addopts = ["-p", "sandloom.core.testing.plugin", "-p", "no:cacheprovider"]\n'
+        'asyncio_mode = "auto"\n'
+        'sandloom_composition_root = "fakeroot"\n'
+    ),
+    "fakeroot.py": (
+        "class _Core:\n"
+        "    loaded_modules = []\n\n"
+        "    def get_service(self, name):\n"
+        "        return None\n\n\n"
+        "class _State:\n"
+        "    core = _Core()\n\n\n"
+        "class _App:\n"
+        "    state = _State()\n"
+        "    dependency_overrides = {}\n\n\n"
+        "app = _App()\n"
+    ),
+    ".env.test": (
+        "ENVIRONMENT=test\n"
+        "JWT_SECRET=harness_probe_secret_value_long_enough_0123\n"
+        "DATABASE_URL=sqlite+aiosqlite:///{db}\n"
+        'INFRA=\'{"cache":{"default":{"url":"redis://127.0.0.1:1/0"}}}\'\n'
+    ),
+    "test_lean_harness.py": (
+        "import os\n"
+        "import sys\n\n"
+        "from sandloom.core.testing.families import harness_families\n\n\n"
+        "def test_a_worker_has_its_own_database_and_no_family():\n"
+        '    worker = os.environ.get("PYTEST_XDIST_WORKER", "")\n'
+        '    assert worker.startswith("gw"), worker\n'
+        '    assert os.environ["DATABASE_URL"].endswith(f"_{worker}.db")\n'
+        "    assert harness_families() == ()\n"
+        '    assert "redis://127.0.0.1:1/0" in os.environ["INFRA"]\n\n\n'
+        "def test_no_redis_module_is_loaded():\n"
+        '    assert not [m for m in sys.modules if m.split(".")[0] in '
+        '("redis", "sandloom_redis", "sandloom_celery")]\n'
+    ),
+}
+
+
+def check_lean_test_harness(temp: Path, wheel: Path) -> None:
+    """The kernel's test harness (``sandloom.core.testing.plugin``) installed
+    with the kernel wheel alone and its ``testing`` and ``sqlite`` extras: no
+    Redis client and no driver package, so no harness family. The plugin loads,
+    and two xdist workers each run on their own SQLite database. Run in the
+    wheel as installed, so a harness module that named a driver package or
+    the Redis client at import (or whose lookup of one fails) fails here."""
+    venv = temp / "lean-harness"
+    _run("uv", "venv", str(venv))
+    _run(
+        "uv", "pip", "install", "--python", str(_python(venv)),
+        f"sandloom[testing,sqlite] @ {wheel.as_uri()}",
+    )  # fmt: skip
+    probe = _run(
+        str(_python(venv)),
+        "-c",
+        "import importlib.util as u, sys; "
+        "print([m for m in ('redis', 'sandloom_redis', 'sandloom_celery') "
+        "if u.find_spec(m)])",
+        capture_output=True,
+    )
+    if probe.stdout.strip() != "[]":
+        raise RuntimeError(f"lean test harness venv has Redis: {probe.stdout}")
+    app = temp / "lean-harness-app"
+    app.mkdir()
+    for name, text in _HARNESS_APP.items():
+        (app / name).write_text(text.replace("{db}", str(app / "run_test.db")))
+    env = {
+        k: v
+        for k, v in _smoke_environment().items()
+        if k not in {"DATABASE_URL", "INFRA", "JWT_SECRET"}
+        and not k.startswith("PYTEST_")
+    }
+    done = _run(
+        str(_python(venv)), "-m", "pytest", "-q", "-n", "2",
+        cwd=app, env=env, capture_output=True, check=False,
+    )  # fmt: skip
+    if done.returncode or "2 passed" not in done.stdout:
+        raise RuntimeError(
+            "lean install: the test harness does not run without Redis:\n"
+            f"{done.stdout[-1500:]}\n{done.stderr[-800:]}"
+        )
 
 
 def _standard_third_party() -> list[str]:
@@ -619,7 +844,10 @@ def check_plain_module_install(
     _run("uv", "venv", str(venv))
     _run(
         "uv", "pip", "install", "--compile-bytecode", "--python", str(_python(venv)),
-        str(wheels[KERNEL]), str(wheels[package]),
+        # The smoke environment names a PostgreSQL database: asyncpg is the
+        # kernel's `postgres` extra (no Redis, no Celery).
+        f"sandloom[postgres] @ {wheels[KERNEL].resolve().as_uri()}",
+        str(wheels[package]),
     )  # fmt: skip
     installed = json.loads(
         _run(
@@ -637,6 +865,85 @@ def check_plain_module_install(
         cwd=work,
         env={**_smoke_environment(), "HEALTH_CACHE_TTL_SECONDS": "0"},
     )  # fmt: skip
+
+
+#: Run by the venv's interpreter in :func:`check_sqlite_install`: argv[1] is
+#: ``boot`` (the app starts on a SQLite file) or ``refuse`` (a PostgreSQL URL
+#: stops the startup).
+SQLITE_SMOKE = """
+import asyncio, importlib.util, sys
+import httpx
+from sandloom.core.app_factory import create_app
+assert importlib.util.find_spec("asyncpg") is None, "asyncpg is installed"
+async def probe():
+    app = create_app()
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            return (await c.get("/health")).status_code
+if sys.argv[1] == "boot":
+    status = asyncio.run(probe())
+    assert status == 200, status
+    banned = ("asyncpg", "psycopg2")
+    drivers = sorted(m for m in sys.modules if m.split(".")[0] in banned)
+    assert not drivers, f"imported at boot: {drivers}"
+    print("kernel + sqlite extra booted: /health 200, no PostgreSQL driver imported")
+else:
+    create_app()
+"""
+
+#: The drivers a kernel with no cache, event bus or Redis boots on: the
+#: built-in memory ones, selected the way an operator selects them (INFRA).
+SQLITE_INFRA = json.dumps(
+    {
+        "database": {"default": {"driver": "sqlalchemy"}},
+        "cache": {"default": {"driver": "memory"}},
+        "eventbus": {"default": {"driver": "memory"}},
+        "atomic_store": {"security": {"driver": "memory"}},
+    }
+)
+
+
+def check_sqlite_install(temp: Path, wheel: Path) -> None:
+    """``sandloom[sqlite]`` alone, with no ``postgres`` extra: boots on SQLite.
+
+    The kernel without asyncpg starts on a SQLite file (memory cache, event
+    bus and security store: nothing else installed), imports neither asyncpg
+    nor psycopg2 doing it, and refuses a PostgreSQL URL naming the extra
+    (SANDLOOM-B037).
+    """
+    venv = temp / "sqlite"
+    _run("uv", "venv", str(venv))
+    _run(
+        "uv", "pip", "install", "--compile-bytecode", "--python", str(_python(venv)),
+        f"sandloom[sqlite] @ {wheel.resolve().as_uri()}",
+    )  # fmt: skip
+    work = temp / "sqlite-work"
+    work.mkdir()
+    env = {
+        **_smoke_environment(),
+        "DATABASE_URL": f"sqlite+aiosqlite:///{work / 'app.db'}",
+        "INFRA": SQLITE_INFRA,
+        "SANDLOOM_MODULES": "[]",
+        "SANDLOOM_SERVICE_NAME": "package-check",
+    }
+    _run(str(_python(venv)), "-c", SQLITE_SMOKE, "boot", cwd=work, env=env)
+    refused = _run(
+        str(_python(venv)), "-c", SQLITE_SMOKE, "refuse",
+        cwd=work,
+        env={**env, "DATABASE_URL": SMOKE_ENV["DATABASE_URL"]},
+        capture_output=True,
+        check=False,
+    )  # fmt: skip
+    if (
+        refused.returncode == 0
+        or "pip install 'sandloom[postgres]'" not in refused.stderr
+        or "SANDLOOM-B037" not in refused.stderr
+    ):
+        raise RuntimeError(
+            "a PostgreSQL URL without asyncpg must refuse, naming the postgres "
+            f"extra (exit {refused.returncode}):\n{refused.stderr[-800:]}"
+        )
 
 
 def check_console_install(
@@ -731,6 +1038,8 @@ def main(argv: list[str] | None = None) -> int:
             with ThreadPoolExecutor(max_workers=len(PACKAGES) + 2) as pool:
                 checks = [
                     pool.submit(check_lean_install, temp, wheels[KERNEL]),
+                    pool.submit(check_lean_test_harness, temp, wheels[KERNEL]),
+                    pool.submit(check_sqlite_install, temp, wheels[KERNEL]),
                     pool.submit(check_standard_install, temp, wheels),
                     *(
                         pool.submit(check_console_install, temp, wheels, p)

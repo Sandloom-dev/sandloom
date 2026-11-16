@@ -29,10 +29,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-import psycopg2  # type: ignore[import-untyped]
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from psycopg2 import sql
 from pydantic import BaseModel
 from sqlalchemy import (
     BigInteger,
@@ -50,12 +48,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.descriptors import ModuleDescriptor
-from sandloom.core.infra.config import load_infra_config
+from sandloom.core.infra.tool_infra import filled_infra_config
 from sandloom.core.migrations.migrations import (
     _mask_url,
     core_chain_dir,
     version_table_for,
 )
+from sandloom.core.migrations.pg_sync import psycopg2, sql
 from sandloom.core.migrations.urls import to_sync_url
 
 #: Shared infra tables of the core chain every hosting database carries. Kept
@@ -89,7 +88,8 @@ SCRATCH_PREFIX = "sandloom_restore_verify_"
 # --------------------------------------------------------------------------- #
 @dataclass(slots=True)
 class PlanItem:
-    kind: str  # "postgres" | "redis" | "objectstore" | "secrets"
+    # "postgres" | "redis" | "objectstore" | "secrets" | "warning"
+    kind: str
     name: str
     target: str  # masked URL / path
     roles: list[str] = field(default_factory=list)
@@ -226,7 +226,14 @@ def _redis_roles(config: Any, settings: Any) -> dict[str, list[str]]:
     for name, inst in sorted((config.get("eventbus") or {}).items()):
         if inst.driver not in ("streams", "redis"):
             continue
-        url = inst.options.get("url") or settings.cache_url
+        # A bus with no url of its own runs on the default cache client, so its
+        # data lives where ``cache.default`` points (INFRA).
+        default_cache = (config.get("cache") or {}).get("default")
+        url = inst.options.get("url") or (
+            default_cache.options.get("url") if default_cache else None
+        )
+        if not url:  # no url anywhere: no Redis to back up
+            continue
         roles.setdefault(url, []).append(f"eventbus:{name} ({inst.driver})")
     for name, inst in sorted((config.get("taskqueue") or {}).items()):
         broker = inst.options.get("broker")
@@ -323,7 +330,9 @@ def build_backup_plan(
 
     ``models``: the settings declarations of the loaded modules
     (``core.module_settings.records()``), whose secrets the plan lists."""
-    config = load_infra_config(settings)
+    # Filled as the application is: ``load_infra_config`` alone fills no driver
+    # option, so a bound a driver takes from the settings would be missing.
+    config, unfilled = filled_infra_config(settings)
     items: list[PlanItem] = []
     postgres: dict[str, PlanItem] = {}
     for name, inst in sorted((config.get("database") or {}).items()):
@@ -348,6 +357,21 @@ def build_backup_plan(
                     "+ replication"
                 ],
                 restore=["restore to the same logical keys; no reconciliation"],
+            )
+        )
+    if unfilled is not None:
+        items.append(
+            PlanItem(
+                kind="warning",
+                name="redis endpoints",
+                target="incomplete",
+                criticality="critical",
+                backup=[
+                    "an installed driver failed to load "
+                    f"({unfilled}): this plan lists the Redis endpoints INFRA "
+                    "states as written and cannot confirm what the driver adds; "
+                    "fix the installation and rerun"
+                ],
             )
         )
     items.append(_secrets_item(models))
@@ -503,7 +527,7 @@ def _connect(url: str, *, autocommit: bool) -> Any:
     return conn
 
 
-def _rows(conn: Any, statement: str | sql.Composable, params: Any = None) -> list[Any]:
+def _rows(conn: Any, statement: Any, params: Any = None) -> list[Any]:
     with conn.cursor() as cur:
         cur.execute(statement, params)
         return list(cur.fetchall()) if cur.description else []

@@ -48,7 +48,7 @@ their own indexes (``SANDLOOM_TEST_REDIS_DB_STRIDE=auto``).
 SQLite (``--database sqlite``, CI job ``second-db-test-lane``). The same lines,
 with the app on a SQLite file as the generated README documents: the
 dev-services line becomes ``DATABASE_URL=sqlite+aiosqlite:///./data/app.db``,
-``CACHE_URL`` and ``BROKER_URL`` (the given Redis) written into ``.env``
+``INFRA`` (the given Redis, an url per instance) written into ``.env``
 outside the ``sandloom dev`` block, never exported; the tests get
 ``SANDLOOM_TEST_DATABASE_URL=sqlite+aiosqlite:///<workdir>/<db-prefix>_test.db``;
 the migrations line must refuse with SANDLOOM-B028 (the app builds its schema
@@ -180,6 +180,23 @@ class Runner:
     def sqlite(self) -> bool:
         return bool(getattr(self.args, "database", "postgresql") == "sqlite")
 
+    @staticmethod
+    def app_infra(redis: str, base: int) -> str:
+        """``INFRA`` of the generated app: its cache, broadcast, security store
+        and beat lease (one database, each with its own url: none follows
+        another) and the task queue broker. The drivers are the app's own."""
+        cache = f"{redis}/{base}"
+        return json.dumps(
+            {
+                "cache": {"default": {"url": cache}},
+                "broadcast": {"default": {"url": cache}},
+                "atomic_store": {"security": {"url": cache}},
+                "lease": {"beat": {"url": cache}},
+                "taskqueue": {"default": {"broker": f"{redis}/{base + 1}"}},
+            },
+            separators=(",", ":"),
+        )
+
     def configure_services(self) -> None:
         a = self.args
         if self.sqlite:
@@ -187,7 +204,7 @@ class Runner:
             base = a.redis_db_base
             # The app's URLs go into .env (sqlite_env), as the README says:
             # an exported one would hide whether `dev run` reads the file.
-            for key in ("DATABASE_URL", "CACHE_URL", "BROKER_URL"):
+            for key in ("DATABASE_URL", "INFRA"):
                 self.env.pop(key, None)
             self.env.update(
                 {
@@ -213,8 +230,7 @@ class Runner:
             {
                 # the app (migrate, uvicorn, the token): .env's values lose to these
                 "DATABASE_URL": f"{asyncpg_url}/{self.dev_db}",
-                "CACHE_URL": f"{redis}/{base}",
-                "BROKER_URL": f"{redis}/{base + 1}",
+                "INFRA": self.app_infra(redis, base),
                 # the tests (sandloom test): applied on top of .env.test
                 "SANDLOOM_TEST_DATABASE_URL": f"{asyncpg_url}/{a.db_prefix}_test",
                 "SANDLOOM_TEST_CACHE_URL": f"{redis}/{base + 2}",
@@ -231,8 +247,7 @@ class Runner:
         (self.cwd / "data").mkdir(exist_ok=True)
         lines = (
             "DATABASE_URL=sqlite+aiosqlite:///./data/app.db",
-            f"CACHE_URL={redis}/{base}",
-            f"BROKER_URL={redis}/{base + 1}",
+            f"INFRA='{self.app_infra(redis, base)}'",
         )
         env_file = self.cwd / ".env"
         text = env_file.read_text(encoding="utf-8")
@@ -444,7 +459,7 @@ class Runner:
         path: str,
         status: int,
         body: object = None,
-        headers: dict | None = None,
+        headers: dict[str, str] | None = None,
     ) -> str:
         sent = {"Content-Type": "application/json", **(headers or {})}
         got, text = self.http(method, path, body, sent)
@@ -501,7 +516,11 @@ class Runner:
             self.expect("GET", "/api/v1/billing/credits", 200, headers=auth)
 
     def http(
-        self, method: str, path: str, body: object = None, headers: dict | None = None
+        self,
+        method: str,
+        path: str,
+        body: object = None,
+        headers: dict[str, str] | None = None,
     ) -> tuple[int, str]:
         data = None if body is None else json.dumps(body).encode()
         req = urllib.request.Request(  # noqa: S310 - the local app only

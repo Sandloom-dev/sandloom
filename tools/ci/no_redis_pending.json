@@ -1,0 +1,5 @@
+{
+  "_about": "Kernel tests that need Redis or Celery (tools/ci/no_redis.py). The no-redis step of the kernel-without-batteries job runs the kernel suites in a venv with no redis client and neither sandloom-redis nor sandloom-celery: a listed file is not collected, a listed test is a strict xfail. The lists only go down (the ceilings in tools/ci/no_redis.py): a test that needs a Redis or Celery driver moves to packages/sandloom-redis/tests or packages/sandloom-celery/tests, or runs on the memory drivers; it never joins this list.",
+  "files": {},
+  "tests": {}
+}

@@ -8,7 +8,8 @@ the product request):
 - The test services (PostgreSQL on :5433, Redis on :6380) are already running.
   Your own isolated test resources are exported in the environment:
   `SANDLOOM_TEST_OWNER`, `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`,
-  `SANDLOOM_TEST_BROKER_URL`. `sandloom test` is allowed, including its parallel steps:
+  `SANDLOOM_TEST_BROKER_URL` (this checkout's `INFRA` declares a Redis url for both the
+  cache and the task queue, so both apply). `sandloom test` is allowed, including its parallel steps:
   it claims its own Redis indexes for its workers. Do not run raw `pytest -n`
   yourself (hand-picked workers would collide with other sessions on this
   machine). Never use `pkill` / `killall`, and do not restart or reconfigure

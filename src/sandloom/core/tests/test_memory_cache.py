@@ -11,13 +11,18 @@ from typing import Any
 
 import pytest
 
+import sandloom.core.infra.config as config_module
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers.bootstrap import (
     BUILTIN_DRIVER_ROWS,
     build_infra_registry,
 )
 from sandloom.core.drivers.memory_cache import MemoryCacheProvider
-from sandloom.core.infra.config import InstanceConfig, load_infra_config
+from sandloom.core.infra.config import (
+    InstanceConfig,
+    load_infra_config,
+    use_default_infra,
+)
 from sandloom.core.infra.errors import InvalidArgument, TooLarge
 from sandloom.core.infra.ports.cache import CacheProvider
 from sandloom.core.infra.registry import DevelopmentOnlyDriverRefused
@@ -178,9 +183,14 @@ def test_outside_production_a_configured_memory_cache_is_served() -> None:
     assert isinstance(provider, MemoryCacheProvider)
 
 
-def test_no_default_names_the_memory_cache() -> None:
+def test_no_default_names_the_memory_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     # Nothing but an INFRA that says ``driver: memory`` selects it: the
-    # synthesized default cache is redis, whatever the profile.
+    # synthesized default cache is the composition's selection (here ``redis``,
+    # as the standard one), whatever the profile.
+    monkeypatch.setattr(config_module, "_PIN", None)
+    monkeypatch.setattr(config_module, "_APP", None)
+    monkeypatch.setattr(settings, "infra", {}, raising=False)  # not .env.test's
+    use_default_infra({"cache": {"default": {"driver": "redis"}}})
     assert load_infra_config(settings)["cache"]["default"].driver == "redis"
 
 

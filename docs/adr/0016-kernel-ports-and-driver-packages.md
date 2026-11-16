@@ -146,7 +146,7 @@ listed by `sandloom doctor`).
 |---|---|
 | `sandloom` | the contracts, the registry, the kits; `memory` drivers for `cache`, `atomic_store`, `lease`, `broadcast` and `eventbus` (refused in production); `local` objectstore; `log` and `smtp` notification; the `sqlalchemy` database driver with the `postgresql` and `sqlite` renderers |
 | `sandloom-redis` (new) | `cache`, `atomic_store`, `lease` and `broadcast` on Redis, the `streams` event transport, the client they share, and the Redis parts of the test harness as a pytest plugin |
-| `sandloom-celery` (new) | the `celery` taskqueue with its `WorkerHost`, the beat under a `lease`, the async runner and the worker's GC tuning |
+| `sandloom-celery` (new) | the `celery` taskqueue with its `WorkerHost`, the beat under a `lease`; the async runner (`sandloom.core.async_runner`) and the worker's GC tuning (`sandloom.core.gc_tuning`) stay in the kernel |
 | `sandloom-s3` | as today |
 | `sandloom[standard]` | depends on `sandloom-redis` and `sandloom-celery`, so the standard composition does not change |
 
@@ -167,13 +167,23 @@ already works through renderers.
 ### 5. Configuration
 
 - `core/infra/config.py` stops hard-coding `sqlalchemy`, `redis` and `celery` as defaults. The
-  standard composition and the `sandloom new` template write `INFRA` explicitly; the template
-  selects `memory` for development by name. `memory` is never an automatic fallback.
+  standard composition and the `sandloom new` template select the drivers
+  (`create_app(default_infra=...)`, the `DEFAULT_INFRA` each exports; `INFRA` overrides it per
+  instance); the template selects `memory` for the development bus by name. `memory` is never
+  an automatic fallback: a capability nothing selects refuses startup with SANDLOOM-B037.
 - The flat settings `CACHE_URL`, `BROKER_URL`, `SMTP_*` and `S3_*` become options read by each
   driver's `options_schema`, in one step with upgrade notes and no aliases. By the same rule the
-  stream retention settings `EVENT_STREAM_RETENTION_SECONDS` and `EVENT_STREAM_MAXLEN` become
-  options of the `streams` driver, which the transport reports, and the three instance settings
-  give way to the role-named instances of decision 2.
+  stream settings `EVENT_STREAM_RETENTION_SECONDS`, `EVENT_STREAM_MAXLEN` and
+  `EVENT_STREAM_PREFIX` become options of the `streams` driver (`retention_seconds`,
+  `max_length`, `prefix`), which the transport reports, and the three instance settings
+  give way to the role-named instances of decision 2. Status: `SMTP_*`, `S3_*` and
+  `EVENT_STREAM_*`, and since 0.7.0a14 `CACHE_URL`, `BROKER_URL` and the six `CACHE_*` bounds,
+  are options and removed settings (`config_tiers.REMOVED`, any value fatal). The test
+  harness no longer reaches a flat variable: it merges `SANDLOOM_TEST_CACHE_URL` and
+  `SANDLOOM_TEST_BROKER_URL` into `INFRA`, and `FLAT_VARS` is gone from the family seam. What
+  a driver still takes from a flat setting is declared on its class
+  (`InfraProvider.settings_fill`, spec 13 item 48), and only the readiness probe's bound,
+  `HEALTH_CHECK_TIMEOUT_SECONDS`, is left to fill: the kernel's configuration names no driver.
 - Parallel test runs are isolated through a driverkit hook, `test_isolation(options, worker_id)`,
   instead of the kernel rewriting Redis URLs per worker. It takes the options because the
   per-worker options derive from them.
@@ -243,7 +253,7 @@ These follow from the rules above and were settled in the spec's review, not put
   driver written for the old contract is refused at load (SANDLOOM-B022) instead of misbehaving.
 - The `idk-ratchets` slice adds shrink-only allowlists: no backend SDK in `core/`, no `raw_*` call
   or undeclared provider attribute, no transport protocol in `core/eventing`. `idk-ratchets-close`
-  empties them.
+  prunes them to the rows that state why they stay.
 - Rejected, with reasons in the design: `atomic_store` as a feature of `cache`; the private `lock`
   as the lease; a `native()` accessor; aliases for the old settings and the old worker command;
   moving the database driver out this wave.

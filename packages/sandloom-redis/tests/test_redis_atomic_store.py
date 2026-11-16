@@ -17,9 +17,10 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 import pytest
+from _redis_required import cache_url_or_unavailable
+from sandloom_redis._url import MissingUrlError
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
-from sandloom.core.config.settings import settings
 from sandloom.driverkit import (
     AtomicStoreProvider,
     InfraError,
@@ -33,7 +34,7 @@ _VALUE_LIMIT = 8192
 
 
 def _redis_options(**options: Any) -> dict[str, Any]:
-    options.setdefault("url", settings.cache_url)
+    options.setdefault("url", cache_url_or_unavailable())
     options.setdefault("max_value_bytes", _VALUE_LIMIT)
     return options
 
@@ -234,10 +235,17 @@ async def test_an_unreachable_server_is_unavailable_at_aopen() -> None:
     await provider.aclose()
 
 
-async def test_a_missing_url_is_an_invalid_argument() -> None:
+async def test_a_missing_url_refuses_startup_naming_the_infra_option() -> None:
+    provider = RedisAtomicStoreProvider(name="x", driver="redis", options={})
+    with pytest.raises(MissingUrlError, match=r"atomic_store\.x\.url") as caught:
+        await provider.aopen()
+    assert caught.value.fatal_at_startup is True
+
+
+async def test_an_operation_with_no_url_is_still_an_invalid_argument() -> None:
     provider = RedisAtomicStoreProvider(name="x", driver="redis", options={})
     with pytest.raises(InvalidArgument, match="url"):
-        await provider.aopen()
+        await provider.get("k")
 
 
 @pytest.mark.parametrize(
@@ -348,7 +356,7 @@ class _DroppingProxy:
         assert self._server is not None
         port = self._server.sockets[0].getsockname()[1]
         # The worker's own database index: under xdist it is not /0.
-        db = urlsplit(settings.cache_url).path or "/0"
+        db = urlsplit(cache_url_or_unavailable()).path or "/0"
         return f"redis://127.0.0.1:{port}{db}"
 
     async def _serve(
@@ -403,7 +411,7 @@ class _DroppingProxy:
 
 
 def _upstream() -> tuple[str, int]:
-    parts = urlsplit(settings.cache_url)
+    parts = urlsplit(cache_url_or_unavailable())
     return parts.hostname or "127.0.0.1", parts.port or 6379
 
 

@@ -13,12 +13,14 @@ operator replayed the DLQ. Now:
 * only an event that can NEVER apply (malformed payload ->
   ``PoisonEventError``) is dead-lettered, at once, with a CRITICAL log and
   ``auth_revocation_malformed_total``.
+
+The real-Redis proof that a ``never_dead_letter`` group survives the old budget lives
+in ``packages/sandloom-redis/tests/test_redis_eventbus_never_dead_letter.py``.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
@@ -329,68 +331,6 @@ async def test_ready_degrades_while_a_revocation_is_stuck_liveness_unaffected(
     assert live.status_code == 200  # liveness never depends on it
     assert recovered.json()["revocations_pending"] is False
     assert recovered.status_code == healthy.status_code
-
-
-# --------------------------------------------------------------------------- #
-# Real Redis Streams
-# --------------------------------------------------------------------------- #
-async def test_redis_streams_never_dead_letter_group_survives_the_old_budget(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    redis_asyncio = pytest.importorskip("redis.asyncio")
-    from sandloom.core.drivers.redis_eventbus.streams_transport import (
-        RedisStreamsTransport,
-    )
-
-    url = os.getenv("SANDLOOM_TEST_CACHE_URL") or os.getenv("CACHE_URL")
-    if not url:
-        pytest.skip("CACHE_URL not set")
-    client = redis_asyncio.from_url(url, encoding="utf-8", decode_responses=True)
-    try:
-        await client.ping()
-    except Exception:  # pragma: no cover  # noqa: BLE001 - test Redis unreachable: skip
-        pytest.skip("Redis unreachable")
-    stream = f"test.revocation.{uuid4().hex[:8]}.v1"
-
-    async def _factory() -> Any:
-        return client
-
-    transport = RedisStreamsTransport(
-        client_factory=_factory,
-        max_deliveries=OLD_BUDGET,
-        retry_base_ms=1,
-        retry_max_ms=5,
-    )
-    group = "sandloom:auth@tokens_revoked@local"
-    transport.never_dead_letter(stream, group)
-    await transport.ensure_group(stream, group)
-    try:
-        await transport.publish(stream, _envelope({"n": 1}))  # type: ignore[arg-type]
-        attempts = 0
-        consumer = "c1"
-        while attempts < OLD_BUDGET * 3:  # the handler keeps failing
-            for _ in await transport.consume(stream, group=group, consumer=consumer):
-                attempts += 1
-            await asyncio.sleep(0.01)
-        assert await transport.list_dlq(stream) == []
-        delivered: list[Any] = []
-        deadline = time.monotonic() + 5
-        while not delivered and time.monotonic() < deadline:
-            delivered = await transport.consume(stream, group=group, consumer=consumer)
-            await asyncio.sleep(0.01)
-        assert len(delivered) == 1  # still deliverable after 15 failures
-        await transport.ack(delivered[0])
-        assert await transport.list_dlq(stream) == []
-
-        # ... and an explicit poison still reaches the DLQ.
-        await transport.publish(stream, _envelope({"n": 2}))  # type: ignore[arg-type]
-        (poison,) = await transport.consume(stream, group=group, consumer=consumer)
-        await transport.dead_letter(poison, reason=DLQ_REASON_POISON)
-        (parked,) = await transport.list_dlq(stream)
-        assert parked.reason == DLQ_REASON_POISON
-    finally:
-        await client.delete(stream, f"{stream}.dlq")
-        await client.aclose()
 
 
 @pytest.mark.parametrize(

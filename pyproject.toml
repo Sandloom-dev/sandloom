@@ -1,7 +1,7 @@
 # Development environment only; publish only packages/* (sandloom, sandloom-*).
 [project]
 name = "sandloom-dev"
-version = "0.7.0a13"
+version = "0.7.0a14"
 description = "Local development environment for the Sandloom monorepo"
 readme = "README.md"
 license = "Apache-2.0"
@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "sandloom[standard,check,fast,sentry,sqlite]",
     "sandloom-billing",
+    "sandloom-celery",
     "sandloom-identity",
     "sandloom-redis",
     "sandloom-standard",
@@ -41,6 +42,8 @@ dev = [
     "pre-commit==4.7.0",
     "import-linter==2.15",
     "pyright==1.1.414",
+    # Typed (py.typed): mypy checks tools/packaging/package_build.py, the build hook.
+    "hatchling==1.33.0",
     "types-redis==4.6.0.20241004",
     "types-requests==2.33.0.20261006",
     "types-Pillow==10.2.0.20240822",
@@ -68,6 +71,10 @@ path = "packages/sandloom-admin"
 
 [tool.uv.sources.sandloom-billing]
 path = "packages/sandloom-billing"
+editable = true
+
+[tool.uv.sources.sandloom-celery]
+path = "packages/sandloom-celery"
 editable = true
 
 [tool.uv.sources.sandloom-identity]
@@ -167,7 +174,7 @@ max-complexity = 10
 quote-style = "double"
 
 [tool.mypy]
-mypy_path = "src"
+mypy_path = "src:packages/sandloom-redis/src:packages/sandloom-standard/src"
 files = [
     "src/",
     "packages/sandloom-standard/src/",
@@ -196,6 +203,8 @@ module = [
     "uvicorn.*",
     "opentelemetry.*",
     "msgpack.*",
+    # fontTools ships no types (tools/docs/brand_assets.py).
+    "fontTools.*",
 ]
 ignore_missing_imports = true
 

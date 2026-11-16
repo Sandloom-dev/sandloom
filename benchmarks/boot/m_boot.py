@@ -45,8 +45,6 @@ FIXTURES = REPO / "tests" / "fixtures" / "settings_modules"
 BASE_ENV: dict[str, str] = {
     "ENVIRONMENT": "dev",
     "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:9/m_boot",
-    "CACHE_URL": "redis://127.0.0.1:9/0",
-    "BROKER_URL": "redis://127.0.0.1:9/1",
     "JWT_SECRET": "m-boot-not-a-real-secret-0123456789abcdef",
     "TWOFA_ENCRYPTION_KEY": "m-boot-not-a-real-key-0123456789abcdef0123",
     "EVENT_BUS_BACKEND": "memory",
@@ -54,6 +52,31 @@ BASE_ENV: dict[str, str] = {
     "SANDLOOM_MODULES": json.dumps(
         ["sandloom_identity", "sandloom_tenancy", "sandloom_billing"]
     ),
+}
+
+# The candidate (the standard root) selects these Redis instances: each carries
+# its own url (the flat CACHE_URL / BROKER_URL it had on main reached each of
+# them); the bus is the in-memory one (EVENT_BUS_BACKEND above); nothing
+# connects at import.
+CANDIDATE_INFRA = json.dumps(
+    {
+        "cache": {"default": {"driver": "redis", "url": "redis://127.0.0.1:9/0"}},
+        "broadcast": {"default": {"driver": "redis", "url": "redis://127.0.0.1:9/0"}},
+        "lease": {"beat": {"driver": "redis", "url": "redis://127.0.0.1:9/0"}},
+        "atomic_store": {
+            "security": {"driver": "redis", "url": "redis://127.0.0.1:9/0"}
+        },
+        "taskqueue": {
+            "default": {"driver": "celery", "broker": "redis://127.0.0.1:9/1"}
+        },
+    }
+)
+# The base series runs an exported tree of the base commit, whose root
+# predates the per-instance urls: it keeps the flat settings it was given on
+# main.
+BASE_FLAT_ENV: dict[str, str] = {
+    "CACHE_URL": "redis://127.0.0.1:9/0",
+    "BROKER_URL": "redis://127.0.0.1:9/1",
 }
 
 BASE_ROOT = "sandloom.main"
@@ -82,6 +105,10 @@ def _command(name: str, series: str, base_root: str) -> list[str]:
 def _env(series: str, base_src: Path, base_root: str) -> dict[str, str]:
     env = {k: os.environ[k] for k in ("PATH", "HOME", "TMPDIR") if k in os.environ}
     env.update(BASE_ENV)
+    if series.startswith("base"):
+        env.update(BASE_FLAT_ENV)
+    else:
+        env["INFRA"] = CANDIDATE_INFRA
     env["SANDLOOM_COMPOSITION_ROOT"] = _root(series, base_root)
     paths = []
     if series.startswith("base"):

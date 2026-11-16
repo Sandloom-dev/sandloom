@@ -18,8 +18,8 @@ per operation, a large share of it argon2 login. Postgres CPU per operation is
 | in-process rungs | `R0raw`, `R<m>[t].<layer>` (97 rungs) | `L6W1 … L6W6` |
 | socket CPU | `ladder/rpc_stand.py` (caller CPU + provider CPU) | `ladder/server_bench.py` (+ PG / Redis container CPU) |
 
-All commands run from `benchmarks/` with `DATABASE_URL` / `CACHE_URL` /
-`BROKER_URL` exported, the same way as for `ladder.py`. Use a database of
+All commands run from `benchmarks/` with `DATABASE_URL` / `BENCH_REDIS_URL` /
+`BENCH_CELERY_BROKER` exported, the same way as for `ladder.py`. Use a database of
 your own. The role is cluster-wide, so set your own `S5_APP_ROLE` when other
 people share the server.
 
@@ -523,7 +523,7 @@ call (stand A).
 
 ```bash
 DATABASE_URL=postgresql+asyncpg://test_user:test_password@localhost:5433 \
-CACHE_URL=redis://localhost:6380/198 SAGA_RUNG_DB=sandloom_bench_saga \
+BENCH_REDIS_URL=redis://localhost:6380/198 SAGA_RUNG_DB=sandloom_bench_saga \
 ../.venv/bin/python ladder/saga_rung.py --n 1000 \
     --json ladder/results/saga_rung_$(date +%F).json
 ```
@@ -567,7 +567,7 @@ count, so the setup cancels), and `XCmp`, a compile-cache miss of a `select`
 with comparisons, `IN` and `coalesce` (no I/O, deterministic).
 
 ```bash
-export DATABASE_URL=postgresql+asyncpg://<owner>@localhost:5433/<own_db> CACHE_URL=... BROKER_URL=...
+export DATABASE_URL=postgresql+asyncpg://<owner>@localhost:5433/<own_db> BENCH_REDIS_URL=... BENCH_CELERY_BROKER=...
 python -m benchsuite.setup_db && python -m benchsuite.platform seed && python ladder/write_login.py seed
 LADDER_CG_GC=freeze CG_ANNOTATE=1 CG_OUT=$OUT CG_K=200 ladder/cg/run_cg.sh \
   WLlf HTr Pme Porgs Pmem WLr WLc HCs L6S5 L6S5p L6S5po L6R L6 L5 \
@@ -790,7 +790,7 @@ Seed once per database, from the repository root, with the root checkout's
 environment (`uv sync` installs `sandloom-standard` in dev mode):
 
 ```bash
-export DATABASE_URL=... CACHE_URL=... BROKER_URL=...        # localhost URLs are fine
+export DATABASE_URL=... BENCH_REDIS_URL=... BENCH_CELERY_BROKER=...        # localhost URLs are fine
 PYTHONPATH=benchmarks:benchmarks/ladder uv run python -m benchsuite.setup_db
 PYTHONPATH=benchmarks:benchmarks/ladder uv run python -m benchsuite.platform seed
 PYTHONPATH=benchmarks:benchmarks/ladder uv run python benchmarks/ladder/write_login.py seed

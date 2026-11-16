@@ -1,13 +1,12 @@
 """The ``redis`` broadcast driver against a real Redis (``BroadcastConformance``).
 
-Skipped when no Redis is reachable at ``SANDLOOM_TEST_CACHE_URL`` / ``CACHE_URL``.
+Skipped when no Redis is reachable at ``SANDLOOM_TEST_CACHE_URL`` / INFRA's ``cache.default.url``.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
@@ -15,6 +14,7 @@ from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
 import pytest
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from sandloom_redis.broadcast import RedisBroadcastProvider
 
 from sandloom.core.testing import reload_test_env
@@ -34,9 +34,7 @@ def _load_test_env() -> None:
 
 
 def _url() -> str:
-    url = os.getenv("SANDLOOM_TEST_CACHE_URL") or os.getenv("CACHE_URL")
-    if not url:
-        pytest.skip("no test Redis URL: Redis broadcast kit skipped")
+    url = cache_url_or_unavailable()
     return url
 
 
@@ -45,8 +43,8 @@ async def _redis() -> AsyncIterator[Any]:
     client = redis_asyncio.from_url(_url())
     try:
         await client.ping()
-    except Exception:  # noqa: BLE001 - test Redis unreachable: skip
-        pytest.skip("Redis unreachable")
+    except Exception:  # noqa: BLE001 - test Redis unreachable: skip, or fail when required
+        redis_unavailable("Redis unreachable")
     yield client
     await client.aclose()
 

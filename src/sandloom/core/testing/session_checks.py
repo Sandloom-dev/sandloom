@@ -3,6 +3,8 @@
 * **Ownership** (:mod:`sandloom.core.testing.ownership`): every database / Redis
   index the run will reset — under pytest-xdist each worker's own — belongs to
   this run (claimed if unmarked); another run's resource aborts the session.
+  Redis is a harness family (:mod:`sandloom.core.testing.families`): its hooks
+  allocate, cap and claim; without one the run is DB-only.
 * **Connection budget** (:mod:`sandloom.core.testing.connections`): the server has
   room for the run's pools (x workers); ``-n auto`` is capped to it.
 * **Self-connection** (:func:`self_connecting_urls`): no URL can reach itself instead
@@ -22,18 +24,13 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 
-import psycopg2  # type: ignore[import-untyped]
 import pytest
 
-from sandloom.core.testing import connections, ownership, resources, workers
+from sandloom.core.migrations.pg_sync import psycopg2
+from sandloom.core.testing import connections, families, ownership, workers
 from sandloom.core.testing.env import dev_up_hint
+from sandloom.core.testing.families import INFRA_VAR, INSTANCE_URL_OPTIONS
 from sandloom.core.testing.fixtures import env_starts, find_env_file
-from sandloom.core.testing.redis_urls import (
-    INFRA_VAR,
-    redis_client_installed,
-    redis_isolation,
-    redis_urls,
-)
 
 #: Where Linux's default ephemeral range starts; macOS and Windows start higher.
 EPHEMERAL_PORTS_START = 32768
@@ -48,17 +45,14 @@ def run_values(config: pytest.Config) -> dict[str, str]:
     """The run's test URLs: ``.env.test`` + ``SANDLOOM_TEST_*`` (else the env)."""
     path = find_env_file(env_starts(config))
     values = workers.worker_env_values(path) if path is not None else {}
-    for var in workers.OVERRIDABLE_VARS:
+    # The settings a shell value may stand in for: DATABASE_URL. The cache and
+    # broker overrides are merged into INFRA (``worker_env_values``), not copied.
+    for var in workers.DATABASE_VARS:
         if not values.get(var) and os.environ.get(var):
             values[var] = os.environ[var]
     if not values.get(INFRA_VAR) and os.environ.get(INFRA_VAR):
         values[INFRA_VAR] = os.environ[INFRA_VAR]
     return values
-
-
-def _redis_auto() -> bool:
-    """``SANDLOOM_TEST_REDIS_DB_STRIDE=auto`` on a process that can reach a Redis."""
-    return redis_client_installed() and redis_isolation().redis_auto()
 
 
 def worker_targets(values: dict[str, str], count: int) -> list[dict[str, str]]:
@@ -76,24 +70,16 @@ def worker_targets(values: dict[str, str], count: int) -> list[dict[str, str]]:
     ]
 
 
-def allocate_worker_redis(values: dict[str, str], count: int) -> None:
-    """``SANDLOOM_TEST_REDIS_DB_STRIDE=auto``: claim free Redis indexes for the
-    ``count`` workers and publish them in ``SANDLOOM_TEST_REDIS_WORKER_DBS``.
+def allocate_worker_resources(values: dict[str, str], count: int) -> None:
+    """Every harness family claims its resources for the ``count`` workers
+    (the Redis family, under ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto``: free
+    indexes, published in ``SANDLOOM_TEST_REDIS_WORKER_DBS``).
 
     Runs in the controller's ``pytest_sessionstart`` (``tryfirst``), before
     xdist spawns its workers, which inherit the environment.
     """
-    urls = redis_urls(values)
-    if not urls:
-        return
-    isolation = redis_isolation()
-    mapping = resources.allocate_worker_redis(
-        urls,
-        count,
-        ownership.current_owner(),
-        spares=resources.REDIS_SPARES_PER_BASE,  # replacements of crashed workers
-    )
-    os.environ[isolation.REDIS_MAP_ENV] = isolation.format_redis_map(mapping)
+    for family in families.harness_families():
+        family.allocate_workers(values, count)
 
 
 def self_connecting_urls(values: Mapping[str, str]) -> list[str]:
@@ -106,14 +92,29 @@ def self_connecting_urls(values: Mapping[str, str]) -> list[str]:
     of connections, which a test run makes, so it looks like a random failure.
     """
     found = []
-    for var in ("DATABASE_URL", "CACHE_URL", "BROKER_URL"):
-        parts = urlsplit(values.get(var) or "")
+    for var, url in _run_urls(values):
+        parts = urlsplit(url)
         hosts = parse_qs(parts.query).get("host", [])
         if hosts and all(host.startswith("/") for host in hosts):
             continue  # a Unix socket: the authority is unused
         if parts.hostname == "localhost" and (parts.port or 0) >= EPHEMERAL_PORTS_START:
             found.append(f"{var} (localhost:{parts.port})")
     return found
+
+
+def _run_urls(values: Mapping[str, str]) -> list[tuple[str, str]]:
+    """Every service URL of the run as ``(name, url)``: ``DATABASE_URL`` and
+    each ``url`` / ``broker`` / ``backend`` option of an ``INFRA`` instance
+    (named ``capability.instance.option``)."""
+    urls = [("DATABASE_URL", values.get("DATABASE_URL") or "")]
+    for capability, instances in families.parse_infra(values.get(INFRA_VAR)).items():
+        for name, spec in instances.items():
+            urls += [
+                (f"{capability}.{name}.{option}", spec[option])
+                for option in INSTANCE_URL_OPTIONS
+                if isinstance(spec.get(option), str)
+            ]
+    return urls
 
 
 def check_run_resources(config: pytest.Config) -> None:
@@ -151,8 +152,8 @@ def check_run_resources(config: pytest.Config) -> None:
         except connections.ConnectionBudgetError as exc:
             pytest.exit(str(exc), returncode=pytest.ExitCode.USAGE_ERROR)
     try:
-        if count and _redis_auto():
-            allocate_worker_redis(values, count)
+        if count:
+            allocate_worker_resources(values, count)
         for target in worker_targets(values, count):
             ownership.claim_test_resources(target)
     except ownership.TestResourceOwnershipError as exc:
@@ -209,7 +210,8 @@ def _prepare_serial_database(database: str) -> None:
 
 def cap_auto_workers(config: pytest.Config, requested: Any) -> Any:
     """``-n auto``'s worker count capped to the server's connection room and,
-    with ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto``, to the free Redis indexes.
+    by each harness family, to what its backend has room for (the Redis family,
+    with ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto``: the free Redis indexes).
 
     A shortage runs fewer workers (0: serially) with a warning instead of
     aborting the session: an explicit ``-n N`` still fails with the full
@@ -220,27 +222,10 @@ def cap_auto_workers(config: pytest.Config, requested: Any) -> Any:
     values = run_values(config)
     database = values.get("DATABASE_URL") or ""
     count = connections.affordable_workers(requested, database)
-    if count > 1 and _redis_auto():
-        urls = redis_urls(values)
-        if urls:
-            try:
-                owner = os.environ.get(ownership.OWNER_ENV)
-                room = resources.affordable_redis_workers(
-                    urls, owner or ownership.current_owner()
-                )
-            except resources.redis_errors():  # reported again at session start
-                return count
-            if room < count:
-                fallback = room if room > 1 else 0
-                sys.stderr.write(
-                    f"sandloom: only {room} xdist workers' worth of Redis database "
-                    f"indexes are free (wanted {count}); running "
-                    + (f"{fallback} workers" if fallback else "serially")
-                    + ". Free stale ones: `uv run python "
-                    "tools/checks/test_resources.py "
-                    "prune --apply`.\n"
-                )
-                return fallback
+    for family in families.harness_families():
+        if count <= 1:
+            break
+        count = family.cap_workers(values, count)
     return count
 
 

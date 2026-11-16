@@ -10,11 +10,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
-from sandloom_redis.lease import RedisLeaseProvider
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from sandloom.core.config.settings import settings
 from sandloom.core.drivers.database_lease import DatabaseLeaseProvider
 from sandloom.core.drivers.memory_lease import MemoryLeaseProvider
 from sandloom.core.infra.errors import (
@@ -285,7 +283,7 @@ async def test_a_slot_too_close_to_the_next_is_sent_without_a_claim() -> None:
     assert await store.holder("name") is None
 
 
-# ---------------------------------- the same on the three lease stores (names)
+# ----- the same on the memory and database lease stores (names; Redis: the redis driver package)
 
 
 async def _ten_slots(store: LeaseStore, name: str) -> None:
@@ -302,27 +300,6 @@ async def _ten_slots(store: LeaseStore, name: str) -> None:
         )
         assert again.state == "taken"
         assert await store.release(claim.lease) is True
-
-
-async def test_ten_minutely_slots_create_one_lease_name_on_redis() -> None:
-    store = RedisLeaseProvider(
-        name="beat", driver="redis", options={"url": settings.cache_url}
-    )
-    base = f"slot-names-{id(store)}"
-    name = slot_lease_name(
-        base, "billing.sweep", parse_cron("* * * * *"), ZoneInfo("UTC")
-    )
-    await store.aopen()
-    client = await store._redis()
-    pattern = f"{store._opts.key_prefix}{{{base}:slot:*}}:fence"
-    try:
-        await _ten_slots(store, name)
-        fences = [key async for key in client.scan_iter(match=pattern)]
-        assert len(fences) == 1  # the no-TTL key of the name: one, not ten
-    finally:
-        for key in store._keys(name):
-            await client.delete(key)
-        await store.aclose()
 
 
 @pytest_asyncio.fixture

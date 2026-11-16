@@ -40,11 +40,13 @@ shows the profile table.
 
 Pure data + pure functions of a settings object: no I/O, no import of
 ``sandloom.core.config.settings`` (the settings validator and the docs build both use
-it).
+it). The one reach above it is the override report's read of the resolved
+``INFRA`` options (:func:`_resolved_options`), by name and at call time.
 """
 
 from __future__ import annotations
 
+import importlib
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -196,7 +198,10 @@ class RemovedSetting:
     """A setting that no longer exists; still configuring it is reported.
 
     Set to its ``inert`` value (today's only behaviour) it logs a warning;
-    any other value fails startup — that behaviour is gone.
+    any other value fails startup — that behaviour is gone. ``inert=None``
+    means there is no inert value: whatever the setting is set to (an empty
+    string, ``0`` or ``false`` included, which are real values of a url or a
+    bound) fails startup.
     """
 
     name: str
@@ -251,6 +256,16 @@ SEMANTIC: tuple[SemanticSetting, ...] = (
         "database.tenant_rls",
         "PostgreSQL Row-Level Security under the ORM tenant guard.",
         profile=_all(NO_OPINION, prod_strict=True),
+        strength=_BOOL_WEAK_FALSE,
+        refused=frozenset({"prod_strict"}),
+        infra_option=True,
+    ),
+    # ---- transport
+    SemanticSetting(
+        "notification.use_tls",
+        "STARTTLS / TLS to the SMTP server (credentials and recovery links in "
+        "clear without it); the smtp driver defaults to on.",
+        profile=_all(True),
         strength=_BOOL_WEAK_FALSE,
         refused=frozenset({"prod_strict"}),
         infra_option=True,
@@ -315,13 +330,6 @@ SEMANTIC: tuple[SemanticSetting, ...] = (
         effective=_relay,
         risk="relay_disabled",
         adr="docs/adr/0006-accepted-risks.md",
-    ),
-    # ---- transport
-    SemanticSetting(
-        "SMTP_USE_TLS",
-        "STARTTLS / TLS to the SMTP server (credentials in clear without it).",
-        profile=_all(True),
-        strength=_BOOL_WEAK_FALSE,
     ),
 )
 
@@ -437,8 +445,8 @@ REMOVED: tuple[RemovedSetting, ...] = (
         "the beat lease and the saga sweep are held in the `lease` instance "
         'INFRA.lease.beat (a driver: "redis", "database"; e.g. '
         'INFRA={"lease": {"beat": {"driver": "redis", "url": '
-        '"redis://..."}}}), no longer in a cache instance; absent, it is a '
-        "redis lease on CACHE_URL",
+        '"redis://..."}}}), no longer in a cache instance; absent, the '
+        "composition's own lease instance applies and needs its own url",
     ),
     RemovedSetting(
         "SECURITY_CACHE_INSTANCE",
@@ -460,6 +468,118 @@ REMOVED: tuple[RemovedSetting, ...] = (
         "instance when it is absent. Upgrade: delete IDEMPOTENCY_CACHE_INSTANCE "
         "and move the INFRA cache entry it named to "
         'INFRA["atomic_store"]["idempotency"]',
+    ),
+    *(
+        RemovedSetting(
+            name,
+            "1.0",
+            f"the smtp notifier reads its `{option}` from the driver options of "
+            "the `notification` instance, no longer from a flat setting. Upgrade: "
+            f"delete {name} and write `{option}` into INFRA, e.g. "
+            'INFRA={"notification": {"default": {"driver": "smtp", '
+            f'"{option}": ...}}}}}} (keys: host, port, username, password, '
+            "from_addr, use_tls; use_tls stays on unless set false)",
+            # SMTP_USE_TLS defaulted to true: only an explicit false was a choice.
+            inert=name == "SMTP_USE_TLS",
+        )
+        for name, option in (
+            ("SMTP_HOST", "host"),
+            ("SMTP_PORT", "port"),
+            ("SMTP_USERNAME", "username"),
+            ("SMTP_PASSWORD", "password"),
+            ("SMTP_FROM", "from_addr"),
+            ("SMTP_USE_TLS", "use_tls"),
+        )
+    ),
+    *(
+        RemovedSetting(
+            name,
+            "1.0",
+            f"the s3 object store reads its `{option}` from the driver options of "
+            "the `objectstore` instance, no longer from a flat setting. Upgrade: "
+            f"delete {name} and write `{option}` into INFRA, e.g. "
+            'INFRA={"objectstore": {"default": {"driver": "s3", '
+            f'"{option}": ...}}}}}} (keys: bucket, region, access_key_id, '
+            "secret_access_key, endpoint_url); STORAGE_TYPE=s3 still selects "
+            "the driver",
+        )
+        for name, option in (
+            ("S3_BUCKET", "bucket"),
+            ("S3_REGION", "region"),
+            ("S3_ACCESS_KEY_ID", "access_key_id"),
+            ("S3_SECRET_ACCESS_KEY", "secret_access_key"),
+        )
+    ),
+    *(
+        RemovedSetting(
+            name,
+            "1.0",
+            f"the `streams` event bus reads its `{option}` from the driver "
+            "options of the `eventbus` instance, no longer from a flat "
+            f"setting. Upgrade: delete {name} and write `{option}` into INFRA, "
+            'e.g. INFRA={"eventbus": {"default": {"driver": "streams", '
+            f'"{option}": ...}}}}}}',
+        )
+        for name, option in (
+            ("EVENT_STREAM_RETENTION_SECONDS", "retention_seconds"),
+            ("EVENT_STREAM_MAXLEN", "max_length"),
+            ("EVENT_STREAM_PREFIX", "prefix"),
+        )
+    ),
+    RemovedSetting(
+        "CACHE_URL",
+        "1.0",
+        "no instance takes its url from a flat setting or from another "
+        "instance any more: every Redis instance states its own url in INFRA "
+        "(cache.default, eventbus.default for the streams bus, lease.beat, "
+        "atomic_store.security, broadcast.default), e.g. "
+        'INFRA={"cache": {"default": {"driver": "redis", "url": "redis://..."}}, '
+        '"eventbus": {"default": {"driver": "streams", "url": "redis://..."}}, '
+        '"lease": {"beat": {"driver": "redis", "url": "redis://..."}}, '
+        '"atomic_store": {"security": {"driver": "redis", "url": '
+        '"redis://..."}}, "broadcast": {"default": {"driver": "redis", "url": '
+        '"redis://..."}}} (list only the instances the '
+        "app selects). The old value filled all of them: a staging-like "
+        "environment whose INFRA cache.default url differs from CACHE_URL "
+        "moves its implicit security store with this change, so state "
+        "atomic_store.security.url on purpose",
+        inert=None,
+    ),
+    RemovedSetting(
+        "BROKER_URL",
+        "1.0",
+        "the Celery broker is the option `broker` of the `taskqueue` instance, "
+        'e.g. INFRA={"taskqueue": {"default": {"driver": "celery", "broker": '
+        '"redis://..."}}}; the '
+        "result backend (`backend`, formerly CACHE_URL) is off unless INFRA "
+        "states it",
+        inert=None,
+    ),
+    *(
+        RemovedSetting(
+            name,
+            "1.0",
+            f"the Redis client bound is the driver option `{option}` of each "
+            "instance (cache, atomic_store, broadcast, eventbus), no longer a "
+            "flat setting, e.g. "
+            f'INFRA={{"cache": {{"default": {{"{option}": ...}}}}}}; the '
+            "driver defaults are the old defaults",
+            inert=None,
+        )
+        for name, option in (
+            ("CACHE_SOCKET_TIMEOUT_SECONDS", "socket_timeout_seconds"),
+            (
+                "CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS",
+                "socket_connect_timeout_seconds",
+            ),
+            (
+                "CACHE_HEALTH_CHECK_INTERVAL_SECONDS",
+                "health_check_interval_seconds",
+            ),
+            ("CACHE_MAX_CONNECTIONS", "max_connections"),
+            ("CACHE_POOL_TIMEOUT_SECONDS", "pool_timeout_seconds"),
+            ("CACHE_RETRY_ATTEMPTS", "retry_attempts"),
+        )
     ),
     RemovedSetting(
         "MODULE_FS_SCAN",
@@ -485,8 +605,14 @@ def removed_setting_problem(removed: RemovedSetting, raw: object) -> tuple[str, 
     elif text in _FALSE:
         value = False
     fatal = value != removed.inert
+    # The value is echoed only when it is a flag spelling (true / false / on /
+    # off ...): never free text, which may be a credential (SMTP_PASSWORD,
+    # S3_SECRET_ACCESS_KEY) that would land in startup logs and crash reports.
+    echoed = f"{removed.name}={str(value).lower()}" if isinstance(value, bool) else None
     lead = f"{removed.name} was removed in {removed.removed_in}" + (
-        f" and {removed.name}={raw} is no longer supported" if fatal else ""
+        f" and {echoed or f'the value set for {removed.name}'} is no longer supported"
+        if fatal
+        else ""
     )
     return (
         f"{lead}: {removed.hint}; drop it from the environment",
@@ -519,14 +645,11 @@ OPS: frozenset[str] = frozenset(
         "CONSUMER_RETRY_MAX_SECONDS",
         "EVENT_BUS_BACKEND",
         "SANDLOOM_SERVICE_NAME",
-        "EVENT_STREAM_RETENTION_SECONDS",
         "PROJECTION_TOKEN_KEYS",
         "PROJECTION_RYW_WAIT_MS",
-        "EVENT_STREAM_MAXLEN",
         "EVENT_HANDLER_TIMEOUT_SECONDS",
         "EVENT_STREAMS_RECONNECT_BASE_SECONDS",
         "EVENT_STREAMS_RECONNECT_MAX_SECONDS",
-        "EVENT_STREAM_PREFIX",
         "EVENT_STREAM_READ_COUNT",
         "SANDLOOM_COMPOSITION_ROOT",
         "OUTBOX_RELAY_MAX_ATTEMPTS",
@@ -584,29 +707,12 @@ OPS: frozenset[str] = frozenset(
         "CONTRACT_CACHE_SHADOW_MAX_ENTRIES",
         "CONTRACT_CACHE_SHADOW_REPORT_DIR",
         "CONTRACT_COMMAND_DEDUPE_TTL_SECONDS",
-        "CACHE_URL",
-        "BROKER_URL",
-        "CACHE_SOCKET_TIMEOUT_SECONDS",
-        "CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS",
-        "CACHE_HEALTH_CHECK_INTERVAL_SECONDS",
-        "CACHE_MAX_CONNECTIONS",
-        "CACHE_POOL_TIMEOUT_SECONDS",
-        "CACHE_RETRY_ATTEMPTS",
         "STORAGE_TYPE",
         "STORAGE_PATH",
         "MAX_UPLOAD_SIZE_BYTES",
         "MAX_REQUEST_BODY_BYTES",
         "NOTIFIER_BACKEND",
         "NOTIFIER_LOG_LINKS",
-        "SMTP_HOST",
-        "SMTP_PORT",
-        "SMTP_USERNAME",
-        "SMTP_PASSWORD",
-        "SMTP_FROM",
-        "S3_BUCKET",
-        "S3_REGION",
-        "S3_ACCESS_KEY_ID",
-        "S3_SECRET_ACCESS_KEY",
         "JWT_SECRET",
         "JWT_ALGORITHM",
         "JWT_PRIVATE_KEY",
@@ -748,18 +854,69 @@ def _fmt(value: object) -> str:
     return "unset" if value is None else str(value)
 
 
-def _infra_options(cfg: Any, capability: str, option: str) -> list[tuple[str, object]]:
-    """(``INFRA.<cap>.<instance>.<option>``, value) of every declared instance."""
-    infra = getattr(cfg, "infra", None) or {}
+def _resolved_options(cfg: Any, capability: str) -> dict[str, Mapping[str, Any]]:
+    """The options of each instance of ``capability`` as the application
+    resolves them: the composition's selection under ``INFRA``, not ``INFRA``
+    alone (a ``DEFAULT_INFRA`` pin that sets ``use_tls`` false is a choice too).
+
+    Reached by name: ``infra`` sits above this leaf (ADR-0007). Accepted as it
+    is: the only other shape is a resolver ``infra`` registers into this leaf, a
+    hidden global that fails open when nothing registered, for one read at
+    startup; the import is lazy, so the leaf imports nothing above it. A malformed
+    ``INFRA`` falls back to what the setting itself declares: loading the
+    configuration refuses it, with its own message, at startup."""
+    infra_config = importlib.import_module("sandloom.core.infra.config")
+    try:
+        resolved = infra_config.resolved_instances(cfg, capability)
+    except infra_config.InfraConfigError:
+        infra = getattr(cfg, "infra", None) or {}
+        declared = infra.get(capability) if isinstance(infra, Mapping) else None
+        if not isinstance(declared, Mapping):
+            return {}
+        return {
+            str(name): options
+            for name, options in declared.items()
+            if isinstance(options, Mapping)
+        }
+    return {name: inst.options for name, inst in resolved.items()}
+
+
+def _declared_in_infra(cfg: Any, capability: str, name: str, option: str) -> bool:
+    """Whether the ``INFRA`` setting itself states ``option`` of the instance
+    (not only the composition's ``DEFAULT_INFRA`` selection)."""
+    infra = getattr(cfg, "infra", None)
     declared = infra.get(capability) if isinstance(infra, Mapping) else None
+    instance = declared.get(name) if isinstance(declared, Mapping) else None
+    return isinstance(instance, Mapping) and option in instance
+
+
+def _infra_options(cfg: Any, capability: str, option: str) -> list[tuple[str, object]]:
+    """(label, value) of every resolved instance. The label names where the
+    value was written: ``INFRA.<cap>.<instance>.<option>`` when ``INFRA`` states
+    it, ``<cap>.<instance>.<option> (composition DEFAULT_INFRA)`` otherwise (the
+    composition's selection, or the driver's own default)."""
     instances: dict[str, object] = {"default": {}}
-    if isinstance(declared, Mapping):
-        instances.update({str(k): v for k, v in declared.items()})
+    instances.update(_resolved_options(cfg, capability))
     out = []
     for name, options in sorted(instances.items()):
         opts = options if isinstance(options, Mapping) else {}
-        out.append((f"INFRA.{capability}.{name}.{option}", opts.get(option)))
+        label = (
+            f"INFRA.{capability}.{name}.{option}"
+            if _declared_in_infra(cfg, capability, name, option)
+            else f"{capability}.{name}.{option} (composition DEFAULT_INFRA)"
+        )
+        out.append((label, opts.get(option)))
     return out
+
+
+#: What an instance that leaves an ``infra_option`` out runs with (the driver's
+#: own default), where it is not ``False``: the smtp driver defaults to TLS on,
+#: so an unset ``use_tls`` is no override. RLS is opt-in (unset = off).
+_INFRA_OPTION_UNSET: Mapping[str, bool] = {"notification.use_tls": True}
+
+
+def _infra_option_unset(name: str) -> bool:
+    return _INFRA_OPTION_UNSET.get(name, False)
 
 
 def _explicit(cfg: Any, name: str) -> bool:
@@ -777,7 +934,11 @@ def _semantic_overrides(spec: SemanticSetting, cfg: Any, prof: str) -> list[Over
     pairs: list[tuple[str, object]]
     if spec.infra_option:
         cap, option = spec.name.split(".", 1)
-        pairs = [(s, bool(v)) for s, v in _infra_options(cfg, cap, option)]
+        unset = _infra_option_unset(spec.name)
+        pairs = [
+            (s, unset if v is None else bool(v))
+            for s, v in _infra_options(cfg, cap, option)
+        ]
         explicit = True
     else:
         pairs = [(spec.name, spec.value(cfg))]

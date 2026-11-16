@@ -3,9 +3,8 @@
 
 * the default ``publish_many`` is an ordered loop that stops at the first
   failure and reports the confirmed prefix;
-* Redis Streams appends a batch in ONE ``MULTI``/``EXEC`` (order kept,
-  ``MAXLEN ~`` on every entry, age trim once per stream per batch); an
-  ``EXECABORT`` confirms nothing, an EXEC-time ``WRONGTYPE`` only the prefix;
+* the Redis driver's one-``MULTI``/``EXEC`` batch is tested in the package
+  (``packages/sandloom-redis/tests/test_redis_eventbus_batch_publish.py``);
 * the Streams bus builds exactly ``publish_event``'s envelopes, keeps the
   preflight / prevalidated checks, RETURNS failures and counts metrics per
   event; buses / transports without the batch API keep working.
@@ -13,16 +12,11 @@
 
 from __future__ import annotations
 
-import os
-import uuid
-from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
 import pytest
-import pytest_asyncio
 
-from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
 from sandloom.core.eventing.bus_metrics import get_event_bus_metrics
 from sandloom.core.eventing.envelope import EventEnvelope, OutboundEvent
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
@@ -73,151 +67,6 @@ def _env(event_id: str, n: int = 0, channel: str = CHANNEL) -> EventEnvelope:
         emitted_at="2026-01-01T00:00:00+00:00",
         payload={"n": n},
     )
-
-
-class _FakePipe:
-    def __init__(self, client: _FakeRedis) -> None:
-        self.client = client
-        self.calls: list[tuple[str, dict[str, Any]]] = []
-
-    async def __aenter__(self) -> _FakePipe:
-        return self
-
-    async def __aexit__(self, *_a: Any) -> None:
-        return None
-
-    def xadd(self, key: str, fields: dict[str, Any], **kw: Any) -> _FakePipe:
-        self.calls.append((key, kw))
-        return self
-
-    async def execute(self, raise_on_error: bool = True) -> list[Any]:
-        self.client.executes.append((raise_on_error, list(self.calls)))
-        if self.client.execute_error is not None:
-            raise self.client.execute_error
-        return [f"{i + 1}-0" for i in range(len(self.calls))]
-
-
-class _FakeRedis:
-    def __init__(self) -> None:
-        self.pipelines: list[bool] = []
-        self.executes: list[tuple[bool, list[Any]]] = []
-        self.xtrims: list[str] = []
-        self.execute_error: BaseException | None = None
-
-    def pipeline(self, transaction: bool = True) -> _FakePipe:
-        self.pipelines.append(transaction)
-        return _FakePipe(self)
-
-    async def xtrim(self, key: str, **_kw: Any) -> int:
-        self.xtrims.append(key)
-        return 0
-
-
-@pytest.mark.asyncio
-async def test_redis_publish_many_is_one_multi_exec_with_maxlen_and_one_trim() -> None:
-    client = _FakeRedis()
-
-    async def factory() -> Any:
-        return client
-
-    t = RedisStreamsTransport(
-        client_factory=factory, maxlen=1000, retention_seconds=3600, prefix="p:"
-    )
-    items = [(CHANNEL, _env(str(i), i)) for i in range(5)] + [
-        ("core.other.v1", _env("x", 9, "core.other.v1"))
-    ]
-    ids = await t.publish_many(items)
-    assert ids == [f"{i}-0" for i in range(1, 7)]
-    assert client.pipelines == [True]  # ONE transactional pipeline
-    assert len(client.executes) == 1
-    raise_on_error, calls = client.executes[0]
-    assert raise_on_error is False
-    assert [k for k, _kw in calls] == [f"p:{CHANNEL}"] * 5 + ["p:core.other.v1"]
-    assert all(kw == {"maxlen": 1000, "approximate": True} for _k, kw in calls)
-    # the age trim is checked once per stream per batch (and throttled)
-    assert sorted(client.xtrims) == sorted([f"p:{CHANNEL}", "p:core.other.v1"])
-    await t.publish_many(items)
-    assert len(client.xtrims) == 2
-
-
-@pytest.mark.asyncio
-async def test_redis_publish_many_exec_abort_reports_nothing_appended() -> None:
-    client = _FakeRedis()
-    client.execute_error = RuntimeError("EXECABORT Transaction discarded (OOM)")
-
-    async def factory() -> Any:
-        return client
-
-    t = RedisStreamsTransport(client_factory=factory)
-    with pytest.raises(PartialPublish) as info:
-        await t.publish_many([(CHANNEL, _env("a")), (CHANNEL, _env("b"))])
-    assert info.value.published == []
-    assert client.xtrims == []
-
-
-@pytest_asyncio.fixture
-async def redis_client() -> AsyncGenerator[Any, None]:
-    redis_asyncio = pytest.importorskip("redis.asyncio")
-    url = os.getenv("CACHE_URL")
-    if not url:
-        pytest.skip("CACHE_URL not set")
-    client = redis_asyncio.from_url(url, encoding="utf-8", decode_responses=True)
-    try:
-        await client.ping()
-    except Exception:  # pragma: no cover  # noqa: BLE001 - test Redis unreachable: skip
-        pytest.skip("Redis unreachable")
-    prefix = f"test:pipelined:{uuid.uuid4().hex[:8]}:"
-    yield client, prefix
-    keys = [k async for k in client.scan_iter(match=f"{prefix}*")]
-    if keys:
-        await client.delete(*keys)
-    await client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_real_redis_publish_many_preserves_order(redis_client: Any) -> None:
-    client, prefix = redis_client
-
-    async def factory() -> Any:
-        return client
-
-    t = RedisStreamsTransport(client_factory=factory, prefix=prefix, maxlen=10_000)
-    items = [(CHANNEL, _env(str(i), i)) for i in range(50)]
-    ids = await t.publish_many(items)
-    entries = await client.xrange(f"{prefix}{CHANNEL}")
-    assert [mid for mid, _f in entries] == ids
-    assert [orjson_id(f) for _mid, f in entries] == [str(i) for i in range(50)]
-
-
-def orjson_id(fields: dict[str, str]) -> str:
-    import orjson
-
-    return str(orjson.loads(fields["data"])["id"])
-
-
-@pytest.mark.asyncio
-async def test_real_redis_publish_many_runtime_error_reports_the_prefix(
-    redis_client: Any,
-) -> None:
-    """WRONGTYPE at EXEC time: only the leading successes are confirmed."""
-    client, prefix = redis_client
-    await client.set(f"{prefix}core.broken.v1", "not a stream")
-
-    async def factory() -> Any:
-        return client
-
-    t = RedisStreamsTransport(client_factory=factory, prefix=prefix)
-    items = [
-        (CHANNEL, _env("a")),
-        ("core.broken.v1", _env("b", channel="core.broken.v1")),
-        (CHANNEL, _env("c")),
-    ]
-    with pytest.raises(PartialPublish) as info:
-        await t.publish_many(items)
-    assert len(info.value.published) == 1
-    # "c" was appended by Redis but is NOT confirmed: a retry duplicates it
-    entries = await client.xrange(f"{prefix}{CHANNEL}")
-    assert [orjson_id(f) for _m, f in entries] == ["a", "c"]
 
 
 # == bus ========================================================================
@@ -401,6 +250,11 @@ async def test_preflighted_events_skip_the_repeated_size_check(
 
 
 # == broker availability classification =========================================
+class ResponseError(Exception):
+    """A Redis client's error reply, as the relay recognises it (by the class
+    name ``ResponseError`` and the reply's prefix)."""
+
+
 @pytest.mark.parametrize(
     "reply",
     [
@@ -409,6 +263,13 @@ async def test_preflighted_events_skip_the_repeated_size_check(
         "MASTERDOWN Link with MASTER is down and replica-serve-stale-data is no",
         "TRYAGAIN Multiple keys request during rehashing of slot",
         "CLUSTERDOWN The cluster is down",
+        "MISCONF Redis is configured to save RDB snapshots, but it's currently "
+        "unable to persist to disk.",
+        "NOREPLICAS Not enough good replicas to write.",
+        "MOVED 3999 127.0.0.1:6381",
+        "ASK 3999 127.0.0.1:6381",
+        "UNBLOCKED force unblock from blocking operation, instance state changed "
+        "(master -> replica?)",
     ],
 )
 def test_redis_availability_replies_do_not_burn_relay_attempts(reply: str) -> None:
@@ -417,9 +278,11 @@ def test_redis_availability_replies_do_not_burn_relay_attempts(reply: str) -> No
     # a failover's READONLY / MASTERDOWN and cluster TRYAGAIN / CLUSTERDOWN
     # replies (plain ResponseErrors) were not, so a failover burned every
     # event's OUTBOX_RELAY_MAX_ATTEMPTS and could dead-letter valid events.
-    from redis._parsers.base import BaseParser
-
-    err = BaseParser().parse_error(reply)
+    # The relay matches a client's reply error by class name and reply prefix
+    # (it imports no client): a stand-in ``ResponseError`` is enough. What the
+    # real client's parser makes of each reply is tested in the sandloom-redis
+    # package (``test_redis_relay_availability.py``).
+    err = ResponseError(reply)
     assert relay.is_broker_unavailable(err)
     wrapped = RuntimeError("publish failed")
     wrapped.__cause__ = err
@@ -427,9 +290,7 @@ def test_redis_availability_replies_do_not_burn_relay_attempts(reply: str) -> No
 
 
 def test_a_poison_reply_still_burns_attempts() -> None:
-    from redis._parsers.base import BaseParser
-
     assert not relay.is_broker_unavailable(
-        BaseParser().parse_error("ERR value is not an integer or out of range")
+        ResponseError("ERR value is not an integer or out of range")
     )
     assert not relay.is_broker_unavailable(ValueError("LOADING-looking payload"))

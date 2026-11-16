@@ -20,12 +20,12 @@ The `cache`, `notification` and `objectstore` contracts are
 (`CacheConformance`, [the cache contract](cache.md)). The `database` backend
 carries the transaction guarantees and is not open to drivers
 ([why](database.md#the-relational-paradigm)). An `eventbus` driver is an
-[`EventTransportProvider`](#an-eventbus-driver). It is kernel-facing: its conformance
-kit, `EventTransportConformance`, exists. The built-in `streams` driver does not yet map
-backend errors, and the contract is not yet public.
+[`EventTransportProvider`](#an-eventbus-driver). It is kernel-facing. Its conformance
+kit is `EventTransportConformance`; the Streams driver in `sandloom-redis`
+(`sandloom_redis/eventbus/`) passes it.
 
 !!! note "Version"
-    This guide targets `sandloom==0.7.0a13`. <!-- sandloom-release -->
+    This guide targets `sandloom==0.7.0a14`. <!-- sandloom-release -->
     [`sandloom.driverkit`](driverkit.md) is included in this release.
 
 ## Prerequisites
@@ -54,7 +54,15 @@ a file.
   map the backend's errors to `NotFound`, `InvalidArgument`, `TooLarge`,
   `PermissionDenied`, `Unavailable` or `Timeout`. A call that needs a behaviour feature
   the instance does not declare raises `Unsupported(feature)`. Put the error type in
-  a message, never the backend's text: it can carry a URL with credentials.
+  a message, never the backend's text: it can carry a URL with credentials. Map only a
+  transient fault (a lost connection, a failover) to `Unavailable`. The outbox relay
+  reads it as an outage: no attempt is spent and the row is never dead-lettered.
+  A reply the backend sends for this request alone (an unknown `ERR ...`) is
+  `InvalidArgument`, which is not retryable. The `redis` drivers map through one
+  classifier, `sandloom_redis._errors`. A driver may set a fixed `hint` sentence on the
+  error, never text from the backend. The relay prints it on its outage line and
+  decides nothing by it. Set it as an attribute (`error.hint = "..."`), not with the
+  `hint=` keyword: the driver then works on kernels whose `InfraError` lacks it.
 - **`supported_features`** names what the driver really does, and is its one declaration.
   A module that requires `features={"email"}` is refused at startup on a driver that does
   not advertise it. If a feature depends on an option, override the classmethod
@@ -69,6 +77,44 @@ a file.
   `/diagnostics/infra` or release resources, override `aopen`, `health` and `aclose`.
 - **`Notification.body_fields`** holds the values `body` was built from, for a driver that
   renders its own template. It is as sensitive as the body: never log it.
+
+A driver whose instance must not lose a key on a Redis registers its endpoint in `aopen` and
+unregisters it in `aclose`. That covers an `atomic_store`, a `lease`, an event transport and a
+task queue. The helper is
+[`sandloom.driverkit.shared_endpoints`](driverkit.md#sandloomdriverkitshared_endpoints). The
+operator is warned at startup when the instance shares a database with `cache.default`.
+
+`self.implicit` on the provider is `True` for an instance the kernel synthesized in
+development. Nobody wrote it in `INFRA`: it is the `default` instance a composition
+selects without an entry. It is never `True` in production, where a synthesized instance
+is as real as a declared one. A driver reads it for one thing, the
+`declared=not self.implicit` of `register`. An overlap of synthesized instances then
+logs at INFO, and an overlap with an instance the operator wrote logs as a WARNING.
+
+A connection option (a url, a broker, a pool bound) is an option of your instance, written in
+`INFRA`, with a default in the options schema. Do not read it from a flat setting, and do not
+take it from another instance. No instance inherits another's url, so a driver that needs a
+url refuses startup when its instance has none. A driver whose option a flat setting still
+feeds (the readiness probe's bound, `HEALTH_CHECK_TIMEOUT_SECONDS`) declares it with
+`settings_fill`. That is a `SettingsFill` on the class. It says which setting fills which
+option when an instance leaves the option out. The kernel applies it without naming your
+driver, once the registry has your class. An option the instance states always wins.
+
+- `bounds` fill an option left out. `caps` cut a number above the setting down to it.
+- A table may name only `health_check_timeout_seconds`. No url and no client bound is
+  filled from a setting: `CACHE_URL`, `BROKER_URL` and the `CACHE_*` bounds are removed
+  settings. `SettingsFill` refuses any other name when the class is defined.
+
+The fill is skipped when your package, or a package you require, is missing. It raises no
+import error: the registry refuses an instance that cannot run. A driver that reads no flat
+setting declares none.
+
+A driver that connects to one server by url sets `url_option` on its class. The value is the
+name of that option: `"url"`, or `"broker"` for a task queue. It must be a field of
+`options_schema`.
+`sandloom dev up` reads it. It writes a url into the checkout's `INFRA` for each instance on
+your driver, so the kernel keeps no list of driver names. A driver that reaches no server by
+url leaves it `None`.
 
 A driver records metrics through `sandloom.driverkit.observe`:
 `counter(name, documentation, labelnames)` and `histogram(...)` return metrics on the
@@ -91,7 +137,7 @@ The entry-point name is `<capability>.<driver>`, and its value is your class:
 [project]
 name = "sandloom-notify-file"
 version = "0.1.0"
-dependencies = ["sandloom>=0.7.0a13,<0.8"]
+dependencies = ["sandloom>=0.7.0a14,<0.8"]
 
 [project.entry-points."sandloom.drivers"]
 "notification.file" = "sandloom_notify_file.driver:FileNotifier"
@@ -152,6 +198,13 @@ override the `make_provider` fixture to return a new, unopened provider. Each ob
 its own test, so a failure names what to fix. The kit needs `pytest` and `pytest-asyncio`.
 It sends real messages: point it at a test backend.
 
+A package that tests against a real backend sets one variable in the CI job that runs
+those tests, `SANDLOOM_<PACKAGE>_REQUIRED=1`. Where its probe finds no backend, the test
+calls `required_or_skip("SANDLOOM_<PACKAGE>_REQUIRED", reason)` from
+`sandloom.driverkit.testing`, not `pytest.skip`: the call fails when the variable is `1`
+and skips otherwise. A backend that did not start then turns the job red, not green with
+every test skipped. Name what is missing in `reason` and leave any URL out of it.
+
 State how far the kit has proven the driver with the class attribute `tier`.
 The default is `experimental`: the driver implements the contract. A `beta` driver passes
 its kit in CI against the real service. Past that, `stable` adds reconnect after an outage
@@ -200,12 +253,12 @@ without it accepts them in `put` and drops them.
 
 #### An eventbus driver
 
-!!! warning "Kernel-facing; not yet a public contract"
+!!! note "Kernel-facing"
     This section describes the contract the kernel's bus runs over. Its conformance kit,
-    `EventTransportConformance`, exists. The built-in `streams` driver still raises the
-    backend's own errors (`idk-pkg-redis-streams` maps them), so the contract is not yet
-    public. A driver raises `Unavailable` and `Timeout` itself: the kernel does not
-    translate a backend exception.
+    `EventTransportConformance`, exists. The Streams driver, in `sandloom-redis`
+    (`sandloom_redis/eventbus/`), passes it, error mapping and outage checks included. A
+    driver raises `Unavailable` and `Timeout` itself: the kernel does not translate a
+    backend exception.
 
 An `eventbus` driver of the transport shape states `contract_version = 2` and
 subclasses `EventTransportProvider` (`sandloom.driverkit`), an abstract base class. It is
@@ -506,6 +559,16 @@ async def test_mail_goes_through_the_file_driver(client) -> None:
     )
     assert "a@b.test" in Path("/tmp/myapp-mail.log").read_text()
 ```
+
+### 6. Isolate the backend in a parallel test run
+
+A backend that parallel test workers would share (a Redis database, a broker) needs its half of
+the harness's isolation: a *harness family*. The package registers it in the `sandloom.testing`
+entry-point group (`"<name>" = "package.testing.family:FAMILY"`) and builds it from
+`sandloom.driverkit.testing_family`. `sandloom-redis` is the model. The hooks, the refusals and
+what the family module must not import at load time are in
+[Harness families](../modules/testing.md#harness-families-a-backends-half-of-the-parallel-run-isolation).
+A driver whose backend is a database file or an in-process store needs none.
 
 ## Verify
 

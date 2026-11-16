@@ -26,8 +26,9 @@ this profile and, in `sandloom test`'s `schema & deploy` step, on an app's.
   lifetime, `INTERNAL_API_TOKEN`, notifier/SMTP.
   - The exceptions are the issuer-only `JWT_PRIVATE_KEY` and `JWT_SECRET` on
     the identity processes of the microservices profile.
-  - **`CACHE_URL` is shared by all services**: revocation marks, rate limits,
-    idempotency keys and the bus live there.
+  - **The cache is shared by all services** (each service's `INFRA` states the
+    same `cache.default` url; `CACHE_URL` is a removed setting): revocation
+    marks, rate limits, idempotency keys and the bus live there.
 - **Microservices keys.** Tokens use EdDSA: `JWT_PRIVATE_KEY` on identity
   only, and `JWT_PUBLIC_KEYS` + `JWT_KID` everywhere. The profile also
   requires `INTERNAL_API_TOKEN` and per-service RPC keys:
@@ -60,8 +61,8 @@ this profile and, in `sandloom test`'s `schema & deploy` step, on an app's.
 `uv run sandloom add deploy <module> --service <svc>` (a new service, or a module
 added to an existing one) writes, together:
 
-- an env anchor with the service's `SANDLOOM_MODULES`, `DATABASE_URL` and
-  `BROKER_URL`;
+- an env anchor with the service's `SANDLOOM_MODULES`, `DATABASE_URL` and an
+  `INFRA` carrying its own Celery broker (`taskqueue.default.broker`);
 - a `migrate-<service>` one-shot;
 - the bindings and `RPC_ALLOWED_CALLS`;
 - the gateway prefixes;

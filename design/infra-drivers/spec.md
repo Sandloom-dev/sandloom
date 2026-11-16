@@ -1,3 +1,4 @@
+<!-- agent-reference: index -->
 # Spec: kernel ports and driver contracts, per capability
 
 Status: **written for `idk-adr`, 2026-11-14**, against `design.md` at `9330edfe` (all nine owner
@@ -43,7 +44,7 @@ different capabilities do not share a file (the exceptions are listed in the las
 | one capability's kit | `src/sandloom/driverkit/kits/<capability>.py` | `<Capability>Conformance`; the shared harness is `driverkit/kits/_harness.py` |
 | public kit names | `src/sandloom/driverkit/testing.py` | the only import path for kits (pinned in the API baseline); resolves names lazily from a table, see below |
 | built-in drivers until the split | `src/sandloom/core/drivers/<backend>_<capability>.py` | `redis_atomic_store.py`, `memory_lease.py`, `database_lease.py`, `database_atomic_store.py`, `celery_worker.py`, … |
-| built-in drivers after the split | `packages/sandloom-redis/src/sandloom_redis/<capability>.py`, `packages/sandloom-celery/src/sandloom_celery/<capability>.py` | slices 17 and 18 move the files whole |
+| built-in drivers after the split | `packages/sandloom-redis/src/sandloom_redis/<capability>.py`, `packages/sandloom-celery/src/sandloom_celery/<capability>.py`; for `eventbus` the package `packages/sandloom-redis/src/sandloom_redis/eventbus/` (`driver.py` and the four `streams_*.py` files) | slices 17 and 18 move the files whole |
 | tables of the `database` drivers | `src/sandloom/core/sql_alchemy/models/<table>.py`, a revision in the core chain `migrations/core/versions/`, the table name in the owned set of `migrations/core/env.py` | `idk-lease` (`infra_lease`), `idk-atomic-store-db` (`infra_atomic_store`) |
 | shared by several slices | `core/infra/capabilities.py`, `core/drivers/bootstrap.py`, `core/infra/access.py`, `core/infra/registry.py`, `core/infra/ports/__init__.py`, `driverkit/testing.py` | touched once by `idk-foundation`, see "Registry files" below |
 
@@ -58,10 +59,15 @@ different capabilities do not share a file (the exceptions are listed in the las
 - `bootstrap.py` pre-registers **every** built-in driver row of this wave, each as a lazy
   `"module:Class"` target resolved when an instance selects it (as entry points are, ADR-0011
   decision 2), with its `tier`. A row whose file a later slice has not delivered yet is refused
-  when selected (SANDLOOM-B022) with a message naming that slice. Slices 17 and 18 move the files
-  but keep the rows, now as lazy install-hint rows (target `sandloom_<pkg>…`, `requires` naming the
-  package); `idk-config-defaults` (slice 19) deletes them with the hard-coded redis defaults
-  (13, item 45).
+  when selected (SANDLOOM-B022) with a message naming that slice. Slices 17 and 18 moved the files
+  and kept the rows as lazy install-hint rows (target `sandloom_<pkg>…`, `requires` naming the
+  package); `idk-config-defaults` (slice 19) deleted them with the hard-coded defaults (13, item
+  45): the kernel keeps rows only for its own drivers, and a driver package is found by its entry
+  point alone. The kernel selects no driver for `database`, `cache`, `eventbus`, `broadcast`,
+  `taskqueue`, `atomic_store` or `lease`: the composition does (`create_app(default_infra=...)`,
+  `sandloom_standard.DEFAULT_INFRA`), and a process whose composition and `INFRA` select none for
+  an instance it cannot start without refuses with SANDLOOM-B037 in every environment, never
+  falling back to `memory`.
 - `access.py` gains `atomic_store(role)`, `lease(name)` and `broadcast(name)`, typed by the ports
   Protocols. `idk-atomic-adopt` removes `security_cache()` and `idempotency_cache()` when it moves
   their last caller.
@@ -218,7 +224,8 @@ class ProviderLifecycle(Protocol):
 - **`isolation_identity`.** An opaque string naming the failure and eviction domain of the backing
   store: two instances with the same identity share eviction and memory. It starts with the driver
   name and a colon, so two drivers never collide: Redis `redis:<run_id>` from `INFO server` (today
-  `RedisCache.deployment_identity`, `redis_cache.py:775`); database `database:<system
+  `RedisCache.deployment_identity`, `redis_cache.py:775`), Streams event bus `streams:<run_id>`
+  (the same `run_id`, behind the driver name; 13, item 47); database `database:<system
   identifier>/<database name>`; `memory` `memory:<per-process id>`; other capabilities name their
   backing store the same way (`smtp:<host>:<port>`, `s3:<endpoint>/<bucket>`). It carries no
   credential. The ABC default is `None` (unknown), which fails the kit and fails attestation
@@ -273,7 +280,8 @@ capability's own:
    registration, 2.5);
 6. `isolation_identity()`: two providers built from the same options, and one built under another
    instance name with the same driver and options, return equal, non-`None` identities, each
-   starting with `<driver>:` (the identity names the backing store, not the instance);
+   starting with `<driver>:` (the identity names the backing store, not the instance: `redis:<run_id>`,
+   `streams:<run_id>`, `sqlalchemy:<hash>`);
 7. each feature group runs only when the feature is declared, and a declared-absent behaviour
    feature raises `Unsupported(feature)` from its call;
 8. the error-mapping group: a provider built to fail (the kit's `make_failing_provider` fixture,
@@ -286,6 +294,12 @@ broken driver per obligation (a wrong version type, a feature not in the spec, a
 `isolation_identity()` of `None` or without the driver prefix, …), each
 of which must fail exactly the test that names it. Kit signatures and `sandloom.driverkit.testing`
 are pinned in `public_api_baseline.json` (T008).
+
+`sandloom.driverkit.testing` also carries the required-backend guard of a package's own test lane
+(`kits/required.py`): `required_or_skip(env_var, reason)` fails where `env_var` is `1` and skips
+otherwise, `lane_required(env_var, environ=None)` is the same predicate. Each package keeps its
+probe (redis ping, celery broker scheme and connect, s3 bucket variable) and calls the guard; the
+variables are `SANDLOOM_REDIS_REQUIRED`, `SANDLOOM_CELERY_REQUIRED`, `SANDLOOM_S3_REQUIRED`.
 
 ## 3. `cache` (module-facing)
 
@@ -428,7 +442,7 @@ CAS loop past its bound is `Unavailable`.
 | feature | kind | meaning |
 |---|---|---|
 | `shared` | guarantee | every process of the deployment reads the same state (`memory` lacks it) |
-| `never_evicts` | guarantee | the store never evicts a key before its TTL; verified by the driver on `aopen` and in `health` |
+| `never_evicts` | guarantee | the store never evicts a key before its TTL; verified by the driver on `aopen` or on the first operation, and in `health` |
 
 The kernel requires `shared` and `never_evicts` of its `security` and `idempotency` instances in
 production. **Performance hints.** `get`, `add_or_get`, `set_subject_state`, `compare_and_set`:
@@ -437,10 +451,18 @@ production. **Performance hints.** `get`, `add_or_get`, `set_subject_state`, `co
 **Driver obligations.**
 
 - `redis`: keeps the current Lua scripts (one round trip each), each treating an expired key as
-  absent (Redis does by itself). On `aopen` and in `health` it reads `maxmemory-policy` and refuses
-  unless it is `noeviction` (no such check exists today). The option `never_evicts_check` is
+  absent (Redis does by itself). On `aopen`, in `health` and on the first operation of a process that
+  never ran `aopen` (a worker, a CLI) it reads `maxmemory-policy` and refuses unless it is
+  `noeviction`; a failed `health` probe, an operation failing with `Unavailable` or `Timeout`, or
+  a client rebuilt for another loop opens the check again. A flag cannot judge a socket it did not
+  see (the retrying client and the pool's liveness probe reconnect without raising, a growing pool
+  opens new sockets, after a failover or a DNS repoint possibly to a reconfigured server), so the
+  pool's `redis_connect_func` also reads `maxmemory-policy` on EVERY new socket (the first
+  included), on that socket, before any command, with the same refusals (`sandloom_redis.
+  _eviction_guard`; one extra round trip per new socket). The option `never_evicts_check` is
   `verify` (default) or `assume`:
-  - with `verify`, a refused `CONFIG GET` is `PermissionDenied` at `aopen`, with a fix naming the
+  - with `verify`, a refused `CONFIG GET` is `PermissionDenied` at `aopen` or on the first
+    operation, with a fix naming the
     option;
   - `assume` only skips a **refused** read: a policy that can be read and is not `noeviction` is
     still refused, and `health` keeps trying the read on every probe (it reports `degraded` with
@@ -482,7 +504,8 @@ write; expired keys (1 s TTL, read after 2 s, before any purge): `add`, `add_or_
 `compare_and_set`, `compare_and_delete` and `set_subject_state` behave as on an absent key; group
 `shared`: two providers built from the same options see each other's writes; group
 `never_evicts`: the driver's own eviction check (Redis: a server with `allkeys-lru` is refused at
-`aopen`, also with `never_evicts_check=assume`). Broken-driver tests: a non-atomic `add`, a
+`aopen` or on the first operation, also with `never_evicts_check=assume`). Broken-driver tests: a
+non-atomic `add`, a
 `set_subject_state` that lets `after` overwrite `blocked`, one that compares instants as floats, a
 CAS that ignores `expected`, an `add` that loses to an expired key.
 
@@ -554,9 +577,11 @@ result (`False`), never an exception.
 
 - `redis`: the current shape: a fence counter key without TTL (`INCR`), the lease key by `SET NX EX`,
   renew and release by compare-and-set and compare-and-delete scripts. The fence key must not be
-  evicted, so the driver runs the `noeviction` check of `atomic_store.redis` on `aopen` and in
-  `health`, with the same `never_evicts_check` option and the same accepted risk
-  `unverified_noeviction` for `assume` in production (Redis' default policy passes it).
+  evicted, so the driver runs the `noeviction` check of `atomic_store.redis` on `aopen` or on the
+  first operation, and in `health`, with the same `never_evicts_check` option and the same accepted risk
+  `unverified_noeviction` for `assume` in production (Redis' default policy passes it). Its pool
+  also judges every new socket on itself before any command, as the atomic store's does (a
+  silent reconnect to an evicting server would repeat a fence).
 - `memory`: `development_only`.
 - `database` (owner decision 3, yes): a logged table `infra_lease (name primary key, owner, token,
   expires_at, fence)` in the core chain (section 1), in `core/drivers/database_lease.py`. Acquire is
@@ -641,9 +666,9 @@ raise `Unavailable` and a resubscribe works after it.
 `probe_transport_capabilities` (`core/eventing/transport_capabilities.py:33-104`), the bus flags
 read with `getattr` (`core/eventing/bus_base.py:88-102`: `durable`, `in_process`,
 `supports_batch_publish`, `supports_prevalidated`, `native_batch_publish`), and the methods only the
-Streams transport has (`streams_groups.py:213` `stream_info`, :293 `group_owner`, :304
-`release_group_owner`, :394 `forget_consumer`; `streams_consume.py:544-584` `renew_pending`, :614
-`stats`). The bus logic above the transport stays kernel code: `streams_bus`, `streams_dispatch`,
+Streams transport has (in `packages/sandloom-redis/src/sandloom_redis/eventbus/`:
+`streams_groups.py` `stream_info`, `group_owner`, `release_group_owner`, `forget_consumer`;
+`streams_consume.py` `renew_pending`, `stats`). The bus logic above the transport stays kernel code: `streams_bus`, `streams_dispatch`,
 `streams_inventory`, `streams_lease`, schema validation and payload limits.
 
 **Drivers and the bus.** The `eventbus` capability keeps its user-facing driver names:
@@ -670,8 +695,9 @@ and `features()`. What differs is what the kernel builds over it:
 The in-memory transport (`memory_transport.py`, `MemoryTransport`) is the kit's reference transport
 and the test harness's, not an `INFRA` choice.
 
-**Feature vocabulary.** The features of today's `EVENTBUS_CAPABILITY` (`core/infra/capabilities.py:213-231`)
-and `EVENTBUS_DRIVER_FEATURES` (`core/drivers/event_bus_driver.py:119-129`) map as below. Feature
+**Feature vocabulary.** The features of `EVENTBUS_CAPABILITY` (`core/infra/ports/eventbus.py`)
+and of the Streams driver's `supported_features`
+(`packages/sandloom-redis/src/sandloom_redis/eventbus/streams_transport.py`) map as below. Feature
 names a module declares in `CapabilityRequirement("eventbus", features=...)` are public API: a
 removed name is refused at load like any undefined feature (`registry.py:992-998`), and
 `EVENTBUS_CAPABILITY` carries a rename table so the refusal's fix names the replacement. Upgrade
@@ -685,7 +711,7 @@ note in `idk-eventbus-contract`, no alias.
 | `durable` | `durable` | guarantee | unchanged name; `app_factory/__init__.py:408` keeps refusing a production bus without it |
 | `at_least_once` | removed, use `durable` | | every transport delivers at least once (Semantics below), and only transports declare `durable` |
 | `consumer_groups` | removed, use `durable` | | groups are required operations of every transport |
-| `wildcard_subscribe` | `wildcard_subscribe` | behaviour | volatile-bus shape only: a `prefix.*` subscription; `memory` declares it, `redis` declares it and refuses at `aopen` a `broadcast` instance without `pattern_subscribe`; no transport declares it (`streams_bus.py:261` refuses it today) |
+| `wildcard_subscribe` | `wildcard_subscribe` | behaviour | volatile-bus shape only: a `prefix.*` subscription; `memory` declares it, `redis` declares it and refuses at `aopen` a `broadcast` instance without `pattern_subscribe`; no transport declares it (`core/eventing/streams_bus.py` refuses it) |
 | (new) | `shared`, `blocking_consume`, `group_start_id`, `lease_renewal`, `dlq_ops`, `inspection`, `inventory` | see the table below | transport shape |
 
 ```python
@@ -756,7 +782,7 @@ class EventTransportProvider(InfraProvider, EventTransport):
 ```
 
 `DeadLetter`, `GroupInfo`, `StreamInfo` and `ConsumerInfo` are frozen dataclasses with the fields
-the `dict`s carry today (`streams_transport.py:166`, `streams_groups.py:189,213,361`); `idk-eventbus-contract`
+the `dict`s carried (`sandloom_redis/eventbus/streams_transport.py`, `streams_groups.py`); `idk-eventbus-contract`
 writes them from those. `oldest_unacked_age_seconds` drops the `last_delivered_id`, `pending` and
 `lag` hints of `transport_base.py:245-253`: the transport reads them itself.
 
@@ -786,7 +812,7 @@ writes them from those. `oldest_unacked_age_seconds` drops the `last_delivered_i
   (they are tiered at `tiers.py:506-509`), with upgrade notes and no alias (design section 5: flat
   settings become driver options). Every reader moves to `retention()` or the options:
   `core/guarantee_windows.py:93`, `core/projections/operations.py:139`, the settings fallback of
-  `streams_transport_base.py:107-112`, and the deploy-profile list `core/testing/deploy_profile.py:80-81`.
+  `sandloom_redis/eventbus/streams_transport_base.py`, and the deploy-profile list `core/testing/deploy_profile.py:80-81`.
   `idk-eventbus-contract` adds the options and `retention()` and moves the three code readers;
   `idk-config-defaults` removes the two settings with the other flat settings (until then
   `core/infra/config.py` fills the options from them, as it does for `CACHE_URL`).
@@ -1259,7 +1285,7 @@ For the orchestrator's review; each departs from or details `design.md`.
 16. **Retention becomes `streams` driver options**, reported by `retention()` on the transport.
     `EVENT_STREAM_RETENTION_SECONDS` and `EVENT_STREAM_MAXLEN` are removed in one step (design
     section 5, the same rule as the flat connection settings), and their readers
-    (`guarantee_windows.py:93`, `projections/operations.py:139`, `streams_transport_base.py:107-112`)
+    (`guarantee_windows.py:93`, `projections/operations.py:139`, `sandloom_redis/eventbus/streams_transport_base.py`)
     move to `retention()` or the options.
 17. **Task API shape.** Sync **and** async task functions (Django 6, accepted by the owner; no
     refusal of sync functions), one pydantic payload or none; names derived as today,
@@ -1356,17 +1382,139 @@ For the orchestrator's review; each departs from or details `design.md`.
     `database:<system identifier>/<db>`: the hash keeps credentials out of the string. Its material
     is the backend, host, the `host` query parameter, port and database; the absolute path of a
     SQLite file; a per-instance marker for `:memory:`.
-45. **The rows of a moved driver stay until `idk-config-defaults`** (decided on PR #220,
-    `idk-pkg-redis`; deviates from section 1, which had slices 17 and 18 delete them). A row stays
-    in `BUILTIN_DRIVER_ROWS` as a lazy install-hint row: target `sandloom_<pkg>:<Class>`,
-    `requires=("sandloom_<pkg>", …)`. Without the package the preflight and the first use of an
-    instance refuse with SANDLOOM-B037 and the install hint, and the entry point of the package is
-    the same driver, not a conflict (`driver_target`). The kernel still synthesizes the redis
-    `atomic_store`, `lease` and `broadcast` defaults, so the rows cannot go before slice 19. Before
-    they go, `idk-config-defaults` adds a registry-side policy hook that passes `assume_allowed`
-    (`unverified_noeviction_allowed`) to an `atomic_store` or `lease` built from an entry point.
-    Without it `never_evicts_check=assume` is refused for ever in production, because only the row's
-    `build` passes the policy.
+45. **The rows of a moved driver stayed until `idk-config-defaults`, which deleted them** (decided
+    on PR #220, `idk-pkg-redis`; deviates from section 1, which had slices 17 and 18 delete them).
+    Until then a row stayed in `BUILTIN_DRIVER_ROWS` as a lazy install-hint row, because the kernel
+    still synthesized the redis `atomic_store`, `lease` and `broadcast` defaults. Slice 19 removed
+    the rows `cache.redis`, `taskqueue.celery`, `eventbus.streams`, `atomic_store.redis`,
+    `lease.redis` and `broadcast.redis` with those defaults, and changed three things:
+    - **Defaults come from the composition.** `sandloom.core.infra.config` names no driver other
+      than the in-tree `memory`/`local`/`log` selectors of the flat settings. A composition passes
+      `create_app(default_infra=...)` (`sandloom_standard.DEFAULT_INFRA`, and the `DEFAULT_INFRA`
+      that `sandloom new` writes into `<app>/__init__.py`); `INFRA` overrides it per instance. A
+      tool process (`sandloom worker check`) reads the same selection from the root's package
+      (`composition.root_default_infra`). Every `create_app` call sets the selection of its own
+      app: one that passes none drops what an earlier `create_app` of the process set
+      (`forget_app_default_infra`) and adopts its root's `DEFAULT_INFRA`, or none (B037), never
+      the previous app's. A selection set by `use_default_infra` itself (a tool, the suite's
+      root `conftest.py`, which selects the standard drivers for the lean root) is not an
+      app's and stays. `.env.test` sets `EVENT_BUS_BACKEND=memory`.
+    - **Startup refuses what nothing selects.** The kernel's instances (`database`, `cache`,
+      `eventbus`, and `atomic_store.security`; `REQUIRED_AT_STARTUP`) with no selected driver, or
+      a driver whose package is missing, refuse startup with SANDLOOM-B037 in every environment,
+      one message naming every instance, what to select and the install command. `memory` is
+      selected only by name (`INFRA`, or `EVENT_BUS_BACKEND=memory`), never as a fallback. In
+      production `atomic_store.security` is never taken from a composition default: `INFRA` names
+      it, as `production_profile` already required.
+    - **The install hint is a table, not a row.** `KNOWN_DRIVER_PACKAGES` in
+      `sandloom.core.drivers.bootstrap` maps `(capability, driver)` to the package's import name and
+      its install command (`pip install sandloom-redis`, `pip install sandloom-celery`) and is
+      registered with `InfraRegistry.register_driver_package`. An instance that selects such a
+      driver while the package is absent (no entry point registered, or `find_spec` finds nothing)
+      is refused with the hint; any other unregistered name stays `DriverNotRegisteredError`. A test
+      keeps the table equal to the packages' entry points, and each package tests its own entry
+      points in its CI job (`packages/sandloom-<name>/tests/test_<name>_driver_entry_points.py`: the class, the kit's
+      provider base, a tier production accepts).
+    - **The policy hook.** `InfraRegistry.set_policy(capability, **hooks)` passes each hook as the
+      constructor argument of that name to a provider class that declares it, whether the class
+      comes from an entry point or a row (a class without it is built by `from_config`).
+      `register_kernel_policies` sets `assume_allowed=unverified_noeviction_allowed` for
+      `atomic_store` and `lease`, so `never_evicts_check=assume` still works in development and
+      under the `unverified_noeviction` accepted risk in production.
+46. **`sandloom-celery` names its modules `taskqueue`, `worker` and `broker_probe`**
+    (`idk-pkg-celery-move`; the kernel's `taskqueue` row it kept is gone, item 45). The three files move whole
+    to `sandloom_celery/{taskqueue,worker,broker_probe}.py` (section 1 names no file), so the
+    stable importable Celery app of 8.2 is the module attribute `app` of `sandloom_celery.worker`:
+    `celery -A sandloom_celery.worker inspect|call|status` (earlier text said `sandloom_celery.app`).
+    The provider declares `tier = "beta"` (2.5) on the strength of `TaskQueueConformance` runs
+    against a real broker. `idk-pkg-celery-lane` moves the driver's tests into
+    `packages/sandloom-celery/tests` (slots, worker pool, broker probe, defaults, the kit's send and
+    host groups) and extends the CI job `celery-drivers`: it builds the wheel, lints, runs strict
+    `mypy packages/sandloom-celery/src`, then the package tests (the entry point and its tier
+    included) and the kernel tests over the driver against the built wheel and a Redis broker (the root mypy run and pytest paths do not reach
+    `packages/`). `SANDLOOM_CELERY_REQUIRED=1` (the scheme `SANDLOOM_<PACKAGE>_REQUIRED` of
+    `SANDLOOM_REDIS_REQUIRED`), set by the job, makes an unreachable broker or cache an error, as
+    it does a broker whose scheme is not a network transport (`memory://`) and a run whose
+    `sandloom_celery` is not under `site-packages` (the lane tests the built wheel); without it
+    the real-broker tests skip with their reason. The job writes a skip ledger (lane `celery`)
+    that the `skip-ledger` job merges. A shared driverkit helper for the `_REQUIRED` guards is
+    the follow-up task `idk-driverkit-required-guard`. The Celery driver's own tests, among them
+    `test_celery_error_mapping` (the kernel enqueue layer over the driver) and
+    `test_celery_beat_lease` (the Celery holder over one fake store), live in
+    `packages/sandloom-celery/tests` (`idk-gated-tests-celery`); the kernel keeps
+    `test_beat_lease` (its lease resolution and the production refusal) on its own drivers.
+47. **The Streams event bus's `isolation_identity` is `streams:<run_id>`**
+    (`idk-pkg-redis-streams`): the driver-name prefix of 2.4, then the `run_id` of the reached
+    Redis server from `INFO server`, as the other Redis drivers read it
+    (`StreamsEventBusProvider.isolation_identity`,
+    `packages/sandloom-redis/src/sandloom_redis/eventbus/driver.py`). The provider is built by
+    `StreamsEventBusProvider.from_config` through the registry; the kernel's bootstrap builds
+    none (it keeps no `eventbus.streams` row, item 45). Two consequences for a later attestation:
+    the cache, `atomic_store` and the event bus on one Redis answer `redis:<run_id>` and
+    `streams:<run_id>`, equal strings never, so an attestation that puts the event bus in one
+    failure domain with `cache` or `atomic_store` on the same Redis (shared eviction and memory)
+    must compare the `run_id` part after the driver prefix, not the whole string.
+48. **The driver declares its fill from the flat settings; the kernel applies it**
+    (`idk-config-flat-urls`; completes item 45's "`sandloom.core.infra.config` names no driver").
+    Until then `fill_driver_defaults` still named `redis`, `streams` and `celery`, and held a
+    table per driver. `CACHE_URL`, `BROKER_URL` and the `CACHE_*` bounds stay flat settings (the
+    harness reads them, ADR-0016); what changes is who knows which option they feed.
+    - **The declaration.** `InfraProvider.settings_fill` is a `SettingsFill`
+      (`sandloom.core.infra.config`, public in `sandloom.driverkit`): `urls` (option to setting,
+      filled when unset or empty; `urls_for` is `all`, `default` or `implicit`; `follows` names
+      the capability whose resolved `default` instance's option is the value, when it runs the
+      same driver), `bounds` (filled when left out) and `caps` (a number above the setting is cut
+      to it). `None` is the default. The precedence is as before: `INFRA` option over flat setting.
+    - **Where it runs.** `load_infra_config` no longer fills: it loads no driver class, so a tool
+      process reading the database instance imports nothing. `build_infra_registry` fills once
+      the entry points are loaded (`fill_driver_defaults(config, settings,
+      registry.settings_fill)`): for a configuration read from the settings, and for an explicit
+      `config` only with `fill_from_settings=True` (`build_tool_infra` does, for the task queue).
+      `InfraRegistry.settings_fill` answers `None`, importing nothing, for a driver that is not
+      registered or whose required package is missing: no fill and no import error, and the
+      refusal of an instance that cannot run stays `validate`'s (SANDLOOM-B037).
+    - **Retention.** `configured_stream_retention_seconds` moved to `sandloom.core.infra.registry`.
+      Its answer is the instance's `retention_seconds` option, else the default the driver's
+      `options_schema` gives it (seven days for `streams`), the class read from the installed
+      package's entry point. No volatile-driver set stays in the kernel: `memory` and `redis`
+      have no such option, so nothing is configured. Deviation: a driver whose package is not
+      installed in the tool process answers `None` (it was seven days for `streams`), and a
+      volatile bus that states `retention_seconds` (refused at startup) answers that value.
+      Review batch 4: `configured_stream_retention` answers a `ConfiguredRetention` (`seconds`,
+      and a `reason` when `seconds` is `None`), so the refusals of `sandloom outbox purge` and the
+      inbox-window problem say why: a driver package missing here names the package and its
+      install command (`KNOWN_DRIVER_PACKAGES`, reached by name from the infra layer), and a
+      package installed but failing to load is a reason, not an error out of a read-only probe
+      (only `DriverLoadError` and `DriverConflictError` are caught). `_seconds` stays as the
+      `seconds` of it.
+    - **What a fill may name.** `SettingsFill` refuses, when built, a setting outside
+      `FILLABLE_SETTINGS`: the `CacheConfig` fields (`cache_url`, `broker_url`, the `cache_*`
+      bounds) and `health_check_timeout_seconds`. A driver reads no kernel setting (ADR-0016): a
+      secret such as `jwt_secret`, or a typo, fails at import of the driver instead of copying a
+      secret into options or leaving an option unfilled.
+    - **The lease is one more driver.** The `redis` lease declares `LEASE_FILL` like the four
+      others; the kernel's `_fill_beat_lease_url` is gone, so an explicit `config` is filled for
+      every driver alike (only with `fill_from_settings=True`), and `build_infra_registry` treats
+      `config={}` as given, not as absent.
+    - **Tools fill too.** `sandloom backup plan` reads `filled_infra_config`
+      (`sandloom.core.infra.tool_infra`): the configuration with each driver's fill applied
+      (built-in rows and the entry points the configuration selects, nothing validated or built),
+      so the Redis targets of `CACHE_URL` and `BROKER_URL` are listed again.
+    - **The resolved selection.** `resolved_instances(settings, capability)` is the composition's
+      selection under the flat selector and `INFRA`. The override report
+      (`config/tiers.py`) and the strict profile read `notification.use_tls` from it, so a
+      composition pin with `use_tls: false` counts. Under `multi_tenant_strict` in production
+      `use_tls: false` refuses the start (`production_profile.config_problems`), with no accepted
+      risk: nothing weaker is admitted there.
+    - **Left as it was.** The synthesized task-queue instance still carries `BROKER_URL` and
+      `CACHE_URL` (`_synthesize_defaults`, no driver named). Removing the flat settings stays the
+      later step of ADR-0016.
+    - **Superseded by `idk-flat-urls-z`.** `CACHE_URL`, `BROKER_URL` and the six `CACHE_*`
+      bounds are removed settings and refuse startup; `SettingsFill` has `bounds` and `caps`
+      only (`urls`, `urls_for` and `follows` are gone). Every Redis instance states its own `url`
+      in `INFRA`, the Celery broker is `taskqueue.default.broker`, and a url-less instance is
+      refused when it opens (`MissingUrlError`). The harness override
+      (`SANDLOOM_TEST_CACHE_URL` / `SANDLOOM_TEST_BROKER_URL`) merges into `INFRA` only.
 
 ## 14. Open for the owner
 

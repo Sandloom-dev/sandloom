@@ -264,9 +264,9 @@ def test_the_runtime_status_carries_the_oldest_unacked_age() -> None:
 # the whole DLQ counted, one read per TTL, the lag gauge reset
 # --------------------------------------------------------------------------- #
 def _infra_bus_cfg(monkeypatch: pytest.MonkeyPatch, name: str | None = "api") -> None:
-    """Streams chosen through INFRA, EVENT_BUS_BACKEND=auto, not production."""
+    """Streams chosen through INFRA, EVENT_BUS_BACKEND unset, not production."""
     assert not settings.is_prod
-    monkeypatch.setattr(settings, "event_bus_backend", "auto")
+    monkeypatch.setattr(settings, "event_bus_backend", None)
     monkeypatch.setattr(
         settings, "infra", {"eventbus": {"default": {"driver": "streams"}}}
     )

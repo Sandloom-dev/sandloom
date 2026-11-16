@@ -30,10 +30,13 @@ import sys
 import tempfile
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from required_ci import REUSABLE_JOBS
+if TYPE_CHECKING:
+    from tools.ci.required_ci import REUSABLE_JOBS
+else:
+    from required_ci import REUSABLE_JOBS
 
 ARTIFACT = "ci-evidence"
 EVIDENCE_FILE = "evidence.json"

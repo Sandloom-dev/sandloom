@@ -15,9 +15,11 @@ double-write. These are revocation marks and user blocks. They are also RPC
 nonces, the cache-form idempotency guard and the enqueue dedupe. It is the
 `atomic_store` capability. Two instances are read by role: `INFRA.atomic_store.security`
 and `INFRA.atomic_store.idempotency`. An absent `idempotency` instance is the
-`security` instance. In production the `security` instance is required. It must
-declare `shared` and `never_evicts`. It must not share a failure domain with the
-module cache.
+`security` instance. In production the `security` instance is required. On every
+profile the application refuses to start unless the driver of its `security` and
+`idempotency` instances declares `shared` and `never_evicts` for its options. A
+`database` store on SQLite is not `shared`. It must not share a failure domain
+with the module cache.
 
 Every operation is atomic. An expired key is absent for every operation, also
 while the backend still holds it. `add` creates over it, and `compare_and_set` and
@@ -31,9 +33,12 @@ lists what production checks about it.
 
 | Driver | Backend | Declares | Use it |
 | --- | --- | --- | --- |
-| `redis` | a Redis server with `maxmemory-policy noeviction` | `shared`, `never_evicts` | the standard choice: one round trip per operation |
+| `redis` | a Redis server with `maxmemory-policy noeviction` | `shared`, `never_evicts` | the standard choice: one round trip per operation, plus one `CONFIG GET maxmemory-policy` on each new connection of its pool (the eviction check, before the connection's first command); its `url` is its own option (`atomic_store.security.url`), never the cache's |
 | `database` | PostgreSQL (or SQLite, one host) | `shared` (PostgreSQL only), `never_evicts` | an application that runs on PostgreSQL alone and wants no Redis |
 | `memory` | the process | `never_evicts` | development and tests only; production refuses it |
+
+A `redis` store that shares `cache.default`'s host, port and database logs a startup warning
+that names both instances. The cache may evict the revocation marks the store keeps.
 
 ### `database`
 

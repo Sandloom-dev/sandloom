@@ -182,11 +182,6 @@ DRIVER_IMPORT_ALLOWLIST = {
     # The composition root builds the registry (sandloom.core.drivers.bootstrap).
     "app_factory/__init__.py",
     "app_factory/lifecycle.py",
-    # The Redis half of the test harness resolves the provider class of each
-    # configured instance through the built-in driver table to call its
-    # test_isolation hook. Loaded only by a process with Redis to isolate; it
-    # moves into the sandloom-redis pytest plugin (idk-pkg-redis).
-    "testing/redis_isolation.py",
 }
 
 

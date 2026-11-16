@@ -1,14 +1,45 @@
 ---
 title: Configure backends
-description: The default instance of every interface comes from flat settings; INFRA adds named instances, overrides drivers and sets options.
+description: The composition selects the drivers; INFRA gives each instance its own url, adds named instances, overrides drivers and sets options.
 type: concept
 ---
 
 # Configure backends
 
-A `default` instance of every interface is built from the flat settings: `DATABASE_URL`,
-`CACHE_URL`, `BROKER_URL`, `STORAGE_*`, `EVENT_BUS_BACKEND` and `NOTIFIER_BACKEND`. For most
-applications that is all the configuration there is.
+The kernel names no driver for the database, cache, event bus, task queue, broadcast, lease <!-- prose-ok: P6 a list of drivers and settings -->
+or atomic store. The composition selects them. `sandloom_standard` picks SQLAlchemy, Redis,
+Streams and Celery. An app made by `sandloom new` lists its picks in `DEFAULT_INFRA`
+(`<app>/__init__.py`), which it passes to `create_app(default_infra=...)`.
+
+The flat settings give the database, object store and notifier their options: `DATABASE_URL`, <!-- prose-ok: P6 a list of settings -->
+`STORAGE_*` and `NOTIFIER_BACKEND`. `EVENT_BUS_BACKEND` names the bus
+(`memory`, `redis` or `streams`); unset, it leaves the bus to the composition.
+
+Every Redis instance and the Celery broker takes its own explicit url in `INFRA`: <!-- prose-ok: P6 a list of instances -->
+`cache.default.url`, `eventbus.default.url` (streams), `lease.beat.url`,
+`atomic_store.security.url`, `broadcast.default.url` and `taskqueue.default.broker`. No
+instance inherits another's url, and an instance that needs a url and has none refuses
+startup. An entry may omit `driver`: the composition's driver is kept.
+
+```sh
+INFRA='{"cache":{"default":{"url":"redis://cache-redis:6379/0"}},
+        "atomic_store":{"security":{"url":"redis://security-redis:6379/0"}},
+        "taskqueue":{"default":{"broker":"redis://broker-redis:6379/1"}}}'
+```
+
+Keep the security instances (`atomic_store.security`, `lease.beat`, the event bus, the task
+queue broker) off the cache's Redis: a cache may evict keys under memory pressure. When one
+shares `cache.default`'s host, port and database, startup logs a warning that names both
+instances.
+
+Nothing falls back to `memory`. Some instances are required: the database, the cache, <!-- prose-ok: P6 a list of required instances -->
+the event bus and the `security` atomic store. When neither the composition nor `INFRA`
+selects a driver for one, startup refuses with SANDLOOM-B037, in every environment. The
+message lists each missing instance, what to select and what to install. A selected driver
+whose package is missing is refused the same way, with the install command
+(`pip install sandloom-redis`, `pip install sandloom-celery`). Development names `memory`
+itself, for example `EVENT_BUS_BACKEND=memory` in `.env`. In production the `security`
+atomic store comes from `INFRA` only, never from a default.
 
 The composition root (`create_app`, the worker, `sandloom migrate`, the test
 harness) builds the registry. There is no implicit default registry:
@@ -37,6 +68,53 @@ PostgreSQL row-level security for that instance, with `system_url` /
 
 `/diagnostics/infra` reports the configured capabilities, instances,
 stability, registered drivers and per-instance health.
+
+## Upgrade: flat settings that became driver options
+
+Five groups of flat settings are removed. Each became an option of the driver
+that read it, written on that driver's instance in `INFRA`. Startup refuses a
+removed setting that carries a value, and names the option to write. An empty
+value only logs a warning. The url and bound settings are the exception (the
+`CACHE_URL` row, the `BROKER_URL` row and the `CACHE_*` bounds): any value fails
+startup. A value counts from every source of the process load: the environment and `.env`
+(an empty `BROKER_URL=` too), and a file of `SECRETS_DIR`. There are no aliases.
+
+| Removed setting | Instance | Option |
+| --- | --- | --- |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | `notification` (`smtp`) | `host`, `port`, `username`, `password` |
+| `SMTP_FROM`, `SMTP_USE_TLS` | `notification` (`smtp`) | `from_addr`, `use_tls` |
+| `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | `objectstore` (`s3`) | `bucket`, `region`, `access_key_id`, `secret_access_key` |
+| `EVENT_STREAM_RETENTION_SECONDS`, `EVENT_STREAM_MAXLEN`, `EVENT_STREAM_PREFIX` | `eventbus` (`streams`) | `retention_seconds`, `max_length`, `prefix` |
+| `CACHE_URL` | every Redis instance: `cache.default`, `atomic_store.security`, `lease.beat`, `broadcast.default`, `eventbus.default` (`streams`) | `url`, stated on each instance |
+| `BROKER_URL` | `taskqueue` (`celery`) | `broker` |
+| `CACHE_SOCKET_TIMEOUT_SECONDS`, `CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS`, `CACHE_HEALTH_CHECK_INTERVAL_SECONDS`, `CACHE_MAX_CONNECTIONS`, `CACHE_POOL_TIMEOUT_SECONDS`, `CACHE_RETRY_ATTEMPTS` | each Redis instance | `socket_timeout_seconds`, `socket_connect_timeout_seconds`, `health_check_interval_seconds`, `max_connections`, `pool_timeout_seconds`, `retry_attempts` |
+
+For example, move `SMTP_HOST=mail` and `SMTP_USE_TLS=false` to:
+
+```sh
+INFRA='{"notification":{"default":{"driver":"smtp","host":"mail","use_tls":false}}}'
+```
+
+`CACHE_URL`, `BROKER_URL` and the `CACHE_*` bounds are refused with any value, an empty
+one included. No value reaches an instance any more, so each instance of the app states
+its own url:
+
+```sh
+INFRA='{"cache":{"default":{"driver":"redis","url":"redis://r:6379/1"}},"atomic_store":{"security":{"driver":"redis","url":"redis://r:6379/3"}},"taskqueue":{"default":{"driver":"celery","broker":"redis://r:6379/2"}}}'
+```
+
+List only the instances the app selects. The Celery result backend is off unless
+`taskqueue.default.backend` is stated. The Redis client bounds keep the defaults the
+`CACHE_*` settings had.
+
+Four details to know. STARTTLS stays on unless you write `use_tls: false`, as
+it did with `SMTP_USE_TLS`, and production still refuses credentials without it.
+`use_tls: false` is still reported as a configuration override (WARNING in
+production, `/diagnostics/core`, `sandloom doctor`). The `multi_tenant_strict`
+profile refuses it.
+Setting `SMTP_USE_TLS=false` fails startup instead of being ignored, so TLS
+never turns back on behind your back. The object store driver is still chosen
+by `STORAGE_TYPE=s3`.
 
 ## Use a named instance
 

@@ -8,9 +8,9 @@ kernel tree fails it (the mutation tests of KB-03 in
 
 from __future__ import annotations
 
+import functools
 import re
 import sys
-import time
 import zipfile
 from collections import Counter
 from pathlib import Path
@@ -134,11 +134,27 @@ def test_the_plan_closes_every_design_row() -> None:
     assert design <= named, sorted(design - named)
     rows = ke.load_register().rows
     assert f"has {len(rows)} rows" in closure
-    """No extra I/O: the check reads source only; it stays well under the
-    architecture suite's budget (measured: about 1 s on the full tree)."""
-    started = time.perf_counter()
+
+
+def test_the_check_reads_each_file_a_bounded_number_of_times(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No extra I/O, counted instead of timed so runner load cannot flake it:
+    the check reads files of this checkout only, each at most twice (once by
+    the scan, once to resolve an anchor), never once per register row."""
+    reads: Counter[Path] = Counter()
+    read_text = Path.read_text
+
+    def counting(self: Path, *args: Any, **kwargs: Any) -> str:
+        reads[self] += 1
+        return read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counting)
     ke.check(ke.load_register())
-    assert time.perf_counter() - started < 15
+    assert reads, "the check read nothing: the counter does not see its I/O"
+    outside = [p for p in reads if not p.is_relative_to(ke.REPO)]
+    assert not outside, outside
+    assert max(reads.values()) <= 2, reads.most_common(3)
 
 
 def test_modules_are_discovered_not_listed() -> None:
@@ -391,10 +407,17 @@ def test_a_fixed_row_without_a_literal_anchor_fails(tmp_path: Path) -> None:
     assert "row R1 is fixed without a literal anchor" in problem
 
 
+@functools.cache
+def _live_scan() -> tuple[ke.Finding, ...]:
+    """The live kernel tree's findings, scanned once per session: the tree and
+    the register are the same for every planted row."""
+    return tuple(ke.scan(ke.load_register()))
+
+
 def _with_planted(register: ke.Register, rel: str, source: str) -> list[str]:
     """The check's problems on this tree plus one planted kernel file."""
     matcher = ke.matcher_for(register)
-    findings = ke.scan(register) + ke.scan_source(rel, source, matcher)
+    findings = [*_live_scan(), *ke.scan_source(rel, source, matcher)]
     return ke.check(register, findings=findings).problems
 
 
@@ -442,6 +465,82 @@ def test_a_static_import_of_a_module_package_fails(tmp_path: Path, source: str) 
     (problem,) = _problems(src, _register())
     assert "static-import 'sandloom_crm" in problem
     assert "would be class b, type import" in problem
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import sandloom_redis.cache as cache\n",
+        "from sandloom_redis import cache\n",
+        "from sandloom_redis.cache import build_transport_client\n",
+        # a function-local import is scanned too
+        "def f():\n    from sandloom_redis import lease\n",
+    ],
+)
+def test_a_kernel_import_of_a_driver_package_fails(tmp_path: Path, source: str) -> None:
+    """``sandloom_redis`` ships drivers (ADR-0016): the kernel imports none of
+    it, in any form, and the register has no exemption for one."""
+    src = _tree(tmp_path, {"sandloom/core/x.py": source})
+    (problem,) = _problems(src, _register())
+    assert "sandloom/core/x.py:" in problem
+    assert "imports a driver package" in problem
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'import importlib\nimportlib.import_module("sandloom_redis.cache")\n',
+        '__import__("sandloom_redis.lease")\n',
+        'import importlib\nMOD = "sandloom_redis.cache"\nimportlib.import_module(MOD)\n',
+        'import importlib.util\nimportlib.util.find_spec("sandloom_redis")\n',
+    ],
+)
+def test_a_dynamic_import_of_a_driver_package_fails(
+    tmp_path: Path, source: str
+) -> None:
+    """A literal (or a module-level constant) a dynamic import loads is a
+    driver-package finding like a static import; the string alone is not."""
+    src = _tree(tmp_path, {"sandloom/core/x.py": source})
+    (problem,) = _problems(src, _register())
+    assert "sandloom/core/x.py:" in problem
+    assert "imports a driver package" in problem
+
+
+def test_a_dynamic_import_of_the_standard_library_is_no_finding(tmp_path: Path) -> None:
+    """The driver-package branch of the dynamic-import scan is an allow-list of
+    the driver package names: any other literal passes through it unflagged."""
+    source = (
+        'import importlib\nMOD = "json"\n'
+        'importlib.import_module("os")\nimportlib.import_module(MOD)\n'
+    )
+    src = _tree(tmp_path, {"sandloom/core/x.py": source})
+    assert _problems(src, _register()) == []
+
+
+def test_a_string_naming_a_driver_package_is_no_import(tmp_path: Path) -> None:
+    """The driver table names its targets as strings: no finding, while a module
+    package beside a driver package one is still a finding."""
+    named = _tree(
+        tmp_path / "named",
+        {"sandloom/core/x.py": 'NAME = "sandloom_redis.cache"\n'},
+    )
+    assert _problems(named, _register()) == []
+    planted = _tree(
+        tmp_path / "other",
+        {
+            "sandloom/core/x.py": "import sandloom_redis.cache\nimport sandloom_crm.api\n"
+        },
+    )
+    problems = _problems(planted, _register())
+    assert any("static-import 'sandloom_crm.api'" in p for p in problems)
+    assert any("imports a driver package" in p for p in problems)
+
+
+def test_the_live_kernel_imports_no_driver_package() -> None:
+    """The kernel tree itself holds no driver-package finding (the streams driver
+    moved into ``sandloom-redis``, idk-pkg-redis-eventbus)."""
+    problems = ke.check(ke.load_register(), ke.SRC).problems
+    assert not [p for p in problems if "imports a driver package" in p], problems
 
 
 def test_kernel_and_relative_imports_are_not_findings(tmp_path: Path) -> None:

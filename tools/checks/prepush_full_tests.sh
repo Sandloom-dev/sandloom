@@ -31,10 +31,11 @@ cd "$(dirname "$0")/../.."
 docker compose -f deploy/compose/test.yml up -d --wait
 
 # Parallel like CI (one test FILE per worker), without coverage (CI's
-# coverage job measures it). Each xdist worker N gets its own database
+# coverage job measures it) and without the slow suites (CI's PR lane runs
+# `-m "not slow"`; the full validation runs the slow ones). Each xdist worker N gets its own database
 # (<db>_gwN) and its own Redis indexes, claimed from the free ones on the
 # shared test Redis before the workers start (SANDLOOM_TEST_REDIS_DB_STRIDE=auto,
-# sandloom.core.testing.resources.allocate_worker_redis: this owner's indexes from
+# sandloom_redis.testing.resources.allocate_worker_redis: this owner's indexes from
 # earlier runs first, then unmarked empty ones). SANDLOOM_PREPUSH_WORKERS=N forces
 # a count (0 = serial); the default `auto` is what the PostgreSQL server's
 # free connections afford (sandloom.core.testing.connections: 13 per worker, 40
@@ -55,7 +56,7 @@ if [ "${workers}" = auto ] || [ "${workers}" -ge 2 ]; then
   status=0
   SANDLOOM_TEST_REDIS_DB_STRIDE=auto \
     uv run --locked pytest -q --no-cov -n "${workers}" --dist loadfile \
-      --sandloom-shuffle="${seed}" "$@" || status=$?
+      -m "not slow" --sandloom-shuffle="${seed}" "$@" || status=$?
   # Exit 4 = the isolation guard refused: too few free Redis indexes (list /
   # prune stale ones with tools/checks/test_resources.py) or a worker database
   # another run owns. Fall back to the serial run on this checkout's own
@@ -64,4 +65,4 @@ if [ "${workers}" = auto ] || [ "${workers}" -ge 2 ]; then
   echo "backend-full-tests: no free Redis indexes / a worker database belongs to another run; retrying serially (see: uv run python tools/checks/test_resources.py list)" >&2
 fi
 echo "backend-full-tests: serial run" >&2
-exec uv run --locked pytest -q --no-cov --sandloom-shuffle="${seed}" "$@"
+exec uv run --locked pytest -q --no-cov -m "not slow" --sandloom-shuffle="${seed}" "$@"

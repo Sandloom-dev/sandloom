@@ -30,15 +30,25 @@ import pytest
 
 from sandloom.core.config.common import INVALID_CONFIGURATION
 from sandloom.core.signing_keys import generate_private_key, public_pem
+from sandloom.core.tests._root_support import lean_root_infra
 from sandloom.core.tests.test_production_profile import _BASE as _STRICT_BASE
 
 pytestmark = pytest.mark.slow
 
+_REDIS_URL = "redis://localhost:6379/0"
+
 _DEV_BASE: dict[str, Any] = {
     "ENVIRONMENT": "dev",
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost:5432/boot_checks_test",
-    "CACHE_URL": "redis://localhost:6379/0",
-    "BROKER_URL": "redis://localhost:6379/1",
+    "INFRA": json.dumps(
+        {
+            "cache": {"default": {"url": "redis://localhost:6379/0"}},
+            "broadcast": {"default": {"driver": "redis", "url": _REDIS_URL}},
+            "lease": {"beat": {"driver": "redis", "url": _REDIS_URL}},
+            "atomic_store": {"security": {"driver": "redis", "url": _REDIS_URL}},
+            "taskqueue": {"default": {"broker": "redis://localhost:6379/1"}},
+        }
+    ),
     "JWT_SECRET": "boot-checks-not-a-real-secret-0123456789",
     "EVENT_BUS_BACKEND": "memory",
 }
@@ -96,8 +106,10 @@ def _env(values: dict[str, Any]) -> dict[str, str]:
         for name in ("PATH", "HOME", "SYSTEMROOT", "TMPDIR")
         if name in os.environ
     }
+    # The child boots the lean root, which selects no driver: INFRA does.
     for name, value in values.items():
         env[name] = value if isinstance(value, str) else json.dumps(value)
+    env["INFRA"] = lean_root_infra(values)
     return env
 
 

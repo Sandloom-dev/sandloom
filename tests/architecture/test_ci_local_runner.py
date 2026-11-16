@@ -277,6 +277,34 @@ def test_schedule_starts_timing_sensitive_then_longest(ci_local: ModuleType) -> 
     assert sorted(order) == sorted(j.name for j in jobs)
 
 
+def test_workflow_level_env_reaches_every_local_job(ci_local: ModuleType) -> None:
+    """The local run is a full validation: ``ci.yml``'s workflow-level
+    ``HYPOTHESIS_PROFILE`` (``inputs.full_validation && 'full' || 'ci'``) must reach
+    each of its jobs as ``full``, not be dropped for the ``ci`` default."""
+    jobs = [j for j in ci_local.local_jobs(REPO) if j.spec.workflow == "ci.yml"]
+    assert jobs
+    for job in jobs:
+        env = {
+            k: ci_local.interpolate(v, job.ctx())
+            for k, v in (job.body.get("env") or {}).items()
+        }
+        assert env.get("HYPOTHESIS_PROFILE") == "full", job.name
+
+
+def test_job_level_env_wins_over_the_workflow_level_one(
+    ci_local: ModuleType, tmp_path: Path
+) -> None:
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    spec = next(s for s in ci_local.CI_JOBS if s.workflow == "ci.yml")
+    (workflows / "ci.yml").write_text(
+        f"env:\n  A: wf\n  B: wf\njobs:\n  {spec.job}:\n    env:\n      B: job\n"
+        "    steps: []\n"
+    )
+    (job,) = [j for j in ci_local.local_jobs(tmp_path) if j.spec == spec]
+    assert job.body["env"] == {"A": "wf", "B": "job"}
+
+
 def test_rerun_failed_reads_the_newest_run_of_the_ref(
     ci_local: ModuleType, tmp_path: Path
 ) -> None:
@@ -357,7 +385,7 @@ def test_act_jobs_with_artifacts_run_a_private_copy(ci_local: ModuleType) -> Non
     jobs = {j.name: j for j in ci_local.local_jobs(REPO) if j.spec.engine == "act"}
     assert ci_local.uses_artifacts(jobs["docs"].body)
     assert ci_local.uses_artifacts(jobs["supply-chain"].body)
-    assert not ci_local.uses_artifacts(jobs["backend-static"].body)
+    assert not ci_local.uses_artifacts(jobs["deploy-profiles"].body)
     assert "--artifact-server-path" not in SCRIPT.read_text()
 
 

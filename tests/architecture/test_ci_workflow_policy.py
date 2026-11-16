@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-import fnmatch
 import importlib.util
+import json
+import re
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -44,7 +46,18 @@ def test_boundary_gates_run_even_for_a_docs_only_change(runner, base, full):
     context = {
         "github": {"base_ref": base},
         "inputs": {"full_validation": full},
-        "steps": {"filter": {"outputs": dict.fromkeys(outputs, "false")}},
+        "steps": {
+            step_id: {
+                "outputs": dict.fromkeys(
+                    [
+                        *outputs,
+                        *yaml.safe_load(step["with"]["filters"]),
+                    ],
+                    "false",
+                )
+            }
+            for step_id, step in _filter_steps().items()
+        },
     }
     actual = {
         name: runner.Expr(
@@ -52,7 +65,7 @@ def test_boundary_gates_run_even_for_a_docs_only_change(runner, base, full):
         ).eval()
         for name, expr in outputs.items()
     }
-    mandatory = {"backend", "examples", "packages", "architecture"}
+    mandatory = {"backend", "kernel", "examples", "packages", "architecture", "image"}
     assert actual == {
         name: "true"
         if full or (base == "arch/kernel-boundary" and name in mandatory)
@@ -219,29 +232,58 @@ def test_heavy_jobs_are_opt_in_and_still_runnable_locally(runner, name):
     ("path", "expected"),
     [
         ("docs/modules/between/contracts.md", {"docs"}),
-        ("tools/docs/docs_site.py", {"docs"}),
+        ("tools/docs/docs_site.py", {"docs", "typecheck"}),
+        # The fleet hooks: agent context (docs) and the backend-static mypy run,
+        # not the backend test suites.
+        (".claude/hooks/edit_check.py", {"docs", "typecheck"}),
         ("website/index.html", {"docs"}),
         (".github/branch-protection.json", set()),
         ("tools/packaging/public-source.json", set()),
         # The SQLite lane's own tooling runs the lane (backend).
-        ("tools/ci/ci_local.py", {"backend"}),
-        ("tools/smoke/quickstart_check.py", {"backend"}),
+        ("tools/ci/ci_local.py", {"backend", "kernel", "typecheck"}),
+        ("tools/smoke/quickstart_check.py", {"backend", "kernel", "typecheck"}),
+        # A kernel part the console's export script never loads: the kernel
+        # lanes, not the admin console.
+        (
+            "src/sandloom/core/testing/auth.py",
+            {"backend", "kernel", "docs", "packages", "architecture"},
+        ),
+        # The kernel the export loads (the unit of work among it).
         (
             "src/sandloom/core/unit_of_work/runtime.py",
-            {"backend", "admin", "docs", "packages", "architecture"},
+            {"backend", "kernel", "admin", "docs", "packages", "architecture"},
         ),
+        # The packages workflow alone still selects the driver lanes.
+        (".github/workflows/packages.yml", {"kernel", "packages"}),
+        # The console's backend: the HTTP stack, the OpenAPI it serves.
+        (
+            "src/sandloom/core/http/app.py",
+            {"backend", "kernel", "admin", "docs", "packages", "architecture"},
+        ),
+        # A bundled module: its own tests, the console (its routes are in the
+        # generated contracts), never the kernel lanes.
         (
             "src/sandloom_billing/api.py",
             {"backend", "admin", "docs", "packages", "architecture"},
         ),
-        ("tests/architecture/test_api_no_orm_leakage.py", {"backend", "architecture"}),
-        ("tools/packaging/package_build.py", {"backend", "packages", "architecture"}),
-        ("tools/checks/check_secrets.py", {"backend", "architecture"}),
-        ("migrations/core/0001_init.py", {"backend", "packages"}),
+        (
+            "tests/architecture/test_api_no_orm_leakage.py",
+            {"backend", "kernel", "architecture"},
+        ),
+        (
+            "tools/packaging/package_build.py",
+            {"backend", "kernel", "packages", "architecture", "typecheck"},
+        ),
+        (
+            "tools/checks/check_secrets.py",
+            {"backend", "kernel", "architecture", "typecheck"},
+        ),
+        ("migrations/core/0001_init.py", {"backend", "kernel", "admin", "packages"}),
         (
             "pyproject.toml",
             {
                 "backend",
+                "kernel",
                 "admin",
                 "docs",
                 "packages",
@@ -249,7 +291,7 @@ def test_heavy_jobs_are_opt_in_and_still_runnable_locally(runner, name):
                 "dependency_review",
             },
         ),
-        ("conftest.py", {"backend"}),
+        ("conftest.py", {"backend", "kernel"}),
         ("admin/src/app/router.tsx", {"admin"}),
         (
             "examples/academy/academy/modules/catalog/api.py",
@@ -262,11 +304,11 @@ def test_heavy_jobs_are_opt_in_and_still_runnable_locally(runner, name):
         ("benchmarks/ladder/cg/requirements.txt", {"benchmarks", "dependency_review"}),
         (
             "packages/sandloom-identity/pyproject.toml",
-            {"backend", "packages", "architecture", "dependency_review"},
+            {"backend", "kernel", "packages", "architecture", "dependency_review"},
         ),
         (
             "tools/checks/check_benchmark_dependencies.py",
-            {"backend", "architecture", "benchmarks"},
+            {"backend", "kernel", "architecture", "benchmarks", "typecheck"},
         ),
     ],
 )
@@ -280,9 +322,571 @@ def test_change_filters_do_not_expand_docs_or_policy_into_backend(path, expected
     selected = {
         name
         for name, patterns in filters.items()
-        if any(fnmatch.fnmatchcase(path, p) for p in patterns)
+        # The image area has its own test (it needs a second filter step).
+        if not name.startswith("image") and any(glob_match(path, p) for p in patterns)
     }
     assert selected == expected
+
+
+def glob_match(path: str, pattern: str) -> bool:
+    """paths-filter's glob: ``*`` stays inside a directory, ``**`` crosses them."""
+    out = ""
+    i = 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out += "(?:.*/)?"
+            i += 3
+        elif pattern.startswith("**", i):
+            out += ".*"
+            i += 2
+        elif pattern[i] == "*":
+            out += "[^/]*"
+            i += 1
+        else:
+            out += re.escape(pattern[i])
+            i += 1
+    return re.fullmatch(out, path) is not None
+
+
+def _filter_steps() -> dict[str, dict]:
+    steps = workflow("ci.yml")["jobs"]["changes"]["steps"]
+    return {s["id"]: s for s in steps if s.get("id", "").startswith("filter")}
+
+
+def _filter_selects(step: dict, path: str) -> set[str]:
+    """The filters of one paths-filter step that select ``path``: any glob of a
+    filter (the default `some`), or every glob of it with `!` ones excluding
+    (``predicate-quantifier: every``)."""
+    filters = yaml.safe_load(step["with"]["filters"])
+    every = step["with"].get("predicate-quantifier") == "every"
+    selected = set()
+    for name, patterns in filters.items():
+        positive = [p for p in patterns if not p.startswith("!")]
+        negative = [p[1:] for p in patterns if p.startswith("!")]
+        if every:
+            hit = all(glob_match(path, p) for p in positive) and not any(
+                glob_match(path, p) for p in negative
+            )
+        else:
+            assert not negative, name  # a negated glob selects unrelated files
+            hit = any(glob_match(path, p) for p in positive)
+        if hit:
+            selected.add(name)
+    return selected
+
+
+@pytest.mark.parametrize(
+    ("path", "builds_image"),
+    [
+        # Tests, tooling and policy files: the production image is not rebuilt.
+        ("tests/architecture/test_required_ci.py", False),
+        ("src/sandloom/core/tests/test_nesting_policy.py", False),
+        ("src/sandloom_billing/tests/conftest.py", False),
+        ("packages/sandloom-redis/tests/test_cache.py", False),
+        ("tools/ci/ci_local.py", False),
+        ("tools/checks/prepush_full_tests.sh", False),
+        ("tools/packaging/public-source.json", False),
+        (".env.test", False),
+        ("conftest.py", False),
+        ("docs/contributing/ci.md", False),
+        # What the Dockerfile copies or runs.
+        ("src/sandloom/core/app_factory.py", True),
+        ("src/sandloom/core/testing/plugin.py", True),
+        ("packages/sandloom-redis/src/sandloom_redis/cache.py", True),
+        ("packages/sandloom/pyproject.toml", True),
+        ("pyproject.toml", True),
+        ("uv.lock", True),
+        ("migrations/core/versions/0001_init.py", True),
+        ("deploy/docker/Dockerfile", True),
+        ("tools/packaging/package_build.py", True),
+        ("tools/packaging/packages.json", True),
+        ("tools/checks/runtime_inventory.py", True),
+        (".github/workflows/ci.yml", True),
+    ],
+)
+def test_the_production_image_is_built_only_for_what_it_contains(path, builds_image):
+    steps = _filter_steps()
+    selected = _filter_selects(steps["filter"], path) | _filter_selects(
+        steps["filter_image"], path
+    )
+    image_filters = {"image_inputs", "image_src", "image_packages"}
+    assert bool(selected & image_filters) is builds_image, selected
+
+
+def test_docker_build_waits_for_the_image_area_not_for_backend(runner):
+    body = workflow("ci.yml")["jobs"]["docker-build"]
+
+    def runs(**outputs: str) -> bool:
+        context = {
+            "inputs": {"full_validation": False, "reused_jobs": "[]"},
+            "needs": {"changes": {"outputs": outputs}},
+        }
+        return runner.eval_if(body["if"], context, "success")
+
+    assert runs(backend="true", deploy="false", image="false") is False
+    assert runs(backend="false", deploy="true", image="false") is False
+    assert runs(backend="false", deploy="false", image="true") is True
+
+
+def test_benchmarks_filter_leaves_out_only_the_dx_harness():
+    """The filter lists benchmarks/'s subdirectories one by one (a negated glob
+    selects unrelated files): a new one must be listed, `dx` must not be."""
+    filters = yaml.safe_load(_filter_steps()["filter"]["with"]["filters"])
+    patterns = filters["benchmarks"]
+    # Tracked files only: benchmarks/ is its own uv project, so an untracked
+    # `.venv` or cache directory must not count as a maintained source directory.
+    tracked = subprocess.run(
+        ["git", "ls-files", "benchmarks"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    children = sorted({path.split("/")[1] for path in tracked if path.count("/") >= 2})
+    assert "dx" in children  # the exclusion has a subject
+    for child in children:
+        probe = f"benchmarks/{child}/some/deeper/file.py"
+        listed = any(glob_match(probe, p) for p in patterns)
+        assert listed is (child != "dx"), child
+    for top_level in ("benchmarks/README.md", "benchmarks/uv.lock"):
+        assert any(glob_match(top_level, p) for p in patterns), top_level
+
+
+def _runs(job: dict) -> str:
+    """The job's commands as one line (line continuations and folds joined)."""
+    text = "\n".join(step.get("run", "") for step in job["steps"])
+    return " ".join(text.replace("\\\n", " ").split())
+
+
+def test_the_kernel_lane_is_two_parallel_jobs_that_drop_nothing():
+    jobs = workflow("ci.yml")["jobs"]
+    with_redis = jobs["kernel-without-batteries"]
+    without_redis = jobs["kernel-without-redis"]
+    # Parallel: both wait for the classifier only, neither for the other.
+    assert with_redis["needs"] == without_redis["needs"] == "changes"
+    assert with_redis["if"] == without_redis["if"]
+    assert "kernel-without-redis" in jobs["ci-required"]["needs"]
+    oracle = (
+        "src/sandloom/core/tests/test_nesting_policy.py"
+        "::test_nested_units_match_the_oracle_at_length"
+    )
+    first, second = _runs(with_redis), _runs(without_redis)
+    # The run with sandloom-redis installed: the hook alone, Redis kept. The
+    # 82 s oracle test is deselected here and runs in the run without Redis.
+    assert (
+        "src/sandloom/core/tests tests/sdk tests/architecture"
+        " tests/integration/replaceability" in first
+    )
+    assert f"--deselect {oracle}" in first
+    # slow-marked: backend-tests filters slow on a PR, so the run without Redis
+    # (no marker filter) names it.
+    assert oracle in second
+    assert "not slow" not in second
+    assert "-n auto --dist loadfile --durations=25 --sandloom-shuffle=random" in first
+    assert "-p tools.ci.no_batteries" in first
+    assert "no_redis" not in first
+    assert "uninstall" not in first
+    # The run without it: the client, both drivers, celery and kombu removed
+    # (and asserted gone), then asyncpg removed for SQLite.
+    assert "uv pip uninstall" in second
+    assert "redis hiredis sandloom-redis sandloom-celery celery kombu" in second
+    assert "'sandloom_celery', 'celery', 'kombu')" in second
+    assert "-p tools.ci.no_batteries -p tools.ci.no_redis" in second
+    assert "asyncpg" in second
+    assert "src/sandloom/core/tests/test_postgres_extra.py" in second
+    assert "test_postgres_extra" not in first
+
+
+def test_the_kernel_lane_deselects_only_tests_that_another_job_runs_whole():
+    """Each deselect of the batteries run names a test that exists and that a
+    job without the kernel venv runs: backend-tests (root testpaths, `src`) for
+    the two under src/, the always-on workflow-policy job or backend-static
+    (the whole tests/architecture directory) for the rest."""
+    jobs = workflow("ci.yml")["jobs"]
+    runs = _runs(jobs["kernel-without-batteries"])
+    deselected = re.findall(r"--deselect (\S+)", runs)
+    assert deselected, "no deselect left: drop this test"
+    assert len(deselected) == 7
+    architecture = _runs(jobs["backend-static"])
+    assert " tests/architecture/ " in architecture
+    policy = _runs(jobs["workflow-policy"])
+    for node in deselected:
+        path, _, test = node.partition("::")
+        text = (ROOT / path).read_text()
+        assert not test or f"def {test}(" in text, node
+        if path.startswith("tests/architecture/"):
+            assert path in policy, node
+        else:
+            assert path.startswith("src/"), node
+        if test and _is_slow(text, test):
+            # A PR's backend-tests runs `-m "not slow"`: a slow-marked test
+            # deselected here runs only where a job names it and filters no
+            # marker.
+            assert _unfiltered_runners(jobs, node), (
+                f"{node} is slow-marked and no PR job runs it"
+            )
+    # backend-tests runs the root testpaths (`src` among them) apart from the
+    # slow tests of a PR (the marker filter above).
+    backend = _runs(jobs["backend-tests"])
+    assert "--deselect" not in backend
+    assert '    "src",' in (ROOT / "pyproject.toml").read_text()
+
+
+def _is_slow(text: str, test: str) -> bool:
+    """Whether `def <test>(` carries `@pytest.mark.slow` among its decorators."""
+    lines = text.splitlines()
+    index = next(i for i, line in enumerate(lines) if f"def {test}(" in line)
+    while index > 0 and lines[index - 1].lstrip().startswith("@"):
+        index -= 1
+        if "pytest.mark.slow" in lines[index]:
+            return True
+    return False
+
+
+def _unfiltered_runners(jobs: dict, node: str) -> list[str]:
+    """The jobs other than the deselecting one that name `node` in a run with no
+    `not slow` marker filter."""
+    return [
+        name
+        for name, job in jobs.items()
+        if name != "kernel-without-batteries"
+        and "steps" in job  # a called workflow has none
+        and node in _runs(job)
+        and "not slow" not in _runs(job)
+    ]
+
+
+def test_a_slow_marked_deselect_that_no_unfiltered_job_runs_is_refused():
+    """The slow check bites: the oracle test is slow-marked, and a job that
+    filters slow (or names another test) is no runner of it."""
+    source = (ROOT / "src/sandloom/core/tests/test_nesting_policy.py").read_text()
+    assert _is_slow(source, "test_nested_units_match_the_oracle_at_length")
+    assert not _is_slow(source, "test_nested_units_match_the_oracle")
+    node = "src/x/test_y.py::test_z"
+
+    def job(run: str) -> dict:
+        return {"steps": [{"run": run}]}
+
+    assert _unfiltered_runners({"a": job(f"pytest {node}")}, node) == ["a"]
+    assert not _unfiltered_runners({"a": job(f'pytest -m "not slow" {node}')}, node)
+    assert not _unfiltered_runners({"a": job("pytest src/x/test_y.py::other")}, node)
+    assert not _unfiltered_runners({"kernel-without-batteries": job(node)}, node)
+
+
+def test_the_policy_job_runs_every_test_the_context_paths_depend_on():
+    """AGENTS.md, .claude/**, docs/adr/**, .importlinter and the public API
+    baseline select no job that checks them: these five tests run on every PR,
+    in the always-on job, with the setting the generator needs."""
+    job = workflow("ci.yml")["jobs"]["workflow-policy"]
+    step = next(
+        s for s in job["steps"] if "test_agent_context_budget" in s.get("run", "")
+    )
+    commands = " ".join(step["run"].replace("\\\n", " ").split())
+    for name in (
+        "test_agent_context_budget",
+        "test_agent_reference",
+        "test_pages_workflow",
+        "test_guarantee_ledger",
+        "test_docs_generated",
+    ):
+        assert f"tests/architecture/{name}.py" in commands, name
+        assert (ROOT / f"tests/architecture/{name}.py").is_file(), name
+    assert "--noconftest" in commands
+    assert step["env"]["SANDLOOM_SERVICE_NAME"]
+    for variable in ("DATABASE_URL", "JWT_SECRET"):
+        assert step["env"][variable], variable
+    # The flat Redis settings are removed: a job exporting one fails startup.
+    assert "CACHE_URL" not in step["env"]
+    assert "BROKER_URL" not in step["env"]
+
+
+_REMOVED_FLAT_ENV = ("CACHE_URL", "BROKER_URL")
+
+
+def _env_blocks(path: Path) -> list[tuple[str, dict]]:
+    """Every ``env`` block of a workflow: the workflow's, each job's, each step's."""
+    data = yaml.safe_load(path.read_text())
+    blocks = [(f"{path.name}: env", data.get("env") or {})]
+    for job_name, job in (data.get("jobs") or {}).items():
+        blocks.append((f"{path.name}: {job_name}: env", job.get("env") or {}))
+        for index, step in enumerate(job.get("steps") or []):
+            where = f"{path.name}: {job_name}: step {index}: env"
+            blocks.append((where, step.get("env") or {}))
+    return blocks
+
+
+def test_no_workflow_exports_a_removed_flat_redis_setting() -> None:
+    """``CACHE_URL`` and ``BROKER_URL`` are removed settings that fail startup
+    with any value: no workflow, job or step may set one (the harness names are
+    ``SANDLOOM_TEST_CACHE_URL`` / ``SANDLOOM_TEST_BROKER_URL``, which differ)."""
+    blocks = [b for path in sorted(WORKFLOWS.glob("*.yml")) for b in _env_blocks(path)]
+    assert len(blocks) > 50  # every workflow was read, not an empty glob
+    offenders = [
+        f"{where}: {name}"
+        for where, env in blocks
+        for name in _REMOVED_FLAT_ENV
+        if name in env
+    ]
+    assert offenders == []
+
+
+def test_the_flat_env_scan_finds_a_planted_setting(tmp_path: Path) -> None:
+    """The scan above bites: a workflow that sets one at each level is reported."""
+    planted = tmp_path / "planted.yml"
+    planted.write_text(
+        "env:\n  CACHE_URL: x\njobs:\n  a:\n    env:\n      BROKER_URL: y\n"
+        "    steps:\n      - run: z\n        env:\n          CACHE_URL: w\n"
+    )
+    found = [
+        (where, name)
+        for where, env in _env_blocks(planted)
+        for name in _REMOVED_FLAT_ENV
+        if name in env
+    ]
+    assert [where for where, _ in found] == [
+        "planted.yml: env",
+        "planted.yml: a: env",
+        "planted.yml: a: step 0: env",
+    ]
+
+
+def test_docs_and_admin_workflows_do_not_repeat_what_a_step_or_job_already_runs():
+    docs = workflow("docs.yml")["jobs"]["build"]["steps"]
+    commands = " ".join(s.get("run", "") for s in docs)
+    assert "docs_prose_lint.py --self-test" in commands
+    assert "docs_code_check.py --self-test" in commands
+    site = next(s for s in docs if "test_docs_site.py" in s.get("run", ""))
+    # The tests of the lint scopes skip the second run only because the steps
+    # above run both lints in full.
+    assert site["env"]["SANDLOOM_DOCS_LINTS_RUN_AS_STEPS"] == "1"
+    admin = " ".join(
+        s.get("run", "") for s in workflow("admin.yml")["jobs"]["admin"]["steps"]
+    )
+    assert "contracts:check" not in admin
+    assert "npm run contracts:check" in _runs(
+        workflow("ci.yml")["jobs"]["admin-contracts"]
+    )
+    # The celery lane runs the package: the kernel's beat-lease test is celery
+    # free and runs in the kernel lane and backend-tests.
+    celery = _runs(workflow("ci.yml")["jobs"]["celery-drivers"])
+    assert "packages/sandloom-celery/tests" in celery
+    assert "test_beat_lease" not in celery
+
+
+def test_the_no_redis_lane_runs_the_pending_files_and_collects_every_kernel_suite():
+    """The lane runs what tools/ci/no_redis_pending.json names (read when the
+    step runs, never copied into the workflow), its two ratchet files, and
+    collects every kernel suite so a module-level Redis import still fails."""
+    body = workflow("ci.yml")["jobs"]["kernel-without-redis"]
+    step = next(s for s in body["steps"] if "tools.ci.no_redis" in s.get("run", ""))
+    commands = " ".join(step["run"].replace("\\\n", " ").split())
+    suites = (
+        "src/sandloom/core/tests tests/sdk tests/architecture"
+        " tests/integration/replaceability"
+    )
+    # Collection of the whole kernel under the plugins, no xdist, nothing run.
+    assert (
+        f"--collect-only -qq --no-cov -p no:xdist -p tools.ci.no_batteries -p tools.ci.no_redis {suites}"
+        in commands
+    )
+    # The run: the files the JSON names at run time, then the lane's own tests.
+    assert (
+        'pending=$(.venv-kernel/bin/python -c "from tools.ci.no_redis import load_pending;'
+        in commands
+    )
+    # The slow-marked oracle test rides in this run: no PR job that filters
+    # slow would run it.
+    oracle = (
+        "src/sandloom/core/tests/test_nesting_policy.py"
+        "::test_nested_units_match_the_oracle_at_length"
+    )
+    assert (
+        f"-p tools.ci.no_batteries -p tools.ci.no_redis $pending {oracle}"
+        " tests/architecture/test_no_redis.py tests/architecture/test_no_batteries.py"
+    ) in commands
+    assert "not slow" not in commands
+    # No file of the pending list is copied into the workflow: the selector is
+    # the JSON, so a shrinking list shrinks the lane.
+    pending = json.loads((ROOT / "tools/ci/no_redis_pending.json").read_text())
+    for why in pending["tests"].values():
+        for node in why:
+            assert node.split("::", 1)[0] not in commands, node
+
+
+def test_the_no_redis_selector_prints_the_files_of_the_pending_tests(tmp_path):
+    """The selector expression of the step, run against a pending file of its
+    own: it prints each test file once, sorted, and nothing for an empty list."""
+    body = workflow("ci.yml")["jobs"]["kernel-without-redis"]
+    step = next(s for s in body["steps"] if "pending=$(" in s.get("run", ""))
+    selector = step["run"].split("pending=$(", 1)[1].split("\n", 1)[0]
+    expression = selector.split('-c "', 1)[1].rsplit('")', 1)[0]
+    assert "load_pending()[1]" in expression
+    code = expression.replace("load_pending()", "load_pending(Path(sys.argv[1]))")
+    code = "import sys; from pathlib import Path; " + code
+
+    def selected(tests: dict[str, list[str]]) -> str:
+        pending = tmp_path / "pending.json"
+        pending.write_text(json.dumps({"files": {}, "tests": tests}))
+        return subprocess.run(
+            [sys.executable, "-c", code, str(pending)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    assert selected(
+        {"a": ["z/test_b.py::t1", "z/test_a.py::t2", "z/test_b.py::t3"]}
+    ) == ("z/test_a.py z/test_b.py")
+    assert selected({}) == ""
+
+
+def test_module_only_changes_skip_the_kernel_lanes_and_kernel_changes_run_them(runner):
+    """`kernel` is the backend filter less the bundled modules: a PR that only
+    changes a module skips both halves of the kernel lane and the two driver
+    lanes, a kernel, test, tooling or package change runs them."""
+    filters = yaml.safe_load(_filter_steps()["filter"]["with"]["filters"])
+    selects = {
+        path: any(glob_match(path, p) for p in filters["kernel"])
+        for path in (
+            "src/sandloom_billing/api.py",
+            "src/sandloom_identity/tests/test_login.py",
+            "src/sandloom_catalog/models.py",
+            "src/sandloom/core/runtime.py",
+            "src/sandloom/sdk/testing/plugin.py",
+            "tests/sdk/test_sdk_recipes.py",
+            "tools/ci/no_redis.py",
+            "packages/sandloom-redis/src/sandloom_redis/cache.py",
+            "pyproject.toml",
+            "uv.lock",
+        )
+    }
+    assert [path for path, hit in selects.items() if not hit] == [
+        "src/sandloom_billing/api.py",
+        "src/sandloom_identity/tests/test_login.py",
+        "src/sandloom_catalog/models.py",
+    ]
+    jobs = workflow("ci.yml")["jobs"]
+    for name in (
+        "kernel-without-batteries",
+        "kernel-without-redis",
+        "redis-drivers",
+        "celery-drivers",
+    ):
+        for outputs, expected in (
+            ({"backend": "true", "packages": "true", "kernel": "false"}, False),
+            ({"backend": "false", "packages": "false", "kernel": "true"}, True),
+        ):
+            context = {
+                "inputs": {"full_validation": False, "reused_jobs": "[]"},
+                "needs": {"changes": {"outputs": outputs}},
+            }
+            assert runner.eval_if(jobs[name]["if"], context, "success") is expected
+
+
+@pytest.mark.parametrize(
+    ("path", "console"),
+    [
+        # The console and what it generates its contracts from.
+        ("admin/src/app/router.tsx", True),
+        ("tools/inspection/test_viewer.mjs", True),
+        ("tools/smoke/admin_live_acceptance.py", True),
+        ("src/sandloom_admin/compiler.py", True),
+        ("src/sandloom_billing/api.py", True),
+        ("src/sandloom_identity/api.py", True),
+        ("src/sandloom_tenancy/api.py", True),
+        ("packages/sandloom-standard/src/sandloom_standard/main.py", True),
+        ("migrations/core/versions/0001_init.py", True),
+        ("src/sandloom/sdk/web.py", True),
+        ("src/sandloom/core/composition.py", True),
+        ("src/sandloom/core/app_factory/routes.py", True),
+        ("src/sandloom/core/http/app.py", True),
+        ("src/sandloom/core/auth/tokens.py", True),
+        ("src/sandloom/core/migrations/runner.py", True),
+        ("src/sandloom/core/config/settings.py", True),
+        ("src/sandloom/core/error_codes.py", True),
+        ("pyproject.toml", True),
+        ("uv.lock", True),
+        # What the export script imports besides (measured by listing the
+        # src/sandloom files loaded by admin/scripts/export_openapi.py).
+        ("src/sandloom/shared/authz/__init__.py", True),
+        ("src/sandloom/shared/subject.py", True),
+        ("src/sandloom/core/cli/generation_input.py", True),
+        ("src/sandloom/core/descriptors/module_names.py", True),
+        ("src/sandloom/core/module_api/__init__.py", True),
+        ("src/sandloom/core/facade/__init__.py", True),
+        ("src/sandloom/core/unit_of_work/runtime.py", True),
+        ("src/sandloom/core/infra/cache.py", True),
+        ("src/sandloom/core/route_policy.py", True),
+        ("src/sandloom/driverkit/metrics.py", True),
+        ("src/sandloom/local_modules.py", True),
+        # Kernel parts the export never loads, other drivers, tests and docs.
+        ("src/sandloom/core/cli/backup.py", False),
+        ("src/sandloom/core/archcheck/analyzers.py", False),
+        ("src/sandloom/core/testing/auth.py", False),
+        ("src/sandloom/core/tests/test_nesting_policy.py", False),
+        ("tests/architecture/test_no_redis.py", False),
+        ("packages/sandloom-redis/src/sandloom_redis/cache.py", False),
+        ("tools/ci/no_redis.py", False),
+        ("docs/index.md", False),
+    ],
+)
+def test_the_admin_filter_is_a_positive_list_of_what_the_console_reads(path, console):
+    filters = yaml.safe_load(_filter_steps()["filter"]["with"]["filters"])
+    assert any(glob_match(path, p) for p in filters["admin"]) is console
+
+
+def test_every_kernel_directory_is_in_the_admin_filter_or_named_as_left_out():
+    """A new `sandloom.core` directory is classified: either the export script
+    may load it (the admin filter lists it) or it is named here as one the
+    export never imports (verified by listing the loaded src/sandloom files)."""
+    filters = yaml.safe_load(_filter_steps()["filter"]["with"]["filters"])
+    left_out = {"archcheck", "cli", "testing", "tests"}
+    core = ROOT / "src/sandloom/core"
+    directories = {
+        p.name for p in core.iterdir() if p.is_dir() and p.name != "__pycache__"
+    }
+    assert left_out <= directories
+    for name in sorted(directories - left_out):
+        probe = f"src/sandloom/core/{name}/_probe.py"
+        assert any(glob_match(probe, p) for p in filters["admin"]), name
+    for name in sorted(left_out - {"cli"}):
+        probe = f"src/sandloom/core/{name}/_probe.py"
+        assert not any(glob_match(probe, p) for p in filters["admin"]), name
+
+
+def test_architecture_tests_of_backend_static_run_on_four_workers_with_a_server():
+    """Each xdist worker's conftest creates its own test database: without the
+    PostgreSQL service the workers crash at collection (the service is not
+    for the tests, which keep their own checks)."""
+    job = workflow("ci.yml")["jobs"]["backend-static"]
+    step = next(s for s in job["steps"] if "tests/architecture" in s.get("run", ""))
+    assert "-n 4 --dist load " in step["run"]
+    service = job["services"]["postgres"]
+    assert service["ports"] == ["5433:5432"]
+    # The workers connect with the step's DATABASE_URL, not the job's dummy one
+    # (a role the server lacks: every worker crashed on the first PR run).
+    env = service["env"]
+    assert step["env"]["DATABASE_URL"] == (
+        f"postgresql+asyncpg://{env['POSTGRES_USER']}:{env['POSTGRES_PASSWORD']}"
+        f"@127.0.0.1:5433/{env['POSTGRES_DB']}"
+    )
+
+
+def test_packages_workflow_keeps_only_the_wheel_matrix_of_module_subsets():
+    """The repository and infrastructure matrices run in backend-tests (fast
+    tests under the root testpaths, not slow); the wheel matrix is slow and
+    runs in no other PR job."""
+    text = (WORKFLOWS / "packages.yml").read_text()
+    assert "tests/integration/module_subsets/test_module_subsets_wheels.py" in text
+    assert "pytest tests/integration/module_subsets \\" not in text
+    wheels = ROOT / "tests/integration/module_subsets/test_module_subsets_wheels.py"
+    assert "pytest.mark.slow" in wheels.read_text()
+    for name in ("repository", "infrastructure"):
+        body = (
+            ROOT / f"tests/integration/module_subsets/test_module_subsets_{name}.py"
+        ).read_text()
+        assert "pytest.mark.slow" not in body, name
 
 
 def test_automatic_checks_do_not_repeat_on_main_push_or_schedule():
@@ -391,11 +995,12 @@ def test_hosted_ci_service_connections_do_not_depend_on_dns():
     assert checked >= 10
 
 
-@pytest.mark.parametrize("explicit_timeout", [None, "0.125"])
-def test_explicit_ci_urls_still_seed_missing_test_settings(tmp_path, explicit_timeout):
+@pytest.mark.parametrize("explicit_infra", [None, '{"cache":{"default":{"url":"x"}}}'])
+def test_explicit_ci_urls_still_seed_missing_test_settings(tmp_path, explicit_infra):
     """Import the actual bootstrap in a fresh process, as a CI worker does.
     Shell overrides must survive, but supplying DATABASE_URL must not disable
-    every unrelated test-profile default.
+    every unrelated test-profile default: INFRA comes from ``.env.test`` unless
+    the shell states its own, and no flat Redis setting is ever seeded.
     """
     import json
     import os
@@ -405,19 +1010,17 @@ def test_explicit_ci_urls_still_seed_missing_test_settings(tmp_path, explicit_ti
 
     supplied = {
         "DATABASE_URL": "postgresql+asyncpg://ci:ci@127.0.0.1:5433/seed_regression",
-        "CACHE_URL": "redis://127.0.0.1:6380/3",
-        "BROKER_URL": "redis://127.0.0.1:6380/4",
     }
     env = {"PATH": os.environ.get("PATH", ""), **supplied}
-    if explicit_timeout is not None:
-        env["CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS"] = explicit_timeout
+    if explicit_infra is not None:
+        env["INFRA"] = explicit_infra
     code = f"""
 import importlib.util, json, os, sys
 spec = importlib.util.spec_from_file_location('_seed_profile_test', {str(ROOT / "conftest.py")!r})
 module = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = module
 spec.loader.exec_module(module)
-keys = ('DATABASE_URL', 'CACHE_URL', 'BROKER_URL', 'CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS')
+keys = ('DATABASE_URL', 'CACHE_URL', 'BROKER_URL', 'INFRA')
 print(json.dumps({{key: os.environ.get(key) for key in keys}}))
 """
     result = subprocess.run(
@@ -431,11 +1034,10 @@ print(json.dumps({{key: os.environ.get(key) for key in keys}}))
     )
     actual = json.loads(result.stdout.splitlines()[-1])
     assert {key: actual[key] for key in supplied} == supplied
-    expected = (
-        explicit_timeout
-        or dotenv_values(ROOT / ".env.test")["CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS"]
-    )
-    assert actual["CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS"] == expected
+    assert actual["CACHE_URL"] is None
+    assert actual["BROKER_URL"] is None
+    expected = explicit_infra or dotenv_values(ROOT / ".env.test")["INFRA"]
+    assert actual["INFRA"] == expected
 
 
 @pytest.mark.parametrize(
@@ -447,6 +1049,7 @@ print(json.dumps({{key: os.environ.get(key) for key in keys}}))
         ({"admin"}, False, True, frozenset()),
         ({"examples", "dependency_review"}, False, True, frozenset()),
         ({"deploy"}, False, True, frozenset()),
+        ({"image"}, False, True, frozenset()),
         ({"benchmarks"}, False, True, frozenset()),
         ({"packages", "architecture"}, False, True, frozenset()),
         (set(), True, False, frozenset()),

@@ -27,8 +27,10 @@ _STRONG = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
 _STRONG_2 = "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b"
 _BASE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@h:5432/d",
-    "CACHE_URL": "redis://h:6379/0",
-    "BROKER_URL": "redis://h:6379/1",
+    "INFRA": {
+        "cache": {"default": {"url": "redis://h:6379/0"}},
+        "taskqueue": {"default": {"broker": "redis://h:6379/1"}},
+    },
 }
 
 

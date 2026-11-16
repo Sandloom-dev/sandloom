@@ -5,13 +5,14 @@ The kit runs on ``memory`` and ``database`` on SQLite and PostgreSQL
 (``settings.database_url``; a scratch database of its own, created for the
 run); the ``redis`` driver's kit run lives in ``packages/sandloom-redis/tests``.
 Each broken driver must fail the kit test that names its fault, and only that
-one. The registry tests below build the ``redis`` beat lease the kernel selects
-by default.
+one. The registry tests that build the ``redis`` beat lease the kernel selects
+by default are in ``packages/sandloom-redis/tests/test_lease_registry.py``.
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
@@ -21,7 +22,6 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from sandloom_redis.lease import RedisLeaseProvider
 from sqlalchemy import Table, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
@@ -35,12 +35,10 @@ from sandloom.core.drivers import database_lease, memory_lease
 from sandloom.core.drivers.bootstrap import (
     build_infra_registry,
     unverified_noeviction_allowed,
-    with_default_beat_lease,
 )
 from sandloom.core.drivers.database_lease import DatabaseLeaseProvider
 from sandloom.core.drivers.memory_lease import MemoryLeaseProvider
-from sandloom.core.infra.config import InstanceConfig
-from sandloom.core.infra.errors import InvalidArgument, PermissionDenied
+from sandloom.core.infra.errors import InvalidArgument
 from sandloom.core.infra.ports.lease import Lease, LeaseHolder
 from sandloom.core.migrations.backup import LEASE_FENCE_OFFSET, lift_fences
 from sandloom.core.schema.registry import InMemorySchemaRegistry
@@ -48,16 +46,37 @@ from sandloom.core.sql_alchemy.models.lease import InfraLease
 from sandloom.driverkit.kits.lease import LeaseConformance
 
 # The harness resolves the URLs into ``settings`` (SANDLOOM_TEST_* on a shared
-# machine, DATABASE_URL / CACHE_URL on CI): never read the environment here.
-_REDIS_URL = settings.cache_url
+# machine, ``.env.test`` on CI): never read the environment here.
 _PG_URL = settings.database_url
 
 
 # ----------------------------------------------------------- the drivers
+class _FakeClock:
+    """A clock the test moves: ``MemoryLeaseProvider(clock=...)`` reads it."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
 class TestMemoryLease(LeaseConformance):
+    _clock: _FakeClock
+
     @pytest.fixture
     def make_provider(self) -> Callable[[], MemoryLeaseProvider]:
-        return lambda: MemoryLeaseProvider(name="beat", driver="memory", options={})
+        # the in-memory driver reads a clock of its own: the kit's TTL waits advance it
+        clock = self._clock = _FakeClock()
+        return lambda: MemoryLeaseProvider(
+            name="beat", driver="memory", options={}, clock=clock
+        )
+
+    async def pass_time(self, seconds: float) -> None:
+        self._clock.advance(seconds)
 
     # A backend that cannot fail and does not declare ``shared``: these groups do
     # not apply (set to None, so no lane reports them skipped on every lane).
@@ -296,15 +315,23 @@ class _Broken:
 
 
 class _Kit(LeaseConformance):
-    """The kit with a memory provider swapped in by each test."""
+    """The kit with a memory provider swapped in by each test, and a clock the
+    kit's ``pass_time`` advances (hand ``clock`` to the provider)."""
+
+    def __init__(self) -> None:
+        self.clock = _FakeClock()
+
+    async def pass_time(self, seconds: float) -> None:
+        self.clock.advance(seconds)
 
 
 async def _fails(broken: type[MemoryLeaseProvider], test: str) -> bool:
     """Whether kit test ``test`` fails on ``broken`` (an assertion, not an error)."""
-    provider = broken(name="beat", driver="memory", options={})
+    kit = _Kit()
+    provider = broken(name="beat", driver="memory", options={}, clock=kit.clock)
     await provider.aopen()
     try:
-        await getattr(_Kit(), f"test_{test}")(provider)
+        await getattr(kit, f"test_{test}")(provider)
     except AssertionError:
         return True
     except Failed:
@@ -366,6 +393,43 @@ async def test_a_broken_driver_passes_the_tests_of_what_it_keeps(
 
 
 @pytest.mark.parametrize(
+    ("test", "factor"),
+    [
+        # no time passes: the lease never expires, the expiry test fails
+        ("expiry_hands_over_with_a_greater_fence", 0.0),
+        # far too much passes: the lease is gone before its renew, the renew test fails
+        ("renew_extends_past_the_original_ttl", 10.0),
+    ],
+)
+async def test_the_kits_ttl_waits_go_through_pass_time(
+    test: str, factor: float
+) -> None:
+    """A ``pass_time`` that misreports time makes the kit test fail, so the kit
+    does take its waits from the seam."""
+
+    class _Skewed(_Kit):
+        async def pass_time(self, seconds: float) -> None:
+            self.clock.advance(seconds * factor)
+
+    kit = _Skewed()
+    provider = MemoryLeaseProvider(
+        name="beat", driver="memory", options={}, clock=kit.clock
+    )
+    await provider.aopen()
+    try:
+        with pytest.raises((AssertionError, Failed)):
+            await getattr(kit, f"test_{test}")(provider)
+    finally:
+        await provider.aclose()
+
+
+async def test_the_default_pass_time_waits_for_real() -> None:
+    started = time.monotonic()
+    await LeaseConformance().pass_time(0.05)
+    assert time.monotonic() - started >= 0.04
+
+
+@pytest.mark.parametrize(
     ("broken", "kit_test"),
     [
         (_Broken.AcceptsAShortTtl, "a_ttl_below_the_minimum_raises"),
@@ -413,33 +477,15 @@ async def test_a_driver_exclusive_in_one_provider_only_fails_the_shared_race() -
 
 
 # ------------------------------------------------------------- the registry
-def test_the_three_lease_drivers_are_registered_and_deliver() -> None:
-    registry = build_infra_registry(InMemorySchemaRegistry(), load_plugins=False)
-    for driver in ("redis", "memory", "database"):
+# (the ``redis`` beat lease the registry builds, and the beat instance the
+# composition selects when the driver is installed:
+# packages/sandloom-redis/tests/test_lease_registry.py)
+def test_the_memory_and_database_lease_drivers_are_registered_and_deliver() -> None:
+    registry = build_infra_registry(InMemorySchemaRegistry())
+    for driver in ("memory", "database"):
         registration = registry._registration("lease", driver)
         assert registration is not None
         assert not registration.delivered_by
-
-
-def test_the_kernel_adds_the_beat_lease_instance_when_infra_names_none() -> None:
-    config: dict[str, dict[str, InstanceConfig]] = {}
-    with_default_beat_lease(config)
-    beat = config["lease"]["beat"]
-    assert (beat.driver, beat.implicit) == ("redis", True)
-    explicit = InstanceConfig("lease", "beat", "database", {"url": "x"})
-    named: dict[str, dict[str, InstanceConfig]] = {"lease": {"beat": explicit}}
-    assert with_default_beat_lease(named)["lease"]["beat"] is explicit
-
-
-def test_the_default_registry_builds_the_beat_lease_on_the_cache_url() -> None:
-    from sandloom.core.config.settings import settings
-
-    registry = build_infra_registry(InMemorySchemaRegistry(), load_plugins=False)
-    store = registry.provider("lease", "beat")  # builds, opens nothing
-    assert isinstance(store, RedisLeaseProvider)
-    assert store.options["url"] == settings.cache_url
-    assert store.features() == {"shared"}
-    assert registry.provider("lease", "beat") is store
 
 
 def _prod(*risks: str) -> Any:
@@ -447,31 +493,10 @@ def _prod(*risks: str) -> Any:
         is_prod=True,
         accepts_risk=lambda risk: risk in risks,
         infra={},
-        cache_url="redis://h/0",
     )
 
 
-def _beat_redis(settings: Any, **options: Any) -> Any:
-    config = {
-        "lease": {"beat": InstanceConfig("lease", "beat", "redis", dict(options))}
-    }
-    registry = build_infra_registry(
-        InMemorySchemaRegistry(), settings=settings, config=config, load_plugins=False
-    )
-    return registry.provider("lease", "beat")
-
-
-def test_verify_in_production_needs_no_risk() -> None:
-    assert isinstance(_beat_redis(_prod(), url="redis://h/0"), RedisLeaseProvider)
-
-
-async def test_the_production_policy_reaches_the_driver_through_the_build() -> None:
-    options = {"url": "redis://h/0", "never_evicts_check": "assume"}
-    refused = _beat_redis(_prod(), **options)
-    with pytest.raises(PermissionDenied, match="unverified_noeviction"):
-        await refused.aopen()
-    accepted = _beat_redis(_prod("unverified_noeviction"), **options)
-    assert accepted._assume_allowed is not None and accepted._assume_allowed()
+def test_the_unverified_noeviction_risk_is_accepted_only_in_production_by_id() -> None:
     assert unverified_noeviction_allowed(_prod()) is False
     assert unverified_noeviction_allowed(_prod("unverified_noeviction")) is True
     outside: Any = SimpleNamespace(is_prod=False, accepts_risk=lambda _r: False)

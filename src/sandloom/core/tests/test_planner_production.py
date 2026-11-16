@@ -331,8 +331,10 @@ def test_default_executor_has_an_explicit_rollback_switch():
     config = Settings(
         _env_file=None,
         DATABASE_URL="postgresql+asyncpg://u:p@localhost/test",
-        CACHE_URL="redis://localhost/0",
-        BROKER_URL="redis://localhost/1",
+        INFRA={
+            "cache": {"default": {"url": "redis://localhost/0"}},
+            "taskqueue": {"default": {"broker": "redis://localhost/1"}},
+        },
         JWT_SECRET="planner-test-config-not-a-production-secret",
         PLANNER_OPTIMIZED_EXECUTOR=False,
     )

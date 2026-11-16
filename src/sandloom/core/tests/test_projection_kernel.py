@@ -197,16 +197,21 @@ def _deployment(**settings: Any) -> Any:
     return SimpleNamespace(settings=SimpleNamespace(**(base | settings)))
 
 
+def _retention_infra(seconds: int) -> dict[str, Any]:
+    """INFRA naming the ``retention_seconds`` option of the default bus."""
+    return {
+        "eventbus": {"default": {"driver": "streams", "retention_seconds": seconds}}
+    }
+
+
 def test_the_purge_floor_reads_the_configured_retention_not_the_live_bus() -> None:
     from sandloom.core.projections.operations import _stream_retention_s
 
     streams = _deployment(
-        event_bus_backend="streams", event_stream_retention_seconds=7 * 86400
+        event_bus_backend="streams", infra=_retention_infra(7 * 86400)
     )
     assert _stream_retention_s(streams) == 7 * 86400
-    unbounded = _deployment(
-        event_bus_backend="streams", event_stream_retention_seconds=0
-    )
+    unbounded = _deployment(event_bus_backend="streams", infra=_retention_infra(0))
     assert _stream_retention_s(unbounded) == 0  # purge_floor_seconds: inf
 
 
@@ -216,7 +221,7 @@ def test_an_undetermined_retention_refuses_the_purge_unless_forced(
 ) -> None:
     from sandloom.core.projections.operations import _stream_retention_s
 
-    core = _deployment(event_bus_backend=backend, event_stream_retention_seconds=0)
+    core = _deployment(event_bus_backend=backend)
     with pytest.raises(PurgeRefused, match="EVENT_BUS_BACKEND"):
         _stream_retention_s(core)
     assert _stream_retention_s(core, force=True) == 1.0

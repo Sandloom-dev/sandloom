@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, Self
 from sandloom.core.descriptors import HealthResult
 
 if TYPE_CHECKING:
-    from sandloom.core.infra.config import InstanceConfig
+    from sandloom.core.infra.config import InstanceConfig, SettingsFill
 
 #: What a declared feature is (spec 2.2): a ``behaviour`` is an optional
 #: behaviour of a call every driver has (without it the call raises
@@ -197,6 +197,19 @@ class InfraProvider(abc.ABC):
     tier: ClassVar[DriverTier] = "experimental"
     #: Optional pydantic model validating an instance's options before building.
     options_schema: ClassVar[type[Any] | None] = None
+    #: The name of the option holding the url of the one server this driver
+    #: connects to (``"url"``, a Celery ``"broker"``), ``None`` for a driver
+    #: that reaches no server by url. Every reader of "which instances need a
+    #: url" (``sandloom dev up`` writing the checkout's ``INFRA``) reads it
+    #: here, so the kernel names no driver. It must be a field of
+    #: ``options_schema``.
+    url_option: ClassVar[str | None] = None
+    #: The options this driver takes from the flat settings (the readiness
+    #: probe's ``HEALTH_CHECK_TIMEOUT_SECONDS``) when an instance leaves them
+    #: out: which setting fills which option. The kernel applies it
+    #: without naming the driver, once the registry has the class
+    #: (``build_infra_registry``); ``None``: the driver reads none.
+    settings_fill: ClassVar[SettingsFill | None] = None
     #: Top-level imports needed by the backend. The entry point must be
     #: importable without them so the registry can check them before building.
     required_imports: ClassVar[tuple[str, ...]] = ()
@@ -207,6 +220,13 @@ class InfraProvider(abc.ABC):
         self.name = name
         self.driver = driver
         self.options: dict[str, Any] = dict(options)
+        #: ``True`` for a development ``default`` instance the kernel
+        #: synthesized from the composition (nobody wrote it in ``INFRA``): the
+        #: registry sets it after building, from ``InstanceConfig.implicit``,
+        #: and never in production (where nothing is a development default). A
+        #: driver reads it in ``aopen`` to word a message for an instance
+        #: nobody chose.
+        self.implicit = False
 
     @classmethod
     def from_config(cls, config: InstanceConfig) -> Self:

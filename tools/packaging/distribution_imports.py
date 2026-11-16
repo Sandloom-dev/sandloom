@@ -258,8 +258,8 @@ def module_imports(source: str, module: str, *, is_package: bool) -> list[Import
             dynamic = call_target(node, constants)
             if dynamic is not None:
                 found.append(Import(node.lineno, dynamic, optional))
-        for child in ast.iter_child_nodes(node):
-            visit(child, optional)
+        for nested in ast.iter_child_nodes(node):
+            visit(nested, optional)
 
     visit(tree, False)
     return found
@@ -446,13 +446,14 @@ def check(
     ours = set(first_party) | {m.split(".")[0] for m in owners}
     tops = _installed_top_levels() if top_levels is None else top_levels
     std = set(stdlib) | {"__future__"}
-    tolerated = {
-        (module, target)
-        for module, targets in (
-            load_allowlist() if allowlist is None else allowlist
-        ).items()
-        for target in targets
-    }
+    #: ``(importing module, imported module)`` -> what to do when it goes stale.
+    tolerated: dict[tuple[str, str], str] = {}
+    row_hint = f"set its row of {ALLOWLIST.name} to current_status: fixed"
+    for module, targets in (
+        load_allowlist() if allowlist is None else allowlist
+    ).items():
+        for target in targets:
+            tolerated[module, target] = row_hint
     used: set[tuple[str, str]] = set()
     problems: list[str] = []
     for wheel in by_name.values():
@@ -504,9 +505,9 @@ def check(
                         f"{wheel.name} does not declare{reason}"
                     )
     problems.extend(
-        f"allowlist entry {module} -> {target} matches no violation: set its row "
-        f"of {ALLOWLIST.name} to current_status: fixed (the list only shrinks)"
-        for module, target in sorted(tolerated - used)
+        f"allowlist entry {module} -> {target} matches no violation: "
+        f"{tolerated[module, target]} (the list only shrinks)"
+        for module, target in sorted(set(tolerated) - used)
     )
     return problems
 

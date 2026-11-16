@@ -19,8 +19,10 @@ from sandloom.core.facade import CoreFacade
 
 _BASE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@h:5432/d",
-    "CACHE_URL": "redis://h:6379/0",
-    "BROKER_URL": "redis://h:6379/1",
+    "INFRA": {
+        "cache": {"default": {"url": "redis://h:6379/0"}},
+        "taskqueue": {"default": {"broker": "redis://h:6379/1"}},
+    },
 }
 _STRONG = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
 
@@ -89,18 +91,30 @@ def test_decode_token_never_raises_on_key_errors(
     assert tokens.decode_token(unsigned) is None
 
 
-def test_s3_storage_fails_fast_at_startup() -> None:
+def test_s3_storage_fails_fast_at_startup(monkeypatch: pytest.MonkeyPatch) -> None:
     from sandloom.core.drivers.bootstrap import build_infra_registry
     from sandloom.core.infra.registry import InfraRegistryError
     from sandloom.core.schema.registry import InMemorySchemaRegistry
 
+    # Settings deep-merges the process INFRA (.env.test: the suite's Redis
+    # instances, whose driver packages this registry does not load) into the
+    # one below: the refusal under test is the objectstore's alone.
+    monkeypatch.delenv("INFRA", raising=False)
+
     cfg = _settings(
         JWT_SECRET="x",
         STORAGE_TYPE="s3",
-        S3_BUCKET="b",
-        S3_REGION="r",
-        S3_ACCESS_KEY_ID="k",
-        S3_SECRET_ACCESS_KEY="s",
+        INFRA={
+            "objectstore": {
+                "default": {
+                    "driver": "s3",
+                    "bucket": "b",
+                    "region": "r",
+                    "access_key_id": "k",
+                    "secret_access_key": "s",
+                }
+            }
+        },
     )
     with pytest.raises(InfraRegistryError, match="no registered driver"):
         build_infra_registry(InMemorySchemaRegistry(), settings=cfg, load_plugins=False)

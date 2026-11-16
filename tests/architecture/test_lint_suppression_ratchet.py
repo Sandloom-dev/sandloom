@@ -10,7 +10,9 @@ codes may carry: the count may only go DOWN.
 - A count below its baseline also fails, asking you to lower the number, so
   every paid-down suppression is locked in.
 - ``BLE001`` and bandit (``S*``) markers must say why the code is safe to
-  fail open / closed there: ``# noqa: BLE001 - <reason>``.
+  fail open / closed there: ``# noqa: BLE001 - <reason>``. The reason is also
+  required in ``packages/*/tests`` (not counted: they ship no source, so their
+  markers are outside the baseline).
 - A kernel (``sandloom.core``) function-local import (``PLC0415``) states its
   category (ADR-0007): ``- optional: <reason>`` (a dependency that may be
   absent or unconfigured), ``- cold: <reason>`` (import cost / import-time
@@ -45,7 +47,7 @@ RATCHETED_PREFIXES = ("ASYNC", "BLE", "S", "SIM", "RUF", "PERF", "PLC0415", "C90
 NOQA_BASELINE: dict[str, int] = {
     "ASYNC109": 19,
     "ASYNC240": 1,
-    "BLE001": 198,
+    "BLE001": 175,  # -7 (idk-gated-tests-redis): Redis skips moved out of kernel tests to packages/sandloom-redis/tests; 182: -1 (idk-pkg-redis-harness2): a Redis harness swallow moved to packages/sandloom-redis; +2 pubsub_bus logs a swallowed driver/transport error by type, no traceback (low-batch-1: host/port/payload text stays out of the log; ruff accepts a swallow only with exc_info, and exc_info=(type, None, None) fails mypy's Logger stub and prints "NoneType: None": low-batch-2 tried it); the callback branch logs its traceback and carries no noqa (low-batch-2: -1), the lost-subscription branch lost its traceback and carries one (+1); 198: -8 streams error mapping (idk-streams-errors); -5 in the kernel and +1 in packages/sandloom-redis/src where the Redis cache driver moved (idk-pkg-redis-streams); -2 streams tests moved to packages/sandloom-redis/tests (idk-pkg-redis-eventbus-tests); -3 Redis skips moved out of kernel tests (idk-pkg-redis-eventbus-tests2)
     "C901": 79,
     "PERF401": 24,
     # 118 (2026-10-28): +1 optional import, testing/ownership.py: `redis` is
@@ -59,16 +61,16 @@ NOQA_BASELINE: dict[str, int] = {
     # up` ask a .env database's renderer for schema_from_models (SQLite) only
     # when .env names one; importing the renderers costs the dev CLI 0.3 s
     # and loads the settings.
-    "PLC0415": 114,  # -6: the Celery halves move to the driver, which imports by importlib (idk-worker-port)
+    "PLC0415": 96,  # -3 (idk-ratchets-close): connections and workers name psycopg2 through the lazy pg_sync module; -1 (idk-pkg-redis-harness2): a kernel local import left with the Redis halves; -3 (idk-pkg-redis-harness): the Redis halves of slots and the cache fixture left their local imports; -1 (idk-pkg-redis-eventbus): the streams driver moved into sandloom-redis and imports its cache module at the top; -8 +1 (idk-pkg-redis-streams): the cache driver moved into sandloom-redis; -6: the Celery halves move to the driver, which imports by importlib (idk-worker-port); -3 (idk-pkg-celery-move)
     "RUF001": 4,
     "RUF005": 2,
-    "RUF012": 3,
+    "RUF012": 3,  # -1 in the kernel, +1 in sandloom_celery/worker.py (idk-pkg-celery-move)
     "S101": 43,
     "S102": 1,
     "S105": 8,
     "S106": 1,
-    "S108": 1,
-    "S110": 27,
+    "S108": 1,  # the worker heartbeat default moved to sandloom_celery/worker.py (idk-pkg-celery-move)
+    "S110": 26,
     "S112": 3,
     "S301": 0,
     "S311": 9,
@@ -121,11 +123,18 @@ def _ratcheted(code: str) -> bool:
     )
 
 
+def _source_roots() -> list[Path]:
+    # The kernel and the standard modules (src/) and every package that ships
+    # its own source (packages/*/src: the driver packages).
+    return [SRC, *sorted((BACKEND / "packages").glob("*/src"))]
+
+
 def _linted_files() -> list[Path]:
     # Mirrors ruff's extend-exclude: generated module migration revisions.
     return [
         p
-        for p in sorted(SRC.rglob("*.py"))
+        for root in _source_roots()
+        for p in sorted(root.rglob("*.py"))
         if not ("migrations" in p.parts and "versions" in p.parts)
     ]
 
@@ -142,11 +151,32 @@ def _markers_in(source: str) -> list[tuple[int, list[str], str]]:
     return found
 
 
-def _markers() -> list[tuple[str, int, list[str], str]]:
+def _markers_of(files: list[Path]) -> list[tuple[str, int, list[str], str]]:
     return [
         (str(path.relative_to(BACKEND)), line, codes, rest)
-        for path in _linted_files()
+        for path in files
         for line, codes, rest in _markers_in(path.read_text(encoding="utf-8"))
+    ]
+
+
+def _markers() -> list[tuple[str, int, list[str], str]]:
+    return _markers_of(_linted_files())
+
+
+def _package_test_files() -> list[Path]:
+    # The tests of the driver packages sit outside the counted roots (they
+    # ship no source), so their markers are not in the baseline; they still
+    # owe a reason (``test_blind_except_..._carry_a_reason``).
+    return sorted((BACKEND / "packages").glob("*/tests/**/*.py"))
+
+
+def _missing_reasons(
+    markers: list[tuple[str, int, list[str], str]],
+) -> list[str]:
+    return [
+        f"{path}:{line}: # noqa: {', '.join(codes)}"
+        for path, line, codes, rest in markers
+        if any(_NEEDS_REASON.match(c) for c in codes) and not re.match(r"^-\s*\S", rest)
     ]
 
 
@@ -186,15 +216,23 @@ def test_noqa_counts_only_go_down() -> None:
 
 
 def test_blind_except_and_bandit_suppressions_carry_a_reason() -> None:
-    missing = [
-        f"{path}:{line}: # noqa: {', '.join(codes)}"
-        for path, line, codes, rest in _markers()
-        if any(_NEEDS_REASON.match(c) for c in codes) and not re.match(r"^-\s*\S", rest)
-    ]
+    missing = _missing_reasons(_markers() + _markers_of(_package_test_files()))
     assert not missing, (
         "say why the code fails open/closed safely there — "
         "`# noqa: BLE001 - <reason>`:\n" + "\n".join(missing)
     )
+
+
+def test_the_reason_check_reads_the_package_tests_and_catches_a_bare_marker() -> None:
+    # Bite: a marker without a reason is reported, one with a reason is not, and
+    # the package tests are among the files scanned (12 BLE001 markers today).
+    bare = ("packages/x/tests/t.py", 3, ["BLE001"], "")
+    reasoned = ("packages/x/tests/t.py", 4, ["BLE001"], "- teardown")
+    assert _missing_reasons([bare, reasoned]) == [
+        "packages/x/tests/t.py:3: # noqa: BLE001"
+    ]
+    scanned = _markers_of(_package_test_files())
+    assert any("BLE001" in codes for _p, _l, codes, _r in scanned)
 
 
 def test_config_level_ignores_of_ratcheted_rules_are_pinned() -> None:

@@ -63,7 +63,7 @@ Anything else is breaking and needs `.v2`; on the same `.vN` it fails
 6. **Retire v1.** Replace `publish_event_versions` with
    `await CreditsSpentV2(...).publish()`. Keep the v1 class (its schema stays
    registered) as long as old events may be replayed from the DLQ or the
-   stream (retention: `EVENT_STREAM_RETENTION_SECONDS`, default 7 days).
+   stream (retention: the `streams` driver's `retention_seconds` option of the `eventbus` instance in `INFRA`, default 7 days).
 
 ## Rules
 

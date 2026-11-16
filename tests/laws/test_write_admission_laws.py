@@ -28,6 +28,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 import pytest
+from _hypothesis_profile import examples
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from sqlalchemy import Integer, String, insert, text
@@ -105,7 +106,7 @@ STEPS = st.lists(
 
 
 @settings(
-    max_examples=150,
+    max_examples=examples(150),
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )

@@ -8,6 +8,7 @@ never uses a development/production database as its application database.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import secrets
 import shutil
@@ -19,7 +20,7 @@ from urllib.error import URLError
 from urllib.request import urlopen
 from uuid import uuid4
 
-import asyncpg
+import asyncpg  # type: ignore[import-untyped]  # no py.typed, as in src/sandloom/core/drivers/dbapi_asyncpg.py
 from argon2 import PasswordHasher
 from sqlalchemy.engine import make_url
 
@@ -152,6 +153,7 @@ def main() -> int:
         )
     database = "sandloom_admin_acceptance_test_" + uuid4().hex[:12]
     password = secrets.token_urlsafe(32)
+    cache_url = os.environ.get("SANDLOOM_TEST_CACHE_URL", "redis://127.0.0.1:6380/0")
     env = {**os.environ, **asyncio.run(provision(base, database))}
     env.update(
         {
@@ -166,11 +168,22 @@ def main() -> int:
             "EVENT_BUS_BACKEND": "memory",
             "BILLING_PROVIDER": "fake",
             "NOTIFIER_BACKEND": "log",
-            "CACHE_URL": os.environ.get(
-                "SANDLOOM_TEST_CACHE_URL", "redis://127.0.0.1:6380/0"
-            ),
-            "BROKER_URL": os.environ.get(
-                "SANDLOOM_TEST_BROKER_URL", "redis://127.0.0.1:6380/1"
+            # The standard root's Redis instances each state their own url
+            # (none follows another); the drivers are the root's.
+            "INFRA": json.dumps(
+                {
+                    "cache": {"default": {"url": cache_url}},
+                    "broadcast": {"default": {"url": cache_url}},
+                    "atomic_store": {"security": {"url": cache_url}},
+                    "lease": {"beat": {"url": cache_url}},
+                    "taskqueue": {
+                        "default": {
+                            "broker": os.environ.get(
+                                "SANDLOOM_TEST_BROKER_URL", "redis://127.0.0.1:6380/1"
+                            )
+                        }
+                    },
+                }
             ),
             "SANDLOOM_ADMIN_API_TARGET": "http://127.0.0.1:2289",
             "SANDLOOM_ACCEPTANCE_PASSWORD": password,

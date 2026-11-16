@@ -23,7 +23,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any
+from http.client import HTTPMessage
+from typing import IO, Any
 
 
 class OnboardingError(Exception):
@@ -46,7 +47,15 @@ def local_url(value: str) -> str:
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
         return None
 
 
@@ -102,7 +111,8 @@ def verification_token(inbox: API, email: str, timeout: float) -> str:
             message_id = urllib.parse.quote(summary["ID"], safe="")
             message = inbox.request("GET", f"/api/v1/message/{message_id}")
             text = html.unescape(message.get("Text", "") + message.get("HTML", ""))
-            for url in re.findall(r"https?://[^\s<>\"']+", text):
+            urls: list[str] = re.findall(r"https?://[^\s<>\"']+", text)
+            for url in urls:
                 parts = urllib.parse.urlsplit(url)
                 if parts.path.endswith("/auth/verify-email"):
                     tokens = urllib.parse.parse_qs(parts.query).get("token", [])

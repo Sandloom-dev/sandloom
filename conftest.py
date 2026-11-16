@@ -30,8 +30,9 @@ def _seed_test_env() -> None:
     fills the process env (it beats ``.env`` in pydantic-settings) for every
     key the shell leaves unset, an explicit ``SANDLOOM_TEST_DATABASE_URL`` /
     ``SANDLOOM_TEST_CACHE_URL`` / ``SANDLOOM_TEST_BROKER_URL`` wins over the
-    file and over a shell-exported ``DATABASE_URL`` / ``CACHE_URL`` /
-    ``BROKER_URL``, and ``ENVIRONMENT`` stays the dev default. A shell that
+    file (the cache and broker urls of its ``INFRA``) and over a
+    shell-exported ``DATABASE_URL``, and ``ENVIRONMENT`` stays the dev
+    default. A shell that
     exports ``DATABASE_URL`` itself without an override (CI) is left alone
     (:func:`~sandloom.core.testing.workers.seed_test_environ`).
     """
@@ -49,6 +50,30 @@ def _seed_test_env() -> None:
 
 
 _seed_test_env()
+
+
+#: The driver selection of the framework suite, what a composition root passes
+#: ``create_app(default_infra=...)`` (the kernel names no driver): the Redis,
+#: Celery and SQLAlchemy drivers of ``sandloom-redis``, ``sandloom-celery`` and
+#: the kernel, as ``sandloom_standard`` selects them. The event bus is the
+#: ``memory`` one, selected by ``EVENT_BUS_BACKEND`` in ``.env.test``.
+#:
+#: Without ``sandloom-redis`` installed (the ``kernel-without-redis`` step of
+#: the ``kernel-without-batteries`` CI job) the Redis-backed instances select
+#: the kernel's ``memory`` drivers: the kernel suites then run with no Redis
+#: client at all. The suites that need the Redis drivers are not collected
+#: there (``tools/ci/no_redis_pending.json``, read by ``tools/ci/no_redis.py``);
+#: a process that has the client but not the package still refuses at
+#: ``require_for_installed`` below.
+_REDIS_DRIVER = "redis" if importlib.util.find_spec("sandloom_redis") else "memory"
+_SUITE_INFRA = {
+    "database": {"default": {"driver": "sqlalchemy"}},
+    "cache": {"default": {"driver": _REDIS_DRIVER}},
+    "broadcast": {"default": {"driver": _REDIS_DRIVER}},
+    "taskqueue": {"default": {"driver": "celery"}},
+    "atomic_store": {"security": {"driver": _REDIS_DRIVER}},
+    "lease": {"beat": {"driver": _REDIS_DRIVER}},
+}
 
 
 def _standard_root_when_installed() -> None:
@@ -69,6 +94,7 @@ def _standard_root_when_installed() -> None:
 _standard_root_when_installed()
 
 from sandloom.core.testing.connections import apply_test_pool_profile  # noqa: E402
+from sandloom.core.testing.families import require_for_installed  # noqa: E402
 from sandloom.core.testing.fixtures import (  # noqa: E402, F401 - autouse fixtures
     _sandloom_cancel_leftover_tasks,
     _sandloom_isolate_module_globals,
@@ -78,6 +104,25 @@ from sandloom.core.testing.fixtures import (  # noqa: E402, F401 - autouse fixtu
     runs_on_session_loop,
 )
 from sandloom.core.testing.workers import apply_worker_env  # noqa: E402
+
+# Redis isolation is a harness family (entry-point group ``sandloom.testing``).
+# A process with the client but no family would run its xdist workers on one
+# shared Redis, silently: refuse. Without the client the suite is DB-only.
+require_for_installed({"redis": importlib.util.find_spec("redis") is not None})
+
+
+def _select_suite_infra() -> None:
+    from sandloom.core.infra.config import use_default_infra
+
+    use_default_infra(_SUITE_INFRA)
+
+
+@pytest.fixture(autouse=True)
+def _suite_default_infra() -> None:
+    """Every test starts on the suite's driver selection: an app a test builds
+    through a composition root (``sandloom_standard.main``) replaces it for the
+    process, and the next test must not inherit that."""
+    _select_suite_infra()
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -98,6 +143,13 @@ apply_worker_env()
 # must stay well below the shared server's max_connections
 # (sandloom.core.testing.connections). Before sandloom.core.config.settings is imported.
 apply_test_pool_profile()
+
+
+# The lean root of the kernel-without-batteries venv (``sandloom.main``) passes
+# no selection, and the harness builds its app before any fixture of this file
+# runs: the selection is in place from here on. (A child process of a test
+# boots its own root: ``suite_infra_env`` in ``sandloom.core.tests._root_support``.)
+_select_suite_infra()
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -154,7 +206,8 @@ def pytest_collection_modifyitems(
 ) -> None:
     """Mark the guarantee ledger's enforcing tests ``guarantees``.
 
-    ``uv run pytest -m guarantees src`` then runs exactly the tests that prove
+    ``uv run pytest -m guarantees src packages/<package>/tests`` (the paths:
+    ``tools/checks/guarantees.py paths``) then runs exactly the tests that prove
     the ledger (``guarantees.yml``) — what a simplification wave runs
     first. The ledger is read only when ``-m`` mentions the marker.
     """

@@ -24,13 +24,11 @@ import httpx
 import pytest
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, ValidationError
-from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
 from sandloom.core import idempotency, production_profile
 from sandloom.core.app_factory.config import configuration_problems
 from sandloom.core.auth import revocation
-from sandloom.core.config.settings import Settings, settings
-from sandloom.core.drivers.redis_cache import RedisCacheProvider
+from sandloom.core.config.settings import Settings
 from sandloom.core.idempotency import cache_store as idempotency_cache_store
 from sandloom.core.idempotency import replay as idempotency_replay
 from sandloom.core.infra import access
@@ -60,6 +58,14 @@ class _Stores:
 
     def keys(self, role: str) -> list[str]:
         return sorted(self.instances[role].store) if role in self.instances else []
+
+
+@pytest.fixture(autouse=True)
+def _no_process_infra(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``Settings`` deep-merges the process ``INFRA`` (.env.test: urls for the
+    suite's Redis instances) into the ``INFRA`` a test passes, which would make
+    every synthesized instance one INFRA names. These tests state their own."""
+    monkeypatch.delenv("INFRA", raising=False)
 
 
 @pytest.fixture
@@ -281,24 +287,18 @@ def test_a_leftover_cache_instance_setting_fails_startup_with_the_fix(
 # --------------------------------------------------------------------------- #
 # Development default, production refusal
 # --------------------------------------------------------------------------- #
-def test_development_builds_the_security_store_on_the_cache_redis_only_outside_prod() -> (
-    None
-):
-    dev = Settings(  # type: ignore[call-arg]
-        _env_file=None, ENVIRONMENT="dev", CACHE_URL="redis://cache-redis:6379/4"
-    )
-    config = load_infra_config(dev)
-    security = config["atomic_store"]["security"]
-    assert security.driver == "redis" and security.implicit
-    assert security.options["url"] == "redis://cache-redis:6379/4"
-    assert "idempotency" not in config["atomic_store"]
-
-
+# (development builds the security store on the cache's Redis only outside
+# production: ``packages/sandloom-redis/tests/test_atomic_adopt_redis_identity.py``;
+# the default driver is the Redis one only where sandloom-redis is installed)
 def test_production_never_builds_a_security_store_from_the_cache() -> None:
     prod = Settings(  # type: ignore[call-arg]
         _env_file=None,
         ENVIRONMENT="prod",
-        CACHE_URL="redis://cache-redis:6379/4",
+        INFRA={
+            "cache": {
+                "default": {"driver": "redis", "url": "redis://cache-redis:6379/4"}
+            }
+        },
         JWT_SECRET="9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b",
     )
     assert "atomic_store" not in load_infra_config(prod)
@@ -310,8 +310,12 @@ def test_a_declared_security_store_gets_the_client_bounds_but_not_the_cache_url(
     cfg = Settings(  # type: ignore[call-arg]
         _env_file=None,
         ENVIRONMENT="dev",
-        CACHE_URL="redis://cache-redis:6379/4",
-        INFRA={"atomic_store": {"security": {"driver": "redis"}}},
+        INFRA={
+            "cache": {
+                "default": {"driver": "redis", "url": "redis://cache-redis:6379/4"}
+            },
+            "atomic_store": {"security": {"driver": "redis"}},
+        },
     )
     security = load_infra_config(cfg)["atomic_store"]["security"]
     assert not security.implicit
@@ -507,42 +511,6 @@ async def test_a_cache_without_an_identity_fails_attestation(
         await production_profile.enforce_runtime(core)
 
 
-async def test_strict_profile_attests_real_redis_identity(
-    no_rls_problems: None,
-) -> None:
-    """The real classes on the test Redis: the cache and the Redis atomic store
-    name their server alike (``redis:<run_id>``), so a store on the cache's
-    server is refused, and a store whose server differs is attested (spec 12)."""
-    url = settings.cache_url
-    store = RedisAtomicStoreProvider(
-        name="security", driver="redis", options={"url": url}
-    )
-    cache = RedisCacheProvider(
-        name="default", driver="redis", options={"url": url}, shared=False
-    )
-    try:
-        identity = await store.isolation_identity()
-        assert identity is not None and identity.startswith("redis:")
-        assert await cache.isolation_identity() == identity
-
-        providers: dict[tuple[str, str], Any] = {
-            ("cache", "default"): cache,
-            ("atomic_store", "security"): store,
-        }
-        core = _runtime_core(_settings(), providers, {"security"})
-        with pytest.raises(
-            production_profile.ProductionProfileError,
-            match="share one failure domain",
-        ):
-            await production_profile.enforce_runtime(core)
-
-        providers[("cache", "default")] = _Provider("redis:another-server")
-        await production_profile.enforce_runtime(core)
-    finally:
-        await store.aclose()
-        await cache.aclose()
-
-
 @pytest.mark.parametrize("missing", ["never_evicts", "shared"])
 async def test_a_security_store_must_declare_never_evicts_and_shared(
     no_rls_problems: None, missing: str
@@ -586,7 +554,7 @@ def test_backup_plan_labels_the_idempotency_redis() -> None:
             for name in ("security", "idempotency")
         },
     }
-    roles = backup._redis_roles(config, SimpleNamespace(cache_url="redis://x"))
+    roles = backup._redis_roles(config, SimpleNamespace())
     assert roles["redis://security:6379/0"] == [
         "atomic_store:security [SECURITY: revocation marks, user blocks, RPC nonces]"
     ]

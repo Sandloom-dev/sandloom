@@ -12,7 +12,7 @@ has `--help`.
 
 ## Context and declared architecture
 
-Available in `sandloom>=0.7.0a13,<0.8`. <!-- sandloom-release -->
+Available in `sandloom>=0.7.0a14,<0.8`. <!-- sandloom-release -->
 
 | Command | What it does |
 | --- | --- |
@@ -62,7 +62,7 @@ work there too. Failed generation leaves the previous HTML intact and unopened.
 
 | Command | What it does |
 | --- | --- |
-| `sandloom new <app> [--with identity,tenancy,billing \| --no-batteries] [--module <name>] [--dir <path>] [--agents <a>,<b>]` | Generate a standalone, runnable application. `--agents` picks the coding agents it writes skills for ([Agent tooling](../ai/agent-tooling.md)). The app depends on `sandloom[redis,celery]>=0.7.0a13,<0.8` plus `sandloom-<module>>=0.7.0a13,<0.8` per `--with` module. `--framework-req`, `--framework-source {pypi,git,path}` and `--framework-path` choose where the framework comes from (`path`: editable sources for exactly those distributions). |
+| `sandloom new <app> [--with identity,tenancy,billing \| --no-batteries] [--module <name>] [--dir <path>] [--agents <a>,<b>]` | Generate a standalone, runnable application. `--agents` picks the coding agents it writes skills for ([Agent tooling](../ai/agent-tooling.md)). The app depends on `sandloom[postgres,redis,celery]>=0.7.0a14,<0.8` plus `sandloom-<module>>=0.7.0a14,<0.8` per `--with` module. `--framework-req`, `--framework-source {pypi,git,path}` and `--framework-path` choose where the framework comes from (`path`: editable sources for exactly those distributions). |
 | `sandloom new` (at a terminal) | The wizard. It asks what the flags leave open: the name, the standard modules, the coding agents, how to run PostgreSQL and Redis (Docker, servers you already run, or later) and whether to set the app up now. The setup runs `uv sync`, `generate`, `dev up` and the migrations; its output goes to `.sandloom/run/new-setup.log`. With the console it then asks the administrator's email and runs `admin create` on the terminal, which asks the password itself: the wizard never handles it. The summary says how to start the app and what to open, with help apart, and ends with a pinned `uvx` command that makes the same app without questions. Without a terminal, in CI or under a coding agent, nothing is asked. |
 | `sandloom new … [--no-git]` | A git repository with a first commit is the default; `--no-git` skips it. Inside an existing repository none is created and nothing is committed. The first commit runs no hook and is not signed (`--no-verify`, `-c commit.gpgsign=false`); without a git identity the repository stays uncommitted and the output says how to commit. |
 | `sandloom new … --services docker\|external\|none [--database-url URL] [--redis-url URL]` | How `--setup` runs PostgreSQL and Redis. `external` uses servers you already run (default URLs: `postgresql://$USER@127.0.0.1:5432/postgres`, `redis://127.0.0.1:6379`), checks them, creates the app's database and writes `.env` like `dev up --services external`. `none` creates the files only. |
@@ -167,7 +167,7 @@ infrastructure tables. See [Migrations](../modules/database/migrations.md) and
 | `sandloom security audit-export --since T [--until T] [--action-prefix P] --output FILE` | Export an audit-log window as JSONL (sanitized metadata). |
 | `sandloom worker [--queues Q[,Q...]] [--concurrency N] [--loglevel L]` | Run a task worker for the loaded modules (every deploy profile's `<service>-worker`). `--queues` defaults to the default queue, `--concurrency` to `WORKER_CONCURRENCY`, else the CPU quota; the process model is the `worker_pool` option of the celery instance in `INFRA` (on macOS set `solo` or `threads`: [the note](../modules/background/tasks.md#the-worker-and-beat)); `--loglevel` defaults to `INFO`. It boots the composition root like the API, runs the worker host of the taskqueue driver, and exits with the worker's exit code (non-zero when the worker dies). Replaces `celery -A sandloom.core.worker worker`. |
 | `sandloom beat [--loglevel L] [--schedule PATH]` | Run the scheduler. It schedules only while it holds the singleton lease: a second one stands by, so run one per broker and module set. `--schedule` is the scheduler's state file (default `celerybeat-schedule` in the working directory; containers pass `/tmp/celerybeat-schedule`). Replaces `celery -A sandloom.core.worker beat`. |
-| `sandloom worker check [--timeout SECONDS]` | The worker's container healthcheck: exit 0 when its heartbeat file is younger than `--timeout` (default 60, at most 86400), 1 when missing or stale. It asks the driver's host and boots nothing: no composition root, no broker round trip. It loads the full, valid settings of the worker (`DATABASE_URL`, `CACHE_URL`, `BROKER_URL` and `JWT_SECRET`) to find the driver, and fails like any process on an invalid one. Replaces `python -m sandloom.core.worker healthcheck`. |
+| `sandloom worker check [--timeout SECONDS]` | The worker's container healthcheck: exit 0 when its heartbeat file is younger than `--timeout` (default 60, at most 86400), 1 when missing or stale. It asks the driver's host and boots nothing: no composition root, no broker round trip. It loads the full, valid settings of the worker (`DATABASE_URL`, `INFRA` and `JWT_SECRET`) to find the driver, and fails like any process on an invalid one. Replaces `python -m sandloom.core.worker healthcheck`. |
 | `sandloom backup plan \| verify <dump> \| reconcile-security \| fence-leases` | What to back up per database and Redis endpoint; restore a dump into a scratch database and check it; re-derive blocks and revocation marks after a security-store restore; lift every fence of the `database` lease driver (`infra_lease`) after a restore of a PostgreSQL database, in one transaction with its audit row (dry-run by default; `fence-leases` and `verify` refuse a database that is not PostgreSQL). |
 | `sandloom keys generate [--alg EdDSA\|RS256\|ES256] [--purpose jwt\|rpc\|rpc-dh] [--service S] [--kid K] [--out-dir DIR]` | Generate an access-token signing pair, or a service's internal-RPC keys. |
 | `sandloom keys allowlist` | Derive `RPC_ALLOWED_CALLS` from `SERVICE_BINDINGS`. |
@@ -284,8 +284,9 @@ is raw env).
 - **Services.** `SERVICE_BINDINGS` (strictly validated; `"required": true`
   makes `/ready` — never `/health` — fail while that peer is unreachable;
   `SERVICE_PROBE_TIMEOUT_SECONDS` caps each concurrent probe).
-- **Events.** `EVENT_BUS_BACKEND` (auto/memory/redis/streams; auto = durable
-  `streams` in prod, `memory` elsewhere; the volatile `memory` / `redis`
+- **Events.** `EVENT_BUS_BACKEND` (memory/redis/streams; unset = the <!-- prose-ok: S4 dense settings list, only the unset clause changed -->
+  composition's selection, `streams` under `sandloom_standard`, never
+  `memory`; the volatile `memory` / `redis`
   (Pub/Sub) drivers are refused in prod unless the risk `volatile_event_bus`
   is accepted; required/durable consumers on Pub/Sub also need it outside
   prod), `OUTBOX_RELAY_ENABLED` (auto/on/off/delegated; auto = prod only;
@@ -347,7 +348,7 @@ is raw env).
   `sandloom.sdk.security`, never hand-pinned parameters; a successful login
   re-hashes a hash with other parameters; prod refuses parameters below the
   OWASP argon2id minimum unless the risk `weak_password_hash` is accepted).
-- **Infrastructure.** `INFRA` (JSON declaring additional named infrastructure
+- **Infrastructure.** <!-- prose-ok: S4 dense settings list, only the Redis bounds clause changed --> `INFRA` (JSON declaring additional named infrastructure
   instances / driver overrides — see
   [Capabilities & Infrastructure](../infrastructure/index.md)),
   `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_POOL_TIMEOUT` (default-engine pool
@@ -357,11 +358,10 @@ is raw env).
   QueuePool), `DB_POOL_FAIR_BARGE_MS` (fair checkout: a waiter older than
   this is served before newcomers; 0 = strict FIFO handoff),
   `DB_STATEMENT_TIMEOUT_MS` / `DB_IDLE_IN_TX_TIMEOUT_MS` (server-side guards,
-  0 = off), `CACHE_SOCKET_TIMEOUT_SECONDS` /
-  `CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS` / `CACHE_MAX_CONNECTIONS` /
-  `CACHE_POOL_TIMEOUT_SECONDS` / `CACHE_RETRY_ATTEMPTS` /
-  `CACHE_HEALTH_CHECK_INTERVAL_SECONDS` (bounded Redis cache client: a dead
-  Redis raises fast so fail-open/closed policies run), `GC_FREEZE_AFTER_STARTUP`
+  0 = off), the Redis client bounds (options of each Redis instance in `INFRA`:
+  `socket_timeout_seconds`, `socket_connect_timeout_seconds`, `max_connections`,
+  `pool_timeout_seconds`, `retry_attempts`, `health_check_interval_seconds`; a
+  dead Redis raises fast so fail-open/closed policies run), `GC_FREEZE_AFTER_STARTUP`
   / `GC_THRESHOLDS` / `GC_METRICS_ENABLED` (cyclic GC of gunicorn / Celery
   workers: freeze the startup heap, thresholds `2000,10,10`, pause histogram;
   applied by the process entry points, never by `create_app`).
@@ -372,8 +372,8 @@ is raw env).
   startup unless `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` are set. Prod
   refuses `fake` unless the module risk `billing.fake_psp_in_prod` is accepted.
   Both are billing's own settings check: a process without billing skips them.
-  `NOTIFIER_BACKEND` (log/smtp; default log) + `SMTP_*`
-  (host/port/username/password/from/use_tls for the email driver).
+  `NOTIFIER_BACKEND` (log/smtp; default log) + the `notification` instance in `INFRA`
+  (host/port/username/password/from_addr/use_tls options for the email driver).
 - **Secrets.** In prod, secrets and tokens must be at least 32 characters and
   not placeholders. `SECRETS_DIR` (Docker/K8s file-based secrets — a setting
   may be supplied as a file named after its field).

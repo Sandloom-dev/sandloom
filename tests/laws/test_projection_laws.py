@@ -32,6 +32,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
+from _hypothesis_profile import examples
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from pydantic import BaseModel, ConfigDict
@@ -54,11 +55,11 @@ from sandloom.sdk.tenant import bind_tenant
 from sandloom.sdk.testing.fixtures import *  # noqa: F403
 
 DB_LAWS = settings(
-    max_examples=150,
+    max_examples=examples(150),
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
-PURE_LAWS = settings(max_examples=200, deadline=None)
+PURE_LAWS = settings(max_examples=examples(200), deadline=None)
 
 # --------------------------------------------------------------------------- #
 # The read model and its events (private base: never in framework metadata)

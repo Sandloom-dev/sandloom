@@ -19,7 +19,7 @@ Per window it reports client p50/p99/p99.9, per-generation collection counts,
 pause sums / max / p99 (elapsed, ``perf_counter``) and GC thread-CPU, the GC
 share of worker CPU, and worker RSS at the window edges.
 
-    source <env with DATABASE_URL/CACHE_URL/BROKER_URL/S5_APP_ROLE>
+    source <env with DATABASE_URL/BENCH_REDIS_URL/BENCH_CELERY_BROKER/S5_APP_ROLE>
     python -m benchsuite.setup_db            # once, as the DB owner
     uv run python ladder/gc_stand.py --variants baseline,freeze \\
         --rates plan=900,s5=700,f=300 --seconds 30 --soak 120 --reps 2
@@ -399,7 +399,9 @@ def main() -> None:
         # alternate the order every repetition (drift / thermal / neighbours)
         order = names if rep % 2 == 0 else list(reversed(names))
         for name in order:
-            while os.path.exists("/tmp/sandloom-ci-local.lock"):  # local CI owns the CPUs
+            while os.path.exists(
+                "/tmp/sandloom-ci-local.lock"
+            ):  # local CI owns the CPUs
                 time.sleep(15)
             deadline = time.time() + a.max_load_wait
             while a.max_load and os.getloadavg()[0] > a.max_load:

@@ -22,7 +22,6 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import AsyncIterator
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -30,11 +29,11 @@ import pytest
 import pytest_asyncio
 from fastapi import Depends, FastAPI
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
+from sandloom_redis.cache import RedisCacheProvider
 
 from sandloom.core import idempotency
 from sandloom.core.auth import tokens
 from sandloom.core.config.settings import settings
-from sandloom.core.drivers.redis_cache import RedisCacheProvider
 from sandloom.core.idempotency import cache_store as idempotency_cache_store
 from sandloom.core.idempotency import capture as idempotency_capture
 from sandloom.core.idempotency import replay as idempotency_replay
@@ -49,15 +48,9 @@ BUDGET_IDEMPOTENT_FIRST = 2  # + the auth check
 
 
 def _cache_url() -> str:
-    import os
+    from sandloom.core.testing.infra import resolved_cache_url
 
-    from sandloom.core.testing.workers import worker_env_values
-
-    env = worker_env_values(Path(__file__).resolve().parents[2] / ".env.test")
-    url = os.getenv("CACHE_URL") or env.get("CACHE_URL")
-    if not url:
-        pytest.skip("no test CACHE_URL configured")
-    return str(url)
+    return resolved_cache_url()
 
 
 @pytest_asyncio.fixture

@@ -12,9 +12,7 @@ The constants only the built-in ``streams`` driver reads (the block window, the
 reclaim cadence, the poison scan size, the inventory cutoff, the targeted-replay
 counter) are in the private ``sandloom.driverkit._builtin_streams``, outside the
 public API. ``DEFAULT_EVENT_STREAM_RETENTION_SECONDS`` is the retention a
-driver offers when its configuration leaves ``retention_seconds`` out, and
-:func:`health_failure_details` the ``details`` of a failed health probe (the
-error type, never its text).
+driver offers when its configuration leaves ``retention_seconds`` out.
 """
 
 from sandloom.core.config.eventing import DEFAULT_EVENT_STREAM_RETENTION_SECONDS
@@ -45,7 +43,6 @@ from sandloom.core.eventing.transport_base import (
 from sandloom.core.eventing.transport_base import (
     _owners_match as owners_match,
 )
-from sandloom.core.infra.ports._base import health_failure_details
 
 __all__ = [
     "DEFAULT_EVENT_STREAM_RETENTION_SECONDS",
@@ -58,7 +55,6 @@ __all__ = [
     "DLQ_REASON_SOURCE_MISSING",
     "TARGET_GROUP_FIELD",
     "TransportDefaults",
-    "health_failure_details",
     "owner_conflict_message",
     "owners_match",
     "partial_publish",

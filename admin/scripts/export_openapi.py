@@ -19,12 +19,13 @@ sys.path.insert(0, str(ROOT / 'src'))
 os.environ['SANDLOOM_MODULES'] = '["sandloom_identity", "sandloom_tenancy", "sandloom_billing"]'
 os.environ['ENVIRONMENT'] = 'dev'
 os.environ['BILLING_PROVIDER'] = 'fake'
-# Settings require connection URLs, but export never connects (no lifespan):
+# The standard composition selects the Streams bus (and so asks for a service
+# name); export starts no consumer, so the bus is named in-process.
+os.environ['EVENT_BUS_BACKEND'] = 'memory'
+# Settings require a database URL, but export never connects (no lifespan, so no Redis instance is opened and none needs its INFRA url):
 # inert defaults keep a fresh checkout / CI runner without a .env working.
 for _name, _value in (
     ('DATABASE_URL', 'postgresql+asyncpg://export:export@127.0.0.1:9/export'),
-    ('CACHE_URL', 'redis://127.0.0.1:9/0'),
-    ('BROKER_URL', 'redis://127.0.0.1:9/0'),
     # Export mints and verifies nothing; a throwaway HS256 secret satisfies Settings.
     ('JWT_SECRET', 'admin-contract-export-only-' + 'x' * 32),
 ):

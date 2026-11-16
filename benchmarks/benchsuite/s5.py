@@ -40,6 +40,8 @@ def diag_env(stage: str) -> dict[str, str]:
     env["BENCH_S5_DIAG"] = "1"
     if not rls:  # owner DSN (RLS not enforced for it), no tenant_rls hook
         env["DATABASE_URL"] = common.database_url()
+        # The lean root selects no Redis instance (as on main, where the flat
+        # CACHE_URL / BROKER_URL reached none): the stand names none either.
         env["INFRA"] = "{}"
     if not revocation:
         env["BENCH_DIAG_NO_REVOCATION"] = "1"
@@ -60,12 +62,14 @@ def server_env(variant: str) -> dict[str, str]:
         "RATE_LIMIT_ENABLED": "false",
         "BENCH_S5": "1",  # mount the S5 routes (and its TenantScoped model)
         "DATABASE_URL": common.s5_app_database_url(),
-        "CACHE_URL": common.cache_url(),
-        "BROKER_URL": common.broker_url(),
         "JWT_SECRET": common.jwt_secret(),
         # A production process without the token issuer verifying the shared
         # HS256 secret (the stand mints its own tokens): accepted explicitly.
         "SANDLOOM_ACCEPTED_RISKS": "shared_hs_secret_split,relay_disabled,local_storage_in_prod",
+        # The lean root (``benchsuite.apps.sandloom_app``, ``create_app()`` with
+        # no composition selection) selects no Redis instance: only the
+        # database option, as on main (no ``common.infra_env``: it would SELECT
+        # a cache, a streams bus and a security store and break comparability).
         "INFRA": json.dumps({"database": {"default": {"tenant_rls": True}}}),
         "DB_READ_ONLY_SESSIONS": "true" if variant == "ro" else "false",
         "PLANNER_OPTIMIZED_EXECUTOR": (

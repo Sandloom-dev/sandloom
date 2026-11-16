@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 
 def check(python: Path, work: Path) -> None:
@@ -29,7 +30,7 @@ def check(python: Path, work: Path) -> None:
         "kind": "module",
         "import_path": "probe.modules.notes",
     }
-    doc = {
+    doc: dict[str, Any] = {
         "schema": "sandloom.inspection",
         "schema_version": 1,
         "producer_protocol": 1,

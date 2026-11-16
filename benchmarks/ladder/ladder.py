@@ -18,7 +18,7 @@ deterministic sequence of random ids (1..9999):
     H*   the hot-path profiling stand's own rungs (hot_paths.py)
     WL*  the write / login profiling stand's own rungs (write_login.py)
 
-Usage (from ``benchmarks/``; DATABASE_URL / CACHE_URL / BROKER_URL in env)::
+Usage (from ``benchmarks/``; DATABASE_URL / BENCH_REDIS_URL / BENCH_CELERY_BROKER in env)::
 
     uv run python ladder/ladder.py list
     uv run python ladder/ladder.py cpu    L3 --n 5000 --reps 5 [--conc 64] [--loop uvloop]
@@ -707,7 +707,7 @@ async def _kg0():
 @rung("KG1", "one GET through the redis-py client (execute_command)")
 async def _kg1():
     _s5_env("uow")
-    from sandloom.core.drivers.redis_cache import get_default_client
+    from sandloom_redis.cache import get_default_client
 
     _app, life = await _sandloom_app()
     client = await get_default_client()
@@ -721,7 +721,7 @@ async def _kg1():
 @rung("KG2", "one GET on a pooled redis-py connection (send + read, no client layer)")
 async def _kg2():
     _s5_env("uow")
-    from sandloom.core.drivers.redis_cache import get_default_client
+    from sandloom_redis.cache import get_default_client
 
     _app, life = await _sandloom_app()
     client = await get_default_client()

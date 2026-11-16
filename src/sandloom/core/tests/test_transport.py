@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import pytest
 
-from sandloom.core.drivers.redis_eventbus.streams_transport import RedisStreamsTransport
+from sandloom.core.eventing import consumer_inbox
 from sandloom.core.eventing.consumer_inbox import ConsumerInbox
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.memory_transport import MemoryTransport
+from sandloom.core.infra.errors import Unavailable
+from sandloom.core.testing import InMemoryCache
 
 
 def _env(event_id: str, channel: str = "core.test.v1") -> EventEnvelope:
@@ -24,59 +26,6 @@ def _env(event_id: str, channel: str = "core.test.v1") -> EventEnvelope:
         emitted_at="2026-01-01T00:00:00+00:00",
         payload={"n": 1},
     )
-
-
-@pytest.mark.asyncio
-async def test_reclaim_advances_server_scan_cursor() -> None:
-    starts = []
-
-    class Client:
-        async def xautoclaim(self, *args, **kwargs):
-            starts.append(kwargs["start_id"])
-            return ["99-0" if len(starts) == 1 else "0-0", [], []]
-
-    transport = RedisStreamsTransport(reclaim_interval_seconds=0)
-    client = Client()
-    for _ in range(3):
-        await transport._reclaim_stale(client, "s", "g", "c", 1)
-    assert starts == ["0-0", "99-0", "0-0"]
-
-
-def _maintenance_failures(stream: str, operation: str) -> float:
-    from sandloom.core.observability import metrics
-
-    return float(
-        metrics.streams_maintenance_failures_total.labels(
-            stream=stream, operation=operation
-        )._value.get()
-    )
-
-
-@pytest.mark.asyncio
-async def test_failed_reclaim_is_counted() -> None:
-    class Client:
-        async def xautoclaim(self, *args, **kwargs):
-            raise ConnectionError("redis down")
-
-    transport = RedisStreamsTransport(reclaim_interval_seconds=0)
-    before = _maintenance_failures("s-reclaim", "xautoclaim")
-    await transport._reclaim_stale(Client(), "s-reclaim", "g", "c", 1)
-    assert _maintenance_failures("s-reclaim", "xautoclaim") == before + 1
-
-
-@pytest.mark.asyncio
-async def test_failed_age_trim_is_counted() -> None:
-    class Client:
-        async def xtrim(self, *args, **kwargs):
-            raise ConnectionError("redis down")
-
-    transport = RedisStreamsTransport()
-    transport._retention_seconds = 60
-    transport._trim_interval = 0
-    key = transport.key("s-trim")
-    before = _maintenance_failures(key, "xtrim")
-    await transport._maybe_trim_by_age(Client(), key)
-    assert _maintenance_failures(key, "xtrim") == before + 1
 
 
 @pytest.mark.asyncio
@@ -156,69 +105,11 @@ async def test_groups_are_independent() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dlq_append_failure_leaves_source_message_unacked() -> None:
-    """A poison entry must NOT be acked if its DLQ append failed.
-
-    Acking it then would lose it forever: gone from the source pending list and
-    never written to the DLQ. Leaving it un-acked lets XAUTOCLAIM reclaim and
-    retry it once the broker recovers.
-    """
-    acked: list[tuple[str, str, str]] = []
-
-    class _FailingDlqClient:
-        async def xadd(self, *_a: object, **_k: object) -> str:
-            raise RuntimeError("dlq down")
-
-        async def xack(self, stream: str, group: str, msg_id: str) -> int:
-            acked.append((stream, group, msg_id))
-            return 1
-
-    t = RedisStreamsTransport(client_factory=None)
-    # _to_dlq takes the client directly, so no factory I/O is needed.
-    await t._to_dlq(_FailingDlqClient(), "s", "g", "1-0", raw="{}", attempts=4)
-    assert acked == []  # the source entry was NOT acked
-
-
-@pytest.mark.asyncio
-async def test_dlq_acks_source_only_after_successful_append() -> None:
-    """On a successful DLQ append the source entry IS acked exactly once."""
-    added: list[str] = []
-    acked: list[str] = []
-
-    class _OkClient:
-        async def xadd(self, dlq: str, _fields: object) -> str:
-            added.append(dlq)
-            return "1-0"
-
-        async def xack(self, _stream: str, _group: str, msg_id: str) -> int:
-            acked.append(msg_id)
-            return 1
-
-    t = RedisStreamsTransport(client_factory=None)
-    await t._to_dlq(_OkClient(), "s", "g", "7-0", raw="{}", attempts=4)
-    assert added == ["s.dlq"]
-    assert acked == ["7-0"]
-
-
-@pytest.mark.asyncio
 async def test_consumer_inbox_dedupes_on_event_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    store: dict[str, str] = {}
-
-    class _FakeRedis:
-        async def set(self, key, value, nx=False, ex=None):
-            if nx and key in store:
-                return None
-            store[key] = value
-            return True
-
-    async def _get_cache():
-        return _FakeRedis()
-
-    monkeypatch.setattr(
-        "sandloom.core.drivers.redis_cache.get_default_client", _get_cache
-    )
+    store = InMemoryCache()
+    monkeypatch.setattr(consumer_inbox, "cache", lambda name="default": store)
     inbox = ConsumerInbox("emailer")
     assert await inbox.seen("e1") is False  # first time -> process
     assert await inbox.seen("e1") is True  # duplicate -> skip
@@ -226,19 +117,19 @@ async def test_consumer_inbox_dedupes_on_event_id(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    [Unavailable("cache down", capability="cache"), RuntimeError("driver bug")],
+    ids=["outage", "any_other_error"],
+)
 async def test_consumer_inbox_fails_open_on_cache_error(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, failure: Exception
 ) -> None:
-    class _BrokenRedis:
-        async def set(self, *a, **k):
-            raise RuntimeError("cache down")
+    class _BrokenCache(InMemoryCache):
+        async def add(self, key: str, value: str, *, ttl_seconds: int) -> bool:
+            raise failure
 
-    async def _get_cache():
-        return _BrokenRedis()
-
-    monkeypatch.setattr(
-        "sandloom.core.drivers.redis_cache.get_default_client", _get_cache
-    )
+    monkeypatch.setattr(consumer_inbox, "cache", lambda name="default": _BrokenCache())
     inbox = ConsumerInbox("emailer")
     # Degrade to at-least-once (process) rather than dropping the event.
     assert await inbox.seen("e1") is False

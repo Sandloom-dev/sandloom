@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 from _module_subset_matrix import (
     MODULES,
+    REDIS_INFRA,
     REPO,
     SUBSETS,
     TASK_MODULES,
@@ -39,12 +40,11 @@ ADMIN_SOURCE = REPO / "packages" / "editable" / "sandloom-admin"
 
 
 def _root(subset: tuple[str, ...]) -> str:
-    """The kernel factory for the empty subset; the lean root, except for a
-    subset with identity (a token issuer): the lean root assigns no claim
-    authorities and refuses it (SANDLOOM-B035), so the standard root."""
-    if not subset:
-        return "kernel"
-    return "sandloom_standard.main" if "identity" in subset else "sandloom.main"
+    """The kernel factory (with the standard composition's ``DEFAULT_INFRA``)
+    for the empty subset; the standard root otherwise: the lean root selects
+    no driver (SANDLOOM-B037) and assigns no claim authorities (a subset with
+    identity, a token issuer, is refused: SANDLOOM-B035)."""
+    return "sandloom_standard.main" if subset else "kernel"
 
 
 @pytest.fixture(scope="module")
@@ -55,7 +55,7 @@ def repository_runs(
     python = Path(sys.executable)
 
     def run(subset: tuple[str, ...]) -> SubsetRun:
-        extra = {"PYTHONPATH": str(ADMIN_SOURCE)}
+        extra = {"PYTHONPATH": str(ADMIN_SOURCE), "INFRA": REDIS_INFRA}
         if subset:
             extra["SANDLOOM_MODULES"] = json.dumps([MODULES[m][0] for m in subset])
         return run_subset(

@@ -17,6 +17,7 @@ scaffolded module never touches this process's shared ``Base.metadata``:
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -27,6 +28,7 @@ import pytest
 
 from sandloom.core.cli import add
 from sandloom.core.migrations.urls import to_sync_url
+from sandloom.core.tests._root_support import lean_root_infra
 
 # Slow (alembic autogenerate + upgrade in subprocesses): skipped by the fast dev loop `pytest -m "not slow"`.
 pytestmark = pytest.mark.slow
@@ -93,8 +95,14 @@ def _env(tmp_path: Path, database_url: str, **extra: str) -> dict[str, str]:
             "ENVIRONMENT": "dev",
             "DATABASE_URL": database_url,
             # Never contacted by migrations; any well-formed DSN will do.
-            "CACHE_URL": os.getenv("CACHE_URL") or "redis://127.0.0.1:6379/0",
-            "BROKER_URL": os.getenv("BROKER_URL") or "redis://127.0.0.1:6379/1",
+            "INFRA": json.dumps(
+                {
+                    "cache": {"default": {"url": "redis://127.0.0.1:6379/0"}},
+                    "broadcast": {"default": {"url": "redis://127.0.0.1:6379/0"}},
+                    "atomic_store": {"security": {"url": "redis://127.0.0.1:6379/0"}},
+                    "taskqueue": {"default": {"broker": "redis://127.0.0.1:6379/1"}},
+                }
+            ),
             "JWT_SECRET": "revision-cli-test-secret-not-real-0123456789abcdef",
             "EVENT_BUS_BACKEND": "memory",
             "SANDLOOM_MODULES": '["revapp.revprobe"]',
@@ -102,6 +110,8 @@ def _env(tmp_path: Path, database_url: str, **extra: str) -> dict[str, str]:
         }
     )
     env.update(extra)
+    # A root that selects no driver (the lean one) gets them from INFRA.
+    env["INFRA"] = lean_root_infra(env)
     return env
 
 

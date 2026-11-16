@@ -130,8 +130,10 @@ def test_secrets_dir_reads_file(
     (tmp_path / "jwt_secret").write_text("file-sourced-secret-value-1234567890")
     monkeypatch.setenv("ENVIRONMENT", "dev")
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@h:5432/db")
-    monkeypatch.setenv("CACHE_URL", "redis://h:6379/0")
-    monkeypatch.setenv("BROKER_URL", "redis://h:6379/1")
+    monkeypatch.setenv(
+        "INFRA",
+        '{"cache": {"default": {"url": "redis://h:6379/0"}}, "taskqueue": {"default": {"broker": "redis://h:6379/1"}}}',
+    )
     monkeypatch.delenv("JWT_SECRET", raising=False)
 
     s = Settings(_env_file=None, _secrets_dir=str(tmp_path))  # type: ignore[call-arg]

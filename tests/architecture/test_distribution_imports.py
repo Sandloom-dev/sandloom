@@ -24,6 +24,8 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools" / "packaging"))
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import distribution_imports as di  # noqa: E402
 
 TOPS = {
@@ -306,6 +308,26 @@ def test_read_wheel_keeps_extras_apart(tmp_path: Path) -> None:
             ("sandloom", frozenset({"celery"})),
         },
     }
+
+
+def test_a_kernel_import_of_a_driver_package_is_a_violation_by_default() -> None:
+    """The kernel wheel does not depend on a driver package (ADR-0016) and no
+    default allowlist tolerates an import of one: a kernel module importing
+    ``sandloom_redis`` is a violation with the default allowlist too."""
+    redis = di.Wheel("sandloom-redis", {"sandloom"})
+    redis.modules = {"sandloom_redis": "", "sandloom_redis.cache": ""}
+    redis.packages = {"sandloom_redis"}
+    kernel = _kernel(**{"sandloom.core.other": "import sandloom_redis.cache\n"})
+    problems = di.check(
+        [kernel, redis],
+        first_party=["sandloom", "sandloom_redis"],
+        top_levels=TOPS,
+        requires_of=_requires,
+        provides={"sandloom": ["fastapi"]},
+    )
+    assert len(problems) == 1
+    assert "does not depend on" in problems[0]
+    assert "sandloom_redis.cache" in problems[0]
 
 
 def test_an_allowlisted_violation_passes_and_a_stale_entry_fails() -> None:

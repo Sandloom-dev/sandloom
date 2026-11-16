@@ -22,8 +22,8 @@ plan.json::
 Lanes run concurrently (one job at a time per lane, so a lane's databases
 are never shared between running jobs); before EVERY job the lane's
 databases are reset to the seeded state (``benchsuite.dataset.reset``) and
-its Redis dbs flushed. ``DATABASE_URL`` / ``CACHE_URL`` / ``BROKER_URL`` may
-use ``localhost`` (rewritten to ``host.docker.internal``). Result lines:
+its Redis dbs flushed. ``DATABASE_URL`` / ``BENCH_REDIS_URL`` /
+``BENCH_CELERY_BROKER`` may use ``localhost`` (rewritten to ``host.docker.internal``). Result lines:
 ``{"lane", "job", "rung", "ir_per_op", "rpc_per_op"?, "commit", "env"}``.
 """
 
@@ -88,7 +88,8 @@ def _job(plan: dict, lane: str, spec: dict, job: dict, out: str) -> None:
             f"LADDER_MIX_TAG={tag}",
         ]
         for k, v in env.items():
-            cmd += ["-e", f"{k}={_fix(v) if k.endswith('_URL') else v}"]
+            rewrite = k.endswith("_URL") or k == "BENCH_CELERY_BROKER"
+            cmd += ["-e", f"{k}={_fix(v) if rewrite else v}"]
         cmd += [
             plan["image"],
             "python",

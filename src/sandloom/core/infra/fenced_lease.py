@@ -3,7 +3,7 @@
 :class:`FencedLease` is the holder's state machine over a
 :class:`~sandloom.core.infra.ports.lease.LeaseStore` (the instance
 ``INFRA.lease.beat``, :data:`BEAT_INSTANCE`): the Celery beat
-(``sandloom.core.drivers.celery_worker``, through ``WorkerHost.run_scheduler``)
+(``sandloom_celery.worker``, through ``WorkerHost.run_scheduler``)
 and the saga timer sweep
 (``sandloom.core.sagas.sweep``) share it. The store owns the lease (owner,
 expiry on its own clock, the fence); this class keeps the rules the contract
@@ -381,12 +381,12 @@ def periodic_needs(
 
 def broker_url_of(core: Any, instance: str) -> str:
     """The broker URL a beat on taskqueue ``instance`` scopes its lease with
-    (the ``celery`` driver: the instance's ``broker`` option, else
-    ``BROKER_URL``)."""
+    (the ``celery`` driver: the instance's ``broker`` option)."""
     infra = getattr(core, "infra", None)
     cfg = infra.instance_config("taskqueue", instance) if infra is not None else None
     options = dict(getattr(cfg, "options", None) or {})
-    return str(options.get("broker") or settings.broker_url)
+    # No broker option is "" (a scope of no broker), never the text "None".
+    return str(options.get("broker") or "")
 
 
 async def beat_lease_holder(core: Any, *, instance: str = "default") -> str | None:

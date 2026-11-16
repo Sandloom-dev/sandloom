@@ -50,9 +50,9 @@ Fixtures
     the revocation cache; ``revoked_tokens.available = False`` simulates an
     unreachable revocation store (the mark is reported as not written).
 ``sandloom_cache``
-    The app's ``default`` cache pointed at ``.env.test``'s ``CACHE_URL`` for
-    the test, FLUSHDB'd before it (yields the ``CacheProvider``; the previous
-    instance is restored afterwards).
+    The app's ``default`` cache pointed at the test cache url (``.env.test``'s
+    ``INFRA`` ``cache.default.url``) for the test, FLUSHDB'd before it (yields
+    the ``CacheProvider``; the previous instance is restored afterwards).
 ``scratch_database``
     A throw-away database on the test server (sync URL), dropped after the
     test — for a module's migration tests (:mod:`sandloom.core.testing.migrations`).
@@ -87,10 +87,12 @@ import sandloom.core.testing as _testing
 import sandloom.core.testing.env as _env
 from sandloom.core.testing import isolation
 from sandloom.core.testing.auth import make_user_headers
+from sandloom.core.testing.families import harness_families
 from sandloom.core.testing.infra import (
     DB_FEATURE_MARKER,
     db_feature_skip_reason,
     override_instance,
+    resolved_cache_url,
 )
 from sandloom.core.testing.server_errors import ALLOW_MARKER, raise_server_errors
 
@@ -319,14 +321,15 @@ def sandloom_core(sandloom_app: Any) -> Any:
 async def _security_store_on_cache(stack: AsyncExitStack, core: Any, url: str) -> None:
     """Point the implicit development ``security`` store at the test Redis too.
 
-    The synthesized ``atomic_store.security`` instance (no ``INFRA`` entry) is
-    built on the cache's Redis, taken from the settings snapshot — which names
-    another database than the test ``CACHE_URL`` where the shell exports a
-    ``CACHE_URL`` of its own (CI) or the app was imported before ``.env.test``
-    was loaded. A fixture that moves the ``cache`` instance onto the test URL
-    moves it along, so revocation marks, blocks and idempotency keys the app
-    writes land in the database the test reads and flushes. An instance the
-    configuration declares (``INFRA``) is left alone.
+    The synthesized ``atomic_store.security`` instance (no ``INFRA`` entry)
+    carries no url of its own: nothing is inherited from the cache any more. The
+    development composition synthesizes the instance, and the url it holds is
+    the one the test run supplies, which names another database than the
+    snapshot where the app was imported before ``.env.test`` was loaded. A
+    fixture that moves the ``cache`` instance onto the test URL gives the
+    synthesized store that same URL, so revocation marks, blocks and idempotency
+    keys the app writes land in the database the test reads and flushes. An
+    instance the configuration declares (``INFRA``) is left alone.
     """
     config = core.infra.instance_config("atomic_store", "security")
     if config is None or not config.implicit or config.driver != "redis":
@@ -342,31 +345,37 @@ async def _security_store_on_cache(stack: AsyncExitStack, core: Any, url: str) -
     )
 
 
+async def flush_owned_cache(provider: object) -> None:
+    """Empty the test cache behind ``provider``: the first harness family that
+    owns it flushes it, the others are not asked."""
+    for family in harness_families():
+        if await family.flush_owned(provider):
+            return
+
+
 @pytest_asyncio.fixture
 async def sandloom_cache(sandloom_core: Any) -> AsyncIterator[Any]:
-    """The app's ``default`` cache on the test ``CACHE_URL``, emptied first.
+    """The app's ``default`` cache on the test cache url, emptied first.
 
-    Yields the ``CacheProvider`` the app itself resolves (``core.cache()``,
-    rate limits). The Redis database is FLUSHDB'd before the test so keys
-    never leak between tests — so ``CACHE_URL`` must name a disposable test
-    database. Also needed where the app was imported before ``.env.test`` was
-    loaded (its settings snapshot names another cache), as in the framework's
-    own suite. The implicit development ``security`` store (revocation marks,
-    blocks, idempotency) follows it onto the same database.
+    The url is the ``INFRA`` instance ``cache.default``'s (the harness merges
+    ``SANDLOOM_TEST_CACHE_URL`` into it). Yields the ``CacheProvider`` the app
+    itself resolves (``core.cache()``, rate limits). The Redis database is
+    FLUSHDB'd before the test so keys never leak between tests — so that url
+    must name a disposable test database. Also needed where the app was
+    imported before ``.env.test`` was loaded (its settings snapshot names
+    another cache), as in the framework's own suite. The implicit development
+    ``security`` store (revocation marks, blocks, idempotency) follows it onto
+    the same database.
     """
     driver = _configured_driver(sandloom_core, "cache", "redis")
-    url = _required_env("CACHE_URL")
+    url = resolved_cache_url()
     async with AsyncExitStack() as stack:
         registry = await stack.enter_async_context(
             override_instance(sandloom_core, "cache", driver=driver, url=url)
         )
         await _security_store_on_cache(stack, sandloom_core, url)
         provider = registry.provider("cache")
-        redis_client = getattr(provider, "redis_client", None)
-        if redis_client is not None:
-            from sandloom.core.testing.ownership import flush_owned_redis  # noqa: PLC0415 - cold: plugin entry - pytest imports it on every run; the heavy harness part loads with the fixture that needs it
-
-            await flush_owned_redis(await redis_client())
+        await flush_owned_cache(provider)
         yield provider
 
 
@@ -380,7 +389,7 @@ async def real_uow_client(
     """HTTP client whose requests run through the REAL request UoW.
 
     No ``get_db`` override: the app's ``default`` database (and cache) are
-    pointed at the test ``DATABASE_URL`` / ``CACHE_URL``, so every request
+    pointed at the test ``DATABASE_URL`` / cache url, so every request
     commits or rolls back exactly as in production — a 4xx rolls its writes
     back (committed rows are emptied by the next test's ``db_engine``). An
     unhandled endpoint error re-raises like with ``client``
@@ -396,19 +405,20 @@ async def real_uow_client(
             "`client` overrides the request session"
         )
     async with AsyncExitStack() as stack:
-        for capability, env, fallback in (
-            ("database", "DATABASE_URL", "sqlalchemy"),
-            ("cache", "CACHE_URL", "redis"),
+        cache_url = resolved_cache_url()
+        for capability, url, fallback in (
+            ("database", _required_env("DATABASE_URL"), "sqlalchemy"),
+            ("cache", cache_url, "redis"),
         ):
             await stack.enter_async_context(
                 override_instance(
                     sandloom_core,
                     capability,
                     driver=_configured_driver(sandloom_core, capability, fallback),
-                    url=_required_env(env),
+                    url=url,
                 )
             )
-        await _security_store_on_cache(stack, sandloom_core, _required_env("CACHE_URL"))
+        await _security_store_on_cache(stack, sandloom_core, cache_url)
         http = await stack.enter_async_context(
             httpx.AsyncClient(
                 transport=httpx.ASGITransport(

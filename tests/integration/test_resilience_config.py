@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from sandloom.core.config.settings import Settings
@@ -16,8 +18,12 @@ def _set_base_env(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> None:
     env = {
         "ENVIRONMENT": "dev",
         "DATABASE_URL": "postgresql+asyncpg://u:p@h:5432/db",
-        "CACHE_URL": "redis://h:6379/0",
-        "BROKER_URL": "redis://h:6379/1",
+        "INFRA": json.dumps(
+            {
+                "cache": {"default": {"url": "redis://h:6379/0"}},
+                "taskqueue": {"default": {"broker": "redis://h:6379/1"}},
+            }
+        ),
         "JWT_SECRET": "x" * 40,
     }
     env.update(overrides)
@@ -140,7 +146,6 @@ def test_build_infra_registry_rejects_unknown_infra_option() -> None:
                     )
                 }
             },
-            load_plugins=False,
         )
     # The actionable fix hint points at the offending INFRA path.
     assert excinfo.value.fix is not None
@@ -165,7 +170,6 @@ def test_build_infra_registry_accepts_valid_infra_option() -> None:
                 )
             }
         },
-        load_plugins=False,
     )
 
 

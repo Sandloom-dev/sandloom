@@ -15,18 +15,20 @@ when nothing is connected to it and its last use is known and older than
 ``--days`` (minimum 1): a Redis index is emptied by an atomic check-and-FLUSHDB
 (skipped if its marker / stamp changed since the scan), a database is dropped
 with a plain DROP DATABASE (PostgreSQL refuses it while anything is
-connected). The servers default to ``.env.test``'s DATABASE_URL / CACHE_URL
+connected). The servers default to ``.env.test``'s DATABASE_URL / INFRA cache url
 (the ``SANDLOOM_TEST_*`` overrides win); ``--redis`` / ``--database`` pick others.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
 from collections import Counter
 from pathlib import Path
+from types import ModuleType
 
 BACKEND = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BACKEND / "src"))
@@ -42,8 +44,21 @@ def _defaults() -> tuple[str, str]:
     database = os.environ.get("SANDLOOM_TEST_DATABASE_URL") or values.get(
         "DATABASE_URL"
     )
-    redis = os.environ.get("SANDLOOM_TEST_CACHE_URL") or values.get("CACHE_URL")
+    redis = os.environ.get("SANDLOOM_TEST_CACHE_URL") or _infra_cache_url(
+        values.get("INFRA")
+    )
     return str(database or ""), str(redis or "")
+
+
+def _infra_cache_url(raw: str | None) -> str | None:
+    """``cache.default.url`` of an ``INFRA`` JSON value, or ``None``."""
+    if not raw:
+        return None
+    try:
+        url = json.loads(raw)["cache"]["default"]["url"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    return url if isinstance(url, str) else None
 
 
 def _size(resource: resources.Resource) -> str:
@@ -57,10 +72,23 @@ def _age(resource: resources.Resource, now: float) -> str:
     return "?" if age is None else f"{age:.1f}d"
 
 
+def _redis_resources() -> ModuleType:
+    """The Redis half of the inventory: the ``sandloom-redis`` package's."""
+    try:
+        from sandloom_redis.testing import resources as redis_resources
+    except ImportError as exc:
+        raise SystemExit(
+            "listing Redis indexes needs the sandloom-redis package "
+            f"(pip install sandloom-redis): {exc}"
+        ) from exc
+    return redis_resources
+
+
 def _scan(args: argparse.Namespace) -> list[tuple[str, resources.Resource]]:
     found: list[tuple[str, resources.Resource]] = []
     if args.redis:
-        found.extend((args.redis, r) for r in resources.scan_redis(args.redis))
+        scanned = _redis_resources().scan_redis(args.redis)
+        found.extend((args.redis, r) for r in scanned)
     if args.database:
         databases = resources.scan_databases(args.database)
         found.extend((args.database, r) for r in databases)
@@ -116,7 +144,11 @@ def main(argv: list[str] | None = None) -> int:
     out = []
     for server, r, why in stale_rows:
         if args.apply:
-            done = resources.prune(server, r)
+            done = (
+                _redis_resources().prune_redis(server, r)
+                if r.kind == "redis"
+                else resources.prune(server, r)
+            )
             out.append(("pruned" if done else "skip", r, why if done else "changed"))
         else:
             out.append(("prune?", r, why))

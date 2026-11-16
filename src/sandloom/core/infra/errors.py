@@ -9,6 +9,7 @@ backend's errors onto it; any other exception from an operation is a driver bug.
   the caller expected (an object), never for a key-value lookup. ``None`` only
   means "known absent": a present value that cannot be read raises.
 - **Codes, not messages.** Callers branch on the class and :attr:`InfraError.retryable`.
+  :attr:`InfraError.hint` is for a log line only, never a branch.
 - **No built-in base classes.** None of these is also a ``ValueError``,
   ``LookupError`` or ``TimeoutError``.
 
@@ -29,10 +30,19 @@ class InfraError(Exception):
     retryable: ClassVar[bool] = False
 
     def __init__(
-        self, message: str, *, capability: str, instance: str | None = None
+        self,
+        message: str,
+        *,
+        capability: str,
+        instance: str | None = None,
+        hint: str | None = None,
     ) -> None:
         self.capability = capability
         self.instance = instance
+        #: A short operator hint for the log line of whoever reads the chain
+        #: (the outbox relay's outage warning). A fixed sentence the driver
+        #: wrote: never a message, address, key or secret of the backend.
+        self.hint = hint
         super().__init__(message)
 
 

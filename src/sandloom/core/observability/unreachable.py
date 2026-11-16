@@ -36,6 +36,11 @@ _DRIVERS = ("sqlalchemy", "asyncpg", "psycopg2", "psycopg", "redis", "kombu")
 _WRAPPERS = {
     ("sandloom.core.exceptions", "DatabaseUnavailable"),
     ("sandloom.core.infra.contracts", "BrokerUnavailableError"),
+    # A capability driver's mapped backend failure (spec 2.1): raised ``from``
+    # the client's error, which the chain walk reads the reason from.
+    ("sandloom.core.infra.errors", "Unavailable"),
+    ("sandloom.core.infra.errors", "Timeout"),
+    ("sandloom.core.infra.errors", "PermissionDenied"),
 }
 #: Reasons that mean nothing answers at the address.
 _UNREACHABLE = {

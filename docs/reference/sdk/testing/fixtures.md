@@ -45,7 +45,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`RevokedTokens`](#revokedtokens) | class | The user ids `revoke_user_tokens` was called for (`revoked_tokens`). |
 | [`saga_harness`](#saga_harness) | fixture | Drive the REAL saga protocol synchronously (`sandloom.core.testing.sagas`). |
 | [`sandloom_app`](#sandloom_app) | fixture | The application's ASGI app, built by its composition root. |
-| [`sandloom_cache`](#sandloom_cache) | fixture | The app's `default` cache on the test `CACHE_URL`, emptied first. |
+| [`sandloom_cache`](#sandloom_cache) | fixture | The app's `default` cache on the test cache url, emptied first. |
 | [`sandloom_core`](#sandloom_core) | fixture | The application's `CoreFacade`. |
 | [`sandloom_test_env`](#sandloom_test_env) | fixture | Load the nearest `.env.test` (rootdir first, then the test paths). |
 | [`scratch_database`](#scratch_database) | fixture | A throw-away database on the test server (sync URL), dropped after. |
@@ -309,7 +309,7 @@ def real_uow_client(
 HTTP client whose requests run through the REAL request UoW.
 
 No `get_db` override: the app's `default` database (and cache) are
-pointed at the test `DATABASE_URL` / `CACHE_URL`, so every request
+pointed at the test `DATABASE_URL` / cache url, so every request
 commits or rolls back exactly as in production — a 4xx rolls its writes
 back (committed rows are emptied by the next test's `db_engine`). An
 unhandled endpoint error re-raises like with `client`
@@ -378,15 +378,17 @@ The application's ASGI app, built by its composition root.
 def sandloom_cache(sandloom_core: Any) -> AsyncIterator[Any]
 ```
 
-The app's `default` cache on the test `CACHE_URL`, emptied first.
+The app's `default` cache on the test cache url, emptied first.
 
-Yields the `CacheProvider` the app itself resolves (`core.cache()`,
-rate limits). The Redis database is FLUSHDB'd before the test so keys
-never leak between tests — so `CACHE_URL` must name a disposable test
-database. Also needed where the app was imported before `.env.test` was
-loaded (its settings snapshot names another cache), as in the framework's
-own suite. The implicit development `security` store (revocation marks,
-blocks, idempotency) follows it onto the same database.
+The url is the `INFRA` instance `cache.default`'s (the harness merges
+`SANDLOOM_TEST_CACHE_URL` into it). Yields the `CacheProvider` the app
+itself resolves (`core.cache()`, rate limits). The Redis database is
+FLUSHDB'd before the test so keys never leak between tests — so that url
+must name a disposable test database. Also needed where the app was
+imported before `.env.test` was loaded (its settings snapshot names
+another cache), as in the framework's own suite. The implicit development
+`security` store (revocation marks, blocks, idempotency) follows it onto
+the same database.
 
 ### `sandloom_core`
 

@@ -83,7 +83,8 @@ enforced contract** and is corrected to match.
 
 - `sandloom-framework` — kernel **plus the relational spine** (hard deps: `fastapi`,
   `uvicorn`, `pydantic`, `pydantic-settings`, **`sqlalchemy`, `alembic`,
-  `asyncpg`**, `orjson`, `jsonschema`, `prometheus-client`, `pyjwt`, `passlib`
+  `asyncpg`** (amended by [ADR-0016](0016-kernel-ports-and-driver-packages.md):
+  `asyncpg` is the `postgres` extra, not a hard dependency), `orjson`, `jsonschema`, `prometheus-client`, `pyjwt`, `passlib`
   /argon2). Bundles **zero-dependency infra defaults** in-tree: in-memory cache,
   in-memory event bus, filesystem object store, log notifier. **Ships no
   `main:app`.**
@@ -263,7 +264,7 @@ party ships one. The text above records the earlier layout.
   `.github/workflows/packages.yml`) builds the four wheels and sdists, checks
   import layering across distributions, installs `sandloom` alone to run every
   CLI subcommand, and installs `sandloom[standard]` to compose the modules.
-- `sandloom new` depends on `sandloom[redis,celery]>=0.7,<0.8` plus one
+- `sandloom new` depends on `sandloom[postgres,redis,celery]>=0.7,<0.8` plus one
   `sandloom-<module>>=0.7,<0.8` per `--with` module. Tags are
   `sandloom-vX.Y.Z` and `sandloom-<module>-vX.Y.Z`.
 

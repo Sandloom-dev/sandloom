@@ -43,12 +43,12 @@ from sandloom.driverkit import (
     HealthResult,
     InfraError,
     InvalidArgument,
-    PermissionDenied,
     Subscription,
-    Timeout,
     TooLarge,
     Unavailable,
 )
+from sandloom_redis._errors import map_redis_error
+from sandloom_redis._url import require_url
 
 _CAPABILITY = "broadcast"
 _PATTERN_SUFFIX = ".*"
@@ -62,8 +62,8 @@ _T = TypeVar("_T")
 
 
 class RedisBroadcastOptions(BaseModel):
-    """Options of the ``redis`` driver. The kernel fills ``url`` and the client
-    bounds left out from the ``CACHE_*`` settings."""
+    """Options of the ``redis`` driver. The instance states ``url`` in ``INFRA``;
+    the kernel fills nothing, and a bound left out takes the default here."""
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
@@ -179,33 +179,19 @@ def _text(raw: object) -> str:
 def _map(exc: BaseException, instance: str, *, during: str) -> InfraError:
     """The ``InfraError`` of a Redis or socket failure: the type is named, the
     text (which can carry a host or a credential) never is."""
-    errors = _redis_errors()
-    kind = type(exc).__name__
-    if isinstance(exc, errors.AuthenticationError) or (
-        isinstance(exc, errors.ResponseError)
-        and str(exc).split(" ", 1)[0] in {"NOAUTH", "WRONGPASS", "NOPERM"}
-    ):
-        return PermissionDenied(
-            f"redis refused the credentials ({kind})",
-            capability=_CAPABILITY,
-            instance=instance,
-        )
-    if isinstance(exc, (TimeoutError, errors.TimeoutError)):
-        return Timeout(
-            f"redis did not answer in time during {during} ({kind})",
-            capability=_CAPABILITY,
-            instance=instance,
-        )
-    if isinstance(exc, ValueError):
+    if isinstance(exc, ValueError):  # ``from_url`` refused the url option
         return InvalidArgument(
-            f"the redis url option is not usable ({kind})",
+            f"the redis url option is not usable ({type(exc).__name__})",
             capability=_CAPABILITY,
             instance=instance,
         )
-    return Unavailable(
-        f"redis is unavailable during {during} ({kind})",
+    # Chained ``from exc`` at the call sites: the relay walks the chain of what
+    # pub/sub re-raises.
+    return map_redis_error(
+        exc,
         capability=_CAPABILITY,
         instance=instance,
+        what=f"redis broadcast during {during}",
     )
 
 
@@ -404,6 +390,7 @@ class RedisBroadcastProvider(BroadcastProvider):
     contract_version = 1
     supported_features = frozenset({"pattern_subscribe", "shared"})
     options_schema: ClassVar[type[RedisBroadcastOptions]] = RedisBroadcastOptions
+    url_option = "url"
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
     # Beta, the floor for a driver of this repository (spec 2.5): the lane
@@ -499,6 +486,7 @@ class RedisBroadcastProvider(BroadcastProvider):
 
     # -- lifecycle ---------------------------------------------------------
     async def aopen(self) -> None:
+        require_url("broadcast", self.name, self._options.url)
         self._closed = False
         client = await self._publisher_client()
         await self._bounded(client.ping(), during="open")

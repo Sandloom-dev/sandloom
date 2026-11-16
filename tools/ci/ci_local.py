@@ -83,12 +83,15 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import ci_lock
+if TYPE_CHECKING:
+    from tools.ci import ci_lock
+else:
+    import ci_lock
 
 LOCK_FILE = ci_lock.LOCK_FILE
 # "skipped" = the workflow itself skipped the job (paths filter / if:), as on
@@ -280,12 +283,14 @@ def uses_artifacts(body: Mapping[str, Any]) -> bool:
 #
 #   .github/workflows/ci.yml                          engine (default)
 #     L16   changes            -> run by act as the `needs` of act jobs
-#     L47   backend-static     -> backend-static            act
+#     L47   backend-static     -> backend-static            fallback (container)
 #     --    supply-chain       -> supply-chain              act
 #     L117  backend-tests      -> backend-tests-3.11/3.13/3.14/3.12 fallback (container)
 #     --    backend-tests-isolation -> backend-tests-isolation fallback (container)
 #     --    kernel-without-batteries -> kernel-without-batteries fallback (container)
+#     --    kernel-without-redis -> kernel-without-redis        fallback (container)
 #     --    redis-drivers      -> redis-drivers             fallback (container)
+#     --    celery-drivers     -> celery-drivers            fallback (container)
 #     --    second-db-test-lane-> second-db-test-lane       fallback (container)
 #     --    skip-ledger        -> not a job: merge the lanes' ledgers by hand
 #     L222  benchmarks-security-> benchmarks-security       fallback (container)
@@ -336,7 +341,16 @@ _SMOKE_WHY = (
 # Local runs deliberately select full validation; PR cost reduction is remote-only.
 CI_JOBS: tuple[CiJob, ...] = (
     CiJob("ci.yml", "workflow-policy", "workflow-policy", "container", "act"),
-    CiJob("ci.yml", "backend-static", "backend-static", "container", "act"),
+    # A PostgreSQL service (the architecture tests' xdist workers each create
+    # their own test database), reached at localhost:5433: the fallback runner.
+    CiJob(
+        "ci.yml",
+        "backend-static",
+        "backend-static",
+        "container",
+        "fallback",
+        _SERVICES_WHY,
+    ),
     CiJob("ci.yml", "supply-chain", "supply-chain", "container", "act"),
     CiJob(
         "ci.yml",
@@ -364,8 +378,29 @@ CI_JOBS: tuple[CiJob, ...] = (
     ),
     CiJob(
         "ci.yml",
+        "kernel-without-redis",
+        "kernel-without-redis",
+        "container",
+        "fallback",
+        _SERVICES_WHY,
+    ),
+    CiJob(
+        "ci.yml",
         "redis-drivers",
         "redis-drivers",
+        "container",
+        "fallback",
+        _SERVICES_WHY,
+    ),
+    # Postgres service + `docker run redis -p 6380`, reached at localhost:5433/6380:
+    # the same service reach as redis-drivers, so the fallback runner (its own
+    # services and network), not act. It builds the wheel with `uv build` and
+    # installs it into the job venv, and writes the skip ledger the run
+    # directory collects.
+    CiJob(
+        "ci.yml",
+        "celery-drivers",
+        "celery-drivers",
         "container",
         "fallback",
         _SERVICES_WHY,
@@ -455,33 +490,35 @@ CHECKED_WORKFLOWS = ("ci.yml", "docs.yml", "architecture-check.yml")
 # new commands) and a failure of the architecture test, so the change gets
 # reviewed here. Print the current values with `tools/ci/ci_local.py --check`.
 FINGERPRINTS: dict[str, str] = {
-    "ci.yml:workflow-policy": "c947663e86853b87",
-    "ci.yml:changes": "0ce6f4772d366453",
-    "ci.yml:backend-static": "bd09abaeb5ddfc7e",
+    "ci.yml:workflow-policy": "bd6288e4afd2fbf4",
+    "ci.yml:changes": "3cdff8546e19f580",
+    "ci.yml:backend-static": "86b33a6c328440d1",
     "ci.yml:supply-chain": "f97313a67b7eacd0",
-    "ci.yml:backend-tests": "1400b9cf9e06ab28",
-    "ci.yml:backend-tests-isolation": "1f41c4abed7873f2",
-    "ci.yml:kernel-without-batteries": "ffd5343d6482ae8f",
-    "ci.yml:redis-drivers": "9efc4fed462d1832",
-    "ci.yml:second-db-test-lane": "76d7b93cf72fd8f1",
-    "ci.yml:skip-ledger": "a815969227e45e9d",
-    "ci.yml:benchmarks-security": "c516a25e95f3072b",
-    "ci.yml:examples": "99a77603e8e3895f",
+    "ci.yml:backend-tests": "180a89247d8c71ee",
+    "ci.yml:backend-tests-isolation": "611e931a41f4b5cd",
+    "ci.yml:kernel-without-batteries": "62fb0a724158b96f",
+    "ci.yml:kernel-without-redis": "1b47947e933b0984",
+    "ci.yml:redis-drivers": "0c69e19ecb7be5fb",
+    "ci.yml:celery-drivers": "1fa03a69eb78e256",
+    "ci.yml:second-db-test-lane": "d88592063ec847e0",
+    "ci.yml:skip-ledger": "26c3a5f95f413506",
+    "ci.yml:benchmarks-security": "27f1de980280a470",
+    "ci.yml:examples": "5d40246e94ae4f7c",
     "ci.yml:quickstart": "0f6563faeb3c2d10",
     "ci.yml:app-split": "40ce521d833336e8",
     "ci.yml:app-recipes": "3708a6d3b9426a26",
     "ci.yml:deploy-profiles": "fe116108319c0d69",
     "ci.yml:microservices-smoke": "b655d1411d676fb7",
-    "ci.yml:docker-build": "587cf6ce58699e97",
+    "ci.yml:docker-build": "a33575d214a0fef2",
     "ci.yml:admin-contracts": "ae4e3ef8a5f5b4ec",
     "ci.yml:docs": "2bfd2034c9234a2a",
     "ci.yml:packages": "d7ee97312d5b4b87",
     "ci.yml:architecture": "7fa82238721b3d55",
     "ci.yml:admin-ui": "2381440aadc9830d",
     "ci.yml:dependency-review": "2b19360e2aa6b603",
-    "ci.yml:ci-required": "c9b40cf1d6fbda42",
-    "docs.yml:build": "78d8bd064fcb5ee4",
-    "architecture-check.yml:check": "c1dd1ca1c5524d5c",
+    "ci.yml:ci-required": "2f64e441c11407a6",
+    "docs.yml:build": "339b44c753baded2",
+    "architecture-check.yml:check": "879b74a6461b16fe",
 }
 
 # `uses:` actions and how they map locally (action name without @version).
@@ -551,8 +588,13 @@ JOB_SECONDS = {
     "backend-tests-isolation": 300,
     # The standard modules, the examples and a generated app on SQLite files.
     # The kernel suites in a venv without module packages (KB-05).
-    "kernel-without-batteries": 300,
+    # The kernel suites twice, in two jobs: with sandloom-redis, then without
+    # Redis (and the SQLite boot without asyncpg).
+    "kernel-without-batteries": 420,
+    "kernel-without-redis": 420,
     "redis-drivers": 90,
+    # The wheel build, the strict types and the host groups (about a minute).
+    "celery-drivers": 120,
     "second-db-test-lane": 420,
     "microservices-smoke": 45,
     "backend-static": 35,
@@ -811,7 +853,16 @@ class LocalJob:
             "needs": {
                 "changes": {
                     "outputs": dict.fromkeys(
-                        ("backend", "admin", "examples", "deploy", "benchmarks"),
+                        (
+                            "backend",
+                            "kernel",
+                            "admin",
+                            "examples",
+                            "deploy",
+                            "benchmarks",
+                            "image",
+                            "typecheck",
+                        ),
                         "true",
                     )
                 }
@@ -859,9 +910,13 @@ def local_jobs(root: Path) -> list[LocalJob]:
     wfs = load_workflows(root)
     jobs: list[LocalJob] = []
     for spec in CI_JOBS:
-        body = (wfs.get(spec.workflow) or {}).get("jobs", {}).get(spec.job)
+        doc = wfs.get(spec.workflow) or {}
+        body = (doc.get("jobs") or {}).get(spec.job)
         if body is None:
             continue
+        # A workflow-level `env:` reaches every job of the workflow (the job's
+        # own keys win), as on GitHub: `HYPOTHESIS_PROFILE` is set there.
+        body = {**body, "env": {**(doc.get("env") or {}), **(body.get("env") or {})}}
         combos = _expand_matrix(body)
         for combo in combos:
             # A path value (examples' `path: examples/linkly`) names nothing
@@ -1099,7 +1154,7 @@ def pick_subnet(
         free = [
             net
             for net in pool.subnets(new_prefix=24)
-            if not any(net.overlaps(u) for u in taken)  # type: ignore[arg-type]
+            if not any(net.overlaps(u) for u in taken)
         ]
         if free:
             return secrets.choice(free)

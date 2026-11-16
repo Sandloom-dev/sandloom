@@ -9,6 +9,7 @@ and the beginner-tier pin, and every one of the app's own tests passes.
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import json
 import os
 import re
@@ -27,6 +28,7 @@ from sandloom.core.archcheck.manifest import load_rules
 from sandloom.core.archcheck.runner import PENDING_RULES, run_checks
 from sandloom.core.cli import add
 from sandloom.core.cli.project import generate_project
+from sandloom.core.tests._root_support import redis_free_infra_env
 from sandloom.sdk import Contract
 from sandloom.sdk.testing import fake_contract
 from tools.smoke import split_check
@@ -47,9 +49,21 @@ def _leave_no_probe_app_imported() -> Iterator[None]:
             del sys.modules[name]
 
 
+@pytest.fixture(autouse=True)
+def _generated_app_children_run_without_redis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ``sandloom generate`` child of ``_app`` boots the generated app,
+    whose own selection names the Redis drivers: without ``sandloom-redis``
+    (``kernel-without-redis``) those instances are the ``memory`` drivers."""
+    for key, value in redis_free_infra_env().items():
+        monkeypatch.setenv(key, value)
+
+
 BACKEND = Path(__file__).resolve().parents[2]
 SDK = BACKEND / "src" / "sandloom" / "sdk"
 EXAMPLES = BACKEND / "examples"
+CELERY_INSTALLED = importlib.util.find_spec("sandloom_celery") is not None
 
 
 def _app(tmp_path: Path, *, everything: bool = True) -> Path:
@@ -63,9 +77,15 @@ def _app(tmp_path: Path, *, everything: bool = True) -> Path:
         add.add_consumer("stats", "notes.item.created.v1", where, [])
         add.add_saga("notes", "reserve", where)
         add.add_projection("stats", "board", where)
-        add.add_task("stats", "purge", where, periodic="0 3 * * *")
-        add.add_task("stats", "rollup", where, periodic="*/15 * * * *")
-        add.add_task("notes", "reindex", where)
+        if CELERY_INSTALLED:
+            # A module with a task requires the ``taskqueue`` capability, and the
+            # kernel has no driver of it: the tasks join the generated app where
+            # ``sandloom-celery`` is installed (``kernel-without-batteries``);
+            # the ``add_task`` generator itself runs on every lane
+            # (``test_add_task_*`` below).
+            add.add_task("stats", "purge", where, periodic="0 3 * * *")
+            add.add_task("stats", "rollup", where, periodic="*/15 * * * *")
+            add.add_task("notes", "reindex", where)
         code, output = add.run_generate(root)  # what `sandloom add` runs last
         assert code == 0, output
     return root
@@ -583,8 +603,8 @@ def test_a_fully_generated_app_passes_its_tests_up_to_the_h1_stubs(
             key = line.split("=", 1)[0]
             if key == "DATABASE_URL":
                 line = f"DATABASE_URL={async_url}"
-            elif key in ("CACHE_URL", "BROKER_URL") and test_env.get(key):
-                line = f"{key}={test_env[key]}"
+            elif key == "INFRA" and test_env.get("INFRA"):
+                line = f"INFRA='{test_env['INFRA']}'"
             lines.append(line)
         (root / ".env.test").write_text("\n".join(lines) + "\n")
         env = {
@@ -593,13 +613,13 @@ def test_a_fully_generated_app_passes_its_tests_up_to_the_h1_stubs(
             if not k.startswith(("SANDLOOM_", "PYTEST_")) and k != "INFRA"
         }
         env[OWNER_ENV] = current_owner()
+        env.update(redis_free_infra_env())
         migrate_env = {
             **env,
             "PYTHONPATH": str(root),
             "ENVIRONMENT": "test",
             "DATABASE_URL": async_url,
-            "CACHE_URL": str(test_env.get("CACHE_URL") or ""),
-            "BROKER_URL": str(test_env.get("BROKER_URL") or ""),
+            "INFRA": str(test_env.get("INFRA") or ""),
             "JWT_SECRET": "x" * 40,
             "SANDLOOM_COMPOSITION_ROOT": "probe.asgi",
             "CONTRACT_DTO_PACKAGES": json.dumps(["probe.shared"]),
@@ -671,12 +691,12 @@ def test_migration_drift_names_the_module_and_the_fix(tmp_path: Path) -> None:
             for k, v in os.environ.items()
             if not k.startswith(("SANDLOOM_", "PYTEST_")) and k != "INFRA"
         },
+        **redis_free_infra_env(),
         OWNER_ENV: current_owner(),
         "PYTHONPATH": str(root),
         "ENVIRONMENT": "test",
         "DATABASE_URL": test_url,
-        "CACHE_URL": str(test_env.get("CACHE_URL") or ""),
-        "BROKER_URL": str(test_env.get("BROKER_URL") or ""),
+        "INFRA": str(test_env.get("INFRA") or ""),
         "JWT_SECRET": "x" * 40,
         "SANDLOOM_COMPOSITION_ROOT": "probe.asgi",
         "CONTRACT_DTO_PACKAGES": json.dumps(["probe.shared"]),

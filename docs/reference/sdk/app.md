@@ -84,10 +84,24 @@ def create_app(
     default_claim_authorities: collections.abc.Mapping[str, str | sandloom.core.claims.Authority] | None = None,
     legacy_tokens: sandloom.core.claims.LegacyClaimsTokens | None = None,
     access_providers: collections.abc.Mapping[str, str] | None = None,
+    default_infra: collections.abc.Mapping[str, collections.abc.Mapping[str, collections.abc.Mapping[str, typing.Any]]] | None = None,
 ) -> fastapi.applications.FastAPI
 ```
 
 Build a fully wired Sandloom application (kernel + modules + ops API).
+
+`default_infra` is the composition's driver selection, `{capability:
+{instance: {"driver": ..., &lt;options>}}}` as `INFRA` is written: what an
+instance uses when `INFRA` does not name it. The kernel names no driver
+of its own and never falls back to `memory`: a composition that selects
+none for the database, the cache, the event bus or the security
+`atomic_store` leaves startup to refuse with SANDLOOM-B037, naming what
+to select and install. `INFRA` overrides it per instance. One precedence,
+the first that is set wins: this argument, then a pin a tool or a test
+suite set with `use_default_infra`, then the `DEFAULT_INFRA` the
+composition root's package exports (or none). Passing none drops the
+argument an earlier `create_app` of the process passed; a pin is never
+overwritten or dropped by an app.
 
 `default_modules` apply only when the deployment configured no
 `SANDLOOM_MODULES` (the platform root passes identity/tenancy/billing); with

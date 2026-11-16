@@ -11,7 +11,7 @@ them per request. These tests pin that the pruning changes NOTHING observable:
   after; ``route.dependencies`` keeps the declaration;
 * OpenAPI is identical;
 * differential: identical status / headers / body for fresh, revoked, blocked
-  and missing tokens, pruned vs not (real Redis);
+  and missing tokens, pruned vs not (the in-memory security store);
 * ``dependency_overrides``, mounted sub-apps, routes added after the pruning
   and websocket routes keep working; outside the verified FastAPI range
   nothing is pruned (warning).
@@ -19,19 +19,15 @@ them per request. These tests pin that the pruning changes NOTHING observable:
 
 from __future__ import annotations
 
-import asyncio
 import functools
 import logging
-import os
 import time
-from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
 import pytest
-import pytest_asyncio
 from fastapi import (
     APIRouter,
     Body,
@@ -43,7 +39,6 @@ from fastapi import (
 )
 from fastapi.routing import APIRoute
 from fastapi.security import OAuth2PasswordBearer
-from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
 from sandloom.core import route_markers
 from sandloom.core.auth import marks, revocation, tokens
@@ -66,7 +61,7 @@ from sandloom.core.route_policy import (
     route_policy_problems,
     sensitive,
 )
-from sandloom.core.testing import reload_test_env
+from sandloom.core.testing import InMemoryAtomicStore, reload_test_env
 
 #: The marker attribute a test marker carries (a sensitive() declaration).
 CLASS_ATTR = SENSITIVE_ATTR
@@ -448,31 +443,14 @@ def test_create_app_prunes_every_marker() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# differential behaviour over real Redis
+# differential behaviour over the in-memory security store
 # --------------------------------------------------------------------------- #
-def _redis_url() -> str:
-    url = os.getenv("CACHE_URL")
-    if not url:
-        pytest.skip("no test CACHE_URL configured")
-    return url
-
-
-@pytest_asyncio.fixture
-async def redis_cache(
-    monkeypatch: pytest.MonkeyPatch,
-) -> AsyncIterator[RedisAtomicStoreProvider]:
-    provider = RedisAtomicStoreProvider(
-        name="markers", driver="redis", options={"url": _redis_url()}
-    )
-    try:
-        await asyncio.wait_for(provider.get("sandloom:test:ping"), 5)
-    except Exception:  # noqa: BLE001 - test Redis unreachable: skip
-        await provider.aclose()
-        pytest.skip("test Redis not reachable")
-    monkeypatch.setattr(access, "atomic_store", lambda role="security": provider)
+@pytest.fixture
+def security_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryAtomicStore:
+    store = InMemoryAtomicStore()
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": store)
     monkeypatch.setattr(settings, "auth_revocation_fail_closed", True)
-    yield provider
-    await provider.aclose()
+    return store
 
 
 def _auth(sub: str) -> dict[str, str]:
@@ -509,7 +487,7 @@ def _statuses(answers: list[Any]) -> dict[str, int]:
 
 
 async def test_differential_strict_budgeted_revoked_blocked(
-    redis_cache: RedisAtomicStoreProvider,
+    security_store: InMemoryAtomicStore,
 ) -> None:
     plain_app, pruned_app = _probe_app(), _pruned_probe()
     calls: list[int] = []
@@ -536,7 +514,7 @@ async def test_differential_strict_budgeted_revoked_blocked(
         assert set((await both(headers)).values()) == {200}
 
         # another process revoked: every authenticated route sees it at once
-        await redis_cache.set(
+        await security_store.set(
             marks.subject_key(sub),
             marks._format_mark(marks._seconds_to_us(time.time() + 1)),
             ttl_seconds=120,
@@ -559,13 +537,13 @@ async def test_differential_strict_budgeted_revoked_blocked(
         sub3 = str(uuid4())
         headers3 = _auth(sub3)
         await both(headers3)
-        await redis_cache.set(
+        await security_store.set(
             marks.subject_key(sub3), marks._format_blocked(marks._seconds_to_us(1))
         )
         try:
             blocked = await both(headers3)
         finally:
-            await redis_cache.delete(marks.subject_key(sub3))
+            await security_store.delete(marks.subject_key(sub3))
         assert {blocked[p] for p in blocked if p != "/public"} == {401}
     assert calls == []
 

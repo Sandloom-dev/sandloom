@@ -72,8 +72,10 @@ uv run sandloom test --plan      # print the steps; --no-gates: tests only; -n N
   `.env.test.local`. A second run in the same checkout uses `<name>_2` and its
   own Redis indexes ([test databases](../modules/testing.md#in-an-app-sandloom-dev-up)).
 - **Use your own test resources** on a shared machine without `sandloom dev`:
-  export `SANDLOOM_TEST_OWNER`, `SANDLOOM_TEST_DATABASE_URL`,
-  `SANDLOOM_TEST_CACHE_URL` and `SANDLOOM_TEST_BROKER_URL`.
+  export `SANDLOOM_TEST_OWNER` and `SANDLOOM_TEST_DATABASE_URL`. Add
+  `SANDLOOM_TEST_CACHE_URL` and `SANDLOOM_TEST_BROKER_URL` for the cache and task
+  queue your app selects. An app with no task queue exports no broker override
+  (likewise cache): the harness refuses it.
 
 ## Which fixture
 
@@ -481,10 +483,15 @@ the harness or a check unless marked.
   Seed another module's state through its HTTP API, contracts or events. An
   allowlist entry for a test file needs a written justification; a stale one
   fails the suite.
+- **Driver test helpers.** The `testing` module of a driver package, such as
+  `sandloom_redis.testing`, is a supported import for that driver's own test
+  resources. A test that filled a Redis calls `flush_owned_redis` from it. The
+  `test-imports` rule does not see it, because it is not a `sandloom` name, and
+  the SDK has no seam for it.
 - **Run isolation.** A test database or Redis index carries an owner marker
   (`SANDLOOM_TEST_OWNER`, else the machine id and the checkout root). A run refuses another owner's
   resources before any test (exit 4); `SANDLOOM_TEST_TAKE_OWNERSHIP=1` takes over.
-  Flush a test Redis only with `flush_owned_redis`. Never `pkill` by pattern.
+  Flush a test Redis only with `sandloom_redis.testing.flush_owned_redis`. Never `pkill` by pattern.
 - **Pools.** Test processes get small pools (at most 13 connections) and the
   session fails fast when the server lacks room (`-n auto` is capped;
   `SANDLOOM_TEST_SKIP_CONNECTION_CHECK=1` skips the check). The harness restores

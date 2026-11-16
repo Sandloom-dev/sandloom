@@ -16,7 +16,7 @@ inbox to complete the flow; no external email account is needed.
 Create an application with identity and tenancy:
 
 ```bash
-uvx --from "sandloom[standard]==0.7.0a13" sandloom new myapp --with identity,tenancy --module notes
+uvx --from "sandloom[standard]==0.7.0a14" sandloom new myapp --with identity,tenancy --module notes
 ```
 
 Follow the printed quickstart through `uv sync`, `uv run sandloom generate`,
@@ -33,19 +33,16 @@ Add these values to the application's `.env`:
 
 ```dotenv
 NOTIFIER_BACKEND=smtp
-SMTP_HOST=127.0.0.1
-SMTP_PORT=1025
-SMTP_FROM=no-reply@example.com
-SMTP_USE_TLS=false
+INFRA={"notification": {"default": {"driver": "smtp", "host": "127.0.0.1", "port": 1025, "from_addr": "no-reply@example.com", "use_tls": false}}}
 ```
 
-Leave `SMTP_USERNAME` and `SMTP_PASSWORD` unset for this local inbox. These host
-settings apply when the API runs with `uv run uvicorn myapp.asgi:app --reload` on
+Leave `username` and `password` out for this local inbox. These host
+options apply when the API runs with `uv run uvicorn myapp.asgi:app --reload` on
 your computer. A containerized API needs the inbox's reachable service hostname
 instead. The inbox UI is [http://127.0.0.1:8025](http://127.0.0.1:8025).
 
 This configuration captures development mail on loopback only. Production uses
-your real SMTP provider and verified STARTTLS (`SMTP_USE_TLS=true`); Sandloom
+your real SMTP provider and verified STARTTLS (the `use_tls` option, on unless you write `false`); Sandloom
 rejects SMTP credentials sent without TLS in production.
 
 Without a mail server, you can print the links instead. Add `NOTIFIER_LOG_LINKS=true`

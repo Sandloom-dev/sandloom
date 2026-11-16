@@ -11,16 +11,23 @@ tutorial app had no generated files and a stale stub).
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+from sandloom.core.tests._root_support import redis_free_infra_env
 
 SCRIPT = Path(__file__).resolve().parents[2] / "tools" / "docs" / "docs_generated.py"
 
 
 def test_the_docs_generator_output_is_current() -> None:
+    # The scratch apps and the tutorial select the Redis drivers: where
+    # ``sandloom-redis`` is not installed (``kernel-without-redis``) their
+    # ``sandloom generate`` boot runs them on the kernel's memory drivers.
     proc = subprocess.run(
         [sys.executable, str(SCRIPT), "--check"],
+        env={**os.environ, **redis_free_infra_env()},
         capture_output=True,
         text=True,
         timeout=600,

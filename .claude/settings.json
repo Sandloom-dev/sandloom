@@ -9,6 +9,25 @@
             "command": "tm hook claude-code"
           }
         ]
+      },
+      {
+        "matcher": "^(Agent|Task)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/agent_model_guard.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\""
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__tm(-[A-Za-z0-9-]+)?__task_done$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/task_done_checks.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\"",
+            "timeout": 600
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -26,8 +45,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/ruff_format.py\"",
-            "timeout": 15
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/edit_check.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\"",
+            "timeout": 45
           }
         ]
       }

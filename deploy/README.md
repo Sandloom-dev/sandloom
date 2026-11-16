@@ -79,7 +79,7 @@ startup.
 | `RPC_SERVICE_KEYS` | — | **required** (every process) | `{"<service>": {"<kid>": "<PEM>"}}` the callers' Ed25519 public keys |
 | `RPC_ALLOWED_CALLS` | — | fixed in the common env | the allowlist = each caller's `SERVICE_BINDINGS` (`sandloom keys allowlist`; pinned by `test_rpc_allowlist_is_derived_from_bindings`) |
 | `METRICS_TOKEN` | optional | optional | scrape-only credential for `/metrics` (must differ from `INTERNAL_API_TOKEN`); give it to Prometheus instead of the internal token |
-| `NOTIFIER_BACKEND`, `SMTP_HOST`, `SMTP_FROM` | **`smtp` + host + sender** for real mail | same | identity and tenancy require an email notifier (`notification` with feature `email`). The default `log` driver delivers no mail, so with `ENVIRONMENT=prod` startup refuses it (a named capability error) instead of logging recovery and invitation mail nobody receives. Production: `NOTIFIER_BACKEND=smtp`, `SMTP_HOST`, `SMTP_FROM`, and `SMTP_USERNAME` / `SMTP_PASSWORD` over `SMTP_USE_TLS=true` (the default; credentials without TLS are refused). A demo without a mail server adds `log_notifier_in_prod` to `SANDLOOM_ACCEPTED_RISKS` and **no mail is delivered** |
+| `NOTIFIER_BACKEND`, `INFRA` (`notification` instance) | **`smtp` + `host` + `from_addr`** for real mail | same | identity and tenancy require an email notifier (`notification` with feature `email`). The default `log` driver delivers no mail, so with `ENVIRONMENT=prod` startup refuses it (a named capability error) instead of logging recovery and invitation mail nobody receives. Production: `NOTIFIER_BACKEND=smtp` and `INFRA={"notification": {"default": {"driver": "smtp", "host": ..., "from_addr": ..., "username": ..., "password": ...}}}`, over `use_tls` (on by default; credentials without TLS are refused). A demo without a mail server adds `log_notifier_in_prod` to `SANDLOOM_ACCEPTED_RISKS` and **no mail is delivered** |
 | `BILLING_PROVIDER` | **required** | **required** | `stripe` (+ `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) or `fake` together with `SANDLOOM_ACCEPTED_RISKS=local_storage_in_prod,billing.fake_psp_in_prod` (demo only). There is no default: in prod billing rejects `fake` — even set explicitly — unless `SANDLOOM_ACCEPTED_RISKS` lists `billing.fake_psp_in_prod`, and compose refuses to start without a choice |
 | `SANDLOOM_ACCEPTED_RISKS` | default `local_storage_in_prod` | default `local_storage_in_prod` | the ONE list of weaker guarantees a prod deployment accepts (JSON or comma list of risk ids; an unknown id fails startup). Each accepted risk is logged as a WARNING at every start, exported as `sandloom_accepted_risk_active{risk}` and listed by `/diagnostics/core` and `sandloom doctor`. The former booleans (`BILLING_ALLOW_FAKE_PSP_IN_PROD`, …) are removed settings: startup refuses them unless set to their inert value ([ADR-0006](../docs/adr/0006-accepted-risks.md)) |
 | `WEB_CONCURRENCY`, `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` | defaults 3 / 10 / 10 | defaults 2 / 5 / 5 | see *Sizing* |
@@ -97,7 +97,7 @@ startup.
 | `WORKER_MAX_MEMORY_PER_CHILD` | default 200000 KiB | same | recycle a child above this RSS after its task |
 | `SANDLOOM_IMAGE` | default `sandloom:local` | same | the one image every process runs (built once) |
 | `GATEWAY_PORT`, `SANDLOOM_SUBNET`, `SANDLOOM_GATEWAY_IP`, `SANDLOOM_IP_RANGE` / `APP_PORT` | `APP_PORT` 2222 | 8080 / `172.28.0.0/24` / `172.28.0.10` / `172.28.0.128/25` | change them (plus `-p <project>`) to run two stacks on one host; `SANDLOOM_GATEWAY_IP` must lie in `SANDLOOM_SUBNET` but outside `SANDLOOM_IP_RANGE` (the dynamic-address pool), so change all three together |
-| `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_PREVIOUS_SECRETS` (monolith only), `ACCESS_TOKEN_EXPIRE_MINUTES`, `NOTIFIER_BACKEND`, `SMTP_*`, `FRONTEND_URL` | optional | optional | in the **common** env of both profiles: identical in every process |
+| `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_PREVIOUS_SECRETS` (monolith only), `ACCESS_TOKEN_EXPIRE_MINUTES`, `NOTIFIER_BACKEND`, `INFRA`, `FRONTEND_URL` | optional | optional | in the **common** env of both profiles: identical in every process |
 
 `REFRESH_TOKEN_EXPIRE_DAYS` is identity's setting (it sets the issuer's refresh
 sessions): the monolith passes it in the common env, the microservices profile
@@ -121,9 +121,9 @@ identity is verified by every service, so `JWT_*` / the access-token lifetime mu
 (the exceptions are the issuer-only `JWT_PRIVATE_KEY` / `JWT_SECRET` of the
 microservices profile, which only identity processes receive —
 `test_only_the_issuer_holds_signing_material`);
-identity and tenancy both send mail (`NOTIFIER_BACKEND` / `SMTP_*`);
-subscription gates evaluate one past-due policy. **`CACHE_URL` is identical for
-every service** — a hard invariant: access-token revocation marks, rate-limit
+identity and tenancy both send mail (`NOTIFIER_BACKEND` and the `notification` instance in `INFRA`);
+subscription gates evaluate one past-due policy. **The cache url (`INFRA.cache.default.url`, and
+the security store's) is identical for every service** — a hard invariant: access-token revocation marks, rate-limit
 buckets, idempotency keys and the Streams bus live there; a per-service cache
 would accept a revoked token everywhere but on the service that revoked it.
 `test_deploy_profiles.py` pins all of this (same raw value in every process,
@@ -242,7 +242,7 @@ In the microservices profile `identity` (housekeeping) and `billing` (the
 operation-intent reconciler `reconcile_operation_intents`, every 5 min, and the
 orphan payment-state purge) ship periodic tasks, hence `identity-worker` /
 `identity-beat` and `billing-worker` / `billing-beat`. Each service has its own
-`BROKER_URL` (Redis db 2/3/4) so a task can never be picked up by a service that
+Celery broker in its `INFRA` (`taskqueue.default.broker`, Redis db 2/3/4) so a task can never be picked up by a service that
 does not load its module.
 
 **One scheduler per task set.** A beat schedules exactly the
@@ -261,7 +261,7 @@ left running, a k8s rollout that overlaps old and new pods) would send every
 periodic task twice. The framework beat therefore schedules only while it
 holds a fenced lease of the `lease` instance `INFRA.lease.beat`
 (`sandloom.core.infra.fenced_lease`; the scheduler of the Celery driver,
-`sandloom.core.drivers.celery_worker`, runs only while it holds it):
+`sandloom_celery.worker`, runs only while it holds it):
 
 * the key is `sandloom:beat:lease:<scope>`, the scope a digest of the broker URL,
   the taskqueue instance and the sorted `SANDLOOM_MODULES` — replicas of one
@@ -278,14 +278,14 @@ holds a fenced lease of the `lease` instance `INFRA.lease.beat`
   backend outage it keeps scheduling only until its local lease deadline, then stands
   by until it can write again;
 * the lease lives in the instance `INFRA.lease.beat`: absent, a `redis` lease
-  on the shared `CACHE_URL` (its server must run `maxmemory-policy noeviction`,
+  on the url its `INFRA.lease.beat` states (its server must run `maxmemory-policy noeviction`,
   which the driver checks); `{"driver": "database"}` keeps it in the table
   `infra_lease` of a database that carries the core migration chain. In
   production the driver must be shared between processes (not `memory`), or
   beat refuses to start. The lease is always on (there is no switch to turn it
   off). **Upgrade:** `BEAT_LEASE_CACHE_INSTANCE` is removed and a leftover one
-  fails startup; delete it, and name the instance in `INFRA` only to move the
-  lease off `CACHE_URL`.
+  fails startup; delete it, and state the `lease.beat` url in `INFRA` (a
+  `redis` lease with no url is refused).
 
 The lease wraps whatever scheduler beat runs (`-S …` included) and applies to
 `worker -B` too. A takeover starts from the new beat's own schedule file, so a
@@ -298,9 +298,10 @@ task whose period elapsed during the failover runs once on takeover.
    routes, event schemas, and services exist in that process.
    `MODULE_WHITELIST` / `MODULE_BLACKLIST` further filter the list.
 2. **Async communication** rides the durable Redis Streams bus in both
-   profiles (`EVENT_BUS_BACKEND=auto` resolves to `streams` in prod; the
-   microservices profile pins `streams` explicitly) on the shared `CACHE_URL`;
-   each service's transactional outbox lives in its own database and its relay
+   profiles (an unset `EVENT_BUS_BACKEND` takes the standard composition's
+   `streams` in every environment, the kernel having no default; the
+   microservices profile pins `streams` explicitly) on the shared Redis
+   (`INFRA.eventbus.default.url`); each service's transactional outbox lives in its own database and its relay
    (one gunicorn worker per container) dispatches it. Versioned channels
    (`identity.user_registered.v1`, …) keep producers and consumers decoupled.
 3. **Sync cross-module contracts** go through the core service registry
@@ -558,9 +559,9 @@ vendor issues. Restrictions do not turn unresolved CVEs into patched libraries.
 
 ## Sizing
 
-The image installs the `sandloom[fast]` extra (hiredis reply parser,
-jsonschema-rs payload validation); the framework falls back to the pure-Python
-engines without it.
+The image installs the `sandloom[fast]` extra (jsonschema-rs payload validation)
+and, through `sandloom[redis]`, the Redis client with its hiredis reply parser;
+the framework falls back to the pure-Python engines without them.
 
 The image runs gunicorn with `sandloom.core.cli.gunicorn_conf`: the worker count
 honours the container CPU quota (default `min(2*cpus+1, 4)`; a non-empty
@@ -640,8 +641,8 @@ topology decision, not part of a feature. The checklist below is what it
 writes.
 
 1. Add an env anchor with its own `SANDLOOM_MODULES: '["sandloom.<module>"]'`,
-   `DATABASE_URL` (add the database to `POSTGRES_MULTIPLE_DATABASES`) and
-   `BROKER_URL`.
+   `DATABASE_URL` (add the database to `POSTGRES_MULTIPLE_DATABASES`) and an
+   `INFRA` with the shared instances and its own `taskqueue.default.broker`.
 2. Add a `migrate-<module>` one-shot with that anchor and make the service
    depend on it (`service_completed_successfully`).
    **Existing data does not move by itself**: steps 1–5 change code and
@@ -678,8 +679,8 @@ sandloom migrate extract-module billing --from default --to "$BILLING_DATABASE_U
     --apply --i-have-stopped-writes
 # 3. Optional re-check at any time (row counts + checksums vs the manifest):
 sandloom migrate extract-module billing --from default --to "$BILLING_DATABASE_URL" --verify
-# 4. Cut over: start the billing service (its own DATABASE_URL, same CACHE_URL /
-#    bus / JWT settings), remove sandloom_billing from the monolith's SANDLOOM_MODULES,
+# 4. Cut over: start the billing service (its own DATABASE_URL, same cache and
+#    bus urls in INFRA, JWT settings), remove sandloom_billing from the monolith's SANDLOOM_MODULES,
 #    add the SERVICE_BINDINGS (checklist step 3), switch the gateway routes.
 # 5. Later, once the service has run cleanly — cleanup (separate, explicit):
 sandloom migrate extract-module billing --from default --to "$BILLING_DATABASE_URL" \

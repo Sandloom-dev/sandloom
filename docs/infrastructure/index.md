@@ -37,7 +37,7 @@ Each page shows what a module calls, and each driver's settings and limits.
 
 | You get by default | You declare |
 | --- | --- |
-| A `default` instance of every capability, built from the flat settings (`DATABASE_URL`, `CACHE_URL`, `BROKER_URL`, `STORAGE_*`, `EVENT_BUS_BACKEND`) | extra instances or driver overrides in the `INFRA` setting |
+| A `default` instance of every capability the composition selects a driver for (`sandloom_standard` and a generated app do), with options from the flat settings (`DATABASE_URL`, `STORAGE_*`, `EVENT_BUS_BACKEND`); startup refuses with SANDLOOM-B037 where nothing is selected | each Redis instance's own `url` (and the Celery `broker`), extra instances and driver overrides in the `INFRA` setting |
 | `db()` / `DbSession`: the session of the running unit on the module's database | `Annotated[AsyncSession, Database("analytics")]` for a named database |
 | Accessors that return operations, such as `cache()` and `notifier()` | the instance name, when not `default` |
 | A startup preflight of the module's needs, without I/O | `define_module(..., capabilities=[CapabilityRequirement(...)])` for anything beyond the defaults |

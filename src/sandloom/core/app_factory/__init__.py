@@ -91,6 +91,11 @@ from sandloom.core.idempotency.durable import (
     install_durable_capture,
     validate_money_guards,
 )
+from sandloom.core.infra.config import (
+    DefaultInfra,
+    forget_app_default_infra,
+    use_default_infra,
+)
 from sandloom.core.infra.registry import InfraRegistry
 from sandloom.core.loader.manifest import AppManifest
 from sandloom.core.loader.plugin_loader import (
@@ -100,6 +105,7 @@ from sandloom.core.loader.plugin_loader import (
 from sandloom.core.observability.logging import init_logging
 from sandloom.core.observability.observability import init_sentry
 from sandloom.core.orm import Base
+from sandloom.core.production_profile import atomic_store_feature_problems
 from sandloom.core.rpc import (
     install_service_rpc_routes,
 )
@@ -160,8 +166,22 @@ def create_app(
     default_claim_authorities: Mapping[str, str | Authority] | None = None,
     legacy_tokens: LegacyClaimsTokens | None = None,
     access_providers: Mapping[str, str] | None = None,
+    default_infra: DefaultInfra | None = None,
 ) -> FastAPI:
     """Build a fully wired Sandloom application (kernel + modules + ops API).
+
+    ``default_infra`` is the composition's driver selection, ``{capability:
+    {instance: {"driver": ..., <options>}}}`` as ``INFRA`` is written: what an
+    instance uses when ``INFRA`` does not name it. The kernel names no driver
+    of its own and never falls back to ``memory``: a composition that selects
+    none for the database, the cache, the event bus or the security
+    ``atomic_store`` leaves startup to refuse with SANDLOOM-B037, naming what
+    to select and install. ``INFRA`` overrides it per instance. One precedence,
+    the first that is set wins: this argument, then a pin a tool or a test
+    suite set with ``use_default_infra``, then the ``DEFAULT_INFRA`` the
+    composition root's package exports (or none). Passing none drops the
+    argument an earlier ``create_app`` of the process passed; a pin is never
+    overwritten or dropped by an app.
 
     ``default_modules`` apply only when the deployment configured no
     ``SANDLOOM_MODULES`` (the platform root passes identity/tenancy/billing); with
@@ -199,6 +219,13 @@ def create_app(
     """
     init_logging()  # ensure logging configured before modules import/log
     init_sentry()  # error reporting (no-op unless SENTRY_DSN set)
+    # Before any check reads the configuration. Every call sets the selection
+    # of its own app: one that passes none adopts its root's, never the
+    # selection a previous ``create_app`` of this process left behind.
+    if default_infra is not None:
+        use_default_infra(default_infra, from_app=True)
+    else:
+        forget_app_default_infra()
 
     # Checks the configuration layer cannot run itself (key material, RPC
     # keys / allowlist, the production profile): refuse to boot on any.
@@ -215,6 +242,14 @@ def create_app(
     core_facade.register_schema_registry(schema_registry_service)
 
     infra = _bind_infrastructure(core_facade, schema_registry_service)
+    if settings.is_prod:
+        # Spec section 4, every profile: the security and idempotency stores are
+        # shared and never evict (the driver's declaration, build-free).
+        feature_problems = atomic_store_feature_problems(infra)
+        if feature_problems:
+            raise ConfigurationError(
+                INVALID_CONFIGURATION + "; ".join(feature_problems)
+            )
     _register_infra_lifecycle(core_facade, schema_registry_service, infra)
 
     # Register core baseline event schemas early (idempotent)
@@ -401,18 +436,20 @@ def _bind_infrastructure(
     # The event bus is the default eventbus instance; bind it everywhere the
     # lazy module-level accessor is used (outbox dispatch, relay).
     eventbus_provider = core_facade.eventbus_provider("default")
-    # In production the default bus MUST be durable. EVENT_BUS_BACKEND=auto
-    # already selects Redis Streams in prod, but an explicit override to the
-    # in-memory or pub/sub bus would deliver domain events (billing credits,
-    # provisioning, …) at-most-once and silently drop them with no error. Fail
-    # fast at startup instead. Dev/test intentionally run the volatile bus.
+    # In production the default bus MUST be durable. The composition's selection
+    # (EVENT_BUS_BACKEND unset) names the durable Redis Streams bus, but an
+    # explicit override to the in-memory or pub/sub bus would deliver domain
+    # events (billing credits, provisioning, …) at-most-once and silently drop
+    # them with no error. Fail fast at startup instead. Dev/test intentionally
+    # run the volatile bus.
     if settings.is_prod and "durable" not in eventbus_provider.features():
         raise RuntimeError(
             "Production event bus is volatile "
             f"(driver={eventbus_provider.driver!r}, "
             f"features={sorted(eventbus_provider.features())}). Domain events "
-            "would be lost. Set EVENT_BUS_BACKEND=auto (or streams) to use the "
-            "durable Redis Streams transport."
+            "would be lost. Unset EVENT_BUS_BACKEND (the composition selects "
+            "the bus) or set EVENT_BUS_BACKEND=streams to use the durable "
+            "Redis Streams transport."
         )
     bus = build_event_bus(eventbus_provider, schema_registry_service)
     core_facade.set_event_bus(bus)

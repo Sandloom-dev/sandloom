@@ -13,7 +13,6 @@ from sandloom.core.infra.contracts import (
     CacheProvider,
     DatabaseProvider,
     ObjectStoreProvider,
-    TaskQueueProvider,
 )
 from sandloom.core.infra.registry import InfraRegistryError
 from sandloom.core.schema.registry import InMemorySchemaRegistry
@@ -25,7 +24,6 @@ def wired_core() -> CoreFacade:
     registry = build_infra_registry(
         InMemorySchemaRegistry(),
         config=load_infra_config(settings),
-        load_plugins=False,
     )
     core.set_infra(registry)
     return core
@@ -37,7 +35,8 @@ def test_capability_accessors_return_correct_provider_types(
     assert isinstance(wired_core.database(), DatabaseProvider)
     assert isinstance(wired_core.cache(), CacheProvider)
     assert isinstance(wired_core.objectstore(), ObjectStoreProvider)
-    assert isinstance(wired_core.taskqueue(), TaskQueueProvider)
+    # ``taskqueue()``: the kernel has no task queue driver, so its accessor is
+    # tested with the Celery package (``test_celery_core_facade.py``).
 
 
 def test_default_database_reuses_shared_engine(wired_core: CoreFacade) -> None:

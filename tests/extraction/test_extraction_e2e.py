@@ -42,7 +42,7 @@ import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -53,6 +53,7 @@ import pytest
 
 from sandloom.core.contract_testing import rpc_env
 from sandloom.core.testing import worker_env_values
+from sandloom.core.testing.families import parse_infra
 from sandloom.core.testing.served import (
     ReservedPort,
     SpawnedServer,
@@ -60,6 +61,7 @@ from sandloom.core.testing.served import (
     probe,
     spawn_served,
 )
+from sandloom.sdk.testing import resolved_cache_url
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.extraction_e2e]
 
@@ -67,6 +69,18 @@ BACKEND = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 RUN = uuid.uuid4().hex[:8]
 PREFIX = f"xe2e-{RUN}:"
+
+
+def _infra_with_prefix(environ: Mapping[str, str]) -> str:
+    """The run's own ``INFRA`` (every instance's url) plus the key namespace, an
+    option of the ``streams`` bus instance, whose url defaults to the cache's."""
+    infra = parse_infra(environ.get("INFRA"))
+    bus = infra.setdefault("eventbus", {}).setdefault("default", {})
+    bus["prefix"] = PREFIX
+    bus.setdefault("url", resolved_cache_url(environ))
+    return json.dumps(infra)
+
+
 INTERNAL_TOKEN = f"extract-internal-{uuid.uuid4().hex}"
 JWT_SECRET = f"extract-jwt-{uuid.uuid4().hex}"
 PASSWORD = "Extract-Passw0rd!x"
@@ -94,7 +108,7 @@ PEER_CONTRACTS: dict[str, dict[str, dict[str, Any]]] = {
 
 def _env_base() -> dict[str, str]:
     values = worker_env_values(BACKEND / ".env.test")
-    for key in ("DATABASE_URL", "CACHE_URL", "BROKER_URL"):
+    for key in ("DATABASE_URL", "INFRA"):
         if os.environ.get(f"E2E_{key}"):
             values[key] = os.environ[f"E2E_{key}"]
     return values
@@ -184,7 +198,7 @@ class Proc:
                     allowed_calls=self.allowed,
                 ),
                 "EVENT_BUS_BACKEND": "streams",
-                "EVENT_STREAM_PREFIX": PREFIX,
+                "INFRA": _infra_with_prefix(env),
                 "OUTBOX_RELAY_ENABLED": "on",
                 "INTERNAL_API_TOKEN": INTERNAL_TOKEN,
                 "JWT_SECRET": JWT_SECRET,
@@ -203,7 +217,7 @@ class Proc:
                 ),
             }
         )
-        for key in ("MODULE_REQUIRED", "INFRA", "ACCESS"):
+        for key in ("MODULE_REQUIRED", "ACCESS"):
             env.pop(key, None)
         return env
 
@@ -272,13 +286,17 @@ def _cli(
             "DATABASE_URL": mono_url,
             "SANDLOOM_MODULES": json.dumps([I, T, B]),
             "EVENT_BUS_BACKEND": "streams",
-            "EVENT_STREAM_PREFIX": PREFIX,
+            # the shared streams bus is a cross-process one: the kernel's revocation
+            # applier needs the name of the deployment for its consumer group
+            # (ADR-0012 decision 5), here the one-shot CLI of the monolith
+            "SANDLOOM_SERVICE_NAME": "xe2e-migrate-cli",
+            "INFRA": _infra_with_prefix(env),
             "JWT_SECRET": JWT_SECRET,
             "INTERNAL_API_TOKEN": INTERNAL_TOKEN,
             "BILLING_PROVIDER": "fake",
         }
     )
-    for key in ("MODULE_REQUIRED", "INFRA", "SERVICE_BINDINGS"):
+    for key in ("MODULE_REQUIRED", "SERVICE_BINDINGS"):
         env.pop(key, None)
     return subprocess.run(
         [sys.executable, "-m", "sandloom.core.cli.migrate", *args],
@@ -558,7 +576,7 @@ def infra(tmp_path: Path) -> Iterator[dict[str, Any]]:
     if os.environ.get("SANDLOOM_EXTRACTION_E2E", "").strip() != "1":
         pytest.skip("opt-in: set SANDLOOM_EXTRACTION_E2E=1 (slow end-to-end scenario)")
     base = _env_base()
-    db, cache = base.get("DATABASE_URL", ""), base.get("CACHE_URL", "")
+    db, cache = base.get("DATABASE_URL", ""), resolved_cache_url({**os.environ, **base})
     if not (_reachable(db, 5432) and _reachable(cache, 6379)):
         pytest.fail(f"PostgreSQL / Redis unreachable ({db} / {cache})")
     names = {
@@ -590,7 +608,7 @@ def test_monolith_to_microservices_with_data(infra: dict[str, Any]) -> None:
     procs: list[Proc] = infra["procs"]
     logs: Path = infra["logs"]
     mono_url = urls["mono"]
-    cache_url = base["CACHE_URL"]
+    cache_url = resolved_cache_url({**os.environ, **base})
 
     # -- 1. the monolith with a dataset ------------------------------------
     _ok(_cli(base, mono_url, "upgrade-all", "--apply"))

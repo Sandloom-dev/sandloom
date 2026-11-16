@@ -10,7 +10,9 @@ that run's state mid-flight. So every test resource carries an OWNER marker:
   (``COMMENT ON DATABASE``; no table, so schema / autogenerate tests never see
   it, and it survives ``drop_all``);
 * a Redis database index: the key ``sandloom:test:owner`` (re-written after every
-  harness ``FLUSHDB``);
+  harness ``FLUSHDB``); the Redis family of the harness (``sandloom-redis``,
+  :mod:`sandloom.core.testing.families`) writes and checks it with
+  :func:`check_holder`, :func:`already_claimed` and :func:`record_claim`;
 * a SQLite file: the file beside it, ``<file>.owner`` (its text the owner,
   its modification time when a run last used it), kept when the harness
   empties or rebuilds the database.
@@ -53,25 +55,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-import psycopg2  # type: ignore[import-untyped]
-from psycopg2 import errors, sql
-
+from sandloom.core.migrations.pg_sync import errors, psycopg2, sql
+from sandloom.core.testing import families
 from sandloom.core.testing.machine import checkout_root, machine_id
-from sandloom.core.testing.redis_urls import (
-    INFRA_VAR,
-    infra_redis_urls,
-    is_redis_url,
-    redis_client_installed,
-)
 
 OWNER_ENV = "SANDLOOM_TEST_OWNER"
 TAKEOVER_ENV = "SANDLOOM_TEST_TAKE_OWNERSHIP"
 #: Prefix of the database comment carrying the owner.
 DB_MARKER_PREFIX = "sandloom-test-owner:"
-#: Redis key carrying the owner of a database index.
-REDIS_OWNER_KEY = "sandloom:test:owner"
-#: Redis key carrying when a run last claimed / flushed the index (epoch s).
-REDIS_LAST_USED_KEY = "sandloom:test:last_used"
 #: Per-database setting carrying when a run last claimed it (epoch seconds).
 DB_LAST_USED_SETTING = "sandloom_test.last_used"
 
@@ -129,9 +120,6 @@ _DB_HINT = (
 )
 _SQLITE_HINT = (
     "export SANDLOOM_TEST_DATABASE_URL=sqlite+aiosqlite:///<your dir>/<name>_test.db"
-)
-_REDIS_HINT = (
-    "export SANDLOOM_TEST_CACHE_URL / SANDLOOM_TEST_BROKER_URL=redis://…/<your index>"
 )
 
 
@@ -290,82 +278,47 @@ def _claim_sqlite(url: str, owner: str, environ: Mapping[str, str] | None) -> No
 
 
 # --------------------------------------------------------------------------- #
-# Redis
+# A backend's own resources (harness families)
 # --------------------------------------------------------------------------- #
 
 
-def _decoded(value: Any) -> str | None:
-    if value is None:
-        return None
-    return value.decode() if isinstance(value, bytes) else str(value)
-
-
-def _check_redis_holder(
-    holder: str | None, url: str, owner: str, environ: Mapping[str, str] | None
+def check_holder(
+    kind: str,
+    what: str,
+    holder: str | None,
+    owner: str,
+    hint: str,
+    environ: Mapping[str, str] | None = None,
 ) -> None:
+    """Refuse a resource another run marked: what a harness family calls before
+    it resets one of its own (a Redis index, an object-store bucket).
+
+    ``kind`` and ``what`` name the resource in the message (``"Redis database"``,
+    its redacted URL); ``holder`` is the marker found (``None``: unmarked);
+    ``hint`` says how this run points at its own. Raises
+    :class:`TestResourceOwnershipError`, unless ``SANDLOOM_TEST_TAKE_OWNERSHIP=1``
+    (a warning then, and the caller re-stamps the resource).
+    """
     if holder is None or same_owner(holder, owner):
         return
     if not takeover_requested(environ):
-        raise TestResourceOwnershipError(
-            _refusal("Redis database", url, holder, owner, _REDIS_HINT)
-        )
+        raise TestResourceOwnershipError(_refusal(kind, what, holder, owner, hint))
     warnings.warn(
-        f"{TAKEOVER_ENV}: taking over Redis database {url} from {holder!r}",
+        f"{TAKEOVER_ENV}: taking over {kind} {what} from {holder!r}",
         stacklevel=3,
     )
 
 
-def _redact(url: str) -> str:
-    parts = urlsplit(url)
-    netloc = parts.hostname or ""
-    if parts.port:
-        netloc += f":{parts.port}"
-    return urlunsplit(parts._replace(netloc=netloc))
+def already_claimed(kind: str, identity: str, owner: str) -> bool:
+    """Whether this process verified resource ``identity`` of ``kind`` for
+    ``owner`` already (:func:`record_claim`)."""
+    return _claimed.get((kind, identity)) == owner
 
 
-def claim_redis(
-    url: str, *, owner: str | None = None, environ: Mapping[str, str] | None = None
-) -> None:
-    """Verify (or claim) that this run owns the Redis database ``url``."""
-    if not is_redis_url(url) or not redis_client_installed():
-        return  # no Redis URL, or no client: this process reaches no Redis
-    owner = owner or current_owner(environ)
-    if _claimed.get(("redis", url)) == owner:
-        return
-
-    import redis  # noqa: PLC0415 - optional: the redis extra; only a redis URL needs it
-
-    client = redis.Redis.from_url(url, socket_connect_timeout=5, socket_timeout=5)
-    try:
-        try:
-            holder = _decoded(client.get(REDIS_OWNER_KEY))
-        except redis.exceptions.ConnectionError:
-            return  # server down: the tests that need it skip / fail
-        _check_redis_holder(holder, _redact(url), owner, environ)
-        if holder != owner:
-            client.set(REDIS_OWNER_KEY, owner)
-        client.set(REDIS_LAST_USED_KEY, int(time.time()))
-    finally:
-        client.close()
-    _claimed[("redis", url)] = owner
-
-
-async def flush_owned_redis(client: Any, *, owner: str | None = None) -> None:
-    """``FLUSHDB`` a test Redis database this run owns, keeping its marker.
-
-    ``client`` is an asyncio Redis client (bytes or decoded responses).
-    Raises :class:`TestResourceOwnershipError` when another run marked it.
-    """
-    owner = owner or current_owner()
-    holder = _decoded(await client.get(REDIS_OWNER_KEY))
-    kwargs = client.connection_pool.connection_kwargs
-    where = f"redis://{kwargs.get('host', '?')}:{kwargs.get('port', '?')}/" + str(
-        kwargs.get("db", 0)
-    )
-    _check_redis_holder(holder, where, owner, None)
-    await client.flushdb()
-    await client.set(REDIS_OWNER_KEY, owner)
-    await client.set(REDIS_LAST_USED_KEY, int(time.time()))
+def record_claim(kind: str, identity: str, owner: str) -> None:
+    """Remember that this process verified resource ``identity`` of ``kind`` for
+    ``owner``, so the next claim of it costs nothing."""
+    _claimed[(kind, identity)] = owner
 
 
 # --------------------------------------------------------------------------- #
@@ -374,32 +327,28 @@ async def flush_owned_redis(client: Any, *, owner: str | None = None) -> None:
 
 
 def claim_test_resources(values: Mapping[str, str]) -> None:
-    """Claim ``DATABASE_URL`` / ``CACHE_URL`` / ``BROKER_URL`` of ``values``, and
-    the Redis URL of every named instance ``INFRA`` declares."""
+    """Claim ``DATABASE_URL`` of ``values``, then what every harness family
+    resets (:mod:`sandloom.core.testing.families`: the Redis family claims the
+    URL of every named instance ``INFRA`` declares)."""
     database = values.get("DATABASE_URL") or ""
     if database:
         claim_database(database)
-    for var in ("CACHE_URL", "BROKER_URL"):
-        url = values.get(var) or ""
-        if url:
-            claim_redis(url)
-    for url in infra_redis_urls(values.get(INFRA_VAR)):
-        claim_redis(url)
+    for family in families.harness_families():
+        family.claim(values)
 
 
 __all__ = [
     "DB_LAST_USED_SETTING",
     "DB_MARKER_PREFIX",
     "OWNER_ENV",
-    "REDIS_LAST_USED_KEY",
-    "REDIS_OWNER_KEY",
     "TAKEOVER_ENV",
     "TestResourceOwnershipError",
+    "already_claimed",
+    "check_holder",
     "claim_database",
-    "claim_redis",
     "claim_test_resources",
     "current_owner",
-    "flush_owned_redis",
+    "record_claim",
     "same_owner",
     "sqlite_file_owner",
     "stamp_sqlite_file",

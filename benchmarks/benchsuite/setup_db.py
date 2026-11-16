@@ -238,8 +238,6 @@ def _migrate_core() -> None:
     env = {
         **os.environ,
         "DATABASE_URL": common.raw_database_url(),
-        "CACHE_URL": common.cache_url(),
-        "BROKER_URL": common.broker_url(),
         "JWT_SECRET": common.jwt_secret(),
         "ENVIRONMENT": "dev",
         "SANDLOOM_MODULES": '["benchsuite.bench"]',

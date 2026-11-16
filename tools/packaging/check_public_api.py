@@ -39,6 +39,8 @@ EXTRA_MODULES = (
     "sandloom.driverkit",
     "sandloom.driverkit.atomic_store",
     "sandloom.driverkit.eventbus_support",
+    "sandloom.driverkit.process_config",
+    "sandloom.driverkit.shared_endpoints",
     "sandloom.driverkit.testing",
     "sandloom.shared",
     "sandloom.shared.authz",
@@ -97,8 +99,8 @@ def _default_str(value: object) -> str:
             )
             + "}"
         )
-    cls = type(value)
-    return f"<{cls.__module__}.{cls.__qualname__}>"
+    kind = type(value)
+    return f"<{kind.__module__}.{kind.__qualname__}>"
 
 
 def _signature_of(obj: object) -> str | None:

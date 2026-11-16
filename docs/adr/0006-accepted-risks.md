@@ -73,8 +73,16 @@ D-14 schedule, then derived from `RPC_AUTH_MODE`); `SCHEMA_REQUIRE_ALL_VERSIONED
 (profile-chosen, a real dev convenience — removed in 0.8 by the DX plan: a
 missing schema now fails in every profile); `BILLING_GRANT_INTENTLESS_SUBSCRIPTIONS`
 (an operator workflow for PSP-created subscriptions, not a legacy shape);
-`INTERNAL_ENDPOINTS_OPEN_IN_DEV` (dev-only, never honoured in prod);
-`SMTP_USE_TLS` (local mail catchers need it off).
+`INTERNAL_ENDPOINTS_OPEN_IN_DEV` (dev-only, never honoured in prod).
+`SMTP_USE_TLS` was kept for the same reason (local mail catchers need it off)
+until the SMTP settings became options of the `smtp` driver in 1.0: it is now
+the `use_tls` option of the `notification` instance, which stays on unless
+written `false` (the smtp driver's own default), and production refuses a login
+without it. The weakening keeps its semantic entry, `notification.use_tls`, an
+`INFRA` instance option like `database.tenant_rls`: `use_tls: false` on an smtp
+instance is reported as an override in every profile (WARNING in production),
+read from the resolved selection (the composition's default and `INFRA`), and
+refused under `multi_tenant_strict` with no accepted risk to admit it.
 
 ## Consequences
 

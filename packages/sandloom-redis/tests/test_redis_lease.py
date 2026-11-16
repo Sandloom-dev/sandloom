@@ -1,5 +1,5 @@
 """The ``redis`` lease driver: the kit against a real Redis
-(``settings.cache_url``), and what the kit cannot know: the eviction check, its
+(``resolved_cache_url()``), and what the kit cannot know: the eviction check, its
 operator override and the options.
 
 The eviction logic runs against a scripted client, so no server's configuration
@@ -13,10 +13,10 @@ from typing import Any
 
 import pytest
 import redis.exceptions as redis_errors
+from _redis_required import cache_url_or_unavailable
 from sandloom_redis import lease
 from sandloom_redis.lease import RedisLeaseProvider
 
-from sandloom.core.config.settings import settings
 from sandloom.driverkit import InfraError, InvalidArgument, PermissionDenied
 from sandloom.driverkit.lease_limits import (
     MAX_LEASE_NAME_LENGTH,
@@ -24,16 +24,15 @@ from sandloom.driverkit.lease_limits import (
 )
 from sandloom.driverkit.testing import LeaseConformance
 
-# The harness resolves the URL into ``settings`` (SANDLOOM_TEST_CACHE_URL on a
-# shared machine, CACHE_URL on CI): never read the environment here.
-_REDIS_URL = settings.cache_url
-
 
 class TestRedisLease(LeaseConformance):
     @pytest.fixture
     def make_provider(self) -> Callable[[], RedisLeaseProvider]:
+        # The harness merges SANDLOOM_TEST_CACHE_URL into INFRA: the url is the
+        # test run's default cache.
+        url = cache_url_or_unavailable()
         return lambda: RedisLeaseProvider(
-            name="beat", driver="redis", options={"url": _REDIS_URL}
+            name="beat", driver="redis", options={"url": url}
         )
 
     @pytest.fixture

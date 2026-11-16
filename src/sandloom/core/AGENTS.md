@@ -58,7 +58,7 @@ Each gate below fails with a code; `uv run sandloom explain <code>` gives the wh
 
 - **Classify every new setting** in `sandloom.core.config.tiers` as semantic or
   ops. Check: `src/sandloom/core/tests/test_config_tiers.py`.
-  - The semantic count is ratcheted (ceiling 16; an ADR to grow): prefer an ops knob or a profile value.
+  - The semantic count is ratcheted (ceiling 14, `SEMANTIC_COUNT_CEILING` in `test_config_tiers.py`; an ADR to grow): prefer an ops knob or a profile value.
 - **A production weakening is an accepted risk, never a boolean.** Add an id
   to `sandloom.core.config.accepted_risks` and read it with
   `settings.accepts_risk(id)`. An unknown id fails startup.
@@ -73,8 +73,10 @@ Each gate below fails with a code; `uv run sandloom explain <code>` gives the wh
 
 - **Drivers construct backends.** A backend constructor
   (`create_async_engine`, `redis.from_url`, `Celery(...)`, `Storage(...)`)
-  appears only in `sandloom.core.drivers/**`, built lazily by `get_default_*()`
-  factories (`test_infra_constructed_only_in_drivers`).
+  appears only in a driver: `sandloom.core.drivers/**` for the kernel's own, or a
+  driver package (`packages/sandloom-*`), which imports only `sandloom.driverkit` and `sandloom.sdk`.
+  Built lazily by the driver's own factory (`test_infra_constructed_only_in_drivers`
+  scans the kernel for any other construction site).
 - **SQLAlchemy stays inside the relational surface**: `orm`, `tenant`, `di`,
   `sql_alchemy/`, `projections/upsert`, `migrations/` and the drivers
   (`test_relational_paradigm_boundary`; `TYPE_CHECKING` imports exempt).

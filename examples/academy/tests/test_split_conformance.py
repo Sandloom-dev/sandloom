@@ -52,6 +52,7 @@ from sandloom.sdk.testing import (  # sandloom: advanced served processes
     SpawnedServerError,
     as_user,
     probe,
+    resolved_cache_url,
     spawn_served,
 )
 
@@ -226,8 +227,7 @@ def _env(base: dict[str, str], dep: Deployment, proc: Proc) -> dict[str, str]:
             {p.service_id: {"d1": _keys(p.service_id)[3]} for p in dep.procs}
         ),
     }
-    for key in ("MODULE_REQUIRED", "INFRA"):
-        env.pop(key, None)
+    env.pop("MODULE_REQUIRED", None)
     return env
 
 
@@ -271,15 +271,14 @@ def deployments(tmp_path_factory: pytest.TempPathFactory) -> Iterator[list[Deplo
 
     base = {
         "DATABASE_URL": str(settings.database_url),
-        "CACHE_URL": str(settings.cache_url),
-        "BROKER_URL": str(settings.broker_url),
+        "INFRA": json.dumps(settings.infra),
         "JWT_SECRET": settings.jwt_secret.get_secret_value()
         if hasattr(settings.jwt_secret, "get_secret_value")
         else str(settings.jwt_secret),
     }
     if not _reachable(base["DATABASE_URL"], 5432):
         _unavailable("PostgreSQL not reachable")
-    if not _reachable(base["CACHE_URL"], 6379):
+    if not _reachable(resolved_cache_url(), 6379):
         _unavailable("Redis not reachable")
     deps = [
         Deployment(

@@ -114,7 +114,7 @@ environment → `.env` file → a **secrets directory** (`SECRETS_DIR`).
   service runs the new version with its
   `sandloom:auth@tokens_revoked@<service>` group running. Then delete the
   old group and its owner record:
-  `redis-cli XGROUP DESTROY <EVENT_STREAM_PREFIX>core.auth.tokens_revoked.v1
+  `redis-cli XGROUP DESTROY <prefix>core.auth.tokens_revoked.v1
   identity:sessions@tokens_revoked`, then `sandloom streams release-group
   core.auth.tokens_revoked.v1 identity:sessions@tokens_revoked`. Its
   inventory entry turns stale after 5 minutes and is listed only by
@@ -266,7 +266,11 @@ This section holds the settings, commands and metrics.
   `outbox_dead_total`). A broker outage opens a circuit
   (`OUTBOX_RELAY_CIRCUIT_BASE_SECONDS` / `OUTBOX_RELAY_CIRCUIT_MAX_SECONDS`)
   that pauses dispatch without consuming attempts
-  (`outbox_relay_broker_unavailable_total`).
+  (`outbox_relay_broker_unavailable_total`). A refused credential
+  (`PermissionDenied`) counts as an outage: rows are not dead-lettered, the
+  circuit stays open and the rows stay pending until the credential is fixed.
+  `SandloomOutboxBacklogAgeing` alerts on it, and the relay's warning line
+  names the error class that opened the circuit.
 - Inspect / requeue dead outbox rows:
   `sandloom outbox list-dead [--database x] [--channel c]`,
   `sandloom outbox requeue --id <id> | --all`.
@@ -295,9 +299,9 @@ This section holds the settings, commands and metrics.
   rows are never purged. On demand / for a large backlog:
   `sandloom outbox purge [--database x] [--hours H] [--batch N]`.
 - **Durable consumer inbox** (`consumer_inbox`) claims are NOT pruned
-  automatically: a claim must outlive every possible redelivery of its event
-  (Streams retention `EVENT_STREAM_RETENTION_SECONDS`, an operator `requeue`
-  of an old dead row) or a late duplicate would apply its effect twice. Prune
+  automatically. A claim must outlive every possible redelivery of its event:
+  the `retention_seconds` option of the `streams` bus, or an operator `requeue`
+  of an old dead row. Otherwise a late duplicate applies its effect twice. Prune
   explicitly with a cutoff well past that window:
   `sandloom outbox purge --inbox-days 30`.
 - Streams consumers dead-letter poison entries to `<channel>.dlq` (with reason
@@ -328,12 +332,16 @@ This section holds the settings, commands and metrics.
   history is re-applied. Entries still PENDING in the old group are not moved —
   drain them first (temporarily pin `group="<name>"`), then
   `XGROUP DESTROY <stream> <name>`.
-- Retention: each stream is trimmed to `EVENT_STREAM_RETENTION_SECONDS`
-  (default 7 days, `XTRIM MINID ~`) and, if set, `EVENT_STREAM_MAXLEN`
+- Retention: each stream is trimmed to the `retention_seconds` option of the
+  `streams` bus (default 7 days, `XTRIM MINID ~`) and, if set, `max_length`
   (`MAXLEN ~`). A consumer offline longer than retention misses the trimmed
   events; recover them from the outbox (`sandloom outbox requeue`) or a projection
-  rebuild. `EVENT_STREAM_PREFIX` namespaces every Streams key when several
-  environments share one Redis.
+  rebuild. The `prefix` option namespaces every Streams key when several
+  environments share one Redis. All three are written on the instance, e.g.
+  `INFRA={"eventbus": {"default": {"driver": "streams", "retention_seconds":
+  604800, "max_length": 100000, "prefix": "staging:"}}}`; the former
+  `EVENT_STREAM_RETENTION_SECONDS`, `EVENT_STREAM_MAXLEN` and
+  `EVENT_STREAM_PREFIX` settings were removed in 1.0 and refuse startup.
 - v1 → v2 channel rollouts: dual-publish both versions
   (`publish_event_versions`) until `sandloom streams consumers` shows no live `.v1`
   group; `sandloom_events_version_starvation_total` /
@@ -344,9 +352,10 @@ This section holds the settings, commands and metrics.
   over their read contracts (`SERVICE_BINDINGS` in a split deployment). Run
   them as one-off jobs once the source services are up; never put them in the
   `migrate` one-shot (the sources are not running yet).
-- Run the durable `streams` bus in production (`EVENT_BUS_BACKEND=auto` picks
-  it); the volatile drivers are refused in prod unless the deployment accepts
-  the risk `volatile_event_bus` (`SANDLOOM_ACCEPTED_RISKS`).
+- Run the durable `streams` bus in production (the standard composition selects
+  it while `EVENT_BUS_BACKEND` is unset). The volatile drivers are refused in prod
+  unless the deployment accepts the risk `volatile_event_bus`
+  (`SANDLOOM_ACCEPTED_RISKS`).
 
 ## Sagas
 
@@ -377,8 +386,8 @@ relay).
   most once per `SAGA_SWEEP_INTERVAL_SECONDS` (default 5 s), claiming at
   most `SAGA_SWEEP_BATCH` instances per tick (`FOR UPDATE SKIP LOCKED`).
   Retry latency is therefore `max(backoff, sweep interval)`. The sweep lease
-  lives in the `lease` instance `INFRA.lease.beat`, a `redis` lease on `CACHE_URL`
-  unless `INFRA` names another. A process that hosts a saga opens and probes it
+  lives in the `lease` instance `INFRA.lease.beat`, a `redis` lease with its own
+  `url` (`INFRA.lease.beat.url`; it does not take the cache's). A process that hosts a saga opens and probes it
   like the database and the cache. A backend that refuses to serve stops startup
   in production and fails `/ready` elsewhere. The message names the cause: a
   Redis policy that evicts keys, a refused `CONFIG GET`, a `PermissionDenied`.
@@ -719,7 +728,7 @@ are out.
    environment as the dump.
 
 **3. Credential leak** (one secret exposed: an `.env`, a CI variable).
-- `DATABASE_URL` / `CACHE_URL` passwords: rotate at the server, redeploy.
+- `DATABASE_URL` and the Redis `url` passwords in `INFRA` (and the Celery `broker`): rotate at the server, redeploy.
 - `JWT_SECRET` (HS*): anyone can mint tokens. Set a new `JWT_SECRET` + new
   `JWT_KID` and do NOT keep the old one in `JWT_PREVIOUS_SECRETS` — every
   outstanding access token is rejected at once (that is the point). Asymmetric
@@ -779,15 +788,19 @@ table for who-did-what investigations.
 
 ## Redis cache: timeouts, pool, revocation cache
 
-- Every cache client is bounded: `CACHE_SOCKET_TIMEOUT_SECONDS` /
-  `CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS` (0.5 s), keepalive, a 30 s health
-  check, a blocking pool of `CACHE_MAX_CONNECTIONS` (64) per process with
-  `CACHE_POOL_TIMEOUT_SECONDS` (1 s) and one retry of connection errors. A
-  dead or hung Redis therefore makes cache operations fail in about a second,
-  and each caller's policy applies: the rate limiter fails open (or 503 with
-  `fail_closed=True`), token revocation follows `AUTH_REVOCATION_FAIL_CLOSED`,
-  the idempotency guard follows its `fail_closed`, and the login lockout
-  answers 503 in production. Size `CACHE_MAX_CONNECTIONS` x workers below the
+- Every cache client is bounded. The bounds are options of the `redis` cache instance
+  (`INFRA.cache.<name>`), each with a default.
+  - Timeouts: `socket_timeout_seconds` and `socket_connect_timeout_seconds` (0.5 s).
+  - Keepalive, and a 30 s health check (`health_check_interval_seconds`).
+  - A blocking pool of `max_connections` (64) per process, waiting
+    `pool_timeout_seconds` (1 s).
+  - One retry of connection errors (`retry_attempts`).
+
+  A dead or hung Redis therefore makes cache operations fail in about a second.
+  Each caller's policy then applies. The rate limiter fails open (or 503 with
+  `fail_closed=True`), and token revocation follows `AUTH_REVOCATION_FAIL_CLOSED`.
+  The idempotency guard follows its `fail_closed`, and the login lockout
+  answers 503 in production. Size `max_connections` x workers below the
   Redis `maxclients`. The event-bus transport uses its own client without the
   read timeout, because blocking stream reads wait longer than that.
 - Token revocation applies on the next request everywhere: every
@@ -952,7 +965,7 @@ restore the interpreter's own behaviour exactly.
 
   | the module requires | a broker outage |
   |---|---|
-  | the queue on the request path (no feature, or `delay`, `idempotency_key`) | `/ready` 503, `taskqueue_status: fail`, naming the instance |
+  | the queue on the request path (no feature, or `delay`) | `/ready` 503, `taskqueue_status: fail`, naming the instance |
   | only `periodic` (Billing) | the web process can stay ready. `taskqueue_status` is `unused`, and internal details list the module under `background_modules`. |
   | it optionally (identity's cleanup), or not at all | never probed |
 
@@ -1022,7 +1035,7 @@ instance names).
 | `SandloomOutboxBacklogAgeingWarning` | warning | Same, > 10 s for 5m | Early warning for the above. |
 | `SandloomOutboxRelayAbsent` | warning | A job reports `sandloom_startup_duration_seconds` but no outbox age for 10m | No process runs the relay (`OUTBOX_RELAY_ENABLED`, Gunicorn leader election). |
 | `SandloomOutboxDeadLettered` | warning | Any outbox row dead-lettered in 15m | `sandloom outbox list-dead` / `requeue`. [Events](#events-outbox-relay-and-dead-letters). |
-| `SandloomConsumerGroupBehind` | page | A group's oldest unacked entry > 300 s for 10m | A consumer is down, failing or too slow; stream retention (`EVENT_STREAM_RETENTION_SECONDS`) will drop what it has not read. `sandloom streams consumers`. |
+| `SandloomConsumerGroupBehind` | page | A group's oldest unacked entry > 300 s for 10m | A consumer is down, failing or too slow; stream retention (the `retention_seconds` option) will drop what it has not read. `sandloom streams consumers`. |
 | `SandloomEventDeliverySlow` | warning | p99 end-to-end event latency > 30 s for 10m | Compare the outbox age (producer side) with the group age (consumer side) to locate the lag. |
 | `SandloomConsumerFailures` | warning | A consumer's handler fails continuously for 10m | Redeliveries pile up; poison entries end in `<channel>.dlq`. |
 | `SandloomStreamsDeadLettered` | warning | Any Streams entry dead-lettered in 15m | `sandloom streams dlq-list`, then a targeted `dlq-replay` once fixed. |

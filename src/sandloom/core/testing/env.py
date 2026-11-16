@@ -66,7 +66,9 @@ def load_test_env(
 
     ``override=True`` so a leftover shell value (a dev ``DATABASE_URL``) never
     masks the test configuration; an explicit ``SANDLOOM_TEST_DATABASE_URL`` /
-    ``SANDLOOM_TEST_CACHE_URL`` / ``SANDLOOM_TEST_BROKER_URL`` then wins over the file.
+    ``SANDLOOM_TEST_CACHE_URL`` / ``SANDLOOM_TEST_BROKER_URL`` then wins over the file
+    (merged into the file's ``INFRA`` instances; one that finds no declared
+    default cache / task queue raises).
     On a pytest-xdist worker the URLs are then rewritten to the worker's own
     backends (:mod:`sandloom.core.testing.workers`).
     Raises :class:`MissingTestEnvError` when no file is found. ``warn_if_late``

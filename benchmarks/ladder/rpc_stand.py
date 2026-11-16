@@ -18,7 +18,7 @@ Per call it reports:
   shared container; ``--no-containers`` to skip);
 * ``wall_us``.
 
-    # DATABASE_URL / CACHE_URL / BROKER_URL as for ladder.py; seed first:
+    # DATABASE_URL / BENCH_REDIS_URL / BENCH_CELERY_BROKER as for ladder.py; seed first:
     #   python -m benchsuite.platform seed
     uv run python ladder/rpc_stand.py R0 --n 5000 --reps 5
     uv run python ladder/rpc_stand.py R0 --tenant      # + tenant in the context

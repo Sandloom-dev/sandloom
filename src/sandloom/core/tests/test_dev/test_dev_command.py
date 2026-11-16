@@ -44,7 +44,9 @@ from sandloom.core.cli.dev.state import (
 )
 from sandloom.core.cli.project import generate_project
 from sandloom.core.composition import composition_root_name
+from sandloom.core.testing import workers
 from sandloom.core.testing.machine import machine_id
+from sandloom.core.tests._root_support import suite_infra_env
 
 # --------------------------------------------------------------------------- #
 # Fixtures
@@ -83,6 +85,9 @@ def _repo_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
     (root / ".gitignore").write_text(".env\n.env.test.local\n.sandloom/\n")
     (root / "deploy" / "docker-compose.dev.yml").write_text("services: {}\n")
     _git(root, "init", "-q", "-b", "main")
+    # Background auto-maintenance must not touch the template while tests copy it.
+    _git(root, "config", "maintenance.auto", "false")
+    _git(root, "config", "gc.auto", "0")
     _git(root, "add", ".")
     _git(
         root,
@@ -98,12 +103,20 @@ def _repo_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return root
 
 
+def _ignore_git_lock_files(directory: str, names: list[str]) -> list[str]:
+    """Skip the ``*.lock`` files git leaves inside ``.git`` (a maintenance run
+    holds one); a lock file of the app itself is copied like any other."""
+    if ".git" not in Path(directory).parts:
+        return []
+    return [name for name in names if name.endswith(".lock")]
+
+
 @pytest.fixture
 def repo(tmp_path: Path, _repo_template: Path) -> Path:
     """A git repository holding a minimal app, with one commit (a fresh copy
     of the module's template: a normal ``.git`` holds no absolute path)."""
     root = tmp_path / "shop"
-    shutil.copytree(_repo_template, root, symlinks=True)
+    shutil.copytree(_repo_template, root, symlinks=True, ignore=_ignore_git_lock_files)
     return root
 
 
@@ -533,8 +546,13 @@ def test_a_running_service_keeps_its_port(
 
 _VALUES = {
     "DATABASE_URL": "postgresql+asyncpg://sandloom:sandloom@127.0.0.1:24001/shop",
-    "CACHE_URL": "redis://127.0.0.1:24002/1",
-    "BROKER_URL": "redis://127.0.0.1:24002/2",
+    "INFRA": json.dumps(
+        {
+            "cache": {"default": {"url": "redis://127.0.0.1:24002/1"}},
+            "taskqueue": {"default": {"broker": "redis://127.0.0.1:24002/2"}},
+        },
+        separators=(",", ":"),
+    ),
 }
 
 
@@ -580,24 +598,207 @@ def test_a_torn_block_keeps_every_user_line(tmp_path: Path) -> None:
         f"{envfile.BEGIN}\n"
         "DATABASE_URL=postgresql://old/db\n"
         "STRIPE_KEY=sk_test_keep\n"
-        "export CACHE_URL=redis://old/1\n"
+        "export DATABASE_URL=postgresql://older/db\n"
         "FEATURE_X=on\n"
     )
     urls = {
         "DATABASE_URL": "postgresql://127.0.0.1:1/shop",
-        "CACHE_URL": "redis://127.0.0.1:2/1",
-        "BROKER_URL": "redis://127.0.0.1:2/2",
+        "INFRA": _VALUES["INFRA"],
     }
     assert envfile.write_env_block(env, urls)
     text = env.read_text()
     for kept in ("JWT_SECRET=s", "STRIPE_KEY=sk_test_keep", "FEATURE_X=on"):
         assert f"\n{kept}\n" in f"\n{text}"
     assert "# (moved into the sandloom dev block below) DATABASE_URL=" in text
-    assert "# (moved into the sandloom dev block below) export CACHE_URL=" in text
+    assert "# (moved into the sandloom dev block below) export DATABASE_URL=" in text
     assert text.count(envfile.BEGIN) == 1 and text.count(envfile.END) == 1
     assert envfile.read_block(text) == urls
     # Stable from now on: a second write changes nothing.
     assert not envfile.write_env_block(env, urls)
+
+
+_MINE = (
+    'INFRA=\'{"cache":{"default":{"url":"redis://mine/3"}},'
+    '"notification":{"default":{"driver":"smtp","host":"smtp.example.test"}}}\'\n'
+)
+
+
+def _winning_infra(env: Path) -> dict[str, Any]:
+    from dotenv import dotenv_values
+
+    value = dotenv_values(env)["INFRA"]
+    assert value is not None
+    parsed: dict[str, Any] = json.loads(value)
+    return parsed
+
+
+def test_a_user_infra_above_the_block_is_merged_and_kept(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text(_MINE + "A=1\n")
+    assert envfile.write_env_block(env, _VALUES)
+    text = env.read_text()
+    assert text.startswith(_MINE)  # the user's line stays as written
+    merged = _winning_infra(env)  # the block comes later and wins
+    assert merged["cache"]["default"] == {"url": "redis://mine/3"}  # theirs wins
+    assert merged["taskqueue"] == {  # only ours: kept
+        "default": {"broker": "redis://127.0.0.1:24002/2"}
+    }
+    assert merged["notification"]["default"]["host"] == "smtp.example.test"
+    assert not envfile.write_env_block(env, _VALUES)  # stable
+
+
+def test_a_user_infra_below_the_block_is_set_aside_and_still_merged(
+    tmp_path: Path,
+) -> None:
+    env = tmp_path / ".env"
+    env.write_text(envfile.render_block(_VALUES) + _MINE)
+    assert envfile.write_env_block(env, _VALUES)
+    text = env.read_text()
+    assert "# (your INFRA, merged into the sandloom dev block above) INFRA=" in text
+    assert _winning_infra(env)["cache"]["default"] == {"url": "redis://mine/3"}
+    assert not envfile.write_env_block(env, _VALUES)  # stable
+    # The set-aside line is the source of the next merge: ours moves, theirs stay.
+    moved = json.dumps(
+        {"taskqueue": {"default": {"broker": "redis://127.0.0.1:9/9"}}},
+        separators=(",", ":"),
+    )
+    assert envfile.write_env_block(env, {**_VALUES, "INFRA": moved})
+    merged = _winning_infra(env)
+    assert merged["taskqueue"]["default"]["broker"] == "redis://127.0.0.1:9/9"
+    assert merged["cache"]["default"] == {"url": "redis://mine/3"}
+    # ... even when this run manages no INFRA of its own.
+    assert envfile.write_env_block(env, {"DATABASE_URL": _VALUES["DATABASE_URL"]})
+    assert _winning_infra(env)["cache"]["default"] == {"url": "redis://mine/3"}
+
+
+def test_an_infra_above_and_below_the_block_keeps_the_below_one_winning(
+    tmp_path: Path,
+) -> None:
+    """As in a dotenv file the last assignment wins: with one above the block
+    and one below it, the below one keeps winning after it is set aside, on
+    every later run (it never gives way to the one above)."""
+    above = 'INFRA=\'{"cache":{"default":{"url":"redis://above/1"}}}\'\n'
+    below = 'INFRA=\'{"cache":{"default":{"url":"redis://below/2"}}}\'\n'
+    env = tmp_path / ".env"
+    env.write_text(above + envfile.render_block(_VALUES) + below)
+    assert envfile.write_env_block(env, _VALUES)
+    assert _winning_infra(env)["cache"]["default"] == {"url": "redis://below/2"}
+    assert not envfile.write_env_block(env, _VALUES)  # stable
+    moved = json.dumps(
+        {"taskqueue": {"default": {"broker": "redis://127.0.0.1:9/9"}}},
+        separators=(",", ":"),
+    )
+    assert envfile.write_env_block(env, {**_VALUES, "INFRA": moved})
+    assert _winning_infra(env)["cache"]["default"] == {"url": "redis://below/2"}
+    assert envfile.write_env_block(env, {"DATABASE_URL": _VALUES["DATABASE_URL"]})
+    assert _winning_infra(env)["cache"]["default"] == {"url": "redis://below/2"}
+
+
+def test_a_broken_user_infra_is_refused_and_the_file_untouched(
+    tmp_path: Path,
+) -> None:
+    env = tmp_path / ".env"
+    for bad in ("INFRA='{not json'\n", "INFRA='[1]'\n", "INFRA='{\"cache\":1}'\n"):
+        env.write_text(bad)
+        with pytest.raises(envfile.InvalidInfra):
+            envfile.write_env_block(env, _VALUES)
+        assert env.read_text() == bad
+    # Not managed in this run, so not read: no refusal for a line dev ignores.
+    env.write_text("INFRA='{not json'\n")
+    assert envfile.write_env_block(env, {"DATABASE_URL": _VALUES["DATABASE_URL"]})
+
+
+def test_infra_with_a_quote_cannot_be_written_into_the_block(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text("")
+    quoted = {"cache": {"default": {"url": "redis://:pa'ss@h/0"}}}
+    with pytest.raises(envfile.InvalidInfra, match="quote"):
+        envfile.write_env_block(env, {"INFRA": json.dumps(quoted)})
+
+
+def test_managed_infra_gives_each_redis_instance_its_own_url() -> None:
+    selection = {
+        "database": {"default": {"driver": "sqlalchemy"}},
+        "cache": {"default": {"driver": "redis"}},
+        "broadcast": {"default": {"driver": "redis"}},
+        "eventbus": {"default": {"driver": "streams"}},
+        "atomic_store": {"security": {"driver": "redis"}},
+        "lease": {"beat": {"driver": "redis"}},
+        "taskqueue": {"default": {"driver": "celery"}},
+        "objectstore": {"default": {"driver": "local"}},
+    }
+    url_options = {
+        "cache.redis": "url",
+        "broadcast.redis": "url",
+        "eventbus.streams": "url",
+        "atomic_store.redis": "url",
+        "lease.redis": "url",
+        "taskqueue.celery": "broker",
+    }
+    managed = envfile.managed_infra(
+        selection,
+        url_options,
+        cache_url="redis://h/1",
+        persistent_url="redis://h/2",
+        memory_bus=False,
+    )
+    assert managed == {
+        "cache": {"default": {"url": "redis://h/1"}},
+        "broadcast": {"default": {"url": "redis://h/1"}},
+        "eventbus": {"default": {"url": "redis://h/2"}},
+        "atomic_store": {"security": {"url": "redis://h/2"}},
+        "lease": {"beat": {"url": "redis://h/2"}},
+        "taskqueue": {"default": {"broker": "redis://h/2"}},
+    }
+    # No persistent instance shares the cache's database.
+    cache_url = managed["cache"]["default"]["url"]
+    persistent = [
+        spec
+        for capability in ("eventbus", "atomic_store", "lease", "taskqueue")
+        for instances in [managed[capability]]
+        for spec in instances.values()
+    ]
+    assert all(cache_url not in spec.values() for spec in persistent)
+    # The in-process bus takes no url; an instance that names its own keeps it.
+    memory = envfile.managed_infra(
+        selection,
+        url_options,
+        cache_url="redis://h/1",
+        persistent_url="redis://h/2",
+        memory_bus=True,
+    )
+    assert "eventbus" not in memory and "lease" in memory
+    named = {"cache": {"default": {"driver": "redis", "url": "redis://own/0"}}}
+    assert (
+        envfile.managed_infra(
+            named,
+            url_options,
+            cache_url="redis://h/1",
+            persistent_url="redis://h/2",
+            memory_bus=False,
+        )
+        == {}
+    )
+    # A driver that declares no url option gets no url, whatever its name: the
+    # table is the drivers' declaration, not a list of names in the kernel.
+    assert (
+        envfile.managed_infra(
+            selection,
+            {},
+            cache_url="redis://h/1",
+            persistent_url="redis://h/2",
+            memory_bus=False,
+        )
+        == {}
+    )
+    other = {"cache": {"default": {"driver": "valkey"}}}
+    assert envfile.managed_infra(
+        other,
+        {"cache.valkey": "dsn"},
+        cache_url="redis://h/1",
+        persistent_url="redis://h/2",
+        memory_bus=False,
+    ) == {"cache": {"default": {"dsn": "redis://h/1"}}}
 
 
 def test_an_edit_during_the_write_is_merged(
@@ -651,6 +852,210 @@ def test_a_new_worktree_gets_a_seeded_env(
     assert ctx.identity.database != "shop"
     local = (worktree / ".env.test.local").read_text()
     assert f"/{ctx.identity.test_database}\n" in local
+
+
+_SELECTION = {
+    "database": {"default": {"driver": "sqlalchemy"}},
+    "cache": {"default": {"driver": "redis"}},
+    "eventbus": {"default": {"driver": "streams"}},
+    "atomic_store": {"security": {"driver": "redis"}},
+    "taskqueue": {"default": {"driver": "celery"}},
+}
+#: What the installed drivers declare (``InfraProvider.url_option``).
+_URL_OPTIONS = {
+    "cache.redis": "url",
+    "eventbus.streams": "url",
+    "atomic_store.redis": "url",
+    "taskqueue.celery": "broker",
+}
+
+
+def test_the_block_names_each_redis_instance_of_the_composition(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        commands,
+        "composition_selection",
+        lambda c, text, checkout=None: commands.CompositionSelection(
+            _SELECTION, _URL_OPTIONS
+        ),
+    )
+    environ.pop("EVENT_BUS_BACKEND", None)
+    ctx = _ctx(repo, environ)
+    state = _state(ctx)
+    row = commands.checkout_row(ctx, state)
+    (repo / ".env").write_text("EVENT_BUS_BACKEND=memory\n")
+    infra = json.loads(commands.checkout_urls(ctx, state, row)["INFRA"])
+    # The in-process bus is selected in .env: no url for it.
+    assert set(infra) == {"cache", "atomic_store", "taskqueue"}
+    redis = ctx.redis(state)
+    assert infra["cache"]["default"]["url"] == redis.url(row.cache_index)
+    assert infra["atomic_store"]["security"]["url"] == redis.url(row.broker_index)
+    assert infra["taskqueue"]["default"]["broker"] == redis.url(row.broker_index)
+    (repo / ".env").write_text("EVENT_BUS_BACKEND=streams\n")
+    again = json.loads(commands.checkout_urls(ctx, state, row)["INFRA"])
+    assert again["eventbus"]["default"]["url"] == redis.url(row.broker_index)
+    # The summary lists every instance's url.
+    lines = commands._infra_lines(commands.checkout_urls(ctx, state, row))
+    assert any("eventbus.default url=" in line for line in lines)
+
+
+def _test_local(
+    repo: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    infra: dict[str, Any],
+) -> dict[str, str]:
+    """``dev up``'s ``.env.test.local`` for a composition selecting ``infra``, in
+    an app whose ``.env.test`` declares a url on the cache and task queue defaults
+    (the case ``test_dev_test_overrides`` covers for every other ``.env.test``)."""
+    (repo / ".env.test").write_text(
+        "INFRA='"
+        + json.dumps(
+            {
+                "cache": {"default": {"url": "redis://127.0.0.1:6380/15"}},
+                "taskqueue": {"default": {"broker": "redis://127.0.0.1:6380/14"}},
+            }
+        )
+        + "'\n"
+    )
+    monkeypatch.setattr(
+        commands,
+        "composition_selection",
+        lambda c, text, checkout=None: commands.CompositionSelection(
+            infra, _URL_OPTIONS
+        ),
+    )
+    ctx = _ctx(repo, environ)
+    state = _state(ctx)
+    commands.write_checkout_files(ctx, state, commands.checkout_row(ctx, state))
+    return dict(
+        line.split("=", 1)
+        for line in (repo / ".env.test.local").read_text().splitlines()
+        if line.startswith("SANDLOOM_TEST_")
+    )
+
+
+@pytest.mark.parametrize(
+    ("infra", "names"),
+    [
+        (_SELECTION, {"CACHE_URL", "BROKER_URL"}),
+        # a trimmed composition: no task queue, no cache
+        ({k: v for k, v in _SELECTION.items() if k != "taskqueue"}, {"CACHE_URL"}),
+        ({k: v for k, v in _SELECTION.items() if k != "cache"}, {"BROKER_URL"}),
+        ({"database": _SELECTION["database"]}, set()),
+        # the capability is there, its driver connects by no url
+        ({"cache": {"default": {"driver": "memory"}}}, set()),
+        # only a ``default`` instance is overridden
+        ({"cache": {"other": {"driver": "redis"}}}, set()),
+        # no composition read (the framework's own checkout): both are kept
+        ({}, {"CACHE_URL", "BROKER_URL"}),
+    ],
+    ids=[
+        "full",
+        "no-taskqueue",
+        "no-cache",
+        "neither",
+        "no-url",
+        "no-default",
+        "empty",
+    ],
+)
+def test_dev_up_writes_only_the_test_overrides_the_composition_can_take(
+    repo: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    infra: dict[str, Any],
+    names: set[str],
+) -> None:
+    """The harness refuses ``SANDLOOM_TEST_CACHE_URL`` / ``SANDLOOM_TEST_BROKER_URL``
+    where ``INFRA`` has no such instance, and ``dev up`` rewrites the file: a name
+    written for a capability the app does not select would stop every test run
+    with no way to unset it."""
+    written = _test_local(repo, environ, monkeypatch, infra)
+    assert set(written) == {"SANDLOOM_TEST_DATABASE_URL"} | {
+        f"SANDLOOM_TEST_{n}" for n in names
+    }
+
+
+def test_a_trimmed_composition_runs_its_tests_with_the_written_overrides(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End to end with the harness: the file written for an app without a task
+    queue, applied to that app's ``INFRA``, raises nothing; the unconditional file
+    of before raised ``UnmatchedOverrideError``."""
+    trimmed = {k: v for k, v in _SELECTION.items() if k != "taskqueue"}
+    written = _test_local(repo, environ, monkeypatch, trimmed)
+    infra = json.dumps({"cache": {"default": {"url": "redis://127.0.0.1:1/0"}}})
+    applied = workers.explicit_test_overrides(written, current={"INFRA": infra})
+    assert (
+        json.loads(applied["INFRA"])["cache"]["default"]["url"]
+        == (written["SANDLOOM_TEST_CACHE_URL"])
+    )
+    everything = {"SANDLOOM_TEST_BROKER_URL": "redis://127.0.0.1:2/1", **written}
+    with pytest.raises(workers.UnmatchedOverrideError):
+        workers.explicit_test_overrides(everything, current={"INFRA": infra})
+
+
+def test_a_dropped_capability_leaves_the_override_file(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``dev up`` rewrites the file whole: a name a previous composition had is
+    gone once the selection no longer has its capability."""
+    assert "SANDLOOM_TEST_BROKER_URL" in _test_local(
+        repo, environ, monkeypatch, _SELECTION
+    )
+    trimmed = {k: v for k, v in _SELECTION.items() if k != "taskqueue"}
+    assert "SANDLOOM_TEST_BROKER_URL" not in _test_local(
+        repo, environ, monkeypatch, trimmed
+    )
+
+
+def _app_package(root: Path, body: str) -> None:
+    (root / "shopapp").mkdir(exist_ok=True)
+    (root / "shopapp" / "__init__.py").write_text(body)
+
+
+def test_the_composition_is_read_in_the_checkout_by_a_child_process(
+    repo: Path, worktree: Path, environ: dict[str, str]
+) -> None:
+    """Each checkout answers with ITS package (a sibling worktree's selection
+    never comes from the app this interpreter imports), and no settings load
+    in the CLI process."""
+    environ["SANDLOOM_COMPOSITION_ROOT"] = "shopapp.asgi"
+    ctx = _ctx(repo, environ)
+    _app_package(repo, 'DEFAULT_INFRA = {"cache": {"default": {"driver": "redis"}}}\n')
+    _app_package(
+        worktree, 'DEFAULT_INFRA = {"lease": {"default": {"driver": "redis"}}}\n'
+    )
+    assert set(commands.composition_selection(ctx, "", repo).infra) == {"cache"}
+    assert set(commands.composition_selection(ctx, "", worktree).infra) == {"lease"}
+    # No package or none exporting a selection: nothing to manage.
+    nothing = commands.CompositionSelection({}, {})
+    _app_package(repo, "")
+    assert commands.composition_selection(ctx, "", repo) == nothing
+    environ["SANDLOOM_COMPOSITION_ROOT"] = "absentapp.asgi"
+    assert commands.composition_selection(ctx, "", repo) == nothing
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ("raise ImportError('boom')\n", "boom"),
+        ("raise RuntimeError('config exploded')\n", "config exploded"),
+        ("def broken(:\n", "SyntaxError"),
+        ("DEFAULT_INFRA = {'cache': {'default': object()}}\n", "not JSON|TypeError"),
+    ],
+    ids=["import-error", "other-error", "syntax-error", "not-serializable"],
+)
+def test_a_composition_that_cannot_be_read_stops_dev_up(
+    repo: Path, environ: dict[str, str], body: str, message: str
+) -> None:
+    environ["SANDLOOM_COMPOSITION_ROOT"] = "shopapp.asgi"
+    ctx = _ctx(repo, environ)
+    _app_package(repo, body)
+    with pytest.raises(commands.DevError, match=f"DEFAULT_INFRA.*shopapp.*{message}"):
+        commands.composition_selection(ctx, "", repo)
 
 
 def test_localhost_is_never_written(
@@ -804,14 +1209,19 @@ _REFUSED = 'connection to server at "127.0.0.1", port 5432 failed: Connection re
 
 def test_connection_failures_become_one_line() -> None:
     import psycopg2  # type: ignore[import-untyped]
-    import redis
 
     line = errors.connection_failure(psycopg2.OperationalError(_REFUSED))
     assert line == (
         "error: cannot reach PostgreSQL at 127.0.0.1:5432 (connection refused). "
         "Start the dev services: uv run sandloom dev up   [SANDLOOM-R014]"
     )
-    rd = redis.exceptions.ConnectionError(
+    # The kernel recognises a Redis client's error by its module and name, so a
+    # stand-in needs no client (the real one: the sandloom-redis package's
+    # ``test_redis_unreachable_message.py``).
+    redis_connection_error = type(
+        "ConnectionError", (Exception,), {"__module__": "redis.exceptions"}
+    )
+    rd = redis_connection_error(
         "Error 61 connecting to 127.0.0.1:6379. Connection refused."
     )
     assert "cannot reach Redis at 127.0.0.1:6379" in (
@@ -948,12 +1358,10 @@ def test_the_cli_prints_one_line_and_debug_shows_the_traceback(
     env = {
         k: v
         for k, v in os.environ.items()
-        if not k.startswith(("SANDLOOM_", "DATABASE_URL", "CACHE_URL", "BROKER_URL"))
+        if not k.startswith(("SANDLOOM_", "DATABASE_URL"))
     }
     env.update(
         DATABASE_URL="postgresql+asyncpg://u:p@127.0.0.1:1/x",
-        CACHE_URL="redis://127.0.0.1:2/0",
-        BROKER_URL="redis://127.0.0.1:2/1",
         JWT_SECRET="x" * 64,
         ENVIRONMENT="dev",
         SANDLOOM_HOME=str(tmp_path / "home"),
@@ -963,6 +1371,7 @@ def test_the_cli_prints_one_line_and_debug_shows_the_traceback(
         # root this run does (an issuer needs its trust map, SANDLOOM-B035)
         SANDLOOM_COMPOSITION_ROOT=composition_root_name(),
     )
+    env.update(suite_infra_env(env))  # a root that selects no driver (kernel-only venv)
     entry = "import sys; from sandloom import main; main()"
 
     def run(*args: str, **extra: str) -> subprocess.CompletedProcess[str]:
@@ -1370,7 +1779,7 @@ def test_dev_run_serves_a_database_named_in_env_without_dev_services(
     (repo / ".env").write_text(
         envfile.empty_block()
         + "DATABASE_URL=sqlite+aiosqlite:///./data/app.db\n"
-        + "CACHE_URL=redis://127.0.0.1:6379/0\n"
+        + 'INFRA=\'{"cache":{"default":{"url":"redis://127.0.0.1:6379/0"}}}\'\n'
     )
     monkeypatch.setattr(commands, "up", lambda c, o: pytest.fail("started"))
     monkeypatch.setattr(commands, "app_port", lambda port, sticky=None: 8123)

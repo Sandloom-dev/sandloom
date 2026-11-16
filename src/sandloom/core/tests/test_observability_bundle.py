@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -30,8 +31,33 @@ RULES = sorted((OBS / "prometheus" / "rules").glob("*.yml"))
 DASHBOARDS = sorted((OBS / "grafana" / "dashboards").glob("*.json"))
 OPERATIONS = REPO / "docs" / "operate" / "operator-reference.md"
 
+
+def _driver_modules() -> tuple[str, ...]:
+    """The modules of the installed driver packages, read from their
+    ``sandloom.drivers`` entry points (the registry's own source): their
+    metrics, declared through ``sandloom.driverkit.observe`` at import, are the
+    ones the bundle's driver panels and alerts query."""
+    return tuple(sorted({entry.value.split(":", 1)[0] for entry in _driver_entries()}))
+
+
+def _driver_entries() -> list[metadata.EntryPoint]:
+    return list(metadata.entry_points().select(group="sandloom.drivers"))
+
+
+#: The driver rows whose metrics the bundle's panels and alerts query: the
+#: bundle is only checkable where their packages are installed.
+_BUNDLE_DRIVER_ROWS = frozenset({"cache.redis", "eventbus.streams"})
+
 pytestmark = pytest.mark.skipif(
     not OBS.is_dir(), reason="deploy/observability not in this checkout"
+)
+
+#: Only the test that compares the bundle's queries with the live metric
+#: registry needs the driver packages (the alert index, dashboards and overlay
+#: tests do not, so they run without them).
+needs_driver_metrics = pytest.mark.skipif(
+    not _BUNDLE_DRIVER_ROWS <= {entry.name for entry in _driver_entries()},
+    reason="the Redis driver package is not installed: the bundle queries its metrics",
 )
 
 #: Modules that define Prometheus metrics at import time.
@@ -45,13 +71,10 @@ METRIC_MODULES = (
     "sandloom.core.eventing.memory_bus",
     "sandloom.core.eventing.pubsub_bus",
     "sandloom.core.eventing.streams_bus",
-    "sandloom.core.drivers.redis_eventbus.streams_transport",
     "sandloom.core.eventing.memory_transport",
     "sandloom.core.eventing.consumer_inbox",
     "sandloom.core.unit_of_work.dispatch",
     "sandloom.core.contract_cache_shadow",
-    # Driver metrics, declared through sandloom.driverkit.observe at import.
-    "sandloom.core.drivers.redis_cache",
 )
 
 #: Series Prometheus itself synthesises for every target.
@@ -81,7 +104,7 @@ _PROMQL_WORDS = frozenset(
 
 def _registered() -> dict[str, frozenset[str]]:
     """Series name -> labels a query may use on it, from the live registry."""
-    for module in METRIC_MODULES:
+    for module in (*METRIC_MODULES, *_driver_modules()):
         importlib.import_module(module)
     series: dict[str, frozenset[str]] = {}
     # ``_names_to_collectors`` maps every exported series name (``_total``,
@@ -196,6 +219,7 @@ def test_parser_sees_metrics_labels_and_grouping() -> None:
     assert grouping == {"le", "peer", "job"}
 
 
+@needs_driver_metrics
 def test_every_referenced_metric_and_label_exists() -> None:
     known = {**_registered(), **_recorded(), **SYNTHETIC}
     problems: list[str] = []

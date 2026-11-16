@@ -10,7 +10,6 @@ environments warn. (``OUTBOX_RELAY_ENABLED=off`` is the accepted-risks list's
 from __future__ import annotations
 
 import logging
-from importlib.util import find_spec
 from types import SimpleNamespace
 from typing import Any
 
@@ -18,6 +17,7 @@ import pytest
 
 from sandloom.core import effects
 from sandloom.core import guarantee_windows as gw
+from sandloom.core.infra import registry as registry_module
 from sandloom.core.infra.ports.eventbus import Retention
 
 
@@ -102,30 +102,28 @@ def test_the_inbox_window_requires_the_retention_it_is_checked_against() -> None
     ("settings", "days", "risky"),
     [
         # streams configured with the 7 days default
+        ({"event_bus_backend": "streams"}, 0.5, True),
+        # (the default itself, seven days, is the driver's: asserted where the
+        # package is installed, test_redis_options_from_settings)
         (
             {
                 "event_bus_backend": "streams",
-                "event_stream_retention_seconds": 7 * 86400,
-            },
-            0.5,
-            True,
-        ),
-        (
-            {
-                "event_bus_backend": "streams",
-                "event_stream_retention_seconds": 7 * 86400,
+                "infra": {"eventbus": {"default": {"retention_seconds": 7 * 86400}}},
             },
             8,
             False,
         ),
         # unbounded retention: any purge
         (
-            {"event_bus_backend": "streams", "event_stream_retention_seconds": 0},
+            {
+                "event_bus_backend": "streams",
+                "infra": {"eventbus": {"default": {"retention_seconds": 0}}},
+            },
             365,
             True,
         ),
-        # production auto resolves to streams
-        ({"event_bus_backend": "auto", "is_prod": True}, 0.5, True),
+        # production, nothing selected: the default bus is the composition's
+        ({"event_bus_backend": None, "is_prod": True}, 0.5, True),
         # INFRA names the retention of the default instance
         (
             {
@@ -137,7 +135,7 @@ def test_the_inbox_window_requires_the_retention_it_is_checked_against() -> None
         ),
         # a volatile bus states no retention: refused (never "no window")
         ({"event_bus_backend": "memory"}, 365, True),
-        ({"event_bus_backend": "auto"}, 365, True),
+        ({"event_bus_backend": None}, 365, True),
         ({"event_bus_backend": "redis"}, 365, True),
     ],
 )
@@ -155,7 +153,21 @@ def test_an_undetermined_retention_names_the_setting() -> None:
         _settings(event_bus_backend="memory"), 365
     )
     assert "EVENT_BUS_BACKEND" in problem.message
-    assert "EVENT_STREAM_RETENTION_SECONDS" in problem.settings
+    assert gw.RETENTION_OPTION in problem.settings
+
+
+def test_a_missing_driver_package_is_named_not_blamed_on_the_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``streams`` is configured but ``sandloom-redis`` is not installed in
+    this process: the message names the package, not ``EVENT_BUS_BACKEND``."""
+    monkeypatch.setattr(registry_module, "_one_plugin", lambda group, name: None)
+    (problem,) = gw.configured_inbox_purge_problems(
+        _settings(event_bus_backend="streams"), 365
+    )
+    assert "pip install sandloom-redis" in problem.message
+    assert "not installed" in problem.message
+    assert "set EVENT_BUS_BACKEND" not in problem.message
 
 
 def test_production_refuses_and_names_the_risk() -> None:
@@ -196,40 +208,6 @@ def test_window_risk_ids_are_registered_accepted_risks() -> None:
     assert gw.COMMAND_DEDUPE_BELOW_RETRY_HORIZON in accepted_risks.RISK_IDS
 
 
-_STRONG_KEY = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
-
-
-def test_create_app_refuses_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
-    from sandloom.core.config import module_settings
-    from sandloom.core.config.settings import settings
-    from sandloom.core.tests._root_support import create_root_app
-
-    monkeypatch.setattr(settings, "contract_command_dedupe_ttl_seconds", 5)
-    monkeypatch.setattr(settings, "environment", "prod")
-    # prod selects the shared Streams bus: name the service (ADR-0012 d. 5).
-    monkeypatch.setattr(settings, "sandloom_service_name", "api")
-    # Production declares its security store on every profile (spec 4).
-    monkeypatch.setattr(
-        settings,
-        "infra",
-        {
-            "atomic_store": {
-                "security": {"driver": "redis", "url": "redis://sec:6379/0"}
-            }
-        },
-    )
-    # The bundled modules refuse prod without these while they register,
-    # before the window check runs: satisfy them so this test sees its own.
-    # (identity's own settings read the process's source read: re-take it)
-    monkeypatch.setenv("TWOFA_ENCRYPTION_KEY", _STRONG_KEY)
-    monkeypatch.setattr(module_settings, "_PROCESS_SNAPSHOT", None)
-    # billing's own risk id is known only where billing is installed (a risk
-    # naming an unknown module is refused, also in the no-batteries venv).
-    billing = ["billing.fake_psp_in_prod"] if find_spec("sandloom_billing") else []
-    monkeypatch.setattr(
-        settings,
-        "sandloom_accepted_risks",
-        [*settings.sandloom_accepted_risks, *billing, "log_notifier_in_prod"],
-    )
-    with pytest.raises(gw.GuaranteeWindowError, match="command_dedupe"):
-        create_root_app()
+# ``create_app`` refusing a window violation in production needs the shared
+# (Redis, Streams) drivers a production selection names, which the kernel does
+# not ship: ``packages/sandloom-redis/tests/test_guarantee_windows_prod.py``.

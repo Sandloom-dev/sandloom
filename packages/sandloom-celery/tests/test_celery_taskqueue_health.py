@@ -1,0 +1,145 @@
+"""The ``celery`` taskqueue's broker probe (owner decision on infrastructure
+dependencies, answer 4): a real, bounded check, not the default ``ok``.
+
+``health()`` opens one connection to the app's broker and releases it, with
+the connect and socket timeouts set to ``HEALTH_CHECK_TIMEOUT_SECONDS`` and no
+retry; no detail of the answer names the broker (no URL, no host, no
+credential: security review S7). Its readers cache it (``/ready``: one probe
+per TTL).
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Any
+
+import pytest
+from celery import Celery
+from sandloom_celery import broker_probe as probe
+from sandloom_celery.taskqueue import create_celery_taskqueue
+
+from sandloom.driverkit import InstanceConfig
+
+#: Nothing listens on port 1: refused at once.
+_REFUSED = "redis://:s3cret-pass@127.0.0.1:1/0"
+
+
+def _app(broker: str) -> Celery:
+    return Celery("kbic3-probe", broker=broker)
+
+
+async def test_a_reachable_broker_is_ok(real_broker: str) -> None:
+    result = await probe.probe_broker(_app(real_broker), limit_seconds=2.0)
+
+    assert result.status == "ok", result.details
+    assert not result.details  # nothing of the broker
+
+
+def _leaks(text: str) -> list[str]:
+    """What of the refused broker's address or secret ``text`` carries."""
+    return [part for part in ("s3cret", "127.0.0.1", ":1/", "redis://") if part in text]
+
+
+async def test_an_unreachable_broker_fails_without_naming_it() -> None:
+    """A refused connection raises; every health reader turns it into a
+    failed probe carrying this message: the type of the error, never the broker
+    (no credential, no host string)."""
+    started = time.monotonic()
+    with pytest.raises(probe.BrokerUnreachableError) as caught:
+        await probe.probe_broker(_app(_REFUSED), limit_seconds=2.0)
+
+    assert str(caught.value).startswith("broker unreachable: ")
+    assert _leaks(str(caught.value)) == []
+    assert time.monotonic() - started < 2.0  # refused: no retry, no backoff
+
+
+async def test_a_client_error_that_prints_the_url_does_not_reach_the_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refuse(app: Any, timeout: float) -> None:
+        raise ConnectionError(f"Error connecting to {_REFUSED}")
+
+    monkeypatch.setattr(probe, "_connect_once", refuse)
+    with pytest.raises(probe.BrokerUnreachableError) as caught:
+        await probe.probe_broker(_app(_REFUSED), limit_seconds=2.0)
+    assert str(caught.value) == "broker unreachable: ConnectionError"
+
+
+async def test_a_hanging_broker_is_bounded_by_the_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A broker that never answers costs at most the timeout, and the
+    connect thread is bounded by it too (never left running)."""
+
+    def hang(app: Any, timeout: float) -> None:
+        time.sleep(timeout + 5)
+
+    monkeypatch.setattr(probe, "_connect_once", hang)
+    started = time.monotonic()
+    result = await probe.probe_broker(_app(_REFUSED), limit_seconds=0.2)
+
+    assert result.status == "fail"
+    assert result.details == {"error": "timeout"}
+    assert _leaks(str(result.details)) == []
+    assert time.monotonic() - started < 1.0
+
+
+def test_the_connect_is_bounded_and_does_not_retry() -> None:
+    """The kombu connection gets the bound as its connect timeout and, on a
+    Redis transport, as its socket timeouts (an operator's own win)."""
+    seen: dict[str, Any] = {}
+
+    class _Connection:
+        def ensure_connection(self, **kwargs: Any) -> None:
+            seen["ensure"] = kwargs
+
+        def release(self) -> None:
+            seen["released"] = True
+
+    class _App:
+        class conf:
+            broker_url = "redis://cache:6379/1"
+            broker_transport_options = {"socket_timeout": 9.0}
+
+        def connection_for_write(self, **kwargs: Any) -> _Connection:
+            seen["connect"] = kwargs
+            return _Connection()
+
+    probe._connect_once(_App(), 1.5)
+
+    assert seen["connect"]["connect_timeout"] == 1.5
+    assert seen["connect"]["transport_options"] == {
+        "socket_timeout": 9.0,
+        "socket_connect_timeout": 1.5,
+    }
+    assert seen["ensure"]["max_retries"] == 1
+    assert seen["ensure"]["timeout"] == 1.5
+    assert seen["released"] is True
+
+
+async def test_the_provider_health_probes_its_broker(real_broker: str) -> None:
+    """``CeleryTaskQueueProvider.health()`` is the probe, per instance
+    broker (no longer the contract's default ``ok``), bounded by its
+    ``health_timeout_seconds`` option."""
+    down = create_celery_taskqueue(
+        InstanceConfig(
+            capability="taskqueue",
+            name="kbic3",
+            driver="celery",
+            options={"broker": _REFUSED, "health_timeout_seconds": 2.0},
+        )
+    )
+    up = create_celery_taskqueue(
+        InstanceConfig(
+            capability="taskqueue",
+            name="kbic3-up",
+            driver="celery",
+            options={"broker": real_broker},
+        )
+    )
+
+    refused = await down.health()
+    # A failed probe carrying the error's type name, never its text (spec 2.4).
+    assert refused.status == "fail"
+    assert refused.details == {"error": "BrokerUnreachableError"}
+    assert (await up.health()).status == "ok"

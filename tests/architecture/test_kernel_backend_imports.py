@@ -10,16 +10,20 @@ a literal name) in the kernel and its two public siblings, ``sandloom.sdk`` and
 ``sandloom.shared``, outside ``core/drivers`` and outside the kernel's own unit
 tests (``core/tests``, ``core/**/tests``).
 
-The allowlist ``kernel_backend_import_allowlist.json`` is seeded with today's
-sites and shrinks only:
+The allowlist ``kernel_backend_import_allowlist.json`` is exact (strict since
+``idk-ratchets-close``):
 
 * a (file, SDK) pair that is not in it fails, and so does a pair with more
   sites than it allows;
-* a stale entry (fewer sites than listed, or none) does NOT fail, so the slice
-  that removes a site never edits this file; ``idk-ratchets-close`` prunes the
-  entries and makes the test strict;
-* every entry names ``removed_by``, the slice that removes it (or the
-  justification when the site stays).
+* a stale entry fails too (fewer sites than listed, or none): the change that
+  removes a site lowers or drops its entry in the same commit;
+* every entry names ``reason``, why the site stays.
+
+Two sites stay: ``core/migrations/pg_sync.py`` (the one lazy import of
+``psycopg2``, which the PostgreSQL ops tools and the test harness name through
+``sandloom.core.migrations.pg_sync``) and ``core/cli/dev/services.py`` (the
+optional Redis client of ``sandloom dev``, imported by name inside
+``except ImportError``).
 
 An entry is keyed by file and SDK, never by line, so a shifted line does not
 fail the test.
@@ -148,16 +152,37 @@ def new_offences(
     return offences
 
 
+def stale_entries(
+    found: dict[tuple[str, str], int],
+    allowed: Mapping[tuple[str, str], Mapping[str, Any]],
+) -> list[str]:
+    """Entries that list more sites than the scan finds (or any, for a gone one)."""
+    return [
+        f"{rel}: lists {entry['sites']} import(s) of {sdk}, the scan finds "
+        f"{found.get((rel, sdk), 0)}"
+        for (rel, sdk), entry in sorted(allowed.items())
+        if found.get((rel, sdk), 0) < int(entry["sites"])
+    ]
+
+
 def test_the_kernel_imports_no_new_backend_sdk() -> None:
     offences = new_offences(scan_kernel(), load_allowlist())
     assert offences == [], (
         "The kernel reaches a backend SDK outside core/drivers (ADR-0016). Reach "
-        "it through a capability provider; the driver owns the SDK. The "
-        "allowlist only shrinks:\n" + "\n".join(offences)
+        "it through a capability provider; the driver owns the SDK:\n"
+        + "\n".join(offences)
     )
 
 
-def test_every_allowlist_entry_names_its_removal() -> None:
+def test_no_allowlist_entry_is_stale() -> None:
+    stale = stale_entries(scan_kernel(), load_allowlist())
+    assert stale == [], (
+        "kernel_backend_import_allowlist.json lists sites that are gone: lower "
+        "or drop the entry in the commit that removed them:\n" + "\n".join(stale)
+    )
+
+
+def test_every_allowlist_entry_says_why_it_stays() -> None:
     raw = json.loads(ALLOWLIST.read_text(encoding="utf-8"))["entries"]
     problems = [
         f"{entry.get('file')}/{entry.get('sdk')}"
@@ -166,12 +191,12 @@ def test_every_allowlist_entry_names_its_removal() -> None:
             entry.get("sdk") in BACKEND_SDKS
             and isinstance(entry.get("sites"), int)
             and entry["sites"] > 0
-            and str(entry.get("removed_by", "")).strip()
+            and str(entry.get("reason", "")).strip()
             and (SANDLOOM_ROOT / entry.get("file", "")).is_file()
         )
     ]
     assert problems == [], (
-        f"allowlist entries without sdk/sites/removed_by/file: {problems}"
+        f"allowlist entries without sdk/sites/reason/file: {problems}"
     )
     keys = [(entry["file"], entry["sdk"]) for entry in raw]
     assert len(keys) == len(set(keys)), "duplicate allowlist entry"
@@ -223,11 +248,13 @@ def test_the_scanner_counts_every_spelling(
     assert dict(find_backend_imports(sample)) == expected
 
 
-def test_a_new_site_fails_and_a_stale_entry_does_not() -> None:
+def test_a_new_site_fails_and_so_does_a_stale_entry() -> None:
     allowed = {("core/x.py", "redis"): {"sites": 2}}
-    assert new_offences({("core/x.py", "redis"): 2}, allowed) == []
-    assert new_offences({("core/x.py", "redis"): 1}, allowed) == []  # shrunk: stale
-    assert new_offences({}, allowed) == []  # gone: stale
+    exact = {("core/x.py", "redis"): 2}
+    assert new_offences(exact, allowed) == []
+    assert stale_entries(exact, allowed) == []
+    assert len(stale_entries({("core/x.py", "redis"): 1}, allowed)) == 1  # shrunk
+    assert len(stale_entries({}, allowed)) == 1  # gone
     assert len(new_offences({("core/x.py", "redis"): 3}, allowed)) == 1  # grew
     assert len(new_offences({("core/y.py", "redis"): 1}, allowed)) == 1  # new file
     assert len(new_offences({("core/x.py", "celery"): 1}, allowed)) == 1  # new SDK
@@ -252,7 +279,8 @@ def test_the_scan_also_sees_sdk_and_shared() -> None:
 IMPORTLINTER = REPO / ".importlinter"
 EVENTING_CONTRACT = "importlinter:contract:eventing-no-transport-impl"
 #: The Redis Streams transport files, which moved to the driver package
-#: ``core/drivers/redis_eventbus`` (idk-eventbus-move): none is in eventing.
+#: ``sandloom_redis/eventbus`` (idk-eventbus-move, idk-pkg-redis-eventbus): none
+#: is in eventing.
 TRANSPORT_FILES = (
     "streams_transport",
     "streams_transport_base",
@@ -290,8 +318,11 @@ def test_the_whole_eventing_package_is_the_contract_source() -> None:
 
 
 def test_no_transport_file_is_left_in_eventing() -> None:
-    """The Redis Streams transport lives in ``core/drivers/redis_eventbus``."""
+    """The Redis Streams transport lives in the ``sandloom-redis`` package."""
     left = [n for n in TRANSPORT_FILES if (CORE / "eventing" / f"{n}.py").exists()]
-    assert not left, f"{left} belong in core/drivers/redis_eventbus"
-    package = CORE / "drivers" / "redis_eventbus"
+    assert not left, f"{left} belong in sandloom_redis/eventbus"
+    assert not (CORE / "drivers" / "redis_eventbus").exists()
+    package = (
+        REPO / "packages" / "sandloom-redis" / "src" / "sandloom_redis" / "eventbus"
+    )
     assert all((package / f"{n}.py").is_file() for n in TRANSPORT_FILES)

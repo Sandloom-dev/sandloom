@@ -362,7 +362,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "AuditUnavailableError": {
       "kind": "class",
@@ -465,7 +465,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "InvalidArgument": {
       "kind": "class",
@@ -475,7 +475,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "MissingTenantError": {
       "kind": "class",
@@ -495,7 +495,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Notification": {
       "kind": "class",
@@ -529,7 +529,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "PlannedReads": {
       "kind": "callable",
@@ -669,7 +669,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "TooLarge": {
       "kind": "class",
@@ -679,7 +679,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Unavailable": {
       "kind": "class",
@@ -689,7 +689,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "UnitOfWorkRequiredError": {
       "kind": "class",
@@ -2272,9 +2272,11 @@
         "required_imports",
         "set",
         "set_many",
+        "settings_fill",
         "supported_features",
         "test_isolation",
         "tier",
+        "url_option",
         "windowed_counter"
       ],
       "signature": "(broken:KEYWORD_ONLY|bool=False) -> None"
@@ -2424,10 +2426,6 @@
       "kind": "function",
       "signature": "(name:POSITIONAL_OR_KEYWORD|str, value:POSITIONAL_OR_KEYWORD|bool | Callable[[Any], Any]=True, owner:KEYWORD_ONLY|str, deny_category:KEYWORD_ONLY|str | None=None, core:KEYWORD_ONLY|Any=None) -> Iterator[None]"
     },
-    "flush_owned_redis": {
-      "kind": "function",
-      "signature": "(client:POSITIONAL_OR_KEYWORD|Any, owner:KEYWORD_ONLY|str | None=None) -> None"
-    },
     "has_optimized_reads": {
       "kind": "function",
       "signature": "(bind:POSITIONAL_OR_KEYWORD|Any) -> bool"
@@ -2483,6 +2481,10 @@
     "reload_test_env": {
       "kind": "function",
       "signature": "(path:POSITIONAL_OR_KEYWORD|str | os.PathLike[str]) -> None"
+    },
+    "resolved_cache_url": {
+      "kind": "function",
+      "signature": "(environ:POSITIONAL_OR_KEYWORD|Mapping[str, str] | None=None) -> str"
     },
     "revocation_mark_key": {
       "kind": "function",
@@ -2550,7 +2552,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "AtomicStoreProvider": {
       "kind": "class",
@@ -2576,9 +2578,11 @@
         "required_imports",
         "set",
         "set_subject_state",
+        "settings_fill",
         "supported_features",
         "test_isolation",
-        "tier"
+        "tier",
+        "url_option"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -2607,10 +2611,12 @@
         "performance_hints",
         "publish",
         "required_imports",
+        "settings_fill",
         "subscribe",
         "supported_features",
         "test_isolation",
-        "tier"
+        "tier",
+        "url_option"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -2639,9 +2645,11 @@
         "required_imports",
         "set",
         "set_many",
+        "settings_fill",
         "supported_features",
         "test_isolation",
         "tier",
+        "url_option",
         "windowed_counter"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
@@ -2907,11 +2915,13 @@
         "replay_dlq",
         "required_imports",
         "retention",
+        "settings_fill",
         "stream_info",
         "supported_features",
         "test_isolation",
         "tier",
-        "transfer_group_owner"
+        "transfer_group_owner",
+        "url_option"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -2950,7 +2960,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "GroupOwner": {
       "kind": "class",
@@ -2977,7 +2987,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "InfraProvider": {
       "kind": "class",
@@ -2995,9 +3005,11 @@
         "options_schema",
         "performance_hints",
         "required_imports",
+        "settings_fill",
         "supported_features",
         "test_isolation",
-        "tier"
+        "tier",
+        "url_option"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -3020,7 +3032,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Lease": {
       "kind": "class",
@@ -3061,9 +3073,11 @@
         "release",
         "renew",
         "required_imports",
+        "settings_fill",
         "supported_features",
         "test_isolation",
-        "tier"
+        "tier",
+        "url_option"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -3095,7 +3109,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Notification": {
       "kind": "class",
@@ -3121,9 +3135,11 @@
         "performance_hints",
         "required_imports",
         "send",
+        "settings_fill",
         "supported_features",
         "test_isolation",
-        "tier"
+        "tier",
+        "url_option"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -3149,10 +3165,12 @@
         "performance_hints",
         "put",
         "required_imports",
+        "settings_fill",
         "supported_features",
         "test_isolation",
         "tier",
-        "url"
+        "url",
+        "url_option"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
     },
@@ -3192,7 +3210,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Retention": {
       "kind": "class",
@@ -3218,6 +3236,14 @@
         "unconditional_policies"
       ],
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "SettingsFill": {
+      "kind": "class",
+      "members": [
+        "bounds",
+        "caps"
+      ],
+      "signature": "(bounds:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>, caps:POSITIONAL_OR_KEYWORD|Mapping[str, str]=<dataclasses._HAS_DEFAULT_FACTORY_CLASS>) -> None"
     },
     "SqlDialect": {
       "kind": "class",
@@ -3282,9 +3308,11 @@
         "performance_hints",
         "required_imports",
         "send",
+        "settings_fill",
         "supported_features",
         "test_isolation",
         "tier",
+        "url_option",
         "worker_host"
       ],
       "signature": "(name:KEYWORD_ONLY|str, driver:KEYWORD_ONLY|str, options:KEYWORD_ONLY|Mapping[str, Any]) -> None"
@@ -3313,7 +3341,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "TooLarge": {
       "kind": "class",
@@ -3323,7 +3351,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Unavailable": {
       "kind": "class",
@@ -3333,7 +3361,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "UnitSession": {
       "kind": "class",
@@ -3376,6 +3404,10 @@
         "run_worker"
       ],
       "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "health_failure_details": {
+      "kind": "function",
+      "signature": "(exc:POSITIONAL_OR_KEYWORD|BaseException) -> dict[str, object]"
     },
     "iter_object_chunks": {
       "kind": "function",
@@ -3479,10 +3511,6 @@
       ],
       "signature": "()"
     },
-    "health_failure_details": {
-      "kind": "function",
-      "signature": "(exc:POSITIONAL_OR_KEYWORD|BaseException) -> dict[str, object]"
-    },
     "owner_conflict_message": {
       "kind": "function",
       "signature": "(stream:POSITIONAL_OR_KEYWORD|str, group:POSITIONAL_OR_KEYWORD|str, existing:POSITIONAL_OR_KEYWORD|GroupOwner, owner:POSITIONAL_OR_KEYWORD|GroupOwner) -> str"
@@ -3498,6 +3526,34 @@
     "retry_delay_ms": {
       "kind": "function",
       "signature": "(deliveries:POSITIONAL_OR_KEYWORD|int, base_ms:KEYWORD_ONLY|int, max_ms:KEYWORD_ONLY|int) -> int"
+    }
+  },
+  "sandloom.driverkit.process_config": {
+    "process_instance": {
+      "kind": "function",
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, name:POSITIONAL_OR_KEYWORD|str='default') -> InstanceConfig | None"
+    }
+  },
+  "sandloom.driverkit.shared_endpoints": {
+    "Role": {
+      "kind": "callable",
+      "signature": "(args:VAR_POSITIONAL, kwargs:VAR_KEYWORD)"
+    },
+    "redis_endpoint": {
+      "kind": "function",
+      "signature": "(url:POSITIONAL_OR_KEYWORD|str | None) -> str | None"
+    },
+    "register": {
+      "kind": "function",
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, instance:POSITIONAL_OR_KEYWORD|str, endpoint:POSITIONAL_OR_KEYWORD|str | None, role:POSITIONAL_OR_KEYWORD|Role, option:KEYWORD_ONLY|str='', declared:KEYWORD_ONLY|bool=True) -> None"
+    },
+    "reset": {
+      "kind": "function",
+      "signature": "() -> None"
+    },
+    "unregister": {
+      "kind": "function",
+      "signature": "(capability:POSITIONAL_OR_KEYWORD|str, instance:POSITIONAL_OR_KEYWORD|str, role:POSITIONAL_OR_KEYWORD|Role) -> None"
     }
   },
   "sandloom.driverkit.testing": {
@@ -3835,6 +3891,7 @@
         "make_provider",
         "make_renamed_provider",
         "operation_calls",
+        "pass_time",
         "protocol",
         "provider",
         "pytestmark",
@@ -4045,6 +4102,14 @@
         "unknown_task"
       ],
       "signature": "()"
+    },
+    "lane_required": {
+      "kind": "function",
+      "signature": "(env_var:POSITIONAL_OR_KEYWORD|str, environ:POSITIONAL_OR_KEYWORD|Mapping[str, str] | None=None) -> bool"
+    },
+    "required_or_skip": {
+      "kind": "function",
+      "signature": "(env_var:POSITIONAL_OR_KEYWORD|str, reason:POSITIONAL_OR_KEYWORD|str) -> NoReturn"
     }
   },
   "sandloom.sdk": {
@@ -4244,7 +4309,7 @@
     },
     "create_app": {
       "kind": "function",
-      "signature": "(default_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), default_optional_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), title:KEYWORD_ONLY|str='Sandloom Framework', claim_authorities:KEYWORD_ONLY|collections.abc.Mapping[str, str | sandloom.core.claims.Authority] | None=None, default_claim_authorities:KEYWORD_ONLY|collections.abc.Mapping[str, str | sandloom.core.claims.Authority] | None=None, legacy_tokens:KEYWORD_ONLY|sandloom.core.claims.LegacyClaimsTokens | None=None, access_providers:KEYWORD_ONLY|collections.abc.Mapping[str, str] | None=None) -> fastapi.applications.FastAPI"
+      "signature": "(default_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), default_optional_modules:KEYWORD_ONLY|collections.abc.Sequence[str]=tuple(), title:KEYWORD_ONLY|str='Sandloom Framework', claim_authorities:KEYWORD_ONLY|collections.abc.Mapping[str, str | sandloom.core.claims.Authority] | None=None, default_claim_authorities:KEYWORD_ONLY|collections.abc.Mapping[str, str | sandloom.core.claims.Authority] | None=None, legacy_tokens:KEYWORD_ONLY|sandloom.core.claims.LegacyClaimsTokens | None=None, access_providers:KEYWORD_ONLY|collections.abc.Mapping[str, str] | None=None, default_infra:KEYWORD_ONLY|collections.abc.Mapping[str, collections.abc.Mapping[str, collections.abc.Mapping[str, typing.Any]]] | None=None) -> fastapi.applications.FastAPI"
     }
   },
   "sandloom.sdk.authz": {
@@ -5800,7 +5865,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "CLAIMS_CONTRACT_SUFFIX": {
       "kind": "value"
@@ -5948,7 +6013,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "InvalidArgument": {
       "kind": "class",
@@ -5958,7 +6023,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "NotFound": {
       "kind": "class",
@@ -5968,7 +6033,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Notification": {
       "kind": "class",
@@ -6002,7 +6067,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "ShutdownTask": {
       "kind": "value"
@@ -6025,7 +6090,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "TooLarge": {
       "kind": "class",
@@ -6035,7 +6100,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Unavailable": {
       "kind": "class",
@@ -6045,7 +6110,7 @@
         "retryable",
         "with_traceback"
       ],
-      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None) -> None"
+      "signature": "(message:POSITIONAL_OR_KEYWORD|str, capability:KEYWORD_ONLY|str, instance:KEYWORD_ONLY|str | None=None, hint:KEYWORD_ONLY|str | None=None) -> None"
     },
     "Unsupported": {
       "kind": "class",
@@ -6948,9 +7013,11 @@
         "required_imports",
         "set",
         "set_many",
+        "settings_fill",
         "supported_features",
         "test_isolation",
         "tier",
+        "url_option",
         "windowed_counter"
       ],
       "signature": "(broken:KEYWORD_ONLY|bool=False) -> None"
@@ -7183,10 +7250,6 @@
       "kind": "function",
       "signature": "(ref:POSITIONAL_OR_KEYWORD|ContractRef[P] | str, impl:POSITIONAL_OR_KEYWORD|object) -> AbstractContextManager[None]"
     },
-    "flush_owned_redis": {
-      "kind": "function",
-      "signature": "(client:POSITIONAL_OR_KEYWORD|Any, owner:KEYWORD_ONLY|str | None=None) -> None"
-    },
     "get_db": {
       "kind": "function",
       "signature": "(request:POSITIONAL_OR_KEYWORD|Request) -> AsyncGenerator[AsyncSession, None]"
@@ -7262,6 +7325,10 @@
     "reload_test_env": {
       "kind": "function",
       "signature": "(path:POSITIONAL_OR_KEYWORD|str | os.PathLike[str]) -> None"
+    },
+    "resolved_cache_url": {
+      "kind": "function",
+      "signature": "(environ:POSITIONAL_OR_KEYWORD|Mapping[str, str] | None=None) -> str"
     },
     "revocation_mark_key": {
       "kind": "function",

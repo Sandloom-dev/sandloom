@@ -31,12 +31,13 @@ commit, and the owner reviews compatibility with the current `main`.
 
 | Changed area | Checks |
 | --- | --- |
-| Every PR | Workflow-policy regressions, reviewed source allowlist, credential-pattern scan; change classification |
-| Backend source/tests, migrations, package/build code or dependencies | Static gates, fast backend suite on Python 3.12, the kernel suites without module packages (`kernel-without-batteries`), the Redis driver package's tests and types (`redis-drivers`), the SQLite lane (`second-db-test-lane`) and the skip ledger, production image build; package checks for their declared paths |
-| Admin or backend source/dependencies | Admin contract drift and the admin workflow |
+| Every PR | Workflow-policy regressions, reviewed source allowlist, credential-pattern scan; the agent-context, guarantee-ledger, Pages-workflow and generated-docs tests (they cover `AGENTS.md`, `.claude/**`, `docs/adr/**` and the baselines, which select no other job); change classification |
+| Backend source/tests, migrations, package/build code or dependencies | Static gates, fast backend suite on Python 3.12, the SQLite lane (`second-db-test-lane`) and the skip ledger, production image build only when something the image is built from changed (see below); package checks for their declared paths |
+| The kernel, tests, tooling, driver packages or dependencies (the `kernel` area: the backend paths less the bundled modules `src/sandloom_*`) | The kernel suites without module packages (`kernel-without-batteries`) and, in a job of its own that runs in parallel, without Redis and without asyncpg (`kernel-without-redis`), the Redis driver package's tests and types (`redis-drivers`), the Celery driver package's wheel, style and types (`celery-drivers`). A PR that changes only a bundled module skips them |
+| The admin console, the bundled modules, the standard composition, migrations, the SDK, or the kernel code the export script imports (`admin/scripts/export_openapi.py`: all of `src/sandloom` but `core/archcheck`, `core/testing`, `core/tests` and `core/cli` apart from `generation_input.py`) and dependencies | Admin contract drift and the admin workflow (a positive path list in `ci.yml`; the other kernel code does not select them) |
 | Documentation, website, tutorial examples, SDK or documentation tooling | Strict site build, stale-symbol lint and website acceptance tests |
 | Example applications | All five example applications' gates and migrations |
-| Deployment profiles | Compose/observability validation and production image build |
+| Deployment profiles | Compose/observability validation and production image build (the image build is gated on what the image is built from, see below) |
 | Benchmark code | Benchmark security tests and load-harness negative controls |
 
 An update to `tools/packaging/public-source.json` alone does not run the full
@@ -67,12 +68,34 @@ every lane ([the skip ledger](../reference/testing.md#the-skip-ledger)). Only
 validation collects every suite; there an allowlist entry that matches no
 test fails too (`--strict-allowlist`).
 
-`kernel-without-batteries` runs the kernel's own test suites in a venv with
+`redis-drivers` and `celery-drivers` run their driver package's tests against
+a real Redis. The conformance kits are included. The tests run on the
+package's built wheel (`--no-sync`, so the editable source never replaces it). A Redis that is
+down fails those lanes instead of skipping (`SANDLOOM_REDIS_REQUIRED`,
+`SANDLOOM_CELERY_REQUIRED`). Each uploads a skip ledger, lanes `redis` and
+`celery`, that the `skip-ledger` job reads.
+
+The production image build (`docker-build`) runs when the `changes` job reports
+`image`. That is a change to a file `deploy/docker/Dockerfile` copies or runs:
+dependency files, migrations, `tools/packaging`, and `src/` or `packages/`
+outside their `tests/` directories. A change to tests alone does not rebuild
+the image. A full validation always builds it.
+
+The kernel lane is two jobs that run in parallel (the PR waits for the slower
+one). `kernel-without-batteries` runs the kernel's own test suites in a venv with
 the `sandloom` package alone (ADR-0012). It also runs
 the replaceability fixtures in `tests/integration/replaceability`. There,
 test modules replace the bundled modules, in one process and split.
 `tools/ci/no_batteries.py` hides the bundled modules from every import, the
-checkout's `src/` included. A kernel test that needs a bundled module belongs
+checkout's `src/` included. It deselects what another job runs whole.
+`kernel-without-redis` runs `test_nested_units_match_the_oracle_at_length`
+(82 s per parameter). The test is marked `slow` and a PR's `backend-tests`
+filters `slow`. So the run that names it and filters no marker is the PR job
+that runs it. A policy test refuses a slow-marked deselect that no such job
+runs. `backend-tests` runs `test_architecture_checker_runs_without_violations`. The
+`workflow-policy` job runs five files of `tests/architecture` on every PR (the
+CI-policy and docs-generator ones: see the `--deselect` list in `ci.yml`).
+A kernel test that needs a bundled module belongs
 in `tests/integration/with_batteries` or in the module's own tests.
 `tools/ci/no_batteries_pending.json` lists the tests still waiting to move.
 It is empty and stays empty: an entry outside the ceiling in
@@ -83,9 +106,77 @@ Locally:
 ```bash
 uv venv .venv-kernel
 uv export --frozen --only-group dev --no-hashes --no-emit-project > /tmp/dev-req.txt
-uv pip install --python .venv-kernel/bin/python -e "packages/sandloom[redis,celery,check,fast,sqlite,sentry]" -r /tmp/dev-req.txt
+uv pip install --python .venv-kernel/bin/python -e "packages/sandloom[postgres,redis,celery,check,fast,sqlite,sentry]" -e packages/sandloom-redis -e packages/sandloom-celery -r /tmp/dev-req.txt
 .venv-kernel/bin/python tools/ci/no_batteries.py install
 .venv-kernel/bin/python -m pytest -n auto --dist loadfile -p tools.ci.no_batteries src/sandloom/core/tests tests/sdk tests/architecture tests/integration/replaceability
+```
+
+The kernel wheel names no Redis (ADR-0016). The second job,
+`kernel-without-redis`, builds the same venv. It then uninstalls the Redis
+client, both driver packages (`sandloom-celery` brings that client through
+`celery[redis]`), `celery` and `kombu`. It asserts that none of those names
+imports. The suite then selects the kernel's `memory` drivers (`conftest.py`),
+and the test harness loads no family. `tools/ci/no_redis.py` refuses the run
+while a Redis name imports. The job runs four things:
+
+1. Collect-only over every kernel suite in that venv. A test module that
+   imports Redis or Celery at module level fails the collection, and so does a
+   stale pending entry.
+2. Every file `tools/ci/no_redis_pending.json` names, read when the step runs,
+   so a shrinking list shrinks the job. Their other tests must pass without
+   Redis.
+3. `test_no_redis.py` and `test_no_batteries.py`, the two ratchets.
+   `test_no_redis.py` also scans the kernel test files for a Redis or Celery
+   import anywhere in the file, a test body included. It fails on a file the
+   pending list does not name.
+4. The nested-units oracle test at length, named by its test id (see above).
+
+The scan and the collect-only pass guard against a new kernel test that needs
+Redis. The remaining kernel tests run in `kernel-without-batteries`, which has
+the driver packages installed and selects memory drivers. A kernel test that
+fails without Redis but imports nothing is not caught by the second job. The
+job ends with the SQLite boot without asyncpg, below.
+
+`tools/ci/no_redis_pending.json` would list the kernel tests that need a Redis
+or Celery driver. A listed file is not collected, and a listed test is a strict
+xfail. Like the batteries list it is empty and stays empty: both ceilings in
+the tool are 0. A test that needs a driver runs on the kernel's `memory`
+drivers or moves to `packages/sandloom-redis/tests` or
+`packages/sandloom-celery/tests`. The job sets `INFRA={}`: the `.env.test`
+`INFRA` states Redis urls and timeouts, which the `memory` drivers refuse as
+unknown options. Locally, after the commands above:
+
+```bash
+uv pip uninstall --python .venv-kernel/bin/python redis hiredis sandloom-redis sandloom-celery celery kombu
+export INFRA='{}'
+.venv-kernel/bin/python -m pytest --collect-only -qq --no-cov -p no:xdist -p tools.ci.no_batteries -p tools.ci.no_redis src/sandloom/core/tests tests/sdk tests/architecture tests/integration/replaceability
+pending=$(.venv-kernel/bin/python -c "from tools.ci.no_redis import load_pending; print(*sorted({t.split('::', 1)[0] for t in load_pending()[1]}))")
+.venv-kernel/bin/python -m pytest -n auto --dist loadfile --no-cov -p tools.ci.no_batteries -p tools.ci.no_redis $pending tests/architecture/test_no_redis.py tests/architecture/test_no_batteries.py
+```
+
+The package checker also runs the test harness in a venv with the kernel wheel
+and its `testing` and `sqlite` extras alone
+(`tools/packaging/check_package_distributions.py`). Two xdist workers each run
+on their own SQLite database, with no Redis client and no family.
+
+The same checker reads the built kernel wheel and refuses a Redis or Celery
+leak. It fails on three things:
+
+- a `.py` file that imports `redis`, `aioredis`, `celery` or `kombu`. One
+  guarded import in `sandloom dev` is the named exception;
+- a Redis wire command or a Lua call as a code string;
+- a base requirement on `asyncpg`, a Redis client or a driver package.
+
+Only the `postgres` extra declares `asyncpg`.
+
+A last step uninstalls `asyncpg` (the `postgres` extra) and runs
+`src/sandloom/core/tests/test_postgres_extra.py` on a SQLite file. The kernel
+boots without it and imports neither asyncpg nor psycopg2. It refuses a
+PostgreSQL URL and names the extra (SANDLOOM-B037). Locally:
+
+```bash
+uv pip uninstall --python .venv-kernel/bin/python asyncpg
+DATABASE_URL=sqlite+aiosqlite:////tmp/kernel.db SANDLOOM_TEST_DATABASE_URL=sqlite+aiosqlite:////tmp/kernel-test.db .venv-kernel/bin/python -m pytest -q --no-cov -p no:xdist -p tools.ci.no_batteries src/sandloom/core/tests/test_postgres_extra.py
 ```
 
 Checks run on PRs rather than repeating the same work after a merge to `main`.
@@ -150,6 +241,19 @@ deployment smoke checks, plus package, documentation, admin and data-extraction
 workflows. It does not publish or deploy anything. Review every called job's
 result on the exact release commit before releasing; fix failures, do not
 interpret skips or an older green PR run as a completed release gate.
+
+The full workflow also runs every Hypothesis property with all of its examples
+(`HYPOTHESIS_PROFILE=full`, set by `ci.yml` for a full validation). A pull request
+and a local run use the `ci` profile, a quarter of each count (at least 20).
+A test names its full count through `examples(400)` of `tests/_hypothesis_profile.py`,
+and `tests/conftest.py` loads the profile. The profile is process-global
+(`settings.load_profile`), so it is session-wide. In a pytest session that also
+collects `src/`, such as `src/sandloom/core/tests/`, a test that names no count
+drops from 100 to 25 examples under `ci`.
+
+The authz laws (`tests/laws/test_authz_algebra_laws.py`) keep 400 examples in
+every profile. Their fail-closed laws reach the assertion on few generated trees,
+so a quarter of the count would barely exercise them.
 
 The full workflow remains opt-in. Data extraction has no nightly schedule;
 it can also be requested manually or with the `extraction-e2e` PR label.
@@ -244,6 +348,33 @@ twice at once against the same servers. Give each run its own
 must pass. This check found five such tests during the 0.7.0a9 release, and two
 harness bugs. A scanner counted as a client of every index it read, and test
 slots never handed their Redis indexes back.
+
+## Parallel branches and shared registries
+
+Every branch adds a file of its own under `changelog.d/` and lines to
+`tools/packaging/public-source.json`. A branch never edits `CHANGELOG.md` or a
+package changelog. GitHub ignores merge drivers, so two PRs adding bullets to
+the same changelog went CONFLICTING each time the other merged. A fragment is a
+file nobody else touches, and the release preparation folds them
+(`changelog.d/README.md`). Two branches adding beside each other in
+`public-source.json` used to stop a merge of `main` on a conflict.
+`.gitattributes` merges it without one:
+
+- `CHANGELOG.md` keeps git's union merge for what is still edited by hand: the
+  loose bullets from before fragments, and the fold in the release PR.
+- `public-source.json` is merged as data by
+  `tools/packaging/merge_public_source.py`. Paths are sets, and a new path goes
+  beside its nearest sibling. A key or group that both sides changed
+  differently is still a conflict.
+
+The second one needs the local git config once per clone. Worktrees share it:
+
+```bash
+python3 tools/packaging/merge_public_source.py --install
+```
+
+Without that config, git falls back to its line merge. GitHub merges PRs with
+its own line merge, so merge `main` into the branch locally first.
 
 ## Generated application profiles
 

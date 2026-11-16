@@ -9,6 +9,7 @@ stand in for a Homebrew install) and works in a scratch database it drops.
 from __future__ import annotations
 
 import io
+import json
 import os
 import re
 import subprocess
@@ -16,6 +17,7 @@ import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -35,6 +37,91 @@ def _git(cwd: Path, *args: str) -> None:
 @pytest.fixture(autouse=True)
 def _no_real_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("SANDLOOM_HOME", str(tmp_path / "home"))
+
+
+#: The composition a generated app selects (``DEFAULT_INFRA`` of ``sandloom new``).
+_SELECTION = {
+    "database": {"default": {"driver": "sqlalchemy"}},
+    "cache": {"default": {"driver": "redis"}},
+    "eventbus": {"default": {"driver": "streams"}},
+    "broadcast": {"default": {"driver": "redis"}},
+    "taskqueue": {"default": {"driver": "celery"}},
+    "atomic_store": {"security": {"driver": "redis"}},
+    "lease": {"beat": {"driver": "redis"}},
+}
+#: What the installed drivers declare (``InfraProvider.url_option``).
+_URL_OPTIONS = {
+    "cache.redis": "url",
+    "eventbus.streams": "url",
+    "broadcast.redis": "url",
+    "taskqueue.celery": "broker",
+    "atomic_store.redis": "url",
+    "lease.redis": "url",
+}
+
+
+@pytest.fixture(autouse=True)
+def _composition(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The test apps are not importable packages: give ``dev up`` the
+    composition a generated app has."""
+    monkeypatch.setattr(
+        commands,
+        "composition_selection",
+        lambda ctx, text, checkout=None: commands.CompositionSelection(
+            _SELECTION, _URL_OPTIONS
+        ),
+    )
+
+
+#: The ``databases`` setting of the stand-in server (a Redis default is 16, the
+#: test compose and CI start Redis with 256).
+_FAKE_REDIS_DATABASES = 256
+
+
+@pytest.fixture(autouse=True)
+def _redis_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``sandloom dev`` reads Redis through the optional ``redis`` client
+    (``services._redis_module``), which the kernel does not install: a stand-in
+    client over an in-memory server (indexes, keys, ``DBSIZE``, ``FLUSHDB``)
+    runs the kernel's own logic on every lane. The real server and client:
+    ``packages/sandloom-redis/tests/test_dev_external_redis.py``."""
+    keys: dict[int, dict[str, str]] = {}
+
+    class ResponseError(Exception):
+        pass
+
+    class FakeRedis:
+        def __init__(self, host: str, port: int, db: int = 0, **_kw: Any) -> None:
+            self.db = db
+
+        def ping(self) -> bool:
+            return True
+
+        def config_get(self, name: str) -> dict[str, str]:
+            assert name == "databases"
+            return {name: str(_FAKE_REDIS_DATABASES)}
+
+        def dbsize(self) -> int:
+            if self.db >= _FAKE_REDIS_DATABASES:
+                raise ResponseError("DB index is out of range")
+            return len(keys.get(self.db, {}))
+
+        def set(self, key: str, value: str) -> None:
+            keys.setdefault(self.db, {})[key] = value
+
+        def delete(self, key: str) -> None:
+            keys.get(self.db, {}).pop(key, None)
+
+        def flushdb(self) -> None:
+            keys.pop(self.db, None)
+
+        def close(self) -> None:
+            pass
+
+    module = SimpleNamespace(
+        Redis=FakeRedis, ResponseError=ResponseError, RedisError=ResponseError
+    )
+    monkeypatch.setattr(services, "_redis_module", lambda: module)
 
 
 @pytest.fixture
@@ -126,7 +213,11 @@ def test_external_services_end_to_end(
         assert state.ports == {}
         block = envfile.read_block((root / ".env").read_text())
         assert block["DATABASE_URL"].endswith(f"@{pg.host}:{pg.port}/{name}")
-        assert block["CACHE_URL"].startswith(redis + "/")
+        infra = json.loads(block["INFRA"])
+        assert infra["cache"]["default"]["url"].startswith(redis + "/")
+        assert infra["lease"]["beat"]["url"].startswith(redis + "/")
+        # What must survive is never on the cache's database.
+        assert infra["lease"]["beat"]["url"] != infra["cache"]["default"]["url"]
         test_local = (root / ".env.test.local").read_text()
         assert f"{pg.host}:{pg.port}/sandloom_test_" in test_local
         assert "your own PostgreSQL" in ctx.out.getvalue()  # type: ignore[attr-defined]
@@ -472,7 +563,8 @@ def test_two_apps_in_one_repository_share_containers_not_state(
         commands.write_checkout_files(ctx, state, row)
     blocks = [envfile.read_block((root / ".env").read_text()) for root in apps]
     assert blocks[0]["DATABASE_URL"] != blocks[1]["DATABASE_URL"]
-    assert blocks[0]["CACHE_URL"] != blocks[1]["CACHE_URL"]
+    caches = [json.loads(b["INFRA"])["cache"]["default"]["url"] for b in blocks]
+    assert caches[0] != caches[1]
 
 
 def test_compose_files_that_differ_only_in_the_app_name_are_the_same() -> None:

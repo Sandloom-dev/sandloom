@@ -15,7 +15,8 @@ prove it (``tools/checks/guarantees.py`` holds the checker). This test fails whe
   ``uv run python tools/checks/guarantees.py render``).
 
 A change that removes or infers a declaration keeps this green and shows the
-enforcing tests passing: ``uv run pytest -m guarantees src``.
+enforcing tests passing: ``uv run pytest -m guarantees`` with the paths of
+``tools/checks/guarantees.py paths``.
 """
 
 from __future__ import annotations
@@ -398,3 +399,28 @@ def test_marker_matching() -> None:
     assert ledger_mod.item_matches("src/a/test_x.py::test_y[param-1]", ids)
     assert ledger_mod.item_matches("src/a/test_z.py::TestK::test_m", ids)
     assert not ledger_mod.item_matches("src/a/test_x.py::test_y2", ids)
+
+
+def test_the_marker_run_collects_the_driver_packages_tests() -> None:
+    """A row evidenced in ``packages/<package>/tests`` is part of the
+    ``pytest -m guarantees`` selection and its directory is among the paths the
+    run is given; a node id outside the repository's test roots is not."""
+    ids = ledger_mod.ledger_nodeids_for_marker()
+    in_packages = [n for n in ids if n.startswith("packages/sandloom-celery/tests/")]
+
+    assert in_packages, "no celery package test reaches the guarantees marker run"
+    assert all(n.startswith(ledger_mod.PYTEST_ROOTS) for n in ids)
+    assert not any(n.startswith(("docs/", "design/")) for n in ids)
+    paths = ledger_mod.pytest_paths(ledger_mod.load())
+    assert paths[0] == "src"
+    assert "packages/sandloom-celery/tests" in paths
+    # sandloom-s3 runs in its own CI lane: its tests do not collect here.
+    assert "packages/sandloom-s3/tests" not in paths
+    covered = tuple(p + "/" for p in paths if p != "src")
+    dev_env = [
+        n
+        for n in ids
+        if n.startswith("packages/") and n.split("/")[1] in ledger_mod.DEV_ENV_PACKAGES
+    ]
+    assert dev_env
+    assert all(n.startswith(covered) for n in dev_env)

@@ -41,12 +41,15 @@ capability (the driver builds it), and modules declare worker tasks with the
 app-agnostic ``@shared_task`` in ``<module>/tasks.py`` — nobody else calls
 ``Celery(...)``.
 
-Ratchet (ADR-0016, slice ``idk-ratchets``): the PostgreSQL ops tools and the
-test harness connect with ``psycopg2.connect`` and the dev services with
-``redis.Redis``; ``SEEDED`` lists today's sites by file and constructor (never
-by line), each with the slice that removes it or why it stays. It is
-shrink-only: a new site or a higher count fails, a stale entry does not
-(``idk-ratchets-close`` prunes it and makes the test strict).
+Ratchet (ADR-0016, slices ``idk-ratchets`` and ``idk-ratchets-close``): the
+PostgreSQL ops tools and the test harness connect with ``psycopg2.connect`` and
+the dev services with ``redis.Redis``; ``SEEDED`` lists the sites that stay by
+file and constructor (never by line), each with why. It is exact: a new site or
+a higher count fails, and so does a stale entry (fewer sites than listed, or
+none), so the change that removes a site drops its entry. The ops tools and the
+harness name ``psycopg2`` through ``sandloom.core.migrations.pg_sync`` (the
+lazy modules ``psycopg2``, ``errors``, ``extras``, ``sql``); the alias table
+resolves those names to the SDK, so ``psycopg2.connect`` through it counts.
 """
 
 from __future__ import annotations
@@ -105,20 +108,32 @@ FORBIDDEN_ANY_RECEIVER_ATTRS = {"Redis", "StrictRedis"}
 # ``<anything>.create_async_engine(...)``.
 FORBIDDEN_ANY_RECEIVER_CALLS = {"create_async_engine"}
 
-# Seeded, shrink-only: (file relative to src/sandloom, constructor) ->
-# (sites, removed_by). Every entry is a hole in the invariant; ``removed_by``
-# names the slice that removes it or why it stays. A stale entry does not fail.
+#: The sync PostgreSQL driver's lazy names: ``from <PG_SYNC> import psycopg2``
+#: is the SDK ``psycopg2``, ``errors`` is ``psycopg2.errors``, and so on.
+PG_SYNC = "sandloom.core.migrations.pg_sync"
+PG_SYNC_NAMES: dict[str, list[str]] = {
+    "psycopg2": ["psycopg2"],
+    "errors": ["psycopg2", "errors"],
+    "extras": ["psycopg2", "extras"],
+    "sql": ["psycopg2", "sql"],
+}
+
+# Exact: (file relative to src/sandloom, constructor) -> (sites, reason). Every
+# entry is a hole in the invariant that stays, with why; a site that is not
+# listed, a higher count and a stale entry (fewer sites, or none) all fail.
 _OPS = "stays: PostgreSQL ops tool (design.md section 4: psycopg2 stays where the ops tools need it)"
 _HARNESS = "stays: PostgreSQL test harness (design.md section 4)"
+_DEV_REDIS = (
+    "stays: `sandloom dev` pings and inspects the developer's own Redis server "
+    "(the optional `redis` extra, imported by name; no client: a TCP check)"
+)
 SEEDED: dict[tuple[str, str], tuple[int, str]] = {
-    ("core/cli/dev/services.py", "Redis"): (1, "idk-test-harness"),
+    ("core/cli/dev/services.py", "Redis"): (1, _DEV_REDIS),
     ("core/cli/dev/services.py", "psycopg2.connect"): (1, _OPS),
     ("core/migrations/backup.py", "psycopg2.connect"): (1, _OPS),
     ("core/testing/connections.py", "psycopg2.connect"): (1, _HARNESS),
     ("core/testing/migrations.py", "psycopg2.connect"): (2, _HARNESS),
-    ("core/testing/ownership.py", "Redis"): (1, "idk-test-harness"),
     ("core/testing/ownership.py", "psycopg2.connect"): (1, _HARNESS),
-    ("core/testing/resources.py", "Redis"): (1, "idk-test-harness"),
     ("core/testing/resources.py", "psycopg2.connect"): (2, _HARNESS),
     ("core/testing/session_checks.py", "psycopg2.connect"): (1, _HARNESS),
     ("core/testing/slots.py", "psycopg2.connect"): (1, _HARNESS),
@@ -158,10 +173,11 @@ def _alias_table(tree: ast.AST) -> dict[str, list[str]]:
                     table[root] = [root]
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             for alias in node.names:
-                table[alias.asname or alias.name] = [
-                    *node.module.split("."),
-                    alias.name,
-                ]
+                table[alias.asname or alias.name] = (
+                    PG_SYNC_NAMES[alias.name]
+                    if node.module == PG_SYNC and alias.name in PG_SYNC_NAMES
+                    else [*node.module.split("."), alias.name]
+                )
     for node in ast.walk(tree):  # ``connect = psycopg2.connect``
         if (
             isinstance(node, ast.Assign)
@@ -275,15 +291,64 @@ def test_no_backend_construction_outside_drivers(file_path: Path) -> None:
         )
 
 
-def test_every_seeded_entry_names_its_removal() -> None:
-    """Each entry: an existing file, a positive count, and a ``removed_by`` that
-    is a slice alias (``idk-...``) or ``stays: <reason>``; drivers never listed."""
-    for (rel, ctor), (sites, removed_by) in SEEDED.items():
+def _stale_sites(rel: str, sites: dict[str, int]) -> list[str]:
+    """Entries of ``rel`` that list more sites than the scan finds."""
+    return [
+        f"{ctor}(...) listed x{limit}, found x{sites.get(ctor, 0)}"
+        for (listed, ctor), (limit, _reason) in sorted(SEEDED.items())
+        if listed == rel and sites.get(ctor, 0) < limit
+    ]
+
+
+def _stale_entries(root: Path) -> list[str]:
+    """Every stale problem of ``SEEDED``, one line each: a file that is gone (its
+    entries all go) or a site count the scan no longer finds."""
+    stale: list[str] = []
+    for rel in sorted({rel for rel, _ in SEEDED}):
+        path = root / rel
+        if not path.is_file():
+            stale.append(f"{rel}: file is gone, drop its entries")
+            continue
+        stale.extend(
+            f"{rel}: {problem}"
+            for problem in _stale_sites(rel, _constructor_sites(path))
+        )
+    return stale
+
+
+def test_no_seeded_entry_is_stale() -> None:
+    """Every entry matches the scan exactly: the commit that removes a site
+    drops or lowers its entry."""
+    stale = _stale_entries(SANDLOOM_ROOT)
+    assert stale == [], "stale SEEDED entries (lower or drop them):\n" + "\n".join(
+        stale
+    )
+
+
+def test_a_seeded_file_that_is_gone_is_reported_as_stale(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A deleted file used to raise a bare ``FileNotFoundError`` from the scan."""
+    monkeypatch.setitem(SEEDED, ("core/gone.py", "psycopg2.connect"), (1, "stays: x"))
+    assert "core/gone.py: file is gone, drop its entries" in _stale_entries(tmp_path)
+    (tmp_path / "core").mkdir()
+    (tmp_path / "core" / "gone.py").write_text("x = 1\n")  # present, no site left
+    assert [
+        line for line in _stale_entries(tmp_path) if line.startswith("core/gone.py")
+    ] == ["core/gone.py: psycopg2.connect(...) listed x1, found x0"]
+
+
+def test_every_seeded_entry_says_why_it_stays() -> None:
+    """Each entry: an existing file, a positive count and ``stays: <reason>``;
+    drivers never listed."""
+    for (rel, ctor), (sites, reason) in SEEDED.items():
         assert (SANDLOOM_ROOT / rel).is_file(), rel
         assert sites > 0 and ctor.strip(), (rel, ctor)
-        assert re.fullmatch(r"idk-[a-z0-9-]+", removed_by) or (
-            removed_by.startswith("stays:") and removed_by[len("stays:") :].strip()
-        ), (rel, ctor, removed_by)
+        assert reason.startswith("stays:") and reason[len("stays:") :].strip(), (
+            rel,
+            ctor,
+            reason,
+        )
         assert not rel.startswith("core/drivers/"), rel
     assert list(SEEDED) == sorted(SEEDED), (
         "keep SEEDED sorted by file, then constructor"
@@ -388,13 +453,34 @@ def test_the_analyzer_spares_a_name_that_is_not_a_backend(tmp_path: Path) -> Non
     assert _find_backend_constructions(sample) == []
 
 
-def test_a_seeded_site_passes_a_new_one_fails_a_stale_one_does_not(
+def test_a_seeded_site_passes_a_new_one_fails_and_so_does_a_stale_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setitem(SEEDED, ("core/x.py", "psycopg2.connect"), (2, "idk-x"))
+    monkeypatch.setitem(SEEDED, ("core/x.py", "psycopg2.connect"), (2, "stays: x"))
     assert _new_sites("core/x.py", {"psycopg2.connect": 2}) == []
-    assert _new_sites("core/x.py", {"psycopg2.connect": 1}) == []
-    assert _new_sites("core/x.py", {}) == []
+    assert _stale_sites("core/x.py", {"psycopg2.connect": 2}) == []
+    assert len(_stale_sites("core/x.py", {"psycopg2.connect": 1})) == 1
+    assert len(_stale_sites("core/x.py", {})) == 1
     assert len(_new_sites("core/x.py", {"psycopg2.connect": 3})) == 1
     assert len(_new_sites("core/y.py", {"psycopg2.connect": 1})) == 1
     assert len(_new_sites("core/x.py", {"Redis": 1})) == 1
+
+
+def test_a_connection_through_pg_sync_counts_as_the_sdk(tmp_path: Path) -> None:
+    """The ops tools and the harness name ``psycopg2`` through its lazy module:
+    the scan resolves that name to the SDK, so a new connection through it fails."""
+    sample = tmp_path / "ops.py"
+    sample.write_text(
+        "from sandloom.core.migrations.pg_sync import errors, psycopg2 as pg, sql\n"
+        "def f(dsn):\n"
+        "    pg.connect(dsn)\n"
+        "    psycopg2_alias = pg\n"
+        "    return errors.DuplicateDatabase, sql.SQL('x')\n"
+    )
+    assert _constructor_sites(sample) == {"psycopg2.connect": 1}
+    other = tmp_path / "other.py"
+    other.write_text(
+        "from sandloom.core.migrations.urls import psycopg2\n"
+        "def f(dsn):\n    psycopg2.connect(dsn)\n"
+    )
+    assert _constructor_sites(other) == {}

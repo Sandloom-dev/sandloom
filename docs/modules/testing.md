@@ -65,8 +65,25 @@ committed and names this repository's test servers.
 ### Your own database and Redis (shared machines)
 
 `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL` and `SANDLOOM_TEST_BROKER_URL` win
-over `.env.test` on every load path. A plain shell `DATABASE_URL` /
-`CACHE_URL` does not: `.env.test` overrides those for the test sessions.
+over `.env.test` on every load path. A plain shell `DATABASE_URL` does not: `.env.test`
+overrides it for the test sessions.
+
+The harness merges the two Redis names into `INFRA`, since no instance inherits another's
+url. `SANDLOOM_TEST_CACHE_URL` becomes the `url` of `cache.default` and of every other
+Redis instance that has one (`lease.beat`, `atomic_store.security`, `broadcast.default`,
+`eventbus.default`). `SANDLOOM_TEST_BROKER_URL` becomes `taskqueue.default.broker`. The
+harness reads the cache url from the resolved `INFRA`.
+
+The override reaches the default instance of each Redis capability. It also reaches the
+instances on the same Redis server and database as the default (the `url` and `broker`
+options). An instance declared in `INFRA` on another database or server is not touched, so
+two parallel runs would share it. Each run overrides those instances too: give them urls of
+your own in the `INFRA` your run loads. An override with no declared Redis default instance
+in `INFRA` is refused (`UnmatchedOverrideError`), never dropped. An app that selects no
+task queue has no `taskqueue.default.broker`. `sandloom dev up` writes no
+`SANDLOOM_TEST_BROKER_URL` for it (likewise no `SANDLOOM_TEST_CACHE_URL` for an app with no
+cache). A variable you export yourself is yours to unset. `CACHE_URL` and
+`BROKER_URL` are not settings any more: setting either fails startup.
 
 - The database is created on first use.
 - Pick two Redis indexes no one else uses (`tools/checks/test_resources.py list`).
@@ -79,21 +96,6 @@ export SANDLOOM_TEST_CACHE_URL=redis://127.0.0.1:6380/120 SANDLOOM_TEST_BROKER_U
 
 The harness refuses to reset any database other than the one
 `SANDLOOM_TEST_DATABASE_URL` names (or its pytest-xdist `_gw<N>` copies).
-
-**`CACHE_URL` and `SANDLOOM_TEST_CACHE_URL`: do they have to differ?**
-
-- **The old requirement.** A comment in `.github/workflows/ci.yml` says the
-  settings-level `CACHE_URL` must name a different Redis database than the
-  test cache. The reason given: the billing conftest pointed its idempotency
-  cache at the test `CACHE_URL`, and the redis driver shares its process-wide
-  client only when the two URLs are equal, so billing failed closed with 503.
-- **It no longer reproduces.** Measured on 2026-10-25, with the snapshot
-  `CACHE_URL` equal to `SANDLOOM_TEST_CACHE_URL` (what the fresh-checkout seeding
-  produces):
-  - the billing suite (307 passed);
-  - the whole fast suite (3,783 passed).
-- **CI still sets different values.** Keep them different if you run the
-  slow suites with a hand-written `.env` and see 503s from billing.
 
 ## Activate the harness (once per application)
 
@@ -251,15 +253,14 @@ implements `test_isolation(options, worker_id)` and returns the options of that
 worker's instance. The Redis drivers move the database index of their URL. The
 default returns the options unchanged, which is right for `memory`.
 
-The harness calls the hook of the default cache (`CACHE_URL`) and of every named
-instance in `INFRA` that has its own `url`. It calls it once per instance and
+The harness calls the hook of every instance in `INFRA` that has its own `url`, the
+default cache included. It calls it once per instance and
 claims each URL the hook returns. The layout is the harness's: the fixed stride
 or the `auto` allocation. It hands the layout to the drivers before the hooks
 run, so a hook and the harness give one answer.
 
-One URL is not asked of a driver yet. The harness moves `BROKER_URL` itself,
-with the same layout, because the Celery task queue has no `test_isolation`
-hook until `idk-worker-port` adds it. Nothing else in the harness rewrites a URL.
+The Celery `broker` of `taskqueue.default` moves with the same layout. Nothing else in the
+harness rewrites a URL.
 
 An application on memory drivers needs no Redis client to run its tests. In a
 process that cannot import `redis`, the harness rewrites, claims, allocates and
@@ -267,6 +268,64 @@ resets no Redis index, `auto` included. A test of a run on a memory cache driver
 belongs to the configuration defaults work (`idk-config-defaults`):
 it needs settings that accept non-redis URLs. Today's harness test runs with
 Redis URLs in `.env.test` that nothing connects to.
+
+### Harness families: a backend's half of the parallel-run isolation
+
+The kernel isolates the PostgreSQL / SQLite databases of a parallel run itself.
+Every other backend (today Redis) plugs in as a *harness family*, shipped by the
+driver package that provides the backend. The kernel wheel registers none.
+`sandloom-redis` registers the `redis` family. A process without a family is the
+database-only harness.
+
+A family is an object with the hooks of `HarnessFamily` (importable from
+`sandloom.driverkit.testing_family`). The package registers it in the
+`sandloom.testing` entry-point group:
+
+```toml
+[project.entry-points."sandloom.testing"]
+redis = "sandloom_redis.testing.family:FAMILY"
+```
+
+The entry-point name is the family's `name`. It is never a `pytest11` plugin:
+installing a package must not change an unrelated suite. The kernel loads the
+group when the first hook runs and calls every family:
+
+| hook | when the harness calls it |
+|---|---|
+| `rewrite_worker(values, environ, worker_id, number)` | an xdist worker starts: the settings it moves onto its own resources |
+| `claim(values)` | a run starts: verify (or claim) every resource of `values` it resets; raise `TestResourceOwnershipError` for another run's |
+| `slot_bases(urls, owner, environ)` / `release_slot_bases(urls, owner)` | a test-run slot takes (and hands back) its own base resources |
+| `allocate_workers(values, count)` | the controller, before the workers start: claim resources for the `count` workers |
+| `cap_workers(values, count)` | `-n auto`: workers capped to what the backend has room for |
+| `flush_owned(provider)` | empty the test database behind a cache provider, when it is this family's and this run owns it |
+
+Every hook is a no-op for a process that cannot reach the backend: no client
+installed, no URL set. A family package imports the kernel's side of the
+harness only through `sandloom.driverkit.testing_family`. It offers:
+
+- ownership markers: `check_holder`, `current_owner`, `record_claim`;
+- the setting names: `INFRA_VAR` and `parse_infra`;
+- the worker layout and the driver a composition selects: `default_driver`,
+  `isolated_instance_options`;
+- `Resource` and `verdict`, to list and prune stale resources.
+
+The family module loads before the settings snapshot. It must not import
+`sandloom.core.config.settings` or SQLAlchemy at import time.
+`test_loading_the_family_imports_no_settings_and_no_sqlalchemy` in
+`packages/sandloom-redis/tests/test_testing_families.py` fails if it does.
+
+The kernel refuses, with `HarnessFamilyError`, what would share one backend
+silently:
+
+- a family registered twice (the message names both distributions);
+- a family that fails to import, lacks a hook, or names itself otherwise than
+  its entry point;
+- a process that has a backend's client installed but no family for it. The
+  pytest plugin checks this at `pytest_configure`.
+
+`sandloom-redis` is the model for a new family:
+`packages/sandloom-redis/tests/test_testing_families.py` and
+`test_harness_isolation.py` show how to test one.
 
 In the framework tree the benchmark security suite (`benchmarks/tests`) is a
 separate CI job (`benchmarks-security`: it needs a superuser connection for its
@@ -287,7 +346,8 @@ The harness protects concurrent runs on one machine from each other:
   owner aborts the session before any test runs (exit code 4, nothing
   truncated or flushed), under xdist for every worker's `_gw<N>` copy too.
   `SANDLOOM_TEST_TAKE_OWNERSHIP=1` takes a resource over deliberately. Empty a
-  test Redis database with `flush_owned_redis(client)` (keeps the marker).
+  test Redis database with `sandloom_redis.testing.flush_owned_redis(client)`
+  (keeps the marker).
 - **Self-connection.** A URL with `localhost` and a port from 32768 up is refused (exit
   code 4). A service published on `127.0.0.1` leaves `::1` with no listener, and a
   connection to that dead port can be given the same port as its source, so the socket
@@ -337,7 +397,9 @@ The harness protects concurrent runs on one machine from each other:
 - **Pre-push hook.** `backend-full-tests` refuses to run the full suite unless
   `SANDLOOM_TEST_DATABASE_URL` names this checkout's own database
   (`tools/checks/prepush_full_tests.sh`; `SKIP=backend-full-tests` skips
-  it once). It runs the suite in a fresh seeded order and prints the seed.
+  it once). It runs the fast suite (`-m "not slow"`, like CI's pull-request
+  lane; the full validation runs the slow suites) in a fresh seeded order and
+  prints the seed.
 
 ### Test isolation
 

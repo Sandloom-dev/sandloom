@@ -29,8 +29,11 @@ from sqlalchemy import Table
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+import sandloom.core.infra.config as infra_config
+import sandloom.core.infra.tool_infra as tool_infra
 from sandloom.core.cli._operator import add_operator_arguments, operator_intent
 from sandloom.core.config.settings import settings
+from sandloom.core.infra.registry import DriverConflictError, DriverLoadError
 from sandloom.core.migrations.backup import (
     CORE_TABLES,
     CORE_VERSION_TABLE,
@@ -164,6 +167,103 @@ def test_plan_flags_a_database_security_store_on_a_listed_and_on_its_own_databas
         "atomic_store" in r for i in items if i.kind == "redis" for r in i.roles
     )
     assert "s3cret" not in format_plan(items)
+
+
+#: What a stand-in composition states, the urls the Redis and Celery drivers
+#: would take from ``INFRA``: the kernel test needs no driver package (the
+#: no-Redis lane has none). The plan knows a Redis store by the driver name
+#: ``redis``; no driver fills a url (no flat setting carries one any more).
+_STUB_INFRA = {
+    "cache": {"default": {"driver": "redis", "url": "redis://cachehost:6379/3"}},
+    "atomic_store": {
+        "security": {"driver": "redis", "url": "redis://cachehost:6379/3"}
+    },
+    "taskqueue": {
+        "default": {"driver": "celery", "broker": "redis://brokerhost:6379/4"}
+    },
+}
+
+
+def _select_stub_drivers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The composition selects the stand-in drivers with their own urls."""
+    monkeypatch.setattr(settings, "infra", {})
+    monkeypatch.setattr(infra_config, "_APP", None)
+    monkeypatch.setattr(infra_config, "_PIN", infra_config._checked(_STUB_INFRA))
+
+    def fill(config: infra_config.InfraConfig, flat: Any, _lookup: Any) -> None:
+        infra_config.fill_driver_defaults(config, flat, lambda _cap, _driver: None)
+
+    monkeypatch.setattr(tool_infra, "fill_driver_defaults", fill)
+
+
+def test_plan_lists_the_redis_targets_a_composition_states(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The urls the composition (or ``INFRA``) states reach the plan as written:
+    the cache, the security store that states the same url and the broker."""
+    _select_stub_drivers(monkeypatch)
+    items = [i for i in build_backup_plan(settings) if i.kind == "redis"]
+    by_target = {i.target: i for i in items}
+    cache = by_target["redis://cachehost:6379/3"]
+    assert "cache:default" in cache.roles
+    assert any("atomic_store:security" in r and "SECURITY" in r for r in cache.roles)
+    assert cache.criticality == "critical"
+    broker = by_target["redis://brokerhost:6379/4"]
+    assert broker.roles == ["taskqueue:default broker"]
+
+
+def test_plan_lists_no_redis_target_for_an_instance_that_states_no_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No flat setting fills a missing url: nothing is listed, never a guess."""
+    _select_stub_drivers(monkeypatch)
+    bare = {
+        "cache": {"default": {"driver": "redis"}},
+        "taskqueue": {"default": {"driver": "celery"}},
+    }
+    monkeypatch.setattr(infra_config, "_PIN", infra_config._checked(bare))
+    assert not [i for i in build_backup_plan(settings) if i.kind == "redis"]
+
+
+@pytest.mark.parametrize("error", [DriverLoadError, DriverConflictError])
+def test_plan_survives_an_installed_driver_that_fails_to_load_and_says_so(
+    monkeypatch: pytest.MonkeyPatch, error: type[Exception]
+) -> None:
+    """A read-only tool still plans: the configuration comes back unfilled, the
+    Redis targets INFRA states are listed as written, and the plan says why."""
+    _select_stub_drivers(monkeypatch)
+
+    def broken(registry: object, config: object) -> None:
+        raise error("sandloom_stub.cache cannot be imported")
+
+    monkeypatch.setattr(tool_infra, "load_selected_plugins", broken)
+    items = build_backup_plan(settings)
+    assert [i for i in items if i.target == "redis://cachehost:6379/3"]
+    (warning,) = [i for i in items if i.kind == "warning"]
+    assert warning.criticality == "critical"
+    text = format_plan(items)
+    assert "cannot be imported" in text and "as written" in text
+    assert any(i.kind == "secrets" for i in items)  # the rest of the plan stands
+
+
+def test_plan_refuses_a_failure_that_is_not_a_driver_load_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _select_stub_drivers(monkeypatch)
+
+    def broken(registry: object, config: object) -> None:
+        raise RuntimeError("not a driver problem")
+
+    monkeypatch.setattr(tool_infra, "load_selected_plugins", broken)
+    with pytest.raises(RuntimeError, match="not a driver problem"):
+        build_backup_plan(settings)
+
+
+def test_plan_has_no_warning_when_every_driver_loads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _select_stub_drivers(monkeypatch)
+    assert not [i for i in build_backup_plan(settings) if i.kind == "warning"]
 
 
 def test_plan_names_no_module_secret_without_a_declaration() -> None:

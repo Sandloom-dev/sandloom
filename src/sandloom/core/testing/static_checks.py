@@ -65,6 +65,7 @@ from sandloom.core.testing.database import (
     redundant_indexes,
     tenant_keys_without_tenant,
 )
+from sandloom.core.testing.families import parse_infra
 from sandloom.core.testing.migrations import (
     CHAINS_CHECKED_ON_POSTGRESQL,
     migration_chains,
@@ -261,6 +262,14 @@ def _interpolate(value: object) -> str:
     )
 
 
+def _broker_of(env: dict[str, Any]) -> str:
+    """The broker one service's task queue uses (interpolated): the ``broker`` of
+    ``INFRA``'s ``taskqueue.default``, ``""`` when it declares none."""
+    infra = parse_infra(_interpolate(env["INFRA"])) if env.get("INFRA") else {}
+    declared = infra.get("taskqueue", {}).get("default", {}).get("broker")
+    return declared if isinstance(declared, str) else ""
+
+
 _Procs = dict[str, tuple[str, set[str]]]
 
 
@@ -289,7 +298,7 @@ def _processes(profile: Path) -> tuple[set[str], _Procs, _Procs, list[str]]:
             modules = set(json.loads(_interpolate(env["SANDLOOM_MODULES"])))
         except ValueError:
             continue
-        broker = _interpolate(env.get("BROKER_URL", ""))
+        broker = _broker_of(env)
         kind = _deploy_profile.command_kind(words)
         if kind == "worker":
             workers[name] = (broker, modules)

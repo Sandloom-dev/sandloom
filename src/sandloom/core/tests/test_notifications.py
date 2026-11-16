@@ -160,13 +160,71 @@ def test_smtp_login_without_tls_is_refused_in_prod(
     monkeypatch.setattr(type(settings), "is_prod", property(lambda self: True))
     creds = {"host": "mail", "username": "u", "password": "p"}
     with pytest.raises(ValueError, match="use_tls"):
-        create_smtp_notifier(InstanceConfig("notification", "default", "smtp", creds))
+        create_smtp_notifier(
+            InstanceConfig(
+                "notification", "default", "smtp", {**creds, "use_tls": False}
+            )
+        )
     # With TLS (or without credentials) the driver builds.
     create_smtp_notifier(
         InstanceConfig("notification", "default", "smtp", {**creds, "use_tls": True})
     )
     create_smtp_notifier(
-        InstanceConfig("notification", "default", "smtp", {"host": "mail"})
+        InstanceConfig(
+            "notification", "default", "smtp", {"host": "mail", "use_tls": False}
+        )
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("options", "tls"),
+    [
+        ({}, True),  # omitted: the driver's own default, no kernel fill
+        ({"use_tls": None}, True),  # null is not "off"
+        ({"use_tls": True}, True),
+        ({"use_tls": False}, False),  # only an explicit false turns it off
+    ],
+)
+async def test_smtp_tls_is_on_unless_the_instance_says_false(
+    monkeypatch: pytest.MonkeyPatch, options: dict[str, object], tls: bool
+) -> None:
+    from sandloom.core.drivers import smtp_notifier
+
+    _FakeSMTP.instances.clear()
+    monkeypatch.setattr(smtp_notifier.smtplib, "SMTP", _FakeSMTP)
+    # Built from its own options, as ``from_config`` / ``override_instance`` do:
+    # never through ``load_infra_config``.
+    provider = smtp_notifier.SmtpNotifierProvider.from_config(
+        InstanceConfig("notification", "default", "smtp", {"host": "mail", **options})
+    )
+    await provider.send(_email())
+    (client,) = _FakeSMTP.instances
+    assert (client.starttls_kwargs is not None) is tls
+
+
+def test_the_smtp_option_schema_defaults_tls_on() -> None:
+    from sandloom.core.drivers.smtp_notifier import SmtpNotifierOptions
+
+    assert SmtpNotifierOptions(host="mail").use_tls is True
+    assert SmtpNotifierOptions(host="mail", use_tls=False).use_tls is False
+    with pytest.raises(ValueError, match="use_tls"):
+        SmtpNotifierOptions(host="mail", use_tls="maybe")  # type: ignore[arg-type]
+
+
+def test_smtp_login_in_prod_builds_when_tls_is_left_to_the_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sandloom.core.config.settings import settings
+
+    monkeypatch.setattr(type(settings), "is_prod", property(lambda self: True))
+    create_smtp_notifier(
+        InstanceConfig(
+            "notification",
+            "default",
+            "smtp",
+            {"host": "mail", "username": "u", "password": "p"},
+        )
     )
 
 

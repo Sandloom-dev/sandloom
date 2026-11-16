@@ -122,8 +122,8 @@ forbidden_modules =
 ; logic of sandloom.core.eventing sits above a transport and imports no
 ; transport implementation, no driver and no backend SDK. The volatile bus
 ; (pubsub_bus) runs over the broadcast capability and is a delivery module. The
-; Redis Streams transport lives in core/drivers/redis_eventbus (idk-eventbus-move),
-; so the whole package is the source: a new eventing module is held to the
+; Redis Streams transport lives in the sandloom-redis package
+; (sandloom_redis.eventbus, idk-pkg-redis-eventbus), so the whole package is the source: a new eventing module is held to the
 ; rule without being listed. No ignore_imports (G-KERNEL-04).
 
 [importlinter:contract:eventing-no-transport-impl]
@@ -334,8 +334,8 @@ forbidden_modules =
     sandloom.driverkit
 
 ; The kernel names no task-queue backend (idk-worker-port): Celery's worker,
-; scheduler, signals and bootsteps live in sandloom.core.drivers.celery_worker
-; behind TaskQueueProvider.worker_host(), and the kernel runs a task through the
+; scheduler, signals and bootsteps live in sandloom_celery.worker (the
+; sandloom-celery package) behind TaskQueueProvider.worker_host(), and the kernel runs a task through the
 ; WorkerBoot it hands the host. Same sources as the contract above (every
 ; sandloom.core child but drivers); a new core child is added to both, and
 ; tests/architecture/test_kernel_backend_imports.py ratchets the other backends.

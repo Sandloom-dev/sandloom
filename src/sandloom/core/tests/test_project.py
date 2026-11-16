@@ -9,6 +9,7 @@ that never absolute-import the app's own package.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import re
 import subprocess
@@ -20,6 +21,23 @@ from typing import Any
 import pytest
 
 from sandloom.core.cli.project import generate_project
+from sandloom.core.tests._root_support import redis_free_infra_env
+
+
+def _nested_infra(*, eventbus: bool = False) -> str:
+    """The ``INFRA`` (JSON) of a generated app run on this run's test Redis:
+    the app's own Redis instances, the cache's on the test cache url, the
+    persistent ones on the test broker url, and the kernel's ``memory`` drivers
+    where the venv has no ``sandloom-redis`` (``redis_free_infra_env``)."""
+    import os
+
+    from sandloom.core.cli.project import _infra_json
+
+    cache = os.environ.get("SANDLOOM_TEST_CACHE_URL") or "redis://localhost:6380/0"
+    broker = os.environ.get("SANDLOOM_TEST_BROKER_URL") or "redis://localhost:6380/1"
+    infra = json.loads(_infra_json(cache, broker, eventbus=eventbus))
+    infra.update(json.loads(redis_free_infra_env().get("INFRA", "{}")))
+    return json.dumps(infra)
 
 
 def _forget_probe_app() -> None:
@@ -186,9 +204,10 @@ def test_apps_depend_on_sandloom_and_each_chosen_module_package(
     generate_project("shop", tmp_path, with_batteries=["identity"])
     shop = tomllib.loads(_read(tmp_path / "shop", "pyproject.toml"))
     assert shop["project"]["dependencies"] == [
-        "sandloom[redis,celery]>=0.7.0a13,<0.8",
-        "sandloom-redis>=0.7.0a13,<0.8",
-        "sandloom-identity>=0.7.0a13,<0.8",
+        "sandloom[postgres,redis,celery]>=0.7.0a14,<0.8",
+        "sandloom-redis>=0.7.0a14,<0.8",
+        "sandloom-celery>=0.7.0a14,<0.8",
+        "sandloom-identity>=0.7.0a14,<0.8",
     ]
 
     # A minimal app depends on the kernel alone (+ its Redis/Celery drivers:
@@ -196,16 +215,18 @@ def test_apps_depend_on_sandloom_and_each_chosen_module_package(
     generate_project("probe", tmp_path)
     probe = tomllib.loads(_read(tmp_path / "probe", "pyproject.toml"))
     assert probe["project"]["dependencies"] == [
-        "sandloom[redis,celery]>=0.7.0a13,<0.8",
-        "sandloom-redis>=0.7.0a13,<0.8",
+        "sandloom[postgres,redis,celery]>=0.7.0a14,<0.8",
+        "sandloom-redis>=0.7.0a14,<0.8",
+        "sandloom-celery>=0.7.0a14,<0.8",
     ]
 
     # A published app (no local checkout, so no `[tool.uv.sources]`) gets
-    # sandloom-redis through the `redis` extra alone.
+    # sandloom-redis and sandloom-celery through the `redis` and `celery`
+    # extras alone.
     generate_project("published", tmp_path, framework_source="pypi")
     published = tomllib.loads(_read(tmp_path / "published", "pyproject.toml"))
     assert published["project"]["dependencies"] == [
-        "sandloom[redis,celery]>=0.7.0a13,<0.8",
+        "sandloom[postgres,redis,celery]>=0.7.0a14,<0.8",
     ]
     assert "tool" not in published or "sources" not in published["tool"].get("uv", {})
 
@@ -231,10 +252,10 @@ def test_generated_app_installs_the_fast_extra(tmp_path: Path) -> None:
         "custom",
         tmp_path,
         with_batteries=["identity"],
-        framework_req="sandloom==0.7.0a13",
+        framework_req="sandloom==0.7.0a14",
     )
     custom_pyproject = _read(tmp_path / "custom", "pyproject.toml")
-    assert '"sandloom==0.7.0a13"' in custom_pyproject
+    assert '"sandloom==0.7.0a14"' in custom_pyproject
 
 
 def test_asgi_reuses_framework_factory(tmp_path: Path) -> None:
@@ -394,13 +415,55 @@ def test_env_files_secret_handling(
     for key, value in {
         "ENVIRONMENT": "prod",
         "DATABASE_URL": "postgresql+asyncpg://u:p@h:5432/d",
-        "CACHE_URL": "redis://h:6379/0",
-        "BROKER_URL": "redis://h:6379/1",
         "JWT_SECRET": placeholder,
     }.items():
         monkeypatch.setenv(key, value)
     with pytest.raises(ValidationError, match="placeholder"):
         Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def _generated_infra(root: Path, name: str, key: str = "INFRA") -> dict[str, Any]:
+    """The ``INFRA`` of an env file or compose ``environment`` of ``root``."""
+    text = _read(root, name)
+    line = next(ln for ln in text.splitlines() if ln.strip().startswith(f"{key}"))
+    raw = line.split("=" if name.startswith(".env") else ":", 1)[1].strip()
+    parsed: dict[str, Any] = json.loads(raw.strip("'"))
+    return parsed
+
+
+def test_generated_env_and_compose_give_each_redis_instance_its_own_url(
+    tmp_path: Path,
+) -> None:
+    """One explicit url per Redis instance of ``DEFAULT_INFRA`` (no CACHE_URL /
+    BROKER_URL), and no persistent instance on the cache's host, port and
+    database (the startup warning)."""
+    generate_project("probe", tmp_path)
+    root = tmp_path / "probe"
+    spec = importlib.util.spec_from_file_location(
+        "probe_selection", root / "probe" / "__init__.py"
+    )
+    assert spec is not None and spec.loader is not None
+    selection = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(selection)
+    selected = {
+        (capability, name)
+        for capability, instances in selection.DEFAULT_INFRA.items()
+        for name in instances
+    } - {("database", "default")}
+    for file, key, bus in (
+        (".env.test", "INFRA", False),  # the in-process bus is named there
+        ("deploy/docker-compose.yml", "  INFRA", True),
+    ):
+        infra = _generated_infra(root, file, key.strip())
+        named = {(c, n) for c, instances in infra.items() for n in instances}
+        assert named == selected - (set() if bus else {("eventbus", "default")}), file
+        cache_url = infra["cache"]["default"]["url"]
+        for capability in ("atomic_store", "lease", "eventbus", "taskqueue"):
+            for spec in infra.get(capability, {}).values():
+                assert cache_url not in spec.values(), (file, capability)
+    for name in (".env", ".env.example", ".env.test", "deploy/docker-compose.yml"):
+        text = _read(root, name)
+        assert "CACHE_URL" not in text and "BROKER_URL" not in text, name
 
 
 # --------------------------------------------------------------------------- #
@@ -524,13 +587,15 @@ def test_mail_apps_expose_a_real_notifier_and_name_the_demo_risk(
     tmp_path: Path,
 ) -> None:
     """identity / tenancy require an email notifier: the app's compose passes the
-    smtp settings through and says what a mail-less demo accepts."""
+    backend choice through (the smtp options live in the INFRA instance, not in
+    flat settings) and says what a mail-less demo accepts."""
     for battery in ("identity", "tenancy"):
         generate_project(f"shop_{battery}", tmp_path, with_batteries=[battery])
         root = tmp_path / f"shop_{battery}"
         env = _compose(root)["services"]["app"]["environment"]
-        for key in ("NOTIFIER_BACKEND", "SMTP_HOST", "SMTP_FROM", "SMTP_USE_TLS"):
-            assert key in env, (battery, key)
+        assert "NOTIFIER_BACKEND" in env, battery
+        for removed in ("SMTP_HOST", "SMTP_FROM", "SMTP_USE_TLS"):
+            assert removed not in env, (battery, removed)
         assert "log_notifier_in_prod" in _read(root, "deploy/docker-compose.yml")
     generate_project("probe_nomail", tmp_path, with_batteries=["billing"])
     plain = _compose(tmp_path / "probe_nomail")["services"]["app"]["environment"]
@@ -620,19 +685,18 @@ def test_upgrade_all_on_freshly_generated_project(
             ),
             "ENVIRONMENT": "test",
             "DATABASE_URL": async_url,
-            "CACHE_URL": str(test_env.get("CACHE_URL") or "redis://localhost:6380/0"),
-            "BROKER_URL": str(test_env.get("BROKER_URL") or "redis://localhost:6380/1"),
             "JWT_SECRET": "x" * 40,
             "EVENT_BUS_BACKEND": "memory",
         }
         env["INFRA"] = json.dumps(
             {
+                **json.loads(_nested_infra()),
                 "database": {
                     "default": {
                         "url": async_url,
                         "tenant_rls": tenant_rls,
                     }
-                }
+                },
             }
         )
         cli = [sys.executable, "-m", "sandloom.core.cli.migrate"]
@@ -830,8 +894,8 @@ def test_generated_project_passes_its_own_tests(tmp_path: Path) -> None:
             key = line.split("=", 1)[0]
             if key == "DATABASE_URL":
                 line = f"DATABASE_URL={async_url}"
-            elif key in ("CACHE_URL", "BROKER_URL") and test_env.get(key):
-                line = f"{key}={test_env[key]}"
+            elif key == "INFRA":
+                line = f"INFRA='{_nested_infra()}'"
             elif key == "SANDLOOM_MODULES":
                 line = 'SANDLOOM_MODULES=["probe.modules.gadgets", "probe.modules.widgets"]'
             lines.append(line)
@@ -846,6 +910,7 @@ def test_generated_project_passes_its_own_tests(tmp_path: Path) -> None:
         from sandloom.core.testing.ownership import OWNER_ENV, current_owner
 
         env[OWNER_ENV] = current_owner()
+        env.update(redis_free_infra_env())
         report = tmp_path / "report.xml"
         proc = subprocess.run(
             [
@@ -1093,16 +1158,25 @@ def _app_command(root: Path, database_url: str, *argv: str) -> tuple[int, str]:
     import os
     import subprocess
 
+    from sandloom.core.cli.project import _infra_json
+
     env = {
         "PATH": os.environ.get("PATH", ""),
         "HOME": os.environ.get("HOME", ""),
         "PYTHONPATH": str(root),
         "ENVIRONMENT": "test",
         "DATABASE_URL": database_url,
-        "CACHE_URL": "redis://127.0.0.1:9/0",
-        "BROKER_URL": "redis://127.0.0.1:9/1",
         "JWT_SECRET": "test-only-not-a-secret-0123456789abcdef0123",
         "SANDLOOM_COMPOSITION_ROOT": "probe.asgi",
+        # One url per Redis instance, on a closed port: nothing connects.
+        "INFRA": json.dumps(
+            {
+                **json.loads(
+                    _infra_json("redis://127.0.0.1:9/0", "redis://127.0.0.1:9/1")
+                ),
+                **json.loads(redis_free_infra_env().get("INFRA", "{}")),
+            }
+        ),
     }
     proc = subprocess.run(
         [sys.executable, "-m", *argv],

@@ -22,6 +22,7 @@ from typing import Any
 
 import pytest
 
+import sandloom.core.infra.config as config_module
 from sandloom.core import error_codes
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import CapabilityRequirement, HealthResult
@@ -31,6 +32,7 @@ from sandloom.core.infra.config import (
     KERNEL_INSTANCES,
     InstanceConfig,
     load_infra_config,
+    use_default_infra,
 )
 from sandloom.core.infra.contracts import InfraProvider
 from sandloom.core.infra.registry import (
@@ -98,6 +100,15 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     return attempts
 
 
+@pytest.fixture(autouse=True)
+def _no_process_infra(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The process ``INFRA`` (.env.test) states a url for each Redis instance,
+    which makes them instances INFRA names. These tests are about the ones the
+    composition synthesizes (never refused for a missing package) and about
+    what a test declares itself: it sets ``settings.infra`` when it needs one."""
+    monkeypatch.setattr(settings, "infra", {})
+
+
 @pytest.fixture
 def probe_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """An installed package that writes a marker file when imported."""
@@ -138,7 +149,11 @@ def _registry(*instances: InstanceConfig) -> tuple[InfraRegistry, dict[str, _Spy
 
 def _real_registry() -> InfraRegistry:
     """The registry ``create_app`` builds from the test settings."""
-    return build_infra_registry(InMemorySchemaRegistry(), load_plugins=False)
+    return build_infra_registry(
+        InMemorySchemaRegistry(),
+        load_plugins=False,
+        config=load_infra_config(settings),
+    )
 
 
 # ------------------------------------------------------------- preflight ----
@@ -217,8 +232,8 @@ def test_requires_takes_top_level_names_only() -> None:
 @pytest.mark.parametrize(
     ("capability", "package", "hint"),
     [
-        ("taskqueue", "celery", "pip install 'sandloom[celery]'"),
-        ("cache", "redis", "pip install 'sandloom[redis]'"),
+        ("taskqueue", "sandloom_celery", "pip install sandloom-celery"),
+        ("cache", "sandloom_redis", "pip install sandloom-redis"),
     ],
 )
 def test_builtin_drivers_name_their_package_and_extra(
@@ -232,6 +247,18 @@ def test_builtin_drivers_name_their_package_and_extra(
     unimportable, ``validate_requirement`` passed. It refuses now, and the
     package is still not imported."""
     monkeypatch.setitem(sys.modules, package, None)
+    # A composition that selects both drivers (the suite's own selection is the
+    # ``memory`` cache where ``sandloom-redis`` is absent): names only, nothing
+    # is built.
+    monkeypatch.setattr(config_module, "_PIN", None)
+    monkeypatch.setattr(config_module, "_APP", None)
+    use_default_infra(
+        {
+            "database": {"default": {"driver": "sqlalchemy"}},
+            "cache": {"default": {"driver": "redis"}},
+            "taskqueue": {"default": {"driver": "celery"}},
+        }
+    )
     registry = _real_registry()
     with pytest.raises(DriverUnavailableError) as caught:
         registry.validate_requirement(capability)
@@ -244,7 +271,7 @@ def test_builtin_drivers_name_their_package_and_extra(
 def test_the_fix_names_the_features_an_alternative_must_advertise(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setitem(sys.modules, "celery", None)
+    monkeypatch.setitem(sys.modules, "sandloom_celery", None)
     with pytest.raises(DriverUnavailableError) as caught:
         _real_registry().validate_requirement(
             "taskqueue", features=frozenset({"delay"})
@@ -265,7 +292,7 @@ def test_a_module_gets_every_unmet_requirement_in_one_refusal(
     """B037 names the module and, per requirement, capability, instance,
     driver, features, what is missing and the fix; optional ones are handed
     back, not raised."""
-    monkeypatch.setitem(sys.modules, "celery", None)
+    monkeypatch.setitem(sys.modules, "sandloom_celery", None)
     registry = _real_registry()
     requirements = [
         CapabilityRequirement("database"),
@@ -282,8 +309,8 @@ def test_a_module_gets_every_unmet_requirement_in_one_refusal(
         "capability 'taskqueue' (instance 'default', driver 'celery', "
         "features ['delay'])" in message
     )
-    assert "needs the package 'celery', which is not installed" in message
-    assert "pip install 'sandloom[celery]'" in message
+    assert "needs the package 'sandloom_celery', which is not installed" in message
+    assert "pip install sandloom-celery" in message
     assert "capability 'objectstore'" in message and "no_such_feature" in message
     assert "capability 'database'" not in message
     assert message.count("[SANDLOOM-B037]") == 1
@@ -326,7 +353,7 @@ def test_an_explicit_instance_on_an_uninstalled_driver_refuses_startup(
 ) -> None:
     """An operator who selects a driver in INFRA gets B037 at the build of
     the registry, before any module loads; a synthesized default does not."""
-    monkeypatch.setitem(sys.modules, "celery", None)
+    monkeypatch.setitem(sys.modules, "sandloom_celery", None)
     _real_registry()  # the implicit taskqueue/default alone: no refusal
     config = load_infra_config(settings)
     config["taskqueue"]["jobs"] = InstanceConfig(
@@ -339,7 +366,7 @@ def test_an_explicit_instance_on_an_uninstalled_driver_refuses_startup(
         build_infra_registry(
             InMemorySchemaRegistry(), config=config, load_plugins=False
         )
-    assert "taskqueue/jobs: driver 'celery' needs the package 'celery'" in str(
+    assert "taskqueue/jobs: driver 'celery' needs the package 'sandloom_celery'" in str(
         caught.value
     )
 
@@ -386,6 +413,34 @@ async def test_an_unused_synthesized_instance_is_not_opened_or_probed() -> None:
     assert described["taskqueue"]["default"]["in_use"] is False
     assert described["cache"]["default"]["in_use"] is True
     assert "status" not in described["cache"]["default"]
+
+
+@pytest.mark.asyncio
+async def test_the_cache_opens_before_any_other_capability_whatever_the_infra_order() -> (
+    None
+):
+    """A url-less event bus runs on the default cache client the cache instance
+    configures when it is built: INFRA listing the bus first must not open it
+    first (the bus was refused for a url the cache had)."""
+    registry, spies = _registry(
+        _instance("eventbus", "bus"),
+        _instance("taskqueue", "jobs"),
+        _instance("cache", "kv"),
+    )
+    for capability, driver in (
+        ("eventbus", "bus"),
+        ("taskqueue", "jobs"),
+        ("cache", "kv"),
+    ):
+        registry.register_driver(capability, driver, spies[capability])
+
+    await registry.aopen_all(strict=True)
+
+    assert _Provider.opened == [
+        "cache/default",
+        "eventbus/default",
+        "taskqueue/default",
+    ]
 
 
 @pytest.mark.asyncio
@@ -496,7 +551,7 @@ def test_the_module_preflight_refuses_with_b037_and_the_load_names_it(
         _preflight_capabilities,
     )
 
-    monkeypatch.setitem(sys.modules, "celery", None)
+    monkeypatch.setitem(sys.modules, "sandloom_celery", None)
     core = CoreFacade(app=FastAPI())
     core.set_infra(_real_registry())
     desc = ModuleDescriptor(

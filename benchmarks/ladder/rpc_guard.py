@@ -45,9 +45,9 @@ def main() -> None:
     want_db = os.environ.get("RPC_GUARD_DB", "sandloom_bench_rpcdecomp")
     want_cache = os.environ.get("RPC_GUARD_CACHE", ":6390/")
     if want_db not in os.environ.get("DATABASE_URL", "") or want_cache not in (
-        os.environ.get("CACHE_URL", "")
+        os.environ.get("BENCH_REDIS_URL", "")
     ):
-        sys.exit("guard: wrong DATABASE_URL / CACHE_URL in env")
+        sys.exit("guard: wrong DATABASE_URL / BENCH_REDIS_URL in env")
     cmd = sys.argv[sys.argv.index("--") + 1 :]
     quiet_since = time.time() if not foreign() else None
     while quiet_since is None or time.time() - quiet_since < QUIET:

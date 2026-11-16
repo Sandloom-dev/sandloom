@@ -1582,9 +1582,13 @@ requirement only warns. An instance INFRA selects on an uninstalled driver
 refuses startup the same way, and so does a dependency that fails to import
 while a driver is built (strict startup in production). A synthesized default
 instance nothing requires is neither opened nor probed; the instances the
-kernel uses (database, cache, event bus) stay required.
+kernel uses (database, cache, event bus, and the security atomic store) stay
+required. The kernel names no driver for them: the composition selects them
+(create_app(default_infra=...)), or INFRA does. When neither does, startup
+refuses in every environment and names each instance with what to select;
+memory is never an automatic fallback.
 
-**Fix:** install what the refusal names (pip install 'sandloom[celery]', 'sandloom[redis]'), or select in INFRA an installed driver that advertises the features the module requires
+**Fix:** install what the refusal names (pip install sandloom-celery, pip install sandloom-redis), select a driver for each instance the composition leaves unselected, or select in INFRA an installed driver that advertises the features the module requires
 
 **More:** `docs/infrastructure/index.md`
 
@@ -1949,9 +1953,9 @@ Slug: `services-unreachable` · kind: runtime · status: active
 
 **What happened and why it matters**
 
-The command connected to the DATABASE_URL, CACHE_URL or BROKER_URL it was
-given and nothing answered, or the server refused the login. The CLI prints
-one line instead of the driver's traceback; add --debug (or set
+The command connected to the DATABASE_URL or the INFRA instance url (cache,
+broker) it was given and nothing answered, or the server refused the login.
+The CLI prints one line instead of the driver's traceback; add --debug (or set
 SANDLOOM_DEBUG=1) to see the traceback.
 
 Usual causes:
@@ -1959,7 +1963,7 @@ Usual causes:
 - the dev services are not running: `uv run sandloom dev up` starts them (it
   never happens on its own);
 - `.env` points elsewhere: `sandloom dev up` writes this checkout's URLs into
-  the marked block of `.env`, and a DATABASE_URL / CACHE_URL / BROKER_URL
+  the marked block of `.env`, and a DATABASE_URL or INFRA
   exported in the shell wins over `.env` (the CLI warns when they differ);
 - the container runs but its port is not published to the host (seen with
   Docker Desktop): `sandloom dev up` checks from the host and recreates it.
@@ -2367,7 +2371,7 @@ Slug: `split-profile` · kind: test · status: active
 **What happened and why it matters**
 
 deploy/compose/microservices.yml must hold what the framework's own
-profile holds: shared settings identical in every process (one CACHE_URL),
+profile holds: shared settings identical in every process (one INFRA),
 signing material on the token issuer only, a database and a migrate one-shot
 per service, the durable bus, SERVICE_BINDINGS exactly the contracts each
 service consumes from another one (+ the issuer's remote claims),

@@ -91,13 +91,10 @@ def test_monolith_migrate_one_shot_gates_every_process() -> None:
 #: config, test/bootstrap switches). The count may only go DOWN (G-CONFIG-06).
 RAW_ENV_BASELINE: dict[str, int] = {
     "sandloom_billing/migrations/versions/0005_billing_subscription_origin.py": 1,
+    "sandloom_celery/worker.py": 1,
     "sandloom/core/app_factory/config.py": 1,
     "sandloom/core/auth/hashing.py": 2,
     "sandloom/core/cli/extract.py": 1,
-    # The importable Celery app (``celery -A``, Flower) reads BROKER_URL itself: a
-    # driver imports no kernel setting. The read moves to the driver's options
-    # when the driver becomes its own package (idk-pkg-celery).
-    "sandloom/core/drivers/celery_worker.py": 1,
     "sandloom/core/cli/gunicorn_conf.py": 14,
     "sandloom/core/cli/project.py": 1,
     "sandloom/core/composition.py": 1,
@@ -114,14 +111,20 @@ _RAW_ENV = re.compile(r"os\.getenv|os\.environ\.get|os\.environ\[")
 def test_raw_environment_reads_only_go_down() -> None:
     """G-CONFIG-06: no NEW ``os.getenv`` in framework code — add a ``Settings`` field."""
     counts: Counter[str] = Counter()
-    # The kernel and the standard module packages (src/sandloom_*).
-    for path in SRC.rglob("*.py"):
-        rel = path.relative_to(SRC).as_posix()
-        if "/tests/" in rel or rel.startswith("sandloom/core/testing/"):
-            continue
-        n = len(_RAW_ENV.findall(path.read_text(encoding="utf-8")))
-        if n:
-            counts[rel] = n
+    # The kernel and the standard module packages (src/sandloom_*), and the
+    # driver packages (packages/*/src).
+    for root in (SRC, *sorted((BACKEND / "packages").glob("*/src"))):
+        for path in root.rglob("*.py"):
+            rel = path.relative_to(root).as_posix()
+            # The test harness reads the process environment (the owner, the
+            # xdist worker, the Redis index map): its variables are not settings.
+            if "/tests/" in rel or rel.startswith(
+                ("sandloom/core/testing/", "sandloom_redis/testing/")
+            ):
+                continue
+            n = len(_RAW_ENV.findall(path.read_text(encoding="utf-8")))
+            if n:
+                counts[rel] = n
     grown = {
         f: (RAW_ENV_BASELINE.get(f, 0), n)
         for f, n in counts.items()

@@ -45,7 +45,6 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`ContractConformanceError`](#contractconformanceerror) | exception | The local and the RPC path disagreed for at least one case. |
 | [`email_of`](#email_of) | function | The deterministic `email` claim minted for a test user. |
 | [`FakeClock`](#fakeclock) | class | The runtime's injectable clock (naive UTC). |
-| [`flush_owned_redis`](#flush_owned_redis) | async function | `FLUSHDB` a test Redis database this run owns, keeping its marker. |
 | [`get_db`](#get_db) | function | Request-scoped DB session governed by a UnitOfWork (the canonical path). |
 | [`has_optimized_reads`](#has_optimized_reads) | function | Whether the planner's optimized executor can run on the database behind `bind` (an engine, sync or async): its DBAPI adapter runs raw sta... |
 | [`Headers`](#headers) | callable | dict() -> new empty dictionary dict(mapping) -> new dictionary initialized from a mapping object's     (key, value) pairs dict(iterable)... |
@@ -75,6 +74,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`RegistrationSurface`](#registrationsurface) | class | What one `register(core)` call registered, in call order. |
 | [`reload_test_env`](#reload_test_env) | function | `load_dotenv(path, override=True)` then re-apply the worker rewrite. |
 | [`ReservedPort`](#reservedport) | class | A loopback port held by a listening socket owned by the test process. |
+| [`resolved_cache_url`](#resolved_cache_url) | function | The URL the test run's `default` cache is on. |
 | [`revocation_mark_key`](#revocation_mark_key) | function | The store key of `user_id`'s subject-state record. |
 | [`route_policy`](#route_policy) | function | The policy the framework applies to `route` (resolved live). An app asserts deny-by-default with it: |
 | [`RoutePolicy`](#routepolicy) | class | What the framework applies to one route (ADR-0009). |
@@ -486,17 +486,6 @@ def advance(self, delta: timedelta) -> datetime
 ```python
 def advance_to(self, when: datetime) -> datetime
 ```
-
-### `flush_owned_redis`
-
-```python
-async def flush_owned_redis(client: Any, *, owner: str | None = None) -> None
-```
-
-`FLUSHDB` a test Redis database this run owns, keeping its marker.
-
-`client` is an asyncio Redis client (bytes or decoded responses).
-Raises `TestResourceOwnershipError` when another run marked it.
 
 ### `get_db`
 
@@ -1009,7 +998,7 @@ provider are put back — so a lazily built, process-wide provider (e.g. the
 
 ```python
 async with override_instance(core, "cache", driver="redis",
-                             url=os.environ["CACHE_URL"]):
+                             url=resolved_cache_url()):
     ...
 ```
 
@@ -1188,6 +1177,20 @@ def close(self) -> None
 ```
 
 Release the port (idempotent). Do it after the last child stopped.
+
+### `resolved_cache_url`
+
+```python
+def resolved_cache_url(environ: Mapping[str, str] | None = None) -> str
+```
+
+The URL the test run's `default` cache is on.
+
+`cache.default.url` of `INFRA` (what the harness merged
+`SANDLOOM_TEST_CACHE_URL` into, and the worker's rewrite moved). Read from
+the environment, not from the application's settings snapshot, which a
+suite that imported the app early holds stale. Raises `RuntimeError`
+naming where to set it when there is none.
 
 ### `revocation_mark_key`
 

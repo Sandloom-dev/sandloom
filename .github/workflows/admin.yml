@@ -49,7 +49,7 @@ jobs:
       - run: uv sync --frozen --project .
         working-directory: .
       - run: npm ci
-      - run: npm run contracts:check
+      # `npm run contracts:check` runs in ci.yml's admin-contracts job.
       - run: npm run format:check
       # ESLint (strict type-checked, a11y, no inline styles / arbitrary values)
       # plus the design-token gate (no raw colors, px or ms outside tokens.css).

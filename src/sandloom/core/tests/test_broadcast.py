@@ -542,23 +542,11 @@ def _registry(monkeypatch: pytest.MonkeyPatch, infra: dict[str, Any]) -> Any:
     from sandloom.core.schema.registry import InMemorySchemaRegistry
 
     monkeypatch.setattr(settings, "infra", infra)
-    return build_infra_registry(InMemorySchemaRegistry(), load_plugins=False)
+    return build_infra_registry(InMemorySchemaRegistry())
 
 
-async def test_the_default_broadcast_instance_is_redis_on_the_cache_url(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from sandloom.core.config.settings import settings
-
-    registry = _registry(monkeypatch, {})
-    config = registry._config["broadcast"]["default"]
-    assert config.driver == "redis"
-    assert config.implicit is True
-    assert config.options["url"] == settings.cache_url
-    provider = registry.provider("broadcast")
-    assert type(provider).__name__ == "RedisBroadcastProvider"
-    assert provider.features() == {"pattern_subscribe", "shared"}
-    assert not registry.in_use("broadcast")  # opened only when a user needs it
+# The default instance when the composition selects ``redis``: the sandloom-redis
+# package's ``test_redis_broadcast_registry.py``.
 
 
 async def test_infra_can_select_the_memory_driver_for_broadcast(

@@ -221,7 +221,10 @@ async def test_the_app_resolves_the_selected_driver(
     options = {"driver": driver}
     if driver == "local":
         options["path"] = str(tmp_path / "objects")
-    monkeypatch.setattr(settings, "infra", {"objectstore": {"default": options}})
+    # the process INFRA keeps the urls of the Redis instances the app opens
+    monkeypatch.setattr(
+        settings, "infra", {**settings.infra, "objectstore": {"default": options}}
+    )
     app = create_root_app()
     async with app.router.lifespan_context(app):
         store = objectstore()

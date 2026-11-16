@@ -49,4 +49,26 @@ STANDARD_CLAIM_AUTHORITIES: dict[str, str | Authority] = {
     "limits": _BILLING,
 }
 
-__all__ = ["STANDARD_CLAIM_AUTHORITIES"]
+#: The standard deployment's driver selection (``create_app(default_infra=...)``;
+#: a process that boots no app, ``sandloom worker check``, reads it from this
+#: attribute of the root's package), written as ``INFRA`` is: the Redis drivers
+#: of ``sandloom-redis`` (cache, the durable ``streams`` event bus, broadcast,
+#: the security ``atomic_store`` and the beat ``lease``), Celery for the task
+#: queue, SQLAlchemy for the database. The
+#: kernel names none of them. The database url is ``DATABASE_URL``; the Redis
+#: urls and the Celery broker are options of their instances in ``INFRA``
+#: (``cache.default.url``, ``taskqueue.default.broker``, ...), and ``INFRA``
+#: overrides any instance. In production the security store is never taken from
+#: here: it is declared in ``INFRA`` on a server of its own. ``memory`` is never
+#: selected.
+DEFAULT_INFRA: dict[str, dict[str, dict[str, object]]] = {
+    "database": {"default": {"driver": "sqlalchemy"}},
+    "cache": {"default": {"driver": "redis"}},
+    "eventbus": {"default": {"driver": "streams"}},
+    "broadcast": {"default": {"driver": "redis"}},
+    "taskqueue": {"default": {"driver": "celery"}},
+    "atomic_store": {"security": {"driver": "redis"}},
+    "lease": {"beat": {"driver": "redis"}},
+}
+
+__all__ = ["DEFAULT_INFRA", "STANDARD_CLAIM_AUTHORITIES"]

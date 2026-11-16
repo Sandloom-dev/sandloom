@@ -8,7 +8,7 @@ type: how-to
 
 Sandloom is an alpha. Pin and review the versions you deploy; do not infer
 compatibility from a passing installation alone. The current published alpha
-is `0.7.0a13`. See the [changelog](../changelog.md) and <!-- sandloom-release -->
+is `0.7.0a14`. See the [changelog](../changelog.md) and <!-- sandloom-release -->
 [versioning policy](../contributing/versioning.md).
 
 1. Record the installed kernel and optional battery versions, the application
@@ -113,6 +113,36 @@ guarantee needs lives on `atomic_store`. There is no alias for what leaves.
 
 Test a cache driver with `CacheConformance` from `sandloom.driverkit.testing`.
 
+## Upgrading a module to the task API
+
+`sandloom.sdk.tasks` carries Sandloom's own task API in place of Celery's, and the `taskqueue`
+contract is major 2 (`TaskQueueProvider.send` replaces `enqueue`).
+There is no alias for what it replaces.
+
+| Before | After |
+| --- | --- |
+| `@shared_task(name=..., acks_late=True, reject_on_worker_lost=True)` | `@task(at_least_once=True)`; drop `name=`: it must equal `<module>.<function>`. `at_least_once` needs the driver feature `redelivery` |
+| `setup_periodic_tasks(sender)` and a Celery `crontab` | `@periodic(cron="<five fields, UTC>", id="<module>.<job>")` on a function without arguments. 300 s is `*/5 * * * *`, 3600 s `0 * * * *`, 86400 s `0 3 * * *`: a fixed slot, not "24 h after the scheduler started" |
+| `task.delay(...)`, `.s`, `.si`, `.apply_async` | `await task.enqueue(Model(...), delay=timedelta(...), idempotency_key=...)` |
+| `taskqueue().enqueue(task, payload, delay_seconds=60)` | `taskqueue().enqueue(task, payload, delay=timedelta(seconds=60))` |
+| a module requirement or a driver declaring the feature `idempotency_key` | Drop it: the kernel serves the key on every driver through the `idempotency` `atomic_store`, and fails closed without one |
+
+Four behaviours change with it:
+
+1. An enqueue by name (`taskqueue().enqueue("<pkg>.tasks.<name>", ...)`) is checked against the
+   task declarations of the enqueuing process, so `<pkg>.tasks` must be imported there or the
+   call raises `InvalidArgument`. In a split deployment the web service imports the tasks
+   module of every task it enqueues by name. A module enqueues its own tasks; work in another
+   module goes through events or contracts.
+2. The task goes to the queue the task declares (`@task(queue="slow")`), also from a process
+   that never booted the worker table, such as the API process. It used to land in the
+   default queue.
+3. The dedupe namespace of an enqueue follows the driver's `isolation_identity()`. A key in
+   flight at the upgrade is not recognised afterwards: drain the queue, or accept one repeat
+   of a keyed enqueue sent before it.
+4. The duplicate check of a `@periodic` `id` is per process, not per deployment: keep ids
+   unique across your modules (`<module>.<job>`).
+
 ## Upgrading a task queue driver or a Celery command to the worker host
 
 The worker and the scheduler are the `taskqueue` driver's host
@@ -123,10 +153,10 @@ There is no alias for what it replaces.
 | Before | After |
 | --- | --- |
 | `TaskQueueProvider.raw_backend()` (the Celery app) | Removed, and no `native()` replaces it. Implement `worker_host()` in a driver; reach the app of a worker through the driver's own importable object |
-| `celery -A sandloom.core.worker inspect\|call\|status` and Flower on `sandloom.core.worker` | `celery -A sandloom.core.drivers.celery_worker inspect\|call\|status`; the app is built from `BROKER_URL`, boots no application and registers no task. It moves to `sandloom_celery.app` with the package |
+| `celery -A sandloom.core.worker inspect\|call\|status` and Flower on `sandloom.core.worker` | `celery -A sandloom_celery.worker inspect\|call\|status`; the app is built from the `broker` option of `taskqueue.default`, boots no application and registers no task. |
 | `provider.register_task_table(table, run)` on the Celery provider | Removed: the host registers the table it gets from `WorkerBoot.boot()` |
-| `sandloom.core.worker.build_worker_app`, `get_worker_app`, `run_celery_command`, `install_heartbeat`, `heartbeat_is_fresh` | `sandloom.core.worker.run_worker`, `run_scheduler`, `check_worker` (the kernel side); the Celery side is `sandloom.core.drivers.celery_worker` |
-| `sandloom.core.beat_lease` (`BeatLease`, `LeasedScheduler`, `install_beat_lease`) | Moved to `sandloom.core.drivers.celery_worker`; the lease is resolved by the kernel (`sandloom.core.infra.fenced_lease`) and passed to the scheduler as `lease` and `lease_name` |
+| `sandloom.core.worker.build_worker_app`, `get_worker_app`, `run_celery_command`, `install_heartbeat`, `heartbeat_is_fresh` | `sandloom.core.worker.run_worker`, `run_scheduler`, `check_worker` (the kernel side); the Celery side is `sandloom_celery.worker` |
+| `sandloom.core.beat_lease` (`BeatLease`, `LeasedScheduler`, `install_beat_lease`) | Moved to `sandloom_celery.worker`; the lease is resolved by the kernel (`sandloom.core.infra.fenced_lease`) and passed to the scheduler as `lease` and `lease_name` |
 | `sandloom.core.async_runner.install_celery_hooks`, `sandloom.core.gc_tuning.install_celery_hooks` | Removed: the host calls `WorkerBoot.on_process_start`, `on_process_stop` and `before_fork` |
 | A health detail or error of the broker probe naming `scheme://host:port` | The details carry no broker address and no credential; read the error type |
 | `sandloom worker` on macOS (the prefork pool never saw the task table) | The worker refuses `prefork` where billiard spawns: set `worker_pool` to `solo` or `threads` in the `celery` taskqueue instance's options (`INFRA`) |
@@ -134,8 +164,49 @@ There is no alias for what it replaces.
 
 The three commands are unchanged for an operator. `sandloom worker check` now builds the
 infrastructure registry from the settings and asks the driver's host. It needs the same
-`DATABASE_URL`, `CACHE_URL` and `BROKER_URL` as the worker, boots no application and asks
+`DATABASE_URL` and `INFRA` as the worker, boots no application and asks
 no broker.
+
+## Upgrading to 0.7.0a14: the flat Redis settings
+
+Startup refuses `CACHE_URL`, `BROKER_URL` and the six `CACHE_*` bounds with any value, in
+the environment or in a `.env` file. Each message names what to write instead. The table is
+in [Configure infrastructure](../infrastructure/configure.md#upgrade-flat-settings-that-became-driver-options).
+No instance takes a url from a flat setting or from another instance any more. State the
+url of every Redis instance the app selects in `INFRA`, and the Celery `broker` of
+`taskqueue.default`. Two cases need care before the first start:
+
+1. **A staging-like environment whose `INFRA` `cache.default` url differs from
+   `CACHE_URL`.** Outside production the kernel synthesizes the `security` store
+   (`atomic_store`) on the url `CACHE_URL` had. Without that variable the store has no url
+   and startup fails with `MissingUrlError`. State `atomic_store.security.url` as the old
+   `CACHE_URL` before you upgrade. A different url puts the store on another Redis, and the
+   revocations and blocks written earlier are not seen. The same holds for `lease.beat`.
+2. **A rolling deploy with a `broadcast`.** A `broadcast` that left its `url` out used to
+   take the cache's. During the roll, old processes publish on that Redis and new ones on
+   the url `INFRA` states. Set `broadcast.<instance>.url` to the old value first, deploy,
+   then move it.
+
+In production the kernel synthesizes no `security` store: declare it. A synthesized
+instance that shares the cache's Redis database logs a WARNING there, not the INFO of a
+development start.
+
+A `CELERY_BROKER_URL`, `CELERY_BROKER_READ_URL`, `CELERY_BROKER_WRITE_URL` or
+`CELERY_RESULT_BACKEND` can sit in the environment of a web process. If it differs from
+the `taskqueue` instance's `broker` or `backend`, a publish now stops with a
+`ForeignCeleryConfError`. Celery used to follow the variable and publish to that broker.
+Unset it, or state its value in `INFRA`.
+
+A Celery config module that sets a connection part is refused the same way. The parts
+are `broker_transport`, `broker_host`, `broker_port`, `broker_vhost`, `broker_user`
+and `broker_password`. The url does not matter: the `INFRA` url carries the whole
+connection.
+
+A config module may set `broker_use_ssl` only to `None` or `False`. It may set
+`broker_transport_options` and `result_backend_transport_options` only with the tuning
+keys listed in [Background tasks](../modules/background/tasks.md). A dict or `True` in
+`broker_use_ssl` is refused the same way. So is a transport option such as `host`,
+`password`, `ssl` or `master_name`. Move TLS options into the query of the `INFRA` url.
 
 ## Upgrading from 0.7.0a4 to 0.7.0a5
 

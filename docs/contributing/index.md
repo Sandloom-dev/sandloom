@@ -56,7 +56,7 @@ review, and `BLE001` / bandit markers must carry a reason: see
 ([reference](../reference/guarantees.md)); `tests/architecture/test_guarantee_ledger.py`
 gates it. Every change that removes or infers a declaration (a marker, a
 dependency, a policy flag) keeps the ledger green and either shows the same
-enforcing tests passing (`uv run pytest -m guarantees src`) or justifies each
+enforcing tests passing (`uv run pytest -m guarantees $(uv run python tools/checks/guarantees.py paths)`) or justifies each
 changed enforcing test in the PR; deleting an entry needs a `removed:` record
 with the reason and the owner's approval.
 
@@ -107,9 +107,22 @@ When you change the public surface, update the docstrings and run
 
 Published documentation is English. Historical reviews/design drafts preserve
 their original language and date; they are evidence, not the current reference.
-`CHANGELOG.md` is the authoritative implementation changelog; the portal
-changelog is a reader-facing digest and must be reconciled before tagging a
-release. Do not infer release readiness from an old benchmark or design note.
+`CHANGELOG.md` is the authoritative implementation changelog.
+
+A change adds its entry as a fragment, `changelog.d/<task-alias>.md`, never as
+an edit of `CHANGELOG.md`. Bullets sit under `### Added`, `### Changed`,
+`### Fixed` or one of the other kinds named in `changelog.d/README.md`. Two
+branches then touch different files, so a merged PR does not turn the others
+conflicting. A change to one package's own `CHANGELOG.md` goes in
+`changelog.d/<package>/<task-alias>.md`.
+`python3 tools/packaging/changelog_fragments.py --check` validates the
+fragments. The release preparation folds them with `--fold <version>`
+(`--package <package>` for a package), and `pypi_release.py plan` refuses a
+release while fragments of its scope are left.
+
+The portal changelog is a reader-facing digest and must be reconciled before
+tagging a release. Do not infer release readiness from an old benchmark or
+design note.
 
 ## Conventions recap
 

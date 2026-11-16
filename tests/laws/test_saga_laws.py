@@ -47,6 +47,7 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
+from _hypothesis_profile import examples as example_count
 from hypothesis import HealthCheck, event, example, given, settings
 from hypothesis import strategies as st
 from pydantic import BaseModel
@@ -430,7 +431,7 @@ def _crash_then_deadline(ops: list[Any]) -> bool:
 
 
 SAGA_LAWS = settings(
-    max_examples=80,
+    max_examples=example_count(80),
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )

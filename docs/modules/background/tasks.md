@@ -180,9 +180,57 @@ Or run the worker on Linux, in a container.
 
 Start a worker or a scheduler only with `sandloom worker` and `sandloom beat`. The
 importable Celery app of the Celery driver is for `celery inspect` and Flower: a
-`celery -A ... worker` or `beat` on it stops with exit code 1. The environment
-(`APP`, `BROKER_URL`, `CELERY_BROKER_URL` and the like) cannot replace the app or
-the broker of the instance a worker or a beat runs.
+`celery -A ... worker` or `beat` on it stops with exit code 1. It reads its broker
+from `INFRA.taskqueue.default.broker`, through `Settings`, when the app is first
+used. With no broker it fails and names that option. It has no result backend
+unless that instance states `backend`. The environment cannot replace the app
+or the broker of a worker or a beat: `APP` and `BROKER_URL` have no effect there.
+A `CELERY_BROKER_URL` that differs from `INFRA` is not ignored. It stops startup
+with a `ForeignCeleryConfError`. `celery -b` writes `CELERY_BROKER_URL` and
+`--result-backend` writes `CELERY_RESULT_BACKEND`. Celery prefers both over the
+app's own broker, so the error names the variable when one differs from
+`INFRA`. The same holds for
+`CELERY_BROKER_READ_URL` and `CELERY_BROKER_WRITE_URL`. The error never shows the
+value.
+
+Both apps are checked against `INFRA` on their final `app.conf`: `broker_url`,
+`broker_read_url`, `broker_write_url` and `result_backend`, with a config module or a
+`celeryconfig.py` included. The importable app refuses a difference when it
+is first used. So does the app that publishes your tasks, on every publish. A
+`CELERY_*` variable that differs from the instance's `broker` or `backend` stops
+it with a `ForeignCeleryConfError`. That is not an outage: nothing was sent.
+
+`INFRA` states the whole connection in the url. So the check refuses a config module
+that sets a connection part next to it. Celery lets these win over what the url omits,
+and some win over what it states: `broker_transport = "memory"` would lose every task.
+The refusal is the same error. It names the key, never the value:
+
+- `broker_transport`, `broker_host`, `broker_port`, `broker_vhost`, `broker_user` and
+  `broker_password`;
+- `redis_host`, `redis_port`, `redis_db`, `redis_username`, `redis_password`,
+  `redis_backend_use_ssl` and `redis_backend_credential_provider`, for the result backend.
+
+`broker_use_ssl` must be absent, `None` or `False`. A dict there is merged into the
+connection after the url. It can change the host or the password, and it can turn off
+the certificate check. `True` is refused too. Kombu then skips the TLS default of a
+`rediss://` url and connects in plain text, so the password goes out in the clear. TLS
+comes from the scheme and from the query of the `INFRA` url (`?ssl_cert_reqs=required`).
+
+`broker_transport_options` and `result_backend_transport_options` accept only keys that
+tune a connection without moving it. Some transports lay these options over the url.
+An `amqp://` broker takes its host, user, password and `ssl` from them, and a
+`sentinel://` broker takes its master. A key outside the list below is refused, and so
+is a value that is not a mapping. Every broker scheme stays supported. The allowed keys:
+
+- `visibility_timeout`, `polling_interval`, `global_keyprefix`, `sep`, `priority_steps`
+  and `queue_order_strategy`;
+- `socket_timeout`, `socket_connect_timeout`, `socket_keepalive`,
+  `socket_keepalive_options`, `max_connections`, `health_check_interval` and
+  `client_name`;
+- `retry_policy`, `max_retries`, `interval_start`, `interval_step` and `interval_max`;
+- `confirm_publish`, `fanout_prefix` and `fanout_patterns`.
+
+A config module cannot name the master of a `sentinel://` broker for that reason.
 
 Run exactly one `beat` per broker. A second one stands by. The kernel resolves
 the lease (the `lease` instance `INFRA.lease.beat`; `BEAT_LEASE_TTL_SECONDS`,
@@ -201,10 +249,10 @@ Any send that may have reached the broker keeps its
 claim. See `deploy/README.md` ("Beat singleton lease").
 
 A tool that inspects the Celery driver's queues (`celery inspect`, Flower) uses
-the driver's importable app, `sandloom.core.drivers.celery_worker.app` (built
-from `BROKER_URL`, with no application booted): `celery -A
-sandloom.core.drivers.celery_worker inspect active`. It is the driver's own
-interface and moves to `sandloom_celery.app` with the package.
+the driver's importable app, `sandloom_celery.worker.app` (built from
+`taskqueue.default.broker` of `INFRA`, with no application booted): `celery -A sandloom_celery.worker
+inspect active`. It is the driver's own interface, in the `sandloom-celery`
+package (`pip install 'sandloom[celery]'`).
 
 **A module's first periodic task needs a beat.** A `@periodic`
 task runs only where a beat loads the

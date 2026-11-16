@@ -9,10 +9,13 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
+from typing import Any
 
 AREAS = frozenset(
     {
         "backend",
+        # The backend filter less the bundled modules: the kernel lanes.
+        "kernel",
         "admin",
         "examples",
         "deploy",
@@ -21,25 +24,36 @@ AREAS = frozenset(
         "packages",
         "architecture",
         "dependency_review",
+        # What the production image is built from (not tests, tooling or docs).
+        "image",
+        # Python only the backend-static mypy run reads (tools/, .claude/hooks/).
+        "typecheck",
     }
 )
 ALWAYS = {"changes", "workflow-policy"}
 AREA_JOBS = {
-    "backend-static": ("backend",),
+    "backend-static": ("backend", "typecheck"),
     "supply-chain": ("backend",),
     "backend-tests": ("backend",),
     # The kernel suites with no module package importable (ADR-0012, KB-05).
-    "kernel-without-batteries": ("backend",),
+    "kernel-without-batteries": ("kernel",),
+    # The kernel's Redis-free ratchet and the SQLite boot without asyncpg; a
+    # job of its own, parallel to the one above.
+    "kernel-without-redis": ("kernel",),
     # The sandloom-redis package: its tests and types (the root testpaths and
-    # the CI mypy run do not reach packages/).
-    "redis-drivers": ("backend", "packages"),
+    # the CI mypy run do not reach packages/). The kernel area holds packages/**.
+    "redis-drivers": ("kernel",),
+    # The sandloom-celery package: its wheel, style and types (same reason).
+    "celery-drivers": ("kernel",),
     # The second database (SQLite) and the merge of the lanes' skip ledgers.
     "second-db-test-lane": ("backend", "examples"),
     "skip-ledger": ("backend", "examples"),
     "benchmarks-security": ("benchmarks",),
     "examples": ("examples",),
     "deploy-profiles": ("deploy",),
-    "docker-build": ("backend", "deploy"),
+    # The production image: built only when something it copies changed (a
+    # tests-only change does not rebuild it).
+    "docker-build": ("image",),
     "admin-contracts": ("admin",),
 }
 FULL_JOBS = {
@@ -73,7 +87,7 @@ REUSABLE_JOBS = (
 
 
 def check(
-    needs: Mapping,
+    needs: Mapping[str, Any],
     *,
     full_validation: bool,
     pull_request: bool,

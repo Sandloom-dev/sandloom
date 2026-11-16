@@ -21,13 +21,13 @@ import pytest
 
 from sandloom.core.cli import doctor
 from sandloom.core.config import accepted_risks, tiers
-from sandloom.core.config.settings import Settings
+from sandloom.core.config.module_settings import SourceSnapshot
+from sandloom.core.config.settings import _LOAD_SNAPSHOT, Settings
+from sandloom.core.drivers.smtp_notifier import NotifierOptions, SmtpNotifierOptions
 
 _STRONG = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
 _BASE = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@h:5432/d",
-    "CACHE_URL": "redis://cache-redis:6379/0",
-    "BROKER_URL": "redis://cache-redis:6379/1",
     "JWT_SECRET": _STRONG,
 }
 _STRICT = {
@@ -57,13 +57,13 @@ SEMANTIC_BASELINE = frozenset(
         "PRODUCTION_PROFILE",
         "TENANCY_MODE",
         "database.tenant_rls",
+        "notification.use_tls",
         "AUTH_REVOCATION_FAIL_CLOSED",
         "RPC_COMMANDS_REQUIRE_SIGNATURE",
         "RPC_REPLAY_GUARD",
         "CONTRACT_COMPAT_CHECK",
         "INTERNAL_ENDPOINTS_OPEN_IN_DEV",
         "DOCS_ENABLED",
-        "SMTP_USE_TLS",
     }
 )
 SEMANTIC_BASELINE_COUNT = 11
@@ -154,7 +154,9 @@ def test_profile_table_is_the_current_default_behaviour(prof: str) -> None:
         if spec.infra_option:
             cap, option = spec.name.split(".", 1)
             infra = cfg.infra.get(cap, {}).get("default", {})
-            actual: object = bool(infra.get(option, False))
+            actual: object = bool(
+                infra.get(option, tiers._infra_option_unset(spec.name))
+            )
         else:
             actual = spec.value(cfg)
         assert actual == expected, (spec.name, prof, actual, expected)
@@ -211,6 +213,114 @@ def test_prod_override_is_reported_loud_and_explicit(
     assert block["accepted_risks"] == []
 
 
+_SMTP = {"driver": "smtp", "host": "mx", "from_addr": "no-reply@example.test"}
+
+
+def _notification(**options: Any) -> dict[str, Any]:
+    return {"notification": {"default": {**_SMTP, **options}}}
+
+
+@pytest.mark.parametrize("environment", ["prod", "dev"])
+def test_smtp_tls_off_is_an_override_in_every_profile(
+    environment: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Turning TLS off on an smtp instance (recovery links over plain SMTP) is
+    reported like every weaker semantic choice: the startup log, the metric
+    source (``active_overrides``), ``/diagnostics/core`` and ``sandloom doctor``."""
+    cfg = _settings(ENVIRONMENT=environment, INFRA=_notification(use_tls=False))
+    found = tiers.active_overrides(cfg)
+    assert [(o.setting, o.kind, o.profile) for o in found] == [
+        ("INFRA.notification.default.use_tls", "weaker", environment)
+    ]
+    log = logging.getLogger("sandloom.test.config_tiers")
+    with caplog.at_level(logging.INFO, logger="sandloom.test.config_tiers"):
+        tiers.log_overrides(cfg, log)
+    assert {r.levelno for r in caplog.records} == {
+        logging.WARNING if environment == "prod" else logging.INFO
+    }
+    block = tiers.diagnostics(cfg)
+    assert [o["setting"] for o in block["overrides"]] == [  # type: ignore[attr-defined]
+        "INFRA.notification.default.use_tls"
+    ]
+    report = doctor.Report()
+    doctor.check_overrides(report, cfg)
+    assert [c.name for c in report.checks] == [
+        "override:INFRA.notification.default.use_tls"
+    ]
+
+
+@pytest.mark.parametrize(
+    "infra",
+    [
+        {},  # no notification instance written: the log driver, no TLS at all
+        _notification(),  # TLS omitted: the smtp driver's default is on
+        _notification(use_tls=True),
+        {"notification": {"default": {"driver": "log"}}},  # no option to weaken
+    ],
+)
+def test_smtp_tls_left_on_or_unset_is_no_override(infra: dict[str, Any]) -> None:
+    assert tiers.active_overrides(_settings(ENVIRONMENT="prod", INFRA=infra)) == []
+
+
+def test_the_unset_tls_default_is_the_smtp_drivers_own() -> None:
+    """``_INFRA_OPTION_UNSET`` repeats the smtp driver's ``use_tls`` default: the
+    override report would call a driver default an override (or hide a weakening)
+    if the two drifted. Read from the driver's options class, not copied."""
+    unset = tiers._INFRA_OPTION_UNSET["notification.use_tls"]
+    assert isinstance(unset, bool)
+    for options in (NotifierOptions, SmtpNotifierOptions):
+        assert options.model_fields["use_tls"].default is unset
+
+
+def test_smtp_tls_off_in_the_composition_selection_is_an_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The report reads the resolved selection: a composition (``DEFAULT_INFRA``
+    pin) whose smtp default has TLS off is reported though ``INFRA`` is empty."""
+    import sandloom.core.infra.config as infra_config
+
+    monkeypatch.setattr(infra_config, "_APP", None)
+    monkeypatch.setattr(
+        infra_config,
+        "_PIN",
+        infra_config._checked(
+            {"notification": {"default": {**_SMTP, "use_tls": False}}}
+        ),
+    )
+    cfg = _settings(ENVIRONMENT="prod", NOTIFIER_BACKEND="smtp")
+    # Labelled by where the value was written: ``INFRA`` states nothing here.
+    assert [o.setting for o in tiers.active_overrides(cfg)] == [
+        "notification.default.use_tls (composition DEFAULT_INFRA)"
+    ]
+
+
+def test_a_malformed_infra_does_not_break_the_override_report() -> None:
+    """Loading the configuration refuses a malformed ``INFRA`` at startup; the
+    report still answers from what the setting declares."""
+    cfg = _settings(
+        ENVIRONMENT="prod",
+        INFRA={"notification": {"default": {"use_tls": False}}},  # no driver
+    )
+    assert [o.setting for o in tiers.active_overrides(cfg)] == [
+        "INFRA.notification.default.use_tls"
+    ]
+
+
+def test_a_named_smtp_instance_with_tls_off_is_reported_by_its_name() -> None:
+    cfg = _settings(
+        ENVIRONMENT="prod",
+        INFRA={
+            "notification": {
+                "default": _SMTP,
+                "alerts": {**_SMTP, "use_tls": False},
+            }
+        },
+    )
+    assert [o.setting for o in tiers.active_overrides(cfg)] == [
+        "INFRA.notification.alerts.use_tls"
+    ]
+
+
 def test_stronger_choice_is_not_an_override() -> None:
     cfg = _settings(
         ENVIRONMENT="dev",
@@ -240,13 +350,19 @@ def test_the_generated_dev_default_is_logged_at_debug(
     assert tiers.active_overrides(prod) == []
 
 
-def test_dev_opt_in_is_logged_at_info(caplog: pytest.LogCaptureFixture) -> None:
-    """A weaker choice made by hand outside prod is reported at INFO."""
-    chosen = _settings(ENVIRONMENT="dev", SMTP_USE_TLS="false")
+def test_dev_opt_in_is_logged_at_info(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A weaker choice made by hand outside prod (one ``sandloom new`` did not
+    generate) is reported at INFO."""
+    monkeypatch.setattr(tiers, "GENERATED_DEV_DEFAULTS", {})
+    chosen = _settings(ENVIRONMENT="dev", INTERNAL_ENDPOINTS_OPEN_IN_DEV="true")
     log = logging.getLogger("sandloom.test.config_tiers")
     with caplog.at_level(logging.DEBUG, logger="sandloom.test.config_tiers"):
         found = tiers.log_overrides(chosen, log)
-    assert [(o.setting, o.profile) for o in found] == [("SMTP_USE_TLS", "dev")]
+    assert [(o.setting, o.profile) for o in found] == [
+        ("INTERNAL_ENDPOINTS_OPEN_IN_DEV", "dev")
+    ]
     assert {r.levelno for r in caplog.records} == {logging.INFO}
 
 
@@ -342,16 +458,107 @@ def test_removed_setting_fails_unless_inert(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     assert removed.name not in _aliases()
-    inert = str(removed.inert).lower()
-    active = "false" if removed.inert is True else "true"
-    with caplog.at_level(logging.WARNING, logger="sandloom.settings"):
-        _settings(**{removed.name: inert})
-    assert f"{removed.name} was removed in {removed.removed_in}" in caplog.text
-    with pytest.raises(ValueError, match="is no longer supported"):
-        _settings(**{removed.name: active})
+    if removed.inert is None:
+        # No inert value: whatever it is set to fails startup, empty and "off"
+        # spellings included (a flat url that is "turned off" still names a url
+        # nothing reads any more).
+        active = "redis://h:6379/0"
+        for value in ("", "0", "false", "none", active):
+            with pytest.raises(ValueError, match="is no longer supported"):
+                _settings(**{removed.name: value})
+        with caplog.at_level(logging.WARNING, logger="sandloom.settings"):
+            _settings()
+        assert f"{removed.name} was removed" not in caplog.text
+    else:
+        inert = str(removed.inert).lower()
+        active = "false" if removed.inert is True else "true"
+        with caplog.at_level(logging.WARNING, logger="sandloom.settings"):
+            _settings(**{removed.name: inert})
+        assert f"{removed.name} was removed in {removed.removed_in}" in caplog.text
+        with pytest.raises(ValueError, match="is no longer supported"):
+            _settings(**{removed.name: active})
     monkeypatch.setenv(removed.name, active)
     with pytest.raises(ValueError, match=removed.name):
         _settings()
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "CACHE_URL",
+        "BROKER_URL",
+        "CACHE_SOCKET_TIMEOUT_SECONDS",
+        "CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS",
+        "CACHE_HEALTH_CHECK_INTERVAL_SECONDS",
+        "CACHE_MAX_CONNECTIONS",
+        "CACHE_POOL_TIMEOUT_SECONDS",
+        "CACHE_RETRY_ATTEMPTS",
+    ],
+)
+def test_the_flat_redis_settings_are_refused_with_the_infra_replacement(
+    name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    removed = next(r for r in tiers.REMOVED if r.name == name)
+    assert removed.inert is None
+    assert name not in tiers.OPS
+    # A setting in a ``.env`` file is refused as well as one in the environment.
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"{name}=1\n")
+    for key, value in _BASE.items():
+        monkeypatch.setenv(key, str(value))
+    with pytest.raises(ValueError, match=f"{name} was removed"):
+        Settings(_env_file=str(env_file))
+    assert "INFRA" in removed.hint or "instance" in removed.hint
+
+
+@pytest.mark.parametrize("name", ["CACHE_URL", "BROKER_URL"])
+@pytest.mark.parametrize("content", ["", "redis://h:6379/0"])
+def test_a_removed_url_in_the_secrets_dir_is_refused_empty_or_not(
+    name: str, content: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A url delivered as a file of ``SECRETS_DIR`` (the usual prod way) is as
+    much a value as an environment variable: refused, empty included, without
+    echoing it. Both the direct ``Settings()`` and the process load."""
+    (tmp_path / name).write_text(content)
+    monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("SECRETS_DIR", str(tmp_path))
+    with pytest.raises(ValueError, match=f"{name} was removed") as direct:
+        _settings()
+    assert "h:6379" not in str(direct.value)
+    snapshot = SourceSnapshot(environ=dict(_BASE), env_file=None, secrets_dir=tmp_path)
+    token = _LOAD_SNAPSHOT.set(snapshot)
+    try:
+        with pytest.raises(ValueError, match=f"{name} was removed") as loaded:
+            _settings()
+    finally:
+        _LOAD_SNAPSHOT.reset(token)
+    assert "h:6379" not in str(loaded.value)
+
+
+@pytest.mark.parametrize("name", ["CACHE_URL", "BROKER_URL"])
+def test_an_empty_removed_url_in_dotenv_is_refused_on_the_process_load(
+    name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``BROKER_URL=`` in ``.env`` is a value too: the doc says an empty value of
+    these settings fails startup, and the load reads the snapshot's one parse."""
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"{name}=\n")
+    monkeypatch.delenv(name, raising=False)
+    snapshot = SourceSnapshot(environ=dict(_BASE), env_file=env_file)
+    token = _LOAD_SNAPSHOT.set(snapshot)
+    try:
+        with pytest.raises(ValueError, match=f"{name} was removed"):
+            _settings()
+    finally:
+        _LOAD_SNAPSHOT.reset(token)
+
+
+def test_a_removed_setting_is_refused_first_and_another_failure_still_raises() -> None:
+    with pytest.raises(ValueError) as caught:
+        _settings(CACHE_RETRY_ATTEMPTS="1", SANDLOOM_ACCEPTED_RISKS="no_such_risk")
+    assert "CACHE_RETRY_ATTEMPTS was removed" in str(caught.value)
+    with pytest.raises(ValueError, match="unknown risk id"):
+        _settings(SANDLOOM_ACCEPTED_RISKS="no_such_risk")
 
 
 def test_doctor_lists_overrides() -> None:
@@ -412,7 +619,10 @@ def test_the_documented_lease_upgrade_examples_parse_into_instance_options() -> 
 
     texts = _lease_upgrade_texts()
     assert len(texts) >= 2, "the setting's message and the changelog state an example"
-    examples = [e for text in texts for e in _documented_infra(text)]
+    everything = [e for text in texts for e in _documented_infra(text)]
+    for example in everything:  # every stated example is a valid INFRA
+        assert load_infra_config(_settings(INFRA=example))
+    examples = [e for e in everything if "lease" in e]
     assert len(examples) >= 2
     for example in examples:
         beat = example["lease"]["beat"]

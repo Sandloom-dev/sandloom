@@ -60,6 +60,7 @@ import math
 import os
 import re
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -326,15 +327,56 @@ def read_services(text: str) -> list[Service]:
     out = []
     for name in names:
         env = data.get(f"x-{name}-env") or {}
-        broker = re.search(r"/(\d+)$", str(env.get("BROKER_URL", "")))
-        out.append(
-            Service(
-                name,
-                _dp.modules_of({"environment": env}),
-                int(broker.group(1)) if broker else 0,
-            )
-        )
+        out.append(Service(name, _dp.modules_of({"environment": env}), _broker_db(env)))
+    # 0 is the cache's database, never a broker's: a service that names no
+    # broker is unknown and takes the next free one, as `_place` assigns it,
+    # so a refresh never writes its broker on the cache's database.
+    used = {s.broker_db for s in out}
+    for service in out:
+        if service.broker_db == 0:
+            service.broker_db = max(used | {1}) + 1
+            used.add(service.broker_db)
     return out
+
+
+def _json_object(raw: object) -> dict[str, Any]:
+    """``raw`` (an env value) as a JSON object; ``{}`` when it is none."""
+    try:
+        data = json.loads(str(raw or "{}"))
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _broker_db(env: Mapping[str, Any]) -> int:
+    """The Redis database of the service's Celery broker: the end of
+    ``taskqueue.default.broker`` in its INFRA. A profile written before INFRA
+    carried the broker has it in ``BROKER_URL`` (the flat setting, since
+    removed): that is read too, so a refresh keeps each service's database."""
+    taskqueue = _json_object(env.get("INFRA")).get("taskqueue", {})
+    default = taskqueue.get("default", {}) if isinstance(taskqueue, dict) else {}
+    url = default.get("broker") if isinstance(default, dict) else None
+    found = re.search(r"/(\d+)$", str(url or env.get("BROKER_URL", "")))
+    return int(found.group(1)) if found else 0
+
+
+def shared_infra(text: str) -> dict[str, Any]:
+    """The INFRA of the profile's shared env anchor (``x-common-env``): what
+    every service's own INFRA starts from; ``{}`` when it has none."""
+    data = _yaml().safe_load(text) or {}
+    raw = (data.get("x-common-env") or {}).get("INFRA")
+    if raw is None:
+        return {}
+    try:
+        shared = json.loads(str(raw))
+    except ValueError:
+        shared = None
+    if not isinstance(shared, dict):
+        raise DeployError(
+            "INFRA in x-common-env is not a JSON object: every service's INFRA is "
+            "derived from it, so fix it first"
+        )
+    return shared
 
 
 def _yaml() -> Any:
@@ -351,8 +393,23 @@ def _q(value: Any) -> str:
     return "'" + json.dumps(value, sort_keys=True).replace("'", "''") + "'"
 
 
+def _service_infra(shared: Mapping[str, Any], svc: Service) -> dict[str, Any]:
+    """The service's INFRA: the shared one with its own Celery broker (Redis
+    database ``svc.broker_db``; the shared check ignores that one option)."""
+    taskqueue = dict(shared.get("taskqueue") or {})
+    taskqueue["default"] = {
+        **(taskqueue.get("default") or {}),
+        "broker": f"redis://redis:6379/{svc.broker_db}",
+    }
+    return {**shared, "taskqueue": taskqueue}
+
+
 def _env_block(
-    project: Project, svc: Service, bindings: dict[str, Any], issuer: bool
+    project: Project,
+    svc: Service,
+    bindings: dict[str, Any],
+    issuer: bool,
+    shared: Mapping[str, Any],
 ) -> list[str]:
     up = svc.name.upper()
     lines = [
@@ -363,7 +420,8 @@ def _env_block(
         f"{_I}SANDLOOM_SERVICE_NAME: {svc.name}",
         f"{_I}DATABASE_URL: postgresql+asyncpg://sandloom:sandloom@db:5432/"
         f"{project.db_prefix}_{svc.name}",
-        f"{_I}BROKER_URL: redis://redis:6379/{svc.broker_db}",
+        f"{_I}# The shared INFRA plus this service's own Celery broker.",
+        f"{_I}INFRA: {_q(_service_infra(shared, svc))}",
     ]
     for module in svc.modules:
         lines += [f"{_I}{line}" for line in module_env(module)]
@@ -517,10 +575,14 @@ def _blocks(lines: list[str]) -> str:
 
 
 def render(
-    project: Project, services: list[Service]
+    project: Project,
+    services: list[Service],
+    shared: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, str], dict[str, str], list[str]]:
     """The compose and gateway region bodies, and the consumed contracts no
-    service provides (warnings, SANDLOOM-T003)."""
+    service provides (warnings, SANDLOOM-T003). ``shared`` is the INFRA of the
+    profile's shared env anchor (:func:`shared_infra`): each service's own
+    INFRA is that plus its Celery broker."""
     topologies = {s.name: s.topology for s in services}
     bindings, unresolved = _dp.expected_bindings(topologies, project.port)
     allowed = allowlist_from_bindings(bindings)
@@ -530,7 +592,13 @@ def render(
     workers: list[str] = []
     for svc in services:
         envs += [
-            *_env_block(project, svc, bindings[svc.name], svc.topology.issues_tokens),
+            *_env_block(
+                project,
+                svc,
+                bindings[svc.name],
+                svc.topology.issues_tokens,
+                shared or {},
+            ),
             "",
         ]
         migrate, http = _service_blocks(svc)
@@ -703,7 +771,7 @@ def deploy(
                 f"service {svc.name!r} ({', '.join(svc.modules)}) does not load: "
                 f"{svc.topology.error}"
             )
-    compose, gateway, result.unresolved = render(project, services)
+    compose, gateway, result.unresolved = render(project, services, shared_infra(text))
     if not re.search(r"(?m)^[^#\n]*:\s*&app-runtime(?:\s|$)", text):
         # Static template sections belong to the operator. Older generated
         # profiles use service-runtime; never emit an undefined YAML anchor.
@@ -803,6 +871,7 @@ def _place(services: list[Service], dotted: list[str], name: str | None) -> None
     target = next((s for s in services if s.name == name), None)
     if target is None:
         used = {s.broker_db for s in services}
+        # Below it, 0 is the cache's and 1 the shared persistent instances'.
         target = Service(name, [], max(used | {1}) + 1)
         services.append(target)
     target.modules += [m for m in dotted if m not in target.modules]

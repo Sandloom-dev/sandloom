@@ -398,8 +398,8 @@ def server_env(cfg: str, *, pool: int, overflow: int, relay: str) -> dict[str, s
     os.environ["DATABASE_URL"] = _db_dsn(db).replace(
         "postgresql://", "postgresql+asyncpg://", 1
     )
-    os.environ["CACHE_URL"] = f"redis://localhost:{REDIS_PORT}/{rcache}"
-    os.environ["BROKER_URL"] = f"redis://localhost:{REDIS_PORT}/{rbroker}"
+    os.environ["BENCH_REDIS_URL"] = f"redis://localhost:{REDIS_PORT}/{rcache}"
+    os.environ["BENCH_CELERY_BROKER"] = f"redis://localhost:{REDIS_PORT}/{rbroker}"
     try:
         from benchsuite import writes
 
@@ -416,7 +416,9 @@ def server_env(cfg: str, *, pool: int, overflow: int, relay: str) -> dict[str, s
         DB_POOL_TIMEOUT="10",
         OUTBOX_RELAY_ENABLED=relay,
         SANDLOOM_ACCEPTED_RISKS="relay_disabled",
-        EVENT_STREAM_MAXLEN="20000",
+        # the streams bus's own option (no flat setting any more); the lean
+        # root selects no other Redis instance, as on main
+        INFRA=json.dumps({"eventbus": {"default": {"max_length": 20000}}}),
     )
     # A/B knobs for both servers: SOAK_SERVER_<SETTING>=value is passed on as
     # <SETTING>=value (e.g. SOAK_SERVER_DB_DEAD_CONNECTION_RETRY=false).
@@ -1098,7 +1100,7 @@ def setup() -> None:
             "DATABASE_URL": _db_dsn(db).replace(
                 "postgresql://", "postgresql+asyncpg://", 1
             ),
-            "CACHE_URL": f"redis://localhost:{REDIS_PORT}/{CONFIGS['on'][1]}",
+            "BENCH_REDIS_URL": f"redis://localhost:{REDIS_PORT}/{CONFIGS['on'][1]}",
         }
         subprocess.run(
             [SRV_PY, "-m", "benchsuite.setup_db"], cwd=SRV, env=env, check=True

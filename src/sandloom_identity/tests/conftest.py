@@ -16,7 +16,7 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
-from sandloom.sdk.testing import recording_uow
+from sandloom.sdk.testing import recording_uow, resolved_cache_url
 from sandloom.sdk.testing.fixtures import *  # noqa: F403
 from sandloom_identity.events import EventActor
 from sandloom_identity.models.role import Role
@@ -87,11 +87,10 @@ async def test_redis(_identity_test_cache: Any) -> AsyncGenerator[Any, None]:
     """A client on the test Redis (the DB the cache instance uses), emptied
     before and after the test."""
     import redis.asyncio as aredis
-
-    from sandloom.sdk.testing import flush_owned_redis
+    from sandloom_redis.testing import flush_owned_redis
 
     redis_client = aredis.from_url(
-        os.environ["CACHE_URL"], encoding="utf-8", decode_responses=True
+        resolved_cache_url(), encoding="utf-8", decode_responses=True
     )
     await flush_owned_redis(redis_client)
     yield redis_client

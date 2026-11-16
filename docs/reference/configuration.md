@@ -7,7 +7,7 @@ title: Configuration Reference
 Every runtime setting Sandloom reads from the environment, generated directly from `sandloom.core.config.settings.Settings` and the settings the bundled modules declare, so this table can never drift from the code. Settings may be supplied as environment variables, in a `.env` file, or — when `SECRETS_DIR` is set — as files named after each field (Docker/Kubernetes secrets).
 
 !!! info "Required settings"
-    `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`, and `JWT_SECRET` are mandatory; the process aborts at startup if any is missing or invalid. In production, `JWT_SECRET` must be at least 32 random characters.
+    `DATABASE_URL` and `JWT_SECRET` are mandatory; the process aborts at startup if either is missing or invalid. An app that selects a Redis or Celery driver gives each instance its own url in `INFRA` (no flat `CACHE_URL` / `BROKER_URL` setting exists), and startup refuses an instance that has none. In production, `JWT_SECRET` must be at least 32 random characters.
 
 !!! note "Configuration tiers"
     Each setting is **semantic** (changes a guarantee; its value is chosen per profile), **ops** (capacity / operations) or **migration** (transitional, with a removal version). The per-profile table of the semantic settings and the active-override reporting are in [Configuration Tiers](configuration-tiers.md).
@@ -34,8 +34,6 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `DB_POOL_SIZE` | `int` | `10` | Persistent connections per request/worker database pool; multiply the pool budget by the number of worker processes. |
 | `DB_MAX_OVERFLOW` | `int` | `20` | Additional temporary connections permitted above DB_POOL_SIZE. |
 | `DB_POOL_TIMEOUT` | `int` | `30` | Maximum seconds a database checkout waits for an available pooled connection. |
-| `CACHE_URL` | `str` | **required** | Connection URL of the default cache instance, normally Redis; named instances and overrides are declared through INFRA. |
-| `BROKER_URL` | `str` | **required** | Connection URL used to configure the default task queue broker and Redis-backed event transport. |
 
 ## Eventing & Outbox
 
@@ -44,11 +42,8 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `CONSUMER_STARTUP_TIMEOUT_SECONDS` | `float` | `15.0` | Seconds allowed for required event consumers to establish their initial subscriptions. |
 | `CONSUMER_RETRY_BASE_SECONDS` | `float` | `1.0` | Initial backoff delay in seconds when supervised event consumers retry a failed subscription. |
 | `CONSUMER_RETRY_MAX_SECONDS` | `float` | `30.0` | Maximum backoff delay in seconds for supervised event-consumer subscription retries. |
-| `EVENT_BUS_BACKEND` | `Literal['auto', 'memory', 'redis', 'streams']` | `'auto'` | Event transport selector: auto chooses durable Streams in production and in-memory delivery elsewhere; volatile production transports require accepted risk. |
+| `EVENT_BUS_BACKEND` | `Optional[Literal['memory', 'redis', 'streams']]` | `None` | Event transport selector: unset leaves the bus to the composition's selection (startup refuses when none names one); volatile production transports require accepted risk. |
 | `SANDLOOM_SERVICE_NAME` | `str | None` | `None` | This service's name: required on a shared event bus and distinct per service, the same for all its replicas. Names the kernel revocation applier's consumer group (sandloom:auth@tokens_revoked@<name>) and labels the Streams consumer inventory and ownership diagnostics; never renames a module consumer group. |
-| `EVENT_STREAM_RETENTION_SECONDS` | `int` | `604800` | Approximate maximum Streams entry age in seconds, trimmed during publish; zero disables age trimming. |
-| `EVENT_STREAM_MAXLEN` | `int` | `0` | Approximate maximum entries retained per channel stream; zero disables length trimming. |
-| `EVENT_STREAM_PREFIX` | `str` | `""` | Namespace prepended to Streams, dead-letter and consumer-inventory keys; changing it starts a separate stream namespace. |
 | `OUTBOX_RELAY_ENABLED` | `Literal['auto', 'on', 'off', 'delegated']` | `'auto'` | Outbox relay policy: auto enables production relaying, on forces it, off disables it, and delegated is reserved for framework-elected worker leadership. |
 | `OUTBOX_RELAY_MAX_ATTEMPTS` | `int` | `10` | Failed publish attempts before an outbox row is dead-lettered; broker-outage circuit pauses do not consume attempts. |
 | `OUTBOX_RELAY_BACKOFF_BASE_SECONDS` | `float` | `2.0` | Base per-row outbox retry delay in seconds, increased exponentially with jitter. |
@@ -115,22 +110,12 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `STORAGE_PATH` | `str` | `'./data'` | Filesystem root used by local object storage. |
 | `MAX_UPLOAD_SIZE_BYTES` | `int` | `52428800` | Maximum bytes accepted by Storage.save; zero disables this upload cap. |
 | `MAX_REQUEST_BODY_BYTES` | `int` | `0` | Global Content-Length request-body cap in bytes; zero falls back to MAX_UPLOAD_SIZE_BYTES. |
-| `S3_BUCKET` | `str | None` | `None` | Bucket name supplied to the S3 object-storage driver. |
-| `S3_REGION` | `str | None` | `None` | Region supplied to the S3 object-storage driver. |
-| `S3_ACCESS_KEY_ID` | `str | None` | `None` | Access-key ID supplied to the S3 object-storage driver. |
-| `S3_SECRET_ACCESS_KEY` | `str | None` | `None` | Secret access key supplied to the S3 object-storage driver. |
 
 ## Notifications
 
 | Env var | Type | Default | Description |
 | --- | --- | --- | --- |
-| `NOTIFIER_BACKEND` | `Literal['log', 'smtp']` | `'log'` | Default notifier driver: log records delivery metadata without message contents; smtp sends email using SMTP settings. |
-| `SMTP_HOST` | `str | None` | `None` | SMTP server hostname used by the email notifier. |
-| `SMTP_PORT` | `int` | `25` | SMTP server TCP port used by the email notifier. |
-| `SMTP_USERNAME` | `str | None` | `None` | Optional SMTP authentication username. |
-| `SMTP_PASSWORD` | `str | None` | `None` | Optional SMTP authentication password. |
-| `SMTP_FROM` | `str | None` | `None` | Sender email address used by the SMTP notifier. |
-| `SMTP_USE_TLS` | `bool` | `True` | Upgrade SMTP with STARTTLS and certificate verification; disable only for a trusted local development inbox. |
+| `NOTIFIER_BACKEND` | `Literal['log', 'smtp']` | `'log'` | Default notifier driver: log records delivery metadata without message contents; smtp sends email with the options of INFRA.notification.default. |
 
 ## SSO
 
@@ -232,12 +217,6 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `PLANNER_LIST_MAX_LIMIT` | `int` | `500` | Framework maximum page size for declared list operations; a declaration may impose a smaller limit. |
 | `DB_STATEMENT_TIMEOUT_MS` | `int` | `30000` | PostgreSQL statement timeout in milliseconds on runtime pools; zero uses the server default. Does not configure migration connections. |
 | `DB_IDLE_IN_TX_TIMEOUT_MS` | `int` | `60000` | PostgreSQL idle-in-transaction timeout in milliseconds on runtime pools; zero uses the server default. |
-| `CACHE_SOCKET_TIMEOUT_SECONDS` | `float` | `0.5` | Maximum seconds to wait for a Redis cache command response; timeout failures are not retried. |
-| `CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS` | `float` | `0.5` | Maximum seconds to establish a Redis cache connection. |
-| `CACHE_HEALTH_CHECK_INTERVAL_SECONDS` | `int` | `30` | Redis cache connection health-check interval in seconds; zero disables periodic connection checks. |
-| `CACHE_MAX_CONNECTIONS` | `int` | `64` | Maximum connections in the default Redis cache pool; callers wait within CACHE_POOL_TIMEOUT_SECONDS when the pool is busy. |
-| `CACHE_POOL_TIMEOUT_SECONDS` | `float` | `1.0` | Maximum seconds a Redis cache operation waits for a pooled connection before failing. |
-| `CACHE_RETRY_ATTEMPTS` | `int` | `1` | Retries of Redis cache commands after connection errors. Command timeouts are never retried. |
 | `NOTIFIER_LOG_LINKS` | `bool` | `False` | The log notifier also logs the links an email carries (verification, password reset), marked [dev only], so a dev app without SMTP can follow them. Refused with ENVIRONMENT=prod unless SANDLOOM_ACCEPTED_RISKS lists log_links_in_prod. |
 | `JWT_PRIVATE_KEY` | `str | None` | `None` | Issuer-only PEM private key for asymmetric access-token signing; its public key must be published under JWT_KID. |
 | `JWT_PUBLIC_KEYS` | `dict[str, str]` | `{}` | JSON map of key IDs to PEM public keys used to verify asymmetric access tokens in every service. |

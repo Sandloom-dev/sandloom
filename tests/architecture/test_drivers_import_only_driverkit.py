@@ -17,10 +17,11 @@ kernel refactor breaks it. ``packages/sandloom-s3`` is the model: it imports
   ``bootstrap.py``) and every module a row of ``BUILTIN_DRIVER_ROWS`` targets
   is held to the same rule; the ``sandloom.core`` imports they still make are
   listed in ``drivers_core_import_allowlist.json``, each entry naming
-  ``removed_by`` (the tm slice that removes them, or ``stays: <reason>``).
-  The list only shrinks: an import it does not list fails, an entry no longer
-  imported does not, and :data:`SEEDED` pins it, so an entry added to the
-  JSON fails too. No new entry, ever: a driver written since (``atomic_store``,
+  ``reason`` (``stays: <why>``: the database driver and the local drivers ship
+  in the kernel). The list is exact (strict since ``idk-ratchets-close``): an
+  import it does not list fails, so does an entry no longer imported, and
+  :data:`SEEDED` pins it, so an entry added to the JSON fails too. No new
+  entry, ever: a driver written since (``atomic_store``,
   ``lease``, ``broadcast``) imports only ``sandloom.driverkit``, and what it needs
   of the kernel is re-exported there (the code stays in ``sandloom.core``). The
   kernel never imports ``sandloom.driverkit`` (``.importlinter``,
@@ -39,7 +40,6 @@ from __future__ import annotations
 
 import ast
 import json
-import re
 import sys
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -76,27 +76,25 @@ KERNEL_INTERNAL: frozenset[str] = frozenset(
     {"sandloom.core.eventing.volatile_provider"}
 )
 
-#: Top-level driver modules that ship as one package (idk-pkg-celery-move moves
-#: the three celery files together into ``sandloom-celery``): each imports the
-#: others of its group freely, nothing else of Sandloom beyond the driver kit.
-#: removed_by: idk-pkg-celery-move (the group goes when the files move; the
-#: kernel's own copies are then gone and the package scan covers them). A group
-#: member has no allowlist entry: ``test_a_sibling_group_member_has_no_allowlist_entry``.
-SIBLING_GROUPS: tuple[frozenset[str], ...] = (
-    frozenset(
-        {
-            "sandloom.core.drivers.celery_broker_probe",
-            "sandloom.core.drivers.celery_taskqueue",
-            "sandloom.core.drivers.celery_worker",
-        }
-    ),
+sys.path.insert(0, str(REPO / "tools" / "packaging"))
+import release_packages  # noqa: E402  (stdlib only; the one package list)
+
+#: The import names of the driver packages (``kind: driver`` of ``packages.json``:
+#: ``sandloom_redis``, ``sandloom_s3``, ...). A built-in driver imports none: the
+#: kernel does not depend on a package that depends on it (ADR-0016).
+DRIVER_PACKAGES: frozenset[str] = frozenset(
+    p.import_name for p in release_packages.PACKAGES if p.kind == "driver"
 )
+
+#: The driver-package imports a built-in driver file may make, by exact file and
+#: exact target: none (the streams driver, the last one, moved into
+#: ``sandloom-redis`` with idk-pkg-redis-eventbus). The seed never grows.
+SEEDED_PACKAGE_IMPORTS: dict[str, frozenset[str]] = {}
 
 KERNEL = "sandloom.core"
 DRIVERKIT = "sandloom.driverkit"
 #: What a dynamic ``import_module`` / ``__import__`` (a non-literal name) counts as.
 DYNAMIC = "<import_module of a non-literal name>"
-_SLICE = re.compile(r"idk-[a-z0-9]+(?:-[a-z0-9]+)*")
 
 _D = "src/sandloom/core/drivers/"
 
@@ -118,17 +116,6 @@ SEEDED: dict[str, frozenset[str]] = {
             "sandloom.core.sql_alchemy.dead_connection",
             "sandloom.core.sql_alchemy.driver_compat",
             "sandloom.core.sql_alchemy.portable",
-        }
-    ),
-    # idk-streams-driverkit: the driver reaches the kernel through the driver kit
-    # only. What stays is its own transport, a sibling the package move takes
-    # along (idk-pkg-redis-streams): no kernel internal. The default Redis client
-    # helpers are the cache driver's (idk-streams-driverkitb: the driver kit
-    # imports no driver); the package move takes them to sandloom-redis.
-    _D + "event_bus_driver.py": frozenset(
-        {
-            "sandloom.core.drivers.redis_cache",
-            "sandloom.core.drivers.redis_eventbus.streams_transport",
         }
     ),
     _D + "filesystem_storage.py": frozenset(
@@ -328,6 +315,74 @@ def _dynamic_import(node: ast.Call) -> set[str]:
     return {DYNAMIC}
 
 
+def package_imports(path: Path, packages: Iterable[str] = DRIVER_PACKAGES) -> set[str]:
+    """The driver-package names ``path`` imports, at any depth (function-local and
+    ``TYPE_CHECKING`` included): ``import pkg.mod`` and ``from pkg.mod import x``
+    name ``pkg.mod``, ``from pkg import mod`` names ``pkg.mod``, and a literal
+    ``import_module("pkg.mod")`` / ``__import__("pkg.mod")`` names it too."""
+    roots = frozenset(packages)
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found.update(a.name for a in node.names if a.name.split(".")[0] in roots)
+        elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+            if node.module.split(".")[0] not in roots:
+                continue
+            if "." in node.module:
+                found.add(node.module)
+            else:
+                found.update(f"{node.module}.{a.name}" for a in node.names)
+        elif isinstance(node, ast.Call):
+            literal = _literal_import(node)
+            if literal and literal.split(".")[0] in roots:
+                found.add(literal)
+    return found
+
+
+def _literal_import(node: ast.Call) -> str:
+    """The literal name of an ``import_module`` / ``__import__`` call, else ``""``."""
+    func = node.func
+    called = (
+        func.attr
+        if isinstance(func, ast.Attribute)
+        else func.id
+        if isinstance(func, ast.Name)
+        else ""
+    )
+    if called not in {"import_module", "__import__"}:
+        return ""
+    arg = node.args[0] if node.args else None
+    if arg is None:
+        arg = next((k.value for k in node.keywords if k.arg == "name"), None)
+    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+        return arg.value
+    return ""
+
+
+def package_import_problems(
+    files: Iterable[Path],
+    repo: Path,
+    seeded: Mapping[str, frozenset[str]],
+    packages: Iterable[str] = DRIVER_PACKAGES,
+) -> list[str]:
+    """``file: name`` for each driver-package import beyond ``seeded``, and
+    ``file: stale ...`` for each seeded one the file no longer makes."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for path in files:
+        rel = path.relative_to(repo).as_posix()
+        seen.add(rel)
+        found = package_imports(path, packages)
+        listed = seeded.get(rel, frozenset())
+        out.extend(f"{rel}: {name}" for name in sorted(found - listed))
+        out.extend(f"{rel}: stale seed {name}" for name in sorted(listed - found))
+    out.extend(
+        f"{rel}: stale seed, no such driver file" for rel in sorted(set(seeded) - seen)
+    )
+    return out
+
+
 def _row_modules() -> set[str]:
     return {target.partition(":")[0] for _, _, target, *_ in BUILTIN_DRIVER_ROWS}
 
@@ -380,19 +435,46 @@ def violations(
     for path in files:
         rel = path.relative_to(repo).as_posix()
         listed = set(allowed.get(rel, ()))
-        own = _own_package(path, root)
-        module = _module_name(path, root)
-        group = next((g for g in SIBLING_GROUPS if module in g), frozenset())
-        found = {
-            name
-            for name in sandloom_imports(path, module)
-            if not _is_driverkit(name)
-            and name not in group
-            # a file of drivers/<pkg>/ importing its own package is not a
-            # kernel import: the package moves as one
-            and not (own and (name == own or name.startswith(own + ".")))
-        }
-        out.extend(f"{rel}: {name}" for name in sorted(found - listed))
+        out.extend(
+            f"{rel}: {name}" for name in sorted(_beyond_driverkit(path, root) - listed)
+        )
+    return out
+
+
+def _beyond_driverkit(path: Path, root: Path) -> set[str]:
+    """The Sandloom imports of one driver file that are not the driver kit's."""
+    own = _own_package(path, root)
+    return {
+        name
+        for name in sandloom_imports(path, _module_name(path, root))
+        if not _is_driverkit(name)
+        # a file of drivers/<pkg>/ importing its own package is not a
+        # kernel import: the package moves as one
+        and not (own and (name == own or name.startswith(own + ".")))
+    }
+
+
+def stale_entries(
+    files: Iterable[Path],
+    root: Path,
+    repo: Path,
+    allowed: Mapping[str, Iterable[str]],
+) -> list[str]:
+    """``file: stale name`` for each listed import the file no longer makes, and
+    ``file: stale, no such driver file`` for a listed file that is gone."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for path in files:
+        rel = path.relative_to(repo).as_posix()
+        seen.add(rel)
+        listed = set(allowed.get(rel, ()))
+        out.extend(
+            f"{rel}: stale {name}"
+            for name in sorted(listed - _beyond_driverkit(path, root))
+        )
+    out.extend(
+        f"{rel}: stale, no such driver file" for rel in sorted(set(allowed) - seen)
+    )
     return out
 
 
@@ -428,9 +510,103 @@ def test_builtin_drivers_gain_no_kernel_import() -> None:
     assert not found, (
         "a built-in driver gained a sandloom.core import (ADR-0016). Drivers "
         "read options, not settings; a built-in records metrics through "
-        "sandloom.driverkit.observe. The "
-        "allowlist only shrinks:\n  " + "\n  ".join(found)
+        "sandloom.driverkit.observe:\n  " + "\n  ".join(found)
     )
+
+
+def test_no_allowlist_entry_is_stale() -> None:
+    """Strict since idk-ratchets-close: a listed import the file no longer makes
+    (or a listed file that is gone) fails; the change that removes it drops it."""
+    raw = {e["file"]: e["imports"] for e in _entries()}
+    stale = stale_entries(builtin_driver_files(), SRC, REPO, raw)
+    assert not stale, (
+        "drivers_core_import_allowlist.json lists imports that are gone: drop "
+        "them (and the pair from SEEDED) in the commit that removed them:\n  "
+        + "\n  ".join(stale)
+    )
+
+
+def test_builtin_drivers_import_no_driver_package() -> None:
+    """A built-in driver never imports a driver package (``sandloom_redis``,
+    ``sandloom_celery``, ``sandloom_s3``: ``kind: driver`` of ``packages.json``):
+    the seed is empty, and a seeded pair the file no longer imports would fail
+    too."""
+    assert DRIVER_PACKAGES >= {"sandloom_redis", "sandloom_s3"}, DRIVER_PACKAGES
+    found = package_import_problems(
+        builtin_driver_files(), REPO, SEEDED_PACKAGE_IMPORTS
+    )
+    assert not found, (
+        "a built-in driver imports a driver package (ADR-0016): the kernel does "
+        "not depend on a package that depends on it. Move the code, or the "
+        "driver, into the package:\n  " + "\n  ".join(found)
+    )
+    assert not SEEDED_PACKAGE_IMPORTS
+
+
+def test_the_package_import_scan_counts_every_form(tmp_path: Path) -> None:
+    """Bite proof: each import form of a driver package is counted, in a
+    function and under ``TYPE_CHECKING`` too, and a name that is none is not."""
+    src = _plant(
+        tmp_path,
+        {
+            "sandloom/core/drivers/z.py": (
+                "import importlib\n"
+                "import sandloom_redis.cache\n"
+                "import sandloom_celery as c\n"
+                "from sandloom_s3.store import Store\n"
+                "from sandloom_redis import lease\n"
+                "if TYPE_CHECKING:\n"
+                "    from sandloom_redis.atomic_store import X\n"
+                "def f():\n"
+                "    importlib.import_module('sandloom_redis.broadcast')\n"
+                "    __import__(name='sandloom_s3')\n"
+                "    from sandloom_celery.worker import w\n"
+                "import redis\n"
+                "import sandloom_redisx\n"
+                "importlib.import_module('sandloom_other')\n"
+                "NAME = 'sandloom_redis.cache'\n"
+            ),
+        },
+    )
+    path = src / "sandloom/core/drivers/z.py"
+    names = {"sandloom_redis", "sandloom_celery", "sandloom_s3"}
+    assert package_imports(path, names) == {
+        "sandloom_redis.cache",
+        "sandloom_celery",
+        "sandloom_s3.store",
+        "sandloom_redis.lease",
+        "sandloom_redis.atomic_store",
+        "sandloom_redis.broadcast",
+        "sandloom_s3",
+        "sandloom_celery.worker",
+    }
+
+
+def test_an_unseeded_package_import_bites_and_a_stale_seed_does_too(
+    tmp_path: Path,
+) -> None:
+    """Exact file, exact target: another file, another target, a missing import
+    and a missing file each fail."""
+    src = _plant(
+        tmp_path,
+        {
+            "sandloom/core/drivers/a.py": "import sandloom_redis.cache\n",
+            "sandloom/core/drivers/b.py": "import sandloom_redis.lease\n",
+            "sandloom/core/drivers/c.py": "X = 1\n",
+        },
+    )
+    files = [src / f"sandloom/core/drivers/{n}.py" for n in "abc"]
+    rel = "src/sandloom/core/drivers/"
+    seeded = {
+        rel + "a.py": frozenset({"sandloom_redis.cache"}),
+        rel + "c.py": frozenset({"sandloom_redis.cache"}),
+        rel + "gone.py": frozenset({"sandloom_redis.cache"}),
+    }
+    assert package_import_problems(files, tmp_path, seeded, {"sandloom_redis"}) == [
+        f"{rel}b.py: sandloom_redis.lease",
+        f"{rel}c.py: stale seed sandloom_redis.cache",
+        f"{rel}gone.py: stale seed, no such driver file",
+    ]
 
 
 def test_the_allowlist_adds_nothing_to_its_seed() -> None:
@@ -447,36 +623,32 @@ def test_the_allowlist_adds_nothing_to_its_seed() -> None:
     )
 
 
-def test_every_allowlist_entry_names_its_removal() -> None:
+def test_every_allowlist_entry_says_why_it_stays() -> None:
     entries = _entries()
     problems = [str(e.get("file")) for e in entries if not _well_formed(e)]
     assert not problems, (
         "allowlist entries need file, a sorted list of sandloom.core imports "
-        f"and removed_by (an idk-* slice or 'stays: <reason>'): {problems}"
+        f"and reason ('stays: <reason>'): {problems}"
     )
     files = [e["file"] for e in entries]
     assert len(files) == len(set(files)), "duplicate allowlist entry"
     assert files == sorted(files), "keep the allowlist sorted by file"
     known = {p.relative_to(REPO).as_posix() for p in builtin_driver_files()}
-    # A file that left (moved to a package) may stay listed until pruned, but
-    # a typo'd path guards nothing.
-    unknown = sorted(f for f in files if f not in known and (REPO / f).exists())
+    unknown = sorted(f for f in files if f not in known)
     assert not unknown, f"allowlist names files that are no drivers: {unknown}"
 
 
 def _well_formed(entry: Mapping[str, Any]) -> bool:
     imports = entry.get("imports")
-    removed_by = str(entry.get("removed_by", "")).strip()
+    reason = str(entry.get("reason", "")).strip()
     return (
         isinstance(entry.get("file"), str)
         and isinstance(imports, list)
         and bool(imports)
         and imports == sorted(set(imports))
         and all(isinstance(i, str) and _is_kernel(i) for i in imports)
-        and (
-            bool(_SLICE.fullmatch(removed_by))
-            or (removed_by.startswith("stays: ") and len(removed_by) > len("stays: "))
-        )
+        and reason.startswith("stays: ")
+        and len(reason) > len("stays: ")
     )
 
 
@@ -571,7 +743,7 @@ def test_a_dynamic_import_is_counted(tmp_path: Path) -> None:
     assert found == {DYNAMIC, "sandloom.driverkit.metrics"}
 
 
-def test_a_new_import_bites_and_a_stale_entry_does_not(tmp_path: Path) -> None:
+def test_a_new_import_bites_and_so_does_a_stale_entry(tmp_path: Path) -> None:
     src = _plant(
         tmp_path,
         {
@@ -585,13 +757,22 @@ def test_a_new_import_bites_and_a_stale_entry_does_not(tmp_path: Path) -> None:
     path = src / "sandloom/core/drivers/y.py"
     rel = "src/sandloom/core/drivers/y.py"
     allowed = {rel: ["sandloom.core.infra.config", "sandloom.core.effects"]}
-    # settings is new: it bites; the stale effects entry is tolerated; the
-    # driver kit never counts.
+    # settings is new: it bites; the driver kit never counts.
     assert violations([path], src, tmp_path, allowed) == [
         f"{rel}: sandloom.core.config.settings"
     ]
+    # The effects entry is stale: it bites too, and a listed file that is gone.
+    assert stale_entries([path], src, tmp_path, allowed) == [
+        f"{rel}: stale sandloom.core.effects"
+    ]
     allowed[rel].append("sandloom.core.config.settings")
     assert violations([path], src, tmp_path, allowed) == []
+    allowed[rel].remove("sandloom.core.effects")
+    assert stale_entries([path], src, tmp_path, allowed) == []
+    gone = {**allowed, "src/sandloom/core/drivers/gone.py": ["sandloom.core.x"]}
+    assert stale_entries([path], src, tmp_path, gone) == [
+        "src/sandloom/core/drivers/gone.py: stale, no such driver file"
+    ]
 
 
 def test_a_driver_subpackage_is_scanned_and_its_own_imports_are_exempt(
@@ -620,70 +801,17 @@ def test_a_driver_subpackage_is_scanned_and_its_own_imports_are_exempt(
     ]
 
 
-def test_a_sibling_group_exempts_only_its_own_members(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    src = _plant(
-        tmp_path,
-        {
-            "sandloom/core/drivers/a.py": (
-                "from sandloom.core.drivers.b import B\n"
-                "from sandloom.core.drivers.c import C\n"
-                "from sandloom.core.infra.config import InstanceConfig\n"
-            ),
-            "sandloom/core/drivers/b.py": "from sandloom.driverkit import observe\n",
-            "sandloom/core/drivers/c.py": "from sandloom.core.drivers.a import A\n",
-        },
-    )
-    monkeypatch.setattr(
-        sys.modules[__name__],
-        "SIBLING_GROUPS",
-        (frozenset({"sandloom.core.drivers.a", "sandloom.core.drivers.b"}),),
-    )
-    files = [src / f"sandloom/core/drivers/{n}.py" for n in "abc"]
-    assert violations(files, src, tmp_path, {}) == [
-        "src/sandloom/core/drivers/a.py: sandloom.core.drivers.c",
-        "src/sandloom/core/drivers/a.py: sandloom.core.infra.config",
-        "src/sandloom/core/drivers/c.py: sandloom.core.drivers.a",
-    ]
-
-
-def test_every_sibling_group_member_is_a_driver_file() -> None:
-    found = {_module_name(p, SRC) for p in builtin_driver_files()}
-    assert all(group <= found for group in SIBLING_GROUPS)
-
-
-def group_members_with_entries(
-    groups: tuple[frozenset[str], ...], entries: list[dict[str, Any]]
-) -> list[str]:
-    """The allowlist files that are members of a sibling group (a group member
-    imports only the driver kit and its siblings: an entry would hide an import
-    the group's exemption must not cover)."""
-    members = {
-        "src/" + module.replace(".", "/") + ".py"
-        for group in groups
-        for module in group
-    }
-    return sorted({e["file"] for e in entries} & members)
-
-
-def test_a_sibling_group_member_has_no_allowlist_entry() -> None:
-    assert group_members_with_entries(SIBLING_GROUPS, _entries()) == []
-
-
-def test_a_group_member_with_an_allowlist_entry_bites() -> None:
-    entries = [
-        {"file": _D + "celery_worker.py", "imports": ["sandloom.core.x"]},
-        {"file": _D + "redis_cache.py", "imports": ["sandloom.core.y"]},
-    ]
-    assert group_members_with_entries(SIBLING_GROUPS, entries) == [
-        _D + "celery_worker.py"
-    ]
-
-
-def test_the_scan_reaches_the_driver_subpackages() -> None:
+def test_the_scan_reaches_the_builtin_driver_files() -> None:
+    """No built-in driver subpackage is left (the streams transport moved into
+    ``sandloom-redis``, whose files ``package_files`` scans); the live scan finds
+    the files that stay and none of the infrastructure modules."""
     found = {p.relative_to(DRIVERS).as_posix() for p in builtin_driver_files()}
-    assert "redis_eventbus/streams_transport.py" in found
+    assert "sqlalchemy_database.py" in found
+    assert not any("/" in name for name in found), found
+    assert any(
+        p.name == "streams_transport.py" and "sandloom_redis" in p.parts
+        for p in package_files()
+    )
     assert "__init__.py" not in found
     assert "bootstrap.py" not in found
 
@@ -716,33 +844,39 @@ def test_the_seed_holds_the_live_allowlist() -> None:
     # The seed itself only shrinks: lower this number with every pair removed.
     # 89 -> 103 once (idk-eventbus-moveb, +14): pre-existing imports of the files
     # idk-eventbus-move moved out of core/eventing, newly counted by the subpackage
-    # scan, not newly added; removed_by idk-pkg-redis-streams.
+    # scan, not newly added (those files left with idk-pkg-redis-eventbus).
     # 103 -> 83 (idk-streams-driverkit, -20): the four files of redis_eventbus/
     # (14 pairs) and six of event_bus_driver's seven import only the driver kit.
     # 83 -> 84 (idk-streams-driverkitb, +1): event_bus_driver imports redis_cache
     # directly (the driver kit's redis_client wrapper hid that edge and inverted
-    # the layering); removed_by idk-pkg-redis-streams.
+    # the layering); the import went with the driver (idk-pkg-redis-streams).
     # 84 -> 79 (idk-pkg-celery, -5): the three celery files import only the driver
-    # kit (the probe's timeout is a driver option); their sibling imports are the
-    # package's own (SIBLING_GROUPS).
+    # kit (the probe's timeout is a driver option); they moved to the
+    # sandloom-celery package, whose files the package scan covers.
     # 79 -> 75 (idk-redis-cache-driverkit, -4): redis_cache imports only the
     # driver kit.
-    assert sum(len(v) for v in SEEDED.values()) <= 75
+    # 75 -> 74 (idk-pkg-redis-streams, -1): redis_cache moved to the sandloom-redis
+    # package, so event_bus_driver's import of it is no longer a ``sandloom`` one.
+    # 74 -> 73 (idk-pkg-redis-eventbus, -1): event_bus_driver and redis_eventbus/
+    # moved into the sandloom-redis package, which the package scan covers.
+    # 73 -> 67 (idk-pkg-redis-eventbusb): the cap sat above the live sum of SEEDED
+    # after the earlier moves; it equals the live sum now, so a pair added fails.
+    assert sum(len(v) for v in SEEDED.values()) <= 67
 
 
 @pytest.mark.parametrize(
     ("entry", "ok"),
     [
-        ({"imports": ["sandloom.core.x"], "removed_by": "idk-pkg-redis"}, True),
-        ({"imports": ["sandloom.core.x"], "removed_by": "stays: kernel"}, True),
-        ({"imports": ["sandloom.core.x"], "removed_by": ""}, False),
-        ({"imports": ["sandloom.core.x"], "removed_by": "stays: "}, False),
-        ({"imports": ["sandloom.core.x"], "removed_by": "later"}, False),
+        ({"imports": ["sandloom.core.x"], "reason": "stays: kernel"}, True),
+        ({"imports": ["sandloom.core.x"], "reason": "idk-pkg-redis"}, False),
+        ({"imports": ["sandloom.core.x"], "reason": ""}, False),
+        ({"imports": ["sandloom.core.x"], "reason": "stays: "}, False),
+        ({"imports": ["sandloom.core.x"], "reason": "later"}, False),
         ({"imports": ["sandloom.core.x"]}, False),
-        ({"imports": [], "removed_by": "idk-pkg-redis"}, False),
-        ({"imports": ["sandloom.sdk"], "removed_by": "idk-pkg-redis"}, False),
+        ({"imports": [], "reason": "stays: kernel"}, False),
+        ({"imports": ["sandloom.sdk"], "reason": "stays: kernel"}, False),
         (
-            {"imports": ["sandloom.core.y", "sandloom.core.x"], "removed_by": "idk-x"},
+            {"imports": ["sandloom.core.y", "sandloom.core.x"], "reason": "stays: x"},
             False,
         ),
     ],

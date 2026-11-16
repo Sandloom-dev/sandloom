@@ -6,24 +6,25 @@ test configuration (``.env.test`` / the shell):
 
 * ``DATABASE_URL`` -> the same server, database ``<name>_gw<N>`` (created on
   first use, with the ``citext`` / ``uuid-ossp`` extensions the schemas use);
-* ``CACHE_URL`` / ``BROKER_URL`` -> the same Redis, database index
+* every ``INFRA`` instance's ``url`` / ``broker`` -> the same Redis, database index
   ``<index> + SANDLOOM_TEST_REDIS_DB_STRIDE * (N + 1)`` (stride default 16). URLs
   that differ keep differing, so two indexes never collapse into one. The
   Redis server needs enough databases: ``redis-server --databases 256``
   supports 15 workers at the default stride.
   ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto`` replaces the fixed layout: the controller
   claims free indexes for every worker before they start
-  (:func:`sandloom.core.testing.resources.allocate_worker_redis` — this owner's
+  (``sandloom_redis.testing.resources.allocate_worker_redis`` — this owner's
   previous indexes first, then unmarked empty ones) and hands the workers the
   mapping in ``SANDLOOM_TEST_REDIS_WORKER_DBS`` (``<base>=<i0>,<i1>,…;…``). Use it
   on a Redis shared with other runs, whose markers break any fixed layout.
 
-The Redis half lives in :mod:`sandloom.core.testing.redis_isolation`, imported
-only by a process that can reach a Redis (the client is installed and a Redis
-setting is present): an application on memory drivers never loads it and needs
-no client to run its tests. It asks the driver of each configured instance (the
-default cache, the default task queue for ``BROKER_URL``, every named ``INFRA``
-instance with a ``url``) through ``InfraProvider.test_isolation(options,
+The Redis half is a harness family (:mod:`sandloom.core.testing.families`) that
+the ``sandloom-redis`` package registers; this module calls its ``rewrite_worker``
+hook, and a process with no family is DB-only. The family loads its isolation
+code only for a process that can reach a Redis (the client is installed and a
+Redis setting is present): an application on memory drivers never loads it and
+needs no client to run its tests. It asks the driver of each ``INFRA`` instance
+with a ``url`` or a ``broker`` through ``InfraProvider.test_isolation(options,
 worker_id)``.
 
 Without xdist (no ``PYTEST_XDIST_WORKER``) nothing changes.
@@ -40,7 +41,12 @@ load path (:func:`load_test_env`, :func:`reload_test_env`,
 :func:`worker_env_values`). ``.env.test`` is loaded with ``override=True`` so a
 stray dev ``DATABASE_URL`` in the shell never masks it; these prefixed names are
 the deliberate way to point one test run at a different database / Redis (e.g.
-several suites in parallel on one machine).
+several suites in parallel on one machine). ``SANDLOOM_TEST_CACHE_URL`` /
+``SANDLOOM_TEST_BROKER_URL`` keep their names but name instances: they are
+merged into ``INFRA`` (:func:`infra_with_overrides`: the declared ``default``
+cache / task queue and every declared instance on the same Redis database as it;
+instances on other databases keep theirs, a declared ``backend`` follows its
+``broker``). One that finds no declared default raises, it never does nothing.
 
 This module imports nothing from the framework (no ``sandloom.core.config.settings``),
 so
@@ -49,31 +55,45 @@ it is safe to use before the settings snapshot is taken.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from collections.abc import Mapping, MutableMapping
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import dotenv_values, load_dotenv
 
-from sandloom.core.testing.redis_urls import (
-    FLAT_VARS,
-    INFRA_VAR,
-    is_redis_url,
-    redis_client_installed,
-    redis_isolation,
-)
+from sandloom.core.migrations.pg_sync import errors, psycopg2, sql
+from sandloom.core.testing import families
+from sandloom.core.testing.families import INFRA_VAR
 
 WORKER_ENV = "PYTEST_XDIST_WORKER"
 #: The settings each worker gets its own instance of.
 DATABASE_VARS = ("DATABASE_URL",)
-REDIS_VARS = FLAT_VARS
-#: ``INFRA`` (JSON): its named instances with a ``url`` are isolated too.
-ISOLATED_VARS = (*DATABASE_VARS, *REDIS_VARS, INFRA_VAR)
-#: ``SANDLOOM_TEST_<VAR>`` wins over ``.env.test`` for these settings.
+#: The suffixes of the harness's Redis override names (``SANDLOOM_TEST_CACHE_URL``,
+#: ``SANDLOOM_TEST_BROKER_URL``). They are not settings: each is merged into
+#: ``INFRA`` (:func:`infra_with_overrides`).
+REDIS_VARS = ("CACHE_URL", "BROKER_URL")
+#: ``INFRA`` (JSON): its instances with a ``url`` / ``broker`` are isolated.
+ISOLATED_VARS = (*DATABASE_VARS, INFRA_VAR)
+#: ``SANDLOOM_TEST_<VAR>`` wins over ``.env.test`` for these names.
 OVERRIDE_PREFIX = "SANDLOOM_TEST_"
 OVERRIDABLE_VARS = (*DATABASE_VARS, *REDIS_VARS)
+#: The capability whose ``default`` instance each Redis override replaces the
+#: URL of in ``INFRA``; the option that holds it is whichever of
+#: :data:`_URL_OPTIONS` the instance states. The one map of the overrides:
+#: ``sandloom dev up`` reads it to decide which names it may write.
+INFRA_URL_CAPABILITIES = {
+    "CACHE_URL": "cache",
+    "BROKER_URL": "taskqueue",
+}
+#: The options of an instance that hold a Redis URL the overrides may replace:
+#: the harness's one list of URL options, less ``backend``, which mirrors its
+#: instance's ``broker`` (:func:`_set_url`) and is never replaced on its own.
+_URL_OPTIONS = tuple(o for o in families.INSTANCE_URL_OPTIONS if o != "backend")
+_REDIS_SCHEMES = ("redis://", "rediss://")
 
 _WORKER_RE = re.compile(r"^gw(\d+)$")
 # What this process last wrote per variable: a value equal to it is already
@@ -151,11 +171,8 @@ def rewrite_for_worker(
         url = values.get(var)
         if url:
             out[var] = worker_database_url(url, wid)
-    has_redis_setting = INFRA_VAR in values or any(
-        is_redis_url(values.get(var) or "") for var in REDIS_VARS
-    )
-    if has_redis_setting and redis_client_installed():
-        out.update(redis_isolation().rewrite_redis(values, env, wid, number))
+    for family in families.harness_families():
+        out.update(family.rewrite_worker(values, env, wid, number))
     return out
 
 
@@ -185,14 +202,176 @@ def apply_worker_env(
     return changed
 
 
-def explicit_test_overrides(environ: Mapping[str, str] | None = None) -> dict[str, str]:
-    """The explicit ``SANDLOOM_TEST_<VAR>`` overrides set in ``environ``."""
+class UnmatchedOverrideError(ValueError):
+    """A ``SANDLOOM_TEST_CACHE_URL`` / ``SANDLOOM_TEST_BROKER_URL`` the run sets
+    names no instance to replace: ``INFRA`` declares no Redis URL for the default
+    cache (or task queue). The override would do nothing, silently; it refuses
+    instead."""
+
+
+def infra_with_overrides(
+    infra_raw: str | None, overrides: Mapping[str, str]
+) -> str | None:
+    """``infra_raw`` (the ``INFRA`` JSON) with the run's own cache / broker URL
+    merged into the instances that sit on the one it replaces.
+
+    ``overrides`` maps ``CACHE_URL`` / ``BROKER_URL`` (the suffix of the
+    ``SANDLOOM_TEST_`` name) to the URL this run uses. Nothing follows another
+    instance's URL, so the URL is written into each instance that named the
+    replaced one, never into the others:
+
+    * the ``default`` instance of ``cache`` (``url``) and of ``taskqueue``
+      (``broker``) must declare a Redis URL in ``INFRA`` (``.env.test``): the
+      override replaces it. No instance is created: with none declared the
+      override raises :class:`UnmatchedOverrideError`, never does nothing;
+    * every other declared instance (any capability) whose ``url`` or ``broker``
+      is the SAME Redis server and database as the default's takes it too (in
+      that option);
+    * an instance on another database or server keeps its URL: instances meant
+      to live apart stay apart, and the cache's ``FLUSHDB`` never reaches their
+      keys. A parallel run that overrides only the cache therefore keeps the
+      declared URLs of the instances on other databases: override those as well
+      (the task queue's through ``SANDLOOM_TEST_BROKER_URL``) or two runs share
+      them. The per-worker rewrite of ``sandloom_redis`` moves database indexes
+      only, on the same server, and does the same;
+    * a ``backend`` a replaced ``broker`` instance declares mirrors the new
+      broker URL (a run that points its broker elsewhere must not share the
+      result database of another run).
+
+    A malformed ``INFRA`` is returned unchanged (the settings refuse it when they
+    load); without an override so is a missing one.
+    """
+    wanted = {
+        var: url
+        for var, url in overrides.items()
+        if url and var in INFRA_URL_CAPABILITIES
+    }
+    if not wanted:
+        return infra_raw
+    try:
+        parsed = json.loads(infra_raw) if infra_raw else {}
+    except ValueError:
+        return infra_raw
+    if not isinstance(parsed, dict):
+        return infra_raw
+    for var, url in wanted.items():
+        capability = INFRA_URL_CAPABILITIES[var]
+        base = _declared_url(parsed, capability, "default")
+        if not base:
+            raise UnmatchedOverrideError(
+                f"{OVERRIDE_PREFIX}{var} is set, but INFRA declares no Redis URL "
+                f"({' / '.join(_URL_OPTIONS)}) on {capability}.default for it to "
+                f"replace: declare it in .env.test, or unset {OVERRIDE_PREFIX}{var} "
+                f"(an app that selects no {capability} has nothing to override)"
+            )
+        _replace_on_database(parsed, base, url)
+    return json.dumps(parsed)
+
+
+def overrides_infra_can_take(infra_raw: str | None) -> tuple[str, ...]:
+    """The override names (``CACHE_URL`` / ``BROKER_URL``) that
+    :func:`infra_with_overrides` accepts for ``infra_raw``: those whose capability's
+    ``default`` instance declares a Redis URL. The harness raises
+    :class:`UnmatchedOverrideError` for any other, so ``sandloom dev up`` writes
+    only these. A malformed or missing ``INFRA`` takes none."""
+    try:
+        parsed = json.loads(infra_raw) if infra_raw else {}
+    except ValueError:
+        return ()
+    if not isinstance(parsed, dict):
+        return ()
+    return tuple(
+        var
+        for var, capability in INFRA_URL_CAPABILITIES.items()
+        if _declared_url(parsed, capability, "default")
+    )
+
+
+def _replace_on_database(parsed: dict[str, Any], base: str, url: str) -> None:
+    """Every ``url`` / ``broker`` of ``parsed`` on the database of ``base`` becomes
+    ``url``."""
+    for instances in parsed.values():
+        for spec in instances.values() if isinstance(instances, dict) else ():
+            if not isinstance(spec, dict):
+                continue
+            for held in _URL_OPTIONS:
+                if _same_redis_database(spec.get(held), base):
+                    _set_url(spec, held, url)
+
+
+def _declared_url(parsed: dict[str, Any], capability: str, name: str) -> str | None:
+    """The Redis URL ``parsed`` declares on instance ``name`` of ``capability``
+    (its first stated option of :data:`_URL_OPTIONS`), if any."""
+    instances = parsed.get(capability)
+    spec = instances.get(name) if isinstance(instances, dict) else None
+    if not isinstance(spec, dict):
+        return None
+    for option in _URL_OPTIONS:
+        stated = spec.get(option)
+        if isinstance(stated, str) and stated.startswith(_REDIS_SCHEMES):
+            return stated
+    return None
+
+
+def _same_redis_database(stated: object, base: str) -> bool:
+    """``stated`` is a Redis URL on the same server and database as ``base``
+    (a URL without a path is database 0)."""
+    if not isinstance(stated, str) or not stated.startswith(_REDIS_SCHEMES):
+        return False
+    a, b = urlsplit(stated), urlsplit(base)
+    return (a.scheme, a.netloc, a.path.strip("/") or "0", a.query) == (
+        b.scheme,
+        b.netloc,
+        b.path.strip("/") or "0",
+        b.query,
+    )
+
+
+def _set_url(spec: dict[str, Any], option: str, url: str) -> None:
+    """Set ``option`` of ``spec`` to ``url``; a declared Redis ``backend`` follows
+    a replaced ``broker``."""
+    spec[option] = url
+    backend = spec.get("backend")
+    if (
+        option == "broker"
+        and isinstance(backend, str)
+        and backend.startswith(_REDIS_SCHEMES)
+    ):
+        spec["backend"] = url
+
+
+def explicit_test_overrides(
+    environ: Mapping[str, str] | None = None,
+    *,
+    current: Mapping[str, str | None] | None = None,
+) -> dict[str, str]:
+    """The explicit ``SANDLOOM_TEST_<VAR>`` overrides set in ``environ``.
+
+    ``current`` is the configuration they apply to (default ``environ``: the
+    process). ``DATABASE_URL`` is always named. ``SANDLOOM_TEST_CACHE_URL`` /
+    ``SANDLOOM_TEST_BROKER_URL`` are merged into ``INFRA`` (the ``INFRA`` entry
+    of the result, see :func:`infra_with_overrides`); they set no other
+    variable, and raise :class:`UnmatchedOverrideError` where ``INFRA`` has no
+    instance for them.
+    """
     env = os.environ if environ is None else environ
-    return {
+    cur = env if current is None else current
+    out = {
         var: env[OVERRIDE_PREFIX + var]
-        for var in OVERRIDABLE_VARS
+        for var in DATABASE_VARS
         if env.get(OVERRIDE_PREFIX + var)
     }
+    redis = {
+        var: env[OVERRIDE_PREFIX + var]
+        for var in REDIS_VARS
+        if env.get(OVERRIDE_PREFIX + var)
+    }
+    if redis:
+        infra = cur.get(INFRA_VAR)
+        merged = infra_with_overrides(infra, redis)
+        if merged is not None and merged != infra:
+            out[INFRA_VAR] = merged
+    return out
 
 
 def seed_test_environ(
@@ -228,6 +407,9 @@ def apply_test_overrides(
 ) -> dict[str, str]:
     """Copy ``SANDLOOM_TEST_<VAR>`` onto ``<VAR>`` in ``environ``; returns them.
 
+    The cache / broker overrides are merged into ``INFRA``: see
+    :func:`explicit_test_overrides`.
+
     ``create_database=False`` is for a command that connects to no database.
     """
     env = os.environ if environ is None else environ
@@ -260,7 +442,7 @@ def worker_env_values(path: str | os.PathLike[str]) -> dict[str, str]:
     overrides applied, rewritten for this worker. Missing file -> ``{}`` base."""
     raw = dotenv_values(path) if Path(path).exists() else {}
     values = {k: v for k, v in raw.items() if v is not None}
-    values.update(explicit_test_overrides())
+    values.update(explicit_test_overrides(current=values))
     changed = rewrite_for_worker(values)
     for var in DATABASE_VARS:
         if var in changed:
@@ -290,10 +472,8 @@ def ensure_database(url: str) -> None:
     name = parts.path.lstrip("/")
     if not name or name in _created_databases:
         return
-    # Sync driver (test-only): callable from any context, even inside a loop.
-    import psycopg2  # type: ignore[import-untyped]  # noqa: PLC0415 - cold: plugin entry - pytest imports it on every run; the heavy harness part loads with the hook / call that needs it
-    from psycopg2 import errors, sql  # noqa: PLC0415 - cold: plugin entry - pytest imports it on every run; the heavy harness part loads with the hook / call that needs it
 
+    # Sync driver (test-only): callable from any context, even inside a loop.
     def dsn(database: str) -> str:
         plain = parts._replace(scheme="postgresql", path=f"/{database}", query="")
         return urlunsplit(plain)

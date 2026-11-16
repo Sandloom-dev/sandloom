@@ -2,9 +2,13 @@
 
 Two layers, merged at startup:
 
-1. **Defaults** synthesized from the flat settings (``DATABASE_URL``,
-   ``CACHE_URL``, ``BROKER_URL``, ``STORAGE_*``, ``EVENT_BUS_BACKEND``): with
-   no extra configuration, one ``default`` instance per capability.
+1. **Defaults**: the drivers the composition selects
+   (``create_app(default_infra=...)``; the kernel names none of its own) with
+   the options of the flat settings (``DATABASE_URL``, ``STORAGE_*``,
+   ``EVENT_BUS_BACKEND``): one ``default``
+   instance per capability the composition selects. A capability nothing
+   selects has no instance, and startup refuses it when the app needs it
+   (SANDLOOM-B037).
 
 2. The optional ``INFRA`` setting (JSON) which declares additional named
    instances or overrides driver/options of existing ones. This is how an
@@ -28,17 +32,17 @@ passed verbatim to that driver as an option.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import importlib
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
-import sandloom.core.config.settings as _settings_module
 from sandloom.core.config.common import Environment
-from sandloom.core.config.eventing import DEFAULT_EVENT_STREAM_RETENTION_SECONDS
 from sandloom.core.config.settings import Settings
 
-#: Capabilities for which a ``default`` instance is synthesized from the flat
-#: settings (DATABASE_URL, CACHE_URL, …). This is NOT the set of valid
+#: Capabilities whose ``default`` instance a composition selects (options from
+#: the flat settings: DATABASE_URL, …). This is NOT the set of valid
 #: capabilities — INFRA may declare instances for any capability a plugin
 #: registers (workflow, graph_store, …). Whether a capability is valid is the
 #: registry's job (it owns the specs); config.py only validates SHAPE.
@@ -69,6 +73,14 @@ KERNEL_INSTANCES: frozenset[tuple[str, str]] = frozenset(
     }
 )
 
+#: Every instance a process refuses to start without (SANDLOOM-B037): the
+#: kernel's three, and the store of revocation marks. Nothing selects them but
+#: the composition or ``INFRA``: the kernel has no driver of its own to fall
+#: back to, and never ``memory``.
+REQUIRED_AT_STARTUP: frozenset[tuple[str, str]] = KERNEL_INSTANCES | {
+    ("atomic_store", "security")
+}
+
 
 @dataclass(slots=True)
 class InstanceConfig:
@@ -90,6 +102,64 @@ class InstanceConfig:
 # capability -> {instance_name -> InstanceConfig}
 InfraConfig = dict[str, dict[str, InstanceConfig]]
 
+_NO_SETTINGS: Mapping[str, str] = MappingProxyType({})
+
+#: The settings a driver may take an option from: the readiness probe's bound.
+#: Any other setting (a secret among them) is refused when a
+#: :class:`SettingsFill` is built (ADR-0016: a driver reads no kernel setting
+#: beyond this one; every url and client bound is an option of its instance).
+FILLABLE_SETTINGS: frozenset[str] = frozenset({"health_check_timeout_seconds"})
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsFill:
+    """The options a driver takes from the flat settings when its instance
+    leaves them out (``InfraProvider.settings_fill``).
+
+    A driver reads no kernel setting (ADR-0016): it declares, on its class,
+    which flat setting fills which option, and the kernel applies the
+    declaration without knowing the driver (:func:`fill_driver_defaults`). An
+    option an instance states always wins: ``INFRA`` over the flat setting.
+    Every key of the two tables is an option name, every value one of
+    :data:`FILLABLE_SETTINGS` (anything else is refused, a typo included).
+    No url is filled from a setting, and no instance takes an option from
+    another instance: a capability's url is its own, stated in ``INFRA``.
+
+    - ``bounds``: an option left out takes the setting's value when it is set
+      (the readiness probe's bound).
+    - ``caps``: a numeric option above the setting is cut to it (a probe the
+      readiness check stops waiting for); a value that is not a number stays
+      for the driver's options to refuse.
+    """
+
+    bounds: Mapping[str, str] = field(default_factory=lambda: _NO_SETTINGS)
+    caps: Mapping[str, str] = field(default_factory=lambda: _NO_SETTINGS)
+
+    def __post_init__(self) -> None:
+        for name in ("bounds", "caps"):
+            table: Mapping[str, str] = getattr(self, name)
+            if not all(
+                isinstance(option, str) and isinstance(setting, str)
+                for option, setting in table.items()
+            ):
+                raise ValueError(
+                    "SettingsFill tables map option names to setting names"
+                )
+            unknown = sorted(set(table.values()) - FILLABLE_SETTINGS)
+            if unknown:
+                raise ValueError(
+                    f"SettingsFill.{name} names {', '.join(unknown)}: a driver "
+                    f"takes options only from {', '.join(sorted(FILLABLE_SETTINGS))}"
+                )
+            # A copy nobody can change after the class declared it.
+            object.__setattr__(self, name, MappingProxyType(dict(table)))
+
+
+#: ``(capability, driver) -> the fill its class declares``, ``None`` for a driver
+#: that is not registered, whose package is missing or that declares none: no
+#: fill then, and the refusal of an unusable driver is the registry's.
+FillLookup = Callable[[str, str], SettingsFill | None]
+
 
 def _is_prod(settings: Any) -> bool:
     environment = getattr(settings, "environment", None)
@@ -100,126 +170,167 @@ def _is_prod(settings: Any) -> bool:
     )
 
 
-def _default_eventbus_driver(settings: Any) -> str:
-    """The ``default`` eventbus instance's driver from ``EVENT_BUS_BACKEND``."""
-    driver = str(getattr(settings, "event_bus_backend", "auto") or "auto")
-    if driver == "auto":
-        # Production defaults to the DURABLE streams transport (at-least-once);
-        # dev/test use the in-memory bus. Explicit EVENT_BUS_BACKEND wins.
-        driver = "streams" if _is_prod(settings) else "memory"
-    return driver
+#: ``{capability: {instance: {"driver": ..., <options>}}}``: what a composition
+#: selects when ``INFRA`` names nothing (``create_app(default_infra=...)``).
+DefaultInfra = Mapping[str, Mapping[str, Mapping[str, Any]]]
+
+#: The composition's driver selection of this process. The kernel names no
+#: driver of its own for database, cache, event bus, task queue, broadcast,
+#: lease or atomic_store: a composition (``sandloom_standard``) supplies them,
+#: and one that supplies none leaves startup to refuse with SANDLOOM-B037.
+#:
+#: Three sources, ONE precedence (the first that is set wins, none merges):
+#:
+#: 1. the argument of the latest ``create_app(default_infra=...)`` (``_APP``);
+#: 2. a pin a tool or a test suite set with :func:`use_default_infra` (``_PIN``);
+#: 3. the composition root's own ``DEFAULT_INFRA`` (read when asked).
+#:
+#: ``create_app`` only ever writes slot 1, so an app never overwrites a pin;
+#: an app that passes none clears slot 1 and the pin (or the root) is back.
+#: A new :func:`use_default_infra` pin clears slot 1 too: it is the later word.
+_APP: InfraConfig | None = None
+_PIN: InfraConfig | None = None
+
+
+def _checked(defaults: DefaultInfra | None) -> InfraConfig:
+    """``defaults`` shape-checked like ``INFRA`` (:func:`_overlay`)."""
+    checked: InfraConfig = {}
+    _overlay(checked, defaults or {})
+    return checked
+
+
+def use_default_infra(defaults: DefaultInfra | None, *, from_app: bool = False) -> None:
+    """Set the composition's driver selection for this process (``None``: none).
+
+    Shape-checked like ``INFRA``; every instance it names is a synthesized
+    ``default``: ``INFRA`` overrides it, and nothing opens it unless the kernel
+    or a module's requirement uses it. Without ``from_app`` it is a pin (a tool
+    or a test suite): it survives every ``create_app`` of the process, whatever
+    selection those pass. ``from_app`` is ``create_app``'s: the argument of
+    that app, dropped by :func:`forget_app_default_infra`.
+    """
+    global _APP, _PIN
+    checked = _checked(defaults)
+    if from_app:
+        _APP = checked
+    else:
+        _PIN = checked
+        _APP = None
+
+
+def forget_app_default_infra() -> None:
+    """Drop the selection a previous ``create_app`` of this process passed, so
+    an app that passes none never inherits another's: the next reader gets the
+    pin of :func:`use_default_infra`, else the composition root's own
+    (``DEFAULT_INFRA``), as in a fresh process."""
+    global _APP
+    _APP = None
+
+
+def _root_selection() -> InfraConfig:
+    """A process that boots no app (``sandloom migrate``, ``worker check``, the
+    backup tools) never ran ``create_app(default_infra=...)``: it reads the
+    selection the composition root's package exports (``DEFAULT_INFRA``)."""
+    # Reached by name: ``composition`` sits above the infra layer (ADR-0007).
+    composition = importlib.import_module("sandloom.core.composition")
+    return _checked(composition.root_default_infra())
+
+
+def _composition_instances() -> InfraConfig:
+    """A copy of the composition's selection (precedence above), safe to change."""
+    if _APP is not None:
+        selection = _APP
+    elif _PIN is not None:
+        selection = _PIN
+    else:
+        selection = _root_selection()
+    return {
+        capability: {
+            name: InstanceConfig(
+                capability=cfg.capability,
+                name=cfg.name,
+                driver=cfg.driver,
+                options=dict(cfg.options),
+            )
+            for name, cfg in instances.items()
+        }
+        for capability, instances in selection.items()
+    }
+
+
+def _select(
+    config: InfraConfig,
+    capability: str,
+    driver: str,
+    options: Mapping[str, Any],
+) -> None:
+    """The ``default`` instance of ``capability`` with ``driver``: the options of
+    a composition default that selects the same driver are kept (flat settings
+    below them), another driver starts from the flat options alone."""
+    existing = config.get(capability, {}).get(DEFAULT_INSTANCE)
+    merged = dict(options)
+    if existing is not None and existing.driver == driver:
+        merged.update(existing.options)
+    config.setdefault(capability, {})[DEFAULT_INSTANCE] = InstanceConfig(
+        capability=capability, name=DEFAULT_INSTANCE, driver=driver, options=merged
+    )
+
+
+def _flat_options(
+    config: InfraConfig, capability: str, flat: Mapping[str, Any]
+) -> None:
+    """Under the options of the composition's ``default`` instance of
+    ``capability`` (when it selects one), the options the flat settings give.
+    A flat setting that is unset (``None``) gives no option, so the driver
+    sees a missing option, not a ``None`` one."""
+    existing = config.get(capability, {}).get(DEFAULT_INSTANCE)
+    if existing is not None:
+        given = {key: value for key, value in flat.items() if value is not None}
+        existing.options = {**given, **existing.options}
+
+
+def _eventbus_selector(settings: Settings) -> str | None:
+    """The driver ``EVENT_BUS_BACKEND`` names, ``None`` when it is unset (the
+    composition's ``eventbus.default`` decides: no kernel default, in any
+    environment)."""
+    return settings.event_bus_backend
 
 
 def _synthesize_defaults(settings: Settings) -> InfraConfig:
     """Build the implicit ``default`` instance for each capability.
 
-    Every instance built here is marked ``implicit``; :func:`_overlay` makes
-    it explicit when ``INFRA`` names it.
+    The composition's selection (:func:`use_default_infra`) is the base, the
+    flat settings give its options, ``STORAGE_TYPE``, ``NOTIFIER_BACKEND`` and
+    an explicit ``EVENT_BUS_BACKEND`` select their drivers. Every instance
+    built here is marked ``implicit``; :func:`_overlay` makes it explicit when
+    ``INFRA`` names it. A capability nothing selects has no instance.
     """
-    eventbus_driver = _default_eventbus_driver(settings)
-
+    # The bucket, region and keys of an ``s3`` store are options of its INFRA
+    # instance (INFRA.objectstore.default); the flat settings give the size cap
+    # and the local path only.
     objectstore_options: dict[str, Any] = {
         "max_upload_size_bytes": settings.max_upload_size_bytes,
     }
-    if settings.storage_type == "s3":
-        objectstore_options.update(
-            bucket=settings.s3_bucket,
-            region=settings.s3_region,
-            access_key_id=settings.s3_access_key_id,
-            secret_access_key=settings.s3_secret_access_key,
-        )
-    else:
+    if settings.storage_type != "s3":
         objectstore_options["path"] = settings.storage_path
 
-    synthesized: InfraConfig = {
-        "database": {
-            DEFAULT_INSTANCE: InstanceConfig(
-                capability="database",
-                name=DEFAULT_INSTANCE,
-                driver="sqlalchemy",
-                options={"url": settings.database_url},
-            )
-        },
-        "cache": {
-            DEFAULT_INSTANCE: InstanceConfig(
-                capability="cache",
-                name=DEFAULT_INSTANCE,
-                driver="redis",
-                options={"url": settings.cache_url},
-            )
-        },
-        "objectstore": {
-            DEFAULT_INSTANCE: InstanceConfig(
-                capability="objectstore",
-                name=DEFAULT_INSTANCE,
-                driver=settings.storage_type,
-                options=objectstore_options,
-            )
-        },
-        # The kernel's fan-out (contract-cache shadow invalidation, the volatile
-        # event bus): Redis on the url of the resolved cache.default
-        # (fill_driver_defaults), opened only when one of them uses it.
-        # Removed by idk-config-defaults, with the other hard-coded defaults.
-        "broadcast": {
-            DEFAULT_INSTANCE: InstanceConfig(
-                capability="broadcast",
-                name=DEFAULT_INSTANCE,
-                driver="redis",
-                options={},
-            )
-        },
-        "taskqueue": {
-            DEFAULT_INSTANCE: InstanceConfig(
-                capability="taskqueue",
-                name=DEFAULT_INSTANCE,
-                driver="celery",
-                options={
-                    "broker": settings.broker_url,
-                    "backend": settings.cache_url,
-                },
-            )
-        },
-        "eventbus": {
-            DEFAULT_INSTANCE: InstanceConfig(
-                capability="eventbus",
-                name=DEFAULT_INSTANCE,
-                driver=eventbus_driver,
-                # fill_driver_defaults gives a redis/streams default bus the
-                # url CACHE_URL; the default bus shares the bounded default
-                # transport client on it. A named instance may set its own.
-                options={},
-            )
-        },
-        "notification": {
-            DEFAULT_INSTANCE: InstanceConfig(
-                capability="notification",
-                name=DEFAULT_INSTANCE,
-                driver=settings.notifier_backend,
-                options={
-                    "host": settings.smtp_host,
-                    "port": settings.smtp_port,
-                    "username": settings.smtp_username,
-                    "password": settings.smtp_password,
-                    "from_addr": settings.smtp_from,
-                    "use_tls": settings.smtp_use_tls,
-                },
-            )
-        },
-    }
-    if not _is_prod(settings):
-        # Development and tests only: the security store on the cache's Redis
-        # (url filled by fill_driver_defaults), so an app runs without INFRA.
-        # Never in production, where an absent INFRA.atomic_store.security is
-        # a startup refusal (production_profile.config_problems): the store of
-        # revocation marks is never built from the cache's options.
-        synthesized["atomic_store"] = {
-            "security": InstanceConfig(
-                capability="atomic_store",
-                name="security",
-                driver="redis",
-                options={},
-            )
-        }
+    synthesized = _composition_instances()
+    _flat_options(synthesized, "database", {"url": settings.database_url})
+    # The in-tree objectstore and notifier drivers are selected by their own
+    # flat settings (``local`` and ``log`` by default); the options of ``smtp``
+    # (host, port, credentials, ``use_tls``) come from INFRA.notification.
+    _select(synthesized, "objectstore", settings.storage_type, objectstore_options)
+    _select(synthesized, "notification", settings.notifier_backend, {})
+    selected_bus = _eventbus_selector(settings)
+    if selected_bus is not None:
+        _select(synthesized, "eventbus", selected_bus, {})
+    if _is_prod(settings):
+        # Never in production: an absent INFRA.atomic_store.security is a startup
+        # refusal (production_profile.config_problems), the store of revocation
+        # marks is never built from a composition's development default.
+        synthesized.get("atomic_store", {}).pop("security", None)
+        if not synthesized.get("atomic_store", True):
+            del synthesized["atomic_store"]
     for instances in synthesized.values():
         for cfg in instances.values():
             cfg.implicit = True
@@ -260,7 +371,7 @@ def _overlay(base: InfraConfig, raw: Mapping[str, Any]) -> None:
             if existing is not None and existing.driver == driver:
                 # Override: keep prior options not re-specified, layer new ones.
                 # A different driver starts empty: the prior options are another
-                # driver's, and they can hold its secrets (SMTP_PASSWORD).
+                # driver's, and they can hold its secrets (an SMTP password).
                 merged = dict(existing.options)
                 merged.update(options)
                 options = merged
@@ -285,226 +396,117 @@ def eventbus_driver(settings: Any, instance: str = DEFAULT_INSTANCE) -> str | No
     """The driver the eventbus ``instance`` resolves to, ``INFRA`` applied.
 
     The same merge :func:`load_infra_config` makes (``EVENT_BUS_BACKEND``
-    with ``auto`` resolved, then the ``INFRA`` overlay), limited to the
+    over the composition's selection, then the ``INFRA`` overlay), limited to the
     eventbus so it reads nothing else and runs before the registry exists.
     ``None`` when ``instance`` is not configured. A malformed ``INFRA``
     raises :class:`InfraConfigError`, as loading the whole config would.
     """
-    found = _resolved_eventbus(settings).get(instance)
+    found = resolved_eventbus(settings).get(instance)
     return found.driver if found is not None else None
 
 
-def _resolved_eventbus(settings: Any) -> dict[str, InstanceConfig]:
+def resolved_eventbus(settings: Any) -> dict[str, InstanceConfig]:
     """The eventbus instances: ``EVENT_BUS_BACKEND`` resolved, ``INFRA`` applied
-    (options not yet filled from the settings)."""
+    (options not filled from the flat settings: a driver's declaration does
+    that, once the registry has its class)."""
+    return _resolved_capability(settings, "eventbus", _eventbus_selector(settings))
+
+
+def resolved_instances(settings: Any, capability: str) -> dict[str, InstanceConfig]:
+    """The instances of ``capability`` as the application resolves them: the
+    composition's selection, the flat selector of its ``default`` driver
+    (``EVENT_BUS_BACKEND``, ``NOTIFIER_BACKEND``) and ``INFRA`` applied. Reads
+    nothing else (options are not filled from the flat settings), so a check of
+    the configuration (the override report, the production profile) sees what a
+    ``DEFAULT_INFRA`` pin or the composition root selects, not only what
+    ``INFRA`` writes."""
+    selector = {
+        "eventbus": "event_bus_backend",
+        "notification": "notifier_backend",
+    }.get(capability)
+    selected = getattr(settings, selector, None) if selector else None
+    return _resolved_capability(settings, capability, selected)
+
+
+def _resolved_capability(
+    settings: Any, capability: str, selected: str | None
+) -> dict[str, InstanceConfig]:
     config: InfraConfig = {
-        "eventbus": {
-            DEFAULT_INSTANCE: InstanceConfig(
-                capability="eventbus",
-                name=DEFAULT_INSTANCE,
-                driver=_default_eventbus_driver(settings),
-            )
-        }
+        capability: _composition_instances().get(capability, {}),
     }
+    if selected is not None:
+        _select(config, capability, selected, {})
     raw = getattr(settings, "infra", None)
     if raw:
         if not isinstance(raw, Mapping):
             raise InfraConfigError("INFRA must be a JSON object")
-        if "eventbus" in raw:
-            _overlay(config, {"eventbus": raw["eventbus"]})
-    _fill_eventbus_defaults(config, settings, getattr(settings, "cache_url", None))
-    return config["eventbus"]
+        if capability in raw:
+            _overlay(config, {capability: raw[capability]})
+    return config[capability]
 
 
-#: The kernel's volatile event buses: no transport, so no stream retention.
-_VOLATILE_EVENTBUS_DRIVERS: frozenset[str] = frozenset({"memory", "redis"})
-
-
-def configured_stream_retention_seconds(
-    settings: Any, instance: str = DEFAULT_INSTANCE
-) -> int | None:
-    """The age bound, in seconds, the eventbus ``instance`` is CONFIGURED with
-    (``0``: entries are never trimmed by age): the ``retention_seconds`` option
-    of a transport-backed driver, as the kernel fills it from
-    ``EVENT_STREAM_RETENTION_SECONDS``.
-
-    A pure configuration read: no bus is built and no process's live bus is
-    asked, so a tool running in another process (a CLI with a volatile bus of
-    its own) learns the retention of the deployment's bus. ``None`` when it
-    cannot be determined: the instance is not configured, its driver is a
-    volatile one (``memory``, ``redis``) or its options carry no
-    ``retention_seconds``.
-    """
-    found = _resolved_eventbus(settings).get(instance)
-    if found is None or found.driver in _VOLATILE_EVENTBUS_DRIVERS:
-        return None
-    value = found.options.get("retention_seconds")
-    if value is None and found.driver == "streams":
-        value = DEFAULT_EVENT_STREAM_RETENTION_SECONDS
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        return None
-    return value
-
-
-#: ``option -> setting``: the bounds of a ``redis`` cache client, filled from
-#: the ``CACHE_*`` settings when an instance leaves them out.
-_REDIS_CLIENT_SETTINGS: dict[str, str] = {
-    "socket_timeout_seconds": "cache_socket_timeout_seconds",
-    "socket_connect_timeout_seconds": "cache_socket_connect_timeout_seconds",
-    "health_check_interval_seconds": "cache_health_check_interval_seconds",
-    "max_connections": "cache_max_connections",
-    "pool_timeout_seconds": "cache_pool_timeout_seconds",
-    "retry_attempts": "cache_retry_attempts",
-}
-
-#: ``option -> setting``: what a ``celery`` task queue's broker probe is
-#: bounded by.
-_CELERY_SETTINGS: dict[str, str] = {
-    "health_timeout_seconds": "health_check_timeout_seconds",
-}
-
-#: ``option -> setting``: the bounds of a ``redis`` / ``streams`` event bus
-#: client (its read timeout is the bus's own).
-_TRANSPORT_CLIENT_SETTINGS: dict[str, str] = {
-    "socket_connect_timeout_seconds": "cache_socket_connect_timeout_seconds",
-    "health_check_interval_seconds": "cache_health_check_interval_seconds",
-}
-
-#: ``option -> setting``: the retention and key namespace of a ``streams`` event
-#: bus's streams (until ``idk-config-defaults`` turns the settings into options).
-_STREAMS_RETENTION_SETTINGS: dict[str, str] = {
-    "retention_seconds": "event_stream_retention_seconds",
-    "max_length": "event_stream_maxlen",
-    "prefix": "event_stream_prefix",
-}
-
-
-def _fill(options: dict[str, Any], settings: Any, table: Mapping[str, str]) -> None:
-    for option, setting in table.items():
+def _apply_fill(cfg: InstanceConfig, fill: SettingsFill, settings: Any) -> None:
+    options = cfg.options
+    for option, setting in fill.bounds.items():
         value = getattr(settings, setting, None)
         if value is not None:
             options.setdefault(option, value)
+    for option, setting in fill.caps.items():
+        bound = getattr(settings, setting, None)
+        stated = options.get(option)
+        if (
+            isinstance(bound, int | float)
+            and isinstance(stated, int | float)
+            and not isinstance(stated, bool)
+            and stated > bound
+        ):
+            options[option] = bound
 
 
-def _cap_probe_bound(options: dict[str, Any], settings: Any) -> None:
-    """A ``celery`` probe bound above ``HEALTH_CHECK_TIMEOUT_SECONDS`` is cut to
-    it: the readiness probe stops waiting there (``InfraRegistry.health_all``),
-    so a longer connect would only keep a thread behind an answered probe. A
-    value that is not a number stays for the driver to refuse."""
-    bound = getattr(settings, "health_check_timeout_seconds", None)
-    stated = options.get("health_timeout_seconds")
-    if (
-        isinstance(bound, int | float)
-        and isinstance(stated, int | float)
-        and not isinstance(stated, bool)
-        and stated > bound
-    ):
-        options["health_timeout_seconds"] = bound
-
-
-def _fill_url(options: dict[str, Any], key: str, value: Any) -> None:
-    if not options.get(key) and value:
-        options[key] = value
-
-
-def _fill_atomic_store_defaults(
-    config: InfraConfig, settings: Any, default_url: Any
+def fill_driver_defaults(
+    config: InfraConfig, settings: Any, fill_for: FillLookup
 ) -> None:
-    """The ``redis`` atomic_store instances get the client bounds only: the url
-    of an instance INFRA declares is its own (never the cache's); the
-    synthesized development one follows the resolved cache.default."""
-    for cfg in (config.get("atomic_store") or {}).values():
-        if cfg.driver == "redis":
-            if cfg.implicit:
-                _fill_url(cfg.options, "url", default_url)
-            _fill(cfg.options, settings, _REDIS_CLIENT_SETTINGS)
+    """Fill each instance's options from the flat settings, as its driver
+    declares (:class:`SettingsFill`, ``InfraProvider.settings_fill``).
 
-
-def _fill_eventbus_defaults(config: InfraConfig, settings: Any, cache_url: Any) -> None:
-    for cfg in (config.get("eventbus") or {}).values():
-        if cfg.driver in ("redis", "streams"):
-            # The volatile ``redis`` bus has no url: it runs over a broadcast
-            # instance (option ``broadcast``).
-            if cfg.name == DEFAULT_INSTANCE and cfg.driver == "streams":
-                _fill_url(cfg.options, "url", cache_url)
-            _fill(cfg.options, settings, _TRANSPORT_CLIENT_SETTINGS)
-            if cfg.driver == "streams":
-                _fill(cfg.options, settings, _STREAMS_RETENTION_SETTINGS)
-
-
-def fill_streams_override_defaults(options: dict[str, Any]) -> None:
-    """Fill the key namespace (``prefix``) of a ``streams`` event-bus override.
-
-    The test seam ``override_instance`` configures an instance without the
-    kernel's fill from the flat settings; this makes the one fill that keeps a
-    streams override namespaced like the instance it replaces
-    (``EVENT_STREAM_PREFIX``). An option the override sets is left alone.
+    A driver reads no kernel setting (ADR-0016): what it takes from
+    ``HEALTH_CHECK_TIMEOUT_SECONDS``, the kernel puts into the options of an
+    instance that leaves it out, and a stated option always wins. The kernel
+    names no driver here: ``fill_for`` answers, per ``(capability, driver)``,
+    the declaration of the driver's class, and ``None`` leaves the instance as
+    it is.
     """
-    _fill(
-        options,
-        _settings_module.settings,
-        {"prefix": _STREAMS_RETENTION_SETTINGS["prefix"]},
-    )
-
-
-def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
-    """Fill the options the built-in drivers read from the flat settings.
-
-    A driver reads no kernel setting (ADR-0016): what it used to take from
-    ``CACHE_URL``, ``BROKER_URL`` and the ``CACHE_*`` client bounds, the
-    kernel puts into its instance's options when the configuration leaves
-    them out, so the drivers behave as before. ``redis`` caches get ``url``
-    and the client bounds; ``redis`` / ``streams`` event buses the connect
-    timeout and health-check interval, and the ``default`` one ``url`` too
-    (a named bus without one shares the default transport); ``streams`` buses
-    their ``retention_seconds``, ``max_length`` and ``prefix``; ``celery`` task
-    queues ``broker``, ``backend`` and the probe bound ``health_timeout_seconds``.
-    """
-    cache_url = getattr(settings, "cache_url", None)
-    for cfg in (config.get("cache") or {}).values():
-        if cfg.driver == "redis":
-            _fill_url(cfg.options, "url", cache_url)
-            _fill(cfg.options, settings, _REDIS_CLIENT_SETTINGS)
-    # A broadcast instance without a url follows the RESOLVED cache.default (an
-    # INFRA override of its url included), not the raw CACHE_URL.
-    cache_default = (config.get("cache") or {}).get(DEFAULT_INSTANCE)
-    broadcast_url = (
-        cache_default.options.get("url")
-        if cache_default is not None and cache_default.driver == "redis"
-        else None
-    ) or cache_url
-    for cfg in (config.get("broadcast") or {}).values():
-        if cfg.driver == "redis":
-            _fill_url(cfg.options, "url", broadcast_url)
-            _fill(cfg.options, settings, _TRANSPORT_CLIENT_SETTINGS)
-    _fill_atomic_store_defaults(config, settings, broadcast_url)
-    _fill_eventbus_defaults(config, settings, cache_url)
-    for cfg in (config.get("taskqueue") or {}).values():
-        if cfg.driver == "celery":
-            _fill_url(cfg.options, "broker", getattr(settings, "broker_url", None))
-            _fill_url(cfg.options, "backend", cache_url)
-            _fill(cfg.options, settings, _CELERY_SETTINGS)
-            _cap_probe_bound(cfg.options, settings)
+    for capability, instances in config.items():
+        for cfg in instances.values():
+            fill = fill_for(capability, cfg.driver)
+            if fill is not None:
+                _apply_fill(cfg, fill, settings)
 
 
 def load_infra_config(settings: Settings) -> InfraConfig:
-    """Return the fully merged infrastructure configuration, the built-in
-    drivers' options filled from the flat settings (:func:`fill_driver_defaults`)."""
+    """Return the merged infrastructure configuration: the composition's
+    selection, the flat settings that select a driver or give an option the
+    kernel owns, and ``INFRA`` over them. The options a driver takes from the
+    flat settings are not filled here (no driver class is loaded):
+    ``build_infra_registry`` fills them once the registry has the classes
+    (:func:`fill_driver_defaults`)."""
     config = _synthesize_defaults(settings)
     raw = getattr(settings, "infra", None)
     if raw:
         if not isinstance(raw, Mapping):
             raise InfraConfigError("INFRA must be a JSON object")
         _overlay(config, raw)
-    fill_driver_defaults(config, settings)
     return config
 
 
 __all__ = [
-    "DEFAULT_EVENT_STREAM_RETENTION_SECONDS",
     "DEFAULT_INSTANCE",
     "KERNEL_INSTANCES",
-    "configured_stream_retention_seconds",
+    "REQUIRED_AT_STARTUP",
+    "DefaultInfra",
+    "FillLookup",
+    "SettingsFill",
+    "use_default_infra",
     "database_instance_url",
     "eventbus_driver",
     "fill_driver_defaults",
@@ -512,4 +514,6 @@ __all__ = [
     "InfraConfig",
     "InfraConfigError",
     "load_infra_config",
+    "resolved_eventbus",
+    "resolved_instances",
 ]

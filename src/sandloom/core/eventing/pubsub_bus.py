@@ -105,8 +105,14 @@ class RedisEventBus(BaseEventBus):
     async def _publish_to_transport(self, channel: str, message: EventEnvelope) -> None:
         try:
             await self._broadcast().publish(channel, json.dumps(message).encode())
-        except Exception:
-            logger.exception("Failed to publish to broadcast channel=%s", channel)
+        except Exception as exc:
+            # The error type only, no traceback: a broadcast driver's error text
+            # names the host and port (and can carry the payload).
+            logger.error(
+                "Failed to publish to broadcast channel=%s (%s)",
+                channel,
+                type(exc).__name__,
+            )
             # Re-raise so callers (outbox relay, post-commit dispatch) see the
             # failure and can retry; swallowing it here would mark undelivered
             # messages as delivered.
@@ -219,16 +225,17 @@ class RedisEventBus(BaseEventBus):
                 raise ConnectionError("the broadcast subscription ended")
             except asyncio.CancelledError:
                 break
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - logged by type and counted; the loop resubscribes
                 for handle in self._handles(channel):
                     handle.mark_retrying(exc)
+                # The error type only, no traceback (host, port and payload text).
                 logger.warning(
-                    "event bus: lost the subscription of channel=%s; messages "
+                    "event bus: lost the subscription of channel=%s (%s); messages "
                     "published meanwhile are dropped (volatile bus); "
                     "resubscribing (delay=%.1f)",
                     channel,
+                    type(exc).__name__,
                     reconnect_delay,
-                    exc_info=True,
                 )
                 _event_bus_metrics["redis_reconnect_attempts"] += 1
                 if self._stopped:
@@ -252,8 +259,9 @@ class RedisEventBus(BaseEventBus):
             if envelope is None:
                 return
             await self._fan_out(subscribed, message.channel, envelope)
-        except Exception:
-            logger.exception("Error processing broadcast message")
+        except Exception as exc:  # noqa: BLE001 - logged by type and counted; one message must not stop the loop
+            # The error type only, no traceback (host, port and payload text).
+            logger.error("Error processing broadcast message (%s)", type(exc).__name__)
             safe_inc(
                 "events_delivered_total",
                 {
@@ -333,8 +341,16 @@ class RedisEventBus(BaseEventBus):
                 _warn_if_callback_slow(channel, time.perf_counter() - started)
                 _event_bus_metrics["callbacks_success"] += 1
                 safe_inc("events_delivered_total", {"channel": ch, "status": "success"})
-            except Exception:
-                logger.exception("Callback failed for Redis channel=%s", channel)
+            except Exception as exc:
+                # Callbacks are application code: the full traceback is what
+                # finds the bug (the driver and transport branches log the type
+                # only).
+                logger.error(
+                    "Callback failed for Redis channel=%s (%s)",
+                    channel,
+                    type(exc).__name__,
+                    exc_info=True,
+                )
                 ch = message.get("channel", channel)
                 _event_bus_metrics["callbacks_failure"] += 1
                 safe_inc("events_delivered_total", {"channel": ch, "status": "failure"})

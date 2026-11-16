@@ -50,6 +50,7 @@ import pytest
 import pytest_asyncio
 from fastapi import Depends, Query
 from fastapi.routing import APIRoute
+from redis_env import worker_redis_url
 from sqlalchemy import select
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -59,7 +60,9 @@ from test_hot_reads_differential import (
     _bearer,
     _examples_on_path,
     _user_token,
+    assert_security_store_failed,
     assert_same,
+    store_down_each_side,
 )
 from test_s5_secure_read import (  # noqa: F401 - fixtures
     PASSWORD,
@@ -466,9 +469,7 @@ async def bt(
             )
         )
         await stack.enter_async_context(
-            override_instance(
-                core, "cache", driver="redis", url=os.environ["CACHE_URL"]
-            )
+            override_instance(core, "cache", driver="redis", url=worker_redis_url())
         )
         h = Hot(
             app=app,
@@ -715,17 +716,12 @@ async def test_revoked_and_blocked_tokens(bt: Hot) -> None:
 async def test_revocation_store_down_fail_closed(
     bt: Hot, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import redis.asyncio.client as rclient
-
-    async def down(self: Any, *args: Any, **options: Any) -> Any:
-        bt.redis_log.append(tuple(str(a) for a in args))
-        raise ConnectionError("redis down")
-
-    monkeypatch.setattr(rclient.Redis, "execute_command", down)
+    store_down_each_side(bt, monkeypatch)
     monkeypatch.setattr(settings, "auth_revocation_fail_closed", True, raising=False)
     for path, hdrs in ((SUB, bt.member), (CREDITS, bt.member), (BOARD, _board_token())):
         a = await check(bt, f"revocation_down {path}", path, hdrs, first="old")
         assert a.status == 503, (path, a.status)
+        assert_security_store_failed(a, "get")
 
 
 @pytest.mark.parametrize(

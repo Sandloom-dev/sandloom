@@ -31,6 +31,8 @@ from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
 
+from sandloom.core.migrations.pg_sync import psycopg2
+
 SKIP_ENV = "SANDLOOM_TEST_SKIP_CONNECTION_CHECK"
 
 #: The production defaults of the pool settings (``sandloom.core.config.settings``;
@@ -116,8 +118,6 @@ def server_headroom(database_url: str) -> Headroom | None:
     parts = urlsplit(database_url)
     if not parts.scheme.startswith("postgresql"):
         return None
-    import psycopg2  # type: ignore[import-untyped]  # noqa: PLC0415 - cold: plugin entry - pytest imports it on every run; the heavy harness part loads with the hook / call that needs it
-
     dsn = urlunsplit(parts._replace(scheme="postgresql", path="/postgres", query=""))
     try:
         conn = psycopg2.connect(dsn, connect_timeout=5)

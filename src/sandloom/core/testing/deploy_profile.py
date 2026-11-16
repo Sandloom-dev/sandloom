@@ -9,7 +9,8 @@ One model behind three users:
 * ``sandloom test`` (``schema & deploy``) and the framework's own
   ``test_deploy_profiles`` check a profile against the split invariants
   (:func:`profile_problems`, SANDLOOM-T014): shared settings identical in every
-  process (one ``CACHE_URL``), one composition root for every process,
+  process (one ``INFRA``, a service's Celery broker aside), one composition
+  root for every process,
   signing material on the token issuer only, a database and a migrate
   one-shot per service, the durable Streams bus, bindings exactly the
   contracts consumed from another service (+ the issuer's remote claims),
@@ -77,11 +78,8 @@ SHARED_KEYS: tuple[str, ...] = (
     "ENVIRONMENT",
     "SHUTDOWN_BUDGET_SECONDS",
     "EVENT_PAYLOAD_MAX_BYTES",
-    "EVENT_STREAM_RETENTION_SECONDS",
-    "EVENT_STREAM_MAXLEN",
-    "EVENT_STREAM_PREFIX",
+    "INFRA",
     "EVENT_BUS_BACKEND",
-    "CACHE_URL",
     "JWT_ALGORITHM",
     "JWT_PUBLIC_KEYS",
     "JWT_KID",
@@ -94,12 +92,6 @@ SHARED_KEYS: tuple[str, ...] = (
     "RPC_ALLOWED_CALLS",
     "FRONTEND_URL",
     "NOTIFIER_BACKEND",
-    "SMTP_HOST",
-    "SMTP_PORT",
-    "SMTP_USERNAME",
-    "SMTP_PASSWORD",
-    "SMTP_FROM",
-    "SMTP_USE_TLS",
 )
 
 #: Issuer-only signing material: on the token issuer's processes, nowhere else.
@@ -155,6 +147,20 @@ def interpolate(value: object, shell: Mapping[str, str] | None = None) -> str:
         if shell.get(m.group(1)):
             return shell[m.group(1)]
         return m.group(3) or "" if m.group(2) in (":-", "-") else ""
+
+    return _VAR.sub(repl, str(value))
+
+
+def interpolate_known(value: object) -> str:
+    """``value`` with each ``${VAR:-default}`` replaced by its default and every
+    other reference (``${VAR}``, ``${VAR:?msg}``) left as written. A comparison
+    of two processes' values uses this, so that two hosts naming different
+    variables are never made equal by both being blanked."""
+
+    def repl(m: re.Match[str]) -> str:
+        if m.group(2) in (":-", "-"):
+            return m.group(3) or ""
+        return m.group(0)
 
     return _VAR.sub(repl, str(value))
 
@@ -681,6 +687,81 @@ def _module_shared(procs: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str
     return holders
 
 
+def _comparable(key: str, value: Any) -> Any:
+    """What ``_same_everywhere`` compares for ``key``. ``INFRA`` is shared in
+    full except each service's own Celery broker (``taskqueue.<instance>.broker``,
+    one Redis database per service): the rest of it, parsed, so that key order
+    and spacing never matter. A value that is not a JSON object is compared as
+    written (a difference is reported, never skipped)."""
+    if key != "INFRA" or value is None:
+        return value
+    try:
+        infra = json.loads(interpolate_known(value))
+    except ValueError:
+        return value
+    if not isinstance(infra, dict):
+        return value
+    taskqueue = infra.get("taskqueue")
+    if isinstance(taskqueue, dict):
+        # An instance that named only its broker leaves nothing to compare:
+        # it is the same as an INFRA that names no such instance.
+        kept = {
+            name: (
+                {k: v for k, v in spec.items() if k != "broker"}
+                if isinstance(spec, dict)
+                else spec
+            )
+            for name, spec in taskqueue.items()
+            if not (isinstance(spec, dict) and set(spec) == {"broker"})
+        }
+        if kept:
+            infra["taskqueue"] = kept
+        else:
+            del infra["taskqueue"]
+    return infra
+
+
+#: The capabilities whose ``default`` instance holds state shared across
+#: processes (rate limits, idempotency marks, broadcast).
+_SHARED_URL_CAPABILITIES = ("cache", "broadcast")
+
+
+def _effective_default_url(env: Mapping[str, Any], capability: str) -> str | None:
+    """The url the ``default`` instance of ``capability`` states in a process's
+    ``INFRA``; ``None`` when it states none. An ``INFRA`` that is not a JSON
+    object is the shared-key comparison's to report, here it names no url."""
+    raw = env.get("INFRA")
+    if raw is None:
+        return None
+    try:
+        infra = json.loads(interpolate_known(raw))
+    except ValueError:
+        return None
+    instances = infra.get(capability) if isinstance(infra, dict) else None
+    spec = instances.get("default") if isinstance(instances, dict) else None
+    url = spec.get("url") if isinstance(spec, dict) else None
+    return url if isinstance(url, str) and url else None
+
+
+def _same_default_urls(procs: Mapping[str, Mapping[str, Any]], problem: Any) -> None:
+    """Every process resolves the ``default`` cache (and broadcast) to the same
+    url: a service whose own ``INFRA`` states another url there would split the
+    rate-limit and idempotency state, yet pass the ``INFRA`` check on its
+    own."""
+    for capability in _SHARED_URL_CAPABILITIES:
+        urls = {
+            name: _effective_default_url(_env(svc), capability)
+            for name, svc in procs.items()
+        }
+        if len(set(urls.values())) > 1:
+            problem(
+                f"the {capability}.default url differs between processes "
+                f"({sorted(map(str, set(urls.values())))}): state behind it is "
+                "shared, so every process must resolve it to the same url (state "
+                f"{capability}.default.url in the shared INFRA only)"
+            )
+
+
 def _same_everywhere(
     key: str,
     procs: Mapping[str, Mapping[str, Any]],
@@ -688,7 +769,8 @@ def _same_everywhere(
     *,
     owner: str | None = None,
 ) -> None:
-    values = {name: _env(svc).get(key) for name, svc in procs.items()}
+    raw = {name: _env(svc).get(key) for name, svc in procs.items()}
+    values = {name: _comparable(key, value) for name, value in raw.items()}
     missing = sorted(n for n, v in values.items() if v is None)
     if missing:
         where = (
@@ -714,6 +796,7 @@ def _same_everywhere(
 def _shared_settings(procs: dict[str, dict[str, Any]], problem: Any) -> None:
     for key in SHARED_KEYS:
         _same_everywhere(key, procs, problem)
+    _same_default_urls(procs, problem)
     for key, holders in sorted(_module_shared(procs).items()):
         _same_everywhere(
             key,
@@ -725,10 +808,11 @@ def _shared_settings(procs: dict[str, dict[str, Any]], problem: Any) -> None:
         env = _env(svc)
         if interpolate(env.get("ENVIRONMENT", "")) != "prod":
             problem(f"{name}: ENVIRONMENT must be prod")
-        if interpolate(env.get("EVENT_BUS_BACKEND", "auto")) not in {
-            "streams",
-            "auto",
-        }:
+        # Unset (or a blank ``${VAR:-}``) leaves the bus to the composition's
+        # selection, which startup refuses when it names none: a profile cannot
+        # see the composition, so it accepts unset and refuses every other
+        # driver. ``auto`` is no longer a value (the settings refuse it).
+        if interpolate(env.get("EVENT_BUS_BACKEND", "")).strip() not in {"", "streams"}:
             problem(f"{name}: events cross services: EVENT_BUS_BACKEND=streams")
         if ":?" not in str(env.get("INTERNAL_API_TOKEN", "")):
             problem(f"{name}: INTERNAL_API_TOKEN must be required (${{...:?...}})")

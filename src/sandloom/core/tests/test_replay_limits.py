@@ -2,7 +2,9 @@
 
 The 24 h record TTL and the 256 KiB replay cap were duplicated literals in
 the HTTP idempotency guard, the command dedupe, the consumer inbox, the task-queue enqueue dedupe and the settings default; they
-now all derive from :mod:`sandloom.core.config.replay_limits`.
+now all derive from :mod:`sandloom.core.config.replay_limits`. The Celery driver
+imports no kernel module, so its copy of the TTL is held equal in the package
+(``test_celery_replay_limits.py``).
 """
 
 from __future__ import annotations
@@ -12,7 +14,6 @@ import inspect
 import sandloom.core.config.replay_limits as replay_limits
 from sandloom.core import di
 from sandloom.core.config.settings import Settings
-from sandloom.core.drivers.celery_taskqueue import CeleryTaskQueueOptions
 from sandloom.core.eventing.consumer_inbox import ConsumerInbox
 from sandloom.core.idempotency import capture as idempotency_capture
 from sandloom.core.idempotency import fingerprint as idempotency_fingerprint
@@ -30,7 +31,6 @@ def test_record_ttls_share_one_default() -> None:
     assert params["ttl_seconds"].default == TTL
     inbox = inspect.signature(ConsumerInbox.__init__).parameters
     assert inbox["ttl_seconds"].default == TTL
-    assert CeleryTaskQueueOptions.model_fields["dedupe_ttl_seconds"].default == TTL
     field = Settings.model_fields["contract_command_dedupe_ttl_seconds"]
     assert field.default == TTL
 

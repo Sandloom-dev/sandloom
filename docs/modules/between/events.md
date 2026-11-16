@@ -243,9 +243,9 @@ sandloom streams dlq-replay <channel> [--id DLQ_ID ...] [--limit N]
 - On the producer side, the outbox relay dead-letters a row it cannot send
   after its attempts: see
   [the outbox](../database/units.md#events-and-audit-go-through-the-unit).
-- Streams are trimmed by age (`EVENT_STREAM_RETENTION_SECONDS`, default 7
-  days) and optionally by length (`EVENT_STREAM_MAXLEN`). A consumer offline
-  longer than retention misses events.
+- Streams are trimmed by age (the `retention_seconds` option of the `streams`
+  bus, default 7 days) and optionally by length (`max_length`). A consumer
+  offline longer than retention misses events.
 
 ### No ordering guarantee
 
@@ -319,8 +319,9 @@ await publish_event_versions({
 
 ### The bus
 
-`EVENT_BUS_BACKEND` selects the transport of the default `eventbus` instance:
-`auto` (default: `streams` in production, `memory` otherwise), `streams`
+`EVENT_BUS_BACKEND` selects the transport of the default `eventbus` instance. <!-- prose-ok: P6 a list of drivers -->
+Unset (the default), it takes the composition's selection (`streams` under
+`sandloom_standard`) and never chooses `memory`. `auto` is refused. The values are `streams`
 (Redis Streams: durable groups, ack, redelivery, DLQ), `redis` (Pub/Sub,
 volatile) and `memory` (in-process, for dev and tests). Volatile buses are
 refused in production, and durable consumers are refused on Pub/Sub, unless

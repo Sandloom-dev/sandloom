@@ -1,6 +1,6 @@
 #!/bin/sh
 # Run ladder/server_profile.py in the ladder image + py-spy (host with docker).
-#   DATABASE_URL=... CACHE_URL=... BROKER_URL=... SECURITY_CACHE_URL=... \
+#   DATABASE_URL=... BENCH_REDIS_URL=... BENCH_CELERY_BROKER=... BENCH_SECURITY_REDIS_URL=... \
 #     ladder/cg/run_server_profile.sh cg uow --k 300 --k2 900
 # localhost / 127.0.0.1 in the URLs become host.docker.internal in the container;
 # results / stacks go to $SP_OUT (default /tmp).
@@ -13,9 +13,9 @@ printf 'FROM sandloom-ladder-cg:3.13\nRUN pip install --no-cache-dir py-spy==0.4
 fix() { echo "$1" | sed 's/localhost/host.docker.internal/; s/127\.0\.0\.1/host.docker.internal/'; }
 exec docker run --rm --privileged \
   -e DATABASE_URL="$(fix "$DATABASE_URL")" \
-  -e CACHE_URL="$(fix "$CACHE_URL")" \
-  -e BROKER_URL="$(fix "$BROKER_URL")" \
-  -e SECURITY_CACHE_URL="$(fix "$SECURITY_CACHE_URL")" \
+  -e BENCH_REDIS_URL="$(fix "$BENCH_REDIS_URL")" \
+  -e BENCH_CELERY_BROKER="$(fix "${BENCH_CELERY_BROKER:-$BENCH_REDIS_URL}")" \
+  -e BENCH_SECURITY_REDIS_URL="$(fix "$BENCH_SECURITY_REDIS_URL")" \
   -e S5_APP_ROLE="${S5_APP_ROLE:-bench_app}" \
   -e S5_APP_PASSWORD="${S5_APP_PASSWORD:-bench-app-local-password}" \
   -e PYTHONPATH=/w/src:/w/benchmarks \

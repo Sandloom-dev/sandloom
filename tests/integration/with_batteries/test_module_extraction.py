@@ -543,58 +543,6 @@ async def test_group_owner_transfer_memory_transport() -> None:
     await t.claim_group_owner("a.b.v1", "sandloom_identity:y", other)  # untouched
 
 
-async def test_group_owner_transfer_redis_transport() -> None:
-    redis_asyncio = pytest.importorskip("redis.asyncio")
-    from sandloom.core.drivers.redis_eventbus.streams_transport import (
-        RedisStreamsTransport,
-    )
-    from sandloom.core.infra.ports.eventbus import GroupOwnedElsewhere, GroupOwner
-
-    values = worker_env_values(BACKEND / ".env.test")
-    url = os.environ.get("SANDLOOM_TEST_CACHE_URL") or values.get("CACHE_URL")
-    if not url:
-        pytest.skip("no CACHE_URL")
-    client = redis_asyncio.from_url(url)
-    try:
-        await client.ping()
-    except Exception:  # noqa: BLE001 - test Redis unreachable: skip
-        await client.aclose()
-        pytest.skip("Redis unavailable")
-    prefix = f"tx{uuid.uuid4().hex[:8]}:"
-
-    async def _factory() -> Any:
-        return client
-
-    t = RedisStreamsTransport(client_factory=_factory, prefix=prefix)
-    try:
-        src_id, dst_id = "url:aaaa", "url:bbbb"
-        mine = GroupOwner("sandloom_billing", src_id)
-        await t.claim_group_owner("billing.x.v1", "sandloom_billing:n@c", mine)
-        listed = await t.list_group_owners()
-        assert listed == [("billing.x.v1", "sandloom_billing:n@c", mine)]
-        moved = await transfer_group_owners(
-            t,
-            "sandloom_billing",
-            source_identity=src_id,
-            target_identity=dst_id,
-            apply=True,
-        )
-        assert moved == ["billing.x.v1 sandloom_billing:n@c"]
-        await t.claim_group_owner(
-            "billing.x.v1", "sandloom_billing:n@c", replace(mine, database=dst_id)
-        )
-        with pytest.raises(GroupOwnedElsewhere):
-            await t.claim_group_owner("billing.x.v1", "sandloom_billing:n@c", mine)
-        assert not await t.transfer_group_owner(
-            "billing.x.v1", "sandloom_billing:n@c", expected=mine, owner=mine
-        )  # compare-and-set: the owner is no longer ``mine``
-    finally:
-        keys = [k async for k in client.scan_iter(match=f"{prefix}*")]
-        if keys:
-            await client.delete(*keys)
-        await client.aclose()
-
-
 def test_shared_rows_stream_idempotently_and_detect_missing_keys(
     databases: tuple[str, str],
 ) -> None:

@@ -2,9 +2,9 @@
 
 The stubbed matrix (``test_module_subsets_repository.py``) replaces every health
 probe by a passing one, so it cannot see a missing Python driver or a broker
-nobody listens on. These lanes boot the same sixteen subsets in the repository
-environment (Celery and redis-py installed) and leave the checks under test
-real:
+nobody listens on. These lanes boot the subsets in the repository environment (Celery and
+redis-py installed; all sixteen on real infrastructure, ``FAILURE_SUBSETS``,
+one per class of subset, on a failure) and leave the checks under test real:
 
 - **real infrastructure**: Postgres, Redis and the broker the suite runs on,
   no stub at all: web readiness stays green and Billing reports missing
@@ -30,9 +30,11 @@ The clean-venv version of the missing-driver lane, on plain ``sandloom``, is in
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import os
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -40,6 +42,7 @@ from _module_subset_matrix import (
     MODULES,
     REFUSAL_NAMES,
     SUBSETS,
+    Outcome,
     SubsetRun,
     check_run,
     expected_unstubbed,
@@ -95,24 +98,40 @@ def _real(name: str) -> str:
     return os.environ[name]
 
 
+def _live_infra(taskqueue: dict[str, object] | None, *, state_taskqueue: bool) -> str:
+    """The suite's own ``INFRA`` (every instance's url, as ``.env.test``, the
+    worker rewrite and the run's overrides state them), with the default task
+    queue replaced by ``taskqueue`` when given and left out with
+    ``state_taskqueue=False`` (the composition's own, implicit instance then
+    reports a missing driver through the module that needs it). No flat url
+    exists."""
+    infra = json.loads(_real("INFRA"))
+    if not state_taskqueue:
+        infra.pop("taskqueue", None)
+    elif taskqueue is not None:
+        infra["taskqueue"] = {"default": taskqueue}
+    return json.dumps(infra)
+
+
 def _live_env(
-    extra: dict[str, str] | None = None, *, broker: str | None = None
+    extra: dict[str, str] | None = None,
+    *,
+    taskqueue: dict[str, object] | None = None,
+    state_taskqueue: bool = True,
 ) -> dict:
     return probe_environment(
         {
             "PYTHONPATH": str(ADMIN_SOURCE),
             "DATABASE_URL": _real("DATABASE_URL"),
-            "CACHE_URL": _real("CACHE_URL"),
-            "BROKER_URL": broker or _real("BROKER_URL"),
+            "INFRA": _live_infra(taskqueue, state_taskqueue=state_taskqueue),
             **(extra or {}),
         }
     )
 
 
 def _root(subset: tuple[str, ...]) -> str:
-    if not subset:
-        return "kernel"
-    return "sandloom_standard.main" if "identity" in subset else "sandloom.main"
+    # The lean root selects no driver (SANDLOOM-B037): the standard one does.
+    return "sandloom_standard.main" if subset else "kernel"
 
 
 def _lane(
@@ -139,6 +158,83 @@ def _lane(
         )
 
     return run_matrix(run, subsets)
+
+
+#: The subsets the four failure lanes boot (the live lane boots all sixteen).
+#: A failure outcome depends on the kernel root against a module composition
+#: (``_root``), on billing (it alone requires ``periodic`` and runs the
+#: reconciler in the background), on identity (its queue is optional: it boots
+#: where billing is refused) and on neither (tenancy, admin). The modules
+#: act independently in ``check_run`` and ``expected_unstubbed``, so one subset
+#: per class covers every path (``test_the_failure_subsets_cover_every_failure_path``
+#: pins it, and that it bites on a narrower choice):
+#:
+#: - ``none``: the kernel root with the standard composition's driver defaults:
+#:   a process with no module at all;
+#: - ``identity``: refused for a missing redis driver, boots with a missing celery
+#:   or a queue without ``periodic``;
+#: - ``billing``: refused for ``periodic``, reports the reconciler in the background;
+#: - ``identity`` + ``billing``: one real combination, because the proof above
+#:   assumes the modules act independently and this boots the assumption once;
+#: - ``tenancy`` + ``admin``: the modules that require none of what a lane breaks.
+FAILURE_SUBSETS: tuple[tuple[str, ...], ...] = (
+    (),
+    ("identity",),
+    ("billing",),
+    ("identity", "billing"),
+    ("tenancy", "admin"),
+)
+
+
+def _uncovered_failure_paths(chosen: Sequence[tuple[str, ...]]) -> list[str]:
+    """What ``chosen`` leaves out of what the full matrix (``SUBSETS``) covers."""
+    gaps: list[str] = []
+    if () not in chosen:
+        gaps.append("the kernel root (no module)")
+    for module in MODULES:
+        if not any(module in subset for subset in chosen):
+            gaps.append(f"module {module}")
+    for module in REFUSAL_NAMES:
+        if not any(set(subset) & set(REFUSAL_NAMES) == {module} for subset in chosen):
+            gaps.append(f"{module} as the only module that names a refusal")
+    if not any(subset and not set(subset) & set(REFUSAL_NAMES) for subset in chosen):
+        gaps.append("modules that require none of what a lane breaks")
+    for celery, periodic in itertools.product((True, False), repeat=2):
+        outcomes = {
+            expected_unstubbed(s, celery=celery, periodic=periodic) for s in chosen
+        }
+        every = {
+            expected_unstubbed(s, celery=celery, periodic=periodic) for s in SUBSETS
+        }
+        if outcomes != every:
+            gaps.append(f"outcomes with celery={celery} periodic={periodic}")
+    return gaps
+
+
+def test_the_failure_subsets_cover_every_failure_path() -> None:
+    assert set(FAILURE_SUBSETS) < set(SUBSETS)
+    assert _uncovered_failure_paths(SUBSETS) == []
+    assert _uncovered_failure_paths(FAILURE_SUBSETS) == []
+
+
+@pytest.mark.parametrize(
+    ("narrower", "missing"),
+    [
+        # no billing: its refusal and its background reconciler are never run
+        (((), ("identity",), ("tenancy", "admin")), "outcomes"),
+        (((), ("identity",), ("tenancy", "admin")), "billing"),
+        # no identity: the module whose queue is optional is never run
+        (((), ("billing",), ("tenancy", "admin")), "identity"),
+        # no other modules: tenancy and admin are never run
+        (((), ("identity",), ("billing",)), "tenancy"),
+        # no kernel root
+        ((("identity",), ("billing",), ("tenancy", "admin")), "kernel root"),
+    ],
+)
+def test_a_narrower_failure_choice_is_reported(
+    narrower: tuple[tuple[str, ...], ...], missing: str
+) -> None:
+    assert any(missing in gap for gap in _uncovered_failure_paths(narrower))
 
 
 def _only_expected_health_failures(run: SubsetRun) -> None:
@@ -186,7 +282,8 @@ def broker_down_runs(
 ) -> dict[tuple[str, ...], SubsetRun]:
     return _lane(
         tmp_path_factory.mktemp("subsets-broker-down"),
-        env=_live_env(broker=DEAD_BROKER),
+        subsets=FAILURE_SUBSETS,
+        env=_live_env(taskqueue={"broker": DEAD_BROKER}),
     )
 
 
@@ -196,6 +293,7 @@ def no_redis_runs(
 ) -> dict[tuple[str, ...], SubsetRun]:
     return _lane(
         tmp_path_factory.mktemp("subsets-no-redis"),
+        subsets=FAILURE_SUBSETS,
         env=_live_env(),
         probe_config={"stub": [], "block": ["redis"]},
     )
@@ -207,7 +305,8 @@ def no_celery_runs(
 ) -> dict[tuple[str, ...], SubsetRun]:
     return _lane(
         tmp_path_factory.mktemp("subsets-no-celery"),
-        env=_live_env(),
+        subsets=FAILURE_SUBSETS,
+        env=_live_env(state_taskqueue=False),
         probe_config={"stub": [], "block": ["celery"]},
     )
 
@@ -227,16 +326,14 @@ def no_periodic_runs(
     (dist / "entry_points.txt").write_text(
         f"[sandloom.drivers]\ntaskqueue.{FAKE_DRIVER} = fakeq_driver:NoPeriodicQueue\n"
     )
-    infra = {"taskqueue": {"default": {"driver": FAKE_DRIVER}}}
     work = root / "work"
     work.mkdir()
     return _lane(
         work,
+        subsets=FAILURE_SUBSETS,
         env=_live_env(
-            {
-                "PYTHONPATH": os.pathsep.join([str(ADMIN_SOURCE), str(site)]),
-                "INFRA": json.dumps(infra),
-            }
+            {"PYTHONPATH": os.pathsep.join([str(ADMIN_SOURCE), str(site)])},
+            taskqueue={"driver": FAKE_DRIVER},
         ),
     )
 
@@ -252,7 +349,7 @@ def test_every_subset_is_ready_on_real_infrastructure(
     _billing_runs_in_the_background(run)
 
 
-@pytest.mark.parametrize("subset", SUBSETS, ids=subset_id)
+@pytest.mark.parametrize("subset", FAILURE_SUBSETS, ids=subset_id)
 def test_an_unreachable_broker_does_not_unready_the_web_process(
     broker_down_runs: dict[tuple[str, ...], SubsetRun], subset: tuple[str, ...]
 ) -> None:
@@ -265,28 +362,27 @@ def test_an_unreachable_broker_does_not_unready_the_web_process(
     _billing_runs_in_the_background(run)
 
 
-@pytest.mark.parametrize("subset", SUBSETS, ids=subset_id)
+@pytest.mark.parametrize("subset", FAILURE_SUBSETS, ids=subset_id)
 def test_a_missing_redis_driver_is_refused_or_visible(
     no_redis_runs: dict[tuple[str, ...], SubsetRun], subset: tuple[str, ...]
 ) -> None:
-    """identity requires the cache: refused naming it. Any other subset boots,
-    and the kernel's own cache check fails, un-hidden by a stub."""
+    """The standard composition selects the ``redis`` cache and the security
+    store, which every process starts with (SANDLOOM-B037): whatever the
+    subset, a missing redis-py is refused at startup naming the instance and
+    the package, never a boot that is not ready."""
     run = no_redis_runs[subset]
-    want = expected_unstubbed(subset, redis=False)
-    check_run(run, want, celery=True, names={"identity": REFUSAL_NAMES["identity"]})
-    if want.kind == "not_ready_cache":
-        checks = run.probe["health_checks"]
-        missing = str(checks["cache"]["details"].get("missing_module", ""))
-        assert missing.split(".")[0] == "redis", checks
-        expected_failed = {"cache"}
-        if "billing" in subset:
-            expected_failed.add("billing_reconciler")
-        assert {
-            n for n, c in checks.items() if c["status"] != "ok"
-        } == expected_failed, checks
+    check_run(
+        run,
+        Outcome("refused", refusal="SANDLOOM-B037"),
+        celery=True,
+        names={},
+    )
+    message = run.probe["message"]
+    for token in ("cache/default", "atomic_store/security", "redis"):
+        assert token in message, (token, message)
 
 
-@pytest.mark.parametrize("subset", SUBSETS, ids=subset_id)
+@pytest.mark.parametrize("subset", FAILURE_SUBSETS, ids=subset_id)
 def test_a_missing_celery_driver_refuses_billing_naming_periodic(
     no_celery_runs: dict[tuple[str, ...], SubsetRun], subset: tuple[str, ...]
 ) -> None:
@@ -306,7 +402,7 @@ def test_a_missing_celery_driver_refuses_billing_naming_periodic(
         _only_expected_health_failures(run)
 
 
-@pytest.mark.parametrize("subset", SUBSETS, ids=subset_id)
+@pytest.mark.parametrize("subset", FAILURE_SUBSETS, ids=subset_id)
 def test_a_taskqueue_driver_without_periodic_refuses_billing(
     no_periodic_runs: dict[tuple[str, ...], SubsetRun], subset: tuple[str, ...]
 ) -> None:

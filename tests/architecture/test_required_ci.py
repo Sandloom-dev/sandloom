@@ -49,6 +49,7 @@ def planned_needs(*areas, full=False, pr=True):
         ("backend", "admin", "packages", "architecture"),
         ("examples", "dependency_review"),
         ("deploy",),
+        ("image",),
     ],
 )
 def test_selected_successes_and_unrelated_skips_allow_merge(areas):
@@ -67,7 +68,11 @@ def test_selected_successes_and_unrelated_skips_allow_merge(areas):
         "changes",
         "workflow-policy",
         "backend-tests",
+        "kernel-without-batteries",
+        "kernel-without-redis",
+        "docker-build",
         "redis-drivers",
+        "celery-drivers",
         "admin-ui",
         "packages",
         "docs",
@@ -81,19 +86,176 @@ def test_a_required_check_never_accepts_missing_or_unsuccessful_work(job, status
     assert gate.check(needs, full_validation=False, pull_request=True)
 
 
-@pytest.mark.parametrize("area", ["backend", "packages"])
-def test_the_redis_package_lane_is_required_when_its_code_changes(area):
-    """The package's tests and types run in no other lane (root testpaths and
-    the CI mypy run exclude packages/): a red or skipped lane blocks merge."""
-    assert gate.AREA_JOBS["redis-drivers"] == ("backend", "packages")
+def test_the_image_build_is_required_by_the_image_area_alone():
+    """A tests-only change (backend, no image) leaves the build skipped and the
+    gate green; a change to what the image copies requires it."""
+    assert gate.AREA_JOBS["docker-build"] == ("image",)
+    needs = planned_needs("backend")
+    assert needs["docker-build"]["result"] == "skipped"
+    assert gate.check(needs, full_validation=False, pull_request=True) == []
     for status in ("failure", "skipped", "cancelled"):
-        needs = planned_needs(area)
-        needs["redis-drivers"]["result"] = status
+        needs = planned_needs("image")
+        needs["docker-build"]["result"] = status
+        assert gate.check(needs, full_validation=False, pull_request=True)
+
+
+@pytest.mark.parametrize("job", ["kernel-without-batteries", "kernel-without-redis"])
+def test_both_halves_of_the_kernel_lane_are_required_with_the_kernel_area(job):
+    assert gate.AREA_JOBS[job] == ("kernel",)
+    needs = planned_needs("kernel")
+    needs[job]["result"] = "skipped"
+    assert gate.check(needs, full_validation=False, pull_request=True)
+
+
+@pytest.mark.parametrize(
+    "job",
+    [
+        "kernel-without-batteries",
+        "kernel-without-redis",
+        "redis-drivers",
+        "celery-drivers",
+    ],
+)
+def test_a_module_only_change_does_not_require_the_kernel_lanes(job):
+    """The backend, packages and architecture areas without the kernel one (a
+    PR that only changes a bundled module): the lane is skipped and the gate is
+    green; the same skip with the kernel area selected blocks."""
+    needs = planned_needs("backend", "packages", "architecture")
+    assert needs[job]["result"] == "skipped"
+    assert gate.check(needs, full_validation=False, pull_request=True) == []
+    needs = planned_needs("kernel")
+    needs[job]["result"] = "skipped"
+    assert gate.check(needs, full_validation=False, pull_request=True)
+
+
+@pytest.mark.parametrize("job", ["redis-drivers", "celery-drivers"])
+def test_a_driver_package_lane_is_required_when_its_code_changes(job):
+    """The package's types (and tests) run in no other lane (root testpaths and
+    the CI mypy run exclude packages/): a red or skipped lane blocks merge. The
+    kernel area holds packages/** (and the kernel it runs against)."""
+    assert gate.AREA_JOBS[job] == ("kernel",)
+    for status in ("failure", "skipped", "cancelled"):
+        needs = planned_needs("kernel")
+        needs[job]["result"] = status
         assert gate.check(needs, full_validation=False, pull_request=True)
     # Full validation selects every area, so the lane runs there too.
     needs = planned_needs(full=True, pr=False)
-    needs["redis-drivers"]["result"] = "failure"
+    needs[job]["result"] = "failure"
     assert gate.check(needs, full_validation=True, pull_request=False)
+
+
+def _driver_lane_gaps(
+    job: dict, *, package: str, required_env: str, lane: str
+) -> list[str]:
+    """What a driver package's job (`celery-drivers`, `redis-drivers`) lacks to
+    prove the driver against a real Redis: the server, the guard that makes its
+    absence an error, the built wheel (installed, asserted to be the one
+    imported, and not synced away before the tests: ``--no-sync`` on the pytest
+    command) and the package tests with their skip ledger."""
+    commands = "\n".join(str(step.get("run", "")) for step in job["steps"])
+    pytest_commands = [
+        str(step.get("run", ""))
+        for step in job["steps"]
+        if "pytest" in str(step.get("run", ""))
+    ]
+    gaps = []
+    if "redis-server" not in commands:
+        gaps.append("no Redis broker is started")
+    if job.get("env", {}).get(required_env) != "1":
+        gaps.append("an unreachable broker is not an error")
+    if f"uv build packages/{package}" not in commands or (
+        "uv pip install --reinstall --no-deps" not in commands
+    ):
+        gaps.append("the wheel is not built and installed")
+    if "'site-packages' in p.parts" not in commands:
+        gaps.append("the lane does not assert that it tests the wheel")
+    if "pytest" not in commands or f"packages/{package}/tests" not in commands:
+        gaps.append("the package tests do not run")
+    elif not all("--no-sync" in command for command in pytest_commands):
+        gaps.append("pytest may sync the wheel away (no --no-sync)")
+    if f"--sandloom-skip-ledger-lane={lane}" not in commands:
+        gaps.append("the lane writes no skip ledger")
+    if f"name: skip-ledger-{lane}" not in "\n".join(
+        f"name: {step.get('with', {}).get('name', '')}" for step in job["steps"]
+    ):
+        gaps.append("the skip ledger is not uploaded")
+    return gaps
+
+
+@pytest.mark.parametrize(
+    ("job_name", "package", "required_env", "lane"),
+    [
+        ("celery-drivers", "sandloom-celery", "SANDLOOM_CELERY_REQUIRED", "celery"),
+        ("redis-drivers", "sandloom-redis", "SANDLOOM_REDIS_REQUIRED", "redis"),
+    ],
+)
+def test_a_driver_lane_runs_the_package_tests_on_the_wheel_and_a_real_redis(
+    job_name, package, required_env, lane
+):
+    document = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    job = document["jobs"][job_name]
+
+    def gaps(candidate: dict) -> list[str]:
+        return _driver_lane_gaps(
+            candidate, package=package, required_env=required_env, lane=lane
+        )
+
+    assert gaps(job) == []
+
+    def without(key: str, value: object) -> dict:
+        return {**job, key: value}
+
+    no_guard = without("env", {**job["env"], required_env: "0"})
+    assert gaps(no_guard) == ["an unreachable broker is not an error"]
+    no_tests = without(
+        "steps", [s for s in job["steps"] if "pytest" not in str(s.get("run", ""))]
+    )
+    assert gaps(no_tests) == [
+        "the package tests do not run",
+        "the lane writes no skip ledger",
+    ]
+
+    def with_pytest(edit) -> dict:
+        return without(
+            "steps",
+            [
+                {**s, "run": edit(str(s["run"]))}
+                if "pytest" in str(s.get("run"))
+                else s
+                for s in job["steps"]
+            ],
+        )
+
+    # `uv run` without --no-sync re-syncs the environment to the lockfile,
+    # which replaces the wheel with the editable source tree.
+    resyncing = with_pytest(lambda run: run.replace("--no-sync ", ""))
+    assert gaps(resyncing) == ["pytest may sync the wheel away (no --no-sync)"]
+    no_ledger = with_pytest(
+        lambda run: run.replace(f"--sandloom-skip-ledger-lane={lane}", "")
+    )
+    assert gaps(no_ledger) == ["the lane writes no skip ledger"]
+    no_broker = without(
+        "steps",
+        [s for s in job["steps"] if "redis-server" not in str(s.get("run", ""))],
+    )
+    assert gaps(no_broker) == ["no Redis broker is started"]
+    no_wheel_proof = without(
+        "steps",
+        [s for s in job["steps"] if "site-packages" not in str(s.get("run", ""))],
+    )
+    assert gaps(no_wheel_proof) == ["the lane does not assert that it tests the wheel"]
+    no_upload = without(
+        "steps",
+        [s for s in job["steps"] if "upload-artifact" not in str(s.get("uses"))],
+    )
+    assert gaps(no_upload) == ["the skip ledger is not uploaded"]
+
+
+def test_the_skip_ledger_job_waits_for_every_driver_lane():
+    """A lane the skip-ledger job does not need uploads a ledger it never reads."""
+    document = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    needs = document["jobs"]["skip-ledger"]["needs"]
+    assert {"redis-drivers", "celery-drivers"} <= set(needs)
 
 
 def test_missing_classifier_output_and_new_unclassified_jobs_block_merge():
