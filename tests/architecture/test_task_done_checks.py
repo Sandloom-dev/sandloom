@@ -45,6 +45,7 @@ def test_pre_commit_results_are_read_per_hook() -> None:
 def _issued(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Each test keeps the hook's issued digests in its own directory."""
     monkeypatch.setattr(hook, "ISSUED", tmp_path / "issued")
+    monkeypatch.setattr(hook, "_is_dir", lambda p: True)  # the listed trees are fakes
     return tmp_path / "issued"
 
 
@@ -274,9 +275,20 @@ _LISTING = (
 )
 
 
-def _fake_git(args: list[str], cwd: str) -> str:
+def _fake_git(
+    args: list[str], cwd: str, listing: str = _LISTING, *, strict: bool = False
+) -> str:
     if args[:2] == ["worktree", "list"]:
-        return _LISTING
+        return listing
+    if "--verify" in args:
+        token = args[-1].removesuffix("^{commit}")
+        return next((s for s in (_MAIN_HEAD, _AGENT_HEAD) if s.startswith(token)), "")
+    if args[0] == "status" and cwd.endswith("/broken"):
+        if strict:
+            raise hook.subprocess.CalledProcessError(128, ["git", *args], "")
+        return ""
+    if args[0] == "status":
+        return " M dirty.py" if cwd.endswith("/stale") else ""
     if "--show-toplevel" in args:
         return "/repo"
     return _AGENT_HEAD if cwd.endswith("/fix") else _MAIN_HEAD
@@ -326,7 +338,7 @@ def test_a_commit_no_worktree_holds_is_recorded_not_run_without_a_run(
     assert ran == []
     assert record["commit"] == missing
     assert record["results"] == {}
-    assert "no worktree" in record["not_run"]
+    assert "no usable worktree" in record["not_run"]
     event["tool_input"]["deliverables"].append(deliverable)
     assert _call(monkeypatch, event) == ""
 
@@ -335,3 +347,130 @@ def test_implementers_run_in_their_own_worktree() -> None:
     text = (ROOT / ".claude/agents/sandloom-implementer.md").read_text()
     frontmatter = text.split("---")[1]
     assert re.search(r"^isolation: worktree$", frontmatter, re.MULTILINE)
+
+
+def _checked_tree(monkeypatch: pytest.MonkeyPatch, git, deliverable: dict):
+    ran: list[str] = []
+    monkeypatch.setattr(hook, "_git", git)
+    monkeypatch.setattr(
+        hook, "run_checks", lambda top: ran.append(top) or ({"ruff": "Passed"}, "", 0)
+    )
+    event = {
+        "agent_type": hook.AGENT,
+        "cwd": "/repo",
+        "tool_input": {"deliverables": [deliverable]},
+    }
+    answer = json.loads(_call(monkeypatch, event))["hookSpecificOutput"]
+    record = json.loads(
+        json.loads(answer["permissionDecisionReason"].splitlines()[-1])["content"]
+    )
+    return ran, record
+
+
+def test_an_abbreviated_sha_is_resolved_before_matching(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ran, record = _checked_tree(monkeypatch, _fake_git, _commit(_AGENT_HEAD[:8]))
+    assert ran == ["/repo/.claude/worktrees/fix"]
+    assert record["commit"] == _AGENT_HEAD
+
+
+def test_a_git_commit_naming_no_commit_is_not_run_not_the_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ran, record = _checked_tree(
+        monkeypatch, _fake_git, {"kind": "git_commit", "content": "PR #254 (abcdefg)"}
+    )
+    assert ran == []
+    assert record["results"] == {}
+    assert "names no commit" in record["not_run"]
+
+
+def test_a_clean_worktree_wins_over_a_dirty_one_at_the_same_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listing = (
+        f"worktree /repo\nHEAD {_MAIN_HEAD}\nbranch refs/heads/main\n\n"
+        f"worktree /repo/.claude/worktrees/stale\nHEAD {_AGENT_HEAD}\n"
+        "branch refs/heads/claude/fix-old\n\n"
+        f"worktree /repo/.claude/worktrees/fix\nHEAD {_AGENT_HEAD}\n"
+        "detached\n"
+    )
+    ran, _ = _checked_tree(
+        monkeypatch,
+        lambda args, cwd, **kw: _fake_git(args, cwd, listing, **kw),
+        _commit(_AGENT_HEAD),
+    )
+    assert ran == ["/repo/.claude/worktrees/fix"]
+
+
+def test_a_later_resolvable_sha_wins_over_an_unknown_full_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    content = f"{'deadbeef' * 5} then {_AGENT_HEAD[:9]}"
+    ran, record = _checked_tree(
+        monkeypatch, _fake_git, {"kind": "git_commit", "content": content}
+    )
+    assert ran == ["/repo/.claude/worktrees/fix"]
+    assert record["commit"] == _AGENT_HEAD
+
+
+def test_a_listed_worktree_that_is_gone_is_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listing = (
+        f"worktree /repo/.claude/worktrees/gone\nHEAD {_AGENT_HEAD}\ndetached\n\n"
+        f"worktree /repo/.claude/worktrees/fix\nHEAD {_AGENT_HEAD}\ndetached\n"
+    )
+    monkeypatch.setattr(hook, "_is_dir", lambda p: not p.endswith("/gone"))
+    ran, _ = _checked_tree(
+        monkeypatch,
+        lambda args, cwd, **kw: _fake_git(args, cwd, listing, **kw),
+        _commit(_AGENT_HEAD),
+    )
+    assert ran == ["/repo/.claude/worktrees/fix"]
+
+
+def test_an_unresolved_handover_is_not_satisfied_by_the_cwds_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(hook, "_git", _fake_git)
+    cwd_record = json.dumps({"commit": _MAIN_HEAD})
+    hook.remember(cwd_record)
+    event = {
+        "agent_type": hook.AGENT,
+        "cwd": "/repo",
+        "tool_input": {
+            "deliverables": [
+                {"kind": "git_commit", "content": "PR #254 (abcdefg)"},
+                {"kind": "checks", "content": cwd_record},
+            ]
+        },
+    }
+    answer = json.loads(_call(monkeypatch, event))["hookSpecificOutput"]
+    deliverable = json.loads(answer["permissionDecisionReason"].splitlines()[-1])
+    record = json.loads(deliverable["content"])
+    assert record["commit"].startswith("unresolved:")
+    assert "names no commit" in record["not_run"]
+    event["tool_input"]["deliverables"].append(deliverable)
+    assert _call(monkeypatch, event) == ""
+
+
+def test_a_worktree_whose_status_fails_is_skipped_and_none_left_is_not_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    broken = f"worktree /repo/.claude/worktrees/broken\nHEAD {_AGENT_HEAD}\ndetached\n"
+    fix = f"worktree /repo/.claude/worktrees/fix\nHEAD {_AGENT_HEAD}\ndetached\n"
+    ran, _ = _checked_tree(
+        monkeypatch,
+        lambda args, cwd, **kw: _fake_git(args, cwd, broken + "\n" + fix, **kw),
+        _commit(_AGENT_HEAD),
+    )
+    assert ran == ["/repo/.claude/worktrees/fix"]
+    ran, record = _checked_tree(
+        monkeypatch,
+        lambda args, cwd, **kw: _fake_git(args, cwd, broken, **kw),
+        _commit(_AGENT_HEAD),
+    )
+    assert ran == []
+    assert "no usable worktree" in record["not_run"]
