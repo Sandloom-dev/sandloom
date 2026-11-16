@@ -21,7 +21,8 @@ module's race test skips without overlapping writers instead,
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterable
+import os
+from collections.abc import AsyncIterator, Iterable, Mapping
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -29,6 +30,7 @@ import pytest
 
 from sandloom.core.sql_alchemy.dbapi import RAW_EXECUTOR, dbapi_adapter_of
 from sandloom.core.sql_alchemy.portable import dialect_name, serial_writers
+from sandloom.core.testing.families import INFRA_VAR, parse_infra
 
 #: The marker :func:`skip_unless_db_feature` puts on a test.
 DB_FEATURE_MARKER = "sandloom_db_feature"
@@ -39,6 +41,31 @@ DB_FEATURE_MARKER_LINE = (
     f"{DB_FEATURE_MARKER}(*features, database='default'): skip unless the "
     "database instance has the features (skip_unless_db_feature)"
 )
+
+
+def resolved_cache_url(environ: Mapping[str, str] | None = None) -> str:
+    """The URL the test run's ``default`` cache is on.
+
+    ``cache.default.url`` of ``INFRA`` (what the harness merged
+    ``SANDLOOM_TEST_CACHE_URL`` into, and the worker's rewrite moved), else the
+    flat ``CACHE_URL`` while ``.env.test`` still sets one: the same precedence
+    the application's own configuration has (``INFRA`` over the flat setting).
+    Read from the environment, not from the application's settings snapshot,
+    which a suite that imported the app early holds stale. Raises
+    ``RuntimeError`` naming where to set it when there is none.
+    """
+    env = os.environ if environ is None else environ
+    url = parse_infra(env.get(INFRA_VAR)).get("cache", {}).get("default", {}).get("url")
+    if isinstance(url, str) and url:
+        return url
+    flat = env.get("CACHE_URL")
+    if flat:
+        return flat
+    raise RuntimeError(
+        "no test cache url: set INFRA's cache.default.url in .env.test "
+        '(INFRA={"cache": {"default": {"driver": "redis", "url": "redis://…"}}}) '
+        "or SANDLOOM_TEST_CACHE_URL"
+    )
 
 
 @asynccontextmanager
@@ -58,7 +85,7 @@ async def override_instance(
     ``default`` engine) survives the test untouched::
 
         async with override_instance(core, "cache", driver="redis",
-                                     url=os.environ["CACHE_URL"]):
+                                     url=resolved_cache_url()):
             ...
     """
     from sandloom.core.infra.config import (  # noqa: PLC0415 - cold: settings snapshot - the pytest plugin imports this module before .env.test is loaded
@@ -149,5 +176,6 @@ __all__ = [
     "has_serial_writers",
     "missing_db_features",
     "override_instance",
+    "resolved_cache_url",
     "skip_unless_db_feature",
 ]
