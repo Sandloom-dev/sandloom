@@ -132,6 +132,8 @@ H1_KERNEL_NAMES: dict[str, str] = {
     "core.module_api.override_settings": "sandloom.sdk.testing",
     "core.module_api.validate_settings": "sandloom.sdk.testing",
     "core.contract_testing.split_env": "sandloom.sdk.testing",
+    # The cache url a run uses, for override_instance (idk-flat-urls-s0b).
+    "core.testing.resolved_cache_url": "sandloom.sdk.testing",
 }
 #: Kernel names that moved out of ``sandloom.shared.schemas`` (gone) on
 #: 2026-10-28, and the generated DTO copies' marker: kept where they are, no

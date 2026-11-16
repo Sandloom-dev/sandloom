@@ -247,6 +247,115 @@ def test_apply_worker_env_moves_infra_once(monkeypatch: pytest.MonkeyPatch) -> N
     assert env["CACHE_URL"] == "redis://h/16"
 
 
+#: ``INFRA`` of a ``.env.test`` with no flat ``CACHE_URL`` / ``BROKER_URL``: every
+#: instance carries its own url, the task queue its ``broker`` and ``backend``.
+FLAT_FREE_INFRA = json.dumps(
+    {
+        "cache": {"default": {"driver": "redis", "url": "redis://h:6380/15"}},
+        "lease": {"beat": {"driver": "redis", "url": "redis://h:6380/15"}},
+        "taskqueue": {
+            "default": {
+                "driver": "celery",
+                "broker": "redis://h:6380/14",
+                "backend": "redis://h:6380/13",
+            }
+        },
+    }
+)
+
+
+def test_infra_alone_moves_every_instance_and_the_celery_broker() -> None:
+    """No flat variable: the worker still gets its own index everywhere."""
+    out = workers.rewrite_for_worker(
+        {"INFRA": FLAT_FREE_INFRA}, {workers.WORKER_ENV: "gw1"}
+    )
+    assert set(out) == {"INFRA"}  # no flat variable invented
+    infra = json.loads(out["INFRA"])
+    assert infra["cache"]["default"]["url"] == "redis://h:6380/47"
+    assert infra["lease"]["beat"]["url"] == "redis://h:6380/47"
+    assert infra["taskqueue"]["default"] == {
+        "driver": "celery",
+        "broker": "redis://h:6380/46",
+        "backend": "redis://h:6380/45",
+    }
+
+
+def test_infra_and_the_flat_variables_together_move_once_each() -> None:
+    values = {
+        "CACHE_URL": "redis://h:6380/15",
+        "BROKER_URL": "redis://h:6380/14",
+        "INFRA": FLAT_FREE_INFRA,
+    }
+    out = workers.rewrite_for_worker(values, {workers.WORKER_ENV: "gw1"})
+    assert out["CACHE_URL"] == "redis://h:6380/47"
+    assert out["BROKER_URL"] == "redis://h:6380/46"
+    infra = json.loads(out["INFRA"])
+    assert infra["cache"]["default"]["url"] == "redis://h:6380/47"
+    assert infra["taskqueue"]["default"]["broker"] == "redis://h:6380/46"
+
+
+def test_the_celery_broker_of_infra_is_a_redis_url_the_run_claims(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert sorted(redis_urls.infra_redis_urls(FLAT_FREE_INFRA)) == [
+        "redis://h:6380/13",
+        "redis://h:6380/14",
+        "redis://h:6380/15",
+        "redis://h:6380/15",
+    ]
+    claimed: list[str] = []
+    monkeypatch.setattr(redis_family, "claim_redis", claimed.append)
+    ownership.claim_test_resources({"INFRA": FLAT_FREE_INFRA})
+    assert "redis://h:6380/14" in claimed  # taskqueue.default.broker
+    # an instance on another scheme is not a Redis resource
+    memory = json.dumps(
+        {"taskqueue": {"q": {"driver": "celery", "broker": "memory://"}}}
+    )
+    assert redis_urls.infra_redis_urls(memory) == []
+
+
+def test_the_seams_say_which_options_a_driver_takes_from_a_flat_setting() -> None:
+    from sandloom.core.testing import family_seams
+
+    assert family_seams.flat_url_options("cache", "default", "redis") == {
+        "url": "cache_url"
+    }
+    assert family_seams.flat_url_options("taskqueue", "default", "celery") == {
+        "broker": "broker_url",
+        "backend": "cache_url",
+    }
+    # the Streams bus takes the flat url on its default instance only
+    assert family_seams.flat_url_options("eventbus", "default", "streams") == {
+        "url": "cache_url"
+    }
+    assert family_seams.flat_url_options("eventbus", "fanout", "streams") == {}
+    assert family_seams.flat_url_options("cache", "default", "memory") == {}  # built in
+
+
+def test_the_override_names_the_url_of_a_default_instance_infra_only_selects() -> None:
+    infra = json.dumps(
+        {
+            "cache": {"default": {"driver": "redis"}},
+            "taskqueue": {"default": {"driver": "celery"}},
+            "eventbus": {"default": {"driver": "streams"}},
+        }
+    )
+    merged = json.loads(
+        workers.infra_with_overrides(
+            infra,
+            {"CACHE_URL": "redis://h/11", "BROKER_URL": "redis://h/12"},
+            root_name="sandloom.main",
+        )
+        or ""
+    )
+    assert merged["cache"]["default"] == {"driver": "redis", "url": "redis://h/11"}
+    assert merged["taskqueue"]["default"] == {
+        "driver": "celery",
+        "broker": "redis://h/12",
+    }
+    assert merged["eventbus"]["default"] == {"driver": "streams"}  # no url of its own
+
+
 @pytest.mark.parametrize(("driver", "key"), REDIS_DRIVERS)
 @pytest.mark.parametrize("stride", ["", "32", "7"])
 def test_hook_is_the_harness_under_any_stride(
