@@ -9,18 +9,25 @@ class CacheConfig(BaseModel):
     """Cache / broker URLs and the bounded Redis client."""
 
     # Cache / Broker
-    cache_url: str = Field(
+    cache_url: str | None = Field(
+        default=None,
         alias="CACHE_URL",
         description=(
-            "Connection URL of the default cache instance, normally Redis; named "
-            "instances and overrides are declared through INFRA."
+            "Optional connection URL of the default cache instance, normally "
+            "Redis, filled into a driver that takes a url when INFRA leaves it "
+            "out; the supported place for it is the INFRA option "
+            "(``cache.default.url``). Unset, an app that selects no Redis "
+            "driver needs none."
         ),
     )
-    broker_url: str = Field(
+    broker_url: str | None = Field(
+        default=None,
         alias="BROKER_URL",
         description=(
-            "Connection URL used to configure the default task queue broker and "
-            "Redis-backed event transport."
+            "Optional connection URL used to configure the default task queue "
+            "broker, filled when INFRA leaves it out; the supported place for "
+            "it is the INFRA option (``taskqueue.default.broker``). Unset, an "
+            "app that selects no Celery driver needs none."
         ),
     )
     # Redis cache client hardening (built-in ``redis`` cache driver). Every

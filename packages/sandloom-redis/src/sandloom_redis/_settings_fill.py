@@ -3,6 +3,10 @@
 The kernel applies each declaration without naming the driver: an option an
 instance leaves out takes the value of the setting named here, one an instance
 states always wins (``INFRA`` over the flat setting).
+
+``CACHE_URL`` is an optional setting: unset, nothing is filled, and an instance
+that still has no url refuses startup naming its own INFRA option
+(``cache.<instance>.url``). The url options are configured through ``INFRA``.
 """
 
 from __future__ import annotations

@@ -227,6 +227,8 @@ def _redis_roles(config: Any, settings: Any) -> dict[str, list[str]]:
         if inst.driver not in ("streams", "redis"):
             continue
         url = inst.options.get("url") or settings.cache_url
+        if not url:  # ``CACHE_URL`` is optional: no url, no Redis to back up
+            continue
         roles.setdefault(url, []).append(f"eventbus:{name} ({inst.driver})")
     for name, inst in sorted((config.get("taskqueue") or {}).items()):
         broker = inst.options.get("broker")

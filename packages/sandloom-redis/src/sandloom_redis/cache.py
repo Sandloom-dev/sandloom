@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 from collections.abc import Mapping, Sequence
 from functools import cache
@@ -164,11 +165,21 @@ def client_options(options: RedisCacheOptions) -> dict[str, Any]:
     }
 
 
-def _url_of(options: RedisCacheOptions) -> str:
+class MissingUrlError(ValueError):
+    """A ``redis`` cache instance has no ``url``: a configuration mistake that
+    aborts startup in every environment (``fatal_at_startup``), never a
+    transient fault."""
+
+    fatal_at_startup = True
+
+
+def _url_of(options: RedisCacheOptions, instance: str = DEFAULT_INSTANCE) -> str:
     if not options.url:
-        raise ValueError(
-            "redis cache instance has no 'url' option (the kernel fills it from "
-            "CACHE_URL; a provider built by hand passes it)"
+        example = {"cache": {instance: {"url": "redis://localhost:6379/0"}}}
+        raise MissingUrlError(
+            f"redis cache instance {instance!r} has no url: set the INFRA option "
+            f"cache.{instance}.url, e.g. INFRA='{json.dumps(example)}' "
+            "(a provider built by hand passes the url in its options)"
         )
     return options.url
 
@@ -430,6 +441,11 @@ class RedisCacheProvider(CacheProvider):
 
     @classmethod
     def from_config(cls, config: InstanceConfig) -> Self:
+        # The registry's door: an instance with no url is refused here, at
+        # build (startup), naming its INFRA option, not at the first
+        # connection. A provider built by hand (``create_redis_cache``) passes
+        # its url, or a client, itself.
+        _url_of(RedisCacheOptions.model_validate(config.options), config.name)
         return _build_redis_cache(cls, config)
 
     def __init__(
@@ -483,7 +499,9 @@ class RedisCacheProvider(CacheProvider):
             stale, self._client = self._client, None
             await _close_quietly(stale)
         if self._client is None:
-            self._client = _build_client(RedisCacheOptions.model_validate(self.options))
+            options = RedisCacheOptions.model_validate(self.options)
+            _url_of(options, self.name)  # names this instance's INFRA option
+            self._client = _build_client(options)
             self._client_loop = loop
         return self._client
 

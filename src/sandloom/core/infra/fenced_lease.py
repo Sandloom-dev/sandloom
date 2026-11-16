@@ -386,7 +386,9 @@ def broker_url_of(core: Any, instance: str) -> str:
     infra = getattr(core, "infra", None)
     cfg = infra.instance_config("taskqueue", instance) if infra is not None else None
     options = dict(getattr(cfg, "options", None) or {})
-    return str(options.get("broker") or settings.broker_url)
+    # ``BROKER_URL`` is optional: neither set is "" (a scope of no broker), never
+    # the text "None".
+    return str(options.get("broker") or settings.broker_url or "")
 
 
 async def beat_lease_holder(core: Any, *, instance: str = "default") -> str | None:

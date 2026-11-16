@@ -299,10 +299,14 @@ def _flat_options(
     config: InfraConfig, capability: str, flat: Mapping[str, Any]
 ) -> None:
     """Under the options of the composition's ``default`` instance of
-    ``capability`` (when it selects one), the options the flat settings give."""
+    ``capability`` (when it selects one), the options the flat settings give.
+    A flat setting that is unset (``None``: ``CACHE_URL`` / ``BROKER_URL`` are
+    optional) gives no option, so the driver sees a missing option, not a
+    ``None`` one."""
     existing = config.get(capability, {}).get(DEFAULT_INSTANCE)
     if existing is not None:
-        existing.options = {**flat, **existing.options}
+        given = {key: value for key, value in flat.items() if value is not None}
+        existing.options = {**given, **existing.options}
 
 
 def _eventbus_selector(settings: Settings) -> str | None:
