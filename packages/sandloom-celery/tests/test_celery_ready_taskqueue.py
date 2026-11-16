@@ -39,7 +39,7 @@ _DOWN_BROKER = "redis://127.0.0.1:1/0"
 @pytest.fixture(autouse=True)
 def fresh_default_app(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test builds its own default Celery app from the settings it sets."""
-    monkeypatch.setattr(_celery_worker, "_default_app", None)
+    monkeypatch.setattr(_celery_worker._default, "app", None)
 
 
 async def test_ready_fails_naming_the_taskqueue_when_its_broker_is_down(

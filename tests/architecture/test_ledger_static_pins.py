@@ -91,6 +91,7 @@ def test_monolith_migrate_one_shot_gates_every_process() -> None:
 #: config, test/bootstrap switches). The count may only go DOWN (G-CONFIG-06).
 RAW_ENV_BASELINE: dict[str, int] = {
     "sandloom_billing/migrations/versions/0005_billing_subscription_origin.py": 1,
+    "sandloom_celery/worker.py": 1,
     "sandloom/core/app_factory/config.py": 1,
     "sandloom/core/auth/hashing.py": 2,
     "sandloom/core/cli/extract.py": 1,
@@ -103,10 +104,6 @@ RAW_ENV_BASELINE: dict[str, int] = {
     "sandloom/core/observability/metrics.py": 1,
     "sandloom/core/tasks/relay.py": 1,
     "sandloom/core/worker.py": 1,
-    # The importable Celery app (``celery -A``, Flower) reads BROKER_URL itself: a
-    # driver imports no kernel setting. The read moves to the driver's options
-    # when the worker host takes its options from the driver instance.
-    "sandloom_celery/worker.py": 1,
 }
 _RAW_ENV = re.compile(r"os\.getenv|os\.environ\.get|os\.environ\[")
 

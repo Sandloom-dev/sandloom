@@ -10,8 +10,9 @@ worker_host`, :mod:`sandloom_celery.worker`): it runs the SAME app,
 so enqueue and execution share one namespace.
 
 The driver reads no kernel setting (its ``broker`` and ``backend`` are options
-of the instance; the kernel still fills what an instance leaves out from the
-optional ``BROKER_URL`` / ``CACHE_URL``) and only publishes: enqueue
+of the instance, ``backend`` unset by default; the kernel still fills what an
+instance leaves out from the optional ``BROKER_URL`` / ``CACHE_URL``, until
+those settings go) and only publishes: enqueue
 dedupe (``idempotency_key``) is the kernel's taskqueue layer
 (:mod:`sandloom.core.tasks.queue`), which reserves a job id and hands it to
 :meth:`CeleryTaskQueueProvider.send` as ``task_id``. A failure that provably
@@ -79,17 +80,21 @@ class CeleryTaskQueueOptions(BaseModel):
     """Config-shape schema for the ``celery`` task-queue driver.
 
     The driver reads ``broker`` (message broker URL) and ``backend`` (result
-    backend URL), both options of the instance (``INFRA.taskqueue.<name>``);
-    the kernel still fills what the instance leaves out from the optional flat
-    settings ``BROKER_URL`` / ``CACHE_URL`` while they exist, and an instance
-    with no ``broker`` refuses startup. ``dedupe_ttl_seconds`` is the
-    replay window of the kernel's enqueue dedupe for this instance.
+    backend URL), both options of the instance (``INFRA.taskqueue.<name>``).
+    ``broker`` is required (an instance with none refuses startup). ``backend``
+    is optional and has no default: Sandloom never reads a task result
+    (``task_ignore_result`` is on), so an instance with no ``backend`` runs with
+    no result backend. Until the flat settings go away the kernel still fills
+    what the instance leaves out from ``BROKER_URL`` / ``CACHE_URL``; state the
+    ``broker`` in ``INFRA`` and leave ``backend`` out. ``dedupe_ttl_seconds`` is
+    the replay window of the kernel's enqueue dedupe for this instance.
     ``extra="forbid"`` rejects a typo'd key at startup.
     """
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     broker: str | None = None
+    #: No default (``None``): no result backend unless the instance states one.
     backend: str | None = None
     #: The kernel's record TTL (``RECORD_TTL_SECONDS``, one day), written out:
     #: the driver imports no kernel module (test_celery_replay_limits keeps them equal).
