@@ -59,7 +59,7 @@ _SECRET_QUERY = re.compile(
     r"([?&;](?:[A-Za-z0-9_.-]*?(?:password|passwd|pwd|token|secret|api[_-]?key|access[_-]?key|auth))=)[^&#\s]+",
     re.IGNORECASE,
 )
-_SHA = re.compile(r"\b[0-9a-fA-F]{40}\b")
+_SHA = re.compile(r"\b[0-9a-fA-F]{7,40}\b")
 #: Digests of the records this hook emitted, outside every checkout.
 ISSUED = (
     Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "sandloom-checks"
@@ -149,42 +149,61 @@ def run_checks(top: str) -> tuple[dict[str, str], str, int]:
     return results(output), "\n".join(failed[-25:]), done.returncode
 
 
-def handed_over(tool_input: dict) -> str | None:
-    """The full commit SHA the ``git_commit`` deliverable names, if any."""
+def handed_over(tool_input: dict, cwd: str) -> tuple[bool, str | None]:
+    """``(named, sha)``: whether a ``git_commit`` deliverable is attached, and
+    the full SHA of the first commit of this clone it names. An abbreviated
+    SHA is resolved (``rev-parse <sha>^{commit}``); a full one that does not
+    resolve is kept, so the record names what was handed over."""
+    named = False
     for item in _deliverables(tool_input):
         if item.get("kind") != "git_commit":
             continue
+        named = True
         text = item.get("content") or item.get("reference")
-        m = _SHA.search(text) if isinstance(text, str) else None
-        if m:
-            return m.group(0).lower()
-    return None
+        for token in _SHA.findall(text) if isinstance(text, str) else []:
+            full = _git(
+                ["rev-parse", "--verify", "--quiet", f"{token}^{{commit}}"], cwd
+            )
+            if full:
+                return True, full.lower()
+            if len(token) == 40:
+                return True, token.lower()
+    return named, None
 
 
 def checkout_at(sha: str, cwd: str) -> str | None:
     """The worktree of this clone whose HEAD is ``sha``: the agent's own, not
     the session's cwd (an agent that made its own worktree still reports the
-    main checkout as its cwd)."""
+    main checkout as its cwd). Of several at that commit (a stale named
+    worktree beside the agent's), a clean one wins."""
     listing = _git(["worktree", "list", "--porcelain"], cwd)
     path = None
+    at: list[str] = []
     for line in listing.splitlines():
         if line.startswith("worktree "):
             path = line[len("worktree ") :]
-        elif line.startswith("HEAD ") and line[len("HEAD ") :].lower() == sha:
-            return path
-    return None
+        elif line.startswith("HEAD ") and line[len("HEAD ") :].lower() == sha and path:
+            at.append(path)
+    for tree in at:
+        if not _git(["status", "--porcelain"], tree):
+            return tree
+    return at[0] if at else None
 
 
 def locate(tool_input: dict, cwd: str) -> tuple[str, str, str]:
     """``(checkout, head, why_not)``: the tree to check, its commit, and why
     it cannot be checked (then the record says so instead of checking another
-    tree)."""
-    sha = handed_over(tool_input)
+    tree). Only a handover with no ``git_commit`` deliverable falls back to
+    the cwd's checkout."""
+    named, sha = handed_over(tool_input, cwd)
     if sha:
         top = checkout_at(sha, cwd)
         if top:
             return top, sha, ""
         return "", sha, f"no worktree of this clone is at the handed-over {sha[:12]}"
+    if named:
+        head = _git(["rev-parse", "HEAD"], cwd)
+        return "", head, "the git_commit deliverable names no commit of this clone"
     top = _git(["rev-parse", "--show-toplevel"], cwd)
     return top, _git(["rev-parse", "HEAD"], top or cwd), ""
 

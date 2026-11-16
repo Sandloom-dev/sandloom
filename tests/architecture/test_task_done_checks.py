@@ -274,9 +274,14 @@ _LISTING = (
 )
 
 
-def _fake_git(args: list[str], cwd: str) -> str:
+def _fake_git(args: list[str], cwd: str, listing: str = _LISTING) -> str:
     if args[:2] == ["worktree", "list"]:
-        return _LISTING
+        return listing
+    if "--verify" in args:
+        token = args[-1].removesuffix("^{commit}")
+        return next((s for s in (_MAIN_HEAD, _AGENT_HEAD) if s.startswith(token)), "")
+    if args[0] == "status":
+        return " M dirty.py" if cwd.endswith("/stale") else ""
     if "--show-toplevel" in args:
         return "/repo"
     return _AGENT_HEAD if cwd.endswith("/fix") else _MAIN_HEAD
@@ -335,3 +340,58 @@ def test_implementers_run_in_their_own_worktree() -> None:
     text = (ROOT / ".claude/agents/sandloom-implementer.md").read_text()
     frontmatter = text.split("---")[1]
     assert re.search(r"^isolation: worktree$", frontmatter, re.MULTILINE)
+
+
+def _checked_tree(monkeypatch: pytest.MonkeyPatch, git, deliverable: dict):
+    ran: list[str] = []
+    monkeypatch.setattr(hook, "_git", git)
+    monkeypatch.setattr(
+        hook, "run_checks", lambda top: ran.append(top) or ({"ruff": "Passed"}, "", 0)
+    )
+    event = {
+        "agent_type": hook.AGENT,
+        "cwd": "/repo",
+        "tool_input": {"deliverables": [deliverable]},
+    }
+    answer = json.loads(_call(monkeypatch, event))["hookSpecificOutput"]
+    record = json.loads(
+        json.loads(answer["permissionDecisionReason"].splitlines()[-1])["content"]
+    )
+    return ran, record
+
+
+def test_an_abbreviated_sha_is_resolved_before_matching(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ran, record = _checked_tree(monkeypatch, _fake_git, _commit(_AGENT_HEAD[:8]))
+    assert ran == ["/repo/.claude/worktrees/fix"]
+    assert record["commit"] == _AGENT_HEAD
+
+
+def test_a_git_commit_naming_no_commit_is_not_run_not_the_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ran, record = _checked_tree(
+        monkeypatch, _fake_git, {"kind": "git_commit", "content": "PR #254 (abcdefg)"}
+    )
+    assert ran == []
+    assert record["results"] == {}
+    assert "names no commit" in record["not_run"]
+
+
+def test_a_clean_worktree_wins_over_a_dirty_one_at_the_same_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listing = (
+        f"worktree /repo\nHEAD {_MAIN_HEAD}\nbranch refs/heads/main\n\n"
+        f"worktree /repo/.claude/worktrees/stale\nHEAD {_AGENT_HEAD}\n"
+        "branch refs/heads/claude/fix-old\n\n"
+        f"worktree /repo/.claude/worktrees/fix\nHEAD {_AGENT_HEAD}\n"
+        "detached\n"
+    )
+    ran, _ = _checked_tree(
+        monkeypatch,
+        lambda args, cwd: _fake_git(args, cwd, listing),
+        _commit(_AGENT_HEAD),
+    )
+    assert ran == ["/repo/.claude/worktrees/fix"]
