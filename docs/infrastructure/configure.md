@@ -13,7 +13,7 @@ Streams and Celery. An app made by `sandloom new` lists its picks in `DEFAULT_IN
 
 The flat settings give those instances their options: `DATABASE_URL`, `CACHE_URL`, <!-- prose-ok: P6 a list of settings -->
 `BROKER_URL`, `STORAGE_*` and `NOTIFIER_BACKEND`. `EVENT_BUS_BACKEND` names the bus
-(`memory`, `redis` or `streams`); `auto` leaves it to the composition.
+(`memory`, `redis` or `streams`); unset, it leaves the bus to the composition.
 
 Nothing falls back to `memory`. Some instances are required: the database, the cache, <!-- prose-ok: P6 a list of required instances -->
 the event bus and the `security` atomic store. When neither the composition nor `INFRA`

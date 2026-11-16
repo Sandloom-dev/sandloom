@@ -353,7 +353,7 @@ This section holds the settings, commands and metrics.
   them as one-off jobs once the source services are up; never put them in the
   `migrate` one-shot (the sources are not running yet).
 - Run the durable `streams` bus in production (the standard composition selects
-  it under `EVENT_BUS_BACKEND=auto`). The volatile drivers are refused in prod
+  it while `EVENT_BUS_BACKEND` is unset). The volatile drivers are refused in prod
   unless the deployment accepts the risk `volatile_event_bus`
   (`SANDLOOM_ACCEPTED_RISKS`).
 

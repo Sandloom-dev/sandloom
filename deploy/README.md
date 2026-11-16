@@ -298,7 +298,7 @@ task whose period elapsed during the failover runs once on takeover.
    routes, event schemas, and services exist in that process.
    `MODULE_WHITELIST` / `MODULE_BLACKLIST` further filter the list.
 2. **Async communication** rides the durable Redis Streams bus in both
-   profiles (`EVENT_BUS_BACKEND=auto` takes the standard composition's
+   profiles (an unset `EVENT_BUS_BACKEND` takes the standard composition's
    `streams` in every environment, the kernel having no default; the
    microservices profile pins `streams` explicitly) on the shared `CACHE_URL`;
    each service's transactional outbox lives in its own database and its relay

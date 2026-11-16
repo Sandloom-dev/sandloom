@@ -48,7 +48,7 @@ _STANDARD = {
 
 
 def _no_bus_selector(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "event_bus_backend", "auto")
+    monkeypatch.setattr(settings, "event_bus_backend", None)
     monkeypatch.setattr(settings, "infra", {})
 
 
@@ -120,7 +120,7 @@ def test_infra_overrides_the_composition_default_and_names_it_explicit(
     assert (named.driver, named.implicit) == ("memory", False)
 
 
-def test_event_bus_backend_selects_the_bus_and_auto_leaves_the_composition(
+def test_event_bus_backend_selects_the_bus_and_unset_leaves_the_composition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _no_bus_selector(monkeypatch)
@@ -128,6 +128,46 @@ def test_event_bus_backend_selects_the_bus_and_auto_leaves_the_composition(
     assert load_infra_config(settings)["eventbus"]["default"].driver == "streams"
     monkeypatch.setattr(settings, "event_bus_backend", "memory")
     assert load_infra_config(settings)["eventbus"]["default"].driver == "memory"
+
+
+_BASE_ENV = {
+    "DATABASE_URL": "postgresql+asyncpg://u:p@localhost:5432/db",
+    "CACHE_URL": "redis://localhost:6379/0",
+    "BROKER_URL": "redis://localhost:6379/1",
+    "JWT_SECRET": "kb09-test-secret-0123456789abcdef0123456789abcdef",
+}
+
+
+def _built_settings(**env: str) -> Any:
+    from sandloom.core.config.settings import Settings
+
+    return Settings(_env_file=None, **{**_BASE_ENV, **env})  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("value", ["auto", "AUTO", " auto "])
+def test_the_auto_literal_is_refused_naming_the_fix(value: str) -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="unset EVENT_BUS_BACKEND"):
+        _built_settings(EVENT_BUS_BACKEND=value)
+
+
+def test_the_event_bus_backend_is_none_when_unset_and_a_driver_otherwise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("EVENT_BUS_BACKEND", raising=False)
+    assert _built_settings().event_bus_backend is None
+    assert _built_settings(EVENT_BUS_BACKEND="streams").event_bus_backend == "streams"
+
+
+def test_another_unknown_event_bus_backend_is_still_refused() -> None:
+    """The refusal of ``auto`` names the fix; any other bad value stays the
+    plain Literal error (an allow-list, not a deny-list of one word)."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError) as caught:
+        _built_settings(EVENT_BUS_BACKEND="kafka")
+    assert "unset EVENT_BUS_BACKEND" not in str(caught.value)
 
 
 def test_a_malformed_composition_selection_is_refused() -> None:
