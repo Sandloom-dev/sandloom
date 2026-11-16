@@ -29,7 +29,6 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
-from sandloom_celery.taskqueue import CELERY_TASKQUEUE_FEATURES
 
 import sandloom.core.loader.plugin_loader as plugin_loader
 from sandloom.core.archcheck.analyzers import parse_file
@@ -211,9 +210,11 @@ def test_bundled_modules_need_what_the_decision_says() -> None:
 # -- the feature `periodic` ------------------------------------------------------
 
 
-def test_periodic_is_a_taskqueue_feature_only_celery_advertises() -> None:
+def test_periodic_is_a_taskqueue_capability_feature() -> None:
+    """The capability names ``periodic``; which driver advertises it is the
+    driver's (the Celery one:
+    ``packages/sandloom-celery/tests/test_celery_features.py``)."""
     assert "periodic" in TASKQUEUE_CAPABILITY.features
-    assert "periodic" in CELERY_TASKQUEUE_FEATURES
 
 
 class _SendOnly(TaskQueueProvider):
@@ -276,7 +277,6 @@ def test_a_send_only_driver_cannot_serve_a_periodic_task(importable: Path) -> No
 def test_a_requirement_naming_idempotency_key_is_refused_at_load() -> None:
     """``idempotency_key`` is the kernel layer's, no longer a driver feature."""
     assert "idempotency_key" not in TASKQUEUE_CAPABILITY.features
-    assert "idempotency_key" not in CELERY_TASKQUEUE_FEATURES
     desc = ModuleDescriptor(
         name="capmod_old_feature",
         version="1",
