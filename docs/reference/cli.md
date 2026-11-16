@@ -284,7 +284,7 @@ is raw env).
 - **Services.** `SERVICE_BINDINGS` (strictly validated; `"required": true`
   makes `/ready` — never `/health` — fail while that peer is unreachable;
   `SERVICE_PROBE_TIMEOUT_SECONDS` caps each concurrent probe).
-- **Events.** `EVENT_BUS_BACKEND` (auto/memory/redis/streams; auto = the <!-- prose-ok: S4 dense settings list, only the auto clause changed -->
+- **Events.** `EVENT_BUS_BACKEND` (memory/redis/streams; unset = the <!-- prose-ok: S4 dense settings list, only the unset clause changed -->
   composition's selection, `streams` under `sandloom_standard`, never
   `memory`; the volatile `memory` / `redis`
   (Pub/Sub) drivers are refused in prod unless the risk `volatile_event_bus`

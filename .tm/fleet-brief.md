@@ -5,11 +5,17 @@ only your task and what is particular to it. The working rules (isolation,
 reading, checks, the "Before the PR" checklist) are in your agent file.
 
 ## Branch and PR
+- You start in your own worktree (the agent file sets `isolation: worktree`):
+  every command below runs there. Never `git worktree add`, never a branch
+  switch or a commit in the main checkout.
 - A new task: `git fetch origin`, `git reset --hard origin/main` (or the base
   your prompt names), `git checkout -b claude/<alias>`: each its own call.
 - A review round or a resumed checkpoint (the branch exists): never reset.
   `git fetch origin`, `git checkout -B claude/<alias> origin/claude/<alias>`
   (or the branch your prompt names), then merge `origin/main` if it moved.
+  If git answers that the branch is used by another worktree, work detached:
+  `git checkout --detach origin/claude/<alias>`, and push with
+  `git push origin HEAD:claude/<alias>`.
 - A base that moves is merged in; never rebase or force-push.
 - `CHANGELOG.md` merges by itself (`.gitattributes`, union); so does
   `tools/packaging/public-source.json` once the clone has run

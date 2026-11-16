@@ -234,6 +234,63 @@ def test_the_outage_reason_is_a_class_name() -> None:
     assert relay.outage_reason(ValueError("poison")) is None
 
 
+class ResponseError(Exception):
+    """A stand-in with the redis-py class name: the relay matches by name."""
+
+
+class _MovedError(ResponseError):
+    """A subclass, as redis-py's cluster-redirect classes are."""
+
+
+@pytest.mark.parametrize(
+    ("reply", "word"),
+    [
+        ("MOVED 1234 10.0.0.1:6379", "MOVED"),
+        ("ASK 1234 10.0.0.1:6379", "ASK"),
+    ],
+)
+@pytest.mark.parametrize("wrapped", [False, True], ids=["raw", "mapped-Unavailable"])
+def test_a_cluster_redirect_reason_names_the_reply_word_and_not_the_address(
+    reply: str, word: str, wrapped: bool
+) -> None:
+    error: BaseException = _MovedError(reply)
+    if wrapped:  # what the Redis drivers raise: ``Unavailable ... from exc``
+        error = _chain(Unavailable("down", capability=CAP), error)
+    reason = relay.outage_reason(error)
+    assert reason is not None
+    assert word in reason
+    assert "cluster redirect: is the client cluster-aware?" in reason
+    assert "10.0.0.1" not in reason
+    assert "1234" not in reason
+    assert reason.startswith("Unavailable" if wrapped else "_MovedError")
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ResponseError("LOADING dataset"),  # an outage, not a redirect
+        OSError("MOVED 1 10.0.0.1:6379"),  # not a ResponseError
+        Unavailable("MOVED 1 10.0.0.1:6379", capability=CAP),
+    ],
+    ids=["LOADING", "OSError", "Unavailable-message"],
+)
+def test_another_outage_has_no_redirect_hint(error: BaseException) -> None:
+    reason = relay.outage_reason(error)
+    assert reason is not None
+    assert "cluster" not in reason
+
+
+def test_the_redirect_word_is_the_whole_first_word() -> None:
+    assert relay._cluster_redirect_word(ResponseError("MOVEDX 1 h:1")) is None
+    assert relay._cluster_redirect_word(ResponseError("MOVED")) == "MOVED"
+
+
+def test_a_cluster_redirect_that_is_not_an_outage_has_no_reason() -> None:
+    # A poison error at the top stays poison, whatever its chain holds.
+    poison = _chain(ValueError("x"), _MovedError("MOVED 1 10.0.0.1:6379"))
+    assert relay.outage_reason(poison) is None
+
+
 def test_a_cyclic_chain_terminates() -> None:
     a, b = ValueError("a"), ValueError("b")
     a.__cause__, b.__cause__ = b, a
@@ -276,6 +333,56 @@ class _Refused(RecordingTransport):
 
     async def publish_many(self, items: Any) -> list[str]:
         raise PermissionDenied("NOAUTH", capability=CAP)
+
+
+def _redirected() -> Unavailable:
+    """What a Redis driver raises for a MOVED reply of a plain client."""
+    error = Unavailable("MOVED", capability=CAP)
+    error.__cause__ = _MovedError("MOVED 1234 10.0.0.1:6379")
+    return error
+
+
+class _Redirected(RecordingTransport):
+    """Every publish gets a cluster redirect, mapped to ``Unavailable``."""
+
+    async def publish(self, stream: str, envelope: EventEnvelope) -> str:
+        raise _redirected()
+
+    async def publish_many(self, items: Any) -> list[str]:
+        raise _redirected()
+
+
+@pytest.mark.asyncio
+async def test_a_cluster_redirect_warning_names_the_word_not_the_address(
+    engine: AsyncEngine, caplog: pytest.LogCaptureFixture
+) -> None:
+    sessions = async_sessionmaker(
+        bind=engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+    def factory() -> SQLAlchemyUnitOfWork:
+        return SQLAlchemyUnitOfWork(session_factory=sessions)
+
+    old = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=5)  # past grace
+    async with factory() as uow:
+        uow.session.add(
+            OutboxMessage(
+                channel="core.test_event.v1",
+                schema_version="v1",
+                payload={"n": 0},
+                emitted_at=old,
+            )
+        )
+    with caplog.at_level(logging.WARNING, logger=relay.__name__):
+        result = await relay._relay_batch_for_store(
+            factory, sql_alchemy_outbox_store(), streams_bus(_Redirected()), sweep=False
+        )
+    assert result.unavailable
+    lines = [r.getMessage() for r in caplog.records if "broker unavailable" in r.msg]
+    assert len(lines) == 1
+    assert "MOVED" in lines[0]
+    assert "cluster redirect: is the client cluster-aware?" in lines[0]
+    assert "10.0.0.1" not in lines[0] and "1234" not in lines[0]
 
 
 @pytest.mark.asyncio

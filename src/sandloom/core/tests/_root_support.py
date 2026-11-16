@@ -76,7 +76,7 @@ def lean_root_infra(values: Mapping[str, object]) -> str:
         own_raw if isinstance(own_raw, str) else json.dumps(own_raw)
     )
     wanted = {cap: dict(instances) for cap, instances in _LEAN_ROOT_DRIVERS.items()}
-    if str(values.get("EVENT_BUS_BACKEND", "auto")) == "auto":
+    if not values.get("EVENT_BUS_BACKEND"):
         wanted["eventbus"] = {"default": {"driver": "streams"}}
     if values.get("ENVIRONMENT") != "prod":
         wanted["atomic_store"] = {"security": {"driver": "redis"}}

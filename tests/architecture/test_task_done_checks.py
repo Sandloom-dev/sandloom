@@ -263,3 +263,75 @@ def test_a_credential_at_the_cutoff_is_masked_before_the_cut(
         # Neither the head of the password (cut after it) nor its tail (cut before).
         assert "cut0" not in reason
         assert "f-pass" not in reason
+
+
+_MAIN_HEAD = "3e13032b" + "0" * 32
+_AGENT_HEAD = "60bb2d4a" + "1" * 32
+_LISTING = (
+    f"worktree /repo\nHEAD {_MAIN_HEAD}\nbranch refs/heads/main\n\n"
+    f"worktree /repo/.claude/worktrees/fix\nHEAD {_AGENT_HEAD}\n"
+    "branch refs/heads/claude/fix\n"
+)
+
+
+def _fake_git(args: list[str], cwd: str) -> str:
+    if args[:2] == ["worktree", "list"]:
+        return _LISTING
+    if "--show-toplevel" in args:
+        return "/repo"
+    return _AGENT_HEAD if cwd.endswith("/fix") else _MAIN_HEAD
+
+
+def _commit(sha: str) -> dict:
+    return {"kind": "git_commit", "content": f"{sha} on claude/fix, PR #254"}
+
+
+def test_the_handed_over_commit_picks_the_agents_worktree_not_the_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ran: list[str] = []
+    monkeypatch.setattr(hook, "_git", _fake_git)
+    monkeypatch.setattr(
+        hook, "run_checks", lambda top: ran.append(top) or ({"ruff": "Passed"}, "", 0)
+    )
+    event = {
+        "agent_type": hook.AGENT,
+        "cwd": "/repo",  # an agent that made its own worktree still reports this
+        "tool_input": {"deliverables": [_commit(_AGENT_HEAD)]},
+    }
+    answer = json.loads(_call(monkeypatch, event))["hookSpecificOutput"]
+    record = json.loads(
+        json.loads(answer["permissionDecisionReason"].splitlines()[-1])["content"]
+    )
+    assert ran == ["/repo/.claude/worktrees/fix"]
+    assert record["commit"] == _AGENT_HEAD
+    assert record["results"] == {"ruff": "Passed"}
+
+
+def test_a_commit_no_worktree_holds_is_recorded_not_run_without_a_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ran: list[str] = []
+    missing = "deadbeef" * 5
+    monkeypatch.setattr(hook, "_git", _fake_git)
+    monkeypatch.setattr(hook, "run_checks", lambda top: ran.append(top) or ({}, "", 0))
+    event = {
+        "agent_type": hook.AGENT,
+        "cwd": "/repo",
+        "tool_input": {"deliverables": [_commit(missing)]},
+    }
+    answer = json.loads(_call(monkeypatch, event))["hookSpecificOutput"]
+    deliverable = json.loads(answer["permissionDecisionReason"].splitlines()[-1])
+    record = json.loads(deliverable["content"])
+    assert ran == []
+    assert record["commit"] == missing
+    assert record["results"] == {}
+    assert "no worktree" in record["not_run"]
+    event["tool_input"]["deliverables"].append(deliverable)
+    assert _call(monkeypatch, event) == ""
+
+
+def test_implementers_run_in_their_own_worktree() -> None:
+    text = (ROOT / ".claude/agents/sandloom-implementer.md").read_text()
+    frontmatter = text.split("---")[1]
+    assert re.search(r"^isolation: worktree$", frontmatter, re.MULTILINE)

@@ -113,8 +113,8 @@ def test_the_inbox_window_requires_the_retention_it_is_checked_against() -> None
             365,
             True,
         ),
-        # production auto resolves to streams
-        ({"event_bus_backend": "auto", "is_prod": True}, 0.5, True),
+        # production, nothing selected: the default bus is the composition's
+        ({"event_bus_backend": None, "is_prod": True}, 0.5, True),
         # INFRA names the retention of the default instance
         (
             {
@@ -126,7 +126,7 @@ def test_the_inbox_window_requires_the_retention_it_is_checked_against() -> None
         ),
         # a volatile bus states no retention: refused (never "no window")
         ({"event_bus_backend": "memory"}, 365, True),
-        ({"event_bus_backend": "auto"}, 365, True),
+        ({"event_bus_backend": None}, 365, True),
         ({"event_bus_backend": "redis"}, 365, True),
     ],
 )
@@ -198,7 +198,7 @@ def test_create_app_refuses_in_production(monkeypatch: pytest.MonkeyPatch) -> No
     # prod selects the shared Streams bus: name the service (ADR-0012 d. 5).
     monkeypatch.setattr(settings, "sandloom_service_name", "api")
     # ``.env.test`` selects the memory bus; the composition's streams bus decides.
-    monkeypatch.setattr(settings, "event_bus_backend", "auto")
+    monkeypatch.setattr(settings, "event_bus_backend", None)
     # Production declares its security store on every profile (spec 4). The
     # rest is what a composition selects (the kernel-only venv has none).
     monkeypatch.setattr(
