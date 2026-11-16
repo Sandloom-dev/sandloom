@@ -24,11 +24,11 @@ rules:
    computed name the receiver is all there is to go by). NOT caught: a probe
    of a name no driver class defines, on a receiver with another name.
 
-Both rules carry seeded, shrink-only allowlists (below): a site that is not
-listed, or more sites than listed, fails; a stale entry does NOT fail, so the
-slice that removes a site never edits this file. ``idk-ratchets-close`` prunes
-the lists and makes the test strict. An entry is keyed by file and name, never
-by line, and names ``removed_by``, the slice that removes it.
+Both rules carry exact allowlists (below, strict since ``idk-ratchets-close``): a
+site that is not listed, or more sites than listed, fails, and so does a stale
+entry (fewer sites than listed, or none): the change that removes a site
+lowers or drops its entry. An entry is keyed by file and name, never by line,
+and states why the site stays.
 """
 
 from __future__ import annotations
@@ -66,46 +66,71 @@ PROVIDER_NAMES = frozenset(
     }
 )
 
-#: (file relative to src/sandloom, escape hatch) -> (sites, removed_by).
+#: (file relative to src/sandloom, escape hatch) -> (sites, reason).
 RAW_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {}
 
-#: (file relative to src/sandloom, probed name) -> (sites, removed_by).
-#: ``idk-ratchets-close`` classifies the rest: a ``<dynamic>`` probe of a
-#: module's contract provider (not an infra provider) is reclassified or
-#: justified there.
+#: (file relative to src/sandloom, probed name) -> (sites, reason). Exact: a
+#: site not listed, a higher count and a stale entry all fail.
 _NOT_A_PROVIDER = (
     "stays: reads a module descriptor attribute, not a provider (the name collides "
-    "with a driver member; justified in idk-ratchets-close)"
+    "with a driver member)"
+)
+_CONTRACT_IMPL = (
+    "stays: reads a method of a module's contract implementation by its contract "
+    "name, not an infra provider (the receiver is called `provider`)"
+)
+_UOW_FACTORY = (
+    "stays: an optional contract-pool unit factory of the SQL driver, probed by name"
+)
+_SQL_EXTRA = (
+    "stays: {what} is a member of the SQL database driver that ships in the "
+    "kernel (ADR-0016 section 4) and no capability Protocol declares; probed by "
+    "name, so a database driver without it is skipped"
 )
 PROBE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
     ("core/admin/api/platform.py", "storage"): (1, _NOT_A_PROVIDER),
-    ("core/cli/doctor.py", "verify_tenant_rls"): (1, "idk-ratchets-close"),
-    ("core/cli/generated.py", "<dynamic>"): (2, "idk-ratchets-close"),
-    ("core/di.py", "_sandloom_read_only_uow_factory"): (
+    ("core/cli/doctor.py", "verify_tenant_rls"): (
         1,
-        "stays: an optional contract-pool unit factory of the SQL driver, probed by name (justified in idk-ratchets-close)",
+        _SQL_EXTRA.format(what="the Row-Level Security check")
+        + " (behind the `tenant_rls` feature)",
     ),
-    ("core/facade/_registries.py", "contract_uow_factory"): (
-        1,
-        "stays: an optional contract-pool unit factory of the SQL driver, probed by name (justified in idk-ratchets-close)",
-    ),
+    ("core/cli/generated.py", "<dynamic>"): (2, _CONTRACT_IMPL),
+    ("core/di.py", "_sandloom_read_only_uow_factory"): (1, _UOW_FACTORY),
+    ("core/facade/_registries.py", "contract_uow_factory"): (1, _UOW_FACTORY),
     ("core/facade/_registries.py", "projection"): (1, _NOT_A_PROVIDER),
     ("core/infra/registry.py", "<dynamic>"): (
         1,
-        "stays: the registry checks a driver against its Protocol by name (justified in idk-ratchets-close)",
+        "stays: the registry checks a driver against its Protocol by name",
     ),
     ("core/loader/manifest.py", "storage"): (2, _NOT_A_PROVIDER),
     ("core/module_api/_bootstrap.py", "contract_read_uow_factory"): (
         1,
-        "stays: an optional contract-pool unit factory of the SQL driver, probed by name (justified in idk-ratchets-close)",
+        _UOW_FACTORY,
     ),
-    ("core/production_profile.py", "tenant_rls_coverage"): (1, "idk-ratchets-close"),
-    ("core/sagas/runtime.py", "<dynamic>"): (1, "idk-ratchets-close"),
-    ("core/sagas/runtime.py", "session_factory"): (1, "idk-ratchets-close"),
-    ("core/tasks/pool_metrics.py", "pool_stats"): (1, "idk-ratchets-close"),
-    ("core/testing/fixtures.py", "_contract_engine"): (1, "idk-ratchets-close"),
-    ("core/testing/fixtures.py", "_engine"): (1, "idk-ratchets-close"),
-    ("core/worker.py", "verify_tenant_rls"): (1, "idk-ratchets-close"),
+    ("core/production_profile.py", "tenant_rls_coverage"): (
+        1,
+        _SQL_EXTRA.format(what="the tenant-table coverage query"),
+    ),
+    ("core/sagas/runtime.py", "<dynamic>"): (1, _CONTRACT_IMPL),
+    ("core/tasks/pool_metrics.py", "pool_stats"): (
+        1,
+        _SQL_EXTRA.format(what="the connection-pool sample"),
+    ),
+    ("core/testing/fixtures.py", "_contract_engine"): (
+        1,
+        "stays: the test harness reaches the SQL driver's private engine to dispose "
+        "it between event loops (a SQLAlchemy-only fixture)",
+    ),
+    ("core/testing/fixtures.py", "_engine"): (
+        1,
+        "stays: the test harness reaches the SQL driver's private engine to dispose "
+        "it between event loops (a SQLAlchemy-only fixture)",
+    ),
+    ("core/worker.py", "verify_tenant_rls"): (
+        1,
+        _SQL_EXTRA.format(what="the Row-Level Security check")
+        + " (behind the `tenant_rls` feature)",
+    ),
 }
 
 
@@ -246,6 +271,19 @@ def new_offences(
     return offences
 
 
+def stale_entries(
+    found: dict[tuple[str, str], int],
+    allowed: dict[tuple[str, str], tuple[int, str]],
+) -> list[str]:
+    """Entries that list more sites than the scan finds (or any, for a gone one)."""
+    return [
+        f"{rel}: lists {limit} site(s) of {name!r}, the scan finds "
+        f"{found.get((rel, name), 0)}"
+        for (rel, name), (limit, _reason) in sorted(allowed.items())
+        if found.get((rel, name), 0) < limit
+    ]
+
+
 def _scan(per_file: object) -> dict[tuple[str, str], int]:
     found: dict[tuple[str, str], int] = {}
     for path in kernel_files():
@@ -273,21 +311,48 @@ def test_the_kernel_probes_no_attribute_its_protocol_does_not_declare() -> None:
     assert offences == [], (
         "The kernel probes a provider attribute with getattr/hasattr that no "
         "capability Protocol declares (ADR-0016). Declare it (a method or a "
-        "feature in the Protocol) instead of guessing; the allowlist only "
-        "shrinks:\n" + "\n".join(offences)
+        "feature in the Protocol) instead of guessing, or justify the site in "
+        "PROBE_ALLOWLIST:\n" + "\n".join(offences)
     )
 
 
-def test_every_allowlist_entry_names_its_removal() -> None:
+def test_no_allowlist_entry_is_stale() -> None:
+    declared = declared_members()
+    driver_only = driver_only_members()
+    stale = [
+        *stale_entries(_scan(escape_hatch_sites), RAW_ALLOWLIST),
+        *stale_entries(
+            _scan(lambda p: probe_sites(p, declared, driver_only)), PROBE_ALLOWLIST
+        ),
+    ]
+    assert stale == [], (
+        "allowlist entries for sites that are gone: lower or drop them in the "
+        "commit that removed the site:\n" + "\n".join(stale)
+    )
+
+
+def test_every_allowlist_entry_says_why_it_stays() -> None:
     for allowed in (RAW_ALLOWLIST, PROBE_ALLOWLIST):
-        for (rel, name), (sites, removed_by) in allowed.items():
+        for (rel, name), (sites, reason) in allowed.items():
             assert (SANDLOOM_ROOT / rel).is_file(), rel
             assert sites > 0 and name.strip(), (rel, name)
-            assert re.fullmatch(r"idk-[a-z0-9-]+", removed_by) or (
-                removed_by.startswith("stays:") and removed_by[len("stays:") :].strip()
-            ), (rel, name, removed_by)
+            assert reason.startswith("stays:") and reason[len("stays:") :].strip(), (
+                rel,
+                name,
+                reason,
+            )
+            assert "{" not in reason, (rel, name, "unformatted reason")
             assert not rel.startswith("core/drivers/"), rel
         assert list(allowed) == sorted(allowed), "keep the allowlist sorted"
+
+
+def test_a_stale_entry_fails_and_an_exact_one_does_not() -> None:
+    allowed = {("core/x.py", "pool_stats"): (2, "stays: x")}
+    assert stale_entries({("core/x.py", "pool_stats"): 2}, allowed) == []
+    assert len(stale_entries({("core/x.py", "pool_stats"): 1}, allowed)) == 1
+    assert len(stale_entries({}, allowed)) == 1
+    assert new_offences({("core/x.py", "pool_stats"): 3}, allowed) != []
+    assert new_offences({("core/y.py", "pool_stats"): 1}, allowed) != []
 
 
 # -- self-tests ----------------------------------------------------------------

@@ -28,6 +28,7 @@ This is the local/pre-push equivalent of ``.github/workflows/packages.yml``:
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -222,6 +223,108 @@ def _check_contents(package: str, wheel: Path) -> None:
     }:
         raise RuntimeError(
             f"{wheel.name}: expected the {', '.join(drivers)} driver entry point"
+        )
+    if package == KERNEL:
+        check_kernel_backends(wheel)
+
+
+#: Backend client libraries the kernel wheel never imports (ADR-0016): the
+#: Redis and Celery stacks belong to the driver packages ``sandloom-redis`` and
+#: ``sandloom-celery``. ``asyncpg`` is the kernel's one backend client, and it
+#: stays an extra (``sandloom[postgres]``): imported, never required.
+KERNEL_BANNED_IMPORTS = frozenset({"redis", "aioredis", "celery", "kombu"})
+#: The one kernel module that may name ``redis``: ``sandloom dev`` pings and
+#: inspects the developer's own Redis server through the client when the
+#: ``redis`` extra installed it (``importlib.import_module("redis")`` inside
+#: ``except ImportError``; without it the check stops at a TCP connect). A
+#: guarded import only: the kernel wheel requires no Redis client.
+KERNEL_GUARDED_REDIS = "sandloom.core.cli.dev.services"
+#: Requirements the kernel wheel never declares unconditionally: a base
+#: requirement installs with ``pip install sandloom``.
+KERNEL_BANNED_BASE_REQUIREMENTS = KERNEL_BANNED_IMPORTS | {
+    "asyncpg",
+    "hiredis",
+    "sandloom-redis",
+    "sandloom-celery",
+}
+#: The extra that carries ``asyncpg``.
+POSTGRES_EXTRA = "postgres"
+#: Redis wire commands as a whole string constant (``execute_command("XADD")``),
+#: and a Lua script calling the server (``redis.call(``): protocol code, which
+#: lives in ``sandloom_redis``. A name in a comment or a docstring is not one.
+_WIRE_COMMAND = re.compile(
+    r"(?:XADD|XREADGROUP|XAUTOCLAIM|XGROUP|XACK|XTRIM|XCLAIM|EVALSHA)(?: .*)?",
+    re.IGNORECASE | re.DOTALL,
+)
+_LUA_CALL = re.compile(r"\bredis\.(?:p?call)\(")
+
+
+def _wire_code_strings(source: str) -> list[str]:
+    """String constants of ``source`` that are Redis protocol code."""
+    tree = ast.parse(source)
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(
+            node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
+        )
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+    }
+    return [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in docstrings
+        and (_WIRE_COMMAND.fullmatch(node.value) or _LUA_CALL.search(node.value))
+    ]
+
+
+def check_kernel_backends(wheel: Path) -> None:
+    """The kernel wheel names no Redis or Celery and requires no database client.
+
+    Three rules, read from the built wheel: no ``.py`` file imports ``redis``,
+    ``aioredis``, ``celery`` or ``kombu`` (at any depth), but the one guarded
+    import of :data:`KERNEL_GUARDED_REDIS` (and that module must still have
+    it); no code string is a Redis wire command or a Lua call; and no
+    base requirement installs a Redis, Celery or ``asyncpg`` distribution, with
+    ``asyncpg`` declared by the ``postgres`` extra (the kernel serves SQLite
+    without it)."""
+    built = distribution_imports.read_wheel(wheel)
+    problems: list[str] = []
+    guarded_seen = False
+    for module, source in sorted(built.modules.items()):
+        imports = distribution_imports.module_imports(
+            source, module, is_package=module in built.packages
+        )
+        for found in imports:
+            if found.target.split(".")[0] not in KERNEL_BANNED_IMPORTS:
+                continue
+            if module == KERNEL_GUARDED_REDIS and found.optional:
+                guarded_seen = True
+            else:
+                problems.append(f"{module}:{found.line} imports {found.target}")
+        problems.extend(
+            f"{module} carries Redis protocol code {text[:40]!r}"
+            for text in _wire_code_strings(source)
+        )
+    if not guarded_seen:
+        problems.append(
+            f"stale exemption: {KERNEL_GUARDED_REDIS} no longer has a guarded "
+            "redis import; drop KERNEL_GUARDED_REDIS"
+        )
+    required = built.requires & KERNEL_BANNED_BASE_REQUIREMENTS
+    if required:
+        problems.append(f"base requirements {sorted(required)} (extras only)")
+    postgres = {name for name, _extras in built.optional.get(POSTGRES_EXTRA, set())}
+    if "asyncpg" not in postgres:
+        problems.append(f"asyncpg is not declared by the {POSTGRES_EXTRA!r} extra")
+    if problems:
+        raise RuntimeError(
+            f"{wheel.name}: the kernel wheel is not backend-free:\n  "
+            + "\n  ".join(problems)
         )
 
 

@@ -59,6 +59,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import dotenv_values, load_dotenv
 
+from sandloom.core.migrations.pg_sync import errors, psycopg2, sql
 from sandloom.core.testing import families
 from sandloom.core.testing.families import FLAT_VARS, INFRA_VAR
 
@@ -285,10 +286,8 @@ def ensure_database(url: str) -> None:
     name = parts.path.lstrip("/")
     if not name or name in _created_databases:
         return
-    # Sync driver (test-only): callable from any context, even inside a loop.
-    import psycopg2  # type: ignore[import-untyped]  # noqa: PLC0415 - cold: plugin entry - pytest imports it on every run; the heavy harness part loads with the hook / call that needs it
-    from psycopg2 import errors, sql  # noqa: PLC0415 - cold: plugin entry - pytest imports it on every run; the heavy harness part loads with the hook / call that needs it
 
+    # Sync driver (test-only): callable from any context, even inside a loop.
     def dsn(database: str) -> str:
         plain = parts._replace(scheme="postgresql", path=f"/{database}", query="")
         return urlunsplit(plain)
