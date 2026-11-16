@@ -442,7 +442,7 @@ CAS loop past its bound is `Unavailable`.
 | feature | kind | meaning |
 |---|---|---|
 | `shared` | guarantee | every process of the deployment reads the same state (`memory` lacks it) |
-| `never_evicts` | guarantee | the store never evicts a key before its TTL; verified by the driver on `aopen` and in `health` |
+| `never_evicts` | guarantee | the store never evicts a key before its TTL; verified by the driver on `aopen` or on the first operation, and in `health` |
 
 The kernel requires `shared` and `never_evicts` of its `security` and `idempotency` instances in
 production. **Performance hints.** `get`, `add_or_get`, `set_subject_state`, `compare_and_set`:
@@ -453,9 +453,12 @@ production. **Performance hints.** `get`, `add_or_get`, `set_subject_state`, `co
 - `redis`: keeps the current Lua scripts (one round trip each), each treating an expired key as
   absent (Redis does by itself). On `aopen`, in `health` and on the first operation of a process that
   never ran `aopen` (a worker, a CLI) it reads `maxmemory-policy` and refuses unless it is
-  `noeviction`; a failed `health` probe or a lost connection opens the check again. The option `never_evicts_check` is
+  `noeviction`; a failed `health` probe, an operation failing with `Unavailable` or `Timeout`, or
+  a pooled connection that reconnects (the pool's `redis_connect_func`; the retrying client
+  reconnects without raising) opens the check again. The option `never_evicts_check` is
   `verify` (default) or `assume`:
-  - with `verify`, a refused `CONFIG GET` is `PermissionDenied` at `aopen`, with a fix naming the
+  - with `verify`, a refused `CONFIG GET` is `PermissionDenied` at `aopen` or on the first
+    operation, with a fix naming the
     option;
   - `assume` only skips a **refused** read: a policy that can be read and is not `noeviction` is
     still refused, and `health` keeps trying the read on every probe (it reports `degraded` with
@@ -497,7 +500,8 @@ write; expired keys (1 s TTL, read after 2 s, before any purge): `add`, `add_or_
 `compare_and_set`, `compare_and_delete` and `set_subject_state` behave as on an absent key; group
 `shared`: two providers built from the same options see each other's writes; group
 `never_evicts`: the driver's own eviction check (Redis: a server with `allkeys-lru` is refused at
-`aopen`, also with `never_evicts_check=assume`). Broken-driver tests: a non-atomic `add`, a
+`aopen` or on the first operation, also with `never_evicts_check=assume`). Broken-driver tests: a
+non-atomic `add`, a
 `set_subject_state` that lets `after` overwrite `blocked`, one that compares instants as floats, a
 CAS that ignores `expected`, an `add` that loses to an expired key.
 
@@ -569,8 +573,8 @@ result (`False`), never an exception.
 
 - `redis`: the current shape: a fence counter key without TTL (`INCR`), the lease key by `SET NX EX`,
   renew and release by compare-and-set and compare-and-delete scripts. The fence key must not be
-  evicted, so the driver runs the `noeviction` check of `atomic_store.redis` on `aopen` and in
-  `health`, with the same `never_evicts_check` option and the same accepted risk
+  evicted, so the driver runs the `noeviction` check of `atomic_store.redis` on `aopen` or on the
+  first operation, and in `health`, with the same `never_evicts_check` option and the same accepted risk
   `unverified_noeviction` for `assume` in production (Redis' default policy passes it).
 - `memory`: `development_only`.
 - `database` (owner decision 3, yes): a logged table `infra_lease (name primary key, owner, token,

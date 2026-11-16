@@ -24,9 +24,13 @@ of that setting (managed Redis often refuses ``CONFIG GET``) means:
 The check does not depend on ``aopen``: a worker or a CLI process never runs it,
 and a registry outside production only logs a refused one. So every operation
 judges the policy itself until one check has passed, and raises the refusal
-meanwhile. A failed ``health`` probe (policy lost or unreadable) and a lost
-connection open the check again, so a ``noeviction`` lost at runtime is refused
-by the next operation.
+meanwhile. A failed ``health`` probe (policy lost or unreadable, or the probe
+itself failing with a connection error), an operation failing with
+``Unavailable`` or ``Timeout``, and a pooled connection that reconnects (the
+retrying client reconnects a dropped socket without raising, so the pool's
+``redis_connect_func`` is the hook) open the check again, so a ``noeviction``
+lost at runtime is refused by the next operation. A client given by
+``client_factory`` (a test seam) has no pool, so it has no reconnect hook.
 
 **A lost reply is never answered by running the command again.** A connection
 error after the server ran ``add``, ``add_or_get``, ``compare_and_set`` or
@@ -48,6 +52,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import importlib
+import weakref
 from collections.abc import Callable, Mapping, Sequence
 from functools import cache
 from types import ModuleType
@@ -158,7 +163,31 @@ def _running_loop() -> asyncio.AbstractEventLoop | None:
         return None
 
 
-def _build_client(options: RedisAtomicStoreOptions, *, retrying: bool) -> Any:
+def _reconnect_hook(on_reconnect: Callable[[], None]) -> Callable[[Any], Any]:
+    """The ``redis_connect_func`` of a pool: it runs the connection's own
+    ``on_connect`` (auth, ``SELECT``, client setup), then calls ``on_reconnect``
+    when that connection had been connected before. A retrying client reconnects
+    a dropped socket without raising, so this is the one place the driver sees a
+    lost connection. The first connect of a pooled connection is not a loss
+    (a growing pool opens new ones), so it does not call it."""
+
+    seen: weakref.WeakSet[Any] = weakref.WeakSet()
+
+    async def connect(connection: Any) -> None:
+        await connection.on_connect()
+        if connection in seen:
+            on_reconnect()
+        seen.add(connection)
+
+    return connect
+
+
+def _build_client(
+    options: RedisAtomicStoreOptions,
+    *,
+    retrying: bool,
+    on_reconnect: Callable[[], None] | None = None,
+) -> Any:
     """A bounded client: timeouts, keepalive, a periodic health check and a
     capped BLOCKING pool, so an unreachable or hung Redis makes an operation
     raise within roughly ``(1 + retry_attempts) x socket_timeout_seconds``
@@ -190,6 +219,9 @@ def _build_client(options: RedisAtomicStoreOptions, *, retrying: bool) -> Any:
             supported_errors=(exceptions.ConnectionError,),
         ),
         retry_on_error=[exceptions.ConnectionError] if retrying else [],
+        redis_connect_func=(
+            None if on_reconnect is None else _reconnect_hook(on_reconnect)
+        ),
     )
     client: Any = redis.Redis.from_pool(pool)
     return client
@@ -367,6 +399,11 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         # that finds the policy lost, and a lost connection, clear it again.
         self._policy_checked = False
 
+    def _reopen_policy_check(self) -> None:
+        """The next operation judges the eviction policy again: the server
+        behind a lost connection may have come back reconfigured."""
+        self._policy_checked = False
+
     # ---------------------------------------------------------------- client
     async def _client_obj(self) -> Any:
         """The client that re-sends a command after a connection error: for
@@ -408,11 +445,19 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
             )
         if retrying:
             if self._client is None:
-                self._client = _build_client(self._options, retrying=True)
+                self._client = _build_client(
+                    self._options,
+                    retrying=True,
+                    on_reconnect=self._reopen_policy_check,
+                )
                 self._client_loop = loop
             return self._client
         if self._once_client is None:
-            self._once_client = _build_client(self._options, retrying=False)
+            self._once_client = _build_client(
+                self._options,
+                retrying=False,
+                on_reconnect=self._reopen_policy_check,
+            )
             self._client_loop = loop
         return self._once_client
 
@@ -635,7 +680,10 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
                 return HealthResult(status="fail", details={"error": "no-pong"})
             policy = await self._read_policy(client)
         except _probe_errors() as exc:
-            # The type only: a redis error text names the host (spec 2.4).
+            # The server may come back reconfigured: the operations judge its
+            # policy again. The type only: a redis error text names the host
+            # (spec 2.4).
+            self._policy_checked = False
             return HealthResult(status="fail", details=_failure_details(exc))
         if policy is None:
             if self._options.never_evicts_check == "verify":

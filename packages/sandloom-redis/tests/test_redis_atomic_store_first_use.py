@@ -222,3 +222,57 @@ async def test_the_lease_refuses_after_health_finds_the_policy_lost() -> None:
     assert "eval" not in server.calls[calls:]  # no fence was drawn
     server.policy = "noeviction"
     assert await provider.acquire("n", ttl_seconds=30, owner="o") is not None
+
+
+async def test_a_health_probe_that_fails_on_the_connection_reopens_the_check() -> None:
+    """The probe itself failing (the retrying client may have reconnected
+    silently before) is a reason to judge the policy again, whatever it was."""
+    store, server = _store("noeviction")
+    await store.aopen()
+    server.down = True
+    assert (await store.health()).status == "fail"
+    server.down = False
+    server.policy = "allkeys-lru"  # the server came back reconfigured
+    with pytest.raises(InvalidArgument, match="noeviction"):
+        await store.set("k", "v")
+    assert server.data_calls == []
+
+
+class _Connection:
+    """A pooled connection that never dials: ``on_connect`` is recorded."""
+
+    def __init__(self) -> None:
+        self.on_connect_calls = 0
+
+    async def on_connect(self) -> None:
+        self.on_connect_calls += 1
+
+
+async def _connect_func(store: RedisAtomicStoreProvider, *, retrying: bool) -> Any:
+    client = await store._client_of(retrying=retrying)
+    try:
+        return client.connection_pool.connection_kwargs["redis_connect_func"]
+    finally:
+        await client.aclose(close_connection_pool=True)
+
+
+@pytest.mark.parametrize("retrying", [True, False])
+async def test_a_reconnected_pool_connection_reopens_the_check(retrying: bool) -> None:
+    """The retrying client reconnects a dropped socket without raising, so the
+    pool's connect function is where the store sees the loss. A first connect
+    (a pool that grows) is not a loss."""
+    store = RedisAtomicStoreProvider(
+        name="security", driver="redis", options={"url": _URL}
+    )
+    connect = await _connect_func(store, retrying=retrying)
+    first, second = _Connection(), _Connection()
+
+    store._policy_checked = True
+    await connect(first)
+    await connect(second)
+    assert store._policy_checked is True  # new connections, no loss
+    assert (first.on_connect_calls, second.on_connect_calls) == (1, 1)  # auth kept
+
+    await connect(first)  # the dropped socket of `first` was dialled again
+    assert store._policy_checked is False
+    assert first.on_connect_calls == 2

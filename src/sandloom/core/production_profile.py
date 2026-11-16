@@ -20,11 +20,13 @@ layers silently off. In ``ENVIRONMENT=prod`` it requires:
    idempotency records; contract-command dedupe is already durable in the
    provider database) in a declared ``INFRA.atomic_store.security`` instance
    (never built from the cache's options or from memory) whose server differs
-   from the best-effort cache's: it declares ``never_evicts`` and ``shared``,
-   and at startup its ``isolation_identity()`` must differ from the module
-   cache's (a ``None`` or raising identity fails). When
-   ``INFRA.atomic_store.idempotency`` moves the idempotency records out, that
-   instance meets the same requirement;
+   from the best-effort cache's: at startup its ``isolation_identity()`` must
+   differ from the module cache's (a ``None`` or raising identity fails).
+   When ``INFRA.atomic_store.idempotency`` moves the idempotency records out,
+   that instance meets the same requirement. Every production profile (not
+   only the strict one) also requires the declared atomic-store instances to
+   declare ``never_evicts`` and ``shared``
+   (``atomic_store_feature_problems``);
 5. split deployments (``SERVICE_BINDINGS`` set): the contract compatibility
    check on (``CONTRACT_COMPAT_CHECK`` not ``off``) and asymmetric token
    signing (``JWT_ALGORITHM`` EdDSA / RS256 / ES256: ``JWT_PRIVATE_KEY`` on

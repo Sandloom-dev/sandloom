@@ -3164,8 +3164,6 @@
       "reason": "Database-agnostic kernel design: research, code inventory, review of the relational interface, and the proposal.",
       "paths": [
         "design/infra-agnostic/design.md",
-        "design/infra-drivers/review-a.md",
-        "design/infra-drivers/review-b.md",
         "design/infra-agnostic/inventory-kernel-postgres.md",
         "design/infra-agnostic/ledger-proposal-tenant.md",
         "design/infra-agnostic/object-store-contract-review.md",
