@@ -28,10 +28,15 @@ if TYPE_CHECKING:
     from sandloom.core.infra.ports._base import InfraProvider
 
 
-def default_driver(capability: str, name: str) -> str | None:
+def default_driver(
+    capability: str, name: str, root_name: str | None = None
+) -> str | None:
     """The driver the composition root selects for instance ``capability/name``
-    (its package's ``DEFAULT_INFRA``); ``None`` when it selects none."""
-    selection = root_default_infra() or {}
+    (its package's ``DEFAULT_INFRA``); ``None`` when it selects none.
+
+    ``root_name`` names the root explicitly, so a caller that runs before the
+    settings snapshot never makes the lookup read the settings for it."""
+    selection = root_default_infra(root_name) or {}
     instance = selection.get(capability, {}).get(name, {})
     driver = instance.get("driver") if isinstance(instance, Mapping) else None
     return driver if isinstance(driver, str) else None
@@ -54,6 +59,18 @@ def _driver_class(
     return registry.driver_class(capability, driver)
 
 
+def flat_url_options(capability: str, name: str, driver: str) -> Mapping[str, str]:
+    """``{option: flat setting}`` for the url options ``driver`` takes from a flat
+    setting (``cache_url`` / ``broker_url``) on instance ``capability/name``
+    (``InfraProvider.settings_fill``); empty for a built-in driver, one that
+    fills no url, or an instance its ``urls_for`` leaves out."""
+    provider = _driver_class(capability, name, driver)
+    fill = provider.settings_fill if provider is not None else None
+    if fill is None or (fill.urls_for == "default" and name != "default"):
+        return {}
+    return fill.urls
+
+
 def isolated_instance_options(
     capability: str,
     name: str,
@@ -70,4 +87,4 @@ def isolated_instance_options(
     return provider.test_isolation(options, worker_id)
 
 
-__all__ = ["default_driver", "isolated_instance_options"]
+__all__ = ["default_driver", "flat_url_options", "isolated_instance_options"]

@@ -105,3 +105,62 @@ def test_a_database_is_stamped_on_claim_and_never_dropped_while_connected(
 )
 def test_a_url_that_can_connect_to_itself_is_found(url: str, risky: bool) -> None:
     assert bool(session_checks.self_connecting_urls({"CACHE_URL": url})) is risky
+
+
+def test_an_infra_url_that_can_connect_to_itself_is_found_and_named() -> None:
+    import json
+
+    infra = json.dumps(
+        {
+            "lease": {"beat": {"driver": "redis", "url": "redis://localhost:56398/0"}},
+            "taskqueue": {
+                "default": {
+                    "driver": "celery",
+                    "broker": "redis://localhost:6380/0",
+                    "backend": "redis://localhost:56399/1",
+                }
+            },
+        }
+    )
+    found = session_checks.self_connecting_urls({"INFRA": infra})
+    assert found == [
+        "lease.beat.url (localhost:56398)",
+        "taskqueue.default.backend (localhost:56399)",
+    ]
+    assert session_checks.self_connecting_urls({"INFRA": "{not json"}) == []
+
+
+def test_the_beat_check_reads_a_services_broker_from_infra(tmp_path: Any) -> None:
+    import json
+
+    import yaml
+
+    from sandloom.core.testing.static_checks import periodic_beat_problems
+
+    def service(broker: str | None, flat: str = "") -> dict[str, Any]:
+        env: dict[str, str] = {"SANDLOOM_MODULES": "[]", "BROKER_URL": flat}
+        if broker:
+            infra = {"taskqueue": {"default": {"driver": "celery", "broker": broker}}}
+            env["INFRA"] = json.dumps(infra)
+        return {"command": ["sandloom", "beat"], "environment": env}
+
+    def problems(*services: dict[str, Any]) -> list[str]:
+        profile = tmp_path / f"p{len(services)}{id(services)}.yml"
+        profile.write_text(
+            yaml.safe_dump(
+                {"services": {f"s{i}-beat": s for i, s in enumerate(services)}}
+            )
+        )
+        return periodic_beat_problems(profile, periodic=[])
+
+    # two beats on one INFRA broker share it ...
+    (shared,) = problems(service("redis://r/1"), service("redis://r/1"))
+    assert "share the broker redis://r/1" in shared
+    # ... on two brokers they do not, and INFRA wins over a flat BROKER_URL
+    assert problems(service("redis://r/1"), service("redis://r/2")) == []
+    assert (
+        problems(service("redis://r/1", "redis://r/9"), service(None, "redis://r/9"))
+        == []
+    )
+    (flat,) = problems(service(None, "redis://r/9"), service(None, "redis://r/9"))
+    assert "share the broker redis://r/9" in flat

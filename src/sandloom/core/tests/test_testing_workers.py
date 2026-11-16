@@ -177,6 +177,167 @@ def test_overrides_are_rewritten_per_xdist_worker(
     assert values["DATABASE_URL"] == "postgresql+asyncpg://u:p@h:1/mine_gw2"
 
 
+#: ``INFRA`` as a flat-free ``.env.test`` declares it: every Redis instance has
+#: its own url, and an instance on another driver keeps what it has.
+INFRA_FILE = {
+    "cache": {"default": {"driver": "redis", "url": "redis://localhost:6380/15"}},
+    "lease": {"beat": {"driver": "redis", "url": "redis://localhost:6380/15"}},
+    "taskqueue": {
+        "default": {"driver": "celery", "broker": "redis://localhost:6380/14"}
+    },
+    "storage": {"default": {"driver": "local", "url": "file:///tmp/x"}},
+}
+MINE_CACHE = "redis://localhost:6380/11"
+MINE_BROKER = "redis://localhost:6380/12"
+
+
+def _fake_seams(
+    monkeypatch: pytest.MonkeyPatch, *, driver: str | None, fills: dict[str, str]
+) -> None:
+    """The composition's default driver and what that driver takes from a flat
+    setting, as the seams answer them for an installed driver package."""
+    from sandloom.core.testing import family_seams
+
+    monkeypatch.setattr(
+        family_seams, "default_driver", lambda capability, name, root=None: driver
+    )
+    monkeypatch.setattr(
+        family_seams, "flat_url_options", lambda capability, name, d: fills
+    )
+
+
+def test_the_override_is_merged_into_infra_with_no_flat_variable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    _fake_seams(monkeypatch, driver=None, fills={"url": "cache_url"})
+    env_file = tmp_path / ".env.test"
+    env_file.write_text(
+        f"DATABASE_URL={BASE['DATABASE_URL']}\nINFRA={json.dumps(INFRA_FILE)}\n"
+    )
+    for var in ("CACHE_URL", "BROKER_URL", "PYTEST_XDIST_WORKER"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("SANDLOOM_TEST_CACHE_URL", MINE_CACHE)
+    monkeypatch.setenv("SANDLOOM_TEST_BROKER_URL", MINE_BROKER)
+
+    workers.reload_test_env(env_file)
+    infra = json.loads(os.environ["INFRA"])
+    assert infra["cache"]["default"]["url"] == MINE_CACHE
+    assert infra["lease"]["beat"]["url"] == MINE_CACHE  # explicit: nothing follows
+    assert infra["taskqueue"]["default"]["broker"] == MINE_BROKER
+    assert infra["storage"]["default"]["url"] == "file:///tmp/x"
+    # No flat variable in the file: none is invented.
+    assert "CACHE_URL" not in os.environ
+    assert "BROKER_URL" not in os.environ
+    assert workers.worker_env_values(env_file)["INFRA"] == os.environ["INFRA"]
+
+
+def test_the_override_still_reaches_the_flat_variables_a_file_sets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    _fake_seams(monkeypatch, driver=None, fills={"url": "cache_url"})
+    env_file = tmp_path / ".env.test"
+    env_file.write_text(
+        "".join(f"{k}={v}\n" for k, v in BASE.items())
+        + f"INFRA={json.dumps(INFRA_FILE)}\n"
+    )
+    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+    monkeypatch.setenv("SANDLOOM_TEST_CACHE_URL", MINE_CACHE)
+    # no BROKER override: its flat variable and INFRA entry stay the file's
+
+    workers.reload_test_env(env_file)
+    assert os.environ["CACHE_URL"] == MINE_CACHE
+    assert os.environ["BROKER_URL"] == BASE["BROKER_URL"]
+    infra = json.loads(os.environ["INFRA"])
+    assert infra["cache"]["default"]["url"] == MINE_CACHE
+    assert infra["taskqueue"]["default"]["broker"] == "redis://localhost:6380/14"
+
+
+def test_the_default_cache_is_created_only_for_a_driver_that_takes_the_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+
+    overrides = {"CACHE_URL": MINE_CACHE}
+    _fake_seams(monkeypatch, driver="redis", fills={"url": "cache_url"})
+    created = json.loads(workers.infra_with_overrides(None, overrides) or "")
+    assert created == {"cache": {"default": {"driver": "redis", "url": MINE_CACHE}}}
+    # a driver of the composition that fills no url (memory) is left alone ...
+    _fake_seams(monkeypatch, driver="memory", fills={})
+    assert workers.infra_with_overrides(None, overrides) == "{}"
+    # ... and so is a composition that names no driver at all
+    _fake_seams(monkeypatch, driver=None, fills={"url": "cache_url"})
+    assert workers.infra_with_overrides(None, overrides) == "{}"
+
+
+def test_a_declared_driver_beats_the_composition_when_the_default_is_created(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+
+    _fake_seams(monkeypatch, driver="memory", fills={"url": "cache_url"})
+    infra = json.dumps({"cache": {"default": {"driver": "redis"}}})
+    merged = json.loads(
+        workers.infra_with_overrides(infra, {"CACHE_URL": MINE_CACHE}) or ""
+    )
+    assert merged["cache"]["default"] == {"driver": "redis", "url": MINE_CACHE}
+
+
+def test_a_malformed_infra_or_no_override_leaves_infra_as_it_is(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _fake_seams(monkeypatch, driver="redis", fills={"url": "cache_url"})
+    assert workers.infra_with_overrides("{not json", {"CACHE_URL": MINE_CACHE}) == (
+        "{not json"
+    )
+    assert workers.infra_with_overrides("[1]", {"CACHE_URL": MINE_CACHE}) == "[1]"
+    assert workers.infra_with_overrides('{"a": {}}', {}) == '{"a": {}}'
+    assert workers.infra_with_overrides(None, {"CACHE_URL": ""}) is None
+    # a cache that is not an object of instances is the settings' to refuse
+    odd = '{"cache": []}'
+    assert workers.infra_with_overrides(odd, {"CACHE_URL": MINE_CACHE}) == odd
+
+
+def test_a_non_redis_url_of_an_instance_is_left_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+
+    _fake_seams(monkeypatch, driver=None, fills={})
+    infra = json.dumps(
+        {
+            "lease": {"beat": {"driver": "x", "url": "memory://"}},
+            "taskqueue": {"q": {"driver": "celery", "broker": "amqp://h/"}},
+        }
+    )
+    merged = workers.infra_with_overrides(
+        infra, {"CACHE_URL": MINE_CACHE, "BROKER_URL": MINE_BROKER}
+    )
+    assert json.loads(merged or "") == json.loads(infra)
+
+
+def test_the_overridden_infra_is_rewritten_per_xdist_worker_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The worker rewrite runs on the merged INFRA: with no Redis family loaded
+    (this suite), INFRA is left as merged and only the database moves."""
+    import json
+
+    _fake_seams(monkeypatch, driver=None, fills={"url": "cache_url"})
+    env_file = tmp_path / ".env.test"
+    env_file.write_text(
+        f"DATABASE_URL={BASE['DATABASE_URL']}\nINFRA={json.dumps(INFRA_FILE)}\n"
+    )
+    monkeypatch.setenv("SANDLOOM_TEST_CACHE_URL", MINE_CACHE)
+    monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw1")
+    workers.reload_test_env(env_file)
+    assert os.environ["DATABASE_URL"].endswith("_gw1")
+    assert json.loads(os.environ["INFRA"])["lease"]["beat"]["url"] == MINE_CACHE
+
+
 def test_ensure_database_creates_the_worker_database() -> None:
     """Real PostgreSQL: the worker database exists afterwards, with citext."""
     from sandloom.core.testing.workers import worker_env_values
