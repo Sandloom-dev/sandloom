@@ -381,12 +381,10 @@ def test_the_scheduler_argv_carries_the_schedule_file(
 def _importable_app_infra(
     monkeypatch: pytest.MonkeyPatch, default: dict[str, object] | None
 ) -> None:
-    """The ``INFRA`` the importable app reads through ``Settings``, with no flat
-    ``BROKER_URL`` / ``CACHE_URL`` to fill what it leaves out."""
+    """The ``INFRA`` the importable app reads through ``Settings`` (no flat
+    ``BROKER_URL`` / ``CACHE_URL`` exists: they are removed settings)."""
     monkeypatch.setattr(celery_worker._default, "app", None)
     monkeypatch.setattr(celery_worker._default, "urls", None)
-    monkeypatch.setattr(settings, "broker_url", None)
-    monkeypatch.setattr(settings, "cache_url", None)
     monkeypatch.setattr(
         settings,
         "infra",
