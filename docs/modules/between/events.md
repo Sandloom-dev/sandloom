@@ -320,8 +320,8 @@ await publish_event_versions({
 ### The bus
 
 `EVENT_BUS_BACKEND` selects the transport of the default `eventbus` instance. <!-- prose-ok: P6 a list of drivers -->
-The default, `auto`, takes the composition's selection (`streams` under
-`sandloom_standard`) and never chooses `memory`. The values are `streams`
+Unset (the default), it takes the composition's selection (`streams` under
+`sandloom_standard`) and never chooses `memory`. `auto` is refused. The values are `streams`
 (Redis Streams: durable groups, ack, redelivery, DLQ), `redis` (Pub/Sub,
 volatile) and `memory` (in-process, for dev and tests). Volatile buses are
 refused in production, and durable consumers are refused on Pub/Sub, unless

@@ -140,7 +140,7 @@ def test_the_group_is_named_by_the_service_not_the_database() -> None:
 def test_the_in_process_bus_needs_no_name(composition_bus: str | None) -> None:
     """No other process receives the in-process bus's events: no group to
     merge, so the applier runs under ``…@local`` and nothing is refused. The bus
-    is named by ``EVENT_BUS_BACKEND`` or, for ``auto``, by the composition."""
+    is named by ``EVENT_BUS_BACKEND`` or, unset, by the composition."""
     from sandloom.core.app_factory import revocation_applier as applier
     from sandloom.core.infra.config import use_default_infra
 
@@ -148,19 +148,22 @@ def test_the_in_process_bus_needs_no_name(composition_bus: str | None) -> None:
         cfg = _cfg(EVENT_BUS_BACKEND="memory")
     else:
         use_default_infra({"eventbus": {"default": {"driver": composition_bus}}})
-        cfg = _cfg(EVENT_BUS_BACKEND="auto", ENVIRONMENT="dev")
+        cfg = _cfg(EVENT_BUS_BACKEND=None, ENVIRONMENT="dev")
+        assert cfg.event_bus_backend is None
     assert not applier.cross_process_bus(cfg)
     assert applier.revocation_applier_config_problem(cfg) is None
     assert applier.applier_group(cfg) == "sandloom:auth@tokens_revoked@local"
 
 
-def test_auto_without_a_composition_bus_counts_as_shared() -> None:
+def test_an_unset_bus_without_a_composition_bus_counts_as_shared() -> None:
     """Nothing names the bus: the name is required (fail closed), never memory."""
     from sandloom.core.app_factory import revocation_applier as applier
     from sandloom.core.infra.config import use_default_infra
 
     use_default_infra(None)
-    assert applier.cross_process_bus(_cfg(EVENT_BUS_BACKEND="auto", ENVIRONMENT="dev"))
+    cfg = _cfg(EVENT_BUS_BACKEND=None, ENVIRONMENT="dev")
+    assert cfg.event_bus_backend is None
+    assert applier.cross_process_bus(cfg)
 
 
 @pytest.mark.parametrize("backend", ["streams", "redis"])
@@ -189,7 +192,7 @@ def test_a_shared_bus_chosen_through_infra_is_refused_without_a_name(
 ) -> None:
     """The bus is the ``default`` eventbus instance's resolved driver, not
     ``EVENT_BUS_BACKEND``: ``INFRA`` selecting Streams (or Pub/Sub, or a
-    plugin's driver) while ``EVENT_BUS_BACKEND=auto`` outside production is
+    plugin's driver) while ``EVENT_BUS_BACKEND`` is unset outside production is
     still a shared bus. Unnamed it is refused; separate services would
     otherwise share ``…@local`` and split revocations."""
 
@@ -199,7 +202,7 @@ def test_a_shared_bus_chosen_through_infra_is_refused_without_a_name(
     from sandloom.core.infra.config import eventbus_driver
 
     infra = {"eventbus": {"default": {"driver": driver}}}
-    cfg = _cfg(EVENT_BUS_BACKEND="auto", ENVIRONMENT="dev", INFRA=infra)
+    cfg = _cfg(EVENT_BUS_BACKEND=None, ENVIRONMENT="dev", INFRA=infra)
     assert eventbus_driver(cfg) == driver
     assert applier.cross_process_bus(cfg)
     problem = applier.revocation_applier_config_problem(cfg)
@@ -208,7 +211,7 @@ def test_a_shared_bus_chosen_through_infra_is_refused_without_a_name(
     with pytest.raises(ConfigurationError, match="SANDLOOM_SERVICE_NAME"):
         applier.applier_group(cfg)
     named = _cfg(
-        EVENT_BUS_BACKEND="auto",
+        EVENT_BUS_BACKEND=None,
         ENVIRONMENT="dev",
         INFRA=infra,
         SANDLOOM_SERVICE_NAME="api",
@@ -277,7 +280,7 @@ def test_create_app_refuses_an_infra_selected_shared_bus_without_a_name(
     from sandloom.core.config.settings import settings
 
     assert not settings.is_prod
-    monkeypatch.setattr(settings, "event_bus_backend", "auto")
+    monkeypatch.setattr(settings, "event_bus_backend", None)
     monkeypatch.setattr(
         settings, "infra", {"eventbus": {"default": {"driver": "streams"}}}
     )

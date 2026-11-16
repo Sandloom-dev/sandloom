@@ -218,12 +218,11 @@ def _flat_options(
         existing.options = {**flat, **existing.options}
 
 
-def _eventbus_selector(settings: Any) -> str | None:
-    """The driver ``EVENT_BUS_BACKEND`` names, ``None`` for ``auto`` (the
+def _eventbus_selector(settings: Settings) -> str | None:
+    """The driver ``EVENT_BUS_BACKEND`` names, ``None`` when it is unset (the
     composition's ``eventbus.default`` decides: no kernel default, in any
     environment)."""
-    driver = str(getattr(settings, "event_bus_backend", "auto") or "auto")
-    return None if driver == "auto" else driver
+    return settings.event_bus_backend
 
 
 def _synthesize_defaults(settings: Settings) -> InfraConfig:
@@ -331,7 +330,7 @@ def eventbus_driver(settings: Any, instance: str = DEFAULT_INSTANCE) -> str | No
     """The driver the eventbus ``instance`` resolves to, ``INFRA`` applied.
 
     The same merge :func:`load_infra_config` makes (``EVENT_BUS_BACKEND``
-    with ``auto`` resolved, then the ``INFRA`` overlay), limited to the
+    over the composition's selection, then the ``INFRA`` overlay), limited to the
     eventbus so it reads nothing else and runs before the registry exists.
     ``None`` when ``instance`` is not configured. A malformed ``INFRA``
     raises :class:`InfraConfigError`, as loading the whole config would.

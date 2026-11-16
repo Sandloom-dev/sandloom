@@ -1,7 +1,7 @@
 """The harness isolates a default event bus that names a url but no driver.
 
 The kernel has no default driver and never ``memory``: with
-``EVENT_BUS_BACKEND=auto`` the composition's ``eventbus.default`` decides, the
+``EVENT_BUS_BACKEND`` unset the composition's ``eventbus.default`` decides, the
 standard one's being ``streams`` in every environment (not only ``prod``). An
 ``INFRA`` entry that gives the default bus options only is therefore a Redis
 instance whose url the harness moves per worker, whatever ``ENVIRONMENT`` is.

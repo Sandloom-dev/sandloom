@@ -426,18 +426,20 @@ def _bind_infrastructure(
     # The event bus is the default eventbus instance; bind it everywhere the
     # lazy module-level accessor is used (outbox dispatch, relay).
     eventbus_provider = core_facade.eventbus_provider("default")
-    # In production the default bus MUST be durable. EVENT_BUS_BACKEND=auto
-    # already selects Redis Streams in prod, but an explicit override to the
-    # in-memory or pub/sub bus would deliver domain events (billing credits,
-    # provisioning, …) at-most-once and silently drop them with no error. Fail
-    # fast at startup instead. Dev/test intentionally run the volatile bus.
+    # In production the default bus MUST be durable. The composition's selection
+    # (EVENT_BUS_BACKEND unset) names the durable Redis Streams bus, but an
+    # explicit override to the in-memory or pub/sub bus would deliver domain
+    # events (billing credits, provisioning, …) at-most-once and silently drop
+    # them with no error. Fail fast at startup instead. Dev/test intentionally
+    # run the volatile bus.
     if settings.is_prod and "durable" not in eventbus_provider.features():
         raise RuntimeError(
             "Production event bus is volatile "
             f"(driver={eventbus_provider.driver!r}, "
             f"features={sorted(eventbus_provider.features())}). Domain events "
-            "would be lost. Set EVENT_BUS_BACKEND=auto (or streams) to use the "
-            "durable Redis Streams transport."
+            "would be lost. Unset EVENT_BUS_BACKEND (the composition selects "
+            "the bus) or set EVENT_BUS_BACKEND=streams to use the durable "
+            "Redis Streams transport."
         )
     bus = build_event_bus(eventbus_provider, schema_registry_service)
     core_facade.set_event_bus(bus)

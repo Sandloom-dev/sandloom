@@ -19,18 +19,30 @@ class EventingConfig(BaseModel):
     guardrails.
     """
 
-    # Event bus transport: auto = the composition's selection (no kernel default,
-    # never memory); the volatile memory/redis drivers are refused in prod
-    # (see infra.config).
-    event_bus_backend: Literal["auto", "memory", "redis", "streams"] = Field(
-        default="auto",
+    # Event bus transport: unset (None) = the composition's selection (no kernel
+    # default, never memory); the volatile memory/redis drivers are refused in
+    # prod (see infra.config).
+    event_bus_backend: Literal["memory", "redis", "streams"] | None = Field(
+        default=None,
         alias="EVENT_BUS_BACKEND",
         description=(
-            "Event transport selector: auto leaves the bus to the composition's "
+            "Event transport selector: unset leaves the bus to the composition's "
             "selection (startup refuses when none names one); volatile "
             "production transports require accepted risk."
         ),
     )
+
+    @field_validator("event_bus_backend", mode="before")
+    @classmethod
+    def _event_bus_backend(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip().lower() == "auto":
+            raise ValueError(
+                "EVENT_BUS_BACKEND=auto is no longer a value: unset "
+                "EVENT_BUS_BACKEND to leave the bus to the composition's "
+                "selection, or name a driver (memory, redis, streams)"
+            )
+        return value
+
     # Logical service name of this process (e.g. "billing-api"). It names the
     # consumer group of the kernel's revocation applier,
     # sandloom:auth@tokens_revoked@<name> (ADR-0012 decision 5): every
