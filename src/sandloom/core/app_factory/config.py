@@ -346,6 +346,12 @@ def configuration_problems(cfg: Any, *, include_profile: bool = True) -> list[st
     * in prod on any other profile, a declared, non-memory
       ``INFRA.atomic_store.security``
       (:func:`sandloom.core.production_profile.atomic_store_security_problem`).
+
+    What these checks cannot judge from the configuration alone, the features a
+    driver declares, ``create_app`` checks once the registry exists
+    (:func:`sandloom.core.production_profile.atomic_store_feature_problems`:
+    in prod, on every profile, ``shared`` and ``never_evicts`` of the
+    ``security`` and ``idempotency`` atomic_store instances).
     """
     problems: list[str] = []
     for check in (
