@@ -23,8 +23,8 @@ from redis.asyncio import Redis
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 from sandloom_redis.lease import RedisLeaseProvider
 
-from sandloom.core.config.settings import settings
 from sandloom.driverkit import PermissionDenied, Unavailable
+from sandloom.sdk.testing import resolved_cache_url
 
 _PASSWORD = "conn-check-pw"
 
@@ -57,13 +57,14 @@ class _Account:
 
 @pytest.fixture
 async def account() -> AsyncIterator[_Account]:
-    await require_redis(settings.cache_url)
-    admin = Redis.from_url(settings.cache_url, decode_responses=True)
+    cache_url = resolved_cache_url()
+    await require_redis(cache_url)
+    admin = Redis.from_url(cache_url, decode_responses=True)
     user = f"conncheck_{uuid4().hex[:12]}"
     await admin.execute_command(
         "ACL", "SETUSER", user, "on", f">{_PASSWORD}", "~*", "&*", "+@all"
     )
-    parts = urlsplit(settings.cache_url)
+    parts = urlsplit(cache_url)
     url = f"redis://{user}:{_PASSWORD}@{parts.hostname}:{parts.port}{parts.path}"
     try:
         yield _Account(admin, user, url)
