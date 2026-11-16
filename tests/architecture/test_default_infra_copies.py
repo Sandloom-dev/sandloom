@@ -13,9 +13,18 @@ import ast
 from pathlib import Path
 
 import pytest
-from sandloom_standard import DEFAULT_INFRA
 
 REPO = Path(__file__).resolve().parents[2]
+#: Read as source, not imported: the kernel-without-batteries lane runs this
+#: suite without ``sandloom-standard`` installed.
+STANDARD = (
+    REPO
+    / "packages"
+    / "sandloom-standard"
+    / "src"
+    / "sandloom_standard"
+    / "__init__.py"
+)
 SCAFFOLD = REPO / "src" / "sandloom" / "core" / "cli" / "project.py"
 EXAMPLE_PACKAGES = sorted(REPO.glob("examples/*/*/__init__.py"))
 
@@ -70,9 +79,12 @@ def scaffold_copy(source: str) -> object | None:
     return None
 
 
+DEFAULT_INFRA = module_copy(STANDARD.read_text())
+
+
 def test_the_standard_default_infra_is_not_empty() -> None:
     # Bite: a comparison against an empty reference would pass an empty copy.
-    assert DEFAULT_INFRA
+    assert isinstance(DEFAULT_INFRA, dict) and DEFAULT_INFRA
     assert DEFAULT_INFRA["eventbus"]["default"]["driver"] == "streams"
 
 
