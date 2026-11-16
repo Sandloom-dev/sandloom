@@ -27,7 +27,6 @@ from sandloom.core.config.settings import Settings, settings
 from sandloom.core.drivers.bootstrap import build_infra_registry
 from sandloom.core.infra.config import (
     DEFAULT_INSTANCE,
-    InfraConfig,
     InstanceConfig,
     SettingsFill,
     fill_driver_defaults,
