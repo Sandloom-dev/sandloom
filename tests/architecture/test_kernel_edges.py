@@ -8,6 +8,7 @@ kernel tree fails it (the mutation tests of KB-03 in
 
 from __future__ import annotations
 
+import functools
 import re
 import sys
 import time
@@ -391,10 +392,17 @@ def test_a_fixed_row_without_a_literal_anchor_fails(tmp_path: Path) -> None:
     assert "row R1 is fixed without a literal anchor" in problem
 
 
+@functools.cache
+def _live_scan() -> tuple[ke.Finding, ...]:
+    """The live kernel tree's findings, scanned once per session: the tree and
+    the register are the same for every planted row."""
+    return tuple(ke.scan(ke.load_register()))
+
+
 def _with_planted(register: ke.Register, rel: str, source: str) -> list[str]:
     """The check's problems on this tree plus one planted kernel file."""
     matcher = ke.matcher_for(register)
-    findings = ke.scan(register) + ke.scan_source(rel, source, matcher)
+    findings = [*_live_scan(), *ke.scan_source(rel, source, matcher)]
     return ke.check(register, findings=findings).problems
 
 
