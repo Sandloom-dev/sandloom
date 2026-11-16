@@ -85,9 +85,14 @@ async def _elapsed_raise(coro: Any) -> tuple[float, BaseException]:
 def test_client_is_bounded() -> None:
     """The kernel fills the bounds from the CACHE_* settings into the
     instance's options; the driver builds its client from them."""
-    from sandloom.core.infra.config import load_infra_config
+    from sandloom.core.drivers.bootstrap import build_infra_registry
+    from sandloom.core.schema.registry import InMemorySchemaRegistry
 
-    filled = load_infra_config(settings)["cache"]["default"].options
+    cache = build_infra_registry(InMemorySchemaRegistry()).instance_config(
+        "cache", "default"
+    )
+    assert cache is not None
+    filled = cache.options
     options = RedisCacheOptions.model_validate(
         {**filled, "url": "redis://127.0.0.1:6399/0"}
     )

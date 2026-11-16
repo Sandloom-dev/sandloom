@@ -186,24 +186,21 @@ async def test_purge_with_limit_deletes_old_claims_in_bounded_batches(
 
 
 def _core_with_retention(
-    uow: Any, retention_seconds: int, *, backend: str = "streams"
+    uow: Any, retention_seconds: int | None, *, backend: str = "streams"
 ) -> SimpleNamespace:
     """A core of a deployment CONFIGURED with ``retention_seconds`` (0:
-    unbounded) on ``backend``. Its own process holds a volatile bus whatever the
+    unbounded; ``None``: the option is not stated, as on a volatile bus) on
+    ``backend``. Its own process holds a volatile bus whatever the
     configuration says: the purge guard must not read it."""
+    instance: dict[str, Any] = {"driver": backend}
+    if retention_seconds is not None:
+        instance["retention_seconds"] = retention_seconds
     return SimpleNamespace(
         get_uow_factory=lambda _name: uow,
         settings=SimpleNamespace(
             is_prod=False,
             event_bus_backend=backend,
-            infra={
-                "eventbus": {
-                    "default": {
-                        "driver": backend,
-                        "retention_seconds": retention_seconds,
-                    }
-                }
-            },
+            infra={"eventbus": {"default": instance}},
         ),
         event_bus=SimpleNamespace(retention=lambda: None),
     )
@@ -291,7 +288,7 @@ async def test_inbox_purge_on_an_unknown_retention_is_refused_unless_forced(
             await self.session.commit()
             await self.session.close()
 
-    core = _core_with_retention(_Uow, 7 * 86400, backend=backend)
+    core = _core_with_retention(_Uow, None, backend=backend)
     with pytest.raises(SystemExit, match="EVENT_BUS_BACKEND"):
         await inbox_purge(core, days=0.5, batch=10)
     assert await inbox_purge(core, days=0.5, batch=10, force=True) >= 1

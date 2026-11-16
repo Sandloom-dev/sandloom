@@ -25,7 +25,7 @@ from sandloom.core.descriptors import HealthResult
 from sandloom.core.eventing.bus_base import BaseEventBus
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.eventing.pubsub_bus import RedisEventBus
-from sandloom.core.infra.config import InstanceConfig
+from sandloom.core.infra.config import InstanceConfig, SettingsFill
 from sandloom.core.infra.ports._base import InfraProvider
 from sandloom.core.infra.registry import DriverFactory
 
@@ -99,6 +99,13 @@ class RedisEventBusProvider(VolatileBusProvider):
     """``eventbus`` / ``redis``: the volatile bus over a ``broadcast`` instance."""
 
     supported_features = frozenset({"wildcard_subscribe"})
+    # No url: the bus runs over a ``broadcast`` instance (option ``broadcast``).
+    settings_fill = SettingsFill(
+        bounds={
+            "socket_connect_timeout_seconds": "cache_socket_connect_timeout_seconds",
+            "health_check_interval_seconds": "cache_health_check_interval_seconds",
+        }
+    )
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
 

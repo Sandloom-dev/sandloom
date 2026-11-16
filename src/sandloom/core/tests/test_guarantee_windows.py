@@ -103,7 +103,16 @@ def test_the_inbox_window_requires_the_retention_it_is_checked_against() -> None
     [
         # streams configured with the 7 days default
         ({"event_bus_backend": "streams"}, 0.5, True),
-        ({"event_bus_backend": "streams"}, 8, False),
+        # (the default itself, seven days, is the driver's: asserted where the
+        # package is installed, test_driver_options_from_settings)
+        (
+            {
+                "event_bus_backend": "streams",
+                "infra": {"eventbus": {"default": {"retention_seconds": 7 * 86400}}},
+            },
+            8,
+            False,
+        ),
         # unbounded retention: any purge
         (
             {

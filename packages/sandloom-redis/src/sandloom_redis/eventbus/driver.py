@@ -28,6 +28,7 @@ from sandloom.driverkit.eventbus_support import (
     DEFAULT_EVENT_STREAM_RETENTION_SECONDS,
 )
 from sandloom.driverkit.testing_isolation import isolated_redis_options
+from sandloom_redis._settings_fill import STREAMS_FILL
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 from sandloom_redis.eventbus.streams_transport_base import _mapped
 
@@ -178,6 +179,7 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
 
     contract_version = 2
     options_schema = EventBusOptions
+    settings_fill = STREAMS_FILL
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
     # Beta, the floor for a driver of this repository (spec 2.5): the

@@ -21,7 +21,10 @@ from sandloom_redis.eventbus.driver import make_streams_driver
 
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
-from sandloom.core.drivers.bootstrap import volatile_event_bus_allowed
+from sandloom.core.drivers.bootstrap import (
+    build_infra_registry,
+    volatile_event_bus_allowed,
+)
 from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.eventing.volatile_provider import (
     VolatileBusOptions,
@@ -44,7 +47,10 @@ def test_default_streams_bus_gets_cache_url_and_the_client_bounds(
     """The kernel fills the options the driver reads (it reads no setting);
     the default instance still shares the default transport client (below)."""
     monkeypatch.setattr(settings, "event_bus_backend", "streams")
-    options = load_infra_config(settings)["eventbus"][DEFAULT_INSTANCE].options
+    registry = build_infra_registry(InMemorySchemaRegistry())
+    bus = registry.instance_config("eventbus", DEFAULT_INSTANCE)
+    assert bus is not None
+    options = bus.options
     assert options == {
         "url": settings.cache_url,
         "socket_connect_timeout_seconds": settings.cache_socket_connect_timeout_seconds,

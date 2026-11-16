@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, Self
 from sandloom.core.descriptors import HealthResult
 
 if TYPE_CHECKING:
-    from sandloom.core.infra.config import InstanceConfig
+    from sandloom.core.infra.config import InstanceConfig, SettingsFill
 
 #: What a declared feature is (spec 2.2): a ``behaviour`` is an optional
 #: behaviour of a call every driver has (without it the call raises
@@ -197,6 +197,12 @@ class InfraProvider(abc.ABC):
     tier: ClassVar[DriverTier] = "experimental"
     #: Optional pydantic model validating an instance's options before building.
     options_schema: ClassVar[type[Any] | None] = None
+    #: The options this driver takes from the flat settings (``CACHE_URL``,
+    #: ``BROKER_URL``, the ``CACHE_*`` client bounds) when an instance leaves
+    #: them out: which setting fills which option. The kernel applies it
+    #: without naming the driver, once the registry has the class
+    #: (``build_infra_registry``); ``None``: the driver reads none.
+    settings_fill: ClassVar[SettingsFill | None] = None
     #: Top-level imports needed by the backend. The entry point must be
     #: importable without them so the registry can check them before building.
     required_imports: ClassVar[tuple[str, ...]] = ()

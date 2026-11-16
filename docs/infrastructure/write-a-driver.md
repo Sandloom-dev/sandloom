@@ -75,6 +75,22 @@ a file.
 - **`Notification.body_fields`** holds the values `body` was built from, for a driver that
   renders its own template. It is as sensitive as the body: never log it.
 
+A driver whose option the flat settings still feed (`CACHE_URL`, `BROKER_URL`, the `CACHE_*`
+client bounds) declares it with `settings_fill`, a `SettingsFill` on the class. It says which
+setting fills which option when an instance leaves the option out. The kernel applies it
+without naming your driver, once the registry has your class. An option the instance states
+always wins.
+
+- `urls` fill an unset or empty option from a setting. `urls_for` picks the instances:
+  every one, only `default`, or only one the kernel synthesized.
+- `follows="cache"` takes the resolved url of the `cache` capability's `default` instance,
+  when that instance runs your driver. Otherwise the setting fills it.
+- `bounds` fill an option left out. `caps` cut a number above the setting down to it.
+
+The fill is skipped when your package, or a package you require, is missing. It raises no
+import error: the registry refuses an instance that cannot run. A driver that reads no flat
+setting declares none.
+
 A driver records metrics through `sandloom.driverkit.observe`:
 `counter(name, documentation, labelnames)` and `histogram(...)` return metrics on the
 kernel's registry. A driver imports no metrics registry and no settings of the kernel.
