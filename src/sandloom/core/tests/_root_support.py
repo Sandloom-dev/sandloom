@@ -127,11 +127,16 @@ def lean_root_infra(values: Mapping[str, object]) -> str:
     database_url = values.get("DATABASE_URL")
     if isinstance(database_url, str):
         merged["database"]["default"].setdefault("url", database_url)
-    # A Redis instance with no url refuses startup in every environment, so the
-    # security store INFRA names gets the url the child's ``CACHE_URL`` gives.
-    cache_url = values.get("CACHE_URL")
+    # A Redis instance with no url refuses startup in every environment, so a
+    # redis security store INFRA names gets the url of the child's own cache
+    # instance; one on another driver (``database``, ``memory``) gets none.
+    cache_url = merged.get("cache", {}).get("default", {}).get("url")
     security = merged.get("atomic_store", {}).get("security")
-    if isinstance(cache_url, str) and security is not None:
+    if (
+        isinstance(cache_url, str)
+        and security is not None
+        and security.get("driver") == "redis"
+    ):
         security.setdefault("url", cache_url)
     return json.dumps(merged)
 
