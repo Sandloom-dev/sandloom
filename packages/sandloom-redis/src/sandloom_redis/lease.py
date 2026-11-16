@@ -16,6 +16,12 @@ what a *refused read* means (managed services often refuse ``CONFIG GET``):
   refused read, health is ``degraded`` (``noeviction_unverified``). A readable
   policy that is not ``noeviction`` is ``InvalidArgument`` in either mode.
 
+A flag cannot judge a socket it did not see, and the pool reconnects a dropped
+one without raising (an evicted fence key would repeat a fence). So the pool's
+``redis_connect_func`` (:mod:`sandloom_redis._eviction_guard`) reads the policy
+on each new socket, the first one included, before any command, under the same
+rules; the price is one round trip per new socket.
+
 The driver reads no setting, so the kernel states whether ``assume`` is allowed
 (production: only under the accepted risk ``unverified_noeviction``) as the
 constructor argument ``assume_allowed`` when it builds the driver; without it
@@ -35,6 +41,7 @@ import importlib
 import time
 import uuid
 from collections.abc import Callable, Mapping
+from functools import cache
 from typing import Any, ClassVar, Literal, NoReturn
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -47,8 +54,6 @@ from sandloom.driverkit import (
     LeaseHolder,
     LeaseProvider,
     PermissionDenied,
-    Timeout,
-    Unavailable,
 )
 from sandloom.driverkit.lease_limits import (
     MAX_LEASE_NAME_LENGTH,
@@ -58,19 +63,27 @@ from sandloom.driverkit.shared_endpoints import redis_endpoint
 from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom.driverkit.testing_isolation import isolated_redis_options
-from sandloom_redis._errors import map_redis_error, redis_error_kind
+from sandloom_redis._errors import map_redis_error
+from sandloom_redis._eviction_guard import (
+    POLICY_SETTING,
+    UNVERIFIED_NOEVICTION_RISK,
+    connect_func,
+    eviction_refusal,
+    read_policy,
+    refusal_of,
+    refusal_reason,
+)
 from sandloom_redis._settings_fill import LEASE_FILL, require_url
 
-#: The accepted risk that lets ``never_evicts_check=assume`` run in production.
-UNVERIFIED_NOEVICTION_RISK = "unverified_noeviction"
-_POLICY_SETTING = "maxmemory-policy"
-_NOEVICTION = "noeviction"
 
-
-def _redis_errors() -> Any:
-    """``redis.exceptions``, imported when the driver runs: the module imports
-    without redis-py, so the registry can check the requirement first."""
-    return importlib.import_module("redis.exceptions")
+@cache
+def _backend_errors() -> tuple[type[BaseException], ...]:
+    """What a failed probe's Redis call raises: redis-py's errors (the pool's
+    eviction refusal included), socket errors, a timeout and an undecodable
+    reply. Imported when the driver runs: the module imports without redis-py,
+    so the registry can check the requirement first."""
+    redis_error = importlib.import_module("redis.exceptions").RedisError
+    return (redis_error, OSError, TimeoutError, UnicodeDecodeError)
 
 
 _ACQUIRE = """
@@ -158,7 +171,7 @@ class RedisLeaseProvider(LeaseProvider):
         # The server's refusal, repeated by every operation until a check finds
         # the policy fit (a registry that only logs it outside production must
         # never serve an evicting Redis).
-        self._refusal: tuple[type[InfraError], str] | None = None
+        self._refusal: InfraError | None = None
 
     # ------------------------------------------------------------ plumbing
     def _fail(self, exc: BaseException, what: str) -> InfraError:
@@ -167,6 +180,12 @@ class RedisLeaseProvider(LeaseProvider):
         the eviction policy again: the server may have come back reconfigured."""
         if isinstance(exc, InfraError):
             return exc
+        refusal = refusal_of(exc)
+        if refusal is not None:
+            # The pool refused a socket whose server evicts (or cannot be
+            # verified) before any command: judge the policy again next time.
+            self._policy_checked = False
+            return refusal
         # Chained ``from exc`` at the call sites (as before): the lease is
         # called by code that may read the chain, and the raw text stays in
         # ``__cause__`` only.
@@ -204,6 +223,10 @@ class RedisLeaseProvider(LeaseProvider):
             socket_connect_timeout=self._opts.socket_connect_timeout_seconds,
             max_connections=self._opts.max_connections,
             timeout=self._opts.pool_timeout_seconds,
+            # Every socket of the pool, the first included, is judged on itself
+            # before it carries a command: the pool reconnects a dropped socket
+            # silently, and an evicted fence key would repeat a fence.
+            redis_connect_func=connect_func(self._connection_refusal),
         )
         self._client = redis.Redis(connection_pool=pool)
         self._loop = loop
@@ -222,59 +245,42 @@ class RedisLeaseProvider(LeaseProvider):
                 instance=self.name,
             )
 
-    def _refuse(self, kind: type[InfraError], message: str) -> NoReturn:
+    def _refuse(self, refusal: InfraError) -> NoReturn:
         """Record the refusal of the server (the operations repeat it) and raise."""
-        self._refusal = (kind, message)
-        raise kind(message, capability=self.capability, instance=self.name)
+        self._refusal = refusal
+        raise refusal
 
     def _assume_refused(self) -> bool:
         return self._opts.never_evicts_check == "assume" and not (
             self._assume_allowed is not None and self._assume_allowed()
         )
 
-    async def _read_policy(self, client: Any) -> str | None:
-        """``maxmemory-policy`` of the server, ``None`` when it refuses the read
-        (``NOPERM``, ``unknown command``). A transient reply (``LOADING``,
-        ``READONLY`` ...) is no refusal: it propagates, mapped by the caller."""
-        try:
-            answer = await client.config_get(_POLICY_SETTING)
-        except _redis_errors().ResponseError as exc:
-            if redis_error_kind(exc) in (Unavailable, Timeout):
-                raise
-            return None
-        policy = answer.get(_POLICY_SETTING) if isinstance(answer, dict) else None
-        return policy if isinstance(policy, str) else None
+    def _connection_refusal(self, policy: str | None) -> InfraError | None:
+        """The refusal for the policy one connection reported (``None``: the
+        read was refused), or ``None`` when the server is fit. The pool runs it
+        on every new socket; ``_check_policy`` shares its rules
+        (:func:`~sandloom_redis._eviction_guard.eviction_refusal`)."""
+        return eviction_refusal(
+            capability=self.capability,
+            instance=self.name,
+            policy=policy,
+            never_evicts_check=self._opts.never_evicts_check,
+            assume_refused=self._assume_refused(),
+            at_stake="the fence counter could vanish and a fence would repeat",
+        )
 
     async def _check_policy(self, client: Any) -> bool:
         """Judge the server's eviction policy (the refusals are recorded):
         ``True`` when it could not be read and ``assume`` vouches for it."""
         self._refusal = None
-        if self._assume_refused():
-            self._refuse(
-                PermissionDenied,
-                f"lease instance {self.name!r}: never_evicts_check='assume' needs "
-                f"the accepted risk {UNVERIFIED_NOEVICTION_RISK!r} in production "
-                "(fix: set never_evicts_check='verify' and grant CONFIG GET "
-                f"{_POLICY_SETTING}, or accept the risk with "
-                f'SANDLOOM_ACCEPTED_RISKS=["{UNVERIFIED_NOEVICTION_RISK}"])',
-            )
-        policy = await self._read_policy(client)
-        if policy is not None and policy != _NOEVICTION:
-            self._refuse(
-                InvalidArgument,
-                f"lease instance {self.name!r}: the Redis server evicts keys "
-                f"({_POLICY_SETTING} is {policy!r}), so the fence counter could "
-                "vanish and a fence would repeat "
-                f"(fix: set {_POLICY_SETTING} to {_NOEVICTION!r})",
-            )
-        if policy is None and self._opts.never_evicts_check == "verify":
-            self._refuse(
-                PermissionDenied,
-                f"lease instance {self.name!r}: the Redis server refused CONFIG "
-                f"GET {_POLICY_SETTING}, so the driver cannot verify that it never "
-                "evicts (fix: grant CONFIG GET to this user, or vouch for the "
-                "policy with the option never_evicts_check='assume')",
-            )
+        if self._assume_refused():  # refused before the server is asked
+            refusal = self._connection_refusal(None)
+            if refusal is not None:
+                self._refuse(refusal)
+        policy = await read_policy(client.config_get(POLICY_SETTING))
+        refusal = self._connection_refusal(policy)
+        if refusal is not None:
+            self._refuse(refusal)
         return policy is None
 
     async def _ready(self) -> Any:
@@ -331,16 +337,41 @@ class RedisLeaseProvider(LeaseProvider):
             with contextlib.suppress(Exception):  # closing is best effort
                 await client.aclose(close_connection_pool=True)
 
+    def _refusal_reason(self, refusal: InfraError, refused_before: bool) -> str:
+        """The ``reason`` of a probe a refusal failed: a refusal already
+        recorded, or ``assume`` without the kernel's leave, is
+        ``eviction_check_refused``; otherwise the policy decides."""
+        if refused_before or self._assume_refused():
+            return "eviction_check_refused"
+        return refusal_reason(refusal)
+
+    def _failed_probe(
+        self, exc: BaseException, what: str, *, refused_before: bool
+    ) -> HealthResult:
+        """A probe a backend failure failed. A socket the pool refused (its
+        server evicts or cannot be verified) is judged as the policy check
+        judges it, not mapped to the error type of the refusal."""
+        refusal = refusal_of(exc)
+        mapped = self._fail(exc, what)
+        if refusal is None:
+            return HealthResult(status="fail", details={"error": type(mapped).__name__})
+        return HealthResult(
+            status="fail",
+            details={"reason": self._refusal_reason(refusal, refused_before)},
+        )
+
     async def health(self) -> HealthResult:
         started = time.monotonic()
-        try:
-            client = await self._redis()
-            await self._guarded("ping", client.ping())
-        except InfraError as exc:  # a failed probe, by its type only
-            return HealthResult(status="fail", details={"error": type(exc).__name__})
         refused_before = self._refusal is not None
         try:
-            unverified = await self._guarded("policy check", self._check_policy(client))
+            client = await self._redis()
+            await client.ping()
+        except InfraError as exc:  # a failed probe, by its type only
+            return HealthResult(status="fail", details={"error": type(exc).__name__})
+        except _backend_errors() as exc:
+            return self._failed_probe(exc, "ping", refused_before=refused_before)
+        try:
+            unverified = await self._check_policy(client)
         except InfraError as exc:
             if self._refusal is None:  # the read failed; the server did not refuse
                 return HealthResult(
@@ -349,13 +380,14 @@ class RedisLeaseProvider(LeaseProvider):
             # The policy was lost after a check passed: the next operation
             # judges it again (and raises) instead of trusting the old pass.
             self._policy_checked = False
-            if refused_before or self._assume_refused():
-                reason = "eviction_check_refused"
-            elif isinstance(exc, InvalidArgument):
-                reason = "evicting_policy"
-            else:
-                reason = "noeviction_unverifiable"
-            return HealthResult(status="fail", details={"reason": reason})
+            return HealthResult(
+                status="fail",
+                details={"reason": self._refusal_reason(exc, refused_before)},
+            )
+        except _backend_errors() as exc:
+            return self._failed_probe(
+                exc, "policy check", refused_before=refused_before
+            )
         latency = round((time.monotonic() - started) * 1000, 1)
         if unverified:
             return HealthResult(
