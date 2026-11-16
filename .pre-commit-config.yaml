@@ -58,7 +58,7 @@ repos:
 
     -   id: architecture-tests
         name: architecture-tests
-        entry: bash -c 'uv run --locked pytest tests/architecture/'
+        entry: bash -c 'uv run --locked pytest -n auto --dist loadfile tests/architecture/'
         language: system
         files: ^((src/|tests/architecture/|tools/checks/|tools/packaging/|architecture_rules\.yml|\.importlinter|pyproject\.toml|uv\.lock|guarantees\.yml)|docs/adr/|docs/reference/guarantees\.md)
         pass_filenames: false
