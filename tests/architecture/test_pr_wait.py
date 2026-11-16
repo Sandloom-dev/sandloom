@@ -1,0 +1,197 @@
+"""``tools/ci/pr_wait.py`` waits on a PR's checks and merges only on green.
+
+A fleet orchestrator runs it in the background instead of polling ``gh pr
+checks`` turn by turn. These tests drive it with a scripted fake ``gh``: the
+verdict per check state, the exit codes, the head guard, and that ``--merge``
+merges exactly the head it judged and never a red, moved or unmergeable PR.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+from collections.abc import Sequence
+from pathlib import Path
+from types import ModuleType
+
+import pytest
+
+TOOL = Path(__file__).resolve().parents[2] / "tools" / "ci" / "pr_wait.py"
+HEAD = "784e2c231a37e6361ecfb1385c702472be0b7155"
+
+
+def _load() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("pr_wait_under_test", TOOL)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+pr_wait = _load()
+
+
+def check(name: str, bucket: str) -> dict[str, str]:
+    return {
+        "name": name,
+        "bucket": bucket,
+        "workflow": "Monorepo CI",
+        "link": f"https://example.invalid/{name}",
+    }
+
+
+class FakeGh:
+    """Answers ``gh`` from a list of polls; records every call."""
+
+    def __init__(
+        self,
+        polls: list[list[dict[str, str]]],
+        *,
+        head: str = HEAD,
+        state: str = "OPEN",
+        mergeable: str | list[str] = "MERGEABLE",
+        merge_code: int = 0,
+    ) -> None:
+        self.polls = polls
+        self.head = head
+        self.state = state
+        self.mergeable = mergeable
+        self.merge_code = merge_code
+        self.calls: list[list[str]] = []
+        self._view = 0
+        self._checks = 0
+
+    def __call__(self, args: Sequence[str]) -> object:
+        self.calls.append(list(args))
+        if args[:2] == ["pr", "view"]:
+            m = self.mergeable
+            value = m[min(self._view, len(m) - 1)] if isinstance(m, list) else m
+            self._view += 1
+            body = {
+                "headRefOid": self.head,
+                "state": self.state,
+                "mergeStateStatus": "CLEAN",
+                "mergeable": value,
+            }
+            return pr_wait.Result(0, json.dumps(body))
+        if args[:2] == ["pr", "checks"]:
+            rows = self.polls[min(self._checks, len(self.polls) - 1)]
+            self._checks += 1
+            return pr_wait.Result(
+                8 if any(r["bucket"] == "pending" for r in rows) else 0,
+                json.dumps(rows),
+            )
+        if args[:2] == ["pr", "merge"]:
+            return pr_wait.Result(
+                self.merge_code, "", "" if self.merge_code == 0 else "refused"
+            )
+        raise AssertionError(args)
+
+    @property
+    def merges(self) -> list[list[str]]:
+        return [c for c in self.calls if c[:2] == ["pr", "merge"]]
+
+
+def run(gh: FakeGh, **kw: object) -> tuple[int, list[str], list[float]]:
+    slept: list[float] = []
+    t = [0.0]
+
+    def sleep(s: float) -> None:
+        slept.append(s)
+        t[0] += s
+
+    code, lines = pr_wait.wait(
+        "276", gh=gh, sleep=sleep, clock=lambda: t[0], interval=30, **kw
+    )
+    return code, lines, slept
+
+
+def test_waits_through_pending_then_reports_green_without_merging() -> None:
+    gh = FakeGh(
+        [
+            [check("a", "pending")],
+            [check("a", "pending")],
+            [check("a", "pass"), check("b", "skipping")],
+        ]
+    )
+    code, lines, slept = run(gh)
+    assert code == pr_wait.GREEN
+    assert lines[0].startswith("GREEN head=784e2c23")
+    assert slept == [30, 30]
+    assert gh.merges == []
+
+
+def test_no_checks_reported_yet_counts_as_pending() -> None:
+    gh = FakeGh([[], [check("a", "pass")]])
+    code, _, slept = run(gh)
+    assert code == pr_wait.GREEN and slept == [30]
+
+
+def test_red_names_failures_and_never_merges() -> None:
+    gh = FakeGh([[check("a", "pass"), check("lint", "fail"), check("x", "cancel")]])
+    code, lines, _ = run(gh, merge=True)
+    assert code == pr_wait.RED
+    assert "Monorepo CI/lint" in lines[1] and "(2)" in lines[1]
+    assert lines[2] == "first failure: https://example.invalid/lint"
+    assert gh.merges == []
+
+
+def test_merge_on_green_matches_the_judged_head() -> None:
+    gh = FakeGh([[check("a", "pass")]])
+    code, lines, _ = run(gh, merge=True)
+    assert code == pr_wait.GREEN and lines[0].startswith("MERGED")
+    assert gh.merges == [["pr", "merge", "276", "--merge", "--match-head-commit", HEAD]]
+
+
+def test_merge_waits_for_github_to_compute_mergeability() -> None:
+    gh = FakeGh([[check("a", "pass")]], mergeable=["UNKNOWN", "MERGEABLE"])
+    code, _, slept = run(gh, merge=True)
+    assert code == pr_wait.GREEN and slept == [30] and len(gh.merges) == 1
+
+
+def test_conflicting_pr_is_not_merged() -> None:
+    gh = FakeGh([[check("a", "pass")]], mergeable="CONFLICTING")
+    code, lines, _ = run(gh, merge=True)
+    assert code == pr_wait.NOT_MERGEABLE and lines[0].startswith("NOT MERGEABLE")
+    assert gh.merges == []
+
+
+def test_refused_merge_reports_gh_error() -> None:
+    gh = FakeGh([[check("a", "pass")]], merge_code=1)
+    code, lines, _ = run(gh, merge=True)
+    assert code == pr_wait.NOT_MERGEABLE and lines[-1] == "refused"
+
+
+def test_head_guard_fails_fast() -> None:
+    gh = FakeGh([[check("a", "pending")]], head="deadbeef" + "0" * 32)
+    code, lines, slept = run(gh, merge=True, head=HEAD[:8])
+    assert code == pr_wait.NOT_MERGEABLE and lines[0].startswith("head moved")
+    assert slept == [] and gh.merges == []
+
+
+@pytest.mark.parametrize(("state", "expected"), [("MERGED", 0), ("CLOSED", 2)])
+def test_closed_or_merged_pr_ends_at_once(state: str, expected: int) -> None:
+    code, _, slept = run(FakeGh([[check("a", "pending")]], state=state))
+    assert code == expected and slept == []
+
+
+def test_timeout_lists_what_is_still_pending() -> None:
+    gh = FakeGh([[check("slow", "pending"), check("a", "pass")]])
+    code, lines, _ = run(gh, timeout=100)
+    assert code == pr_wait.TIMEOUT
+    assert lines[0].startswith("TIMEOUT") and lines[-1] == "pending (1): slow"
+
+
+def test_required_flag_reaches_gh() -> None:
+    gh = FakeGh([[check("a", "pass")]])
+    run(gh, required=True)
+    assert [
+        "pr",
+        "checks",
+        "276",
+        "--json",
+        "name,bucket,link,workflow",
+        "--required",
+    ] in gh.calls

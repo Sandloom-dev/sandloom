@@ -1,0 +1,231 @@
+"""Wait on a pull request's CI in one call, and merge it on green if asked.
+
+    python3 tools/ci/pr_wait.py <PR> [--merge] [--head SHA] [--required]
+                                     [--interval S] [--timeout S]
+
+Meant for a fleet orchestrator to run in the background (Bash
+``run_in_background``): the wait costs no model turns, and the one turn when it
+exits reads at most six lines. Replaces the check / wait / recheck the head and
+mergeability / merge round of ``gh pr checks`` and ``gh pr merge`` calls.
+
+It polls until no check is pending, then prints the verdict, the head, the
+failing checks with the link of the first, and GitHub's merge state. With
+``--merge`` it merges (a merge commit, ``--match-head-commit`` the head it
+judged) only when every check passed and GitHub reports the PR mergeable.
+``--head`` fails fast when the PR's head is not the commit you mean to merge.
+``--required`` judges only the checks branch protection requires.
+
+Exit codes: 0 green (merged with ``--merge``), 1 a check failed or was
+cancelled, 2 not mergeable / head moved / PR closed / merge refused,
+3 timed out with checks still pending. Standard library and ``gh`` only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+import time
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
+from typing import Any
+
+GREEN, RED, NOT_MERGEABLE, TIMEOUT = 0, 1, 2, 3
+FAILED_BUCKETS = frozenset({"fail", "cancel"})
+
+Runner = Callable[[Sequence[str]], "Result"]
+
+
+@dataclass
+class Result:
+    code: int
+    out: str
+    err: str = ""
+
+
+def run_gh(args: Sequence[str]) -> Result:
+    proc = subprocess.run(  # noqa: S603 - fixed gh CLI, arguments built here
+        ["gh", *args],  # noqa: S607 - gh is resolved from PATH like every fleet tool
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return Result(proc.returncode, proc.stdout, proc.stderr)
+
+
+@dataclass
+class State:
+    head: str
+    pr_state: str
+    merge_state: str
+    mergeable: str
+    checks: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def pending(self) -> list[dict[str, Any]]:
+        return [c for c in self.checks if c.get("bucket") == "pending"]
+
+    @property
+    def failed(self) -> list[dict[str, Any]]:
+        return [c for c in self.checks if c.get("bucket") in FAILED_BUCKETS]
+
+
+def read_state(pr: str, required: bool, gh: Runner) -> State:
+    view = gh(
+        ["pr", "view", pr, "--json", "headRefOid,state,mergeStateStatus,mergeable"]
+    )
+    if view.code != 0:
+        raise RuntimeError(f"gh pr view {pr}: {view.err.strip() or view.out.strip()}")
+    v = json.loads(view.out)
+    args = ["pr", "checks", pr, "--json", "name,bucket,link,workflow"]
+    if required:
+        args.append("--required")
+    # gh pr checks exits 8 while checks are pending and 1 when one failed;
+    # the JSON on stdout is what counts. No checks reported yet: stdout empty.
+    checks = gh(args)
+    try:
+        rows = json.loads(checks.out) if checks.out.strip() else []
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"gh pr checks {pr}: {checks.err.strip() or checks.out.strip()}"
+        ) from exc
+    return State(
+        v["headRefOid"], v["state"], v["mergeStateStatus"], v["mergeable"], rows
+    )
+
+
+def summary(verdict: str, s: State) -> list[str]:
+    lines = [
+        f"{verdict} head={s.head[:8]} checks={len(s.checks)}"
+        f" merge_state={s.merge_state} mergeable={s.mergeable}"
+    ]
+    if s.failed:
+        names = ", ".join(
+            f"{c.get('workflow', '')}/{c['name']}".lstrip("/") for c in s.failed
+        )
+        lines.append(f"failed ({len(s.failed)}): {names}"[:300])
+        lines.append(f"first failure: {s.failed[0].get('link', '')}")
+    if s.pending:
+        lines.append(
+            f"pending ({len(s.pending)}): "
+            + ", ".join(c["name"] for c in s.pending)[:280]
+        )
+    return lines
+
+
+def poll(
+    pr: str,
+    *,
+    merge: bool,
+    head: str | None,
+    required: bool,
+    interval: float,
+    timeout: float,
+    gh: Runner,
+    sleep: Callable[[float], None],
+    clock: Callable[[], float],
+) -> State | tuple[int, list[str]]:
+    """The settled state, or the exit code and lines when there is none."""
+    deadline = clock() + timeout
+    while True:
+        s = read_state(pr, required, gh)
+        if s.pr_state == "MERGED":
+            return GREEN, [f"already merged head={s.head[:8]}"]
+        if s.pr_state != "OPEN":
+            return NOT_MERGEABLE, [f"PR is {s.pr_state} head={s.head[:8]}"]
+        if head and not s.head.startswith(head):
+            return NOT_MERGEABLE, [
+                f"head moved: PR head {s.head[:8]}, expected {head[:8]}"
+            ]
+        settled = bool(s.checks) and not s.pending
+        # GitHub computes mergeability lazily: UNKNOWN right after a push.
+        if settled and not (merge and s.mergeable == "UNKNOWN" and not s.failed):
+            return s
+        if clock() >= deadline:
+            return TIMEOUT, summary("TIMEOUT", s)
+        sleep(interval)
+
+
+def wait(
+    pr: str,
+    *,
+    merge: bool = False,
+    head: str | None = None,
+    required: bool = False,
+    interval: float = 30,
+    timeout: float = 3600,
+    gh: Runner = run_gh,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> tuple[int, list[str]]:
+    s = poll(
+        pr,
+        merge=merge,
+        head=head,
+        required=required,
+        interval=interval,
+        timeout=timeout,
+        gh=gh,
+        sleep=sleep,
+        clock=clock,
+    )
+    if not isinstance(s, State):
+        return s
+    if s.failed:
+        return RED, summary("RED", s)
+    if not merge:
+        return GREEN, summary("GREEN", s)
+    if s.mergeable != "MERGEABLE":
+        return NOT_MERGEABLE, summary("NOT MERGEABLE", s)
+    res = gh(["pr", "merge", pr, "--merge", "--match-head-commit", s.head])
+    if res.code != 0:
+        why = (res.err.strip() or res.out.strip())[:300]
+        return NOT_MERGEABLE, [*summary("MERGE REFUSED", s), why]
+    return GREEN, summary("MERGED", s)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    p = argparse.ArgumentParser(
+        description=__doc__.split("\n\n")[0] if __doc__ else None
+    )
+    p.add_argument("pr", help="PR number, URL or branch")
+    p.add_argument(
+        "--merge",
+        action="store_true",
+        help="merge (merge commit) when green and mergeable",
+    )
+    p.add_argument(
+        "--head", help="the head SHA (or prefix) you mean; fail fast if the PR moved"
+    )
+    p.add_argument(
+        "--required", action="store_true", help="judge only the required checks"
+    )
+    p.add_argument(
+        "--interval", type=float, default=30, help="seconds between polls (default 30)"
+    )
+    p.add_argument(
+        "--timeout",
+        type=float,
+        default=3600,
+        help="give up after this many seconds (default 3600)",
+    )
+    a = p.parse_args(argv)
+    try:
+        code, lines = wait(
+            a.pr,
+            merge=a.merge,
+            head=a.head,
+            required=a.required,
+            interval=a.interval,
+            timeout=a.timeout,
+        )
+    except (RuntimeError, KeyError, json.JSONDecodeError) as exc:
+        print(f"ERROR {exc}"[:400])
+        return NOT_MERGEABLE
+    print("\n".join(lines[:6]))
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main())
