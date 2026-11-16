@@ -1312,6 +1312,7 @@ guarantees:
   - src/sandloom/core/tests/test_api_robustness.py::test_idempotency_pending_reservation_uses_short_ttl
   - src/sandloom/core/tests/test_idempotency_pending_renewal.py::test_a_running_request_keeps_its_reservation_past_the_pending_ttl
   - src/sandloom/core/tests/test_idempotency_pending_renewal.py::test_a_dead_requests_reservation_still_self_heals
+  - packages/sandloom-redis/tests/test_redis_atomic_cas.py::test_the_pending_reservation_is_renewed_and_expires_on_the_redis_server
 - id: G-IDEM-03
   rests_on:
   - capability: atomic_store

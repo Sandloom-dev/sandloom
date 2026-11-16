@@ -1,10 +1,10 @@
-"""The ``redis`` atomic store in the kernel's security duties: the development
-default (the security store on the cache's Redis) and the strict production
-profile's attestation of the real Redis classes' identity.
+"""The ``redis`` atomic store in the kernel's security duties: the strict
+production profile's attestation of the real Redis classes' identity.
 
-The configuration and attestation logic run in the kernel on scripted providers
-(``src/sandloom/core/tests/test_atomic_adopt.py``); this file runs it on the
-``redis`` cache and atomic store against the test Redis.
+The configuration (the development default, the security store on the cache's
+Redis) and the attestation logic run in the kernel on scripted providers
+(``src/sandloom/core/tests/test_atomic_adopt.py``); this file runs the
+attestation on the ``redis`` cache and atomic store against the test Redis.
 """
 
 from __future__ import annotations
@@ -12,32 +12,18 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from _redis_required import require_redis
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 from sandloom_redis.cache import RedisCacheProvider
 
 from sandloom.core import production_profile
-from sandloom.core.config.settings import Settings, settings
-from sandloom.core.infra.config import load_infra_config
-from sandloom.core.tests._driver_fill import fill
+from sandloom.core.config.settings import settings
 from sandloom.core.tests.test_atomic_adopt import (
     _Provider,
     _runtime_core,
     no_rls_problems,  # noqa: F401 - the fixture of the kernel's test of the same duty
 )
 from sandloom.core.tests.test_production_profile import _settings
-
-
-def test_development_builds_the_security_store_on_the_cache_redis_only_outside_prod() -> (
-    None
-):
-    dev = Settings(  # type: ignore[call-arg]
-        _env_file=None, ENVIRONMENT="dev", CACHE_URL="redis://cache-redis:6379/4"
-    )
-    config = fill(load_infra_config(dev), dev)
-    security = config["atomic_store"]["security"]
-    assert security.driver == "redis" and security.implicit
-    assert security.options["url"] == "redis://cache-redis:6379/4"
-    assert "idempotency" not in config["atomic_store"]
 
 
 async def test_strict_profile_attests_real_redis_identity(
@@ -47,6 +33,7 @@ async def test_strict_profile_attests_real_redis_identity(
     name their server alike (``redis:<run_id>``), so a store on the cache's
     server is refused, and a store whose server differs is attested (spec 12)."""
     url = settings.cache_url
+    await require_redis(url)
     store = RedisAtomicStoreProvider(
         name="security", driver="redis", options={"url": url}
     )

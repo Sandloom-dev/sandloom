@@ -3,7 +3,8 @@
 Follow-up of the kernel-without-Redis step (ADR-0016, `tools/ci/no_redis.py`):
 the kernel tests that exercised the `redis` drivers move to
 `packages/sandloom-redis/tests`, the ones that only borrowed a Redis store run
-on the kernel's in-memory store. The behaviour and the assertions are unchanged.
+on the kernel's in-memory store. The behaviour is unchanged; the assertions are
+unchanged except where "Evidence now on the in-memory store" below says otherwise.
 
 ## Changed entries (tests only)
 
@@ -22,6 +23,27 @@ on the kernel's in-memory store. The behaviour and the assertions are unchanged.
   `packages/sandloom-redis/tests/test_redis_periodic_slots.py`.
 - C-INFRA-09: `test_cache_provider_operations` moved to
   `packages/sandloom-redis/tests/test_redis_cache_operations.py`.
+
+## Evidence now on the in-memory store
+
+- G-IDEM-02: `test_idempotency_pending_renewal.py` (renewal of the pending
+  reservation, self-heal of a dead request) runs on `InMemoryAtomicStore`, which
+  models TTLs against the monotonic clock; "real Redis: the expiry is the server's"
+  is dropped from its docstring. The server-side evidence is kept as
+  `packages/sandloom-redis/tests/test_redis_atomic_cas.py::test_the_pending_reservation_is_renewed_and_expires_on_the_redis_server`
+  (the same two transitions on a real Redis), listed under G-IDEM-02.
+- G-BLOCK-01 and the route-policy row it lists:
+  `test_route_markers.py::test_differential_strict_budgeted_revoked_blocked`
+  runs on the in-memory atomic store (the strict budgeted route refuses a revoked
+  session: the logic of `route_policy` and the subject-state read, not a Redis
+  behaviour). A real Redis's blocked-user path stays proven by the moved
+  `test_revocation_freshness.py` rows above.
+
+Kernel-only assertions that the first split moved into the package stay in the
+kernel (`test_lease.py`: the `memory` and `database` registrations, the beat
+instance synthesis, `unverified_noeviction_allowed`; `test_atomic_adopt.py`: the
+development configuration of the security store). The package keeps only the
+`isinstance(RedisLeaseProvider)` and the real-identity assertions.
 
 The `redis-drivers` lane runs all of them (`SANDLOOM_REDIS_REQUIRED=1`), with the
 rest of `packages/sandloom-redis/tests`.

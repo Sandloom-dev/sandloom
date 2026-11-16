@@ -16,6 +16,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -30,11 +31,17 @@ from sqlalchemy.ext.asyncio import (
 
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers import database_lease, memory_lease
+from sandloom.core.drivers.bootstrap import (
+    build_infra_registry,
+    unverified_noeviction_allowed,
+)
 from sandloom.core.drivers.database_lease import DatabaseLeaseProvider
 from sandloom.core.drivers.memory_lease import MemoryLeaseProvider
+from sandloom.core.infra.config import load_infra_config
 from sandloom.core.infra.errors import InvalidArgument
 from sandloom.core.infra.ports.lease import Lease, LeaseHolder
 from sandloom.core.migrations.backup import LEASE_FENCE_OFFSET, lift_fences
+from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.sql_alchemy.models.lease import InfraLease
 from sandloom.driverkit.kits.lease import LeaseConformance
 
@@ -403,7 +410,43 @@ async def test_a_driver_exclusive_in_one_provider_only_fails_the_shared_race() -
     await provider.aclose()
 
 
-# ----- the registry (the redis beat lease: packages/sandloom-redis/tests/test_lease_registry.py)
+# ------------------------------------------------------------- the registry
+# (the ``redis`` beat lease the registry builds: packages/sandloom-redis/tests/test_lease_registry.py)
+def test_the_memory_and_database_lease_drivers_are_registered_and_deliver() -> None:
+    registry = build_infra_registry(InMemorySchemaRegistry())
+    for driver in ("memory", "database"):
+        registration = registry._registration("lease", driver)
+        assert registration is not None
+        assert not registration.delivered_by
+
+
+def test_the_composition_supplies_the_beat_lease_instance_infra_overrides_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "infra", {})
+    beat = load_infra_config(settings)["lease"]["beat"]
+    assert (beat.driver, beat.implicit) == ("redis", True)
+    monkeypatch.setattr(
+        settings, "infra", {"lease": {"beat": {"driver": "database", "url": "x"}}}
+    )
+    named = load_infra_config(settings)["lease"]["beat"]
+    assert (named.driver, named.implicit) == ("database", False)
+
+
+def _prod(*risks: str) -> Any:
+    return SimpleNamespace(
+        is_prod=True,
+        accepts_risk=lambda risk: risk in risks,
+        infra={},
+        cache_url="redis://h/0",
+    )
+
+
+def test_the_unverified_noeviction_risk_is_accepted_only_in_production_by_id() -> None:
+    assert unverified_noeviction_allowed(_prod()) is False
+    assert unverified_noeviction_allowed(_prod("unverified_noeviction")) is True
+    outside: Any = SimpleNamespace(is_prod=False, accepts_risk=lambda _r: False)
+    assert unverified_noeviction_allowed(outside) is True
 
 
 def test_the_database_lease_is_shared_only_on_postgresql() -> None:

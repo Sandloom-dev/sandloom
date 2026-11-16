@@ -31,11 +31,14 @@ async def test_redis_batch_ops_round_trip() -> None:
             await cache.set_many({keys[0]: "x", keys[2]: "z"}, ttl_seconds=30)
         except Exception:  # pragma: no cover  # noqa: BLE001 - test Redis unreachable: skip, or fail when required
             redis_unavailable("Redis unreachable")
-        assert await cache.get_many(keys) == ["x", None, "z"]
-        client = await cache.redis_client()
-        assert 0 < await client.ttl(keys[0]) <= 30
-        assert {"get_many", "set_many"} <= set(cache.performance_hints)
+        # the write succeeded: only now is there something to clean up
+        try:
+            assert await cache.get_many(keys) == ["x", None, "z"]
+            client = await cache.redis_client()
+            assert 0 < await client.ttl(keys[0]) <= 30
+            assert {"get_many", "set_many"} <= set(cache.performance_hints)
+        finally:
+            client = await cache.redis_client()
+            await client.delete(*keys)
     finally:
-        client = await cache.redis_client()
-        await client.delete(*keys)
         await cache.aclose()

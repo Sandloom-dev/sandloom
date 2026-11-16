@@ -7,6 +7,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
+from _redis_required import require_redis
 from sandloom_redis.lease import RedisLeaseProvider
 
 from sandloom.core.config.settings import settings
@@ -19,6 +20,7 @@ from sandloom.driverkit.periodic import (
 
 
 async def test_ten_minutely_slots_create_one_lease_name_on_redis() -> None:
+    await require_redis(settings.cache_url)
     store = RedisLeaseProvider(
         name="beat", driver="redis", options={"url": settings.cache_url}
     )

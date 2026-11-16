@@ -3,7 +3,7 @@ on an in-memory broker, and the kit catches broken drivers.
 
 The host groups (forked worker and scheduler processes, about a minute) are in
 ``test_taskqueue_kit_host.py`` beside this file, and the kit's checks against
-broken hosts in the kernel's ``test_taskqueue_kit_hostdefects.py``:
+broken hosts in ``packages/sandloom-redis/tests/test_taskqueue_kit_hostdefects.py``:
 ``--dist loadfile`` runs one file on one worker.
 """
 

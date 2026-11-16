@@ -36,6 +36,7 @@ from sandloom.core.infra.config import load_infra_config
 from sandloom.core.migrations import backup
 from sandloom.core.tasks import enqueue
 from sandloom.core.testing import InMemoryAtomicStore, make_user_headers
+from sandloom.core.tests._driver_fill import fill
 from sandloom.core.tests.test_production_profile import (
     _BASE,
     _COMPLIANT_INFRA,
@@ -279,8 +280,19 @@ def test_a_leftover_cache_instance_setting_fails_startup_with_the_fix(
 # --------------------------------------------------------------------------- #
 # Development default, production refusal
 # --------------------------------------------------------------------------- #
-# (development builds the security store on the cache's Redis only outside
-# production: ``packages/sandloom-redis/tests/test_atomic_adopt_redis_identity.py``)
+def test_development_builds_the_security_store_on_the_cache_redis_only_outside_prod() -> (
+    None
+):
+    dev = Settings(  # type: ignore[call-arg]
+        _env_file=None, ENVIRONMENT="dev", CACHE_URL="redis://cache-redis:6379/4"
+    )
+    config = fill(load_infra_config(dev), dev)
+    security = config["atomic_store"]["security"]
+    assert security.driver == "redis" and security.implicit
+    assert security.options["url"] == "redis://cache-redis:6379/4"
+    assert "idempotency" not in config["atomic_store"]
+
+
 def test_production_never_builds_a_security_store_from_the_cache() -> None:
     prod = Settings(  # type: ignore[call-arg]
         _env_file=None,

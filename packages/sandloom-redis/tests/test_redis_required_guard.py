@@ -28,6 +28,9 @@ _NEEDING_REDIS = (
     "test_redis_cache_bounded.py::test_windowed_counter_counts_ttl_and_previous",
     "test_redis_cache_loop_affinity.py::test_real_redis_client_survives_two_loops",
     "test_redis_broadcast.py::test_the_prefix_keeps_two_instances_apart",
+    "test_redis_periodic_slots.py::test_ten_minutely_slots_create_one_lease_name_on_redis",
+    "test_atomic_adopt_redis_identity.py::test_strict_profile_attests_real_redis_identity",
+    "test_revocation_freshness.py::test_block_applies_on_next_request_even_on_budget_routes",
 )
 
 

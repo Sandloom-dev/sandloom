@@ -187,7 +187,7 @@ async def audit_db() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
 
     url = os.getenv("DATABASE_URL")
     if not url:
-        pytest.skip("DATABASE_URL not configured")
+        redis_unavailable("DATABASE_URL not configured")
     engine = create_async_engine(url)
     # block_user / unblock_user audit AND publish (outbox) in the same UoW:
     # create every table they write, never rely on another test having done it

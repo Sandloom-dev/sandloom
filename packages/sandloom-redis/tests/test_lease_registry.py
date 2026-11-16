@@ -1,7 +1,9 @@
 """The ``lease`` registry builds the ``redis`` beat lease the kernel selects by
 default (spec 5). The kit runs on the drivers in
 ``src/sandloom/core/tests/test_lease.py`` (``memory``, ``database``) and
-``test_redis_lease.py`` (``redis``)."""
+``test_redis_lease.py`` (``redis``); the registration of ``memory`` and
+``database``, the beat instance the composition supplies and the
+``unverified_noeviction`` risk rule are kernel tests in ``test_lease.py``."""
 
 from __future__ import annotations
 
@@ -11,35 +13,17 @@ from typing import Any
 import pytest
 from sandloom_redis.lease import RedisLeaseProvider
 
-from sandloom.core.config.settings import settings
-from sandloom.core.drivers.bootstrap import (
-    build_infra_registry,
-    unverified_noeviction_allowed,
-)
-from sandloom.core.infra.config import InstanceConfig, load_infra_config
+from sandloom.core.drivers.bootstrap import build_infra_registry
+from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.errors import PermissionDenied
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
 
-def test_the_three_lease_drivers_are_registered_and_deliver() -> None:
+def test_the_redis_lease_driver_is_registered_and_delivers() -> None:
     registry = build_infra_registry(InMemorySchemaRegistry())
-    for driver in ("redis", "memory", "database"):
-        registration = registry._registration("lease", driver)
-        assert registration is not None
-        assert not registration.delivered_by
-
-
-def test_the_composition_supplies_the_beat_lease_instance_infra_overrides_it(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(settings, "infra", {})
-    beat = load_infra_config(settings)["lease"]["beat"]
-    assert (beat.driver, beat.implicit) == ("redis", True)
-    monkeypatch.setattr(
-        settings, "infra", {"lease": {"beat": {"driver": "database", "url": "x"}}}
-    )
-    named = load_infra_config(settings)["lease"]["beat"]
-    assert (named.driver, named.implicit) == ("database", False)
+    registration = registry._registration("lease", "redis")
+    assert registration is not None
+    assert not registration.delivered_by
 
 
 def test_the_default_registry_builds_the_beat_lease_on_the_cache_url() -> None:
@@ -83,7 +67,3 @@ async def test_the_production_policy_reaches_the_driver_through_the_build() -> N
         await refused.aopen()
     accepted = _beat_redis(_prod("unverified_noeviction"), **options)
     assert accepted._assume_allowed is not None and accepted._assume_allowed()
-    assert unverified_noeviction_allowed(_prod()) is False
-    assert unverified_noeviction_allowed(_prod("unverified_noeviction")) is True
-    outside: Any = SimpleNamespace(is_prod=False, accepts_risk=lambda _r: False)
-    assert unverified_noeviction_allowed(outside) is True
