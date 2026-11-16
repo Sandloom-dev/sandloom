@@ -8,6 +8,7 @@ log site and look for it in the records.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from types import SimpleNamespace
 from typing import Any
@@ -42,12 +43,22 @@ def _assert_type_only(caplog: pytest.LogCaptureFixture, type_name: str) -> None:
     records = [r for r in caplog.records if r.name == LOGGER]
     assert records, "the failure was not logged"
     for record in records:
-        assert record.levelno >= logging.ERROR
-        assert record.exc_info is None, "no traceback: it carries the error text"
+        assert record.levelno >= logging.WARNING
+        _assert_no_value_or_traceback(record)
         assert type_name in record.getMessage()
         assert "hunter2" not in caplog.text
         assert "10.9.8.7" not in caplog.text
         assert "card-4242" not in caplog.text
+
+
+def _assert_no_value_or_traceback(record: logging.LogRecord) -> None:
+    """``exc_info`` may carry the class (it keeps ruff's BLE001 satisfied), never
+    the error value or the traceback: they hold the driver's error text."""
+    if record.exc_info is None:
+        return
+    _type, value, traceback = record.exc_info
+    assert value is None, "the error value carries the error text"
+    assert traceback is None, "the traceback carries the error text"
 
 
 @pytest.mark.asyncio
@@ -79,14 +90,50 @@ async def test_a_failed_delivery_logs_the_type_only(
 
 
 @pytest.mark.asyncio
-async def test_a_failed_callback_logs_the_type_only(
+async def test_a_failed_callback_logs_the_full_traceback(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    # A callback is application code: its traceback is what finds the bug (the
+    # transport branches above keep the type only).
     bus = RedisEventBus(InMemorySchemaRegistry())
 
     async def callback(_envelope: EventEnvelope) -> None:
-        raise ValueError(SECRET)
+        raise ValueError("handler bug")
 
     with caplog.at_level(logging.DEBUG, logger=LOGGER):
         await bus._invoke_callback(callback, "core.thing.v1", _envelope())
-    _assert_type_only(caplog, "ValueError")
+    records = [r for r in caplog.records if r.name == LOGGER]
+    assert len(records) == 1
+    assert records[0].levelno == logging.ERROR
+    assert "ValueError" in records[0].getMessage()
+    assert records[0].exc_info is not None
+    _type, value, traceback = records[0].exc_info
+    assert isinstance(value, ValueError)
+    assert traceback is not None
+    assert "handler bug" in caplog.text
+
+
+class _FailingSubscribe:
+    async def subscribe(self, channels: list[str]) -> Any:
+        raise ConnectionError(SECRET)
+
+
+@pytest.mark.asyncio
+async def test_a_lost_subscription_logs_the_type_only(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    bus = RedisEventBus(InMemorySchemaRegistry(), broadcast=_FailingSubscribe())
+
+    async def callback(_envelope: EventEnvelope) -> None:
+        return None
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        await bus.subscribe("core.thing.v1", callback)
+        for _ in range(100):  # the loop logs, then sleeps its backoff
+            if any("lost the subscription" in r.getMessage() for r in caplog.records):
+                break
+            await asyncio.sleep(0.01)
+        await bus.close()
+    lost = [r for r in caplog.records if "lost the subscription" in r.getMessage()]
+    assert lost, "the lost subscription was not logged"
+    _assert_type_only(caplog, "ConnectionError")

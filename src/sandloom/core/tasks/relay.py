@@ -507,12 +507,60 @@ def _infra_error_is_outage(error: InfraError) -> bool:
 _POISON_TYPES: tuple[type[Exception], ...] = (TypeError, ValueError)
 
 
-def outage_reason(exc: BaseException) -> str | None:
-    """The class name of the error that makes ``exc`` an outage, else ``None``.
+#: The two replies of a cluster node that does not own the key. A plain client
+#: pointed at a Redis Cluster gets them for most keys and retries forever; the
+#: log line names the word (never the ``host:port`` after it) so an operator
+#: sees why.
+_CLUSTER_REDIRECT_WORDS = frozenset({"MOVED", "ASK"})
+_CLUSTER_REDIRECT_HINT = "cluster redirect: is the client cluster-aware?"
 
-    The name only, never the message (no secret or URL reaches a log line).
+
+def _next_link(current: BaseException) -> BaseException | None:
+    """The next error of the chain: ``__cause__``, else ``__context__`` unless a
+    ``raise ... from`` suppressed it."""
+    if current.__cause__ is not None:
+        return current.__cause__
+    if not current.__suppress_context__:
+        return current.__context__
+    return None
+
+
+def _cluster_redirect_word(exc: BaseException) -> str | None:
+    """``MOVED`` or ``ASK`` when a ``ResponseError`` of the chain of ``exc`` is
+    that reply, else ``None`` (the word only: the address stays out)."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    for _ in range(_CAUSE_CHAIN_LIMIT):
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        if any(cls.__name__ == "ResponseError" for cls in type(current).__mro__):
+            word = str(current).split(" ", 1)[0]
+            if word in _CLUSTER_REDIRECT_WORDS:
+                return word
+        current = _next_link(current)
+    return None
+
+
+def outage_reason(exc: BaseException) -> str | None:
+    """The reason that makes ``exc`` an outage, else ``None``: the class name of
+    the deciding error, followed by the cluster-redirect hint (``MOVED`` or
+    ``ASK`` and "is the client cluster-aware?") when the chain holds that reply.
+
+    Never the message (no secret, URL or ``host:port`` reaches a log line).
     See :func:`is_broker_unavailable` for the rules.
     """
+    name = _outage_class_name(exc)
+    if name is None:
+        return None
+    word = _cluster_redirect_word(exc)
+    if word is None:
+        return name
+    return f"{name} ({word}, {_CLUSTER_REDIRECT_HINT})"
+
+
+def _outage_class_name(exc: BaseException) -> str | None:
+    """The class name of the error that makes ``exc`` an outage, else ``None``."""
     if isinstance(exc, _POISON_TYPES):
         return None
     seen: set[int] = set()
@@ -543,12 +591,7 @@ def outage_reason(exc: BaseException) -> str | None:
         # ``__cause__`` is always followed; ``__context__`` (an error raised
         # while another was being handled) only when no ``raise ... from``
         # suppressed it.
-        if current.__cause__ is not None:
-            current = current.__cause__
-        elif not current.__suppress_context__:
-            current = current.__context__
-        else:
-            current = None
+        current = _next_link(current)
     return None
 
 
