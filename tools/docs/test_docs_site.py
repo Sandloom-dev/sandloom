@@ -18,6 +18,10 @@ from urllib.parse import unquote, urlsplit
 
 SITE = Path(os.environ.get("SANDLOOM_DOCS_SITE", "build/site/docs"))
 REPO = Path(__file__).resolve().parents[2]
+# docs.yml runs the prose lint and the code check as steps of their own, with
+# their self-tests, and sets this to skip the second run of both below (the
+# scope assertions stay). Anywhere else (a local run, pages.yml) both run here.
+LINTS_RUN_AS_STEPS = os.environ.get("SANDLOOM_DOCS_LINTS_RUN_AS_STEPS") == "1"
 
 
 class ArticleLinks(HTMLParser):
@@ -81,8 +85,9 @@ class DocumentationSiteTests(unittest.TestCase):
         self.assertNotIn("docs/reference/sdk/web.md", selected)
         snippets = docs_generated.SNIPPETS.relative_to(REPO).as_posix() + "/"
         self.assertIn(snippets, docs_prose_lint.GENERATED_PREFIXES)
-        self.assertEqual(docs_prose_lint.self_test(), 0)
-        self.assertEqual(docs_prose_lint.main([]), 0)
+        if not LINTS_RUN_AS_STEPS:
+            self.assertEqual(docs_prose_lint.self_test(), 0)
+            self.assertEqual(docs_prose_lint.main([]), 0)
 
     def test_docs_code_check_scans_the_prose_lint_pages(self) -> None:
         from tools.docs import docs_code_check, docs_prose_lint
@@ -94,8 +99,9 @@ class DocumentationSiteTests(unittest.TestCase):
         self.assertEqual(
             docs_code_check.GENERATED_PREFIXES, docs_prose_lint.GENERATED_PREFIXES
         )
-        self.assertEqual(docs_code_check.self_test(), 0)
-        self.assertEqual(docs_code_check.main([]), 0)
+        if not LINTS_RUN_AS_STEPS:
+            self.assertEqual(docs_code_check.self_test(), 0)
+            self.assertEqual(docs_code_check.main([]), 0)
 
     def test_every_setting_has_a_source_description(self) -> None:
         from sandloom.core.config.settings import Settings

@@ -284,8 +284,46 @@ def test_ci_commands_carry_their_env_and_the_venv_python() -> None:
         "uv run python tools/docs/docs_site.py build",
         "SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main uv run sandloom generate --check",
     ]
-    assert tool._env(job["env"]) == "TOKEN=ci-not-a-real-key KEYS='{}' RUN=<ci>"
+    # A throwaway credential is "<dummy>" (any value works), a filled
+    # expression "<ci>", a real value as it is.
+    assert tool._env(job["env"]) == "TOKEN=<dummy> KEYS='{}' RUN=<ci>"
+    assert tool._env({"CACHE_URL": "redis://127.0.0.1:6380/0"}) == (
+        "CACHE_URL=redis://127.0.0.1:6380/0"
+    )
     # Without the venv on the path, a bare python3 stays the system one.
     assert tool._commands({"steps": [{"run": "python3 tools/x.py"}]}) == [
         "python3 tools/x.py"
     ]
+
+
+def test_ci_globs_that_differ_in_one_name_share_braces() -> None:
+    assert tool._braces(
+        [
+            "src/sandloom_admin/**",
+            "src/sandloom_billing/**",
+            "src/sandloom/sdk/**",
+            "src/sandloom/core/http/**",
+            "src/sandloom/core/auth/**",
+            "src/sandloom/core/composition.py",
+            "src/sandloom/core/error_codes.py",
+            "pyproject.toml",
+            "docs/**",
+        ]
+    ) == [
+        "src/sandloom_{admin,billing}/**",
+        "src/sandloom/sdk/**",
+        "src/sandloom/core/{http,auth}/**",
+        "src/sandloom/core/{composition.py,error_codes.py}",
+        "pyproject.toml",
+        "docs/**",
+    ]
+    # No shared stem: nothing is factored out of the braces.
+    assert tool._braces(["a/x/**", "a/y/**"]) == ["a/{x,y}/**"]
+
+
+def test_the_ci_topic_lists_no_area_without_a_path_or_a_command() -> None:
+    text = tool.render("ci", REPO)
+    areas = re.findall(r"^\*\*(\w+)\*\*:(.*)$", text, flags=re.MULTILINE)
+    assert areas
+    assert all(globs.strip() for _, globs in areas), areas
+    assert "**kernel**" not in text  # all its jobs are the kernel lanes, skipped

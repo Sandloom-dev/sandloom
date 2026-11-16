@@ -100,21 +100,42 @@ def test_the_image_build_is_required_by_the_image_area_alone():
 
 
 @pytest.mark.parametrize("job", ["kernel-without-batteries", "kernel-without-redis"])
-def test_both_halves_of_the_kernel_lane_are_required_with_backend(job):
-    assert gate.AREA_JOBS[job] == ("backend",)
-    needs = planned_needs("backend")
+def test_both_halves_of_the_kernel_lane_are_required_with_the_kernel_area(job):
+    assert gate.AREA_JOBS[job] == ("kernel",)
+    needs = planned_needs("kernel")
     needs[job]["result"] = "skipped"
     assert gate.check(needs, full_validation=False, pull_request=True)
 
 
-@pytest.mark.parametrize("area", ["backend", "packages"])
+@pytest.mark.parametrize(
+    "job",
+    [
+        "kernel-without-batteries",
+        "kernel-without-redis",
+        "redis-drivers",
+        "celery-drivers",
+    ],
+)
+def test_a_module_only_change_does_not_require_the_kernel_lanes(job):
+    """The backend, packages and architecture areas without the kernel one (a
+    PR that only changes a bundled module): the lane is skipped and the gate is
+    green; the same skip with the kernel area selected blocks."""
+    needs = planned_needs("backend", "packages", "architecture")
+    assert needs[job]["result"] == "skipped"
+    assert gate.check(needs, full_validation=False, pull_request=True) == []
+    needs = planned_needs("kernel")
+    needs[job]["result"] = "skipped"
+    assert gate.check(needs, full_validation=False, pull_request=True)
+
+
 @pytest.mark.parametrize("job", ["redis-drivers", "celery-drivers"])
-def test_a_driver_package_lane_is_required_when_its_code_changes(job, area):
+def test_a_driver_package_lane_is_required_when_its_code_changes(job):
     """The package's types (and tests) run in no other lane (root testpaths and
-    the CI mypy run exclude packages/): a red or skipped lane blocks merge."""
-    assert gate.AREA_JOBS[job] == ("backend", "packages")
+    the CI mypy run exclude packages/): a red or skipped lane blocks merge. The
+    kernel area holds packages/** (and the kernel it runs against)."""
+    assert gate.AREA_JOBS[job] == ("kernel",)
     for status in ("failure", "skipped", "cancelled"):
-        needs = planned_needs(area)
+        needs = planned_needs("kernel")
         needs[job]["result"] = status
         assert gate.check(needs, full_validation=False, pull_request=True)
     # Full validation selects every area, so the lane runs there too.
