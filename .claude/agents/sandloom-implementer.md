@@ -43,8 +43,10 @@ subagent): pass no actor on tm calls.
   - `git` alone in its call: `git status --short`, `git diff --stat`,
     `git log --oneline -3`;
   - logs and scratch files go to `$TMPDIR` (`> "$TMPDIR/<alias>-gate.log"`),
-    never into the worktree: `.agent-tmp/` is outside your area, so a Write
-    there is refused and a later read of the log finds nothing.
+    never into the worktree: `.agent-tmp/` is outside your area, so tm's
+    claim guard refuses a Write there. Read a log with
+    `tail -40 "$TMPDIR/<alias>-gate.log"` in Bash; the Read tool does not
+    expand `$TMPDIR`, so give it the absolute path `echo $TMPDIR` prints.
 - A file outside your area that you must change (a test of the code you
   change): `task_update` with the full area plus that file, before the edit.
 - tm calls (`task_update`, `task_checkpoint`, `task_done`) go in a response
@@ -180,8 +182,10 @@ item 2. A task created with `checklist` among its required kinds refuses
 10. **The lane that runs a test.** A test you add, move or split: name the
     CI lane that runs it (the no-Redis lane over `src/sandloom/core/tests`,
     `redis-drivers`, `celery-drivers`, a package's tests) and check that it
-    collects there; a required lane never skips it silently (use the lane's
-    unavailable marker or `pytest.fail`). A test moved out of the kernel
+    collects there; a required lane never skips it silently: a Redis test
+    calls `redis_unavailable` / `require_redis` from
+    `packages/sandloom-redis/tests/_redis_required.py`, any other one
+    `pytest.fail`, never `pytest.skip`. A test moved out of the kernel
     keeps every kernel-only assertion it had.
 11. **Secure defaults and secrets survive a move.** Config or behaviour moved
     out of the kernel keeps its secure default and its production warning
