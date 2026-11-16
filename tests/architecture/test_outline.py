@@ -152,3 +152,63 @@ def test_other_files_say_to_grep_and_long_output_is_cut(
 def test_the_repository_parses() -> None:
     lines = outline.render_file(ROOT / "tools/outline.py")
     assert any("def render_symbol(path: Path, name: str)" in line for line in lines)
+
+
+def test_any_failure_is_one_error_line_naming_the_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    good = tmp_path / "good.py"
+    good.write_text("def ok():\n    pass\n")
+    locked = tmp_path / "locked.py"
+    locked.write_text("x = 1\n")
+    locked.chmod(0)
+    try:
+        assert outline.main([str(locked), f"{tmp_path}::x", str(good)]) == 2
+    finally:
+        locked.chmod(0o644)
+    out = capsys.readouterr().out.splitlines()
+    assert out[0].startswith(f"error: {locked}: ")
+    assert out[1] == f"error: {tmp_path}: a directory has no symbols; name a file"
+    assert out[2] == f"{good}  (2 lines)"
+    for exc in (MemoryError(), RecursionError("maximum recursion depth exceeded")):
+
+        def boom(*args: object, exc: BaseException = exc, **kwargs: object) -> None:
+            raise exc
+
+        monkeypatch.setattr(outline.ast, "parse", boom)
+        assert outline.main([str(good)]) == 2
+        line = capsys.readouterr().out.strip()
+        assert line.startswith(f"error: {good}: {type(exc).__name__}: ")
+
+
+def test_a_bad_file_in_a_directory_leaves_the_others(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    pass\n")
+    (tmp_path / "b.py").write_text("def b(:\n")
+    (tmp_path / "c.py").write_text("class C:\n    pass\n")
+    assert outline.main([str(tmp_path)]) == 2
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == f"{tmp_path / 'a.py'}  (2 lines)"
+    assert out[2].startswith(f"error: {tmp_path / 'b.py'}: ")
+    assert out[3] == f"{tmp_path / 'c.py'}  (2 lines)"
+
+
+def test_names_defined_under_if_or_try_are_listed(tmp_path: Path) -> None:
+    path = tmp_path / "guarded.py"
+    path.write_text(
+        "from typing import TYPE_CHECKING\n"
+        "if TYPE_CHECKING:\n"
+        "    class Hint:\n"
+        "        pass\n"
+        "try:\n"
+        "    def fast():\n"
+        "        pass\n"
+        "except ImportError:\n"
+        "    def fast():\n"
+        "        pass\n"
+    )
+    labels = [line.split(None, 1)[1] for line in outline.render_file(path)[1:]]
+    assert labels == ["class Hint", "def fast()", "def fast()"]

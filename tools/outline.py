@@ -34,6 +34,10 @@ MAX_LINES = 250
 SIGNATURE_WIDTH = 140
 _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 _FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+#: What reading or parsing one file can raise: an unreadable or missing file, a
+#: directory named as a file, bad syntax or encoding, an expression too deep for
+#: ``ast``. Each becomes an ``error:`` line naming the file.
+FAILURES = (LookupError, ValueError, SyntaxError, OSError, MemoryError, RecursionError)
 #: Two characters or more, so a ``T = TypeVar("T")`` is not one.
 _CONSTANT = re.compile(r"^_*[A-Z][A-Z0-9_]+$")
 
@@ -109,6 +113,11 @@ def _body(body: list[ast.stmt], depth: int, owner: str) -> list[Entry]:
             out.append(_class(node, depth, owner))
         elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             out.append(_function(node, depth, owner))
+        elif isinstance(node, ast.If | ast.Try | ast.TryStar | ast.With):
+            # `if TYPE_CHECKING:`, `try: import x except ImportError:` and the
+            # like define names at the level they sit in.
+            for block in _blocks(node):
+                out += _body(block, depth, owner)
         elif not owner and isinstance(node, ast.Assign | ast.AnnAssign):
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             for t in targets:
@@ -120,10 +129,19 @@ def _body(body: list[ast.stmt], depth: int, owner: str) -> list[Entry]:
     return out
 
 
-def python_outline(text: str) -> list[Entry]:
+def _blocks(node: ast.If | ast.Try | ast.TryStar | ast.With) -> list[list[ast.stmt]]:
+    if isinstance(node, ast.If):
+        return [node.body, node.orelse]
+    if isinstance(node, ast.With):
+        return [node.body]
+    handlers = [h.body for h in node.handlers]
+    return [node.body, *handlers, node.orelse, node.finalbody]
+
+
+def python_outline(text: str, filename: str = "<file>") -> list[Entry]:
     """Classes, functions and methods (nested functions left out), and the
     module's constants."""
-    return _body(ast.parse(text).body, 0, "")
+    return _body(ast.parse(text, filename=filename).body, 0, "")
 
 
 def markdown_outline(text: str) -> list[Entry]:
@@ -143,18 +161,23 @@ def markdown_outline(text: str) -> list[Entry]:
             continue
         if fence is None and (h := _HEADING.match(line)):
             found.append((number, len(h.group(1)), h.group(2)))
-    entries = []
-    for i, (number, level, title) in enumerate(found):
-        end = next((n - 1 for n, lv, _ in found[i + 1 :] if lv <= level), len(lines))
-        label = f"{'#' * level} {title}"
-        entries.append(Entry(title, label, number, end, level - 1, "heading"))
+    entries: list[Entry] = []
+    open_: list[Entry] = []  # headings whose section has not ended yet
+    for number, level, title in found:
+        while open_ and open_[-1].depth >= level - 1:
+            open_.pop().end = number - 1
+        entry = Entry(title, f"{'#' * level} {title}", number, 0, level - 1, "heading")
+        entries.append(entry)
+        open_.append(entry)
+    for entry in open_:
+        entry.end = len(lines)
     return entries
 
 
 def outline(path: Path) -> list[Entry]:
     text = path.read_text(encoding="utf-8")
     if path.suffix == ".py":
-        return python_outline(text)
+        return python_outline(text, str(path))
     if path.suffix in (".md", ".markdown"):
         return markdown_outline(text)
     kind = path.suffix or path.name
@@ -201,15 +224,33 @@ def render(arg: str) -> list[str]:
     path = Path(raw)
     if not path.exists():
         raise LookupError(f"{raw}: no such file or directory")
-    if name:
-        return render_symbol(path, name)
     if path.is_dir():
+        if name:
+            raise LookupError(f"{raw}: a directory has no symbols; name a file")
         out: list[str] = []
         files = sorted(p for p in path.rglob("*.py") if "__pycache__" not in p.parts)
         for child in files:
-            out += render_file(child, top_only=True)
+            try:
+                out += render_file(child, top_only=True)
+            except FAILURES as exc:
+                # One file that cannot be read leaves the others' outline.
+                out.append(_error(child, exc))
         return out or [f"{path}: no Python files"]
-    return render_file(path)
+    try:
+        return render_symbol(path, name) if name else render_file(path)
+    except FAILURES as exc:
+        raise _Failed(_error(path, exc)) from exc
+
+
+class _Failed(Exception):
+    """A failure already rendered as its ``error:`` line."""
+
+
+def _error(path: Path, exc: BaseException) -> str:
+    text = str(exc) or type(exc).__name__
+    if isinstance(exc, MemoryError | RecursionError):
+        text = f"{type(exc).__name__}: too deeply nested to outline"
+    return f"error: {text}" if text.startswith(str(path)) else f"error: {path}: {text}"
 
 
 def main(argv: list[str]) -> int:
@@ -220,9 +261,13 @@ def main(argv: list[str]) -> int:
     status = 0
     for arg in argv:
         try:
-            out += render(arg)
-        except (LookupError, ValueError, SyntaxError, UnicodeDecodeError) as exc:
-            out.append(f"error: {exc}")
+            lines = render(arg)
+        except _Failed as exc:
+            lines = [str(exc)]
+        except FAILURES as exc:
+            lines = [f"error: {exc}"]
+        out += lines
+        if any(line.startswith("error: ") for line in lines):
             status = 2
     if len(out) > MAX_LINES:
         cut = len(out) - MAX_LINES
