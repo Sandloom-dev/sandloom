@@ -29,8 +29,8 @@ from sqlalchemy import Table
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from sandloom.core.cli._operator import add_operator_arguments, operator_intent
 import sandloom.core.infra.config as infra_config
+from sandloom.core.cli._operator import add_operator_arguments, operator_intent
 from sandloom.core.config.settings import settings
 from sandloom.core.migrations.backup import (
     CORE_TABLES,
