@@ -80,6 +80,12 @@ def _compose(*modules: str, root: str | None = None) -> dict[str, Any]:
     env.pop("SANDLOOM_COMPOSITION_ROOT", None)
     if root:
         env["SANDLOOM_COMPOSITION_ROOT"] = root
+    else:
+        # The lean root selects no beat lease: an options-only entry for it
+        # would refuse (an entry needs a driver the composition did not pick).
+        infra = json.loads(env["INFRA"])
+        infra.pop("lease")
+        env["INFRA"] = json.dumps(infra)
     # The lean root (no ``root``) selects no driver: ``INFRA`` does.
     env["INFRA"] = lean_root_infra(env)
     done = subprocess.run(
