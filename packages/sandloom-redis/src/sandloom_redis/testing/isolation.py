@@ -6,13 +6,15 @@ instance uses through ``InfraProvider.test_isolation(options, worker_id)`` (the
 Redis drivers move the database index of their URL options), and
 :func:`rewrite_redis` calls that hook of every configured instance:
 
-* the default cache (``CACHE_URL``);
-* every named instance ``INFRA`` declares with its own ``url``, any capability,
-  the rewritten ``INFRA`` going back to the environment.
-
-* the default task queue (``BROKER_URL``, which the kernel fills into the
-  instance's ``broker`` option): the ``celery`` driver's hook moves its
-  ``broker`` and ``backend`` URLs.
+* the default cache (``CACHE_URL``, while a flat one is set);
+* every instance ``INFRA`` declares with a Redis ``url``, ``broker`` or
+  ``backend`` option, any capability (the cache, lease, atomic store, broadcast
+  and event bus ``url`` and the task queue's ``broker``, which the ``celery``
+  driver's hook moves together with its ``backend``), the rewritten ``INFRA``
+  going back to the environment: with or without the flat settings, which
+  ``.env.test`` no longer needs;
+* the default task queue's flat ``BROKER_URL``, while one is set (the kernel
+  fills it into the instance's ``broker`` option).
 
 Nothing here rewrites a URL itself.
 
@@ -46,7 +48,11 @@ from sandloom.driverkit.testing_family import (
     isolated_instance_options,
     parse_infra,
 )
-from sandloom_redis.testing.urls import is_redis_url, redis_client_installed
+from sandloom_redis.testing.urls import (
+    instance_redis_options,
+    is_redis_url,
+    redis_client_installed,
+)
 
 REDIS_STRIDE_ENV = "SANDLOOM_TEST_REDIS_DB_STRIDE"
 #: ``SANDLOOM_TEST_REDIS_DB_STRIDE`` value selecting allocated indexes.
@@ -155,7 +161,7 @@ def rewrite_redis(
         (capability, name, spec)
         for capability, instances in infra.items()
         for name, spec in instances.items()
-        if isinstance(spec.get("url"), str) and is_redis_url(spec["url"])
+        if instance_redis_options(spec)
     ]
     if not (is_redis_url(cache) or is_redis_url(broker) or named):
         return {}

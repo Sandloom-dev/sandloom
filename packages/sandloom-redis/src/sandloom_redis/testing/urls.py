@@ -14,7 +14,12 @@ from __future__ import annotations
 import importlib.util
 from collections.abc import Mapping
 
-from sandloom.driverkit.testing_family import FLAT_VARS, INFRA_VAR, parse_infra
+from sandloom.driverkit.testing_family import (
+    FLAT_VARS,
+    INFRA_VAR,
+    INSTANCE_URL_OPTIONS,
+    parse_infra,
+)
 
 #: The URL schemes of a Redis server.
 REDIS_SCHEMES = ("redis://", "rediss://")
@@ -37,13 +42,23 @@ def redis_client_installed() -> bool:
         return False
 
 
-def infra_redis_urls(raw: str | None) -> list[str]:
-    """The Redis URLs of the named instances ``INFRA`` declares with a ``url``."""
+def instance_redis_options(spec: Mapping[str, object]) -> list[str]:
+    """The URL options of one ``INFRA`` instance ``spec`` that hold a Redis URL."""
     return [
-        spec["url"]
+        option
+        for option in INSTANCE_URL_OPTIONS
+        if isinstance(value := spec.get(option), str) and is_redis_url(value)
+    ]
+
+
+def infra_redis_urls(raw: str | None) -> list[str]:
+    """The Redis URLs of the instances ``INFRA`` declares (``url``, and a task
+    queue's ``broker`` / ``backend``)."""
+    return [
+        str(spec[option])
         for instances in parse_infra(raw).values()
         for spec in instances.values()
-        if isinstance(spec.get("url"), str) and is_redis_url(spec["url"])
+        for option in instance_redis_options(spec)
     ]
 
 
@@ -60,6 +75,7 @@ def redis_urls(values: Mapping[str, str | None]) -> list[str]:
 __all__ = [
     "REDIS_SCHEMES",
     "infra_redis_urls",
+    "instance_redis_options",
     "is_redis_url",
     "redis_client_installed",
     "redis_urls",
