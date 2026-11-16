@@ -9,8 +9,9 @@ and the scheduler are this driver's host (:meth:`CeleryTaskQueueProvider.
 worker_host`, :mod:`sandloom_celery.worker`): it runs the SAME app,
 so enqueue and execution share one namespace.
 
-The driver reads no kernel setting (the kernel fills ``broker`` and
-``backend`` from ``BROKER_URL`` / ``CACHE_URL``) and only publishes: enqueue
+The driver reads no kernel setting (its ``broker`` and ``backend`` are options
+of the instance; the kernel still fills what an instance leaves out from the
+optional ``BROKER_URL`` / ``CACHE_URL``) and only publishes: enqueue
 dedupe (``idempotency_key``) is the kernel's taskqueue layer
 (:mod:`sandloom.core.tasks.queue`), which reserves a job id and hands it to
 :meth:`CeleryTaskQueueProvider.send` as ``task_id``. A failure that provably
@@ -23,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import importlib.util
+import json
 import os
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
@@ -53,6 +55,15 @@ from sandloom_celery.worker import (
     get_default_app,
 )
 
+
+class MissingBrokerError(ValueError):
+    """A ``celery`` task-queue instance has no ``broker``: a configuration
+    mistake that aborts startup in every environment (``fatal_at_startup``),
+    never a transient fault."""
+
+    fatal_at_startup = True
+
+
 #: Features the Celery task-queue driver supports. ``periodic``: the worker
 #: registers each periodic task of the table and one beat per broker and module
 #: set runs it under a fenced lease (``sandloom_celery.worker``).
@@ -65,8 +76,10 @@ class CeleryTaskQueueOptions(BaseModel):
     """Config-shape schema for the ``celery`` task-queue driver.
 
     The driver reads ``broker`` (message broker URL) and ``backend`` (result
-    backend URL); the kernel fills both from ``BROKER_URL`` / ``CACHE_URL``
-    when the configuration leaves them out. ``dedupe_ttl_seconds`` is the
+    backend URL), both options of the instance (``INFRA.taskqueue.<name>``);
+    the kernel still fills what the instance leaves out from the optional flat
+    settings ``BROKER_URL`` / ``CACHE_URL`` while they exist, and an instance
+    with no ``broker`` refuses startup. ``dedupe_ttl_seconds`` is the
     replay window of the kernel's enqueue dedupe for this instance.
     ``extra="forbid"`` rejects a typo'd key at startup.
     """
@@ -117,8 +130,9 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
     contract_version = 2
     supported_features = CELERY_TASKQUEUE_FEATURES
     options_schema = CeleryTaskQueueOptions
-    # ``BROKER_URL`` is the broker and ``CACHE_URL`` the result backend; the
-    # probe bound is ``HEALTH_CHECK_TIMEOUT_SECONDS``, and never above it.
+    # The optional flat ``BROKER_URL`` fills the broker and ``CACHE_URL`` the
+    # result backend of an instance that states none; the probe bound is
+    # ``HEALTH_CHECK_TIMEOUT_SECONDS``, and never above it.
     settings_fill = SettingsFill(
         urls={"broker": "broker_url", "backend": "cache_url"},
         bounds={"health_timeout_seconds": "health_check_timeout_seconds"},
@@ -357,9 +371,11 @@ def _build_celery_taskqueue(cls: type[_Q], cfg: InstanceConfig) -> _Q:
     ``from_config`` returns the subclass)."""
     options = CeleryTaskQueueOptions.model_validate(cfg.options)
     if not options.broker:
-        raise ValueError(
-            f"celery taskqueue instance {cfg.name!r} needs the 'broker' option "
-            "(the kernel fills it from BROKER_URL)"
+        example = {"taskqueue": {cfg.name: {"broker": "redis://localhost:6379/1"}}}
+        raise MissingBrokerError(
+            f"celery taskqueue instance {cfg.name!r} has no 'broker' option: set "
+            f"the INFRA option taskqueue.{cfg.name}.broker, e.g. "
+            f"INFRA='{json.dumps(example)}'"
         )
     # No backend: no result backend (the framework stores no task result).
     broker, backend = options.broker, options.backend

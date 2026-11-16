@@ -226,7 +226,16 @@ def _redis_roles(config: Any, settings: Any) -> dict[str, list[str]]:
     for name, inst in sorted((config.get("eventbus") or {}).items()):
         if inst.driver not in ("streams", "redis"):
             continue
-        url = inst.options.get("url") or settings.cache_url
+        # A bus with no url of its own runs on the default cache client, so its
+        # data lives where ``cache.default`` points (INFRA), else ``CACHE_URL``.
+        default_cache = (config.get("cache") or {}).get("default")
+        url = (
+            inst.options.get("url")
+            or (default_cache.options.get("url") if default_cache else None)
+            or settings.cache_url
+        )
+        if not url:  # ``CACHE_URL`` is optional: no url, no Redis to back up
+            continue
         roles.setdefault(url, []).append(f"eventbus:{name} ({inst.driver})")
     for name, inst in sorted((config.get("taskqueue") or {}).items()):
         broker = inst.options.get("broker")

@@ -418,7 +418,9 @@ class Settings(
 
     @field_validator("cache_url", "broker_url")
     @classmethod
-    def _redis_dsn_ok(cls, v: str) -> str:
+    def _redis_dsn_ok(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
         if not (v.startswith("redis://") or v.startswith("rediss://")):
             raise ValueError(
                 "CACHE_URL/BROKER_URL must start with redis:// or rediss://"
@@ -753,8 +755,10 @@ class Settings(
 _LOAD_LOCK = threading.Lock()
 
 
-#: The service URLs ``sandloom dev up`` writes into a new app's ``.env``.
-_DEV_SERVICE_URLS = ("DATABASE_URL", "CACHE_URL", "BROKER_URL")
+#: The service URLs a new app cannot start without, and ``sandloom dev up`` writes
+#: into its ``.env`` (``CACHE_URL`` / ``BROKER_URL`` are optional: a Redis or
+#: Celery driver takes its url from ``INFRA``).
+_DEV_SERVICE_URLS = ("DATABASE_URL",)
 
 
 def _hint(error: ValidationError) -> str:

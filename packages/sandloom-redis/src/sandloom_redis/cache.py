@@ -55,7 +55,7 @@ from sandloom.driverkit import (
 from sandloom.driverkit.atomic_store import MAX_KEY_BYTES, MAX_TTL_SECONDS
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_redis._errors import map_redis_error
-from sandloom_redis._settings_fill import CACHE_FILL
+from sandloom_redis._settings_fill import CACHE_FILL, require_url
 
 #: Redis / socket failures of cache operations (a caller's ValueError or
 #: TypeError is not counted), by instance and operation.
@@ -127,6 +127,18 @@ def configure_default_client(
         _default_options = options
 
 
+def default_client_url() -> str | None:
+    """The url the process-wide ``default`` client is configured with, or
+    ``None`` (no options yet, or options with no url)."""
+    return _default_options.url if _default_options is not None else None
+
+
+def has_default_client() -> bool:
+    """Whether a default client already exists (one injected for a test or an
+    operator, or built): it needs no url of its own."""
+    return _default_client is not None
+
+
 def _running_loop() -> asyncio.AbstractEventLoop | None:
     try:
         return asyncio.get_running_loop()
@@ -164,13 +176,8 @@ def client_options(options: RedisCacheOptions) -> dict[str, Any]:
     }
 
 
-def _url_of(options: RedisCacheOptions) -> str:
-    if not options.url:
-        raise ValueError(
-            "redis cache instance has no 'url' option (the kernel fills it from "
-            "CACHE_URL; a provider built by hand passes it)"
-        )
-    return options.url
+def _url_of(options: RedisCacheOptions, instance: str = DEFAULT_INSTANCE) -> str:
+    return require_url("cache", instance, options.url)
 
 
 def _build_client(options: RedisCacheOptions) -> Any:
@@ -432,6 +439,13 @@ class RedisCacheProvider(CacheProvider):
     def from_config(cls, config: InstanceConfig) -> Self:
         return _build_redis_cache(cls, config)
 
+    async def aopen(self) -> None:
+        # Startup refuses an instance with no url, naming its INFRA option,
+        # before the first connection (``InfraRegistry.aopen_all``). It opens
+        # no connection itself: a provider built by hand passes its url, or a
+        # client, as before.
+        _url_of(RedisCacheOptions.model_validate(self.options), self.name)
+
     def __init__(
         self,
         *,
@@ -483,7 +497,9 @@ class RedisCacheProvider(CacheProvider):
             stale, self._client = self._client, None
             await _close_quietly(stale)
         if self._client is None:
-            self._client = _build_client(RedisCacheOptions.model_validate(self.options))
+            options = RedisCacheOptions.model_validate(self.options)
+            _url_of(options, self.name)  # names this instance's INFRA option
+            self._client = _build_client(options)
             self._client_loop = loop
         return self._client
 

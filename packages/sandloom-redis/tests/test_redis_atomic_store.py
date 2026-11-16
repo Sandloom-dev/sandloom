@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 import pytest
+from sandloom_redis._settings_fill import MissingUrlError
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
 from sandloom.core.config.settings import settings
@@ -234,10 +235,17 @@ async def test_an_unreachable_server_is_unavailable_at_aopen() -> None:
     await provider.aclose()
 
 
-async def test_a_missing_url_is_an_invalid_argument() -> None:
+async def test_a_missing_url_refuses_startup_naming_the_infra_option() -> None:
+    provider = RedisAtomicStoreProvider(name="x", driver="redis", options={})
+    with pytest.raises(MissingUrlError, match=r"atomic_store\.x\.url") as caught:
+        await provider.aopen()
+    assert caught.value.fatal_at_startup is True
+
+
+async def test_an_operation_with_no_url_is_still_an_invalid_argument() -> None:
     provider = RedisAtomicStoreProvider(name="x", driver="redis", options={})
     with pytest.raises(InvalidArgument, match="url"):
-        await provider.aopen()
+        await provider.get("k")
 
 
 @pytest.mark.parametrize(

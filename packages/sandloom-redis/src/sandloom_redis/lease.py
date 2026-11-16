@@ -56,7 +56,7 @@ from sandloom.driverkit.lease_limits import (
 )
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_redis._errors import map_redis_error, redis_error_kind
-from sandloom_redis._settings_fill import LEASE_FILL
+from sandloom_redis._settings_fill import LEASE_FILL, require_url
 
 #: The accepted risk that lets ``never_evicts_check=assume`` run in production.
 UNVERIFIED_NOEVICTION_RISK = "unverified_noeviction"
@@ -307,6 +307,8 @@ class RedisLeaseProvider(LeaseProvider):
 
     # ----------------------------------------------------------- lifecycle
     async def aopen(self) -> None:
+        if self._client_factory is None:  # a client of its own needs the url
+            require_url("lease", self.name, self._opts.url)
         await self._ready()
 
     async def aclose(self) -> None:

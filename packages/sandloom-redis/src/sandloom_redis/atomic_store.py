@@ -72,7 +72,7 @@ from sandloom.driverkit.atomic_store import (
     check_value,
 )
 from sandloom_redis._errors import map_redis_error, redis_error_kind
-from sandloom_redis._settings_fill import ATOMIC_STORE_FILL
+from sandloom_redis._settings_fill import ATOMIC_STORE_FILL, require_url
 
 #: Failed operations of the store (connection, timeout, server error), by
 #: instance and operation: the page-level alert on the security store reads it.
@@ -554,6 +554,8 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
 
     async def aopen(self) -> None:
         self._refusal = None
+        if self._client_factory is None:  # a client of its own needs the url
+            require_url("atomic_store", self.name, self._options.url)
         mode = self._options.never_evicts_check
         if mode == "assume" and not (
             self._assume_allowed is not None and self._assume_allowed()
