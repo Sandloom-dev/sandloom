@@ -35,12 +35,17 @@ from sandloom.core.tests.test_production_profile import _BASE as _STRICT_BASE
 
 pytestmark = pytest.mark.slow
 
+_REDIS_URL = "redis://localhost:6379/0"
+
 _DEV_BASE: dict[str, Any] = {
     "ENVIRONMENT": "dev",
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost:5432/boot_checks_test",
     "INFRA": json.dumps(
         {
             "cache": {"default": {"url": "redis://localhost:6379/0"}},
+            "broadcast": {"default": {"driver": "redis", "url": _REDIS_URL}},
+            "lease": {"beat": {"driver": "redis", "url": _REDIS_URL}},
+            "atomic_store": {"security": {"driver": "redis", "url": _REDIS_URL}},
             "taskqueue": {"default": {"broker": "redis://localhost:6379/1"}},
         }
     ),

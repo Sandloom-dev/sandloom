@@ -108,6 +108,9 @@ def _script(venv: Path, name: str) -> Path:
 def _smoke_environment() -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith("SANDLOOM_")}
     env.pop("VIRTUAL_ENV", None)
+    # A checkout's test seed (``.env.test``) states url-only instances that a
+    # kernel-only install cannot complete with a driver: the smoke selects none.
+    env.pop("INFRA", None)
     return {**env, **SMOKE_ENV}
 
 
