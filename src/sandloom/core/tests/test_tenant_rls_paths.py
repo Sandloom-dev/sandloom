@@ -465,28 +465,70 @@ async def test_hook_creates_no_reference_cycles(rls: _Env) -> None:
     """The per-transaction state must not create cyclic garbage (a first
     version kept the RootTransaction on the Connection: +5 cyclic objects per
     request → more GC pauses, worse p99)."""
+    import asyncio
     import gc
+    import weakref
+    from unittest import mock
 
-    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-    async def cycles(sessions: Any) -> int:
-        for _ in range(5):  # warm-up
-            async with sessions() as s, s.begin():
-                await rls.names(s)
-        gc.collect()
-        gc.disable()
-        try:
-            for _ in range(50):
-                async with sessions() as s, s.begin():
-                    await rls.names(s)
-            return gc.collect()
-        finally:
-            gc.enable()
+    # Not a count of ``gc.collect()``'s result: under xdist that also counts
+    # cyclic garbage of other tests (a session-wide event loop keeps their
+    # tasks and engines alive), which flaked this test. Instead, follow the
+    # objects the hook could tie into a cycle (the Connection, its
+    # RootTransaction, every ExecutionContext) with weak references, with the
+    # collector off: refcounting alone frees an object that is in no cycle, so
+    # a survivor is a cycle that THIS transaction made, whatever else is
+    # garbage meanwhile.
+    async def survivors(engine: AsyncEngine, sessions: Any) -> list[str]:
+        dialect = engine.sync_engine.dialect
+        original = dialect.do_execute
+        probes: list[tuple[str, weakref.ref[Any]]] = []
+
+        def spy(
+            cursor: Any, statement: Any, parameters: Any, context: Any = None
+        ) -> Any:
+            if context is not None:
+                probes.append(("execution context", weakref.ref(context)))
+            return original(cursor, statement, parameters, context)
+
+        with mock.patch.object(dialect, "do_execute", spy):
+            gc.disable()
+            try:
+                for _ in range(20):
+                    async with sessions() as s, s.begin():
+                        await rls.names(s)
+                        sync_conn = (await s.connection()).sync_connection
+                        assert sync_conn is not None
+                        probes.append(("connection", weakref.ref(sync_conn)))
+                        tx = sync_conn.get_transaction()
+                        assert tx is not None
+                        probes.append(("root transaction", weakref.ref(tx)))
+                        del sync_conn, tx
+                    del s
+                return sorted({name for name, ref in probes if ref() is not None})
+            finally:
+                gc.enable()
 
     plain_sessions = async_sessionmaker(rls.unhooked, expire_on_commit=False)
     with bind_tenant(TENANT_A):
-        # min of two windows: unrelated garbage finalised meanwhile (other
-        # tests' engines) must not flake it; the cycle bug was 6 per txn.
-        hooked = min([await cycles(rls.sessions), await cycles(rls.sessions)])
-        plain = min([await cycles(plain_sessions), await cycles(plain_sessions)])
-    assert hooked <= plain + 10, (hooked, plain)
+        await survivors(rls.app_engine, rls.sessions)  # warm-up: pool, caches
+        # The control: the same probes on an engine without the hook free
+        # everything. If this fails the harness is wrong, not the hook.
+        assert await survivors(rls.unhooked, plain_sessions) == []
+        # Unrelated cyclic garbage made on the same loop meanwhile (what other
+        # tests leave running under xdist) must not count against the hook.
+        stop = False
+
+        async def noise() -> None:
+            while not stop:
+                a: list[Any] = []
+                a.append(a)
+                await asyncio.sleep(0)
+
+        noisy = asyncio.create_task(noise())
+        try:
+            assert await survivors(rls.app_engine, rls.sessions) == []
+        finally:
+            stop = True
+            await noisy

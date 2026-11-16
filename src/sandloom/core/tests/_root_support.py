@@ -49,6 +49,29 @@ def suite_infra_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
     return {"INFRA": json.dumps(infra)}
 
 
+def redis_free_infra_env() -> dict[str, str]:
+    """The ``INFRA`` a child that boots a GENERATED app needs without
+    ``sandloom-redis``: the app's own selection names the Redis drivers
+    (``sandloom new``: cache, broadcast, security store, beat lease), which a
+    venv without them cannot build (SANDLOOM-B037, the ``kernel-without-redis``
+    CI step). ``INFRA`` overrides them per instance with the kernel's
+    ``memory`` drivers; with ``sandloom-redis`` installed it is ``{}`` and the
+    app runs on its own drivers."""
+    if importlib.util.find_spec("sandloom_redis") is not None:
+        return {}
+    memory = {"driver": "memory"}
+    return {
+        "INFRA": json.dumps(
+            {
+                "cache": {"default": memory},
+                "broadcast": {"default": memory},
+                "atomic_store": {"security": memory},
+                "lease": {"beat": memory},
+            }
+        )
+    }
+
+
 #: The drivers a child process that boots the lean root (``import sandloom.main``,
 #: ``sandloom worker`` with no ``SANDLOOM_COMPOSITION_ROOT``) selects through
 #: ``INFRA``: the lean root names none, whatever is installed. Flat settings
