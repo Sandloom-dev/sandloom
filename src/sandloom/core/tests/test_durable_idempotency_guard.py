@@ -38,7 +38,7 @@ from sandloom.core.sql_alchemy.uow import SQLAlchemyUnitOfWork
 from sandloom.core.tasks.relay import purge_expired_requests
 from sandloom.core.testing import make_user_headers
 from sandloom.core.testing.fixtures import *  # noqa: F403 - DB/app fixtures for this module
-from sandloom.core.testing.infra import override_instance
+from sandloom.core.testing.infra import override_instance, resolved_cache_url
 from sandloom.shared.guards.auth import get_current_user_id
 
 pytestmark = pytest.mark.usefixtures("db_engine")
@@ -131,14 +131,12 @@ class _App:
 @pytest_asyncio.fixture
 async def durable(sandloom_core: Any) -> AsyncIterator[tuple[_App, httpx.AsyncClient]]:
     async with AsyncExitStack() as stack:
-        for capability, env, driver in (
-            ("database", "DATABASE_URL", "sqlalchemy"),
-            ("cache", "CACHE_URL", "redis"),
+        for capability, url, driver in (
+            ("database", os.environ["DATABASE_URL"], "sqlalchemy"),
+            ("cache", resolved_cache_url(), "redis"),
         ):
             await stack.enter_async_context(
-                override_instance(
-                    sandloom_core, capability, driver=driver, url=os.environ[env]
-                )
+                override_instance(sandloom_core, capability, driver=driver, url=url)
             )
         target = _App(sandloom_core)
         http = await stack.enter_async_context(

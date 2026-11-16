@@ -145,7 +145,10 @@ def test_slot_names() -> None:
 def _load(start: Path, **exported: str) -> dict[str, str]:
     with mock.patch.dict(os.environ, clear=False):
         for key in list(os.environ):
-            if key.startswith("SANDLOOM_TEST_") or key == "PYTEST_XDIST_WORKER":
+            if key.startswith("SANDLOOM_TEST_") or key in {
+                "PYTEST_XDIST_WORKER",
+                "INFRA",
+            }:
                 del os.environ[key]
         os.environ.update(exported)
         test_env.load_test_env([start], create_database=False)
@@ -155,15 +158,25 @@ def _load(start: Path, **exported: str) -> dict[str, str]:
 def test_env_test_local_is_loaded_beside_env_test_without_overriding(
     tmp_path: Path,
 ) -> None:
-    (tmp_path / ".env.test").write_text("ENVIRONMENT=test\n")
+    infra = {"cache": {"default": {"driver": "redis", "url": "redis://file:6379/15"}}}
+    (tmp_path / ".env.test").write_text(
+        f"ENVIRONMENT=test\nINFRA='{json.dumps(infra)}'\n"
+    )
     (tmp_path / ".env.test.local").write_text(
         "SANDLOOM_TEST_CACHE_URL=redis://127.0.0.1:24004/15\n"
     )
+
+    def cache_url(env: dict[str, str]) -> str:
+        return str(json.loads(env["INFRA"])["cache"]["default"]["url"])
+
     loaded = _load(tmp_path)
     assert loaded["SANDLOOM_TEST_CACHE_URL"] == "redis://127.0.0.1:24004/15"
-    assert loaded["CACHE_URL"] == "redis://127.0.0.1:24004/15"
+    # the override replaces the url the INFRA of .env.test declares
+    assert cache_url(loaded) == "redis://127.0.0.1:24004/15"
+    assert "CACHE_URL" not in loaded
     exported = _load(tmp_path, SANDLOOM_TEST_CACHE_URL="redis://127.0.0.1:1/3")
     assert exported["SANDLOOM_TEST_CACHE_URL"] == "redis://127.0.0.1:1/3"
+    assert cache_url(exported) == "redis://127.0.0.1:1/3"
 
 
 def test_a_nested_worktree_never_reads_the_outer_env_test_local(

@@ -56,18 +56,19 @@ x-app-env: &app-env
   # Labels consumer ids, the subscription inventory and diagnostics.
   SANDLOOM_SERVICE_NAME: sandloom
   DATABASE_URL: postgresql+asyncpg://sandloom:sandloom@db:5432/sandloom
-  CACHE_URL: redis://redis:6379/0
-  # The security store (revocation marks, blocks, RPC nonces, idempotency
-  # records): the persistent, non-evicting `redis` service below. The strict
-  # production profile wants its own Redis (docs/advanced/security-model.md).
-  INFRA: '{"atomic_store": {"security": {"driver": "redis", "url": "redis://redis:6379/0"}}}'
-  BROKER_URL: redis://redis:6379/1
+  # Every Redis instance states its own url (nothing is inherited from another
+  # instance): the cache, the Streams event bus, the broadcast, the beat lease
+  # and the security store (revocation marks, blocks, RPC nonces, idempotency
+  # records) are on the persistent, non-evicting `redis` service below, the
+  # Celery broker on its database 1. The strict production profile wants its
+  # own Redis for the security store (docs/advanced/security-model.md).
+  INFRA: '{"cache": {"default": {"url": "redis://redis:6379/0"}}, "eventbus": {"default": {"url": "redis://redis:6379/0"}}, "broadcast": {"default": {"url": "redis://redis:6379/0"}}, "lease": {"beat": {"url": "redis://redis:6379/0"}}, "atomic_store": {"security": {"driver": "redis", "url": "redis://redis:6379/0"}}, "taskqueue": {"default": {"broker": "redis://redis:6379/1"}}}'
   # Opt-in (off by default): idempotency records (idempotency_guard, task
   # enqueue dedupe) on their own Redis instead of the security store, so their
   # fsyncs never queue the hot revocation-mark reads (deploy/README.md ->
   # "Separate idempotency Redis"). Enable together with the idempotency-redis
   # service below, identically in EVERY process; replace the INFRA above:
-  # INFRA: '{"atomic_store": {"security": {"driver": "redis", "url": "redis://redis:6379/0"}, "idempotency": {"driver": "redis", "url": "redis://idempotency-redis:6379/0"}}}'
+  # INFRA: '{"cache": {"default": {"url": "redis://redis:6379/0"}}, "eventbus": {"default": {"url": "redis://redis:6379/0"}}, "broadcast": {"default": {"url": "redis://redis:6379/0"}}, "lease": {"beat": {"url": "redis://redis:6379/0"}}, "atomic_store": {"security": {"driver": "redis", "url": "redis://redis:6379/0"}, "idempotency": {"driver": "redis", "url": "redis://idempotency-redis:6379/0"}}, "taskqueue": {"default": {"broker": "redis://redis:6379/1"}}}'
   # Every listed module is REQUIRED (MODULE_REQUIRED empty + explicit
   # SANDLOOM_MODULES): one that fails to import aborts startup.
   # Auth / notifier / past-due settings: same names and defaults as the

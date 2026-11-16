@@ -91,10 +91,15 @@ def test_decode_token_never_raises_on_key_errors(
     assert tokens.decode_token(unsigned) is None
 
 
-def test_s3_storage_fails_fast_at_startup() -> None:
+def test_s3_storage_fails_fast_at_startup(monkeypatch: pytest.MonkeyPatch) -> None:
     from sandloom.core.drivers.bootstrap import build_infra_registry
     from sandloom.core.infra.registry import InfraRegistryError
     from sandloom.core.schema.registry import InMemorySchemaRegistry
+
+    # Settings deep-merges the process INFRA (.env.test: the suite's Redis
+    # instances, whose driver packages this registry does not load) into the
+    # one below: the refusal under test is the objectstore's alone.
+    monkeypatch.delenv("INFRA", raising=False)
 
     cfg = _settings(
         JWT_SECRET="x",

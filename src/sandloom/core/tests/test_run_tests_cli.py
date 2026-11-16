@@ -145,13 +145,14 @@ def test_the_test_env_is_dotenv_test_with_sandloom_test_overrides_on_top(
 
     project = tmp_path / "proj"
     project.mkdir()
+    infra = {"taskqueue": {"default": {"driver": "celery", "broker": "redis://file/1"}}}
     (project / ".env.test").write_text(
-        "BROKER_URL=redis://file:6379/1\nSANDLOOM_DXPROBE=from-file\n"
+        f"INFRA='{json.dumps(infra)}'\nSANDLOOM_DXPROBE=from-file\n"
     )
     env = {
         k: v
         for k, v in os.environ.items()
-        if k not in {"BROKER_URL", "SANDLOOM_DXPROBE", "PYTEST_XDIST_WORKER"}
+        if k not in {"INFRA", "SANDLOOM_DXPROBE", "PYTEST_XDIST_WORKER"}
         and not k.startswith("SANDLOOM_TEST_")
     }
     env["SANDLOOM_TEST_BROKER_URL"] = "redis://override:6379/2"
@@ -159,7 +160,8 @@ def test_the_test_env_is_dotenv_test_with_sandloom_test_overrides_on_top(
         "import json, os, pathlib\n"
         "from sandloom.core.cli.run_tests import load_project_test_env\n"
         f"load_project_test_env(pathlib.Path({str(project)!r}))\n"
-        "print(json.dumps({k: os.environ.get(k) for k in ('BROKER_URL', 'SANDLOOM_DXPROBE')}))"
+        "broker = json.loads(os.environ['INFRA'])['taskqueue']['default']['broker']\n"
+        "print(json.dumps({'broker': broker, 'probe': os.environ.get('SANDLOOM_DXPROBE')}))"
     )
     proc = subprocess.run(
         [sys.executable, "-c", code],
@@ -169,10 +171,8 @@ def test_the_test_env_is_dotenv_test_with_sandloom_test_overrides_on_top(
         check=True,
     )
     loaded = json.loads(proc.stdout.strip().splitlines()[-1])
-    assert loaded == {
-        "BROKER_URL": "redis://override:6379/2",
-        "SANDLOOM_DXPROBE": "from-file",
-    }
+    # the override replaced the broker INFRA declares; the flat name is not set
+    assert loaded == {"broker": "redis://override:6379/2", "probe": "from-file"}
     assert run_tests.load_project_test_env(tmp_path / "nowhere") is None
 
 

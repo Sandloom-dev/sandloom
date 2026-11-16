@@ -1197,17 +1197,13 @@ def test_the_cli_prints_one_line_and_debug_shows_the_traceback(
     env = {
         k: v
         for k, v in os.environ.items()
-        if not k.startswith(("SANDLOOM_", "DATABASE_URL", "CACHE_URL", "BROKER_URL"))
+        if not k.startswith(("SANDLOOM_", "DATABASE_URL"))
     }
     env.update(
         DATABASE_URL="postgresql+asyncpg://u:p@127.0.0.1:1/x",
         JWT_SECRET="x" * 64,
         ENVIRONMENT="dev",
         SANDLOOM_HOME=str(tmp_path / "home"),
-        # Read by the support helper below (tests/_root_support.py, which the
-        # slice that moves the suite onto INFRA owns), not by the child.
-        CACHE_URL="redis://127.0.0.1:2/0",
-        BROKER_URL="redis://127.0.0.1:2/1",
         # The stderr oracle below filters the human-readable log format.
         LOG_FORMAT="text",
         # stripped above with the other SANDLOOM_*: the child composes the

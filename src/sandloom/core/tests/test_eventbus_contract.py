@@ -131,15 +131,18 @@ def test_the_kernel_leaves_the_retention_options_to_the_instance() -> None:
         capability="eventbus", name="default", driver="streams", options={}
     )
     config: InfraConfig = {"eventbus": {"default": cfg}}
-    url_only = SettingsFill(urls={"url": "cache_url"})
+    probe_only = SettingsFill(
+        bounds={"probe_timeout_seconds": "health_check_timeout_seconds"}
+    )
 
     def fill_for(capability: str, driver: str) -> SettingsFill | None:
         assert (capability, driver) == ("eventbus", "streams")
-        return url_only
+        return probe_only
 
-    settings = SimpleNamespace(cache_url="redis://x/0")
+    settings = SimpleNamespace(health_check_timeout_seconds=2.0)
     fill_driver_defaults(config, settings, fill_for)
-    assert cfg.options["url"] == "redis://x/0"  # the fill ran: it is the url only
+    # the fill ran: it is the probe's bound only, no url and no retention
+    assert cfg.options == {"probe_timeout_seconds": 2.0}
     for option in ("retention_seconds", "max_length", "prefix"):
         assert option not in cfg.options
     own = InstanceConfig(
