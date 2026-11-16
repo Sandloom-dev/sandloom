@@ -3249,6 +3249,8 @@
     "RELEASE_READINESS.md": "Internal maintainer checklist and operational evidence; excluded from source distributions.",
     "tools/agent_reference.py": "Prints the owner's fleet-agent reference sections (the sandloom-registries, -ci-map, -kernel-map, -infra-map and -plan skills run it); not part of the framework's public source.",
     "tests/architecture/test_agent_reference.py": "Tests of the owner's fleet-agent reference script; not part of the framework's public source.",
+    "tools/outline.py": "The owner's fleet-agent outline command (classes, signatures and headings of a file with line ranges); not part of the framework's public source.",
+    "tests/architecture/test_outline.py": "Tests of the owner's fleet-agent outline command; not part of the framework's public source.",
     "packages/REMAINING.md": "Completed historical packaging follow-up; current package tiers/builds are in packages/README.md.",
     "docs/ACCESS.md": "Superseded backend-local documentation; canonical SDK/concept/guides pages are included.",
     "docs/CORE_FACADE_REFERENCE.md": "Superseded backend-local documentation; canonical SDK/concept/guides pages are included.",
