@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
+from typing import Any
 
 AREAS = frozenset(
     {
@@ -23,11 +24,13 @@ AREAS = frozenset(
         "dependency_review",
         # What the production image is built from (not tests, tooling or docs).
         "image",
+        # Python only the backend-static mypy run reads (tools/, .claude/hooks/).
+        "typecheck",
     }
 )
 ALWAYS = {"changes", "workflow-policy"}
 AREA_JOBS = {
-    "backend-static": ("backend",),
+    "backend-static": ("backend", "typecheck"),
     "supply-chain": ("backend",),
     "backend-tests": ("backend",),
     # The kernel suites with no module package importable (ADR-0012, KB-05).
@@ -82,7 +85,7 @@ REUSABLE_JOBS = (
 
 
 def check(
-    needs: Mapping,
+    needs: Mapping[str, Any],
     *,
     full_validation: bool,
     pull_request: bool,

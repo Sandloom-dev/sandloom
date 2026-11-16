@@ -82,6 +82,9 @@ jobs:
       packages: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || steps.filter.outputs.packages }}
       architecture: ${{ (inputs.full_validation || github.base_ref == 'arch/kernel-boundary') && 'true' || steps.filter.outputs.architecture }}
       dependency_review: ${{ inputs.full_validation && 'true' || steps.filter.outputs.dependency_review }}
+      # Python that only backend-static's mypy run reads (the fleet hooks, the
+      # repository tools outside the backend filter): no test suite for it.
+      typecheck: ${{ inputs.full_validation && 'true' || steps.filter.outputs.typecheck }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -108,6 +111,9 @@ jobs:
               - '.env.test'
               - '.github/workflows/release.yml'
               - '.github/workflows/ci.yml'
+            typecheck:
+              - 'tools/**/*.py'
+              - '.claude/hooks/*.py'
             admin:
               - 'tools/inspection/**'
               - 'admin/**'
@@ -241,7 +247,7 @@ jobs:
     # matrix (it used to be serialized in front of the suite). Its one service
     # is the PostgreSQL server the architecture tests' xdist workers need.
     needs: changes
-    if: ${{ needs.changes.outputs.backend == 'true' && !contains(fromJSON(inputs.reused_jobs || '[]'), 'backend-static') }}
+    if: ${{ (needs.changes.outputs.backend == 'true' || needs.changes.outputs.typecheck == 'true') && !contains(fromJSON(inputs.reused_jobs || '[]'), 'backend-static') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -316,7 +322,7 @@ jobs:
         run: uv run ruff format --check src/
 
       - name: Type checking
-        run: uv run mypy src/
+        run: uv run mypy src/ tools/ .claude/hooks/
 
       - name: Architecture tests
         env:

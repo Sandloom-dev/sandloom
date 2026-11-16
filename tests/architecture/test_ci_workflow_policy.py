@@ -232,13 +232,16 @@ def test_heavy_jobs_are_opt_in_and_still_runnable_locally(runner, name):
     ("path", "expected"),
     [
         ("docs/modules/between/contracts.md", {"docs"}),
-        ("tools/docs/docs_site.py", {"docs"}),
+        ("tools/docs/docs_site.py", {"docs", "typecheck"}),
+        # The fleet hooks: agent context (docs) and the backend-static mypy run,
+        # not the backend test suites.
+        (".claude/hooks/edit_check.py", {"docs", "typecheck"}),
         ("website/index.html", {"docs"}),
         (".github/branch-protection.json", set()),
         ("tools/packaging/public-source.json", set()),
         # The SQLite lane's own tooling runs the lane (backend).
-        ("tools/ci/ci_local.py", {"backend"}),
-        ("tools/smoke/quickstart_check.py", {"backend"}),
+        ("tools/ci/ci_local.py", {"backend", "typecheck"}),
+        ("tools/smoke/quickstart_check.py", {"backend", "typecheck"}),
         (
             "src/sandloom/core/unit_of_work/runtime.py",
             {"backend", "admin", "docs", "packages", "architecture"},
@@ -248,8 +251,11 @@ def test_heavy_jobs_are_opt_in_and_still_runnable_locally(runner, name):
             {"backend", "admin", "docs", "packages", "architecture"},
         ),
         ("tests/architecture/test_api_no_orm_leakage.py", {"backend", "architecture"}),
-        ("tools/packaging/package_build.py", {"backend", "packages", "architecture"}),
-        ("tools/checks/check_secrets.py", {"backend", "architecture"}),
+        (
+            "tools/packaging/package_build.py",
+            {"backend", "packages", "architecture", "typecheck"},
+        ),
+        ("tools/checks/check_secrets.py", {"backend", "architecture", "typecheck"}),
         ("migrations/core/0001_init.py", {"backend", "packages"}),
         (
             "pyproject.toml",
@@ -279,7 +285,7 @@ def test_heavy_jobs_are_opt_in_and_still_runnable_locally(runner, name):
         ),
         (
             "tools/checks/check_benchmark_dependencies.py",
-            {"backend", "architecture", "benchmarks"},
+            {"backend", "architecture", "benchmarks", "typecheck"},
         ),
     ],
 )

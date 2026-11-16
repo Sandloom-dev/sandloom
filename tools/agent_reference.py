@@ -174,6 +174,7 @@ _NOISE = (
 _SKIP_AREAS = ("benchmarks", "dependency_review")
 _SKIP_JOBS = (
     "kernel-without-batteries",
+    "kernel-without-redis",
     "redis-drivers",
     "celery-drivers",
     "supply-chain",
