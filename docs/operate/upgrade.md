@@ -113,6 +113,36 @@ guarantee needs lives on `atomic_store`. There is no alias for what leaves.
 
 Test a cache driver with `CacheConformance` from `sandloom.driverkit.testing`.
 
+## Upgrading a module to the task API
+
+`sandloom.sdk.tasks` carries Sandloom's own task API in place of Celery's, and the `taskqueue`
+contract is major 2 (`TaskQueueProvider.send` replaces `enqueue`).
+There is no alias for what it replaces.
+
+| Before | After |
+| --- | --- |
+| `@shared_task(name=..., acks_late=True, reject_on_worker_lost=True)` | `@task(at_least_once=True)`; drop `name=`: it must equal `<module>.<function>`. `at_least_once` needs the driver feature `redelivery` |
+| `setup_periodic_tasks(sender)` and a Celery `crontab` | `@periodic(cron="<five fields, UTC>", id="<module>.<job>")` on a function without arguments. 300 s is `*/5 * * * *`, 3600 s `0 * * * *`, 86400 s `0 3 * * *`: a fixed slot, not "24 h after the scheduler started" |
+| `task.delay(...)`, `.s`, `.si`, `.apply_async` | `await task.enqueue(Model(...), delay=timedelta(...), idempotency_key=...)` |
+| `taskqueue().enqueue(task, payload, delay_seconds=60)` | `taskqueue().enqueue(task, payload, delay=timedelta(seconds=60))` |
+| a module requirement or a driver declaring the feature `idempotency_key` | Drop it: the kernel serves the key on every driver through the `idempotency` `atomic_store`, and fails closed without one |
+
+Four behaviours change with it:
+
+1. An enqueue by name (`taskqueue().enqueue("<pkg>.tasks.<name>", ...)`) is checked against the
+   task declarations of the enqueuing process, so `<pkg>.tasks` must be imported there or the
+   call raises `InvalidArgument`. In a split deployment the web service imports the tasks
+   module of every task it enqueues by name. A module enqueues its own tasks; work in another
+   module goes through events or contracts.
+2. The task goes to the queue the task declares (`@task(queue="slow")`), also from a process
+   that never booted the worker table, such as the API process. It used to land in the
+   default queue.
+3. The dedupe namespace of an enqueue follows the driver's `isolation_identity()`. A key in
+   flight at the upgrade is not recognised afterwards: drain the queue, or accept one repeat
+   of a keyed enqueue sent before it.
+4. The duplicate check of a `@periodic` `id` is per process, not per deployment: keep ids
+   unique across your modules (`<module>.<job>`).
+
 ## Upgrading a task queue driver or a Celery command to the worker host
 
 The worker and the scheduler are the `taskqueue` driver's host

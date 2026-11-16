@@ -859,7 +859,10 @@ def _resolved_options(cfg: Any, capability: str) -> dict[str, Mapping[str, Any]]
     resolves them: the composition's selection under ``INFRA``, not ``INFRA``
     alone (a ``DEFAULT_INFRA`` pin that sets ``use_tls`` false is a choice too).
 
-    Reached by name: ``infra`` sits above this leaf (ADR-0007). A malformed
+    Reached by name: ``infra`` sits above this leaf (ADR-0007). Accepted as it
+    is: the only other shape is a resolver ``infra`` registers into this leaf, a
+    hidden global that fails open when nothing registered, for one read at
+    startup; the import is lazy, so the leaf imports nothing above it. A malformed
     ``INFRA`` falls back to what the setting itself declares: loading the
     configuration refuses it, with its own message, at startup."""
     infra_config = importlib.import_module("sandloom.core.infra.config")

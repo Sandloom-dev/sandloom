@@ -1588,8 +1588,12 @@ class InfraRegistry:
         failures: list[str] = []
         unavailable = False
         await self._close_retired()
-        for capability, instances in self._config.items():
-            for name in instances:
+        # ``cache`` opens first whatever order INFRA lists the capabilities in:
+        # a url-less event bus runs on the default cache client, which the
+        # ``cache.default`` instance configures when it is built, so a bus
+        # opened before it would be refused for a url that is there.
+        for capability in sorted(self._config, key=lambda c: c != "cache"):
+            for name in self._config[capability]:
                 if self._unused(capability, name):
                     logger.debug(
                         "[infra] %s/%s is a synthesized default nothing requires: "

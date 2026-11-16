@@ -153,7 +153,13 @@ def register(
 def unregister(capability: str, instance: str, role: Role) -> None:
     """The instance closed: forget it and the pairs logged for it, so a later
     app in the same process neither warns about it nor stays silent about a
-    new pair. Unknown instance: nothing happens."""
+    new pair. Unknown instance: nothing happens.
+
+    The key is ``(capability, instance, role)`` and carries no app: two apps in
+    one process that register the same names share one entry, and the first to
+    close forgets it for both. A process runs one app, so the kernel never does
+    this; a harness that builds several apps in one process calls :func:`reset`
+    between them."""
     key = (capability, instance)
     _entries[role].pop(key, None)
     position = 0 if role == "persistent" else 1

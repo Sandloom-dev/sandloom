@@ -117,7 +117,9 @@ subagent): pass no actor on tm calls.
   `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`,
   `SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER` (your alias) in the
   same command, `env SANDLOOM_TEST_OWNER=<alias> … uv run pytest … -q`: no
-  env file, no `source`.
+  env file, no `source`. This repository's `.env.test` declares a Redis url for
+  both `cache.default` and `taskqueue.default`, so both overrides apply here;
+  the harness refuses one for a capability `INFRA` declares no url for.
 - Never run `ruff check` on the whole repository: pyproject has `fix = true`.
   Lint the paths you changed, or pass `--no-fix`.
 - A failure prints a code: `uv run sandloom explain <code>`. A name's
