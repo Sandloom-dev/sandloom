@@ -280,9 +280,11 @@ async def test_only_a_cluster_redirect_carries_the_hint(
 def test_the_mapping_works_on_a_kernel_whose_infra_error_has_no_hint_keyword(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The package pins an older kernel (``sandloom>=0.7.0a13``): ``InfraError``
-    there rejects ``hint=``, and a ``TypeError`` out of the mapping would reach
-    the relay as poison on an outage. The hint is set as an attribute."""
+    """The hint is set as an attribute, from when the package also supported
+    ``sandloom>=0.7.0a13`` (an ``InfraError`` that rejects ``hint=``): a
+    ``TypeError`` out of the mapping would reach the relay as poison on an
+    outage. The floor is ``>=0.7.0a14``, which has ``hint``, so this guards a
+    fallback that is dead; it goes with the fallback."""
 
     def old_init(
         self: InfraError, message: str, *, capability: str, instance: str | None = None

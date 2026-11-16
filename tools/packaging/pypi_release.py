@@ -36,6 +36,8 @@ Api = Callable[[str], Any]
 #: The distributions, from the one list (``packages.json``).
 PACKAGES = release_packages.NAMES
 VERSION = re.compile(r"\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?")
+#: GitHub refuses a release body over 125,000 characters.
+NOTES_LIMIT = 125_000
 
 
 REQUIREMENT_NAME = re.compile(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
@@ -156,6 +158,8 @@ def plan_release(
         raise ValueError("A coordinated release requires matching package versions")
     # Before any build: a dry run fails on a fragment that is not folded too.
     refuse_unfolded_fragments(root, selected)
+    # Also before any build: the notes must fit the GitHub release body.
+    check_release_notes_size(root, selected, versions[selected[0]])
     if publish:
         refuse_unpublished_siblings(projects, versions, selected, on_pypi)
     return {"packages": selected, "versions": versions, "publish": publish}
@@ -218,14 +222,8 @@ def select_artifacts(plan: JSON, artifacts: Path, output: Path) -> JSON:
     manifest = {"source_sha": os.environ.get("GITHUB_SHA", ""), "files": rows}
     (output / "release-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     (output / "SHA256SUMS").write_text(checksum_text(rows))
-    project = plan["packages"][0] if len(plan["packages"]) == 1 else None
-    changelog = (
-        Path.cwd() / "packages" / project / "CHANGELOG.md"
-        if project
-        else Path.cwd() / "CHANGELOG.md"
-    )
-    version = versions[plan["packages"][0]]
-    (output / "release-notes.md").write_text(changelog_section(changelog, version))
+    notes = release_notes(Path.cwd(), plan["packages"], versions[plan["packages"][0]])
+    (output / "release-notes.md").write_text(notes)
     for tool in ("pypi_release.py", "release_packages.py", "packages.json"):
         shutil.copyfile(Path(__file__).with_name(tool), output / tool)
     return manifest
@@ -329,6 +327,51 @@ def checksum_text(rows: list[JSON]) -> str:
     )
 
 
+class MissingNotesError(ValueError):
+    """The changelog has no section (or an empty one) for the version."""
+
+
+def notes_path(root: Path, packages: list[str]) -> Path:
+    """A single package's notes are its own changelog, a coordinated release's
+    the root ``CHANGELOG.md``."""
+    if len(packages) == 1:
+        return root / "packages" / packages[0] / "CHANGELOG.md"
+    return root / "CHANGELOG.md"
+
+
+def refuse_oversized_notes(path: Path, version: str, notes: str) -> None:
+    """The release is created after the PyPI upload: a body GitHub rejects
+    there would leave PyPI published and no release."""
+    if len(notes) > NOTES_LIMIT:
+        raise ValueError(
+            f"Release notes of {version} in {path.name} are {len(notes):,} "
+            f"characters, over the {NOTES_LIMIT:,} GitHub accepts in a release "
+            "body: shorten the section"
+        )
+
+
+def check_release_notes_size(root: Path, packages: list[str], version: str) -> None:
+    """The plan's check, before any build. A missing section is not judged
+    here: ``select_artifacts`` refuses it, on the reviewed artifacts."""
+    path = notes_path(root, packages)
+    if not path.is_file():
+        return
+    try:
+        notes = changelog_section(path, version)
+    except MissingNotesError:
+        return
+    refuse_oversized_notes(path, version, notes)
+
+
+def release_notes(root: Path, packages: list[str], version: str) -> str:
+    """The GitHub release body: the changelog section of the selected scope,
+    refused when missing or over ``NOTES_LIMIT``."""
+    path = notes_path(root, packages)
+    notes = changelog_section(path, version)
+    refuse_oversized_notes(path, version, notes)
+    return notes
+
+
 def changelog_section(path: Path, version: str) -> str:
     match = re.search(
         rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## |\Z)",
@@ -336,7 +379,7 @@ def changelog_section(path: Path, version: str) -> str:
         re.M | re.S,
     )
     if match is None or not match[1].strip():
-        raise ValueError(f"Missing changelog notes for {version}: {path.name}")
+        raise MissingNotesError(f"Missing changelog notes for {version}: {path.name}")
     return match[1].strip() + "\n"
 
 

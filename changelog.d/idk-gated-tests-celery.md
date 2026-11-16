@@ -1,3 +1,0 @@
-### Changed
-
-- **The Celery-driver tests leave the kernel suite** (idk-gated-tests-celery). The eleven kernel test files that imported `sandloom_celery`, `celery` or `redis` at module level, and so were skipped by the kernel-without-Redis step, are split. What exercised the `celery` driver now lives in `packages/sandloom-celery/tests`, and the `redis` / `streams` option-fill tests in `packages/sandloom-redis/tests`. The kernel keeps its own rules on the in-memory drivers or a recording stub driver, and the Redis-free SettingsFill engine tests in `test_driver_options_fill.py`. `tools/ci/no_redis_pending.json` lists no file any more and `CEILING_FILES` is 0. Test-only: no behaviour changes.
