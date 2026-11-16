@@ -469,7 +469,7 @@ def test_architecture_tests_of_backend_static_run_on_four_workers_with_a_server(
     for the tests, which keep their own checks)."""
     job = workflow("ci.yml")["jobs"]["backend-static"]
     step = next(s for s in job["steps"] if "tests/architecture" in s.get("run", ""))
-    assert "-n 4 --dist loadfile" in step["run"]
+    assert "-n 4 --dist load " in step["run"]
     service = job["services"]["postgres"]
     assert service["ports"] == ["5433:5432"]
     # The workers connect with the step's DATABASE_URL, not the job's dummy one
