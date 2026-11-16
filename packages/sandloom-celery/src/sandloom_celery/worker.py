@@ -47,7 +47,7 @@ import os
 import socket
 import threading
 import time
-from collections.abc import Callable, Coroutine, Sequence
+from collections.abc import Callable, Coroutine, Mapping, Sequence
 from datetime import UTC, datetime, tzinfo
 from pathlib import Path
 from typing import Any, Literal, NoReturn
@@ -273,14 +273,56 @@ _FOREIGN_CONNECTION_KEYS = (
     "broker_password",
 )
 
-# ``broker_use_ssl`` is the connection's TLS switch, and Celery hands a dict value
-# to kombu as ``ssl=``, which merges it into the redis connection parameters AFTER
+# ``broker_use_ssl`` is the connection's TLS switch, and Celery hands its value to
+# kombu as ``ssl=``. A dict is merged into the redis connection parameters AFTER
 # the url: ``{"host": ..., "port": ..., "password": ..., "virtual_host": ...}``
 # redirects the connection with the INFRA url untouched, and ``{"ssl_cert_reqs":
 # ssl.CERT_NONE}`` turns certificate verification off for a ``rediss://`` url that
-# states none. Only absent or a bool (Celery's own default is ``False``) is
-# accepted; TLS options belong in the query of the INFRA url.
+# states none. ``True`` is no safer: kombu then skips the TLS default of the
+# ``rediss://`` scheme, fails to merge ``True`` into the parameters, swallows the
+# error and connects in plain text, sending the url's password in the clear. Only
+# absent, ``None`` or ``False`` (Celery's own default) is accepted, tested by
+# identity; TLS comes from the scheme and the query of the INFRA url.
 _BROKER_SSL_KEY = "broker_use_ssl"
+
+# ``broker_transport_options`` and ``result_backend_transport_options`` are laid
+# over the connection parameters by kombu's amqp transport
+# (``pyamqp.establish_connection`` builds ``dict({host, userid, password, ssl,
+# ...}, **transport_options)``), so a key there redirects an ``amqp://`` broker or
+# turns its certificate checks off with the INFRA url untouched; the sentinel
+# transport takes ``master_name`` and ``sentinel_kwargs`` from them. An
+# allow-list, not a deny-list: only keys that tune a connection without moving it
+# (timeouts, keep-alive, pool size, key prefixes, retry and visibility settings)
+# are accepted. Any other key is refused, named only by the option that holds it.
+_TRANSPORT_OPTIONS_KEYS = (
+    "broker_transport_options",
+    "result_backend_transport_options",
+)
+_SAFE_TRANSPORT_OPTIONS = frozenset(
+    {
+        "visibility_timeout",
+        "polling_interval",
+        "global_keyprefix",
+        "sep",
+        "priority_steps",
+        "queue_order_strategy",
+        "socket_timeout",
+        "socket_connect_timeout",
+        "socket_keepalive",
+        "socket_keepalive_options",
+        "max_connections",
+        "health_check_interval",
+        "client_name",
+        "retry_policy",
+        "max_retries",
+        "interval_start",
+        "interval_step",
+        "interval_max",
+        "confirm_publish",
+        "fanout_prefix",
+        "fanout_patterns",
+    }
+)
 
 # What the redis result backend takes from the conf where its url omits the part
 # (``celery.backends.redis``): host, port, database, credentials, TLS options and a
@@ -303,12 +345,25 @@ def _foreign_conf_reason(option: str, instance: str) -> str:
     option and the INFRA option, never a value: a url carries a password."""
     if option == _BROKER_SSL_KEY:
         return (
-            "is not a plain boolean, and a dict there is merged into the broker "
-            f"connection after the url of taskqueue.{instance}.broker (host, port, "
-            "password and ssl_cert_reqs included): a config module (`celery "
-            "--config`, CELERY_CONFIG_MODULE) or a loader (`--loader default` "
-            "reads celeryconfig.py) set it. Remove it, or state the TLS options "
-            "in the query of the INFRA url"
+            "is set to something but None or False: a dict is merged into the "
+            f"broker connection after the url of taskqueue.{instance}.broker (host, "
+            "port, password and ssl_cert_reqs included), and True makes a "
+            "rediss:// connection fall back to plain text: a config module "
+            "(`celery --config`, CELERY_CONFIG_MODULE) or a loader (`--loader "
+            "default` reads celeryconfig.py) set it. Remove it, or state the TLS "
+            "options in the query of the INFRA url"
+        )
+    if option in _TRANSPORT_OPTIONS_KEYS:
+        return (
+            "is not a mapping of tuning options, or holds a key that is none: "
+            "kombu lays transport options over the connection built from the "
+            f"url of taskqueue.{instance}.broker or backend (host, credentials "
+            "and TLS of an amqp:// broker, the master of a sentinel one), so only "
+            "timeouts, keep-alive, pool size, key prefix, retry and visibility "
+            "options are accepted (docs/modules/background/tasks.md lists them): "
+            "a config module (`celery --config`, CELERY_CONFIG_MODULE) or a "
+            "loader (`--loader default` reads celeryconfig.py) set it. Remove "
+            "the other keys, or state the connection in the INFRA url"
         )
     if option in _FOREIGN_BACKEND_KEYS:
         return (
@@ -342,7 +397,8 @@ def _foreign_conf_option(app: Any, broker: str, backend: str | None) -> str | No
     ``backend`` state, or of the connection parts of
     :data:`_FOREIGN_CONNECTION_KEYS` and the ``redis_*`` backend keys of
     :data:`_FOREIGN_BACKEND_KEYS` that is set at all, or ``broker_use_ssl`` when
-    it is not a bool; ``None`` when none."""
+    it is anything but ``None`` / ``False``, or a transport-options key holding
+    a connection part (:func:`_foreign_transport_option`); ``None`` when none."""
     conf = app.conf
     # Attribute access, not ``conf.get``: only the attribute applies the
     # ``broker_url`` fallback of a read / write url left unset.
@@ -363,9 +419,26 @@ def _foreign_conf_option(app: Any, broker: str, backend: str | None) -> str | No
             found = found.strip()
         if found not in (None, ""):
             return option
-    # An allow-list: absent or a bool, never a dict (or anything else).
-    if not isinstance(conf.get(_BROKER_SSL_KEY), bool | None):
+    # An allow-list, by identity: absent, None or False; never True (plain text on
+    # a rediss:// url), a dict, or anything else.
+    ssl_switch = conf.get(_BROKER_SSL_KEY)
+    if ssl_switch is not None and ssl_switch is not False:
         return _BROKER_SSL_KEY
+    return _foreign_transport_option(conf)
+
+
+def _foreign_transport_option(conf: Any) -> str | None:
+    """The first of :data:`_TRANSPORT_OPTIONS_KEYS` that is set to something but a
+    mapping whose keys are all in :data:`_SAFE_TRANSPORT_OPTIONS`; ``None`` when
+    none."""
+    for option in _TRANSPORT_OPTIONS_KEYS:
+        options = conf.get(option)
+        if options is None:
+            continue
+        if not isinstance(options, Mapping) or not set(options) <= (
+            _SAFE_TRANSPORT_OPTIONS
+        ):
+            return option
     return None
 
 

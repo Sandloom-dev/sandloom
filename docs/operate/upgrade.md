@@ -172,6 +172,12 @@ are `broker_transport`, `broker_host`, `broker_port`, `broker_vhost`, `broker_us
 and `broker_password`. The url does not matter: the `INFRA` url carries the whole
 connection.
 
+A config module may set `broker_use_ssl` only to `None` or `False`. It may set
+`broker_transport_options` and `result_backend_transport_options` only with the tuning
+keys listed in [Background tasks](../modules/background/tasks.md). A dict or `True` in
+`broker_use_ssl` is refused the same way. So is a transport option such as `host`,
+`password`, `ssl` or `master_name`. Move TLS options into the query of the `INFRA` url.
+
 ## Upgrading from 0.7.0a4 to 0.7.0a5
 
 This alpha changes infrastructure extension APIs. Update the framework and

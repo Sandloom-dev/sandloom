@@ -196,22 +196,112 @@ def test_a_config_module_cannot_redirect_the_connection_past_the_infra_url(
 
 @pytest.mark.usefixtures("_clean_celery_env")
 @pytest.mark.parametrize("name", ["default", "aux"])
-@pytest.mark.parametrize("enabled", [True, False])
-def test_a_plain_boolean_broker_use_ssl_is_accepted(
-    _config_module: Callable[[str], None], name: str, enabled: bool
+@pytest.mark.parametrize("setting", ["True", "None", "False"])
+def test_broker_use_ssl_is_accepted_as_none_or_false_only(
+    _config_module: Callable[[str], None], name: str, setting: str
 ) -> None:
-    """The allow-list of ``broker_use_ssl`` is absent or a bool (Celery's default
-    is ``False``): the refusal is of the dict, not of the switch."""
-    _config_module(f"broker_use_ssl = {enabled}\n")
+    """``broker_use_ssl = True`` makes kombu skip the TLS default of ``rediss://``,
+    swallow the failed merge and connect in plain text: the url's password goes
+    out in the clear. Only ``None`` and ``False`` (Celery's default) pass; the
+    refusal names the key, never the url."""
+    _config_module(f"broker_use_ssl = {setting}\n")
     provider = create_celery_taskqueue(
         InstanceConfig(
             capability="taskqueue",
             name=name,
             driver="celery",
-            options={"broker": "rediss://127.0.0.1:6380/0"},
+            options={"broker": "rediss://:infra-secret@127.0.0.1:6380/0"},
         )
     )
-    assert provider._app.conf.broker_use_ssl is enabled
+    if setting == "True":
+        with pytest.raises(ForeignCeleryConfError, match="broker_use_ssl") as refused:
+            provider._app  # noqa: B018
+        assert "infra-secret" not in str(refused.value)
+        assert provider._built_app is None
+    else:
+        assert provider._app.conf.broker_use_ssl is (
+            None if setting == "None" else False
+        )
+
+
+_TRANSPORT_REPROS = {
+    # kombu's pyamqp transport lays these over host / userid / password
+    "host": (
+        "amqp://u:infra-secret@127.0.0.1:1//",
+        "broker_transport_options = {'host': '127.0.0.1:6399', "
+        "'userid': 'stray-user', 'password': 'stray-pw'}\n",
+        "broker_transport_options",
+    ),
+    # ... and ``ssl`` turns certificate verification off for amqps://
+    "ssl": (
+        "amqps://u:infra-secret@127.0.0.1:1//",
+        "import ssl\nbroker_transport_options = {'ssl': {'cert_reqs': ssl.CERT_NONE}}\n",
+        "broker_transport_options",
+    ),
+    # the sentinel transport takes the master of every publish from here
+    "master_name": (
+        "sentinel://:infra-secret@127.0.0.1:26379/0",
+        "broker_transport_options = {'master_name': 'stray-master'}\n",
+        "broker_transport_options",
+    ),
+    "backend": (
+        "redis://:infra-secret@127.0.0.1:1/0",
+        "result_backend_transport_options = {'host': 'stray-host', "
+        "'password': 'stray-pw'}\n",
+        "result_backend_transport_options",
+    ),
+    "not a mapping": (
+        "redis://:infra-secret@127.0.0.1:1/0",
+        "broker_transport_options = 'stray-pw'\n",
+        "broker_transport_options",
+    ),
+}
+
+
+@pytest.mark.usefixtures("_clean_celery_env")
+@pytest.mark.parametrize("name", ["default", "aux"])
+@pytest.mark.parametrize("case", list(_TRANSPORT_REPROS))
+def test_a_transport_option_that_moves_the_connection_is_refused(
+    _config_module: Callable[[str], None], name: str, case: str
+) -> None:
+    """An allow-list of transport options: kombu lays them over the connection
+    built from the url (an ``amqp://`` host and credentials, ``ssl``, a sentinel
+    ``master_name``), so any key outside it is refused, named by its option only:
+    no key, value, host or url reaches the message."""
+    broker, body, option = _TRANSPORT_REPROS[case]
+    _config_module(body)
+    provider = create_celery_taskqueue(
+        InstanceConfig(
+            capability="taskqueue",
+            name=name,
+            driver="celery",
+            options={"broker": broker},
+        )
+    )
+    with pytest.raises(ForeignCeleryConfError, match=option) as refused:
+        provider._app  # noqa: B018
+    text = str(refused.value)
+    assert f"taskqueue.{name}." in text
+    for stray in ("stray", "infra-secret", "6399", "CERT_NONE", "userid"):
+        assert stray not in text
+    assert provider._built_app is None
+
+
+@pytest.mark.usefixtures("_clean_celery_env")
+@pytest.mark.parametrize("name", ["default", "aux"])
+def test_a_harmless_transport_option_is_accepted(
+    _config_module: Callable[[str], None], name: str
+) -> None:
+    """The allow-list refuses the connection, not the tuning: a visibility timeout,
+    socket timeouts, a key prefix and pool size pass on the broker and the backend."""
+    _config_module(
+        "broker_transport_options = {'visibility_timeout': 3600, "
+        "'socket_timeout': 9.0, 'global_keyprefix': 'app:', 'max_connections': 5}\n"
+        "result_backend_transport_options = {'retry_policy': "
+        "{'timeout': 5.0}, 'socket_connect_timeout': 3.0}\n"
+    )
+    provider = create_celery_taskqueue(_instance(name))
+    assert provider._app.conf.broker_transport_options["visibility_timeout"] == 3600
 
 
 @pytest.mark.usefixtures("_clean_celery_env")

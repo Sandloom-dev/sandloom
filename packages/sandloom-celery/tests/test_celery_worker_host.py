@@ -570,6 +570,13 @@ def test_the_importable_app_refuses_a_config_module_that_changes_a_url(
         "broker_use_ssl = {'host': 'stray-host', 'port': 6399, "
         "'password': 'foreign-secret', 'virtual_host': '7'}",
         "import ssl; broker_use_ssl = {'ssl_cert_reqs': ssl.CERT_NONE}",
+        # True makes a rediss:// connection fall back to plain text
+        "broker_use_ssl = True",
+        # transport options are laid over the connection by some transports
+        "broker_transport_options = {'host': '127.0.0.1:6399', "
+        "'userid': 'stray-user', 'password': 'foreign-secret'}",
+        "result_backend_transport_options = {'host': 'stray-host', "
+        "'password': 'foreign-secret'}",
         # the redis result backend takes these where its url omits the part
         "redis_port = 6399",
         'redis_password = "foreign-secret"',
@@ -593,6 +600,53 @@ def test_the_importable_app_refuses_a_config_module_that_changes_the_connection(
         celery_worker.app  # noqa: B018
     assert "foreign-secret" not in str(refused.value)
     assert celery_worker._default.app is None
+
+
+@pytest.mark.parametrize(
+    ("broker", "setting"),
+    [
+        # kombu's pyamqp transport lays the options over host, userid, password
+        (
+            "amqp://u:infra-secret@127.0.0.1:1//",
+            "broker_transport_options = {'host': '127.0.0.1:6399', "
+            "'userid': 'stray-user', 'password': 'foreign-secret'}",
+        ),
+        # ... and ``ssl`` turns certificate verification off for amqps://
+        (
+            "amqps://u:infra-secret@127.0.0.1:1//",
+            "import ssl; broker_transport_options = "
+            "{'ssl': {'cert_reqs': ssl.CERT_NONE}}",
+        ),
+    ],
+)
+def test_the_importable_app_refuses_a_transport_option_that_moves_an_amqp_broker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, broker: str, setting: str
+) -> None:
+    """The importable app is not limited to redis: an amqp broker stays supported,
+    its transport options outside the allow-list are refused, the option named."""
+    _importable_app_infra(monkeypatch, {"driver": "celery", "broker": broker})
+    _config_module(monkeypatch, tmp_path, "foreign_celery_config_d", setting + "\n")
+    with pytest.raises(AttributeError, match="broker_transport_options") as refused:
+        celery_worker.app  # noqa: B018
+    text = str(refused.value)
+    for stray in ("foreign-secret", "infra-secret", "stray", "6399", "CERT_NONE"):
+        assert stray not in text
+    assert celery_worker._default.app is None
+
+
+def test_the_importable_app_accepts_a_harmless_transport_option(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _importable_app_infra(
+        monkeypatch, {"driver": "celery", "broker": "amqp://u:p@127.0.0.1:1//"}
+    )
+    _config_module(
+        monkeypatch,
+        tmp_path,
+        "foreign_celery_config_d",
+        "broker_transport_options = {'confirm_publish': True}\n",
+    )
+    assert celery_worker.app.conf.broker_transport_options == {"confirm_publish": True}
 
 
 def _celery_instances_in_the_module() -> list[str]:
