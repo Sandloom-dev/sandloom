@@ -98,15 +98,32 @@ def _real(name: str) -> str:
     return os.environ[name]
 
 
+def _live_infra(taskqueue: dict[str, object] | None, *, state_taskqueue: bool) -> str:
+    """The suite's own ``INFRA`` (every instance's url, as ``.env.test``, the
+    worker rewrite and the run's overrides state them), with the default task
+    queue replaced by ``taskqueue`` when given and left out with
+    ``state_taskqueue=False`` (the composition's own, implicit instance then
+    reports a missing driver through the module that needs it). No flat url
+    exists."""
+    infra = json.loads(_real("INFRA"))
+    if not state_taskqueue:
+        infra.pop("taskqueue", None)
+    elif taskqueue is not None:
+        infra["taskqueue"] = {"default": taskqueue}
+    return json.dumps(infra)
+
+
 def _live_env(
-    extra: dict[str, str] | None = None, *, broker: str | None = None
+    extra: dict[str, str] | None = None,
+    *,
+    taskqueue: dict[str, object] | None = None,
+    state_taskqueue: bool = True,
 ) -> dict:
     return probe_environment(
         {
             "PYTHONPATH": str(ADMIN_SOURCE),
             "DATABASE_URL": _real("DATABASE_URL"),
-            "CACHE_URL": _real("CACHE_URL"),
-            "BROKER_URL": broker or _real("BROKER_URL"),
+            "INFRA": _live_infra(taskqueue, state_taskqueue=state_taskqueue),
             **(extra or {}),
         }
     )
@@ -266,7 +283,7 @@ def broker_down_runs(
     return _lane(
         tmp_path_factory.mktemp("subsets-broker-down"),
         subsets=FAILURE_SUBSETS,
-        env=_live_env(broker=DEAD_BROKER),
+        env=_live_env(taskqueue={"broker": DEAD_BROKER}),
     )
 
 
@@ -289,7 +306,7 @@ def no_celery_runs(
     return _lane(
         tmp_path_factory.mktemp("subsets-no-celery"),
         subsets=FAILURE_SUBSETS,
-        env=_live_env(),
+        env=_live_env(state_taskqueue=False),
         probe_config={"stub": [], "block": ["celery"]},
     )
 
@@ -309,17 +326,14 @@ def no_periodic_runs(
     (dist / "entry_points.txt").write_text(
         f"[sandloom.drivers]\ntaskqueue.{FAKE_DRIVER} = fakeq_driver:NoPeriodicQueue\n"
     )
-    infra = {"taskqueue": {"default": {"driver": FAKE_DRIVER}}}
     work = root / "work"
     work.mkdir()
     return _lane(
         work,
         subsets=FAILURE_SUBSETS,
         env=_live_env(
-            {
-                "PYTHONPATH": os.pathsep.join([str(ADMIN_SOURCE), str(site)]),
-                "INFRA": json.dumps(infra),
-            }
+            {"PYTHONPATH": os.pathsep.join([str(ADMIN_SOURCE), str(site)])},
+            taskqueue={"driver": FAKE_DRIVER},
         ),
     )
 

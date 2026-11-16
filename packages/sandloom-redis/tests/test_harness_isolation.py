@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import sandloom_redis.atomic_store as redis_atomic_store
 import sandloom_redis.cache as redis_cache
 import sandloom_redis.eventbus.driver as event_bus_driver
 from sandloom_celery.taskqueue import CeleryTaskQueueProvider
@@ -55,6 +56,8 @@ def _default_layout() -> Iterator[None]:
 REDIS_DRIVERS: tuple[tuple[type[InfraProvider], str], ...] = (
     (redis_cache.RedisCacheProvider, "url"),
     (event_bus_driver.StreamsEventBusProvider, "url"),
+    # the security store: revocation marks of one worker never reach another's
+    (redis_atomic_store.RedisAtomicStoreProvider, "url"),
 )
 
 

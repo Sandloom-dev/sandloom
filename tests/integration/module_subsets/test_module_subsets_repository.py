@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 from _module_subset_matrix import (
     MODULES,
+    REDIS_INFRA,
     REPO,
     SUBSETS,
     TASK_MODULES,
@@ -54,7 +55,7 @@ def repository_runs(
     python = Path(sys.executable)
 
     def run(subset: tuple[str, ...]) -> SubsetRun:
-        extra = {"PYTHONPATH": str(ADMIN_SOURCE)}
+        extra = {"PYTHONPATH": str(ADMIN_SOURCE), "INFRA": REDIS_INFRA}
         if subset:
             extra["SANDLOOM_MODULES"] = json.dumps([MODULES[m][0] for m in subset])
         return run_subset(

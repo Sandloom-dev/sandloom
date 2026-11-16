@@ -92,11 +92,26 @@ PROBE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:1/db",
     # No ``INFRA``: the lean root selects no driver, and the matrix is about
     # what a subset's own capabilities ask for (B037 names the missing driver).
+    # A run with the drivers installed adds ``REDIS_INFRA``.
     "JWT_SECRET": "module-subset-matrix-not-a-real-secret",
     "EVENT_BUS_BACKEND": "memory",
     "HEALTH_CACHE_TTL_SECONDS": "0",
     "INTERNAL_API_TOKEN": "module-subset-matrix-internal-token",
 }
+
+#: The ``INFRA`` of a probe that boots with the Redis and Celery drivers
+#: installed and every probe stubbed: each instance the standard composition
+#: selects states its own url (nothing is inherited, no flat url exists); the
+#: urls name no server.
+REDIS_INFRA = json.dumps(
+    {
+        "cache": {"default": {"url": "redis://127.0.0.1:1/0"}},
+        "atomic_store": {"security": {"url": "redis://127.0.0.1:1/0"}},
+        "lease": {"beat": {"url": "redis://127.0.0.1:1/0"}},
+        "broadcast": {"default": {"url": "redis://127.0.0.1:1/0"}},
+        "taskqueue": {"default": {"broker": "redis://127.0.0.1:1/1"}},
+    }
+)
 
 #: Variables of the parent kept in a probe's environment (the rest, ``.env.test``
 #: and every ``SANDLOOM_*`` included, never reach it).

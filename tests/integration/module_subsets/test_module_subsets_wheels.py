@@ -42,6 +42,7 @@ from pathlib import Path
 import pytest
 from _module_subset_matrix import (
     MODULES,
+    REDIS_INFRA,
     REPO,
     SUBSETS,
     SubsetRun,
@@ -194,11 +195,11 @@ def p3_runs(
     )
 
     def run(subset: tuple[str, ...]) -> SubsetRun:
-        extra = (
-            {"SANDLOOM_MODULES": json.dumps([MODULES[m][0] for m in subset])}
-            if subset
-            else {}
-        )
+        # The extras venv has the Redis and Celery drivers: their instances
+        # state their urls (the probes are stubbed, nothing connects).
+        extra = {"INFRA": REDIS_INFRA}
+        if subset:
+            extra["SANDLOOM_MODULES"] = json.dumps([MODULES[m][0] for m in subset])
         return run_subset(
             subset,
             python=python,
