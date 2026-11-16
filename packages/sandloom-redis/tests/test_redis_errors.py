@@ -483,6 +483,10 @@ async def test_the_atomic_store_policy_read_surfaces_a_transient_reply(
     with pytest.raises(Exception) as caught:
         await store.aopen()
     assert type(caught.value) is expected
-    # a transient reply is no standing refusal: it would repeat as a
-    # ``PermissionDenied`` on every call until ``aclose``
-    assert (store._refusal is None) is (expected is not PermissionDenied)
+    # nothing is recorded as passed or as a standing refusal: the next operation
+    # judges the policy again and maps the same reply the same way (a transient
+    # one is not turned into a ``PermissionDenied`` that repeats until ``aclose``)
+    assert store._policy_checked is False
+    with pytest.raises(Exception) as again:
+        await store.get("k")
+    assert type(again.value) is expected

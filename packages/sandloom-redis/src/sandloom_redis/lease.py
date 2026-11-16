@@ -346,6 +346,9 @@ class RedisLeaseProvider(LeaseProvider):
                 return HealthResult(
                     status="fail", details={"error": type(exc).__name__}
                 )
+            # The policy was lost after a check passed: the next operation
+            # judges it again (and raises) instead of trusting the old pass.
+            self._policy_checked = False
             if refused_before or self._assume_refused():
                 reason = "eviction_check_refused"
             elif isinstance(exc, InvalidArgument):

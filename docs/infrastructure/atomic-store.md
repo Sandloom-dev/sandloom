@@ -15,9 +15,11 @@ double-write. These are revocation marks and user blocks. They are also RPC
 nonces, the cache-form idempotency guard and the enqueue dedupe. It is the
 `atomic_store` capability. Two instances are read by role: `INFRA.atomic_store.security`
 and `INFRA.atomic_store.idempotency`. An absent `idempotency` instance is the
-`security` instance. In production the `security` instance is required. It must
-declare `shared` and `never_evicts`. It must not share a failure domain with the
-module cache.
+`security` instance. In production the `security` instance is required. On every
+profile the application refuses to start unless the driver of its `security` and
+`idempotency` instances declares `shared` and `never_evicts` for its options. A
+`database` store on SQLite is not `shared`. It must not share a failure domain
+with the module cache.
 
 Every operation is atomic. An expired key is absent for every operation, also
 while the backend still holds it. `add` creates over it, and `compare_and_set` and
