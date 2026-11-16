@@ -9,7 +9,6 @@ digits, ``_ . : -``, 1 to 80 characters), never for the stream format.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from uuid import uuid4
 
 import pytest
 from fastapi import APIRouter, FastAPI
@@ -20,7 +19,7 @@ from sandloom.core.admin.api import platform
 
 _ACCEPTED = [
     "1700000000000-0",
-    str(uuid4()),
+    "0b9f3a52-6c1e-4f43-9a52-5f9d3c0f8e11",
     "evt_01HZ.part:2",
     "a",
     "x" * 80,
