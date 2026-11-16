@@ -8,7 +8,11 @@ Meant for a fleet orchestrator to run in the background (Bash
 exits reads at most six lines. Replaces the check / wait / recheck the head and
 mergeability / merge round of ``gh pr checks`` and ``gh pr merge`` calls.
 
-It polls until no check is pending, then prints the verdict, the head, the
+It polls until no check is pending and every check branch protection requires
+is registered and finished (right after a push GitHub lists only some checks:
+a verdict then would be on a half-registered CI, and the merge refused by
+branch policy; a repository with no required check never settles and times
+out), then prints the verdict, the head, the
 failing checks with the link of the first, and GitHub's merge state. With
 ``--merge`` it merges (a merge commit, ``--match-head-commit`` the head it
 judged) only when every check passed and GitHub reports the PR mergeable.
@@ -17,7 +21,8 @@ judged) only when every check passed and GitHub reports the PR mergeable.
 
 Exit codes: 0 green (merged with ``--merge``), 1 a check failed or was
 cancelled, 2 not mergeable / head moved / PR closed / merge refused,
-3 timed out with checks still pending. Standard library and ``gh`` only.
+3 timed out (checks pending or a required check not registered).
+Standard library and ``gh`` only.
 """
 
 from __future__ import annotations
@@ -33,6 +38,10 @@ from typing import Any
 
 GREEN, RED, NOT_MERGEABLE, TIMEOUT = 0, 1, 2, 3
 FAILED_BUCKETS = frozenset({"fail", "cancel"})
+# ``gh pr checks`` exit codes with JSON on stdout: 0 all passed, 8 some pending.
+PENDING_OR_OK = (0, 8)
+# What gh prints to stderr (exit 1, stdout empty) before any check registered.
+NO_CHECKS_MESSAGES = ("no checks reported", "no required checks reported")
 
 Runner = Callable[[Sequence[str]], "Result"]
 
@@ -61,10 +70,27 @@ class State:
     merge_state: str
     mergeable: str
     checks: list[dict[str, Any]] = field(default_factory=list)
+    # The checks branch protection requires, as GitHub reports them now. Right
+    # after a push only some checks are registered: a required one missing from
+    # this list means the CI is not fully registered yet, whatever else passed.
+    # The settled rule is "some required check is present", which equals "every
+    # required check" only while branch protection requires one check
+    # ("CI required"): gh cannot list a required check that is not registered.
+    required: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def pending(self) -> list[dict[str, Any]]:
         return [c for c in self.checks if c.get("bucket") == "pending"]
+
+    @property
+    def registered(self) -> bool:
+        """Every required check is present and finished, and no check is pending."""
+        return (
+            bool(self.checks)
+            and bool(self.required)
+            and not self.pending
+            and not any(c.get("bucket") == "pending" for c in self.required)
+        )
 
     @property
     def failed(self) -> list[dict[str, Any]]:
@@ -78,21 +104,45 @@ def read_state(pr: str, required: bool, gh: Runner) -> State:
     if view.code != 0:
         raise RuntimeError(f"gh pr view {pr}: {view.err.strip() or view.out.strip()}")
     v = json.loads(view.out)
+    required_rows = _checks(pr, True, gh)
+    # With --required the judged set is the required one: one call serves both.
+    rows = required_rows if required else _checks(pr, False, gh)
+    return State(
+        v["headRefOid"],
+        v["state"],
+        v["mergeStateStatus"],
+        v["mergeable"],
+        rows,
+        required_rows,
+    )
+
+
+def _checks(pr: str, required: bool, gh: Runner) -> list[dict[str, Any]]:
     args = ["pr", "checks", pr, "--json", "name,bucket,link,workflow"]
     if required:
         args.append("--required")
     # gh pr checks exits 8 while checks are pending and 1 when one failed;
-    # the JSON on stdout is what counts. No checks reported yet: stdout empty.
+    # the JSON on stdout is what counts. No checks reported yet: stdout empty
+    # and gh says so on stderr (exit 1). Any other empty-stdout failure (auth,
+    # network, rate limit) is a broken gh, not a CI that has not registered.
     checks = gh(args)
+    if (
+        checks.code not in PENDING_OR_OK
+        and not checks.out.strip()
+        and not any(m in checks.err for m in NO_CHECKS_MESSAGES)
+    ):
+        raise RuntimeError(
+            f"gh pr checks {pr}: {checks.err.strip() or f'exit {checks.code}'}"
+        )
     try:
-        rows = json.loads(checks.out) if checks.out.strip() else []
+        rows: list[dict[str, Any]] = (
+            json.loads(checks.out) if checks.out.strip() else []
+        )
     except json.JSONDecodeError as exc:
         raise RuntimeError(
             f"gh pr checks {pr}: {checks.err.strip() or checks.out.strip()}"
         ) from exc
-    return State(
-        v["headRefOid"], v["state"], v["mergeStateStatus"], v["mergeable"], rows
-    )
+    return rows
 
 
 def summary(verdict: str, s: State) -> list[str]:
@@ -111,6 +161,8 @@ def summary(verdict: str, s: State) -> list[str]:
             f"pending ({len(s.pending)}): "
             + ", ".join(c["name"] for c in s.pending)[:280]
         )
+    if not s.required:
+        lines.append("no required check registered yet (branch protection set)")
     return lines
 
 
@@ -138,7 +190,7 @@ def poll(
             return NOT_MERGEABLE, [
                 f"head moved: PR head {s.head[:8]}, expected {head[:8]}"
             ]
-        settled = bool(s.checks) and not s.pending
+        settled = s.registered
         # GitHub computes mergeability lazily: UNKNOWN right after a push.
         if settled and not (merge and s.mergeable == "UNKNOWN" and not s.failed):
             return s
