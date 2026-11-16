@@ -262,3 +262,30 @@ def test_headings_inside_code_fences_are_not_indexed(tmp_path: Path) -> None:
     text = tool.render("plan", tmp_path)
     assert "1 Real · 3 After" in text
     assert "Fenced" not in text
+
+
+def test_ci_commands_carry_their_env_and_the_venv_python() -> None:
+    job = {
+        "env": {
+            "TOKEN": "ci-not-a-real-key",
+            "KEYS": "{}",
+            "RUN": "${{ github.run_id }}",
+        },
+        "steps": [
+            {"run": 'uv sync --locked\necho "$PWD/.venv/bin" >> "$GITHUB_PATH"'},
+            {"run": "python3 tools/docs/docs_site.py build"},
+            {
+                "env": {"SANDLOOM_COMPOSITION_ROOT": "sandloom_standard.main"},
+                "run": "uv run sandloom generate --check",
+            },
+        ],
+    }
+    assert tool._commands(job) == [
+        "uv run python tools/docs/docs_site.py build",
+        "SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main uv run sandloom generate --check",
+    ]
+    assert tool._env(job["env"]) == "TOKEN=ci-not-a-real-key KEYS='{}' RUN=<ci>"
+    # Without the venv on the path, a bare python3 stays the system one.
+    assert tool._commands({"steps": [{"run": "python3 tools/x.py"}]}) == [
+        "python3 tools/x.py"
+    ]
