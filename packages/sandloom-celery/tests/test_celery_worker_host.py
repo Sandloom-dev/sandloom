@@ -10,6 +10,7 @@ Celery is in the kernel: ``test_worker.py`` pins that side and
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Coroutine
 from pathlib import Path
 from types import SimpleNamespace
@@ -502,6 +503,123 @@ def test_the_importable_app_refuses_a_result_backend_variable_other_than_infra(
             celery_worker.app  # noqa: B018
         assert "stray-secret" not in str(refused.value)
         assert celery_worker._default_app is None
+
+
+def _config_module(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, name: str, body: str
+) -> None:
+    """A Celery config module on ``sys.path``, named by ``CELERY_CONFIG_MODULE``
+    (what ``celery --config`` writes)."""
+    (tmp_path / f"{name}.py").write_text(body)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, name, raising=False)
+    monkeypatch.setenv("CELERY_CONFIG_MODULE", name)
+
+
+@pytest.mark.parametrize(
+    ("setting", "backend"),
+    [
+        # ``broker_url`` of a config module loses to the app's own ``broker=``, as
+        # does ``result_backend`` where INFRA states one: only what INFRA leaves
+        # out (or the read / write url, which it never states) can differ.
+        ("broker_write_url", None),
+        ("broker_write_url", "redis://127.0.0.1:1/8"),
+        ("broker_read_url", None),
+        ("broker_read_url", "redis://127.0.0.1:1/8"),
+        ("result_backend", None),
+    ],
+)
+def test_the_importable_app_refuses_a_config_module_that_changes_a_url(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    setting: str,
+    backend: str | None,
+) -> None:
+    """``celery --config X``, ``CELERY_CONFIG_MODULE`` and ``--loader default``
+    set ``broker_write_url`` / ``broker_read_url`` / ``result_backend`` after the
+    environment check: the finished conf is compared with INFRA, and the refusal
+    names the option, never a URL."""
+    options: dict[str, object] = {"driver": "celery", "broker": _INFRA_BROKER}
+    if backend is not None:
+        options["backend"] = backend
+    _importable_app_infra(monkeypatch, options)
+    _config_module(
+        monkeypatch,
+        tmp_path,
+        "foreign_celery_config_a",
+        f'{setting} = "redis://user:foreign-secret@127.0.0.1:1/5"\n',
+    )
+    with pytest.raises(AttributeError, match=setting) as refused:
+        celery_worker.app  # noqa: B018
+    assert "foreign-secret" not in str(refused.value)
+    assert "infra-secret" not in str(refused.value)
+    # the second lookup finds the cached app and refuses it just the same
+    with pytest.raises(AttributeError, match=setting):
+        celery_worker.app  # noqa: B018
+
+
+def test_the_importable_app_refuses_the_default_loaders_celeryconfig(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``--loader default`` / ``CELERY_LOADER=default`` imports ``celeryconfig.py``
+    from the working directory."""
+    _importable_app_infra(monkeypatch, {"driver": "celery", "broker": _INFRA_BROKER})
+    (tmp_path / "celeryconfig.py").write_text(
+        'broker_write_url = "redis://user:foreign-secret@127.0.0.1:1/5"\n'
+    )
+    monkeypatch.delitem(sys.modules, "celeryconfig", raising=False)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CELERY_LOADER", "default")
+    with pytest.raises(AttributeError, match="broker_write_url") as refused:
+        celery_worker.app  # noqa: B018
+    assert "foreign-secret" not in str(refused.value)
+
+
+def test_the_importable_app_refuses_a_foreign_conf_where_the_provider_built_it_first(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The ``_default_app`` shortcut skips the build, not the check."""
+    _importable_app_infra(monkeypatch, {"driver": "celery", "broker": _INFRA_BROKER})
+    provider = create_celery_taskqueue(
+        InstanceConfig(
+            capability="taskqueue",
+            name="default",
+            driver="celery",
+            options={"broker": _INFRA_BROKER},
+        )
+    )
+    assert provider._app is celery_worker._default_app is not None
+    _config_module(
+        monkeypatch,
+        tmp_path,
+        "foreign_celery_config_b",
+        'broker_write_url = "redis://user:foreign-secret@127.0.0.1:1/5"\n'
+        'result_backend = "redis://user:foreign-secret@127.0.0.1:1/6"\n',
+    )
+    with pytest.raises(AttributeError, match="broker_write_url") as refused:
+        celery_worker.app  # noqa: B018
+    assert "foreign-secret" not in str(refused.value)
+
+
+def test_the_importable_app_accepts_a_config_module_that_states_what_infra_states(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    backend = "redis://127.0.0.1:1/8"
+    _importable_app_infra(
+        monkeypatch,
+        {"driver": "celery", "broker": _INFRA_BROKER, "backend": backend},
+    )
+    _config_module(
+        monkeypatch,
+        tmp_path,
+        "same_celery_config",
+        f'broker_write_url = "{_INFRA_BROKER}"\nresult_backend = "{backend}"\n'
+        "worker_prefetch_multiplier = 3\n",
+    )
+    app = celery_worker.app
+    assert app.conf.broker_write_url == _INFRA_BROKER
+    assert app.conf.worker_prefetch_multiplier == 3
 
 
 def test_the_importable_app_is_the_default_app_built_from_the_infra_broker(

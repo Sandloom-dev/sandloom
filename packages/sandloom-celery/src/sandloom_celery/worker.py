@@ -25,7 +25,10 @@ backend unless the instance states one), with no composition root and no task
 registered. A missing broker is an ``AttributeError`` naming that option, and so
 is a ``CELERY_BROKER_URL`` / ``CELERY_RESULT_BACKEND`` in the environment that
 differs from ``INFRA`` (Celery's CLI writes them from ``-b`` / ``BROKER_URL`` and
-``app.conf`` prefers them). It is the driver's own interface, not a shim.
+``app.conf`` prefers them). The finished ``app.conf`` (``broker_url``,
+``broker_read_url``, ``broker_write_url``, ``result_backend``) is compared with
+``INFRA`` too: a config module or the default loader can set them. It is the
+driver's own interface, not a shim.
 
 **Process options.** The port carries the log level and the scheduler's state
 file (``state_file``: Celery beat's ``--schedule``, default ``celerybeat-schedule``
@@ -174,11 +177,56 @@ def __getattr__(name: str) -> Any:
     # ``celery -A sandloom_celery.worker`` looks up ``app`` (or
     # ``celery``); building lazily keeps a plain import free of side effects.
     if name in {"app", "celery", "celery_app"}:
-        if _default_app is not None:
-            return _refuse_unhosted_runs(_default_app)
-        broker, backend = _importable_app_urls()
-        return _refuse_unhosted_runs(get_default_app(broker, backend))
+        if _default_app is not None and _default_app_urls is not None:
+            # Built first by the provider (or by an earlier lookup): its options
+            # are the ones it was built from, and the final conf is checked
+            # against them just the same.
+            broker, backend = _default_app_urls
+            app = _default_app
+        else:
+            broker, backend = _importable_app_urls()
+            app = get_default_app(broker, backend)
+        _refuse_foreign_conf(app, broker, backend)
+        return _refuse_unhosted_runs(app)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _refuse_foreign_conf(app: Any, broker: str, backend: str | None) -> None:
+    """Refuse an importable app whose final ``app.conf`` names another broker or
+    result backend than ``INFRA`` states.
+
+    The environment check of :func:`_importable_app_urls` covers the variables
+    Celery's CLI writes; the rest of what feeds ``app.conf`` it does not see: a
+    config module (``celery --config``, ``CELERY_CONFIG_MODULE``), the default
+    loader (``--loader default`` imports ``celeryconfig.py`` from the working
+    directory) can still set ``broker_read_url``, ``broker_write_url`` and
+    ``result_backend``. So the finished conf is read (which loads the config
+    module) and compared: ``inspect``, ``call``, ``control`` and Flower would
+    otherwise send to, or read from, a broker the operator did not configure.
+    Celery falls back to ``broker_url`` for a read / write url left unset, and
+    stores no backend when none is set. The message names the option, never its
+    value: it is a URL, with a password."""
+    conf = app.conf
+    # Attribute access, not ``conf.get``: only the attribute applies the
+    # ``broker_url`` fallback of a read / write url left unset.
+    final = {
+        "broker_url": (conf.broker_url, broker),
+        "broker_read_url": (conf.broker_read_url, broker),
+        "broker_write_url": (conf.broker_write_url, broker),
+        "result_backend": (conf.result_backend, backend),
+    }
+    for option, (found, expected) in final.items():
+        if isinstance(found, str):
+            found = found.strip()
+        if found != expected:
+            raise AttributeError(
+                f"the importable Celery app's {option} is not what the INFRA "
+                "option of the default taskqueue instance states: a config "
+                "module (`celery --config`, CELERY_CONFIG_MODULE), a loader "
+                "(`--loader default` reads celeryconfig.py) or a Celery "
+                "environment variable set it. Remove that setting, or state it "
+                "in INFRA"
+            )
 
 
 def _importable_app_urls() -> tuple[str, str | None]:

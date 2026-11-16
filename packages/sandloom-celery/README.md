@@ -32,7 +32,11 @@ writes `CELERY_BROKER_URL` from `-b` / `BROKER_URL` and `CELERY_RESULT_BACKEND`
 from `--result-backend` / `RESULT_BACKEND`, and `app.conf` prefers them, so the app
 refuses a `CELERY_BROKER_URL`, `CELERY_BROKER_READ_URL`, `CELERY_BROKER_WRITE_URL` or
 `CELERY_RESULT_BACKEND` that differs from `INFRA`, naming the variable, never its value.
-It registers no task, and `celery -A sandloom_celery.worker worker|beat` refuses
+It also compares the finished `app.conf` (`broker_url`, `broker_read_url`,
+`broker_write_url`, `result_backend`) with `INFRA` and refuses a difference, naming
+the option: a config module (`celery --config`, `CELERY_CONFIG_MODULE`) or the default
+loader (`--loader default` reads `celeryconfig.py` from the working directory) can
+set them. It registers no task, and `celery -A sandloom_celery.worker worker|beat` refuses
 to start: run `sandloom worker` and `sandloom beat` instead.
 
 **No result backend.** Sandloom never reads a task result, so an instance runs
