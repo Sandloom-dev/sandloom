@@ -7,7 +7,7 @@ title: Configuration Reference
 Every runtime setting Sandloom reads from the environment, generated directly from `sandloom.core.config.settings.Settings` and the settings the bundled modules declare, so this table can never drift from the code. Settings may be supplied as environment variables, in a `.env` file, or — when `SECRETS_DIR` is set — as files named after each field (Docker/Kubernetes secrets).
 
 !!! info "Required settings"
-    `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`, and `JWT_SECRET` are mandatory; the process aborts at startup if any is missing or invalid. In production, `JWT_SECRET` must be at least 32 random characters.
+    `DATABASE_URL` and `JWT_SECRET` are mandatory; the process aborts at startup if either is missing or invalid. `CACHE_URL` and `BROKER_URL` are optional: an app that selects a Redis or Celery driver gives it its url in `INFRA`, and startup refuses an instance that has none. In production, `JWT_SECRET` must be at least 32 random characters.
 
 !!! note "Configuration tiers"
     Each setting is **semantic** (changes a guarantee; its value is chosen per profile), **ops** (capacity / operations) or **migration** (transitional, with a removal version). The per-profile table of the semantic settings and the active-override reporting are in [Configuration Tiers](configuration-tiers.md).
@@ -34,8 +34,8 @@ Every runtime setting Sandloom reads from the environment, generated directly fr
 | `DB_POOL_SIZE` | `int` | `10` | Persistent connections per request/worker database pool; multiply the pool budget by the number of worker processes. |
 | `DB_MAX_OVERFLOW` | `int` | `20` | Additional temporary connections permitted above DB_POOL_SIZE. |
 | `DB_POOL_TIMEOUT` | `int` | `30` | Maximum seconds a database checkout waits for an available pooled connection. |
-| `CACHE_URL` | `str` | **required** | Connection URL of the default cache instance, normally Redis; named instances and overrides are declared through INFRA. |
-| `BROKER_URL` | `str` | **required** | Connection URL used to configure the default task queue broker and Redis-backed event transport. |
+| `CACHE_URL` | `str | None` | `None` | Optional connection URL of the default cache instance, normally Redis, filled into a driver that takes a url when INFRA leaves it out; the supported place for it is the INFRA option (``cache.default.url``). Unset, an app that selects no Redis driver needs none. |
+| `BROKER_URL` | `str | None` | `None` | Optional connection URL used to configure the default task queue broker, filled when INFRA leaves it out; the supported place for it is the INFRA option (``taskqueue.default.broker``). Unset, an app that selects no Celery driver needs none. |
 
 ## Eventing & Outbox
 
