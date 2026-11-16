@@ -388,7 +388,7 @@ async def test_stream_dlq_replay_targets_the_group_and_audits_first(
     # ids and the cursor share one shape
     malformed = await real_uow_client.post(
         f"{base}/replay",
-        json={**body, "ids": ["not-an-entry-id"]},
+        json={**body, "ids": ["../not an entry id"]},
         headers={**headers, **key()},
     )
     assert malformed.status_code == 422
