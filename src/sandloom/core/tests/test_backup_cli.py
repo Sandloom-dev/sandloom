@@ -177,7 +177,7 @@ def test_plan_flags_a_database_security_store_on_a_listed_and_on_its_own_databas
 _STUB_FILLS = {
     ("cache", "redis"): SettingsFill(urls={"url": "cache_url"}),
     ("atomic_store", "redis"): SettingsFill(
-        urls={"url": "cache_url"}, urls_for="implicit", follows="cache"
+        urls={"url": "cache_url"}, urls_for="implicit"
     ),
 }
 
@@ -214,7 +214,7 @@ def test_plan_lists_the_redis_targets_of_the_flat_urls_a_composition_selects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``CACHE_URL`` / ``BROKER_URL`` reach the plan through the drivers' fill:
-    the cache, the development security store that follows it and the broker
+    the cache, the development security store (it takes the same flat url) and the broker
     are listed with no ``INFRA`` at all (``load_infra_config`` fills nothing)."""
     _select_stub_drivers(monkeypatch)
     items = [i for i in build_backup_plan(settings) if i.kind == "redis"]

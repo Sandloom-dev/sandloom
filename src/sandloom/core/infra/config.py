@@ -132,11 +132,9 @@ class SettingsFill:
       ``default`` instance (a named instance without one shares the default's
       transport), or only an instance the kernel synthesized (``implicit``: one
       ``INFRA`` declares has its own url, never the cache's).
-    - ``follows``: the capability whose ``default`` instance the ``urls`` follow.
-      When that instance, as resolved (``INFRA`` and its own fill applied), runs
-      the same driver, its option is the value; otherwise the setting is. An
-      instance that follows is filled after the ones that do not, and what it
-      follows follows nothing.
+    - No instance takes an option from another instance (no ``follows``): a
+      capability's url is its own, stated in ``INFRA`` or filled from the flat
+      setting that names it.
     - ``bounds``: an option left out takes the setting's value when it is set
       (a client timeout, a pool size).
     - ``caps``: a numeric option above the setting is cut to it (a probe the
@@ -146,15 +144,12 @@ class SettingsFill:
 
     urls: Mapping[str, str] = field(default_factory=lambda: _NO_SETTINGS)
     urls_for: Literal["all", "default", "implicit"] = "all"
-    follows: str | None = None
     bounds: Mapping[str, str] = field(default_factory=lambda: _NO_SETTINGS)
     caps: Mapping[str, str] = field(default_factory=lambda: _NO_SETTINGS)
 
     def __post_init__(self) -> None:
         if self.urls_for not in ("all", "default", "implicit"):
             raise ValueError(f"SettingsFill.urls_for is {self.urls_for!r}")
-        if self.follows is not None and not self.urls:
-            raise ValueError("SettingsFill.follows needs urls to follow with")
         for name in ("urls", "bounds", "caps"):
             table: Mapping[str, str] = getattr(self, name)
             if not all(
@@ -478,28 +473,11 @@ def _gets_url(cfg: InstanceConfig, fill: SettingsFill) -> bool:
     return True
 
 
-def _followed_option(
-    config: InfraConfig, cfg: InstanceConfig, fill: SettingsFill, option: str
-) -> Any:
-    """What ``option`` of the ``default`` instance ``fill`` follows is, as
-    resolved, when that instance runs the same driver as ``cfg``."""
-    if fill.follows is None:
-        return None
-    followed = (config.get(fill.follows) or {}).get(DEFAULT_INSTANCE)
-    if followed is None or followed.driver != cfg.driver:
-        return None
-    return followed.options.get(option)
-
-
-def _apply_fill(
-    config: InfraConfig, cfg: InstanceConfig, fill: SettingsFill, settings: Any
-) -> None:
+def _apply_fill(cfg: InstanceConfig, fill: SettingsFill, settings: Any) -> None:
     options = cfg.options
     if _gets_url(cfg, fill):
         for option, setting in fill.urls.items():
-            value = _followed_option(config, cfg, fill, option) or getattr(
-                settings, setting, None
-            )
+            value = getattr(settings, setting, None)
             if not options.get(option) and value:
                 options[option] = value
     for option, setting in fill.bounds.items():
@@ -531,17 +509,11 @@ def fill_driver_defaults(
     per ``(capability, driver)``, the declaration of the driver's class, and
     ``None`` leaves the instance as it is.
     """
-    pending = [
-        (cfg, fill)
-        for capability, instances in config.items()
-        for cfg in instances.values()
-        if (fill := fill_for(capability, cfg.driver)) is not None
-    ]
-    # An instance that follows another (a broadcast on the cache's Redis) reads
-    # the resolved option of the one it follows: after it. The sort is stable.
-    pending.sort(key=lambda item: item[1].follows is not None)
-    for cfg, fill in pending:
-        _apply_fill(config, cfg, fill, settings)
+    for capability, instances in config.items():
+        for cfg in instances.values():
+            fill = fill_for(capability, cfg.driver)
+            if fill is not None:
+                _apply_fill(cfg, fill, settings)
 
 
 def load_infra_config(settings: Settings) -> InfraConfig:

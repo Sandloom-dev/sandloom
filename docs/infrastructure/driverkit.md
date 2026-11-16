@@ -45,7 +45,7 @@ A breaking change is a new contract version ([versioning](../contributing/versio
 | `HealthResult` | What `health()` returns. |
 | `health_failure_details` | The `details` of a failed health probe: the error type, never its text. |
 | `InstanceConfig`, `DEFAULT_INSTANCE` | The configuration of one instance, which a driver's `from_config` receives (`name`, `driver`, `options`), and the name of the `default` instance. Re-exported from the kernel: a driver package imports them here. |
-| `SettingsFill` | What a driver takes from the flat settings, set as `InfraProvider.settings_fill`: `urls`, `urls_for`, `follows`, `bounds` and `caps`, each naming the flat infrastructure `Settings` attribute (`cache_url`, `broker_url`, `cache_*`, `health_check_timeout_seconds`) that feeds an option; any other name is refused. |
+| `SettingsFill` | What a driver takes from the flat settings, set as `InfraProvider.settings_fill`: `urls`, `urls_for`, `bounds` and `caps`, each naming the flat infrastructure `Settings` attribute (`cache_url`, `broker_url`, `cache_*`, `health_check_timeout_seconds`) that feeds an option; any other name is refused. |
 | `CapabilitySpec` | Declares a capability: `name`, `version` (what a module may pin), `major` (the `contract_version` a driver states; default: the major of `version`), `provider_contract`, `config_schema`, `feature_kinds` (each feature and whether it is a `behaviour` or a `guarantee`), `features`, `removed_features` (a previous major's feature names, each mapped to its replacement, which a refusal names), `kernel_only` (a kernel-facing capability modules cannot resolve), `description`, `stability`. A driver loads only for a spec whose major is readable. |
 | `CapabilityRef` | A typed key callers resolve a capability with: `CapabilityRef[VectorIndex]("vector_index.v1")`. |
 | `LockStatement` | What a SQL dialect renderer's `lock_statement` and `unlock_statement` return: the `statement`, built once per key shape, and the `parameters` that carry the key. The kernel runs `execute(lock.statement, lock.parameters)`. |
@@ -86,6 +86,22 @@ the same model.
 | `TARGET_GROUP_FIELD` | The stream-entry field that marks a dead-letter replay meant for one consumer group only. |
 | `DEFAULT_MAX_DELIVERIES`, `DEFAULT_MIN_IDLE_MS`, `DEFAULT_RETRY_BASE_MS`, `DEFAULT_RETRY_MAX_MS`, `DEFAULT_EVENT_STREAM_RETENTION_SECONDS` | The defaults of the reliability model: deliveries before an entry is dead-lettered, the idle time before a reclaim, the retry backoff bounds and the retention offered when `retention_seconds` is left out. |
 | `owners_match`, `owner_conflict_message` | The group-owner rule for `claim_group_owner`: two owners match when `module` and `database` match (`service` is informational), and the message to raise in `GroupOwnedElsewhere` when they do not. |
+
+## `sandloom.driverkit.shared_endpoints`
+
+The startup warning for a persistent instance on the Redis database of `cache.default`. A cache
+may evict. An `atomic_store`, a `lease`, a `streams` bus or a task queue's broker on the same
+database can lose live keys. No url is inherited: sharing is a choice or a copied url. A driver
+package imports no other driver package. The cache's driver and the driver of a persistent
+instance meet here, in whichever order they start. The warning is a log line and never a refusal.
+
+| Name | What it is |
+| --- | --- |
+| `register` | `register(capability, instance, endpoint, role, option=, declared=)`. The `cache` driver registers its `default` instance with `role="cache_default"`. A driver of a persistent instance registers with `role="persistent"`, `option` naming the `INFRA` option the message tells the operator to change, and `declared=not self.implicit`. Whichever registration comes second logs once per pair: a WARNING for a declared instance, an INFO for one the kernel synthesized (a `CACHE_URL`-only development start shares by construction). An `endpoint` of `None` unregisters. |
+| `unregister` | `unregister(capability, instance, role)`. Call it from `aclose`, so a later app in the same process neither hears of this instance nor stays silent about a new pair. |
+| `redis_endpoint` | `redis_endpoint(url)`: `host:port/db` of a `redis://` or `rediss://` url, or `None` (another scheme, no host, a malformed url, or a path that still holds an `@`: an unencoded password). It carries no credential, so the log never does. |
+| `reset` | Forgets every registration and logged pair. For a test harness. |
+| `Role` | `"cache_default"` or `"persistent"`. |
 
 ## `sandloom.driverkit.testing`
 

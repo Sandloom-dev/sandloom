@@ -138,6 +138,28 @@ def test_a_driver_the_kernel_never_heard_of_is_filled_as_it_declares() -> None:
     assert config["probe"]["other"].options == {}  # no class, no fill
 
 
+def test_no_instance_takes_an_option_from_another_instance() -> None:
+    """Flat urls: an instance's url is its own (``INFRA``) or the flat
+    setting's, never another instance's, in its capability or another one."""
+    config = {
+        "probe": {
+            DEFAULT_INSTANCE: _cfg("probe", DEFAULT_INSTANCE, "known", dsn="x://a"),
+            "named": _cfg("probe", "named", "known"),
+        },
+        "other": {"b": _cfg("other", "b", "known")},
+    }
+    fill_driver_defaults(config, settings, lambda _cap, _driver: _Probe.settings_fill)
+    assert config["probe"]["named"].options["dsn"] == settings.cache_url
+    assert config["other"]["b"].options["dsn"] == settings.cache_url
+    assert config["probe"][DEFAULT_INSTANCE].options["dsn"] == "x://a"
+
+
+def test_a_settings_fill_has_no_follows() -> None:
+    """The cross-capability inheritance is gone: the field is not accepted."""
+    with pytest.raises(TypeError, match="follows"):
+        SettingsFill(urls={"dsn": "cache_url"}, follows="cache")  # type: ignore[call-arg]
+
+
 def test_a_driver_whose_package_is_missing_is_not_filled_nor_imported() -> None:
     registry = _probe_registry(requires=("sandloom_no_such_package_xyz",))
     assert registry.settings_fill("probe", "known") is None
@@ -169,8 +191,6 @@ def test_a_broken_lazy_row_still_raises_when_its_package_is_there() -> None:
 def test_a_settings_fill_refuses_a_declaration_that_cannot_work() -> None:
     with pytest.raises(ValueError, match="urls_for"):
         SettingsFill(urls={"url": "cache_url"}, urls_for="sometimes")  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="follows needs urls"):
-        SettingsFill(follows="cache")
     with pytest.raises(ValueError, match="option names to setting names"):
         SettingsFill(bounds={"timeout": 5})  # type: ignore[dict-item]
 

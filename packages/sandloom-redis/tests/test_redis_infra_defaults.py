@@ -15,11 +15,12 @@ from sandloom.core.infra.config import DEFAULT_INSTANCE, load_infra_config
 from sandloom.core.tests._driver_fill import fill
 
 
-def test_the_broadcast_default_follows_the_resolved_cache_default_url(
+def test_the_broadcast_default_does_not_follow_the_cache_default_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An INFRA override of ``cache.default.url`` moves the fan-out with the
-    cache: it is not read again from the raw ``CACHE_URL``."""
+    """An INFRA override of ``cache.default.url`` does not move the fan-out
+    with the cache: no instance inherits another's url, the broadcast takes
+    ``CACHE_URL`` (or a url of its own)."""
     monkeypatch.setattr(
         settings,
         "infra",
@@ -28,6 +29,5 @@ def test_the_broadcast_default_follows_the_resolved_cache_default_url(
     )
     cfg = fill(load_infra_config(settings))
     assert cfg["cache"][DEFAULT_INSTANCE].options["url"] == "redis://cache-host:6390/4"
-    assert cfg["broadcast"][DEFAULT_INSTANCE].options["url"] == (
-        "redis://cache-host:6390/4"
-    )
+    assert cfg["broadcast"][DEFAULT_INSTANCE].options["url"] == settings.cache_url
+    assert settings.cache_url != "redis://cache-host:6390/4"
