@@ -27,10 +27,16 @@ from sandloom.core.infra.registry import (
 )
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
-__all__ = ["FilledInfraConfig", "build_tool_infra", "filled_infra_config"]
+__all__ = [
+    "TOOL_CAPABILITIES",
+    "FilledInfraConfig",
+    "build_tool_infra",
+    "filled_infra_config",
+]
 
 #: The capabilities a tool process configures: the probe asks the worker host.
-_TOOL_CAPABILITIES = frozenset({"taskqueue"})
+#: ``sandloom.driverkit.process_config`` answers for exactly these.
+TOOL_CAPABILITIES = frozenset({"taskqueue"})
 
 
 def build_tool_infra() -> InfraRegistry:
@@ -52,7 +58,7 @@ def build_tool_infra() -> InfraRegistry:
     config = {
         capability: instances
         for capability, instances in load_infra_config(settings).items()
-        if capability in _TOOL_CAPABILITIES
+        if capability in TOOL_CAPABILITIES
     }
     registry: InfraRegistry = bootstrap.build_infra_registry(
         InMemorySchemaRegistry(), config=config, fill_from_settings=True

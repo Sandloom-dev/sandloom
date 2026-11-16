@@ -416,6 +416,34 @@ async def test_an_unused_synthesized_instance_is_not_opened_or_probed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_the_cache_opens_before_any_other_capability_whatever_the_infra_order() -> (
+    None
+):
+    """A url-less event bus runs on the default cache client the cache instance
+    configures when it is built: INFRA listing the bus first must not open it
+    first (the bus was refused for a url the cache had)."""
+    registry, spies = _registry(
+        _instance("eventbus", "bus"),
+        _instance("taskqueue", "jobs"),
+        _instance("cache", "kv"),
+    )
+    for capability, driver in (
+        ("eventbus", "bus"),
+        ("taskqueue", "jobs"),
+        ("cache", "kv"),
+    ):
+        registry.register_driver(capability, driver, spies[capability])
+
+    await registry.aopen_all(strict=True)
+
+    assert _Provider.opened == [
+        "cache/default",
+        "eventbus/default",
+        "taskqueue/default",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_a_requirement_puts_the_instance_in_use() -> None:
     registry, spies = _registry(_instance("taskqueue", "jobs", implicit=True))
     registry.register_driver("taskqueue", "jobs", spies["taskqueue"])

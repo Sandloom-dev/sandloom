@@ -146,7 +146,7 @@ listed by `sandloom doctor`).
 |---|---|
 | `sandloom` | the contracts, the registry, the kits; `memory` drivers for `cache`, `atomic_store`, `lease`, `broadcast` and `eventbus` (refused in production); `local` objectstore; `log` and `smtp` notification; the `sqlalchemy` database driver with the `postgresql` and `sqlite` renderers |
 | `sandloom-redis` (new) | `cache`, `atomic_store`, `lease` and `broadcast` on Redis, the `streams` event transport, the client they share, and the Redis parts of the test harness as a pytest plugin |
-| `sandloom-celery` (new) | the `celery` taskqueue with its `WorkerHost`, the beat under a `lease`, the async runner and the worker's GC tuning |
+| `sandloom-celery` (new) | the `celery` taskqueue with its `WorkerHost`, the beat under a `lease`; the async runner (`sandloom.core.async_runner`) and the worker's GC tuning (`sandloom.core.gc_tuning`) stay in the kernel |
 | `sandloom-s3` | as today |
 | `sandloom[standard]` | depends on `sandloom-redis` and `sandloom-celery`, so the standard composition does not change |
 
