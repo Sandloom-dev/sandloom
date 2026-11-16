@@ -84,6 +84,9 @@ def _repo_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
     (root / ".gitignore").write_text(".env\n.env.test.local\n.sandloom/\n")
     (root / "deploy" / "docker-compose.dev.yml").write_text("services: {}\n")
     _git(root, "init", "-q", "-b", "main")
+    # Background auto-maintenance must not touch the template while tests copy it.
+    _git(root, "config", "maintenance.auto", "false")
+    _git(root, "config", "gc.auto", "0")
     _git(root, "add", ".")
     _git(
         root,
@@ -104,7 +107,9 @@ def repo(tmp_path: Path, _repo_template: Path) -> Path:
     """A git repository holding a minimal app, with one commit (a fresh copy
     of the module's template: a normal ``.git`` holds no absolute path)."""
     root = tmp_path / "shop"
-    shutil.copytree(_repo_template, root, symlinks=True)
+    shutil.copytree(
+        _repo_template, root, symlinks=True, ignore=shutil.ignore_patterns("*.lock")
+    )
     return root
 
 
