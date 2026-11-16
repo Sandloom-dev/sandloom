@@ -33,7 +33,7 @@ lists what production checks about it.
 
 | Driver | Backend | Declares | Use it |
 | --- | --- | --- | --- |
-| `redis` | a Redis server with `maxmemory-policy noeviction` | `shared`, `never_evicts` | the standard choice: one round trip per operation; its `url` is its own option (`atomic_store.security.url`), never the cache's |
+| `redis` | a Redis server with `maxmemory-policy noeviction` | `shared`, `never_evicts` | the standard choice: one round trip per operation, plus one `CONFIG GET maxmemory-policy` on each new connection of its pool (the eviction check, before the connection's first command); its `url` is its own option (`atomic_store.security.url`), never the cache's |
 | `database` | PostgreSQL (or SQLite, one host) | `shared` (PostgreSQL only), `never_evicts` | an application that runs on PostgreSQL alone and wants no Redis |
 | `memory` | the process | `never_evicts` | development and tests only; production refuses it |
 

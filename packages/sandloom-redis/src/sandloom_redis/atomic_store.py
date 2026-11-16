@@ -73,7 +73,6 @@ from sandloom.driverkit import (
     HealthResult,
     InfraError,
     InvalidArgument,
-    PermissionDenied,
     Timeout,
     Unavailable,
     observe,
@@ -90,8 +89,18 @@ from sandloom.driverkit.atomic_store import (
 from sandloom.driverkit.shared_endpoints import redis_endpoint
 from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
-from sandloom_redis._errors import map_redis_error, redis_error_kind
-from sandloom_redis._eviction_guard import Judge, connect_func, refusal_of
+from sandloom_redis._errors import map_redis_error
+from sandloom_redis._eviction_guard import (
+    NOEVICTION,
+    POLICY_SETTING,
+    UNVERIFIED_NOEVICTION_RISK,
+    Judge,
+    connect_func,
+    eviction_refusal,
+    read_policy,
+    refusal_of,
+    refusal_reason,
+)
 from sandloom_redis._settings_fill import ATOMIC_STORE_FILL, require_url
 
 #: Failed operations of the store (connection, timeout, server error), by
@@ -101,9 +110,6 @@ atomic_store_operation_errors_total = observe.counter(
     "Atomic store operations that raised (connection, timeout, server error)",
     ("instance", "operation"),
 )
-
-#: The accepted risk that lets ``never_evicts_check=assume`` run in production.
-UNVERIFIED_NOEVICTION_RISK = "unverified_noeviction"
 
 #: What ``never_evicts_check`` is set to (see the module docstring).
 NeverEvictsCheck = Literal["verify", "assume"]
@@ -343,9 +349,6 @@ _SHAS = {
     for script in (_ADD_OR_GET_LUA, _SUBJECT_STATE_LUA, _CAS_LUA, _CAD_LUA)
 }
 
-_POLICY_SETTING = "maxmemory-policy"
-_NOEVICTION = "noeviction"
-
 
 class RedisAtomicStoreProvider(AtomicStoreProvider):
     """One Redis ``atomic_store`` instance."""
@@ -393,37 +396,17 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
     def _connection_refusal(self, policy: str | None) -> InfraError | None:
         """The refusal for the policy one connection reported (``None``: the
         read was refused), or ``None`` when the server is fit. The pool runs it
-        on every new socket; ``_check_policy`` and ``health`` share its rules."""
-        if self._assume_refused():
-            return PermissionDenied(
-                f"atomic_store instance {self.name!r}: never_evicts_check='assume' "
-                f"needs the accepted risk {UNVERIFIED_NOEVICTION_RISK!r} in production "
-                "(fix: set never_evicts_check='verify' and grant CONFIG GET "
-                f"{_POLICY_SETTING}, or accept the risk with "
-                f'SANDLOOM_ACCEPTED_RISKS=["{UNVERIFIED_NOEVICTION_RISK}"])',
-                capability=self.capability,
-                instance=self.name,
-            )
-        if policy is not None and policy != _NOEVICTION:
-            return InvalidArgument(
-                f"atomic_store instance {self.name!r}: the Redis server evicts "
-                f"keys ({_POLICY_SETTING} is {policy!r}), so a revocation mark or "
-                "an idempotency reservation could vanish before its TTL "
-                f"(fix: set {_POLICY_SETTING} to {_NOEVICTION!r})",
-                capability=self.capability,
-                instance=self.name,
-            )
-        if policy is None and self._options.never_evicts_check == "verify":
-            return PermissionDenied(
-                f"atomic_store instance {self.name!r}: the Redis server refused "
-                f"CONFIG GET {_POLICY_SETTING}, so the driver cannot verify that "
-                f"it never evicts (fix: grant CONFIG GET {_POLICY_SETTING} to "
-                "this user, or vouch for the policy with the option "
-                "never_evicts_check='assume')",
-                capability=self.capability,
-                instance=self.name,
-            )
-        return None
+        on every new socket; ``_check_policy`` and ``health`` share its rules
+        (:func:`~sandloom_redis._eviction_guard.eviction_refusal`)."""
+        return eviction_refusal(
+            capability=self.capability,
+            instance=self.name,
+            policy=policy,
+            never_evicts_check=self._options.never_evicts_check,
+            assume_refused=self._assume_refused(),
+            at_stake="a revocation mark or an idempotency reservation could "
+            "vanish before its TTL",
+        )
 
     # ---------------------------------------------------------------- client
     async def _client_obj(self) -> Any:
@@ -614,21 +597,6 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         return _text(held)
 
     # ------------------------------------------------------------- lifecycle
-    async def _read_policy(self, client: Any) -> str | None:
-        """The server's ``maxmemory-policy``, or ``None`` when the read was
-        refused (``NOPERM``, a disabled or renamed ``CONFIG``). A connection
-        failure or a transient reply (``LOADING``, ``BUSY`` ...) is not a
-        refusal and propagates: recording it would be a standing
-        ``PermissionDenied`` until ``aclose``."""
-        try:
-            reply = await client.config_get(_POLICY_SETTING)
-        except _exceptions().ResponseError as exc:
-            if redis_error_kind(exc) in (Unavailable, Timeout):
-                raise
-            return None
-        policy = reply.get(_POLICY_SETTING) if isinstance(reply, dict) else None
-        return policy if isinstance(policy, str) else None
-
     def _assume_refused(self) -> bool:
         """``assume`` without the kernel's leave (production, no accepted risk)."""
         return self._options.never_evicts_check == "assume" and not (
@@ -646,7 +614,7 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
                 raise refusal
         try:
             client = await self._client_obj()
-            policy = await self._read_policy(client)
+            policy = await read_policy(client.config_get(POLICY_SETTING))
             if policy is None:
                 await client.ping()  # an unreachable server is Unavailable
         except InfraError:
@@ -681,7 +649,7 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
             client = await self._client_obj()
             if not await client.ping():
                 return HealthResult(status="fail", details={"error": "no-pong"})
-            policy = await self._read_policy(client)
+            policy = await read_policy(client.config_get(POLICY_SETTING))
         except _probe_errors() as exc:
             # The server may come back reconfigured: the operations judge its
             # policy again. The type only: a redis error text names the host
@@ -689,12 +657,9 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
             self._policy_checked = False
             refusal = refusal_of(exc)
             if refusal is not None:  # the pool refused a socket of the server
-                reason = (
-                    "evicting_policy"
-                    if isinstance(refusal, InvalidArgument)
-                    else "noeviction_unverifiable"
+                return HealthResult(
+                    status="fail", details={"reason": refusal_reason(refusal)}
                 )
-                return HealthResult(status="fail", details={"reason": reason})
             return HealthResult(status="fail", details=_failure_details(exc))
         if policy is None:
             if self._options.never_evicts_check == "verify":
@@ -705,7 +670,7 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
             return HealthResult(
                 status="degraded", details={"reason": "noeviction_unverified"}
             )
-        if policy != _NOEVICTION:
+        if policy != NOEVICTION:
             self._policy_checked = False  # the operations judge it again
             return HealthResult(status="fail", details={"reason": "evicting_policy"})
         return HealthResult(status="ok")

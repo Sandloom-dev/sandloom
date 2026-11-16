@@ -16,6 +16,8 @@ from typing import Any
 
 import pytest
 import redis.exceptions as redis_errors
+from redis.asyncio.retry import Retry
+from redis.backoff import FullJitterBackoff
 from sandloom_redis._eviction_guard import refusal_of
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 from sandloom_redis.lease import RedisLeaseProvider
@@ -331,7 +333,7 @@ async def test_a_connection_to_an_evicting_server_is_refused_before_any_command(
     connect = await _pool_connect_func(provider)
     provider._policy_checked = True
     connection = _Connection(reply)
-    with pytest.raises(redis_errors.ConnectionError) as caught:
+    with pytest.raises(redis_errors.RedisError) as caught:
         await connect(connection)
     refusal = refusal_of(caught.value)
     assert isinstance(refusal, InvalidArgument)
@@ -342,13 +344,13 @@ async def test_a_connection_to_an_evicting_server_is_refused_before_any_command(
 async def test_a_refused_read_follows_never_evicts_check_on_every_connect() -> None:
     refused = redis_errors.NoPermissionError("NOPERM CONFIG")
     verify = await _pool_connect_func(_url_store(never_evicts_check="verify"))
-    with pytest.raises(redis_errors.ConnectionError) as caught:
+    with pytest.raises(redis_errors.RedisError) as caught:
         await verify(_Connection(refused))
     assert isinstance(refusal_of(caught.value), PermissionDenied)
     assume = await _pool_connect_func(_url_store(never_evicts_check="assume"))
     await assume(_Connection(refused))  # vouched for: the socket is used
     lease_verify = await _pool_connect_func(_url_lease())
-    with pytest.raises(redis_errors.ConnectionError) as caught:
+    with pytest.raises(redis_errors.RedisError) as caught:
         await lease_verify(_Connection(refused))
     assert isinstance(refusal_of(caught.value), PermissionDenied)
 
@@ -360,7 +362,7 @@ async def test_assume_without_the_accepted_risk_refuses_every_connect() -> None:
         options={"url": _URL, "never_evicts_check": "assume"},
     )
     connect = await _pool_connect_func(store)
-    with pytest.raises(redis_errors.ConnectionError) as caught:
+    with pytest.raises(redis_errors.RedisError) as caught:
         await connect(_Connection(_answer("noeviction")))
     refusal = refusal_of(caught.value)
     assert isinstance(refusal, PermissionDenied)
@@ -390,7 +392,7 @@ async def test_a_refusal_of_a_pooled_connection_is_the_operations_error() -> Non
     and it opens the check; any other connection error stays ``Unavailable``."""
     store, server = _store("noeviction")
     connect = await _pool_connect_func(_url_store())
-    with pytest.raises(redis_errors.ConnectionError) as caught:
+    with pytest.raises(redis_errors.RedisError) as caught:
         await connect(_Connection(_answer("volatile-ttl")))
     refused = caught.value
 
@@ -414,7 +416,7 @@ async def test_a_refusal_of_a_pooled_connection_is_the_operations_error() -> Non
 async def test_a_refusal_of_a_pooled_connection_is_the_leases_error() -> None:
     provider, server = _lease("noeviction")
     connect = await _pool_connect_func(_url_lease())
-    with pytest.raises(redis_errors.ConnectionError) as caught:
+    with pytest.raises(redis_errors.RedisError) as caught:
         await connect(_Connection(_answer("allkeys-lfu")))
     refused = caught.value
     await provider.aopen()
@@ -431,7 +433,7 @@ async def test_a_refusal_of_a_pooled_connection_is_the_leases_error() -> None:
 async def test_a_health_probe_refused_by_the_pool_reports_the_reason() -> None:
     store, server = _store("noeviction")
     connect = await _pool_connect_func(_url_store())
-    with pytest.raises(redis_errors.ConnectionError) as caught:
+    with pytest.raises(redis_errors.RedisError) as caught:
         await connect(_Connection(_answer("allkeys-random")))
     refused = caught.value
 
@@ -443,6 +445,103 @@ async def test_a_health_probe_refused_by_the_pool_reports_the_reason() -> None:
     health = await store.health()
     assert (health.status, health.details) == ("fail", {"reason": "evicting_policy"})
     assert store._policy_checked is False
+
+
+@pytest.mark.parametrize(
+    ("raised_on", "reply", "reason"),
+    [
+        ("ping", _answer("allkeys-random"), "evicting_policy"),
+        ("config_get", _answer("allkeys-random"), "evicting_policy"),
+        ("ping", redis_errors.NoPermissionError("NOPERM"), "noeviction_unverifiable"),
+    ],
+)
+async def test_a_lease_health_probe_refused_by_the_pool_reports_the_reason(
+    raised_on: str, reply: object, reason: str
+) -> None:
+    """A socket the pool refused answers the policy's reason, like the store's
+    probe, never the error type of the refusal."""
+    provider, server = _lease("noeviction")
+    connect = await _pool_connect_func(_url_lease())
+    with pytest.raises(redis_errors.RedisError) as caught:
+        await connect(_Connection(reply))
+    refused = caught.value
+
+    async def refuse(*_: object) -> bool:
+        raise refused
+
+    await provider.aopen()
+    setattr(server, raised_on, refuse)
+    health = await provider.health()
+    assert (health.status, health.details) == ("fail", {"reason": reason})
+    assert provider._policy_checked is False
+
+
+async def test_a_lease_health_probe_refused_by_the_pool_after_a_refusal_says_so() -> (
+    None
+):
+    """A refusal already recorded (or ``assume`` without the leave) is
+    ``eviction_check_refused``, as the policy check reports it."""
+    provider, server = _lease("allkeys-lru")
+    with pytest.raises(InvalidArgument):
+        await provider.aopen()  # recorded
+    connect = await _pool_connect_func(_url_lease())
+    with pytest.raises(redis_errors.RedisError) as caught:
+        await connect(_Connection(_answer("allkeys-lru")))
+    refused = caught.value
+
+    async def refuse() -> bool:
+        raise refused
+
+    server.ping = refuse  # type: ignore[method-assign]
+    health = await provider.health()
+    assert health.details == {"reason": "eviction_check_refused"}
+
+
+async def test_a_lease_health_probe_still_reports_another_connection_error() -> None:
+    """The refusal is an allow-list of one carrier: any other error of the probe
+    stays an error type."""
+    provider, server = _lease("noeviction")
+    await provider.aopen()
+
+    async def down() -> bool:
+        raise redis_errors.ConnectionError("down")
+
+    server.ping = down  # type: ignore[method-assign]
+    health = await provider.health()
+    assert health.details == {"error": "Unavailable"}
+
+
+@pytest.mark.parametrize(
+    ("kind", "attempts"), [("refusal", 1), ("connection error", 4)]
+)
+async def test_the_clients_retry_never_repeats_a_refusal(
+    kind: str, attempts: int
+) -> None:
+    """redis-py's ``Retry`` (the one both drivers' clients carry, supporting
+    ``ConnectionError``) repeats an outage but never a verdict: a refusal must
+    not cost a dial and a ``CONFIG GET`` more. The second case shows the
+    harness repeats what it supports."""
+    connect = await _pool_connect_func(_url_store())
+    calls = 0
+
+    async def dial() -> None:
+        nonlocal calls
+        calls += 1
+        if kind == "refusal":
+            await connect(_Connection(_answer("allkeys-lru")))
+        raise redis_errors.ConnectionError("reset")
+
+    async def drop(_: Exception) -> None:
+        return None
+
+    retry = Retry(
+        FullJitterBackoff(cap=0.001, base=0.001),
+        3,
+        supported_errors=(redis_errors.ConnectionError,),
+    )
+    with pytest.raises(redis_errors.RedisError):
+        await retry.call_with_retry(dial, drop)
+    assert calls == attempts
 
 
 def test_a_client_rebuilt_for_another_loop_reopens_the_check() -> None:
