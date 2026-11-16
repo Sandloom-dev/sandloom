@@ -113,11 +113,26 @@ MIGRATE_ROOT = (
 )
 
 
+#: The Redis drivers (``sandloom-redis``) are installed: the topologies run on
+#: them; otherwise on the kernel's ``memory`` ones.
+REDIS_DRIVER_INSTALLED = importlib.util.find_spec("sandloom_redis") is not None
+
+
 def _infra(database_url: str, cache_url: str) -> str:
     """``INFRA`` as JSON: the drivers a root selects (the kernel names none and
     the roots of this suite pass no ``default_infra``), plus row security on
     the default database. An instance named in it carries its own options, so
-    the URLs are written out."""
+    the URLs are written out. Without ``sandloom-redis`` (the
+    ``kernel-without-redis`` lane) the cache is the kernel's ``memory`` driver
+    and the security store its ``database`` one: the trust rows hold on both."""
+    if REDIS_DRIVER_INSTALLED:
+        cache: dict[str, object] = {"driver": "redis", "url": cache_url}
+        security: dict[str, object] = {"driver": "redis", "url": cache_url}
+    else:
+        cache = {"driver": "memory"}
+        # Revocation marks must reach every process of a split topology: the
+        # ``database`` store is shared through PostgreSQL, ``memory`` is not.
+        security = {"driver": "database", "url": database_url}
     return json.dumps(
         {
             "database": {
@@ -127,8 +142,8 @@ def _infra(database_url: str, cache_url: str) -> str:
                     "tenant_rls": True,
                 }
             },
-            "cache": {"default": {"driver": "redis", "url": cache_url}},
-            "atomic_store": {"security": {"driver": "redis", "url": cache_url}},
+            "cache": {"default": cache},
+            "atomic_store": {"security": security},
         }
     )
 

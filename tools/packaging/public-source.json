@@ -3061,6 +3061,7 @@
         "SECURITY.md",
         "THIRD_PARTY.md",
         "architecture_rules.yml",
+        "changelog.d/idk-gated-tests-3a.md",
         "changelog.d/idk-low-batch-4.md",
         "changelog.d/sandloom-redis/idk-low-batch-4.md",
         "conftest.py",
