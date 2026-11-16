@@ -481,6 +481,11 @@ the harness or a check unless marked.
   Seed another module's state through its HTTP API, contracts or events. An
   allowlist entry for a test file needs a written justification; a stale one
   fails the suite.
+- **Driver test helpers.** The `testing` module of a driver package, such as
+  `sandloom_redis.testing`, is a supported import for that driver's own test
+  resources. A test that filled a Redis calls `flush_owned_redis` from it. The
+  `test-imports` rule does not see it, because it is not a `sandloom` name, and
+  the SDK has no seam for it.
 - **Run isolation.** A test database or Redis index carries an owner marker
   (`SANDLOOM_TEST_OWNER`, else the machine id and the checkout root). A run refuses another owner's
   resources before any test (exit 4); `SANDLOOM_TEST_TAKE_OWNERSHIP=1` takes over.

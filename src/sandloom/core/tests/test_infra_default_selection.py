@@ -160,6 +160,12 @@ def test_the_event_bus_backend_is_none_when_unset_and_a_driver_otherwise(
     assert _built_settings(EVENT_BUS_BACKEND="streams").event_bus_backend == "streams"
 
 
+@pytest.mark.parametrize("value", ["", "  "])
+def test_a_blank_event_bus_backend_is_unset(value: str) -> None:
+    """Compose passes ``${EVENT_BUS_BACKEND:-}`` as an empty string."""
+    assert _built_settings(EVENT_BUS_BACKEND=value).event_bus_backend is None
+
+
 def test_another_unknown_event_bus_backend_is_still_refused() -> None:
     """The refusal of ``auto`` names the fix; any other bad value stays the
     plain Literal error (an allow-list, not a deny-list of one word)."""
@@ -168,6 +174,33 @@ def test_another_unknown_event_bus_backend_is_still_refused() -> None:
     with pytest.raises(ValidationError) as caught:
         _built_settings(EVENT_BUS_BACKEND="kafka")
     assert "unset EVENT_BUS_BACKEND" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("value", "refused"),
+    [
+        ("${EVENT_BUS_BACKEND:-}", False),  # unset: the composition's selection
+        ("  ", False),  # blank: unset, as the settings read it
+        ("streams", False),
+        ("memory", True),
+        ("redis", True),
+        ("auto", True),  # no longer a value
+    ],
+)
+def test_the_profile_check_accepts_an_unset_or_streams_bus_only(
+    value: str, refused: bool
+) -> None:
+    from sandloom.core.testing.deploy_profile import _shared_settings
+
+    env = {
+        "ENVIRONMENT": "prod",
+        "INTERNAL_API_TOKEN": "${INTERNAL_API_TOKEN:?set it}",
+        "EVENT_BUS_BACKEND": value,
+    }
+    problems: list[str] = []
+    _shared_settings({"svc": {"environment": env}}, problems.append)
+    bus = [p for p in problems if "events cross services" in p]
+    assert bool(bus) is refused, problems
 
 
 def test_a_malformed_composition_selection_is_refused() -> None:

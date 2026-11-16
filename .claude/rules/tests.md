@@ -15,6 +15,9 @@ orchestrator (alone: once at the end). Never a serial `pytest -q` after each fix
 - **Imports.** Module tests import only `sandloom.sdk` (`sandloom.sdk.testing` for the
   kit), the generated stubs and DTOs, and their own package (C013). Seed
   other modules through their HTTP API, contracts or events, never their code.
+  One more path is supported: a driver package's `testing` module
+  (`sandloom_redis.testing`, e.g. `flush_owned_redis`) for that driver's own
+  test resources. The SDK has no seam for it, and none is added.
 - **The kit** (`from sandloom.sdk.testing import ...`; fixtures come from the
   `sandloom.sdk.testing.plugin`):
   - `client` shares the rolled-back `db`, so a 4xx does not roll back what

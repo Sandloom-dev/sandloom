@@ -172,15 +172,21 @@ def rewrite_redis(
         out["CACHE_URL"] = str(moved.get("url", cache))
     if is_redis_url(broker):
         # The kernel fills the default task queue's ``broker`` from BROKER_URL:
-        # the driver of that instance says where its worker uses it. A
-        # composition that selects no task queue driver has no instance for
-        # the URL, so there is nothing to move.
+        # the driver of that instance says where its worker uses it. Without a
+        # task queue driver the URL is still a Redis URL a test may point a
+        # queue at, so it moves like CACHE_URL (the Redis driver's ``url``
+        # option): workers never share one broker index.
         broker_driver = _driver_of(infra, "taskqueue", "default")
         if broker_driver:
             moved = isolated_instance_options(
                 "taskqueue", "default", broker_driver, {"broker": broker}, worker_id
             )
             out["BROKER_URL"] = str(moved.get("broker", broker))
+        else:
+            moved = isolated_instance_options(
+                "cache", "default", DEFAULT_CACHE_DRIVER, {"url": broker}, worker_id
+            )
+            out["BROKER_URL"] = str(moved.get("url", broker))
     if named:
         rewritten: dict[str, Any] = json.loads(infra_raw or "{}")
         for capability, name, spec in named:
