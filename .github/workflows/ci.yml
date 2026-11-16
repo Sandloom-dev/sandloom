@@ -758,8 +758,6 @@ jobs:
           --sandloom-skip-ledger=skip-ledger/redis.json
           packages/sandloom-redis/tests
           src/sandloom/core/tests/test_atomic_store.py
-          src/sandloom/core/tests/test_lease.py
-          src/sandloom/core/tests/test_broadcast_redis.py
 
       - name: Upload the skip ledger
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

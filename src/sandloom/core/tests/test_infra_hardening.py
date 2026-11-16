@@ -2,8 +2,9 @@
 
 Covers: event-bus publish preflight (so invalid/oversized events can't be
 committed to the outbox and then fail at dispatch), bounded shutdown drain,
-the operation-based CacheProvider, and the key-based ObjectStore contract
-(including filesystem traversal/symlink-escape rejection).
+and the key-based ObjectStore contract (including filesystem
+traversal/symlink-escape rejection). The operation-based Redis cache provider is
+tested in ``packages/sandloom-redis/tests/test_redis_cache_operations.py``.
 """
 
 from __future__ import annotations
@@ -11,12 +12,6 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from redis.exceptions import NoScriptError
-from sandloom_redis.cache import (
-    RedisCacheProvider,
-    _script_sha,
-    create_redis_cache,
-)
 
 from sandloom.core.config.settings import settings
 from sandloom.core.contracts.validators import ContractValidationError
@@ -24,7 +19,6 @@ from sandloom.core.drivers.filesystem_storage import Storage
 from sandloom.core.drivers.local_objectstore import LocalObjectStoreProvider
 from sandloom.core.eventing.memory_bus import InMemoryEventBus
 from sandloom.core.eventing.pubsub_bus import RedisEventBus
-from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
 from sandloom.core.infra.errors import InvalidArgument, Unsupported
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.core.testing import register_event_schemas
@@ -100,123 +94,6 @@ async def test_concurrent_subscribe_starts_one_listen_loop() -> None:
     assert len(listen_loops) == 1
     await bus.close()
     await provider.aclose()
-
-
-# --- #4 operation-based cache --------------------------------------------------
-
-
-class _PlainRedis:
-    """Plain commands only: a client without scripting."""
-
-    def __init__(self) -> None:
-        self.store: dict[str, str] = {}
-
-    async def incr(self, key: str) -> int:
-        self.store[key] = str(int(self.store.get(key, "0")) + 1)
-        return int(self.store[key])
-
-    async def expire(self, key: str, ttl: int) -> None:
-        raise AssertionError("a non-atomic EXPIRE must never be sent")
-
-    async def get(self, key: str):
-        return self.store.get(key)
-
-    async def set(self, key, value, nx: bool = False, ex=None):
-        if nx and key in self.store:
-            return None
-        self.store[key] = value
-        return True
-
-    async def delete(self, key: str) -> None:
-        self.store.pop(key, None)
-
-
-class _OpsRedis(_PlainRedis):
-    """The surface the cache provider's ops delegate to: plain commands plus
-    the scripting (``EVALSHA`` / ``SCRIPT LOAD``) its atomic operations use."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.loaded: set[str] = set()
-        self.expires: dict[str, int] = {}
-
-    async def script_load(self, script: str) -> str:
-        sha = _script_sha(script)
-        self.loaded.add(sha)
-        return sha
-
-    async def evalsha(self, sha: str, numkeys: int, *keys_args: str | int) -> int:
-        """The atomic INCR+EXPIRE script the driver sends, run in Python.
-
-        Like a real server: ``NOSCRIPT`` until the script was loaded; a script
-        this double does not implement fails loudly.
-        """
-        if sha not in self.loaded:
-            raise NoScriptError("no matching script")
-        assert sha == RedisCacheProvider._INCR_WITH_TTL_SHA, "unexpected script"
-        key, ttl = str(keys_args[0]), int(keys_args[numkeys])
-        self.store[key] = str(int(self.store.get(key, "0")) + 1)
-        if self.store[key] == "1" and ttl > 0:
-            self.expires[key] = ttl
-        return int(self.store[key])
-
-
-@pytest.mark.asyncio
-async def test_cache_provider_operations(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake = _OpsRedis()
-
-    async def _get_cache():
-        return fake
-
-    monkeypatch.setattr("sandloom_redis.cache.get_default_client", _get_cache)
-    provider = create_redis_cache(
-        InstanceConfig(
-            capability="cache", name=DEFAULT_INSTANCE, driver="redis", options={}
-        )
-    )
-
-    await provider.set("k", "v")
-    assert await provider.get("k") == "v"
-    # add() is reserve-or-conflict.
-    assert await provider.add("once", "1", ttl_seconds=60) is True
-    assert await provider.add("once", "1", ttl_seconds=60) is False
-    # incr() is one atomic script (INCR + EXPIRE on the first hit), loaded on NOSCRIPT.
-    assert await provider.incr("ctr", ttl_seconds=60) == 1
-    assert await provider.incr("ctr", ttl_seconds=60) == 2
-    assert fake.expires == {"ctr": 60}
-    await provider.delete("k")
-    assert await provider.get("k") is None
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "operation",
-    [
-        lambda p: p.incr("k", ttl_seconds=60),
-        lambda p: p.windowed_counter("k", "k-prev", ttl_seconds=60),
-        lambda p: p.compare_and_set("k", "a", "b"),
-        lambda p: p.compare_and_delete("k", "a"),
-    ],
-    ids=["incr", "windowed_counter", "compare_and_set", "compare_and_delete"],
-)
-async def test_cache_atomic_operations_have_no_non_atomic_fallback(
-    monkeypatch: pytest.MonkeyPatch, operation
-) -> None:
-    """A client without scripting fails; it is never served by plain commands."""
-    fake = _PlainRedis()
-
-    async def _get_cache():
-        return fake
-
-    monkeypatch.setattr("sandloom_redis.cache.get_default_client", _get_cache)
-    provider = create_redis_cache(
-        InstanceConfig(
-            capability="cache", name=DEFAULT_INSTANCE, driver="redis", options={}
-        )
-    )
-    with pytest.raises(AttributeError, match="evalsha"):
-        await operation(provider)
-    assert fake.store == {}
 
 
 # --- #6 key-based object store + traversal/symlink rejection -------------------

@@ -28,6 +28,7 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 import pytest_asyncio
+from _redis_required import redis_unavailable
 from fastapi import Depends, FastAPI
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 from sqlalchemy import Table, select, text
@@ -38,7 +39,7 @@ from sandloom.core.config.settings import settings
 from sandloom.core.infra import access
 from sandloom.core.testing import bind_test_uow, reload_test_env, run_on_commit
 
-BACKEND = Path(__file__).resolve().parents[4]
+BACKEND = Path(__file__).resolve().parents[3]
 ENV_TEST = BACKEND / ".env.test"
 
 
@@ -67,7 +68,7 @@ def _claims(sub: str) -> dict[str, Any]:
 def _redis_url() -> str:
     url = os.getenv("CACHE_URL")
     if not url:
-        pytest.skip("no test CACHE_URL configured")
+        redis_unavailable("no test CACHE_URL configured")
     return url
 
 
@@ -80,9 +81,9 @@ async def redis_cache(
     )
     try:
         await asyncio.wait_for(provider.get("sandloom:test:ping"), 5)
-    except Exception:  # noqa: BLE001 - test Redis unreachable: skip
+    except Exception:  # noqa: BLE001 - test Redis unreachable: skip, or fail when required
         await provider.aclose()
-        pytest.skip("test Redis not reachable")
+        redis_unavailable("test Redis not reachable")
     monkeypatch.setattr(access, "atomic_store", lambda role="security": provider)
     monkeypatch.setattr(settings, "auth_revocation_fail_closed", True)
     yield provider
@@ -186,7 +187,7 @@ async def audit_db() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
 
     url = os.getenv("DATABASE_URL")
     if not url:
-        pytest.skip("DATABASE_URL not configured")
+        redis_unavailable("DATABASE_URL not configured")
     engine = create_async_engine(url)
     # block_user / unblock_user audit AND publish (outbox) in the same UoW:
     # create every table they write, never rely on another test having done it
