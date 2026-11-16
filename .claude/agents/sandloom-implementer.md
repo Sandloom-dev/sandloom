@@ -86,7 +86,10 @@ subagent): pass no actor on tm calls.
   your `.venv` untouched), `sandloom generate --check`, the no-Redis pending
   list (`tools/ci/no_redis.py`), and a driver package's tests (`redis-drivers`,
   `celery-drivers`) only when the hook's own environment carries your
-  `SANDLOOM_TEST_*`, otherwise `not_run`. A `Failed` step is recorded in
+  `SANDLOOM_TEST_*`, otherwise `not_run` (the driver lanes follow a change under
+  `packages/` only: a change in `src/sandloom/core` to what a driver uses is run
+  by CI alone, run the lane yourself). The whole hook has one deadline of 570 s;
+  a step the deadline leaves no time for is `not_run`. A `Failed` step is recorded in
   `failed` as `ci:<name>`, like a failed hook, and blocks nothing; a `not_run`
   one means CI will run it and you did not: run it yourself before the push.
   Not in it, so run them when you touched their area: `uv run sandloom check`,

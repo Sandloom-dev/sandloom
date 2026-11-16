@@ -501,12 +501,25 @@ _LINT = {"docs-stale-symbols-self-test", "docs-prose-lint-self-test"}
         ("examples/shop/README.md", _DOCS),
         (".claude/hooks/task_done_checks.py", _DOCS),
         ("uv.lock", _DOCS | {"generate-check"}),
-        ("tools/ci/no_redis_pending.json", {"no-redis-pending"}),
-        ("tests/integration/replaceability/t.py", {"no-redis-pending"}),
-        ("packages/sandloom-redis/src/sandloom_redis/x.py", {"redis-drivers"}),
-        ("packages/sandloom-celery/tests/test_x.py", {"celery-drivers"}),
-        ("tests/unit/test_x.py", set()),
-        ("migrations/core/x.py", set()),
+        ("tools/ci/no_redis_pending.json", {"generate-check", "no-redis-pending"}),
+        (
+            "tests/integration/replaceability/t.py",
+            {"generate-check", "no-redis-pending"},
+        ),
+        (
+            "packages/sandloom-redis/src/sandloom_redis/x.py",
+            {"generate-check", "redis-drivers"},
+        ),
+        (
+            "packages/sandloom-celery/tests/test_x.py",
+            {"generate-check", "celery-drivers"},
+        ),
+        ("tests/unit/test_x.py", {"generate-check"}),
+        ("migrations/core/x.py", {"generate-check"}),
+        ("guarantees.yml", {"generate-check"}),
+        ("architecture_rules.yml", {"generate-check"}),
+        ("packages/sandloom-redis/pyproject.toml", {"generate-check", "redis-drivers"}),
+        ("CHANGELOG.md", set()),
     ],
 )
 def test_a_path_selects_the_steps_of_its_ci_areas(
@@ -520,13 +533,32 @@ def test_the_selected_steps_keep_the_order_of_the_table() -> None:
     assert names == [s.name for s in hook.STEPS if s.name in names]
 
 
-def test_the_docs_paths_are_the_docs_filter_of_ci() -> None:
+def _ci_filter(name: str) -> set[str]:
     import yaml
 
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     steps = workflow["jobs"]["changes"]["steps"]
-    filters = next(s["with"]["filters"] for s in steps if s.get("id") == "filter")
-    assert tuple(yaml.safe_load(filters)["docs"]) == hook.DOCS_PATHS
+    filters = [s["with"]["filters"] for s in steps if s.get("id") == "filter"]
+    assert filters, (
+        "ci.yml has no step with id `filter` in the `changes` job: "
+        "DOCS_PATHS and BACKEND_PATHS of .claude/hooks/task_done_checks.py "
+        "follow its filters, update them with the rename"
+    )
+    return set(yaml.safe_load(filters[0])[name])
+
+
+def test_the_docs_paths_are_the_docs_filter_of_ci() -> None:
+    assert set(hook.DOCS_PATHS) == _ci_filter("docs"), (
+        "DOCS_PATHS of .claude/hooks/task_done_checks.py differs from the "
+        "`docs` filter of .github/workflows/ci.yml"
+    )
+
+
+def test_the_backend_paths_are_the_backend_filter_of_ci() -> None:
+    assert set(hook.BACKEND_PATHS) == _ci_filter("backend"), (
+        "BACKEND_PATHS of .claude/hooks/task_done_checks.py differs from the "
+        "`backend` filter of .github/workflows/ci.yml"
+    )
 
 
 def test_globs_follow_the_paths_filter() -> None:
@@ -623,7 +655,8 @@ def test_a_driver_lane_runs_only_with_the_agents_own_test_resources(
     record = _stage(monkeypatch, path, runner)
     assert record["redis-drivers"]["status"] == "not_run"
     assert "SANDLOOM_TEST_DATABASE_URL" in record["redis-drivers"]["reason"]
-    assert runs == []
+    assert not [argv for argv, _env in runs if "pytest" in argv]
+    runs.clear()
     resources = {
         "SANDLOOM_TEST_DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:1/db",
         "SANDLOOM_TEST_CACHE_URL": "redis://127.0.0.1:2/58",
@@ -632,7 +665,7 @@ def test_a_driver_lane_runs_only_with_the_agents_own_test_resources(
     }
     record = _stage(monkeypatch, path, runner, **resources)
     assert record["redis-drivers"]["status"] == "Passed"
-    argv, env = runs[0]
+    argv, env = next((a, e) for a, e in runs if "pytest" in a)
     assert "packages/sandloom-redis/tests" in argv
     assert "no:xdist" in argv and "no:cacheprovider" in argv
     assert env["SANDLOOM_REDIS_REQUIRED"] == "1"
@@ -729,6 +762,7 @@ def test_the_python_311_environment_is_built_outside_the_checkout(
     ("failure", "reason"),
     [
         (FileNotFoundError(2, "x", "uv"), "uv is not installed"),
+        (PermissionError(13, "denied"), "uv could not be started: .*denied"),
         (hook.subprocess.TimeoutExpired("uv", 1), "timed out"),
     ],
 )
@@ -782,7 +816,7 @@ def test_no_changed_path_of_a_ci_area_runs_nothing(
     runs: list[list[str]] = []
     record = _stage(
         monkeypatch,
-        ["tests/unit/test_x.py"],
+        ["CHANGELOG.md", "docs-not/x.md"],
         lambda argv, cwd, env, timeout: runs.append(argv) or (0, ""),
     )
     assert record == {} and runs == []
@@ -849,6 +883,189 @@ def test_a_credential_in_a_ci_step_output_is_masked(
         lambda argv, cwd, env, timeout: (1, "connect redis://:hunter2@host/0 failed"),
     )
     assert "hunter2" not in json.dumps(record)
+
+
+def test_a_cut_through_a_url_in_a_ci_step_output_never_leaves_its_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Whatever the length of what follows the URL, some cut of the output lands
+    # inside it: the masking must come before every cut.
+    for suffix in range(100, 500, 2):
+        output = "p" * 20 + "https://deploy:hunter2secret@example.org/x" + "y" * suffix
+        record = _stage(
+            monkeypatch,
+            ["docs/a.md"],
+            lambda argv, cwd, env, timeout, o=output: (1, o),
+        )
+        assert record["docs-code-check"]["tail"]
+        assert "hunter2secret" not in json.dumps(record), suffix
+
+
+def test_a_cut_through_a_url_in_the_python_311_error_never_leaves_its_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(hook, "_git", lambda args, cwd, **kw: "docs/a.md")
+    for suffix in range(100, 400, 2):
+        output = "p" * 20 + "https://deploy:hunter2secret@example.org/x" + "y" * suffix
+        monkeypatch.setattr(hook, "_run_bounded", lambda *a, o=output: (2, o))
+        record = real_run_ci_steps("/repo")
+        reasons = [v["reason"] for v in record.values()]
+        assert reasons and all(v["status"] == "not_run" for v in record.values())
+        assert "hunter2secret" not in json.dumps(record), suffix
+
+
+def test_a_stage_that_raises_is_one_not_run_record_not_an_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(hook, "_git", lambda args, cwd, **kw: "docs/a.md")
+
+    def broken(*a, **kw):
+        raise PermissionError(13, "no temp for you")
+
+    monkeypatch.setattr(hook, "_mktemp", broken)
+    record = real_run_ci_steps("/repo")
+    assert list(record) == ["ci-steps"]
+    assert record["ci-steps"]["status"] == "not_run"
+    assert "no temp for you" in record["ci-steps"]["reason"]
+
+
+# --- one deadline for the whole hook, and a SIGTERM that cleans up ----------------
+
+
+def test_pre_commit_and_the_stage_share_what_the_hook_deadline_has_left(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[float] = []
+    monkeypatch.setattr(
+        hook,
+        "_run_bounded",
+        lambda argv, cwd, env, timeout: seen.append(timeout) or (0, ""),
+    )
+    monkeypatch.setattr(hook, "_deadline_at", time.monotonic() + 100)
+    hook.run_checks("/repo")
+    assert seen == [pytest.approx(100 - hook.KILL_MARGIN, abs=2)]
+    seen.clear()
+    monkeypatch.setattr(hook, "_git", lambda args, cwd, **kw: "src/sandloom/sdk/x.py")
+    monkeypatch.setattr(hook, "_docs_python", lambda *a: "/py311")
+    real_run_ci_steps("/repo")
+    # no step may be given more than the stage budget, itself under the deadline
+    assert seen and all(t <= 100 - hook.KILL_MARGIN for t in seen)
+    # the stage ends before the deadline minus the margin, however long its steps
+    monkeypatch.setattr(hook, "_deadline_at", time.monotonic() + 40)
+    seen.clear()
+    real_run_ci_steps("/repo")
+    assert seen and all(t <= 40 - hook.KILL_MARGIN for t in seen)
+
+
+def test_a_stage_budget_is_capped_when_the_deadline_is_far(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[float] = []
+    monkeypatch.setattr(hook, "STEP_TIMEOUT", 10_000)
+    monkeypatch.setattr(hook, "_deadline_at", time.monotonic() + 10_000)
+    monkeypatch.setattr(hook, "_git", lambda args, cwd, **kw: "src/sandloom/sdk/x.py")
+    monkeypatch.setattr(hook, "_docs_python", lambda *a: "/py311")
+    monkeypatch.setattr(
+        hook,
+        "_run_bounded",
+        lambda argv, cwd, env, timeout: seen.append(timeout) or (0, ""),
+    )
+    real_run_ci_steps("/repo")
+    assert seen and all(t <= hook.STAGE_BUDGET for t in seen)
+
+
+def test_the_hooks_own_deadline_is_under_its_timeout_in_the_settings() -> None:
+    settings = json.loads((ROOT / ".claude/settings.json").read_text())
+    timeouts = [
+        h["timeout"]
+        for entry in settings["hooks"]["PreToolUse"]
+        for h in entry["hooks"]
+        if "task_done_checks" in h["command"]
+    ]
+    assert timeouts, "no hook entry runs task_done_checks.py"
+    assert all(hook.HOOK_DEADLINE + hook.KILL_MARGIN <= t for t in timeouts)
+
+
+def test_a_sigterm_kills_the_live_steps_and_removes_the_temp_directory(
+    tmp_path: Path,
+) -> None:
+    import signal
+    import subprocess
+    import sys
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git = [
+        "git",
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "commit.gpgsign=false",
+    ]
+    (repo / "a.md").write_text("a")
+    for argv in (
+        ["git", "init", "-q", "-b", "main"],
+        ["git", "add", "a.md"],
+        [*git, "commit", "-q", "-m", "one"],
+        ["git", "update-ref", "refs/remotes/origin/main", "HEAD"],
+    ):
+        subprocess.run(argv, cwd=repo, check=True, capture_output=True)
+    (repo / "docs").mkdir()
+    (repo / "docs/a.md").write_text("docs")
+    subprocess.run(["git", "add", "docs/a.md"], cwd=repo, check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "two"], cwd=repo, check=True)
+    # a `uv` that records its pid and sleeps: pre-commit and the 3.11 build
+    # both start it, each as the leader of a session of its own
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    pids = tmp_path / "pids"
+    fake = bin_dir / "uv"
+    fake.write_text(f"#!/bin/sh\necho $$ >> {pids}\nexec sleep 120\n")
+    fake.chmod(0o755)
+    temp_root = tmp_path / "tmp"
+    temp_root.mkdir()
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "TMPDIR": str(temp_root),
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+    }
+    proc = subprocess.Popen(
+        [sys.executable, str(ROOT / ".claude/hooks/task_done_checks.py")],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        env=env,
+        text=True,
+    )
+    assert proc.stdin
+    proc.stdin.write(json.dumps({"agent_type": hook.AGENT, "cwd": str(repo)}))
+    proc.stdin.close()
+    try:
+        for _ in range(100):
+            started = pids.read_text().split() if pids.exists() else []
+            if len(started) >= 2 and list(temp_root.glob("sandloom-ci-steps-*")):
+                break
+            time.sleep(0.1)
+        else:
+            pytest.fail("the hook did not start its steps")
+        proc.send_signal(signal.SIGTERM)
+        assert proc.wait(timeout=10) == 0
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    for pid in map(int, started):
+        for _ in range(50):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.1)
+        else:
+            os.kill(pid, 9)
+            pytest.fail(f"step {pid} outlived the hook")
+    assert not list(temp_root.glob("sandloom-ci-steps-*"))
 
 
 # --- the no-Redis pending list, checked without a venv ---------------------------

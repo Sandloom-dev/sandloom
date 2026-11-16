@@ -34,6 +34,18 @@ The stage never writes into the checkout (the 3.11 environment is a temporary
 directory outside it, bytecode is off) and every step is killed with its process
 group at its timeout, so it cannot hang the hook.
 
+Scope, said plainly: the generated-files check follows CI's ``backend`` filter
+(:data:`BACKEND_PATHS`); the driver lanes follow a change under ``packages/``
+only, while CI runs them on any backend change, so a core change to an adapter a
+driver uses is CI's alone. A driver lane that skips any test (a missing
+broker, a missing extra) is ``not_run`` as a whole: a partial run is not a pass.
+
+One deadline (:data:`HOOK_DEADLINE`, under the 600 s of the hook in
+``.claude/settings.json``) bounds pre-commit's timeout and the stage's budget
+together. A SIGTERM of the hook (the harness's own timeout) kills the live step
+groups, which are sessions of their own and would outlive it, removes the
+temporary directory and leaves without a record.
+
 Only the record this hook emitted passes the second call: its digest is kept in
 ``~/.cache/sandloom-checks`` (outside every checkout), so an agent cannot attach
 a self-written all-green record. If that directory cannot be written, the hook
@@ -162,26 +174,30 @@ def run_checks(top: str) -> tuple[dict[str, str], str, int]:
     env = {**os.environ, **CI_ENV, "SKIP": SKIP}
     argv = ["uv", "run", "--locked", "pre-commit", "run"]
     argv += ["--from-ref", "origin/main", "--to-ref", "HEAD"]
-    done = subprocess.run(  # noqa: S603 - fixed argv in the agent's checkout
-        argv,
-        cwd=top,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=540,
-        check=False,
-    )
-    output = done.stdout + done.stderr
+    # Bounded by the hook's deadline, and killed with its process group (the
+    # hooks pre-commit starts are its children).
+    code, output = _run_bounded(argv, top, env, max(remaining() - KILL_MARGIN, 1))
     failed = [
         ln for ln in output.splitlines() if ln.strip() and not _RESULT.match(ln.strip())
     ]
-    return results(output), "\n".join(failed[-25:]), done.returncode
+    return results(output), "\n".join(failed[-25:]), code
 
 
-#: The stage's own clock: it runs beside pre-commit (540 s at most) inside the
-#: hook's 600 s limit in ``.claude/settings.json``, so it ends before either.
+#: One deadline for the whole hook, under the 600 s limit of the hook in
+#: ``.claude/settings.json``: pre-commit's timeout and the stage's budget are what
+#: is left of it (less :data:`KILL_MARGIN`), never a clock of their own.
+HOOK_DEADLINE = 570
+#: Left for killing the live process groups and writing the record.
+KILL_MARGIN = 15
+_deadline_at = time.monotonic() + HOOK_DEADLINE
+#: A cap on the stage beside the shared deadline.
 STAGE_BUDGET = 480
 STEP_TIMEOUT = 300
+#: Process groups of the steps running now and the temporary directories made:
+#: what a SIGTERM of the hook must clean up (a step is its own session, so the
+#: kill of the hook does not reach it).
+_live_groups: set[int] = set()
+_temp_dirs: set[str] = set()
 #: A step is not started with less than this left of the budget.
 MIN_STEP_SECONDS = 10
 _PLACEHOLDER = "{python}"
@@ -207,6 +223,29 @@ DOCS_PATHS = (
     ".claude/**",
     "deploy/**",
     "benchmarks/dx/**",
+)
+#: The ``backend`` filter of ``.github/workflows/ci.yml``: a path matching one
+#: runs ``sandloom generate --check`` (job ``backend-static``) in CI. A test
+#: keeps this list equal to it.
+BACKEND_PATHS = (
+    "src/**",
+    "tests/**",
+    "tools/ci/**",
+    "tools/smoke/**",
+    "migrations/**",
+    "packages/**",
+    "tools/checks/**",
+    "tools/packaging/*.py",
+    "tools/packaging/**/*.py",
+    "tools/packaging/packages.json",
+    "pyproject.toml",
+    "uv.lock",
+    "conftest.py",
+    "architecture_rules.yml",
+    "guarantees.yml",
+    ".env.test",
+    ".github/workflows/release.yml",
+    ".github/workflows/ci.yml",
 )
 _LANE_ENV = (
     "SANDLOOM_TEST_DATABASE_URL",
@@ -319,7 +358,7 @@ STEPS = (
     ),
     Step(
         "generate-check",
-        ("src/**", "pyproject.toml", "uv.lock"),
+        BACKEND_PATHS,
         ("uv", "run", "--locked", "sandloom", "generate", "--check"),
         env=(("SANDLOOM_COMPOSITION_ROOT", "sandloom_standard.main"),),
         timeout=180,
@@ -397,11 +436,47 @@ def selected(changed: list[str]) -> list[Step]:
     ]
 
 
+def remaining() -> float:
+    """Seconds left of the hook's one deadline."""
+    return _deadline_at - time.monotonic()
+
+
+def _kill_group(pgid: int) -> None:
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def _mktemp() -> str:
+    """A temporary directory the SIGTERM handler removes if the hook is killed."""
+    path = tempfile.mkdtemp(prefix="sandloom-ci-steps-")
+    _temp_dirs.add(path)
+    return path
+
+
+def _rmtemp(path: str) -> None:
+    shutil.rmtree(path, ignore_errors=True)
+    _temp_dirs.discard(path)
+
+
+def _on_sigterm(signum: int, frame: object) -> None:
+    """The harness killed the hook (its timeout): the steps are sessions of
+    their own and would outlive it, so kill their groups and remove what was
+    made, then leave without a record (as any failure of the hook does)."""
+    for pgid in list(_live_groups):
+        _kill_group(pgid)
+    for path in list(_temp_dirs):
+        shutil.rmtree(path, ignore_errors=True)
+    os._exit(0)
+
+
 def _run_bounded(
     argv: list[str], cwd: str, env: dict[str, str], timeout: float
 ) -> tuple[int, str]:
     """``(exit status, output)``; past ``timeout`` the whole process group is
-    killed (uv's child included) and ``TimeoutExpired`` raised."""
+    killed (uv's child included) and ``TimeoutExpired`` raised. The group is
+    registered while it runs, for :func:`_on_sigterm`."""
     proc = subprocess.Popen(  # noqa: S603 - fixed argv in the agent's checkout
         argv,
         cwd=cwd,
@@ -411,12 +486,15 @@ def _run_bounded(
         text=True,
         start_new_session=True,
     )
+    _live_groups.add(proc.pid)
     try:
         out, _ = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
+        _kill_group(proc.pid)
         proc.communicate()
         raise
+    finally:
+        _live_groups.discard(proc.pid)
     return proc.returncode, out
 
 
@@ -436,12 +514,16 @@ def _docs_python(top: str, env: dict[str, str], tmp: str, timeout: float) -> str
             code, out = _run_bounded(argv, top, uv_env, timeout)
         except FileNotFoundError:
             raise RuntimeError("uv is not installed") from None
+        except OSError as exc:
+            raise RuntimeError(f"uv could not be started: {exc}") from None
         except subprocess.TimeoutExpired:
             raise RuntimeError(f"`{' '.join(argv[:2])}` timed out") from None
         if code:
+            # The whole output: the one cut happens after the masking, in
+            # run_ci_steps.
             raise RuntimeError(
                 f"Python 3.11 environment: `{' '.join(argv[:2])}` exited {code}: "
-                + out.strip()[-200:]
+                + out.strip()
             )
     return str(Path(venv) / "bin" / "python")
 
@@ -468,7 +550,7 @@ def _run_step(
     except Exception as exc:  # noqa: BLE001 - an in-process check that raised failed
         return "Failed", f"{type(exc).__name__}: {exc}"
     if code:
-        return "Failed", out.strip()[-400:]
+        return "Failed", out.strip()
     skipped = _SKIPPED.search(out)
     if step.needs_env and skipped:
         # A lane that skips without its servers has not been run.
@@ -476,11 +558,47 @@ def _run_step(
     return "Passed", ""
 
 
-def run_ci_steps(top: str, budget: float = STAGE_BUDGET) -> dict[str, dict]:
+def run_ci_steps(top: str, budget: float | None = None) -> dict[str, dict]:
     """``{step: {"status", "seconds", "reason" | "tail"}}`` for the CI steps the
-    diff against ``origin/main`` selects; never raises, never exceeds ``budget``
-    seconds by more than a process-group kill."""
+    diff against ``origin/main`` selects. Never raises: whatever goes wrong
+    (a tool, the environment, the temporary directory) is one ``not_run``
+    record, so the pre-commit record of the same hook is never lost with it.
+
+    The budget is :data:`STAGE_BUDGET` at most and what the hook's deadline has
+    left (less :data:`KILL_MARGIN`)."""
+    try:
+        return _run_ci_steps(top, budget)
+    except Exception as exc:  # noqa: BLE001 - the stage must not take the hook down
+        reason = redact(f"{type(exc).__name__}: {exc}")[:200]
+        return {"ci-steps": {"status": "not_run", "reason": reason}}
+
+
+def _outcome(
+    step: Step,
+    top: str,
+    env: dict[str, str],
+    tmp: str,
+    docs: dict[str, str],
+    left: Callable[[], float],
+) -> tuple[str, str]:
+    """``(status, text)`` of one step within the stage's budget. ``docs`` holds
+    the 3.11 interpreter (or why there is none), built on the first docs step."""
+    if left() < MIN_STEP_SECONDS:
+        return "not_run", "the stage budget was spent"
+    if step.docs_python and not docs["python"] and not docs["error"]:
+        try:
+            docs["python"] = _docs_python(top, env, tmp, min(120, left()))
+        except RuntimeError as exc:
+            docs["error"] = str(exc)
+    if step.docs_python and docs["error"]:
+        return "not_run", docs["error"]
+    return _run_step(step, top, env, docs["python"], min(step.timeout, max(left(), 1)))
+
+
+def _run_ci_steps(top: str, budget: float | None) -> dict[str, dict]:
     started = time.monotonic()
+    if budget is None:
+        budget = min(STAGE_BUDGET, remaining() - KILL_MARGIN)
     try:
         diff = _git(["diff", "--name-only", "origin/main...HEAD"], top, strict=True)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -488,9 +606,8 @@ def run_ci_steps(top: str, budget: float = STAGE_BUDGET) -> dict[str, dict]:
     steps = selected([p for p in diff.splitlines() if p])
     env = {**os.environ, **CI_ENV, "PYTHONDONTWRITEBYTECODE": "1"}
     record: dict[str, dict] = {}
-    tmp = tempfile.mkdtemp(prefix="sandloom-ci-steps-") if steps else ""
-    python = ""
-    python_error = ""
+    tmp = _mktemp() if steps else ""
+    docs = {"python": "", "error": ""}
 
     def left() -> float:
         return budget - (time.monotonic() - started)
@@ -498,26 +615,14 @@ def run_ci_steps(top: str, budget: float = STAGE_BUDGET) -> dict[str, dict]:
     try:
         for step in steps:
             begun = time.monotonic()
-            if left() < MIN_STEP_SECONDS:
-                status, text = "not_run", "the stage budget was spent"
-            else:
-                if step.docs_python and not python and not python_error:
-                    try:
-                        python = _docs_python(top, env, tmp, min(120, left()))
-                    except RuntimeError as exc:
-                        python_error = str(exc)
-                if step.docs_python and python_error:
-                    status, text = "not_run", python_error
-                else:
-                    wait = min(step.timeout, max(left(), 1))
-                    status, text = _run_step(step, top, env, python, wait)
+            status, text = _outcome(step, top, env, tmp, docs, left)
             entry = {"status": status, "seconds": round(time.monotonic() - begun, 1)}
             if text:
                 entry["reason" if status == "not_run" else "tail"] = redact(text)[-300:]
             record[step.name] = entry
     finally:
         if tmp:
-            shutil.rmtree(tmp, ignore_errors=True)
+            _rmtemp(tmp)
     return record
 
 
@@ -696,6 +801,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # Only the hook process takes the handler (an import, a test, does not);
+    # its deadline counts from the import, that is from the start.
+    signal.signal(signal.SIGTERM, _on_sigterm)
     try:
         sys.exit(main())
     except Exception:  # noqa: BLE001 - a broken hook must never block a handover

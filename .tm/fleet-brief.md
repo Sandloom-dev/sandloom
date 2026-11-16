@@ -66,7 +66,10 @@ Remove your containers before `task_done`.
   docs code check under Python 3.11, generated files, no-Redis list, driver
   lanes). A step the hook could not run is `not_run` with a reason, which is
   a record and no refusal; a driver lane runs only when the hook's environment
-  carries your `SANDLOOM_TEST_*`, so run it yourself before the push.
+  carries your `SANDLOOM_TEST_*` and only for a change under `packages/`, so
+  run it yourself before the push (a core change to what a driver uses
+  included). One deadline of 570 s covers the whole hook; what it leaves no
+  time for is `not_run`.
 - **Deliverables.** `task_done` carries the PR (`git_commit`) and the
   `checklist` (one line per item of the "Before the PR" list, with the grep
   you ran for item 2). A task that requires them refuses a handover without.
