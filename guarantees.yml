@@ -5856,7 +5856,8 @@ guarantees:
 - id: G-OPS-14
   statement: 'In both compose profiles every security/auth-relevant setting (shared env anchor: JWT_*
     except issuer-only keys, the access-token lifetime, INTERNAL_API_TOKEN, notifier/SMTP)
-    and CACHE_URL are identical in every process.'
+    and INFRA (so the cache.default url) are identical in every process; only the Celery
+    broker of each service may differ.'
   sources:
   - docs/operate/topologies.md
   - deploy/README.md#Config parity invariants

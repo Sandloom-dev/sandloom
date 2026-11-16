@@ -2,13 +2,13 @@
 
 The managed ``INFRA`` of a checkout names, per driver, the option holding the
 Redis url (``envfile._URL_OPTION``). A driver the table misses would get no url
-in the block and fail startup only at its first use, so every installed driver
-that takes a url from a flat setting (``settings_fill.urls``) must be in it, and
-every entry must still name an installed driver.
+in the block and fail startup only at its first use, so every driver of the
+repository's two driver packages that has a ``url`` or ``broker`` option must be
+in it, under that option, and every entry must still name an installed driver.
 
-The table is a stopgap: the settings that feed ``settings_fill`` are removed by
-the flat-urls Z slice, and the url option then moves onto the provider class
-(a ClassVar read generically); this test goes with the table.
+The table is a stopgap: the url option moves onto the provider class (a ClassVar
+read generically, so the kernel names no driver) once the Redis atomic store and
+lease providers are free of their open task; this test goes with the table.
 """
 
 from __future__ import annotations
@@ -21,6 +21,11 @@ import pytest
 from sandloom.core.cli.dev.envfile import _URL_OPTION
 from sandloom.core.infra.ports._base import InfraProvider
 
+#: The driver packages of this repository: a third party's driver is not held
+#: to the table.
+_REPOSITORY_PACKAGES = frozenset({"sandloom_redis", "sandloom_celery"})
+_URL_OPTIONS = ("url", "broker")
+
 
 def _installed() -> dict[str, type[InfraProvider]]:
     """``{"<capability>.<driver>": provider class}`` of every installed driver."""
@@ -32,18 +37,30 @@ def _installed() -> dict[str, type[InfraProvider]]:
     return found
 
 
+def _url_option(provider: type[InfraProvider]) -> str | None:
+    """The url option of ``provider``'s schema, ``None`` when it has none."""
+    schema = provider.options_schema
+    if schema is None:
+        return None
+    fields = schema.model_fields
+    return next((option for option in _URL_OPTIONS if option in fields), None)
+
+
 def _gaps(
     installed: Mapping[str, type[InfraProvider]], table: Mapping[str, str]
 ) -> list[str]:
     drivers = {key.partition(".")[2] for key in installed}
-    gaps = [
-        f"{key}: takes {sorted(cls.settings_fill.urls)} from a flat setting but "
-        f"`{key.partition('.')[2]}` has no entry (or another option) in _URL_OPTION"
-        for key, cls in sorted(installed.items())
-        if cls.settings_fill is not None
-        and cls.settings_fill.urls
-        and table.get(key.partition(".")[2]) not in cls.settings_fill.urls
-    ]
+    gaps = []
+    for key, cls in sorted(installed.items()):
+        if cls.__module__.partition(".")[0] not in _REPOSITORY_PACKAGES:
+            continue
+        option = _url_option(cls)
+        driver = key.partition(".")[2]
+        if option is not None and table.get(driver) != option:
+            gaps.append(
+                f"{key}: has the option `{option}` but `{driver}` has no entry "
+                "(or another option) in _URL_OPTION"
+            )
     gaps += [
         f"_URL_OPTION names `{driver}`, which no installed driver publishes"
         for driver in sorted(set(table) - drivers)
