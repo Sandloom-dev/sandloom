@@ -88,7 +88,8 @@ SCRATCH_PREFIX = "sandloom_restore_verify_"
 # --------------------------------------------------------------------------- #
 @dataclass(slots=True)
 class PlanItem:
-    kind: str  # "postgres" | "redis" | "objectstore" | "secrets"
+    # "postgres" | "redis" | "objectstore" | "secrets" | "warning"
+    kind: str
     name: str
     target: str  # masked URL / path
     roles: list[str] = field(default_factory=list)
@@ -325,7 +326,7 @@ def build_backup_plan(
     # Filled as the application is: the cache's ``CACHE_URL``, the development
     # atomic store that follows it, the broker (``load_infra_config`` alone
     # fills nothing, so the Redis targets of the flat settings would be missing).
-    config = filled_infra_config(settings)
+    config, unfilled = filled_infra_config(settings)
     items: list[PlanItem] = []
     postgres: dict[str, PlanItem] = {}
     for name, inst in sorted((config.get("database") or {}).items()):
@@ -350,6 +351,21 @@ def build_backup_plan(
                     "+ replication"
                 ],
                 restore=["restore to the same logical keys; no reconciliation"],
+            )
+        )
+    if unfilled is not None:
+        items.append(
+            PlanItem(
+                kind="warning",
+                name="redis endpoints",
+                target="incomplete",
+                criticality="critical",
+                backup=[
+                    "the Redis endpoints named by CACHE_URL and BROKER_URL may be "
+                    "missing from this plan: an installed driver failed to load "
+                    f"({unfilled}); fix the installation and rerun, or list them "
+                    "by hand"
+                ],
             )
         )
     items.append(_secrets_item(models))

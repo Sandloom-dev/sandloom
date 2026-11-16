@@ -828,14 +828,31 @@ def _resolved_options(cfg: Any, capability: str) -> dict[str, Mapping[str, Any]]
     return {name: inst.options for name, inst in resolved.items()}
 
 
+def _declared_in_infra(cfg: Any, capability: str, name: str, option: str) -> bool:
+    """Whether the ``INFRA`` setting itself states ``option`` of the instance
+    (not only the composition's ``DEFAULT_INFRA`` selection)."""
+    infra = getattr(cfg, "infra", None)
+    declared = infra.get(capability) if isinstance(infra, Mapping) else None
+    instance = declared.get(name) if isinstance(declared, Mapping) else None
+    return isinstance(instance, Mapping) and option in instance
+
+
 def _infra_options(cfg: Any, capability: str, option: str) -> list[tuple[str, object]]:
-    """(``INFRA.<cap>.<instance>.<option>``, value) of every declared instance."""
+    """(label, value) of every resolved instance. The label names where the
+    value was written: ``INFRA.<cap>.<instance>.<option>`` when ``INFRA`` states
+    it, ``<cap>.<instance>.<option> (composition DEFAULT_INFRA)`` otherwise (the
+    composition's selection, or the driver's own default)."""
     instances: dict[str, object] = {"default": {}}
     instances.update(_resolved_options(cfg, capability))
     out = []
     for name, options in sorted(instances.items()):
         opts = options if isinstance(options, Mapping) else {}
-        out.append((f"INFRA.{capability}.{name}.{option}", opts.get(option)))
+        label = (
+            f"INFRA.{capability}.{name}.{option}"
+            if _declared_in_infra(cfg, capability, name, option)
+            else f"{capability}.{name}.{option} (composition DEFAULT_INFRA)"
+        )
+        out.append((label, opts.get(option)))
     return out
 
 

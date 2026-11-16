@@ -2034,8 +2034,10 @@ def configured_stream_retention(
     installed in this process (the reason names the package to install) or is
     installed but fails to load; or the driver has no ``retention_seconds``
     option with a default (a volatile ``memory`` / ``redis`` bus keeps no
-    stream). Nothing here raises for a driver package: a read-only probe
-    (``check``, ``doctor``, purge) must still say why.
+    stream). A driver package that is missing or fails to load never raises
+    from here (a read-only probe, ``check``, ``doctor`` or purge, must still say
+    why); a malformed ``INFRA`` still raises ``InfraConfigError``, which
+    :func:`resolved_eventbus` refuses with its own message.
     """
     found = resolved_eventbus(settings).get(instance)
     if found is None:

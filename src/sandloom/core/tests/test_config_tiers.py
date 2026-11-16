@@ -278,8 +278,9 @@ def test_smtp_tls_off_in_the_composition_selection_is_an_override(
         ),
     )
     cfg = _settings(ENVIRONMENT="prod", NOTIFIER_BACKEND="smtp")
+    # Labelled by where the value was written: ``INFRA`` states nothing here.
     assert [o.setting for o in tiers.active_overrides(cfg)] == [
-        "INFRA.notification.default.use_tls"
+        "notification.default.use_tls (composition DEFAULT_INFRA)"
     ]
 
 

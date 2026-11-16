@@ -11,6 +11,7 @@ only what the probe uses.
 from __future__ import annotations
 
 import importlib
+from typing import NamedTuple
 
 from sandloom.core.config.settings import Settings, settings
 from sandloom.core.infra.config import (
@@ -18,10 +19,15 @@ from sandloom.core.infra.config import (
     fill_driver_defaults,
     load_infra_config,
 )
-from sandloom.core.infra.registry import InfraRegistry, load_selected_plugins
+from sandloom.core.infra.registry import (
+    DriverConflictError,
+    DriverLoadError,
+    InfraRegistry,
+    load_selected_plugins,
+)
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
-__all__ = ["build_tool_infra", "filled_infra_config"]
+__all__ = ["FilledInfraConfig", "build_tool_infra", "filled_infra_config"]
 
 #: The capabilities a tool process configures: the probe asks the worker host.
 _TOOL_CAPABILITIES = frozenset({"taskqueue"})
@@ -54,7 +60,16 @@ def build_tool_infra() -> InfraRegistry:
     return registry
 
 
-def filled_infra_config(settings: Settings) -> InfraConfig:
+class FilledInfraConfig(NamedTuple):
+    """:func:`filled_infra_config`'s answer: the ``config`` and, when an
+    installed driver could not be loaded, the ``unfilled`` reason (the config
+    is then as ``load_infra_config`` gave it, nothing filled)."""
+
+    config: InfraConfig
+    unfilled: str | None = None
+
+
+def filled_infra_config(settings: Settings) -> FilledInfraConfig:
     """The configuration ``settings`` selects, with the options each driver takes
     from the flat settings filled in (``CACHE_URL``, ``BROKER_URL``, the
     ``CACHE_*`` bounds): what a process that boots no application reads, as the
@@ -63,7 +78,10 @@ def filled_infra_config(settings: Settings) -> InfraConfig:
     ``load_infra_config`` fills nothing, since no driver class is loaded; the
     registry here has the built-in rows and the entry points the configuration
     selects, nothing validated and nothing built. A driver whose package is not
-    installed is not filled.
+    installed is not filled. A package that is installed but fails to load (or
+    publishes a driver twice) is not fatal for a read-only tool either: the
+    configuration comes back unfilled, with the reason in ``unfilled`` for the
+    tool to say so.
     """
     bootstrap = importlib.import_module("sandloom.core.drivers.bootstrap")
     config = load_infra_config(settings)
@@ -71,6 +89,11 @@ def filled_infra_config(settings: Settings) -> InfraConfig:
     bootstrap.register_builtin_drivers(
         registry, InMemorySchemaRegistry(), settings=settings
     )
-    load_selected_plugins(registry, config)
-    fill_driver_defaults(config, settings, registry.settings_fill)
-    return config
+    try:
+        load_selected_plugins(registry, config)
+        fill_driver_defaults(config, settings, registry.settings_fill)
+    except (DriverLoadError, DriverConflictError) as exc:
+        # The fill may have stopped half way: hand back a configuration nothing
+        # has touched.
+        return FilledInfraConfig(load_infra_config(settings), str(exc))
+    return FilledInfraConfig(config)
