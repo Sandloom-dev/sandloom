@@ -29,12 +29,21 @@ from sandloom.core.composition import composition_root_name
 from sandloom.core.testing import isolation
 from sandloom.core.tests._root_support import suite_infra_env
 
-_INFRA = json.dumps(
+_PROBE_INFRA = json.dumps(
     {
         "cache": {"default": {"url": "redis://127.0.0.1:1/0"}},
         "taskqueue": {"default": {"broker": "redis://127.0.0.1:1/1"}},
     }
 )
+# The file's INFRA wins over the child's environment (``load_test_env`` loads it
+# with override): where the root selects no driver (kernel-only venv) the file
+# itself names the drivers; with the standard root it is the urls alone.
+_INFRA = suite_infra_env(
+    {
+        "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:1/probe_test",
+        "INFRA": _PROBE_INFRA,
+    }
+).get("INFRA", _PROBE_INFRA)
 _ENV_TEST = (
     "ENVIRONMENT=test\nJWT_SECRET=isolation_probe_secret_value_long_enough_0\n"
     "DATABASE_URL=postgresql+asyncpg://u:p@127.0.0.1:1/probe_test\n"

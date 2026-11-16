@@ -554,7 +554,7 @@ def test_backup_plan_labels_the_idempotency_redis() -> None:
             for name in ("security", "idempotency")
         },
     }
-    roles = backup._redis_roles(config, SimpleNamespace(cache_url="redis://x"))
+    roles = backup._redis_roles(config, SimpleNamespace())
     assert roles["redis://security:6379/0"] == [
         "atomic_store:security [SECURITY: revocation marks, user blocks, RPC nonces]"
     ]

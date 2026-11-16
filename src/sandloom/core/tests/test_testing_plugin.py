@@ -85,12 +85,21 @@ def test_missing_env_test_is_a_clear_usage_error(tmp_path: Path) -> None:
     assert "no .env.test found" in proc.stdout + proc.stderr
 
 
-_INFRA = json.dumps(
+_PROBE_INFRA = json.dumps(
     {
         "cache": {"default": {"url": "redis://127.0.0.1:1/0"}},
         "taskqueue": {"default": {"broker": "redis://127.0.0.1:1/1"}},
     }
 )
+# The file's INFRA wins over the child's environment (``load_test_env`` loads it
+# with override): where the root selects no driver (kernel-only venv) the file
+# itself names the drivers; with the standard root it is the urls alone.
+_INFRA = suite_infra_env(
+    {
+        "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:1/probe_test",
+        "INFRA": _PROBE_INFRA,
+    }
+).get("INFRA", _PROBE_INFRA)
 _URLS = (
     f"DATABASE_URL=postgresql+asyncpg://u:p@127.0.0.1:1/probe_test\nINFRA='{_INFRA}'\n"
 )

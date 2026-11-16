@@ -1,10 +1,10 @@
 """A Redis or Celery instance with no url refuses startup and names its INFRA option.
 
-``CACHE_URL`` and ``BROKER_URL`` are optional settings (flat-urls stage 0a): an
-instance that ends with no ``url`` / ``broker`` (neither INFRA nor a flat
-setting gave one) is a configuration mistake, so startup aborts in every
-environment, and the message says which INFRA option to set, never that the
-kernel fills it from a flat setting.
+``CACHE_URL`` and ``BROKER_URL`` are removed settings and nothing is inherited
+(ADR-0016): an instance whose INFRA states no ``url`` / ``broker`` is a
+configuration mistake, so startup aborts in every environment, and the message
+says which INFRA option to set, never that the kernel fills it from a flat
+setting.
 """
 
 from __future__ import annotations
