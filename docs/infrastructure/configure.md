@@ -1,6 +1,6 @@
 ---
 title: Configure backends
-description: The default instance of every interface comes from flat settings; INFRA adds named instances, overrides drivers and sets options.
+description: The composition selects the drivers; INFRA gives each instance its own url, adds named instances, overrides drivers and sets options.
 type: concept
 ---
 
@@ -11,9 +11,26 @@ or atomic store. The composition selects them. `sandloom_standard` picks SQLAlch
 Streams and Celery. An app made by `sandloom new` lists its picks in `DEFAULT_INFRA`
 (`<app>/__init__.py`), which it passes to `create_app(default_infra=...)`.
 
-The flat settings give those instances their options: `DATABASE_URL`, `CACHE_URL`, <!-- prose-ok: P6 a list of settings -->
-`BROKER_URL`, `STORAGE_*` and `NOTIFIER_BACKEND`. `EVENT_BUS_BACKEND` names the bus
+The flat settings give the database, object store and notifier their options: `DATABASE_URL`, <!-- prose-ok: P6 a list of settings -->
+`STORAGE_*` and `NOTIFIER_BACKEND`. `EVENT_BUS_BACKEND` names the bus
 (`memory`, `redis` or `streams`); unset, it leaves the bus to the composition.
+
+Every Redis instance and the Celery broker takes its own explicit url in `INFRA`: <!-- prose-ok: P6 a list of instances -->
+`cache.default.url`, `eventbus.default.url` (streams), `lease.beat.url`,
+`atomic_store.security.url`, `broadcast.default.url` and `taskqueue.default.broker`. No
+instance inherits another's url, and an instance that needs a url and has none refuses
+startup. An entry may omit `driver`: the composition's driver is kept.
+
+```sh
+INFRA='{"cache":{"default":{"url":"redis://cache-redis:6379/0"}},
+        "atomic_store":{"security":{"url":"redis://security-redis:6379/0"}},
+        "taskqueue":{"default":{"broker":"redis://broker-redis:6379/1"}}}'
+```
+
+Keep the security instances (`atomic_store.security`, `lease.beat`, the event bus, the task
+queue broker) off the cache's Redis: a cache may evict keys under memory pressure. When one
+shares `cache.default`'s host, port and database, startup logs a warning that names both
+instances.
 
 Nothing falls back to `memory`. Some instances are required: the database, the cache, <!-- prose-ok: P6 a list of required instances -->
 the event bus and the `security` atomic store. When neither the composition nor `INFRA`
@@ -79,7 +96,7 @@ production, `/diagnostics/core`, `sandloom doctor`). The `multi_tenant_strict`
 profile refuses it.
 Setting `SMTP_USE_TLS=false` fails startup instead of being ignored, so TLS
 never turns back on behind your back. The object store driver is still chosen
-by `STORAGE_TYPE=s3`. Flat settings remain for `CACHE_URL` and `BROKER_URL`.
+by `STORAGE_TYPE=s3`.
 
 ## Use a named instance
 

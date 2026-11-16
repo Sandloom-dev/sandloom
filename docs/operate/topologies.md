@@ -85,8 +85,9 @@ repository. The steps are in [Deploy an application](deploy.md) and
   (`JWT_*` except the issuer-only keys, token lifetimes,
   `INTERNAL_API_TOKEN`, notifier and SMTP) lives
   in the shared environment anchor and is identical in every process.
-- **One cache.** `CACHE_URL` is shared by all services: revocation state,
-  rate limits, idempotency records and the bus live there.
+- **One set of Redis urls.** Every service carries the same `INFRA` urls:
+  `cache.default.url` for rate limits, `atomic_store.security.url` for revocation
+  state and idempotency records, and `eventbus.default.url` for the bus.
 - **Probes.** Peers never feed `/health` (operational health); a down peer fails
   `/ready` only for a binding marked `"required": true`, probed concurrently
   with a cap. `/health` and `/ready` answer 503 when degraded (the

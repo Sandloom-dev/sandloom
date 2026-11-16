@@ -50,8 +50,8 @@ and routes. It writes:
 | An upstream per service, the `location`s of each route prefix bounded at its segment (`= /shop` and `/shop/`: `/shopping` is not `/shop`'s), and `location = /` / the catch-all `location /` for the service with root-level routes (`/`, `/{slug}`; two services claiming them are refused) | `gateway/nginx.conf` |
 
 The shared env anchor holds everything security- and auth-relevant, which
-must be identical in every process: the JWT settings, one `CACHE_URL`, the
-internal token, the RPC public keys, and the Streams event bus. The gateway
+must be identical in every process. That is the JWT settings, the internal token, the RPC
+public keys and the Streams event bus, plus one `INFRA` with the same Redis urls. The gateway
 never routes `/_sandloom`, `/diagnostics` or `/metrics`.
 
 Standard modules can each be their own service. A module that issues tokens

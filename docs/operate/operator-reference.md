@@ -386,8 +386,8 @@ relay).
   most once per `SAGA_SWEEP_INTERVAL_SECONDS` (default 5 s), claiming at
   most `SAGA_SWEEP_BATCH` instances per tick (`FOR UPDATE SKIP LOCKED`).
   Retry latency is therefore `max(backoff, sweep interval)`. The sweep lease
-  lives in the `lease` instance `INFRA.lease.beat`, a `redis` lease on `CACHE_URL`
-  unless `INFRA` names another. A process that hosts a saga opens and probes it
+  lives in the `lease` instance `INFRA.lease.beat`, a `redis` lease with its own
+  `url` (`INFRA.lease.beat.url`; it does not take the cache's). A process that hosts a saga opens and probes it
   like the database and the cache. A backend that refuses to serve stops startup
   in production and fails `/ready` elsewhere. The message names the cause: a
   Redis policy that evicts keys, a refused `CONFIG GET`, a `PermissionDenied`.
@@ -728,7 +728,7 @@ are out.
    environment as the dump.
 
 **3. Credential leak** (one secret exposed: an `.env`, a CI variable).
-- `DATABASE_URL` / `CACHE_URL` passwords: rotate at the server, redeploy.
+- `DATABASE_URL` and the Redis `url` passwords in `INFRA` (and the Celery `broker`): rotate at the server, redeploy.
 - `JWT_SECRET` (HS*): anyone can mint tokens. Set a new `JWT_SECRET` + new
   `JWT_KID` and do NOT keep the old one in `JWT_PREVIOUS_SECRETS` — every
   outstanding access token is rejected at once (that is the point). Asymmetric
@@ -788,15 +788,19 @@ table for who-did-what investigations.
 
 ## Redis cache: timeouts, pool, revocation cache
 
-- Every cache client is bounded: `CACHE_SOCKET_TIMEOUT_SECONDS` /
-  `CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS` (0.5 s), keepalive, a 30 s health
-  check, a blocking pool of `CACHE_MAX_CONNECTIONS` (64) per process with
-  `CACHE_POOL_TIMEOUT_SECONDS` (1 s) and one retry of connection errors. A
-  dead or hung Redis therefore makes cache operations fail in about a second,
-  and each caller's policy applies: the rate limiter fails open (or 503 with
-  `fail_closed=True`), token revocation follows `AUTH_REVOCATION_FAIL_CLOSED`,
-  the idempotency guard follows its `fail_closed`, and the login lockout
-  answers 503 in production. Size `CACHE_MAX_CONNECTIONS` x workers below the
+- Every cache client is bounded. The bounds are options of the `redis` cache instance
+  (`INFRA.cache.<name>`), each with a default.
+  - Timeouts: `socket_timeout_seconds` and `socket_connect_timeout_seconds` (0.5 s).
+  - Keepalive, and a 30 s health check (`health_check_interval_seconds`).
+  - A blocking pool of `max_connections` (64) per process, waiting
+    `pool_timeout_seconds` (1 s).
+  - One retry of connection errors (`retry_attempts`).
+
+  A dead or hung Redis therefore makes cache operations fail in about a second.
+  Each caller's policy then applies. The rate limiter fails open (or 503 with
+  `fail_closed=True`), and token revocation follows `AUTH_REVOCATION_FAIL_CLOSED`.
+  The idempotency guard follows its `fail_closed`, and the login lockout
+  answers 503 in production. Size `max_connections` x workers below the
   Redis `maxclients`. The event-bus transport uses its own client without the
   read timeout, because blocking stream reads wait longer than that.
 - Token revocation applies on the next request everywhere: every
