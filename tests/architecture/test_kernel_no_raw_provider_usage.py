@@ -67,12 +67,7 @@ PROVIDER_NAMES = frozenset(
 )
 
 #: (file relative to src/sandloom, escape hatch) -> (sites, removed_by).
-RAW_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
-    # the Redis harness family flushes the Redis cache driver's own database
-    # (moved here from core/testing/fixtures.py by idk-pkg-redis-harness; the
-    # family moves into sandloom-redis with its part B)
-    ("core/testing/redis_family.py", "redis_client"): (1, "idk-ratchets-close"),
-}
+RAW_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {}
 
 #: (file relative to src/sandloom, probed name) -> (sites, removed_by).
 #: ``idk-ratchets-close`` classifies the rest: a ``<dynamic>`` probe of a

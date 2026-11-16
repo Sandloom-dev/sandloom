@@ -20,6 +20,11 @@ dependencies = [
 "cache.redis" = "sandloom_redis.cache:RedisCacheProvider"
 "eventbus.streams" = "sandloom_redis.eventbus.driver:StreamsEventBusProvider"
 
+# The Redis half of the test harness (sandloom.driverkit.testing_family),
+# loaded by the kernel's test harness.
+[project.entry-points."sandloom.testing"]
+redis = "sandloom_redis.testing.family:FAMILY"
+
 [build-system]
 requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"

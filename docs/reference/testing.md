@@ -484,7 +484,7 @@ the harness or a check unless marked.
 - **Run isolation.** A test database or Redis index carries an owner marker
   (`SANDLOOM_TEST_OWNER`, else the machine id and the checkout root). A run refuses another owner's
   resources before any test (exit 4); `SANDLOOM_TEST_TAKE_OWNERSHIP=1` takes over.
-  Flush a test Redis only with `flush_owned_redis`. Never `pkill` by pattern.
+  Flush a test Redis only with `sandloom_redis.testing.flush_owned_redis`. Never `pkill` by pattern.
 - **Pools.** Test processes get small pools (at most 13 connections) and the
   session fails fast when the server lacks room (`-n auto` is capped;
   `SANDLOOM_TEST_SKIP_CONNECTION_CHECK=1` skips the check). The harness restores

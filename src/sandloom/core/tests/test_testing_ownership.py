@@ -13,9 +13,8 @@ import subprocess
 import sys
 import textwrap
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import pytest
@@ -154,59 +153,45 @@ async def test_the_per_test_reset_refuses_a_foreign_database(
 
 
 # --------------------------------------------------------------------------- #
-# Redis
+# What a harness family uses for a resource of its own (no server needed)
 # --------------------------------------------------------------------------- #
 
+_HINT = "export SANDLOOM_TEST_THING_URL=…"
 
-@pytest.fixture
-async def own_redis() -> AsyncIterator[Any]:
-    redis = pytest.importorskip("redis.asyncio")
-    url = _test_url("CACHE_URL")
-    if not url.startswith("redis"):
-        pytest.skip("Redis CACHE_URL not configured")
-    client = redis.from_url(url)
+
+def test_check_holder_lets_an_unmarked_or_own_resource_through() -> None:
+    ownership.check_holder("thing", "t://h/1", None, "run-a", _HINT)
+    ownership.check_holder("thing", "t://h/1", "run-a", "run-a", _HINT)
+
+
+def test_check_holder_refuses_another_owner_naming_both_and_the_way_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(ownership.TAKEOVER_ENV, raising=False)
+    with pytest.raises(ownership.TestResourceOwnershipError) as refused:
+        ownership.check_holder("thing", "t://h/1", "run-a", "run-b", _HINT)
+    message = str(refused.value)
+    assert "t://h/1" in message and "run-a" in message and "run-b" in message
+    assert _HINT in message and ownership.TAKEOVER_ENV in message
+
+
+def test_check_holder_takeover_is_explicit_and_warns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(ownership.TAKEOVER_ENV, "1")
+    with pytest.warns(UserWarning, match="taking over thing t://h/1"):
+        ownership.check_holder("thing", "t://h/1", "run-a", "run-b", _HINT)
+
+
+def test_a_recorded_claim_is_remembered_per_kind_resource_and_owner() -> None:
+    assert not ownership.already_claimed("thing", "t://h/9", "run-a")
+    ownership.record_claim("thing", "t://h/9", "run-a")
     try:
-        await client.ping()
-    except Exception as exc:  # noqa: BLE001 - test Redis unreachable: skip
-        pytest.skip(f"Redis unreachable: {exc}")
-    previous = await client.get(ownership.REDIS_OWNER_KEY)
-    try:
-        yield client
+        assert ownership.already_claimed("thing", "t://h/9", "run-a")
+        assert not ownership.already_claimed("thing", "t://h/9", "run-b")
+        assert not ownership.already_claimed("other", "t://h/9", "run-a")
     finally:
-        if previous is None:
-            await client.delete(ownership.REDIS_OWNER_KEY)
-        else:
-            await client.set(ownership.REDIS_OWNER_KEY, previous)
-        await client.aclose()
-
-
-async def test_flush_refuses_another_runs_redis_and_keeps_its_data(
-    own_redis: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    client = own_redis
-    monkeypatch.delenv(ownership.TAKEOVER_ENV, raising=False)
-    await client.set(ownership.REDIS_OWNER_KEY, "run-a")
-    await client.set("sandloom:test:probe", "kept")
-    with pytest.raises(ownership.TestResourceOwnershipError, match="run-a"):
-        await ownership.flush_owned_redis(client, owner="run-b")
-    assert await client.get("sandloom:test:probe") == b"kept"
-    await ownership.flush_owned_redis(client, owner="run-a")
-    assert await client.get("sandloom:test:probe") is None
-    # The marker survives its owner's flush.
-    assert await client.get(ownership.REDIS_OWNER_KEY) == b"run-a"
-
-
-def test_claim_redis_refuses_another_owner(
-    own_redis: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv(ownership.TAKEOVER_ENV, raising=False)
-    url = _test_url("CACHE_URL")
-    ownership._claimed.clear()
-    ownership.claim_redis(url, owner=ownership.current_owner())
-    with pytest.raises(
-        ownership.TestResourceOwnershipError, match="SANDLOOM_TEST_CACHE"
-    ):
-        ownership.claim_redis(url, owner="run-b")
+        ownership._claimed.pop(("thing", "t://h/9"), None)
 
 
 # --------------------------------------------------------------------------- #

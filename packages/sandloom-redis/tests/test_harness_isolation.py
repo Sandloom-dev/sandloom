@@ -2,8 +2,8 @@
 
 * ``InfraProvider.test_isolation(options, worker_id)`` of the Redis drivers moves
   the database index of the instance's URL; the harness's own rewrite of
-  ``CACHE_URL`` / ``BROKER_URL`` (``sandloom.core.testing.redis_isolation``, the
-  half that moves with the Redis drivers) gives the same answer;
+  ``CACHE_URL`` / ``BROKER_URL`` (``sandloom_redis.testing.isolation``, the
+  Redis half of the harness, registered by this package) gives the same answer;
 * an application on memory drivers runs its tests, parallel included, with the
   redis client not importable: a real ``pytest -n 2`` child whose import
   system refuses ``redis`` passes, its workers each on their own URLs, and the
@@ -28,12 +28,14 @@ import pytest
 import sandloom_redis.cache as redis_cache
 import sandloom_redis.eventbus.driver as event_bus_driver
 from sandloom_celery.taskqueue import CeleryTaskQueueProvider
+from sandloom_redis.testing import family as redis_family
+from sandloom_redis.testing import isolation as redis_isolation
+from sandloom_redis.testing import urls as redis_urls
 
 from sandloom.core.infra.ports._base import InfraProvider
 from sandloom.core.testing import (
+    _driver_seams,
     ownership,
-    redis_isolation,
-    redis_urls,
     session_checks,
     workers,
 )
@@ -165,7 +167,7 @@ def test_the_broker_url_of_a_declared_taskqueue_driver_goes_through_its_hook(
 
         return Moved
 
-    monkeypatch.setattr(redis_isolation, "_driver_class", fake)
+    monkeypatch.setattr(_driver_seams, "_driver_class", fake)
     infra = json.dumps({"taskqueue": {"default": {"driver": "other"}}})
     out = workers.rewrite_for_worker(
         {"BROKER_URL": "redis://h/1", "INFRA": infra}, {workers.WORKER_ENV: "gw1"}
@@ -220,7 +222,7 @@ def test_a_named_instance_url_is_moved_by_the_harness() -> None:
 
 def test_a_named_instance_url_is_claimed(monkeypatch: pytest.MonkeyPatch) -> None:
     claimed: list[str] = []
-    monkeypatch.setattr(ownership, "claim_redis", claimed.append)
+    monkeypatch.setattr(redis_family, "claim_redis", claimed.append)
     values = {"CACHE_URL": "redis://h:6380/0", "INFRA": INFRA}
     out = workers.rewrite_for_worker(values, {workers.WORKER_ENV: "gw2"})
     ownership.claim_test_resources({**values, **out})
@@ -306,6 +308,41 @@ def test_auto_without_a_client_skips_redis_entirely(
     session_checks.allocate_worker_resources(
         values, 2
     )  # no client: nothing to allocate
+
+
+def test_the_driver_of_an_instance_is_infra_then_the_settings_then_the_composition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        redis_isolation, "default_driver", lambda capability, name: "from-composition"
+    )
+    infra = {"cache": {"default": {"driver": "declared"}}}
+    of = redis_isolation._driver_of
+    assert of(infra, "cache", "default", chosen="chosen") == "declared"
+    assert of({}, "eventbus", "default", chosen="memory") == "memory"
+    assert of({}, "eventbus", "default") == "from-composition"
+    monkeypatch.setattr(redis_isolation, "default_driver", lambda *_: None)
+    assert of({}, "cache", "default", fallback="redis") == "redis"
+    assert of({}, "taskqueue", "default") is None  # nothing selects one: no driver
+
+
+def test_the_settings_choose_only_the_default_event_bus() -> None:
+    chosen = redis_isolation._chosen_driver
+    assert chosen({"EVENT_BUS_BACKEND": "Memory "}, "eventbus", "default") == "memory"
+    assert chosen({"EVENT_BUS_BACKEND": "auto"}, "eventbus", "default") is None
+    assert chosen({}, "eventbus", "default") is None
+    assert chosen({"EVENT_BUS_BACKEND": "memory"}, "eventbus", "other") is None
+    assert chosen({"EVENT_BUS_BACKEND": "memory"}, "cache", "default") is None
+
+
+def test_a_broker_url_with_no_task_queue_driver_is_left_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No composition selects a task queue: BROKER_URL has no instance to move."""
+    monkeypatch.setattr(redis_isolation, "default_driver", lambda *_: None)
+    env = {workers.WORKER_ENV: "gw1"}
+    out = workers.rewrite_for_worker({"BROKER_URL": "redis://h/1"}, env)
+    assert "BROKER_URL" not in out
 
 
 def test_auto_without_a_redis_url_needs_no_mapping() -> None:
@@ -418,6 +455,9 @@ def test_redis_client_never_loaded():
     for name in (
         "sandloom.core.testing.resources",
         "sandloom.core.testing.ownership",
+        "sandloom_redis.testing.family",
+        "sandloom_redis.testing.resources",
+        "sandloom_redis.testing.ownership",
         "sandloom.core.testing.slots",
         "sandloom.core.testing.session_checks",
         "sandloom.core.cli.dev.services",
@@ -430,7 +470,7 @@ def test_no_redis_module_of_the_harness_loaded():
     import sys
 
     for name in (
-        "sandloom.core.testing.redis_isolation",
+        "sandloom_redis.testing.isolation",
         "sandloom_redis.cache",
         "sandloom.core.drivers.bootstrap",
     ):

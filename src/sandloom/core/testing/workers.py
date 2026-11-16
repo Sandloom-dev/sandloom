@@ -13,17 +13,17 @@ test configuration (``.env.test`` / the shell):
   supports 15 workers at the default stride.
   ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto`` replaces the fixed layout: the controller
   claims free indexes for every worker before they start
-  (:func:`sandloom.core.testing.resources.allocate_worker_redis` — this owner's
+  (``sandloom_redis.testing.resources.allocate_worker_redis`` — this owner's
   previous indexes first, then unmarked empty ones) and hands the workers the
   mapping in ``SANDLOOM_TEST_REDIS_WORKER_DBS`` (``<base>=<i0>,<i1>,…;…``). Use it
   on a Redis shared with other runs, whose markers break any fixed layout.
 
-The Redis half is a harness family (:mod:`sandloom.core.testing.families`),
-whose ``rewrite_worker`` hook this module calls; a process with no family is
-DB-only. The Redis family loads :mod:`sandloom.core.testing.redis_isolation` only
-for a process that can reach a Redis (the client is installed and a Redis
-setting is present): an application on memory drivers never loads it and needs
-no client to run its tests. It asks the driver of each configured instance (the
+The Redis half is a harness family (:mod:`sandloom.core.testing.families`) that
+the ``sandloom-redis`` package registers; this module calls its ``rewrite_worker``
+hook, and a process with no family is DB-only. The family loads its isolation
+code only for a process that can reach a Redis (the client is installed and a
+Redis setting is present): an application on memory drivers never loads it and
+needs no client to run its tests. It asks the driver of each configured instance (the
 default cache, the default task queue for ``BROKER_URL``, every named ``INFRA``
 instance with a ``url``) through ``InfraProvider.test_isolation(options,
 worker_id)``.

@@ -1,0 +1,405 @@
+"""Inventory, pruning and allocation of the shared test Redis indexes.
+
+Every run on a machine shares one test Redis (the docker test services). Each
+run marks the indexes it uses with its owner
+(:mod:`sandloom_redis.testing.ownership`), so a run never resets another run's
+index. Markers of finished runs stay behind, though: Redis has a fixed number
+of database indexes (256 with ``--databases 256``) and once they are all
+marked, a parallel run finds no room for its workers.
+
+This module
+
+* lists every marked (or non-empty) index with its owner, when it was last used
+  and whether a client is connected to it right now (:func:`scan_redis`), as
+  the ``Resource`` rows the kernel's ``verdict`` judges;
+* prunes a stale one on request (:func:`prune_redis`): the index is emptied
+  with an atomic check-and-``FLUSHDB`` (refused when its marker or stamp
+  changed in between);
+* hands an xdist run free Redis indexes for its workers
+  (:func:`allocate_worker_redis`): indexes this owner already holds first, then
+  unmarked EMPTY ones, each claimed atomically — instead of the fixed
+  ``index + stride * (N + 1)`` layout that collides with other runs' markers.
+
+"Last used" is, in order: the explicit stamp (``sandloom:test:last_used``); else,
+for a legacy marker, the youngest key idle time (``OBJECT IDLETIME`` under
+``CLIENT NO-TOUCH``, so the scan itself never refreshes it); else unknown — and
+unknown is never pruned.
+
+The CLI is ``tools/checks/test_resources.py``.
+"""
+
+from __future__ import annotations
+
+import importlib
+import time
+from collections.abc import Sequence
+from typing import Any
+from urllib.parse import urlsplit, urlunsplit
+
+from sandloom_redis.testing.ownership import (
+    REDIS_LAST_USED_KEY,
+    REDIS_OWNER_KEY,
+    decoded,
+)
+
+from sandloom.driverkit.testing_family import Resource, TestResourceOwnershipError
+
+#: Keys sampled for a legacy index's idle time.
+_IDLE_SAMPLE = 200
+
+# Atomic check-and-flush: only if the marker and the stamp are still the ones
+# the scan saw and nothing was added since.
+_FLUSH_IF_UNCHANGED = """
+if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then return 0 end
+if (redis.call('GET', KEYS[2]) or '') ~= ARGV[2] then return 0 end
+if redis.call('DBSIZE') ~= tonumber(ARGV[3]) then return 0 end
+redis.call('FLUSHDB')
+return 1
+"""
+
+# Release of an index an owner claimed: emptied only while still its own.
+_RELEASE_INDEX = """
+if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then return 0 end
+redis.call('FLUSHDB')
+return 1
+"""
+
+# Atomic claim of a worker index: ours already, or unmarked and empty.
+_CLAIM_INDEX = """
+local holder = redis.call('GET', KEYS[1])
+if holder == ARGV[1] or (not holder and redis.call('DBSIZE') == 0) then
+  redis.call('SET', KEYS[1], ARGV[1])
+  redis.call('SET', KEYS[2], ARGV[2])
+  return 1
+end
+return 0
+"""
+
+#: The ``CLIENT SETNAME`` of the scanner's own connections: never counted as
+#: a run using an index (:func:`_clients_per_db`).
+SCANNER_CLIENT_NAME = "sandloom-test-resources"
+
+#: Spare indexes claimed per base index (best effort) for the workers xdist
+#: starts to REPLACE crashed ones (``gw<count>``, ``gw<count+1>``, ...).
+REDIS_SPARES_PER_BASE = 2
+
+
+def _server_url(url: str, index: int = 0) -> str:
+    return urlunsplit(urlsplit(url)._replace(path=f"/{index}"))
+
+
+def _display(url: str, index: int) -> str:
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if parts.port:
+        host += f":{parts.port}"
+    return f"{parts.scheme}://{host}/{index}"
+
+
+def _index_of(url: str) -> int:
+    raw = urlsplit(url).path.lstrip("/")
+    return int(raw) if raw else 0
+
+
+def _redis() -> Any:
+    """The redis client module, imported on first use; ``None`` without it.
+
+    Not at import: the harness loads this package's family in every process
+    that has it installed, and an application on memory drivers may run its
+    tests with no redis client at all.
+    """
+    try:
+        redis = importlib.import_module("redis")
+    except ImportError:
+        return None
+    return redis
+
+
+def redis_errors() -> tuple[type[Exception], ...]:
+    """What a failed Redis call raises (``OSError`` alone without the client)."""
+    redis = _redis()
+    return (OSError,) if redis is None else (redis.RedisError, OSError)
+
+
+def _connect_redis(url: str) -> Any:
+    redis = _redis()
+    if redis is None:
+        raise ImportError(
+            "Redis test resources need the redis client: pip install redis"
+        )
+    client = redis.Redis.from_url(
+        _server_url(url),
+        socket_connect_timeout=5,
+        socket_timeout=10,
+        single_connection_client=True,  # SELECT / NO-TOUCH apply to one link
+    )
+    # Scanning SELECTs every index in turn: named, so another run's scan does
+    # not count this connection as a client of whichever index it is on.
+    client.execute_command("CLIENT", "SETNAME", SCANNER_CLIENT_NAME)
+    try:
+        # Reading the marker must not refresh the idle time a later scan uses.
+        client.execute_command("CLIENT", "NO-TOUCH", "ON")
+    except redis.exceptions.ResponseError:
+        pass  # Redis < 7.2: idle times of legacy markers are best-effort
+    return client
+
+
+def _database_count(client: Any) -> int:
+    redis = _redis()
+    try:
+        reply = client.config_get("databases")
+        return int(reply.get("databases") or reply.get(b"databases") or 16)
+    except redis.exceptions.ResponseError:  # CONFIG disabled: probe instead
+        count = 0
+        while count < 4096:
+            try:
+                client.execute_command("SELECT", count)
+            except redis.exceptions.ResponseError:
+                break
+            count += 1
+        client.execute_command("SELECT", 0)
+        return max(count, 1)
+
+
+def _clients_per_db(client: Any) -> dict[int, int]:
+    own = int(client.execute_command("CLIENT", "ID"))
+    counts: dict[int, int] = {}
+    for entry in client.client_list():
+        if int(entry.get("id", -1)) == own or entry.get("name") == SCANNER_CLIENT_NAME:
+            continue
+        db = int(entry.get("db", 0))
+        counts[db] = counts.get(db, 0) + 1
+    return counts
+
+
+def _headers(client: Any, indexes: Sequence[int]) -> list[tuple[int, str, str]]:
+    """``(keys, owner, stamp)`` of every index in ONE pipelined round trip."""
+    pipe = client.pipeline(transaction=False)
+    pipe.execute_command("CLIENT", "NO-TOUCH", "ON")
+    for index in indexes:
+        pipe.execute_command("SELECT", index)
+        pipe.dbsize()
+        pipe.get(REDIS_OWNER_KEY)
+        pipe.get(REDIS_LAST_USED_KEY)
+    try:
+        replies = pipe.execute(raise_on_error=False)[1:]
+    finally:
+        pipe.reset()
+    out = []
+    for n in range(len(indexes)):
+        _, keys, owner, stamp = replies[4 * n : 4 * n + 4]
+        out.append((int(keys), decoded(owner) or "", decoded(stamp) or ""))
+    return out
+
+
+def _min_idle(client: Any, index: int) -> int | None:
+    """The youngest idle time (s) of up to ``_IDLE_SAMPLE`` keys of ``index``."""
+    client.execute_command("SELECT", index)
+    _, keys = client.scan(0, count=_IDLE_SAMPLE)
+    if not keys:
+        return None
+    pipe = client.pipeline(transaction=False)
+    pipe.execute_command("CLIENT", "NO-TOUCH", "ON")
+    pipe.execute_command("SELECT", index)
+    for key in keys[:_IDLE_SAMPLE]:
+        pipe.object("idletime", key)
+    try:
+        idles = pipe.execute(raise_on_error=False)[2:]
+    finally:
+        pipe.reset()
+    values = [int(i) for i in idles if isinstance(i, int)]
+    return min(values) if values else None
+
+
+def _resource(
+    url: str,
+    index: int,
+    header: tuple[int, str, str],
+    live: int,
+    idle: int | None,
+    now: float,
+) -> Resource:
+    keys, raw_owner, raw_stamp = header
+    last_used: float | None = None
+    source = "unknown"
+    if raw_stamp.isdigit():
+        last_used, source = float(raw_stamp), "stamp"
+    elif idle is not None:
+        last_used, source = now - idle, "idle"
+    return Resource(
+        kind="redis",
+        name=_display(url, index),
+        owner=raw_owner or None,
+        last_used=last_used,
+        source=source,
+        live=live,
+        size=keys,
+        fingerprint=(raw_owner, raw_stamp, keys),
+    )
+
+
+def scan_redis(url: str, *, include_empty: bool = False) -> list[Resource]:
+    """Every index of the Redis server ``url`` names (marked or non-empty)."""
+    now = time.time()
+    client = _connect_redis(url)
+    try:
+        live = _clients_per_db(client)
+        indexes = list(range(_database_count(client)))
+        out = []
+        for index, header in zip(indexes, _headers(client, indexes), strict=True):
+            keys, _, stamp = header
+            if not (include_empty or keys or live.get(index)):
+                continue
+            idle = _min_idle(client, index) if keys and not stamp.isdigit() else None
+            out.append(_resource(url, index, header, live.get(index, 0), idle, now))
+        return out
+    finally:
+        client.close()
+        # ``close()`` can return this scan connection to redis-py's pool.
+        # A following prune then sees that idle scanner as a live client and
+        # conservatively refuses to clean the very resource it just scanned.
+        client.connection_pool.disconnect()
+
+
+def _redis_index(resource: Resource) -> int:
+    return int(urlsplit(resource.name).path.lstrip("/"))
+
+
+def prune_redis(url: str, resource: Resource) -> bool:
+    """Empty ``resource``'s index iff it is unchanged since the scan."""
+    client = _connect_redis(url)
+    try:
+        index = _redis_index(resource)
+        if _clients_per_db(client).get(index, 0):
+            return False
+        client.execute_command("SELECT", index)
+        owner, stamp, keys = resource.fingerprint
+        flushed = client.eval(
+            _FLUSH_IF_UNCHANGED,
+            2,
+            REDIS_OWNER_KEY,
+            REDIS_LAST_USED_KEY,
+            owner,
+            stamp,
+            keys,
+        )
+        return bool(flushed)
+    finally:
+        client.close()
+
+
+def allocate_worker_redis(
+    base_urls: Sequence[str], workers: int, owner: str, *, spares: int = 0
+) -> dict[int, list[int]]:
+    """Claim ``workers`` Redis indexes per distinct base index of ``base_urls``.
+
+    Returns ``{base index: [index of worker 0, worker 1, ...]}``. Indexes this
+    ``owner`` already marked come first (a rerun reuses them), then unmarked
+    EMPTY ones; each is claimed with an atomic check-and-set, so a concurrent
+    run can never be handed the same index. Raises
+    ``TestResourceOwnershipError`` when the server has too few left.
+    """
+    bases = sorted({_index_of(u) for u in base_urls})
+    if not bases or workers <= 0:
+        return {}
+    if len({urlsplit(u).netloc for u in base_urls}) > 1:
+        raise TestResourceOwnershipError(
+            "SANDLOOM_TEST_REDIS_DB_STRIDE=auto needs CACHE_URL and BROKER_URL on "
+            "one Redis server; use a numeric stride instead"
+        )
+    needed = workers * len(bases)
+    client = _connect_redis(base_urls[0])
+    try:
+        mine, free = _claimable_indexes(client, bases, owner)
+        claimed: list[int] = []
+        stamp = str(int(time.time()))
+        # spares: best effort, after the required indexes
+        wanted = needed + max(0, spares) * len(bases)
+        for index in (*mine, *free):
+            if len(claimed) == wanted:
+                break
+            client.execute_command("SELECT", index)
+            if client.eval(
+                _CLAIM_INDEX, 2, REDIS_OWNER_KEY, REDIS_LAST_USED_KEY, owner, stamp
+            ):
+                claimed.append(index)
+    finally:
+        client.close()
+    if len(claimed) < needed:
+        raise TestResourceOwnershipError(
+            f"only {len(claimed)} of the {needed} Redis database indexes this "
+            f"run needs ({workers} workers x {len(bases)}) are free on "
+            f"{_display(base_urls[0], 0)[:-2]}: the rest belong to other runs. "
+            "List them with `uv run python tools/checks/test_resources.py list` and "
+            "prune the stale ones (`prune --apply`), or run with fewer workers."
+        )
+    extra = claimed[needed:]
+    per_base = len(extra) // len(bases)
+    return {
+        base: claimed[n * workers : (n + 1) * workers]
+        + extra[n * per_base : (n + 1) * per_base]
+        for n, base in enumerate(bases)
+    }
+
+
+def _claimable_indexes(
+    client: Any, bases: Sequence[int], owner: str
+) -> tuple[list[int], list[int]]:
+    """``(indexes owner already marked, unmarked empty unconnected ones)``."""
+    indexes = [i for i in range(_database_count(client)) if i not in bases]
+    # An empty, unmarked index may still be in use: a test that FLUSHDBs its
+    # own index also drops the owner marker. Never hand out an index someone
+    # is connected to.
+    connected = _clients_per_db(client)
+    mine: list[int] = []
+    free: list[int] = []
+    for index, (keys, holder, _) in zip(
+        indexes, _headers(client, indexes), strict=True
+    ):
+        if holder == owner:
+            mine.append(index)
+        elif not holder and not keys and not connected.get(index):
+            free.append(index)
+    return mine, free
+
+
+def release_redis(url: str, owner: str) -> bool:
+    """Empty the index of ``url`` iff ``owner`` still holds it: a run hands back
+    what it claimed instead of leaving it for pruning days later."""
+    client = _connect_redis(url)
+    try:
+        client.execute_command("SELECT", _index_of(url))
+        return bool(client.eval(_RELEASE_INDEX, 1, REDIS_OWNER_KEY, owner))
+    finally:
+        client.close()
+
+
+def affordable_redis_workers(base_urls: Sequence[str], owner: str) -> int:
+    """How many xdist workers :func:`allocate_worker_redis` could serve now.
+
+    Read-only (claims nothing): the indexes ``owner`` holds plus the free ones,
+    divided by the distinct base indexes. ``sandloom test``'s ``-n auto`` is capped
+    to it, so a Redis short of free indexes runs fewer workers (or serially)
+    instead of aborting the session.
+    """
+    bases = sorted({_index_of(u) for u in base_urls})
+    if not bases:
+        return 0
+    client = _connect_redis(base_urls[0])
+    try:
+        mine, free = _claimable_indexes(client, bases, owner)
+    finally:
+        client.close()
+    return (len(mine) + len(free)) // len(bases)
+
+
+__all__ = [
+    "REDIS_SPARES_PER_BASE",
+    "SCANNER_CLIENT_NAME",
+    "affordable_redis_workers",
+    "allocate_worker_redis",
+    "prune_redis",
+    "redis_errors",
+    "release_redis",
+    "scan_redis",
+]

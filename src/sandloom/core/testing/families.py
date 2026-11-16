@@ -15,23 +15,25 @@ installing a package must never change the behaviour of an unrelated test
 suite. The kernel loads the groups it finds when the first hook runs (a process
 with no family is the DB-only harness, with nothing imported).
 
-Until the Redis family moves into ``sandloom-redis``, the kernel package
-registers it (``packages/sandloom/pyproject.toml``,
-``sandloom.core.testing.redis_family:FAMILY``); the package then registers the
-same name instead. An install made before the entry point existed has no
-family: :func:`require_for_installed` refuses that (the pytest plugin calls it
-in ``pytest_configure``, so a downstream suite gets the refusal too). Two
-registrations of one name (a stale kernel entry beside the package's) are
-refused as well, naming both distributions.
+The ``redis`` family is the ``sandloom-redis`` package's (its ``pyproject.toml``
+registers it); the kernel registers none. An install made before the entry
+point moved there has no family, or a stale kernel entry beside the package's:
+:func:`require_for_installed` refuses the first (the pytest plugin calls it in
+``pytest_configure``, so a downstream suite gets the refusal too) and the
+discovery refuses the second, naming both distributions. A family package
+imports the kernel's side of the harness only through
+``sandloom.driverkit.testing_family``.
 
 Imports nothing from the framework (safe before the settings snapshot).
 """
 
 from __future__ import annotations
 
+import importlib.util
+import json
 from collections.abc import Iterable, Mapping, MutableMapping
 from importlib import metadata
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 #: Entry-point group: ``"<family>" = "pkg.testing:FAMILY"``.
 TESTING_GROUP = "sandloom.testing"
@@ -43,6 +45,28 @@ INFRA_VAR = "INFRA"
 
 class HarnessFamilyError(RuntimeError):
     """A family cannot be loaded or does not implement the hooks."""
+
+
+def parse_infra(raw: str | None) -> dict[str, dict[str, dict[str, Any]]]:
+    """The ``INFRA`` setting as ``{capability: {instance: spec}}``; ``{}`` for
+    a missing or malformed one (settings refuse it when they load)."""
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {
+        str(cap): {
+            str(name): spec
+            for name, spec in instances.items()
+            if isinstance(spec, dict)
+        }
+        for cap, instances in parsed.items()
+        if isinstance(instances, dict)
+    }
 
 
 @runtime_checkable
@@ -165,6 +189,15 @@ def harness_families() -> tuple[HarnessFamily, ...]:
     return _loaded
 
 
+def client_installed(module: str) -> bool:
+    """Whether the client library ``module`` can be imported. Looks for it; does
+    not import it (an application on memory drivers has none, and needs none)."""
+    try:
+        return importlib.util.find_spec(module) is not None
+    except (ImportError, ValueError):
+        return False
+
+
 def require_for_installed(client_installed: Mapping[str, bool]) -> None:
     """Refuse a process that has a backend's client but not its family.
 
@@ -192,6 +225,8 @@ __all__ = [
     "TESTING_GROUP",
     "HarnessFamily",
     "HarnessFamilyError",
+    "client_installed",
     "harness_families",
+    "parse_infra",
     "require_for_installed",
 ]

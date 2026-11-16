@@ -45,8 +45,9 @@ kernel internals such as ``sandloom.core._internal`` / ``sandloom.core.sql_alche
   :func:`reload_test_env` / :func:`worker_env_values` /
   :func:`apply_worker_env` keep each worker on its own database and Redis DBs;
 * resource ownership (:mod:`sandloom.core.testing.ownership`):
-  :func:`flush_owned_redis` empties a test Redis database this run owns
-  (:class:`TestResourceOwnershipError` for another run's).
+  :class:`TestResourceOwnershipError` for a database another run owns. A test
+  that empties a Redis database it owns calls ``flush_owned_redis`` of
+  ``sandloom-redis`` (its ``testing`` package).
 
 Names resolve lazily (PEP 562): importing this package — which pytest does
 for ``-p sandloom.core.testing.plugin`` before any conftest — must not import
@@ -104,10 +105,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         temporary_database,
         upgrade_core_chain,
     )
-    from sandloom.core.testing.ownership import (
-        TestResourceOwnershipError,
-        flush_owned_redis,
-    )
+    from sandloom.core.testing.ownership import TestResourceOwnershipError
     from sandloom.core.testing.registration import (
         RegistrationSurface,
         registration_surface,
@@ -168,7 +166,6 @@ _EXPORTS: dict[str, str] = {
     "temporary_database": "sandloom.core.testing.migrations",
     "upgrade_core_chain": "sandloom.core.testing.migrations",
     "TestResourceOwnershipError": "sandloom.core.testing.ownership",
-    "flush_owned_redis": "sandloom.core.testing.ownership",
     "RegistrationSurface": "sandloom.core.testing.registration",
     "RoutePolicy": "sandloom.core.testing.routes",
     "assert_route_snapshot": "sandloom.core.testing.routes",
@@ -232,7 +229,6 @@ __all__ = [
     "deliver_event",
     "email_of",
     "fake_access_fact",
-    "flush_owned_redis",
     "has_optimized_reads",
     "make_user_headers",
     "migrate_module",

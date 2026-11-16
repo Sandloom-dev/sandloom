@@ -1,8 +1,9 @@
 """Harness families (``sandloom.core.testing.families``): the hook protocol, the
 entry-point group ``sandloom.testing``, and that the harness calls the hooks.
 
-The Redis family is the built-in provider until it moves into ``sandloom-redis``;
-these tests run it as a family and run the harness without any.
+These tests run the harness with fake families and without any; the Redis family
+the ``sandloom-redis`` package registers is tested in
+``packages/sandloom-redis/tests/test_testing_families.py``.
 """
 
 from __future__ import annotations
@@ -19,14 +20,12 @@ from sandloom.core.testing import (
     families,
     ownership,
     plugin,
-    redis_family,
     session_checks,
     slots,
     workers,
 )
 from sandloom.core.testing.families import HarnessFamily, HarnessFamilyError
 from sandloom.core.testing.fixtures import flush_owned_cache
-from sandloom.core.testing.redis_isolation import REDIS_STRIDE_ENV
 
 
 class FakeFamily:
@@ -138,21 +137,23 @@ def only(monkeypatch: pytest.MonkeyPatch) -> Any:
 # --------------------------------------------------------------------------- #
 
 
-def test_the_redis_family_and_a_fake_satisfy_the_protocol() -> None:
-    assert isinstance(redis_family.FAMILY, HarnessFamily)
+def test_a_fake_satisfies_the_protocol_and_an_incomplete_one_does_not() -> None:
     assert isinstance(FakeFamily(), HarnessFamily)
     assert not isinstance(Incomplete(), HarnessFamily)
 
 
-def test_the_kernel_package_registers_the_redis_family_in_the_group(
+def test_the_kernel_package_registers_no_family_itself(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Read from the installed metadata (``packages/sandloom/pyproject.toml``):
-    a stale install without the entry point fails here, not silently."""
+    """The Redis family belongs to ``sandloom-redis``: an entry of the kernel's
+    distribution in the group would make the package's own a duplicate."""
     monkeypatch.setattr(families, "_loaded", None)
-    assert [f for f in families.harness_families() if f.name == "redis"] == [
-        redis_family.FAMILY
+    own = [
+        ep
+        for ep in metadata.entry_points(group=families.TESTING_GROUP)
+        if ep.dist is not None and ep.dist.name == "sandloom"
     ]
+    assert own == []
 
 
 def test_a_family_of_an_installed_package_is_loaded_from_the_group(
@@ -160,9 +161,7 @@ def test_a_family_of_an_installed_package_is_loaded_from_the_group(
 ) -> None:
     fake = FakeFamily("fake")
     _install(monkeypatch, {"fake": fake})
-    loaded = families.harness_families()
-    assert fake in loaded
-    assert "redis" in {f.name for f in loaded}
+    assert fake in families.harness_families()
 
 
 def test_a_family_that_names_itself_otherwise_is_refused(
@@ -197,9 +196,9 @@ def _entry(name: str, module: str, dist: str) -> metadata.EntryPoint:
 def test_a_family_registered_twice_is_refused_naming_both_distributions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The kernel's own ``redis`` entry beside the one ``sandloom-redis`` will
-    register: both load today, a stale one fails to import tomorrow. Either
-    way the answer is the duplicate, naming who registered it."""
+    """Two distributions registering one name: one loads, the other is a stale
+    install that fails to import. Either way the answer is the duplicate,
+    naming who registered it."""
     module = types.ModuleType("_family_pkg_dup")
     module.FAMILY = FakeFamily("dup")  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, module.__name__, module)
@@ -390,7 +389,7 @@ def test_the_pytest_plugin_refuses_a_client_without_its_family(
     """The shipped plugin, not only this repository's conftest: a downstream
     suite with the client and no family stops at ``pytest_configure``."""
     only()
-    monkeypatch.setattr(plugin, "redis_client_installed", lambda: True)
+    monkeypatch.setattr(plugin, "client_installed", lambda client: True)
     with pytest.raises(HarnessFamilyError, match="no harness family 'redis'"):
         plugin.pytest_configure(None)  # type: ignore[arg-type]
 
@@ -417,102 +416,6 @@ def test_a_client_with_its_family_or_without_the_client_is_fine(only: Any) -> No
     families.require_for_installed({"redis": True})
     only()
     families.require_for_installed({"redis": False})
-
-
-# --------------------------------------------------------------------------- #
-# The Redis family on a process that cannot reach a Redis
-# --------------------------------------------------------------------------- #
-
-
-def test_the_redis_family_is_a_no_op_without_the_client(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(redis_family, "redis_client_installed", lambda: False)
-    family = redis_family.FAMILY
-    values = {"CACHE_URL": "redis://h:6/1"}
-    assert family.rewrite_worker(values, {}, "gw0", 0) == {}
-    assert family.slot_bases(values, "o", {}) == {}
-    assert family.cap_workers(values, 4) == 4
-    family.allocate_workers(values, 2)  # nothing to allocate: returns
-
-
-def _own_index(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The Redis server grants index 7 to base index 1, without a server."""
-    monkeypatch.setattr(
-        redis_family.resources,
-        "allocate_worker_redis",
-        lambda urls, workers, owner, **_: {1: [7]},
-    )
-
-
-def test_the_slot_claims_own_indexes_and_asks_for_auto_stride(
-    only: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(redis_family, "redis_client_installed", lambda: True)
-    _own_index(monkeypatch)
-    env: dict[str, str] = {}
-    claimed = redis_family.FAMILY.slot_bases(_CACHE, "o#1", env)
-    assert claimed == {"SANDLOOM_TEST_CACHE_URL": "redis://h/7"}
-    assert env == {REDIS_STRIDE_ENV: "auto"}
-    # the same through the slot, with the Redis family as the harness's only one
-    only(redis_family.FAMILY)
-    through_slot: dict[str, str] = {}
-    slots._point_at(_slot(), dict(_CACHE), through_slot, False)
-    assert through_slot[REDIS_STRIDE_ENV] == "auto"
-    assert through_slot["SANDLOOM_TEST_CACHE_URL"] == "redis://h/7"
-
-
-def test_an_explicit_stride_is_not_replaced_by_auto(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(redis_family, "redis_client_installed", lambda: True)
-    _own_index(monkeypatch)
-    env = {REDIS_STRIDE_ENV: "32"}
-    redis_family.FAMILY.slot_bases(_CACHE, "o#1", env)
-    assert env == {REDIS_STRIDE_ENV: "32"}
-
-
-@pytest.mark.parametrize(
-    ("client", "urls"),
-    [
-        (False, _CACHE),  # a Redis URL but no client: this run reaches no Redis
-        (True, {"SANDLOOM_TEST_CACHE_URL": "memory://"}),  # a client, no Redis URL
-        (True, {}),
-    ],
-)
-def test_the_stride_is_left_alone_without_a_plain_redis_url_and_a_client(
-    monkeypatch: pytest.MonkeyPatch, client: bool, urls: dict[str, str]
-) -> None:
-    monkeypatch.setattr(redis_family, "redis_client_installed", lambda: client)
-
-    def refuse(*_: object, **__: object) -> dict[int, list[int]]:
-        raise AssertionError("an index was claimed for a process without Redis")
-
-    monkeypatch.setattr(redis_family.resources, "allocate_worker_redis", refuse)
-    env: dict[str, str] = {}
-    assert redis_family.FAMILY.slot_bases(urls, "o#1", env) == {}
-    assert env == {}
-
-
-@pytest.mark.asyncio
-async def test_the_redis_family_flushes_only_a_provider_that_hands_out_a_client(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    flushed: list[object] = []
-
-    async def flush(client: object, **_: object) -> None:
-        flushed.append(client)
-
-    monkeypatch.setattr(ownership, "flush_owned_redis", flush)
-
-    class Cache:
-        async def redis_client(self) -> object:
-            return "the-client"
-
-    assert await redis_family.FAMILY.flush_owned(object()) is False
-    assert flushed == []
-    assert await redis_family.FAMILY.flush_owned(Cache()) is True
-    assert flushed == ["the-client"]
 
 
 class _Flush(FakeFamily):

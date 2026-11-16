@@ -27,6 +27,7 @@ import sys
 import time
 from collections import Counter
 from pathlib import Path
+from types import ModuleType
 
 BACKEND = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BACKEND / "src"))
@@ -57,10 +58,23 @@ def _age(resource: resources.Resource, now: float) -> str:
     return "?" if age is None else f"{age:.1f}d"
 
 
+def _redis_resources() -> ModuleType:
+    """The Redis half of the inventory: the ``sandloom-redis`` package's."""
+    try:
+        from sandloom_redis.testing import resources as redis_resources
+    except ImportError as exc:
+        raise SystemExit(
+            "listing Redis indexes needs the sandloom-redis package "
+            f"(pip install sandloom-redis): {exc}"
+        ) from exc
+    return redis_resources
+
+
 def _scan(args: argparse.Namespace) -> list[tuple[str, resources.Resource]]:
     found: list[tuple[str, resources.Resource]] = []
     if args.redis:
-        found.extend((args.redis, r) for r in resources.scan_redis(args.redis))
+        scanned = _redis_resources().scan_redis(args.redis)
+        found.extend((args.redis, r) for r in scanned)
     if args.database:
         databases = resources.scan_databases(args.database)
         found.extend((args.database, r) for r in databases)
@@ -116,7 +130,11 @@ def main(argv: list[str] | None = None) -> int:
     out = []
     for server, r, why in stale_rows:
         if args.apply:
-            done = resources.prune(server, r)
+            done = (
+                _redis_resources().prune_redis(server, r)
+                if r.kind == "redis"
+                else resources.prune(server, r)
+            )
             out.append(("pruned" if done else "skip", r, why if done else "changed"))
         else:
             out.append(("prune?", r, why))

@@ -1,0 +1,66 @@
+"""Which Redis URLs a test run has, and whether this process can reach Redis.
+
+The questions the harness family asks before it touches Redis at all (rewrite a
+worker's URLs, claim, allocate, reset). Standard library only: a process
+without the redis client answers "none" without importing anything Redis-shaped
+(the package is installed beside an application that runs its tests on memory
+drivers too). The layout of the isolation itself is
+:mod:`sandloom_redis.testing.isolation`, imported only when this module finds a
+Redis to isolate.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+from collections.abc import Mapping
+
+from sandloom.driverkit.testing_family import FLAT_VARS, INFRA_VAR, parse_infra
+
+#: The URL schemes of a Redis server.
+REDIS_SCHEMES = ("redis://", "rediss://")
+
+
+def is_redis_url(url: str) -> bool:
+    return url.startswith(REDIS_SCHEMES)
+
+
+def redis_client_installed() -> bool:
+    """Whether the redis client can be imported.
+
+    Without it this process can reach no Redis (the Redis drivers and kombu's
+    transport import it), so the harness has no Redis resource to claim,
+    allocate or reset. Looks for the client; does not import it.
+    """
+    try:
+        return importlib.util.find_spec("redis") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def infra_redis_urls(raw: str | None) -> list[str]:
+    """The Redis URLs of the named instances ``INFRA`` declares with a ``url``."""
+    return [
+        spec["url"]
+        for instances in parse_infra(raw).values()
+        for spec in instances.values()
+        if isinstance(spec.get("url"), str) and is_redis_url(spec["url"])
+    ]
+
+
+def redis_urls(values: Mapping[str, str | None]) -> list[str]:
+    """Every Redis URL of the run in ``values``, each once; none without the
+    client."""
+    if not redis_client_installed():
+        return []
+    urls = [url for var in FLAT_VARS if is_redis_url(url := values.get(var) or "")]
+    urls += infra_redis_urls(values.get(INFRA_VAR))
+    return list(dict.fromkeys(urls))
+
+
+__all__ = [
+    "REDIS_SCHEMES",
+    "infra_redis_urls",
+    "is_redis_url",
+    "redis_client_installed",
+    "redis_urls",
+]

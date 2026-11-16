@@ -5763,14 +5763,15 @@ guarantees:
   - src/sandloom/core/tests/test_accepted_risks.py::test_delegated_relay_needs_a_gunicorn_worker
 - id: G-OPS-07
   statement: A test run refuses (exit 4, before any test) a test database or Redis index stamped by another
-    owner (SANDLOOM_TEST_OWNER / checkout root) unless SANDLOOM_TEST_TAKE_OWNERSHIP=1; flush_owned_redis never flushes
-    another run's Redis.
+    owner (SANDLOOM_TEST_OWNER / checkout root) unless SANDLOOM_TEST_TAKE_OWNERSHIP=1; sandloom_redis.testing.flush_owned_redis
+    never flushes another run's Redis.
   sources:
   - docs/reference/testing.md
   tests:
   - src/sandloom/core/tests/test_testing_ownership.py::test_an_unmarked_database_is_claimed_then_refused_to_others
   - src/sandloom/core/tests/test_testing_ownership.py::test_a_run_on_a_foreign_database_aborts_before_any_test
-  - src/sandloom/core/tests/test_testing_ownership.py::test_flush_refuses_another_runs_redis_and_keeps_its_data
+  - src/sandloom/core/tests/test_testing_ownership.py::test_check_holder_refuses_another_owner_naming_both_and_the_way_out
+  - packages/sandloom-redis/tests/test_testing_ownership.py::test_flush_refuses_another_runs_redis_and_keeps_its_data
   - src/sandloom/core/tests/test_testing_ownership.py::test_takeover_is_explicit
 - id: G-OPS-08
   statement: The harness's db_engine refuses to reset any database whose name lacks 'test', even with
@@ -7823,9 +7824,9 @@ capabilities:
   - docs/reference/cli.md
   - docs/reference/testing.md
   tests:
-  - src/sandloom/core/tests/test_testing_workers.py::test_worker_gets_its_own_database_and_redis_dbs
-  - src/sandloom/core/tests/test_testing_workers.py::test_stride_is_configurable
-  - src/sandloom/core/tests/test_testing_workers.py::test_auto_stride_uses_the_controllers_allocation
+  - packages/sandloom-redis/tests/test_testing_workers.py::test_worker_gets_its_own_database_and_redis_dbs
+  - packages/sandloom-redis/tests/test_testing_workers.py::test_stride_is_configurable
+  - packages/sandloom-redis/tests/test_testing_workers.py::test_auto_stride_uses_the_controllers_allocation
   - src/sandloom/core/tests/test_testing_workers.py::test_ensure_database_creates_the_worker_database
 - id: C-TEST-03
   statement: SANDLOOM_TEST_DATABASE_URL / SANDLOOM_TEST_CACHE_URL / SANDLOOM_TEST_BROKER_URL win over .env.test on every
@@ -7844,7 +7845,7 @@ capabilities:
   tests:
   - src/sandloom/core/tests/test_testing_resources.py::test_only_an_old_disconnected_marked_resource_is_stale
   - src/sandloom/core/tests/test_testing_resources.py::test_the_age_threshold_never_drops_below_a_day
-  - src/sandloom/core/tests/test_testing_resources.py::test_scan_and_prune_a_stale_index_but_never_a_changed_one
+  - packages/sandloom-redis/tests/test_testing_resources.py::test_scan_and_prune_a_stale_index_but_never_a_changed_one
   - src/sandloom/core/tests/test_testing_resources.py::test_a_database_is_stamped_on_claim_and_never_dropped_while_connected
 - id: C-TEST-06
   statement: Unit-test UoW helpers recording_uow() and bind_test_uow(session, database=) let tests capture
@@ -8304,8 +8305,8 @@ capabilities:
   sources:
   - docs/reference/testing.md
   tests:
-  - src/sandloom/core/tests/test_testing_resources.py::test_auto_workers_fall_back_when_redis_indexes_are_short
-  - src/sandloom/core/tests/test_testing_resources.py::test_affordable_workers_count_own_and_free_indexes_without_claiming
+  - packages/sandloom-redis/tests/test_testing_resources.py::test_auto_workers_fall_back_when_redis_indexes_are_short
+  - packages/sandloom-redis/tests/test_testing_resources.py::test_affordable_workers_count_own_and_free_indexes_without_claiming
   - src/sandloom/core/tests/test_quickstart.py::test_sandloom_test_runs_serially_without_xdist
 - id: C-TEST-14
   statement: 'sandloom test runs a static schema & deploy step (no database, no Redis) before the suites: migration-chain
