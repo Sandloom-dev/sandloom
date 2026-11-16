@@ -428,13 +428,19 @@ def test_the_kernel_lane_is_two_parallel_jobs_that_drop_nothing():
     assert with_redis["needs"] == without_redis["needs"] == "changes"
     assert with_redis["if"] == without_redis["if"]
     assert "kernel-without-redis" in jobs["ci-required"]["needs"]
-    suites = (
-        "src/sandloom/core/tests tests/sdk tests/architecture"
-        " tests/integration/replaceability"
+    oracle = (
+        "src/sandloom/core/tests/test_nesting_policy.py"
+        "::test_nested_units_match_the_oracle_at_length"
     )
     first, second = _runs(with_redis), _runs(without_redis)
-    # The run with sandloom-redis installed: the hook alone, Redis kept.
-    assert suites in first
+    # The run with sandloom-redis installed: the hook alone, Redis kept. The
+    # 82 s oracle test is deselected here and runs in the other job.
+    assert (
+        "src/sandloom/core/tests tests/sdk tests/architecture"
+        " tests/integration/replaceability" in first
+    )
+    assert f"--deselect {oracle}" in first
+    assert "--deselect" not in second
     assert "-n auto --dist loadfile --durations=25 --sandloom-shuffle=random" in first
     assert "-p tools.ci.no_batteries" in first
     assert "no_redis" not in first
@@ -443,7 +449,13 @@ def test_the_kernel_lane_is_two_parallel_jobs_that_drop_nothing():
     # suites under the no_redis plugin, then asyncpg removed for SQLite.
     assert "uv pip uninstall" in second
     assert "redis hiredis sandloom-redis sandloom-celery" in second
-    assert suites in second
+    # tests/architecture is whole in the other job and in backend-static; here
+    # only this lane's own ratchet test.
+    assert (
+        "src/sandloom/core/tests tests/sdk tests/architecture/test_no_redis.py"
+        " tests/integration/replaceability" in second
+    )
+    assert "tests/architecture " not in second
     assert "-n auto --dist loadfile --no-cov --durations=25" in second
     assert "-p tools.ci.no_batteries -p tools.ci.no_redis" in second
     assert "asyncpg" in second

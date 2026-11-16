@@ -692,9 +692,13 @@ jobs:
           .venv-kernel/bin/python tools/ci/no_batteries.py check
 
       - name: Kernel suites and the replaceability fixtures
+        # test_nested_units_match_the_oracle_at_length (82 s x 2 parameters)
+        # is deselected here: `kernel-without-redis` runs it, on the same
+        # kernel without batteries (so it still runs in one job).
         run: >-
           .venv-kernel/bin/python -m pytest -q -n auto --dist loadfile
           --durations=25 --sandloom-shuffle=random -p tools.ci.no_batteries
+          --deselect src/sandloom/core/tests/test_nesting_policy.py::test_nested_units_match_the_oracle_at_length
           src/sandloom/core/tests tests/sdk tests/architecture
           tests/integration/replaceability
 
@@ -790,7 +794,10 @@ jobs:
         # imports, and lists (a ratchet, only down) the kernel tests that
         # still need a Redis or Celery driver. `kernel-without-batteries` runs
         # the same suites with sandloom-redis installed: that is the lane that
-        # has it.
+        # has it. tests/architecture is not run here but for test_no_redis.py
+        # (this lane's own ratchet): the other tests there scan sources and do
+        # not depend on Redis; `kernel-without-batteries` and backend-static run them.
+        # test_nesting_policy's oracle test runs here and not there (82 s).
         run: |
           uv pip uninstall --python .venv-kernel/bin/python \
             redis hiredis sandloom-redis sandloom-celery
@@ -798,7 +805,8 @@ jobs:
           .venv-kernel/bin/python -m pytest -q -n auto --dist loadfile --no-cov \
             --durations=25 --sandloom-shuffle=random \
             -p tools.ci.no_batteries -p tools.ci.no_redis \
-            src/sandloom/core/tests tests/sdk tests/architecture \
+            src/sandloom/core/tests tests/sdk \
+            tests/architecture/test_no_redis.py \
             tests/integration/replaceability
 
       - name: The kernel without asyncpg (the `postgres` extra) boots on SQLite
