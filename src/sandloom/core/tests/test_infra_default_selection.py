@@ -9,7 +9,6 @@ and hands the ``atomic_store`` and ``lease`` drivers its eviction policy.
 
 from __future__ import annotations
 
-from importlib import metadata
 from typing import Any
 
 import pytest
@@ -22,7 +21,6 @@ from sandloom.core.drivers.bootstrap import (
     BUILTIN_DRIVER_ROWS,
     KNOWN_DRIVER_PACKAGES,
     build_infra_registry,
-    unverified_noeviction_allowed,
 )
 from sandloom.core.infra.config import (
     KERNEL_INSTANCES,
@@ -38,6 +36,14 @@ from sandloom.core.infra.registry import (
     InfraRegistry,
 )
 from sandloom.core.schema.registry import InMemorySchemaRegistry
+
+#: The kernel's own drivers for every instance a process requires.
+_KERNEL_ONLY = {
+    "database": {"default": {"driver": "sqlalchemy"}},
+    "cache": {"default": {"driver": "memory"}},
+    "eventbus": {"default": {"driver": "memory"}},
+    "atomic_store": {"security": {"driver": "memory"}},
+}
 
 _STANDARD = {
     "database": {"default": {"driver": "sqlalchemy"}},
@@ -85,15 +91,15 @@ def test_memory_is_never_the_fallback_for_the_event_bus(
 def test_a_selection_for_every_required_instance_starts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The kernel's own drivers answer every required instance (the Redis
+    drivers' selection: ``packages/sandloom-redis/tests/test_redis_default_selection.py``)."""
     _no_bus_selector(monkeypatch)
-    use_default_infra(_STANDARD)
+    use_default_infra(_KERNEL_ONLY)
     registry = build_infra_registry(InMemorySchemaRegistry())
     for capability, name in KERNEL_INSTANCES:
-        assert registry.in_use(capability, name)
-    # The package's entry points registered the drivers the composition named.
-    assert registry.driver_class("atomic_store", "redis").__name__ == (
-        "RedisAtomicStoreProvider"
-    )
+        assert registry.in_use(capability, name), (capability, name)
+    for capability, name in REQUIRED_AT_STARTUP:
+        assert registry.instance_config(capability, name) is not None
 
 
 def test_an_explicit_config_is_built_as_given_not_required(
@@ -251,30 +257,8 @@ def test_the_standard_composition_exports_its_selection() -> None:
 # ----------------------------------------------------- the policy hook ----
 
 
-def test_entry_point_atomic_store_and_lease_get_the_eviction_policy(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _no_bus_selector(monkeypatch)
-    use_default_infra(_STANDARD)
-    config = {
-        "atomic_store": {
-            "security": InstanceConfig(
-                "atomic_store", "security", "redis", {"url": "redis://h:1/0"}
-            )
-        },
-        "lease": {
-            "beat": InstanceConfig("lease", "beat", "redis", {"url": "redis://h:1/0"})
-        },
-    }
-    registry = build_infra_registry(InMemorySchemaRegistry(), config=config)
-    for capability, name in (("atomic_store", "security"), ("lease", "beat")):
-        built: Any = registry.provider(capability, name)
-        assert built._assume_allowed is not None, capability
-        # dev: the policy allows ``assume``; prod: only the accepted risk does.
-        assert built._assume_allowed() is unverified_noeviction_allowed(settings)
-        assert built._assume_allowed() is True
-    monkeypatch.setattr(settings, "environment", Environment.prod)
-    assert built._assume_allowed() is False
+# The entry-point ``atomic_store`` and ``lease`` drivers getting the eviction policy:
+# ``packages/sandloom-redis/tests/test_redis_default_selection.py``.
 
 
 def test_a_class_without_the_parameter_is_built_by_from_config() -> None:
@@ -375,14 +359,12 @@ def test_the_kernel_keeps_no_row_for_a_driver_package() -> None:
         assert not target.startswith(("sandloom_redis", "sandloom_celery")), target
 
 
-def test_the_known_packages_are_the_entry_points_the_packages_publish() -> None:
-    entries = {
-        entry.name: entry.dist.name
-        for entry in metadata.entry_points(group="sandloom.drivers")
-        if entry.dist is not None
-        and entry.dist.name in {"sandloom-redis", "sandloom-celery"}
-    }
+def test_the_known_packages_are_the_two_driver_packages_with_their_install_hint() -> (
+    None
+):
+    """Each package's own tests keep these rows equal to its entry points
+    (``test_redis_default_selection.py``, ``test_celery_known_package.py``)."""
+    assert KNOWN_DRIVER_PACKAGES
     for (capability, driver), (package, install) in KNOWN_DRIVER_PACKAGES.items():
-        dist = entries[f"{capability}.{driver}"]
-        assert package == dist.replace("-", "_")
-        assert install == f"pip install {dist}"
+        assert package in {"sandloom_redis", "sandloom_celery"}, (capability, driver)
+        assert install == f"pip install {package.replace('_', '-')}"

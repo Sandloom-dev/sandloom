@@ -1,10 +1,8 @@
-"""The ``memory`` atomic_store driver against the kit, and the kernel's policy for
-the ``redis`` driver of ``sandloom-redis`` (``never_evicts_check=assume``).
+"""The ``memory`` atomic_store driver against the kit.
 
-The ``redis`` driver's own tests (the kit, the eviction check, the round trips)
-live in ``packages/sandloom-redis/tests``. The registry tests below build that
-driver through the registry, as an application does, against the test Redis
-(``SANDLOOM_TEST_CACHE_URL``).
+The ``redis`` driver's own tests (the kit, the eviction check, the round trips,
+the kernel's ``never_evicts_check=assume`` policy through the registry) live in
+``packages/sandloom-redis/tests``.
 """
 
 from __future__ import annotations
@@ -12,18 +10,13 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Callable
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from sandloom.core.config.settings import settings
-from sandloom.core.drivers.bootstrap import build_infra_registry
 from sandloom.core.drivers.memory_atomic_store import MemoryAtomicStoreProvider
 from sandloom.core.infra.config import InstanceConfig
-from sandloom.core.infra.errors import PermissionDenied
 from sandloom.core.infra.ports.atomic_store import AtomicStoreProvider
-from sandloom.core.schema.registry import InMemorySchemaRegistry
 from sandloom.driverkit.testing import AtomicStoreConformance
 
 _VALUE_LIMIT = 8192
@@ -87,52 +80,6 @@ async def test_the_memory_driver_expires_a_key_in_real_time() -> None:
     assert await provider.get("k") == "v"
     await asyncio.sleep(1.1)
     assert await provider.get("k") is None
-
-
-# ------------------------------------------- the kernel's policy for redis
-def _registry_store(*, is_prod: bool, risks: tuple[str, ...] = ()) -> Any:
-    """The ``redis`` atomic_store the registry builds, ``never_evicts_check=assume``."""
-    registry_settings: Any = SimpleNamespace(
-        is_prod=is_prod, accepts_risk=lambda risk: risk in risks, infra={}
-    )
-    config = {
-        "atomic_store": {
-            "default": InstanceConfig(
-                "atomic_store",
-                "default",
-                "redis",
-                {
-                    "url": settings.cache_url,
-                    "max_value_bytes": _VALUE_LIMIT,
-                    "never_evicts_check": "assume",
-                },
-            )
-        }
-    }
-    registry = build_infra_registry(
-        InMemorySchemaRegistry(),
-        settings=registry_settings,
-        config=config,
-    )
-    return registry.provider("atomic_store", "default")
-
-
-@pytest.mark.parametrize(
-    ("is_prod", "risks"),
-    [(False, ()), (True, ("unverified_noeviction",))],
-)
-async def test_the_registry_opens_assume_in_dev_and_with_the_accepted_risk(
-    is_prod: bool, risks: tuple[str, ...]
-) -> None:
-    provider = _registry_store(is_prod=is_prod, risks=risks)
-    await provider.aopen()  # a real server: the policy is readable and noeviction
-    await provider.aclose()
-
-
-async def test_the_registry_refuses_assume_in_production_without_the_risk() -> None:
-    provider = _registry_store(is_prod=True)
-    with pytest.raises(PermissionDenied, match="unverified_noeviction"):
-        await provider.aopen()
 
 
 def test_the_driverkit_helpers_are_the_ports_own() -> None:

@@ -1033,6 +1033,7 @@ guarantees:
   - src/sandloom/core/tests/test_outbox_relay_backoff.py::test_open_circuit_skips_relay_ticks
   - src/sandloom/core/tests/test_relay_batch_publish.py::test_relay_batch_outage_counts_no_attempt_and_trips_circuit
   - src/sandloom/core/tests/test_batch_publish.py::test_redis_availability_replies_do_not_burn_relay_attempts
+  - packages/sandloom-redis/tests/test_redis_relay_availability.py::test_redis_availability_replies_do_not_burn_relay_attempts
   - src/sandloom/core/tests/test_relay_broker_unavailable.py::test_a_permission_denied_publish_consumes_no_attempt
 - id: G-OUTBOX-12
   statement: A poison row in a relay batch is isolated (per-row fallback) and still dead-lettered, while
@@ -1616,7 +1617,7 @@ guarantees:
   - src/sandloom/core/tests/test_guarantee_windows.py::test_production_refuses_and_names_the_risk
   - src/sandloom/core/tests/test_guarantee_windows.py::test_dev_warns
   - src/sandloom/core/tests/test_guarantee_windows.py::test_accepted_risks_are_not_refused
-  - src/sandloom/core/tests/test_guarantee_windows.py::test_create_app_refuses_in_production
+  - packages/sandloom-redis/tests/test_guarantee_windows_prod.py::test_create_app_refuses_in_production
   startup_checks: 'create_app refuses in prod: GuaranteeWindowError (sandloom.core.guarantee_windows.guarantee_window_problems)'
 - id: G-WINDOW-03
   statement: sandloom outbox purge --inbox-days D refuses D < the eventbus retention_seconds option + 1 day (any D
@@ -5749,7 +5750,8 @@ guarantees:
   - deploy/README.md#Background work (Celery worker + beat)
   tests:
   - packages/sandloom-celery/tests/test_celery_worker_host.py::test_heartbeat_freshness
-  - src/sandloom/core/tests/test_cli_worker.py::test_check_follows_the_heartbeat
+  - packages/sandloom-celery/tests/test_celery_cli_worker.py::test_check_follows_the_heartbeat
+  - src/sandloom/core/tests/test_cli_worker.py::test_check_exits_with_the_hosts_verdict_and_prints_its_reason
   - packages/sandloom-celery/tests/test_celery_worker_host.py::test_heartbeat_step_runs_on_the_worker_timer
   - packages/sandloom-celery/tests/test_celery_worker_host.py::test_check_follows_the_heartbeat_and_names_no_broker
   - src/sandloom/core/tests/test_deploy_profiles.py::test_workers_are_sized_and_health_checked
@@ -7876,7 +7878,7 @@ capabilities:
   - tests/integration/with_batteries/test_worker_bundled_module_tasks.py::test_worker_registers_loaded_module_tasks_and_beat_schedule
   - src/sandloom/core/tests/test_worker.py::test_worker_without_identity_has_no_identity_tasks
   - src/sandloom/core/tests/test_worker.py::test_discover_skips_modules_without_tasks
-  - src/sandloom/core/tests/test_worker.py::test_real_composition_root_resolves_driver_built_host
+  - packages/sandloom-celery/tests/test_celery_worker_composition.py::test_real_composition_root_resolves_driver_built_host
 - id: C-WORKER-02
   rests_on:
   - capability: taskqueue

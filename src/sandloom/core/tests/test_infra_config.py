@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import pytest
 
+import sandloom.core.infra.config as config_module
 from sandloom.core.config.settings import settings
 from sandloom.core.infra.config import (
     DEFAULT_INSTANCE,
     DEFAULTED_CAPABILITIES,
     InfraConfigError,
     load_infra_config,
+    use_default_infra,
 )
-from sandloom.core.tests._driver_fill import fill
 
 
 def _settings_with_infra(monkeypatch: pytest.MonkeyPatch, infra: dict) -> object:
@@ -19,6 +20,25 @@ def _settings_with_infra(monkeypatch: pytest.MonkeyPatch, infra: dict) -> object
     return settings
 
 
+@pytest.fixture
+def redis_selection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A composition that selects the ``redis`` cache and broadcast drivers (the
+    standard one does). The configuration only names the drivers, builds none:
+    the suite's own selection is ``memory`` where ``sandloom-redis`` is absent
+    (``kernel-without-redis``), so these tests pin theirs."""
+    monkeypatch.setattr(config_module, "_PIN", None)
+    monkeypatch.setattr(config_module, "_APP", None)
+    use_default_infra(
+        {
+            "database": {"default": {"driver": "sqlalchemy"}},
+            "cache": {"default": {"driver": "redis"}},
+            "broadcast": {"default": {"driver": "redis"}},
+            "taskqueue": {"default": {"driver": "celery"}},
+        }
+    )
+
+
+@pytest.mark.usefixtures("redis_selection")
 def test_defaults_synthesized_for_every_capability() -> None:
     cfg = load_infra_config(settings)
     for capability in DEFAULTED_CAPABILITIES:
@@ -51,6 +71,7 @@ def test_infra_overlay_adds_named_instance(monkeypatch: pytest.MonkeyPatch) -> N
     assert cfg["database"]["default"].options["url"] == settings.database_url
 
 
+@pytest.mark.usefixtures("redis_selection")
 def test_infra_overlay_overrides_default_options(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -111,6 +132,7 @@ def test_flat_s3_settings_do_not_inherit_the_local_path(
     assert "path" not in instance.options
 
 
+@pytest.mark.usefixtures("redis_selection")
 def test_the_broadcast_default_is_a_defaulted_capability() -> None:
     assert "broadcast" in DEFAULTED_CAPABILITIES
     broadcast = load_infra_config(settings)["broadcast"][DEFAULT_INSTANCE]
@@ -118,20 +140,8 @@ def test_the_broadcast_default_is_a_defaulted_capability() -> None:
     assert broadcast.implicit is True
 
 
-def test_the_broadcast_default_follows_the_resolved_cache_default_url(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An INFRA override of ``cache.default.url`` moves the fan-out with the
-    cache: it is not read again from the raw ``CACHE_URL``."""
-    s = _settings_with_infra(
-        monkeypatch,
-        {"cache": {"default": {"driver": "redis", "url": "redis://cache-host:6390/4"}}},
-    )
-    cfg = fill(load_infra_config(s))  # type: ignore[arg-type]
-    assert cfg["cache"][DEFAULT_INSTANCE].options["url"] == "redis://cache-host:6390/4"
-    assert cfg["broadcast"][DEFAULT_INSTANCE].options["url"] == (
-        "redis://cache-host:6390/4"
-    )
+# The broadcast default following the resolved cache default URL is the Redis
+# driver's own fill: ``packages/sandloom-redis/tests/test_redis_infra_defaults.py``.
 
 
 def test_a_stated_broadcast_url_is_kept(monkeypatch: pytest.MonkeyPatch) -> None:

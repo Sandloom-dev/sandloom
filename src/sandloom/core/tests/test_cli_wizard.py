@@ -205,8 +205,8 @@ def test_a_dash_skips_the_administrator() -> None:
         ("test", "Python module name"),
         ("tests", "Python module name"),
         ("idlelib", "Python module name"),
-        # Installed with the app: its package and the import would clash.
-        ("redis", "Python module name"),
+        # Installed with the app: its package and the import would clash (a
+        # driver package's own client is installed with the driver, not here).
         ("sandloom", "Python module name"),
         ("fastapi", "Python module name"),
         ("sqlalchemy", "Python module name"),
@@ -219,16 +219,16 @@ def test_app_names(name: str, problem: str | None, tmp_path: Path) -> None:
 
 def test_a_module_name_is_asked_again_with_the_reason(tmp_path: Path) -> None:
     prompter, asked, out = _prompter(
-        ["test", "redis", "shop", "1", "n"], [["confirm"]] * 2
+        ["test", "fastapi", "shop", "1", "n"], [["confirm"]] * 2
     )
     assert _ask(prompter, tmp_path).app == "shop"
     assert asked[:3] == ["What are you building? Name your app [my_app]: "] * 3
     text = out.getvalue()
     assert "'test' is a Python module name" in text and "'test_app'" in text
-    assert "'redis' is a Python module name" in text
+    assert "'fastapi' is a Python module name" in text
 
 
-@pytest.mark.parametrize("name", ["test", "redis", "sandloom"])
+@pytest.mark.parametrize("name", ["test", "fastapi", "sandloom"])
 def test_flags_refuse_a_module_name(name: str, tmp_path: Path) -> None:
     err = _Stream(tty=False)
     code = wizard.main(

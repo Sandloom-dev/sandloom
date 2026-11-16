@@ -16,6 +16,7 @@ import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -35,6 +36,57 @@ def _git(cwd: Path, *args: str) -> None:
 @pytest.fixture(autouse=True)
 def _no_real_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("SANDLOOM_HOME", str(tmp_path / "home"))
+
+
+#: The ``databases`` setting of the stand-in server (a Redis default is 16, the
+#: test compose and CI start Redis with 256).
+_FAKE_REDIS_DATABASES = 256
+
+
+@pytest.fixture(autouse=True)
+def _redis_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``sandloom dev`` reads Redis through the optional ``redis`` client
+    (``services._redis_module``), which the kernel does not install: a stand-in
+    client over an in-memory server (indexes, keys, ``DBSIZE``, ``FLUSHDB``)
+    runs the kernel's own logic on every lane. The real server and client:
+    ``packages/sandloom-redis/tests/test_dev_external_redis.py``."""
+    keys: dict[int, dict[str, str]] = {}
+
+    class ResponseError(Exception):
+        pass
+
+    class FakeRedis:
+        def __init__(self, host: str, port: int, db: int = 0, **_kw: Any) -> None:
+            self.db = db
+
+        def ping(self) -> bool:
+            return True
+
+        def config_get(self, name: str) -> dict[str, str]:
+            assert name == "databases"
+            return {name: str(_FAKE_REDIS_DATABASES)}
+
+        def dbsize(self) -> int:
+            if self.db >= _FAKE_REDIS_DATABASES:
+                raise ResponseError("DB index is out of range")
+            return len(keys.get(self.db, {}))
+
+        def set(self, key: str, value: str) -> None:
+            keys.setdefault(self.db, {})[key] = value
+
+        def delete(self, key: str) -> None:
+            keys.get(self.db, {}).pop(key, None)
+
+        def flushdb(self) -> None:
+            keys.pop(self.db, None)
+
+        def close(self) -> None:
+            pass
+
+    module = SimpleNamespace(
+        Redis=FakeRedis, ResponseError=ResponseError, RedisError=ResponseError
+    )
+    monkeypatch.setattr(services, "_redis_module", lambda: module)
 
 
 @pytest.fixture
