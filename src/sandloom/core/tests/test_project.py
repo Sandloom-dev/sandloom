@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 from sandloom.core.cli.project import generate_project
+from sandloom.core.tests._root_support import redis_free_infra_env
 
 
 def _forget_probe_app() -> None:
@@ -632,12 +633,13 @@ def test_upgrade_all_on_freshly_generated_project(
         }
         env["INFRA"] = json.dumps(
             {
+                **json.loads(redis_free_infra_env().get("INFRA", "{}")),
                 "database": {
                     "default": {
                         "url": async_url,
                         "tenant_rls": tenant_rls,
                     }
-                }
+                },
             }
         )
         cli = [sys.executable, "-m", "sandloom.core.cli.migrate"]
@@ -851,6 +853,7 @@ def test_generated_project_passes_its_own_tests(tmp_path: Path) -> None:
         from sandloom.core.testing.ownership import OWNER_ENV, current_owner
 
         env[OWNER_ENV] = current_owner()
+        env.update(redis_free_infra_env())
         report = tmp_path / "report.xml"
         proc = subprocess.run(
             [
@@ -1108,6 +1111,7 @@ def _app_command(root: Path, database_url: str, *argv: str) -> tuple[int, str]:
         "BROKER_URL": "redis://127.0.0.1:9/1",
         "JWT_SECRET": "test-only-not-a-secret-0123456789abcdef0123",
         "SANDLOOM_COMPOSITION_ROOT": "probe.asgi",
+        **redis_free_infra_env(),
     }
     proc = subprocess.run(
         [sys.executable, "-m", *argv],
