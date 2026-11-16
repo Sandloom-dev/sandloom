@@ -37,7 +37,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 GREEN, RED, NOT_MERGEABLE, TIMEOUT = 0, 1, 2, 3
-FAILED_BUCKETS = frozenset({"fail", "cancel"})
+# An allow-list: a bucket gh adds later (or a row without one) counts as failed,
+# never as green. ``pending`` is judged separately and is not a verdict yet.
+NOT_FAILED_BUCKETS = frozenset({"pass", "skipping", "pending"})
+# Consecutive ``gh`` failures one poll tolerates (a network blip, a rate limit)
+# before it raises; the third in a row is a broken gh, not a blip.
+TOLERATED_GH_FAILURES = 2
 # ``gh pr checks`` exit codes with JSON on stdout: 0 all passed, 8 some pending.
 PENDING_OR_OK = (0, 8)
 # What gh prints to stderr (exit 1, stdout empty) before any check registered.
@@ -76,6 +81,8 @@ class State:
     # The settled rule is "some required check is present", which equals "every
     # required check" only while branch protection requires one check
     # ("CI required"): gh cannot list a required check that is not registered.
+    # test_pr_wait.py pins that assumption: a second required check would need
+    # the names from branch protection.
     required: list[dict[str, Any]] = field(default_factory=list)
 
     @property
@@ -94,7 +101,7 @@ class State:
 
     @property
     def failed(self) -> list[dict[str, Any]]:
-        return [c for c in self.checks if c.get("bucket") in FAILED_BUCKETS]
+        return [c for c in self.checks if c.get("bucket") not in NOT_FAILED_BUCKETS]
 
 
 def read_state(pr: str, required: bool, gh: Runner) -> State:
@@ -104,6 +111,8 @@ def read_state(pr: str, required: bool, gh: Runner) -> State:
     if view.code != 0:
         raise RuntimeError(f"gh pr view {pr}: {view.err.strip() or view.out.strip()}")
     v = json.loads(view.out)
+    # Two calls at most: ``gh pr view --json statusCheckRollup`` carries neither
+    # the bucket nor the required flag, so the view cannot replace them.
     required_rows = _checks(pr, True, gh)
     # With --required the judged set is the required one: one call serves both.
     rows = required_rows if required else _checks(pr, False, gh)
@@ -180,8 +189,17 @@ def poll(
 ) -> State | tuple[int, list[str]]:
     """The settled state, or the exit code and lines when there is none."""
     deadline = clock() + timeout
+    failures = 0
     while True:
-        s = read_state(pr, required, gh)
+        try:
+            s = read_state(pr, required, gh)
+        except RuntimeError:
+            failures += 1
+            if failures > TOLERATED_GH_FAILURES or clock() >= deadline:
+                raise
+            sleep(interval)
+            continue
+        failures = 0
         if s.pr_state == "MERGED":
             return GREEN, [f"already merged head={s.head[:8]}"]
         if s.pr_state != "OPEN":

@@ -290,6 +290,8 @@ def test_ci_commands_carry_their_env_and_the_venv_python() -> None:
     assert tool._env({"PROBE_URL": "redis://127.0.0.1:6380/0"}) == (
         "PROBE_URL=redis://127.0.0.1:6380/0"
     )
+    # A value with a single quote is shell-quoted, not wrapped in bare quotes.
+    assert tool._env({"MSG": "it's {x}"}) == "MSG='it'\"'\"'s {x}'"
     # Without the venv on the path, a bare python3 stays the system one.
     assert tool._commands({"steps": [{"run": "python3 tools/x.py"}]}) == [
         "python3 tools/x.py"

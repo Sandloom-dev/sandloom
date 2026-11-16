@@ -186,6 +186,25 @@ async def test_a_url_less_streams_bus_runs_on_the_default_cache_client(
     await bus.aopen()  # a client injected for the process needs no url
 
 
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_no_default_client")
+async def test_a_url_less_bus_listed_before_the_cache_still_finds_its_url() -> None:
+    """INFRA may list ``eventbus`` before ``cache``: the startup opens the cache
+    first, so the bus finds the default cache client's url."""
+    config: InfraConfig = {
+        "eventbus": {"default": InstanceConfig("eventbus", "default", "streams", {})},
+        "cache": {
+            "default": InstanceConfig(
+                "cache", "default", "redis", {"url": "redis://127.0.0.1:1/0"}
+            )
+        },
+    }
+    registry = build_infra_registry(
+        InMemorySchemaRegistry(), config=config, load_plugins=True
+    )
+    await registry.aopen_all(strict=True)  # the bus refused here before
+
+
 _BOOT = """
 import asyncio
 from sandloom_standard.main import app

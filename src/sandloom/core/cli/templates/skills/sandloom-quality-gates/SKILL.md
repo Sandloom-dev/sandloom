@@ -12,7 +12,8 @@ Run from the app root. Every step must pass before work is done.
    `.env.test` expects). On a shared machine use your own database and
    Redis: `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_OWNER`, and
    `SANDLOOM_TEST_CACHE_URL` / `SANDLOOM_TEST_BROKER_URL` for the cache and task
-   queue the app selects (the harness refuses one for a capability it does not).
+   queue that `INFRA` declares (the harness refuses one for a capability `INFRA`
+   declares no url for).
 2. **One command** runs the tests and every gate:
 
    ```bash

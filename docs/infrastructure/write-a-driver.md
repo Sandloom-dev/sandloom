@@ -84,6 +84,13 @@ task queue. The helper is
 [`sandloom.driverkit.shared_endpoints`](driverkit.md#sandloomdriverkitshared_endpoints). The
 operator is warned at startup when the instance shares a database with `cache.default`.
 
+`self.implicit` on the provider is `True` for an instance the kernel synthesized in
+development. Nobody wrote it in `INFRA`: it is the `default` instance a composition
+selects without an entry. It is never `True` in production, where a synthesized instance
+is as real as a declared one. A driver reads it for one thing, the
+`declared=not self.implicit` of `register`. An overlap of synthesized instances then
+logs at INFO, and an overlap with an instance the operator wrote logs as a WARNING.
+
 A connection option (a url, a broker, a pool bound) is an option of your instance, written in
 `INFRA`, with a default in the options schema. Do not read it from a flat setting, and do not
 take it from another instance. No instance inherits another's url, so a driver that needs a

@@ -257,9 +257,16 @@ POSTGRES_EXTRA = "postgres"
 #: Redis wire commands as a whole string constant (``execute_command("XADD")``),
 #: and a Lua script calling the server (``redis.call(``): protocol code, which
 #: lives in ``sandloom_redis``. A name in a comment or a docstring is not one.
+#: The stream commands and ``EVALSHA`` are distinctive in any case; ``EVAL``,
+#: ``SCRIPT`` and ``ZADD`` are ordinary words in lower case, so only the upper
+#: case spelling counts. What follows the command is a subcommand (``GROUP``) or
+#: an argument that is not a word (``*``, ``0-0``): a sentence that starts with
+#: a command name ("XADD is slow") is prose and passes.
 _WIRE_COMMAND = re.compile(
-    r"(?:XADD|XREADGROUP|XAUTOCLAIM|XGROUP|XACK|XTRIM|XCLAIM|EVALSHA)(?: .*)?",
-    re.IGNORECASE | re.DOTALL,
+    r"(?:(?i:X(?:ADD|READGROUP|AUTOCLAIM|GROUP|ACK|TRIM|CLAIM|PENDING|INFO|LEN"
+    r"|REVRANGE|RANGE)|EVALSHA)|EVAL|SCRIPT|ZADD)"
+    r"(?:\s+(?:[A-Z][A-Z_]*\b|[^A-Za-z\s]).*)?",
+    re.DOTALL,
 )
 _LUA_CALL = re.compile(r"\bredis\.(?:p?call)\(")
 

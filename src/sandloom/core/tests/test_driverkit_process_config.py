@@ -12,13 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from sandloom.core.infra import tool_infra
-from sandloom.driverkit import process_config
 from sandloom.driverkit.process_config import process_instance
-
-
-def test_the_capabilities_it_answers_are_the_ones_the_tool_infra_builds() -> None:
-    assert process_config._PROCESS_CAPABILITIES == tool_infra._TOOL_CAPABILITIES
 
 
 @pytest.mark.parametrize("capability", ["cache", "database", "eventbus", "nothing"])

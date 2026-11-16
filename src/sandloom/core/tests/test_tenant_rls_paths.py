@@ -464,7 +464,9 @@ async def test_api_savepoint_rollback_reverting_a_switch_inside_it(rls: _Env) ->
 async def test_hook_creates_no_reference_cycles(rls: _Env) -> None:
     """The per-transaction state must not create cyclic garbage (a first
     version kept the RootTransaction on the Connection: +5 cyclic objects per
-    request → more GC pauses, worse p99)."""
+    request → more GC pauses, worse p99). The probes follow the Connection, the
+    RootTransaction and every ExecutionContext; each kind must have been
+    recorded, so a probe that never fires fails the test instead of passing."""
     import asyncio
     import gc
     import weakref
@@ -506,6 +508,14 @@ async def test_hook_creates_no_reference_cycles(rls: _Env) -> None:
                         probes.append(("root transaction", weakref.ref(tx)))
                         del sync_conn, tx
                     del s
+                # A spy that stopped firing (or a probe not taken) would make
+                # "no survivors" vacuous: every kind must have been recorded.
+                recorded = {name for name, _ in probes}
+                assert recorded == {
+                    "execution context",
+                    "connection",
+                    "root transaction",
+                }
                 return sorted({name for name, ref in probes if ref() is not None})
             finally:
                 gc.enable()

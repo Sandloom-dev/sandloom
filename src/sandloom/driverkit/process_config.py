@@ -27,14 +27,9 @@ from __future__ import annotations
 
 from sandloom.core.config.settings import load_settings
 from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
-from sandloom.core.infra.tool_infra import build_tool_infra
+from sandloom.core.infra.tool_infra import TOOL_CAPABILITIES, build_tool_infra
 
 __all__ = ["process_instance"]
-
-#: The capabilities a process that boots no application configures: the ones
-#: ``sandloom.core.infra.tool_infra.build_tool_infra`` builds (a test keeps the
-#: two equal).
-_PROCESS_CAPABILITIES = frozenset({"taskqueue"})
 
 
 def process_instance(
@@ -49,10 +44,10 @@ def process_instance(
     instance is its own before it reads an option. The options are a copy:
     changing them changes nothing.
     """
-    if capability not in _PROCESS_CAPABILITIES:
+    if capability not in TOOL_CAPABILITIES:
         raise ValueError(
             "a process that boots no application configures only "
-            f"{sorted(_PROCESS_CAPABILITIES)}, not {capability!r}"
+            f"{sorted(TOOL_CAPABILITIES)}, not {capability!r}"
         )
     load_settings()
     found = build_tool_infra().instance_config(capability, name)

@@ -103,14 +103,20 @@ def _repo_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return root
 
 
+def _ignore_git_lock_files(directory: str, names: list[str]) -> list[str]:
+    """Skip the ``*.lock`` files git leaves inside ``.git`` (a maintenance run
+    holds one); a lock file of the app itself is copied like any other."""
+    if ".git" not in Path(directory).parts:
+        return []
+    return [name for name in names if name.endswith(".lock")]
+
+
 @pytest.fixture
 def repo(tmp_path: Path, _repo_template: Path) -> Path:
     """A git repository holding a minimal app, with one commit (a fresh copy
     of the module's template: a normal ``.git`` holds no absolute path)."""
     root = tmp_path / "shop"
-    shutil.copytree(
-        _repo_template, root, symlinks=True, ignore=shutil.ignore_patterns("*.lock")
-    )
+    shutil.copytree(_repo_template, root, symlinks=True, ignore=_ignore_git_lock_files)
     return root
 
 

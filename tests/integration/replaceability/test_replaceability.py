@@ -288,14 +288,22 @@ def infra(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Infra]:
     """
     values = worker_env_values(BACKEND / ".env.test")
     base = values.get("DATABASE_URL", "")
-    try:
-        cache = resolved_cache_url()
-    except RuntimeError:
-        cache = ""
-    if not base.startswith("postgresql") or not cache.startswith("redis"):
-        _unavailable("needs a PostgreSQL DATABASE_URL and a Redis cache.default url")
-    if not _reachable(base, 5432) or not _reachable(cache, 6379):
-        _unavailable("PostgreSQL or Redis is not reachable")
+    # Redis is needed only where the topologies run on the Redis drivers; on the
+    # kernel's ``memory`` ones (``kernel-without-redis``) no server is touched.
+    cache = ""
+    if REDIS_DRIVER_INSTALLED:
+        try:
+            cache = resolved_cache_url()
+        except RuntimeError:
+            cache = ""
+        if not cache.startswith("redis"):
+            _unavailable("needs a Redis cache.default url")
+        if not _reachable(cache, 6379):
+            _unavailable("Redis is not reachable")
+    if not base.startswith("postgresql"):
+        _unavailable("needs a PostgreSQL DATABASE_URL")
+    if not _reachable(base, 5432):
+        _unavailable("PostgreSQL is not reachable")
     name = f"sandloom_replace_{RUN}"
     role = f"sandloom_replace_app_{RUN}"
     password = uuid.uuid4().hex
