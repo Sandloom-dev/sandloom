@@ -12,7 +12,6 @@ bus building the same envelopes as ``publish_event``) stays in
 
 from __future__ import annotations
 
-import os
 import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -21,7 +20,7 @@ from typing import Any
 import orjson
 import pytest
 import pytest_asyncio
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 
 from sandloom.core.eventing.envelope import EventEnvelope
@@ -133,9 +132,7 @@ async def test_redis_publish_many_exec_abort_reports_nothing_appended() -> None:
 async def redis_client() -> AsyncGenerator[Any, None]:
     import redis.asyncio as redis_asyncio
 
-    url = os.getenv("CACHE_URL")
-    if not url:
-        redis_unavailable("CACHE_URL not set")
+    url = cache_url_or_unavailable()
     client = redis_asyncio.from_url(url, encoding="utf-8", decode_responses=True)
     try:
         await client.ping()

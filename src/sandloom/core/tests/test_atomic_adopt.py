@@ -286,7 +286,7 @@ def test_production_never_builds_a_security_store_from_the_cache() -> None:
     prod = Settings(  # type: ignore[call-arg]
         _env_file=None,
         ENVIRONMENT="prod",
-        CACHE_URL="redis://cache-redis:6379/4",
+        INFRA={"cache": {"default": {"url": "redis://cache-redis:6379/4"}}},
         JWT_SECRET="9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b",
     )
     assert "atomic_store" not in load_infra_config(prod)
@@ -298,8 +298,10 @@ def test_a_declared_security_store_gets_the_client_bounds_but_not_the_cache_url(
     cfg = Settings(  # type: ignore[call-arg]
         _env_file=None,
         ENVIRONMENT="dev",
-        CACHE_URL="redis://cache-redis:6379/4",
-        INFRA={"atomic_store": {"security": {"driver": "redis"}}},
+        INFRA={
+            "cache": {"default": {"url": "redis://cache-redis:6379/4"}},
+            "atomic_store": {"security": {"driver": "redis"}},
+        },
     )
     security = load_infra_config(cfg)["atomic_store"]["security"]
     assert not security.implicit

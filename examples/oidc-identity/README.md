@@ -153,7 +153,7 @@ PostgreSQL and Redis (`SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`,
 cd examples/oidc-identity
 uv sync
 cp .env.example .env
-# Set DATABASE_URL, CACHE_URL, BROKER_URL, JWT_SECRET (openssl rand -hex 32),
+# Set DATABASE_URL, the Redis urls in INFRA, JWT_SECRET (openssl rand -hex 32),
 # ACME_IDP_ISSUER and ACME_IDP_CLIENT_ID for your provider.
 uv run sandloom migrate upgrade-all --apply
 uv run uvicorn oidc_identity.asgi:app --reload

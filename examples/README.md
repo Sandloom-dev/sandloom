@@ -92,7 +92,8 @@ cd examples/helpdesk
 uv sync
 uv run sandloom test
 cp .env.example .env
-# Configure a separate development DATABASE_URL, CACHE_URL and BROKER_URL.
+# Configure a separate development DATABASE_URL and the Redis url of each
+# instance in INFRA (cache, broadcast, security store, beat lease, task queue broker).
 # Generate JWT_SECRET with: openssl rand -hex 32
 uv run sandloom migrate upgrade-all --apply
 uv run uvicorn helpdesk.asgi:app --reload

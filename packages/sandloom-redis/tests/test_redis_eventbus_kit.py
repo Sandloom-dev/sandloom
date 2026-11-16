@@ -1,5 +1,5 @@
 """The ``EventTransportConformance`` kit (spec 7) against the ``streams`` driver
-of this package, on a real Redis (``settings.cache_url``).
+of this package, on a real Redis (``resolved_cache_url()``).
 
 The kit's own behaviour (the in-memory reference transport, the deliberately
 broken transports that must fail exactly the checks that name them) is tested
@@ -14,17 +14,16 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from redis import asyncio as redis_asyncio
 from sandloom_redis.eventbus.driver import StreamsEventBusProvider
 
-from sandloom.core.config.settings import settings
 from sandloom.core.infra.ports.eventbus import EventTransportProvider, Retention
 from sandloom.driverkit.testing import EventTransportConformance
 
 
 def _redis_url() -> str:
-    url = settings.cache_url
+    url = cache_url_or_unavailable()
     if not url:
         redis_unavailable("no test Redis URL: the streams kit is skipped")
     return str(url)

@@ -7,12 +7,11 @@ reservation's renewal and expiry, which the server times."""
 from __future__ import annotations
 
 import asyncio
-import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
 from sandloom.core import idempotency
@@ -35,9 +34,7 @@ def _load_env() -> None:
 
 @pytest.fixture
 async def provider() -> AsyncIterator[RedisAtomicStoreProvider]:
-    url = os.getenv("CACHE_URL")
-    if not url:
-        redis_unavailable("CACHE_URL not set")
+    url = cache_url_or_unavailable()
     cache = RedisAtomicStoreProvider(
         name="idem-test", driver="redis", options={"url": url}
     )

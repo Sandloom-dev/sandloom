@@ -91,8 +91,10 @@ def test_settings_reject_invalid_trusted_proxy_cidr() -> None:
     with pytest.raises(ValidationError, match="TRUSTED_PROXY_IPS"):
         Settings(
             DATABASE_URL="postgresql+asyncpg://u:p@h:5432/d",
-            CACHE_URL="redis://h:6379/0",
-            BROKER_URL="redis://h:6379/1",
+            INFRA={
+                "cache": {"default": {"url": "redis://h:6379/0"}},
+                "taskqueue": {"default": {"broker": "redis://h:6379/1"}},
+            },
             JWT_SECRET="x" * 40,
             TRUSTED_PROXY_IPS=["not-a-cidr"],
         )

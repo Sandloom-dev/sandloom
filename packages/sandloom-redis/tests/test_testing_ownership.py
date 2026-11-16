@@ -8,32 +8,26 @@ against a real Redis. Guarantee G-OPS-07.
 
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import pytest
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from sandloom_redis.testing import flush_owned_redis
 from sandloom_redis.testing.ownership import REDIS_OWNER_KEY, claim_redis
 
-from sandloom.core.testing import ownership, workers
+from sandloom.core.testing import ownership
 
 BACKEND = Path(__file__).resolve().parents[3]
-
-
-def _test_url(var: str) -> str:
-    values = workers.worker_env_values(BACKEND / ".env.test")
-    return os.environ.get(var) or values.get(var) or ""
 
 
 @pytest.fixture
 async def own_redis() -> AsyncIterator[Any]:
     redis = pytest.importorskip("redis.asyncio")
-    url = _test_url("CACHE_URL")
+    url = cache_url_or_unavailable()
     if not url.startswith("redis"):
-        redis_unavailable("Redis CACHE_URL not configured")
+        redis_unavailable("the test cache url is not a Redis one")
     client = redis.from_url(url)
     try:
         await client.ping()
@@ -81,7 +75,7 @@ def test_claim_redis_refuses_another_owner(
     own_redis: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv(ownership.TAKEOVER_ENV, raising=False)
-    url = _test_url("CACHE_URL")
+    url = cache_url_or_unavailable()
     ownership._claimed.clear()
     claim_redis(url, owner=ownership.current_owner())
     with pytest.raises(

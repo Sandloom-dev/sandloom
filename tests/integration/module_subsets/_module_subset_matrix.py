@@ -90,8 +90,8 @@ REFUSAL_NAMES: dict[str, tuple[str, ...]] = {
 #: The environment every probe runs with: placeholders only, nothing listens.
 PROBE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:1/db",
-    "CACHE_URL": "redis://127.0.0.1:1/0",
-    "BROKER_URL": "redis://127.0.0.1:1/1",
+    # No ``INFRA``: the lean root selects no driver, and the matrix is about
+    # what a subset's own capabilities ask for (B037 names the missing driver).
     "JWT_SECRET": "module-subset-matrix-not-a-real-secret",
     "EVENT_BUS_BACKEND": "memory",
     "HEALTH_CACHE_TTL_SECONDS": "0",

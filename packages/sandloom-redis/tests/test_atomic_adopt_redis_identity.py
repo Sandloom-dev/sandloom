@@ -13,12 +13,12 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from _redis_required import require_redis
+from _redis_required import cache_url_or_unavailable, require_redis
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 from sandloom_redis.cache import RedisCacheProvider
 
 from sandloom.core import production_profile
-from sandloom.core.config.settings import Settings, settings
+from sandloom.core.config.settings import Settings
 from sandloom.core.infra.config import load_infra_config
 from sandloom.core.tests._driver_fill import fill
 from sandloom.core.tests.test_atomic_adopt import (
@@ -50,7 +50,7 @@ async def test_strict_profile_attests_real_redis_identity(
     """The real classes on the test Redis: the cache and the Redis atomic store
     name their server alike (``redis:<run_id>``), so a store on the cache's
     server is refused, and a store whose server differs is attested (spec 12)."""
-    url = settings.cache_url
+    url = cache_url_or_unavailable()
     await require_redis(url)
     store = RedisAtomicStoreProvider(
         name="security", driver="redis", options={"url": url}

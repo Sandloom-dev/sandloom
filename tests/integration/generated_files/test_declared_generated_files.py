@@ -60,17 +60,32 @@ def _compose(*modules: str, root: str | None = None) -> dict[str, Any]:
         "ENVIRONMENT": "dev",
         "BILLING_PROVIDER": "fake",
         "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:9/never",
-        "CACHE_URL": "redis://127.0.0.1:9/0",
-        "BROKER_URL": "redis://127.0.0.1:9/0",
+        # Every Redis instance states its own url (none follows another); the
+        # drivers are the composition's, or ``lean_root_infra``'s below.
+        "INFRA": json.dumps(
+            {
+                "cache": {"default": {"url": "redis://127.0.0.1:9/0"}},
+                "eventbus": {"default": {"url": "redis://127.0.0.1:9/0"}},
+                "broadcast": {"default": {"url": "redis://127.0.0.1:9/0"}},
+                "atomic_store": {"security": {"url": "redis://127.0.0.1:9/0"}},
+                "lease": {"beat": {"url": "redis://127.0.0.1:9/0"}},
+                "taskqueue": {"default": {"broker": "redis://127.0.0.1:9/0"}},
+            }
+        ),
         "JWT_SECRET": "generated-files-test-only-" + "x" * 32,
         "PYTHONPATH": os.pathsep.join(
             [str(HERE / "thirdparty"), *(p for p in sys.path if p)]
         ),
     }
     env.pop("SANDLOOM_COMPOSITION_ROOT", None)
-    env.pop("INFRA", None)
     if root:
         env["SANDLOOM_COMPOSITION_ROOT"] = root
+    else:
+        # The lean root selects no beat lease: an options-only entry for it
+        # would refuse (an entry needs a driver the composition did not pick).
+        infra = json.loads(env["INFRA"])
+        infra.pop("lease")
+        env["INFRA"] = json.dumps(infra)
     # The lean root (no ``root``) selects no driver: ``INFRA`` does.
     env["INFRA"] = lean_root_infra(env)
     done = subprocess.run(

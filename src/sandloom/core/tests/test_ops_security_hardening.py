@@ -19,8 +19,10 @@ from sandloom.core.facade import CoreFacade
 
 _BASE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@h:5432/d",
-    "CACHE_URL": "redis://h:6379/0",
-    "BROKER_URL": "redis://h:6379/1",
+    "INFRA": {
+        "cache": {"default": {"url": "redis://h:6379/0"}},
+        "taskqueue": {"default": {"broker": "redis://h:6379/1"}},
+    },
 }
 _STRONG = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
 

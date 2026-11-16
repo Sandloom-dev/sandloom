@@ -79,7 +79,7 @@ uv run sandloom test --full       # every gate; module tests + the slow split-co
 ## Run it
 
 ```bash
-cp .env.example .env         # adjust DATABASE_URL / CACHE_URL
+cp .env.example .env         # adjust DATABASE_URL and the urls in INFRA
 uv run sandloom migrate upgrade-all --apply  # SANDLOOM_COMPOSITION_ROOT=academy.asgi (.env)
 uv run uvicorn academy.asgi:app --reload
 ```

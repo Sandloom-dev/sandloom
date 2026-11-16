@@ -8,7 +8,6 @@ stays in ``tests/integration/with_batteries/test_module_extraction.py``.
 
 from __future__ import annotations
 
-import os
 import uuid
 from dataclasses import replace
 from pathlib import Path
@@ -16,21 +15,17 @@ from typing import Any
 
 import pytest
 import redis.asyncio as redis_asyncio
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 
 from sandloom.core.cli.extract import transfer_group_owners
 from sandloom.core.infra.ports.eventbus import GroupOwnedElsewhere, GroupOwner
-from sandloom.core.testing import worker_env_values
 
 REPO = Path(__file__).resolve().parents[3]
 
 
 async def test_group_owner_transfer_redis_transport() -> None:
-    values = worker_env_values(REPO / ".env.test")
-    url = os.environ.get("SANDLOOM_TEST_CACHE_URL") or values.get("CACHE_URL")
-    if not url:
-        redis_unavailable("no CACHE_URL")
+    url = cache_url_or_unavailable()
     client = redis_asyncio.from_url(url)
     try:
         await client.ping()

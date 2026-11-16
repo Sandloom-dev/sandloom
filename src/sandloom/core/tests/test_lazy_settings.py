@@ -7,6 +7,7 @@ the environment, and an invalid one still exits at startup.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -53,8 +54,12 @@ def test_import_does_not_validate_and_first_use_does(tmp_path: Path) -> None:
     )
     env = {
         "DATABASE_URL": "postgresql+asyncpg://u:p@h:5432/d",
-        "CACHE_URL": "redis://h:6379/0",
-        "BROKER_URL": "redis://h:6379/1",
+        "INFRA": json.dumps(
+            {
+                "cache": {"default": {"url": "redis://h:6379/0"}},
+                "taskqueue": {"default": {"broker": "redis://h:6379/1"}},
+            }
+        ),
         "JWT_SECRET": "lazy-settings-test-secret-0123456789abcdef",
     }
     result = _run(code, tmp_path, env)

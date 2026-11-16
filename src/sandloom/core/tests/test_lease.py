@@ -46,8 +46,7 @@ from sandloom.core.sql_alchemy.models.lease import InfraLease
 from sandloom.driverkit.kits.lease import LeaseConformance
 
 # The harness resolves the URLs into ``settings`` (SANDLOOM_TEST_* on a shared
-# machine, DATABASE_URL / CACHE_URL on CI): never read the environment here.
-_REDIS_URL = settings.cache_url
+# machine, ``.env.test`` on CI): never read the environment here.
 _PG_URL = settings.database_url
 
 
@@ -494,7 +493,6 @@ def _prod(*risks: str) -> Any:
         is_prod=True,
         accepts_risk=lambda risk: risk in risks,
         infra={},
-        cache_url="redis://h/0",
     )
 
 

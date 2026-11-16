@@ -106,7 +106,7 @@ def test_a_run_without_room_aborts_before_any_test(tmp_path: Path) -> None:
     url = _database_url()
     (tmp_path / ".env.test").write_text(
         f"ENVIRONMENT=test\nDATABASE_URL={url}\n"
-        f"CACHE_URL={_test_url('CACHE_URL')}\nBROKER_URL={_test_url('BROKER_URL')}\n"
+        f"INFRA='{_test_url('INFRA')}'\n"
         "JWT_SECRET=test_secret_for_the_budget_probe_only\n"
         "DB_POOL_SIZE=100000\n"
     )

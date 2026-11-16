@@ -61,8 +61,6 @@ def _child_env(database_url: str) -> dict[str, str]:
     return {
         "JWT_SECRET": "postgres-extra-test-secret-0123456789abcdef",
         "DATABASE_URL": database_url,
-        "CACHE_URL": settings.cache_url,
-        "BROKER_URL": settings.broker_url,
         "SANDLOOM_MODULES": "[]",
         "SANDLOOM_SERVICE_NAME": "postgres-extra-probe",
         "INFRA": json.dumps(_SELECTION),
