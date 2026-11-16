@@ -363,8 +363,12 @@ $identity_note
 `uv run sandloom dev up` starts Postgres and Redis in Docker for this
 repository and gives this checkout its own database. It picks free ports
 once and keeps them. It writes the app's URLs into the marked block of
-`.env` and the test URLs into `.env.test.local` (not committed). It is safe
-to run again: a second run waits for the first and then finds everything up.
+`.env` (`DATABASE_URL` and an `INFRA` line with one Redis url per instance:
+the cache and broadcast on one index, the security store, beat lease, event
+streams and Celery broker on another) and the test URLs into `.env.test.local`
+(not committed). An `INFRA` line of your own in `.env` is merged into the
+block's, instance by instance: your keys win. It is safe to run again: a
+second run waits for the first and then finds everything up.
 
 A git worktree of this repository uses the same containers with its own
 database: run `uv run sandloom dev up` in the worktree too. Each test run
@@ -382,12 +386,13 @@ uv run sandloom dev prune      # remove databases of deleted worktrees
 
 The app also runs on a SQLite file; `uv sync` installs its driver. Set the
 database in `.env`, outside the `sandloom dev` block, with a Redis of your own
-(SQLite replaces PostgreSQL only):
+(SQLite replaces PostgreSQL only), one explicit url per Redis instance of
+`$app/__init__.py` (`DEFAULT_INFRA`), the persistent ones on another database
+than the cache:
 
 ```bash
 DATABASE_URL=sqlite+aiosqlite:///./data/app.db
-CACHE_URL=redis://127.0.0.1:6379/0
-BROKER_URL=redis://127.0.0.1:6379/1
+INFRA='$infra_sqlite'
 ```
 
 `uv run sandloom dev run` then serves the app on that file and starts no dev
@@ -524,6 +529,28 @@ test_data/
 .observed_effects.json.lock
 """
 
+
+def _infra_json(cache: str, persistent: str, *, eventbus: bool = True) -> str:
+    """The ``INFRA`` of the Redis instances ``DEFAULT_INFRA`` (``_APP_INIT``)
+    selects, one explicit url each (an entry carries no ``driver``: the
+    composition's is kept). The instances that may lose their keys (cache,
+    broadcast) take ``cache``; every one that holds state (the security store,
+    the beat lease, the event streams, the Celery broker) takes ``persistent``,
+    never the cache's: a persistent instance sharing the cache's host, port and
+    database logs a startup warning. ``eventbus=False`` leaves the event bus
+    out (the in-process bus is selected)."""
+    infra: dict[str, dict[str, dict[str, str]]] = {
+        "cache": {"default": {"url": cache}},
+        "broadcast": {"default": {"url": cache}},
+        "atomic_store": {"security": {"url": persistent}},
+        "lease": {"beat": {"url": persistent}},
+        "taskqueue": {"default": {"broker": persistent}},
+    }
+    if eventbus:
+        infra["eventbus"] = {"default": {"url": persistent}}
+    return json.dumps(infra, separators=(",", ":"))
+
+
 _ENV_EXAMPLE = Template(
     """# ==== Modules loaded by this process ====
 # Default: every module of $app/modules (and the bundled ones). Set to select
@@ -537,9 +564,11 @@ SANDLOOM_COMPOSITION_ROOT=$app.asgi
 # ==== Environment ====
 ENVIRONMENT=dev
 
-# ==== Database, cache, broker ====
-# `uv run sandloom dev up` writes DATABASE_URL, CACHE_URL and BROKER_URL of this
-# checkout's dev services into the block below; everything else is yours.
+# ==== Database and Redis instances ====
+# `uv run sandloom dev up` writes DATABASE_URL and INFRA (one Redis url per
+# instance) of this checkout's dev services into the block below; everything
+# else is yours. Your own INFRA line (instances beyond the Redis ones, an
+# option) is merged into the block's: your keys win.
 $dev_block
 # ==== Event bus ====
 # The app selects Redis Streams ($app/__init__.py: DEFAULT_INFRA), which a
@@ -577,8 +606,7 @@ SANDLOOM_COMPOSITION_ROOT=$app.asgi
 # Locally, `uv run sandloom dev up` writes .env.test.local (not committed),
 # which points the tests at this repository's test services instead.
 DATABASE_URL=postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
-CACHE_URL=redis://127.0.0.1:6380/15
-BROKER_URL=redis://127.0.0.1:6380/14
+INFRA='$infra_test'
 
 # The tests run on the in-process bus, named explicitly (DEFAULT_INFRA selects Streams).
 EVENT_BUS_BACKEND=memory
@@ -866,8 +894,10 @@ x-app-env: &app-env
   # Explicit: ENVIRONMENT defaults to dev, which must never reach a deploy.
   ENVIRONMENT: prod
   DATABASE_URL: postgresql+asyncpg://sandloom:sandloom@db:5432/$app
-  CACHE_URL: redis://redis:6379/1
-  BROKER_URL: redis://redis:6379/2
+  # One explicit url per Redis instance: the cache and broadcast on /1, what
+  # must survive (security store, beat lease, event streams, Celery broker) on
+  # /2, never on the cache's database.
+  INFRA: '$infra_compose'
   SHUTDOWN_BUDGET_SECONDS: 30
   GUNICORN_GRACEFUL_TIMEOUT: 45
   # The weaker guarantees this stack accepts (logged at every start):
@@ -1445,6 +1475,15 @@ def generate_project(
         ),
         "port_hint": "start the services with: uv run sandloom dev up",
         "dev_block": _envfile.empty_block(),
+        # CI's test Redis (Postgres :5433, Redis :6380): the cache on /15, the
+        # persistent instances on /14. The in-process bus is selected there.
+        "infra_test": _infra_json(
+            "redis://127.0.0.1:6380/15", "redis://127.0.0.1:6380/14", eventbus=False
+        ),
+        "infra_compose": _infra_json("redis://redis:6379/1", "redis://redis:6379/2"),
+        "infra_sqlite": _infra_json(
+            "redis://127.0.0.1:6379/0", "redis://127.0.0.1:6379/1", eventbus=False
+        ),
         "identity_note": _IDENTITY_NOTE if "identity" in bundled else "",
         "quickstart_section": _quickstart_section(
             quickstart(app, sample_module)[1:], admin="admin" in bundled
