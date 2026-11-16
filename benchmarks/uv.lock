@@ -2564,12 +2564,11 @@ dependencies = [
 [package.optional-dependencies]
 fast = [
     { name = "jsonschema-rs" },
-    { name = "redis", extra = ["hiredis"] },
 ]
 standard = [
     { name = "asyncpg" },
     { name = "celery", extra = ["redis"] },
-    { name = "redis" },
+    { name = "redis", extra = ["hiredis"] },
     { name = "sandloom-billing" },
     { name = "sandloom-celery" },
     { name = "sandloom-identity" },
@@ -2608,8 +2607,7 @@ requires-dist = [
     { name = "pytest-xdist", marker = "extra == 'testing'", specifier = ">=3.8.0,<4" },
     { name = "python-dotenv", specifier = ">=1.2.4,<2" },
     { name = "pyyaml", marker = "extra == 'check'", specifier = ">=6.0.2,<7" },
-    { name = "redis", marker = "extra == 'redis'", specifier = ">=5.2.1,<6" },
-    { name = "redis", extras = ["hiredis"], marker = "extra == 'fast'", specifier = ">=5.2.1,<6" },
+    { name = "redis", extras = ["hiredis"], marker = "extra == 'redis'", specifier = ">=5.2.1,<6" },
     { name = "sandloom", extras = ["postgres", "redis"], marker = "extra == 'admin'" },
     { name = "sandloom", extras = ["postgres", "redis", "celery"], marker = "extra == 'standard'" },
     { name = "sandloom-admin", marker = "extra == 'admin'", specifier = ">=0.7.0a13,<0.8" },
