@@ -1178,6 +1178,7 @@
         "packages/sandloom-celery/tests/test_celery_slots.py",
         "packages/sandloom-celery/tests/test_celery_error_mapping.py",
         "packages/sandloom-celery/tests/test_celery_periodic_dedupe.py",
+        "packages/sandloom-celery/tests/test_celery_process_config.py",
         "packages/sandloom-celery/tests/test_celery_worker_host.py",
         "packages/sandloom-celery/tests/test_celery_beat_lease.py",
         "packages/sandloom-celery/tests/test_celery_enqueue_deduplication.py",
