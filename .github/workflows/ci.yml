@@ -319,6 +319,10 @@ jobs:
         run: uv run mypy src/
 
       - name: Architecture tests
+        env:
+          # The service's own credentials (the job-level dummy URL names a role
+          # the server does not have): the workers create their databases here.
+          DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
         run: uv run pytest tests/architecture/ -q --no-cov -p no:cacheprovider -n 4 --dist loadfile
 
       - name: Import-boundary manifest

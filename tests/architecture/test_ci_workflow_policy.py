@@ -468,11 +468,17 @@ def test_architecture_tests_of_backend_static_run_on_four_workers_with_a_server(
     PostgreSQL service the workers crash at collection (the service is not
     for the tests, which keep their own checks)."""
     job = workflow("ci.yml")["jobs"]["backend-static"]
-    command = next(
-        s["run"] for s in job["steps"] if "tests/architecture" in s.get("run", "")
+    step = next(s for s in job["steps"] if "tests/architecture" in s.get("run", ""))
+    assert "-n 4 --dist loadfile" in step["run"]
+    service = job["services"]["postgres"]
+    assert service["ports"] == ["5433:5432"]
+    # The workers connect with the step's DATABASE_URL, not the job's dummy one
+    # (a role the server lacks: every worker crashed on the first PR run).
+    env = service["env"]
+    assert step["env"]["DATABASE_URL"] == (
+        f"postgresql+asyncpg://{env['POSTGRES_USER']}:{env['POSTGRES_PASSWORD']}"
+        f"@127.0.0.1:5433/{env['POSTGRES_DB']}"
     )
-    assert "-n 4 --dist loadfile" in command
-    assert job["services"]["postgres"]["ports"] == ["5433:5432"]
 
 
 def test_packages_workflow_keeps_only_the_wheel_matrix_of_module_subsets():
