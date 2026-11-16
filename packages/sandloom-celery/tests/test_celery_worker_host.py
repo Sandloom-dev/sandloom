@@ -32,6 +32,7 @@ from sandloom_celery.worker import (
     register_task_table,
 )
 
+from sandloom.core.config.settings import settings
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.errors import InvalidArgument
 from sandloom.core.infra.ports.taskqueue import PeriodicSpec, TaskSpec, TaskTable
@@ -373,16 +374,76 @@ def test_the_scheduler_argv_carries_the_schedule_file(
 
 
 # ----------------------------------------------------- the importable app
-def test_the_importable_app_is_the_default_app_built_from_the_broker_url(
-    monkeypatch: pytest.MonkeyPatch,
+def _importable_app_infra(
+    monkeypatch: pytest.MonkeyPatch, default: dict[str, object] | None
 ) -> None:
+    """The ``INFRA`` the importable app reads through ``Settings``, with no flat
+    ``BROKER_URL`` / ``CACHE_URL`` to fill what it leaves out."""
     monkeypatch.setattr(celery_worker, "_default_app", None)
     monkeypatch.setattr(celery_worker, "_default_app_urls", None)
-    monkeypatch.delenv("BROKER_URL", raising=False)
-    with pytest.raises(AttributeError, match="BROKER_URL"):
+    monkeypatch.setattr(settings, "broker_url", None)
+    monkeypatch.setattr(settings, "cache_url", None)
+    monkeypatch.setattr(
+        settings,
+        "infra",
+        {} if default is None else {"taskqueue": {"default": default}},
+    )
+
+
+def test_the_importable_app_names_the_infra_option_when_it_has_no_broker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A stray BROKER_URL in the environment is no broker of this app.
+    monkeypatch.setenv("BROKER_URL", "redis://127.0.0.1:1/7")
+    for default in ({"driver": "celery"}, {"driver": "celery", "broker": "  "}):
+        _importable_app_infra(monkeypatch, default)
+        with pytest.raises(AttributeError, match=r"taskqueue\.default\.broker"):
+            celery_worker.app  # noqa: B018
+    assert celery_worker._default_app is None
+
+
+def test_the_importable_app_refuses_a_default_taskqueue_that_is_not_celery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _importable_app_infra(monkeypatch, None)
+    monkeypatch.setattr(
+        celery_worker.process_config, "process_instance", lambda *_: None
+    )
+    with pytest.raises(AttributeError, match="celery driver.*none"):
+        celery_worker.app  # noqa: B018
+    monkeypatch.undo()
+    _importable_app_infra(monkeypatch, {"driver": "memory"})
+    with pytest.raises(AttributeError, match="'memory'"):
         celery_worker.app  # noqa: B018
 
-    monkeypatch.setenv("BROKER_URL", "redis://127.0.0.1:1/9")
+
+def test_the_importable_app_has_no_result_backend_unless_infra_states_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _importable_app_infra(
+        monkeypatch, {"driver": "celery", "broker": "redis://127.0.0.1:1/9"}
+    )
+    assert celery_worker.app.conf.result_backend is None
+
+    _importable_app_infra(
+        monkeypatch,
+        {
+            "driver": "celery",
+            "broker": "redis://127.0.0.1:1/9",
+            "backend": "redis://127.0.0.1:1/8",
+        },
+    )
+    assert celery_worker.app.conf.result_backend == "redis://127.0.0.1:1/8"
+
+
+def test_the_importable_app_is_the_default_app_built_from_the_infra_broker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The environment is not read: this stray value must not replace the INFRA one.
+    monkeypatch.setenv("BROKER_URL", "redis://127.0.0.1:1/7")
+    _importable_app_infra(
+        monkeypatch, {"driver": "celery", "broker": "redis://127.0.0.1:1/9"}
+    )
     app = celery_worker.app
     assert app.conf.broker_url == "redis://127.0.0.1:1/9"
     assert celery_worker.celery is app and celery_worker.celery_app is app
@@ -415,9 +476,9 @@ def test_the_importable_app_refuses_to_run_a_worker_or_a_beat(
     """``celery -A sandloom_celery.worker worker`` would consume
     messages of a table with no task (each dropped as unknown) and a beat would
     tick without the lease: both stop with exit code 1 and name the command."""
-    monkeypatch.setattr(celery_worker, "_default_app", None)
-    monkeypatch.setattr(celery_worker, "_default_app_urls", None)
-    monkeypatch.setenv("BROKER_URL", "redis://127.0.0.1:1/9")
+    _importable_app_infra(
+        monkeypatch, {"driver": "celery", "broker": "redis://127.0.0.1:1/9"}
+    )
     app = celery_worker.app
 
     for signal in (signals.worker_init, signals.beat_init):

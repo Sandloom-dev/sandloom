@@ -23,8 +23,6 @@ from sandloom.core.cli import worker as worker_cli
 #: check reads a file and the dying worker uses an in-memory broker).
 _SERVICE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:1/db",
-    "CACHE_URL": "redis://127.0.0.1:1/0",
-    "BROKER_URL": "redis://127.0.0.1:1/1",
     "JWT_SECRET": "x" * 40,
 }
 
@@ -73,7 +71,10 @@ def test_worker_check_is_registered_and_boots_nothing(tmp_path: Path) -> None:
     env.update(_SERVICE_ENV)
     env["WORKER_HEARTBEAT_FILE"] = str(beat)
     # The kernel selects no task queue: this process's composition does, here INFRA.
-    env["INFRA"] = '{"taskqueue": {"default": {"driver": "celery"}}}'
+    env["INFRA"] = (
+        '{"taskqueue": {"default": {"driver": "celery",'
+        ' "broker": "redis://127.0.0.1:1/1"}}}'
+    )
 
     stale = _sandloom("worker", "check", env=env)
     assert stale.returncode == 1

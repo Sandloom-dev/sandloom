@@ -180,9 +180,12 @@ Or run the worker on Linux, in a container.
 
 Start a worker or a scheduler only with `sandloom worker` and `sandloom beat`. The
 importable Celery app of the Celery driver is for `celery inspect` and Flower: a
-`celery -A ... worker` or `beat` on it stops with exit code 1. The environment
-(`APP`, `CELERY_BROKER_URL` and the like) cannot replace the app or
-the broker of the instance a worker or a beat runs.
+`celery -A ... worker` or `beat` on it stops with exit code 1. It reads its broker
+from `INFRA.taskqueue.default.broker`, through `Settings`, when the app is first
+used. With no broker it fails and names that option. It has no result backend
+unless that instance states `backend`. The environment cannot replace the app
+or the broker of a worker or a beat. `APP`, `BROKER_URL` and `CELERY_BROKER_URL`
+have no effect there.
 
 Run exactly one `beat` per broker. A second one stands by. The kernel resolves
 the lease (the `lease` instance `INFRA.lease.beat`; `BEAT_LEASE_TTL_SECONDS`,

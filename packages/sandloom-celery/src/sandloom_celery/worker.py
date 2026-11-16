@@ -18,9 +18,12 @@ Everything Celery-specific about running tasks lives here, behind the port
 
 **The importable Celery app.** ``celery -A sandloom_celery.worker
 inspect|call|status`` and Flower use the module attribute ``app`` (also
-``celery`` and ``celery_app``): the ``default`` app, built lazily from
-``BROKER_URL``, with no composition root and no task registered. It is the
-driver's own interface, not a shim.
+``celery`` and ``celery_app``): the ``default`` app, built lazily from the
+options of the ``default`` taskqueue instance (``INFRA.taskqueue.default.broker``,
+read through ``Settings`` by :mod:`sandloom.driverkit.process_config`; no result
+backend unless the instance states one), with no composition root and no task
+registered. A missing broker is an ``AttributeError`` naming that option. It is
+the driver's own interface, not a shim.
 
 **Process options.** The port carries the log level and the scheduler's state
 file (``state_file``: Celery beat's ``--schedule``, default ``celerybeat-schedule``
@@ -47,6 +50,7 @@ from typing import Any, Literal, NoReturn
 import orjson
 
 from sandloom.driverkit import (
+    DEFAULT_INSTANCE,
     FencedLease,
     HealthResult,
     InfraError,
@@ -59,6 +63,7 @@ from sandloom.driverkit import (
     TooLarge,
     Unavailable,
     WorkerBoot,
+    process_config,
 )
 from sandloom.driverkit.periodic import (
     CronSchedule,
@@ -87,10 +92,12 @@ WorkerPool = Literal["prefork", "solo", "threads"]
 #: The operator's worker concurrency (the kernel resolves it; ``solo`` runs one
 #: message at a time, so an explicit value above 1 is refused there).
 WORKER_CONCURRENCY_ENV = "WORKER_CONCURRENCY"
-#: The broker of the importable app (the kernel's ``BROKER_URL`` setting).
-BROKER_URL_ENV = "BROKER_URL"
+#: The option the importable app reads its broker from.
+_BROKER_OPTION = "taskqueue.default.broker"
 #: Celery CLI global options whose click ``envvar`` (``APP``, ``BROKER_URL``,
 #: ``RESULT_BACKEND``, ``LOADER``, ``CONFIG_MODULE``) must not reach a host run.
+#: ``BROKER_URL`` is no setting of this driver, but the Celery CLI reads it: a stray
+#: one in the environment must not replace the broker the instance states.
 _CLI_ENV_OPTIONS = frozenset({"app", "broker", "result_backend", "loader", "config"})
 #: Names ``app.conf`` / the loader read from ``os.environ`` on every use; the
 #: host's app and options decide, so they are hidden for the run.
@@ -162,14 +169,34 @@ def __getattr__(name: str) -> Any:
     if name in {"app", "celery", "celery_app"}:
         if _default_app is not None:
             return _refuse_unhosted_runs(_default_app)
-        broker = (os.environ.get(BROKER_URL_ENV) or "").strip()
-        if not broker:
-            raise AttributeError(
-                f"the importable Celery app needs {BROKER_URL_ENV} (the broker "
-                "of the default taskqueue instance)"
-            )
-        return _refuse_unhosted_runs(get_default_app(broker, None))
+        broker, backend = _importable_app_urls()
+        return _refuse_unhosted_runs(get_default_app(broker, backend))
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _importable_app_urls() -> tuple[str, str | None]:
+    """The ``broker`` and ``backend`` of the importable app: the options of the
+    ``default`` taskqueue instance, as the application resolves them (``INFRA``
+    through ``Settings``; no environment variable of this driver). The backend is
+    ``None`` unless the instance states one."""
+    instance = process_config.process_instance("taskqueue", DEFAULT_INSTANCE)
+    if instance is None or instance.driver != "celery":
+        selected = "none" if instance is None else repr(instance.driver)
+        raise AttributeError(
+            "the importable Celery app reads the broker of the default taskqueue "
+            f"instance, which must run the celery driver (here: {selected}): set "
+            f"the INFRA option {_BROKER_OPTION} and select the celery driver"
+        )
+    broker = instance.options.get("broker")
+    if not isinstance(broker, str) or not broker.strip():
+        raise AttributeError(
+            f"the importable Celery app needs the INFRA option {_BROKER_OPTION} "
+            "(the broker of the default taskqueue instance)"
+        )
+    backend = instance.options.get("backend")
+    if backend is not None and not isinstance(backend, str):
+        raise AttributeError("the INFRA option taskqueue.default.backend must be a url")
+    return broker.strip(), backend.strip() if backend else None
 
 
 def _refuse(message: str) -> NoReturn:
