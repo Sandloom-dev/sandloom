@@ -17,12 +17,14 @@ reading, checks, the "Before the PR" checklist) are in your agent file.
   `git checkout --detach origin/claude/<alias>`, and push with
   `git push origin HEAD:claude/<alias>`.
 - A base that moves is merged in; never rebase or force-push.
-- `CHANGELOG.md` merges by itself (`.gitattributes`, union); so does
-  `tools/packaging/public-source.json` once the clone has run
+- Your changelog entry is your own file `changelog.d/<alias>.md`
+  (`changelog.d/<package>/<alias>.md` for a package's own changelog), in
+  your task area; never edit `CHANGELOG.md` (the release folds the fragments).
+  `tools/packaging/public-source.json` merges by itself once the clone has run
   `python3 tools/packaging/merge_public_source.py --install` (worktrees share
   the clone's config; `git config merge.public-source.driver` shows it). A
-  conflict left in them is real: keep both sides.
-- Shared registries are unguarded in tm: `CHANGELOG.md`,
+  conflict left in it is real: keep both sides.
+- Shared registries are unguarded in tm:
   `tools/packaging/public-source.json`, `public_api_baseline.json`,
   `guarantees.yml`, `docs/reference/guarantees.md`,
   `src/sandloom/core/error_codes.py`, `docs/reference/error-codes.md`,
