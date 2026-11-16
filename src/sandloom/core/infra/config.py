@@ -116,66 +116,76 @@ def _is_prod(settings: Any) -> bool:
 #: selects when ``INFRA`` names nothing (``create_app(default_infra=...)``).
 DefaultInfra = Mapping[str, Mapping[str, Mapping[str, Any]]]
 
-#: The composition's selection of this process. The kernel names no driver of
-#: its own for database, cache, event bus, task queue, broadcast, lease or
-#: atomic_store: a composition (``sandloom_standard``) supplies them, and one
-#: that supplies none leaves startup to refuse with SANDLOOM-B037.
-_COMPOSITION_DEFAULTS: InfraConfig = {}
+#: The composition's driver selection of this process. The kernel names no
+#: driver of its own for database, cache, event bus, task queue, broadcast,
+#: lease or atomic_store: a composition (``sandloom_standard``) supplies them,
+#: and one that supplies none leaves startup to refuse with SANDLOOM-B037.
+#:
+#: Three sources, ONE precedence (the first that is set wins, none merges):
+#:
+#: 1. the argument of the latest ``create_app(default_infra=...)`` (``_APP``);
+#: 2. a pin a tool or a test suite set with :func:`use_default_infra` (``_PIN``);
+#: 3. the composition root's own ``DEFAULT_INFRA`` (read when asked).
+#:
+#: ``create_app`` only ever writes slot 1, so an app never overwrites a pin;
+#: an app that passes none clears slot 1 and the pin (or the root) is back.
+#: A new :func:`use_default_infra` pin clears slot 1 too: it is the later word.
+_APP: InfraConfig | None = None
+_PIN: InfraConfig | None = None
 
-#: Whether this process has its composition's selection (set by
-#: :func:`use_default_infra`). Until then a reader adopts the root's own.
-_COMPOSITION_ADOPTED = False
 
-
-#: Whether the selection was set by ``create_app(default_infra=...)`` (not by a
-#: tool or a test calling :func:`use_default_infra` itself).
-_SELECTION_FROM_APP = False
+def _checked(defaults: DefaultInfra | None) -> InfraConfig:
+    """``defaults`` shape-checked like ``INFRA`` (:func:`_overlay`)."""
+    checked: InfraConfig = {}
+    _overlay(checked, defaults or {})
+    return checked
 
 
 def use_default_infra(defaults: DefaultInfra | None, *, from_app: bool = False) -> None:
     """Set the composition's driver selection for this process (``None``: none).
 
-    Shape-checked like ``INFRA`` (:func:`_overlay`); every instance it names is
-    a synthesized ``default``: ``INFRA`` overrides it, and nothing opens it
-    unless the kernel or a module's requirement uses it. ``from_app`` marks a
-    selection ``create_app`` set, which :func:`forget_app_default_infra` drops.
+    Shape-checked like ``INFRA``; every instance it names is a synthesized
+    ``default``: ``INFRA`` overrides it, and nothing opens it unless the kernel
+    or a module's requirement uses it. Without ``from_app`` it is a pin (a tool
+    or a test suite): it survives every ``create_app`` of the process, whatever
+    selection those pass. ``from_app`` is ``create_app``'s: the argument of
+    that app, dropped by :func:`forget_app_default_infra`.
     """
-    global _COMPOSITION_ADOPTED, _SELECTION_FROM_APP
-    checked: InfraConfig = {}
-    _overlay(checked, defaults or {})
-    _COMPOSITION_DEFAULTS.clear()
-    _COMPOSITION_DEFAULTS.update(checked)
-    _COMPOSITION_ADOPTED = True
-    _SELECTION_FROM_APP = from_app
+    global _APP, _PIN
+    checked = _checked(defaults)
+    if from_app:
+        _APP = checked
+    else:
+        _PIN = checked
+        _APP = None
 
 
 def forget_app_default_infra() -> None:
-    """Drop the selection a previous ``create_app`` of this process set: the
-    next reader adopts the composition root's own (``DEFAULT_INFRA``), as in a
-    fresh process, so an app that passes no selection never inherits another's.
-    A selection set by :func:`use_default_infra` itself (a tool, a test suite)
-    stays."""
-    global _COMPOSITION_ADOPTED, _SELECTION_FROM_APP
-    if not _SELECTION_FROM_APP:
-        return
-    _COMPOSITION_DEFAULTS.clear()
-    _COMPOSITION_ADOPTED = False
-    _SELECTION_FROM_APP = False
+    """Drop the selection a previous ``create_app`` of this process passed, so
+    an app that passes none never inherits another's: the next reader gets the
+    pin of :func:`use_default_infra`, else the composition root's own
+    (``DEFAULT_INFRA``), as in a fresh process."""
+    global _APP
+    _APP = None
 
 
-def _adopt_root_selection() -> None:
+def _root_selection() -> InfraConfig:
     """A process that boots no app (``sandloom migrate``, ``worker check``, the
-    backup tools) never ran ``create_app(default_infra=...)``: take the
+    backup tools) never ran ``create_app(default_infra=...)``: it reads the
     selection the composition root's package exports (``DEFAULT_INFRA``)."""
     # Reached by name: ``composition`` sits above the infra layer (ADR-0007).
     composition = importlib.import_module("sandloom.core.composition")
-    use_default_infra(composition.root_default_infra())
+    return _checked(composition.root_default_infra())
 
 
 def _composition_instances() -> InfraConfig:
-    """A copy of the composition's selection, safe to change."""
-    if not _COMPOSITION_ADOPTED:
-        _adopt_root_selection()
+    """A copy of the composition's selection (precedence above), safe to change."""
+    if _APP is not None:
+        selection = _APP
+    elif _PIN is not None:
+        selection = _PIN
+    else:
+        selection = _root_selection()
     return {
         capability: {
             name: InstanceConfig(
@@ -186,7 +196,7 @@ def _composition_instances() -> InfraConfig:
             )
             for name, cfg in instances.items()
         }
-        for capability, instances in _COMPOSITION_DEFAULTS.items()
+        for capability, instances in selection.items()
     }
 
 
@@ -496,12 +506,6 @@ def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
             _fill(cfg.options, settings, _TRANSPORT_CLIENT_SETTINGS)
     _fill_atomic_store_defaults(config, settings, broadcast_url)
     _fill_eventbus_defaults(config, settings, cache_url)
-    for cfg in (config.get("notification") or {}).values():
-        if cfg.driver == "smtp":
-            # STARTTLS stays the default of an ``smtp`` instance (it was the
-            # default of the removed SMTP_USE_TLS): turning it off is an option
-            # written on the instance, and prod refuses a login without it.
-            cfg.options.setdefault("use_tls", True)
     for cfg in (config.get("taskqueue") or {}).values():
         if cfg.driver == "celery":
             _fill_url(cfg.options, "broker", getattr(settings, "broker_url", None))

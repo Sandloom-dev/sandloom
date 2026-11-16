@@ -198,10 +198,10 @@ def test_a_process_that_booted_no_app_adopts_the_roots_selection(
     read the selection from the composition root's package."""
     pytest.importorskip("sandloom_standard")  # absent in the kernel-only venv
     _no_bus_selector(monkeypatch)
-    monkeypatch.setattr(config_module, "_COMPOSITION_ADOPTED", False)
+    monkeypatch.setattr(config_module, "_PIN", None)
+    monkeypatch.setattr(config_module, "_APP", None)
     monkeypatch.setenv("SANDLOOM_COMPOSITION_ROOT", "sandloom_standard.main")
     assert load_infra_config(settings)["cache"]["default"].driver == "redis"
-    monkeypatch.setattr(config_module, "_COMPOSITION_ADOPTED", False)
     monkeypatch.setenv("SANDLOOM_COMPOSITION_ROOT", "sandloom.main")
     assert "cache" not in load_infra_config(settings)
 

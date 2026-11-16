@@ -77,7 +77,10 @@ missing schema now fails in every profile); `BILLING_GRANT_INTENTLESS_SUBSCRIPTI
 `SMTP_USE_TLS` was kept for the same reason (local mail catchers need it off)
 until the SMTP settings became options of the `smtp` driver in 1.0: it is now
 the `use_tls` option of the `notification` instance, which stays on unless
-written `false`, and production refuses a login without it.
+written `false` (the smtp driver's own default), and production refuses a login
+without it. The weakening keeps its semantic entry, `notification.use_tls`, an
+`INFRA` instance option like `database.tenant_rls`: `use_tls: false` on an smtp
+instance is reported as an override in every profile (WARNING in production).
 
 ## Consequences
 

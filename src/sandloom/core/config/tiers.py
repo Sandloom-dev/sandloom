@@ -255,6 +255,15 @@ SEMANTIC: tuple[SemanticSetting, ...] = (
         refused=frozenset({"prod_strict"}),
         infra_option=True,
     ),
+    # ---- transport
+    SemanticSetting(
+        "notification.use_tls",
+        "STARTTLS / TLS to the SMTP server (credentials and recovery links in "
+        "clear without it); the smtp driver defaults to on.",
+        profile=_all(True),
+        strength=_BOOL_WEAK_FALSE,
+        infra_option=True,
+    ),
     # ---- authentication / tokens
     SemanticSetting(
         "AUTH_REVOCATION_FAIL_CLOSED",
@@ -535,8 +544,14 @@ def removed_setting_problem(removed: RemovedSetting, raw: object) -> tuple[str, 
     elif text in _FALSE:
         value = False
     fatal = value != removed.inert
+    # The value is echoed only when it is a flag spelling (true / false / on /
+    # off ...): never free text, which may be a credential (SMTP_PASSWORD,
+    # S3_SECRET_ACCESS_KEY) that would land in startup logs and crash reports.
+    echoed = f"{removed.name}={str(value).lower()}" if isinstance(value, bool) else None
     lead = f"{removed.name} was removed in {removed.removed_in}" + (
-        f" and {removed.name}={raw} is no longer supported" if fatal else ""
+        f" and {echoed or f'the value set for {removed.name}'} is no longer supported"
+        if fatal
+        else ""
     )
     return (
         f"{lead}: {removed.hint}; drop it from the environment",
@@ -800,6 +815,16 @@ def _infra_options(cfg: Any, capability: str, option: str) -> list[tuple[str, ob
     return out
 
 
+#: What an instance that leaves an ``infra_option`` out runs with (the driver's
+#: own default), where it is not ``False``: the smtp driver defaults to TLS on,
+#: so an unset ``use_tls`` is no override. RLS is opt-in (unset = off).
+_INFRA_OPTION_UNSET: Mapping[str, bool] = {"notification.use_tls": True}
+
+
+def _infra_option_unset(name: str) -> bool:
+    return _INFRA_OPTION_UNSET.get(name, False)
+
+
 def _explicit(cfg: Any, name: str) -> bool:
     fields_set = getattr(cfg, "model_fields_set", None)
     return fields_set is None or name.lower() in fields_set
@@ -815,7 +840,11 @@ def _semantic_overrides(spec: SemanticSetting, cfg: Any, prof: str) -> list[Over
     pairs: list[tuple[str, object]]
     if spec.infra_option:
         cap, option = spec.name.split(".", 1)
-        pairs = [(s, bool(v)) for s, v in _infra_options(cfg, cap, option)]
+        unset = _infra_option_unset(spec.name)
+        pairs = [
+            (s, unset if v is None else bool(v))
+            for s, v in _infra_options(cfg, cap, option)
+        ]
         explicit = True
     else:
         pairs = [(spec.name, spec.value(cfg))]
