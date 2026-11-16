@@ -104,11 +104,12 @@ subagent): pass no actor on tm calls.
   - you added a test that can skip: it must run on the PostgreSQL lane. A test
     skipped on every lane fails `skip-ledger`; a deliberate one goes into
     `tools/ci/skip_ledger_allowlist.json` with its reason.
-- Merging `origin/main` into your branch: `CHANGELOG.md` merges by itself
-  (`.gitattributes`, union), and so does `public-source.json` once the clone
-  has run `python3 tools/packaging/merge_public_source.py --install` (the
+- Merging `origin/main` into your branch: `public-source.json` merges by
+  itself once the clone has run
+  `python3 tools/packaging/merge_public_source.py --install` (the
   orchestrator does it once; `git config merge.public-source.driver` shows
-  it). A conflict left in them is a real one: keep both sides' entries.
+  it). A conflict left in it is a real one: keep both sides' entries. Your
+  changelog entry is `changelog.d/<alias>.md`, never a line of `CHANGELOG.md`.
 - Other agents test at the same time: pass your own
   `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`,
   `SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER` (your alias) in the
@@ -159,7 +160,7 @@ item 2. A task created with `checklist` among its required kinds refuses
 4. **Deviations recorded.** Anything that departs from `spec.md` or the ADR
    (an API, a default, a measured price) is written into spec/ADR in the
    same PR. A behaviour change is written where operators read it, not only
-   in CHANGELOG: grep `docs/` and `guarantees.yml` for the old behaviour
+   in the changelog fragment: grep `docs/` and `guarantees.yml` for the old behaviour
    (operator reference, concept pages, `G-*` texts) and update every hit.
 5. **Types, not duck-typing.** No `Any`, `getattr` probe or bare `cast`
    where the type is known; call required methods directly.
