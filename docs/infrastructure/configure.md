@@ -75,7 +75,8 @@ INFRA='{"notification":{"default":{"driver":"smtp","host":"mail","use_tls":false
 Four details to know. STARTTLS stays on unless you write `use_tls: false`, as
 it did with `SMTP_USE_TLS`, and production still refuses credentials without it.
 `use_tls: false` is still reported as a configuration override (WARNING in
-production, `/diagnostics/core`, `sandloom doctor`).
+production, `/diagnostics/core`, `sandloom doctor`). The `multi_tenant_strict`
+profile refuses it.
 Setting `SMTP_USE_TLS=false` fails startup instead of being ignored, so TLS
 never turns back on behind your back. The object store driver is still chosen
 by `STORAGE_TYPE=s3`. Flat settings remain for `CACHE_URL` and `BROKER_URL`.

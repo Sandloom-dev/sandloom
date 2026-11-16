@@ -19,7 +19,7 @@ Counts: **13 semantic** (ratcheted: may only go down; a new one needs an ADR), *
 | `SANDLOOM_ACCEPTED_RISKS` | `[]` | `[]` | `[]` | `[]` | Stable ids of the weaker guarantees this deployment accepts (sandloom.core.config.accepted_risks); each is reported at every start. |
 | `TENANCY_MODE` | — | — | — | `multi` (refused) | single binds one canonical tenant; the strict profile isolates many. |
 | `INFRA.database.<instance>.tenant_rls` | — | — | — | `true` (refused) | PostgreSQL Row-Level Security under the ORM tenant guard. |
-| `INFRA.notification.<instance>.use_tls` | `true` | `true` | `true` | `true` | STARTTLS / TLS to the SMTP server (credentials and recovery links in clear without it); the smtp driver defaults to on. |
+| `INFRA.notification.<instance>.use_tls` | `true` | `true` | `true` | `true` (refused) | STARTTLS / TLS to the SMTP server (credentials and recovery links in clear without it); the smtp driver defaults to on. |
 | `AUTH_REVOCATION_FAIL_CLOSED` | `false` | `false` | `true` | `true` (refused) | A revocation-store outage rejects tokens (503) instead of accepting them. |
 | `RPC_COMMANDS_REQUIRE_SIGNATURE` | `off` | `off` | `on` | `on` (refused) | Pair-MAC COMMAND calls also carry the caller's Ed25519 signature (KCI). |
 | `RPC_REPLAY_GUARD` | `commands` | `commands` | `commands` | `commands` | Pair-MAC nonce replay guard shared across replicas (commands / all). |

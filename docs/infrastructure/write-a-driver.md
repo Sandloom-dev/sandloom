@@ -86,6 +86,9 @@ always wins.
 - `follows="cache"` takes the resolved url of the `cache` capability's `default` instance,
   when that instance runs your driver. Otherwise the setting fills it.
 - `bounds` fill an option left out. `caps` cut a number above the setting down to it.
+- A table may name only the flat infrastructure settings (their `Settings` attributes):
+  the URLs, the client bounds and the readiness probe's bound. `SettingsFill` refuses any
+  other name when the class is defined.
 
 The fill is skipped when your package, or a package you require, is missing. It raises no
 import error: the registry refuses an instance that cannot run. A driver that reads no flat

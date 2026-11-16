@@ -8,12 +8,12 @@ unblocks the user. ``sandloom backup reconcile-security``
 records (audit log, outbox) and closes the hole; these tests reproduce the
 hole first, then prove the reconciliation closes it.
 
-Real Redis (test ``CACHE_URL``) and Postgres (test ``DATABASE_URL``).
+The security store is the kernel's in-memory one (a snapshot is its keys read
+and written back through the port); Postgres is the test ``DATABASE_URL``.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import time
@@ -27,7 +27,6 @@ import httpx
 import pytest
 import pytest_asyncio
 from fastapi import Depends, FastAPI, HTTPException
-from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 from sqlalchemy import Table
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -76,25 +75,14 @@ def _platform_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runtime, "_process_core", app.state.core)
 
 
-@pytest_asyncio.fixture
-async def redis_cache(
-    monkeypatch: pytest.MonkeyPatch,
-) -> AsyncIterator[RedisAtomicStoreProvider]:
-    url = os.getenv("CACHE_URL")
-    if not url:
-        pytest.skip("no test CACHE_URL configured")
-    provider = RedisAtomicStoreProvider(
-        name="recovery", driver="redis", options={"url": url}
-    )
-    try:
-        await asyncio.wait_for(provider.get("sandloom:test:ping"), 5)
-    except Exception:  # noqa: BLE001 - test Redis unreachable: skip
-        await provider.aclose()
-        pytest.skip("test Redis not reachable")
-    monkeypatch.setattr(access, "atomic_store", lambda role="security": provider)
+@pytest.fixture
+def security_store(monkeypatch: pytest.MonkeyPatch) -> InMemoryAtomicStore:
+    """The security store the snapshot is taken from and restored into: its
+    keys are read, written and deleted through the port, as a restore does."""
+    store = InMemoryAtomicStore()
+    monkeypatch.setattr(access, "atomic_store", lambda role="security": store)
     monkeypatch.setattr(settings, "auth_revocation_fail_closed", True)
-    yield provider
-    await provider.aclose()
+    return store
 
 
 @pytest_asyncio.fixture
@@ -146,12 +134,12 @@ def _keys(sub: str) -> list[str]:
     return [marks.subject_key(sub)]
 
 
-async def _snapshot(provider: RedisAtomicStoreProvider, sub: str) -> dict[str, Any]:
+async def _snapshot(provider: InMemoryAtomicStore, sub: str) -> dict[str, Any]:
     """The subject's security keys as an RDB snapshot would hold them now."""
     return {key: await provider.get(key) for key in _keys(sub)}
 
 
-async def _restore(provider: RedisAtomicStoreProvider, snap: dict[str, Any]) -> None:
+async def _restore(provider: InMemoryAtomicStore, snap: dict[str, Any]) -> None:
     """Replace the live keys with the snapshot's (absent stays absent)."""
     for key, value in snap.items():
         if value is None:
@@ -174,14 +162,14 @@ async def _durable_records(
 
 
 async def test_stale_snapshot_after_block_does_not_reenable_the_user(
-    redis_cache: RedisAtomicStoreProvider,
+    security_store: InMemoryAtomicStore,
     records_db: async_sessionmaker[AsyncSession],
     probe: httpx.AsyncClient,
 ) -> None:
     sub, admin = str(uuid4()), uuid4()
     old_token = _auth(sub)
     assert (await probe.get("/me", headers=old_token)).status_code == 200
-    snapshot = await _snapshot(redis_cache, sub)  # taken BEFORE the block
+    snapshot = await _snapshot(security_store, sub)  # taken BEFORE the block
 
     async with records_db() as session:
         with bind_test_uow(session):
@@ -190,7 +178,7 @@ async def test_stale_snapshot_after_block_does_not_reenable_the_user(
     assert (await probe.get("/me", headers=old_token)).status_code == 401
 
     # Disaster recovery: the security Redis comes back from the older snapshot.
-    await _restore(redis_cache, snapshot)
+    await _restore(security_store, snapshot)
     # The hole this guards against: the block is silently gone.
     assert await blocks.is_user_blocked(sub) is False
     assert (await probe.get("/me", headers=old_token)).status_code == 200
@@ -221,13 +209,13 @@ async def test_stale_snapshot_after_block_does_not_reenable_the_user(
     assert refused.value.status_code == 401
     # Lifting the block later (compare-and-set to a revocation, never a
     # delete) does not revive the tokens issued before it.
-    assert await blocks._swap_blocked_for_after(redis_cache, sub) is True
+    assert await blocks._swap_blocked_for_after(security_store, sub) is True
     resp = await probe.get("/me", headers=old_token)
     assert resp.status_code == 401
     assert resp.json()["detail"] == "Token has been revoked"
 
     # Idempotent: a second run finds nothing missing.
-    await redis_cache.set(
+    await security_store.set(
         marks.subject_key(sub), marks._format_blocked(marks._seconds_to_us(1))
     )
     again = await reconcile_security_state(
@@ -238,7 +226,7 @@ async def test_stale_snapshot_after_block_does_not_reenable_the_user(
 
 
 async def test_stale_snapshot_after_unblock_keeps_the_user_blocked_unless_lifted(
-    redis_cache: RedisAtomicStoreProvider,
+    security_store: InMemoryAtomicStore,
     records_db: async_sessionmaker[AsyncSession],
 ) -> None:
     sub, admin = str(uuid4()), uuid4()
@@ -246,7 +234,7 @@ async def test_stale_snapshot_after_unblock_keeps_the_user_blocked_unless_lifted
         with bind_test_uow(session):
             await blocks.block_user(sub, reason="investigation", actor_id=admin)
         await session.commit()
-    snapshot = await _snapshot(redis_cache, sub)  # taken WHILE blocked
+    snapshot = await _snapshot(security_store, sub)  # taken WHILE blocked
     async with records_db() as session:
         with bind_test_uow(session):
             await blocks.unblock_user(sub, reason="cleared", actor_id=admin)
@@ -254,7 +242,7 @@ async def test_stale_snapshot_after_unblock_keeps_the_user_blocked_unless_lifted
         await session.commit()
     assert await blocks.is_user_blocked(sub) is False
 
-    await _restore(redis_cache, snapshot)
+    await _restore(security_store, snapshot)
     assert await blocks.is_user_blocked(sub) is True  # safe direction
 
     events, mark_values = await _durable_records(records_db)
@@ -273,13 +261,13 @@ async def test_stale_snapshot_after_unblock_keeps_the_user_blocked_unless_lifted
 
 
 async def test_lost_revocation_is_reapplied_from_the_outbox(
-    redis_cache: RedisAtomicStoreProvider,
+    security_store: InMemoryAtomicStore,
     records_db: async_sessionmaker[AsyncSession],
     probe: httpx.AsyncClient,
 ) -> None:
     sub = str(uuid4())
     old_token = _auth(sub)
-    snapshot = await _snapshot(redis_cache, sub)
+    snapshot = await _snapshot(security_store, sub)
     async with records_db() as session:
         with bind_test_uow(session):
             await revocation.revoke_user_tokens_on_commit(
@@ -288,7 +276,7 @@ async def test_lost_revocation_is_reapplied_from_the_outbox(
         await session.commit()
     assert (await probe.get("/me", headers=old_token)).status_code == 401
 
-    await _restore(redis_cache, snapshot)
+    await _restore(security_store, snapshot)
     assert (await probe.get("/me", headers=old_token)).status_code == 200
 
     events, mark_values = await _durable_records(records_db)

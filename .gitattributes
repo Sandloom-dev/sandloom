@@ -1,9 +1,13 @@
 # Shared registries every parallel branch appends to (25 merge conflicts in the
 # 14-15 Nov wave, 19 of them in these two files).
 #
-# CHANGELOG.md: each branch adds its own bullets; a union merge keeps both
-# sides' lines instead of stopping on adjacent additions.
+# CHANGELOG.md: a branch no longer adds bullets here, it adds a fragment,
+# changelog.d/<alias>.md (changelog.d/README.md); the release preparation folds
+# them in. The union merge stays for what is still edited by hand: the loose
+# bullets of [Unreleased] from before fragments, and the fold itself. GitHub
+# ignores merge drivers, which is why the fragments exist.
 CHANGELOG.md merge=union
+# The per-package changelogs take fragments too (changelog.d/<package>/).
 # public-source.json: path sets merged as data by a three-way driver. It needs
 # the local git config once per clone (worktrees share it):
 #   python3 tools/packaging/merge_public_source.py --install

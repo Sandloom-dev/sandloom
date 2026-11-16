@@ -5,62 +5,37 @@ quickly. But a request still RUNNING past it used to lose its reservation: a
 retry then reserved the key and executed concurrently (HTTP guard, the
 cache-fallback command dedupe, legacy RPC). The reservation is now renewed
 while the task that made it is alive — and only then, so the self-heal of a
-dead request is unchanged. Real Redis: the expiry is the server's.
+dead request is unchanged. The expiry is the store's: the in-memory store models
+TTLs against the monotonic clock, as the Redis server does.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
-from pathlib import Path
-from typing import Any
 
 import pytest
-from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
 from sandloom.core import idempotency
 from sandloom.core.idempotency import cache_store as idempotency_cache_store
 from sandloom.core.idempotency import fingerprint as idempotency_fingerprint
 from sandloom.core.idempotency import reservation as idempotency_reservation
-from sandloom.core.testing import reload_test_env
-
-redis_asyncio = pytest.importorskip("redis.asyncio")
+from sandloom.core.testing import InMemoryAtomicStore
 
 KEY = "idem:test:renewal"
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _load_env() -> None:
-    env_test = Path(__file__).resolve().parents[4] / ".env.test"
-    if env_test.exists():
-        reload_test_env(env_test)
-
-
 @pytest.fixture
-async def provider(monkeypatch: pytest.MonkeyPatch) -> Any:
-    url = os.getenv("CACHE_URL")
-    if not url:
-        pytest.skip("CACHE_URL not set")
-    cache = RedisAtomicStoreProvider(
-        name="idem-renew-test", driver="redis", options={"url": url}
-    )
-    try:
-        client = await cache._client_obj()
-        await client.ping()
-    except (OSError, redis_asyncio.RedisError):  # pragma: no cover
-        pytest.skip("Redis unreachable")
-    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: cache)
+def provider(monkeypatch: pytest.MonkeyPatch) -> InMemoryAtomicStore:
+    store = InMemoryAtomicStore()
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: store)
     monkeypatch.setattr(idempotency_reservation, "_PENDING_RESERVATION_TTL_SECONDS", 1)
     monkeypatch.setattr(idempotency_reservation, "_PENDING_RENEW_INTERVAL_SECONDS", 0.2)
-    await client.delete(KEY)
-    yield cache
-    await client.delete(KEY)
-    await cache.aclose()
+    return store
 
 
 @pytest.mark.asyncio
 async def test_a_running_request_keeps_its_reservation_past_the_pending_ttl(
-    provider: RedisAtomicStoreProvider,
+    provider: InMemoryAtomicStore,
 ) -> None:
     reserved = asyncio.Event()
     finish = asyncio.Event()
@@ -90,7 +65,7 @@ async def test_a_running_request_keeps_its_reservation_past_the_pending_ttl(
 
 @pytest.mark.asyncio
 async def test_a_dead_requests_reservation_still_self_heals(
-    provider: RedisAtomicStoreProvider,
+    provider: InMemoryAtomicStore,
 ) -> None:
     """The owner task ended without a terminal record (cancelled, leaked):
     renewal stops and the key frees at the pending TTL, as before."""
@@ -113,7 +88,7 @@ async def test_a_dead_requests_reservation_still_self_heals(
 
 @pytest.mark.asyncio
 async def test_a_released_reservation_is_no_longer_renewed(
-    provider: RedisAtomicStoreProvider,
+    provider: InMemoryAtomicStore,
 ) -> None:
     outcome, reservation = await idempotency.reserve_key(KEY, "fp", 3600)
     assert outcome == "reserved"

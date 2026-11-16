@@ -42,6 +42,8 @@ _COMPLIANT_INFRA = {
     },
 }
 
+_SMTP = {"driver": "smtp", "host": "mx", "from_addr": "no-reply@example.test"}
+
 #: A configuration is refused at load (``Settings``) or at boot
 #: (:func:`sandloom.core.app_factory.enforce_configuration`).
 _REFUSED = (ValidationError, ConfigurationError)
@@ -156,12 +158,47 @@ def test_default_production_config_is_refused_with_every_reason() -> None:
             {**_split_env(), "CONTRACT_COMPAT_CHECK": "off"},
             "CONTRACT_COMPAT_CHECK=off",
         ),
+        (
+            {
+                "INFRA": {
+                    **_COMPLIANT_INFRA,
+                    "notification": {"default": {**_SMTP, "use_tls": False}},
+                }
+            },
+            "notification/default: use_tls is false",
+        ),
     ],
 )
 def test_each_trust_layer_is_required(overrides: dict[str, Any], reason: str) -> None:
     with pytest.raises(_REFUSED, match="multi_tenant_strict is not met") as exc:
         _settings(**overrides)
     assert reason in str(exc.value)
+
+
+def test_smtp_tls_on_or_omitted_meets_the_profile() -> None:
+    for options in ({}, {"use_tls": True}):
+        infra = {**_COMPLIANT_INFRA, "notification": {"default": {**_SMTP, **options}}}
+        assert production_profile.config_problems(_settings(INFRA=infra)) == ([], [])
+
+
+def test_a_composition_that_selects_smtp_without_tls_is_refused_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal reads the resolved selection, not ``INFRA`` alone: a
+    ``DEFAULT_INFRA`` pin (the composition's own selection) with ``use_tls``
+    false sends mail in clear with nothing written in ``INFRA``."""
+    import sandloom.core.infra.config as infra_config
+
+    monkeypatch.setattr(infra_config, "_APP", None)
+    monkeypatch.setattr(
+        infra_config,
+        "_PIN",
+        infra_config._checked(
+            {"notification": {"default": {**_SMTP, "use_tls": False}}}
+        ),
+    )
+    with pytest.raises(_REFUSED, match=r"notification/default: use_tls is false"):
+        _settings(NOTIFIER_BACKEND="smtp")
 
 
 def _ed25519_pair() -> tuple[str, str]:

@@ -463,6 +463,16 @@ KERNEL_CASES = {
         KERNEL_METADATA,
         "sandloom.core.cli.dev.services:1 imports redis",
     ),
+    "guarded celery import in the exempt module": (
+        {
+            "sandloom/core/cli/dev/services.py": GUARDED_REDIS
+            + "\n\ndef broker():\n    try:\n"
+            "        return importlib.import_module('celery')\n"
+            "    except ImportError:\n        return None\n"
+        },
+        KERNEL_METADATA,
+        "sandloom.core.cli.dev.services:13 imports celery",
+    ),
     "exemption gone stale": (
         {"sandloom/core/cli/dev/services.py": "x = 1\n"},
         KERNEL_METADATA,

@@ -24,13 +24,11 @@ import httpx
 import pytest
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, ValidationError
-from sandloom_redis.atomic_store import RedisAtomicStoreProvider
-from sandloom_redis.cache import RedisCacheProvider
 
 from sandloom.core import idempotency, production_profile
 from sandloom.core.app_factory.config import configuration_problems
 from sandloom.core.auth import revocation
-from sandloom.core.config.settings import Settings, settings
+from sandloom.core.config.settings import Settings
 from sandloom.core.idempotency import cache_store as idempotency_cache_store
 from sandloom.core.idempotency import replay as idempotency_replay
 from sandloom.core.infra import access
@@ -38,7 +36,6 @@ from sandloom.core.infra.config import load_infra_config
 from sandloom.core.migrations import backup
 from sandloom.core.tasks import enqueue
 from sandloom.core.testing import InMemoryAtomicStore, make_user_headers
-from sandloom.core.tests._driver_fill import fill
 from sandloom.core.tests.test_production_profile import (
     _BASE,
     _COMPLIANT_INFRA,
@@ -282,19 +279,9 @@ def test_a_leftover_cache_instance_setting_fails_startup_with_the_fix(
 # --------------------------------------------------------------------------- #
 # Development default, production refusal
 # --------------------------------------------------------------------------- #
-def test_development_builds_the_security_store_on_the_cache_redis_only_outside_prod() -> (
-    None
-):
-    dev = Settings(  # type: ignore[call-arg]
-        _env_file=None, ENVIRONMENT="dev", CACHE_URL="redis://cache-redis:6379/4"
-    )
-    config = fill(load_infra_config(dev), dev)
-    security = config["atomic_store"]["security"]
-    assert security.driver == "redis" and security.implicit
-    assert security.options["url"] == "redis://cache-redis:6379/4"
-    assert "idempotency" not in config["atomic_store"]
-
-
+# (development builds the security store on the cache's Redis only outside
+# production: ``packages/sandloom-redis/tests/test_atomic_adopt_redis_identity.py``;
+# the default driver is the Redis one only where sandloom-redis is installed)
 def test_production_never_builds_a_security_store_from_the_cache() -> None:
     prod = Settings(  # type: ignore[call-arg]
         _env_file=None,
@@ -506,42 +493,6 @@ async def test_a_cache_without_an_identity_fails_attestation(
         production_profile.ProductionProfileError, match="Cannot attest the security"
     ):
         await production_profile.enforce_runtime(core)
-
-
-async def test_strict_profile_attests_real_redis_identity(
-    no_rls_problems: None,
-) -> None:
-    """The real classes on the test Redis: the cache and the Redis atomic store
-    name their server alike (``redis:<run_id>``), so a store on the cache's
-    server is refused, and a store whose server differs is attested (spec 12)."""
-    url = settings.cache_url
-    store = RedisAtomicStoreProvider(
-        name="security", driver="redis", options={"url": url}
-    )
-    cache = RedisCacheProvider(
-        name="default", driver="redis", options={"url": url}, shared=False
-    )
-    try:
-        identity = await store.isolation_identity()
-        assert identity is not None and identity.startswith("redis:")
-        assert await cache.isolation_identity() == identity
-
-        providers: dict[tuple[str, str], Any] = {
-            ("cache", "default"): cache,
-            ("atomic_store", "security"): store,
-        }
-        core = _runtime_core(_settings(), providers, {"security"})
-        with pytest.raises(
-            production_profile.ProductionProfileError,
-            match="share one failure domain",
-        ):
-            await production_profile.enforce_runtime(core)
-
-        providers[("cache", "default")] = _Provider("redis:another-server")
-        await production_profile.enforce_runtime(core)
-    finally:
-        await store.aclose()
-        await cache.aclose()
 
 
 @pytest.mark.parametrize("missing", ["never_evicts", "shared"])

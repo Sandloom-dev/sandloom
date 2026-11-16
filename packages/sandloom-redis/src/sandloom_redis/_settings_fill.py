@@ -38,6 +38,10 @@ _URL = MappingProxyType({"url": "cache_url"})
 #: A ``redis`` cache: the url of ``CACHE_URL`` and the client bounds.
 CACHE_FILL = SettingsFill(urls=_URL, bounds=CLIENT_BOUNDS)
 
+#: A ``redis`` lease: the url of ``CACHE_URL`` (the lease shares the cache's
+#: Redis, as the beat lease always has).
+LEASE_FILL = SettingsFill(urls=_URL)
+
 #: A ``redis`` broadcast: the url follows the resolved ``cache.default`` (an
 #: ``INFRA`` override of its url included), else ``CACHE_URL``.
 BROADCAST_FILL = SettingsFill(urls=_URL, follows="cache", bounds=TRANSPORT_BOUNDS)

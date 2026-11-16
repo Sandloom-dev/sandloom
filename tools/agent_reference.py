@@ -134,7 +134,18 @@ beside its nearest sibling; owner-local: `classify <paths> --exclude-file "<reas
 Never hand-edit: `uv run python tools/packaging/check_public_api.py [--update]`. A new public name
 is an API decision (upgrade steps). Find: `grep -n '^  "sandloom\\.sdk' public_api_baseline.json`.
 
-**CHANGELOG.md**: a bullet under `## [Unreleased]`, in its `###` kind.
+**changelog.d/<your-alias>.md** (your entry; alias = the tm task alias; never edit `CHANGELOG.md` or a
+package CHANGELOG.md for a new entry: GitHub ignores the union merge, so two PRs conflict). One file per
+branch, bullets under `### <kind>`, the kind one of Breaking changes, Security, Deprecated, Added,
+Changed, Fixed; a bullet is `**title** (alias). text`:
+```
+### Fixed
+
+- **The Celery driver registers any task name** (celery-task-name-identifier). What changed, upgrade steps.
+```
+A change to one package's own `packages/<package>/CHANGELOG.md` goes in `changelog.d/<package>/<alias>.md`.
+Check: `python3 tools/packaging/changelog_fragments.py --check`. The release preparation folds the files
+(`--fold <version> [--package <package>]`).
 """
 
 #: Names a CI command line must start with to be listed.

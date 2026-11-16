@@ -10,7 +10,11 @@ reaches for the test Redis calls :func:`redis_unavailable`, never ``pytest.skip`
 
 from __future__ import annotations
 
+import asyncio
 from typing import NoReturn
+
+from redis.asyncio import Redis
+from redis.exceptions import RedisError
 
 from sandloom.driverkit.testing import required_or_skip
 
@@ -21,3 +25,19 @@ def redis_unavailable(reason: str) -> NoReturn:
     """Fail when the lane requires Redis, else skip, with ``reason`` (the
     driverkit guard, bound to this package's variable)."""
     required_or_skip(REQUIRED_ENV, reason)
+
+
+async def require_redis(url: str) -> None:
+    """Return when the Redis at ``url`` answers ``PING``; else
+    :func:`redis_unavailable`. For a test that builds its own provider on the
+    test Redis and has no fixture probing it. The reason never names the URL
+    (it can carry credentials); an unset URL is unavailable too."""
+    if not url:
+        redis_unavailable("test Redis URL not set")
+    client = Redis.from_url(url)
+    try:
+        await asyncio.wait_for(client.ping(), 5)
+    except (OSError, RedisError, TimeoutError):
+        redis_unavailable("test Redis not reachable")
+    finally:
+        await client.aclose()
