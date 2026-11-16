@@ -237,7 +237,9 @@ def _description(field: object) -> str:
 
 def render_pages() -> dict[str, str]:
     # Bucket fields by category, preserving declaration order within a category.
-    buckets: dict[str, list[tuple[str, FieldInfo]]] = {cat: [] for cat in _CATEGORY_ORDER}
+    buckets: dict[str, list[tuple[str, FieldInfo]]] = {
+        cat: [] for cat in _CATEGORY_ORDER
+    }
     for name, field in Settings.model_fields.items():
         alias = field.alias or name.upper()
         category = _CATEGORIES.get(alias, "Other")
@@ -268,8 +270,10 @@ def render_pages() -> dict[str, str]:
     lines.append("")
     lines.append(
         '!!! info "Required settings"\n'
-        "    `DATABASE_URL`, `CACHE_URL`, `BROKER_URL`, and `JWT_SECRET` are "
-        "mandatory; the process aborts at startup if any is missing or invalid. "
+        "    `DATABASE_URL` and `JWT_SECRET` are mandatory; the process aborts at "
+        "startup if either is missing or invalid. `CACHE_URL` and `BROKER_URL` "
+        "are optional: an app that selects a Redis or Celery driver gives it its "
+        "url in `INFRA`, and startup refuses an instance that has none. "
         "In production, `JWT_SECRET` must be at least 32 random characters."
     )
     lines.append("")
