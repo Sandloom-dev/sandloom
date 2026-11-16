@@ -5,8 +5,8 @@ The kit runs on ``memory`` and ``database`` on SQLite and PostgreSQL
 (``settings.database_url``; a scratch database of its own, created for the
 run); the ``redis`` driver's kit run lives in ``packages/sandloom-redis/tests``.
 Each broken driver must fail the kit test that names its fault, and only that
-one. The registry tests below build the ``redis`` beat lease the kernel selects
-by default.
+one. The registry tests that build the ``redis`` beat lease the kernel selects
+by default are in ``packages/sandloom-redis/tests/test_lease_registry.py``.
 """
 
 from __future__ import annotations
