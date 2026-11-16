@@ -717,10 +717,11 @@ def _shared_settings(procs: dict[str, dict[str, Any]], problem: Any) -> None:
         env = _env(svc)
         if interpolate(env.get("ENVIRONMENT", "")) != "prod":
             problem(f"{name}: ENVIRONMENT must be prod")
-        if interpolate(env.get("EVENT_BUS_BACKEND", "auto")) not in {
-            "streams",
-            "auto",
-        }:
+        # Unset (or a blank ``${VAR:-}``) leaves the bus to the composition's
+        # selection, which startup refuses when it names none: a profile cannot
+        # see the composition, so it accepts unset and refuses every other
+        # driver. ``auto`` is no longer a value (the settings refuse it).
+        if interpolate(env.get("EVENT_BUS_BACKEND", "")) not in {"", "streams"}:
             problem(f"{name}: events cross services: EVENT_BUS_BACKEND=streams")
         if ":?" not in str(env.get("INTERNAL_API_TOKEN", "")):
             problem(f"{name}: INTERNAL_API_TOKEN must be required (${{...:?...}})")

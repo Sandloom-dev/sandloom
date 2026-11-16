@@ -35,6 +35,9 @@ class EventingConfig(BaseModel):
     @field_validator("event_bus_backend", mode="before")
     @classmethod
     def _event_bus_backend(cls, value: object) -> object:
+        # Compose passes ``${VAR:-}`` as an empty string: that means "unset".
+        if isinstance(value, str) and not value.strip():
+            return None
         if isinstance(value, str) and value.strip().lower() == "auto":
             raise ValueError(
                 "EVENT_BUS_BACKEND=auto is no longer a value: unset "
