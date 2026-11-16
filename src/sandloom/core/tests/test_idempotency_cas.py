@@ -1,4 +1,5 @@
-"""Idempotency key transitions are owner-checked (M3), against real Redis.
+"""Idempotency key transitions are owner-checked (M3), on the in-memory store
+(the Redis store's compare-and-set primitives: ``packages/sandloom-redis/tests/test_redis_atomic_cas.py``).
 
 A request whose ``pending`` reservation expired must never delete or overwrite
 the reservation a retry made afterwards (that would let a THIRD request run
@@ -10,13 +11,10 @@ pending TTL lapses).
 from __future__ import annotations
 
 import asyncio
-import os
-from pathlib import Path
 from typing import Any
 
 import orjson
 import pytest
-from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
 from sandloom.core import idempotency
 from sandloom.core.idempotency import cache_store as idempotency_cache_store
@@ -24,55 +22,22 @@ from sandloom.core.idempotency import capture as idempotency_capture
 from sandloom.core.idempotency import fingerprint as idempotency_fingerprint
 from sandloom.core.idempotency import replay as idempotency_replay
 from sandloom.core.idempotency import reservation as idempotency_reservation
-from sandloom.core.testing import reload_test_env
-
-redis_asyncio = pytest.importorskip("redis.asyncio")
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _load_env() -> None:
-    env_test = Path(__file__).resolve().parents[4] / ".env.test"
-    if env_test.exists():
-        reload_test_env(env_test)
+from sandloom.core.testing import InMemoryAtomicStore
 
 
 @pytest.fixture
-async def provider(monkeypatch: pytest.MonkeyPatch):
-    url = os.getenv("CACHE_URL")
-    if not url:
-        pytest.skip("CACHE_URL not set")
-    cache = RedisAtomicStoreProvider(
-        name="idem-test", driver="redis", options={"url": url}
-    )
-    try:
-        client = await cache._client_obj()
-        await client.ping()
-    except Exception:  # pragma: no cover  # noqa: BLE001 - test Redis unreachable: skip
-        pytest.skip("Redis unreachable")
-    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: cache)
-    yield cache
-    for key in await client.keys("idem:test:*"):
-        await client.delete(key)
-    await cache.aclose()
+def provider(monkeypatch: pytest.MonkeyPatch) -> InMemoryAtomicStore:
+    store = InMemoryAtomicStore()
+    monkeypatch.setattr(idempotency_cache_store, "atomic_store", lambda role: store)
+    return store
 
 
 KEY = "idem:test:k1"
 
 
 @pytest.mark.asyncio
-async def test_redis_cas_primitives(provider: RedisAtomicStoreProvider) -> None:
-    await provider.set(KEY, "v1")
-    assert await provider.compare_and_set(KEY, "other", "v2") is False
-    assert await provider.compare_and_set(KEY, "v1", "v2", ttl_seconds=60) is True
-    assert await provider.get(KEY) == "v2"
-    assert await provider.compare_and_delete(KEY, "v1") is False
-    assert await provider.compare_and_delete(KEY, "v2") is True
-    assert await provider.get(KEY) is None
-
-
-@pytest.mark.asyncio
 async def test_expired_owner_cannot_release_a_retrys_reservation(
-    provider: RedisAtomicStoreProvider,
+    provider: InMemoryAtomicStore,
 ) -> None:
     outcome_a, res_a = await idempotency.reserve_key(KEY, "fp", 60)
     assert outcome_a == "reserved"
@@ -90,7 +55,7 @@ async def test_expired_owner_cannot_release_a_retrys_reservation(
 
 @pytest.mark.asyncio
 async def test_expired_owner_cannot_finalise_over_a_retrys_reservation(
-    provider: RedisAtomicStoreProvider,
+    provider: InMemoryAtomicStore,
 ) -> None:
     _, res_a = await idempotency.reserve_key(KEY, "fp", 60)
     await provider.delete(KEY)
@@ -114,7 +79,7 @@ async def test_expired_owner_cannot_finalise_over_a_retrys_reservation(
 
 @pytest.mark.asyncio
 async def test_success_is_recorded_even_if_reservation_expired_unclaimed(
-    provider: RedisAtomicStoreProvider,
+    provider: InMemoryAtomicStore,
 ) -> None:
     _, res_a = await idempotency.reserve_key(KEY, "fp", 60)
     await provider.delete(KEY)  # expired; nobody retried yet
@@ -132,7 +97,7 @@ async def test_success_is_recorded_even_if_reservation_expired_unclaimed(
 
 @pytest.mark.asyncio
 async def test_aborted_success_stream_still_writes_terminal_record(
-    provider: RedisAtomicStoreProvider,
+    provider: InMemoryAtomicStore,
 ) -> None:
     _, res = await idempotency.reserve_key(KEY, "fp", 60)
 

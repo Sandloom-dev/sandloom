@@ -2,7 +2,8 @@
 ``sandloom-redis`` (the driver's own tests and kit run live in
 ``packages/sandloom-redis/tests``).
 
-Skipped when no Redis is reachable at ``SANDLOOM_TEST_CACHE_URL`` / ``CACHE_URL``.
+Skipped when no Redis is reachable at ``SANDLOOM_TEST_CACHE_URL`` / ``CACHE_URL``,
+a failure in the ``redis-drivers`` lane (``SANDLOOM_REDIS_REQUIRED``).
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
 import pytest
+from _redis_required import redis_unavailable
 from sandloom_redis.broadcast import RedisBroadcastProvider
 
 from sandloom.core.testing import reload_test_env
@@ -26,7 +28,7 @@ redis_asyncio = pytest.importorskip("redis.asyncio")
 
 @pytest.fixture(scope="module", autouse=True)
 def _load_test_env() -> None:
-    env_test = Path(__file__).resolve().parents[4] / ".env.test"
+    env_test = Path(__file__).resolve().parents[3] / ".env.test"
     if env_test.exists():
         reload_test_env(env_test)
 
@@ -34,7 +36,7 @@ def _load_test_env() -> None:
 def _url() -> str:
     url = os.getenv("SANDLOOM_TEST_CACHE_URL") or os.getenv("CACHE_URL")
     if not url:
-        pytest.skip("no test Redis URL: Redis broadcast tests skipped")
+        redis_unavailable("no test Redis URL: Redis broadcast tests skipped")
     return url
 
 
@@ -43,8 +45,8 @@ async def _redis() -> AsyncIterator[Any]:
     client = redis_asyncio.from_url(_url())
     try:
         await client.ping()
-    except Exception:  # noqa: BLE001 - test Redis unreachable: skip
-        pytest.skip("Redis unreachable")
+    except Exception:  # noqa: BLE001 - test Redis unreachable: skip, or fail when required
+        redis_unavailable("Redis unreachable")
     yield client
     await client.aclose()
 
