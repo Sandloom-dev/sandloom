@@ -302,7 +302,11 @@ def check_kernel_backends(wheel: Path) -> None:
         for found in imports:
             if found.target.split(".")[0] not in KERNEL_BANNED_IMPORTS:
                 continue
-            if module == KERNEL_GUARDED_REDIS and found.optional:
+            if (
+                module == KERNEL_GUARDED_REDIS
+                and found.optional
+                and found.target.split(".")[0] == "redis"
+            ):
                 guarded_seen = True
             else:
                 problems.append(f"{module}:{found.line} imports {found.target}")

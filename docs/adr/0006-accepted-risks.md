@@ -80,7 +80,9 @@ the `use_tls` option of the `notification` instance, which stays on unless
 written `false` (the smtp driver's own default), and production refuses a login
 without it. The weakening keeps its semantic entry, `notification.use_tls`, an
 `INFRA` instance option like `database.tenant_rls`: `use_tls: false` on an smtp
-instance is reported as an override in every profile (WARNING in production).
+instance is reported as an override in every profile (WARNING in production),
+read from the resolved selection (the composition's default and `INFRA`), and
+refused under `multi_tenant_strict` with no accepted risk to admit it.
 
 ## Consequences
 

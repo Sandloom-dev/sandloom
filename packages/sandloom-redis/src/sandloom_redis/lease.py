@@ -56,6 +56,7 @@ from sandloom.driverkit.lease_limits import (
 )
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_redis._errors import map_redis_error, redis_error_kind
+from sandloom_redis._settings_fill import LEASE_FILL
 
 #: The accepted risk that lets ``never_evicts_check=assume`` run in production.
 UNVERIFIED_NOEVICTION_RISK = "unverified_noeviction"
@@ -116,6 +117,7 @@ class RedisLeaseProvider(LeaseProvider):
     contract_version = 1
     supported_features: ClassVar[frozenset[str]] = frozenset({"shared"})
     options_schema = RedisLeaseOptions
+    settings_fill = LEASE_FILL
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
     # Beta, the floor for a driver of this repository (spec 2.5): the lane

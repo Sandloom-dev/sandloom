@@ -22,11 +22,13 @@ from sandloom_celery import taskqueue as celery_taskqueue
 from sandloom_redis.cache import RedisCacheOptions
 
 import sandloom.core.infra.config as infra_config
-from sandloom.core.config.settings import settings
+import sandloom.core.infra.registry as registry_module
+from sandloom.core.config.settings import Settings, settings
 from sandloom.core.drivers.bootstrap import build_infra_registry
 from sandloom.core.eventing.volatile_provider import VolatileBusOptions
 from sandloom.core.infra.config import (
     DEFAULT_INSTANCE,
+    FILLABLE_SETTINGS,
     InfraConfig,
     InstanceConfig,
     SettingsFill,
@@ -36,7 +38,7 @@ from sandloom.core.infra.config import (
 from sandloom.core.infra.ports._base import InfraProvider
 from sandloom.core.infra.registry import InfraRegistry
 from sandloom.core.schema.registry import InMemorySchemaRegistry
-from sandloom.core.tests._driver_fill import fill
+from sandloom.core.tests._driver_fill import fill, registry_for
 
 _BOUNDS = {
     "socket_timeout_seconds": "cache_socket_timeout_seconds",
@@ -286,6 +288,54 @@ def test_the_kernels_fill_names_no_driver() -> None:
     assert not strings & {"redis", "streams", "celery"}
 
 
+def test_the_registry_build_names_no_driver_in_its_fill() -> None:
+    """``build_infra_registry`` (bootstrap.py) fills through the registry's
+    lookup: no driver name, no ``cache_url`` in the function (the beat lease's
+    url once was filled there by name)."""
+    import sandloom.core.drivers.bootstrap as bootstrap
+
+    tree = ast.parse(inspect.getsource(bootstrap))
+    builder = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "build_infra_registry"
+    )
+    strings = {
+        node.value
+        for node in ast.walk(builder)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    assert not strings & {"redis", "streams", "celery", "cache_url", "lease"}
+    functions = {
+        node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+    }
+    assert not {name for name in functions if "lease" in name}
+
+
+def test_an_explicit_config_is_filled_alike_for_every_driver_incl_the_lease() -> None:
+    """An explicit config asking for the fill gets the lease url and the cache
+    url alike: one rule for every driver, not a kernel special case."""
+    config: InfraConfig = {
+        "lease": {DEFAULT_INSTANCE: _cfg("lease", DEFAULT_INSTANCE, "redis")},
+        "cache": {DEFAULT_INSTANCE: _cfg("cache", DEFAULT_INSTANCE, "redis")},
+    }
+    build_infra_registry(
+        InMemorySchemaRegistry(),
+        settings=settings,
+        config=config,
+        fill_from_settings=True,
+    )
+    assert config["lease"][DEFAULT_INSTANCE].options["url"] == settings.cache_url
+    assert config["cache"][DEFAULT_INSTANCE].options["url"] == settings.cache_url
+
+
+def test_an_empty_explicit_config_is_built_as_given_not_loaded_from_settings() -> None:
+    registry = build_infra_registry(
+        InMemorySchemaRegistry(), settings=settings, config={}
+    )
+    assert registry.instances("cache") == []
+
+
 class _Probe(InfraProvider):
     """A driver the kernel has never heard of."""
 
@@ -415,6 +465,52 @@ def test_a_settings_fill_refuses_a_declaration_that_cannot_work() -> None:
         SettingsFill(bounds={"timeout": 5})  # type: ignore[dict-item]
 
 
+def test_a_settings_fill_takes_only_the_flat_infrastructure_settings() -> None:
+    """A secret or a typo is refused where the declaration is built, in each of
+    the three tables, not silently copied (or left unfilled) at startup."""
+    with pytest.raises(ValueError, match="jwt_secret"):
+        SettingsFill(urls={"url": "jwt_secret"})
+    with pytest.raises(ValueError, match="cache_urll"):
+        SettingsFill(bounds={"url": "cache_urll"})
+    with pytest.raises(ValueError, match="database_url"):
+        SettingsFill(caps={"timeout": "database_url"})
+    SettingsFill(
+        urls={"a": "cache_url", "b": "broker_url"},
+        bounds={"c": "cache_max_connections"},
+        caps={"d": "health_check_timeout_seconds"},
+    )  # the allowed ones stay allowed
+
+
+_DECLARING_DRIVERS = [
+    ("cache", "redis"),
+    ("broadcast", "redis"),
+    ("atomic_store", "redis"),
+    ("lease", "redis"),
+    ("eventbus", "streams"),
+    ("eventbus", "redis"),
+    ("taskqueue", "celery"),
+]
+
+
+@pytest.mark.parametrize(("capability", "driver"), _DECLARING_DRIVERS)
+def test_every_declared_fill_names_settings_that_exist(
+    capability: str, driver: str
+) -> None:
+    config: InfraConfig = {
+        capability: {DEFAULT_INSTANCE: _cfg(capability, DEFAULT_INSTANCE, driver)}
+    }
+    declared = registry_for(config).settings_fill(capability, driver)
+    assert declared is not None, (capability, driver)
+    named = {
+        *declared.urls.values(),
+        *declared.bounds.values(),
+        *declared.caps.values(),
+    }
+    assert named, (capability, driver)
+    assert named <= set(Settings.model_fields), named - set(Settings.model_fields)
+    assert named <= FILLABLE_SETTINGS
+
+
 def test_a_settings_fill_cannot_be_changed_after_it_is_declared() -> None:
     table = {"dsn": "cache_url"}
     declared = SettingsFill(urls=table)
@@ -505,6 +601,77 @@ def test_a_driver_without_a_retention_option_has_none_configured(driver: str) ->
         configured_stream_retention_seconds(_bus_settings(driver, retention_seconds=9))
         == 9  # only what the configuration states: no class to refute it
     )
+
+
+def _without_plugins(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A process where no driver package publishes an entry point."""
+    monkeypatch.setattr(registry_module, "_one_plugin", lambda group, name: None)
+
+
+def test_a_missing_driver_package_is_named_with_its_install_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _without_plugins(monkeypatch)
+    found = registry_module.configured_stream_retention(_bus_settings("streams"))
+    assert found.seconds is None
+    assert found.reason is not None
+    assert "not installed" in found.reason
+    assert "pip install sandloom-redis" in found.reason
+    assert "EVENT_BUS_BACKEND" not in found.reason  # the setting is not the fault
+    # what the configuration states is still what it states
+    stated = _bus_settings("streams", retention_seconds=60)
+    assert registry_module.configured_stream_retention(stated).seconds == 60
+
+
+def test_a_driver_that_fails_to_load_is_a_reason_not_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken(capability: str, driver: str) -> None:
+        raise registry_module.DriverLoadError("boom: broken import")
+
+    monkeypatch.setattr(registry_module, "_declared_class", broken)
+    found = registry_module.configured_stream_retention(_bus_settings("streams"))
+    assert found.seconds is None
+    assert found.reason is not None
+    assert "cannot be loaded" in found.reason and "boom" in found.reason
+
+
+def test_a_failure_that_is_not_a_plugin_error_still_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected(capability: str, driver: str) -> None:
+        raise RuntimeError("not a driver error")
+
+    monkeypatch.setattr(registry_module, "_declared_class", unexpected)
+    with pytest.raises(RuntimeError, match="not a driver error"):
+        registry_module.configured_stream_retention(_bus_settings("streams"))
+
+
+def test_a_volatile_bus_and_an_unconfigured_instance_say_why() -> None:
+    volatile = registry_module.configured_stream_retention(_bus_settings("memory"))
+    assert volatile.reason is not None
+    assert "no retention_seconds option" in volatile.reason
+    assert "EVENT_BUS_BACKEND=streams" in volatile.reason
+    absent = registry_module.configured_stream_retention(
+        _bus_settings("streams"), "nope"
+    )
+    assert absent.seconds is None and absent.reason is not None
+    assert "'nope'" in absent.reason
+    assert (
+        registry_module.configured_stream_retention(_bus_settings("streams")).reason
+        is None
+    )
+
+
+def test_the_purge_refusal_carries_the_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sandloom.core.projections.operations import _stream_retention_s
+    from sandloom.core.projections.purge import PurgeRefused
+
+    _without_plugins(monkeypatch)
+    core = SimpleNamespace(settings=_bus_settings("streams"))
+    with pytest.raises(PurgeRefused, match="pip install sandloom-redis"):
+        _stream_retention_s(core)
+    assert _stream_retention_s(core, force=True) == 1.0
 
 
 @pytest.mark.parametrize("bad", [-1, True, "7", 1.5])

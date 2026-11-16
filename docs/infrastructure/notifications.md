@@ -47,6 +47,8 @@ STARTTLS (`use_tls`) is on unless you write `false`, and production refuses a lo
 It supports the channel `email`.
 
 Writing `use_tls: false` is a reported configuration override: every production start logs a WARNING, and `/diagnostics/core` and `sandloom doctor` list it.
+The report reads the instance as the application resolves it. A `use_tls: false` set by the composition's default selection counts like one in `INFRA`.
+Under `PRODUCTION_PROFILE=multi_tenant_strict` in production, `use_tls: false` on any notification instance refuses the start. No accepted risk admits it.
 
 **Tier.** `experimental` until its conformance lane (`NotifierConformance` against a mailpit
 container, `.github/workflows/notification-smtp.yml`) is green on main, then `beta`. In
