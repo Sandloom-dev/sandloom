@@ -90,8 +90,21 @@ REFUSAL_NAMES: dict[str, tuple[str, ...]] = {
 #: The environment every probe runs with: placeholders only, nothing listens.
 PROBE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:1/db",
-    "CACHE_URL": "redis://127.0.0.1:1/0",
-    "BROKER_URL": "redis://127.0.0.1:1/1",
+    "INFRA": json.dumps(
+        {
+            "cache": {"default": {"driver": "redis", "url": "redis://127.0.0.1:1/0"}},
+            "broadcast": {
+                "default": {"driver": "redis", "url": "redis://127.0.0.1:1/2"}
+            },
+            "atomic_store": {
+                "security": {"driver": "redis", "url": "redis://127.0.0.1:1/3"}
+            },
+            "lease": {"beat": {"driver": "redis", "url": "redis://127.0.0.1:1/4"}},
+            "taskqueue": {
+                "default": {"driver": "celery", "broker": "redis://127.0.0.1:1/1"}
+            },
+        }
+    ),
     "JWT_SECRET": "module-subset-matrix-not-a-real-secret",
     "EVENT_BUS_BACKEND": "memory",
     "HEALTH_CACHE_TTL_SECONDS": "0",

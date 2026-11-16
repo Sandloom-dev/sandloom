@@ -9,6 +9,7 @@ tested with its own tests.
 
 from __future__ import annotations
 
+import json
 import os
 import time
 import uuid
@@ -276,7 +277,9 @@ def test_auto_workers_fall_back_when_redis_indexes_are_short(
 
     values = {
         "DATABASE_URL": "postgresql://x/y",
-        "CACHE_URL": "redis://localhost:6380/1",
+        "INFRA": json.dumps(
+            {"cache": {"default": {"url": "redis://localhost:6380/1"}}}
+        ),
     }
     monkeypatch.setattr(session_checks, "run_values", lambda _config: values)
     monkeypatch.setattr(connections, "affordable_workers", lambda n, _db: n)

@@ -214,8 +214,19 @@ class Runner:
             {
                 # the app (migrate, uvicorn, the token): .env's values lose to these
                 "DATABASE_URL": f"{asyncpg_url}/{self.dev_db}",
-                "CACHE_URL": f"{redis}/{base}",
-                "BROKER_URL": f"{redis}/{base + 1}",
+                "INFRA": json.dumps(
+                    {
+                        "cache": {
+                            "default": {"driver": "redis", "url": f"{redis}/{base}"}
+                        },
+                        "taskqueue": {
+                            "default": {
+                                "driver": "celery",
+                                "broker": f"{redis}/{base + 1}",
+                            }
+                        },
+                    }
+                ),
                 # the tests (sandloom test): applied on top of .env.test
                 "SANDLOOM_TEST_DATABASE_URL": f"{asyncpg_url}/{a.db_prefix}_test",
                 "SANDLOOM_TEST_CACHE_URL": f"{redis}/{base + 2}",
@@ -502,7 +513,11 @@ class Runner:
             self.expect("GET", "/api/v1/billing/credits", 200, headers=auth)
 
     def http(
-        self, method: str, path: str, body: object = None, headers: dict[str, str] | None = None
+        self,
+        method: str,
+        path: str,
+        body: object = None,
+        headers: dict[str, str] | None = None,
     ) -> tuple[int, str]:
         data = None if body is None else json.dumps(body).encode()
         req = urllib.request.Request(  # noqa: S310 - the local app only

@@ -14,8 +14,10 @@ from sandloom.core.cli import worker as worker_cli
 #: check reads a file and the dying worker uses an in-memory broker).
 _SERVICE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:1/db",
-    "CACHE_URL": "redis://127.0.0.1:1/0",
-    "BROKER_URL": "redis://127.0.0.1:1/1",
+    "INFRA": {
+        "cache": {"default": {"url": "redis://127.0.0.1:1/0"}},
+        "taskqueue": {"default": {"broker": "redis://127.0.0.1:1/1"}},
+    },
     "JWT_SECRET": "x" * 40,
 }
 

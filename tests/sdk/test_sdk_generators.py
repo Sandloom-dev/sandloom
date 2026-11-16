@@ -619,8 +619,19 @@ def test_a_fully_generated_app_passes_its_tests_up_to_the_h1_stubs(
             "PYTHONPATH": str(root),
             "ENVIRONMENT": "test",
             "DATABASE_URL": async_url,
-            "CACHE_URL": str(test_env.get("CACHE_URL") or ""),
-            "BROKER_URL": str(test_env.get("BROKER_URL") or ""),
+            "INFRA": json.dumps(
+                {
+                    "cache": {
+                        "default": {
+                            "driver": "redis",
+                            "url": str(test_env.get("CACHE_URL") or ""),
+                        }
+                    },
+                    "taskqueue": {
+                        "default": {"broker": str(test_env.get("BROKER_URL") or "")}
+                    },
+                }
+            ),
             "JWT_SECRET": "x" * 40,
             "SANDLOOM_COMPOSITION_ROOT": "probe.asgi",
             "CONTRACT_DTO_PACKAGES": json.dumps(["probe.shared"]),
@@ -697,8 +708,19 @@ def test_migration_drift_names_the_module_and_the_fix(tmp_path: Path) -> None:
         "PYTHONPATH": str(root),
         "ENVIRONMENT": "test",
         "DATABASE_URL": test_url,
-        "CACHE_URL": str(test_env.get("CACHE_URL") or ""),
-        "BROKER_URL": str(test_env.get("BROKER_URL") or ""),
+        "INFRA": json.dumps(
+            {
+                "cache": {
+                    "default": {
+                        "driver": "redis",
+                        "url": str(test_env.get("CACHE_URL") or ""),
+                    }
+                },
+                "taskqueue": {
+                    "default": {"broker": str(test_env.get("BROKER_URL") or "")}
+                },
+            }
+        ),
         "JWT_SECRET": "x" * 40,
         "SANDLOOM_COMPOSITION_ROOT": "probe.asgi",
         "CONTRACT_DTO_PACKAGES": json.dumps(["probe.shared"]),

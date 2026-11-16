@@ -322,8 +322,6 @@ def infra(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Infra]:
                 **_child_base_env(),
                 "ENVIRONMENT": "test",
                 "DATABASE_URL": owner_url,
-                "CACHE_URL": cache,
-                "BROKER_URL": broker,
                 "JWT_SECRET": f"replace-migrate-{uuid.uuid4().hex}",
                 "SANDLOOM_MODULES": "[]",
                 "EVENT_BUS_BACKEND": "memory",
@@ -444,8 +442,6 @@ def _base_env(infra: Infra, users: Users) -> dict[str, str]:
     return {
         **_child_base_env(),
         "DATABASE_URL": infra.database_url,
-        "CACHE_URL": infra.cache_url,
-        "BROKER_URL": infra.broker_url,
         "EVENT_BUS_BACKEND": "memory",
         "ENVIRONMENT": "dev",
         "OUTBOX_RELAY_ENABLED": "off",

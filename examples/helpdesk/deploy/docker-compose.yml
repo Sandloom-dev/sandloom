@@ -12,8 +12,7 @@ x-app-env: &app-env
   # Explicit: ENVIRONMENT defaults to dev, which must never reach a deploy.
   ENVIRONMENT: prod
   DATABASE_URL: postgresql+asyncpg://sandloom:sandloom@db:5432/helpdesk
-  CACHE_URL: redis://redis:6379/1
-  BROKER_URL: redis://redis:6379/2
+  INFRA: '{"cache":{"default":{"url":"redis://redis:6379/1"}},"eventbus":{"default":{"url":"redis://redis:6379/3"}},"broadcast":{"default":{"url":"redis://redis:6379/4"}},"atomic_store":{"security":{"url":"redis://redis:6379/5"}},"lease":{"beat":{"url":"redis://redis:6379/6"}},"taskqueue":{"default":{"broker":"redis://redis:6379/2"}}}'
   JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (openssl rand -hex 32)}
   INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN}
 

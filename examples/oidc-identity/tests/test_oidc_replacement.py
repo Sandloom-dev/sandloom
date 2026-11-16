@@ -177,8 +177,12 @@ def _migrate_env(
         **_child_base_env(),
         "ENVIRONMENT": "test",
         "DATABASE_URL": url,
-        "CACHE_URL": cache,
-        "BROKER_URL": broker,
+        "INFRA": json.dumps(
+            {
+                "cache": {"default": {"driver": "redis", "url": cache}},
+                "taskqueue": {"default": {"driver": "celery", "broker": broker}},
+            }
+        ),
         "JWT_SECRET": f"oidc-migrate-{uuid.uuid4().hex}",
         "ACME_IDP_ISSUER": idp.url,
         "ACME_IDP_CLIENT_ID": CLIENT_ID,
@@ -385,8 +389,14 @@ def _base_env(infra: Infra) -> dict[str, str]:
     return {
         **_child_base_env(),
         "DATABASE_URL": infra.database_url,
-        "CACHE_URL": infra.cache_url,
-        "BROKER_URL": infra.broker_url,
+        "INFRA": json.dumps(
+            {
+                "cache": {"default": {"driver": "redis", "url": infra.cache_url}},
+                "taskqueue": {
+                    "default": {"driver": "celery", "broker": infra.broker_url}
+                },
+            }
+        ),
         "EVENT_BUS_BACKEND": "memory",
         "ENVIRONMENT": "dev",
         "OUTBOX_RELAY_ENABLED": "off",

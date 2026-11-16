@@ -193,8 +193,16 @@ def scenario_env(
             if not k.startswith(("SANDLOOM_", "VIRTUAL_ENV"))
         },
         "DATABASE_URL": base.replace("postgresql://", "postgresql+asyncpg://"),
-        "CACHE_URL": f"{args.redis_url}/{scenario.port % 10 + 2}",
-        "BROKER_URL": f"{args.redis_url}/{scenario.port % 10 + 4}",
+        "INFRA": json.dumps(
+            {
+                "cache": {
+                    "default": {"url": f"{args.redis_url}/{scenario.port % 10 + 2}"}
+                },
+                "taskqueue": {
+                    "default": {"broker": f"{args.redis_url}/{scenario.port % 10 + 4}"}
+                },
+            }
+        ),
         "EVENT_BUS_BACKEND": "memory",
         "BILLING_PROVIDER": "fake",
         "INTERNAL_API_TOKEN": secrets.token_urlsafe(32),

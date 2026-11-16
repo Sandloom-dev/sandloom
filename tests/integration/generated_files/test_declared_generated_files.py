@@ -60,8 +60,16 @@ def _compose(*modules: str, root: str | None = None) -> dict[str, Any]:
         "ENVIRONMENT": "dev",
         "BILLING_PROVIDER": "fake",
         "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:9/never",
-        "CACHE_URL": "redis://127.0.0.1:9/0",
-        "BROKER_URL": "redis://127.0.0.1:9/0",
+        "INFRA": json.dumps(
+            {
+                "cache": {
+                    "default": {"driver": "redis", "url": "redis://127.0.0.1:9/0"}
+                },
+                "taskqueue": {
+                    "default": {"driver": "celery", "broker": "redis://127.0.0.1:9/0"}
+                },
+            }
+        ),
         "JWT_SECRET": "generated-files-test-only-" + "x" * 32,
         "PYTHONPATH": os.pathsep.join(
             [str(HERE / "thirdparty"), *(p for p in sys.path if p)]

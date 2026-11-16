@@ -271,8 +271,16 @@ def deployments(tmp_path_factory: pytest.TempPathFactory) -> Iterator[list[Deplo
 
     base = {
         "DATABASE_URL": str(settings.database_url),
-        "CACHE_URL": str(settings.cache_url),
-        "BROKER_URL": str(settings.broker_url),
+        "INFRA": json.dumps(
+            {
+                "cache": {
+                    "default": {"driver": "redis", "url": str(settings.cache_url)}
+                },
+                "taskqueue": {
+                    "default": {"driver": "celery", "broker": str(settings.broker_url)}
+                },
+            }
+        ),
         "JWT_SECRET": settings.jwt_secret.get_secret_value()
         if hasattr(settings.jwt_secret, "get_secret_value")
         else str(settings.jwt_secret),

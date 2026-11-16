@@ -88,8 +88,10 @@ async def test_applier_never_moves_a_newer_mark_backwards(
 #: A configuration the boot checks accept apart from what each test sets.
 _BASE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost:5432/db",
-    "CACHE_URL": "redis://localhost:6379/0",
-    "BROKER_URL": "redis://localhost:6379/1",
+    "INFRA": {
+        "cache": {"default": {"url": "redis://localhost:6379/0"}},
+        "taskqueue": {"default": {"broker": "redis://localhost:6379/1"}},
+    },
     "JWT_SECRET": "kb09-test-secret-0123456789abcdef0123456789abcdef",
 }
 

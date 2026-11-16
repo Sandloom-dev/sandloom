@@ -72,8 +72,16 @@ MODULES = {
 KERNEL_PROVIDES = ("fastapi", "starlette", "sqlalchemy", "alembic", "pydantic", "httpx")
 SMOKE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
-    "CACHE_URL": "redis://localhost:6379/0",
-    "BROKER_URL": "redis://localhost:6379/1",
+    "INFRA": json.dumps(
+        {
+            "cache": {
+                "default": {"driver": "redis", "url": "redis://localhost:6379/0"}
+            },
+            "taskqueue": {
+                "default": {"driver": "celery", "broker": "redis://localhost:6379/1"}
+            },
+        }
+    ),
     "JWT_SECRET": "local-package-check-not-a-real-secret",
     "EVENT_BUS_BACKEND": "memory",
 }

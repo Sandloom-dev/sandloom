@@ -12,8 +12,7 @@ x-app-env: &app-env
   # Explicit: ENVIRONMENT defaults to dev, which must never reach a deploy.
   ENVIRONMENT: prod
   DATABASE_URL: postgresql+asyncpg://sandloom:sandloom@db:5432/academy
-  CACHE_URL: redis://redis:6379/1
-  BROKER_URL: redis://redis:6379/2
+  INFRA: '{"cache":{"default":{"url":"redis://redis:6379/1"}},"eventbus":{"default":{"url":"redis://redis:6379/3"}},"broadcast":{"default":{"url":"redis://redis:6379/4"}},"atomic_store":{"security":{"url":"redis://redis:6379/5"}},"lease":{"beat":{"url":"redis://redis:6379/6"}},"taskqueue":{"default":{"broker":"redis://redis:6379/2"}}}'
   SHUTDOWN_BUDGET_SECONDS: 30
   GUNICORN_GRACEFUL_TIMEOUT: 45
   # The weaker guarantees this stack accepts (logged at every start):
