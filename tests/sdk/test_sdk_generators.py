@@ -603,8 +603,6 @@ def test_a_fully_generated_app_passes_its_tests_up_to_the_h1_stubs(
             key = line.split("=", 1)[0]
             if key == "DATABASE_URL":
                 line = f"DATABASE_URL={async_url}"
-            elif key in ("CACHE_URL", "BROKER_URL") and test_env.get(key):
-                line = f"{key}={test_env[key]}"
             elif key == "INFRA" and test_env.get("INFRA"):
                 line = f"INFRA='{test_env['INFRA']}'"
             lines.append(line)
