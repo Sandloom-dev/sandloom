@@ -1,20 +1,6 @@
 {
   "_about": "Kernel tests that need Redis or Celery (tools/ci/no_redis.py). The no-redis step of the kernel-without-batteries job runs the kernel suites in a venv with no redis client and neither sandloom-redis nor sandloom-celery: a listed file is not collected, a listed test is a strict xfail. The lists only go down (the ceilings in tools/ci/no_redis.py): a test that needs a Redis or Celery driver moves to packages/sandloom-redis/tests or packages/sandloom-celery/tests, or runs on the memory drivers; it never joins this list.",
-  "files": {
-    "imports sandloom_redis, sandloom_celery or redis at module level: moves to that package tests": [
-      "src/sandloom/core/tests/test_beat_lease.py",
-      "src/sandloom/core/tests/test_celery_error_mapping.py",
-      "src/sandloom/core/tests/test_driver_options_from_settings.py",
-      "src/sandloom/core/tests/test_enqueue_deduplication.py",
-      "src/sandloom/core/tests/test_module_capability_derivation.py",
-      "src/sandloom/core/tests/test_periodic_dedupe.py",
-      "src/sandloom/core/tests/test_ready_taskqueue.py",
-      "src/sandloom/core/tests/test_replay_limits.py",
-      "src/sandloom/core/tests/test_sdk_tasks.py",
-      "src/sandloom/core/tests/test_taskqueue_module_paths.py",
-      "src/sandloom/core/tests/test_worker_port.py"
-    ]
-  },
+  "files": {},
   "tests": {
     "boots an app, a generated project or the CLI on the redis and celery drivers the suite selects, or assumes the redis client is installed": [
       "src/sandloom/core/tests/test_async_runner.py::test_asyncio_run_per_task_breaks_the_loop_bound_pool",

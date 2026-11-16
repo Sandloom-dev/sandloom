@@ -1427,10 +1427,11 @@ For the orchestrator's review; each departs from or details `design.md`.
     `sandloom_celery` is not under `site-packages` (the lane tests the built wheel); without it
     the real-broker tests skip with their reason. The job writes a skip ledger (lane `celery`)
     that the `skip-ledger` job merges. A shared driverkit helper for the `_REQUIRED` guards is
-    the follow-up task `idk-driverkit-required-guard`. The kernel keeps
-    `test_celery_error_mapping` (the kernel enqueue
-    layer over the driver) and `test_beat_lease` (the kernel's lease resolution and the Celery
-    holder over one fake store).
+    the follow-up task `idk-driverkit-required-guard`. The Celery driver's own tests, among them
+    `test_celery_error_mapping` (the kernel enqueue layer over the driver) and
+    `test_celery_beat_lease` (the Celery holder over one fake store), live in
+    `packages/sandloom-celery/tests` (`idk-gated-tests-celery`); the kernel keeps
+    `test_beat_lease` (its lease resolution and the production refusal) on its own drivers.
 47. **The Streams event bus's `isolation_identity` is `streams:<run_id>`**
     (`idk-pkg-redis-streams`): the driver-name prefix of 2.4, then the `run_id` of the reached
     Redis server from `INFO server`, as the other Redis drivers read it
