@@ -73,7 +73,7 @@ async def test_ready_stays_green_with_a_reachable_broker(
     monkeypatch: pytest.MonkeyPatch, real_broker: str
 ) -> None:
     """A module that enqueues while serving × the test broker: ``ok``."""
-    app, _ = _ops_app(monkeypatch, [_ENQUEUES, _UNDECLARED])
+    app, _ = _ops_app(monkeypatch, [_ENQUEUES, _UNDECLARED], broker=real_broker)
 
     response = await _get(app, "/ready", internal=True)
 
@@ -154,7 +154,7 @@ async def test_one_broker_connection_per_ttl_however_many_ready_hits(
     the PR; under a parallel run the server is shared, so the suite counts
     in-process.)"""
     opened = _count_broker_connections(monkeypatch)
-    app, _ = _ops_app(monkeypatch, [_ENQUEUES], ttl=60.0)
+    app, _ = _ops_app(monkeypatch, [_ENQUEUES], ttl=60.0, broker=real_broker)
 
     statuses = [(await _get(app, "/ready")).status_code for _ in range(25)]
 

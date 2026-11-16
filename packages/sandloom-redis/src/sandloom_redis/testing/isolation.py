@@ -6,15 +6,11 @@ instance uses through ``InfraProvider.test_isolation(options, worker_id)`` (the
 Redis drivers move the database index of their URL options), and
 :func:`rewrite_redis` calls that hook of every configured instance:
 
-* the default cache (``CACHE_URL``, while a flat one is set);
 * every instance ``INFRA`` declares with a Redis ``url``, ``broker`` or
   ``backend`` option, any capability (the cache, lease, atomic store, broadcast
   and event bus ``url`` and the task queue's ``broker``, which the ``celery``
   driver's hook moves together with its ``backend``), the rewritten ``INFRA``
-  going back to the environment: with or without the flat settings, which
-  ``.env.test`` no longer needs;
-* the default task queue's flat ``BROKER_URL``, while one is set (the kernel
-  fills it into the instance's ``broker`` option).
+  going back to the environment.
 
 Nothing here rewrites a URL itself.
 
@@ -50,7 +46,6 @@ from sandloom.driverkit.testing_family import (
 )
 from sandloom_redis.testing.urls import (
     instance_redis_options,
-    is_redis_url,
     redis_client_installed,
 )
 
@@ -153,8 +148,6 @@ def rewrite_redis(
     """
     if not redis_client_installed():
         return {}
-    cache = values.get("CACHE_URL") or ""
-    broker = values.get("BROKER_URL") or ""
     infra_raw = values.get(INFRA_VAR)
     infra = parse_infra(infra_raw)
     named = [
@@ -163,57 +156,27 @@ def rewrite_redis(
         for name, spec in instances.items()
         if instance_redis_options(spec)
     ]
-    if not (is_redis_url(cache) or is_redis_url(broker) or named):
+    if not named:
         return {}
     layout = layout_from_environ(environ)
     _isolation.set_worker_layout(layout)
-    out: dict[str, str] = {}
-    if is_redis_url(cache):
-        cache_driver = _driver_of(
-            infra, "cache", "default", fallback=DEFAULT_CACHE_DRIVER
+    rewritten: dict[str, Any] = json.loads(infra_raw or "{}")
+    for capability, name, spec in named:
+        driver = _driver_of(
+            infra,
+            capability,
+            name,
+            chosen=_chosen_driver(values, capability, name),
+            fallback=DEFAULT_CACHE_DRIVER
+            if (capability, name) == ("cache", "default")
+            else None,
         )
-        moved = isolated_instance_options(
-            "cache", "default", str(cache_driver), {"url": cache}, worker_id
-        )
-        out["CACHE_URL"] = str(moved.get("url", cache))
-    if is_redis_url(broker):
-        # The kernel fills the default task queue's ``broker`` from BROKER_URL:
-        # the driver of that instance says where its worker uses it. Without a
-        # task queue driver the URL is still a Redis URL a test may point a
-        # queue at, so it moves like CACHE_URL (the Redis driver's ``url``
-        # option): workers never share one broker index.
-        broker_driver = _driver_of(infra, "taskqueue", "default")
-        if broker_driver:
-            moved = isolated_instance_options(
-                "taskqueue", "default", broker_driver, {"broker": broker}, worker_id
-            )
-            out["BROKER_URL"] = str(moved.get("broker", broker))
-        else:
-            moved = isolated_instance_options(
-                "cache", "default", DEFAULT_CACHE_DRIVER, {"url": broker}, worker_id
-            )
-            out["BROKER_URL"] = str(moved.get("url", broker))
-    if named:
-        rewritten: dict[str, Any] = json.loads(infra_raw or "{}")
-        for capability, name, spec in named:
-            driver = _driver_of(
-                infra,
-                capability,
-                name,
-                chosen=_chosen_driver(values, capability, name),
-                fallback=DEFAULT_CACHE_DRIVER
-                if (capability, name) == ("cache", "default")
-                else None,
-            )
-            if not driver:
-                continue  # the registry refuses it when the settings load
-            options = {k: v for k, v in spec.items() if k != "driver"}
-            moved = isolated_instance_options(
-                capability, name, driver, options, worker_id
-            )
-            rewritten[capability][name] = {**spec, **moved}
-        out[INFRA_VAR] = json.dumps(rewritten)
-    return out
+        if not driver:
+            continue  # the registry refuses it when the settings load
+        options = {k: v for k, v in spec.items() if k != "driver"}
+        moved = isolated_instance_options(capability, name, driver, options, worker_id)
+        rewritten[capability][name] = {**spec, **moved}
+    return {INFRA_VAR: json.dumps(rewritten)}
 
 
 __all__ = [

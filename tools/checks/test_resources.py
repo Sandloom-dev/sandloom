@@ -15,13 +15,14 @@ when nothing is connected to it and its last use is known and older than
 ``--days`` (minimum 1): a Redis index is emptied by an atomic check-and-FLUSHDB
 (skipped if its marker / stamp changed since the scan), a database is dropped
 with a plain DROP DATABASE (PostgreSQL refuses it while anything is
-connected). The servers default to ``.env.test``'s DATABASE_URL / CACHE_URL
+connected). The servers default to ``.env.test``'s DATABASE_URL / INFRA cache url
 (the ``SANDLOOM_TEST_*`` overrides win); ``--redis`` / ``--database`` pick others.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -43,8 +44,21 @@ def _defaults() -> tuple[str, str]:
     database = os.environ.get("SANDLOOM_TEST_DATABASE_URL") or values.get(
         "DATABASE_URL"
     )
-    redis = os.environ.get("SANDLOOM_TEST_CACHE_URL") or values.get("CACHE_URL")
+    redis = os.environ.get("SANDLOOM_TEST_CACHE_URL") or _infra_cache_url(
+        values.get("INFRA")
+    )
     return str(database or ""), str(redis or "")
+
+
+def _infra_cache_url(raw: str | None) -> str | None:
+    """``cache.default.url`` of an ``INFRA`` JSON value, or ``None``."""
+    if not raw:
+        return None
+    try:
+        url = json.loads(raw)["cache"]["default"]["url"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    return url if isinstance(url, str) else None
 
 
 def _size(resource: resources.Resource) -> str:

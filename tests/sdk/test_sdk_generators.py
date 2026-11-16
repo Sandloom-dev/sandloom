@@ -603,8 +603,8 @@ def test_a_fully_generated_app_passes_its_tests_up_to_the_h1_stubs(
             key = line.split("=", 1)[0]
             if key == "DATABASE_URL":
                 line = f"DATABASE_URL={async_url}"
-            elif key in ("CACHE_URL", "BROKER_URL") and test_env.get(key):
-                line = f"{key}={test_env[key]}"
+            elif key == "INFRA" and test_env.get("INFRA"):
+                line = f"INFRA='{test_env['INFRA']}'"
             lines.append(line)
         (root / ".env.test").write_text("\n".join(lines) + "\n")
         env = {
@@ -619,8 +619,7 @@ def test_a_fully_generated_app_passes_its_tests_up_to_the_h1_stubs(
             "PYTHONPATH": str(root),
             "ENVIRONMENT": "test",
             "DATABASE_URL": async_url,
-            "CACHE_URL": str(test_env.get("CACHE_URL") or ""),
-            "BROKER_URL": str(test_env.get("BROKER_URL") or ""),
+            "INFRA": str(test_env.get("INFRA") or ""),
             "JWT_SECRET": "x" * 40,
             "SANDLOOM_COMPOSITION_ROOT": "probe.asgi",
             "CONTRACT_DTO_PACKAGES": json.dumps(["probe.shared"]),
@@ -697,8 +696,7 @@ def test_migration_drift_names_the_module_and_the_fix(tmp_path: Path) -> None:
         "PYTHONPATH": str(root),
         "ENVIRONMENT": "test",
         "DATABASE_URL": test_url,
-        "CACHE_URL": str(test_env.get("CACHE_URL") or ""),
-        "BROKER_URL": str(test_env.get("BROKER_URL") or ""),
+        "INFRA": str(test_env.get("INFRA") or ""),
         "JWT_SECRET": "x" * 40,
         "SANDLOOM_COMPOSITION_ROOT": "probe.asgi",
         "CONTRACT_DTO_PACKAGES": json.dumps(["probe.shared"]),

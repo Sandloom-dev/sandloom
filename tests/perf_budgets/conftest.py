@@ -99,7 +99,7 @@ async def counted_client(
     import httpx
 
     from sandloom.core._internal.db_provider import get_db
-    from sandloom.core.testing.infra import override_instance
+    from sandloom.core.testing.infra import override_instance, resolved_cache_url
 
     assert get_db not in sandloom_app.dependency_overrides
     async with AsyncExitStack() as stack:
@@ -113,7 +113,7 @@ async def counted_client(
         )
         await stack.enter_async_context(
             override_instance(
-                sandloom_core, "cache", driver="redis", url=os.environ["CACHE_URL"]
+                sandloom_core, "cache", driver="redis", url=resolved_cache_url()
             )
         )
         http = await stack.enter_async_context(

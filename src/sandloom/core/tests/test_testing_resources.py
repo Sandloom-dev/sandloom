@@ -104,7 +104,15 @@ def test_a_database_is_stamped_on_claim_and_never_dropped_while_connected(
     ],
 )
 def test_a_url_that_can_connect_to_itself_is_found(url: str, risky: bool) -> None:
-    assert bool(session_checks.self_connecting_urls({"CACHE_URL": url})) is risky
+    import json
+
+    # a database url is read from DATABASE_URL, a Redis one from its INFRA instance
+    if url.startswith("postgresql"):
+        values = {"DATABASE_URL": url}
+    else:
+        infra = {"cache": {"default": {"driver": "redis", "url": url}}}
+        values = {"INFRA": json.dumps(infra)}
+    assert bool(session_checks.self_connecting_urls(values)) is risky
 
 
 def test_an_infra_url_that_can_connect_to_itself_is_found_and_named() -> None:
@@ -137,8 +145,8 @@ def test_the_beat_check_reads_a_services_broker_from_infra(tmp_path: Any) -> Non
 
     from sandloom.core.testing.static_checks import periodic_beat_problems
 
-    def service(broker: str | None, flat: str = "") -> dict[str, Any]:
-        env: dict[str, str] = {"SANDLOOM_MODULES": "[]", "BROKER_URL": flat}
+    def service(broker: str | None) -> dict[str, Any]:
+        env: dict[str, str] = {"SANDLOOM_MODULES": "[]"}
         if broker:
             infra = {"taskqueue": {"default": {"driver": "celery", "broker": broker}}}
             env["INFRA"] = json.dumps(infra)
@@ -156,11 +164,9 @@ def test_the_beat_check_reads_a_services_broker_from_infra(tmp_path: Any) -> Non
     # two beats on one INFRA broker share it ...
     (shared,) = problems(service("redis://r/1"), service("redis://r/1"))
     assert "share the broker redis://r/1" in shared
-    # ... on two brokers they do not, and INFRA wins over a flat BROKER_URL
+    # ... on two brokers they do not
     assert problems(service("redis://r/1"), service("redis://r/2")) == []
-    assert (
-        problems(service("redis://r/1", "redis://r/9"), service(None, "redis://r/9"))
-        == []
-    )
-    (flat,) = problems(service(None, "redis://r/9"), service(None, "redis://r/9"))
-    assert "share the broker redis://r/9" in flat
+    # ... a beat that declares no broker in INFRA shares the (empty) one: no flat
+    # BROKER_URL separates two of them any more
+    (none,) = problems(service(None), service(None))
+    assert "share the broker :" in none

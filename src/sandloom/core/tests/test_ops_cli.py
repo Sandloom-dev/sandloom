@@ -234,8 +234,10 @@ def test_effective_config_reports_sources(
     monkeypatch.delenv("INTERNAL_API_TOKEN", raising=False)
     monkeypatch.setenv("METRICS_TOKEN", "env-metrics-token-value-0123456789")
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:dbpass@h:5432/d")
-    monkeypatch.setenv("CACHE_URL", "redis://h:6379/0")
-    monkeypatch.setenv("BROKER_URL", "redis://h:6379/1")
+    monkeypatch.setenv(
+        "INFRA",
+        '{"cache": {"default": {"url": "redis://h:6379/0"}}, "taskqueue": {"default": {"broker": "redis://h:6379/1"}}}',
+    )
 
     class _Cfg(Settings):
         model_config = {**Settings.model_config, "secrets_dir": str(secrets)}

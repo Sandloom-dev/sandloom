@@ -100,8 +100,15 @@ def _ops_app(
     given (with their descriptors); every other readiness input is green."""
     from sandloom.core.app_factory import _install_ops_endpoints
 
-    if broker is not None:
-        monkeypatch.setattr(settings, "broker_url", broker)
+    # The task queue is what the test states: ``broker`` names the Celery broker
+    # in INFRA, none leaves the composition's default (the INFRA of .env.test
+    # states a broker for the instances on the suite's own Redis).
+    infra = dict(settings.infra or {})
+    if broker is None:
+        infra.pop("taskqueue", None)
+    else:
+        infra["taskqueue"] = {"default": {"driver": "celery", "broker": broker}}
+    monkeypatch.setattr(settings, "infra", infra)
     app = FastAPI()
     core = CoreFacade(app=app)
     # Before the registry: the kernel fills the celery probe's bound from it.
@@ -177,15 +184,17 @@ async def test_ready_fails_when_the_driver_cannot_open(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The last line of defence: a request-path requirement whose driver
-    cannot open (startup refuses this composition first, kb-ic-1) still
-    makes readiness fail rather than pass."""
+    cannot open (startup refuses the composition first, kb-ic-1: an INFRA
+    instance whose package is missing is SANDLOOM-B037, so the instance here is
+    the composition's default, which states no broker) still makes readiness
+    fail rather than pass."""
     app, _ = _ops_app(monkeypatch, [_ENQUEUES])
 
     internal = await _get(app, "/ready", internal=True)
 
     assert internal.status_code == 503
     instance = internal.json()["taskqueue"]["instances"]["default"]
-    assert instance["details"] == {"error": "DriverUnavailableError"}
+    assert instance["details"] == {"error": "MissingBrokerError"}
 
 
 # ---------------------------------------- no requirement, or optional ----

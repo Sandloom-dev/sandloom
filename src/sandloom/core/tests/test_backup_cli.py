@@ -33,7 +33,6 @@ import sandloom.core.infra.config as infra_config
 import sandloom.core.infra.tool_infra as tool_infra
 from sandloom.core.cli._operator import add_operator_arguments, operator_intent
 from sandloom.core.config.settings import settings
-from sandloom.core.infra.config import SettingsFill
 from sandloom.core.infra.registry import DriverConflictError, DriverLoadError
 from sandloom.core.migrations.backup import (
     CORE_TABLES,
@@ -170,52 +169,38 @@ def test_plan_flags_a_database_security_store_on_a_listed_and_on_its_own_databas
     assert "s3cret" not in format_plan(items)
 
 
-#: What stand-in drivers declare they take from the flat settings, the shape the
-#: Redis package declares on its classes (``InfraProvider.settings_fill``): the
-#: kernel test needs no driver package (the no-Redis lane has none). The plan
-#: knows a Redis store by the driver name ``redis``; the fill is the stand-in's.
-_STUB_FILLS = {
-    ("cache", "redis"): SettingsFill(urls={"url": "cache_url"}),
-    ("atomic_store", "redis"): SettingsFill(
-        urls={"url": "cache_url"}, urls_for="implicit"
-    ),
+#: What a stand-in composition states, the urls the Redis and Celery drivers
+#: would take from ``INFRA``: the kernel test needs no driver package (the
+#: no-Redis lane has none). The plan knows a Redis store by the driver name
+#: ``redis``; no driver fills a url (no flat setting carries one any more).
+_STUB_INFRA = {
+    "cache": {"default": {"driver": "redis", "url": "redis://cachehost:6379/3"}},
+    "atomic_store": {
+        "security": {"driver": "redis", "url": "redis://cachehost:6379/3"}
+    },
+    "taskqueue": {
+        "default": {"driver": "celery", "broker": "redis://brokerhost:6379/4"}
+    },
 }
 
 
 def _select_stub_drivers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The composition selects the stand-in drivers, which declare ``_STUB_FILLS``."""
+    """The composition selects the stand-in drivers with their own urls."""
     monkeypatch.setattr(settings, "infra", {})
-    monkeypatch.setattr(settings, "cache_url", "redis://cachehost:6379/3")
-    monkeypatch.setattr(settings, "broker_url", "redis://brokerhost:6379/4")
     monkeypatch.setattr(infra_config, "_APP", None)
-    monkeypatch.setattr(
-        infra_config,
-        "_PIN",
-        infra_config._checked(
-            {
-                "cache": {"default": {"driver": "redis"}},
-                "atomic_store": {"security": {"driver": "redis"}},
-                "taskqueue": {"default": {"driver": "celery"}},
-            }
-        ),
-    )
+    monkeypatch.setattr(infra_config, "_PIN", infra_config._checked(_STUB_INFRA))
 
     def fill(config: infra_config.InfraConfig, flat: Any, _lookup: Any) -> None:
-        infra_config.fill_driver_defaults(
-            config,
-            flat,
-            lambda capability, driver: _STUB_FILLS.get((capability, driver)),
-        )
+        infra_config.fill_driver_defaults(config, flat, lambda _cap, _driver: None)
 
     monkeypatch.setattr(tool_infra, "fill_driver_defaults", fill)
 
 
-def test_plan_lists_the_redis_targets_of_the_flat_urls_a_composition_selects(
+def test_plan_lists_the_redis_targets_a_composition_states(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``CACHE_URL`` / ``BROKER_URL`` reach the plan through the drivers' fill:
-    the cache, the development security store (it takes the same flat url) and the broker
-    are listed with no ``INFRA`` at all (``load_infra_config`` fills nothing)."""
+    """The urls the composition (or ``INFRA``) states reach the plan as written:
+    the cache, the security store that states the same url and the broker."""
     _select_stub_drivers(monkeypatch)
     items = [i for i in build_backup_plan(settings) if i.kind == "redis"]
     by_target = {i.target: i for i in items}
@@ -227,12 +212,25 @@ def test_plan_lists_the_redis_targets_of_the_flat_urls_a_composition_selects(
     assert broker.roles == ["taskqueue:default broker"]
 
 
+def test_plan_lists_no_redis_target_for_an_instance_that_states_no_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No flat setting fills a missing url: nothing is listed, never a guess."""
+    _select_stub_drivers(monkeypatch)
+    bare = {
+        "cache": {"default": {"driver": "redis"}},
+        "taskqueue": {"default": {"driver": "celery"}},
+    }
+    monkeypatch.setattr(infra_config, "_PIN", infra_config._checked(bare))
+    assert not [i for i in build_backup_plan(settings) if i.kind == "redis"]
+
+
 @pytest.mark.parametrize("error", [DriverLoadError, DriverConflictError])
 def test_plan_survives_an_installed_driver_that_fails_to_load_and_says_so(
     monkeypatch: pytest.MonkeyPatch, error: type[Exception]
 ) -> None:
     """A read-only tool still plans: the configuration comes back unfilled, the
-    Redis targets of the flat URLs are not listed, and the plan says why."""
+    Redis targets INFRA states are listed as written, and the plan says why."""
     _select_stub_drivers(monkeypatch)
 
     def broken(registry: object, config: object) -> None:
@@ -240,12 +238,11 @@ def test_plan_survives_an_installed_driver_that_fails_to_load_and_says_so(
 
     monkeypatch.setattr(tool_infra, "load_selected_plugins", broken)
     items = build_backup_plan(settings)
-    # ``CACHE_URL`` is no longer listed (the broker is the synthesized default's)
-    assert not [i for i in items if i.target == "redis://cachehost:6379/3"]
+    assert [i for i in items if i.target == "redis://cachehost:6379/3"]
     (warning,) = [i for i in items if i.kind == "warning"]
     assert warning.criticality == "critical"
     text = format_plan(items)
-    assert "cannot be imported" in text and "CACHE_URL" in text
+    assert "cannot be imported" in text and "as written" in text
     assert any(i.kind == "secrets" for i in items)  # the rest of the plan stands
 
 

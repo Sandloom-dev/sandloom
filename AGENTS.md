@@ -34,8 +34,10 @@ uv run sandloom test --full                      # once per wave (the orchestrat
 - **`sandloom generate` writes** the generated files; **`sandloom test` is the gate and
   never writes**. No serial `pytest -q`.
 - Parallel runs on one machine each set their own `SANDLOOM_TEST_DATABASE_URL`,
-  `SANDLOOM_TEST_CACHE_URL`, `SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER`:
-  two runs in one checkout share resources otherwise.
+  `SANDLOOM_TEST_OWNER` and, for each of cache and task queue the app selects,
+  `SANDLOOM_TEST_CACHE_URL` / `SANDLOOM_TEST_BROKER_URL` (the harness refuses one
+  for a capability the app does not select): two runs in one checkout share
+  resources otherwise.
 - Changing what ships to new projects (`src/sandloom/core/cli/templates/`, the
   `sandloom new` / `sandloom add` output, the public API)? Re-run the DX eval
   (`benchmarks/dx/README.md`). Context for framework work does not need it.

@@ -7,8 +7,8 @@ It also writes ``reference/configuration-tiers.md`` — the settings by tier and
 the semantic tier's per-profile table — from ``sandloom.core.config.tiers``.
 
 Importing the framework instantiates the module-level ``settings`` singleton,
-which validates a handful of mandatory env vars (DATABASE_URL, CACHE_URL,
-BROKER_URL, JWT_SECRET). We seed harmless dummy values *before* importing so a
+which validates a handful of mandatory env vars (DATABASE_URL, JWT_SECRET). We
+seed harmless dummy values *before* importing so a
 docs build needs no real infrastructure config. Real env vars (e.g. in CI)
 always win because we only set a default when the variable is absent.
 """
@@ -25,8 +25,6 @@ from pathlib import Path
 _DOCS_BUILD_ENV = {
     "ENVIRONMENT": "dev",
     "DATABASE_URL": "postgresql+asyncpg://docs:docs@localhost:5432/docs",
-    "CACHE_URL": "redis://localhost:6379/0",
-    "BROKER_URL": "redis://localhost:6379/1",
     "JWT_SECRET": "docs-build-placeholder-secret-not-used-at-runtime",
     # No composition is booted here: name the in-process bus, so the revocation
     # applier's service-name check (a shared bus needs one) has nothing to ask.
@@ -97,8 +95,6 @@ _CATEGORIES: dict[str, str] = {
     "DB_POOL_SIZE": "Infrastructure",
     "DB_MAX_OVERFLOW": "Infrastructure",
     "DB_POOL_TIMEOUT": "Infrastructure",
-    "CACHE_URL": "Infrastructure",
-    "BROKER_URL": "Infrastructure",
     # Eventing
     "EVENT_BUS_BACKEND": "Eventing & Outbox",
     "OUTBOX_RELAY_ENABLED": "Eventing & Outbox",
@@ -271,9 +267,10 @@ def render_pages() -> dict[str, str]:
     lines.append(
         '!!! info "Required settings"\n'
         "    `DATABASE_URL` and `JWT_SECRET` are mandatory; the process aborts at "
-        "startup if either is missing or invalid. `CACHE_URL` and `BROKER_URL` "
-        "are optional: an app that selects a Redis or Celery driver gives it its "
-        "url in `INFRA`, and startup refuses an instance that has none. "
+        "startup if either is missing or invalid. An app that selects a Redis or "
+        "Celery driver gives each instance its own url in `INFRA` (no flat "
+        "`CACHE_URL` / `BROKER_URL` setting exists), and startup refuses an "
+        "instance that has none. "
         "In production, `JWT_SECRET` must be at least 32 random characters."
     )
     lines.append("")

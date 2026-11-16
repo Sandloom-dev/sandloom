@@ -1099,7 +1099,12 @@ class InfraRegistry:
                 raise self._import_failure(
                     capability, name, instance_cfg, registration, exc
                 ) from exc
-            provider.implicit = instance_cfg.implicit
+            # "Kernel-synthesized" is a development fact only: in production a
+            # synthesized instance (the beat lease, the streams bus, both on the
+            # composition's default driver) that shares the default cache's
+            # Redis is as real a risk as a declared one, so its drivers word
+            # the shared-endpoint message as a WARNING there.
+            provider.implicit = instance_cfg.implicit and not settings.is_prod
             self._check_contract(capability, name, provider)
             if self._strict:
                 self._check_declared_features(
@@ -1996,6 +2001,34 @@ def _declared_class(capability: str, driver: str) -> type[InfraProvider] | None:
     if entry is None:
         return None
     return check_driver_class(key, _load_plugin(entry, f"Driver {key!r}"), None)
+
+
+def declared_url_options(
+    selection: Mapping[str, Mapping[str, Mapping[str, object]]],
+) -> dict[str, str]:
+    """``{"<capability>.<driver>": url option}`` for every driver ``selection``
+    (``{capability: {instance: {"driver": ...}}}``) names whose installed package
+    declares one (``InfraProvider.url_option``): which instances connect to a
+    server by url, read from the drivers and never from a table of the kernel.
+    A driver with no package (a kernel driver, or one not installed) and one that
+    declares none are left out; a package that fails to load raises as the
+    registry does."""
+    found: dict[str, str] = {}
+    for capability, instances in selection.items():
+        for name, spec in instances.items():
+            if not isinstance(spec, Mapping):
+                raise TypeError(
+                    f"the selection of {capability}.{name} must be a mapping of "
+                    f"options, not {type(spec).__name__}"
+                )
+            driver = spec.get("driver")
+            key = f"{capability}.{driver}"
+            if not isinstance(driver, str) or key in found:
+                continue
+            provider_class = _declared_class(capability, driver)
+            if provider_class is not None and provider_class.url_option is not None:
+                found[key] = provider_class.url_option
+    return found
 
 
 @dataclass(frozen=True, slots=True)

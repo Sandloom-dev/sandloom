@@ -49,6 +49,15 @@ _SELECTION = {
     "atomic_store": {"security": {"driver": "redis"}},
     "lease": {"beat": {"driver": "redis"}},
 }
+#: What the installed drivers declare (``InfraProvider.url_option``).
+_URL_OPTIONS = {
+    "cache.redis": "url",
+    "eventbus.streams": "url",
+    "broadcast.redis": "url",
+    "taskqueue.celery": "broker",
+    "atomic_store.redis": "url",
+    "lease.redis": "url",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -58,7 +67,9 @@ def _composition(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         commands,
         "composition_selection",
-        lambda ctx, text, checkout=None: _SELECTION,
+        lambda ctx, text, checkout=None: commands.CompositionSelection(
+            _SELECTION, _URL_OPTIONS
+        ),
     )
 
 

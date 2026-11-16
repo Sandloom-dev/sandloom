@@ -1,10 +1,10 @@
-"""The ``celery`` task queue reads options, not settings; the kernel fills them
-(ADR-0016).
+"""The ``celery`` task queue reads options, not settings (ADR-0016).
 
-What the driver used to read (``BROKER_URL``, ``CACHE_URL`` for the result
-backend, the readiness bound ``HEALTH_CHECK_TIMEOUT_SECONDS``) is put into its
-instances' options by :func:`fill_driver_defaults`, as the driver's class
-declares it (``InfraProvider.settings_fill``), so behaviour is unchanged. The
+Its broker is an option of the instance in ``INFRA`` (``BROKER_URL`` is a removed
+setting) and it has no result backend unless the instance states one. The only
+value the kernel puts into its options is the readiness bound
+``HEALTH_CHECK_TIMEOUT_SECONDS``, as the driver's class declares it
+(``InfraProvider.settings_fill``: ``bounds`` and ``caps``). The
 engine, which names no driver, is
 ``sandloom.core.tests.test_driver_options_fill``; the Redis drivers' side is
 ``packages/sandloom-redis/tests/test_redis_options_from_settings.py``.
@@ -46,19 +46,24 @@ def test_a_named_taskqueue_gets_what_it_leaves_out_and_keeps_what_it_says() -> N
     jobs = config["taskqueue"]["jobs"].options
     assert jobs == {
         "broker": "redis://b/2",  # stated: kept
-        "backend": settings.cache_url,
         "health_timeout_seconds": settings.health_check_timeout_seconds,
-    }
+    }  # no result backend: no setting names one
     celery_taskqueue.CeleryTaskQueueOptions.model_validate(jobs)
 
 
-def test_the_default_taskqueue_gets_broker_backend_and_the_probe_bound() -> None:
+def test_the_default_taskqueue_keeps_its_infra_broker_and_gets_the_probe_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        settings,
+        "infra",
+        {"taskqueue": {"default": {"broker": "redis://broker-host:6379/2"}}},
+    )
     options = fill(load_infra_config(settings))["taskqueue"][DEFAULT_INSTANCE].options
     assert options == {
-        "broker": settings.broker_url,
-        "backend": settings.cache_url,
+        "broker": "redis://broker-host:6379/2",
         "health_timeout_seconds": settings.health_check_timeout_seconds,
-    }
+    }  # no backend: the cache url is no result backend
 
 
 def test_the_probe_bound_follows_the_setting_and_a_lower_stated_one_wins(
@@ -122,21 +127,24 @@ def test_the_celery_fill_names_settings_that_exist() -> None:
     }
     declared = registry_for(config).settings_fill("taskqueue", "celery")
     assert declared is not None
-    named = {
-        *declared.urls.values(),
-        *declared.bounds.values(),
-        *declared.caps.values(),
-    }
+    named = {*declared.bounds.values(), *declared.caps.values()}
     assert named
     assert named <= set(Settings.model_fields), named - set(Settings.model_fields)
     assert named <= FILLABLE_SETTINGS
 
 
-def test_a_registry_built_from_the_settings_fills_what_drivers_declare() -> None:
+def test_a_registry_built_from_the_settings_fills_what_drivers_declare(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        settings,
+        "infra",
+        {"taskqueue": {"default": {"broker": "redis://broker-host:6379/2"}}},
+    )
     registry = build_infra_registry(InMemorySchemaRegistry())
     queue = registry.instance_config("taskqueue", DEFAULT_INSTANCE)
     assert queue is not None
-    assert queue.options["broker"] == settings.broker_url
+    assert queue.options["broker"] == "redis://broker-host:6379/2"
     assert queue.options["health_timeout_seconds"] == (
         settings.health_check_timeout_seconds
     )

@@ -100,16 +100,6 @@ def render_block(values: dict[str, str]) -> str:
 InfraMap = dict[str, dict[str, dict[str, object]]]
 
 
-#: The option carrying the Redis url of an instance, by the driver the app's
-#: composition selects for it. An instance on another driver is not Redis and
-#: gets nothing here.
-#:
-#: A stopgap until the flat settings go (flat-urls Z): the option then moves onto
-#: the provider class (a ClassVar read generically, so the kernel names no
-#: driver). ``tests/integration/with_batteries/test_dev_url_option_table.py``
-#: fails when an installed driver that takes a url from a flat setting is missing
-#: here, and goes with this table.
-_URL_OPTION = {"redis": "url", "streams": "url", "celery": "broker"}
 #: Capabilities whose instances may lose their keys (a cache, pub/sub): they
 #: take the cache index. Every other Redis instance holds state that must
 #: survive (revocation marks, the lease, the event streams, the broker's
@@ -119,20 +109,24 @@ _CACHE_CAPABILITIES = frozenset({"cache", "broadcast"})
 
 def managed_infra(
     selection: Mapping[str, Mapping[str, Mapping[str, object]]],
+    url_options: Mapping[str, str],
     *,
     cache_url: str,
     persistent_url: str,
     memory_bus: bool,
 ) -> InfraMap:
     """The Redis url of each instance of ``selection`` (the composition's
-    ``DEFAULT_INFRA``) that runs on Redis, as the managed ``INFRA`` of a
-    checkout. An entry carries no ``driver``: the composition's is kept. An
-    instance that names its url already keeps it; ``memory_bus`` (the in-process
-    bus is selected by ``EVENT_BUS_BACKEND``) leaves the event bus out."""
+    ``DEFAULT_INFRA``) whose driver connects to a server by url, as the managed
+    ``INFRA`` of a checkout. ``url_options`` is what the drivers declare
+    (``{"<capability>.<driver>": option}``, ``declared_url_options``): an
+    instance on a driver not in it gets nothing. An entry carries no
+    ``driver``: the composition's is kept. An instance that names its url
+    already keeps it; ``memory_bus`` (the in-process bus is selected by
+    ``EVENT_BUS_BACKEND``) leaves the event bus out."""
     managed: InfraMap = {}
     for capability, instances in selection.items():
         for name, spec in instances.items():
-            option = _URL_OPTION.get(str(spec.get("driver")))
+            option = url_options.get(f"{capability}.{spec.get('driver')}")
             if option is None or option in spec:
                 continue
             if capability == "eventbus" and memory_bus:

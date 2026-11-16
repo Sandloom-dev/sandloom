@@ -9,8 +9,9 @@ injection seam is :func:`get_default_client` (patch it to inject a fake). The
 connected from ``options['url']``.
 
 The driver reads no kernel setting: every value comes from the instance's
-options (:class:`RedisCacheOptions`), which the kernel fills from the
-``CACHE_*`` settings when the configuration leaves them out. Every cache client
+options (:class:`RedisCacheOptions`), which the instance's ``INFRA`` entry
+states (a bound it leaves out takes the default of the options class; the
+kernel fills nothing). Every cache client
 is BOUNDED: socket + connect timeouts, TCP keepalive, a periodic health check,
 a blocking pool capped at ``max_connections`` and a connection-error-only
 retry. An unreachable or hung Redis therefore makes an operation RAISE within
@@ -58,7 +59,7 @@ from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_redis._errors import map_redis_error
-from sandloom_redis._settings_fill import CACHE_FILL, require_url
+from sandloom_redis._url import require_url
 
 #: Redis / socket failures of cache operations (a caller's ValueError or
 #: TypeError is not counted), by instance and operation.
@@ -81,9 +82,9 @@ class RedisCacheOptions(BaseModel):
     """Config-shape schema for the ``redis`` cache driver.
 
     ``url`` is the Redis DSN; the bounds are those of the client (see the
-    module docstring). The kernel fills ``url`` and every bound left out from
-    the ``CACHE_*`` settings, so the defaults here only apply to a provider
-    built outside the kernel. ``extra="forbid"`` rejects an unknown key (e.g.
+    module docstring). The kernel fills no option (no ``CACHE_*`` setting
+    exists): an instance states ``url`` in ``INFRA`` and a bound it leaves out
+    takes the default here. ``extra="forbid"`` rejects an unknown key (e.g.
     ``ur1`` for ``url``) at startup instead of silently building the default.
     """
 
@@ -424,7 +425,7 @@ class RedisCacheProvider(CacheProvider):
     supported_features = REDIS_CACHE_FEATURES
     performance_hints = REDIS_CACHE_PERFORMANCE_HINTS
     options_schema = RedisCacheOptions
-    settings_fill = CACHE_FILL
+    url_option = "url"
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
     # Beta, the floor for a driver of this repository (spec 2.5): the

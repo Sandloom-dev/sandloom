@@ -73,7 +73,7 @@ from sandloom_redis._eviction_guard import (
     refusal_of,
     refusal_reason,
 )
-from sandloom_redis._settings_fill import LEASE_FILL, require_url
+from sandloom_redis._url import require_url
 
 
 @cache
@@ -133,7 +133,7 @@ class RedisLeaseProvider(LeaseProvider):
     contract_version = 1
     supported_features: ClassVar[frozenset[str]] = frozenset({"shared"})
     options_schema = RedisLeaseOptions
-    settings_fill = LEASE_FILL
+    url_option = "url"
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
     # Beta, the floor for a driver of this repository (spec 2.5): the lane

@@ -47,20 +47,15 @@ def resolved_cache_url(environ: Mapping[str, str] | None = None) -> str:
     """The URL the test run's ``default`` cache is on.
 
     ``cache.default.url`` of ``INFRA`` (what the harness merged
-    ``SANDLOOM_TEST_CACHE_URL`` into, and the worker's rewrite moved), else the
-    flat ``CACHE_URL`` while ``.env.test`` still sets one: the same precedence
-    the application's own configuration has (``INFRA`` over the flat setting).
-    Read from the environment, not from the application's settings snapshot,
-    which a suite that imported the app early holds stale. Raises
-    ``RuntimeError`` naming where to set it when there is none.
+    ``SANDLOOM_TEST_CACHE_URL`` into, and the worker's rewrite moved). Read from
+    the environment, not from the application's settings snapshot, which a
+    suite that imported the app early holds stale. Raises ``RuntimeError``
+    naming where to set it when there is none.
     """
     env = os.environ if environ is None else environ
     url = parse_infra(env.get(INFRA_VAR)).get("cache", {}).get("default", {}).get("url")
     if isinstance(url, str) and url:
         return url
-    flat = env.get("CACHE_URL")
-    if flat:
-        return flat
     raise RuntimeError(
         "no test cache url: set INFRA's cache.default.url in .env.test "
         '(INFRA={"cache": {"default": {"driver": "redis", "url": "redis://…"}}}) '

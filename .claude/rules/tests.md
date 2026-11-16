@@ -32,8 +32,10 @@ orchestrator (alone: once at the end). Never a serial `pytest -q` after each fix
   - Never create identity rows from another module's tests.
 - **Environment.** `.env.test` is loaded for you.
   - Use your own resources on a shared machine: `SANDLOOM_TEST_OWNER`,
-    `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`, `SANDLOOM_TEST_BROKER_URL`
-    (the harness merges the two Redis ones into the `url` of each Redis instance in `INFRA`).
+    `SANDLOOM_TEST_DATABASE_URL`, and `SANDLOOM_TEST_CACHE_URL` /
+    `SANDLOOM_TEST_BROKER_URL` for the cache and task queue the app selects (the
+    harness merges the two Redis ones into the `url` of each Redis instance in
+    `INFRA`, and refuses one whose capability the app does not select).
   - Never `pkill` by pattern.
 - **Gate on `settings.is_prod`, never on `is_test`.** A `DeprecationWarning`
   from `sandloom.*` is an error.

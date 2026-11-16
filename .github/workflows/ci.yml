@@ -79,8 +79,6 @@ jobs:
           tests/architecture/test_docs_generated.py -q
         env:
           DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5433/ci
-          CACHE_URL: redis://127.0.0.1:6380/0
-          BROKER_URL: redis://127.0.0.1:6380/1
           JWT_SECRET: ci-workflow-policy-not-a-real-secret
           SANDLOOM_SERVICE_NAME: ci-workflow-policy
       - name: Reviewed source and credential patterns
@@ -377,8 +375,6 @@ jobs:
       # Importing the package instantiates Settings at module load, so the
       # architecture-test collection needs a valid (dummy) settings env.
       DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5433/ci
-      CACHE_URL: redis://127.0.0.1:6380/0
-      BROKER_URL: redis://127.0.0.1:6380/1
       JWT_SECRET: ci-architecture-tests-not-a-real-secret
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -596,14 +592,8 @@ jobs:
         env:
           COVERAGE_CORE: ${{ matrix.coverage && 'sysmon' || '' }}
           DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
-          # Keep this on a DIFFERENT redis db than .env.test (db 15): the billing
-          # conftest points the idempotency cache at .env.test's CACHE_URL, and
-          # the redis driver only takes the shared global client when the
-          # instance URL equals settings.cache_url. Matching URLs would route
-          # billing through the process-wide default client (mutated by earlier
-          # tests) and fail closed with 503 — mirror the local split instead.
-          CACHE_URL: redis://127.0.0.1:6380/0
-          BROKER_URL: redis://127.0.0.1:6380/14
+          # The Redis instances come from .env.test's INFRA (cache db 15, the
+          # rest db 14), as locally: no flat CACHE_URL / BROKER_URL here.
           JWT_SECRET: ci-full-suite-not-a-real-secret
           # SSO redirect tests need a "configured" Google provider; the values
           # are never sent anywhere (the test only inspects the built auth URL).
@@ -709,8 +699,6 @@ jobs:
           -m "not subprocess_probe" --durations=25
         env:
           DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
-          CACHE_URL: redis://127.0.0.1:6380/0
-          BROKER_URL: redis://127.0.0.1:6380/14
           JWT_SECRET: ci-isolation-suite-not-a-real-secret
           GOOGLE_CLIENT_ID: ci-dummy-google-client-id
           GOOGLE_CLIENT_SECRET: ci-dummy-google-client-secret
@@ -750,8 +738,6 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
-      CACHE_URL: redis://127.0.0.1:6380/0
-      BROKER_URL: redis://127.0.0.1:6380/14
       JWT_SECRET: ci-kernel-lane-not-a-real-secret
       SANDLOOM_TEST_OWNER: ci-kernel-without-batteries
       # The replaceability topologies are real uvicorn processes: missing
@@ -857,10 +843,11 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
-      CACHE_URL: redis://127.0.0.1:6380/0
-      BROKER_URL: redis://127.0.0.1:6380/14
       JWT_SECRET: ci-kernel-lane-not-a-real-secret
       SANDLOOM_TEST_OWNER: ci-kernel-without-redis
+      # .env.test's INFRA states Redis options (urls, timeouts) that the memory
+      # drivers this venv selects refuse as unknown options: no instance here.
+      INFRA: "{}"
       # The replaceability topologies are real uvicorn processes: missing
       # PostgreSQL/Redis fails the job instead of skipping.
       SANDLOOM_E2E_REQUIRED: "1"
@@ -1005,9 +992,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
-      CACHE_URL: redis://127.0.0.1:6380/0
       SANDLOOM_TEST_CACHE_URL: redis://127.0.0.1:6380/0
-      BROKER_URL: redis://127.0.0.1:6380/14
       JWT_SECRET: ci-redis-drivers-not-a-real-secret
       SANDLOOM_TEST_OWNER: ci-redis-drivers
       # This job is the only one that runs the package tests: a Redis that is
@@ -1112,8 +1097,6 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
-      CACHE_URL: redis://127.0.0.1:6380/0
-      BROKER_URL: redis://127.0.0.1:6380/14
       JWT_SECRET: ci-celery-drivers-not-a-real-secret
       SANDLOOM_TEST_OWNER: ci-celery-drivers
       SANDLOOM_CELERY_REQUIRED: "1"
@@ -1207,8 +1190,6 @@ jobs:
       run:
         working-directory: .
     env:
-      CACHE_URL: redis://127.0.0.1:6380/0
-      BROKER_URL: redis://127.0.0.1:6380/14
       JWT_SECRET: ci-sqlite-lane-not-a-real-secret
       # The steps run one after another on the job's Redis: one owner, so a
       # later step may reuse the indexes an earlier one marked.
@@ -1417,8 +1398,6 @@ jobs:
         env:
           PYTHONPATH: benchmarks:src
           DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
-          CACHE_URL: redis://127.0.0.1:6380/0
-          BROKER_URL: redis://127.0.0.1:6380/14
           JWT_SECRET: ci-s5-suite-not-a-real-secret-0123456789
           SANDLOOM_E2E_REQUIRED: "1"
 
@@ -1432,8 +1411,6 @@ jobs:
         env:
           PYTHONPATH: benchmarks:src
           DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
-          CACHE_URL: redis://127.0.0.1:6380/0
-          BROKER_URL: redis://127.0.0.1:6380/14
           SANDLOOM_TEST_REDIS_DB_STRIDE: auto
           JWT_SECRET: ci-s5-suite-not-a-real-secret-0123456789
           S5_TEST_ROLE: bench_app_ci
@@ -1544,8 +1521,6 @@ jobs:
           ENVIRONMENT: test
           EVENT_BUS_BACKEND: memory
           JWT_SECRET: ci-examples-not-a-real-secret-0123456789
-          CACHE_URL: redis://127.0.0.1:6380/0
-          BROKER_URL: redis://127.0.0.1:6380/1
           # oidc-identity's issuer module requires its provider settings.
           ACME_IDP_ISSUER: https://idp.example.test
           ACME_IDP_CLIENT_ID: storefront-web

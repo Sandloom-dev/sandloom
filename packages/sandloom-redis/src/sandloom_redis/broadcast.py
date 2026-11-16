@@ -48,7 +48,7 @@ from sandloom.driverkit import (
     Unavailable,
 )
 from sandloom_redis._errors import map_redis_error
-from sandloom_redis._settings_fill import BROADCAST_FILL, require_url
+from sandloom_redis._url import require_url
 
 _CAPABILITY = "broadcast"
 _PATTERN_SUFFIX = ".*"
@@ -62,8 +62,8 @@ _T = TypeVar("_T")
 
 
 class RedisBroadcastOptions(BaseModel):
-    """Options of the ``redis`` driver. The kernel fills ``url`` and the client
-    bounds left out from the ``CACHE_*`` settings."""
+    """Options of the ``redis`` driver. The instance states ``url`` in ``INFRA``;
+    the kernel fills nothing, and a bound left out takes the default here."""
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
@@ -390,7 +390,7 @@ class RedisBroadcastProvider(BroadcastProvider):
     contract_version = 1
     supported_features = frozenset({"pattern_subscribe", "shared"})
     options_schema: ClassVar[type[RedisBroadcastOptions]] = RedisBroadcastOptions
-    settings_fill = BROADCAST_FILL
+    url_option = "url"
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
     # Beta, the floor for a driver of this repository (spec 2.5): the lane

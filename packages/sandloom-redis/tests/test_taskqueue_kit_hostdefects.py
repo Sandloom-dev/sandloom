@@ -19,9 +19,9 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from _redis_required import cache_url_or_unavailable
 from sandloom_redis.lease import RedisLeaseProvider
 
-from sandloom.core.config.settings import settings
 from sandloom.core.infra.ports.lease import LeaseProvider
 from sandloom.core.infra.ports.taskqueue import TaskQueueProvider
 from sandloom.driverkit import HealthResult
@@ -156,7 +156,7 @@ def _hosted(defect: str) -> Callable[[], TaskQueueProvider]:
 
 def _shared_lease() -> LeaseProvider:
     return RedisLeaseProvider(
-        name="beat", driver="redis", options={"url": settings.cache_url}
+        name="beat", driver="redis", options={"url": cache_url_or_unavailable()}
     )
 
 

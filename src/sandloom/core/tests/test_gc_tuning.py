@@ -19,8 +19,6 @@ from pydantic import ValidationError
 
 _BASE = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost:5432/sandloom_test",
-    "CACHE_URL": "redis://localhost:6379/0",
-    "BROKER_URL": "redis://localhost:6379/1",
     "JWT_SECRET": "test-secret-0123456789abcdef0123456789abcdef",
 }
 

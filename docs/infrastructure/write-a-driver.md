@@ -88,21 +88,26 @@ A connection option (a url, a broker, a pool bound) is an option of your instanc
 `INFRA`, with a default in the options schema. Do not read it from a flat setting, and do not
 take it from another instance. No instance inherits another's url, so a driver that needs a
 url refuses startup when its instance has none. A driver whose option a flat setting still
-feeds (`DATABASE_URL`, the readiness probe's bound) declares it with `settings_fill`. That is
-a `SettingsFill` on the class. It says which setting fills which option when an instance
-leaves the option out. The kernel applies it without naming your driver, once the registry has your
-class. An option the instance states always wins.
+feeds (the readiness probe's bound, `HEALTH_CHECK_TIMEOUT_SECONDS`) declares it with
+`settings_fill`. That is a `SettingsFill` on the class. It says which setting fills which
+option when an instance leaves the option out. The kernel applies it without naming your
+driver, once the registry has your class. An option the instance states always wins.
 
-- `urls` fill an unset or empty option from a setting. `urls_for` picks the instances:
-  every one, only `default`, or only one the kernel synthesized.
 - `bounds` fill an option left out. `caps` cut a number above the setting down to it.
-- A table may name only the flat infrastructure settings (their `Settings` attributes):
-  the URLs, the client bounds and the readiness probe's bound. `SettingsFill` refuses any
-  other name when the class is defined.
+- A table may name only `health_check_timeout_seconds`. No url and no client bound is
+  filled from a setting: `CACHE_URL`, `BROKER_URL` and the `CACHE_*` bounds are removed
+  settings. `SettingsFill` refuses any other name when the class is defined.
 
 The fill is skipped when your package, or a package you require, is missing. It raises no
 import error: the registry refuses an instance that cannot run. A driver that reads no flat
 setting declares none.
+
+A driver that connects to one server by url sets `url_option` on its class. The value is the
+name of that option: `"url"`, or `"broker"` for a task queue. It must be a field of
+`options_schema`.
+`sandloom dev up` reads it. It writes a url into the checkout's `INFRA` for each instance on
+your driver, so the kernel keeps no list of driver names. A driver that reaches no server by
+url leaves it `None`.
 
 A driver records metrics through `sandloom.driverkit.observe`:
 `counter(name, documentation, labelnames)` and `histogram(...)` return metrics on the

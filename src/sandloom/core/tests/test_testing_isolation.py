@@ -15,6 +15,7 @@ fixed order, so they hold under the shuffled isolation gate too.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -28,10 +29,25 @@ from sandloom.core.composition import composition_root_name
 from sandloom.core.testing import isolation
 from sandloom.core.tests._root_support import suite_infra_env
 
+_PROBE_INFRA = json.dumps(
+    {
+        "cache": {"default": {"url": "redis://127.0.0.1:1/0"}},
+        "taskqueue": {"default": {"broker": "redis://127.0.0.1:1/1"}},
+    }
+)
+# The file's INFRA wins over the child's environment (``load_test_env`` loads it
+# with override): where the root selects no driver (kernel-only venv) the file
+# itself names the drivers; with the standard root it is the urls alone.
+_INFRA = suite_infra_env(
+    {
+        "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:1/probe_test",
+        "INFRA": _PROBE_INFRA,
+    }
+).get("INFRA", _PROBE_INFRA)
 _ENV_TEST = (
     "ENVIRONMENT=test\nJWT_SECRET=isolation_probe_secret_value_long_enough_0\n"
     "DATABASE_URL=postgresql+asyncpg://u:p@127.0.0.1:1/probe_test\n"
-    "CACHE_URL=redis://127.0.0.1:1/0\nBROKER_URL=redis://127.0.0.1:1/1\n"
+    f"INFRA='{_INFRA}'\n"
 )
 _RUNTIME = """
 def runtime():
@@ -57,14 +73,18 @@ def _run_project(root: Path, files: dict[str, str]) -> subprocess.CompletedProce
     env = {
         k: v
         for k, v in os.environ.items()
-        if not k.startswith(("SANDLOOM_", "PYTEST_", "JWT_")) and k != "ENVIRONMENT"
+        if not k.startswith(("SANDLOOM_", "PYTEST_", "JWT_"))
+        and k not in ("ENVIRONMENT", "INFRA", "CACHE_URL", "BROKER_URL")
     }
     # Stripped with the other SANDLOOM_*: the child composes the root this run
     # does, and its probes build apps through that root's factory (an issuer
     # needs its trust map, SANDLOOM-B035).
     env["SANDLOOM_COMPOSITION_ROOT"] = composition_root_name()
     # A root that selects no driver (kernel-only venv), on the child's own URLs.
-    own = dict(u.split("=", 1) for u in _ENV_TEST.splitlines() if "_URL=" in u)
+    own = {
+        "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:1/probe_test",
+        "INFRA": _INFRA,
+    }
     env.update(suite_infra_env(own))
     return subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-p", "no:xdist", "-p", "no:randomly"],

@@ -8,6 +8,7 @@ Locally, without the variable, the same fixtures skip.
 from __future__ import annotations
 
 import ast
+import json
 import os
 import re
 import subprocess
@@ -15,14 +16,19 @@ import sys
 from pathlib import Path
 
 import pytest
-from _redis_required import REQUIRED_ENV, redis_unavailable, require_redis
+from _redis_required import (
+    REQUIRED_ENV,
+    cache_url_or_unavailable,
+    redis_unavailable,
+    require_redis,
+)
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 #: A port nothing listens on: the connection is refused at once.
 _DEAD_URL = "redis://127.0.0.1:1/0"
-#: Package tests whose fixtures reach for the test Redis, by the ``CACHE_URL``
-#: they read: the cache fixture (unreachable) and the loop-affinity test.
+#: Package tests whose fixtures reach for the test Redis, by the cache url
+#: they read (``cache_url_or_unavailable``): the cache fixture (unreachable) and the loop-affinity test.
 _NEEDING_REDIS = (
     "test_redis_cache_retry_policy.py::test_incr_whose_reply_was_lost_counts_once",
     "test_redis_cache_bounded.py::test_windowed_counter_counts_ttl_and_previous",
@@ -62,7 +68,18 @@ def test_the_helper_reads_the_redis_lane_variable(
 def _outcome(test: str, *, required: bool) -> str:
     """Run one package test in a fresh pytest against a dead Redis; its summary line."""
     env = {k: v for k, v in os.environ.items() if k != REQUIRED_ENV}
-    env.update(CACHE_URL=_DEAD_URL, SANDLOOM_TEST_CACHE_URL=_DEAD_URL)
+    # The run's own overrides each need the instance of ``INFRA`` they replace
+    # (the harness refuses an override it cannot place): state both, dead.
+    env.update(
+        INFRA=json.dumps(
+            {
+                "cache": {"default": {"url": _DEAD_URL}},
+                "taskqueue": {"default": {"broker": _DEAD_URL}},
+            }
+        ),
+        SANDLOOM_TEST_CACHE_URL=_DEAD_URL,
+        SANDLOOM_TEST_BROKER_URL=_DEAD_URL,
+    )
     if required:
         env[REQUIRED_ENV] = "1"
     done = subprocess.run(
@@ -100,6 +117,25 @@ async def test_require_redis_names_no_url_and_handles_an_unset_one(
         await require_redis(url)
     assert "s3cret-pw" not in str(caught.value)
     assert "redis://" not in str(caught.value)
+
+
+def test_an_unconfigured_cache_url_skips_locally_and_fails_in_the_lane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No ``INFRA`` cache url: ``cache_url_or_unavailable`` is unavailable (a
+    skip, a failure in the lane), never a bare ``RuntimeError`` and never an
+    empty url handed to a driver. ``CACHE_URL`` is a removed setting and names
+    no url here."""
+    monkeypatch.delenv("INFRA", raising=False)
+    monkeypatch.setenv("CACHE_URL", _DEAD_URL)
+    monkeypatch.delenv(REQUIRED_ENV, raising=False)
+    with pytest.raises(pytest.skip.Exception):
+        cache_url_or_unavailable()
+    monkeypatch.setenv(REQUIRED_ENV, "1")
+    with pytest.raises(pytest.fail.Exception, match="no test cache url"):
+        cache_url_or_unavailable()
+    monkeypatch.setenv("INFRA", json.dumps({"cache": {"default": {"url": _DEAD_URL}}}))
+    assert cache_url_or_unavailable() == _DEAD_URL
 
 
 @pytest.mark.parametrize("test", _NEEDING_REDIS)

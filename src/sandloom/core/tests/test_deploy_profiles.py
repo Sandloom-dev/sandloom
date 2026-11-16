@@ -927,7 +927,9 @@ _TENANCY_ID = "  RPC_SERVICE_ID: tenancy\n"
             {
                 "compose/microservices.yml": (
                     _TENANCY_ID,
-                    _TENANCY_ID + "  CACHE_URL: redis://redis:6379/9\n",
+                    _TENANCY_ID
+                    + '  INFRA: \'{"cache": {"default": {"url": '
+                    + '"redis://redis:6379/9"}}}\'\n',
                 )
             },
             "the cache.default url differs between processes",
@@ -997,14 +999,14 @@ def test_unresolved_references_never_make_two_processes_equal() -> None:
     assert _comparable("INFRA", infra("${HOST:-redis://r/0}")) == _comparable(
         "INFRA", infra("redis://r/0")
     )
-    assert _effective_default_url({"CACHE_URL": "${A}"}, "cache") != (
-        _effective_default_url({"CACHE_URL": "${B}"}, "cache")
+    assert _effective_default_url({"INFRA": infra("${A}")}, "cache") != (
+        _effective_default_url({"INFRA": infra("${B}")}, "cache")
     )
 
 
-def test_the_default_cache_url_is_the_infra_url_else_the_flat_one() -> None:
-    """What each process resolves ``cache.default`` to: its INFRA url wins over
-    ``CACHE_URL``; the flat one counts only without it. Equal resolutions pass,
+def test_the_default_cache_url_is_the_one_the_infra_states() -> None:
+    """What each process resolves ``cache.default`` to: the url its INFRA
+    states, none otherwise (no flat setting fills it). Equal resolutions pass,
     one different process is reported (the profile-level bite is the
     ``per-service-cache-url`` case above)."""
     from sandloom.core.testing.deploy_profile import (
@@ -1012,26 +1014,26 @@ def test_the_default_cache_url_is_the_infra_url_else_the_flat_one() -> None:
         _same_default_urls,
     )
 
-    infra = '{"cache": {"default": {"url": "redis://a/0"}}}'
-    assert _effective_default_url(
-        {"INFRA": infra, "CACHE_URL": "redis://b/0"}, "cache"
-    ) == ("redis://a/0")
-    assert (
-        _effective_default_url({"CACHE_URL": "redis://b/0"}, "cache") == "redis://b/0"
+    both = (
+        '{"cache": {"default": {"url": "redis://a/0"}},'
+        ' "broadcast": {"default": {"url": "redis://a/0"}}}'
     )
-    assert _effective_default_url(
-        {"INFRA": "{}", "CACHE_URL": "redis://b/0"}, "cache"
-    ) == ("redis://b/0")
+    other = (
+        '{"cache": {"default": {"url": "redis://c/0"}},'
+        ' "broadcast": {"default": {"url": "redis://c/0"}}}'
+    )
+    assert _effective_default_url({"INFRA": both}, "cache") == "redis://a/0"
     assert _effective_default_url({"INFRA": "{}"}, "cache") is None
     assert _effective_default_url({"INFRA": "not json"}, "cache") is None
+    assert _effective_default_url({}, "cache") is None
 
     found: list[str] = []
-    same = {"api": {"CACHE_URL": "redis://b/0"}, "web": {"CACHE_URL": "redis://b/0"}}
+    same = {"api": {"INFRA": both}, "web": {"INFRA": both}}
     _same_default_urls(
         {n: {"environment": env} for n, env in same.items()}, found.append
     )
     assert found == []
-    split = {"api": {"CACHE_URL": "redis://b/0"}, "web": {"CACHE_URL": "redis://c/0"}}
+    split = {"api": {"INFRA": both}, "web": {"INFRA": other}}
     _same_default_urls(
         {n: {"environment": env} for n, env in split.items()}, found.append
     )
@@ -1039,21 +1041,6 @@ def test_the_default_cache_url_is_the_infra_url_else_the_flat_one() -> None:
         "the cache.default",
         "the broadcast.default",
     ]
-    # One shared INFRA url settles both processes whatever their flat setting
-    # (a broadcast that states none still resolves to the flat one).
-    found.clear()
-    infra = (
-        '{"cache": {"default": {"url": "redis://a/0"}},'
-        ' "broadcast": {"default": {"url": "redis://a/0"}}}'
-    )
-    settled = {
-        "api": {"INFRA": infra, "CACHE_URL": "redis://b/0"},
-        "web": {"INFRA": infra, "CACHE_URL": "redis://c/0"},
-    }
-    _same_default_urls(
-        {n: {"environment": env} for n, env in settled.items()}, found.append
-    )
-    assert found == []
 
 
 @pytest.mark.parametrize(

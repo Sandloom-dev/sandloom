@@ -721,39 +721,34 @@ def _comparable(key: str, value: Any) -> Any:
     return infra
 
 
-#: The capabilities whose ``default`` instance still takes the flat ``CACHE_URL``
-#: when its ``INFRA`` entry states no url (until that fill is removed): state
-#: shared across processes (rate limits, idempotency marks, broadcast) lives
-#: behind it.
-_FLAT_URL_CAPABILITIES = ("cache", "broadcast")
+#: The capabilities whose ``default`` instance holds state shared across
+#: processes (rate limits, idempotency marks, broadcast).
+_SHARED_URL_CAPABILITIES = ("cache", "broadcast")
 
 
 def _effective_default_url(env: Mapping[str, Any], capability: str) -> str | None:
-    """The url the ``default`` instance of ``capability`` resolves to in a
-    process: its own ``INFRA`` url, else the process's ``CACHE_URL`` (the flat
-    setting that fills it). ``None`` when neither names one. An ``INFRA`` that
-    is not a JSON object is the shared-key comparison's to report, here it
-    names no url."""
-    flat = interpolate_known(env.get("CACHE_URL", "")).strip() or None
+    """The url the ``default`` instance of ``capability`` states in a process's
+    ``INFRA``; ``None`` when it states none. An ``INFRA`` that is not a JSON
+    object is the shared-key comparison's to report, here it names no url."""
     raw = env.get("INFRA")
     if raw is None:
-        return flat
+        return None
     try:
         infra = json.loads(interpolate_known(raw))
     except ValueError:
-        return flat
+        return None
     instances = infra.get(capability) if isinstance(infra, dict) else None
     spec = instances.get("default") if isinstance(instances, dict) else None
     url = spec.get("url") if isinstance(spec, dict) else None
-    return url if isinstance(url, str) and url else flat
+    return url if isinstance(url, str) and url else None
 
 
 def _same_default_urls(procs: Mapping[str, Mapping[str, Any]], problem: Any) -> None:
     """Every process resolves the ``default`` cache (and broadcast) to the same
-    url: a service with its own ``CACHE_URL`` and no ``INFRA`` url there would
-    split the rate-limit and idempotency state, yet pass the ``INFRA`` and
-    ``CACHE_URL`` checks one by one."""
-    for capability in _FLAT_URL_CAPABILITIES:
+    url: a service whose own ``INFRA`` states another url there would split the
+    rate-limit and idempotency state, yet pass the ``INFRA`` check on its
+    own."""
+    for capability in _SHARED_URL_CAPABILITIES:
         urls = {
             name: _effective_default_url(_env(svc), capability)
             for name, svc in procs.items()
@@ -763,8 +758,7 @@ def _same_default_urls(procs: Mapping[str, Mapping[str, Any]], problem: Any) -> 
                 f"the {capability}.default url differs between processes "
                 f"({sorted(map(str, set(urls.values())))}): state behind it is "
                 "shared, so every process must resolve it to the same url (state "
-                f"{capability}.default.url in the shared INFRA, keep CACHE_URL "
-                "out of the services)"
+                f"{capability}.default.url in the shared INFRA only)"
             )
 
 

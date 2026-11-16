@@ -44,6 +44,7 @@ from sandloom.core.cli.dev.state import (
 )
 from sandloom.core.cli.project import generate_project
 from sandloom.core.composition import composition_root_name
+from sandloom.core.testing import workers
 from sandloom.core.testing.machine import machine_id
 from sandloom.core.tests._root_support import suite_infra_env
 
@@ -720,8 +721,17 @@ def test_managed_infra_gives_each_redis_instance_its_own_url() -> None:
         "taskqueue": {"default": {"driver": "celery"}},
         "objectstore": {"default": {"driver": "local"}},
     }
+    url_options = {
+        "cache.redis": "url",
+        "broadcast.redis": "url",
+        "eventbus.streams": "url",
+        "atomic_store.redis": "url",
+        "lease.redis": "url",
+        "taskqueue.celery": "broker",
+    }
     managed = envfile.managed_infra(
         selection,
+        url_options,
         cache_url="redis://h/1",
         persistent_url="redis://h/2",
         memory_bus=False,
@@ -746,6 +756,7 @@ def test_managed_infra_gives_each_redis_instance_its_own_url() -> None:
     # The in-process bus takes no url; an instance that names its own keeps it.
     memory = envfile.managed_infra(
         selection,
+        url_options,
         cache_url="redis://h/1",
         persistent_url="redis://h/2",
         memory_bus=True,
@@ -755,12 +766,33 @@ def test_managed_infra_gives_each_redis_instance_its_own_url() -> None:
     assert (
         envfile.managed_infra(
             named,
+            url_options,
             cache_url="redis://h/1",
             persistent_url="redis://h/2",
             memory_bus=False,
         )
         == {}
     )
+    # A driver that declares no url option gets no url, whatever its name: the
+    # table is the drivers' declaration, not a list of names in the kernel.
+    assert (
+        envfile.managed_infra(
+            selection,
+            {},
+            cache_url="redis://h/1",
+            persistent_url="redis://h/2",
+            memory_bus=False,
+        )
+        == {}
+    )
+    other = {"cache": {"default": {"driver": "valkey"}}}
+    assert envfile.managed_infra(
+        other,
+        {"cache.valkey": "dsn"},
+        cache_url="redis://h/1",
+        persistent_url="redis://h/2",
+        memory_bus=False,
+    ) == {"cache": {"default": {"dsn": "redis://h/1"}}}
 
 
 def test_an_edit_during_the_write_is_merged(
@@ -823,13 +855,24 @@ _SELECTION = {
     "atomic_store": {"security": {"driver": "redis"}},
     "taskqueue": {"default": {"driver": "celery"}},
 }
+#: What the installed drivers declare (``InfraProvider.url_option``).
+_URL_OPTIONS = {
+    "cache.redis": "url",
+    "eventbus.streams": "url",
+    "atomic_store.redis": "url",
+    "taskqueue.celery": "broker",
+}
 
 
 def test_the_block_names_each_redis_instance_of_the_composition(
     repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        commands, "composition_selection", lambda c, text, checkout=None: _SELECTION
+        commands,
+        "composition_selection",
+        lambda c, text, checkout=None: commands.CompositionSelection(
+            _SELECTION, _URL_OPTIONS
+        ),
     )
     environ.pop("EVENT_BUS_BACKEND", None)
     ctx = _ctx(repo, environ)
@@ -851,6 +894,105 @@ def test_the_block_names_each_redis_instance_of_the_composition(
     assert any("eventbus.default url=" in line for line in lines)
 
 
+def _test_local(
+    repo: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    infra: dict[str, Any],
+) -> dict[str, str]:
+    """``dev up``'s ``.env.test.local`` for a composition selecting ``infra``."""
+    monkeypatch.setattr(
+        commands,
+        "composition_selection",
+        lambda c, text, checkout=None: commands.CompositionSelection(
+            infra, _URL_OPTIONS
+        ),
+    )
+    ctx = _ctx(repo, environ)
+    state = _state(ctx)
+    commands.write_checkout_files(ctx, state, commands.checkout_row(ctx, state))
+    return dict(
+        line.split("=", 1)
+        for line in (repo / ".env.test.local").read_text().splitlines()
+        if line.startswith("SANDLOOM_TEST_")
+    )
+
+
+@pytest.mark.parametrize(
+    ("infra", "names"),
+    [
+        (_SELECTION, {"CACHE_URL", "BROKER_URL"}),
+        # a trimmed composition: no task queue, no cache
+        ({k: v for k, v in _SELECTION.items() if k != "taskqueue"}, {"CACHE_URL"}),
+        ({k: v for k, v in _SELECTION.items() if k != "cache"}, {"BROKER_URL"}),
+        ({"database": _SELECTION["database"]}, set()),
+        # the capability is there, its driver connects by no url
+        ({"cache": {"default": {"driver": "memory"}}}, set()),
+        # only a ``default`` instance is overridden
+        ({"cache": {"other": {"driver": "redis"}}}, set()),
+        # no composition read (the framework's own checkout): both are kept
+        ({}, {"CACHE_URL", "BROKER_URL"}),
+    ],
+    ids=[
+        "full",
+        "no-taskqueue",
+        "no-cache",
+        "neither",
+        "no-url",
+        "no-default",
+        "empty",
+    ],
+)
+def test_dev_up_writes_only_the_test_overrides_the_composition_can_take(
+    repo: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    infra: dict[str, Any],
+    names: set[str],
+) -> None:
+    """The harness refuses ``SANDLOOM_TEST_CACHE_URL`` / ``SANDLOOM_TEST_BROKER_URL``
+    where ``INFRA`` has no such instance, and ``dev up`` rewrites the file: a name
+    written for a capability the app does not select would stop every test run
+    with no way to unset it."""
+    written = _test_local(repo, environ, monkeypatch, infra)
+    assert set(written) == {"SANDLOOM_TEST_DATABASE_URL"} | {
+        f"SANDLOOM_TEST_{n}" for n in names
+    }
+
+
+def test_a_trimmed_composition_runs_its_tests_with_the_written_overrides(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End to end with the harness: the file written for an app without a task
+    queue, applied to that app's ``INFRA``, raises nothing; the unconditional file
+    of before raised ``UnmatchedOverrideError``."""
+    trimmed = {k: v for k, v in _SELECTION.items() if k != "taskqueue"}
+    written = _test_local(repo, environ, monkeypatch, trimmed)
+    infra = json.dumps({"cache": {"default": {"url": "redis://127.0.0.1:1/0"}}})
+    applied = workers.explicit_test_overrides(written, current={"INFRA": infra})
+    assert (
+        json.loads(applied["INFRA"])["cache"]["default"]["url"]
+        == (written["SANDLOOM_TEST_CACHE_URL"])
+    )
+    everything = {"SANDLOOM_TEST_BROKER_URL": "redis://127.0.0.1:2/1", **written}
+    with pytest.raises(workers.UnmatchedOverrideError):
+        workers.explicit_test_overrides(everything, current={"INFRA": infra})
+
+
+def test_a_dropped_capability_leaves_the_override_file(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``dev up`` rewrites the file whole: a name a previous composition had is
+    gone once the selection no longer has its capability."""
+    assert "SANDLOOM_TEST_BROKER_URL" in _test_local(
+        repo, environ, monkeypatch, _SELECTION
+    )
+    trimmed = {k: v for k, v in _SELECTION.items() if k != "taskqueue"}
+    assert "SANDLOOM_TEST_BROKER_URL" not in _test_local(
+        repo, environ, monkeypatch, trimmed
+    )
+
+
 def _app_package(root: Path, body: str) -> None:
     (root / "shopapp").mkdir(exist_ok=True)
     (root / "shopapp" / "__init__.py").write_text(body)
@@ -868,13 +1010,14 @@ def test_the_composition_is_read_in_the_checkout_by_a_child_process(
     _app_package(
         worktree, 'DEFAULT_INFRA = {"lease": {"default": {"driver": "redis"}}}\n'
     )
-    assert set(commands.composition_selection(ctx, "", repo)) == {"cache"}
-    assert set(commands.composition_selection(ctx, "", worktree)) == {"lease"}
+    assert set(commands.composition_selection(ctx, "", repo).infra) == {"cache"}
+    assert set(commands.composition_selection(ctx, "", worktree).infra) == {"lease"}
     # No package or none exporting a selection: nothing to manage.
+    nothing = commands.CompositionSelection({}, {})
     _app_package(repo, "")
-    assert commands.composition_selection(ctx, "", repo) == {}
+    assert commands.composition_selection(ctx, "", repo) == nothing
     environ["SANDLOOM_COMPOSITION_ROOT"] = "absentapp.asgi"
-    assert commands.composition_selection(ctx, "", repo) == {}
+    assert commands.composition_selection(ctx, "", repo) == nothing
 
 
 @pytest.mark.parametrize(
@@ -1197,17 +1340,13 @@ def test_the_cli_prints_one_line_and_debug_shows_the_traceback(
     env = {
         k: v
         for k, v in os.environ.items()
-        if not k.startswith(("SANDLOOM_", "DATABASE_URL", "CACHE_URL", "BROKER_URL"))
+        if not k.startswith(("SANDLOOM_", "DATABASE_URL"))
     }
     env.update(
         DATABASE_URL="postgresql+asyncpg://u:p@127.0.0.1:1/x",
         JWT_SECRET="x" * 64,
         ENVIRONMENT="dev",
         SANDLOOM_HOME=str(tmp_path / "home"),
-        # Read by the support helper below (tests/_root_support.py, which the
-        # slice that moves the suite onto INFRA owns), not by the child.
-        CACHE_URL="redis://127.0.0.1:2/0",
-        BROKER_URL="redis://127.0.0.1:2/1",
         # The stderr oracle below filters the human-readable log format.
         LOG_FORMAT="text",
         # stripped above with the other SANDLOOM_*: the child composes the

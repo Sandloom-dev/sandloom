@@ -381,14 +381,12 @@ def periodic_needs(
 
 def broker_url_of(core: Any, instance: str) -> str:
     """The broker URL a beat on taskqueue ``instance`` scopes its lease with
-    (the ``celery`` driver: the instance's ``broker`` option, else
-    ``BROKER_URL``)."""
+    (the ``celery`` driver: the instance's ``broker`` option)."""
     infra = getattr(core, "infra", None)
     cfg = infra.instance_config("taskqueue", instance) if infra is not None else None
     options = dict(getattr(cfg, "options", None) or {})
-    # ``BROKER_URL`` is optional: neither set is "" (a scope of no broker), never
-    # the text "None".
-    return str(options.get("broker") or settings.broker_url or "")
+    # No broker option is "" (a scope of no broker), never the text "None".
+    return str(options.get("broker") or "")
 
 
 async def beat_lease_holder(core: Any, *, instance: str = "default") -> str | None:

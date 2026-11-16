@@ -14,8 +14,6 @@ from sandloom.driverkit.process_config import process_instance
 
 
 def _infra(monkeypatch: pytest.MonkeyPatch, raw: dict[str, object]) -> None:
-    monkeypatch.setattr(settings, "broker_url", None)
-    monkeypatch.setattr(settings, "cache_url", None)
     monkeypatch.setattr(settings, "infra", raw)
 
 

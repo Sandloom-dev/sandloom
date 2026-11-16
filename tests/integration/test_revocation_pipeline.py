@@ -239,7 +239,7 @@ async def test_the_cache_fixture_moves_the_implicit_security_store_onto_its_redi
     sandloom_core: Any, sandloom_cache: Any
 ) -> None:
     """The development ``security`` store is built from the settings snapshot's
-    cache URL, which names another Redis database than the test ``CACHE_URL``
+    cache URL, which names another Redis database than the test cache url
     where the shell exports its own (CI). ``sandloom_cache`` moves it along: a
     mark written through the store is what the test reads back from (and
     flushes with) the cache."""

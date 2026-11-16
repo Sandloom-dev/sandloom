@@ -381,12 +381,10 @@ def test_the_scheduler_argv_carries_the_schedule_file(
 def _importable_app_infra(
     monkeypatch: pytest.MonkeyPatch, default: dict[str, object] | None
 ) -> None:
-    """The ``INFRA`` the importable app reads through ``Settings``, with no flat
-    ``BROKER_URL`` / ``CACHE_URL`` to fill what it leaves out."""
+    """The ``INFRA`` the importable app reads through ``Settings`` (no flat
+    ``BROKER_URL`` / ``CACHE_URL`` exists: they are removed settings)."""
     monkeypatch.setattr(celery_worker._default, "app", None)
     monkeypatch.setattr(celery_worker._default, "urls", None)
-    monkeypatch.setattr(settings, "broker_url", None)
-    monkeypatch.setattr(settings, "cache_url", None)
     monkeypatch.setattr(
         settings,
         "infra",
@@ -559,6 +557,98 @@ def test_the_importable_app_refuses_a_config_module_that_changes_a_url(
         celery_worker.app  # noqa: B018
 
 
+@pytest.mark.parametrize(
+    "setting",
+    [
+        'broker_transport = "memory"',
+        "broker_port = 6399",
+        'broker_vhost = "7"',
+        'broker_user = "stray-user"',
+        'broker_password = "foreign-secret"',
+        'broker_host = "stray-host"',
+        # a ``broker_use_ssl`` dict is merged into the connection after the url
+        "broker_use_ssl = {'host': 'stray-host', 'port': 6399, "
+        "'password': 'foreign-secret', 'virtual_host': '7'}",
+        "import ssl; broker_use_ssl = {'ssl_cert_reqs': ssl.CERT_NONE}",
+        # True makes a rediss:// connection fall back to plain text
+        "broker_use_ssl = True",
+        # transport options are laid over the connection by some transports
+        "broker_transport_options = {'host': '127.0.0.1:6399', "
+        "'userid': 'stray-user', 'password': 'foreign-secret'}",
+        "result_backend_transport_options = {'host': 'stray-host', "
+        "'password': 'foreign-secret'}",
+        # the redis result backend takes these where its url omits the part
+        "redis_port = 6399",
+        'redis_password = "foreign-secret"',
+        'redis_username = "stray-user"',
+        "redis_backend_use_ssl = {'ssl_cert_reqs': 'none'}",
+    ],
+)
+def test_the_importable_app_refuses_a_config_module_that_changes_the_connection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, setting: str
+) -> None:
+    """The url of the conf is INFRA's, but kombu also takes the transport, host,
+    port, vhost and credentials from the conf and lets them win: a config module
+    setting only one redirects (``memory`` sinks) the worker and every
+    ``inspect`` / ``call`` of the importable app. Refused, the key named."""
+    key = setting.removeprefix("import ssl; ").split(" ")[0]
+    _importable_app_infra(
+        monkeypatch, {"driver": "celery", "broker": "redis://127.0.0.1"}
+    )
+    _config_module(monkeypatch, tmp_path, "foreign_celery_config_c", setting + "\n")
+    with pytest.raises(AttributeError, match=key) as refused:
+        celery_worker.app  # noqa: B018
+    assert "foreign-secret" not in str(refused.value)
+    assert celery_worker._default.app is None
+
+
+@pytest.mark.parametrize(
+    ("broker", "setting"),
+    [
+        # kombu's pyamqp transport lays the options over host, userid, password
+        (
+            "amqp://u:infra-secret@127.0.0.1:1//",
+            "broker_transport_options = {'host': '127.0.0.1:6399', "
+            "'userid': 'stray-user', 'password': 'foreign-secret'}",
+        ),
+        # ... and ``ssl`` turns certificate verification off for amqps://
+        (
+            "amqps://u:infra-secret@127.0.0.1:1//",
+            "import ssl; broker_transport_options = "
+            "{'ssl': {'cert_reqs': ssl.CERT_NONE}}",
+        ),
+    ],
+)
+def test_the_importable_app_refuses_a_transport_option_that_moves_an_amqp_broker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, broker: str, setting: str
+) -> None:
+    """The importable app is not limited to redis: an amqp broker stays supported,
+    its transport options outside the allow-list are refused, the option named."""
+    _importable_app_infra(monkeypatch, {"driver": "celery", "broker": broker})
+    _config_module(monkeypatch, tmp_path, "foreign_celery_config_d", setting + "\n")
+    with pytest.raises(AttributeError, match="broker_transport_options") as refused:
+        celery_worker.app  # noqa: B018
+    text = str(refused.value)
+    for stray in ("foreign-secret", "infra-secret", "stray", "6399", "CERT_NONE"):
+        assert stray not in text
+    assert celery_worker._default.app is None
+
+
+def test_the_importable_app_accepts_a_harmless_transport_option(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _importable_app_infra(
+        monkeypatch, {"driver": "celery", "broker": "amqp://u:p@127.0.0.1:1//"}
+    )
+    _config_module(
+        monkeypatch,
+        tmp_path,
+        "foreign_celery_config_d",
+        "broker_transport_options = {'confirm_publish': True}\n",
+    )
+    assert celery_worker.app.conf.broker_transport_options == {"confirm_publish": True}
+
+
 def _celery_instances_in_the_module() -> list[str]:
     """What ``celery.app.utils.find_app`` scans for once ``app`` / ``celery`` raise."""
     return [
@@ -635,17 +725,12 @@ def test_the_importable_app_refuses_the_default_loaders_celeryconfig(
 def test_the_importable_app_refuses_a_foreign_conf_where_the_provider_built_it_first(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The cached ``_default`` app skips the build, not the check."""
+    """The cached ``_default`` app skips the build, not the check. Built here
+    through ``get_default_app`` (the provider checks the final conf of the app it
+    builds, which loads the config module: one set later would never apply)."""
     _importable_app_infra(monkeypatch, {"driver": "celery", "broker": _INFRA_BROKER})
-    provider = create_celery_taskqueue(
-        InstanceConfig(
-            capability="taskqueue",
-            name="default",
-            driver="celery",
-            options={"broker": _INFRA_BROKER},
-        )
-    )
-    assert provider._app is celery_worker._default.app is not None
+    built = celery_worker.get_default_app(_INFRA_BROKER, None)
+    assert built is celery_worker._default.app is not None
     _config_module(
         monkeypatch,
         tmp_path,

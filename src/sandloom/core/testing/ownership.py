@@ -328,9 +328,8 @@ def record_claim(kind: str, identity: str, owner: str) -> None:
 
 def claim_test_resources(values: Mapping[str, str]) -> None:
     """Claim ``DATABASE_URL`` of ``values``, then what every harness family
-    resets (:mod:`sandloom.core.testing.families`: the Redis family claims
-    ``CACHE_URL`` / ``BROKER_URL`` and the URL of every named instance ``INFRA``
-    declares)."""
+    resets (:mod:`sandloom.core.testing.families`: the Redis family claims the
+    URL of every named instance ``INFRA`` declares)."""
     database = values.get("DATABASE_URL") or ""
     if database:
         claim_database(database)

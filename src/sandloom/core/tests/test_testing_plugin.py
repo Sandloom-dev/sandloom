@@ -9,6 +9,7 @@ tested for real. The full DB/HTTP flow is covered by
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -55,10 +56,18 @@ def _run(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     env = {
         k: v
         for k, v in os.environ.items()
-        if not k.startswith(("SANDLOOM_", "PYTEST_", "JWT_")) and k != "ENVIRONMENT"
+        if not k.startswith(("SANDLOOM_", "PYTEST_", "JWT_"))
+        and k not in ("ENVIRONMENT", "INFRA", "CACHE_URL", "BROKER_URL")
     }
     # A root that selects no driver (kernel-only venv), on the child's own URLs.
-    env.update(suite_infra_env(dict(u.split("=", 1) for u in _URLS.splitlines())))
+    env.update(
+        suite_infra_env(
+            {
+                "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:1/probe_test",
+                "INFRA": _INFRA,
+            }
+        )
+    )
     return subprocess.run(
         [sys.executable, "-m", "pytest", "-q", *args],
         cwd=root,
@@ -76,10 +85,23 @@ def test_missing_env_test_is_a_clear_usage_error(tmp_path: Path) -> None:
     assert "no .env.test found" in proc.stdout + proc.stderr
 
 
+_PROBE_INFRA = json.dumps(
+    {
+        "cache": {"default": {"url": "redis://127.0.0.1:1/0"}},
+        "taskqueue": {"default": {"broker": "redis://127.0.0.1:1/1"}},
+    }
+)
+# The file's INFRA wins over the child's environment (``load_test_env`` loads it
+# with override): where the root selects no driver (kernel-only venv) the file
+# itself names the drivers; with the standard root it is the urls alone.
+_INFRA = suite_infra_env(
+    {
+        "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:1/probe_test",
+        "INFRA": _PROBE_INFRA,
+    }
+).get("INFRA", _PROBE_INFRA)
 _URLS = (
-    "DATABASE_URL=postgresql+asyncpg://u:p@127.0.0.1:1/probe_test\n"
-    "CACHE_URL=redis://127.0.0.1:1/0\n"
-    "BROKER_URL=redis://127.0.0.1:1/1\n"
+    f"DATABASE_URL=postgresql+asyncpg://u:p@127.0.0.1:1/probe_test\nINFRA='{_INFRA}'\n"
 )
 _ENV_TEST = (
     "ENVIRONMENT=test\nJWT_SECRET=plugin_probe_secret_value_long_enough_0123\n" + _URLS
@@ -232,8 +254,7 @@ def test_refuses_a_non_test_database(tmp_path: Path) -> None:
                 "ENVIRONMENT=dev\n"
                 "JWT_SECRET=plugin_probe_secret_value_long_enough_0123\n"
                 "DATABASE_URL=postgresql+asyncpg://u:p@127.0.0.1:1/production\n"
-                "CACHE_URL=redis://127.0.0.1:1/0\n"
-                "BROKER_URL=redis://127.0.0.1:1/1\n"
+                f"INFRA='{_INFRA}'\n"
             ),
             "test_db.py": """
                 def test_db(db):

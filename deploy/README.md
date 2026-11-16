@@ -122,8 +122,8 @@ identity is verified by every service, so `JWT_*` / the access-token lifetime mu
 microservices profile, which only identity processes receive —
 `test_only_the_issuer_holds_signing_material`);
 identity and tenancy both send mail (`NOTIFIER_BACKEND` and the `notification` instance in `INFRA`);
-subscription gates evaluate one past-due policy. **`CACHE_URL` is identical for
-every service** — a hard invariant: access-token revocation marks, rate-limit
+subscription gates evaluate one past-due policy. **The cache url (`INFRA.cache.default.url`, and
+the security store's) is identical for every service** — a hard invariant: access-token revocation marks, rate-limit
 buckets, idempotency keys and the Streams bus live there; a per-service cache
 would accept a revoked token everywhere but on the service that revoked it.
 `test_deploy_profiles.py` pins all of this (same raw value in every process,
@@ -242,7 +242,7 @@ In the microservices profile `identity` (housekeeping) and `billing` (the
 operation-intent reconciler `reconcile_operation_intents`, every 5 min, and the
 orphan payment-state purge) ship periodic tasks, hence `identity-worker` /
 `identity-beat` and `billing-worker` / `billing-beat`. Each service has its own
-`BROKER_URL` (Redis db 2/3/4) so a task can never be picked up by a service that
+Celery broker in its `INFRA` (`taskqueue.default.broker`, Redis db 2/3/4) so a task can never be picked up by a service that
 does not load its module.
 
 **One scheduler per task set.** A beat schedules exactly the
@@ -278,14 +278,14 @@ holds a fenced lease of the `lease` instance `INFRA.lease.beat`
   backend outage it keeps scheduling only until its local lease deadline, then stands
   by until it can write again;
 * the lease lives in the instance `INFRA.lease.beat`: absent, a `redis` lease
-  on the shared `CACHE_URL` (its server must run `maxmemory-policy noeviction`,
+  on the url its `INFRA.lease.beat` states (its server must run `maxmemory-policy noeviction`,
   which the driver checks); `{"driver": "database"}` keeps it in the table
   `infra_lease` of a database that carries the core migration chain. In
   production the driver must be shared between processes (not `memory`), or
   beat refuses to start. The lease is always on (there is no switch to turn it
   off). **Upgrade:** `BEAT_LEASE_CACHE_INSTANCE` is removed and a leftover one
-  fails startup; delete it, and name the instance in `INFRA` only to move the
-  lease off `CACHE_URL`.
+  fails startup; delete it, and state the `lease.beat` url in `INFRA` (a
+  `redis` lease with no url is refused).
 
 The lease wraps whatever scheduler beat runs (`-S …` included) and applies to
 `worker -B` too. A takeover starts from the new beat's own schedule file, so a
@@ -300,8 +300,8 @@ task whose period elapsed during the failover runs once on takeover.
 2. **Async communication** rides the durable Redis Streams bus in both
    profiles (an unset `EVENT_BUS_BACKEND` takes the standard composition's
    `streams` in every environment, the kernel having no default; the
-   microservices profile pins `streams` explicitly) on the shared `CACHE_URL`;
-   each service's transactional outbox lives in its own database and its relay
+   microservices profile pins `streams` explicitly) on the shared Redis
+   (`INFRA.eventbus.default.url`); each service's transactional outbox lives in its own database and its relay
    (one gunicorn worker per container) dispatches it. Versioned channels
    (`identity.user_registered.v1`, …) keep producers and consumers decoupled.
 3. **Sync cross-module contracts** go through the core service registry
@@ -641,8 +641,8 @@ topology decision, not part of a feature. The checklist below is what it
 writes.
 
 1. Add an env anchor with its own `SANDLOOM_MODULES: '["sandloom.<module>"]'`,
-   `DATABASE_URL` (add the database to `POSTGRES_MULTIPLE_DATABASES`) and
-   `BROKER_URL`.
+   `DATABASE_URL` (add the database to `POSTGRES_MULTIPLE_DATABASES`) and an
+   `INFRA` with the shared instances and its own `taskqueue.default.broker`.
 2. Add a `migrate-<module>` one-shot with that anchor and make the service
    depend on it (`service_completed_successfully`).
    **Existing data does not move by itself**: steps 1–5 change code and
@@ -679,8 +679,8 @@ sandloom migrate extract-module billing --from default --to "$BILLING_DATABASE_U
     --apply --i-have-stopped-writes
 # 3. Optional re-check at any time (row counts + checksums vs the manifest):
 sandloom migrate extract-module billing --from default --to "$BILLING_DATABASE_URL" --verify
-# 4. Cut over: start the billing service (its own DATABASE_URL, same CACHE_URL /
-#    bus / JWT settings), remove sandloom_billing from the monolith's SANDLOOM_MODULES,
+# 4. Cut over: start the billing service (its own DATABASE_URL, same cache and
+#    bus urls in INFRA, JWT settings), remove sandloom_billing from the monolith's SANDLOOM_MODULES,
 #    add the SERVICE_BINDINGS (checklist step 3), switch the gateway routes.
 # 5. Later, once the service has run cleanly — cleanup (separate, explicit):
 sandloom migrate extract-module billing --from default --to "$BILLING_DATABASE_URL" \

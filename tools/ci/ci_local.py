@@ -490,20 +490,20 @@ CHECKED_WORKFLOWS = ("ci.yml", "docs.yml", "architecture-check.yml")
 # new commands) and a failure of the architecture test, so the change gets
 # reviewed here. Print the current values with `tools/ci/ci_local.py --check`.
 FINGERPRINTS: dict[str, str] = {
-    "ci.yml:workflow-policy": "642e498078549a5f",
+    "ci.yml:workflow-policy": "bd6288e4afd2fbf4",
     "ci.yml:changes": "3cdff8546e19f580",
-    "ci.yml:backend-static": "cf4a86aea9644f5d",
+    "ci.yml:backend-static": "86b33a6c328440d1",
     "ci.yml:supply-chain": "f97313a67b7eacd0",
-    "ci.yml:backend-tests": "1400b9cf9e06ab28",
-    "ci.yml:backend-tests-isolation": "1f41c4abed7873f2",
-    "ci.yml:kernel-without-batteries": "69bbae8dd7cbe877",
-    "ci.yml:kernel-without-redis": "b21fc110763e41b7",
-    "ci.yml:redis-drivers": "216cf7fca321f58d",
-    "ci.yml:celery-drivers": "694d207912c6ef46",
-    "ci.yml:second-db-test-lane": "76d7b93cf72fd8f1",
+    "ci.yml:backend-tests": "180a89247d8c71ee",
+    "ci.yml:backend-tests-isolation": "611e931a41f4b5cd",
+    "ci.yml:kernel-without-batteries": "62fb0a724158b96f",
+    "ci.yml:kernel-without-redis": "1b47947e933b0984",
+    "ci.yml:redis-drivers": "0c69e19ecb7be5fb",
+    "ci.yml:celery-drivers": "1fa03a69eb78e256",
+    "ci.yml:second-db-test-lane": "d88592063ec847e0",
     "ci.yml:skip-ledger": "26c3a5f95f413506",
-    "ci.yml:benchmarks-security": "c516a25e95f3072b",
-    "ci.yml:examples": "99a77603e8e3895f",
+    "ci.yml:benchmarks-security": "27f1de980280a470",
+    "ci.yml:examples": "5d40246e94ae4f7c",
     "ci.yml:quickstart": "0f6563faeb3c2d10",
     "ci.yml:app-split": "40ce521d833336e8",
     "ci.yml:app-recipes": "3708a6d3b9426a26",
@@ -518,7 +518,7 @@ FINGERPRINTS: dict[str, str] = {
     "ci.yml:dependency-review": "2b19360e2aa6b603",
     "ci.yml:ci-required": "2f64e441c11407a6",
     "docs.yml:build": "339b44c753baded2",
-    "architecture-check.yml:check": "c1dd1ca1c5524d5c",
+    "architecture-check.yml:check": "879b74a6461b16fe",
 }
 
 # `uses:` actions and how they map locally (action name without @version).

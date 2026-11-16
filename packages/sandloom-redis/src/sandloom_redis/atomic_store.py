@@ -89,6 +89,7 @@ from sandloom.driverkit.atomic_store import (
 from sandloom.driverkit.shared_endpoints import redis_endpoint
 from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
+from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_redis._errors import map_redis_error
 from sandloom_redis._eviction_guard import (
     NOEVICTION,
@@ -101,7 +102,7 @@ from sandloom_redis._eviction_guard import (
     refusal_of,
     refusal_reason,
 )
-from sandloom_redis._settings_fill import ATOMIC_STORE_FILL, require_url
+from sandloom_redis._url import require_url
 
 #: Failed operations of the store (connection, timeout, server error), by
 #: instance and operation: the page-level alert on the security store reads it.
@@ -357,13 +358,22 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
     supported_features = frozenset({"shared", "never_evicts"})
     performance_hints = ATOMIC_STORE_PERFORMANCE_HINTS
     options_schema = RedisAtomicStoreOptions
-    settings_fill = ATOMIC_STORE_FILL
+    url_option = "url"
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
     # Beta, the floor for a driver of this repository (spec 2.5): the lane
     # `redis-drivers` job of ci.yml runs AtomicStoreConformance against a real
     # Redis. An undeclared tier would be experimental.
     tier = "beta"
+
+    @classmethod
+    def test_isolation(
+        cls, options: Mapping[str, Any], worker_id: str
+    ) -> Mapping[str, Any]:
+        """Another database index of the configured URL for each xdist worker
+        (the security store lives on the cache's database in a suite: the worker's
+        marks and blocks stay apart from every other worker's)."""
+        return isolated_redis_options(options, worker_id)
 
     def __init__(
         self,

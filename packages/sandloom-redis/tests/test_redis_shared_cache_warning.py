@@ -21,7 +21,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 import sandloom_redis.cache as redis_cache
-from _redis_required import require_redis
+from _redis_required import cache_url_or_unavailable, require_redis
 
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers.bootstrap import build_infra_registry
@@ -82,7 +82,7 @@ def _registry(shared_db: int, other_db: int) -> InfraRegistry:
     """``cache.default`` on ``shared_db``; instances of each persistent
     capability on it (``same``) and on ``other_db`` (``apart``); ``dev``, a
     synthesized ``atomic_store`` on the shared database."""
-    base = settings.cache_url
+    base = cache_url_or_unavailable()
     config: InfraConfig = {
         "cache": {
             "default": InstanceConfig(
@@ -150,7 +150,7 @@ def _named(messages: list[str]) -> list[tuple[str, str]]:
 async def test_the_redis_drivers_warn_on_the_cache_database_and_only_there(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    await require_redis(settings.cache_url)
+    await require_redis(cache_url_or_unavailable())
     registry = _registry(shared_db=201, other_db=202)
     try:
         with caplog.at_level(logging.INFO, logger=_LOGGER):
@@ -174,7 +174,7 @@ async def test_the_redis_drivers_warn_on_the_cache_database_and_only_there(
 async def test_a_second_app_in_the_process_does_not_hear_of_the_first(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    await require_redis(settings.cache_url)
+    await require_redis(cache_url_or_unavailable())
     first = _registry(shared_db=203, other_db=204)
     try:
         for capability, name in _OPENED:

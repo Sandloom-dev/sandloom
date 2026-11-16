@@ -72,8 +72,10 @@ uv run sandloom test --plan      # print the steps; --no-gates: tests only; -n N
   `.env.test.local`. A second run in the same checkout uses `<name>_2` and its
   own Redis indexes ([test databases](../modules/testing.md#in-an-app-sandloom-dev-up)).
 - **Use your own test resources** on a shared machine without `sandloom dev`:
-  export `SANDLOOM_TEST_OWNER`, `SANDLOOM_TEST_DATABASE_URL`,
-  `SANDLOOM_TEST_CACHE_URL` and `SANDLOOM_TEST_BROKER_URL`.
+  export `SANDLOOM_TEST_OWNER` and `SANDLOOM_TEST_DATABASE_URL`. Add
+  `SANDLOOM_TEST_CACHE_URL` and `SANDLOOM_TEST_BROKER_URL` for the cache and task
+  queue your app selects. An app with no task queue exports no broker override
+  (likewise cache): the harness refuses it.
 
 ## Which fixture
 

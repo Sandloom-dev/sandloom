@@ -19,8 +19,6 @@ import os
 _DOCS_BUILD_ENV = {
     "ENVIRONMENT": "dev",
     "DATABASE_URL": "postgresql+asyncpg://docs:docs@localhost:5432/docs",
-    "CACHE_URL": "redis://localhost:6379/0",
-    "BROKER_URL": "redis://localhost:6379/1",
     "JWT_SECRET": "docs-build-placeholder-secret-not-used-at-runtime",
 }
 for _key, _value in _DOCS_BUILD_ENV.items():

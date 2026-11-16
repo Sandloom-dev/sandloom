@@ -15,7 +15,6 @@ import importlib.util
 from collections.abc import Mapping
 
 from sandloom.driverkit.testing_family import (
-    FLAT_VARS,
     INFRA_VAR,
     INSTANCE_URL_OPTIONS,
     parse_infra,
@@ -67,9 +66,7 @@ def redis_urls(values: Mapping[str, str | None]) -> list[str]:
     client."""
     if not redis_client_installed():
         return []
-    urls = [url for var in FLAT_VARS if is_redis_url(url := values.get(var) or "")]
-    urls += infra_redis_urls(values.get(INFRA_VAR))
-    return list(dict.fromkeys(urls))
+    return list(dict.fromkeys(infra_redis_urls(values.get(INFRA_VAR))))
 
 
 __all__ = [

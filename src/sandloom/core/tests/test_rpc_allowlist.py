@@ -226,8 +226,10 @@ async def test_proxy_of_an_unlisted_caller_gets_503(provider: FastAPI) -> None:
 
 _BASE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@h:5432/d",
-    "CACHE_URL": "redis://h:6379/0",
-    "BROKER_URL": "redis://h:6379/1",
+    "INFRA": {
+        "cache": {"default": {"url": "redis://h:6379/0"}},
+        "taskqueue": {"default": {"broker": "redis://h:6379/1"}},
+    },
     "JWT_SECRET": "x" * 40,
     "JWT_PRIVATE_KEY": "",
 }

@@ -1,14 +1,15 @@
 """Drivers read options, not settings; the kernel fills them (ADR-0016): the
 engine, with no driver installed.
 
-What a driver takes from the flat settings (``CACHE_URL``, the ``CACHE_*``
-client bounds, ``BROKER_URL``) is put into its instances' options by
-:func:`fill_driver_defaults`, as each driver's class declares it
-(``InfraProvider.settings_fill``). The kernel's side of it names no driver and
-runs on a driver of its own (``_Probe``): these tests pass where neither
-``sandloom-redis`` nor ``sandloom-celery`` is installed. What each driver
-declares is held where it lives:
-``packages/sandloom-redis/tests/test_redis_options_from_settings.py`` and
+The one thing a driver takes from the settings is the readiness probe's bound
+(``HEALTH_CHECK_TIMEOUT_SECONDS``): :func:`fill_driver_defaults` puts it into
+its instances' options as each driver's class declares it
+(``InfraProvider.settings_fill``). No url and no client bound is filled: the
+flat ``CACHE_URL`` / ``BROKER_URL`` / ``CACHE_*`` settings are removed
+(``tiers.REMOVED``). The kernel's side names no driver and runs on a driver of
+its own (``_Probe``): these tests pass where neither ``sandloom-redis`` nor
+``sandloom-celery`` is installed. What each driver declares is held where it
+lives: ``packages/sandloom-redis/tests/test_redis_options_from_settings.py`` and
 ``packages/sandloom-celery/tests/test_celery_options_from_settings.py``.
 """
 
@@ -104,9 +105,8 @@ class _Probe(InfraProvider):
     capability: ClassVar[str] = "probe"
     contract_version = 1
     settings_fill = SettingsFill(
-        urls={"dsn": "cache_url"},
-        bounds={"timeout": "cache_socket_timeout_seconds"},
-        caps={"timeout": "health_check_timeout_seconds"},
+        bounds={"timeout": "health_check_timeout_seconds"},
+        caps={"cap": "health_check_timeout_seconds"},
     )
 
 
@@ -121,26 +121,23 @@ def test_a_driver_the_kernel_never_heard_of_is_filled_as_it_declares() -> None:
         "probe": {
             "bare": _cfg("probe", "bare", "known"),
             "stated": _cfg("probe", "stated", "known", dsn="x://own", timeout=2),
-            "empty": _cfg("probe", "empty", "known", dsn=""),
+            "capped": _cfg("probe", "capped", "known", cap=10_000),
             "other": _cfg("probe", "other", "unregistered"),
         }
     }
     fill_driver_defaults(config, settings, _probe_registry().settings_fill)
-    bare = config["probe"]["bare"].options
-    assert bare == {
-        "dsn": settings.cache_url,
-        "timeout": min(
-            settings.cache_socket_timeout_seconds, settings.health_check_timeout_seconds
-        ),
-    }
+    bound = settings.health_check_timeout_seconds
+    # the bound only; no url is invented for an instance that states none
+    assert config["probe"]["bare"].options == {"timeout": bound}
     assert config["probe"]["stated"].options == {"dsn": "x://own", "timeout": 2}
-    assert config["probe"]["empty"].options["dsn"] == settings.cache_url  # falsy
+    capped = config["probe"]["capped"].options
+    assert capped["cap"] == bound  # a probe never waits longer than the bound
     assert config["probe"]["other"].options == {}  # no class, no fill
 
 
 def test_no_instance_takes_an_option_from_another_instance() -> None:
-    """Flat urls: an instance's url is its own (``INFRA``) or the flat
-    setting's, never another instance's, in its capability or another one."""
+    """An instance's url is its own (``INFRA``): nothing fills one from a
+    setting, and none from another instance, in its capability or another."""
     config = {
         "probe": {
             DEFAULT_INSTANCE: _cfg("probe", DEFAULT_INSTANCE, "known", dsn="x://a"),
@@ -149,15 +146,17 @@ def test_no_instance_takes_an_option_from_another_instance() -> None:
         "other": {"b": _cfg("other", "b", "known")},
     }
     fill_driver_defaults(config, settings, lambda _cap, _driver: _Probe.settings_fill)
-    assert config["probe"]["named"].options["dsn"] == settings.cache_url
-    assert config["other"]["b"].options["dsn"] == settings.cache_url
+    assert "dsn" not in config["probe"]["named"].options
+    assert "dsn" not in config["other"]["b"].options
     assert config["probe"][DEFAULT_INSTANCE].options["dsn"] == "x://a"
 
 
-def test_a_settings_fill_has_no_follows() -> None:
-    """The cross-capability inheritance is gone: the field is not accepted."""
-    with pytest.raises(TypeError, match="follows"):
-        SettingsFill(urls={"dsn": "cache_url"}, follows="cache")  # type: ignore[call-arg]
+@pytest.mark.parametrize("field", ["urls", "urls_for", "follows"])
+def test_a_settings_fill_takes_no_url_table_and_no_follows(field: str) -> None:
+    """The url fill and the cross-capability inheritance are gone: the fields
+    are not accepted (a driver that still declares one fails at import)."""
+    with pytest.raises(TypeError, match=field):
+        SettingsFill(**{field: {"dsn": "cache_url"}})  # type: ignore[arg-type]
 
 
 def test_a_driver_whose_package_is_missing_is_not_filled_nor_imported() -> None:
@@ -189,35 +188,37 @@ def test_a_broken_lazy_row_still_raises_when_its_package_is_there() -> None:
 
 
 def test_a_settings_fill_refuses_a_declaration_that_cannot_work() -> None:
-    with pytest.raises(ValueError, match="urls_for"):
-        SettingsFill(urls={"url": "cache_url"}, urls_for="sometimes")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="option names to setting names"):
         SettingsFill(bounds={"timeout": 5})  # type: ignore[dict-item]
 
 
-def test_a_settings_fill_takes_only_the_flat_infrastructure_settings() -> None:
-    """A secret or a typo is refused where the declaration is built, in each of
-    the three tables, not silently copied (or left unfilled) at startup."""
+def test_a_settings_fill_takes_only_the_health_check_timeout() -> None:
+    """A secret, a typo or a removed flat setting is refused where the
+    declaration is built, in each table, not silently copied (or left unfilled)
+    at startup."""
     with pytest.raises(ValueError, match="jwt_secret"):
-        SettingsFill(urls={"url": "jwt_secret"})
-    with pytest.raises(ValueError, match="cache_urll"):
-        SettingsFill(bounds={"url": "cache_urll"})
+        SettingsFill(bounds={"url": "jwt_secret"})
+    with pytest.raises(ValueError, match="cache_url"):
+        SettingsFill(bounds={"url": "cache_url"})
+    with pytest.raises(ValueError, match="broker_url"):
+        SettingsFill(caps={"timeout": "broker_url"})
+    with pytest.raises(ValueError, match="cache_max_connections"):
+        SettingsFill(bounds={"c": "cache_max_connections"})
     with pytest.raises(ValueError, match="database_url"):
         SettingsFill(caps={"timeout": "database_url"})
     SettingsFill(
-        urls={"a": "cache_url", "b": "broker_url"},
-        bounds={"c": "cache_max_connections"},
+        bounds={"c": "health_check_timeout_seconds"},
         caps={"d": "health_check_timeout_seconds"},
-    )  # the allowed ones stay allowed
+    )  # the allowed one stays allowed
 
 
 def test_a_settings_fill_cannot_be_changed_after_it_is_declared() -> None:
-    table = {"dsn": "cache_url"}
-    declared = SettingsFill(urls=table)
-    table["other"] = "broker_url"
-    assert dict(declared.urls) == {"dsn": "cache_url"}
+    table = {"timeout": "health_check_timeout_seconds"}
+    declared = SettingsFill(bounds=table)
+    table["other"] = "health_check_timeout_seconds"
+    assert dict(declared.bounds) == {"timeout": "health_check_timeout_seconds"}
     with pytest.raises(TypeError):
-        declared.urls["other"] = "broker_url"  # type: ignore[index]
+        declared.bounds["other"] = "health_check_timeout_seconds"  # type: ignore[index]
 
 
 # -- when the registry fills ---------------------------------------------------
@@ -225,7 +226,10 @@ def test_a_settings_fill_cannot_be_changed_after_it_is_declared() -> None:
 
 def test_loading_the_config_imports_no_driver_and_fills_nothing() -> None:
     config = load_infra_config(settings)
-    assert config["cache"][DEFAULT_INSTANCE].options == {}
+    stated = settings.infra["cache"][DEFAULT_INSTANCE]  # what INFRA says, no more
+    assert config["cache"][DEFAULT_INSTANCE].options == {
+        key: value for key, value in stated.items() if key != "driver"
+    }
     queue = config["taskqueue"][DEFAULT_INSTANCE].options
     assert "health_timeout_seconds" not in queue  # a driver's fill, not the kernel's
 
@@ -324,3 +328,49 @@ def test_the_purge_refusal_carries_the_reason(monkeypatch: pytest.MonkeyPatch) -
     with pytest.raises(PurgeRefused, match="pip install sandloom-redis"):
         _stream_retention_s(core)
     assert _stream_retention_s(core, force=True) == 1.0
+
+
+class _UrlDriver(InfraProvider):
+    contract_version = 1
+    url_option = "dsn"
+
+
+class _NoUrlDriver(InfraProvider):
+    contract_version = 1
+
+
+def test_url_options_are_what_the_installed_drivers_declare(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    classes = {("cache", "valkey"): _UrlDriver, ("objectstore", "local"): _NoUrlDriver}
+    monkeypatch.setattr(
+        registry_module,
+        "_declared_class",
+        lambda cap, driver: classes.get((cap, driver)),
+    )
+    selection = {
+        "cache": {"default": {"driver": "valkey"}, "other": {"driver": "valkey"}},
+        "objectstore": {"default": {"driver": "local"}},
+        # no package publishes it (a kernel driver or one not installed)
+        "database": {"default": {"driver": "sqlalchemy"}},
+        # an instance that names no driver keeps the composition's: nothing to read
+        "lease": {"beat": {}},
+    }
+    assert registry_module.declared_url_options(selection) == {"cache.valkey": "dsn"}
+
+
+def test_a_driver_that_cannot_load_stops_the_url_option_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken(capability: str, driver: str) -> None:
+        raise registry_module.DriverLoadError("boom: broken import")
+
+    monkeypatch.setattr(registry_module, "_declared_class", broken)
+    selection = {"cache": {"default": {"driver": "redis"}}}
+    with pytest.raises(registry_module.DriverLoadError, match="boom"):
+        registry_module.declared_url_options(selection)
+
+
+def test_an_instance_that_is_not_a_mapping_is_refused_by_the_url_option_read() -> None:
+    with pytest.raises(TypeError, match=r"cache\.default"):
+        registry_module.declared_url_options({"cache": {"default": "redis"}})  # type: ignore[dict-item]

@@ -227,14 +227,12 @@ def _redis_roles(config: Any, settings: Any) -> dict[str, list[str]]:
         if inst.driver not in ("streams", "redis"):
             continue
         # A bus with no url of its own runs on the default cache client, so its
-        # data lives where ``cache.default`` points (INFRA), else ``CACHE_URL``.
+        # data lives where ``cache.default`` points (INFRA).
         default_cache = (config.get("cache") or {}).get("default")
-        url = (
-            inst.options.get("url")
-            or (default_cache.options.get("url") if default_cache else None)
-            or settings.cache_url
+        url = inst.options.get("url") or (
+            default_cache.options.get("url") if default_cache else None
         )
-        if not url:  # ``CACHE_URL`` is optional: no url, no Redis to back up
+        if not url:  # no url anywhere: no Redis to back up
             continue
         roles.setdefault(url, []).append(f"eventbus:{name} ({inst.driver})")
     for name, inst in sorted((config.get("taskqueue") or {}).items()):
@@ -332,9 +330,8 @@ def build_backup_plan(
 
     ``models``: the settings declarations of the loaded modules
     (``core.module_settings.records()``), whose secrets the plan lists."""
-    # Filled as the application is: the cache's ``CACHE_URL``, the development
-    # atomic store that follows it, the broker (``load_infra_config`` alone
-    # fills nothing, so the Redis targets of the flat settings would be missing).
+    # Filled as the application is: ``load_infra_config`` alone fills no driver
+    # option, so a bound a driver takes from the settings would be missing.
     config, unfilled = filled_infra_config(settings)
     items: list[PlanItem] = []
     postgres: dict[str, PlanItem] = {}
@@ -370,10 +367,10 @@ def build_backup_plan(
                 target="incomplete",
                 criticality="critical",
                 backup=[
-                    "the Redis endpoints named by CACHE_URL and BROKER_URL may be "
-                    "missing from this plan: an installed driver failed to load "
-                    f"({unfilled}); fix the installation and rerun, or list them "
-                    "by hand"
+                    "an installed driver failed to load "
+                    f"({unfilled}): this plan lists the Redis endpoints INFRA "
+                    "states as written and cannot confirm what the driver adds; "
+                    "fix the installation and rerun"
                 ],
             )
         )

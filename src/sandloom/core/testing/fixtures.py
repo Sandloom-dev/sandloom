@@ -51,9 +51,8 @@ Fixtures
     unreachable revocation store (the mark is reported as not written).
 ``sandloom_cache``
     The app's ``default`` cache pointed at the test cache url (``.env.test``'s
-    ``INFRA`` ``cache.default.url``, else its ``CACHE_URL``) for
-    the test, FLUSHDB'd before it (yields the ``CacheProvider``; the previous
-    instance is restored afterwards).
+    ``INFRA`` ``cache.default.url``) for the test, FLUSHDB'd before it (yields
+    the ``CacheProvider``; the previous instance is restored afterwards).
 ``scratch_database``
     A throw-away database on the test server (sync URL), dropped after the
     test — for a module's migration tests (:mod:`sandloom.core.testing.migrations`).
@@ -322,14 +321,15 @@ def sandloom_core(sandloom_app: Any) -> Any:
 async def _security_store_on_cache(stack: AsyncExitStack, core: Any, url: str) -> None:
     """Point the implicit development ``security`` store at the test Redis too.
 
-    The synthesized ``atomic_store.security`` instance (no ``INFRA`` entry) is
-    built on the cache's Redis, taken from the settings snapshot — which names
-    another database than the test cache url where the shell exports a
-    ``CACHE_URL`` of its own (CI) or the app was imported before ``.env.test``
-    was loaded. A fixture that moves the ``cache`` instance onto the test URL
-    moves it along, so revocation marks, blocks and idempotency keys the app
-    writes land in the database the test reads and flushes. An instance the
-    configuration declares (``INFRA``) is left alone.
+    The synthesized ``atomic_store.security`` instance (no ``INFRA`` entry)
+    carries no url of its own: nothing is inherited from the cache any more. The
+    development composition synthesizes the instance, and the url it holds is
+    the one the test run supplies, which names another database than the
+    snapshot where the app was imported before ``.env.test`` was loaded. A
+    fixture that moves the ``cache`` instance onto the test URL gives the
+    synthesized store that same URL, so revocation marks, blocks and idempotency
+    keys the app writes land in the database the test reads and flushes. An
+    instance the configuration declares (``INFRA``) is left alone.
     """
     config = core.infra.instance_config("atomic_store", "security")
     if config is None or not config.implicit or config.driver != "redis":
@@ -358,14 +358,14 @@ async def sandloom_cache(sandloom_core: Any) -> AsyncIterator[Any]:
     """The app's ``default`` cache on the test cache url, emptied first.
 
     The url is the ``INFRA`` instance ``cache.default``'s (the harness merges
-    ``SANDLOOM_TEST_CACHE_URL`` into it), else the flat ``CACHE_URL``.
-    Yields the ``CacheProvider`` the app itself resolves (``core.cache()``,
-    rate limits). The Redis database is FLUSHDB'd before the test so keys
-    never leak between tests — so that url must name a disposable test
-    database. Also needed where the app was imported before ``.env.test`` was
-    loaded (its settings snapshot names another cache), as in the framework's
-    own suite. The implicit development ``security`` store (revocation marks,
-    blocks, idempotency) follows it onto the same database.
+    ``SANDLOOM_TEST_CACHE_URL`` into it). Yields the ``CacheProvider`` the app
+    itself resolves (``core.cache()``, rate limits). The Redis database is
+    FLUSHDB'd before the test so keys never leak between tests — so that url
+    must name a disposable test database. Also needed where the app was
+    imported before ``.env.test`` was loaded (its settings snapshot names
+    another cache), as in the framework's own suite. The implicit development
+    ``security`` store (revocation marks, blocks, idempotency) follows it onto
+    the same database.
     """
     driver = _configured_driver(sandloom_core, "cache", "redis")
     url = resolved_cache_url()

@@ -12,7 +12,6 @@ caller's policy branch runs. Plus the fused single-round-trip operation
 from __future__ import annotations
 
 import asyncio
-import os
 import socket
 import time
 from collections.abc import AsyncIterator
@@ -23,7 +22,7 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 import sandloom_redis.cache as redis_cache
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from fastapi import Depends, FastAPI, HTTPException
 from sandloom_redis.cache import RedisCacheOptions, RedisCacheProvider
 
@@ -83,33 +82,32 @@ async def _elapsed_raise(coro: Any) -> tuple[float, BaseException]:
 # Client construction
 # --------------------------------------------------------------------------- #
 def test_client_is_bounded() -> None:
-    """The kernel fills the bounds from the CACHE_* settings into the
-    instance's options; the driver builds its client from them."""
+    """The instance's own options bound the client; a bound it leaves out takes
+    the options class's default (the kernel fills none, no setting exists)."""
     from sandloom.core.drivers.bootstrap import build_infra_registry
     from sandloom.core.schema.registry import InMemorySchemaRegistry
 
-    cache = build_infra_registry(InMemorySchemaRegistry()).instance_config(
-        "cache", "default"
-    )
+    stated = {"url": "redis://127.0.0.1:6399/0", "max_connections": 7}
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(settings, "infra", {"cache": {"default": dict(stated)}})
+        cache = build_infra_registry(InMemorySchemaRegistry()).instance_config(
+            "cache", "default"
+        )
     assert cache is not None
-    filled = cache.options
-    options = RedisCacheOptions.model_validate(
-        {**filled, "url": "redis://127.0.0.1:6399/0"}
-    )
+    assert cache.options == stated  # nothing filled in
+    options = RedisCacheOptions.model_validate(cache.options)
     client = redis_cache._build_client(options)
     pool = client.connection_pool
     kwargs = pool.connection_kwargs
+    defaults = RedisCacheOptions()
     assert type(pool).__name__ == "BlockingConnectionPool"
-    assert pool.max_connections == settings.cache_max_connections
-    assert kwargs["socket_timeout"] == settings.cache_socket_timeout_seconds
-    assert (
-        kwargs["socket_connect_timeout"]
-        == settings.cache_socket_connect_timeout_seconds
-    )
+    assert pool.max_connections == 7
+    assert kwargs["socket_timeout"] == defaults.socket_timeout_seconds
+    assert kwargs["socket_connect_timeout"] == defaults.socket_connect_timeout_seconds
     assert kwargs["socket_keepalive"] is True
     assert kwargs["health_check_interval"] == 30
     retry = kwargs["retry"]
-    assert retry._retries == settings.cache_retry_attempts
+    assert retry._retries == defaults.retry_attempts
     from redis.exceptions import ConnectionError as RedisConnectionError
     from redis.exceptions import TimeoutError as RedisTimeoutError
 
@@ -298,14 +296,7 @@ async def test_idempotency_branches_on_hung_redis(
 # --------------------------------------------------------------------------- #
 @pytest_asyncio.fixture
 async def live() -> AsyncIterator[RedisCacheProvider]:
-    from pathlib import Path
-
-    from sandloom.core.testing.workers import worker_env_values
-
-    env_test = Path(__file__).resolve().parents[3] / ".env.test"
-    url = os.getenv("CACHE_URL") or worker_env_values(env_test).get("CACHE_URL")
-    if not url:
-        redis_unavailable("CACHE_URL not configured")
+    url = cache_url_or_unavailable()
     provider = _provider(url)
     try:
         await asyncio.wait_for(provider.get("sandloom:test:ping"), 5)

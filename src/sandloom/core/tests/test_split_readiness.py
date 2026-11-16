@@ -45,8 +45,10 @@ from sandloom.core.schema.registry import InMemorySchemaRegistry
 _TOKEN = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
 _BASE_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost:5432/db",
-    "CACHE_URL": "redis://localhost:6379/0",
-    "BROKER_URL": "redis://localhost:6379/1",
+    "INFRA": {
+        "cache": {"default": {"url": "redis://localhost:6379/0"}},
+        "taskqueue": {"default": {"broker": "redis://localhost:6379/1"}},
+    },
     "JWT_SECRET": _TOKEN,
 }
 

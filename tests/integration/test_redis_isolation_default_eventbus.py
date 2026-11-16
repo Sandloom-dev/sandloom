@@ -15,7 +15,12 @@ import pytest
 
 from sandloom.core.testing import workers
 
-_INFRA = json.dumps({"eventbus": {"default": {"url": "redis://h:6380/5"}}})
+_INFRA = json.dumps(
+    {
+        "cache": {"default": {"url": "redis://h:6380/0"}},
+        "eventbus": {"default": {"url": "redis://h:6380/5"}},
+    }
+)
 _ENV = {workers.WORKER_ENV: "gw1"}
 
 
@@ -24,7 +29,6 @@ def test_an_options_only_default_bus_is_a_redis_instance_in_every_environment(
     environment: str,
 ) -> None:
     values = {
-        "CACHE_URL": "redis://h:6380/0",
         "ENVIRONMENT": environment,
         "INFRA": _INFRA,
     }
@@ -35,7 +39,6 @@ def test_an_options_only_default_bus_is_a_redis_instance_in_every_environment(
 
 def test_an_explicit_memory_bus_is_not_moved() -> None:
     values = {
-        "CACHE_URL": "redis://h:6380/0",
         "EVENT_BUS_BACKEND": "memory",
         "INFRA": _INFRA,
     }

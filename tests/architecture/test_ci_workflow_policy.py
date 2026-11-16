@@ -593,8 +593,61 @@ def test_the_policy_job_runs_every_test_the_context_paths_depend_on():
         assert (ROOT / f"tests/architecture/{name}.py").is_file(), name
     assert "--noconftest" in commands
     assert step["env"]["SANDLOOM_SERVICE_NAME"]
-    for variable in ("DATABASE_URL", "CACHE_URL", "BROKER_URL", "JWT_SECRET"):
+    for variable in ("DATABASE_URL", "JWT_SECRET"):
         assert step["env"][variable], variable
+    # The flat Redis settings are removed: a job exporting one fails startup.
+    assert "CACHE_URL" not in step["env"]
+    assert "BROKER_URL" not in step["env"]
+
+
+_REMOVED_FLAT_ENV = ("CACHE_URL", "BROKER_URL")
+
+
+def _env_blocks(path: Path) -> list[tuple[str, dict]]:
+    """Every ``env`` block of a workflow: the workflow's, each job's, each step's."""
+    data = yaml.safe_load(path.read_text())
+    blocks = [(f"{path.name}: env", data.get("env") or {})]
+    for job_name, job in (data.get("jobs") or {}).items():
+        blocks.append((f"{path.name}: {job_name}: env", job.get("env") or {}))
+        for index, step in enumerate(job.get("steps") or []):
+            where = f"{path.name}: {job_name}: step {index}: env"
+            blocks.append((where, step.get("env") or {}))
+    return blocks
+
+
+def test_no_workflow_exports_a_removed_flat_redis_setting() -> None:
+    """``CACHE_URL`` and ``BROKER_URL`` are removed settings that fail startup
+    with any value: no workflow, job or step may set one (the harness names are
+    ``SANDLOOM_TEST_CACHE_URL`` / ``SANDLOOM_TEST_BROKER_URL``, which differ)."""
+    blocks = [b for path in sorted(WORKFLOWS.glob("*.yml")) for b in _env_blocks(path)]
+    assert len(blocks) > 50  # every workflow was read, not an empty glob
+    offenders = [
+        f"{where}: {name}"
+        for where, env in blocks
+        for name in _REMOVED_FLAT_ENV
+        if name in env
+    ]
+    assert offenders == []
+
+
+def test_the_flat_env_scan_finds_a_planted_setting(tmp_path: Path) -> None:
+    """The scan above bites: a workflow that sets one at each level is reported."""
+    planted = tmp_path / "planted.yml"
+    planted.write_text(
+        "env:\n  CACHE_URL: x\njobs:\n  a:\n    env:\n      BROKER_URL: y\n"
+        "    steps:\n      - run: z\n        env:\n          CACHE_URL: w\n"
+    )
+    found = [
+        (where, name)
+        for where, env in _env_blocks(planted)
+        for name in _REMOVED_FLAT_ENV
+        if name in env
+    ]
+    assert [where for where, _ in found] == [
+        "planted.yml: env",
+        "planted.yml: a: env",
+        "planted.yml: a: step 0: env",
+    ]
 
 
 def test_docs_and_admin_workflows_do_not_repeat_what_a_step_or_job_already_runs():
@@ -942,11 +995,12 @@ def test_hosted_ci_service_connections_do_not_depend_on_dns():
     assert checked >= 10
 
 
-@pytest.mark.parametrize("explicit_timeout", [None, "0.125"])
-def test_explicit_ci_urls_still_seed_missing_test_settings(tmp_path, explicit_timeout):
+@pytest.mark.parametrize("explicit_infra", [None, '{"cache":{"default":{"url":"x"}}}'])
+def test_explicit_ci_urls_still_seed_missing_test_settings(tmp_path, explicit_infra):
     """Import the actual bootstrap in a fresh process, as a CI worker does.
     Shell overrides must survive, but supplying DATABASE_URL must not disable
-    every unrelated test-profile default.
+    every unrelated test-profile default: INFRA comes from ``.env.test`` unless
+    the shell states its own, and no flat Redis setting is ever seeded.
     """
     import json
     import os
@@ -956,19 +1010,17 @@ def test_explicit_ci_urls_still_seed_missing_test_settings(tmp_path, explicit_ti
 
     supplied = {
         "DATABASE_URL": "postgresql+asyncpg://ci:ci@127.0.0.1:5433/seed_regression",
-        "CACHE_URL": "redis://127.0.0.1:6380/3",
-        "BROKER_URL": "redis://127.0.0.1:6380/4",
     }
     env = {"PATH": os.environ.get("PATH", ""), **supplied}
-    if explicit_timeout is not None:
-        env["CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS"] = explicit_timeout
+    if explicit_infra is not None:
+        env["INFRA"] = explicit_infra
     code = f"""
 import importlib.util, json, os, sys
 spec = importlib.util.spec_from_file_location('_seed_profile_test', {str(ROOT / "conftest.py")!r})
 module = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = module
 spec.loader.exec_module(module)
-keys = ('DATABASE_URL', 'CACHE_URL', 'BROKER_URL', 'CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS')
+keys = ('DATABASE_URL', 'CACHE_URL', 'BROKER_URL', 'INFRA')
 print(json.dumps({{key: os.environ.get(key) for key in keys}}))
 """
     result = subprocess.run(
@@ -982,11 +1034,10 @@ print(json.dumps({{key: os.environ.get(key) for key in keys}}))
     )
     actual = json.loads(result.stdout.splitlines()[-1])
     assert {key: actual[key] for key in supplied} == supplied
-    expected = (
-        explicit_timeout
-        or dotenv_values(ROOT / ".env.test")["CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS"]
-    )
-    assert actual["CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS"] == expected
+    assert actual["CACHE_URL"] is None
+    assert actual["BROKER_URL"] is None
+    expected = explicit_infra or dotenv_values(ROOT / ".env.test")["INFRA"]
+    assert actual["INFRA"] == expected
 
 
 @pytest.mark.parametrize(

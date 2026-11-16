@@ -90,12 +90,12 @@ def _database_instances(infra: Mapping[str, Any]) -> dict[str, Mapping[str, Any]
     return instances
 
 
-def _cache_default_url(cfg: Any, infra: Mapping[str, Any]) -> object:
+def _cache_default_url(infra: Mapping[str, Any]) -> object:
     caches = infra.get("cache") or {}
     default_opts = caches.get("default") if isinstance(caches, Mapping) else None
-    if isinstance(default_opts, Mapping) and default_opts.get("url"):
+    if isinstance(default_opts, Mapping):
         return default_opts.get("url")
-    return getattr(cfg, "cache_url", None)
+    return None
 
 
 def _atomic_instance(infra: Mapping[str, Any], role: str) -> Mapping[str, Any] | None:
@@ -188,7 +188,7 @@ def _atomic_instance_problems(
     if (
         driver == "redis"
         and server is not None
-        and server == _server(_cache_default_url(cfg, infra))
+        and server == _server(_cache_default_url(infra))
     ):
         return [
             f"atomic_store/{role} runs on the same Redis server as the "

@@ -71,10 +71,13 @@ stability, registered drivers and per-instance health.
 
 ## Upgrade: flat settings that became driver options
 
-Three groups of flat settings are removed. Each became an option of the driver
+Five groups of flat settings are removed. Each became an option of the driver
 that read it, written on that driver's instance in `INFRA`. Startup refuses a
 removed setting that carries a value, and names the option to write. An empty
-value only logs a warning. There are no aliases.
+value only logs a warning. The url and bound settings are the exception (the
+`CACHE_URL` row, the `BROKER_URL` row and the `CACHE_*` bounds): any value fails
+startup. A value counts from every source of the process load: the environment and `.env`
+(an empty `BROKER_URL=` too), and a file of `SECRETS_DIR`. There are no aliases.
 
 | Removed setting | Instance | Option |
 | --- | --- | --- |
@@ -82,12 +85,27 @@ value only logs a warning. There are no aliases.
 | `SMTP_FROM`, `SMTP_USE_TLS` | `notification` (`smtp`) | `from_addr`, `use_tls` |
 | `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | `objectstore` (`s3`) | `bucket`, `region`, `access_key_id`, `secret_access_key` |
 | `EVENT_STREAM_RETENTION_SECONDS`, `EVENT_STREAM_MAXLEN`, `EVENT_STREAM_PREFIX` | `eventbus` (`streams`) | `retention_seconds`, `max_length`, `prefix` |
+| `CACHE_URL` | every Redis instance: `cache.default`, `atomic_store.security`, `lease.beat`, `broadcast.default`, `eventbus.default` (`streams`) | `url`, stated on each instance |
+| `BROKER_URL` | `taskqueue` (`celery`) | `broker` |
+| `CACHE_SOCKET_TIMEOUT_SECONDS`, `CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS`, `CACHE_HEALTH_CHECK_INTERVAL_SECONDS`, `CACHE_MAX_CONNECTIONS`, `CACHE_POOL_TIMEOUT_SECONDS`, `CACHE_RETRY_ATTEMPTS` | each Redis instance | `socket_timeout_seconds`, `socket_connect_timeout_seconds`, `health_check_interval_seconds`, `max_connections`, `pool_timeout_seconds`, `retry_attempts` |
 
 For example, move `SMTP_HOST=mail` and `SMTP_USE_TLS=false` to:
 
 ```sh
 INFRA='{"notification":{"default":{"driver":"smtp","host":"mail","use_tls":false}}}'
 ```
+
+`CACHE_URL`, `BROKER_URL` and the `CACHE_*` bounds are refused with any value, an empty
+one included. No value reaches an instance any more, so each instance of the app states
+its own url:
+
+```sh
+INFRA='{"cache":{"default":{"driver":"redis","url":"redis://r:6379/1"}},"atomic_store":{"security":{"driver":"redis","url":"redis://r:6379/3"}},"taskqueue":{"default":{"driver":"celery","broker":"redis://r:6379/2"}}}'
+```
+
+List only the instances the app selects. The Celery result backend is off unless
+`taskqueue.default.backend` is stated. The Redis client bounds keep the defaults the
+`CACHE_*` settings had.
 
 Four details to know. STARTTLS stays on unless you write `use_tls: false`, as
 it did with `SMTP_USE_TLS`, and production still refuses credentials without it.

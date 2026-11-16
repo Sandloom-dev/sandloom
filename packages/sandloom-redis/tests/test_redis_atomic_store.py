@@ -17,10 +17,10 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 import pytest
-from sandloom_redis._settings_fill import MissingUrlError
+from _redis_required import cache_url_or_unavailable
+from sandloom_redis._url import MissingUrlError
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
-from sandloom.core.config.settings import settings
 from sandloom.driverkit import (
     AtomicStoreProvider,
     InfraError,
@@ -34,7 +34,7 @@ _VALUE_LIMIT = 8192
 
 
 def _redis_options(**options: Any) -> dict[str, Any]:
-    options.setdefault("url", settings.cache_url)
+    options.setdefault("url", cache_url_or_unavailable())
     options.setdefault("max_value_bytes", _VALUE_LIMIT)
     return options
 
@@ -356,7 +356,7 @@ class _DroppingProxy:
         assert self._server is not None
         port = self._server.sockets[0].getsockname()[1]
         # The worker's own database index: under xdist it is not /0.
-        db = urlsplit(settings.cache_url).path or "/0"
+        db = urlsplit(cache_url_or_unavailable()).path or "/0"
         return f"redis://127.0.0.1:{port}{db}"
 
     async def _serve(
@@ -411,7 +411,7 @@ class _DroppingProxy:
 
 
 def _upstream() -> tuple[str, int]:
-    parts = urlsplit(settings.cache_url)
+    parts = urlsplit(cache_url_or_unavailable())
     return parts.hostname or "127.0.0.1", parts.port or 6379
 
 

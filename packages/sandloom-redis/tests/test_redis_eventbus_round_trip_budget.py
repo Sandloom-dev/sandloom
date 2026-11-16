@@ -14,17 +14,15 @@ missing Redis fails the job instead of skipping.
 
 from __future__ import annotations
 
-import os
 import re
 import uuid
 from collections.abc import AsyncIterator, Callable
-from pathlib import Path
 from typing import Any
 
 import pytest
 import pytest_asyncio
 import redis.asyncio as redis_asyncio
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from redis.asyncio.connection import Connection
 from sandloom_redis.cache import RedisCacheProvider
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
@@ -34,17 +32,12 @@ from sandloom.core.eventing.consumer_inbox import ConsumerInbox
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.schema.registry import InMemorySchemaRegistry
-from sandloom.core.testing.workers import worker_env_values
 
 BATCH = 64
 
 
 def _cache_url() -> str:
-    env = worker_env_values(Path(__file__).resolve().parents[3] / ".env.test")
-    url = os.environ.get("CACHE_URL") or env.get("CACHE_URL")
-    if not url:
-        redis_unavailable("CACHE_URL not configured")
-    return str(url)
+    return cache_url_or_unavailable()
 
 
 class _RoundTrips:

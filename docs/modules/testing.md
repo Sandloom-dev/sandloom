@@ -74,6 +74,17 @@ Redis instance that has one (`lease.beat`, `atomic_store.security`, `broadcast.d
 `eventbus.default`). `SANDLOOM_TEST_BROKER_URL` becomes `taskqueue.default.broker`. The
 harness reads the cache url from the resolved `INFRA`.
 
+The override reaches the default instance of each Redis capability. It also reaches the
+instances on the same Redis server and database as the default (the `url` and `broker`
+options). An instance declared in `INFRA` on another database or server is not touched, so
+two parallel runs would share it. Each run overrides those instances too: give them urls of
+your own in the `INFRA` your run loads. An override with no declared Redis default instance
+in `INFRA` is refused (`UnmatchedOverrideError`), never dropped. An app that selects no
+task queue has no `taskqueue.default.broker`. `sandloom dev up` writes no
+`SANDLOOM_TEST_BROKER_URL` for it (likewise no `SANDLOOM_TEST_CACHE_URL` for an app with no
+cache). A variable you export yourself is yours to unset. `CACHE_URL` and
+`BROKER_URL` are not settings any more: setting either fails startup.
+
 - The database is created on first use.
 - Pick two Redis indexes no one else uses (`tools/checks/test_resources.py list`).
 - Set `SANDLOOM_TEST_OWNER` so the ownership guard knows the resources are yours.
@@ -293,7 +304,7 @@ installed, no URL set. A family package imports the kernel's side of the
 harness only through `sandloom.driverkit.testing_family`. It offers:
 
 - ownership markers: `check_holder`, `current_owner`, `record_claim`;
-- the setting names: `FLAT_VARS`, `INFRA_VAR` and `parse_infra`;
+- the setting names: `INFRA_VAR` and `parse_infra`;
 - the worker layout and the driver a composition selects: `default_driver`,
   `isolated_instance_options`;
 - `Resource` and `verdict`, to list and prune stale resources.

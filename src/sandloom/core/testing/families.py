@@ -37,8 +37,6 @@ from typing import Any, Protocol, runtime_checkable
 
 #: Entry-point group: ``"<family>" = "pkg.testing:FAMILY"``.
 TESTING_GROUP = "sandloom.testing"
-#: The flat settings naming a cache / broker the harness may need to isolate.
-FLAT_VARS = ("CACHE_URL", "BROKER_URL")
 #: The setting declaring named infrastructure instances (JSON).
 INFRA_VAR = "INFRA"
 #: The options of an ``INFRA`` instance that hold a service URL: ``url`` (the
@@ -223,7 +221,6 @@ def require_for_installed(client_installed: Mapping[str, bool]) -> None:
 
 
 __all__ = [
-    "FLAT_VARS",
     "INFRA_VAR",
     "INSTANCE_URL_OPTIONS",
     "TESTING_GROUP",

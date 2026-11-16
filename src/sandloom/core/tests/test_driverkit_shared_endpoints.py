@@ -84,6 +84,14 @@ def _cache(endpoint: str | None = _CACHE) -> None:
         # the credential may reach an endpoint (and so a log line)
         ("redis://admin:1234/5@host", None),
         ("redis://admin:1234/5@host:6379/0", None),
+        # the same split at '?' and '#': what follows them is no query or
+        # fragment but the rest of a password, and none of it may leak
+        ("redis://admin:4821?77@h:6379/0", None),
+        ("redis://u:99#12@h/0", None),
+        ("redis://tok3n?rest@h/0", None),
+        # a database path of thousands of digits is no database (int() refuses
+        # it): None, not an exception at startup
+        (f"redis://host:6379/{'9' * 5000}", None),
         ("", None),
         (None, None),
     ],
@@ -208,7 +216,7 @@ def test_an_endpoint_of_none_unregisters(caplog: pytest.LogCaptureFixture) -> No
 def test_an_instance_nobody_declared_is_info_never_a_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """The development default (``CACHE_URL`` alone) shares by construction: a
+    """The development default (no declared instance) shares by construction: a
     WARNING on every start would hide the one an operator has to act on."""
     with caplog.at_level(logging.INFO, logger=_LOGGER):
         _cache()
@@ -247,6 +255,43 @@ def test_the_registry_tells_a_provider_whether_the_kernel_synthesized_it() -> No
     )
     assert registry.provider("lease", "default").implicit is True
     assert registry.provider("lease", "named").implicit is False
+
+
+def test_nothing_counts_as_synthesized_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A development default shares the cache's Redis by construction, so its
+    message is INFO. In production no instance is a development default: the
+    registry hands a synthesized provider ``implicit = False``, and a driver
+    that words its shared-endpoint message by it logs a WARNING."""
+    import sandloom.core.infra.registry as registry_module
+    from sandloom.core.config.settings import Environment
+
+    config: InfraConfig = {
+        "lease": {
+            "default": InstanceConfig("lease", "default", "memory", {}, implicit=True),
+        }
+    }
+    # the in-memory driver is development-only: its own refusal is not the
+    # subject here, only the flag the registry sets
+    monkeypatch.setattr(
+        registry_module.InfraRegistry,
+        "_refuse_development_only",
+        staticmethod(lambda cfg, registration: None),
+    )
+    for environment, expected in (
+        (Environment.dev, True),
+        (Environment.prod, False),
+    ):
+        monkeypatch.setattr(
+            registry_module,
+            "settings",
+            settings.model_copy(update={"environment": environment}),
+        )
+        registry = build_infra_registry(
+            InMemorySchemaRegistry(), settings=settings, config=config
+        )
+        assert registry.provider("lease", "default").implicit is expected, environment
 
 
 def test_an_unknown_role_is_refused() -> None:

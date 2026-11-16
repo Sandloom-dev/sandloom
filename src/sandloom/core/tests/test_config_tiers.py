@@ -21,14 +21,13 @@ import pytest
 
 from sandloom.core.cli import doctor
 from sandloom.core.config import accepted_risks, tiers
-from sandloom.core.config.settings import Settings
+from sandloom.core.config.module_settings import SourceSnapshot
+from sandloom.core.config.settings import _LOAD_SNAPSHOT, Settings
 from sandloom.core.drivers.smtp_notifier import NotifierOptions, SmtpNotifierOptions
 
 _STRONG = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
 _BASE = {
     "DATABASE_URL": "postgresql+asyncpg://u:p@h:5432/d",
-    "CACHE_URL": "redis://cache-redis:6379/0",
-    "BROKER_URL": "redis://cache-redis:6379/1",
     "JWT_SECRET": _STRONG,
 }
 _STRICT = {
@@ -459,16 +458,107 @@ def test_removed_setting_fails_unless_inert(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     assert removed.name not in _aliases()
-    inert = str(removed.inert).lower()
-    active = "false" if removed.inert is True else "true"
-    with caplog.at_level(logging.WARNING, logger="sandloom.settings"):
-        _settings(**{removed.name: inert})
-    assert f"{removed.name} was removed in {removed.removed_in}" in caplog.text
-    with pytest.raises(ValueError, match="is no longer supported"):
-        _settings(**{removed.name: active})
+    if removed.inert is None:
+        # No inert value: whatever it is set to fails startup, empty and "off"
+        # spellings included (a flat url that is "turned off" still names a url
+        # nothing reads any more).
+        active = "redis://h:6379/0"
+        for value in ("", "0", "false", "none", active):
+            with pytest.raises(ValueError, match="is no longer supported"):
+                _settings(**{removed.name: value})
+        with caplog.at_level(logging.WARNING, logger="sandloom.settings"):
+            _settings()
+        assert f"{removed.name} was removed" not in caplog.text
+    else:
+        inert = str(removed.inert).lower()
+        active = "false" if removed.inert is True else "true"
+        with caplog.at_level(logging.WARNING, logger="sandloom.settings"):
+            _settings(**{removed.name: inert})
+        assert f"{removed.name} was removed in {removed.removed_in}" in caplog.text
+        with pytest.raises(ValueError, match="is no longer supported"):
+            _settings(**{removed.name: active})
     monkeypatch.setenv(removed.name, active)
     with pytest.raises(ValueError, match=removed.name):
         _settings()
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "CACHE_URL",
+        "BROKER_URL",
+        "CACHE_SOCKET_TIMEOUT_SECONDS",
+        "CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS",
+        "CACHE_HEALTH_CHECK_INTERVAL_SECONDS",
+        "CACHE_MAX_CONNECTIONS",
+        "CACHE_POOL_TIMEOUT_SECONDS",
+        "CACHE_RETRY_ATTEMPTS",
+    ],
+)
+def test_the_flat_redis_settings_are_refused_with_the_infra_replacement(
+    name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    removed = next(r for r in tiers.REMOVED if r.name == name)
+    assert removed.inert is None
+    assert name not in tiers.OPS
+    # A setting in a ``.env`` file is refused as well as one in the environment.
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"{name}=1\n")
+    for key, value in _BASE.items():
+        monkeypatch.setenv(key, str(value))
+    with pytest.raises(ValueError, match=f"{name} was removed"):
+        Settings(_env_file=str(env_file))
+    assert "INFRA" in removed.hint or "instance" in removed.hint
+
+
+@pytest.mark.parametrize("name", ["CACHE_URL", "BROKER_URL"])
+@pytest.mark.parametrize("content", ["", "redis://h:6379/0"])
+def test_a_removed_url_in_the_secrets_dir_is_refused_empty_or_not(
+    name: str, content: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A url delivered as a file of ``SECRETS_DIR`` (the usual prod way) is as
+    much a value as an environment variable: refused, empty included, without
+    echoing it. Both the direct ``Settings()`` and the process load."""
+    (tmp_path / name).write_text(content)
+    monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("SECRETS_DIR", str(tmp_path))
+    with pytest.raises(ValueError, match=f"{name} was removed") as direct:
+        _settings()
+    assert "h:6379" not in str(direct.value)
+    snapshot = SourceSnapshot(environ=dict(_BASE), env_file=None, secrets_dir=tmp_path)
+    token = _LOAD_SNAPSHOT.set(snapshot)
+    try:
+        with pytest.raises(ValueError, match=f"{name} was removed") as loaded:
+            _settings()
+    finally:
+        _LOAD_SNAPSHOT.reset(token)
+    assert "h:6379" not in str(loaded.value)
+
+
+@pytest.mark.parametrize("name", ["CACHE_URL", "BROKER_URL"])
+def test_an_empty_removed_url_in_dotenv_is_refused_on_the_process_load(
+    name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``BROKER_URL=`` in ``.env`` is a value too: the doc says an empty value of
+    these settings fails startup, and the load reads the snapshot's one parse."""
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"{name}=\n")
+    monkeypatch.delenv(name, raising=False)
+    snapshot = SourceSnapshot(environ=dict(_BASE), env_file=env_file)
+    token = _LOAD_SNAPSHOT.set(snapshot)
+    try:
+        with pytest.raises(ValueError, match=f"{name} was removed"):
+            _settings()
+    finally:
+        _LOAD_SNAPSHOT.reset(token)
+
+
+def test_a_removed_setting_is_refused_first_and_another_failure_still_raises() -> None:
+    with pytest.raises(ValueError) as caught:
+        _settings(CACHE_RETRY_ATTEMPTS="1", SANDLOOM_ACCEPTED_RISKS="no_such_risk")
+    assert "CACHE_RETRY_ATTEMPTS was removed" in str(caught.value)
+    with pytest.raises(ValueError, match="unknown risk id"):
+        _settings(SANDLOOM_ACCEPTED_RISKS="no_such_risk")
 
 
 def test_doctor_lists_overrides() -> None:
@@ -529,7 +619,10 @@ def test_the_documented_lease_upgrade_examples_parse_into_instance_options() -> 
 
     texts = _lease_upgrade_texts()
     assert len(texts) >= 2, "the setting's message and the changelog state an example"
-    examples = [e for text in texts for e in _documented_infra(text)]
+    everything = [e for text in texts for e in _documented_infra(text)]
+    for example in everything:  # every stated example is a valid INFRA
+        assert load_infra_config(_settings(INFRA=example))
+    examples = [e for e in everything if "lease" in e]
     assert len(examples) >= 2
     for example in examples:
         beat = example["lease"]["beat"]

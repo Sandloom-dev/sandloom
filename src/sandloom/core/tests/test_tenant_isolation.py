@@ -375,8 +375,10 @@ def test_single_tenant_mode_requires_canonical_tenant() -> None:
     with pytest.raises(ValidationError, match="SINGLE_TENANT_ID"):
         Settings(
             DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost/sandloom",
-            CACHE_URL="redis://localhost:6379/0",
-            BROKER_URL="redis://localhost:6379/1",
+            INFRA={
+                "cache": {"default": {"url": "redis://localhost:6379/0"}},
+                "taskqueue": {"default": {"broker": "redis://localhost:6379/1"}},
+            },
             JWT_SECRET="test-secret",
             TENANCY_MODE="single",
         )

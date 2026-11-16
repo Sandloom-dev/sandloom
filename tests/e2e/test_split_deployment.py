@@ -55,7 +55,7 @@ from sandloom.core.testing.served import (
     probe,
     spawn_served,
 )
-from sandloom.sdk.testing import split_env
+from sandloom.sdk.testing import resolved_cache_url, split_env
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow]
 
@@ -68,7 +68,7 @@ STARTUP_TIMEOUT = 60.0
 def _test_env() -> dict[str, str]:
     # Worker-aware under pytest-xdist (own database / Redis DBs per worker).
     values = worker_env_values(BACKEND / ".env.test")
-    for key in ("DATABASE_URL", "CACHE_URL", "BROKER_URL", "JWT_SECRET"):
+    for key in ("DATABASE_URL", "INFRA", "JWT_SECRET"):
         if os.environ.get(f"E2E_{key}"):
             values[key] = os.environ[f"E2E_{key}"]
     return values
@@ -222,9 +222,12 @@ class _Proc:
 def split(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
     base = _test_env()
     db_url = base.get("DATABASE_URL", "")
-    cache_url = base.get("CACHE_URL", "")
+    try:
+        cache_url = resolved_cache_url({**os.environ, **base})
+    except RuntimeError:
+        cache_url = ""
     if not db_url or not cache_url:
-        _unavailable("DATABASE_URL / CACHE_URL not configured for e2e")
+        _unavailable("DATABASE_URL / INFRA cache.default.url not configured for e2e")
     if not _reachable(db_url, 5432):
         _unavailable(f"PostgreSQL unavailable at {urlparse(db_url).netloc}")
     if not _reachable(cache_url, 6379):

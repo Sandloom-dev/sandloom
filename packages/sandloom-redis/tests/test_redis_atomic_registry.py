@@ -12,9 +12,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from _redis_required import require_redis
+from _redis_required import cache_url_or_unavailable, require_redis
 
-from sandloom.core.config.settings import settings
 from sandloom.core.drivers.bootstrap import build_infra_registry
 from sandloom.core.infra.config import InstanceConfig
 from sandloom.core.infra.errors import PermissionDenied
@@ -35,7 +34,7 @@ def _registry_store(*, is_prod: bool, risks: tuple[str, ...] = ()) -> Any:
                 "default",
                 "redis",
                 {
-                    "url": settings.cache_url,
+                    "url": cache_url_or_unavailable(),
                     "max_value_bytes": _VALUE_LIMIT,
                     "never_evicts_check": "assume",
                 },
@@ -57,7 +56,7 @@ def _registry_store(*, is_prod: bool, risks: tuple[str, ...] = ()) -> Any:
 async def test_the_registry_opens_assume_in_dev_and_with_the_accepted_risk(
     is_prod: bool, risks: tuple[str, ...]
 ) -> None:
-    await require_redis(settings.cache_url)
+    await require_redis(cache_url_or_unavailable())
     provider = _registry_store(is_prod=is_prod, risks=risks)
     await provider.aopen()  # a real server: the policy is readable and noeviction
     await provider.aclose()

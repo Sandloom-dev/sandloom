@@ -189,6 +189,7 @@ def test_no_default_names_the_memory_cache(monkeypatch: pytest.MonkeyPatch) -> N
     # as the standard one), whatever the profile.
     monkeypatch.setattr(config_module, "_PIN", None)
     monkeypatch.setattr(config_module, "_APP", None)
+    monkeypatch.setattr(settings, "infra", {}, raising=False)  # not .env.test's
     use_default_infra({"cache": {"default": {"driver": "redis"}}})
     assert load_infra_config(settings)["cache"]["default"].driver == "redis"
 

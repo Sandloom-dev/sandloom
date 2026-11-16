@@ -264,12 +264,10 @@ def _interpolate(value: object) -> str:
 
 def _broker_of(env: dict[str, Any]) -> str:
     """The broker one service's task queue uses (interpolated): the ``broker`` of
-    ``INFRA``'s ``taskqueue.default``, else the flat ``BROKER_URL``."""
+    ``INFRA``'s ``taskqueue.default``, ``""`` when it declares none."""
     infra = parse_infra(_interpolate(env["INFRA"])) if env.get("INFRA") else {}
     declared = infra.get("taskqueue", {}).get("default", {}).get("broker")
-    if isinstance(declared, str) and declared:
-        return declared
-    return _interpolate(env.get("BROKER_URL", ""))
+    return declared if isinstance(declared, str) else ""
 
 
 _Procs = dict[str, tuple[str, set[str]]]

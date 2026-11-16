@@ -198,7 +198,10 @@ class RemovedSetting:
     """A setting that no longer exists; still configuring it is reported.
 
     Set to its ``inert`` value (today's only behaviour) it logs a warning;
-    any other value fails startup — that behaviour is gone.
+    any other value fails startup — that behaviour is gone. ``inert=None``
+    means there is no inert value: whatever the setting is set to (an empty
+    string, ``0`` or ``false`` included, which are real values of a url or a
+    bound) fails startup.
     """
 
     name: str
@@ -442,8 +445,8 @@ REMOVED: tuple[RemovedSetting, ...] = (
         "the beat lease and the saga sweep are held in the `lease` instance "
         'INFRA.lease.beat (a driver: "redis", "database"; e.g. '
         'INFRA={"lease": {"beat": {"driver": "redis", "url": '
-        '"redis://..."}}}), no longer in a cache instance; absent, it is a '
-        "redis lease on CACHE_URL",
+        '"redis://..."}}}), no longer in a cache instance; absent, the '
+        "composition's own lease instance applies and needs its own url",
     ),
     RemovedSetting(
         "SECURITY_CACHE_INSTANCE",
@@ -521,6 +524,61 @@ REMOVED: tuple[RemovedSetting, ...] = (
             ("EVENT_STREAM_RETENTION_SECONDS", "retention_seconds"),
             ("EVENT_STREAM_MAXLEN", "max_length"),
             ("EVENT_STREAM_PREFIX", "prefix"),
+        )
+    ),
+    RemovedSetting(
+        "CACHE_URL",
+        "1.0",
+        "no instance takes its url from a flat setting or from another "
+        "instance any more: every Redis instance states its own url in INFRA "
+        "(cache.default, eventbus.default for the streams bus, lease.beat, "
+        "atomic_store.security, broadcast.default), e.g. "
+        'INFRA={"cache": {"default": {"driver": "redis", "url": "redis://..."}}, '
+        '"eventbus": {"default": {"driver": "streams", "url": "redis://..."}}, '
+        '"lease": {"beat": {"driver": "redis", "url": "redis://..."}}, '
+        '"atomic_store": {"security": {"driver": "redis", "url": '
+        '"redis://..."}}, "broadcast": {"default": {"driver": "redis", "url": '
+        '"redis://..."}}} (list only the instances the '
+        "app selects). The old value filled all of them: a staging-like "
+        "environment whose INFRA cache.default url differs from CACHE_URL "
+        "moves its implicit security store with this change, so state "
+        "atomic_store.security.url on purpose",
+        inert=None,
+    ),
+    RemovedSetting(
+        "BROKER_URL",
+        "1.0",
+        "the Celery broker is the option `broker` of the `taskqueue` instance, "
+        'e.g. INFRA={"taskqueue": {"default": {"driver": "celery", "broker": '
+        '"redis://..."}}}; the '
+        "result backend (`backend`, formerly CACHE_URL) is off unless INFRA "
+        "states it",
+        inert=None,
+    ),
+    *(
+        RemovedSetting(
+            name,
+            "1.0",
+            f"the Redis client bound is the driver option `{option}` of each "
+            "instance (cache, atomic_store, broadcast, eventbus), no longer a "
+            "flat setting, e.g. "
+            f'INFRA={{"cache": {{"default": {{"{option}": ...}}}}}}; the '
+            "driver defaults are the old defaults",
+            inert=None,
+        )
+        for name, option in (
+            ("CACHE_SOCKET_TIMEOUT_SECONDS", "socket_timeout_seconds"),
+            (
+                "CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS",
+                "socket_connect_timeout_seconds",
+            ),
+            (
+                "CACHE_HEALTH_CHECK_INTERVAL_SECONDS",
+                "health_check_interval_seconds",
+            ),
+            ("CACHE_MAX_CONNECTIONS", "max_connections"),
+            ("CACHE_POOL_TIMEOUT_SECONDS", "pool_timeout_seconds"),
+            ("CACHE_RETRY_ATTEMPTS", "retry_attempts"),
         )
     ),
     RemovedSetting(
@@ -649,14 +707,6 @@ OPS: frozenset[str] = frozenset(
         "CONTRACT_CACHE_SHADOW_MAX_ENTRIES",
         "CONTRACT_CACHE_SHADOW_REPORT_DIR",
         "CONTRACT_COMMAND_DEDUPE_TTL_SECONDS",
-        "CACHE_URL",
-        "BROKER_URL",
-        "CACHE_SOCKET_TIMEOUT_SECONDS",
-        "CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS",
-        "CACHE_HEALTH_CHECK_INTERVAL_SECONDS",
-        "CACHE_MAX_CONNECTIONS",
-        "CACHE_POOL_TIMEOUT_SECONDS",
-        "CACHE_RETRY_ATTEMPTS",
         "STORAGE_TYPE",
         "STORAGE_PATH",
         "MAX_UPLOAD_SIZE_BYTES",

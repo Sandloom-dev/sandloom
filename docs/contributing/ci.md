@@ -142,10 +142,13 @@ or Celery driver. A listed file is not collected, and a listed test is a strict
 xfail. Like the batteries list it is empty and stays empty: both ceilings in
 the tool are 0. A test that needs a driver runs on the kernel's `memory`
 drivers or moves to `packages/sandloom-redis/tests` or
-`packages/sandloom-celery/tests`. Locally, after the commands above:
+`packages/sandloom-celery/tests`. The job sets `INFRA={}`: the `.env.test`
+`INFRA` states Redis urls and timeouts, which the `memory` drivers refuse as
+unknown options. Locally, after the commands above:
 
 ```bash
 uv pip uninstall --python .venv-kernel/bin/python redis hiredis sandloom-redis sandloom-celery celery kombu
+export INFRA='{}'
 .venv-kernel/bin/python -m pytest --collect-only -qq --no-cov -p no:xdist -p tools.ci.no_batteries -p tools.ci.no_redis src/sandloom/core/tests tests/sdk tests/architecture tests/integration/replaceability
 pending=$(.venv-kernel/bin/python -c "from tools.ci.no_redis import load_pending; print(*sorted({t.split('::', 1)[0] for t in load_pending()[1]}))")
 .venv-kernel/bin/python -m pytest -n auto --dist loadfile --no-cov -p tools.ci.no_batteries -p tools.ci.no_redis $pending tests/architecture/test_no_redis.py tests/architecture/test_no_batteries.py

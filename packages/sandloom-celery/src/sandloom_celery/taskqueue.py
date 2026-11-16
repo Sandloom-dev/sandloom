@@ -10,9 +10,8 @@ worker_host`, :mod:`sandloom_celery.worker`): it runs the SAME app,
 so enqueue and execution share one namespace.
 
 The driver reads no kernel setting (its ``broker`` and ``backend`` are options
-of the instance, ``backend`` unset by default; the kernel still fills what an
-instance leaves out from the optional ``BROKER_URL`` / ``CACHE_URL``, until
-those settings go) and only publishes: enqueue
+of the instance, stated in ``INFRA``, ``backend`` unset by default: no flat
+setting fills what an instance leaves out) and only publishes: enqueue
 dedupe (``idempotency_key``) is the kernel's taskqueue layer
 (:mod:`sandloom.core.tasks.queue`), which reserves a job id and hands it to
 :meth:`CeleryTaskQueueProvider.send` as ``task_id``. A failure that provably
@@ -57,6 +56,7 @@ from sandloom_celery.worker import (
     build_named_app,
     default_app_matches,
     get_default_app,
+    refuse_foreign_app_conf,
 )
 
 
@@ -84,10 +84,9 @@ class CeleryTaskQueueOptions(BaseModel):
     ``broker`` is required (an instance with none refuses startup). ``backend``
     is optional and has no default: Sandloom never reads a task result
     (``task_ignore_result`` is on), so an instance with no ``backend`` runs with
-    no result backend. Until the flat settings go away the kernel still fills
-    what the instance leaves out from ``BROKER_URL`` / ``CACHE_URL``; state the
-    ``broker`` in ``INFRA`` and leave ``backend`` out. ``dedupe_ttl_seconds`` is
-    the replay window of the kernel's enqueue dedupe for this instance.
+    no result backend. No flat setting fills what the instance leaves out.
+    ``dedupe_ttl_seconds`` is the replay window of the kernel's enqueue dedupe
+    for this instance.
     ``extra="forbid"`` rejects a typo'd key at startup.
     """
 
@@ -138,11 +137,11 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
     contract_version = 2
     supported_features = CELERY_TASKQUEUE_FEATURES
     options_schema = CeleryTaskQueueOptions
-    # The optional flat ``BROKER_URL`` fills the broker and ``CACHE_URL`` the
-    # result backend of an instance that states none; the probe bound is
-    # ``HEALTH_CHECK_TIMEOUT_SECONDS``, and never above it.
+    url_option = "broker"
+    # The broker and the result backend are options of the instance (``INFRA``):
+    # no setting fills them. The probe bound is ``HEALTH_CHECK_TIMEOUT_SECONDS``,
+    # and never above it.
     settings_fill = SettingsFill(
-        urls={"broker": "broker_url", "backend": "cache_url"},
         bounds={"health_timeout_seconds": "health_check_timeout_seconds"},
         caps={"health_timeout_seconds": "health_check_timeout_seconds"},
     )
@@ -175,6 +174,7 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         options: dict[str, object],
         app: Any | None = None,
         app_factory: Callable[[], Any] | None = None,
+        app_check: Callable[[Any], None] | None = None,
         validated: CeleryTaskQueueOptions | None = None,
     ) -> None:
         if (app is None) == (app_factory is None):
@@ -182,6 +182,11 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         super().__init__(name=name, driver=driver, options=options)
         self._built_app = app
         self._app_factory: Callable[[], Any] = app_factory or (lambda: app)
+        # Run on every access after the build (the factory runs it on the first):
+        # Celery reads ``CELERY_BROKER_URL`` on each ``conf.broker_url`` access
+        # and opens its producers lazily, so a variable set after the first
+        # publish would be followed unless the conf is checked again.
+        self._app_check = app_check
         # The factory hands over the object it already validated: ``options``
         # is not parsed a second time.
         self._typed = validated or CeleryTaskQueueOptions.model_validate(options)
@@ -209,6 +214,8 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         health check or ``sandloom worker check`` too, which import no Celery."""
         if self._built_app is None:
             self._built_app = self._app_factory()
+        elif self._app_check is not None:
+            self._app_check(self._built_app)
         return self._built_app
 
     async def send(
@@ -412,8 +419,18 @@ def _build_celery_taskqueue(cls: type[_Q], cfg: InstanceConfig) -> _Q:
 
     def build() -> Any:
         if cfg.name == DEFAULT_INSTANCE and default_app_matches(broker, backend):
-            return get_default_app(broker, backend)
-        return build_named_app(cfg.name, broker, backend)
+            app = get_default_app(broker, backend)
+        else:
+            app = build_named_app(cfg.name, broker, backend)
+        # Celery prefers a CELERY_* variable or a config module over the url the
+        # app was built with, and a publish would follow it: refused, never
+        # followed. Checked on the provider's first use (the process-wide app
+        # included: an earlier build already holds it) and on each later one.
+        check(app)
+        return app
+
+    def check(app: Any) -> None:
+        refuse_foreign_app_conf(app, broker, backend, cfg.name)
 
     # The app is built on first use (a publish, a probe, the worker host).
     return cls(
@@ -421,6 +438,7 @@ def _build_celery_taskqueue(cls: type[_Q], cfg: InstanceConfig) -> _Q:
         driver=cfg.driver,
         options=dict(cfg.options),
         app_factory=build,
+        app_check=check,
         validated=options,
     )
 

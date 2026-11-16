@@ -73,7 +73,11 @@ class TestS3Endpoint(ObjectStoreConformance):
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         options = {"driver": "s3", **_options()}
-        monkeypatch.setattr(settings, "infra", {"objectstore": {"default": options}})
+        # keep the run's INFRA: the root app also opens the cache and the task
+        # queue, whose urls live only there since the flat settings are gone
+        monkeypatch.setattr(
+            settings, "infra", {**settings.infra, "objectstore": {"default": options}}
+        )
         app = create_root_app()
         async with app.router.lifespan_context(app):
             store = objectstore()

@@ -167,7 +167,7 @@ infrastructure tables. See [Migrations](../modules/database/migrations.md) and
 | `sandloom security audit-export --since T [--until T] [--action-prefix P] --output FILE` | Export an audit-log window as JSONL (sanitized metadata). |
 | `sandloom worker [--queues Q[,Q...]] [--concurrency N] [--loglevel L]` | Run a task worker for the loaded modules (every deploy profile's `<service>-worker`). `--queues` defaults to the default queue, `--concurrency` to `WORKER_CONCURRENCY`, else the CPU quota; the process model is the `worker_pool` option of the celery instance in `INFRA` (on macOS set `solo` or `threads`: [the note](../modules/background/tasks.md#the-worker-and-beat)); `--loglevel` defaults to `INFO`. It boots the composition root like the API, runs the worker host of the taskqueue driver, and exits with the worker's exit code (non-zero when the worker dies). Replaces `celery -A sandloom.core.worker worker`. |
 | `sandloom beat [--loglevel L] [--schedule PATH]` | Run the scheduler. It schedules only while it holds the singleton lease: a second one stands by, so run one per broker and module set. `--schedule` is the scheduler's state file (default `celerybeat-schedule` in the working directory; containers pass `/tmp/celerybeat-schedule`). Replaces `celery -A sandloom.core.worker beat`. |
-| `sandloom worker check [--timeout SECONDS]` | The worker's container healthcheck: exit 0 when its heartbeat file is younger than `--timeout` (default 60, at most 86400), 1 when missing or stale. It asks the driver's host and boots nothing: no composition root, no broker round trip. It loads the full, valid settings of the worker (`DATABASE_URL`, `CACHE_URL`, `BROKER_URL` and `JWT_SECRET`) to find the driver, and fails like any process on an invalid one. Replaces `python -m sandloom.core.worker healthcheck`. |
+| `sandloom worker check [--timeout SECONDS]` | The worker's container healthcheck: exit 0 when its heartbeat file is younger than `--timeout` (default 60, at most 86400), 1 when missing or stale. It asks the driver's host and boots nothing: no composition root, no broker round trip. It loads the full, valid settings of the worker (`DATABASE_URL`, `INFRA` and `JWT_SECRET`) to find the driver, and fails like any process on an invalid one. Replaces `python -m sandloom.core.worker healthcheck`. |
 | `sandloom backup plan \| verify <dump> \| reconcile-security \| fence-leases` | What to back up per database and Redis endpoint; restore a dump into a scratch database and check it; re-derive blocks and revocation marks after a security-store restore; lift every fence of the `database` lease driver (`infra_lease`) after a restore of a PostgreSQL database, in one transaction with its audit row (dry-run by default; `fence-leases` and `verify` refuse a database that is not PostgreSQL). |
 | `sandloom keys generate [--alg EdDSA\|RS256\|ES256] [--purpose jwt\|rpc\|rpc-dh] [--service S] [--kid K] [--out-dir DIR]` | Generate an access-token signing pair, or a service's internal-RPC keys. |
 | `sandloom keys allowlist` | Derive `RPC_ALLOWED_CALLS` from `SERVICE_BINDINGS`. |
@@ -348,7 +348,7 @@ is raw env).
   `sandloom.sdk.security`, never hand-pinned parameters; a successful login
   re-hashes a hash with other parameters; prod refuses parameters below the
   OWASP argon2id minimum unless the risk `weak_password_hash` is accepted).
-- **Infrastructure.** `INFRA` (JSON declaring additional named infrastructure
+- **Infrastructure.** <!-- prose-ok: S4 dense settings list, only the Redis bounds clause changed --> `INFRA` (JSON declaring additional named infrastructure
   instances / driver overrides — see
   [Capabilities & Infrastructure](../infrastructure/index.md)),
   `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_POOL_TIMEOUT` (default-engine pool
@@ -358,11 +358,10 @@ is raw env).
   QueuePool), `DB_POOL_FAIR_BARGE_MS` (fair checkout: a waiter older than
   this is served before newcomers; 0 = strict FIFO handoff),
   `DB_STATEMENT_TIMEOUT_MS` / `DB_IDLE_IN_TX_TIMEOUT_MS` (server-side guards,
-  0 = off), `CACHE_SOCKET_TIMEOUT_SECONDS` /
-  `CACHE_SOCKET_CONNECT_TIMEOUT_SECONDS` / `CACHE_MAX_CONNECTIONS` /
-  `CACHE_POOL_TIMEOUT_SECONDS` / `CACHE_RETRY_ATTEMPTS` /
-  `CACHE_HEALTH_CHECK_INTERVAL_SECONDS` (bounded Redis cache client: a dead
-  Redis raises fast so fail-open/closed policies run), `GC_FREEZE_AFTER_STARTUP`
+  0 = off), the Redis client bounds (options of each Redis instance in `INFRA`:
+  `socket_timeout_seconds`, `socket_connect_timeout_seconds`, `max_connections`,
+  `pool_timeout_seconds`, `retry_attempts`, `health_check_interval_seconds`; a
+  dead Redis raises fast so fail-open/closed policies run), `GC_FREEZE_AFTER_STARTUP`
   / `GC_THRESHOLDS` / `GC_METRICS_ENABLED` (cyclic GC of gunicorn / Celery
   workers: freeze the startup heap, thresholds `2000,10,10`, pause histogram;
   applied by the process entry points, never by `create_app`).

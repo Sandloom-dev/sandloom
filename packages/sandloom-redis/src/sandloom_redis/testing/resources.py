@@ -304,8 +304,8 @@ def allocate_worker_redis(
     if len({urlsplit(u).netloc for u in base_urls}) > 1:
         raise TestResourceOwnershipError(
             "SANDLOOM_TEST_REDIS_DB_STRIDE=auto needs every Redis URL of the run "
-            "(CACHE_URL / BROKER_URL, the url / broker of each INFRA instance) on "
-            "one Redis server; use a numeric stride instead"
+            "(the url / broker of each INFRA instance) on one Redis server; "
+            "use a numeric stride instead"
         )
     needed = workers * len(bases)
     client = _connect_redis(base_urls[0])

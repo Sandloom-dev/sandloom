@@ -1509,6 +1509,12 @@ For the orchestrator's review; each departs from or details `design.md`.
     - **Left as it was.** The synthesized task-queue instance still carries `BROKER_URL` and
       `CACHE_URL` (`_synthesize_defaults`, no driver named). Removing the flat settings stays the
       later step of ADR-0016.
+    - **Superseded by `idk-flat-urls-z`.** `CACHE_URL`, `BROKER_URL` and the six `CACHE_*`
+      bounds are removed settings and refuse startup; `SettingsFill` has `bounds` and `caps`
+      only (`urls`, `urls_for` and `follows` are gone). Every Redis instance states its own `url`
+      in `INFRA`, the Celery broker is `taskqueue.default.broker`, and a url-less instance is
+      refused when it opens (`MissingUrlError`). The harness override
+      (`SANDLOOM_TEST_CACHE_URL` / `SANDLOOM_TEST_BROKER_URL`) merges into `INFRA` only.
 
 ## 14. Open for the owner
 

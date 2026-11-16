@@ -30,8 +30,9 @@ def _seed_test_env() -> None:
     fills the process env (it beats ``.env`` in pydantic-settings) for every
     key the shell leaves unset, an explicit ``SANDLOOM_TEST_DATABASE_URL`` /
     ``SANDLOOM_TEST_CACHE_URL`` / ``SANDLOOM_TEST_BROKER_URL`` wins over the
-    file and over a shell-exported ``DATABASE_URL`` / ``CACHE_URL`` /
-    ``BROKER_URL``, and ``ENVIRONMENT`` stays the dev default. A shell that
+    file (the cache and broker urls of its ``INFRA``) and over a
+    shell-exported ``DATABASE_URL``, and ``ENVIRONMENT`` stays the dev
+    default. A shell that
     exports ``DATABASE_URL`` itself without an override (CI) is left alone
     (:func:`~sandloom.core.testing.workers.seed_test_environ`).
     """
