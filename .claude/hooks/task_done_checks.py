@@ -9,7 +9,10 @@ the handover goes through carrying a record that was run, not retold. A red
 result does not block it: it is recorded for whoever reviews.
 
 Only a ``sandloom-implementer`` subagent's handover is checked (the hook input
-names the subagent type). The run is the static gate of the agent's checkout:
+names the subagent type). The agent's checkout is the worktree whose HEAD is the
+commit its ``git_commit`` deliverable names (the hook's cwd can be the main
+checkout); none at that commit gives a ``not_run`` record, never a run of another
+tree. The run is the static gate of that checkout:
 ``pre-commit run --from-ref origin/main --to-ref HEAD`` with the dummy settings
 CI gives the same job, skipping the architecture tests (they need the agent's
 own test servers, which a hook does not know) and the two hooks that rewrite
@@ -56,6 +59,7 @@ _SECRET_QUERY = re.compile(
     r"([?&;](?:[A-Za-z0-9_.-]*?(?:password|passwd|pwd|token|secret|api[_-]?key|access[_-]?key|auth))=)[^&#\s]+",
     re.IGNORECASE,
 )
+_SHA = re.compile(r"\b[0-9a-fA-F]{40}\b")
 #: Digests of the records this hook emitted, outside every checkout.
 ISSUED = (
     Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "sandloom-checks"
@@ -145,27 +149,76 @@ def run_checks(top: str) -> tuple[dict[str, str], str, int]:
     return results(output), "\n".join(failed[-25:]), done.returncode
 
 
+def handed_over(tool_input: dict) -> str | None:
+    """The full commit SHA the ``git_commit`` deliverable names, if any."""
+    for item in _deliverables(tool_input):
+        if item.get("kind") != "git_commit":
+            continue
+        text = item.get("content") or item.get("reference")
+        m = _SHA.search(text) if isinstance(text, str) else None
+        if m:
+            return m.group(0).lower()
+    return None
+
+
+def checkout_at(sha: str, cwd: str) -> str | None:
+    """The worktree of this clone whose HEAD is ``sha``: the agent's own, not
+    the session's cwd (an agent that made its own worktree still reports the
+    main checkout as its cwd)."""
+    listing = _git(["worktree", "list", "--porcelain"], cwd)
+    path = None
+    for line in listing.splitlines():
+        if line.startswith("worktree "):
+            path = line[len("worktree ") :]
+        elif line.startswith("HEAD ") and line[len("HEAD ") :].lower() == sha:
+            return path
+    return None
+
+
+def locate(tool_input: dict, cwd: str) -> tuple[str, str, str]:
+    """``(checkout, head, why_not)``: the tree to check, its commit, and why
+    it cannot be checked (then the record says so instead of checking another
+    tree)."""
+    sha = handed_over(tool_input)
+    if sha:
+        top = checkout_at(sha, cwd)
+        if top:
+            return top, sha, ""
+        return "", sha, f"no worktree of this clone is at the handed-over {sha[:12]}"
+    top = _git(["rev-parse", "--show-toplevel"], cwd)
+    return top, _git(["rev-parse", "HEAD"], top or cwd), ""
+
+
 def main() -> int:
     event = json.load(sys.stdin)
     if event.get("agent_type") != AGENT:
         return 0
     tool_input = event.get("tool_input") or {}
     cwd = event.get("cwd") or os.getcwd()
-    top = _git(["rev-parse", "--show-toplevel"], cwd)
-    head = _git(["rev-parse", "HEAD"], cwd)
-    if not top or not head or already_checked(tool_input, head):
+    top, head, unlocated = locate(tool_input, cwd)
+    if not head or already_checked(tool_input, head):
+        return 0
+    if not top and not unlocated:
         return 0
     exit_status: int | None = None
-    try:
-        outcome, tail, exit_status = run_checks(top)
-        # Mask first, then cut: a cut could drop a URL's prefix and keep its password.
-        shown = redact(tail)[-300:]
-        not_run = "" if outcome else "pre-commit printed no hook result: " + shown
-        if _git(["rev-parse", "HEAD"], cwd) != head:
-            # The tree moved under the run: its results belong to no commit.
-            outcome, not_run = {}, "HEAD moved while the checks ran"
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        outcome, tail, not_run = {}, "", redact(f"{type(exc).__name__}: {exc}")[:300]
+    outcome: dict[str, str] = {}
+    tail = ""
+    if unlocated:
+        # Checking another tree (the main checkout) would record its results
+        # under this commit: say why there are none instead.
+        not_run = unlocated
+    else:
+        try:
+            outcome, tail, exit_status = run_checks(top)
+            # Mask first, then cut: a cut could drop a URL's prefix, keep its password.
+            shown = redact(tail)[-300:]
+            not_run = "" if outcome else "pre-commit printed no hook result: " + shown
+            if _git(["rev-parse", "HEAD"], top) != head:
+                # The tree moved under the run: its results belong to no commit.
+                outcome, not_run = {}, "HEAD moved while the checks ran"
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            outcome, tail = {}, ""
+            not_run = redact(f"{type(exc).__name__}: {exc}")[:300]
     record = {
         "commit": head,
         "ran": "pre-commit run --from-ref origin/main --to-ref HEAD",

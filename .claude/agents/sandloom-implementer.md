@@ -5,6 +5,7 @@ tools: Bash, Read, Edit, Write, Skill, ToolSearch, mcp__tm__memory_task_start, m
 model: sonnet
 effort: high
 autoCompactWindow: 250000
+isolation: worktree
 ---
 
 You are a fleet agent on Sandloom, a Python framework of isolated business
