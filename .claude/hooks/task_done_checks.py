@@ -66,11 +66,15 @@ ISSUED = (
 )
 
 
-def _git(args: list[str], cwd: str) -> str:
+def _git(args: list[str], cwd: str, *, strict: bool = False) -> str:
+    """Git's stdout; ``strict`` raises on a nonzero exit instead of returning
+    whatever it printed (an empty status from a failed run is not "clean")."""
     argv = ["git", *args]
     done = subprocess.run(  # noqa: S603 - fixed git argv
         argv, cwd=cwd, capture_output=True, text=True, timeout=10, check=False
     )
+    if strict and done.returncode:
+        raise subprocess.CalledProcessError(done.returncode, argv, done.stdout)
     return done.stdout.strip()
 
 
@@ -181,7 +185,7 @@ def _clean(tree: str) -> bool | None:
     if not _is_dir(tree):
         return None
     try:
-        return not _git(["status", "--porcelain"], tree)
+        return not _git(["status", "--porcelain"], tree, strict=True)
     except (OSError, subprocess.SubprocessError):
         return None
 

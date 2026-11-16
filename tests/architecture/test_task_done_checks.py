@@ -275,12 +275,18 @@ _LISTING = (
 )
 
 
-def _fake_git(args: list[str], cwd: str, listing: str = _LISTING) -> str:
+def _fake_git(
+    args: list[str], cwd: str, listing: str = _LISTING, *, strict: bool = False
+) -> str:
     if args[:2] == ["worktree", "list"]:
         return listing
     if "--verify" in args:
         token = args[-1].removesuffix("^{commit}")
         return next((s for s in (_MAIN_HEAD, _AGENT_HEAD) if s.startswith(token)), "")
+    if args[0] == "status" and cwd.endswith("/broken"):
+        if strict:
+            raise hook.subprocess.CalledProcessError(128, ["git", *args], "")
+        return ""
     if args[0] == "status":
         return " M dirty.py" if cwd.endswith("/stale") else ""
     if "--show-toplevel" in args:
@@ -392,7 +398,7 @@ def test_a_clean_worktree_wins_over_a_dirty_one_at_the_same_commit(
     )
     ran, _ = _checked_tree(
         monkeypatch,
-        lambda args, cwd: _fake_git(args, cwd, listing),
+        lambda args, cwd, **kw: _fake_git(args, cwd, listing, **kw),
         _commit(_AGENT_HEAD),
     )
     assert ran == ["/repo/.claude/worktrees/fix"]
@@ -419,7 +425,7 @@ def test_a_listed_worktree_that_is_gone_is_skipped(
     monkeypatch.setattr(hook, "_is_dir", lambda p: not p.endswith("/gone"))
     ran, _ = _checked_tree(
         monkeypatch,
-        lambda args, cwd: _fake_git(args, cwd, listing),
+        lambda args, cwd, **kw: _fake_git(args, cwd, listing, **kw),
         _commit(_AGENT_HEAD),
     )
     assert ran == ["/repo/.claude/worktrees/fix"]
@@ -448,3 +454,23 @@ def test_an_unresolved_handover_is_not_satisfied_by_the_cwds_record(
     assert "names no commit" in record["not_run"]
     event["tool_input"]["deliverables"].append(deliverable)
     assert _call(monkeypatch, event) == ""
+
+
+def test_a_worktree_whose_status_fails_is_skipped_and_none_left_is_not_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    broken = f"worktree /repo/.claude/worktrees/broken\nHEAD {_AGENT_HEAD}\ndetached\n"
+    fix = f"worktree /repo/.claude/worktrees/fix\nHEAD {_AGENT_HEAD}\ndetached\n"
+    ran, _ = _checked_tree(
+        monkeypatch,
+        lambda args, cwd, **kw: _fake_git(args, cwd, broken + "\n" + fix, **kw),
+        _commit(_AGENT_HEAD),
+    )
+    assert ran == ["/repo/.claude/worktrees/fix"]
+    ran, record = _checked_tree(
+        monkeypatch,
+        lambda args, cwd, **kw: _fake_git(args, cwd, broken, **kw),
+        _commit(_AGENT_HEAD),
+    )
+    assert ran == []
+    assert "no usable worktree" in record["not_run"]
