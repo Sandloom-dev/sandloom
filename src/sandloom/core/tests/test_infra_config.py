@@ -11,6 +11,7 @@ from sandloom.core.infra.config import (
     InfraConfigError,
     load_infra_config,
 )
+from sandloom.core.tests._driver_fill import fill
 
 
 def _settings_with_infra(monkeypatch: pytest.MonkeyPatch, infra: dict) -> object:
@@ -126,7 +127,7 @@ def test_the_broadcast_default_follows_the_resolved_cache_default_url(
         monkeypatch,
         {"cache": {"default": {"driver": "redis", "url": "redis://cache-host:6390/4"}}},
     )
-    cfg = load_infra_config(s)  # type: ignore[arg-type]
+    cfg = fill(load_infra_config(s))  # type: ignore[arg-type]
     assert cfg["cache"][DEFAULT_INSTANCE].options["url"] == "redis://cache-host:6390/4"
     assert cfg["broadcast"][DEFAULT_INSTANCE].options["url"] == (
         "redis://cache-host:6390/4"

@@ -72,6 +72,7 @@ from sandloom.driverkit.atomic_store import (
     check_value,
 )
 from sandloom_redis._errors import map_redis_error, redis_error_kind
+from sandloom_redis._settings_fill import ATOMIC_STORE_FILL
 
 #: Failed operations of the store (connection, timeout, server error), by
 #: instance and operation: the page-level alert on the security store reads it.
@@ -325,6 +326,7 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
     supported_features = frozenset({"shared", "never_evicts"})
     performance_hints = ATOMIC_STORE_PERFORMANCE_HINTS
     options_schema = RedisAtomicStoreOptions
+    settings_fill = ATOMIC_STORE_FILL
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
     # Beta, the floor for a driver of this repository (spec 2.5): the lane

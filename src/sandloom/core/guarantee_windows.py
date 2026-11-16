@@ -58,8 +58,8 @@ from typing import Any
 
 from sandloom.core.config import accepted_risks as _risks
 from sandloom.core.effects import relay_retry_horizon_seconds
-from sandloom.core.infra.config import configured_stream_retention_seconds
 from sandloom.core.infra.ports.eventbus import Retention
+from sandloom.core.infra.registry import configured_stream_retention_seconds
 
 logger = logging.getLogger("sandloom.core.guarantee_windows")
 

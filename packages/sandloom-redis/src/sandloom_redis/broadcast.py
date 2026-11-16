@@ -48,6 +48,7 @@ from sandloom.driverkit import (
     Unavailable,
 )
 from sandloom_redis._errors import map_redis_error
+from sandloom_redis._settings_fill import BROADCAST_FILL
 
 _CAPABILITY = "broadcast"
 _PATTERN_SUFFIX = ".*"
@@ -389,6 +390,7 @@ class RedisBroadcastProvider(BroadcastProvider):
     contract_version = 1
     supported_features = frozenset({"pattern_subscribe", "shared"})
     options_schema: ClassVar[type[RedisBroadcastOptions]] = RedisBroadcastOptions
+    settings_fill = BROADCAST_FILL
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
     # Beta, the floor for a driver of this repository (spec 2.5): the lane

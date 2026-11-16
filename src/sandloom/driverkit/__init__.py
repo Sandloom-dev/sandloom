@@ -45,7 +45,11 @@ if TYPE_CHECKING:
     from sandloom.core.descriptors import HealthResult
     from sandloom.core.eventing.envelope import EventEnvelope
     from sandloom.core.infra.capabilities import CapabilityRef, CapabilitySpec
-    from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
+    from sandloom.core.infra.config import (
+        DEFAULT_INSTANCE,
+        InstanceConfig,
+        SettingsFill,
+    )
     from sandloom.core.infra.errors import (
         AlreadyExists,
         InfraError,
@@ -128,7 +132,11 @@ _HOMES: dict[str, tuple[str, ...]] = {
     "sandloom.core.descriptors": ("HealthResult",),
     "sandloom.core.eventing.envelope": ("EventEnvelope",),
     "sandloom.core.infra.capabilities": ("CapabilityRef", "CapabilitySpec"),
-    "sandloom.core.infra.config": ("DEFAULT_INSTANCE", "InstanceConfig"),
+    "sandloom.core.infra.config": (
+        "DEFAULT_INSTANCE",
+        "InstanceConfig",
+        "SettingsFill",
+    ),
     "sandloom.core.infra.errors": (
         "AlreadyExists",
         "InfraError",
@@ -268,6 +276,7 @@ __all__ = [
     "HealthResult",
     "InfraProvider",
     "InstanceConfig",
+    "SettingsFill",
     "Notification",
     "NotifierProvider",
     "ObjectContent",

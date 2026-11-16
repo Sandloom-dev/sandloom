@@ -33,12 +33,12 @@ passed verbatim to that driver as an option.
 from __future__ import annotations
 
 import importlib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Literal
 
 from sandloom.core.config.common import Environment
-from sandloom.core.config.eventing import DEFAULT_EVENT_STREAM_RETENTION_SECONDS
 from sandloom.core.config.settings import Settings
 
 #: Capabilities whose ``default`` instance a composition selects (options from
@@ -101,6 +101,67 @@ class InstanceConfig:
 
 # capability -> {instance_name -> InstanceConfig}
 InfraConfig = dict[str, dict[str, InstanceConfig]]
+
+_NO_SETTINGS: Mapping[str, str] = MappingProxyType({})
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsFill:
+    """The options a driver takes from the flat settings when its instance
+    leaves them out (``InfraProvider.settings_fill``).
+
+    A driver reads no kernel setting (ADR-0016): it declares, on its class,
+    which flat setting fills which option, and the kernel applies the
+    declaration without knowing the driver (:func:`fill_driver_defaults`). An
+    option an instance states always wins: ``INFRA`` over the flat setting.
+    Every key of the three tables is an option name, every value the name of a
+    ``Settings`` attribute.
+
+    - ``urls``: an unset (or empty) option takes the setting's value when it is
+      set. Which instances take it is ``urls_for``: ``"all"``, only the
+      ``default`` instance (a named instance without one shares the default's
+      transport), or only an instance the kernel synthesized (``implicit``: one
+      ``INFRA`` declares has its own url, never the cache's).
+    - ``follows``: the capability whose ``default`` instance the ``urls`` follow.
+      When that instance, as resolved (``INFRA`` and its own fill applied), runs
+      the same driver, its option is the value; otherwise the setting is. An
+      instance that follows is filled after the ones that do not, and what it
+      follows follows nothing.
+    - ``bounds``: an option left out takes the setting's value when it is set
+      (a client timeout, a pool size).
+    - ``caps``: a numeric option above the setting is cut to it (a probe the
+      readiness check stops waiting for); a value that is not a number stays
+      for the driver's options to refuse.
+    """
+
+    urls: Mapping[str, str] = field(default_factory=lambda: _NO_SETTINGS)
+    urls_for: Literal["all", "default", "implicit"] = "all"
+    follows: str | None = None
+    bounds: Mapping[str, str] = field(default_factory=lambda: _NO_SETTINGS)
+    caps: Mapping[str, str] = field(default_factory=lambda: _NO_SETTINGS)
+
+    def __post_init__(self) -> None:
+        if self.urls_for not in ("all", "default", "implicit"):
+            raise ValueError(f"SettingsFill.urls_for is {self.urls_for!r}")
+        if self.follows is not None and not self.urls:
+            raise ValueError("SettingsFill.follows needs urls to follow with")
+        for name in ("urls", "bounds", "caps"):
+            table: Mapping[str, str] = getattr(self, name)
+            if not all(
+                isinstance(option, str) and isinstance(setting, str)
+                for option, setting in table.items()
+            ):
+                raise ValueError(
+                    "SettingsFill tables map option names to setting names"
+                )
+            # A copy nobody can change after the class declared it.
+            object.__setattr__(self, name, MappingProxyType(dict(table)))
+
+
+#: ``(capability, driver) -> the fill its class declares``, ``None`` for a driver
+#: that is not registered, whose package is missing or that declares none: no
+#: fill then, and the refusal of an unusable driver is the registry's.
+FillLookup = Callable[[str, str], SettingsFill | None]
 
 
 def _is_prod(settings: Any) -> bool:
@@ -345,13 +406,14 @@ def eventbus_driver(settings: Any, instance: str = DEFAULT_INSTANCE) -> str | No
     ``None`` when ``instance`` is not configured. A malformed ``INFRA``
     raises :class:`InfraConfigError`, as loading the whole config would.
     """
-    found = _resolved_eventbus(settings).get(instance)
+    found = resolved_eventbus(settings).get(instance)
     return found.driver if found is not None else None
 
 
-def _resolved_eventbus(settings: Any) -> dict[str, InstanceConfig]:
+def resolved_eventbus(settings: Any) -> dict[str, InstanceConfig]:
     """The eventbus instances: ``EVENT_BUS_BACKEND`` resolved, ``INFRA`` applied
-    (options not yet filled from the settings)."""
+    (options not filled from the flat settings: a driver's declaration does
+    that, once the registry has its class)."""
     config: InfraConfig = {
         "eventbus": _composition_instances().get("eventbus", {}),
     }
@@ -364,177 +426,107 @@ def _resolved_eventbus(settings: Any) -> dict[str, InstanceConfig]:
             raise InfraConfigError("INFRA must be a JSON object")
         if "eventbus" in raw:
             _overlay(config, {"eventbus": raw["eventbus"]})
-    _fill_eventbus_defaults(config, settings, getattr(settings, "cache_url", None))
     return config["eventbus"]
 
 
-#: The kernel's volatile event buses: no transport, so no stream retention.
-_VOLATILE_EVENTBUS_DRIVERS: frozenset[str] = frozenset({"memory", "redis"})
+def _gets_url(cfg: InstanceConfig, fill: SettingsFill) -> bool:
+    if fill.urls_for == "default":
+        return cfg.name == DEFAULT_INSTANCE
+    if fill.urls_for == "implicit":
+        return cfg.implicit
+    return True
 
 
-def configured_stream_retention_seconds(
-    settings: Any, instance: str = DEFAULT_INSTANCE
-) -> int | None:
-    """The age bound, in seconds, the eventbus ``instance`` is CONFIGURED with
-    (``0``: entries are never trimmed by age): the ``retention_seconds`` option
-    of a transport-backed driver (a ``streams`` bus that leaves it out has the
-    driver's default of seven days).
-
-    A pure configuration read: no bus is built and no process's live bus is
-    asked, so a tool running in another process (a CLI with a volatile bus of
-    its own) learns the retention of the deployment's bus. ``None`` when it
-    cannot be determined: the instance is not configured, its driver is a
-    volatile one (``memory``, ``redis``) or its options carry no
-    ``retention_seconds``.
-    """
-    found = _resolved_eventbus(settings).get(instance)
-    if found is None or found.driver in _VOLATILE_EVENTBUS_DRIVERS:
+def _followed_option(
+    config: InfraConfig, cfg: InstanceConfig, fill: SettingsFill, option: str
+) -> Any:
+    """What ``option`` of the ``default`` instance ``fill`` follows is, as
+    resolved, when that instance runs the same driver as ``cfg``."""
+    if fill.follows is None:
         return None
-    value = found.options.get("retention_seconds")
-    if value is None and found.driver == "streams":
-        value = DEFAULT_EVENT_STREAM_RETENTION_SECONDS
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+    followed = (config.get(fill.follows) or {}).get(DEFAULT_INSTANCE)
+    if followed is None or followed.driver != cfg.driver:
         return None
-    return value
+    return followed.options.get(option)
 
 
-#: ``option -> setting``: the bounds of a ``redis`` cache client, filled from
-#: the ``CACHE_*`` settings when an instance leaves them out.
-_REDIS_CLIENT_SETTINGS: dict[str, str] = {
-    "socket_timeout_seconds": "cache_socket_timeout_seconds",
-    "socket_connect_timeout_seconds": "cache_socket_connect_timeout_seconds",
-    "health_check_interval_seconds": "cache_health_check_interval_seconds",
-    "max_connections": "cache_max_connections",
-    "pool_timeout_seconds": "cache_pool_timeout_seconds",
-    "retry_attempts": "cache_retry_attempts",
-}
-
-#: ``option -> setting``: what a ``celery`` task queue's broker probe is
-#: bounded by.
-_CELERY_SETTINGS: dict[str, str] = {
-    "health_timeout_seconds": "health_check_timeout_seconds",
-}
-
-#: ``option -> setting``: the bounds of a ``redis`` / ``streams`` event bus
-#: client (its read timeout is the bus's own).
-_TRANSPORT_CLIENT_SETTINGS: dict[str, str] = {
-    "socket_connect_timeout_seconds": "cache_socket_connect_timeout_seconds",
-    "health_check_interval_seconds": "cache_health_check_interval_seconds",
-}
-
-
-def _fill(options: dict[str, Any], settings: Any, table: Mapping[str, str]) -> None:
-    for option, setting in table.items():
+def _apply_fill(
+    config: InfraConfig, cfg: InstanceConfig, fill: SettingsFill, settings: Any
+) -> None:
+    options = cfg.options
+    if _gets_url(cfg, fill):
+        for option, setting in fill.urls.items():
+            value = _followed_option(config, cfg, fill, option) or getattr(
+                settings, setting, None
+            )
+            if not options.get(option) and value:
+                options[option] = value
+    for option, setting in fill.bounds.items():
         value = getattr(settings, setting, None)
         if value is not None:
             options.setdefault(option, value)
+    for option, setting in fill.caps.items():
+        bound = getattr(settings, setting, None)
+        stated = options.get(option)
+        if (
+            isinstance(bound, int | float)
+            and isinstance(stated, int | float)
+            and not isinstance(stated, bool)
+            and stated > bound
+        ):
+            options[option] = bound
 
 
-def _cap_probe_bound(options: dict[str, Any], settings: Any) -> None:
-    """A ``celery`` probe bound above ``HEALTH_CHECK_TIMEOUT_SECONDS`` is cut to
-    it: the readiness probe stops waiting there (``InfraRegistry.health_all``),
-    so a longer connect would only keep a thread behind an answered probe. A
-    value that is not a number stays for the driver to refuse."""
-    bound = getattr(settings, "health_check_timeout_seconds", None)
-    stated = options.get("health_timeout_seconds")
-    if (
-        isinstance(bound, int | float)
-        and isinstance(stated, int | float)
-        and not isinstance(stated, bool)
-        and stated > bound
-    ):
-        options["health_timeout_seconds"] = bound
-
-
-def _fill_url(options: dict[str, Any], key: str, value: Any) -> None:
-    if not options.get(key) and value:
-        options[key] = value
-
-
-def _fill_atomic_store_defaults(
-    config: InfraConfig, settings: Any, default_url: Any
+def fill_driver_defaults(
+    config: InfraConfig, settings: Any, fill_for: FillLookup
 ) -> None:
-    """The ``redis`` atomic_store instances get the client bounds only: the url
-    of an instance INFRA declares is its own (never the cache's); the
-    synthesized development one follows the resolved cache.default."""
-    for cfg in (config.get("atomic_store") or {}).values():
-        if cfg.driver == "redis":
-            if cfg.implicit:
-                _fill_url(cfg.options, "url", default_url)
-            _fill(cfg.options, settings, _REDIS_CLIENT_SETTINGS)
+    """Fill each instance's options from the flat settings, as its driver
+    declares (:class:`SettingsFill`, ``InfraProvider.settings_fill``).
 
-
-def _fill_eventbus_defaults(config: InfraConfig, settings: Any, cache_url: Any) -> None:
-    for cfg in (config.get("eventbus") or {}).values():
-        if cfg.driver in ("redis", "streams"):
-            # The volatile ``redis`` bus has no url: it runs over a broadcast
-            # instance (option ``broadcast``).
-            if cfg.name == DEFAULT_INSTANCE and cfg.driver == "streams":
-                _fill_url(cfg.options, "url", cache_url)
-            _fill(cfg.options, settings, _TRANSPORT_CLIENT_SETTINGS)
-
-
-def fill_driver_defaults(config: InfraConfig, settings: Any) -> None:
-    """Fill the options the built-in drivers read from the flat settings.
-
-    A driver reads no kernel setting (ADR-0016): what it used to take from
-    ``CACHE_URL``, ``BROKER_URL`` and the ``CACHE_*`` client bounds, the
-    kernel puts into its instance's options when the configuration leaves
-    them out, so the drivers behave as before. ``redis`` caches get ``url``
-    and the client bounds; ``redis`` / ``streams`` event buses the connect
-    timeout and health-check interval, and the ``default`` one ``url`` too
-    (a named bus without one shares the default transport); ``celery`` task
-    queues ``broker``, ``backend`` and the probe bound ``health_timeout_seconds``.
-    The retention and key namespace of a ``streams`` bus are its own options.
+    A driver reads no kernel setting (ADR-0016): what it takes from
+    ``CACHE_URL``, ``BROKER_URL`` and the ``CACHE_*`` client bounds, the kernel
+    puts into the options of an instance that leaves them out, and a stated
+    option always wins. The kernel names no driver here: ``fill_for`` answers,
+    per ``(capability, driver)``, the declaration of the driver's class, and
+    ``None`` leaves the instance as it is.
     """
-    cache_url = getattr(settings, "cache_url", None)
-    for cfg in (config.get("cache") or {}).values():
-        if cfg.driver == "redis":
-            _fill_url(cfg.options, "url", cache_url)
-            _fill(cfg.options, settings, _REDIS_CLIENT_SETTINGS)
-    # A broadcast instance without a url follows the RESOLVED cache.default (an
-    # INFRA override of its url included), not the raw CACHE_URL.
-    cache_default = (config.get("cache") or {}).get(DEFAULT_INSTANCE)
-    broadcast_url = (
-        cache_default.options.get("url")
-        if cache_default is not None and cache_default.driver == "redis"
-        else None
-    ) or cache_url
-    for cfg in (config.get("broadcast") or {}).values():
-        if cfg.driver == "redis":
-            _fill_url(cfg.options, "url", broadcast_url)
-            _fill(cfg.options, settings, _TRANSPORT_CLIENT_SETTINGS)
-    _fill_atomic_store_defaults(config, settings, broadcast_url)
-    _fill_eventbus_defaults(config, settings, cache_url)
-    for cfg in (config.get("taskqueue") or {}).values():
-        if cfg.driver == "celery":
-            _fill_url(cfg.options, "broker", getattr(settings, "broker_url", None))
-            _fill_url(cfg.options, "backend", cache_url)
-            _fill(cfg.options, settings, _CELERY_SETTINGS)
-            _cap_probe_bound(cfg.options, settings)
+    pending = [
+        (cfg, fill)
+        for capability, instances in config.items()
+        for cfg in instances.values()
+        if (fill := fill_for(capability, cfg.driver)) is not None
+    ]
+    # An instance that follows another (a broadcast on the cache's Redis) reads
+    # the resolved option of the one it follows: after it. The sort is stable.
+    pending.sort(key=lambda item: item[1].follows is not None)
+    for cfg, fill in pending:
+        _apply_fill(config, cfg, fill, settings)
 
 
 def load_infra_config(settings: Settings) -> InfraConfig:
-    """Return the fully merged infrastructure configuration, the built-in
-    drivers' options filled from the flat settings (:func:`fill_driver_defaults`)."""
+    """Return the merged infrastructure configuration: the composition's
+    selection, the flat settings that select a driver or give an option the
+    kernel owns, and ``INFRA`` over them. The options a driver takes from the
+    flat settings are not filled here (no driver class is loaded):
+    ``build_infra_registry`` fills them once the registry has the classes
+    (:func:`fill_driver_defaults`)."""
     config = _synthesize_defaults(settings)
     raw = getattr(settings, "infra", None)
     if raw:
         if not isinstance(raw, Mapping):
             raise InfraConfigError("INFRA must be a JSON object")
         _overlay(config, raw)
-    fill_driver_defaults(config, settings)
     return config
 
 
 __all__ = [
-    "DEFAULT_EVENT_STREAM_RETENTION_SECONDS",
     "DEFAULT_INSTANCE",
     "KERNEL_INSTANCES",
     "REQUIRED_AT_STARTUP",
     "DefaultInfra",
+    "FillLookup",
+    "SettingsFill",
     "use_default_infra",
-    "configured_stream_retention_seconds",
     "database_instance_url",
     "eventbus_driver",
     "fill_driver_defaults",
@@ -542,4 +534,5 @@ __all__ = [
     "InfraConfig",
     "InfraConfigError",
     "load_infra_config",
+    "resolved_eventbus",
 ]
