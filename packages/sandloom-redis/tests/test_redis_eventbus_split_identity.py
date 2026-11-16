@@ -15,7 +15,7 @@ point of view exactly what two deployments sharing one Redis look like. Proves:
   nobody reads / starving a sibling version is reported.
 * L1 — the ``prefix`` option namespaces every key.
 
-Skipped when Redis (``CACHE_URL``) is unreachable, a failure in the
+Skipped when Redis (the test cache url) is unreachable, a failure in the
 ``redis-drivers`` lane (``SANDLOOM_REDIS_REQUIRED=1``). The kernel's memory-transport
 side of these guarantees is ``src/sandloom/core/tests/test_streams_split_identity.py``.
 """
@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -35,7 +34,7 @@ from typing import Any
 import orjson
 import pytest
 import redis.asyncio as redis_asyncio
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from fastapi import FastAPI
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 
@@ -82,9 +81,7 @@ def _fake_cache(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 async def redis_url() -> AsyncIterator[str]:
-    url = os.getenv("CACHE_URL")
-    if not url:
-        redis_unavailable("CACHE_URL not set; Redis Streams integration skipped")
+    url = cache_url_or_unavailable()
     client = redis_asyncio.from_url(url, decode_responses=True)
     try:
         await client.ping()

@@ -17,6 +17,7 @@ from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from sandloom.driverkit.testing import required_or_skip
+from sandloom.sdk.testing import resolved_cache_url
 
 REQUIRED_ENV = "SANDLOOM_REDIS_REQUIRED"
 
@@ -25,6 +26,18 @@ def redis_unavailable(reason: str) -> NoReturn:
     """Fail when the lane requires Redis, else skip, with ``reason`` (the
     driverkit guard, bound to this package's variable)."""
     required_or_skip(REQUIRED_ENV, reason)
+
+
+def cache_url_or_unavailable() -> str:
+    """The test run's ``default`` cache url (``resolved_cache_url``); when none
+    is configured, :func:`redis_unavailable` (a failure in the lane that
+    requires Redis, a skip elsewhere)."""
+    try:
+        return resolved_cache_url()
+    except RuntimeError:
+        redis_unavailable(
+            "no test cache url: INFRA's cache.default.url or SANDLOOM_TEST_CACHE_URL"
+        )
 
 
 async def require_redis(url: str) -> None:

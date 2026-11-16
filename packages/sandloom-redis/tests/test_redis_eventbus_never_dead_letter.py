@@ -8,7 +8,6 @@ transport in ``src/sandloom/core/tests/test_revocation_never_dead_lettered.py``.
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from pathlib import Path
 from typing import Any
@@ -16,7 +15,7 @@ from uuid import uuid4
 
 import pytest
 import redis.asyncio as redis_asyncio
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 
 from sandloom.core.auth import marks
@@ -47,9 +46,7 @@ def _envelope(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def test_redis_streams_never_dead_letter_group_survives_the_old_budget() -> None:
-    url = os.getenv("SANDLOOM_TEST_CACHE_URL") or os.getenv("CACHE_URL")
-    if not url:
-        redis_unavailable("CACHE_URL not set")
+    url = cache_url_or_unavailable()
     client = redis_asyncio.from_url(url, encoding="utf-8", decode_responses=True)
     try:
         await client.ping()

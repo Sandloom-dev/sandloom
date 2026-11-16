@@ -19,10 +19,9 @@ from typing import Any
 import orjson
 import pytest
 import redis.asyncio as redis_asyncio
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 
-from sandloom.core.config.settings import settings
 from sandloom.core.eventing.envelope import EventEnvelope
 from sandloom.core.eventing.streams_bus import StreamsEventBus
 from sandloom.core.infra.ports.eventbus import ConsumerInfo
@@ -59,9 +58,7 @@ async def _reset(client: Any) -> None:
 
 @pytest.fixture
 async def transport():
-    cache_url = settings.cache_url
-    if not cache_url:
-        redis_unavailable("CACHE_URL not set; Redis Streams integration skipped")
+    cache_url = cache_url_or_unavailable()
     client = redis_asyncio.from_url(cache_url, encoding="utf-8", decode_responses=True)
     try:
         await client.ping()

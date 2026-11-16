@@ -9,16 +9,14 @@ The record's value domain, the block/revocation/unblock rules and the hot path
 from __future__ import annotations
 
 import asyncio
-import os
 import random
 import time
 import uuid
 from collections.abc import AsyncIterator
-from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from _redis_required import redis_unavailable
+from _redis_required import cache_url_or_unavailable, redis_unavailable
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
 from sandloom.core.auth import blocks, marks
@@ -28,12 +26,7 @@ from sandloom.core.tests.test_subject_record import _after, _blocked
 
 @pytest_asyncio.fixture
 async def live() -> AsyncIterator[RedisAtomicStoreProvider]:
-    from sandloom.core.testing.workers import worker_env_values
-
-    env_test = Path(__file__).resolve().parents[3] / ".env.test"
-    url = os.getenv("CACHE_URL") or worker_env_values(env_test).get("CACHE_URL")
-    if not url:
-        redis_unavailable("CACHE_URL not configured")
+    url = cache_url_or_unavailable()
     provider = RedisAtomicStoreProvider(
         name="subject",
         driver="redis",

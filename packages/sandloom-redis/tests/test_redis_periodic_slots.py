@@ -7,10 +7,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from _redis_required import require_redis
+from _redis_required import cache_url_or_unavailable, require_redis
 from sandloom_redis.lease import RedisLeaseProvider
 
-from sandloom.core.config.settings import settings
 from sandloom.core.tasks.cron import parse_cron
 from sandloom.driverkit.periodic import (
     claim_periodic_slot,
@@ -20,9 +19,9 @@ from sandloom.driverkit.periodic import (
 
 
 async def test_ten_minutely_slots_create_one_lease_name_on_redis() -> None:
-    await require_redis(settings.cache_url)
+    await require_redis(cache_url_or_unavailable())
     store = RedisLeaseProvider(
-        name="beat", driver="redis", options={"url": settings.cache_url}
+        name="beat", driver="redis", options={"url": cache_url_or_unavailable()}
     )
     cron = parse_cron("* * * * *")
     base = f"slot-names-{id(store)}"
