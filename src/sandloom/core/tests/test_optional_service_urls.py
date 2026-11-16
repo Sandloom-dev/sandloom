@@ -118,3 +118,22 @@ def test_the_backup_plan_skips_an_eventbus_with_no_url_and_no_cache_url() -> Non
     # ...and the flat ``CACHE_URL`` is still the url of one that has none.
     roles = backup._redis_roles(config, SimpleNamespace(cache_url="redis://c:6379/0"))
     assert roles["redis://c:6379/0"] == ["eventbus:default (streams)"]
+
+
+def test_the_backup_plan_follows_a_url_less_eventbus_to_the_default_cache_url() -> None:
+    """A streams bus with no url runs on the default cache client: its stream data
+    (required) is in the Redis ``cache.default`` points at (INFRA), not lost from
+    the plan when ``CACHE_URL`` is unset, and ahead of ``CACHE_URL`` when both
+    exist."""
+    config = {
+        "cache": {
+            "default": SimpleNamespace(
+                driver="redis", options={"url": "redis://infra:6379/0"}
+            )
+        },
+        "eventbus": {"default": SimpleNamespace(driver="streams", options={})},
+    }
+    expected = {"redis://infra:6379/0": ["cache:default", "eventbus:default (streams)"]}
+    assert backup._redis_roles(config, SimpleNamespace(cache_url=None)) == expected
+    flat = SimpleNamespace(cache_url="redis://flat:6379/0")
+    assert backup._redis_roles(config, flat) == expected

@@ -28,7 +28,7 @@ from sandloom.driverkit.eventbus_support import (
     DEFAULT_EVENT_STREAM_RETENTION_SECONDS,
 )
 from sandloom.driverkit.testing_isolation import isolated_redis_options
-from sandloom_redis._settings_fill import STREAMS_FILL
+from sandloom_redis._settings_fill import STREAMS_FILL, require_url
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 from sandloom_redis.eventbus.streams_transport_base import _mapped
 
@@ -187,6 +187,10 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
     # entry point has no registration call, so an undeclared tier would be
     # experimental and refused in production (SANDLOOM-B023).
     tier = "beta"
+    #: Set by the entry-point build (``_build_provider``) of an instance with no
+    #: ``url`` of its own: it runs on the default cache client, which must have
+    #: one (``aopen``). A provider built by hand brings its own client.
+    _uses_default_client = False
 
     def __init__(
         self,
@@ -221,6 +225,19 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
     ) -> Mapping[str, Any]:
         """Another database index of the configured URL for each xdist worker."""
         return isolated_redis_options(options, worker_id)
+
+    async def aopen(self) -> None:
+        # An instance with no ``url`` runs on the default cache client (see
+        # ``_redis_client_factory``): startup refuses only when that client has
+        # no url either, naming this instance's INFRA option, before the first
+        # connection (``InfraRegistry.aopen_all``). Nothing is opened here.
+        if self._uses_default_client and not _redis_cache.has_default_client():
+            require_url(
+                "eventbus",
+                self.name,
+                _redis_cache.default_client_url(),
+                fallback="the default cache client",
+            )
 
     async def health(self) -> HealthResult:
         try:
@@ -265,13 +282,15 @@ _P = TypeVar("_P", bound=StreamsEventBusProvider)
 def _build_provider(cls: type[_P], cfg: _InstanceLike) -> _P:
     """``cls`` over the Redis client the instance's options describe."""
     factory, closable = _redis_client_factory(cfg, read_timeout=_streams_read_timeout())
-    return cls(
+    provider = cls(
         name=cfg.name,
         driver=cfg.driver,
         options=dict(cfg.options),
         client=closable,
         client_factory=factory,
     )
+    provider._uses_default_client = not EventBusOptions.model_validate(cfg.options).url
+    return provider
 
 
 def make_streams_driver() -> Callable[[_InstanceLike], InfraProvider]:

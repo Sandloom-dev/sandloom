@@ -48,7 +48,7 @@ from sandloom.driverkit import (
     Unavailable,
 )
 from sandloom_redis._errors import map_redis_error
-from sandloom_redis._settings_fill import BROADCAST_FILL
+from sandloom_redis._settings_fill import BROADCAST_FILL, require_url
 
 _CAPABILITY = "broadcast"
 _PATTERN_SUFFIX = ".*"
@@ -486,6 +486,7 @@ class RedisBroadcastProvider(BroadcastProvider):
 
     # -- lifecycle ---------------------------------------------------------
     async def aopen(self) -> None:
+        require_url("broadcast", self.name, self._options.url)
         self._closed = False
         client = await self._publisher_client()
         await self._bounded(client.ping(), during="open")

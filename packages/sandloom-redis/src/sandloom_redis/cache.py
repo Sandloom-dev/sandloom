@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import logging
 from collections.abc import Mapping, Sequence
 from functools import cache
@@ -56,7 +55,7 @@ from sandloom.driverkit import (
 from sandloom.driverkit.atomic_store import MAX_KEY_BYTES, MAX_TTL_SECONDS
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_redis._errors import map_redis_error
-from sandloom_redis._settings_fill import CACHE_FILL
+from sandloom_redis._settings_fill import CACHE_FILL, require_url
 
 #: Redis / socket failures of cache operations (a caller's ValueError or
 #: TypeError is not counted), by instance and operation.
@@ -128,6 +127,18 @@ def configure_default_client(
         _default_options = options
 
 
+def default_client_url() -> str | None:
+    """The url the process-wide ``default`` client is configured with, or
+    ``None`` (no options yet, or options with no url)."""
+    return _default_options.url if _default_options is not None else None
+
+
+def has_default_client() -> bool:
+    """Whether a default client already exists (one injected for a test or an
+    operator, or built): it needs no url of its own."""
+    return _default_client is not None
+
+
 def _running_loop() -> asyncio.AbstractEventLoop | None:
     try:
         return asyncio.get_running_loop()
@@ -165,23 +176,8 @@ def client_options(options: RedisCacheOptions) -> dict[str, Any]:
     }
 
 
-class MissingUrlError(ValueError):
-    """A ``redis`` cache instance has no ``url``: a configuration mistake that
-    aborts startup in every environment (``fatal_at_startup``), never a
-    transient fault."""
-
-    fatal_at_startup = True
-
-
 def _url_of(options: RedisCacheOptions, instance: str = DEFAULT_INSTANCE) -> str:
-    if not options.url:
-        example = {"cache": {instance: {"url": "redis://localhost:6379/0"}}}
-        raise MissingUrlError(
-            f"redis cache instance {instance!r} has no url: set the INFRA option "
-            f"cache.{instance}.url, e.g. INFRA='{json.dumps(example)}' "
-            "(a provider built by hand passes the url in its options)"
-        )
-    return options.url
+    return require_url("cache", instance, options.url)
 
 
 def _build_client(options: RedisCacheOptions) -> Any:

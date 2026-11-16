@@ -134,13 +134,16 @@ def _register_infra_lifecycle(
         Strict in production: a configured database/cache/object store the
         process cannot reach aborts startup (critical task) instead of letting
         the app serve traffic that fails on first use. In dev it stays
-        best-effort so a missing optional backend does not block local work.
+        best-effort so a missing optional backend does not block local work:
+        ``aopen_all`` then raises only for a failure that carries
+        ``fatal_at_startup`` (a configuration mistake, e.g. a Redis driver with
+        no url), and the task is critical in every environment so that failure
+        aborts startup instead of being logged while token revocation reads an
+        unreachable store as "not revoked".
         """
         await infra.aopen_all(strict=settings.is_prod)
 
-    core_facade.add_startup_task(
-        infra_warm_instances, critical=settings.is_prod, phase="infra"
-    )
+    core_facade.add_startup_task(infra_warm_instances, critical=True, phase="infra")
 
     async def infra_model_schema() -> None:
         """A database that takes its schema from the models (SQLite) gets
