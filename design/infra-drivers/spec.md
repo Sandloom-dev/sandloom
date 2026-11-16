@@ -454,8 +454,12 @@ production. **Performance hints.** `get`, `add_or_get`, `set_subject_state`, `co
   absent (Redis does by itself). On `aopen`, in `health` and on the first operation of a process that
   never ran `aopen` (a worker, a CLI) it reads `maxmemory-policy` and refuses unless it is
   `noeviction`; a failed `health` probe, an operation failing with `Unavailable` or `Timeout`, or
-  a pooled connection that reconnects (the pool's `redis_connect_func`; the retrying client
-  reconnects without raising) opens the check again. The option `never_evicts_check` is
+  a client rebuilt for another loop opens the check again. A flag cannot judge a socket it did not
+  see (the retrying client and the pool's liveness probe reconnect without raising, a growing pool
+  opens new sockets, after a failover or a DNS repoint possibly to a reconfigured server), so the
+  pool's `redis_connect_func` also reads `maxmemory-policy` on EVERY new socket (the first
+  included), on that socket, before any command, with the same refusals (`sandloom_redis.
+  _eviction_guard`; one extra round trip per new socket). The option `never_evicts_check` is
   `verify` (default) or `assume`:
   - with `verify`, a refused `CONFIG GET` is `PermissionDenied` at `aopen` or on the first
     operation, with a fix naming the
@@ -575,7 +579,9 @@ result (`False`), never an exception.
   renew and release by compare-and-set and compare-and-delete scripts. The fence key must not be
   evicted, so the driver runs the `noeviction` check of `atomic_store.redis` on `aopen` or on the
   first operation, and in `health`, with the same `never_evicts_check` option and the same accepted risk
-  `unverified_noeviction` for `assume` in production (Redis' default policy passes it).
+  `unverified_noeviction` for `assume` in production (Redis' default policy passes it). Its pool
+  also judges every new socket on itself before any command, as the atomic store's does (a
+  silent reconnect to an evicting server would repeat a fence).
 - `memory`: `development_only`.
 - `database` (owner decision 3, yes): a logged table `infra_lease (name primary key, owner, token,
   expires_at, fence)` in the core chain (section 1), in `core/drivers/database_lease.py`. Acquire is
