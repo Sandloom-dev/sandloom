@@ -328,6 +328,14 @@ def read_services(text: str) -> list[Service]:
     for name in names:
         env = data.get(f"x-{name}-env") or {}
         out.append(Service(name, _dp.modules_of({"environment": env}), _broker_db(env)))
+    # 0 is the cache's database, never a broker's: a service that names no
+    # broker is unknown and takes the next free one, as `_place` assigns it,
+    # so a refresh never writes its broker on the cache's database.
+    used = {s.broker_db for s in out}
+    for service in out:
+        if service.broker_db == 0:
+            service.broker_db = max(used | {1}) + 1
+            used.add(service.broker_db)
     return out
 
 

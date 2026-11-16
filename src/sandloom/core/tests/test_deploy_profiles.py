@@ -918,6 +918,15 @@ _TENANCY_ID = "  RPC_SERVICE_ID: tenancy\n"
             },
             "SANDLOOM_COMPOSITION_ROOT differs between processes",
         ),
+        (
+            {
+                "compose/microservices.yml": (
+                    _TENANCY_ID,
+                    _TENANCY_ID + "  CACHE_URL: redis://redis:6379/9\n",
+                )
+            },
+            "the cache.default url differs between processes",
+        ),
     ],
     ids=[
         "infra",
@@ -925,6 +934,7 @@ _TENANCY_ID = "  RPC_SERVICE_ID: tenancy\n"
         "issuer-only",
         "migrate",
         "composition-root",
+        "per-service-cache-url",
     ],
 )
 def test_the_split_invariants_report_what_breaks_them(
@@ -959,6 +969,60 @@ def test_a_service_broker_alone_may_differ_in_infra() -> None:
     tuned = json.loads(infra(0, 2))
     tuned["taskqueue"]["default"]["concurrency"] = 8
     assert _comparable("INFRA", json.dumps(tuned)) != _comparable("INFRA", infra(0, 2))
+
+
+def test_the_default_cache_url_is_the_infra_url_else_the_flat_one() -> None:
+    """What each process resolves ``cache.default`` to: its INFRA url wins over
+    ``CACHE_URL``; the flat one counts only without it. Equal resolutions pass,
+    one different process is reported (the profile-level bite is the
+    ``per-service-cache-url`` case above)."""
+    from sandloom.core.testing.deploy_profile import (
+        _effective_default_url,
+        _same_default_urls,
+    )
+
+    infra = '{"cache": {"default": {"url": "redis://a/0"}}}'
+    assert _effective_default_url(
+        {"INFRA": infra, "CACHE_URL": "redis://b/0"}, "cache"
+    ) == ("redis://a/0")
+    assert (
+        _effective_default_url({"CACHE_URL": "redis://b/0"}, "cache") == "redis://b/0"
+    )
+    assert _effective_default_url(
+        {"INFRA": "{}", "CACHE_URL": "redis://b/0"}, "cache"
+    ) == ("redis://b/0")
+    assert _effective_default_url({"INFRA": "{}"}, "cache") is None
+    assert _effective_default_url({"INFRA": "not json"}, "cache") is None
+
+    found: list[str] = []
+    same = {"api": {"CACHE_URL": "redis://b/0"}, "web": {"CACHE_URL": "redis://b/0"}}
+    _same_default_urls(
+        {n: {"environment": env} for n, env in same.items()}, found.append
+    )
+    assert found == []
+    split = {"api": {"CACHE_URL": "redis://b/0"}, "web": {"CACHE_URL": "redis://c/0"}}
+    _same_default_urls(
+        {n: {"environment": env} for n, env in split.items()}, found.append
+    )
+    assert [p.split(" url ")[0] for p in found] == [
+        "the cache.default",
+        "the broadcast.default",
+    ]
+    # One shared INFRA url settles both processes whatever their flat setting
+    # (a broadcast that states none still resolves to the flat one).
+    found.clear()
+    infra = (
+        '{"cache": {"default": {"url": "redis://a/0"}},'
+        ' "broadcast": {"default": {"url": "redis://a/0"}}}'
+    )
+    settled = {
+        "api": {"INFRA": infra, "CACHE_URL": "redis://b/0"},
+        "web": {"INFRA": infra, "CACHE_URL": "redis://c/0"},
+    }
+    _same_default_urls(
+        {n: {"environment": env} for n, env in settled.items()}, found.append
+    )
+    assert found == []
 
 
 @pytest.mark.parametrize(

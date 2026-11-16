@@ -103,6 +103,12 @@ InfraMap = dict[str, dict[str, dict[str, object]]]
 #: The option carrying the Redis url of an instance, by the driver the app's
 #: composition selects for it. An instance on another driver is not Redis and
 #: gets nothing here.
+#:
+#: A stopgap until the flat settings go (flat-urls Z): the option then moves onto
+#: the provider class (a ClassVar read generically, so the kernel names no
+#: driver). ``tests/integration/with_batteries/test_dev_url_option_table.py``
+#: fails when an installed driver that takes a url from a flat setting is missing
+#: here, and goes with this table.
 _URL_OPTION = {"redis": "url", "streams": "url", "celery": "broker"}
 #: Capabilities whose instances may lose their keys (a cache, pub/sub): they
 #: take the cache index. Every other Redis instance holds state that must
