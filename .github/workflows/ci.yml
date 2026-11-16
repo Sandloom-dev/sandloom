@@ -845,6 +845,9 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
       JWT_SECRET: ci-kernel-lane-not-a-real-secret
       SANDLOOM_TEST_OWNER: ci-kernel-without-redis
+      # .env.test's INFRA states Redis options (urls, timeouts) that the memory
+      # drivers this venv selects refuse as unknown options: no instance here.
+      INFRA: "{}"
       # The replaceability topologies are real uvicorn processes: missing
       # PostgreSQL/Redis fails the job instead of skipping.
       SANDLOOM_E2E_REQUIRED: "1"
