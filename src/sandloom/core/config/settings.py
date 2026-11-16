@@ -36,7 +36,6 @@ from pydantic_settings import (
 from sandloom.core.config import accepted_risks as _risks
 from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.config.auth import AuthConfig
-from sandloom.core.config.cache import CacheConfig
 from sandloom.core.config.common import (
     INVALID_CONFIGURATION,
     Environment,
@@ -162,7 +161,6 @@ class Settings(
     RpcConfig,
     AuthConfig,
     ServicesConfig,
-    CacheConfig,
     DatabaseConfig,
     TrustConfig,
     ContractsConfig,
@@ -415,17 +413,6 @@ class Settings(
                     f"TRUSTED_PROXY_IPS entry {cidr!r} is not a valid IP/CIDR"
                 ) from exc
         return [str(c).strip() for c in v]
-
-    @field_validator("cache_url", "broker_url")
-    @classmethod
-    def _redis_dsn_ok(cls, v: str | None) -> str | None:
-        if v is None:
-            return None
-        if not (v.startswith("redis://") or v.startswith("rediss://")):
-            raise ValueError(
-                "CACHE_URL/BROKER_URL must start with redis:// or rediss://"
-            )
-        return v
 
     @model_validator(mode="after")
     def _single_tenant_requirements(self) -> Settings:
@@ -756,8 +743,7 @@ _LOAD_LOCK = threading.Lock()
 
 
 #: The service URLs a new app cannot start without, and ``sandloom dev up`` writes
-#: into its ``.env`` (``CACHE_URL`` / ``BROKER_URL`` are optional: a Redis or
-#: Celery driver takes its url from ``INFRA``).
+#: into its ``.env`` (a Redis or Celery driver takes its url from ``INFRA``).
 _DEV_SERVICE_URLS = ("DATABASE_URL",)
 
 

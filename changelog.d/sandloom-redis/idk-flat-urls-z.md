@@ -1,0 +1,3 @@
+### Breaking changes
+
+- **The Redis drivers take no url and no client bound from a setting** (idk-flat-urls-z). The `redis` cache, `atomic_store`, `lease` and `broadcast` drivers and the `streams` event bus read their `url` and their bounds from the options of their instance, and an instance with no `url` is refused (`MissingUrlError`). `CACHE_URL` and the `CACHE_*` bounds no longer exist as settings (the kernel refuses them), and the drivers' `settings_fill` is empty. The bounds keep the defaults the settings had. The `redis` harness family no longer rewrites a flat variable: it moves the database index of each instance `url`, and of the Celery `broker` through the kernel layout. Upgrade: [Upgrading to 0.7.0a14](docs/operate/upgrade.md).

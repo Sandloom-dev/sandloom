@@ -58,7 +58,7 @@ from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom.driverkit.testing_isolation import isolated_redis_options
 from sandloom_redis._errors import map_redis_error
-from sandloom_redis._settings_fill import CACHE_FILL, require_url
+from sandloom_redis._settings_fill import require_url
 
 #: Redis / socket failures of cache operations (a caller's ValueError or
 #: TypeError is not counted), by instance and operation.
@@ -424,7 +424,6 @@ class RedisCacheProvider(CacheProvider):
     supported_features = REDIS_CACHE_FEATURES
     performance_hints = REDIS_CACHE_PERFORMANCE_HINTS
     options_schema = RedisCacheOptions
-    settings_fill = CACHE_FILL
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
     # Beta, the floor for a driver of this repository (spec 2.5): the

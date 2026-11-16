@@ -1187,12 +1187,10 @@ def resolved_cache_url(environ: Mapping[str, str] | None = None) -> str
 The URL the test run's `default` cache is on.
 
 `cache.default.url` of `INFRA` (what the harness merged
-`SANDLOOM_TEST_CACHE_URL` into, and the worker's rewrite moved), else the
-flat `CACHE_URL` while `.env.test` still sets one: the same precedence
-the application's own configuration has (`INFRA` over the flat setting).
-Read from the environment, not from the application's settings snapshot,
-which a suite that imported the app early holds stale. Raises
-`RuntimeError` naming where to set it when there is none.
+`SANDLOOM_TEST_CACHE_URL` into, and the worker's rewrite moved). Read from
+the environment, not from the application's settings snapshot, which a
+suite that imported the app early holds stale. Raises `RuntimeError`
+naming where to set it when there is none.
 
 ### `revocation_mark_key`
 

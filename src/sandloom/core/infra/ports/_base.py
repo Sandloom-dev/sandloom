@@ -197,9 +197,9 @@ class InfraProvider(abc.ABC):
     tier: ClassVar[DriverTier] = "experimental"
     #: Optional pydantic model validating an instance's options before building.
     options_schema: ClassVar[type[Any] | None] = None
-    #: The options this driver takes from the flat settings (``CACHE_URL``,
-    #: ``BROKER_URL``, the ``CACHE_*`` client bounds) when an instance leaves
-    #: them out: which setting fills which option. The kernel applies it
+    #: The options this driver takes from the flat settings (the readiness
+    #: probe's ``HEALTH_CHECK_TIMEOUT_SECONDS``) when an instance leaves them
+    #: out: which setting fills which option. The kernel applies it
     #: without naming the driver, once the registry has the class
     #: (``build_infra_registry``); ``None``: the driver reads none.
     settings_fill: ClassVar[SettingsFill | None] = None
@@ -213,10 +213,12 @@ class InfraProvider(abc.ABC):
         self.name = name
         self.driver = driver
         self.options: dict[str, Any] = dict(options)
-        #: ``True`` for a ``default`` instance the kernel synthesized from the
-        #: flat settings (nobody wrote it in ``INFRA``): the registry sets it
-        #: after building, from ``InstanceConfig.implicit``. A driver reads it
-        #: in ``aopen`` to word a message for an instance nobody chose.
+        #: ``True`` for a development ``default`` instance the kernel
+        #: synthesized from the composition (nobody wrote it in ``INFRA``): the
+        #: registry sets it after building, from ``InstanceConfig.implicit``,
+        #: and never in production (where nothing is a development default). A
+        #: driver reads it in ``aopen`` to word a message for an instance
+        #: nobody chose.
         self.implicit = False
 
     @classmethod

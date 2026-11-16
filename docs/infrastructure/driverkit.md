@@ -45,7 +45,7 @@ A breaking change is a new contract version ([versioning](../contributing/versio
 | `HealthResult` | What `health()` returns. |
 | `health_failure_details` | The `details` of a failed health probe: the error type, never its text. |
 | `InstanceConfig`, `DEFAULT_INSTANCE` | The configuration of one instance, which a driver's `from_config` receives (`name`, `driver`, `options`), and the name of the `default` instance. Re-exported from the kernel: a driver package imports them here. |
-| `SettingsFill` | What a driver takes from the flat settings, set as `InfraProvider.settings_fill`: `urls`, `urls_for`, `bounds` and `caps`, each naming the flat infrastructure `Settings` attribute (`cache_url`, `broker_url`, `cache_*`, `health_check_timeout_seconds`) that feeds an option; any other name is refused. |
+| `SettingsFill` | What a driver takes from the flat settings, set as `InfraProvider.settings_fill`: `bounds` and `caps`, each naming the `Settings` attribute that feeds an option. Only `health_check_timeout_seconds` is one; any other name is refused. No url is filled from a setting. |
 | `CapabilitySpec` | Declares a capability: `name`, `version` (what a module may pin), `major` (the `contract_version` a driver states; default: the major of `version`), `provider_contract`, `config_schema`, `feature_kinds` (each feature and whether it is a `behaviour` or a `guarantee`), `features`, `removed_features` (a previous major's feature names, each mapped to its replacement, which a refusal names), `kernel_only` (a kernel-facing capability modules cannot resolve), `description`, `stability`. A driver loads only for a spec whose major is readable. |
 | `CapabilityRef` | A typed key callers resolve a capability with: `CapabilityRef[VectorIndex]("vector_index.v1")`. |
 | `LockStatement` | What a SQL dialect renderer's `lock_statement` and `unlock_statement` return: the `statement`, built once per key shape, and the `parameters` that carry the key. The kernel runs `execute(lock.statement, lock.parameters)`. |
@@ -97,7 +97,7 @@ instance meet here, in whichever order they start. The warning is a log line and
 
 | Name | What it is |
 | --- | --- |
-| `register` | `register(capability, instance, endpoint, role, option=, declared=)`. The `cache` driver registers its `default` instance with `role="cache_default"`. A driver of a persistent instance registers with `role="persistent"`, `option` naming the `INFRA` option the message tells the operator to change, and `declared=not self.implicit`. Whichever registration comes second logs once per pair: a WARNING for a declared instance, an INFO for one the kernel synthesized (a `CACHE_URL`-only development start shares by construction). An `endpoint` of `None` unregisters. |
+| `register` | `register(capability, instance, endpoint, role, option=, declared=)`. The `cache` driver registers its `default` instance with `role="cache_default"`. A driver of a persistent instance registers with `role="persistent"`, `option` naming the `INFRA` option the message tells the operator to change, and `declared=not self.implicit`. Whichever registration comes second logs once per pair: a WARNING for a declared instance, an INFO for one the kernel synthesized in development (it shares by construction). In production the registry reports no instance as synthesized, so the same overlap is a WARNING. An `endpoint` of `None` unregisters. |
 | `unregister` | `unregister(capability, instance, role)`. Call it from `aclose`, so a later app in the same process neither hears of this instance nor stays silent about a new pair. |
 | `redis_endpoint` | `redis_endpoint(url)`: `host:port/db` of a `redis://` or `rediss://` url, or `None` (another scheme, no host, a malformed url, or a path that still holds an `@`: an unencoded password). It carries no credential, so the log never does. |
 | `reset` | Forgets every registration and logged pair. For a test harness. |
@@ -143,7 +143,7 @@ settings snapshot.
 | `HarnessFamily` | The hooks of a family: `name`, `rewrite_worker`, `claim`, `slot_bases`, `release_slot_bases`, `allocate_workers`, `cap_workers` and `flush_owned`. |
 | `check_holder`, `current_owner`, `already_claimed`, `record_claim`, `TestResourceOwnershipError` | Ownership of a backend's resources: refuse (or, under `SANDLOOM_TEST_TAKE_OWNERSHIP=1`, take over) a resource another run marked, and skip one this process verified. |
 | `OWNER_ENV`, `TAKEOVER_ENV` | The settings that name the run's owner and the deliberate takeover. |
-| `FLAT_VARS`, `INFRA_VAR`, `parse_infra` | The settings that name a backend: `CACHE_URL` and `BROKER_URL`, and the JSON `INFRA` setting parsed into `{capability: {instance: spec}}`. |
+| `INFRA_VAR`, `parse_infra` | The setting that names the backends, the JSON `INFRA`, parsed into `{capability: {instance: spec}}`. |
 | `default_driver`, `isolated_instance_options` | The driver a composition selects for an instance, and the options a driver gives a worker's copy of it. |
 | `Resource`, `verdict` | List and prune stale resources apart from the databases the kernel lists. |
 

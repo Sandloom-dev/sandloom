@@ -133,11 +133,10 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
     contract_version = 2
     supported_features = CELERY_TASKQUEUE_FEATURES
     options_schema = CeleryTaskQueueOptions
-    # The optional flat ``BROKER_URL`` fills the broker and ``CACHE_URL`` the
-    # result backend of an instance that states none; the probe bound is
-    # ``HEALTH_CHECK_TIMEOUT_SECONDS``, and never above it.
+    # The broker and the result backend are options of the instance (``INFRA``):
+    # no setting fills them. The probe bound is ``HEALTH_CHECK_TIMEOUT_SECONDS``,
+    # and never above it.
     settings_fill = SettingsFill(
-        urls={"broker": "broker_url", "backend": "cache_url"},
         bounds={"health_timeout_seconds": "health_check_timeout_seconds"},
         caps={"health_timeout_seconds": "health_check_timeout_seconds"},
     )

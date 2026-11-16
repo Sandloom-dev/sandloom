@@ -1,65 +1,20 @@
-"""What the Redis drivers take from the flat settings (``InfraProvider.settings_fill``).
+"""What the Redis drivers take from the flat settings: nothing.
 
-The kernel applies each declaration without naming the driver: an option an
-instance leaves out takes the value of the setting named here, one an instance
-states always wins (``INFRA`` over the flat setting).
-
-``CACHE_URL`` is an optional setting: unset, nothing is filled, and an instance
-that still has no url refuses startup naming its own INFRA option
-(``cache.<instance>.url``). The url options are configured through ``INFRA``.
+Every url and client bound of a Redis instance is an option of that instance
+(``INFRA``): no ``CACHE_URL`` / ``CACHE_*`` setting fills one, and no instance
+takes an option from another. An instance that has no url refuses startup
+naming its own INFRA option (``cache.<instance>.url``, see :func:`require_url`).
 """
 
 from __future__ import annotations
 
 import json
-from types import MappingProxyType
 
-from sandloom.driverkit import SettingsFill
-
-#: ``option -> setting``: the bounds of a cache-shaped client (the ``CACHE_*``
-#: settings): the cache and the atomic store.
-CLIENT_BOUNDS = MappingProxyType(
-    {
-        "socket_timeout_seconds": "cache_socket_timeout_seconds",
-        "socket_connect_timeout_seconds": "cache_socket_connect_timeout_seconds",
-        "health_check_interval_seconds": "cache_health_check_interval_seconds",
-        "max_connections": "cache_max_connections",
-        "pool_timeout_seconds": "cache_pool_timeout_seconds",
-        "retry_attempts": "cache_retry_attempts",
-    }
-)
-
-#: ``option -> setting``: the bounds of a transport-shaped client (the
-#: broadcast and the ``streams`` bus; its read timeout is its own).
-TRANSPORT_BOUNDS = MappingProxyType(
-    {
-        "socket_connect_timeout_seconds": "cache_socket_connect_timeout_seconds",
-        "health_check_interval_seconds": "cache_health_check_interval_seconds",
-    }
-)
-
-_URL = MappingProxyType({"url": "cache_url"})
-
-#: A ``redis`` cache: the url of ``CACHE_URL`` and the client bounds.
-CACHE_FILL = SettingsFill(urls=_URL, bounds=CLIENT_BOUNDS)
-
-#: A ``redis`` lease: the url of ``CACHE_URL`` (the lease shares the cache's
-#: Redis, as the beat lease always has).
-LEASE_FILL = SettingsFill(urls=_URL)
-
-#: A ``redis`` broadcast: the url of ``CACHE_URL`` when ``INFRA`` leaves it out.
-#: No instance follows another: a ``cache.default`` url stated in ``INFRA`` is
-#: not the broadcast's (state ``broadcast.<instance>.url`` too).
-BROADCAST_FILL = SettingsFill(urls=_URL, bounds=TRANSPORT_BOUNDS)
-
-#: A ``redis`` atomic store: the client bounds, and the url of ``CACHE_URL``
-#: only on the development instance the kernel synthesizes: the url of one
-#: ``INFRA`` declares is its own, never the cache's.
-ATOMIC_STORE_FILL = SettingsFill(urls=_URL, urls_for="implicit", bounds=CLIENT_BOUNDS)
-
-#: A ``streams`` bus: the url of ``CACHE_URL`` on the ``default`` instance (a
-#: named bus without one shares the default transport) and the transport bounds.
-STREAMS_FILL = SettingsFill(urls=_URL, urls_for="default", bounds=TRANSPORT_BOUNDS)
+#: ``None``: the drivers declare no ``settings_fill``. Kept only while the
+#: lease and atomic store modules still import them (removed with those files'
+#: next change; ``InfraProvider.settings_fill`` is ``None`` by default).
+LEASE_FILL = None
+ATOMIC_STORE_FILL = None
 
 
 class MissingUrlError(ValueError):

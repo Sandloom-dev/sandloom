@@ -177,11 +177,13 @@ already works through renderers.
   `EVENT_STREAM_PREFIX` become options of the `streams` driver (`retention_seconds`,
   `max_length`, `prefix`), which the transport reports, and the three instance settings
   give way to the role-named instances of decision 2. Status: `SMTP_*`, `S3_*` and
-  `EVENT_STREAM_*` are options and removed settings (`config_tiers.REMOVED`). `CACHE_URL` and
-  `BROKER_URL` are still flat settings: the test harness reaches them through its Redis
-  families (`FLAT_VARS`), so their conversion waits for the harness change. Meanwhile the
-  fills live on the driver classes (`InfraProvider.settings_fill`, spec 13 item 48): the kernel's
-  configuration names no driver.
+  `EVENT_STREAM_*`, and since 0.7.0a14 `CACHE_URL`, `BROKER_URL` and the six `CACHE_*` bounds,
+  are options and removed settings (`config_tiers.REMOVED`, any value fatal). The test
+  harness no longer reaches a flat variable: it merges `SANDLOOM_TEST_CACHE_URL` and
+  `SANDLOOM_TEST_BROKER_URL` into `INFRA`, and `FLAT_VARS` is gone from the family seam. What
+  a driver still takes from a flat setting is declared on its class
+  (`InfraProvider.settings_fill`, spec 13 item 48), and only the readiness probe's bound,
+  `HEALTH_CHECK_TIMEOUT_SECONDS`, is left to fill: the kernel's configuration names no driver.
 - Parallel test runs are isolated through a driverkit hook, `test_isolation(options, worker_id)`,
   instead of the kernel rewriting Redis URLs per worker. It takes the options because the
   per-worker options derive from them.

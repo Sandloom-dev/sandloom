@@ -29,11 +29,7 @@ import pytest
 from sandloom.core.migrations.pg_sync import psycopg2
 from sandloom.core.testing import connections, families, ownership, workers
 from sandloom.core.testing.env import dev_up_hint
-from sandloom.core.testing.families import (
-    FLAT_VARS,
-    INFRA_VAR,
-    INSTANCE_URL_OPTIONS,
-)
+from sandloom.core.testing.families import INFRA_VAR, INSTANCE_URL_OPTIONS
 from sandloom.core.testing.fixtures import env_starts, find_env_file
 
 #: Where Linux's default ephemeral range starts; macOS and Windows start higher.
@@ -105,10 +101,10 @@ def self_connecting_urls(values: Mapping[str, str]) -> list[str]:
 
 
 def _run_urls(values: Mapping[str, str]) -> list[tuple[str, str]]:
-    """Every service URL of the run as ``(name, url)``: the three flat settings
-    and each ``url`` / ``broker`` / ``backend`` option of an ``INFRA`` instance
+    """Every service URL of the run as ``(name, url)``: ``DATABASE_URL`` and
+    each ``url`` / ``broker`` / ``backend`` option of an ``INFRA`` instance
     (named ``capability.instance.option``)."""
-    urls = [(var, values.get(var) or "") for var in ("DATABASE_URL", *FLAT_VARS)]
+    urls = [("DATABASE_URL", values.get("DATABASE_URL") or "")]
     for capability, instances in families.parse_infra(values.get(INFRA_VAR)).items():
         for name, spec in instances.items():
             urls += [

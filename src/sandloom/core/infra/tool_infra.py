@@ -71,9 +71,9 @@ class FilledInfraConfig(NamedTuple):
 
 def filled_infra_config(settings: Settings) -> FilledInfraConfig:
     """The configuration ``settings`` selects, with the options each driver takes
-    from the flat settings filled in (``CACHE_URL``, ``BROKER_URL``, the
-    ``CACHE_*`` bounds): what a process that boots no application reads, as the
-    application would have it (``sandloom backup plan``).
+    from the flat settings filled in (the readiness probe's bound): what a
+    process that boots no application reads, as the application would have it
+    (``sandloom backup plan``).
 
     ``load_infra_config`` fills nothing, since no driver class is loaded; the
     registry here has the built-in rows and the entry points the configuration

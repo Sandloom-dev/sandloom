@@ -1,9 +1,10 @@
-"""CACHE_URL and BROKER_URL are optional settings (flat-urls stage 0a).
+"""The service urls are options of their instances, not settings (flat-urls Z).
 
-An app that selects no Redis or Celery driver starts with neither set. This file
-is the kernel's half and imports no driver package (it runs without Redis);
-the drivers' refusal of an instance with no url is
-``tests/integration/test_driver_url_messages.py``.
+An app that selects no Redis or Celery driver starts with no url anywhere. This
+file is the kernel's half and imports no driver package (it runs without
+Redis); the drivers' refusal of an instance with no url is
+``tests/integration/test_driver_url_messages.py``, and the refusal of the
+removed flat settings is ``test_config_tiers.py``.
 """
 
 from __future__ import annotations
@@ -16,11 +17,6 @@ from pydantic import ValidationError
 
 from sandloom.core.config.settings import Settings
 from sandloom.core.infra import fenced_lease
-from sandloom.core.infra.config import (
-    InfraConfig,
-    InstanceConfig,
-    _flat_options,
-)
 from sandloom.core.migrations import backup
 
 _STRONG = "9f3b7c1e5a2d4f6b8c0e1a3d5f7b9c2e4a6d8f0b1c3e5a7d9f2b4c6e8a0d1f3b"
@@ -40,18 +36,17 @@ def _settings(**env: Any) -> Settings:
     return Settings(_env_file=None, **{**_BASE, **env})  # type: ignore[call-arg]
 
 
-def test_settings_load_with_neither_cache_url_nor_broker_url() -> None:
+def test_settings_load_with_no_service_url_and_carry_none() -> None:
     cfg = _settings()
-    assert cfg.cache_url is None
-    assert cfg.broker_url is None
+    for name in ("cache_url", "broker_url", "cache_socket_timeout_seconds"):
+        assert name not in Settings.model_fields
+        assert not hasattr(cfg, name)
 
 
-def test_a_set_url_is_still_accepted_and_still_validated() -> None:
-    cfg = _settings(CACHE_URL="redis://c:6379/0", BROKER_URL="rediss://b:6379/1")
-    assert (cfg.cache_url, cfg.broker_url) == ("redis://c:6379/0", "rediss://b:6379/1")
-    for name in ("CACHE_URL", "BROKER_URL"):
-        with pytest.raises(ValidationError, match="redis://"):
-            _settings(**{name: "http://not-redis"})
+@pytest.mark.parametrize("name", ["CACHE_URL", "BROKER_URL"])
+def test_a_set_url_is_refused_not_accepted_and_ignored(name: str) -> None:
+    with pytest.raises(ValidationError, match=f"{name} was removed"):
+        _settings(**{name: "redis://c:6379/0"})
 
 
 def test_a_missing_database_url_is_still_refused(
@@ -62,49 +57,34 @@ def test_a_missing_database_url_is_still_refused(
         Settings(_env_file=None, JWT_SECRET=_STRONG)  # type: ignore[call-arg]
 
 
-def _taskqueue_config() -> InfraConfig:
-    return {
-        "taskqueue": {
-            "default": InstanceConfig("taskqueue", "default", "celery", {}),
-        }
-    }
+def _core_with_broker(options: dict[str, Any] | None) -> Any:
+    config = None if options is None else SimpleNamespace(options=options)
+    infra = SimpleNamespace(instance_config=lambda _capability, _instance: config)
+    return SimpleNamespace(infra=infra)
 
 
-def test_an_unset_flat_url_gives_the_instance_no_option() -> None:
-    config = _taskqueue_config()
-    _flat_options(config, "taskqueue", {"broker": None, "backend": None})
-    assert config["taskqueue"]["default"].options == {}  # no ``None`` option
-
-
-def test_a_set_flat_url_still_gives_its_option_and_an_instance_option_wins() -> None:
-    config = _taskqueue_config()
-    config["taskqueue"]["default"].options = {"backend": "redis://own:6379/2"}
-    _flat_options(
-        config,
-        "taskqueue",
-        {"broker": "redis://b:6379/1", "backend": "redis://c:6379/0"},
-    )
-    assert config["taskqueue"]["default"].options == {
-        "broker": "redis://b:6379/1",
-        "backend": "redis://own:6379/2",
-    }
-
-
-def test_the_beat_scope_of_an_unset_broker_is_empty_not_the_text_none(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(fenced_lease, "settings", SimpleNamespace(broker_url=None))
+def test_the_beat_scope_of_an_unset_broker_is_empty_not_the_text_none() -> None:
     assert fenced_lease.broker_url_of(SimpleNamespace(infra=None), "default") == ""
-    monkeypatch.setattr(
-        fenced_lease, "settings", SimpleNamespace(broker_url="redis://b:6379/1")
-    )
+    assert fenced_lease.broker_url_of(_core_with_broker(None), "default") == ""
+    assert fenced_lease.broker_url_of(_core_with_broker({}), "default") == ""
     assert (
-        fenced_lease.broker_url_of(SimpleNamespace(infra=None), "default")
+        fenced_lease.broker_url_of(
+            _core_with_broker({"broker": "redis://b:6379/1"}), "default"
+        )
         == "redis://b:6379/1"
     )
 
 
-def test_the_backup_plan_skips_an_eventbus_with_no_url_and_no_cache_url() -> None:
+def test_no_setting_names_the_beat_broker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A flat ``broker_url`` on the settings object is not read any more: the
+    scope is the instance's ``broker`` option or empty."""
+    monkeypatch.setattr(
+        fenced_lease, "settings", SimpleNamespace(broker_url="redis://flat:6379/9")
+    )
+    assert fenced_lease.broker_url_of(_core_with_broker({}), "default") == ""
+
+
+def test_the_backup_plan_skips_an_eventbus_with_no_url_anywhere() -> None:
     config = {
         "eventbus": {
             "default": SimpleNamespace(driver="streams", options={}),
@@ -113,18 +93,14 @@ def test_the_backup_plan_skips_an_eventbus_with_no_url_and_no_cache_url() -> Non
             ),
         },
     }
-    roles = backup._redis_roles(config, SimpleNamespace(cache_url=None))
+    roles = backup._redis_roles(config, SimpleNamespace())
     assert roles == {"redis://own:6379/3": ["eventbus:named (streams)"]}
-    # ...and the flat ``CACHE_URL`` is still the url of one that has none.
-    roles = backup._redis_roles(config, SimpleNamespace(cache_url="redis://c:6379/0"))
-    assert roles["redis://c:6379/0"] == ["eventbus:default (streams)"]
 
 
 def test_the_backup_plan_follows_a_url_less_eventbus_to_the_default_cache_url() -> None:
     """A streams bus with no url runs on the default cache client: its stream data
     (required) is in the Redis ``cache.default`` points at (INFRA), not lost from
-    the plan when ``CACHE_URL`` is unset, and ahead of ``CACHE_URL`` when both
-    exist."""
+    the plan."""
     config = {
         "cache": {
             "default": SimpleNamespace(
@@ -134,6 +110,7 @@ def test_the_backup_plan_follows_a_url_less_eventbus_to_the_default_cache_url() 
         "eventbus": {"default": SimpleNamespace(driver="streams", options={})},
     }
     expected = {"redis://infra:6379/0": ["cache:default", "eventbus:default (streams)"]}
-    assert backup._redis_roles(config, SimpleNamespace(cache_url=None)) == expected
+    assert backup._redis_roles(config, SimpleNamespace()) == expected
+    # no flat ``cache_url`` outranks or fills it
     flat = SimpleNamespace(cache_url="redis://flat:6379/0")
     assert backup._redis_roles(config, flat) == expected

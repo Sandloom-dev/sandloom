@@ -326,8 +326,8 @@ def build_infra_registry(
     never falls back to ``memory``. An explicit ``config`` (a tool process, a
     test) is built as given.
 
-    The options a driver takes from the flat settings (``CACHE_URL``, the
-    ``CACHE_*`` bounds, ``BROKER_URL``) are filled once the drivers are loaded,
+    The options a driver takes from the flat settings (the readiness probe's
+    bound, ``HEALTH_CHECK_TIMEOUT_SECONDS``) are filled once the drivers are loaded,
     as each driver's class declares (``InfraProvider.settings_fill``): for a
     configuration read from the settings, and for an explicit ``config`` only
     when ``fill_from_settings`` asks (a tool process, which builds its

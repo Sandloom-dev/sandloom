@@ -162,8 +162,6 @@ def _tutorial(write: bool) -> int:
             "SANDLOOM_COMPOSITION_ROOT": f"{package}.asgi",
             "CONTRACT_DTO_PACKAGES": f'["{package}.shared"]',
             "DATABASE_URL": "postgresql+asyncpg://unused:unused@localhost:5433/unused",
-            "CACHE_URL": "redis://localhost:6380/15",
-            "BROKER_URL": "redis://localhost:6380/14",
             "JWT_SECRET": secrets.token_hex(32),
         }
     )

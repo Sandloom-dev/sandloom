@@ -20,8 +20,11 @@ An endpoint is an opaque string both sides compute alike: :func:`redis_endpoint`
 gives ``host:port/db`` of a ``redis://`` / ``rediss://`` url and never carries a
 credential. A persistent instance the kernel synthesized (``declared=False``:
 nobody wrote it in ``INFRA``, so nobody chose it) is logged at INFO, never as a
-WARNING: the development default (``CACHE_URL`` alone) shares by construction
-and a warning every start would hide the one that matters.
+WARNING: a development default (an instance the composition selects without
+an ``INFRA`` entry) shares by construction and a warning every start would hide
+the one that matters. In production nothing counts as a development default: a
+synthesized instance that shares the default cache's Redis is a WARNING there
+too (``InfraProvider.implicit`` is never true in production).
 
 An instance unregisters when it closes (:func:`unregister`); a test harness
 starts clean with :func:`reset`.
@@ -78,10 +81,16 @@ def redis_endpoint(url: str | None) -> str | None:
         return None
     if parts.scheme not in _REDIS_SCHEMES or not parts.hostname:
         return None
-    if "@" in parts.path:
+    # An ``@`` anywhere after the authority: an unencoded ``?`` / ``#`` /
+    # ``/`` in the password moved the rest of it (and the real host) out of the
+    # netloc, so what is left would echo user and password digits as host:port.
+    if "@" in parts.path + parts.query + parts.fragment:
         return None
     raw_db = parts.path.lstrip("/") or (parse_qs(parts.query).get("db") or ["0"])[0]
-    db = int(raw_db) if raw_db.isdecimal() else 0
+    try:
+        db = int(raw_db) if raw_db.isdecimal() else 0
+    except ValueError:  # more digits than int() converts (a 4300+ digit path)
+        return None
     return f"{parts.hostname.lower()}:{port}/{db}"
 
 

@@ -16,9 +16,9 @@ What the hooks need of the kernel is here, so a family imports nothing but
   marked; :func:`current_owner` is this run's owner id; :func:`already_claimed`
   and :func:`record_claim` skip a resource the process verified already;
   :class:`TestResourceOwnershipError` is the refusal;
-* the settings that name a backend: :data:`FLAT_VARS` (``CACHE_URL``,
-  ``BROKER_URL``), :data:`INFRA_VAR`, :func:`parse_infra` and the options of an
-  instance that hold a URL (:data:`INSTANCE_URL_OPTIONS`);
+* the setting that names the backends: :data:`INFRA_VAR`, :func:`parse_infra`
+  and the options of an instance that hold a URL
+  (:data:`INSTANCE_URL_OPTIONS`);
 * the worker layout (:mod:`sandloom.driverkit.testing_isolation`) and what the
   drivers of the configured instances say a worker uses
   (:func:`isolated_instance_options`, the driver a composition selects:
@@ -33,7 +33,6 @@ from collections.abc import Mapping
 from typing import Any
 
 from sandloom.core.testing.families import (
-    FLAT_VARS,
     INFRA_VAR,
     INSTANCE_URL_OPTIONS,
     HarnessFamily,
@@ -80,7 +79,6 @@ def isolated_instance_options(
 
 
 __all__ = [
-    "FLAT_VARS",
     "INFRA_VAR",
     "INSTANCE_URL_OPTIONS",
     "OWNER_ENV",

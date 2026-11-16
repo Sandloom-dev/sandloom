@@ -4,8 +4,8 @@ Two layers, merged at startup:
 
 1. **Defaults**: the drivers the composition selects
    (``create_app(default_infra=...)``; the kernel names none of its own) with
-   the options of the flat settings (``DATABASE_URL``, ``CACHE_URL``,
-   ``BROKER_URL``, ``STORAGE_*``, ``EVENT_BUS_BACKEND``): one ``default``
+   the options of the flat settings (``DATABASE_URL``, ``STORAGE_*``,
+   ``EVENT_BUS_BACKEND``): one ``default``
    instance per capability the composition selects. A capability nothing
    selects has no instance, and startup refuses it when the app needs it
    (SANDLOOM-B037).
@@ -36,14 +36,13 @@ import importlib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Any
 
-from sandloom.core.config.cache import CacheConfig
 from sandloom.core.config.common import Environment
 from sandloom.core.config.settings import Settings
 
 #: Capabilities whose ``default`` instance a composition selects (options from
-#: the flat settings: DATABASE_URL, CACHE_URL, …). This is NOT the set of valid
+#: the flat settings: DATABASE_URL, …). This is NOT the set of valid
 #: capabilities — INFRA may declare instances for any capability a plugin
 #: registers (workflow, graph_store, …). Whether a capability is valid is the
 #: registry's job (it owns the specs); config.py only validates SHAPE.
@@ -105,14 +104,11 @@ InfraConfig = dict[str, dict[str, InstanceConfig]]
 
 _NO_SETTINGS: Mapping[str, str] = MappingProxyType({})
 
-#: The settings a driver may take an option from: the flat infrastructure
-#: settings (``CACHE_URL``, ``BROKER_URL``, the ``CACHE_*`` client bounds) and
-#: the readiness probe's bound. Any other setting (a secret among them) is
-#: refused when a :class:`SettingsFill` is built (ADR-0016: a driver reads no
-#: kernel setting beyond these flat ones).
-FILLABLE_SETTINGS: frozenset[str] = frozenset(CacheConfig.model_fields) | {
-    "health_check_timeout_seconds"
-}
+#: The settings a driver may take an option from: the readiness probe's bound.
+#: Any other setting (a secret among them) is refused when a
+#: :class:`SettingsFill` is built (ADR-0016: a driver reads no kernel setting
+#: beyond this one; every url and client bound is an option of its instance).
+FILLABLE_SETTINGS: frozenset[str] = frozenset({"health_check_timeout_seconds"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,33 +120,23 @@ class SettingsFill:
     which flat setting fills which option, and the kernel applies the
     declaration without knowing the driver (:func:`fill_driver_defaults`). An
     option an instance states always wins: ``INFRA`` over the flat setting.
-    Every key of the three tables is an option name, every value one of
+    Every key of the two tables is an option name, every value one of
     :data:`FILLABLE_SETTINGS` (anything else is refused, a typo included).
+    No url is filled from a setting, and no instance takes an option from
+    another instance: a capability's url is its own, stated in ``INFRA``.
 
-    - ``urls``: an unset (or empty) option takes the setting's value when it is
-      set. Which instances take it is ``urls_for``: ``"all"``, only the
-      ``default`` instance (a named instance without one shares the default's
-      transport), or only an instance the kernel synthesized (``implicit``: one
-      ``INFRA`` declares has its own url, never the cache's).
-    - No instance takes an option from another instance (no ``follows``): a
-      capability's url is its own, stated in ``INFRA`` or filled from the flat
-      setting that names it.
     - ``bounds``: an option left out takes the setting's value when it is set
-      (a client timeout, a pool size).
+      (the readiness probe's bound).
     - ``caps``: a numeric option above the setting is cut to it (a probe the
       readiness check stops waiting for); a value that is not a number stays
       for the driver's options to refuse.
     """
 
-    urls: Mapping[str, str] = field(default_factory=lambda: _NO_SETTINGS)
-    urls_for: Literal["all", "default", "implicit"] = "all"
     bounds: Mapping[str, str] = field(default_factory=lambda: _NO_SETTINGS)
     caps: Mapping[str, str] = field(default_factory=lambda: _NO_SETTINGS)
 
     def __post_init__(self) -> None:
-        if self.urls_for not in ("all", "default", "implicit"):
-            raise ValueError(f"SettingsFill.urls_for is {self.urls_for!r}")
-        for name in ("urls", "bounds", "caps"):
+        for name in ("bounds", "caps"):
             table: Mapping[str, str] = getattr(self, name)
             if not all(
                 isinstance(option, str) and isinstance(setting, str)
@@ -295,9 +281,8 @@ def _flat_options(
 ) -> None:
     """Under the options of the composition's ``default`` instance of
     ``capability`` (when it selects one), the options the flat settings give.
-    A flat setting that is unset (``None``: ``CACHE_URL`` / ``BROKER_URL`` are
-    optional) gives no option, so the driver sees a missing option, not a
-    ``None`` one."""
+    A flat setting that is unset (``None``) gives no option, so the driver
+    sees a missing option, not a ``None`` one."""
     existing = config.get(capability, {}).get(DEFAULT_INSTANCE)
     if existing is not None:
         given = {key: value for key, value in flat.items() if value is not None}
@@ -331,11 +316,6 @@ def _synthesize_defaults(settings: Settings) -> InfraConfig:
 
     synthesized = _composition_instances()
     _flat_options(synthesized, "database", {"url": settings.database_url})
-    _flat_options(
-        synthesized,
-        "taskqueue",
-        {"broker": settings.broker_url, "backend": settings.cache_url},
-    )
     # The in-tree objectstore and notifier drivers are selected by their own
     # flat settings (``local`` and ``log`` by default); the options of ``smtp``
     # (host, port, credentials, ``use_tls``) come from INFRA.notification.
@@ -465,21 +445,8 @@ def _resolved_capability(
     return config[capability]
 
 
-def _gets_url(cfg: InstanceConfig, fill: SettingsFill) -> bool:
-    if fill.urls_for == "default":
-        return cfg.name == DEFAULT_INSTANCE
-    if fill.urls_for == "implicit":
-        return cfg.implicit
-    return True
-
-
 def _apply_fill(cfg: InstanceConfig, fill: SettingsFill, settings: Any) -> None:
     options = cfg.options
-    if _gets_url(cfg, fill):
-        for option, setting in fill.urls.items():
-            value = getattr(settings, setting, None)
-            if not options.get(option) and value:
-                options[option] = value
     for option, setting in fill.bounds.items():
         value = getattr(settings, setting, None)
         if value is not None:
@@ -503,11 +470,11 @@ def fill_driver_defaults(
     declares (:class:`SettingsFill`, ``InfraProvider.settings_fill``).
 
     A driver reads no kernel setting (ADR-0016): what it takes from
-    ``CACHE_URL``, ``BROKER_URL`` and the ``CACHE_*`` client bounds, the kernel
-    puts into the options of an instance that leaves them out, and a stated
-    option always wins. The kernel names no driver here: ``fill_for`` answers,
-    per ``(capability, driver)``, the declaration of the driver's class, and
-    ``None`` leaves the instance as it is.
+    ``HEALTH_CHECK_TIMEOUT_SECONDS``, the kernel puts into the options of an
+    instance that leaves it out, and a stated option always wins. The kernel
+    names no driver here: ``fill_for`` answers, per ``(capability, driver)``,
+    the declaration of the driver's class, and ``None`` leaves the instance as
+    it is.
     """
     for capability, instances in config.items():
         for cfg in instances.values():

@@ -20,7 +20,6 @@ from typing import Protocol, runtime_checkable
 from urllib.parse import urlsplit, urlunsplit
 
 from sandloom.driverkit.testing_family import (
-    FLAT_VARS,
     INFRA_VAR,
     OWNER_ENV,
     current_owner,
@@ -54,20 +53,13 @@ class RedisFamily:
         worker_id: str,
         number: int,
     ) -> dict[str, str]:
-        has_redis_setting = INFRA_VAR in values or any(
-            is_redis_url(values.get(var) or "") for var in FLAT_VARS
-        )
-        if not (has_redis_setting and redis_client_installed()):
+        if not (INFRA_VAR in values and redis_client_installed()):
             return {}
         from sandloom_redis.testing import isolation
 
         return isolation.rewrite_redis(values, environ, worker_id, number)
 
     def claim(self, values: Mapping[str, str]) -> None:
-        for var in FLAT_VARS:
-            url = values.get(var) or ""
-            if url:
-                claim_redis(url)
         for url in infra_redis_urls(values.get(INFRA_VAR)):
             claim_redis(url)
 

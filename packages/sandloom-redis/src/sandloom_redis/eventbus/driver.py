@@ -31,7 +31,7 @@ from sandloom.driverkit.shared_endpoints import redis_endpoint
 from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom.driverkit.testing_isolation import isolated_redis_options
-from sandloom_redis._settings_fill import STREAMS_FILL, require_url
+from sandloom_redis._settings_fill import require_url
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
 from sandloom_redis.eventbus.streams_transport_base import _mapped
 
@@ -52,9 +52,8 @@ class EventBusOptions(BaseModel):
     """Config-shape schema of the ``streams`` driver.
 
     ``url`` is the Redis DSN, with the connect timeout and health-check
-    interval of its client. The kernel fills all three from ``CACHE_URL`` and
-    the ``CACHE_*`` settings when the configuration leaves them out. The
-    ``default`` instance shares the process-wide default transport client (a
+    interval of its client (``INFRA.eventbus.<name>``; no setting fills them).
+    The ``default`` instance shares the process-wide default transport client (a
     sibling of the default cache client on its own ``url``); a named instance
     connects its own client. ``extra="forbid"`` rejects a typo'd key at
     startup.
@@ -182,7 +181,6 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
 
     contract_version = 2
     options_schema = EventBusOptions
-    settings_fill = STREAMS_FILL
     required_imports = ("redis",)
     install_hint = "pip install 'sandloom[redis]'"
     # Beta, the floor for a driver of this repository (spec 2.5): the

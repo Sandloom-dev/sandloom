@@ -1099,7 +1099,12 @@ class InfraRegistry:
                 raise self._import_failure(
                     capability, name, instance_cfg, registration, exc
                 ) from exc
-            provider.implicit = instance_cfg.implicit
+            # "Kernel-synthesized" is a development fact only: in production a
+            # synthesized instance (the beat lease, the streams bus, both on the
+            # composition's default driver) that shares the default cache's
+            # Redis is as real a risk as a declared one, so its drivers word
+            # the shared-endpoint message as a WARNING there.
+            provider.implicit = instance_cfg.implicit and not settings.is_prod
             self._check_contract(capability, name, provider)
             if self._strict:
                 self._check_declared_features(

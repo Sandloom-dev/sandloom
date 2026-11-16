@@ -680,7 +680,10 @@ class RemovedSetting(
 A setting that no longer exists; still configuring it is reported.
 
 Set to its `inert` value (today's only behaviour) it logs a warning;
-any other value fails startup — that behaviour is gone.
+any other value fails startup — that behaviour is gone. `inert=None`
+means there is no inert value: whatever the setting is set to (an empty
+string, `0` or `false` included, which are real values of a url or a
+bound) fails startup.
 
 ### `Risk`
 

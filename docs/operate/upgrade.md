@@ -123,7 +123,7 @@ There is no alias for what it replaces.
 | Before | After |
 | --- | --- |
 | `TaskQueueProvider.raw_backend()` (the Celery app) | Removed, and no `native()` replaces it. Implement `worker_host()` in a driver; reach the app of a worker through the driver's own importable object |
-| `celery -A sandloom.core.worker inspect\|call\|status` and Flower on `sandloom.core.worker` | `celery -A sandloom_celery.worker inspect\|call\|status`; the app is built from `BROKER_URL`, boots no application and registers no task. |
+| `celery -A sandloom.core.worker inspect\|call\|status` and Flower on `sandloom.core.worker` | `celery -A sandloom_celery.worker inspect\|call\|status`; the app is built from the `broker` option of `taskqueue.default`, boots no application and registers no task. |
 | `provider.register_task_table(table, run)` on the Celery provider | Removed: the host registers the table it gets from `WorkerBoot.boot()` |
 | `sandloom.core.worker.build_worker_app`, `get_worker_app`, `run_celery_command`, `install_heartbeat`, `heartbeat_is_fresh` | `sandloom.core.worker.run_worker`, `run_scheduler`, `check_worker` (the kernel side); the Celery side is `sandloom_celery.worker` |
 | `sandloom.core.beat_lease` (`BeatLease`, `LeasedScheduler`, `install_beat_lease`) | Moved to `sandloom_celery.worker`; the lease is resolved by the kernel (`sandloom.core.infra.fenced_lease`) and passed to the scheduler as `lease` and `lease_name` |
@@ -134,8 +134,32 @@ There is no alias for what it replaces.
 
 The three commands are unchanged for an operator. `sandloom worker check` now builds the
 infrastructure registry from the settings and asks the driver's host. It needs the same
-`DATABASE_URL`, `CACHE_URL` and `BROKER_URL` as the worker, boots no application and asks
+`DATABASE_URL` and `INFRA` as the worker, boots no application and asks
 no broker.
+
+## Upgrading to 0.7.0a14: the flat Redis settings
+
+Startup refuses `CACHE_URL`, `BROKER_URL` and the six `CACHE_*` bounds with any value, in
+the environment or in a `.env` file. Each message names what to write instead. The table is
+in [Configure infrastructure](../infrastructure/configure.md#upgrade-flat-settings-that-became-driver-options).
+No instance takes a url from a flat setting or from another instance any more. State the
+url of every Redis instance the app selects in `INFRA`, and the Celery `broker` of
+`taskqueue.default`. Two cases need care before the first start:
+
+1. **A staging-like environment whose `INFRA` `cache.default` url differs from
+   `CACHE_URL`.** Outside production the kernel synthesizes the `security` store
+   (`atomic_store`) on the url `CACHE_URL` had. Without that variable the store has no url
+   and startup fails with `MissingUrlError`. State `atomic_store.security.url` as the old
+   `CACHE_URL` before you upgrade. A different url puts the store on another Redis, and the
+   revocations and blocks written earlier are not seen. The same holds for `lease.beat`.
+2. **A rolling deploy with a `broadcast`.** A `broadcast` that left its `url` out used to
+   take the cache's. During the roll, old processes publish on that Redis and new ones on
+   the url `INFRA` states. Set `broadcast.<instance>.url` to the old value first, deploy,
+   then move it.
+
+In production the kernel synthesizes no `security` store: declare it. A synthesized
+instance that shares the cache's Redis database logs a WARNING there, not the INFO of a
+development start.
 
 ## Upgrading from 0.7.0a4 to 0.7.0a5
 
