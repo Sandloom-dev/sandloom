@@ -79,9 +79,21 @@ subagent): pass no actor on tm calls.
   beforehand. At `task_done` a hook reruns them on your last commit, without
   the architecture tests, and records the result (fleet brief, "Checks at the
   handover"); your run before the push stays, as the one that has the
-  architecture tests. Not in it, so run them when you touched their area:
-  `uv run sandloom check`, `uv run sandloom generate --check`, a module's
-  `uv run sandloom test <module>`, and the CI steps of
+  architecture tests. Beside pre-commit, the hook runs the CI steps your diff
+  (`git diff origin/main...HEAD`) selects, and the record lists each in
+  `ci_steps` as `Passed`, `Failed` or `not_run` with the reason: the docs job's
+  code check and reference check under Python 3.11 (a temporary environment,
+  your `.venv` untouched), `sandloom generate --check`, the no-Redis pending
+  list (`tools/ci/no_redis.py`), and a driver package's tests (`redis-drivers`,
+  `celery-drivers`) only when the hook's own environment carries your
+  `SANDLOOM_TEST_*`, otherwise `not_run` (the driver lanes follow a change under
+  `packages/` only: a change in `src/sandloom/core` to what a driver uses is run
+  by CI alone, run the lane yourself). The whole hook has one deadline of 570 s;
+  a step the deadline leaves no time for is `not_run`. A `Failed` step is recorded in
+  `failed` as `ci:<name>`, like a failed hook, and blocks nothing; a `not_run`
+  one means CI will run it and you did not: run it yourself before the push.
+  Not in it, so run them when you touched their area: `uv run sandloom check`,
+  a module's `uv run sandloom test <module>`, and the CI steps of
   `sandloom-ci-map` (`uv run --quiet python tools/agent_reference.py ci`) for packaging, docs
   site and examples.
 - Two CI jobs no gate above runs, the ones PRs failed most after the static
