@@ -81,7 +81,6 @@ import tomllib
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
 

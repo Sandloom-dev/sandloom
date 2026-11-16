@@ -44,6 +44,7 @@ import ast
 import importlib.util
 import itertools
 import re
+import shlex
 import sys
 import tomllib
 from collections.abc import Callable
@@ -211,7 +212,7 @@ def _env(values: dict[str, Any] | None) -> str:
         elif re.fullmatch(r"[\w.:/@+,=-]*", text):
             pairs.append(f"{key}={text}")
         else:
-            pairs.append(f"{key}='{text}'")
+            pairs.append(f"{key}={shlex.quote(text)}")
     return " ".join(pairs)
 
 

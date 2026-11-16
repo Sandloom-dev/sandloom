@@ -43,9 +43,9 @@
       "P6": 13,
       "P7": 1,
       "P8": 5,
-      "P9": 70,
+      "P9": 68,
       "S11": 1,
-      "S4": 91
+      "S4": 90
     },
     "docs/advanced/write-admission.md": {
       "P6": 2,
@@ -98,7 +98,7 @@
     },
     "docs/contributing/local-ci.md": {
       "P6": 3,
-      "P9": 25,
+      "P9": 23,
       "S4": 24,
       "S9": 1
     },
@@ -110,7 +110,6 @@
       "P9": 5
     },
     "docs/contributing/setup.md": {
-      "P6": 1,
       "P9": 3
     },
     "docs/contributing/source-export.md": {
@@ -299,7 +298,7 @@
       "P6": 6,
       "P8": 1,
       "S13": 1,
-      "S4": 23
+      "S4": 22
     },
     "docs/operate/deploy.md": {
       "P12": 1,
@@ -312,11 +311,11 @@
       "S4": 3
     },
     "docs/operate/operator-reference.md": {
-      "P6": 6,
+      "P6": 5,
       "P8": 1,
       "P9": 54,
       "S11": 1,
-      "S4": 63
+      "S4": 61
     },
     "docs/operate/service-rpc.md": {
       "P6": 1,
@@ -330,7 +329,7 @@
     },
     "docs/operate/split-into-services.md": {
       "P6": 3,
-      "S4": 5
+      "S4": 4
     },
     "docs/operate/topologies.md": {
       "P6": 2,
@@ -344,7 +343,7 @@
       "P6": 5,
       "P7": 1,
       "P9": 16,
-      "S4": 12
+      "S4": 11
     },
     "docs/reference/event-contracts.md": {
       "P12": 1,

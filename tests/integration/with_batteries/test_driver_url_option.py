@@ -29,6 +29,7 @@ import inspect
 import re
 from importlib.metadata import entry_points
 from pathlib import Path
+from typing import NamedTuple
 
 from pydantic import BaseModel
 
@@ -37,13 +38,39 @@ from sandloom.core.infra.registry import declared_url_options
 
 _PACKAGES_DIR = Path(__file__).resolve().parents[3] / "packages"
 _URL_FIELD = re.compile(r"(^|_)(url|uri|dsn|endpoint|broker)(_|$)")
-#: ``"<capability>.<driver>"`` -> its url-like options that name no server the
-#: driver needs: stated by the operator or left to the SDK's own default.
+
+
+class _Exemption(NamedTuple):
+    """The package under ``packages/`` that holds the driver, and its url-like
+    options that name no server the driver needs: stated by the operator or left
+    to the SDK's own default (option -> reason)."""
+
+    package: str
+    options: dict[str, str]
+
+
+#: ``"<capability>.<driver>"`` -> its exemption. The option is looked for in the
+#: sources of that package only: another package declaring the same name must
+#: not keep a dead exemption alive.
 _NOT_A_SERVER_URL = {
-    "objectstore.s3": {
-        "endpoint_url": "optional: AWS is the default; S3-compatible only"
-    },
+    "objectstore.s3": _Exemption(
+        "sandloom-s3",
+        {"endpoint_url": "optional: AWS is the default; S3-compatible only"},
+    ),
 }
+
+
+def _package_sources(package: str, packages: Path = _PACKAGES_DIR) -> str:
+    """The Python sources of one package under ``packages/``."""
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((packages / package).glob("src/**/*.py"))
+    )
+
+
+def _declares(option: str, sources: str) -> bool:
+    """``option`` is declared as a field (``    name: ...``) in ``sources``."""
+    return bool(re.search(rf"^\s+{re.escape(option)}\s*:", sources, re.MULTILINE))
 
 
 def _repository_drivers() -> dict[str, type[InfraProvider]]:
@@ -65,7 +92,7 @@ def _gaps(drivers: dict[str, type[InfraProvider]]) -> list[str]:
     gaps = []
     for key, cls in sorted(drivers.items()):
         fields = cls.options_schema.model_fields if cls.options_schema else {}
-        exempt = _NOT_A_SERVER_URL.get(key, {})
+        exempt = _NOT_A_SERVER_URL[key].options if key in _NOT_A_SERVER_URL else {}
         has_field = [
             name for name in fields if _URL_FIELD.search(name) and name not in exempt
         ]
@@ -99,17 +126,41 @@ def test_every_exemption_names_an_option_the_ratchet_would_otherwise_see() -> No
     (the option was renamed or removed) is a dead exemption: it fails here.
     The driver need not be installed (``sandloom-s3`` is in the ``packaging``
     group only): the option is looked for as a field in the package sources."""
-    sources = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in sorted(_PACKAGES_DIR.glob("*/src/**/*.py"))
-    )
-    for key, options in _NOT_A_SERVER_URL.items():
-        for name in options:
+    for key, exemption in _NOT_A_SERVER_URL.items():
+        sources = _package_sources(exemption.package)
+        assert sources, f"{key}: package {exemption.package} has no sources"
+        for name in exemption.options:
             assert _URL_FIELD.search(name), f"{key}: {name} needs no exemption"
-            declared = re.search(rf"^\s+{re.escape(name)}\s*:", sources, re.MULTILINE)
-            assert declared, f"{key}: {name} is declared by no package any more"
-    # bites: a name no package declares is reported
-    assert not re.search(r"^\s+no_such_option_xyz\s*:", sources, re.MULTILINE)
+            assert _declares(name, sources), (
+                f"{key}: {name} is declared by {exemption.package} no more"
+            )
+
+
+def test_an_exemption_is_checked_against_its_own_package_only(
+    tmp_path: Path,
+) -> None:
+    """Bites on planted sources: a package that declares the option is seen, a
+    package that does not is not, even when a sibling package does declare it
+    (the case of an exemption kept alive by another package)."""
+    declaring = tmp_path / "pkg-a" / "src" / "pkg_a"
+    declaring.mkdir(parents=True)
+    (declaring / "options.py").write_text(
+        "class Options:\n    endpoint_url: str | None = None\n"
+    )
+    silent = tmp_path / "pkg-b" / "src" / "pkg_b"
+    silent.mkdir(parents=True)
+    (silent / "options.py").write_text("class Options:\n    bucket: str\n")
+    assert _declares("endpoint_url", _package_sources("pkg-a", tmp_path))
+    assert not _declares("endpoint_url", _package_sources("pkg-b", tmp_path))
+    # a mention that is no field (a comment, a call keyword) is not a declaration
+    assert not _declares("endpoint_url", "x = f(endpoint_url=None)  # endpoint_url\n")
+    # a package that does not exist has no sources: the test above refuses it
+    assert _package_sources("pkg-missing", tmp_path) == ""
+
+
+def test_the_real_exemptions_name_a_package_that_exists() -> None:
+    for key, exemption in _NOT_A_SERVER_URL.items():
+        assert (_PACKAGES_DIR / exemption.package).is_dir(), key
 
 
 def test_the_ratchet_reports_a_driver_that_does_not_declare_it() -> None:

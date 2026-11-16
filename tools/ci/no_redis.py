@@ -31,9 +31,18 @@ import json
 from pathlib import Path
 from typing import Any
 
-#: Importable names that make the venv "with Redis": the client, the Redis
-#: driver package and the Celery one (its ``celery[redis]`` pulls the client).
-REDIS_DISTRIBUTIONS = ("redis", "sandloom_redis", "sandloom_celery")
+#: Importable names that make the venv "with Redis": the client, its C parser,
+#: both driver packages and the Celery stack the Celery driver needs. The list
+#: of ``tests/architecture/test_no_redis.py`` (``REDIS_STACK``) is the same set,
+#: pinned equal there.
+REDIS_DISTRIBUTIONS = (
+    "redis",
+    "hiredis",
+    "sandloom_redis",
+    "sandloom_celery",
+    "celery",
+    "kombu",
+)
 PENDING = Path(__file__).with_name("no_redis_pending.json")
 #: How many files / tests the pending list may hold. They only go down: lower
 #: a ceiling with the entries it lost, never raise one (review holds that).
