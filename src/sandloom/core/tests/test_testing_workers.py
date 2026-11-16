@@ -13,11 +13,12 @@ import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from sandloom.core.infra.worker_isolation import worker_redis_url
-from sandloom.core.testing import families, workers
+from sandloom.core.testing import families, session_checks, workers
 from sandloom.core.tests._root_support import redis_free_infra_env
 
 _REAL_ENSURE_DATABASE = workers.ensure_database
@@ -43,6 +44,23 @@ def _fresh_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
     yield created
     os.environ.clear()
     os.environ.update(saved)
+
+
+def test_a_shell_cache_or_broker_url_is_not_a_run_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``CACHE_URL`` / ``BROKER_URL`` are no settings: a shell value of either
+    must not reach the run's values (nothing reads them), while a shell
+    ``DATABASE_URL`` still stands in for a missing one."""
+    config = SimpleNamespace(
+        rootpath=tmp_path, invocation_params=SimpleNamespace(args=())
+    )
+    monkeypatch.setenv("CACHE_URL", "redis://stray:6379/0")
+    monkeypatch.setenv("BROKER_URL", "redis://stray:6379/1")
+    monkeypatch.setenv("DATABASE_URL", BASE["DATABASE_URL"])
+    values = session_checks.run_values(config)  # type: ignore[arg-type]
+    assert values.get("DATABASE_URL") == BASE["DATABASE_URL"]
+    assert "CACHE_URL" not in values and "BROKER_URL" not in values
 
 
 def test_no_worker_means_no_rewrite() -> None:

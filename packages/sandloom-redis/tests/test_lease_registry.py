@@ -61,7 +61,7 @@ def test_the_default_registry_builds_the_beat_lease_on_the_url_infra_states(
 async def test_a_beat_lease_without_a_url_is_refused_not_pointed_at_the_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from sandloom_redis._settings_fill import MissingUrlError
+    from sandloom_redis._url import MissingUrlError
 
     monkeypatch.setattr(
         settings,

@@ -73,7 +73,7 @@ from sandloom_redis._eviction_guard import (
     refusal_of,
     refusal_reason,
 )
-from sandloom_redis._settings_fill import require_url
+from sandloom_redis._url import require_url
 
 
 @cache

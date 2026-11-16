@@ -163,9 +163,14 @@ development start.
 
 A `CELERY_BROKER_URL`, `CELERY_BROKER_READ_URL`, `CELERY_BROKER_WRITE_URL` or
 `CELERY_RESULT_BACKEND` can sit in the environment of a web process. If it differs from
-the `taskqueue` instance's `broker` or `backend`, the first publish now stops with a
+the `taskqueue` instance's `broker` or `backend`, a publish now stops with a
 `ForeignCeleryConfError`. Celery used to follow the variable and publish to that broker.
 Unset it, or state its value in `INFRA`.
+
+A Celery config module that sets a connection part is refused the same way. The parts
+are `broker_transport`, `broker_host`, `broker_port`, `broker_vhost`, `broker_user`
+and `broker_password`. The url does not matter: the `INFRA` url carries the whole
+connection.
 
 ## Upgrading from 0.7.0a4 to 0.7.0a5
 

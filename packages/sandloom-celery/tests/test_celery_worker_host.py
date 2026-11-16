@@ -557,6 +557,35 @@ def test_the_importable_app_refuses_a_config_module_that_changes_a_url(
         celery_worker.app  # noqa: B018
 
 
+@pytest.mark.parametrize(
+    "setting",
+    [
+        'broker_transport = "memory"',
+        "broker_port = 6399",
+        'broker_vhost = "7"',
+        'broker_user = "stray-user"',
+        'broker_password = "foreign-secret"',
+        'broker_host = "stray-host"',
+    ],
+)
+def test_the_importable_app_refuses_a_config_module_that_changes_the_connection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, setting: str
+) -> None:
+    """The url of the conf is INFRA's, but kombu also takes the transport, host,
+    port, vhost and credentials from the conf and lets them win: a config module
+    setting only one redirects (``memory`` sinks) the worker and every
+    ``inspect`` / ``call`` of the importable app. Refused, the key named."""
+    key = setting.split(" ")[0]
+    _importable_app_infra(
+        monkeypatch, {"driver": "celery", "broker": "redis://127.0.0.1"}
+    )
+    _config_module(monkeypatch, tmp_path, "foreign_celery_config_c", setting + "\n")
+    with pytest.raises(AttributeError, match=key) as refused:
+        celery_worker.app  # noqa: B018
+    assert "foreign-secret" not in str(refused.value)
+    assert celery_worker._default.app is None
+
+
 def _celery_instances_in_the_module() -> list[str]:
     """What ``celery.app.utils.find_app`` scans for once ``app`` / ``celery`` raise."""
     return [

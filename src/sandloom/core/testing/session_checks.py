@@ -45,7 +45,9 @@ def run_values(config: pytest.Config) -> dict[str, str]:
     """The run's test URLs: ``.env.test`` + ``SANDLOOM_TEST_*`` (else the env)."""
     path = find_env_file(env_starts(config))
     values = workers.worker_env_values(path) if path is not None else {}
-    for var in workers.OVERRIDABLE_VARS:
+    # The settings a shell value may stand in for: DATABASE_URL. The cache and
+    # broker overrides are merged into INFRA (``worker_env_values``), not copied.
+    for var in workers.DATABASE_VARS:
         if not values.get(var) and os.environ.get(var):
             values[var] = os.environ[var]
     if not values.get(INFRA_VAR) and os.environ.get(INFRA_VAR):

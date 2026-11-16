@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from sandloom_redis._settings_fill import MissingUrlError
+from sandloom_redis._url import MissingUrlError
 
 from sandloom.core.config.settings import settings
 from sandloom.core.drivers.bootstrap import build_infra_registry

@@ -230,12 +230,8 @@ def _refuse_foreign_conf(app: Any, broker: str, backend: str | None) -> None:
     option = _foreign_conf_option(app, broker, backend)
     if option is not None:
         raise AttributeError(
-            f"the importable Celery app's {option} is not what the INFRA "
-            "option of the default taskqueue instance states: a config "
-            "module (`celery --config`, CELERY_CONFIG_MODULE), a loader "
-            "(`--loader default` reads celeryconfig.py) or a Celery "
-            "environment variable set it. Remove that setting, or state it "
-            "in INFRA"
+            f"the importable Celery app's {option} "
+            f"{_foreign_conf_reason(option, 'default')}"
         )
 
 
@@ -259,19 +255,52 @@ def refuse_foreign_app_conf(
     if option is not None:
         raise ForeignCeleryConfError(
             f"the Celery app of taskqueue instance {instance!r} resolves a {option} "
-            f"that is not the INFRA option taskqueue.{instance}."
-            f"{'backend' if option == 'result_backend' else 'broker'} states: a "
-            "CELERY_BROKER_URL / CELERY_BROKER_READ_URL / CELERY_BROKER_WRITE_URL / "
-            "CELERY_RESULT_BACKEND environment variable, a config module "
-            "(CELERY_CONFIG_MODULE) or a loader set it. Remove that setting, or "
-            "state it in INFRA"
+            f"that {_foreign_conf_reason(option, instance)}"
         )
+
+
+# Connection parts Celery hands to kombu next to the url, where they win over what
+# the url omits (``broker_transport`` and ``broker_host`` even over what it states):
+# a config module setting one redirects the publish (``broker_transport = "memory"``
+# loses every task into an in-process queue) with the url itself untouched. INFRA
+# states the whole connection in the url, so none of them may be set at all.
+_FOREIGN_CONNECTION_KEYS = (
+    "broker_transport",
+    "broker_host",
+    "broker_port",
+    "broker_vhost",
+    "broker_user",
+    "broker_password",
+)
+
+
+def _foreign_conf_reason(option: str, instance: str) -> str:
+    """The shared tail of both refusals: why ``option`` is not accepted and what
+    to do. One text for the importable app and the provider's app; it names the
+    option and the INFRA option, never a value: a url carries a password."""
+    if option in _FOREIGN_CONNECTION_KEYS:
+        return (
+            f"is set, and INFRA states the whole connection in the url of "
+            f"taskqueue.{instance}.broker: a config module (`celery --config`, "
+            "CELERY_CONFIG_MODULE) or a loader (`--loader default` reads "
+            "celeryconfig.py) set it. Remove that setting, or state it in the "
+            "INFRA url"
+        )
+    infra = "backend" if option == "result_backend" else "broker"
+    return (
+        f"is not what the INFRA option taskqueue.{instance}.{infra} states: a "
+        "CELERY_BROKER_URL / CELERY_BROKER_READ_URL / CELERY_BROKER_WRITE_URL / "
+        "CELERY_RESULT_BACKEND environment variable, a config module (`celery "
+        "--config`, CELERY_CONFIG_MODULE) or a loader (`--loader default` reads "
+        "celeryconfig.py) set it. Remove that setting, or state it in INFRA"
+    )
 
 
 def _foreign_conf_option(app: Any, broker: str, backend: str | None) -> str | None:
     """The first of the app's final ``broker_url``, ``broker_read_url``,
     ``broker_write_url`` and ``result_backend`` that is not what ``broker`` /
-    ``backend`` state, ``None`` when all are."""
+    ``backend`` state, or of the connection parts of
+    :data:`_FOREIGN_CONNECTION_KEYS` that is set at all; ``None`` when none."""
     conf = app.conf
     # Attribute access, not ``conf.get``: only the attribute applies the
     # ``broker_url`` fallback of a read / write url left unset.
@@ -285,6 +314,12 @@ def _foreign_conf_option(app: Any, broker: str, backend: str | None) -> str | No
         if isinstance(found, str):
             found = found.strip()
         if found != expected:
+            return option
+    for option in _FOREIGN_CONNECTION_KEYS:
+        found = conf.get(option)
+        if isinstance(found, str):
+            found = found.strip()
+        if found not in (None, ""):
             return option
     return None
 

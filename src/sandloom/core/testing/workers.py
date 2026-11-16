@@ -81,14 +81,17 @@ ISOLATED_VARS = (*DATABASE_VARS, INFRA_VAR)
 #: ``SANDLOOM_TEST_<VAR>`` wins over ``.env.test`` for these names.
 OVERRIDE_PREFIX = "SANDLOOM_TEST_"
 OVERRIDABLE_VARS = (*DATABASE_VARS, *REDIS_VARS)
-#: What each Redis override replaces in ``INFRA``: ``(capability whose default
-#: instance declares it, option that holds the URL)``.
+#: The capability whose ``default`` instance each Redis override replaces the
+#: URL of in ``INFRA``; the option that holds it is whichever of
+#: :data:`_URL_OPTIONS` the instance states.
 _INFRA_URLS = {
-    "CACHE_URL": ("cache", "url"),
-    "BROKER_URL": ("taskqueue", "broker"),
+    "CACHE_URL": "cache",
+    "BROKER_URL": "taskqueue",
 }
-#: The options of an instance that hold a Redis URL the overrides may replace.
-_URL_OPTIONS = ("url", "broker")
+#: The options of an instance that hold a Redis URL the overrides may replace:
+#: the harness's one list of URL options, less ``backend``, which mirrors its
+#: instance's ``broker`` (:func:`_set_url`) and is never replaced on its own.
+_URL_OPTIONS = tuple(o for o in families.INSTANCE_URL_OPTIONS if o != "backend")
 _REDIS_SCHEMES = ("redis://", "rediss://")
 
 _WORKER_RE = re.compile(r"^gw(\d+)$")
@@ -247,15 +250,14 @@ def infra_with_overrides(
     if not isinstance(parsed, dict):
         return infra_raw
     for var, url in wanted.items():
-        capability, option = _INFRA_URLS[var]
-        base = _declared_option(parsed, capability, "default", option)
+        capability = _INFRA_URLS[var]
+        base = _declared_url(parsed, capability, "default")
         if not base:
             raise UnmatchedOverrideError(
-                f"{OVERRIDE_PREFIX}{var} is set, but INFRA declares no Redis "
-                f"{capability}.default.{option} for it to replace: declare it in "
-                f'.env.test (INFRA=\'{{"{capability}": {{"default": '
-                f'{{"{option}": "redis://..."}}}}}}\') or unset '
-                f"{OVERRIDE_PREFIX}{var}"
+                f"{OVERRIDE_PREFIX}{var} is set, but INFRA declares no Redis URL "
+                f"({' / '.join(_URL_OPTIONS)}) on {capability}.default for it to "
+                f"replace: declare it in .env.test, or unset {OVERRIDE_PREFIX}{var} "
+                f"(an app that selects no {capability} has nothing to override)"
             )
         _replace_on_database(parsed, base, url)
     return json.dumps(parsed)
@@ -273,15 +275,17 @@ def _replace_on_database(parsed: dict[str, Any], base: str, url: str) -> None:
                     _set_url(spec, held, url)
 
 
-def _declared_option(
-    parsed: dict[str, Any], capability: str, name: str, option: str
-) -> str | None:
-    """The Redis URL ``parsed`` declares for ``option`` of an instance, if any."""
+def _declared_url(parsed: dict[str, Any], capability: str, name: str) -> str | None:
+    """The Redis URL ``parsed`` declares on instance ``name`` of ``capability``
+    (its first stated option of :data:`_URL_OPTIONS`), if any."""
     instances = parsed.get(capability)
     spec = instances.get(name) if isinstance(instances, dict) else None
-    stated = spec.get(option) if isinstance(spec, dict) else None
-    if isinstance(stated, str) and stated.startswith(_REDIS_SCHEMES):
-        return stated
+    if not isinstance(spec, dict):
+        return None
+    for option in _URL_OPTIONS:
+        stated = spec.get(option)
+        if isinstance(stated, str) and stated.startswith(_REDIS_SCHEMES):
+            return stated
     return None
 
 

@@ -75,7 +75,7 @@ def test_the_kernel_fills_no_option_of_a_redis_instance(
 
 
 def test_a_redis_instance_without_a_url_refuses_naming_its_infra_option() -> None:
-    from sandloom_redis._settings_fill import MissingUrlError, require_url
+    from sandloom_redis._url import MissingUrlError, require_url
 
     with pytest.raises(MissingUrlError, match=r"cache\.sessions\.url") as raised:
         require_url("cache", "sessions", None)

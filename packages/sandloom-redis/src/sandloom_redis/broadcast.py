@@ -48,7 +48,7 @@ from sandloom.driverkit import (
     Unavailable,
 )
 from sandloom_redis._errors import map_redis_error
-from sandloom_redis._settings_fill import require_url
+from sandloom_redis._url import require_url
 
 _CAPABILITY = "broadcast"
 _PATTERN_SUFFIX = ".*"

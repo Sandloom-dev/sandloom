@@ -74,7 +74,10 @@ stability, registered drivers and per-instance health.
 Five groups of flat settings are removed. Each became an option of the driver
 that read it, written on that driver's instance in `INFRA`. Startup refuses a
 removed setting that carries a value, and names the option to write. An empty
-value only logs a warning. There are no aliases.
+value only logs a warning. The url and bound settings are the exception (the
+`CACHE_URL` row, the `BROKER_URL` row and the `CACHE_*` bounds): any value fails
+startup. A value counts from every source: the environment and `.env` (an empty
+`BROKER_URL=` too), and a file of `SECRETS_DIR`. There are no aliases.
 
 | Removed setting | Instance | Option |
 | --- | --- | --- |

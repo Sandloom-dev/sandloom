@@ -321,13 +321,15 @@ def sandloom_core(sandloom_app: Any) -> Any:
 async def _security_store_on_cache(stack: AsyncExitStack, core: Any, url: str) -> None:
     """Point the implicit development ``security`` store at the test Redis too.
 
-    The synthesized ``atomic_store.security`` instance (no ``INFRA`` entry) is
-    built on the cache's Redis, taken from the settings snapshot — which names
-    another database than the test cache url where the app was imported before
-    ``.env.test`` was loaded. A fixture that moves the ``cache`` instance onto
-    the test URL moves it along, so revocation marks, blocks and idempotency
-    keys the app writes land in the database the test reads and flushes. An instance the
-    configuration declares (``INFRA``) is left alone.
+    The synthesized ``atomic_store.security`` instance (no ``INFRA`` entry)
+    carries no url of its own: nothing is inherited from the cache any more. The
+    development composition synthesizes the instance, and the url it holds is
+    the one the test run supplies, which names another database than the
+    snapshot where the app was imported before ``.env.test`` was loaded. A
+    fixture that moves the ``cache`` instance onto the test URL gives the
+    synthesized store that same URL, so revocation marks, blocks and idempotency
+    keys the app writes land in the database the test reads and flushes. An
+    instance the configuration declares (``INFRA``) is left alone.
     """
     config = core.infra.instance_config("atomic_store", "security")
     if config is None or not config.implicit or config.driver != "redis":

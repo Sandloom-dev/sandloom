@@ -18,7 +18,7 @@ from uuid import uuid4
 
 import pytest
 from _redis_required import cache_url_or_unavailable
-from sandloom_redis._settings_fill import MissingUrlError
+from sandloom_redis._url import MissingUrlError
 from sandloom_redis.atomic_store import RedisAtomicStoreProvider
 
 from sandloom.driverkit import (

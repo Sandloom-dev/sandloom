@@ -287,8 +287,8 @@ def test_ci_commands_carry_their_env_and_the_venv_python() -> None:
     # A throwaway credential is "<dummy>" (any value works), a filled
     # expression "<ci>", a real value as it is.
     assert tool._env(job["env"]) == "TOKEN=<dummy> KEYS='{}' RUN=<ci>"
-    assert tool._env({"CACHE_URL": "redis://127.0.0.1:6380/0"}) == (
-        "CACHE_URL=redis://127.0.0.1:6380/0"
+    assert tool._env({"PROBE_URL": "redis://127.0.0.1:6380/0"}) == (
+        "PROBE_URL=redis://127.0.0.1:6380/0"
     )
     # Without the venv on the path, a bare python3 stays the system one.
     assert tool._commands({"steps": [{"run": "python3 tools/x.py"}]}) == [

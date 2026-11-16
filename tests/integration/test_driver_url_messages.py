@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from sandloom_celery.taskqueue import CeleryTaskQueueProvider, MissingBrokerError
 from sandloom_redis import cache as redis_cache
-from sandloom_redis._settings_fill import MissingUrlError
+from sandloom_redis._url import MissingUrlError
 from sandloom_redis.cache import RedisCacheProvider
 
 from sandloom.core.drivers.bootstrap import build_infra_registry

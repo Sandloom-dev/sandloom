@@ -600,6 +600,56 @@ def test_the_policy_job_runs_every_test_the_context_paths_depend_on():
     assert "BROKER_URL" not in step["env"]
 
 
+_REMOVED_FLAT_ENV = ("CACHE_URL", "BROKER_URL")
+
+
+def _env_blocks(path: Path) -> list[tuple[str, dict]]:
+    """Every ``env`` block of a workflow: the workflow's, each job's, each step's."""
+    data = yaml.safe_load(path.read_text())
+    blocks = [(f"{path.name}: env", data.get("env") or {})]
+    for job_name, job in (data.get("jobs") or {}).items():
+        blocks.append((f"{path.name}: {job_name}: env", job.get("env") or {}))
+        for index, step in enumerate(job.get("steps") or []):
+            where = f"{path.name}: {job_name}: step {index}: env"
+            blocks.append((where, step.get("env") or {}))
+    return blocks
+
+
+def test_no_workflow_exports_a_removed_flat_redis_setting() -> None:
+    """``CACHE_URL`` and ``BROKER_URL`` are removed settings that fail startup
+    with any value: no workflow, job or step may set one (the harness names are
+    ``SANDLOOM_TEST_CACHE_URL`` / ``SANDLOOM_TEST_BROKER_URL``, which differ)."""
+    blocks = [b for path in sorted(WORKFLOWS.glob("*.yml")) for b in _env_blocks(path)]
+    assert len(blocks) > 50  # every workflow was read, not an empty glob
+    offenders = [
+        f"{where}: {name}"
+        for where, env in blocks
+        for name in _REMOVED_FLAT_ENV
+        if name in env
+    ]
+    assert offenders == []
+
+
+def test_the_flat_env_scan_finds_a_planted_setting(tmp_path: Path) -> None:
+    """The scan above bites: a workflow that sets one at each level is reported."""
+    planted = tmp_path / "planted.yml"
+    planted.write_text(
+        "env:\n  CACHE_URL: x\njobs:\n  a:\n    env:\n      BROKER_URL: y\n"
+        "    steps:\n      - run: z\n        env:\n          CACHE_URL: w\n"
+    )
+    found = [
+        (where, name)
+        for where, env in _env_blocks(planted)
+        for name in _REMOVED_FLAT_ENV
+        if name in env
+    ]
+    assert [where for where, _ in found] == [
+        "planted.yml: env",
+        "planted.yml: a: env",
+        "planted.yml: a: step 0: env",
+    ]
+
+
 def test_docs_and_admin_workflows_do_not_repeat_what_a_step_or_job_already_runs():
     docs = workflow("docs.yml")["jobs"]["build"]["steps"]
     commands = " ".join(s.get("run", "") for s in docs)

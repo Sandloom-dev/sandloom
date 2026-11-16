@@ -1,9 +1,10 @@
-"""What the Redis drivers take from the flat settings: nothing.
+"""The url of a Redis instance: an option of that instance, never inherited.
 
 Every url and client bound of a Redis instance is an option of that instance
 (``INFRA``): no ``CACHE_URL`` / ``CACHE_*`` setting fills one, and no instance
 takes an option from another. An instance that has no url refuses startup
 naming its own INFRA option (``cache.<instance>.url``, see :func:`require_url`).
+The Redis drivers take nothing from the flat settings.
 """
 
 from __future__ import annotations
