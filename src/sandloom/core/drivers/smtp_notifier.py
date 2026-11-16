@@ -55,7 +55,11 @@ class NotifierOptions(BaseModel):
     username: str | None = None
     password: str | None = None
     from_addr: str | None = None
-    use_tls: bool | None = None
+    #: STARTTLS on unless the instance says ``false`` (a local mail catcher);
+    #: the default lives here, not in the kernel, so a provider built from its
+    #: own options (``from_config``, ``override_instance``) never sends in clear
+    #: by omission.
+    use_tls: bool = True
 
 
 class SmtpNotifierOptions(NotifierOptions):
@@ -110,7 +114,7 @@ class SmtpNotifierProvider(NotifierProvider):
         host = str(self.options.get("host") or "localhost").strip()
         port = int(self.options.get("port") or 25)
         with smtplib.SMTP(host, port, timeout=10) as client:
-            if self.options.get("use_tls"):
+            if _use_tls(self.options):
                 client.starttls(context=ssl.create_default_context())
             username = self.options.get("username")
             password = self.options.get("password")
@@ -147,6 +151,12 @@ def _delivery_error(exc: Exception, instance: str) -> InfraError:
     return kind(message, capability="notification", instance=instance)
 
 
+def _use_tls(options: Mapping[str, Any]) -> bool:
+    """STARTTLS unless the options say ``False``: absent (or null) is on, the
+    schema default of :class:`NotifierOptions`."""
+    return options.get("use_tls") is not False
+
+
 def _refuse_cleartext_login_in_prod(options: Mapping[str, Any]) -> None:
     """Credentials over a connection without TLS are refused in prod."""
 
@@ -154,7 +164,7 @@ def _refuse_cleartext_login_in_prod(options: Mapping[str, Any]) -> None:
         settings.is_prod
         and options.get("username")
         and options.get("password")
-        and not options.get("use_tls")
+        and not _use_tls(options)
     ):
         raise ValueError(
             "smtp notifier: SMTP credentials without use_tls would send the "

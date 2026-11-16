@@ -57,6 +57,7 @@ SEMANTIC_BASELINE = frozenset(
         "PRODUCTION_PROFILE",
         "TENANCY_MODE",
         "database.tenant_rls",
+        "notification.use_tls",
         "AUTH_REVOCATION_FAIL_CLOSED",
         "RPC_COMMANDS_REQUIRE_SIGNATURE",
         "RPC_REPLAY_GUARD",
@@ -65,7 +66,7 @@ SEMANTIC_BASELINE = frozenset(
         "DOCS_ENABLED",
     }
 )
-SEMANTIC_BASELINE_COUNT = 10
+SEMANTIC_BASELINE_COUNT = 11
 #: Total semantic settings (baseline + ADR-argued). Only goes down.
 SEMANTIC_COUNT_CEILING = 14
 
@@ -153,7 +154,9 @@ def test_profile_table_is_the_current_default_behaviour(prof: str) -> None:
         if spec.infra_option:
             cap, option = spec.name.split(".", 1)
             infra = cfg.infra.get(cap, {}).get("default", {})
-            actual: object = bool(infra.get(option, False))
+            actual: object = bool(
+                infra.get(option, tiers._infra_option_unset(spec.name))
+            )
         else:
             actual = spec.value(cfg)
         assert actual == expected, (spec.name, prof, actual, expected)
@@ -208,6 +211,70 @@ def test_prod_override_is_reported_loud_and_explicit(
         "DOCS_ENABLED",
     }
     assert block["accepted_risks"] == []
+
+
+_SMTP = {"driver": "smtp", "host": "mx", "from_addr": "no-reply@example.test"}
+
+
+def _notification(**options: Any) -> dict[str, Any]:
+    return {"notification": {"default": {**_SMTP, **options}}}
+
+
+@pytest.mark.parametrize("environment", ["prod", "dev"])
+def test_smtp_tls_off_is_an_override_in_every_profile(
+    environment: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Turning TLS off on an smtp instance (recovery links over plain SMTP) is
+    reported like every weaker semantic choice: the startup log, the metric
+    source (``active_overrides``), ``/diagnostics/core`` and ``sandloom doctor``."""
+    cfg = _settings(ENVIRONMENT=environment, INFRA=_notification(use_tls=False))
+    found = tiers.active_overrides(cfg)
+    assert [(o.setting, o.kind, o.profile) for o in found] == [
+        ("INFRA.notification.default.use_tls", "weaker", environment)
+    ]
+    log = logging.getLogger("sandloom.test.config_tiers")
+    with caplog.at_level(logging.INFO, logger="sandloom.test.config_tiers"):
+        tiers.log_overrides(cfg, log)
+    assert {r.levelno for r in caplog.records} == {
+        logging.WARNING if environment == "prod" else logging.INFO
+    }
+    block = tiers.diagnostics(cfg)
+    assert [o["setting"] for o in block["overrides"]] == [  # type: ignore[attr-defined]
+        "INFRA.notification.default.use_tls"
+    ]
+    report = doctor.Report()
+    doctor.check_overrides(report, cfg)
+    assert [c.name for c in report.checks] == [
+        "override:INFRA.notification.default.use_tls"
+    ]
+
+
+@pytest.mark.parametrize(
+    "infra",
+    [
+        {},  # no notification instance written: the log driver, no TLS at all
+        _notification(),  # TLS omitted: the smtp driver's default is on
+        _notification(use_tls=True),
+        {"notification": {"default": {"driver": "log"}}},  # no option to weaken
+    ],
+)
+def test_smtp_tls_left_on_or_unset_is_no_override(infra: dict[str, Any]) -> None:
+    assert tiers.active_overrides(_settings(ENVIRONMENT="prod", INFRA=infra)) == []
+
+
+def test_a_named_smtp_instance_with_tls_off_is_reported_by_its_name() -> None:
+    cfg = _settings(
+        ENVIRONMENT="prod",
+        INFRA={
+            "notification": {
+                "default": _SMTP,
+                "alerts": {**_SMTP, "use_tls": False},
+            }
+        },
+    )
+    assert [o.setting for o in tiers.active_overrides(cfg)] == [
+        "INFRA.notification.alerts.use_tls"
+    ]
 
 
 def test_stronger_choice_is_not_an_override() -> None:

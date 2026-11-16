@@ -6,7 +6,7 @@ title: Configuration Tiers
 
 Generated from `sandloom.core.config.tiers`. Every setting belongs to one tier: **semantic** (changes a guarantee or security property; its value is chosen per profile below), **ops** (capacity and operations — pools, timeouts, TTLs, sizes, endpoints, credentials, backend selection). There is no migration tier: the framework carries no transitional flags.
 
-Counts: **12 semantic** (ratcheted: may only go down; a new one needs an ADR), **154 ops**.
+Counts: **13 semantic** (ratcheted: may only go down; a new one needs an ADR), **154 ops**.
 
 ## Profile table (semantic tier)
 
@@ -19,6 +19,7 @@ Counts: **12 semantic** (ratcheted: may only go down; a new one needs an ADR), *
 | `SANDLOOM_ACCEPTED_RISKS` | `[]` | `[]` | `[]` | `[]` | Stable ids of the weaker guarantees this deployment accepts (sandloom.core.config.accepted_risks); each is reported at every start. |
 | `TENANCY_MODE` | — | — | — | `multi` (refused) | single binds one canonical tenant; the strict profile isolates many. |
 | `INFRA.database.<instance>.tenant_rls` | — | — | — | `true` (refused) | PostgreSQL Row-Level Security under the ORM tenant guard. |
+| `INFRA.notification.<instance>.use_tls` | `true` | `true` | `true` | `true` | STARTTLS / TLS to the SMTP server (credentials and recovery links in clear without it); the smtp driver defaults to on. |
 | `AUTH_REVOCATION_FAIL_CLOSED` | `false` | `false` | `true` | `true` (refused) | A revocation-store outage rejects tokens (503) instead of accepting them. |
 | `RPC_COMMANDS_REQUIRE_SIGNATURE` | `off` | `off` | `on` | `on` (refused) | Pair-MAC COMMAND calls also carry the caller's Ed25519 signature (KCI). |
 | `RPC_REPLAY_GUARD` | `commands` | `commands` | `commands` | `commands` | Pair-MAC nonce replay guard shared across replicas (commands / all). |

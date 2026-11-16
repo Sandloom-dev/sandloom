@@ -208,7 +208,8 @@ def test_mail_is_a_production_choice_and_the_demo_risk_is_documented(
             assert cfg.notifier_backend == "smtp", name
             options = load_infra_config(cfg)["notification"]["default"].options
             assert options["host"] == "smtp.example.test", name
-            assert options["use_tls"] is True, name
+            # TLS is the smtp driver's own default: the profile never turns it off.
+            assert options.get("use_tls") is not False, name
             assert not cfg.accepts_risk("log_notifier_in_prod"), name
 
 

@@ -46,6 +46,8 @@ The options are `host` (required), `port`, `username`, `password`, `from_addr` a
 STARTTLS (`use_tls`) is on unless you write `false`, and production refuses a login without it.
 It supports the channel `email`.
 
+Writing `use_tls: false` is a reported configuration override: every production start logs a WARNING, and `/diagnostics/core` and `sandloom doctor` list it.
+
 **Tier.** `experimental` until its conformance lane (`NotifierConformance` against a mailpit
 container, `.github/workflows/notification-smtp.yml`) is green on main, then `beta`. In
 production an experimental driver needs `experimental_driver` in `SANDLOOM_ACCEPTED_RISKS`

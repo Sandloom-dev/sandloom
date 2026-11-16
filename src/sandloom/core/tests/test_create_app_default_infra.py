@@ -24,9 +24,8 @@ class _StopBeforeBoot(Exception):
 def _isolated_selection(monkeypatch: pytest.MonkeyPatch) -> None:
     """Restore the process selection after each test; stop ``create_app`` once
     the selection is set, so no test boots an app."""
-    monkeypatch.setattr(config_module, "_COMPOSITION_DEFAULTS", {})
-    monkeypatch.setattr(config_module, "_COMPOSITION_ADOPTED", False)
-    monkeypatch.setattr(config_module, "_SELECTION_FROM_APP", False)
+    monkeypatch.setattr(config_module, "_APP", None)
+    monkeypatch.setattr(config_module, "_PIN", None)
 
     def stop(_settings: object) -> None:
         raise _StopBeforeBoot
@@ -89,3 +88,55 @@ def test_a_selection_set_outside_create_app_survives_an_app_with_none(
     config_module.use_default_infra({"cache": {"default": {"driver": "redis"}}})
     _boot()
     assert _selected_drivers() == {"cache/default": "redis"}
+
+
+_PIN = {"cache": {"default": {"driver": "redis"}}}
+_ARG = {"eventbus": {"default": {"driver": "streams"}}}
+
+
+def test_the_argument_wins_over_a_pin_which_an_app_never_overwrites(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One precedence: the app's argument, then the pin, then the root's. The
+    sequence that lost a pin: pin, ``create_app(default_infra=X)``, then an app
+    with none."""
+    monkeypatch.setenv("SANDLOOM_COMPOSITION_ROOT", "sandloom.main")  # selects none
+    config_module.use_default_infra(_PIN)
+    _boot(default_infra=_ARG)
+    assert _selected_drivers() == {"eventbus/default": "streams"}  # argument > pin
+    _boot()
+    assert _selected_drivers() == {"cache/default": "redis"}  # the pin is back
+    _boot(default_infra=_ARG)
+    _boot(default_infra=_ARG)
+    _boot()
+    assert _selected_drivers() == {"cache/default": "redis"}
+
+
+def test_a_new_pin_is_the_later_word_over_an_earlier_apps_argument(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SANDLOOM_COMPOSITION_ROOT", "sandloom.main")
+    _boot(default_infra=_ARG)
+    config_module.use_default_infra(_PIN)
+    assert _selected_drivers() == {"cache/default": "redis"}
+
+
+def test_a_pin_wins_over_the_roots_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("sandloom_standard")  # absent in the kernel-only venv
+    monkeypatch.setenv("SANDLOOM_COMPOSITION_ROOT", "sandloom_standard.main")
+    config_module.use_default_infra(_PIN)
+    _boot()
+    assert _selected_drivers() == {"cache/default": "redis"}  # not the root's set
+
+
+def test_an_empty_pin_is_a_pin_not_an_absent_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``use_default_infra(None)`` pins "no selection": the root's is not read."""
+    pytest.importorskip("sandloom_standard")  # absent in the kernel-only venv
+    monkeypatch.setenv("SANDLOOM_COMPOSITION_ROOT", "sandloom_standard.main")
+    config_module.use_default_infra(None)
+    _boot()
+    assert _selected_drivers() == {}

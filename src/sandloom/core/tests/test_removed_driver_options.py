@@ -121,14 +121,50 @@ def _infra(monkeypatch: pytest.MonkeyPatch, infra: dict[str, Any], **env: Any) -
     return load_infra_config(_settings())
 
 
-def test_an_smtp_instance_keeps_starttls_on_unless_the_option_says_false(
+@pytest.mark.parametrize(
+    ("name", "secret"),
+    [
+        ("SMTP_PASSWORD", "hunter2-secret"),
+        ("SMTP_USERNAME", "mailer-user-0xA1"),
+        ("S3_ACCESS_KEY_ID", "AKIAEXAMPLE0KEYID"),
+        ("S3_SECRET_ACCESS_KEY", "wJalrXUtnFEMI-s3-secret"),
+    ],
+)
+def test_a_removed_credential_never_echoes_its_value(
+    name: str, secret: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The refusal reaches startup logs, crash output and Sentry: it names the
+    setting, never the value an operator put there."""
+    with pytest.raises(ValueError, match="is no longer supported") as raised:
+        _settings(**{name: secret})
+    for text in (str(raised.value), repr(raised.value)):
+        assert secret not in text
+        assert name in text
+    # The process environment (what a compose file passes) takes the same path.
+    monkeypatch.setenv(name, secret)
+    with pytest.raises(ValueError, match=name) as from_env:
+        _settings()
+    assert secret not in str(from_env.value)
+    assert secret not in repr(from_env.value)
+
+
+def test_a_flag_value_is_still_named_in_the_refusal() -> None:
+    """A boolean spelling is no credential: it stays in the message, so the
+    operator sees which choice is no longer honoured."""
+    with pytest.raises(ValueError, match="SMTP_USE_TLS=false is no longer supported"):
+        _settings(SMTP_USE_TLS="FALSE")
+
+
+def test_the_kernel_fills_no_tls_option_into_an_smtp_instance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The TLS default is the driver's (``NotifierOptions.use_tls``), not a
+    kernel fill: ``load_infra_config`` hands the options on as written."""
     on = _infra(
         monkeypatch, {"notification": {"default": {"driver": "smtp", "host": "mail"}}}
     )["notification"]["default"]
     assert on.driver == "smtp"
-    assert on.options["use_tls"] is True
+    assert "use_tls" not in on.options
     off = _infra(
         monkeypatch,
         {
@@ -138,16 +174,6 @@ def test_an_smtp_instance_keeps_starttls_on_unless_the_option_says_false(
         },
     )["notification"]["default"]
     assert off.options["use_tls"] is False
-
-
-def test_only_an_smtp_instance_gets_the_tls_default(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    file_instance = _infra(
-        monkeypatch,
-        {"notification": {"default": {"driver": "file", "path": "/m.log"}}},
-    )["notification"]["default"]
-    assert file_instance.options == {"path": "/m.log"}
 
 
 def test_a_streams_bus_takes_its_retention_options_from_infra_only(
