@@ -60,6 +60,7 @@ class AlreadyExists(InfraError)(
     *,
     capability: str,
     instance: str | None = None,
+    hint: str | None = None,
 ) -> None
 ```
 
@@ -655,6 +656,7 @@ class InfraError(Exception)(
     *,
     capability: str,
     instance: str | None = None,
+    hint: str | None = None,
 ) -> None
 ```
 
@@ -668,6 +670,7 @@ class InvalidArgument(InfraError)(
     *,
     capability: str,
     instance: str | None = None,
+    hint: str | None = None,
 ) -> None
 ```
 
@@ -681,6 +684,7 @@ class NotFound(InfraError)(
     *,
     capability: str,
     instance: str | None = None,
+    hint: str | None = None,
 ) -> None
 ```
 
@@ -819,6 +823,7 @@ class PermissionDenied(InfraError)(
     *,
     capability: str,
     instance: str | None = None,
+    hint: str | None = None,
 ) -> None
 ```
 
@@ -885,6 +890,7 @@ class Timeout(InfraError)(
     *,
     capability: str,
     instance: str | None = None,
+    hint: str | None = None,
 ) -> None
 ```
 
@@ -898,6 +904,7 @@ class TooLarge(InfraError)(
     *,
     capability: str,
     instance: str | None = None,
+    hint: str | None = None,
 ) -> None
 ```
 
@@ -911,6 +918,7 @@ class Unavailable(InfraError)(
     *,
     capability: str,
     instance: str | None = None,
+    hint: str | None = None,
 ) -> None
 ```
 

@@ -485,6 +485,9 @@ _UNAVAILABLE_REPLY_PREFIXES = (
 #: pathological chain from looping.
 _CAUSE_CHAIN_LIMIT = 16
 
+#: The longest ``InfraError.hint`` the outage warning prints.
+_HINT_MAX_CHARS = 120
+
 
 def _infra_error_is_outage(error: InfraError) -> bool:
     """The verdict of a capability error (spec 2.1): the driver mapped it.
@@ -530,9 +533,17 @@ def _infra_hint(exc: BaseException) -> str | None:
             break
         seen.add(id(current))
         if isinstance(current, InfraError) and current.hint:
-            return current.hint
+            return _log_safe_hint(current.hint)
         current = _next_link(current)
     return None
+
+
+def _log_safe_hint(hint: str) -> str | None:
+    """``hint`` cut to ``_HINT_MAX_CHARS``, or ``None`` when it holds a control
+    character or a newline: a third-party driver's hint never forges a log line."""
+    if not hint.isprintable():
+        return None
+    return hint[:_HINT_MAX_CHARS]
 
 
 def outage_reason(exc: BaseException) -> str | None:

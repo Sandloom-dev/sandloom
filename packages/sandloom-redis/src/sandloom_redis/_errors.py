@@ -205,9 +205,13 @@ def map_redis_error(
     A non-backend ``exc`` is re-raised as itself (see :func:`redis_error_kind`).
     """
     kind = redis_error_kind(exc)
-    return kind(
-        f"{what}: {type(exc).__name__}",
-        capability=capability,
-        instance=instance,
-        hint=CLUSTER_REDIRECT_HINT if _is_cluster_redirect(exc) else None,
+    error = kind(
+        f"{what}: {type(exc).__name__}", capability=capability, instance=instance
     )
+    if _is_cluster_redirect(exc):
+        # An attribute, not a ``hint=`` keyword: this package pins an older
+        # kernel (``sandloom>=0.7.0a13``) whose ``InfraError`` has no such
+        # keyword, and a ``TypeError`` here would reach the relay as poison on
+        # an outage. A kernel that does not read the hint just never prints it.
+        error.hint = CLUSTER_REDIRECT_HINT
+    return error

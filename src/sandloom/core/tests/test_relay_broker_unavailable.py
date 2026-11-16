@@ -275,6 +275,31 @@ def test_an_outage_without_a_hint_is_labelled_by_its_class_name(
     assert relay.outage_reason(error) == type(error).__name__
 
 
+@pytest.mark.parametrize(
+    "hint",
+    ["bad\nWARNING forged line", "bell\x07", "tab\there", "\x1b[31mred"],
+    ids=["newline", "bell", "tab", "escape"],
+)
+def test_a_hint_with_a_control_character_is_not_printed(hint: str) -> None:
+    # A third-party driver's hint never forges a log line: the line keeps the
+    # class name and the outage verdict stays.
+    error = Unavailable("down", capability=CAP, hint=hint)
+    assert relay.outage_reason(error) == "Unavailable"
+    assert relay.is_broker_unavailable(error)
+
+
+def test_a_long_hint_is_cut_to_a_bound() -> None:
+    reason = relay.outage_reason(Unavailable("down", capability=CAP, hint="x" * 500))
+    assert reason == "Unavailable (" + "x" * 120 + ")"
+
+
+def test_a_hint_of_the_bound_length_is_kept_whole() -> None:
+    hint = "y" * 120
+    assert relay.outage_reason(Unavailable("d", capability=CAP, hint=hint)) == (
+        f"Unavailable ({hint})"
+    )
+
+
 def test_a_hint_never_makes_an_error_an_outage() -> None:
     # The hint labels a line only; the verdict is the class and ``retryable``.
     refused = InvalidArgument("bad", capability=CAP, hint=HINT)
