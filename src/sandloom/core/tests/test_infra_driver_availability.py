@@ -22,6 +22,7 @@ from typing import Any
 
 import pytest
 
+import sandloom.core.infra.config as config_module
 from sandloom.core import error_codes
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import CapabilityRequirement, HealthResult
@@ -31,6 +32,7 @@ from sandloom.core.infra.config import (
     KERNEL_INSTANCES,
     InstanceConfig,
     load_infra_config,
+    use_default_infra,
 )
 from sandloom.core.infra.contracts import InfraProvider
 from sandloom.core.infra.registry import (
@@ -236,6 +238,18 @@ def test_builtin_drivers_name_their_package_and_extra(
     unimportable, ``validate_requirement`` passed. It refuses now, and the
     package is still not imported."""
     monkeypatch.setitem(sys.modules, package, None)
+    # A composition that selects both drivers (the suite's own selection is the
+    # ``memory`` cache where ``sandloom-redis`` is absent): names only, nothing
+    # is built.
+    monkeypatch.setattr(config_module, "_PIN", None)
+    monkeypatch.setattr(config_module, "_APP", None)
+    use_default_infra(
+        {
+            "database": {"default": {"driver": "sqlalchemy"}},
+            "cache": {"default": {"driver": "redis"}},
+            "taskqueue": {"default": {"driver": "celery"}},
+        }
+    )
     registry = _real_registry()
     with pytest.raises(DriverUnavailableError) as caught:
         registry.validate_requirement(capability)

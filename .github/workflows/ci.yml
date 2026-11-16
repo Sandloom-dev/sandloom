@@ -1001,6 +1001,7 @@ jobs:
     env:
       DATABASE_URL: postgresql+asyncpg://test_user:test_password@127.0.0.1:5433/sandloom_test
       CACHE_URL: redis://127.0.0.1:6380/0
+      SANDLOOM_TEST_CACHE_URL: redis://127.0.0.1:6380/0
       BROKER_URL: redis://127.0.0.1:6380/14
       JWT_SECRET: ci-redis-drivers-not-a-real-secret
       SANDLOOM_TEST_OWNER: ci-redis-drivers

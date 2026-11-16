@@ -810,14 +810,19 @@ _REFUSED = 'connection to server at "127.0.0.1", port 5432 failed: Connection re
 
 def test_connection_failures_become_one_line() -> None:
     import psycopg2  # type: ignore[import-untyped]
-    import redis
 
     line = errors.connection_failure(psycopg2.OperationalError(_REFUSED))
     assert line == (
         "error: cannot reach PostgreSQL at 127.0.0.1:5432 (connection refused). "
         "Start the dev services: uv run sandloom dev up   [SANDLOOM-R014]"
     )
-    rd = redis.exceptions.ConnectionError(
+    # The kernel recognises a Redis client's error by its module and name, so a
+    # stand-in needs no client (the real one: the sandloom-redis package's
+    # ``test_redis_unreachable_message.py``).
+    redis_connection_error = type(
+        "ConnectionError", (Exception,), {"__module__": "redis.exceptions"}
+    )
+    rd = redis_connection_error(
         "Error 61 connecting to 127.0.0.1:6379. Connection refused."
     )
     assert "cannot reach Redis at 127.0.0.1:6379" in (

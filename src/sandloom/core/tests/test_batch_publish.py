@@ -250,6 +250,11 @@ async def test_preflighted_events_skip_the_repeated_size_check(
 
 
 # == broker availability classification =========================================
+class ResponseError(Exception):
+    """A Redis client's error reply, as the relay recognises it (by the class
+    name ``ResponseError`` and the reply's prefix)."""
+
+
 @pytest.mark.parametrize(
     "reply",
     [
@@ -273,9 +278,11 @@ def test_redis_availability_replies_do_not_burn_relay_attempts(reply: str) -> No
     # a failover's READONLY / MASTERDOWN and cluster TRYAGAIN / CLUSTERDOWN
     # replies (plain ResponseErrors) were not, so a failover burned every
     # event's OUTBOX_RELAY_MAX_ATTEMPTS and could dead-letter valid events.
-    from redis._parsers.base import BaseParser
-
-    err = BaseParser().parse_error(reply)
+    # The relay matches a client's reply error by class name and reply prefix
+    # (it imports no client): a stand-in ``ResponseError`` is enough. What the
+    # real client's parser makes of each reply is tested in the sandloom-redis
+    # package (``test_redis_relay_availability.py``).
+    err = ResponseError(reply)
     assert relay.is_broker_unavailable(err)
     wrapped = RuntimeError("publish failed")
     wrapped.__cause__ = err
@@ -283,9 +290,7 @@ def test_redis_availability_replies_do_not_burn_relay_attempts(reply: str) -> No
 
 
 def test_a_poison_reply_still_burns_attempts() -> None:
-    from redis._parsers.base import BaseParser
-
     assert not relay.is_broker_unavailable(
-        BaseParser().parse_error("ERR value is not an integer or out of range")
+        ResponseError("ERR value is not an integer or out of range")
     )
     assert not relay.is_broker_unavailable(ValueError("LOADING-looking payload"))

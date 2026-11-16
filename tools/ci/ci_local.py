@@ -498,7 +498,7 @@ FINGERPRINTS: dict[str, str] = {
     "ci.yml:backend-tests-isolation": "1f41c4abed7873f2",
     "ci.yml:kernel-without-batteries": "69bbae8dd7cbe877",
     "ci.yml:kernel-without-redis": "b21fc110763e41b7",
-    "ci.yml:redis-drivers": "011b0dcecef9e707",
+    "ci.yml:redis-drivers": "216cf7fca321f58d",
     "ci.yml:celery-drivers": "694d207912c6ef46",
     "ci.yml:second-db-test-lane": "76d7b93cf72fd8f1",
     "ci.yml:skip-ledger": "26c3a5f95f413506",

@@ -18,6 +18,7 @@ import pytest
 
 from sandloom.core.infra.worker_isolation import worker_redis_url
 from sandloom.core.testing import families, workers
+from sandloom.core.tests._root_support import redis_free_infra_env
 
 _REAL_ENSURE_DATABASE = workers.ensure_database
 BASE = {
@@ -220,6 +221,9 @@ def test_generate_opens_no_database_for_an_explicit_test_url() -> None:
     env["SANDLOOM_TEST_DATABASE_URL"] = (
         "postgresql+asyncpg://user:secret@127.0.0.1:1/nothing_listens_here"
     )
+    env.update(
+        redis_free_infra_env()
+    )  # the example's Redis drivers: memory without them
     done = subprocess.run(
         [
             sys.executable,

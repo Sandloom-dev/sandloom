@@ -137,10 +137,11 @@ the driver packages installed and selects memory drivers. A kernel test that
 fails without Redis but imports nothing is not caught by the second job. The
 job ends with the SQLite boot without asyncpg, below.
 
-`tools/ci/no_redis_pending.json` lists the kernel tests that still need a Redis
+`tools/ci/no_redis_pending.json` would list the kernel tests that need a Redis
 or Celery driver. A listed file is not collected, and a listed test is a strict
-xfail. Like the batteries list it only goes down (the ceilings in the tool).
-A test that needs a driver moves to `packages/sandloom-redis/tests` or
+xfail. Like the batteries list it is empty and stays empty: both ceilings in
+the tool are 0. A test that needs a driver runs on the kernel's `memory`
+drivers or moves to `packages/sandloom-redis/tests` or
 `packages/sandloom-celery/tests`. Locally, after the commands above:
 
 ```bash
