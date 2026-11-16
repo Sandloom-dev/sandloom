@@ -258,8 +258,8 @@ def module_imports(source: str, module: str, *, is_package: bool) -> list[Import
             dynamic = call_target(node, constants)
             if dynamic is not None:
                 found.append(Import(node.lineno, dynamic, optional))
-        for child in ast.iter_child_nodes(node):
-            visit(child, optional)
+        for nested in ast.iter_child_nodes(node):
+            visit(nested, optional)
 
     visit(tree, False)
     return found

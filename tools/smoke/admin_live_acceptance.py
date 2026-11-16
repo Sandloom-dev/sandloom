@@ -19,7 +19,7 @@ from urllib.error import URLError
 from urllib.request import urlopen
 from uuid import uuid4
 
-import asyncpg
+import asyncpg  # type: ignore[import-untyped]  # no py.typed, as in src/sandloom/core/drivers/dbapi_asyncpg.py
 from argon2 import PasswordHasher
 from sqlalchemy.engine import make_url
 

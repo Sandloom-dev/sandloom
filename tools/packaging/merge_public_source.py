@@ -88,12 +88,12 @@ def _merge_paths(base: list[str], ours: list[str], theirs: list[str]) -> list[st
 
 
 def _merge_include(
-    base: list[dict], ours: list[dict], theirs: list[dict]
-) -> list[dict]:
+    base: list[dict[str, Any]], ours: list[dict[str, Any]], theirs: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     by = {g["reason"]: g for g in base}
     mine = {g["reason"]: g for g in ours}
     other = {g["reason"]: g for g in theirs}
-    out: list[dict] = []
+    out: list[dict[str, Any]] = []
     for g in ours:
         if g["reason"] in other:
             out.append(_merge_group(by.get(g["reason"]), g, other[g["reason"]]))
@@ -107,7 +107,9 @@ def _merge_include(
     return out
 
 
-def _merge_group(base: dict | None, ours: dict, theirs: dict) -> dict:
+def _merge_group(
+    base: dict[str, Any] | None, ours: dict[str, Any], theirs: dict[str, Any]
+) -> dict[str, Any]:
     merged = copy.deepcopy(ours)
     old = base["paths"] if base else []
     merged["paths"] = _merge_paths(old, ours["paths"], theirs["paths"])
@@ -117,7 +119,9 @@ def _merge_group(base: dict | None, ours: dict, theirs: dict) -> dict:
     return merged
 
 
-def _kept(base: dict | None, group: dict, removed_where: str) -> bool:
+def _kept(
+    base: dict[str, Any] | None, group: dict[str, Any], removed_where: str
+) -> bool:
     """A group only one side has: new there (keep), or removed on the other side."""
     if base is None:
         return True
@@ -132,7 +136,7 @@ def _kept(base: dict | None, group: dict, removed_where: str) -> bool:
 _MISSING = object()
 
 
-def _set(out: dict, key: str, base: Any, ours: Any, theirs: Any) -> None:
+def _set(out: dict[str, Any], key: str, base: Any, ours: Any, theirs: Any) -> None:
     """Three-way merge of ``key``: the side that changed it wins."""
     b = base.get(key, _MISSING) if isinstance(base, dict) else _MISSING
     o = ours.get(key, _MISSING)
@@ -149,7 +153,9 @@ def _set(out: dict, key: str, base: Any, ours: Any, theirs: Any) -> None:
         out[key] = copy.deepcopy(value)
 
 
-def _merge_mapping(base: dict, ours: dict, theirs: dict) -> dict:
+def _merge_mapping(
+    base: dict[str, Any], ours: dict[str, Any], theirs: dict[str, Any]
+) -> dict[str, Any]:
     out = copy.deepcopy(ours)
     for key in list(dict.fromkeys([*ours, *theirs, *base])):
         _set(out, key, base, ours, theirs)
@@ -158,15 +164,19 @@ def _merge_mapping(base: dict, ours: dict, theirs: dict) -> dict:
     return out
 
 
-def merge(base: dict, ours: dict, theirs: dict) -> dict:
+def merge(
+    base: dict[str, Any], ours: dict[str, Any], theirs: dict[str, Any]
+) -> dict[str, Any]:
     """The merged policy; raises Conflict where both sides disagree."""
-    out: dict = {}
+    out: dict[str, Any] = {}
     for key in dict.fromkeys([*ours, *theirs, *base]):
         b, o, t = base.get(key), ours.get(key), theirs.get(key)
         if key == "include" and isinstance(o, list) and isinstance(t, list):
             out[key] = _merge_include(b or [], o, t)
-        elif all(isinstance(x, dict) for x in (o, t)) and isinstance(
-            b, (dict, type(None))
+        elif (
+            isinstance(o, dict)
+            and isinstance(t, dict)
+            and isinstance(b, (dict, type(None)))
         ):
             out[key] = _merge_mapping(b or {}, o, t)
         else:
@@ -175,7 +185,7 @@ def merge(base: dict, ours: dict, theirs: dict) -> dict:
     return out
 
 
-def _no_duplicates(policy: dict) -> None:
+def _no_duplicates(policy: dict[str, Any]) -> None:
     """Each side was valid alone; together they may list one path twice."""
     seen: dict[str, str] = {}
     for group in policy.get("include", []):

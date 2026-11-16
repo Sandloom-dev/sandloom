@@ -21,28 +21,35 @@ which Claude Code shows to the agent; the edit itself is never undone, and
 any failure of the hook exits 0.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import subprocess
 import sys
 from collections import Counter
+from typing import Any
 
 SKIP = {"F401", "F841"}
 MAX_LINES = 15  # the report is re-sent on every later turn: keep it short
 
 
-def _run(cmd, cwd, stdin=None, timeout=20):
+def _run(
+    cmd: list[str], cwd: str | None, stdin: str | None = None, timeout: int = 20
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - fixed tools (git, ruff); the path is an argument
         cmd, cwd=cwd, input=stdin, capture_output=True, text=True, timeout=timeout
     )
 
 
-def _ruff(top):
+def _ruff(top: str) -> list[str]:
     exe = os.path.join(top, ".venv", "bin", "ruff")
     return [exe] if os.path.exists(exe) else ["uv", "run", "--no-sync", "ruff"]
 
 
-def _findings(top, ruff, args, stdin=None):
+def _findings(
+    top: str, ruff: list[str], args: list[str], stdin: str | None = None
+) -> list[dict[str, Any]]:
     out = _run(
         [*ruff, "check", "--no-fix", "--output-format", "json", *args], top, stdin
     )
@@ -52,7 +59,7 @@ def _findings(top, ruff, args, stdin=None):
         return []
 
 
-def check_py(path, rel, top):
+def check_py(path: str, rel: str, top: str) -> list[str]:
     ruff = _ruff(top)
     _run([*ruff, "format", "--quiet", "--force-exclude", path], top)
     now = _findings(top, ruff, ["--force-exclude", path])
@@ -61,11 +68,12 @@ def check_py(path, rel, top):
     with open(path, encoding="utf-8") as fh:
         text = fh.read()
     old = _run(["git", "show", f"HEAD:{rel}"], top)
-    before = Counter()
+    before: Counter[tuple[str, str, str]] = Counter()
     if old.returncode == 0:
         found = _findings(top, ruff, ["--stdin-filename", rel, "-"], old.stdout)
         before = Counter(_key(f, old.stdout) for f in found)
-    seen, new = Counter(), []
+    seen: Counter[tuple[str, str, str]] = Counter()
+    new: list[dict[str, Any]] = []
     for f in now:  # matched by code, message and line text, not by line number
         k = _key(f, text)
         seen[k] += 1
@@ -74,7 +82,7 @@ def check_py(path, rel, top):
     return [f"{rel}:{f['location']['row']}: {f['code']} {f['message']}" for f in new]
 
 
-def _key(finding, text):
+def _key(finding: dict[str, Any], text: str) -> tuple[str, str, str]:
     lines = text.splitlines()
     row = finding["location"]["row"]
     line = lines[row - 1].strip() if 0 < row <= len(lines) else ""
@@ -111,7 +119,7 @@ for k, h in now:
 """
 
 
-def check_md(path, rel, top):
+def check_md(path: str, rel: str, top: str) -> list[str]:
     tools = os.path.join(top, "tools", "docs")
     if not os.path.isfile(os.path.join(tools, "docs_prose_lint.py")):
         return []
@@ -127,7 +135,7 @@ def check_md(path, rel, top):
     return out.stdout.strip().splitlines() if out.returncode == 0 else []
 
 
-def check_json(path, rel):
+def check_json(path: str, rel: str) -> list[str]:
     try:
         with open(path, encoding="utf-8") as fh:
             json.load(fh)
@@ -136,7 +144,7 @@ def check_json(path, rel):
     return []
 
 
-def main():
+def main() -> int:
     try:
         event = json.load(sys.stdin)
     except ValueError:
@@ -144,12 +152,12 @@ def main():
     path = (event.get("tool_input") or {}).get("file_path", "")
     if not path.endswith((".py", ".md", ".json")) or not os.path.isfile(path):
         return 0
-    top = _run(
+    found = _run(
         ["git", "-C", os.path.dirname(path), "rev-parse", "--show-toplevel"],
         None,
         timeout=5,
     )
-    top = top.stdout.strip()
+    top = found.stdout.strip()
     project = os.path.realpath(os.environ.get("CLAUDE_PROJECT_DIR", ""))
     if not top or not project:
         return 0

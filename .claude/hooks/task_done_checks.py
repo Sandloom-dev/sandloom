@@ -76,7 +76,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 AGENT = "sandloom-implementer"
 SKIP = "architecture-tests,end-of-file-fixer,trailing-whitespace"
@@ -115,7 +115,7 @@ def _git(args: list[str], cwd: str, *, strict: bool = False) -> str:
     return done.stdout.strip()
 
 
-def _deliverables(tool_input: dict) -> list[dict]:
+def _deliverables(tool_input: dict[str, Any]) -> list[dict[str, Any]]:
     raw = tool_input.get("deliverables") or []
     if isinstance(raw, str):
         try:
@@ -135,7 +135,7 @@ def remember(content: str) -> None:
     (ISSUED / _digest(content)).write_text(content, encoding="utf-8")
 
 
-def already_checked(tool_input: dict, head: str) -> bool:
+def already_checked(tool_input: dict[str, Any], head: str) -> bool:
     """The ``checks`` deliverable this hook emitted for this very commit is
     attached. A record the agent wrote itself (same shape, all green) is not
     one: only a content whose digest the hook stored when it refused passes."""
@@ -257,8 +257,8 @@ _LANE_ENV = (
 # the agent's .venv has installed, serial (xdist workers would take Redis
 # indexes beyond the two the agent owns), without the skip ledger (it writes
 # into the checkout) and without the wheel check (that one reinstalls the venv).
-_LANE = ("uv", "run", "--locked", "pytest", "-q", "-p", "no:xdist", "--no-cov")
-_LANE += ("-p", "no:cacheprovider")
+_LANE: tuple[str, ...] = ("uv", "run", "--locked", "pytest", "-q")
+_LANE += ("-p", "no:xdist", "--no-cov", "-p", "no:cacheprovider")
 
 
 class Step(NamedTuple):
@@ -577,7 +577,7 @@ def _run_step(
     return "Passed", ""
 
 
-def run_ci_steps(top: str, budget: float | None = None) -> dict[str, dict]:
+def run_ci_steps(top: str, budget: float | None = None) -> dict[str, dict[str, Any]]:
     """``{step: {"status", "seconds", "reason" | "tail"}}`` for the CI steps the
     diff against ``origin/main`` selects. Never raises: whatever goes wrong
     (a tool, the environment, the temporary directory) is one ``not_run``
@@ -614,7 +614,7 @@ def _outcome(
     return _run_step(step, top, env, docs["python"], min(step.timeout, max(left(), 1)))
 
 
-def _run_ci_steps(top: str, budget: float | None) -> dict[str, dict]:
+def _run_ci_steps(top: str, budget: float | None) -> dict[str, dict[str, Any]]:
     started = time.monotonic()
     if budget is None:
         budget = min(STAGE_BUDGET, remaining() - KILL_MARGIN)
@@ -624,7 +624,7 @@ def _run_ci_steps(top: str, budget: float | None) -> dict[str, dict]:
         return {"ci-steps": {"status": "not_run", "reason": f"no diff: {exc}"[:200]}}
     steps = selected([p for p in diff.splitlines() if p])
     env = {**os.environ, **CI_ENV, "PYTHONDONTWRITEBYTECODE": "1"}
-    record: dict[str, dict] = {}
+    record: dict[str, dict[str, Any]] = {}
     tmp = _mktemp() if steps else ""
     docs = {"python": "", "error": ""}
 
@@ -645,7 +645,7 @@ def _run_ci_steps(top: str, budget: float | None) -> dict[str, dict]:
     return record
 
 
-def handed_over(tool_input: dict, cwd: str) -> tuple[bool, str | None]:
+def handed_over(tool_input: dict[str, Any], cwd: str) -> tuple[bool, str | None]:
     """``(named, sha)``: whether a ``git_commit`` deliverable is attached, and
     the full SHA of the first commit of this clone it names. An abbreviated
     SHA is resolved (``rev-parse <sha>^{commit}``); when nothing resolves, the
@@ -703,7 +703,7 @@ def checkout_at(sha: str, cwd: str) -> str | None:
     return usable[0][0] if usable else None
 
 
-def _unresolved_id(tool_input: dict) -> str:
+def _unresolved_id(tool_input: dict[str, Any]) -> str:
     """A stable identity for a handover whose ``git_commit`` names no commit:
     the same retry matches its own record, the cwd's HEAD never does."""
     texts = [
@@ -714,7 +714,7 @@ def _unresolved_id(tool_input: dict) -> str:
     return "unresolved:" + _digest("\n".join(texts))[:16]
 
 
-def locate(tool_input: dict, cwd: str) -> tuple[str, str, str]:
+def locate(tool_input: dict[str, Any], cwd: str) -> tuple[str, str, str]:
     """``(checkout, head, why_not)``: the tree to check, its commit, and why
     it cannot be checked (then the record says so instead of checking another
     tree). Only a handover with no ``git_commit`` deliverable falls back to
@@ -748,7 +748,7 @@ def main() -> int:
         return 0
     exit_status: int | None = None
     outcome: dict[str, str] = {}
-    ci_steps: dict[str, dict] = {}
+    ci_steps: dict[str, dict[str, Any]] = {}
     tail = ""
     if unlocated:
         # Checking another tree (the main checkout) would record its results

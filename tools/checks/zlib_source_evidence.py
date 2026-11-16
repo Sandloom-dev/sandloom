@@ -10,6 +10,7 @@ import argparse
 import json
 import subprocess
 from pathlib import Path
+from typing import Any
 
 PROBE = r"""
 import hashlib,io,json,os,pathlib,platform,re,subprocess,sys,tarfile
@@ -48,7 +49,7 @@ print(json.dumps(record,indent=2,sort_keys=True))
 """
 
 
-def verify(proof: dict, inventory: dict, expected: dict) -> dict:
+def verify(proof: dict[str, Any], inventory: dict[str, Any], expected: dict[str, Any]) -> dict[str, Any]:
     """Bind source observations to the exact installed zlib binary and architecture."""
     packages = {p["name"].partition(":")[0]: p for p in inventory["packages"]}
     if inventory["machine"] != proof["machine"]:

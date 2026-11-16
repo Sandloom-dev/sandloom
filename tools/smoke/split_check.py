@@ -64,6 +64,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
 APP = "hub"
@@ -175,7 +176,7 @@ class Runner:
         return result
 
     def sh(
-        self, command: str, *, capture: bool = False, env: dict | None = None
+        self, command: str, *, capture: bool = False, env: dict[str, str] | None = None
     ) -> str:
         print(f"$ {command}   (in {self.cwd})", flush=True)
         proc = subprocess.run(  # noqa: S602 - the documented commands, verbatim
@@ -440,7 +441,7 @@ class Runner:
         print("the added service migrated its own new database and answers")
 
     def http(
-        self, method: str, path: str, body: object = None, headers: dict | None = None
+        self, method: str, path: str, body: object = None, headers: dict[str, str] | None = None
     ) -> tuple[int, str]:
         data = None if body is None else json.dumps(body).encode()
         req = urllib.request.Request(  # noqa: S310 - the local gateway only
@@ -455,7 +456,7 @@ class Runner:
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read().decode()
 
-    def expect(self, what: str, got: tuple[int, str], status: int) -> dict:
+    def expect(self, what: str, got: tuple[int, str], status: int) -> dict[str, Any]:
         print(f"{what} -> {got[0]} {got[1][:200]}")
         if got[0] != status:
             raise SplitError(f"{what}: {got[0]} {got[1][:500]}")

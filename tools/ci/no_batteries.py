@@ -57,7 +57,7 @@ class _NoBatteriesFinder(importlib.machinery.PathFinder):
     """The standard path finder, blind to :data:`BATTERIES` and their subpackages."""
 
     @classmethod
-    def find_spec(  # type: ignore[override]
+    def find_spec(
         cls, fullname: str, path: Any = None, target: Any = None
     ) -> importlib.machinery.ModuleSpec | None:
         """No spec for a battery: ``find_spec`` answers None, an import fails."""

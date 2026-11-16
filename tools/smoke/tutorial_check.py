@@ -16,8 +16,12 @@ import shlex
 import sys
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from quickstart_check import REPO, QuickstartError, Runner
+if TYPE_CHECKING:
+    from tools.smoke.quickstart_check import REPO, QuickstartError, Runner
+else:
+    from quickstart_check import REPO, QuickstartError, Runner
 
 BLOCK = re.compile(r"```(bash|python)([^\n]*)\n(.*?)```", re.DOTALL)
 INCLUDE = re.compile(r'^--8<-- "([^":]+)"\s*$')

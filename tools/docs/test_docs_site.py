@@ -308,7 +308,8 @@ class DocumentationSiteTests(unittest.TestCase):
             readme,
             re.DOTALL,
         )
-        self.assertIsNotNone(example)
+        if example is None:
+            self.fail("README has no readme:example block")
         shown = ast.parse(example.group(1)).body
         tutorial = ast.parse(
             (REPO / "examples/tutorial/tasklist/modules/tasks/services.py").read_text()
@@ -326,7 +327,8 @@ class DocumentationSiteTests(unittest.TestCase):
             readme,
             re.DOTALL,
         )
-        self.assertIsNotNone(quickstart)
+        if quickstart is None:
+            self.fail("README has no readme:quickstart block")
         commands = quickstart.group(1)
         self.assertRegex(commands, r'uvx --from "sandloom==[^"]+" sandloom new')
         self.assertNotIn("--framework-source path", commands)
@@ -348,11 +350,9 @@ class BrokenLinkCheckTests(unittest.TestCase):
     """The post-build check that also covers snippets and the website pages."""
 
     def test_a_link_to_a_missing_page_or_asset_is_reported(self) -> None:
-        import sys
         import tempfile
 
-        sys.path.insert(0, str(REPO / "tools" / "docs"))
-        from docs_site import broken_links
+        from tools.docs.docs_site import broken_links
 
         with tempfile.TemporaryDirectory() as tmp:
             site = Path(tmp)

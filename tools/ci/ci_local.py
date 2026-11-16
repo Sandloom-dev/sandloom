@@ -83,12 +83,15 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import ci_lock
+if TYPE_CHECKING:
+    from tools.ci import ci_lock
+else:
+    import ci_lock
 
 LOCK_FILE = ci_lock.LOCK_FILE
 # "skipped" = the workflow itself skipped the job (paths filter / if:), as on
@@ -488,8 +491,8 @@ CHECKED_WORKFLOWS = ("ci.yml", "docs.yml", "architecture-check.yml")
 # reviewed here. Print the current values with `tools/ci/ci_local.py --check`.
 FINGERPRINTS: dict[str, str] = {
     "ci.yml:workflow-policy": "c947663e86853b87",
-    "ci.yml:changes": "225f58cf9bf7ec3d",
-    "ci.yml:backend-static": "14724f7e29f38d8a",
+    "ci.yml:changes": "4b429a587daf9e88",
+    "ci.yml:backend-static": "cf4a86aea9644f5d",
     "ci.yml:supply-chain": "f97313a67b7eacd0",
     "ci.yml:backend-tests": "1400b9cf9e06ab28",
     "ci.yml:backend-tests-isolation": "1f41c4abed7873f2",
@@ -857,6 +860,7 @@ class LocalJob:
                             "deploy",
                             "benchmarks",
                             "image",
+                            "typecheck",
                         ),
                         "true",
                     )
@@ -1145,7 +1149,7 @@ def pick_subnet(
         free = [
             net
             for net in pool.subnets(new_prefix=24)
-            if not any(net.overlaps(u) for u in taken)  # type: ignore[arg-type]
+            if not any(net.overlaps(u) for u in taken)
         ]
         if free:
             return secrets.choice(free)

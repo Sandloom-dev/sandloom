@@ -21,6 +21,7 @@ import stat
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Any
 
 TOOLS = (
     "apt",
@@ -67,7 +68,7 @@ def privileged_files() -> list[str]:
     return sorted(found)
 
 
-def inventory() -> dict:
+def inventory() -> dict[str, Any]:
     """Collect installed components and the current process's runtime boundary."""
     rows = subprocess.check_output(
         [
@@ -79,8 +80,8 @@ def inventory() -> dict:
     )
     packages = []
     for line in rows.splitlines():
-        name, version, source, status = line.split("\t")
-        if status == "installed":
+        name, version, source, state = line.split("\t")
+        if state == "installed":
             packages.append({"name": name, "version": version, "source": source})
     status = dict(
         line.split(":", 1)
@@ -133,12 +134,12 @@ def inventory() -> dict:
     sqlite_modules = [r[0] for r in sqlite.execute("pragma module_list")]
     sqlite_options = [r[0] for r in sqlite.execute("pragma compile_options")]
     sqlite.close()
-    provenance = {}
+    provenance: dict[str, str | None] = {}
     for name in ("chfn", "chsh"):
-        path = shutil.which(name)
-        if path:
+        binary = shutil.which(name)
+        if binary:
             owner = subprocess.check_output(
-                ["dpkg-query", "-S", path], text=True
+                ["dpkg-query", "-S", binary], text=True
             ).split(": ")[0]
             provenance[name] = subprocess.check_output(
                 ["dpkg-query", "-W", "-f=${source:Package}", owner], text=True
@@ -182,7 +183,7 @@ def inventory() -> dict:
     }
 
 
-def enforce(data: dict) -> None:
+def enforce(data: dict[str, Any]) -> None:
     """Exercise writable storage and reject privilege or filesystem escapes."""
     checks = {
         "nonroot UID 10001": data["uid"] == 10001,

@@ -15,13 +15,23 @@ import time
 import tomllib
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 # The reviewed directory carries release_packages.py and packages.json beside
 # this file (see select_artifacts), so the privileged job needs no checkout.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import release_packages
+if TYPE_CHECKING:
+    from tools.packaging import release_packages
+else:
+    import release_packages
+
+#: A decoded JSON object: a plan, a manifest, a PyPI or GitHub response.
+JSON = dict[str, Any]
+#: Reads one PyPI release's metadata, ``None`` when PyPI has no such version.
+Fetch = Callable[[str, str], JSON | None]
+#: Reads one GitHub REST path, ``None`` on 404.
+Api = Callable[[str], Any]
 
 #: The distributions, from the one list (``packages.json``).
 PACKAGES = release_packages.NAMES
@@ -31,7 +41,7 @@ VERSION = re.compile(r"\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?")
 REQUIREMENT_NAME = re.compile(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 
 
-def sibling_requirements(project: dict, package: str) -> set[str]:
+def sibling_requirements(project: JSON, package: str) -> set[str]:
     """The distributions of ``packages.json`` that ``package`` requires, from the
     ``Requires-Dist`` lines its pyproject declares (dependencies and extras)."""
     lines = list(project.get("dependencies", ()))
@@ -46,7 +56,7 @@ def sibling_requirements(project: dict, package: str) -> set[str]:
 
 
 def refuse_unpublished_siblings(
-    projects: dict[str, dict],
+    projects: dict[str, JSON],
     versions: dict[str, str],
     selected: list[str],
     on_pypi: Callable[[str, str], bool],
@@ -79,7 +89,10 @@ def refuse_unfolded_fragments(root: Path, packages: list[str]) -> None:
     carries the root ``CHANGELOG.md``. Imported here: the reviewed directory
     carries only the three files ``select_artifacts`` copies at the end.
     """
-    import changelog_fragments
+    if TYPE_CHECKING:
+        from tools.packaging import changelog_fragments
+    else:
+        import changelog_fragments
 
     scopes: list[str | None] = list(packages)
     if len(packages) > 1:
@@ -96,7 +109,7 @@ def plan_release(
     dry_run: bool,
     on_main: bool,
     on_pypi: Callable[[str, str], bool] = pypi_has,
-) -> dict:
+) -> JSON:
     """``on_pypi(project, version)``: whether PyPI has it; the default asks
     PyPI, and only for a publication (no network for a dry run)."""
     projects = {
@@ -155,7 +168,7 @@ def filenames(project: str, version: str) -> tuple[str, str]:
     return f"{stem}-{version}-py3-none-any.whl", f"{stem}-{version}.tar.gz"
 
 
-def select_artifacts(plan: dict, artifacts: Path, output: Path) -> dict:
+def select_artifacts(plan: JSON, artifacts: Path, output: Path) -> JSON:
     versions = plan["versions"]
     if (
         set(versions) != set(PACKAGES)
@@ -218,7 +231,7 @@ def select_artifacts(plan: dict, artifacts: Path, output: Path) -> dict:
     return manifest
 
 
-def fetch_release(project: str, version: str) -> dict | None:
+def fetch_release(project: str, version: str) -> JSON | None:
     filenames(project, version)  # validate before constructing a network path
     connection = http.client.HTTPSConnection("pypi.org", timeout=20)
     try:
@@ -234,13 +247,14 @@ def fetch_release(project: str, version: str) -> dict | None:
             raise RuntimeError(
                 f"PyPI metadata request failed: {project} HTTP {response.status}"
             )
-        return json.loads(response.read())
+        release: JSON = json.loads(response.read())
+        return release
     finally:
         connection.close()
 
 
-def validate_manifest(manifest: dict) -> list[dict]:
-    rows = manifest["files"]
+def validate_manifest(manifest: JSON) -> list[JSON]:
+    rows: list[JSON] = manifest["files"]
     seen = set()
     for row in rows:
         name = row["filename"]
@@ -259,7 +273,7 @@ def validate_manifest(manifest: dict) -> list[dict]:
     return rows
 
 
-def missing_files(manifest: dict, fetch=fetch_release) -> list[dict]:
+def missing_files(manifest: JSON, fetch: Fetch = fetch_release) -> list[JSON]:
     """Identical published files are reusable; differing immutable files fail."""
     rows = validate_manifest(manifest)
     missing, releases = [], {}
@@ -284,7 +298,7 @@ def missing_files(manifest: dict, fetch=fetch_release) -> list[dict]:
 
 
 def prepare_upload(
-    manifest: dict, dist: Path, upload: Path, fetch=fetch_release
+    manifest: JSON, dist: Path, upload: Path, fetch: Fetch = fetch_release
 ) -> bool:
     rows = validate_local_artifacts(manifest, dist)
     missing = missing_files(manifest, fetch)
@@ -294,7 +308,7 @@ def prepare_upload(
     return bool(missing)
 
 
-def validate_local_artifacts(manifest: dict, dist: Path) -> list[dict]:
+def validate_local_artifacts(manifest: JSON, dist: Path) -> list[JSON]:
     rows = validate_manifest(manifest)
     if {p.name for p in dist.iterdir()} != {row["filename"] for row in rows}:
         raise ValueError("Distribution directory does not match the reviewed manifest")
@@ -308,7 +322,7 @@ def validate_local_artifacts(manifest: dict, dist: Path) -> list[dict]:
     return rows
 
 
-def checksum_text(rows: list[dict]) -> str:
+def checksum_text(rows: list[JSON]) -> str:
     return "".join(
         f"{row['sha256']}  {row['filename']}\n"
         for row in sorted(rows, key=lambda row: row["filename"])
@@ -326,7 +340,7 @@ def changelog_section(path: Path, version: str) -> str:
     return match[1].strip() + "\n"
 
 
-def github_release_spec(manifest: dict) -> dict:
+def github_release_spec(manifest: JSON) -> JSON:
     rows = validate_manifest(manifest)
     versions = {row["version"] for row in rows}
     projects = {row["project"] for row in rows}
@@ -366,8 +380,8 @@ def github_api(path: str) -> Any:
     return data
 
 
-def find_github_release(api, base: str, tag: str) -> dict | None:
-    published = api(f"{base}/releases/tags/{tag}")
+def find_github_release(api: Api, base: str, tag: str) -> JSON | None:
+    published: JSON | None = api(f"{base}/releases/tags/{tag}")
     if published is not None:
         return published
     # A draft's pending tag may not exist yet, so REST lookup by tag returns
@@ -375,7 +389,7 @@ def find_github_release(api, base: str, tag: str) -> dict | None:
     # pending tag rather than mistaking an existing draft for an absent release.
     page = 1
     while True:
-        releases = api(f"{base}/releases?per_page=100&page={page}")
+        releases: list[JSON] = api(f"{base}/releases?per_page=100&page={page}")
         matches = [r for r in releases if r["draft"] and r["tag_name"] == tag]
         if len(matches) > 1:
             raise ValueError("Multiple drafts have the same pending release tag")
@@ -386,7 +400,7 @@ def find_github_release(api, base: str, tag: str) -> dict | None:
         page += 1
 
 
-def github_tag_source(api, base: str, tag: str) -> str | None:
+def github_tag_source(api: Api, base: str, tag: str) -> str | None:
     ref = api(f"{base}/git/ref/tags/{tag}")
     if ref is None:
         return None
@@ -400,10 +414,11 @@ def github_tag_source(api, base: str, tag: str) -> str | None:
         target = annotation["object"]
     if target.get("type") != "commit":
         raise ValueError("Release tag does not resolve to a commit")
-    return target["sha"]
+    sha: str = target["sha"]
+    return sha
 
 
-def wait_github_release(api, base: str, tag: str) -> dict:
+def wait_github_release(api: Api, base: str, tag: str) -> JSON:
     """Bound delayed REST visibility after creation; retry reads, never writes."""
     for attempt in range(6):
         current = find_github_release(api, base, tag)
@@ -420,9 +435,9 @@ def publish_github_release(
     *,
     repository: str,
     source_sha: str,
-    api=github_api,
-    command=github_command,
-    fetch=fetch_release,
+    api: Api = github_api,
+    command: Callable[[list[str]], str] = github_command,
+    fetch: Fetch = fetch_release,
 ) -> None:
     """Publish a draft only after PyPI and every GitHub asset hash are verified.
 
@@ -513,7 +528,11 @@ def publish_github_release(
 
 
 def verify_published(
-    manifest: dict, *, timeout: float = 120, fetch=fetch_release, sleep=time.sleep
+    manifest: JSON,
+    *,
+    timeout: float = 120,
+    fetch: Fetch = fetch_release,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> None:
     deadline = time.monotonic() + timeout
     while missing_files(manifest, fetch):
