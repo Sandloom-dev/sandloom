@@ -566,6 +566,15 @@ def test_the_importable_app_refuses_a_config_module_that_changes_a_url(
         'broker_user = "stray-user"',
         'broker_password = "foreign-secret"',
         'broker_host = "stray-host"',
+        # a ``broker_use_ssl`` dict is merged into the connection after the url
+        "broker_use_ssl = {'host': 'stray-host', 'port': 6399, "
+        "'password': 'foreign-secret', 'virtual_host': '7'}",
+        "import ssl; broker_use_ssl = {'ssl_cert_reqs': ssl.CERT_NONE}",
+        # the redis result backend takes these where its url omits the part
+        "redis_port = 6399",
+        'redis_password = "foreign-secret"',
+        'redis_username = "stray-user"',
+        "redis_backend_use_ssl = {'ssl_cert_reqs': 'none'}",
     ],
 )
 def test_the_importable_app_refuses_a_config_module_that_changes_the_connection(
@@ -575,7 +584,7 @@ def test_the_importable_app_refuses_a_config_module_that_changes_the_connection(
     port, vhost and credentials from the conf and lets them win: a config module
     setting only one redirects (``memory`` sinks) the worker and every
     ``inspect`` / ``call`` of the importable app. Refused, the key named."""
-    key = setting.split(" ")[0]
+    key = setting.removeprefix("import ssl; ").split(" ")[0]
     _importable_app_infra(
         monkeypatch, {"driver": "celery", "broker": "redis://127.0.0.1"}
     )

@@ -10,8 +10,9 @@ Run from the app root. Every step must pass before work is done.
 1. **Services.** `docker compose -f deploy/docker-compose.dev.yml up -d
    --wait` starts Postgres and Redis (the test ones on :5433 / :6380, as
    `.env.test` expects). On a shared machine use your own database and
-   Redis: `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`,
-   `SANDLOOM_TEST_BROKER_URL`, `SANDLOOM_TEST_OWNER`.
+   Redis: `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_OWNER`, and
+   `SANDLOOM_TEST_CACHE_URL` / `SANDLOOM_TEST_BROKER_URL` for the cache and task
+   queue the app selects (the harness refuses one for a capability it does not).
 2. **One command** runs the tests and every gate:
 
    ```bash

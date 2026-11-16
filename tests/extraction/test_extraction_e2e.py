@@ -286,6 +286,10 @@ def _cli(
             "DATABASE_URL": mono_url,
             "SANDLOOM_MODULES": json.dumps([I, T, B]),
             "EVENT_BUS_BACKEND": "streams",
+            # the shared streams bus is a cross-process one: the kernel's revocation
+            # applier needs the name of the deployment for its consumer group
+            # (ADR-0012 decision 5), here the one-shot CLI of the monolith
+            "SANDLOOM_SERVICE_NAME": "xe2e-migrate-cli",
             "INFRA": _infra_with_prefix(env),
             "JWT_SECRET": JWT_SECRET,
             "INTERNAL_API_TOKEN": INTERNAL_TOKEN,

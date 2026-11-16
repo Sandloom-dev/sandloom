@@ -12,7 +12,15 @@ The drivers held to it are the ones whose package sits under this checkout's
 held to it). The option names are matched by word (``url``, ``uri``, ``dsn``,
 ``endpoint``, ``broker``, also inside ``endpoint_url``): a driver whose url option
 is spelled otherwise is invisible to it, and an option that is no server url
-(``_NOT_A_SERVER_URL``) is named with its reason.
+(``_NOT_A_SERVER_URL``) is named with its reason, and must still be an option of
+its driver that the match sees.
+
+What the ratchet guarantees is the declaration, which ``sandloom dev up`` reads
+for any option name. The test harness's overrides (``SANDLOOM_TEST_CACHE_URL`` /
+``SANDLOOM_TEST_BROKER_URL``, ``sandloom.core.testing.workers``) replace only the
+options ``url`` and ``broker`` (``families.INSTANCE_URL_OPTIONS``) of a
+``redis://`` instance: a driver declaring ``dsn`` passes here and gets its url
+from ``dev up``, but the harness never replaces it.
 """
 
 from __future__ import annotations
@@ -84,6 +92,24 @@ def test_every_repository_url_driver_declares_its_url_option() -> None:
         "taskqueue.celery",
     } <= set(drivers)
     assert _gaps(drivers) == []
+
+
+def test_every_exemption_names_an_option_the_ratchet_would_otherwise_see() -> None:
+    """An entry of ``_NOT_A_SERVER_URL`` that no driver option matches any more
+    (the option was renamed or removed) is a dead exemption: it fails here.
+    The driver need not be installed (``sandloom-s3`` is in the ``packaging``
+    group only): the option is looked for as a field in the package sources."""
+    sources = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted(_PACKAGES_DIR.glob("*/src/**/*.py"))
+    )
+    for key, options in _NOT_A_SERVER_URL.items():
+        for name in options:
+            assert _URL_FIELD.search(name), f"{key}: {name} needs no exemption"
+            declared = re.search(rf"^\s+{re.escape(name)}\s*:", sources, re.MULTILINE)
+            assert declared, f"{key}: {name} is declared by no package any more"
+    # bites: a name no package declares is reported
+    assert not re.search(r"^\s+no_such_option_xyz\s*:", sources, re.MULTILINE)
 
 
 def test_the_ratchet_reports_a_driver_that_does_not_declare_it() -> None:

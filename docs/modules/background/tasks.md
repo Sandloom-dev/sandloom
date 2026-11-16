@@ -193,11 +193,23 @@ variable when one differs from `INFRA`. The same holds for
 value.
 
 Both apps are checked against `INFRA` on their final `app.conf`: `broker_url`,
-`broker_read_url` and `result_backend`, with a config module or a
+`broker_read_url`, `broker_write_url` and `result_backend`, with a config module or a
 `celeryconfig.py` included. The importable app refuses a difference when it
 is first used. So does the app that publishes your tasks, on every publish. A
 `CELERY_*` variable that differs from the instance's `broker` or `backend` stops
 it with a `ForeignCeleryConfError`. That is not an outage: nothing was sent.
+
+`INFRA` states the whole connection in the url. So the check refuses a config module
+that sets a connection part next to it. Celery lets these win over what the url omits:
+
+- `broker_transport`, `broker_host`, `broker_port`, `broker_vhost`, `broker_user` and
+  `broker_password`;
+- `redis_host`, `redis_port`, `redis_db`, `redis_username`, `redis_password`,
+  `redis_backend_use_ssl` and `redis_backend_credential_provider`, for the result backend.
+
+`broker_use_ssl` is accepted as `True` or `False` only. A dict there is merged into the
+connection after the url. It can change the host or the password, and it can turn off
+the certificate check. Put TLS options in the query of the `INFRA` url.
 
 A config module may not set a connection part at all. Those are
 `broker_transport`, `broker_host`, `broker_port`, `broker_vhost`, `broker_user`

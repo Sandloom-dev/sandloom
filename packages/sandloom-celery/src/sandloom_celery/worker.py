@@ -273,11 +273,51 @@ _FOREIGN_CONNECTION_KEYS = (
     "broker_password",
 )
 
+# ``broker_use_ssl`` is the connection's TLS switch, and Celery hands a dict value
+# to kombu as ``ssl=``, which merges it into the redis connection parameters AFTER
+# the url: ``{"host": ..., "port": ..., "password": ..., "virtual_host": ...}``
+# redirects the connection with the INFRA url untouched, and ``{"ssl_cert_reqs":
+# ssl.CERT_NONE}`` turns certificate verification off for a ``rediss://`` url that
+# states none. Only absent or a bool (Celery's own default is ``False``) is
+# accepted; TLS options belong in the query of the INFRA url.
+_BROKER_SSL_KEY = "broker_use_ssl"
+
+# What the redis result backend takes from the conf where its url omits the part
+# (``celery.backends.redis``): host, port, database, credentials, TLS options and a
+# credential provider. INFRA states the whole backend in its url, so none of them
+# may be set at all.
+_FOREIGN_BACKEND_KEYS = (
+    "redis_host",
+    "redis_port",
+    "redis_db",
+    "redis_username",
+    "redis_password",
+    "redis_backend_use_ssl",
+    "redis_backend_credential_provider",
+)
+
 
 def _foreign_conf_reason(option: str, instance: str) -> str:
     """The shared tail of both refusals: why ``option`` is not accepted and what
     to do. One text for the importable app and the provider's app; it names the
     option and the INFRA option, never a value: a url carries a password."""
+    if option == _BROKER_SSL_KEY:
+        return (
+            "is not a plain boolean, and a dict there is merged into the broker "
+            f"connection after the url of taskqueue.{instance}.broker (host, port, "
+            "password and ssl_cert_reqs included): a config module (`celery "
+            "--config`, CELERY_CONFIG_MODULE) or a loader (`--loader default` "
+            "reads celeryconfig.py) set it. Remove it, or state the TLS options "
+            "in the query of the INFRA url"
+        )
+    if option in _FOREIGN_BACKEND_KEYS:
+        return (
+            f"is set, and INFRA states the result backend, whole, in the url of "
+            f"taskqueue.{instance}.backend: a config module (`celery --config`, "
+            "CELERY_CONFIG_MODULE) or a loader (`--loader default` reads "
+            "celeryconfig.py) set it. Remove that setting, or state it in the "
+            "INFRA url"
+        )
     if option in _FOREIGN_CONNECTION_KEYS:
         return (
             f"is set, and INFRA states the whole connection in the url of "
@@ -300,7 +340,9 @@ def _foreign_conf_option(app: Any, broker: str, backend: str | None) -> str | No
     """The first of the app's final ``broker_url``, ``broker_read_url``,
     ``broker_write_url`` and ``result_backend`` that is not what ``broker`` /
     ``backend`` state, or of the connection parts of
-    :data:`_FOREIGN_CONNECTION_KEYS` that is set at all; ``None`` when none."""
+    :data:`_FOREIGN_CONNECTION_KEYS` and the ``redis_*`` backend keys of
+    :data:`_FOREIGN_BACKEND_KEYS` that is set at all, or ``broker_use_ssl`` when
+    it is not a bool; ``None`` when none."""
     conf = app.conf
     # Attribute access, not ``conf.get``: only the attribute applies the
     # ``broker_url`` fallback of a read / write url left unset.
@@ -315,12 +357,15 @@ def _foreign_conf_option(app: Any, broker: str, backend: str | None) -> str | No
             found = found.strip()
         if found != expected:
             return option
-    for option in _FOREIGN_CONNECTION_KEYS:
+    for option in (*_FOREIGN_CONNECTION_KEYS, *_FOREIGN_BACKEND_KEYS):
         found = conf.get(option)
         if isinstance(found, str):
             found = found.strip()
         if found not in (None, ""):
             return option
+    # An allow-list: absent or a bool, never a dict (or anything else).
+    if not isinstance(conf.get(_BROKER_SSL_KEY), bool | None):
+        return _BROKER_SSL_KEY
     return None
 
 

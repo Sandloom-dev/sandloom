@@ -44,6 +44,7 @@ from sandloom.core.cli.dev.state import (
 )
 from sandloom.core.cli.project import generate_project
 from sandloom.core.composition import composition_root_name
+from sandloom.core.testing import workers
 from sandloom.core.testing.machine import machine_id
 from sandloom.core.tests._root_support import suite_infra_env
 
@@ -891,6 +892,105 @@ def test_the_block_names_each_redis_instance_of_the_composition(
     # The summary lists every instance's url.
     lines = commands._infra_lines(commands.checkout_urls(ctx, state, row))
     assert any("eventbus.default url=" in line for line in lines)
+
+
+def _test_local(
+    repo: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    infra: dict[str, Any],
+) -> dict[str, str]:
+    """``dev up``'s ``.env.test.local`` for a composition selecting ``infra``."""
+    monkeypatch.setattr(
+        commands,
+        "composition_selection",
+        lambda c, text, checkout=None: commands.CompositionSelection(
+            infra, _URL_OPTIONS
+        ),
+    )
+    ctx = _ctx(repo, environ)
+    state = _state(ctx)
+    commands.write_checkout_files(ctx, state, commands.checkout_row(ctx, state))
+    return dict(
+        line.split("=", 1)
+        for line in (repo / ".env.test.local").read_text().splitlines()
+        if line.startswith("SANDLOOM_TEST_")
+    )
+
+
+@pytest.mark.parametrize(
+    ("infra", "names"),
+    [
+        (_SELECTION, {"CACHE_URL", "BROKER_URL"}),
+        # a trimmed composition: no task queue, no cache
+        ({k: v for k, v in _SELECTION.items() if k != "taskqueue"}, {"CACHE_URL"}),
+        ({k: v for k, v in _SELECTION.items() if k != "cache"}, {"BROKER_URL"}),
+        ({"database": _SELECTION["database"]}, set()),
+        # the capability is there, its driver connects by no url
+        ({"cache": {"default": {"driver": "memory"}}}, set()),
+        # only a ``default`` instance is overridden
+        ({"cache": {"other": {"driver": "redis"}}}, set()),
+        # no composition read (the framework's own checkout): both are kept
+        ({}, {"CACHE_URL", "BROKER_URL"}),
+    ],
+    ids=[
+        "full",
+        "no-taskqueue",
+        "no-cache",
+        "neither",
+        "no-url",
+        "no-default",
+        "empty",
+    ],
+)
+def test_dev_up_writes_only_the_test_overrides_the_composition_can_take(
+    repo: Path,
+    environ: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    infra: dict[str, Any],
+    names: set[str],
+) -> None:
+    """The harness refuses ``SANDLOOM_TEST_CACHE_URL`` / ``SANDLOOM_TEST_BROKER_URL``
+    where ``INFRA`` has no such instance, and ``dev up`` rewrites the file: a name
+    written for a capability the app does not select would stop every test run
+    with no way to unset it."""
+    written = _test_local(repo, environ, monkeypatch, infra)
+    assert set(written) == {"SANDLOOM_TEST_DATABASE_URL"} | {
+        f"SANDLOOM_TEST_{n}" for n in names
+    }
+
+
+def test_a_trimmed_composition_runs_its_tests_with_the_written_overrides(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End to end with the harness: the file written for an app without a task
+    queue, applied to that app's ``INFRA``, raises nothing; the unconditional file
+    of before raised ``UnmatchedOverrideError``."""
+    trimmed = {k: v for k, v in _SELECTION.items() if k != "taskqueue"}
+    written = _test_local(repo, environ, monkeypatch, trimmed)
+    infra = json.dumps({"cache": {"default": {"url": "redis://127.0.0.1:1/0"}}})
+    applied = workers.explicit_test_overrides(written, current={"INFRA": infra})
+    assert (
+        json.loads(applied["INFRA"])["cache"]["default"]["url"]
+        == (written["SANDLOOM_TEST_CACHE_URL"])
+    )
+    everything = {"SANDLOOM_TEST_BROKER_URL": "redis://127.0.0.1:2/1", **written}
+    with pytest.raises(workers.UnmatchedOverrideError):
+        workers.explicit_test_overrides(everything, current={"INFRA": infra})
+
+
+def test_a_dropped_capability_leaves_the_override_file(
+    repo: Path, environ: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``dev up`` rewrites the file whole: a name a previous composition had is
+    gone once the selection no longer has its capability."""
+    assert "SANDLOOM_TEST_BROKER_URL" in _test_local(
+        repo, environ, monkeypatch, _SELECTION
+    )
+    trimmed = {k: v for k, v in _SELECTION.items() if k != "taskqueue"}
+    assert "SANDLOOM_TEST_BROKER_URL" not in _test_local(
+        repo, environ, monkeypatch, trimmed
+    )
 
 
 def _app_package(root: Path, body: str) -> None:

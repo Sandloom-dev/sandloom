@@ -276,19 +276,35 @@ def composition_selection(
     return CompositionSelection(answer["infra"], answer["url_options"])
 
 
-def checkout_urls(ctx: Context, state: State, row: CheckoutRow) -> dict[str, str]:
+def _env_text(row: CheckoutRow) -> str:
+    try:
+        return (Path(row.path) / _envfile.ENV_FILE).read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def row_selection(ctx: Context, row: CheckoutRow) -> CompositionSelection:
+    """The composition selection of ``row``'s checkout (a child process: callers
+    that need it twice pass the answer on)."""
+    return composition_selection(ctx, _env_text(row), Path(row.path))
+
+
+def checkout_urls(
+    ctx: Context,
+    state: State,
+    row: CheckoutRow,
+    selection: CompositionSelection | None = None,
+) -> dict[str, str]:
     """``DATABASE_URL`` and, when the composition has Redis instances, the
     managed ``INFRA`` (JSON): the cache instances on this checkout's cache
     index, every persistent one (security store, lease, event streams, Celery
     broker) on its broker index, never on the cache's."""
     redis = ctx.redis(state)
     urls = {"DATABASE_URL": ctx.postgres(state).url(row.database)}
-    try:
-        env_text = (Path(row.path) / _envfile.ENV_FILE).read_text(encoding="utf-8")
-    except OSError:
-        env_text = ""
+    env_text = _env_text(row)
     bus, _ = _envfile.winning_assignment(env_text, "EVENT_BUS_BACKEND")
-    selection = composition_selection(ctx, env_text, Path(row.path))
+    if selection is None:
+        selection = row_selection(ctx, row)
     managed = _envfile.managed_infra(
         selection.infra,
         selection.url_options,
@@ -302,15 +318,46 @@ def checkout_urls(ctx: Context, state: State, row: CheckoutRow) -> dict[str, str
     return urls
 
 
-def test_urls(ctx: Context, state: State, row: CheckoutRow) -> dict[str, str]:
+#: The test override of each Redis-url capability: ``SANDLOOM_TEST_<name>`` replaces
+#: the url of that capability's ``default`` instance, and the harness refuses it
+#: (``UnmatchedOverrideError``) where ``INFRA`` has none to replace.
+_TEST_OVERRIDES = {"cache": "CACHE_URL", "taskqueue": "BROKER_URL"}
+
+
+def _selects_url_instance(selection: CompositionSelection, capability: str) -> bool:
+    """The composition's ``default`` instance of ``capability`` runs on a driver
+    that connects by url."""
+    spec = selection.infra.get(capability, {}).get("default")
+    return (
+        spec is not None
+        and f"{capability}.{spec.get('driver')}" in selection.url_options
+    )
+
+
+def test_urls(
+    ctx: Context,
+    state: State,
+    row: CheckoutRow,
+    selection: CompositionSelection | None = None,
+) -> dict[str, str]:
+    """The test resources of ``row``: always the database; the cache and broker
+    override names only where the composition has a ``default`` instance of that
+    capability on a url driver: the harness refuses an override with no instance
+    to replace, so a checkout that wrote one could not run its tests. An empty
+    selection (the framework's own checkout, no composition) keeps both."""
     redis = ctx.redis(state, test=True)
-    return {
+    urls = {
         "SANDLOOM_TEST_DATABASE_URL": ctx.postgres(state, test=True).url(
             row.test_database
-        ),
-        "SANDLOOM_TEST_CACHE_URL": redis.url(TEST_CACHE_INDEX),
-        "SANDLOOM_TEST_BROKER_URL": redis.url(TEST_BROKER_INDEX),
+        )
     }
+    if selection is None:
+        selection = row_selection(ctx, row)
+    indexes = {"CACHE_URL": TEST_CACHE_INDEX, "BROKER_URL": TEST_BROKER_INDEX}
+    for capability, name in _TEST_OVERRIDES.items():
+        if not selection.infra or _selects_url_instance(selection, capability):
+            urls[f"SANDLOOM_TEST_{name}"] = redis.url(indexes[name])
+    return urls
 
 
 def redis_problem(server: _services.RedisServer) -> str | None:
@@ -375,8 +422,11 @@ def write_checkout_files(ctx: Context, state: State, row: CheckoutRow) -> list[s
     notes = []
     if _envfile.seed_env(root):
         notes.append(f"created {root / '.env'} from .env.example (fresh JWT_SECRET)")
+    selection = row_selection(ctx, row)
     try:
-        wrote = _envfile.write_env_block(root / ".env", checkout_urls(ctx, state, row))
+        wrote = _envfile.write_env_block(
+            root / ".env", checkout_urls(ctx, state, row, selection)
+        )
     except _envfile.InvalidInfra as exc:
         raise DevError(
             f"{root / '.env'}: {exc}. `dev up` merges your INFRA into its block "
@@ -384,7 +434,7 @@ def write_checkout_files(ctx: Context, state: State, row: CheckoutRow) -> list[s
         ) from exc
     if wrote:
         notes.append(f"wrote the sandloom dev block of {root / '.env'}")
-    if _envfile.write_test_local(root, test_urls(ctx, state, row)):
+    if _envfile.write_test_local(root, test_urls(ctx, state, row, selection)):
         notes.append(f"wrote {root / '.env.test.local'}")
     return notes
 
@@ -1105,8 +1155,9 @@ def _print_summary(
 ) -> None:
     """The URLs, then the next command: the migrations only for a database
     that was just created or holds no table yet."""
-    urls = checkout_urls(ctx, state, row)
-    tests = test_urls(ctx, state, row)
+    selection = row_selection(ctx, row)
+    urls = checkout_urls(ctx, state, row, selection)
+    tests = test_urls(ctx, state, row, selection)
     gui = ctx.postgres(state).url(row.database, driver="postgresql")
     port = state.app_ports.get(row.path)
     serve = "uv run sandloom dev run" + (f" (http://127.0.0.1:{port})" if port else "")
@@ -1198,8 +1249,9 @@ def _checkout_status(ctx: Context, state: State, data: dict[str, Any]) -> None:
     if row is not None:
         data["database"] = row.database
         data["redis_indexes"] = list(row.indexes)
-        data["urls"] = checkout_urls(ctx, state, row)
-        data["test_urls"] = test_urls(ctx, state, row)
+        selection = row_selection(ctx, row)
+        data["urls"] = checkout_urls(ctx, state, row, selection)
+        data["test_urls"] = test_urls(ctx, state, row, selection)
         data["gui_url"] = ctx.postgres(state).url(row.database, driver="postgresql")
         run = live_run(ctx.root)
         if run:

@@ -140,6 +140,26 @@ _CONNECTION_REPROS = {
     "broker_user": 'broker_user = "stray-user"\n',
     "broker_password": 'broker_password = "stray-pw"\n',
     "broker_host": 'broker_host = "stray-host"\n',
+    # kombu merges a ``broker_use_ssl`` dict into the connection AFTER the url:
+    # host, port, password and database of INFRA lose to it
+    "broker_use_ssl": (
+        "broker_use_ssl = {'host': 'stray-host', 'port': 6399, "
+        "'password': 'stray-pw', 'virtual_host': '7'}\n"
+    ),
+    # ... and ``ssl_cert_reqs`` turns certificate verification off for a rediss:// url
+    "broker_use_ssl#cert_none": (
+        "import ssl\nbroker_use_ssl = {'ssl_cert_reqs': ssl.CERT_NONE}\n"
+    ),
+    # the redis result backend fills what its url omits from these
+    "redis_host": 'redis_host = "stray-host"\n',
+    "redis_port": "redis_port = 6399\n",
+    "redis_db": "redis_db = 7\n",
+    "redis_username": 'redis_username = "stray-user"\n',
+    "redis_password": 'redis_password = "stray-pw"\n',
+    "redis_backend_use_ssl": "redis_backend_use_ssl = {'ssl_cert_reqs': 'none'}\n",
+    "redis_backend_credential_provider": (
+        'redis_backend_credential_provider = "stray.provider"\n'
+    ),
 }
 
 
@@ -153,7 +173,9 @@ def test_a_config_module_cannot_redirect_the_connection_past_the_infra_url(
     ``broker_password`` / ``broker_host`` reach kombu next to the url and win over
     what it omits (the transport over everything): with ``broker_transport =
     "memory"`` every publish "succeeds" into an in-process queue and the task is
-    lost. Each is refused, naming the key and the instance, never a value."""
+    lost. A ``broker_use_ssl`` dict redirects or de-verifies the connection, and
+    the ``redis_*`` keys feed the result backend. Each is refused, naming the key
+    and the instance, never a value."""
     _config_module(_CONNECTION_REPROS[key])
     provider = create_celery_taskqueue(
         InstanceConfig(
@@ -163,13 +185,33 @@ def test_a_config_module_cannot_redirect_the_connection_past_the_infra_url(
             options={"broker": "redis://127.0.0.1"},
         )
     )
-    with pytest.raises(ForeignCeleryConfError, match=key) as refused:
+    with pytest.raises(ForeignCeleryConfError, match=key.split("#")[0]) as refused:
         provider._app  # noqa: B018
     text = str(refused.value)
-    assert f"taskqueue.{name}.broker" in text
-    for secret in ("stray-pw", "stray-user", "stray-host", "6399"):
+    assert f"taskqueue.{name}." in text
+    for secret in ("stray-pw", "stray-user", "stray-host", "6399", "CERT_NONE"):
         assert secret not in text
     assert provider._built_app is None
+
+
+@pytest.mark.usefixtures("_clean_celery_env")
+@pytest.mark.parametrize("name", ["default", "aux"])
+@pytest.mark.parametrize("enabled", [True, False])
+def test_a_plain_boolean_broker_use_ssl_is_accepted(
+    _config_module: Callable[[str], None], name: str, enabled: bool
+) -> None:
+    """The allow-list of ``broker_use_ssl`` is absent or a bool (Celery's default
+    is ``False``): the refusal is of the dict, not of the switch."""
+    _config_module(f"broker_use_ssl = {enabled}\n")
+    provider = create_celery_taskqueue(
+        InstanceConfig(
+            capability="taskqueue",
+            name=name,
+            driver="celery",
+            options={"broker": "rediss://127.0.0.1:6380/0"},
+        )
+    )
+    assert provider._app.conf.broker_use_ssl is enabled
 
 
 @pytest.mark.usefixtures("_clean_celery_env")

@@ -243,10 +243,13 @@ class Settings(
         fields, so ``extra="ignore"`` would drop them silently — and the
         behaviour the operator asked for with a non-inert value is gone.
 
-        Every source is read, not only what pydantic hands this validator: an
-        empty ``.env`` entry (``BROKER_URL=``) and a file of ``SECRETS_DIR``
-        (the usual prod way to deliver a url) are values too, and a removed
-        setting with no inert value fails startup on any of them.
+        The process load (:func:`load_settings`, a source snapshot) reads every
+        source, not only what pydantic hands this validator: an empty ``.env``
+        entry (``BROKER_URL=``) and a file of ``SECRETS_DIR`` (the usual prod
+        way to deliver a url) are values too, and a removed setting with no
+        inert value fails startup on any of them. A direct ``Settings()`` (a
+        test) has no snapshot: it sees the secrets directory, and of ``.env``
+        only what pydantic hands over, which drops an empty entry.
         """
         supplied = (
             {str(k).upper(): v for k, v in value.items()}
@@ -255,9 +258,10 @@ class Settings(
         )
         snapshot = _LOAD_SNAPSHOT.get()
         if snapshot is None:
-            # A direct ``Settings()``: no ``.env`` of its own here (the source
-            # pydantic builds already hands that over); the secrets directory
-            # only through a snapshot of it.
+            # A direct ``Settings()``: no ``.env`` of its own here (pydantic's
+            # source hands over the non-empty entries; an empty ``BROKER_URL=``
+            # is seen by the process load only); the secrets directory only
+            # through a snapshot of it.
             secrets_dir = effective_secrets_dir(cls)
             if secrets_dir:
                 snapshot = _module_settings.SourceSnapshot(

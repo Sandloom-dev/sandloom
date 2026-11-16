@@ -80,8 +80,9 @@ options). An instance declared in `INFRA` on another database or server is not t
 two parallel runs would share it. Each run overrides those instances too: give them urls of
 your own in the `INFRA` your run loads. An override with no declared Redis default instance
 in `INFRA` is refused (`UnmatchedOverrideError`), never dropped. An app that selects no
-task queue has no `taskqueue.default.broker`: unset `SANDLOOM_TEST_BROKER_URL` for it
-(likewise `SANDLOOM_TEST_CACHE_URL` for an app with no cache). `CACHE_URL` and
+task queue has no `taskqueue.default.broker`. `sandloom dev up` writes no
+`SANDLOOM_TEST_BROKER_URL` for it (likewise no `SANDLOOM_TEST_CACHE_URL` for an app with no
+cache). A variable you export yourself is yours to unset. `CACHE_URL` and
 `BROKER_URL` are not settings any more: setting either fails startup.
 
 - The database is created on first use.
