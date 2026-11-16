@@ -19,6 +19,21 @@ own test servers, which a hook does not know) and the two hooks that rewrite
 files (a dirty tree would make tm refuse the handover). Any failure of the hook
 itself lets the call through.
 
+A second stage runs beside it, in a thread: the CI steps of the areas the diff
+(``git diff --name-only origin/main...HEAD``) touches, the ones pre-commit does
+not run (the docs job's code check under Python 3.11, the generated-files
+check, the no-Redis pending list, a driver package's tests). Which path selects
+which step is :data:`STEPS`; the docs paths are the ``docs`` filter of
+``.github/workflows/ci.yml`` (a test keeps them equal). Each step is recorded in
+``ci_steps`` as ``Passed``, ``Failed`` or ``not_run`` with its reason. ``not_run``
+is a record, never a refusal: a missing tool or Python, a step that needs the
+agent's own ``SANDLOOM_TEST_*`` which the hook's environment lacks, a timeout
+or the stage budget. A ``Failed`` step lands in ``failed`` as ``ci:<name>`` and is
+recorded like a failed pre-commit hook: it does not block the handover either.
+The stage never writes into the checkout (the 3.11 environment is a temporary
+directory outside it, bytecode is off) and every step is killed with its process
+group at its timeout, so it cannot hang the hook.
+
 Only the record this hook emitted passes the second call: its digest is kept in
 ``~/.cache/sandloom-checks`` (outside every checkout), so an agent cannot attach
 a self-written all-green record. If that directory cannot be written, the hook
@@ -34,13 +49,22 @@ boundary against a hostile agent: CI on GitHub stays the gate.
 
 from __future__ import annotations
 
+import ast
 import hashlib
+import importlib.util
 import json
 import os
 import re
+import shutil
+import signal
 import subprocess
 import sys
+import tempfile
+import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import NamedTuple
 
 AGENT = "sandloom-implementer"
 SKIP = "architecture-tests,end-of-file-fixer,trailing-whitespace"
@@ -153,6 +177,341 @@ def run_checks(top: str) -> tuple[dict[str, str], str, int]:
     return results(output), "\n".join(failed[-25:]), done.returncode
 
 
+#: The stage's own clock: it runs beside pre-commit (540 s at most) inside the
+#: hook's 600 s limit in ``.claude/settings.json``, so it ends before either.
+STAGE_BUDGET = 480
+STEP_TIMEOUT = 300
+#: A step is not started with less than this left of the budget.
+MIN_STEP_SECONDS = 10
+_PLACEHOLDER = "{python}"
+#: The ``docs`` filter of ``.github/workflows/ci.yml`` (``changes`` job): a
+#: path matching one runs the docs job in CI. A test keeps this list equal to it.
+DOCS_PATHS = (
+    "docs/**",
+    "examples/**",
+    "website/**",
+    "LICENSE",
+    "NOTICE",
+    "tools/docs/**",
+    "zensical.toml",
+    "pyproject.toml",
+    "uv.lock",
+    "src/**",
+    ".github/workflows/docs.yml",
+    ".github/workflows/pages.yml",
+    ".github/workflows/ci.yml",
+    "**/AGENTS.md",
+    "**/CLAUDE.md",
+    "**/README.md",
+    ".claude/**",
+    "deploy/**",
+    "benchmarks/dx/**",
+)
+_LANE_ENV = (
+    "SANDLOOM_TEST_DATABASE_URL",
+    "SANDLOOM_TEST_CACHE_URL",
+    "SANDLOOM_TEST_BROKER_URL",
+    "SANDLOOM_TEST_OWNER",
+)
+# The driver lanes of ci.yml (redis-drivers, celery-drivers) over the source tree
+# the agent's .venv has installed, serial (xdist workers would take Redis
+# indexes beyond the two the agent owns), without the skip ledger (it writes
+# into the checkout) and without the wheel check (that one reinstalls the venv).
+_LANE = ("uv", "run", "--locked", "pytest", "-q", "-p", "no:xdist", "--no-cov")
+_LANE += ("-p", "no:cacheprovider")
+
+
+class Step(NamedTuple):
+    """One CI step: the paths that select it and how it runs."""
+
+    name: str
+    paths: tuple[str, ...]
+    argv: tuple[str, ...] = ()
+    #: In-process check of the checkout: returns the problems found (empty: pass).
+    call: Callable[[str], str] | None = None
+    #: Runs with the temporary Python 3.11 environment (``{python}`` in argv).
+    docs_python: bool = False
+    env: tuple[tuple[str, str], ...] = ()
+    #: Variables the hook's own environment must carry, else ``not_run``.
+    needs_env: tuple[str, ...] = ()
+    timeout: int = STEP_TIMEOUT
+
+
+def _defined_ids(root: Path, tests: dict[str, str]) -> list[str]:
+    """``path::[Class::]name`` of each function in the files ``tests`` lists."""
+    found: list[str] = []
+
+    def walk(body: list[ast.stmt], prefix: str) -> None:
+        for node in body:
+            if isinstance(node, ast.ClassDef):
+                walk(node.body, f"{prefix}{node.name}::")
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                found.append(f"{prefix}{node.name}")
+
+    for rel in sorted({entry.split("::", 1)[0] for entry in tests}):
+        source = root / rel
+        if source.is_file():
+            walk(ast.parse(source.read_text(encoding="utf-8")).body, f"{rel}::")
+    return found
+
+
+def no_redis_problems(top: str) -> str:
+    """The ``kernel-without-redis`` list checks that need no venv: the pending
+    list is within its ceilings and names no gone file or test. CI's run also
+    collects the suites with Redis uninstalled; that part needs the CI venv and
+    stays CI's."""
+    root = Path(top)
+    path = root / "tools/ci/no_redis.py"
+    spec = importlib.util.spec_from_file_location("sandloom_ci_no_redis", path)
+    if spec is None or spec.loader is None:
+        raise FileNotFoundError(path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    files, tests = module.load_pending()
+    problems = list(module.above_ceiling(files, tests))
+    problems += [f"gone file: {p}" for p in module.stale_files(files, root)]
+    try:
+        ids = _defined_ids(root, tests)
+    except SyntaxError as exc:
+        return "; ".join([*problems, f"unparsable test file: {exc}"])
+    # The source has no parametrization: an entry is judged by its function.
+    bare = {t.split("[", 1)[0]: why for t, why in tests.items()}
+    problems += [f"stale test: {t}" for t in module.stale_tests(bare, ids, root)]
+    return "; ".join(problems)
+
+
+STEPS = (
+    Step(
+        "docs-code-check-self-test",
+        DOCS_PATHS,
+        (_PLACEHOLDER, "tools/docs/docs_code_check.py", "--self-test"),
+        docs_python=True,
+        timeout=120,
+    ),
+    Step(
+        "docs-code-check",
+        DOCS_PATHS,
+        (_PLACEHOLDER, "tools/docs/docs_code_check.py"),
+        docs_python=True,
+        timeout=180,
+    ),
+    Step(
+        "docs-reference-check",
+        DOCS_PATHS,
+        (_PLACEHOLDER, "tools/docs/docs_reference.py", "--check"),
+        docs_python=True,
+        timeout=180,
+    ),
+    Step(
+        "docs-stale-symbols-self-test",
+        ("tools/docs/**",),
+        (_PLACEHOLDER, "tools/docs/docs_stale_symbols.py", "--self-test"),
+        docs_python=True,
+        timeout=60,
+    ),
+    Step(
+        "docs-prose-lint-self-test",
+        ("tools/docs/**",),
+        (_PLACEHOLDER, "tools/docs/docs_prose_lint.py", "--self-test"),
+        docs_python=True,
+        timeout=60,
+    ),
+    Step(
+        "generate-check",
+        ("src/**", "pyproject.toml", "uv.lock"),
+        ("uv", "run", "--locked", "sandloom", "generate", "--check"),
+        env=(("SANDLOOM_COMPOSITION_ROOT", "sandloom_standard.main"),),
+        timeout=180,
+    ),
+    Step(
+        "no-redis-pending",
+        (
+            "src/sandloom/core/**",
+            "tests/sdk/**",
+            "tests/architecture/**",
+            "tests/integration/replaceability/**",
+            "tools/ci/no_redis*",
+            "conftest.py",
+        ),
+        call=no_redis_problems,
+        timeout=60,
+    ),
+    Step(
+        "redis-drivers",
+        ("packages/sandloom-redis/**",),
+        (
+            *_LANE,
+            "packages/sandloom-redis/tests",
+            "src/sandloom/core/tests/test_atomic_store.py",
+            "src/sandloom/core/tests/test_lease.py",
+            "src/sandloom/core/tests/test_broadcast_redis.py",
+        ),
+        env=(("SANDLOOM_REDIS_REQUIRED", "1"),),
+        needs_env=_LANE_ENV,
+    ),
+    Step(
+        "celery-drivers",
+        ("packages/sandloom-celery/**",),
+        (
+            *_LANE,
+            "packages/sandloom-celery/tests",
+            "src/sandloom/core/tests/test_celery_error_mapping.py",
+            "src/sandloom/core/tests/test_beat_lease.py",
+        ),
+        env=(("SANDLOOM_CELERY_REQUIRED", "1"),),
+        needs_env=_LANE_ENV,
+    ),
+)
+
+
+def _glob(pattern: str) -> re.Pattern[str]:
+    """A ``dorny/paths-filter`` glob: ``**/`` any directories (or none), ``**``
+    anything, ``*`` anything inside one path segment."""
+    out: list[str] = []
+    i = 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out.append("(?:.*/)?")
+            i += 3
+        elif pattern.startswith("**", i):
+            out.append(".*")
+            i += 2
+        elif pattern[i] == "*":
+            out.append("[^/]*")
+            i += 1
+        else:
+            out.append(re.escape(pattern[i]))
+            i += 1
+    return re.compile("".join(out) + r"\Z")
+
+
+def selected(changed: list[str]) -> list[Step]:
+    """The steps whose paths the diff touches, in :data:`STEPS` order."""
+    return [
+        step
+        for step in STEPS
+        if any(_glob(p).match(path) for p in step.paths for path in changed)
+    ]
+
+
+def _run_bounded(
+    argv: list[str], cwd: str, env: dict[str, str], timeout: float
+) -> tuple[int, str]:
+    """``(exit status, output)``; past ``timeout`` the whole process group is
+    killed (uv's child included) and ``TimeoutExpired`` raised."""
+    proc = subprocess.Popen(  # noqa: S603 - fixed argv in the agent's checkout
+        argv,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.communicate()
+        raise
+    return proc.returncode, out
+
+
+def _docs_python(top: str, env: dict[str, str], tmp: str, timeout: float) -> str:
+    """The interpreter of a temporary Python 3.11 environment with the project
+    and every extra, as the docs job installs it. It lives outside the checkout
+    (``UV_PROJECT_ENVIRONMENT``), so the agent's ``.venv`` is never replaced.
+    Raises ``RuntimeError`` with the reason when it cannot be built."""
+    venv = str(Path(tmp) / "venv")
+    uv_env = {k: v for k, v in env.items() if k != "VIRTUAL_ENV"}
+    uv_env["UV_PROJECT_ENVIRONMENT"] = venv
+    for argv in (
+        ["uv", "venv", "--python", "3.11", "--no-python-downloads", venv],
+        ["uv", "sync", "--locked", "--all-extras", "--no-python-downloads"],
+    ):
+        try:
+            code, out = _run_bounded(argv, top, uv_env, timeout)
+        except FileNotFoundError:
+            raise RuntimeError("uv is not installed") from None
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"`{' '.join(argv[:2])}` timed out") from None
+        if code:
+            raise RuntimeError(
+                f"Python 3.11 environment: `{' '.join(argv[:2])}` exited {code}: "
+                + out.strip()[-200:]
+            )
+    return str(Path(venv) / "bin" / "python")
+
+
+def _run_step(
+    step: Step, top: str, env: dict[str, str], python: str, timeout: float
+) -> tuple[str, str]:
+    """``(status, text)``: ``Passed`` / ``Failed`` with the output tail, or
+    ``not_run`` with the reason."""
+    missing = [name for name in step.needs_env if not env.get(name)]
+    if missing:
+        return "not_run", "the hook's environment has no " + ", ".join(missing)
+    step_env = {**env, **dict(step.env)}
+    try:
+        if step.call is not None:
+            problems = step.call(top)
+            return ("Failed", problems) if problems else ("Passed", "")
+        argv = [python if a == _PLACEHOLDER else a for a in step.argv]
+        code, out = _run_bounded(argv, top, step_env, timeout)
+    except subprocess.TimeoutExpired:
+        return "not_run", f"timed out after {int(timeout)} s"
+    except FileNotFoundError as exc:
+        return "not_run", f"not found: {exc.filename or exc}"
+    except Exception as exc:  # noqa: BLE001 - an in-process check that raised failed
+        return "Failed", f"{type(exc).__name__}: {exc}"
+    return ("Failed", out.strip()[-400:]) if code else ("Passed", "")
+
+
+def run_ci_steps(top: str, budget: float = STAGE_BUDGET) -> dict[str, dict]:
+    """``{step: {"status", "seconds", "reason" | "tail"}}`` for the CI steps the
+    diff against ``origin/main`` selects; never raises, never exceeds ``budget``
+    seconds by more than a process-group kill."""
+    started = time.monotonic()
+    try:
+        diff = _git(["diff", "--name-only", "origin/main...HEAD"], top, strict=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ci-steps": {"status": "not_run", "reason": f"no diff: {exc}"[:200]}}
+    steps = selected([p for p in diff.splitlines() if p])
+    env = {**os.environ, **CI_ENV, "PYTHONDONTWRITEBYTECODE": "1"}
+    record: dict[str, dict] = {}
+    tmp = tempfile.mkdtemp(prefix="sandloom-ci-steps-") if steps else ""
+    python = ""
+    python_error = ""
+
+    def left() -> float:
+        return budget - (time.monotonic() - started)
+
+    try:
+        for step in steps:
+            begun = time.monotonic()
+            if left() < MIN_STEP_SECONDS:
+                status, text = "not_run", "the stage budget was spent"
+            else:
+                if step.docs_python and not python and not python_error:
+                    try:
+                        python = _docs_python(top, env, tmp, min(120, left()))
+                    except RuntimeError as exc:
+                        python_error = str(exc)
+                if step.docs_python and python_error:
+                    status, text = "not_run", python_error
+                else:
+                    wait = min(step.timeout, max(left(), 1))
+                    status, text = _run_step(step, top, env, python, wait)
+            entry = {"status": status, "seconds": round(time.monotonic() - begun, 1)}
+            if text:
+                entry["reason" if status == "not_run" else "tail"] = redact(text)[-300:]
+            record[step.name] = entry
+    finally:
+        if tmp:
+            shutil.rmtree(tmp, ignore_errors=True)
+    return record
+
+
 def handed_over(tool_input: dict, cwd: str) -> tuple[bool, str | None]:
     """``(named, sha)``: whether a ``git_commit`` deliverable is attached, and
     the full SHA of the first commit of this clone it names. An abbreviated
@@ -256,29 +615,46 @@ def main() -> int:
         return 0
     exit_status: int | None = None
     outcome: dict[str, str] = {}
+    ci_steps: dict[str, dict] = {}
     tail = ""
     if unlocated:
         # Checking another tree (the main checkout) would record its results
         # under this commit: say why there are none instead.
         not_run = unlocated
     else:
+        # The CI steps run beside pre-commit; they are bounded by their own
+        # budget and never raise, so the join below cannot hang.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            stage = pool.submit(run_ci_steps, top)
+            try:
+                outcome, tail, exit_status = run_checks(top)
+                # Mask first, then cut: a cut could drop a URL's prefix, keep its
+                # password.
+                shown = redact(tail)[-300:]
+                not_run = (
+                    "" if outcome else "pre-commit printed no hook result: " + shown
+                )
+            except (subprocess.TimeoutExpired, OSError) as exc:
+                outcome, tail = {}, ""
+                not_run = redact(f"{type(exc).__name__}: {exc}")[:300]
+            ci_steps = stage.result()
         try:
-            outcome, tail, exit_status = run_checks(top)
-            # Mask first, then cut: a cut could drop a URL's prefix, keep its password.
-            shown = redact(tail)[-300:]
-            not_run = "" if outcome else "pre-commit printed no hook result: " + shown
-            if _git(["rev-parse", "HEAD"], top) != head:
-                # The tree moved under the run: its results belong to no commit.
-                outcome, not_run = {}, "HEAD moved while the checks ran"
-        except (subprocess.TimeoutExpired, OSError) as exc:
-            outcome, tail = {}, ""
-            not_run = redact(f"{type(exc).__name__}: {exc}")[:300]
+            now = _git(["rev-parse", "HEAD"], top)
+        except (subprocess.TimeoutExpired, OSError):
+            now = ""
+        if now != head:
+            # The tree moved under the run: its results belong to no commit.
+            outcome, ci_steps, not_run = {}, {}, "HEAD moved while the checks ran"
     record = {
         "commit": head,
         "ran": "pre-commit run --from-ref origin/main --to-ref HEAD",
         "skipped": SKIP.split(","),
         "results": outcome,
-        "failed": sorted(k for k, v in outcome.items() if v == "Failed"),
+        "ci_steps": ci_steps,
+        "failed": sorted(
+            [k for k, v in outcome.items() if v == "Failed"]
+            + [f"ci:{k}" for k, v in ci_steps.items() if v["status"] == "Failed"]
+        ),
         "exit_status": exit_status,
     }
     if not_run:
