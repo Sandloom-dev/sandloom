@@ -183,16 +183,48 @@ def _load(path: Path) -> ModuleType:
     return module
 
 
+def _env(values: dict[str, Any] | None) -> str:
+    """``K=V`` pairs as a shell prefix; an expression GitHub fills is shown as
+    ``<ci>`` (set your own value)."""
+    pairs = []
+    for key, value in (values or {}).items():
+        text = str(value)
+        if "${{" in text:
+            pairs.append(f"{key}=<ci>")
+        elif re.fullmatch(r"[\w.:/@+,=-]*", text):
+            pairs.append(f"{key}={text}")
+        else:
+            pairs.append(f"{key}='{text}'")
+    return " ".join(pairs)
+
+
+def _venv_on_path(job: dict[str, Any]) -> bool:
+    """A step puts ``.venv/bin`` on ``$GITHUB_PATH``: the job's bare ``python3``
+    is the project's environment, not the system one."""
+    return any(
+        ".venv/bin" in (s.get("run") or "") and "GITHUB_PATH" in (s.get("run") or "")
+        for s in job.get("steps") or []
+    )
+
+
 def _commands(job: dict[str, Any]) -> list[str]:
+    """The job's commands as they run locally: a bare ``python3`` becomes
+    ``uv run python`` where the job puts the venv on its path, and a step's
+    own ``env`` is its prefix (the job's ``env`` is a line of its own)."""
     found: list[str] = []
+    venv = _venv_on_path(job)
     for step in job.get("steps") or []:
         text = (step.get("run") or "").replace("\\\n", " ")
+        prefix = _env(step.get("env"))
         for line in text.splitlines():
             line = " ".join(line.split())
             if not _COMMAND.match(line) or any(n in line for n in _NOISE):
                 continue
+            if venv and line.startswith("python3 "):
+                line = "uv run python " + line[len("python3 ") :]
             if len(line) > _WIDTH:
                 line = line[: _WIDTH - 3] + "..."
+            line = f"{prefix} {line}" if prefix else line
             if line not in found:
                 found.append(line)
     return found
@@ -265,6 +297,8 @@ def _ci(root: Path) -> str:
                 continue
             shown.add(job_id)
             lines.append(f"- {job_id}: " + " ; ".join(cmds))
+            if job_env := _env(jobs[job_id].get("env")):
+                lines.append(f"  env for {job_id}: {job_env}")
         if repeated:
             lines.append(f"- also {', '.join(repeated)} (commands above)")
         lines.append("")
