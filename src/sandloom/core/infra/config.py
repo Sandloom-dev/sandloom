@@ -134,11 +134,11 @@ class SettingsFill:
       for the driver's options to refuse.
     """
 
-    urls: Mapping[str, str] = _NO_SETTINGS
+    urls: Mapping[str, str] = field(default_factory=lambda: _NO_SETTINGS)
     urls_for: Literal["all", "default", "implicit"] = "all"
     follows: str | None = None
-    bounds: Mapping[str, str] = _NO_SETTINGS
-    caps: Mapping[str, str] = _NO_SETTINGS
+    bounds: Mapping[str, str] = field(default_factory=lambda: _NO_SETTINGS)
+    caps: Mapping[str, str] = field(default_factory=lambda: _NO_SETTINGS)
 
     def __post_init__(self) -> None:
         if self.urls_for not in ("all", "default", "implicit"):
