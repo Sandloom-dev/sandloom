@@ -27,7 +27,9 @@ kernel internals such as ``sandloom.core._internal`` / ``sandloom.core.sql_alche
 * :func:`register_event_schemas` — schemas for channels a test publishes on
   that no module owns (every versioned channel needs one, SANDLOOM-R003);
 * :func:`override_instance` — point an infrastructure instance at a test
-  backend for a block (restored afterwards); :func:`has_optimized_reads` —
+  backend for a block (restored afterwards); :func:`resolved_cache_url` — the
+  Redis URL of the default cache the run uses (to build such an override);
+  :func:`has_optimized_reads` —
   what a test asks of its database instead of its name (the kernel's own
   tests also ask ``sandloom.core.testing.infra.has_serial_writers``);
 * :func:`assert_route_snapshot` — a module's routes and their resolved
@@ -90,6 +92,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from sandloom.core.testing.infra import (
         has_optimized_reads,
         override_instance,
+        resolved_cache_url,
         skip_unless_db_feature,
     )
     from sandloom.core.testing.migrations import (
@@ -153,6 +156,7 @@ _EXPORTS: dict[str, str] = {
     "fake_access_fact": "sandloom.core.testing.authz",
     "has_optimized_reads": "sandloom.core.testing.infra",
     "override_instance": "sandloom.core.testing.infra",
+    "resolved_cache_url": "sandloom.core.testing.infra",
     "skip_unless_db_feature": "sandloom.core.testing.infra",
     "MigrationChain": "sandloom.core.testing.migrations",
     "assert_migrations_match_models": "sandloom.core.testing.migrations",
@@ -242,6 +246,7 @@ __all__ = [
     "register_event_schemas",
     "registration_surface",
     "reload_test_env",
+    "resolved_cache_url",
     "revocation_mark_key",
     "route_policy",
     "run_on_commit",

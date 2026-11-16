@@ -45,9 +45,10 @@ stray dev ``DATABASE_URL`` in the shell never masks it; these prefixed names are
 the deliberate way to point one test run at a different database / Redis (e.g.
 several suites in parallel on one machine). ``SANDLOOM_TEST_CACHE_URL`` /
 ``SANDLOOM_TEST_BROKER_URL`` keep their names but name instances now: they are
-merged into ``INFRA`` (:func:`infra_with_overrides`: every declared instance with
-a Redis ``url`` / ``broker``, and the ``default`` cache / task queue), and are
-copied onto ``CACHE_URL`` / ``BROKER_URL`` only where ``.env.test`` still sets
+merged into ``INFRA`` (:func:`infra_with_overrides`: the ``default`` cache / task
+queue and every declared instance on the same Redis database as it; instances on
+other databases keep theirs, a declared ``backend`` follows its ``broker``), and
+are copied onto ``CACHE_URL`` / ``BROKER_URL`` only where ``.env.test`` still sets
 those.
 
 This module imports nothing from the framework (no ``sandloom.core.config.settings``),
@@ -206,22 +207,32 @@ def infra_with_overrides(
     overrides: Mapping[str, str],
     *,
     root_name: str | None = None,
+    flat: Mapping[str, str | None] | None = None,
 ) -> str | None:
     """``infra_raw`` (the ``INFRA`` JSON) with the run's own cache / broker URL
-    merged into the instances that name one.
+    merged into the instances that sit on the one it replaces.
 
     ``overrides`` maps ``CACHE_URL`` / ``BROKER_URL`` to the URL this run uses.
-    Nothing follows another instance's URL any more, so each instance is given
-    its own:
+    Nothing follows another instance's URL any more, so the URL is written into
+    each instance that named the replaced one, never into the others:
 
-    * every declared instance (any capability) whose ``url`` is a Redis URL
-      gets the cache URL, and whose ``broker`` is a Redis URL the broker URL;
     * the ``default`` instance of ``cache`` (``url``) and of ``taskqueue``
-      (``broker``) gets it too, created when ``INFRA`` has none, when its driver
-      (the declared one, else the composition root's) takes that URL from the
-      flat setting (``InfraProvider.settings_fill``). A process whose
-      composition names no such driver is left alone: it has no instance to
-      point.
+      (``broker``) takes the override; it is created when ``INFRA`` has none,
+      when its driver (the declared one, else the composition root's) takes that
+      URL from the flat setting (``InfraProvider.settings_fill``). A process
+      whose composition names no such driver is left alone: it has no instance
+      to point;
+    * every other declared instance (any capability) whose ``url`` / ``broker``
+      is the SAME Redis server and database as the default's takes it too (the
+      default's own is its declared option, else the flat ``CACHE_URL`` /
+      ``BROKER_URL`` in ``flat``, the configuration the run starts from);
+    * an instance on another database or server keeps its URL: instances meant
+      to live apart stay apart, and the cache's ``FLUSHDB`` never reaches their
+      keys. The per-worker rewrite of ``sandloom_redis`` moves database indexes
+      only, on the same server, and does the same;
+    * a ``backend`` a replaced ``broker`` instance declares mirrors the new
+      broker URL (a run that points its broker elsewhere must not share the
+      result database of another run).
 
     A malformed ``INFRA`` is returned unchanged (the settings refuse it when they
     load); without an override so is a missing one.
@@ -237,13 +248,56 @@ def infra_with_overrides(
         return infra_raw
     for var, url in wanted.items():
         capability, option, setting = _INFRA_URLS[var]
-        for instances in parsed.values():
-            for spec in instances.values() if isinstance(instances, dict) else ():
-                stated = spec.get(option) if isinstance(spec, dict) else None
-                if isinstance(stated, str) and stated.startswith(_REDIS_SCHEMES):
-                    spec[option] = url
+        base = _declared_option(parsed, capability, "default", option) or (
+            (flat or {}).get(var)
+        )
+        if base:
+            for instances in parsed.values():
+                for spec in instances.values() if isinstance(instances, dict) else ():
+                    stated = spec.get(option) if isinstance(spec, dict) else None
+                    if _same_redis_database(stated, base):
+                        _set_url(spec, option, url)
         _point_default_instance(parsed, capability, option, setting, url, root_name)
     return json.dumps(parsed)
+
+
+def _declared_option(
+    parsed: dict[str, Any], capability: str, name: str, option: str
+) -> str | None:
+    """The Redis URL ``parsed`` declares for ``option`` of an instance, if any."""
+    instances = parsed.get(capability)
+    spec = instances.get(name) if isinstance(instances, dict) else None
+    stated = spec.get(option) if isinstance(spec, dict) else None
+    if isinstance(stated, str) and stated.startswith(_REDIS_SCHEMES):
+        return stated
+    return None
+
+
+def _same_redis_database(stated: object, base: str) -> bool:
+    """``stated`` is a Redis URL on the same server and database as ``base``
+    (a URL without a path is database 0)."""
+    if not isinstance(stated, str) or not stated.startswith(_REDIS_SCHEMES):
+        return False
+    a, b = urlsplit(stated), urlsplit(base)
+    return (a.scheme, a.netloc, a.path.strip("/") or "0", a.query) == (
+        b.scheme,
+        b.netloc,
+        b.path.strip("/") or "0",
+        b.query,
+    )
+
+
+def _set_url(spec: dict[str, Any], option: str, url: str) -> None:
+    """Set ``option`` of ``spec`` to ``url``; a declared Redis ``backend`` follows
+    a replaced ``broker``."""
+    spec[option] = url
+    backend = spec.get("backend")
+    if (
+        option == "broker"
+        and isinstance(backend, str)
+        and backend.startswith(_REDIS_SCHEMES)
+    ):
+        spec["backend"] = url
 
 
 def _point_default_instance(
@@ -276,7 +330,7 @@ def _point_default_instance(
         return
     entry = parsed.setdefault(capability, {}).setdefault("default", {})
     entry.setdefault("driver", driver)
-    entry[option] = url
+    _set_url(entry, option, url)
 
 
 def explicit_test_overrides(
@@ -311,7 +365,10 @@ def explicit_test_overrides(
         # settings (their snapshot is taken after this).
         root = cur.get(_COMPOSITION_ROOT_ENV) or env.get(_COMPOSITION_ROOT_ENV)
         merged = infra_with_overrides(
-            infra, redis, root_name=root or _DEFAULT_COMPOSITION_ROOT
+            infra,
+            redis,
+            root_name=root or _DEFAULT_COMPOSITION_ROOT,
+            flat={var: cur.get(var) for var in REDIS_VARS},
         )
         if merged is not None and merged != infra:
             out[INFRA_VAR] = merged

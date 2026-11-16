@@ -74,6 +74,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`RegistrationSurface`](#registrationsurface) | class | What one `register(core)` call registered, in call order. |
 | [`reload_test_env`](#reload_test_env) | function | `load_dotenv(path, override=True)` then re-apply the worker rewrite. |
 | [`ReservedPort`](#reservedport) | class | A loopback port held by a listening socket owned by the test process. |
+| [`resolved_cache_url`](#resolved_cache_url) | function | The URL the test run's `default` cache is on. |
 | [`revocation_mark_key`](#revocation_mark_key) | function | The store key of `user_id`'s subject-state record. |
 | [`route_policy`](#route_policy) | function | The policy the framework applies to `route` (resolved live). An app asserts deny-by-default with it: |
 | [`RoutePolicy`](#routepolicy) | class | What the framework applies to one route (ADR-0009). |
@@ -1176,6 +1177,22 @@ def close(self) -> None
 ```
 
 Release the port (idempotent). Do it after the last child stopped.
+
+### `resolved_cache_url`
+
+```python
+def resolved_cache_url(environ: Mapping[str, str] | None = None) -> str
+```
+
+The URL the test run's `default` cache is on.
+
+`cache.default.url` of `INFRA` (what the harness merged
+`SANDLOOM_TEST_CACHE_URL` into, and the worker's rewrite moved), else the
+flat `CACHE_URL` while `.env.test` still sets one: the same precedence
+the application's own configuration has (`INFRA` over the flat setting).
+Read from the environment, not from the application's settings snapshot,
+which a suite that imported the app early holds stale. Raises
+`RuntimeError` naming where to set it when there is none.
 
 ### `revocation_mark_key`
 

@@ -319,6 +319,113 @@ def test_a_non_redis_url_of_an_instance_is_left_alone(
     assert json.loads(merged or "") == json.loads(infra)
 
 
+def test_only_instances_on_the_defaults_database_take_the_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Instances meant to live on separate databases keep apart: the override
+    reaches the default cache and what sat on its server and database (a url
+    without a path is database 0), nothing else."""
+    import json
+
+    _fake_seams(monkeypatch, driver=None, fills={"url": "cache_url"})
+    infra = json.dumps(
+        {
+            "cache": {
+                "default": {"driver": "redis", "url": "redis://localhost:6380/0"},
+                "rate": {"driver": "redis", "url": "redis://other:6379/5"},
+            },
+            "lease": {
+                "beat": {"driver": "redis", "url": "redis://localhost:6380/3"},
+                "twin": {"driver": "redis", "url": "redis://localhost:6380"},
+            },
+        }
+    )
+    merged = json.loads(
+        workers.infra_with_overrides(infra, {"CACHE_URL": "redis://h:6380/9"}) or ""
+    )
+    assert merged["cache"]["default"]["url"] == "redis://h:6380/9"
+    assert merged["lease"]["twin"]["url"] == "redis://h:6380/9"
+    assert merged["cache"]["rate"]["url"] == "redis://other:6379/5"
+    assert merged["lease"]["beat"]["url"] == "redis://localhost:6380/3"
+
+
+def test_the_flat_cache_url_names_the_default_when_infra_declares_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+
+    _fake_seams(monkeypatch, driver="redis", fills={"url": "cache_url"})
+    infra = json.dumps(
+        {
+            "lease": {
+                "beat": {"driver": "redis", "url": "redis://localhost:6380/15"},
+                "apart": {"driver": "redis", "url": "redis://localhost:6380/3"},
+            }
+        }
+    )
+    merged = json.loads(
+        workers.infra_with_overrides(
+            infra,
+            {"CACHE_URL": MINE_CACHE},
+            flat={"CACHE_URL": "redis://localhost:6380/15", "BROKER_URL": None},
+        )
+        or ""
+    )
+    assert merged["cache"]["default"]["url"] == MINE_CACHE  # created
+    assert merged["lease"]["beat"]["url"] == MINE_CACHE
+    assert merged["lease"]["apart"]["url"] == "redis://localhost:6380/3"
+    # without the flat variable nothing names the default's database: only the
+    # default itself is pointed
+    alone = json.loads(
+        workers.infra_with_overrides(infra, {"CACHE_URL": MINE_CACHE}) or ""
+    )
+    assert alone["lease"]["beat"]["url"] == "redis://localhost:6380/15"
+
+
+def test_a_declared_backend_follows_a_replaced_broker_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+
+    _fake_seams(monkeypatch, driver=None, fills={"broker": "broker_url"})
+    infra = json.dumps(
+        {
+            "taskqueue": {
+                "default": {
+                    "driver": "celery",
+                    "broker": "redis://localhost:6380/14",
+                    "backend": "redis://localhost:6380/13",
+                },
+                "elsewhere": {
+                    "driver": "celery",
+                    "broker": "redis://other:6379/1",
+                    "backend": "redis://other:6379/2",
+                },
+                "rpc": {
+                    "driver": "celery",
+                    "broker": "redis://localhost:6380/14",
+                    "backend": "rpc://",
+                },
+            }
+        }
+    )
+    merged = json.loads(
+        workers.infra_with_overrides(infra, {"BROKER_URL": MINE_BROKER}) or ""
+    )["taskqueue"]
+    assert merged["default"]["broker"] == MINE_BROKER
+    assert merged["default"]["backend"] == MINE_BROKER
+    assert merged["rpc"] == {
+        "driver": "celery",
+        "broker": MINE_BROKER,
+        "backend": "rpc://",
+    }
+    assert merged["elsewhere"] == {
+        "driver": "celery",
+        "broker": "redis://other:6379/1",
+        "backend": "redis://other:6379/2",
+    }
+
+
 def test_the_overridden_infra_is_rewritten_per_xdist_worker_too(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
