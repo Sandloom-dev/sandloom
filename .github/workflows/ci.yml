@@ -629,6 +629,25 @@ jobs:
           src/sandloom/core/tests tests/sdk tests/architecture
           tests/integration/replaceability
 
+      - name: The kernel without Redis (no client, no driver package) runs its suites
+        # ADR-0016: the kernel wheel names no Redis. This step uninstalls the
+        # client and both driver packages that bring it (sandloom-redis, and
+        # sandloom-celery through celery[redis]); the suite then selects the
+        # kernel's memory drivers (conftest.py) and the test harness loads no
+        # family. tools/ci/no_redis.py refuses the run while one of them
+        # imports, and lists (a ratchet, only down) the kernel tests that
+        # still need a Redis or Celery driver. The steps before this one run
+        # with sandloom-redis installed: that is the lane that has it.
+        run: |
+          uv pip uninstall --python .venv-kernel/bin/python \
+            redis hiredis sandloom-redis sandloom-celery
+          .venv-kernel/bin/python -c "import importlib.util as u; assert not [m for m in ('redis', 'sandloom_redis', 'sandloom_celery') if u.find_spec(m)]"
+          .venv-kernel/bin/python -m pytest -q -n auto --dist loadfile --no-cov \
+            --durations=25 --sandloom-shuffle=random \
+            -p tools.ci.no_batteries -p tools.ci.no_redis \
+            src/sandloom/core/tests tests/sdk tests/architecture \
+            tests/integration/replaceability
+
       - name: The kernel without asyncpg (the `postgres` extra) boots on SQLite
         # asyncpg is the optional `postgres` extra: uninstalled, the kernel
         # serves a SQLite file, imports neither asyncpg nor psycopg2 at boot,

@@ -31,11 +31,11 @@ Extras of `sandloom`:
 | extra | adds | for |
 | --- | --- | --- |
 | `postgres` | `asyncpg` (`>=0.32.0,<0.33`) | a `postgresql+asyncpg://` `DATABASE_URL`; without it the app refuses a PostgreSQL URL (SANDLOOM-B037) and runs on SQLite |
-| `redis` | `redis`, `sandloom-redis` (`>=0.7.0a13,<0.8`) | the Redis `atomic_store`, `lease`, `broadcast` and `cache` drivers and the Streams event bus |
+| `redis` | `redis[hiredis]`, `sandloom-redis` (`>=0.7.0a13,<0.8`) | the Redis `atomic_store`, `lease`, `broadcast` and `cache` drivers and the Streams event bus |
 | `celery` | `celery[redis]`, `sandloom-celery` (`>=0.7.0a13,<0.8`) | the Celery task queue, its worker host and scheduler |
 | `standard` | `sandloom[postgres,redis,celery]`, `sandloom-redis`, `sandloom-celery`, `sandloom-standard`, `sandloom-identity`, `sandloom-tenancy`, `sandloom-billing` (each `>=0.7.0a13,<0.8`) | the batteries-included set and its composition root <!-- sandloom-release --> |
 | `admin` | `sandloom[postgres,redis]`, `sandloom-admin`, `sandloom-identity` | the admin console; deliberately not in `standard`, because an installed module joins `sandloom.main` and a console is a decision |
-| `fast` | `redis[hiredis]`, `jsonschema-rs` | optional accelerators |
+| `fast` | `jsonschema-rs` | an optional accelerator for payload validation; it installs no Redis client |
 | `check` | `PyYAML` | `sandloom check` (reads YAML manifests) |
 | `testing` | `pytest`, `pytest-asyncio`, `pytest-xdist` | the test kit (`sandloom.sdk.testing`, `sandloom test`) |
 | `sentry` | `sentry-sdk` | error reporting; imported only when `SENTRY_DSN` is set |

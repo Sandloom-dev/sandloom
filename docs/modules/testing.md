@@ -268,6 +268,64 @@ belongs to the configuration defaults work (`idk-config-defaults`):
 it needs settings that accept non-redis URLs. Today's harness test runs with
 Redis URLs in `.env.test` that nothing connects to.
 
+### Harness families: a backend's half of the parallel-run isolation
+
+The kernel isolates the PostgreSQL / SQLite databases of a parallel run itself.
+Every other backend (today Redis) plugs in as a *harness family*, shipped by the
+driver package that provides the backend. The kernel wheel registers none.
+`sandloom-redis` registers the `redis` family. A process without a family is the
+database-only harness.
+
+A family is an object with the hooks of `HarnessFamily` (importable from
+`sandloom.driverkit.testing_family`). The package registers it in the
+`sandloom.testing` entry-point group:
+
+```toml
+[project.entry-points."sandloom.testing"]
+redis = "sandloom_redis.testing.family:FAMILY"
+```
+
+The entry-point name is the family's `name`. It is never a `pytest11` plugin:
+installing a package must not change an unrelated suite. The kernel loads the
+group when the first hook runs and calls every family:
+
+| hook | when the harness calls it |
+|---|---|
+| `rewrite_worker(values, environ, worker_id, number)` | an xdist worker starts: the settings it moves onto its own resources |
+| `claim(values)` | a run starts: verify (or claim) every resource of `values` it resets; raise `TestResourceOwnershipError` for another run's |
+| `slot_bases(urls, owner, environ)` / `release_slot_bases(urls, owner)` | a test-run slot takes (and hands back) its own base resources |
+| `allocate_workers(values, count)` | the controller, before the workers start: claim resources for the `count` workers |
+| `cap_workers(values, count)` | `-n auto`: workers capped to what the backend has room for |
+| `flush_owned(provider)` | empty the test database behind a cache provider, when it is this family's and this run owns it |
+
+Every hook is a no-op for a process that cannot reach the backend: no client
+installed, no URL set. A family package imports the kernel's side of the
+harness only through `sandloom.driverkit.testing_family`. It offers:
+
+- ownership markers: `check_holder`, `current_owner`, `record_claim`;
+- the setting names: `FLAT_VARS`, `INFRA_VAR` and `parse_infra`;
+- the worker layout and the driver a composition selects: `default_driver`,
+  `isolated_instance_options`;
+- `Resource` and `verdict`, to list and prune stale resources.
+
+The family module loads before the settings snapshot. It must not import
+`sandloom.core.config.settings` or SQLAlchemy at import time.
+`test_loading_the_family_imports_no_settings_and_no_sqlalchemy` in
+`packages/sandloom-redis/tests/test_testing_families.py` fails if it does.
+
+The kernel refuses, with `HarnessFamilyError`, what would share one backend
+silently:
+
+- a family registered twice (the message names both distributions);
+- a family that fails to import, lacks a hook, or names itself otherwise than
+  its entry point;
+- a process that has a backend's client installed but no family for it. The
+  pytest plugin checks this at `pytest_configure`.
+
+`sandloom-redis` is the model for a new family:
+`packages/sandloom-redis/tests/test_testing_families.py` and
+`test_harness_isolation.py` show how to test one.
+
 In the framework tree the benchmark security suite (`benchmarks/tests`) is a
 separate CI job (`benchmarks-security`: it needs a superuser connection for its
 RLS roles and runs about 6 minutes): `tools/ci/ci_local.sh <ref> --jobs

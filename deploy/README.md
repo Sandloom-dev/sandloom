@@ -559,9 +559,9 @@ vendor issues. Restrictions do not turn unresolved CVEs into patched libraries.
 
 ## Sizing
 
-The image installs the `sandloom[fast]` extra (hiredis reply parser,
-jsonschema-rs payload validation); the framework falls back to the pure-Python
-engines without it.
+The image installs the `sandloom[fast]` extra (jsonschema-rs payload validation)
+and, through `sandloom[redis]`, the Redis client with its hiredis reply parser;
+the framework falls back to the pure-Python engines without them.
 
 The image runs gunicorn with `sandloom.core.cli.gunicorn_conf`: the worker count
 honours the container CPU quota (default `min(2*cpus+1, 4)`; a non-empty

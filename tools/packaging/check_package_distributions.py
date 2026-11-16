@@ -10,7 +10,9 @@ This is the local/pre-push equivalent of ``.github/workflows/packages.yml``:
 3. ``pip install sandloom`` alone, in a clean environment: no Redis/Celery,
    every ``sandloom`` subcommand's ``--help``, ``sandloom docs <name>``,
    ``sandloom new`` and the kernel app factory work; the RPC transport
-   smoke runs from the installed wheel;
+   smoke runs from the installed wheel; the kernel's test harness (the pytest
+   plugin, with the ``testing`` and ``sqlite`` extras) runs two xdist workers
+   with no Redis client and so no harness family;
 4. ``sandloom[standard]`` (every wheel but the console): the standard root
    ``sandloom_standard.main:app`` (the ``sandloom-standard`` distribution, the
    one ``SANDLOOM_COMPOSITION_ROOT`` names in the image and the profiles)
@@ -470,6 +472,97 @@ def _check_kernel_factory(venv: Path, env: dict[str, str], work: Path) -> None:
     )
 
 
+#: An application that composes no module, on SQLite: what a lean install's
+#: test harness (``sandloom.core.testing.plugin``) runs when no driver package
+#: is installed.
+_HARNESS_APP = {
+    "pyproject.toml": (
+        "[tool.pytest.ini_options]\n"
+        'pythonpath = ["."]\n'
+        'addopts = ["-p", "sandloom.core.testing.plugin", "-p", "no:cacheprovider"]\n'
+        'asyncio_mode = "auto"\n'
+        'sandloom_composition_root = "fakeroot"\n'
+    ),
+    "fakeroot.py": (
+        "class _Core:\n"
+        "    loaded_modules = []\n\n"
+        "    def get_service(self, name):\n"
+        "        return None\n\n\n"
+        "class _State:\n"
+        "    core = _Core()\n\n\n"
+        "class _App:\n"
+        "    state = _State()\n"
+        "    dependency_overrides = {}\n\n\n"
+        "app = _App()\n"
+    ),
+    ".env.test": (
+        "ENVIRONMENT=test\n"
+        "JWT_SECRET=harness_probe_secret_value_long_enough_0123\n"
+        "DATABASE_URL=sqlite+aiosqlite:///{db}\n"
+        "CACHE_URL=redis://127.0.0.1:1/0\n"
+        "BROKER_URL=redis://127.0.0.1:1/1\n"
+    ),
+    "test_lean_harness.py": (
+        "import os\n"
+        "import sys\n\n"
+        "from sandloom.core.testing.families import harness_families\n\n\n"
+        "def test_a_worker_has_its_own_database_and_no_family():\n"
+        '    worker = os.environ.get("PYTEST_XDIST_WORKER", "")\n'
+        '    assert worker.startswith("gw"), worker\n'
+        '    assert os.environ["DATABASE_URL"].endswith(f"_{worker}.db")\n'
+        "    assert harness_families() == ()\n"
+        '    assert os.environ["CACHE_URL"] == "redis://127.0.0.1:1/0"\n\n\n'
+        "def test_no_redis_module_is_loaded():\n"
+        '    assert not [m for m in sys.modules if m.split(".")[0] in '
+        '("redis", "sandloom_redis", "sandloom_celery")]\n'
+    ),
+}
+
+
+def check_lean_test_harness(temp: Path, wheel: Path) -> None:
+    """The kernel's test harness (``sandloom.core.testing.plugin``) installed
+    with the kernel wheel alone and its ``testing`` and ``sqlite`` extras: no
+    Redis client and no driver package, so no harness family. The plugin loads,
+    and two xdist workers each run on their own SQLite database. Run in the
+    wheel as installed, so a harness module that named a driver package or
+    the Redis client at import (or whose lookup of one fails) fails here."""
+    venv = temp / "lean-harness"
+    _run("uv", "venv", str(venv))
+    _run(
+        "uv", "pip", "install", "--python", str(_python(venv)),
+        f"sandloom[testing,sqlite] @ {wheel.as_uri()}",
+    )  # fmt: skip
+    probe = _run(
+        str(_python(venv)),
+        "-c",
+        "import importlib.util as u, sys; "
+        "print([m for m in ('redis', 'sandloom_redis', 'sandloom_celery') "
+        "if u.find_spec(m)])",
+        capture_output=True,
+    )
+    if probe.stdout.strip() != "[]":
+        raise RuntimeError(f"lean test harness venv has Redis: {probe.stdout}")
+    app = temp / "lean-harness-app"
+    app.mkdir()
+    for name, text in _HARNESS_APP.items():
+        (app / name).write_text(text.replace("{db}", str(app / "run_test.db")))
+    env = {
+        k: v
+        for k, v in _smoke_environment().items()
+        if k not in {"DATABASE_URL", "CACHE_URL", "BROKER_URL", "JWT_SECRET"}
+        and not k.startswith("PYTEST_")
+    }
+    done = _run(
+        str(_python(venv)), "-m", "pytest", "-q", "-n", "2",
+        cwd=app, env=env, capture_output=True, check=False,
+    )  # fmt: skip
+    if done.returncode or "2 passed" not in done.stdout:
+        raise RuntimeError(
+            "lean install: the test harness does not run without Redis:\n"
+            f"{done.stdout[-1500:]}\n{done.stderr[-800:]}"
+        )
+
+
 def _standard_third_party() -> list[str]:
     """Third-party distributions the kernel's ``standard`` extra pulls in.
 
@@ -827,6 +920,7 @@ def main(argv: list[str] | None = None) -> int:
             with ThreadPoolExecutor(max_workers=len(PACKAGES) + 2) as pool:
                 checks = [
                     pool.submit(check_lean_install, temp, wheels[KERNEL]),
+                    pool.submit(check_lean_test_harness, temp, wheels[KERNEL]),
                     pool.submit(check_sqlite_install, temp, wheels[KERNEL]),
                     pool.submit(check_standard_install, temp, wheels),
                     *(

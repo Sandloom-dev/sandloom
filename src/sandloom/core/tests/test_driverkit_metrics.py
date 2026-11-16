@@ -183,7 +183,9 @@ def test_the_kernel_metrics_register_before_any_driver() -> None:
     """A driver (package or built-in) importing first never makes the kernel
     fail on its own metrics' import: they are registered before the driver
     declares, so a clash raises at the driver's declaration."""
-    for first in ("sandloom.driverkit", "sandloom_redis.cache"):
+    # ``sandloom.driverkit`` itself loads its names on first use: a driver's
+    # first import is the module it takes ``observe`` from.
+    for first in ("sandloom.driverkit.metrics", "sandloom_redis.cache"):
         code = (
             "import importlib, sys\n"
             f"importlib.import_module({first!r})\n"

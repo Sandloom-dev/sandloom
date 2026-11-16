@@ -8,6 +8,9 @@ callers of the hooks) is tested with fake families in
 
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
 from typing import Any
 
 import pytest
@@ -148,3 +151,25 @@ async def test_the_redis_family_flushes_only_a_provider_that_hands_out_a_client(
     assert flushed == []
     assert await redis_family.FAMILY.flush_owned(Cache()) is True
     assert flushed == ["the-client"]
+
+
+def test_loading_the_family_imports_no_settings_and_no_sqlalchemy() -> None:
+    """The harness loads a family before the settings snapshot (`apply_worker_env`
+    runs ahead of every settings import): the family and the kernel half it needs
+    (`sandloom.driverkit.testing_family`) must not import the settings, SQLAlchemy,
+    the infra layer or the eventing layer. A fresh interpreter, so what this
+    process already imported does not count."""
+    code = (
+        "import json, sys; import sandloom_redis.testing.family; "
+        'print(json.dumps([m for m in ("sandloom.core.config.settings", "sqlalchemy", '
+        '"sandloom.core.infra.config", "sandloom.core.eventing") if m in sys.modules]))'
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == []

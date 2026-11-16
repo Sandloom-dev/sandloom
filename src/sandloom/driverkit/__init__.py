@@ -28,86 +28,199 @@ records metrics through :data:`observe` (an :class:`Observe`: ``counter`` and
 registers them in the kernel's registry: a driver imports no kernel setting
 and no ``prometheus_client`` registry (:mod:`sandloom.driverkit.metrics`).
 Guide: ``docs/infrastructure/write-a-driver.md``.
+
+The names below load on first use (PEP 562), not when the package is imported:
+a submodule such as :mod:`sandloom.driverkit.testing_family` is imported by the
+Redis harness family before the settings snapshot, and importing the package
+must not pull in the settings, SQLAlchemy and the infra and eventing layers
+(about 250 ms) for it.
 """
 
-from sandloom.core.descriptors import HealthResult
-from sandloom.core.eventing.envelope import EventEnvelope
-from sandloom.core.infra.capabilities import CapabilityRef, CapabilitySpec
-from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
-from sandloom.core.infra.errors import (
-    AlreadyExists,
-    InfraError,
-    InvalidArgument,
-    NotFound,
-    PermissionDenied,
-    Timeout,
-    TooLarge,
-    Unavailable,
-    Unsupported,
-)
-from sandloom.core.infra.fenced_lease import FencedLease
-from sandloom.core.infra.ports._base import InfraProvider, health_failure_details
-from sandloom.core.infra.ports.atomic_store import AtomicStoreProvider
-from sandloom.core.infra.ports.broadcast import (
-    BroadcastMessage,
-    BroadcastProvider,
-    Subscription,
-)
-from sandloom.core.infra.ports.cache import CacheProvider
-from sandloom.core.infra.ports.database import UnitSession
-from sandloom.core.infra.ports.eventbus import (
-    ConsumerInfo,
-    DeadLetter,
-    Delivery,
-    EventTransport,
-    EventTransportProvider,
-    GroupInfo,
-    GroupOwnedElsewhere,
-    GroupOwner,
-    PartialPublish,
-    Retention,
-    StreamInfo,
-)
-from sandloom.core.infra.ports.lease import (
-    Lease,
-    LeaseHolder,
-    LeaseProvider,
-    LeaseStore,
-)
-from sandloom.core.infra.ports.notification import Notification, NotifierProvider
-from sandloom.core.infra.ports.objectstore import (
-    ObjectContent,
-    ObjectStoreProvider,
-    iter_object_chunks,
-    validate_object_key,
-)
-from sandloom.core.infra.ports.taskqueue import (
-    PeriodicSpec,
-    TaskQueueProvider,
-    TaskSpec,
-    TaskTable,
-    WorkerBoot,
-    WorkerHost,
-)
-from sandloom.core.sql_alchemy.dbapi import (
-    DBAPI_CAPABILITIES,
-    DbapiAdapter,
-    register_dbapi_adapter,
-)
-from sandloom.core.sql_alchemy.portable import (
-    TENANT_SETTING,
-    WRITE_LOCK_HELD,
-    ConflictInsert,
-    LockStatement,
-    RowSecurity,
-    SqlDialect,
-)
-from sandloom.driverkit.metrics import (
-    DriverCounter,
-    DriverHistogram,
-    Observe,
-    observe,
-)
+from __future__ import annotations
+
+import importlib
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sandloom.core.descriptors import HealthResult
+    from sandloom.core.eventing.envelope import EventEnvelope
+    from sandloom.core.infra.capabilities import CapabilityRef, CapabilitySpec
+    from sandloom.core.infra.config import DEFAULT_INSTANCE, InstanceConfig
+    from sandloom.core.infra.errors import (
+        AlreadyExists,
+        InfraError,
+        InvalidArgument,
+        NotFound,
+        PermissionDenied,
+        Timeout,
+        TooLarge,
+        Unavailable,
+        Unsupported,
+    )
+    from sandloom.core.infra.fenced_lease import FencedLease
+    from sandloom.core.infra.ports._base import InfraProvider, health_failure_details
+    from sandloom.core.infra.ports.atomic_store import AtomicStoreProvider
+    from sandloom.core.infra.ports.broadcast import (
+        BroadcastMessage,
+        BroadcastProvider,
+        Subscription,
+    )
+    from sandloom.core.infra.ports.cache import CacheProvider
+    from sandloom.core.infra.ports.database import UnitSession
+    from sandloom.core.infra.ports.eventbus import (
+        ConsumerInfo,
+        DeadLetter,
+        Delivery,
+        EventTransport,
+        EventTransportProvider,
+        GroupInfo,
+        GroupOwnedElsewhere,
+        GroupOwner,
+        PartialPublish,
+        Retention,
+        StreamInfo,
+    )
+    from sandloom.core.infra.ports.lease import (
+        Lease,
+        LeaseHolder,
+        LeaseProvider,
+        LeaseStore,
+    )
+    from sandloom.core.infra.ports.notification import Notification, NotifierProvider
+    from sandloom.core.infra.ports.objectstore import (
+        ObjectContent,
+        ObjectStoreProvider,
+        iter_object_chunks,
+        validate_object_key,
+    )
+    from sandloom.core.infra.ports.taskqueue import (
+        PeriodicSpec,
+        TaskQueueProvider,
+        TaskSpec,
+        TaskTable,
+        WorkerBoot,
+        WorkerHost,
+    )
+    from sandloom.core.sql_alchemy.dbapi import (
+        DBAPI_CAPABILITIES,
+        DbapiAdapter,
+        register_dbapi_adapter,
+    )
+    from sandloom.core.sql_alchemy.portable import (
+        TENANT_SETTING,
+        WRITE_LOCK_HELD,
+        ConflictInsert,
+        LockStatement,
+        RowSecurity,
+        SqlDialect,
+    )
+    from sandloom.driverkit.metrics import (
+        DriverCounter,
+        DriverHistogram,
+        Observe,
+        observe,
+    )
+
+#: Where each exported name lives: ``module -> names``. Every name of
+#: ``__all__`` is in exactly one entry (``test_driverkit_lazy_exports``), and
+#: every entry is imported under ``TYPE_CHECKING`` above for the type checkers.
+_HOMES: dict[str, tuple[str, ...]] = {
+    "sandloom.core.descriptors": ("HealthResult",),
+    "sandloom.core.eventing.envelope": ("EventEnvelope",),
+    "sandloom.core.infra.capabilities": ("CapabilityRef", "CapabilitySpec"),
+    "sandloom.core.infra.config": ("DEFAULT_INSTANCE", "InstanceConfig"),
+    "sandloom.core.infra.errors": (
+        "AlreadyExists",
+        "InfraError",
+        "InvalidArgument",
+        "NotFound",
+        "PermissionDenied",
+        "Timeout",
+        "TooLarge",
+        "Unavailable",
+        "Unsupported",
+    ),
+    "sandloom.core.infra.fenced_lease": ("FencedLease",),
+    "sandloom.core.infra.ports._base": ("InfraProvider", "health_failure_details"),
+    "sandloom.core.infra.ports.atomic_store": ("AtomicStoreProvider",),
+    "sandloom.core.infra.ports.broadcast": (
+        "BroadcastMessage",
+        "BroadcastProvider",
+        "Subscription",
+    ),
+    "sandloom.core.infra.ports.cache": ("CacheProvider",),
+    "sandloom.core.infra.ports.database": ("UnitSession",),
+    "sandloom.core.infra.ports.eventbus": (
+        "ConsumerInfo",
+        "DeadLetter",
+        "Delivery",
+        "EventTransport",
+        "EventTransportProvider",
+        "GroupInfo",
+        "GroupOwnedElsewhere",
+        "GroupOwner",
+        "PartialPublish",
+        "Retention",
+        "StreamInfo",
+    ),
+    "sandloom.core.infra.ports.lease": (
+        "Lease",
+        "LeaseHolder",
+        "LeaseProvider",
+        "LeaseStore",
+    ),
+    "sandloom.core.infra.ports.notification": ("Notification", "NotifierProvider"),
+    "sandloom.core.infra.ports.objectstore": (
+        "ObjectContent",
+        "ObjectStoreProvider",
+        "iter_object_chunks",
+        "validate_object_key",
+    ),
+    "sandloom.core.infra.ports.taskqueue": (
+        "PeriodicSpec",
+        "TaskQueueProvider",
+        "TaskSpec",
+        "TaskTable",
+        "WorkerBoot",
+        "WorkerHost",
+    ),
+    "sandloom.core.sql_alchemy.dbapi": (
+        "DBAPI_CAPABILITIES",
+        "DbapiAdapter",
+        "register_dbapi_adapter",
+    ),
+    "sandloom.core.sql_alchemy.portable": (
+        "TENANT_SETTING",
+        "WRITE_LOCK_HELD",
+        "ConflictInsert",
+        "LockStatement",
+        "RowSecurity",
+        "SqlDialect",
+    ),
+    "sandloom.driverkit.metrics": (
+        "DriverCounter",
+        "DriverHistogram",
+        "Observe",
+        "observe",
+    ),
+}
+_HOME: dict[str, str] = {
+    name: module for module, names in _HOMES.items() for name in names
+}
+
+
+def __getattr__(name: str) -> object:
+    module = _HOME.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(importlib.import_module(module), name)
+    globals()[name] = value  # resolved once: later lookups skip this hook
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *_HOME})
+
 
 __all__ = [
     "AlreadyExists",

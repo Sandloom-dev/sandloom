@@ -66,10 +66,12 @@ Changelog = "https://github.com/Sandloom-dev/sandloom/blob/main/packages/sandloo
 postgres = [
     "asyncpg>=0.32.0,<0.33",
 ]
-# The redis-py client, and the package of the Redis atomic_store, lease,
-# broadcast and cache drivers and of the Streams event bus (sandloom-redis).
+# The redis-py client with its hiredis parser (the Redis stack the pin in
+# docs/contributing/dependencies.md is measured on), and the package of the
+# Redis atomic_store, lease, broadcast and cache drivers and of the Streams
+# event bus (sandloom-redis).
 redis = [
-    "redis>=5.2.1,<6",
+    "redis[hiredis]>=5.2.1,<6",
     "sandloom-redis>=0.7.0a13,<0.8",
 ]
 # The Celery client the worker tooling uses, and the package of the Celery
@@ -96,8 +98,9 @@ admin = [
     "sandloom-admin>=0.7.0a13,<0.8",
     "sandloom-identity>=0.7.0a13,<0.8",
 ]
+# C-accelerated dependencies of the kernel itself. It names no Redis client:
+# the hiredis parser of the Redis client is in the `redis` extra.
 fast = [
-    "redis[hiredis]>=5.2.1,<6",
     "jsonschema-rs>=0.59.0,<0.60",
 ]
 # `sandloom check` reads YAML manifests.

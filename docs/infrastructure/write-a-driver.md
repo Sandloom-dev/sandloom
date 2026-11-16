@@ -519,6 +519,16 @@ async def test_mail_goes_through_the_file_driver(client) -> None:
     assert "a@b.test" in Path("/tmp/myapp-mail.log").read_text()
 ```
 
+### 6. Isolate the backend in a parallel test run
+
+A backend that parallel test workers would share (a Redis database, a broker) needs its half of
+the harness's isolation: a *harness family*. The package registers it in the `sandloom.testing`
+entry-point group (`"<name>" = "package.testing.family:FAMILY"`) and builds it from
+`sandloom.driverkit.testing_family`. `sandloom-redis` is the model. The hooks, the refusals and
+what the family module must not import at load time are in
+[Harness families](../modules/testing.md#harness-families-a-backends-half-of-the-parallel-run-isolation).
+A driver whose backend is a database file or an in-process store needs none.
+
 ## Verify
 
 ```bash
