@@ -21,9 +21,16 @@ of that setting (managed Redis often refuses ``CONFIG GET``) means:
   that policy as the constructor argument ``assume_allowed`` when it builds
   the driver, and a driver built without it refuses ``assume``.
 
-A refused check is not only raised by ``aopen``: a registry outside production
-logs it and keeps the provider, so every operation then raises the same refusal
-until an ``aopen`` passes, and ``health`` reports ``fail``.
+The check does not depend on ``aopen``: a worker or a CLI process never runs it,
+and a registry outside production only logs a refused one. So every operation
+judges the policy itself until one check has passed, and raises the refusal
+meanwhile. A failed ``health`` probe (policy lost or unreadable, or the probe
+itself failing with a connection error), an operation failing with
+``Unavailable`` or ``Timeout``, and a pooled connection that reconnects (the
+retrying client reconnects a dropped socket without raising, so the pool's
+``redis_connect_func`` is the hook) open the check again, so a ``noeviction``
+lost at runtime is refused by the next operation. A client given by
+``client_factory`` (a test seam) has no pool, so it has no reconnect hook.
 
 **A lost reply is never answered by running the command again.** A connection
 error after the server ran ``add``, ``add_or_get``, ``compare_and_set`` or
@@ -45,10 +52,11 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import importlib
+import weakref
 from collections.abc import Callable, Mapping, Sequence
 from functools import cache
 from types import ModuleType
-from typing import Any, Literal, NoReturn
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -155,7 +163,31 @@ def _running_loop() -> asyncio.AbstractEventLoop | None:
         return None
 
 
-def _build_client(options: RedisAtomicStoreOptions, *, retrying: bool) -> Any:
+def _reconnect_hook(on_reconnect: Callable[[], None]) -> Callable[[Any], Any]:
+    """The ``redis_connect_func`` of a pool: it runs the connection's own
+    ``on_connect`` (auth, ``SELECT``, client setup), then calls ``on_reconnect``
+    when that connection had been connected before. A retrying client reconnects
+    a dropped socket without raising, so this is the one place the driver sees a
+    lost connection. The first connect of a pooled connection is not a loss
+    (a growing pool opens new ones), so it does not call it."""
+
+    seen: weakref.WeakSet[Any] = weakref.WeakSet()
+
+    async def connect(connection: Any) -> None:
+        await connection.on_connect()
+        if connection in seen:
+            on_reconnect()
+        seen.add(connection)
+
+    return connect
+
+
+def _build_client(
+    options: RedisAtomicStoreOptions,
+    *,
+    retrying: bool,
+    on_reconnect: Callable[[], None] | None = None,
+) -> Any:
     """A bounded client: timeouts, keepalive, a periodic health check and a
     capped BLOCKING pool, so an unreachable or hung Redis makes an operation
     raise within roughly ``(1 + retry_attempts) x socket_timeout_seconds``
@@ -187,6 +219,9 @@ def _build_client(options: RedisAtomicStoreOptions, *, retrying: bool) -> Any:
             supported_errors=(exceptions.ConnectionError,),
         ),
         retry_on_error=[exceptions.ConnectionError] if retrying else [],
+        redis_connect_func=(
+            None if on_reconnect is None else _reconnect_hook(on_reconnect)
+        ),
     )
     client: Any = redis.Redis.from_pool(pool)
     return client
@@ -357,10 +392,17 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         self._client: Any | None = None
         self._once_client: Any | None = None
         self._client_loop: asyncio.AbstractEventLoop | None = None
-        # Set by an ``aopen`` whose policy check refused the server: every
-        # operation then raises it, so a registry that only logs the refusal
-        # (outside production) never serves an evicting store.
-        self._refusal: tuple[type[InfraError], str] | None = None
+        # True once a check of the server's eviction policy passed. Until then
+        # every operation judges the policy itself (a worker or a CLI process
+        # never runs ``aopen``; a registry outside production only logs a
+        # refused one), so an evicting store is never served. A health probe
+        # that finds the policy lost, and a lost connection, clear it again.
+        self._policy_checked = False
+
+    def _reopen_policy_check(self) -> None:
+        """The next operation judges the eviction policy again: the server
+        behind a lost connection may have come back reconfigured."""
+        self._policy_checked = False
 
     # ---------------------------------------------------------------- client
     async def _client_obj(self) -> Any:
@@ -373,9 +415,8 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         command whose reply was lost may have run: ``add``, ``add_or_get``,
         ``compare_and_set`` and ``compare_and_delete`` answer a different value
         when run twice, so they use the client that never re-sends."""
-        if self._refusal is not None:
-            kind, message = self._refusal
-            raise kind(message, capability=self.capability, instance=self.name)
+        if not self._policy_checked:
+            await self._check_policy("policy_check")
         return await self._client_of(retrying=idempotent)
 
     async def _client_of(self, *, retrying: bool) -> Any:
@@ -404,11 +445,19 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
             )
         if retrying:
             if self._client is None:
-                self._client = _build_client(self._options, retrying=True)
+                self._client = _build_client(
+                    self._options,
+                    retrying=True,
+                    on_reconnect=self._reopen_policy_check,
+                )
                 self._client_loop = loop
             return self._client
         if self._once_client is None:
-            self._once_client = _build_client(self._options, retrying=False)
+            self._once_client = _build_client(
+                self._options,
+                retrying=False,
+                on_reconnect=self._reopen_policy_check,
+            )
             self._client_loop = loop
         return self._once_client
 
@@ -416,12 +465,16 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         """The ``InfraError`` for a backend failure: its type, never its text."""
         atomic_store_operation_errors_total.labels(self.name, operation).inc()
         # ``from None`` at the call sites: callers branch on the class only.
-        return map_redis_error(
+        mapped = map_redis_error(
             exc,
             capability=self.capability,
             instance=self.name,
             what=f"atomic_store {self.name!r} {operation}",
         )
+        if isinstance(mapped, Unavailable | Timeout):
+            # The server may come back reconfigured: judge its policy again.
+            self._policy_checked = False
+        return mapped
 
     # ------------------------------------------------------------ operations
     async def get(self, key: str) -> str | None:
@@ -550,13 +603,59 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         policy = reply.get(_POLICY_SETTING) if isinstance(reply, dict) else None
         return policy if isinstance(policy, str) else None
 
-    def _refuse(self, kind: type[InfraError], message: str) -> NoReturn:
-        """Record the refusal of the server (the operations repeat it) and raise."""
-        self._refusal = (kind, message)
-        raise kind(message, capability=self.capability, instance=self.name)
+    def _assume_refused(self) -> bool:
+        """``assume`` without the kernel's leave (production, no accepted risk)."""
+        return self._options.never_evicts_check == "assume" and not (
+            self._assume_allowed is not None and self._assume_allowed()
+        )
+
+    async def _check_policy(self, operation: str) -> None:
+        """Judge the server's eviction policy; a refusal raises, and the check
+        stays open until one passes (``aopen`` and the first operation of a
+        process that never ran it)."""
+        self._policy_checked = False
+        mode = self._options.never_evicts_check
+        if self._assume_refused():
+            raise PermissionDenied(
+                f"atomic_store instance {self.name!r}: never_evicts_check='assume' "
+                f"needs the accepted risk {UNVERIFIED_NOEVICTION_RISK!r} in production "
+                "(fix: set never_evicts_check='verify' and grant CONFIG GET "
+                f"{_POLICY_SETTING}, or accept the risk with "
+                f'SANDLOOM_ACCEPTED_RISKS=["{UNVERIFIED_NOEVICTION_RISK}"])',
+                capability=self.capability,
+                instance=self.name,
+            )
+        try:
+            client = await self._client_obj()
+            policy = await self._read_policy(client)
+            if policy is None:
+                await client.ping()  # an unreachable server is Unavailable
+        except InfraError:
+            raise
+        except _backend_errors() as exc:
+            raise self._failure(operation, exc) from None
+        if policy is not None and policy != _NOEVICTION:
+            raise InvalidArgument(
+                f"atomic_store instance {self.name!r}: the Redis server evicts "
+                f"keys ({_POLICY_SETTING} is {policy!r}), so a revocation mark or "
+                "an idempotency reservation could vanish before its TTL "
+                f"(fix: set {_POLICY_SETTING} to {_NOEVICTION!r})",
+                capability=self.capability,
+                instance=self.name,
+            )
+        if policy is None and mode == "verify":
+            raise PermissionDenied(
+                f"atomic_store instance {self.name!r}: the Redis server refused "
+                f"CONFIG GET {_POLICY_SETTING}, so the driver cannot verify that "
+                f"it never evicts (fix: grant CONFIG GET {_POLICY_SETTING} to "
+                "this user, or vouch for the policy with the option "
+                "never_evicts_check='assume')",
+                capability=self.capability,
+                instance=self.name,
+            )
+        self._policy_checked = True
 
     async def aopen(self) -> None:
-        self._refusal = None
         if self._client_factory is None:  # a client of its own needs the url
             require_url("atomic_store", self.name, self._options.url)
         register_endpoint(
@@ -567,47 +666,11 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
             option=f"atomic_store.{self.name}.url",
             declared=not self.implicit,
         )
-        mode = self._options.never_evicts_check
-        if mode == "assume" and not (
-            self._assume_allowed is not None and self._assume_allowed()
-        ):
-            self._refuse(
-                PermissionDenied,
-                f"atomic_store instance {self.name!r}: never_evicts_check='assume' "
-                f"needs the accepted risk {UNVERIFIED_NOEVICTION_RISK!r} in production "
-                "(fix: set never_evicts_check='verify' and grant CONFIG GET "
-                f"{_POLICY_SETTING}, or accept the risk with "
-                f'SANDLOOM_ACCEPTED_RISKS=["{UNVERIFIED_NOEVICTION_RISK}"])',
-            )
-        try:
-            client = await self._client_obj()
-            policy = await self._read_policy(client)
-            if policy is None:
-                await client.ping()  # an unreachable server is Unavailable
-        except InfraError:
-            raise
-        except _backend_errors() as exc:
-            raise self._failure("aopen", exc) from None
-        if policy is not None and policy != _NOEVICTION:
-            self._refuse(
-                InvalidArgument,
-                f"atomic_store instance {self.name!r}: the Redis server evicts "
-                f"keys ({_POLICY_SETTING} is {policy!r}), so a revocation mark or "
-                "an idempotency reservation could vanish before its TTL "
-                f"(fix: set {_POLICY_SETTING} to {_NOEVICTION!r})",
-            )
-        if policy is None and mode == "verify":
-            self._refuse(
-                PermissionDenied,
-                f"atomic_store instance {self.name!r}: the Redis server refused "
-                f"CONFIG GET {_POLICY_SETTING}, so the driver cannot verify that "
-                f"it never evicts (fix: grant CONFIG GET {_POLICY_SETTING} to "
-                "this user, or vouch for the policy with the option "
-                "never_evicts_check='assume')",
-            )
+        await self._check_policy("aopen")
 
     async def health(self) -> HealthResult:
-        if self._refusal is not None:
+        if self._assume_refused():
+            self._policy_checked = False
             return HealthResult(
                 status="fail", details={"reason": "eviction_check_refused"}
             )
@@ -617,10 +680,14 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
                 return HealthResult(status="fail", details={"error": "no-pong"})
             policy = await self._read_policy(client)
         except _probe_errors() as exc:
-            # The type only: a redis error text names the host (spec 2.4).
+            # The server may come back reconfigured: the operations judge its
+            # policy again. The type only: a redis error text names the host
+            # (spec 2.4).
+            self._policy_checked = False
             return HealthResult(status="fail", details=_failure_details(exc))
         if policy is None:
             if self._options.never_evicts_check == "verify":
+                self._policy_checked = False  # the operations judge it again
                 return HealthResult(
                     status="fail", details={"reason": "noeviction_unverifiable"}
                 )
@@ -628,6 +695,7 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
                 status="degraded", details={"reason": "noeviction_unverified"}
             )
         if policy != _NOEVICTION:
+            self._policy_checked = False  # the operations judge it again
             return HealthResult(status="fail", details={"reason": "evicting_policy"})
         return HealthResult(status="ok")
 
@@ -654,6 +722,7 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
 
     async def aclose(self) -> None:
         unregister_endpoint("atomic_store", self.name, "persistent")
+        self._policy_checked = False
         clients = dict.fromkeys(
             c for c in (self._client, self._once_client) if c is not None
         )
