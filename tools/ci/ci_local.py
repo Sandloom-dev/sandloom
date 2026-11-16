@@ -280,11 +280,12 @@ def uses_artifacts(body: Mapping[str, Any]) -> bool:
 #
 #   .github/workflows/ci.yml                          engine (default)
 #     L16   changes            -> run by act as the `needs` of act jobs
-#     L47   backend-static     -> backend-static            act
+#     L47   backend-static     -> backend-static            fallback (container)
 #     --    supply-chain       -> supply-chain              act
 #     L117  backend-tests      -> backend-tests-3.11/3.13/3.14/3.12 fallback (container)
 #     --    backend-tests-isolation -> backend-tests-isolation fallback (container)
 #     --    kernel-without-batteries -> kernel-without-batteries fallback (container)
+#     --    kernel-without-redis -> kernel-without-redis        fallback (container)
 #     --    redis-drivers      -> redis-drivers             fallback (container)
 #     --    celery-drivers     -> celery-drivers            fallback (container)
 #     --    second-db-test-lane-> second-db-test-lane       fallback (container)
@@ -337,7 +338,16 @@ _SMOKE_WHY = (
 # Local runs deliberately select full validation; PR cost reduction is remote-only.
 CI_JOBS: tuple[CiJob, ...] = (
     CiJob("ci.yml", "workflow-policy", "workflow-policy", "container", "act"),
-    CiJob("ci.yml", "backend-static", "backend-static", "container", "act"),
+    # A PostgreSQL service (the architecture tests' xdist workers each create
+    # their own test database), reached at localhost:5433: the fallback runner.
+    CiJob(
+        "ci.yml",
+        "backend-static",
+        "backend-static",
+        "container",
+        "fallback",
+        _SERVICES_WHY,
+    ),
     CiJob("ci.yml", "supply-chain", "supply-chain", "container", "act"),
     CiJob(
         "ci.yml",
@@ -359,6 +369,14 @@ CI_JOBS: tuple[CiJob, ...] = (
         "ci.yml",
         "kernel-without-batteries",
         "kernel-without-batteries",
+        "container",
+        "fallback",
+        _SERVICES_WHY,
+    ),
+    CiJob(
+        "ci.yml",
+        "kernel-without-redis",
+        "kernel-without-redis",
         "container",
         "fallback",
         _SERVICES_WHY,
@@ -470,12 +488,13 @@ CHECKED_WORKFLOWS = ("ci.yml", "docs.yml", "architecture-check.yml")
 # reviewed here. Print the current values with `tools/ci/ci_local.py --check`.
 FINGERPRINTS: dict[str, str] = {
     "ci.yml:workflow-policy": "c947663e86853b87",
-    "ci.yml:changes": "0ce6f4772d366453",
-    "ci.yml:backend-static": "bd09abaeb5ddfc7e",
+    "ci.yml:changes": "225f58cf9bf7ec3d",
+    "ci.yml:backend-static": "14724f7e29f38d8a",
     "ci.yml:supply-chain": "f97313a67b7eacd0",
     "ci.yml:backend-tests": "1400b9cf9e06ab28",
     "ci.yml:backend-tests-isolation": "1f41c4abed7873f2",
-    "ci.yml:kernel-without-batteries": "04fac0d81136b55a",
+    "ci.yml:kernel-without-batteries": "d6cf59e8bc7d3bde",
+    "ci.yml:kernel-without-redis": "d77817ad02ad7377",
     "ci.yml:redis-drivers": "93a98e6d716b4fbf",
     "ci.yml:celery-drivers": "275e5b7b555bc89d",
     "ci.yml:second-db-test-lane": "76d7b93cf72fd8f1",
@@ -487,14 +506,14 @@ FINGERPRINTS: dict[str, str] = {
     "ci.yml:app-recipes": "3708a6d3b9426a26",
     "ci.yml:deploy-profiles": "fe116108319c0d69",
     "ci.yml:microservices-smoke": "b655d1411d676fb7",
-    "ci.yml:docker-build": "587cf6ce58699e97",
+    "ci.yml:docker-build": "a33575d214a0fef2",
     "ci.yml:admin-contracts": "ae4e3ef8a5f5b4ec",
     "ci.yml:docs": "2bfd2034c9234a2a",
     "ci.yml:packages": "d7ee97312d5b4b87",
     "ci.yml:architecture": "7fa82238721b3d55",
     "ci.yml:admin-ui": "2381440aadc9830d",
     "ci.yml:dependency-review": "2b19360e2aa6b603",
-    "ci.yml:ci-required": "f4a19ad99ff029a4",
+    "ci.yml:ci-required": "2f64e441c11407a6",
     "docs.yml:build": "78d8bd064fcb5ee4",
     "architecture-check.yml:check": "c1dd1ca1c5524d5c",
 }
@@ -566,8 +585,10 @@ JOB_SECONDS = {
     "backend-tests-isolation": 300,
     # The standard modules, the examples and a generated app on SQLite files.
     # The kernel suites in a venv without module packages (KB-05).
-    # Its kernel suites run twice: with sandloom-redis, then without Redis.
-    "kernel-without-batteries": 540,
+    # The kernel suites twice, in two jobs: with sandloom-redis, then without
+    # Redis (and the SQLite boot without asyncpg).
+    "kernel-without-batteries": 420,
+    "kernel-without-redis": 420,
     "redis-drivers": 90,
     # The wheel build, the strict types and the host groups (about a minute).
     "celery-drivers": 120,
@@ -829,7 +850,14 @@ class LocalJob:
             "needs": {
                 "changes": {
                     "outputs": dict.fromkeys(
-                        ("backend", "admin", "examples", "deploy", "benchmarks"),
+                        (
+                            "backend",
+                            "admin",
+                            "examples",
+                            "deploy",
+                            "benchmarks",
+                            "image",
+                        ),
                         "true",
                     )
                 }

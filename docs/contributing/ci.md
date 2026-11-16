@@ -32,11 +32,11 @@ commit, and the owner reviews compatibility with the current `main`.
 | Changed area | Checks |
 | --- | --- |
 | Every PR | Workflow-policy regressions, reviewed source allowlist, credential-pattern scan; change classification |
-| Backend source/tests, migrations, package/build code or dependencies | Static gates, fast backend suite on Python 3.12, the kernel suites without module packages (`kernel-without-batteries`), the Redis driver package's tests and types (`redis-drivers`), the Celery driver package's wheel, style and types (`celery-drivers`), the SQLite lane (`second-db-test-lane`) and the skip ledger, production image build; package checks for their declared paths |
+| Backend source/tests, migrations, package/build code or dependencies | Static gates, fast backend suite on Python 3.12, the kernel suites without module packages (`kernel-without-batteries`) and, in a job of its own that runs in parallel, without Redis and without asyncpg (`kernel-without-redis`), the Redis driver package's tests and types (`redis-drivers`), the Celery driver package's wheel, style and types (`celery-drivers`), the SQLite lane (`second-db-test-lane`) and the skip ledger, production image build only when something the image is built from changed (see below); package checks for their declared paths |
 | Admin or backend source/dependencies | Admin contract drift and the admin workflow |
 | Documentation, website, tutorial examples, SDK or documentation tooling | Strict site build, stale-symbol lint and website acceptance tests |
 | Example applications | All five example applications' gates and migrations |
-| Deployment profiles | Compose/observability validation and production image build |
+| Deployment profiles | Compose/observability validation and production image build (the image build is gated on what the image is built from, see below) |
 | Benchmark code | Benchmark security tests and load-harness negative controls |
 
 An update to `tools/packaging/public-source.json` alone does not run the full
@@ -74,12 +74,22 @@ down fails those lanes instead of skipping (`SANDLOOM_REDIS_REQUIRED`,
 `SANDLOOM_CELERY_REQUIRED`). Each uploads a skip ledger, lanes `redis` and
 `celery`, that the `skip-ledger` job reads.
 
-`kernel-without-batteries` runs the kernel's own test suites in a venv with
+The production image build (`docker-build`) runs when the `changes` job reports
+`image`. That is a change to a file `deploy/docker/Dockerfile` copies or runs:
+dependency files, migrations, `tools/packaging`, and `src/` or `packages/`
+outside their `tests/` directories. A change to tests alone does not rebuild
+the image. A full validation always builds it.
+
+The kernel lane is two jobs that run in parallel (the PR waits for the slower
+one). `kernel-without-batteries` runs the kernel's own test suites in a venv with
 the `sandloom` package alone (ADR-0012). It also runs
 the replaceability fixtures in `tests/integration/replaceability`. There,
 test modules replace the bundled modules, in one process and split.
 `tools/ci/no_batteries.py` hides the bundled modules from every import, the
-checkout's `src/` included. A kernel test that needs a bundled module belongs
+checkout's `src/` included. It deselects
+`test_nested_units_match_the_oracle_at_length` (82 s per parameter), which
+`kernel-without-redis` runs on the same kernel without batteries. A kernel test
+that needs a bundled module belongs
 in `tests/integration/with_batteries` or in the module's own tests.
 `tools/ci/no_batteries_pending.json` lists the tests still waiting to move.
 It is empty and stays empty: an entry outside the ceiling in
@@ -95,12 +105,15 @@ uv pip install --python .venv-kernel/bin/python -e "packages/sandloom[postgres,r
 .venv-kernel/bin/python -m pytest -n auto --dist loadfile -p tools.ci.no_batteries src/sandloom/core/tests tests/sdk tests/architecture tests/integration/replaceability
 ```
 
-The kernel wheel names no Redis (ADR-0016). A step before the last one
-uninstalls `redis`, `hiredis`, `sandloom-redis` and `sandloom-celery`, whose
-`celery[redis]` brings the client. It runs the same suites again. The suite
+The kernel wheel names no Redis (ADR-0016). The second job,
+`kernel-without-redis`, builds the same venv. It then uninstalls the Redis
+client and both driver packages. `sandloom-celery` brings that client through
+`celery[redis]`. The job runs the same suites again. From `tests/architecture`
+it runs only `test_no_redis.py`, its own ratchet. The other tests there scan
+sources and do not depend on Redis. The suite
 then selects the kernel's `memory` drivers (`conftest.py`), and the test
 harness loads no family. `tools/ci/no_redis.py` refuses the run while one of
-them imports.
+them imports. The job ends with the SQLite boot without asyncpg, below.
 
 `tools/ci/no_redis_pending.json` lists the kernel tests that still need a Redis
 or Celery driver. A listed file is not collected, and a listed test is a strict
@@ -110,7 +123,7 @@ A test that needs a driver moves to `packages/sandloom-redis/tests` or
 
 ```bash
 uv pip uninstall --python .venv-kernel/bin/python redis hiredis sandloom-redis sandloom-celery
-.venv-kernel/bin/python -m pytest -n auto --dist loadfile --no-cov -p tools.ci.no_batteries -p tools.ci.no_redis src/sandloom/core/tests tests/sdk tests/architecture tests/integration/replaceability
+.venv-kernel/bin/python -m pytest -n auto --dist loadfile --no-cov -p tools.ci.no_batteries -p tools.ci.no_redis src/sandloom/core/tests tests/sdk tests/architecture/test_no_redis.py tests/integration/replaceability
 ```
 
 The package checker also runs the test harness in a venv with the kernel wheel

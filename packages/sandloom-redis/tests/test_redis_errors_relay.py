@@ -253,3 +253,33 @@ async def test_a_partial_publish_is_judged_by_its_mapped_cause(
     assert relay.is_broker_unavailable(partial) is outage
     # the relay stops at the mapped error: its verdict never depends on the raw one
     assert relay.outage_reason(partial) == (mapped.__name__ if outage else None)
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        lambda: _reply("MOVED 3999 10.0.0.1:6381"),
+        lambda: _reply("ASK 3999 10.0.0.1:6381"),
+        lambda: rx.MovedError("3999 10.0.0.1:6381"),
+        lambda: rx.AskError("3999 10.0.0.1:6381"),
+    ],
+    ids=["MOVED", "ASK", "MovedError", "AskError"],
+)
+@pytest.mark.parametrize("shape", ["execute-raises", "error-in-exec-results"])
+async def test_a_cluster_redirect_of_the_driver_labels_the_relay_line(
+    make: Callable[[], BaseException], shape: str
+) -> None:
+    """The driver's hint reaches the relay's outage reason through the real batch
+    path: the sentence, the class name, and neither the address nor the slot."""
+    raw = make()
+    transport = _streams_transport(
+        _PipelineClient(raw if shape == "execute-raises" else ["1-0", raw])
+    )
+    items: Any = [("s", {"id": "1"}), ("s", {"id": "2"})]
+    with pytest.raises(Exception) as caught:
+        await transport.publish_many(items)
+
+    assert relay.is_broker_unavailable(caught.value)
+    assert relay.outage_reason(caught.value) == (
+        "Unavailable (cluster redirect: is the client cluster-aware?)"
+    )

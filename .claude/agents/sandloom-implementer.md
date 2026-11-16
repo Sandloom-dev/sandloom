@@ -42,8 +42,11 @@ subagent): pass no actor on tm calls.
     never with a heredoc or a Python replace script;
   - `git` alone in its call: `git status --short`, `git diff --stat`,
     `git log --oneline -3`;
-  - do not Write into `.agent-tmp/`: tm's claim guard refuses it (it is not
-    in your area). Logs go there by shell redirect (`> .agent-tmp/x.log`).
+  - logs and scratch files go to `$TMPDIR` (`> "$TMPDIR/<alias>-gate.log"`),
+    never into the worktree: `.agent-tmp/` is outside your area, so tm's
+    claim guard refuses a Write there. Read a log with
+    `tail -40 "$TMPDIR/<alias>-gate.log"` in Bash; the Read tool does not
+    expand `$TMPDIR`, so give it the absolute path `echo $TMPDIR` prints.
 - A file outside your area that you must change (a test of the code you
   change): `task_update` with the full area plus that file, before the edit.
 - tm calls (`task_update`, `task_checkpoint`, `task_done`) go in a response
@@ -104,11 +107,12 @@ subagent): pass no actor on tm calls.
   - you added a test that can skip: it must run on the PostgreSQL lane. A test
     skipped on every lane fails `skip-ledger`; a deliberate one goes into
     `tools/ci/skip_ledger_allowlist.json` with its reason.
-- Merging `origin/main` into your branch: `CHANGELOG.md` merges by itself
-  (`.gitattributes`, union), and so does `public-source.json` once the clone
-  has run `python3 tools/packaging/merge_public_source.py --install` (the
+- Merging `origin/main` into your branch: `public-source.json` merges by
+  itself once the clone has run
+  `python3 tools/packaging/merge_public_source.py --install` (the
   orchestrator does it once; `git config merge.public-source.driver` shows
-  it). A conflict left in them is a real one: keep both sides' entries.
+  it). A conflict left in it is a real one: keep both sides' entries. Your
+  changelog entry is `changelog.d/<alias>.md`, never a line of `CHANGELOG.md`.
 - Other agents test at the same time: pass your own
   `SANDLOOM_TEST_DATABASE_URL`, `SANDLOOM_TEST_CACHE_URL`,
   `SANDLOOM_TEST_BROKER_URL` and `SANDLOOM_TEST_OWNER` (your alias) in the
@@ -122,14 +126,16 @@ subagent): pass no actor on tm calls.
   600000 ms), its output filtered to failures and the summary. You have no
   Monitor and `sleep` is blocked, so never start a run in the background
   only to wait for it.
+- Do not wait for CI on GitHub (`gh pr checks`, `gh run view` on a run in
+  progress): push, hand over, and the orchestrator watches CI.
 
 ## Before the PR: what review keeps sending back
 Before you push, run `git diff origin/main --stat`, then read your diff
-file by file against this list and fix what fails. These nine classes were
+file by file against this list and fix what fails. These eleven classes were
 ~3/4 of the review findings of the infra-drivers waves, each costing a whole
 fix-up agent. Hand the result in on `task_done` as a deliverable
 `{"kind": "checklist", "content": "..."}`: one line per item, `1 ok` /
-`1 fixed: <what>` / `1 n/a: <why>`, through 9, with the `grep` you ran for
+`1 fixed: <what>` / `1 n/a: <why>`, through 11, with the `grep` you ran for
 item 2. A task created with `checklist` among its required kinds refuses
 `task_done` without it; give it on every task anyway.
 1. **Checks that bite.** Every new check, kit hook or test fails on a
@@ -159,7 +165,7 @@ item 2. A task created with `checklist` among its required kinds refuses
 4. **Deviations recorded.** Anything that departs from `spec.md` or the ADR
    (an API, a default, a measured price) is written into spec/ADR in the
    same PR. A behaviour change is written where operators read it, not only
-   in CHANGELOG: grep `docs/` and `guarantees.yml` for the old behaviour
+   in the changelog fragment: grep `docs/` and `guarantees.yml` for the old behaviour
    (operator reference, concept pages, `G-*` texts) and update every hit.
 5. **Types, not duck-typing.** No `Any`, `getattr` probe or bare `cast`
    where the type is known; call required methods directly.
@@ -173,6 +179,18 @@ item 2. A task created with `checklist` among its required kinds refuses
    boundary, with a test.
 9. **Layers.** No dialect or driver detail in kernel models; `driverkit`
    and the kernel never import a driver.
+10. **The lane that runs a test.** A test you add, move or split: name the
+    CI lane that runs it (the no-Redis lane over `src/sandloom/core/tests`,
+    `redis-drivers`, `celery-drivers`, a package's tests) and check that it
+    collects there; a required lane never skips it silently: a Redis test
+    calls `redis_unavailable` / `require_redis` from
+    `packages/sandloom-redis/tests/_redis_required.py`, any other one
+    `pytest.fail`, never `pytest.skip`. A test moved out of the kernel
+    keeps every kernel-only assertion it had.
+11. **Secure defaults and secrets survive a move.** Config or behaviour moved
+    out of the kernel keeps its secure default and its production warning
+    (TLS off, an unsafe override), and no path echoes, logs or copies a
+    secret value into options or an error message.
 
 ## Tokens: batch independent calls
 - Look-ups that do not depend on each other (several `grep -n`, several
@@ -188,8 +206,10 @@ item 2. A task created with `checklist` among its required kinds refuses
   ranges with `sed -n` after each edit: trust your Edit results.
 - Whatever you read stays in context and is re-sent on every later turn, so
   read only what you need. A file over ~200 lines (tests, kits, docs pages,
-  `spec.md`): `grep -n` for the symbol or heading first, then `Read` with
-  `offset`/`limit` around it. Never `cat` / `cat -n` a whole file and never
+  `spec.md`): `python3 tools/outline.py <file>` first (classes, signatures and
+  headings, each with its line range), then `python3 tools/outline.py
+  <file>::<Name>` for one function's or section's numbered source, or `Read`
+  that range with `offset`/`limit`. Never `cat` / `cat -n` a whole file and never
   `Read` a big one without a range. A small file: once, whole. The spec
   sections your brief names, by those line numbers only.
 - Before opening a registry, CI config, kernel entry point, port, driver, kit or

@@ -51,12 +51,17 @@ jobs:
           args=()
           if [ -n "$DIST_ARTIFACT" ]; then args=(--dist-dir "$DIST_DIR"); fi
           uv run --locked --group packaging python tools/packaging/check_package_distributions.py "${args[@]}"
-      - name: Sixteen module subsets boot (P2 wheels, P3 extras and repository)
+      - name: Sixteen module subsets boot from the built wheels (P2 wheels, P3 extras)
         # KB-04 (I-19, A-B7): every subset of identity, tenancy, billing and
         # admin boots in clean venvs; the durations are the matrix's measure.
+        # Only the wheel tests are here (slow, so no other job runs them in a
+        # PR): the repository and infrastructure matrices of the same directory
+        # (test_module_subsets_repository.py, test_module_subsets_infrastructure.py)
+        # are fast tests the backend-tests job runs (tests/integration is in
+        # the root testpaths).
         run: |
           docker compose -f deploy/compose/test.yml up -d --wait
-          uv run --locked pytest tests/integration/module_subsets \
+          uv run --locked pytest tests/integration/module_subsets/test_module_subsets_wheels.py \
             -p no:cacheprovider --no-cov --durations=0
       - name: Validate PyPI descriptions
         if: ${{ inputs.artifact_name != '' }}

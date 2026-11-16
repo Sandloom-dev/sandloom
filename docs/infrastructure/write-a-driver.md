@@ -59,7 +59,10 @@ a file.
   reads it as an outage: no attempt is spent and the row is never dead-lettered.
   A reply the backend sends for this request alone (an unknown `ERR ...`) is
   `InvalidArgument`, which is not retryable. The `redis` drivers map through one
-  classifier, `sandloom_redis._errors`.
+  classifier, `sandloom_redis._errors`. A driver may set a fixed `hint` sentence on the
+  error, never text from the backend. The relay prints it on its outage line and
+  decides nothing by it. Set it as an attribute (`error.hint = "..."`), not with the
+  `hint=` keyword: the driver then works on kernels whose `InfraError` lacks it.
 - **`supported_features`** names what the driver really does, and is its one declaration.
   A module that requires `features={"email"}` is refused at startup on a driver that does
   not advertise it. If a feature depends on an option, override the classmethod
