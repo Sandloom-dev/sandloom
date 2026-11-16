@@ -306,7 +306,13 @@ def no_redis_problems(top: str) -> str:
     if spec is None or spec.loader is None:
         raise FileNotFoundError(path)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # The agent's checkout is read, not written: no tools/ci/__pycache__.
+    keep_bytecode_off = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = keep_bytecode_off
     files, tests = module.load_pending()
     problems = list(module.above_ceiling(files, tests))
     problems += [f"gone file: {p}" for p in module.stale_files(files, root)]
@@ -441,6 +447,9 @@ def remaining() -> float:
     return _deadline_at - time.monotonic()
 
 
+_DRAIN_SECONDS = 5
+
+
 def _kill_group(pgid: int) -> None:
     try:
         os.killpg(pgid, signal.SIGKILL)
@@ -491,7 +500,17 @@ def _run_bounded(
         out, _ = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         _kill_group(proc.pid)
-        proc.communicate()
+        # A descendant that left the group (setsid) keeps the pipe open past
+        # the kill: drain for a moment, then let go of the pipe and report the
+        # original timeout.
+        try:
+            proc.communicate(timeout=_DRAIN_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass
+        finally:
+            if proc.stdout is not None:
+                proc.stdout.close()
+        proc.wait()
         raise
     finally:
         _live_groups.discard(proc.pid)
@@ -547,7 +566,7 @@ def _run_step(
         return "not_run", f"timed out after {int(timeout)} s"
     except FileNotFoundError as exc:
         return "not_run", f"not found: {exc.filename or exc}"
-    except Exception as exc:  # noqa: BLE001 - an in-process check that raised failed
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 - a check that raised, or exited, failed
         return "Failed", f"{type(exc).__name__}: {exc}"
     if code:
         return "Failed", out.strip()

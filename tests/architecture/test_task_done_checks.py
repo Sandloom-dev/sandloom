@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+import sys
 import time
 from pathlib import Path
 
@@ -798,6 +799,31 @@ def test_a_step_past_its_timeout_is_killed_with_its_children(tmp_path: Path) -> 
     pytest.fail("the step's child outlived the timeout")
 
 
+def test_a_descendant_that_left_the_group_cannot_hold_the_timeout_hostage(
+    tmp_path: Path,
+) -> None:
+    """A setsid descendant keeps the output pipe open past the group kill: the
+    timeout is still reported, after the short drain, not when it exits."""
+    pid_file = tmp_path / "pid"
+    escaped = (
+        "import os, time; os.setsid(); "
+        f"open({str(pid_file)!r}, 'w').write(str(os.getpid())); time.sleep(40)"
+    )
+    script = f'{sys.executable} -c "{escaped}" & sleep 60'
+    started = time.monotonic()
+    try:
+        with pytest.raises(hook.subprocess.TimeoutExpired):
+            hook._run_bounded(["sh", "-c", script], str(tmp_path), dict(os.environ), 2)
+        elapsed = time.monotonic() - started
+        assert elapsed < 15
+    finally:
+        if pid_file.exists():
+            try:
+                os.kill(int(pid_file.read_text()), 9)
+            except (ProcessLookupError, ValueError):
+                pass
+
+
 def test_a_diff_that_cannot_be_read_is_one_not_run_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1164,3 +1190,43 @@ def test_a_tree_without_the_tool_is_not_run_and_a_broken_tool_fails(
         next(s for s in hook.STEPS if s.name == "no-redis-pending"), top, {}, "", 10
     )
     assert status == "Failed" and "boom" in text
+
+
+def test_loading_the_pending_tool_leaves_no_bytecode_in_the_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "dont_write_bytecode", False)
+    top = _pending_tree(tmp_path, [])
+    assert hook.no_redis_problems(top) == ""
+    assert not list(Path(top).rglob("__pycache__"))
+    assert sys.dont_write_bytecode is False
+    # A tool that raises still gives the flag back.
+    (Path(top) / "tools/ci/no_redis.py").write_text("raise RuntimeError('boom')\n")
+    with pytest.raises(RuntimeError):
+        hook.no_redis_problems(top)
+    assert sys.dont_write_bytecode is False
+    assert not list(Path(top).rglob("__pycache__"))
+
+
+@pytest.mark.parametrize(
+    "raised", [SystemExit(2), SystemExit("bad list"), KeyError("k")]
+)
+def test_an_in_process_check_that_exits_or_raises_is_failed(
+    raised: BaseException,
+) -> None:
+    def call(top: str) -> str:
+        raise raised
+
+    status, text = hook._run_step(hook.Step("x", (), call=call), "/repo", {}, "", 10)
+    assert status == "Failed" and type(raised).__name__ in text
+
+
+def test_a_system_exit_in_the_stage_still_leaves_a_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def call(top: str) -> str:
+        raise SystemExit(1)
+
+    monkeypatch.setattr(hook, "STEPS", (hook.Step("exits", ("docs/**",), call=call),))
+    record = _stage(monkeypatch, ["docs/a.md"], lambda *a: (0, ""))
+    assert record["exits"]["status"] == "Failed"
