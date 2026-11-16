@@ -46,7 +46,7 @@ import re
 import sys
 import uuid
 from collections import Counter
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -376,6 +376,10 @@ class Hot:
     user: uuid.UUID
     member: dict[str, str]
     warm_pid: int | None = None
+    #: runs before each side of ``both``: a case whose first side changes the
+    #: shared store state (an outage reopens the security store's policy check)
+    #: puts both sides back on the same start here
+    before_side: Callable[[], Awaitable[None]] | None = None
 
     def use(self, new: bool) -> None:
         for route, new_app, old_app in self.routes.values():
@@ -491,6 +495,8 @@ class Hot:
         out: dict[str, Observation] = {}
         for side in order:
             self.use(side == "new")
+            if self.before_side is not None:
+                await self.before_side()
             out[side] = await self.call(path, hdrs)
         self.use(True)
         return out["old"], out["new"]
@@ -894,16 +900,53 @@ async def test_revoked_and_blocked_tokens(hot: Hot) -> None:
         assert a.status == 401 and b"blocked" in a.body, (path, a.body)
 
 
-async def test_revocation_store_down_fail_closed(
-    hot: Hot, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def store_down_each_side(hot: Hot, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every Redis command raises ``ConnectionError`` from now on, and each side
+    of ``Hot.both`` starts from the same store state: the security store's
+    eviction-policy check passed (it ran while Redis was still reachable).
+
+    A failed operation reopens that check (``atomic_store`` judges the policy
+    again after an outage), so without this the first side would fail on its
+    ``GET`` and the second on ``CONFIG GET`` (a different metric operation),
+    a difference of carried state and not of the ported route. The check is
+    re-run through the store's public ``aopen``."""
     import redis.asyncio.client as rclient
+
+    from sandloom.core.infra.access import atomic_store
+
+    healthy = rclient.Redis.execute_command
 
     async def down(self: Any, *args: Any, **options: Any) -> Any:
         hot.redis_log.append(tuple(str(a) for a in args))
         raise ConnectionError("redis down")
 
+    async def policy_checked() -> None:
+        monkeypatch.setattr(rclient.Redis, "execute_command", healthy)
+        try:
+            await atomic_store("security").aopen()
+        finally:
+            monkeypatch.setattr(rclient.Redis, "execute_command", down)
+
+    hot.before_side = policy_checked
     monkeypatch.setattr(rclient.Redis, "execute_command", down)
+
+
+def assert_security_store_failed(seen: Observation, operation: str) -> None:
+    """The outage reached the security store (the revocation read failed
+    closed because of it) as ``operation``, and no other store operation."""
+    failed = {
+        dict(labels)["operation"]
+        for (name, labels), _ in seen.metrics
+        if name == "sandloom_atomic_store_operation_errors_total"
+        and dict(labels)["instance"] == "security"
+    }
+    assert failed == {operation}, (failed, seen.metrics)
+
+
+async def test_revocation_store_down_fail_closed(
+    hot: Hot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store_down_each_side(hot, monkeypatch)
     monkeypatch.setattr(settings, "auth_revocation_fail_closed", True, raising=False)
     note = _bearer(_user_token(hot.user, tenant_id=str(ORG)))
     for path, hdrs in (
@@ -913,6 +956,7 @@ async def test_revocation_store_down_fail_closed(
     ):
         a = await hot.check(f"revocation_down {path}", path, hdrs)
         assert a.status == 503, (path, a.status)
+        assert_security_store_failed(a, "get")
 
 
 @pytest.mark.parametrize(
