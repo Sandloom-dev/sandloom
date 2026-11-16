@@ -48,7 +48,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sandloom.core.config import module_settings as _module_settings
 from sandloom.core.descriptors import ModuleDescriptor
-from sandloom.core.infra.config import load_infra_config
+from sandloom.core.infra.tool_infra import filled_infra_config
 from sandloom.core.migrations.migrations import (
     _mask_url,
     core_chain_dir,
@@ -322,7 +322,10 @@ def build_backup_plan(
 
     ``models``: the settings declarations of the loaded modules
     (``core.module_settings.records()``), whose secrets the plan lists."""
-    config = load_infra_config(settings)
+    # Filled as the application is: the cache's ``CACHE_URL``, the development
+    # atomic store that follows it, the broker (``load_infra_config`` alone
+    # fills nothing, so the Redis targets of the flat settings would be missing).
+    config = filled_infra_config(settings)
     items: list[PlanItem] = []
     postgres: dict[str, PlanItem] = {}
     for name, inst in sorted((config.get("database") or {}).items()):

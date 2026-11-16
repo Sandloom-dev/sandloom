@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Literal
 
+from sandloom.core.config.cache import CacheConfig
 from sandloom.core.config.common import Environment
 from sandloom.core.config.settings import Settings
 
@@ -104,6 +105,15 @@ InfraConfig = dict[str, dict[str, InstanceConfig]]
 
 _NO_SETTINGS: Mapping[str, str] = MappingProxyType({})
 
+#: The settings a driver may take an option from: the flat infrastructure
+#: settings (``CACHE_URL``, ``BROKER_URL``, the ``CACHE_*`` client bounds) and
+#: the readiness probe's bound. Any other setting (a secret among them) is
+#: refused when a :class:`SettingsFill` is built (ADR-0016: a driver reads no
+#: kernel setting beyond these flat ones).
+FILLABLE_SETTINGS: frozenset[str] = frozenset(CacheConfig.model_fields) | {
+    "health_check_timeout_seconds"
+}
+
 
 @dataclass(frozen=True, slots=True)
 class SettingsFill:
@@ -114,8 +124,8 @@ class SettingsFill:
     which flat setting fills which option, and the kernel applies the
     declaration without knowing the driver (:func:`fill_driver_defaults`). An
     option an instance states always wins: ``INFRA`` over the flat setting.
-    Every key of the three tables is an option name, every value the name of a
-    ``Settings`` attribute.
+    Every key of the three tables is an option name, every value one of
+    :data:`FILLABLE_SETTINGS` (anything else is refused, a typo included).
 
     - ``urls``: an unset (or empty) option takes the setting's value when it is
       set. Which instances take it is ``urls_for``: ``"all"``, only the
@@ -153,6 +163,12 @@ class SettingsFill:
             ):
                 raise ValueError(
                     "SettingsFill tables map option names to setting names"
+                )
+            unknown = sorted(set(table.values()) - FILLABLE_SETTINGS)
+            if unknown:
+                raise ValueError(
+                    f"SettingsFill.{name} names {', '.join(unknown)}: a driver "
+                    f"takes options only from {', '.join(sorted(FILLABLE_SETTINGS))}"
                 )
             # A copy nobody can change after the class declared it.
             object.__setattr__(self, name, MappingProxyType(dict(table)))

@@ -22,11 +22,12 @@ from sandloom_celery import taskqueue as celery_taskqueue
 from sandloom_redis.cache import RedisCacheOptions
 
 import sandloom.core.infra.config as infra_config
-from sandloom.core.config.settings import settings
+from sandloom.core.config.settings import Settings, settings
 from sandloom.core.drivers.bootstrap import build_infra_registry
 from sandloom.core.eventing.volatile_provider import VolatileBusOptions
 from sandloom.core.infra.config import (
     DEFAULT_INSTANCE,
+    FILLABLE_SETTINGS,
     InfraConfig,
     InstanceConfig,
     SettingsFill,
@@ -36,7 +37,7 @@ from sandloom.core.infra.config import (
 from sandloom.core.infra.ports._base import InfraProvider
 from sandloom.core.infra.registry import InfraRegistry
 from sandloom.core.schema.registry import InMemorySchemaRegistry
-from sandloom.core.tests._driver_fill import fill
+from sandloom.core.tests._driver_fill import fill, registry_for
 
 _BOUNDS = {
     "socket_timeout_seconds": "cache_socket_timeout_seconds",
@@ -286,6 +287,54 @@ def test_the_kernels_fill_names_no_driver() -> None:
     assert not strings & {"redis", "streams", "celery"}
 
 
+def test_the_registry_build_names_no_driver_in_its_fill() -> None:
+    """``build_infra_registry`` (bootstrap.py) fills through the registry's
+    lookup: no driver name, no ``cache_url`` in the function (the beat lease's
+    url once was filled there by name)."""
+    import sandloom.core.drivers.bootstrap as bootstrap
+
+    tree = ast.parse(inspect.getsource(bootstrap))
+    builder = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "build_infra_registry"
+    )
+    strings = {
+        node.value
+        for node in ast.walk(builder)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    assert not strings & {"redis", "streams", "celery", "cache_url", "lease"}
+    functions = {
+        node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+    }
+    assert not {name for name in functions if "lease" in name}
+
+
+def test_an_explicit_config_is_filled_alike_for_every_driver_incl_the_lease() -> None:
+    """An explicit config asking for the fill gets the lease url and the cache
+    url alike: one rule for every driver, not a kernel special case."""
+    config: InfraConfig = {
+        "lease": {DEFAULT_INSTANCE: _cfg("lease", DEFAULT_INSTANCE, "redis")},
+        "cache": {DEFAULT_INSTANCE: _cfg("cache", DEFAULT_INSTANCE, "redis")},
+    }
+    build_infra_registry(
+        InMemorySchemaRegistry(),
+        settings=settings,
+        config=config,
+        fill_from_settings=True,
+    )
+    assert config["lease"][DEFAULT_INSTANCE].options["url"] == settings.cache_url
+    assert config["cache"][DEFAULT_INSTANCE].options["url"] == settings.cache_url
+
+
+def test_an_empty_explicit_config_is_built_as_given_not_loaded_from_settings() -> None:
+    registry = build_infra_registry(
+        InMemorySchemaRegistry(), settings=settings, config={}
+    )
+    assert registry.instances("cache") == []
+
+
 class _Probe(InfraProvider):
     """A driver the kernel has never heard of."""
 
@@ -413,6 +462,52 @@ def test_a_settings_fill_refuses_a_declaration_that_cannot_work() -> None:
         SettingsFill(follows="cache")
     with pytest.raises(ValueError, match="option names to setting names"):
         SettingsFill(bounds={"timeout": 5})  # type: ignore[dict-item]
+
+
+def test_a_settings_fill_takes_only_the_flat_infrastructure_settings() -> None:
+    """A secret or a typo is refused where the declaration is built, in each of
+    the three tables, not silently copied (or left unfilled) at startup."""
+    with pytest.raises(ValueError, match="jwt_secret"):
+        SettingsFill(urls={"url": "jwt_secret"})
+    with pytest.raises(ValueError, match="cache_urll"):
+        SettingsFill(bounds={"url": "cache_urll"})
+    with pytest.raises(ValueError, match="database_url"):
+        SettingsFill(caps={"timeout": "database_url"})
+    SettingsFill(
+        urls={"a": "cache_url", "b": "broker_url"},
+        bounds={"c": "cache_max_connections"},
+        caps={"d": "health_check_timeout_seconds"},
+    )  # the allowed ones stay allowed
+
+
+_DECLARING_DRIVERS = [
+    ("cache", "redis"),
+    ("broadcast", "redis"),
+    ("atomic_store", "redis"),
+    ("lease", "redis"),
+    ("eventbus", "streams"),
+    ("eventbus", "redis"),
+    ("taskqueue", "celery"),
+]
+
+
+@pytest.mark.parametrize(("capability", "driver"), _DECLARING_DRIVERS)
+def test_every_declared_fill_names_settings_that_exist(
+    capability: str, driver: str
+) -> None:
+    config: InfraConfig = {
+        capability: {DEFAULT_INSTANCE: _cfg(capability, DEFAULT_INSTANCE, driver)}
+    }
+    declared = registry_for(config).settings_fill(capability, driver)
+    assert declared is not None, (capability, driver)
+    named = {
+        *declared.urls.values(),
+        *declared.bounds.values(),
+        *declared.caps.values(),
+    }
+    assert named, (capability, driver)
+    assert named <= set(Settings.model_fields), named - set(Settings.model_fields)
+    assert named <= FILLABLE_SETTINGS
 
 
 def test_a_settings_fill_cannot_be_changed_after_it_is_declared() -> None:

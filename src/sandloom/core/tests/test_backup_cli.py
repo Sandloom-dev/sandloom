@@ -30,6 +30,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from sandloom.core.cli._operator import add_operator_arguments, operator_intent
+import sandloom.core.infra.config as infra_config
 from sandloom.core.config.settings import settings
 from sandloom.core.migrations.backup import (
     CORE_TABLES,
@@ -164,6 +165,37 @@ def test_plan_flags_a_database_security_store_on_a_listed_and_on_its_own_databas
         "atomic_store" in r for i in items if i.kind == "redis" for r in i.roles
     )
     assert "s3cret" not in format_plan(items)
+
+
+def test_plan_lists_the_redis_targets_of_the_flat_urls_a_composition_selects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``CACHE_URL`` / ``BROKER_URL`` reach the plan through the drivers' fill:
+    the cache, the development security store that follows it and the broker
+    are listed with no ``INFRA`` at all (``load_infra_config`` fills nothing)."""
+    monkeypatch.setattr(settings, "infra", {})
+    monkeypatch.setattr(settings, "cache_url", "redis://cachehost:6379/3")
+    monkeypatch.setattr(settings, "broker_url", "redis://brokerhost:6379/4")
+    monkeypatch.setattr(infra_config, "_APP", None)
+    monkeypatch.setattr(
+        infra_config,
+        "_PIN",
+        infra_config._checked(
+            {
+                "cache": {"default": {"driver": "redis"}},
+                "atomic_store": {"security": {"driver": "redis"}},
+                "taskqueue": {"default": {"driver": "celery"}},
+            }
+        ),
+    )
+    items = [i for i in build_backup_plan(settings) if i.kind == "redis"]
+    by_target = {i.target: i for i in items}
+    cache = by_target["redis://cachehost:6379/3"]
+    assert "cache:default" in cache.roles
+    assert any("atomic_store:security" in r and "SECURITY" in r for r in cache.roles)
+    assert cache.criticality == "critical"
+    broker = by_target["redis://brokerhost:6379/4"]
+    assert broker.roles == ["taskqueue:default broker"]
 
 
 def test_plan_names_no_module_secret_without_a_declaration() -> None:

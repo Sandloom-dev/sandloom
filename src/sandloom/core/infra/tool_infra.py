@@ -12,12 +12,16 @@ from __future__ import annotations
 
 import importlib
 
-from sandloom.core.config.settings import settings
-from sandloom.core.infra.config import load_infra_config
-from sandloom.core.infra.registry import InfraRegistry
+from sandloom.core.config.settings import Settings, settings
+from sandloom.core.infra.config import (
+    InfraConfig,
+    fill_driver_defaults,
+    load_infra_config,
+)
+from sandloom.core.infra.registry import InfraRegistry, load_selected_plugins
 from sandloom.core.schema.registry import InMemorySchemaRegistry
 
-__all__ = ["build_tool_infra"]
+__all__ = ["build_tool_infra", "filled_infra_config"]
 
 #: The capabilities a tool process configures: the probe asks the worker host.
 _TOOL_CAPABILITIES = frozenset({"taskqueue"})
@@ -48,3 +52,25 @@ def build_tool_infra() -> InfraRegistry:
         InMemorySchemaRegistry(), config=config, fill_from_settings=True
     )
     return registry
+
+
+def filled_infra_config(settings: Settings) -> InfraConfig:
+    """The configuration ``settings`` selects, with the options each driver takes
+    from the flat settings filled in (``CACHE_URL``, ``BROKER_URL``, the
+    ``CACHE_*`` bounds): what a process that boots no application reads, as the
+    application would have it (``sandloom backup plan``).
+
+    ``load_infra_config`` fills nothing, since no driver class is loaded; the
+    registry here has the built-in rows and the entry points the configuration
+    selects, nothing validated and nothing built. A driver whose package is not
+    installed is not filled.
+    """
+    bootstrap = importlib.import_module("sandloom.core.drivers.bootstrap")
+    config = load_infra_config(settings)
+    registry = InfraRegistry(strict_capabilities=True)
+    bootstrap.register_builtin_drivers(
+        registry, InMemorySchemaRegistry(), settings=settings
+    )
+    load_selected_plugins(registry, config)
+    fill_driver_defaults(config, settings, registry.settings_fill)
+    return config
