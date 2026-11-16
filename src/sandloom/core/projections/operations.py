@@ -28,8 +28,8 @@ from typing import Any
 from sandloom.core.config.settings import settings
 from sandloom.core.effects import relay_retry_horizon_seconds
 from sandloom.core.eventing.bus_base import transport_for
-from sandloom.core.infra.config import configured_stream_retention_seconds
 from sandloom.core.infra.errors import Unsupported
+from sandloom.core.infra.registry import configured_stream_retention_seconds
 from sandloom.core.projections.descriptors import (
     ProjectionConsumerDescriptor,
     ProjectionRebuildResult,

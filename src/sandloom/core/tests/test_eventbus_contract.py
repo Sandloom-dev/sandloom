@@ -123,6 +123,7 @@ def test_the_kernel_leaves_the_retention_options_to_the_instance() -> None:
     from sandloom.core.infra.config import (
         InfraConfig,
         InstanceConfig,
+        SettingsFill,
         fill_driver_defaults,
     )
 
@@ -130,8 +131,15 @@ def test_the_kernel_leaves_the_retention_options_to_the_instance() -> None:
         capability="eventbus", name="default", driver="streams", options={}
     )
     config: InfraConfig = {"eventbus": {"default": cfg}}
+    url_only = SettingsFill(urls={"url": "cache_url"})
+
+    def fill_for(capability: str, driver: str) -> SettingsFill | None:
+        assert (capability, driver) == ("eventbus", "streams")
+        return url_only
+
     settings = SimpleNamespace(cache_url="redis://x/0")
-    fill_driver_defaults(config, settings)
+    fill_driver_defaults(config, settings, fill_for)
+    assert cfg.options["url"] == "redis://x/0"  # the fill ran: it is the url only
     for option in ("retention_seconds", "max_length", "prefix"):
         assert option not in cfg.options
     own = InstanceConfig(
@@ -140,7 +148,7 @@ def test_the_kernel_leaves_the_retention_options_to_the_instance() -> None:
         driver="streams",
         options={"retention_seconds": 5, "max_length": 9},
     )
-    fill_driver_defaults({"eventbus": {"x": own}}, settings)
+    fill_driver_defaults({"eventbus": {"x": own}}, settings, fill_for)
     assert own.options["retention_seconds"] == 5
     assert own.options["max_length"] == 9
 

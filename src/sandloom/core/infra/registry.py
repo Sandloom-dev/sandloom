@@ -31,6 +31,8 @@ from dataclasses import dataclass, field
 from importlib import metadata
 from typing import TYPE_CHECKING, Any, cast
 
+from pydantic import BaseModel
+
 from sandloom.core.config.settings import settings
 from sandloom.core.descriptors import HealthResult
 from sandloom.core.infra.config import (
@@ -38,6 +40,8 @@ from sandloom.core.infra.config import (
     KERNEL_INSTANCES,
     InfraConfig,
     InstanceConfig,
+    SettingsFill,
+    resolved_eventbus,
 )
 from sandloom.core.infra.ports._base import (
     DRIVER_TIERS,
@@ -676,6 +680,21 @@ class InfraRegistry:
         ``None`` for an unknown driver or a plain factory."""
         registration = self._registration(capability, driver)
         return registration.provider_class if registration is not None else None
+
+    def settings_fill(self, capability: str, driver: str) -> SettingsFill | None:
+        """The flat-settings fill a registered driver's class declares
+        (``InfraProvider.settings_fill``): what :func:`fill_driver_defaults`
+        asks per instance. ``None`` for a driver that is not registered, a plain
+        factory, a class declaring none, and a driver whose packages are not
+        installed: its class is not imported, and the refusal of an instance
+        that cannot run is :meth:`validate`'s (SANDLOOM-B037), not the fill's."""
+        registration = self._drivers.get((capability, driver))
+        if registration is None or any(
+            not self._is_installed(name) for name in registration.requires
+        ):
+            return None
+        provider_class = self.driver_class(capability, driver)
+        return provider_class.settings_fill if provider_class is not None else None
 
     def has_driver(self, capability: str, driver: str) -> bool:
         return (capability, driver) in self._drivers
@@ -1965,7 +1984,53 @@ def installed_plugin_names() -> list[str]:
     return sorted(e.name for e in metadata.entry_points().select(group=DRIVERS_GROUP))
 
 
+def _declared_class(capability: str, driver: str) -> type[InfraProvider] | None:
+    """The provider class an installed package publishes for ``capability`` /
+    ``driver`` through its entry point, without a registry: for the readers of a
+    configuration that run in a process which builds none. ``None`` when no
+    package publishes it (a driver of the kernel itself included); a package
+    that cannot be imported, or publishes it twice, raises as the registry does."""
+    key = f"{capability}.{driver}"
+    entry = _one_plugin(DRIVERS_GROUP, key)
+    if entry is None:
+        return None
+    return check_driver_class(key, _load_plugin(entry, f"Driver {key!r}"), None)
+
+
+def configured_stream_retention_seconds(
+    settings: Any, instance: str = DEFAULT_INSTANCE
+) -> int | None:
+    """The age bound, in seconds, the eventbus ``instance`` is CONFIGURED with
+    (``0``: entries are never trimmed by age): its ``retention_seconds`` option,
+    else the default its driver's ``options_schema`` gives that option (a
+    ``streams`` bus that leaves it out has seven days).
+
+    A pure configuration read: no bus is built and no process's live bus is
+    asked, so a tool running in another process (a CLI with a volatile bus of
+    its own) learns the retention of the deployment's bus. ``None`` when it
+    cannot be determined: the instance is not configured, or it states no
+    ``retention_seconds`` and its driver, as an installed package publishes it,
+    has no such option with a default (a volatile ``memory`` / ``redis`` bus
+    keeps no stream; a driver whose package is not installed here has no class
+    to ask).
+    """
+    found = resolved_eventbus(settings).get(instance)
+    if found is None:
+        return None
+    value = found.options.get("retention_seconds")
+    if value is None:
+        provider_class = _declared_class("eventbus", found.driver)
+        schema = provider_class.options_schema if provider_class else None
+        if isinstance(schema, type) and issubclass(schema, BaseModel):
+            declared = schema.model_fields.get("retention_seconds")
+            value = None if declared is None else declared.get_default()
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
 __all__ = [
+    "configured_stream_retention_seconds",
     "versions_compatible",
     "check_driver_class",
     "InfraRegistry",

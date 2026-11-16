@@ -38,6 +38,7 @@ from sandloom.driverkit import (
     HealthResult,
     InstanceConfig,
     InvalidArgument,
+    SettingsFill,
     TaskQueueProvider,
     Timeout,
     Unavailable,
@@ -79,7 +80,7 @@ class CeleryTaskQueueOptions(BaseModel):
     dedupe_ttl_seconds: int = Field(default=24 * 60 * 60, ge=1, le=604800)
     #: The bound of the broker probe behind ``health()`` (connect and socket
     #: timeouts included); the kernel fills it from ``HEALTH_CHECK_TIMEOUT_SECONDS``
-    #: (``fill_driver_defaults``), and never above it (the readiness probe's own
+    #: (``settings_fill``), and never above it (the readiness probe's own
     #: bound): the driver reads no kernel setting.
     health_timeout_seconds: float = Field(default=5.0, gt=0, le=300)
     #: How the worker host runs the messages: ``prefork`` (child processes),
@@ -116,6 +117,13 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
     contract_version = 2
     supported_features = CELERY_TASKQUEUE_FEATURES
     options_schema = CeleryTaskQueueOptions
+    # ``BROKER_URL`` is the broker and ``CACHE_URL`` the result backend; the
+    # probe bound is ``HEALTH_CHECK_TIMEOUT_SECONDS``, and never above it.
+    settings_fill = SettingsFill(
+        urls={"broker": "broker_url", "backend": "cache_url"},
+        bounds={"health_timeout_seconds": "health_check_timeout_seconds"},
+        caps={"health_timeout_seconds": "health_check_timeout_seconds"},
+    )
     required_imports = ("celery",)
     install_hint = "pip install 'sandloom[celery]'"
     # Beta, the floor for a driver of this repository (spec 2.5): the

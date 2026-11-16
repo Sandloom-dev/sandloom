@@ -38,6 +38,7 @@ from sandloom.core.infra.config import load_infra_config
 from sandloom.core.migrations import backup
 from sandloom.core.tasks import enqueue
 from sandloom.core.testing import InMemoryAtomicStore, make_user_headers
+from sandloom.core.tests._driver_fill import fill
 from sandloom.core.tests.test_production_profile import (
     _BASE,
     _COMPLIANT_INFRA,
@@ -287,7 +288,7 @@ def test_development_builds_the_security_store_on_the_cache_redis_only_outside_p
     dev = Settings(  # type: ignore[call-arg]
         _env_file=None, ENVIRONMENT="dev", CACHE_URL="redis://cache-redis:6379/4"
     )
-    config = load_infra_config(dev)
+    config = fill(load_infra_config(dev), dev)
     security = config["atomic_store"]["security"]
     assert security.driver == "redis" and security.implicit
     assert security.options["url"] == "redis://cache-redis:6379/4"

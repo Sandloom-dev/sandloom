@@ -45,6 +45,6 @@ def build_tool_infra() -> InfraRegistry:
         if capability in _TOOL_CAPABILITIES
     }
     registry: InfraRegistry = bootstrap.build_infra_registry(
-        InMemorySchemaRegistry(), config=config
+        InMemorySchemaRegistry(), config=config, fill_from_settings=True
     )
     return registry

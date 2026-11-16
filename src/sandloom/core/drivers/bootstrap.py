@@ -19,6 +19,7 @@ from sandloom.core.infra.config import (
     REQUIRED_AT_STARTUP,
     InfraConfig,
     InstanceConfig,
+    fill_driver_defaults,
     load_infra_config,
 )
 from sandloom.core.infra.extra_capabilities import EXTRA_CAPABILITIES
@@ -315,6 +316,7 @@ def build_infra_registry(
     settings: Settings | None = None,
     config: InfraConfig | None = None,
     load_plugins: bool = True,
+    fill_from_settings: bool = False,
 ) -> InfraRegistry:
     """Build the registry: drivers + plugins + configuration.
 
@@ -322,7 +324,14 @@ def build_infra_registry(
     without a driver for each instance of ``REQUIRED_AT_STARTUP`` that the
     composition or ``INFRA`` selects (SANDLOOM-B037): the kernel names none and
     never falls back to ``memory``. An explicit ``config`` (a tool process, a
-    test) is built as given."""
+    test) is built as given.
+
+    The options a driver takes from the flat settings (``CACHE_URL``, the
+    ``CACHE_*`` bounds, ``BROKER_URL``) are filled once the drivers are loaded,
+    as each driver's class declares (``InfraProvider.settings_fill``): for a
+    configuration read from the settings, and for an explicit ``config`` only
+    when ``fill_from_settings`` asks (a tool process, which builds its
+    configuration from the settings itself)."""
     resolved_settings = settings or _default_settings
     cfg = config or load_infra_config(resolved_settings)
     _fill_beat_lease_url(cfg, resolved_settings)
@@ -334,6 +343,8 @@ def build_infra_registry(
     register_builtin_drivers(registry, schema_registry, settings=resolved_settings)
     if load_plugins:
         load_selected_plugins(registry, cfg)
+    if config is None or fill_from_settings:
+        fill_driver_defaults(cfg, resolved_settings, registry.settings_fill)
     registry.set_config(cfg)
     # Fail fast on a configured instance whose driver was never registered.
     registry.validate()

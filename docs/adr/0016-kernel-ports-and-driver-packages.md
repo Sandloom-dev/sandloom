@@ -179,7 +179,9 @@ already works through renderers.
   give way to the role-named instances of decision 2. Status: `SMTP_*`, `S3_*` and
   `EVENT_STREAM_*` are options and removed settings (`config_tiers.REMOVED`). `CACHE_URL` and
   `BROKER_URL` are still flat settings: the test harness reaches them through its Redis
-  families (`FLAT_VARS`), so their conversion waits for the harness change.
+  families (`FLAT_VARS`), so their conversion waits for the harness change. Meanwhile the
+  fills live on the driver classes (`InfraProvider.settings_fill`, spec 13 item 48): the kernel's
+  configuration names no driver.
 - Parallel test runs are isolated through a driverkit hook, `test_isolation(options, worker_id)`,
   instead of the kernel rewriting Redis URLs per worker. It takes the options because the
   per-worker options derive from them.

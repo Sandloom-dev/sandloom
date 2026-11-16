@@ -1442,6 +1442,36 @@ For the orchestrator's review; each departs from or details `design.md`.
     `streams:<run_id>`, equal strings never, so an attestation that puts the event bus in one
     failure domain with `cache` or `atomic_store` on the same Redis (shared eviction and memory)
     must compare the `run_id` part after the driver prefix, not the whole string.
+48. **The driver declares its fill from the flat settings; the kernel applies it**
+    (`idk-config-flat-urls`; completes item 45's "`sandloom.core.infra.config` names no driver").
+    Until then `fill_driver_defaults` still named `redis`, `streams` and `celery`, and held a
+    table per driver. `CACHE_URL`, `BROKER_URL` and the `CACHE_*` bounds stay flat settings (the
+    harness reads them, ADR-0016); what changes is who knows which option they feed.
+    - **The declaration.** `InfraProvider.settings_fill` is a `SettingsFill`
+      (`sandloom.core.infra.config`, public in `sandloom.driverkit`): `urls` (option to setting,
+      filled when unset or empty; `urls_for` is `all`, `default` or `implicit`; `follows` names
+      the capability whose resolved `default` instance's option is the value, when it runs the
+      same driver), `bounds` (filled when left out) and `caps` (a number above the setting is cut
+      to it). `None` is the default. The precedence is as before: `INFRA` option over flat setting.
+    - **Where it runs.** `load_infra_config` no longer fills: it loads no driver class, so a tool
+      process reading the database instance imports nothing. `build_infra_registry` fills once
+      the entry points are loaded (`fill_driver_defaults(config, settings,
+      registry.settings_fill)`): for a configuration read from the settings, and for an explicit
+      `config` only with `fill_from_settings=True` (`build_tool_infra` does, for the task queue).
+      `InfraRegistry.settings_fill` answers `None`, importing nothing, for a driver that is not
+      registered or whose required package is missing: no fill and no import error, and the
+      refusal of an instance that cannot run stays `validate`'s (SANDLOOM-B037).
+    - **Retention.** `configured_stream_retention_seconds` moved to `sandloom.core.infra.registry`.
+      Its answer is the instance's `retention_seconds` option, else the default the driver's
+      `options_schema` gives it (seven days for `streams`), the class read from the installed
+      package's entry point. No volatile-driver set stays in the kernel: `memory` and `redis`
+      have no such option, so nothing is configured. Deviation: a driver whose package is not
+      installed in the tool process answers `None` (it was seven days for `streams`), and a
+      volatile bus that states `retention_seconds` (refused at startup) answers that value.
+    - **Left as it was.** `_fill_beat_lease_url` in `sandloom.core.drivers.bootstrap` still gives a
+      `redis` lease the `CACHE_URL`; the synthesized task-queue instance still carries
+      `BROKER_URL` and `CACHE_URL` (`_synthesize_defaults`, no driver named). Removing the flat
+      settings stays the later step of ADR-0016.
 
 ## 14. Open for the owner
 
