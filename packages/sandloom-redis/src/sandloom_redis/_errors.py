@@ -29,7 +29,9 @@ sends for THIS request (it will answer the same again) is not an outage: it is
 not retryable, so the relay counts an attempt and dead-letters a poison row.
 
 The message carries the error's type name only, never its text: a Redis error
-names the host, the port or a key.
+names the host, the port or a key. A ``MOVED`` / ``ASK`` reply also sets the
+error's ``hint`` (:data:`CLUSTER_REDIRECT_HINT`, a fixed sentence) so the relay's
+outage warning says why; the hint labels a line and decides nothing.
 
 Chaining (``raise ... from``) stays with each call site, which knows who reads
 the chain. The relay walks ``__cause__`` through the Streams transport and the
@@ -138,6 +140,24 @@ def _reply_word(exc: BaseException) -> str:
     return text.split(" ", 1)[0]
 
 
+#: The log hint of a reply from a cluster node that does not own the key (a plain
+#: client pointed at a Redis Cluster gets ``MOVED`` / ``ASK`` for most keys and
+#: retries for ever). A fixed sentence: the ``host:port`` of the reply stays out.
+CLUSTER_REDIRECT_HINT = "cluster redirect: is the client cluster-aware?"
+_CLUSTER_REDIRECT_WORDS = frozenset({"MOVED", "ASK"})
+
+
+def _is_cluster_redirect(exc: BaseException) -> bool:
+    """Whether ``exc`` is a ``MOVED`` / ``ASK`` reply, by its text or, for the
+    cluster client's classes (their text lost the word), by its class."""
+    exceptions = _redis_exceptions()
+    if not isinstance(exc, exceptions.ResponseError):
+        return False
+    return _reply_word(exc) in _CLUSTER_REDIRECT_WORDS or isinstance(
+        exc, exceptions.MovedError | exceptions.AskError
+    )
+
+
 def redis_error_kind(exc: BaseException) -> type[InfraError]:
     """The ``InfraError`` class of a Redis or socket failure (the table above).
 
@@ -185,6 +205,13 @@ def map_redis_error(
     A non-backend ``exc`` is re-raised as itself (see :func:`redis_error_kind`).
     """
     kind = redis_error_kind(exc)
-    return kind(
+    error = kind(
         f"{what}: {type(exc).__name__}", capability=capability, instance=instance
     )
+    if _is_cluster_redirect(exc):
+        # An attribute, not a ``hint=`` keyword: this package pins an older
+        # kernel (``sandloom>=0.7.0a13``) whose ``InfraError`` has no such
+        # keyword, and a ``TypeError`` here would reach the relay as poison on
+        # an outage. A kernel that does not read the hint just never prints it.
+        error.hint = CLUSTER_REDIRECT_HINT
+    return error

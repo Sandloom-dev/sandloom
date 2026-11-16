@@ -238,57 +238,84 @@ class ResponseError(Exception):
     """A stand-in with the redis-py class name: the relay matches by name."""
 
 
-class _MovedError(ResponseError):
-    """A subclass, as redis-py's cluster-redirect classes are."""
+HINT = "driver says: look here"
 
 
-@pytest.mark.parametrize(
-    ("reply", "word"),
-    [
-        ("MOVED 1234 10.0.0.1:6379", "MOVED"),
-        ("ASK 1234 10.0.0.1:6379", "ASK"),
-    ],
-)
-@pytest.mark.parametrize("wrapped", [False, True], ids=["raw", "mapped-Unavailable"])
-def test_a_cluster_redirect_reason_names_the_reply_word_and_not_the_address(
-    reply: str, word: str, wrapped: bool
-) -> None:
-    error: BaseException = _MovedError(reply)
-    if wrapped:  # what the Redis drivers raise: ``Unavailable ... from exc``
-        error = _chain(Unavailable("down", capability=CAP), error)
-    reason = relay.outage_reason(error)
-    assert reason is not None
-    assert word in reason
-    assert "cluster redirect: is the client cluster-aware?" in reason
-    assert "10.0.0.1" not in reason
-    assert "1234" not in reason
-    assert reason.startswith("Unavailable" if wrapped else "_MovedError")
+@pytest.mark.parametrize("wrapped", [False, True], ids=["top", "in-chain"])
+def test_a_hinted_infra_error_labels_the_outage_reason(wrapped: bool) -> None:
+    error: BaseException = Unavailable("down", capability=CAP, hint=HINT)
+    if wrapped:  # a wrapper of the publisher around the driver's error
+        error = _chain(RuntimeError("w"), error)
+    assert relay.outage_reason(error) == f"Unavailable ({HINT})"
+
+
+def test_the_hint_of_a_raw_cause_below_the_driver_error_is_found() -> None:
+    # The driver chains ``raise Unavailable(...) from exc``: the hint sits on the
+    # mapped error, the raw client error below it names nothing.
+    mapped = Unavailable("down", capability=CAP, hint=HINT)
+    mapped.__cause__ = ResponseError("MOVED 1234 10.0.0.1:6379")
+    assert relay.outage_reason(mapped) == f"Unavailable ({HINT})"
 
 
 @pytest.mark.parametrize(
     "error",
     [
-        ResponseError("LOADING dataset"),  # an outage, not a redirect
-        OSError("MOVED 1 10.0.0.1:6379"),  # not a ResponseError
+        ResponseError("LOADING dataset"),
+        # The kernel does not read a reply word any more: a raw redirect is an
+        # outage (the reply prefixes) with no label; only a driver hints.
+        ResponseError("MOVED 1 10.0.0.1:6379"),
+        OSError("MOVED 1 10.0.0.1:6379"),
         Unavailable("MOVED 1 10.0.0.1:6379", capability=CAP),
     ],
-    ids=["LOADING", "OSError", "Unavailable-message"],
+    ids=["LOADING", "raw-MOVED", "OSError", "Unavailable-message"],
 )
-def test_another_outage_has_no_redirect_hint(error: BaseException) -> None:
-    reason = relay.outage_reason(error)
-    assert reason is not None
-    assert "cluster" not in reason
+def test_an_outage_without_a_hint_is_labelled_by_its_class_name(
+    error: BaseException,
+) -> None:
+    assert relay.outage_reason(error) == type(error).__name__
 
 
-def test_the_redirect_word_is_the_whole_first_word() -> None:
-    assert relay._cluster_redirect_word(ResponseError("MOVEDX 1 h:1")) is None
-    assert relay._cluster_redirect_word(ResponseError("MOVED")) == "MOVED"
+@pytest.mark.parametrize(
+    "hint",
+    ["bad\nWARNING forged line", "bell\x07", "tab\there", "\x1b[31mred"],
+    ids=["newline", "bell", "tab", "escape"],
+)
+def test_a_hint_with_a_control_character_is_not_printed(hint: str) -> None:
+    # A third-party driver's hint never forges a log line: the line keeps the
+    # class name and the outage verdict stays.
+    error = Unavailable("down", capability=CAP, hint=hint)
+    assert relay.outage_reason(error) == "Unavailable"
+    assert relay.is_broker_unavailable(error)
 
 
-def test_a_cluster_redirect_that_is_not_an_outage_has_no_reason() -> None:
+def test_a_long_hint_is_cut_to_a_bound() -> None:
+    reason = relay.outage_reason(Unavailable("down", capability=CAP, hint="x" * 500))
+    assert reason == "Unavailable (" + "x" * 120 + ")"
+
+
+def test_a_hint_of_the_bound_length_is_kept_whole() -> None:
+    hint = "y" * 120
+    assert relay.outage_reason(Unavailable("d", capability=CAP, hint=hint)) == (
+        f"Unavailable ({hint})"
+    )
+
+
+def test_a_hint_never_makes_an_error_an_outage() -> None:
+    # The hint labels a line only; the verdict is the class and ``retryable``.
+    refused = InvalidArgument("bad", capability=CAP, hint=HINT)
+    assert relay.outage_reason(refused) is None
+    assert not relay.is_broker_unavailable(refused)
     # A poison error at the top stays poison, whatever its chain holds.
-    poison = _chain(ValueError("x"), _MovedError("MOVED 1 10.0.0.1:6379"))
+    poison = _chain(ValueError("x"), Unavailable("down", capability=CAP, hint=HINT))
     assert relay.outage_reason(poison) is None
+    assert not relay.is_broker_unavailable(poison)
+
+
+def test_a_hint_walk_over_a_cyclic_chain_terminates() -> None:
+    a = Unavailable("a", capability=CAP)
+    b = RuntimeError("b")
+    a.__cause__, b.__cause__ = b, a
+    assert relay.outage_reason(a) == "Unavailable"
 
 
 def test_a_cyclic_chain_terminates() -> None:
@@ -336,14 +363,12 @@ class _Refused(RecordingTransport):
 
 
 def _redirected() -> Unavailable:
-    """What a Redis driver raises for a MOVED reply of a plain client."""
-    error = Unavailable("MOVED", capability=CAP)
-    error.__cause__ = _MovedError("MOVED 1234 10.0.0.1:6379")
-    return error
+    """An outage a driver mapped and hinted (the Redis drivers do it for MOVED)."""
+    return Unavailable("down", capability=CAP, hint=HINT)
 
 
 class _Redirected(RecordingTransport):
-    """Every publish gets a cluster redirect, mapped to ``Unavailable``."""
+    """Every publish raises a hinted ``Unavailable``."""
 
     async def publish(self, stream: str, envelope: EventEnvelope) -> str:
         raise _redirected()
@@ -353,7 +378,7 @@ class _Redirected(RecordingTransport):
 
 
 @pytest.mark.asyncio
-async def test_a_cluster_redirect_warning_names_the_word_not_the_address(
+async def test_the_outage_warning_carries_the_hint_of_the_driver_error(
     engine: AsyncEngine, caplog: pytest.LogCaptureFixture
 ) -> None:
     sessions = async_sessionmaker(
@@ -380,9 +405,8 @@ async def test_a_cluster_redirect_warning_names_the_word_not_the_address(
     assert result.unavailable
     lines = [r.getMessage() for r in caplog.records if "broker unavailable" in r.msg]
     assert len(lines) == 1
-    assert "MOVED" in lines[0]
-    assert "cluster redirect: is the client cluster-aware?" in lines[0]
-    assert "10.0.0.1" not in lines[0] and "1234" not in lines[0]
+    assert f"Unavailable ({HINT})" in lines[0]
+    assert "down" not in lines[0]  # the message stays out of the line
 
 
 @pytest.mark.asyncio

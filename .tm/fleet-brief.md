@@ -17,12 +17,14 @@ reading, checks, the "Before the PR" checklist) are in your agent file.
   `git checkout --detach origin/claude/<alias>`, and push with
   `git push origin HEAD:claude/<alias>`.
 - A base that moves is merged in; never rebase or force-push.
-- `CHANGELOG.md` merges by itself (`.gitattributes`, union); so does
-  `tools/packaging/public-source.json` once the clone has run
+- Your changelog entry is your own file `changelog.d/<alias>.md`
+  (`changelog.d/<package>/<alias>.md` for a package's own changelog), in
+  your task area; never edit `CHANGELOG.md` (the release folds the fragments).
+  `tools/packaging/public-source.json` merges by itself once the clone has run
   `python3 tools/packaging/merge_public_source.py --install` (worktrees share
   the clone's config; `git config merge.public-source.driver` shows it). A
-  conflict left in them is real: keep both sides.
-- Shared registries are unguarded in tm: `CHANGELOG.md`,
+  conflict left in it is real: keep both sides.
+- Shared registries are unguarded in tm:
   `tools/packaging/public-source.json`, `public_api_baseline.json`,
   `guarantees.yml`, `docs/reference/guarantees.md`,
   `src/sandloom/core/error_codes.py`, `docs/reference/error-codes.md`,
@@ -61,7 +63,15 @@ Remove your containers before `task_done`.
   a `{"kind": "checks", ...}` deliverable in the reason: call `task_done`
   again with the same arguments plus that deliverable, unchanged, editing
   nothing in between (a new commit is a new run). A red result does not block
-  the handover; it is recorded for the reviewer.
+  the handover; it is recorded for the reviewer. The record has two stages: the
+  pre-commit hooks (`results`) and the CI steps your diff selects (`ci_steps`:
+  docs code check under Python 3.11, generated files, no-Redis list, driver
+  lanes). A step the hook could not run is `not_run` with a reason, which is
+  a record and no refusal; a driver lane runs only when the hook's environment
+  carries your `SANDLOOM_TEST_*` and only for a change under `packages/`, so
+  run it yourself before the push (a core change to what a driver uses
+  included). One deadline of 570 s covers the whole hook; what it leaves no
+  time for is `not_run`.
 - **Deliverables.** `task_done` carries the PR (`git_commit`) and the
   `checklist` (one line per item of the "Before the PR" list, with the grep
   you ran for item 2). A task that requires them refuses a handover without.
