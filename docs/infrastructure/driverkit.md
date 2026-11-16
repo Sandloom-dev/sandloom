@@ -112,9 +112,28 @@ The kits need `pytest` and `pytest-asyncio`.
 | `JSON_PATH_DOCUMENT` | The JSON text `read_json_paths` stores, numbers as written. |
 | `JSON_PATH_READS` | What `json_path` must read at each path of `JSON_PATH_DOCUMENT`: the scalar's JSON text as stored. |
 
+## `sandloom.driverkit.testing_family`
+
+What a package that ships a backend gives the test harness: its half of the
+parallel-run isolation (a *harness family*). Register the family object in the
+`sandloom.testing` entry-point group. [Harness families](../modules/testing.md#harness-families-a-backends-half-of-the-parallel-run-isolation)
+lists the hooks and when the harness calls them. Importing this module does not
+import the kernel settings or SQLAlchemy, so a family can load before the
+settings snapshot.
+
+| Name | What it is |
+| --- | --- |
+| `HarnessFamily` | The hooks of a family: `name`, `rewrite_worker`, `claim`, `slot_bases`, `release_slot_bases`, `allocate_workers`, `cap_workers` and `flush_owned`. |
+| `check_holder`, `current_owner`, `already_claimed`, `record_claim`, `TestResourceOwnershipError` | Ownership of a backend's resources: refuse (or, under `SANDLOOM_TEST_TAKE_OWNERSHIP=1`, take over) a resource another run marked, and skip one this process verified. |
+| `OWNER_ENV`, `TAKEOVER_ENV` | The settings that name the run's owner and the deliberate takeover. |
+| `FLAT_VARS`, `INFRA_VAR`, `parse_infra` | The settings that name a backend: `CACHE_URL` and `BROKER_URL`, and the JSON `INFRA` setting parsed into `{capability: {instance: spec}}`. |
+| `default_driver`, `isolated_instance_options` | The driver a composition selects for an instance, and the options a driver gives a worker's copy of it. |
+| `Resource`, `verdict` | List and prune stale resources apart from the databases the kernel lists. |
+
 ## Entry points
 
 | Group | Name | Value |
 | --- | --- | --- |
 | `sandloom.drivers` | `<capability>.<driver>` | `package.module:DriverClass` |
+| `sandloom.testing` | `<family>` | `package.testing.family:FAMILY` |
 | `sandloom.capabilities` | `<capability>` | `package.module:SPEC` |

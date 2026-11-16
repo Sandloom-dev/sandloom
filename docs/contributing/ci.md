@@ -95,6 +95,29 @@ uv pip install --python .venv-kernel/bin/python -e "packages/sandloom[postgres,r
 .venv-kernel/bin/python -m pytest -n auto --dist loadfile -p tools.ci.no_batteries src/sandloom/core/tests tests/sdk tests/architecture tests/integration/replaceability
 ```
 
+The kernel wheel names no Redis (ADR-0016). A step before the last one
+uninstalls `redis`, `hiredis`, `sandloom-redis` and `sandloom-celery`, whose
+`celery[redis]` brings the client. It runs the same suites again. The suite
+then selects the kernel's `memory` drivers (`conftest.py`), and the test
+harness loads no family. `tools/ci/no_redis.py` refuses the run while one of
+them imports.
+
+`tools/ci/no_redis_pending.json` lists the kernel tests that still need a Redis
+or Celery driver. A listed file is not collected, and a listed test is a strict
+xfail. Like the batteries list it only goes down (the ceilings in the tool).
+A test that needs a driver moves to `packages/sandloom-redis/tests` or
+`packages/sandloom-celery/tests`. Locally, after the commands above:
+
+```bash
+uv pip uninstall --python .venv-kernel/bin/python redis hiredis sandloom-redis sandloom-celery
+.venv-kernel/bin/python -m pytest -n auto --dist loadfile --no-cov -p tools.ci.no_batteries -p tools.ci.no_redis src/sandloom/core/tests tests/sdk tests/architecture tests/integration/replaceability
+```
+
+The package checker also runs the test harness in a venv with the kernel wheel
+and its `testing` and `sqlite` extras alone
+(`tools/packaging/check_package_distributions.py`). Two xdist workers each run
+on their own SQLite database, with no Redis client and no family.
+
 A last step uninstalls `asyncpg` (the `postgres` extra) and runs
 `src/sandloom/core/tests/test_postgres_extra.py` on a SQLite file. The kernel
 boots without it and imports neither asyncpg nor psycopg2. It refuses a

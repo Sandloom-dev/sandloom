@@ -475,7 +475,7 @@ FINGERPRINTS: dict[str, str] = {
     "ci.yml:supply-chain": "f97313a67b7eacd0",
     "ci.yml:backend-tests": "1400b9cf9e06ab28",
     "ci.yml:backend-tests-isolation": "1f41c4abed7873f2",
-    "ci.yml:kernel-without-batteries": "882af874b2fc6519",
+    "ci.yml:kernel-without-batteries": "04fac0d81136b55a",
     "ci.yml:redis-drivers": "490b2b18f92a9fd2",
     "ci.yml:celery-drivers": "275e5b7b555bc89d",
     "ci.yml:second-db-test-lane": "76d7b93cf72fd8f1",
@@ -566,7 +566,8 @@ JOB_SECONDS = {
     "backend-tests-isolation": 300,
     # The standard modules, the examples and a generated app on SQLite files.
     # The kernel suites in a venv without module packages (KB-05).
-    "kernel-without-batteries": 300,
+    # Its kernel suites run twice: with sandloom-redis, then without Redis.
+    "kernel-without-batteries": 540,
     "redis-drivers": 90,
     # The wheel build, the strict types and the host groups (about a minute).
     "celery-drivers": 120,

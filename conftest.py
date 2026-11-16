@@ -56,13 +56,22 @@ _seed_test_env()
 #: Celery and SQLAlchemy drivers of ``sandloom-redis``, ``sandloom-celery`` and
 #: the kernel, as ``sandloom_standard`` selects them. The event bus is the
 #: ``memory`` one, selected by ``EVENT_BUS_BACKEND`` in ``.env.test``.
+#:
+#: Without ``sandloom-redis`` installed (the ``kernel-without-redis`` step of
+#: the ``kernel-without-batteries`` CI job) the Redis-backed instances select
+#: the kernel's ``memory`` drivers: the kernel suites then run with no Redis
+#: client at all. The suites that need the Redis drivers are not collected
+#: there (``tools/ci/no_redis_pending.json``, read by ``tools/ci/no_redis.py``);
+#: a process that has the client but not the package still refuses at
+#: ``require_for_installed`` below.
+_REDIS_DRIVER = "redis" if importlib.util.find_spec("sandloom_redis") else "memory"
 _SUITE_INFRA = {
     "database": {"default": {"driver": "sqlalchemy"}},
-    "cache": {"default": {"driver": "redis"}},
-    "broadcast": {"default": {"driver": "redis"}},
+    "cache": {"default": {"driver": _REDIS_DRIVER}},
+    "broadcast": {"default": {"driver": _REDIS_DRIVER}},
     "taskqueue": {"default": {"driver": "celery"}},
-    "atomic_store": {"security": {"driver": "redis"}},
-    "lease": {"beat": {"driver": "redis"}},
+    "atomic_store": {"security": {"driver": _REDIS_DRIVER}},
+    "lease": {"beat": {"driver": _REDIS_DRIVER}},
 }
 
 
