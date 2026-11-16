@@ -120,8 +120,22 @@ example manifests, scaffold requirements, CLI help and current documentation.
 It discovers package pins in source documentation; prose that describes the
 current release carries an inline `<!-- sandloom-release -->` marker.
 Changelogs, ADRs and the dependency security audit retain historical versions.
-Move unreleased changes to the new changelog section and review the lock diffs;
-these commands must not upgrade unrelated dependencies.
+Review the lock diffs; these commands must not upgrade unrelated dependencies.
+
+Unreleased changes live as fragments in `changelog.d/`. In the same release
+preparation PR, fold them into the new changelog section:
+
+```bash
+python3 tools/packaging/changelog_fragments.py --fold 0.7.0a13
+python3 tools/packaging/changelog_fragments.py --fold 0.7.0a13 --package sandloom-redis
+```
+
+The first folds the root `CHANGELOG.md`, the notes of a coordinated release. The
+second is for each package with fragments under `changelog.d/<package>/`, and
+folds that package's own `CHANGELOG.md`. Each refuses a version that differs
+from the package's `pyproject.toml`; run `sync_release.py` first. The `plan`
+step of `pypi_release.py` refuses a release whose scope still has fragments,
+a dry run included. It fails before any package builds.
 
 `python tools/packaging/sync_release.py` checks without writing. This guard runs
 in required CI, before package validation and before a website build. It uses

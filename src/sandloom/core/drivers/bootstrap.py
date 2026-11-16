@@ -333,8 +333,7 @@ def build_infra_registry(
     when ``fill_from_settings`` asks (a tool process, which builds its
     configuration from the settings itself)."""
     resolved_settings = settings or _default_settings
-    cfg = config or load_infra_config(resolved_settings)
-    _fill_beat_lease_url(cfg, resolved_settings)
+    cfg = config if config is not None else load_infra_config(resolved_settings)
     # Strict in production: a driver cannot be registered for a capability with
     # no spec, and a built instance must report the features it declared.
     registry = InfraRegistry(strict_capabilities=True)
@@ -353,14 +352,6 @@ def build_infra_registry(
     _refuse_experimental_in_production(registry, resolved_settings)
     _check_driver_tiers_in_production(registry, resolved_settings)
     return registry
-
-
-def _fill_beat_lease_url(config: InfraConfig, settings: Settings) -> None:
-    """A ``redis`` lease without a ``url`` uses ``CACHE_URL`` (as the cache)."""
-    cache_url = getattr(settings, "cache_url", None)
-    for cfg in (config.get("lease") or {}).values():
-        if cfg.driver == "redis" and not cfg.options.get("url") and cache_url:
-            cfg.options["url"] = cache_url
 
 
 def _refuse_experimental_in_production(

@@ -18,6 +18,7 @@ import pytest
 
 from sandloom.core import effects
 from sandloom.core import guarantee_windows as gw
+from sandloom.core.infra import registry as registry_module
 from sandloom.core.infra.ports.eventbus import Retention
 
 
@@ -154,6 +155,20 @@ def test_an_undetermined_retention_names_the_setting() -> None:
     )
     assert "EVENT_BUS_BACKEND" in problem.message
     assert gw.RETENTION_OPTION in problem.settings
+
+
+def test_a_missing_driver_package_is_named_not_blamed_on_the_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``streams`` is configured but ``sandloom-redis`` is not installed in
+    this process: the message names the package, not ``EVENT_BUS_BACKEND``."""
+    monkeypatch.setattr(registry_module, "_one_plugin", lambda group, name: None)
+    (problem,) = gw.configured_inbox_purge_problems(
+        _settings(event_bus_backend="streams"), 365
+    )
+    assert "pip install sandloom-redis" in problem.message
+    assert "not installed" in problem.message
+    assert "set EVENT_BUS_BACKEND" not in problem.message
 
 
 def test_production_refuses_and_names_the_risk() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -44,7 +45,14 @@ def plan(source):
 
 
 @pytest.fixture
-def candidate(tmp_path, plan):
+def candidate(tmp_path, plan, monkeypatch):
+    # The notes come from the CHANGELOG.md of the working directory: a copy of the
+    # repository's, in a directory with no changelog.d/ (a fragment pending in the
+    # checkout would make the release refuse; test_changelog_fragments covers it).
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    shutil.copyfile(ROOT / "CHANGELOG.md", checkout / "CHANGELOG.md")
+    monkeypatch.chdir(checkout)
     folder = tmp_path / "validated"
     folder.mkdir()
     hashes = {}

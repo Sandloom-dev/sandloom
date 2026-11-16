@@ -33,7 +33,10 @@ layers silently off. In ``ENVIRONMENT=prod`` it requires:
    ``shared_hs_secret_split`` is refused. A process that loads no token
    issuer is split too even without bindings: the kernel's startup role check
    (:func:`sandloom.core.auth.tokens.token_signing_problem`) refuses an HS secret
-   there under this profile, with no opt-out.
+   there under this profile, with no opt-out;
+6. no notification instance with ``use_tls`` false, whatever selects it (the
+   composition, a pin or ``INFRA``): recovery links and SMTP credentials never
+   travel in clear (no opt-out).
 
 Configuration problems refuse the boot
 (:func:`sandloom.core.app_factory.enforce_configuration`, run by ``create_app``);
@@ -54,6 +57,7 @@ import sandloom.core.tenant as _tenant
 from sandloom.core import rpc_pair_mac
 from sandloom.core.config import accepted_risks
 from sandloom.core.config.common import strict_profile_active
+from sandloom.core.infra import config as infra_config
 
 logger = logging.getLogger("sandloom.production_profile")
 
@@ -175,6 +179,23 @@ def _atomic_store_problems(
     return problems
 
 
+def _notification_problems(cfg: Any) -> list[str]:
+    """A notification instance that sends without TLS (``use_tls`` false) puts
+    credentials and recovery links on the wire in clear: refused, whatever
+    selected it (the composition's ``DEFAULT_INFRA``, a pin, or ``INFRA``)."""
+    try:
+        instances = infra_config.resolved_instances(cfg, "notification")
+    except infra_config.InfraConfigError:
+        return []  # a malformed INFRA is refused by loading the configuration
+    return [
+        f"notification/{name}: use_tls is false — recovery links and SMTP "
+        "credentials travel in clear; remove use_tls (it defaults to on) or set "
+        "it true"
+        for name, inst in sorted(instances.items())
+        if inst.options.get("use_tls") is False
+    ]
+
+
 def config_problems(cfg: Any) -> tuple[list[str], list[str]]:  # noqa: C901
     """``(errors, warnings)`` of ``cfg`` against ``multi_tenant_strict``.
 
@@ -203,6 +224,7 @@ def config_problems(cfg: Any) -> tuple[list[str], list[str]]:  # noqa: C901
                 "BYPASSRLS / ownership; see docs/advanced/security-model.md)"
             )
     errors += _atomic_store_problems(cfg, infra, warnings)
+    errors += _notification_problems(cfg)
     if getattr(cfg, "service_bindings", None):
         if getattr(cfg, "contract_compat_check", "ready") == "off":
             errors.append(

@@ -262,6 +262,40 @@ def test_smtp_tls_left_on_or_unset_is_no_override(infra: dict[str, Any]) -> None
     assert tiers.active_overrides(_settings(ENVIRONMENT="prod", INFRA=infra)) == []
 
 
+def test_smtp_tls_off_in_the_composition_selection_is_an_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The report reads the resolved selection: a composition (``DEFAULT_INFRA``
+    pin) whose smtp default has TLS off is reported though ``INFRA`` is empty."""
+    import sandloom.core.infra.config as infra_config
+
+    monkeypatch.setattr(infra_config, "_APP", None)
+    monkeypatch.setattr(
+        infra_config,
+        "_PIN",
+        infra_config._checked(
+            {"notification": {"default": {**_SMTP, "use_tls": False}}}
+        ),
+    )
+    cfg = _settings(ENVIRONMENT="prod", NOTIFIER_BACKEND="smtp")
+    # Labelled by where the value was written: ``INFRA`` states nothing here.
+    assert [o.setting for o in tiers.active_overrides(cfg)] == [
+        "notification.default.use_tls (composition DEFAULT_INFRA)"
+    ]
+
+
+def test_a_malformed_infra_does_not_break_the_override_report() -> None:
+    """Loading the configuration refuses a malformed ``INFRA`` at startup; the
+    report still answers from what the setting declares."""
+    cfg = _settings(
+        ENVIRONMENT="prod",
+        INFRA={"notification": {"default": {"use_tls": False}}},  # no driver
+    )
+    assert [o.setting for o in tiers.active_overrides(cfg)] == [
+        "INFRA.notification.default.use_tls"
+    ]
+
+
 def test_a_named_smtp_instance_with_tls_off_is_reported_by_its_name() -> None:
     cfg = _settings(
         ENVIRONMENT="prod",
