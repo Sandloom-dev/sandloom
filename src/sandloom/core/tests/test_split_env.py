@@ -60,8 +60,6 @@ def test_split_keys_bindings_and_token_verification(
         name: Settings(
             _env_file=None,
             DATABASE_URL="sqlite+aiosqlite://",
-            CACHE_URL="redis://localhost/0",
-            BROKER_URL="redis://localhost/1",
             **{
                 key: json.loads(value)
                 if key

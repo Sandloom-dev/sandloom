@@ -2851,6 +2851,7 @@
         "tests/integration/with_batteries/test_contract_compat_bundled_modules.py",
         "tests/integration/with_batteries/test_contract_runtime_identity_claims.py",
         "tests/integration/with_batteries/test_deploy_profiles_bundled_modules.py",
+        "tests/integration/with_batteries/test_dev_url_option_table.py",
         "tests/integration/with_batteries/test_guard_order_bundled_app.py",
         "tests/integration/with_batteries/test_loader_migrations_chain_collision.py",
         "tests/integration/with_batteries/test_model_indexes_of_the_bundled_modules.py",
