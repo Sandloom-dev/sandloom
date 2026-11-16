@@ -145,6 +145,8 @@ EXEMPT_PREFIXES = (
     # An old -> new mapping by design, and history.
     "docs/operate/upgrade-1.0.md",
     "docs/changelog.md",
+    # Fragments of CHANGELOG.md, folded into it at release: history like it.
+    "changelog.d/",
 )
 EXEMPT_NAMES = {"CHANGELOG.md"}
 
@@ -268,6 +270,7 @@ def self_test() -> int:
         "deploy/README.md": True,
         "src/sandloom/core/cli.py": False,
         "CHANGELOG.md": False,
+        "changelog.d/some-task.md": False,
         "benchmarks/dx/results/run1/report.md": False,
         "benchmarks/dx/tasks/t1_notes.md": True,
     }

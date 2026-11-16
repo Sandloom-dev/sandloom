@@ -77,6 +77,15 @@ repos:
         files: ^(src/|tools/checks/check_architecture\.py|architecture_rules\.yml)
         pass_filenames: false
 
+    # Changelog fragments (changelog.d/<alias>.md) are well formed; CI runs the
+    # same check as tests/architecture/test_changelog_fragments.py.
+    -   id: changelog-fragments
+        name: changelog-fragments
+        entry: python3 tools/packaging/changelog_fragments.py --check
+        language: system
+        files: ^(changelog\.d/|tools/packaging/changelog_fragments\.py)
+        pass_filenames: false
+
     -   id: public-api
         name: public-api
         entry: bash -c 'uv run --locked python tools/packaging/check_public_api.py'

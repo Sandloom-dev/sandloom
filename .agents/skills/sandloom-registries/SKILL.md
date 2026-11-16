@@ -1,6 +1,6 @@
 ---
 name: sandloom-registries
-description: "Entry format and the command that adds or checks an entry of a shared registry file of the Sandloom repository: guarantees.yml, kernel_edges.yml, design/kernel-boundary/edges.yml, error_codes.py, public-source.json, public_api_baseline.json, CHANGELOG.md. Load before opening or editing one of them."
+description: "Entry format and the command that adds or checks an entry of a shared registry file of the Sandloom repository: guarantees.yml, kernel_edges.yml, design/kernel-boundary/edges.yml, error_codes.py, public-source.json, public_api_baseline.json, CHANGELOG.md (changelog.d/ fragments). Load before opening or editing one of them."
 allowed-tools: Bash(python3 tools/agent_reference.py:*)
 ---
 
