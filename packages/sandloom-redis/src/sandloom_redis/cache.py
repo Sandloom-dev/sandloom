@@ -441,12 +441,14 @@ class RedisCacheProvider(CacheProvider):
 
     @classmethod
     def from_config(cls, config: InstanceConfig) -> Self:
-        # The registry's door: an instance with no url is refused here, at
-        # build (startup), naming its INFRA option, not at the first
-        # connection. A provider built by hand (``create_redis_cache``) passes
-        # its url, or a client, itself.
-        _url_of(RedisCacheOptions.model_validate(config.options), config.name)
         return _build_redis_cache(cls, config)
+
+    async def aopen(self) -> None:
+        # Startup refuses an instance with no url, naming its INFRA option,
+        # before the first connection (``InfraRegistry.aopen_all``). It opens
+        # no connection itself: a provider built by hand passes its url, or a
+        # client, as before.
+        _url_of(RedisCacheOptions.model_validate(self.options), self.name)
 
     def __init__(
         self,

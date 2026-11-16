@@ -1,8 +1,9 @@
 """CACHE_URL and BROKER_URL are optional settings (flat-urls stage 0a).
 
-An app that selects no Redis or Celery driver starts with neither set; one that
-selects a driver and gives it no url is refused at startup with the INFRA option
-to set, never with ``CACHE_URL`` named as the way to configure it.
+An app that selects no Redis or Celery driver starts with neither set. This file
+is the kernel's half and imports no driver package (it runs without Redis);
+the drivers' refusal of an instance with no url is
+``tests/integration/test_driver_url_messages.py``.
 """
 
 from __future__ import annotations
@@ -12,8 +13,6 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
-from sandloom_celery.taskqueue import CeleryTaskQueueProvider, MissingBrokerError
-from sandloom_redis.cache import MissingUrlError, RedisCacheProvider
 
 from sandloom.core.config.settings import Settings
 from sandloom.core.infra import fenced_lease
@@ -119,38 +118,3 @@ def test_the_backup_plan_skips_an_eventbus_with_no_url_and_no_cache_url() -> Non
     # ...and the flat ``CACHE_URL`` is still the url of one that has none.
     roles = backup._redis_roles(config, SimpleNamespace(cache_url="redis://c:6379/0"))
     assert roles["redis://c:6379/0"] == ["eventbus:default (streams)"]
-
-
-@pytest.mark.parametrize("name", ["default", "sessions"])
-def test_a_redis_cache_without_a_url_names_the_infra_option(name: str) -> None:
-    cfg = InstanceConfig("cache", name, "redis", {})
-    with pytest.raises(MissingUrlError) as caught:
-        RedisCacheProvider.from_config(cfg)
-    message = str(caught.value)
-    assert f"cache.{name}.url" in message
-    assert "INFRA=" in message
-    assert "CACHE_URL" not in message
-    # A misconfiguration, so startup aborts in every environment, not only
-    # under strict startup (``InfraRegistry._open_one``).
-    assert caught.value.fatal_at_startup is True
-
-
-def test_a_redis_cache_with_a_url_builds_without_connecting() -> None:
-    provider = RedisCacheProvider.from_config(
-        InstanceConfig("cache", "sessions", "redis", {"url": "redis://x:6379/0"})
-    )
-    assert provider.name == "sessions"
-
-
-@pytest.mark.parametrize("name", ["default", "jobs"])
-def test_a_celery_taskqueue_without_a_broker_names_the_infra_option(
-    name: str,
-) -> None:
-    cfg = InstanceConfig("taskqueue", name, "celery", {})
-    with pytest.raises(MissingBrokerError) as caught:
-        CeleryTaskQueueProvider.from_config(cfg)
-    message = str(caught.value)
-    assert f"taskqueue.{name}.broker" in message
-    assert "INFRA=" in message
-    assert "BROKER_URL" not in message
-    assert caught.value.fatal_at_startup is True
