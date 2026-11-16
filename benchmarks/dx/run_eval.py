@@ -743,7 +743,7 @@ def eval_owners() -> dict[str, Path]:
 
 
 def _scan_redis(*, include_empty: bool = False) -> list[Any]:
-    from sandloom.core.testing import resources  # backend venv
+    from sandloom_redis.testing import resources  # backend venv
 
     return resources.scan_redis(f"{REDIS}/0", include_empty=include_empty)
 
@@ -787,10 +787,10 @@ def prune_stale_slots(*, apply: bool) -> dict[str, Any]:
     Only an index marked with a ``dx-eval-*`` owner whose run directory is
     finished (:func:`run_state`), that nobody is connected to and that is not
     one of the eval's per-task pairs (:data:`_SLOTS_FILE`) is emptied, with
-    the atomic check-and-FLUSHDB of ``sandloom.core.testing.resources``. Any other
+    the atomic check-and-FLUSHDB of ``sandloom_redis.testing.resources``. Any other
     owner, a running run, or any doubt keeps the index.
     """
-    from sandloom.core.testing import resources  # backend venv
+    from sandloom_redis.testing import resources  # backend venv
 
     owners = eval_owners()
     pruned: list[str] = []

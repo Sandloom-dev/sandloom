@@ -2424,10 +2424,6 @@
       "kind": "function",
       "signature": "(name:POSITIONAL_OR_KEYWORD|str, value:POSITIONAL_OR_KEYWORD|bool | Callable[[Any], Any]=True, owner:KEYWORD_ONLY|str, deny_category:KEYWORD_ONLY|str | None=None, core:KEYWORD_ONLY|Any=None) -> Iterator[None]"
     },
-    "flush_owned_redis": {
-      "kind": "function",
-      "signature": "(client:POSITIONAL_OR_KEYWORD|Any, owner:KEYWORD_ONLY|str | None=None) -> None"
-    },
     "has_optimized_reads": {
       "kind": "function",
       "signature": "(bind:POSITIONAL_OR_KEYWORD|Any) -> bool"
@@ -7190,10 +7186,6 @@
     "fake_contract": {
       "kind": "function",
       "signature": "(ref:POSITIONAL_OR_KEYWORD|ContractRef[P] | str, impl:POSITIONAL_OR_KEYWORD|object) -> AbstractContextManager[None]"
-    },
-    "flush_owned_redis": {
-      "kind": "function",
-      "signature": "(client:POSITIONAL_OR_KEYWORD|Any, owner:KEYWORD_ONLY|str | None=None) -> None"
     },
     "get_db": {
       "kind": "function",

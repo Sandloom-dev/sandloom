@@ -1,16 +1,14 @@
 """The Redis harness family: the Redis halves of the test harness as one object.
 
-Implements :class:`~sandloom.core.testing.families.HarnessFamily` with the Redis
-code that lives beside it (:mod:`~sandloom.core.testing.redis_urls`,
-:mod:`~sandloom.core.testing.redis_isolation`, the Redis half of
-:mod:`~sandloom.core.testing.ownership` and
-:mod:`~sandloom.core.testing.resources`). It is the kernel's one built-in family
-until all of it moves into ``sandloom-redis``, which then registers it in the
-entry-point group ``sandloom.testing``.
+Implements :class:`~sandloom.driverkit.testing_family.HarnessFamily` with the
+Redis code beside it (:mod:`sandloom_redis.testing.urls`,
+:mod:`~sandloom_redis.testing.isolation`, :mod:`~sandloom_redis.testing.ownership`
+and :mod:`~sandloom_redis.testing.resources`) and is registered in the
+entry-point group ``sandloom.testing`` by this package's ``pyproject.toml``.
 
 A process that cannot reach a Redis (the client is not installed, or no Redis
 URL is set) makes every hook a no-op, and never imports
-:mod:`~sandloom.core.testing.redis_isolation`.
+:mod:`~sandloom_redis.testing.isolation`.
 """
 
 from __future__ import annotations
@@ -21,13 +19,18 @@ from collections.abc import Iterable, Mapping, MutableMapping
 from typing import Protocol, runtime_checkable
 from urllib.parse import urlsplit, urlunsplit
 
-from sandloom.core.testing import ownership, resources
-from sandloom.core.testing.families import FLAT_VARS, INFRA_VAR
-from sandloom.core.testing.redis_urls import (
+from sandloom.driverkit.testing_family import (
+    FLAT_VARS,
+    INFRA_VAR,
+    OWNER_ENV,
+    current_owner,
+)
+from sandloom_redis.testing import resources
+from sandloom_redis.testing.ownership import claim_redis, flush_owned_redis
+from sandloom_redis.testing.urls import (
     infra_redis_urls,
     is_redis_url,
     redis_client_installed,
-    redis_isolation,
     redis_urls,
 )
 
@@ -40,7 +43,7 @@ class _RedisClientSource(Protocol):
 
 
 class RedisFamily:
-    """The Redis hooks of the harness (see :class:`HarnessFamily`)."""
+    """The Redis hooks of the harness (see ``HarnessFamily``)."""
 
     name = "redis"
 
@@ -56,18 +59,17 @@ class RedisFamily:
         )
         if not (has_redis_setting and redis_client_installed()):
             return {}
-        rewritten: dict[str, str] = redis_isolation().rewrite_redis(
-            values, environ, worker_id, number
-        )
-        return rewritten
+        from sandloom_redis.testing import isolation
+
+        return isolation.rewrite_redis(values, environ, worker_id, number)
 
     def claim(self, values: Mapping[str, str]) -> None:
         for var in FLAT_VARS:
             url = values.get(var) or ""
             if url:
-                ownership.claim_redis(url)
+                claim_redis(url)
         for url in infra_redis_urls(values.get(INFRA_VAR)):
-            ownership.claim_redis(url)
+            claim_redis(url)
 
     def slot_bases(
         self,
@@ -79,7 +81,9 @@ class RedisFamily:
         plain = [u for u in urls.values() if is_redis_url(u)]
         if not plain or not redis_client_installed():
             return {}  # no Redis URL, or no client: this run reaches no Redis
-        environ.setdefault(redis_isolation().REDIS_STRIDE_ENV, "auto")
+        from sandloom_redis.testing import isolation
+
+        environ.setdefault(isolation.REDIS_STRIDE_ENV, "auto")
         redis_error = resources.redis_errors()
         try:
             mapping = resources.allocate_worker_redis(plain, 1, owner)
@@ -105,11 +109,12 @@ class RedisFamily:
         urls = redis_urls(values)
         if not urls:
             return
-        isolation = redis_isolation()
+        from sandloom_redis.testing import isolation
+
         mapping = resources.allocate_worker_redis(
             urls,
             count,
-            ownership.current_owner(),
+            current_owner(),
             spares=resources.REDIS_SPARES_PER_BASE,  # replacements of crashed workers
         )
         os.environ[isolation.REDIS_MAP_ENV] = isolation.format_redis_map(mapping)
@@ -121,10 +126,8 @@ class RedisFamily:
         if not urls:
             return count
         try:
-            owner = os.environ.get(ownership.OWNER_ENV)
-            room = resources.affordable_redis_workers(
-                urls, owner or ownership.current_owner()
-            )
+            owner = os.environ.get(OWNER_ENV)
+            room = resources.affordable_redis_workers(urls, owner or current_owner())
         except resources.redis_errors():  # reported again at session start
             return count
         if room >= count:
@@ -143,14 +146,18 @@ class RedisFamily:
     async def flush_owned(self, provider: object) -> bool:
         if not isinstance(provider, _RedisClientSource):
             return False
-        await ownership.flush_owned_redis(await provider.redis_client())
+        await flush_owned_redis(await provider.redis_client())
         return True
 
     @staticmethod
     def _auto() -> bool:
         """``SANDLOOM_TEST_REDIS_DB_STRIDE=auto`` on a process that can reach a
         Redis."""
-        return redis_client_installed() and bool(redis_isolation().redis_auto())
+        if not redis_client_installed():
+            return False
+        from sandloom_redis.testing import isolation
+
+        return isolation.redis_auto()
 
 
 FAMILY = RedisFamily()

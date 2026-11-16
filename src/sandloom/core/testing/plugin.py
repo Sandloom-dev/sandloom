@@ -31,7 +31,7 @@ from pathlib import Path
 import pytest
 
 from sandloom.core.auth import claims_view as _claims_view
-from sandloom.core.testing.families import require_for_installed
+from sandloom.core.testing.families import client_installed, require_for_installed
 from sandloom.core.testing.fixtures import (  # noqa: F401 - re-exported as fixtures
     COMPOSITION_ROOT_INI,
     _sandloom_cancel_leftover_tasks,
@@ -61,7 +61,6 @@ from sandloom.core.testing.fixtures import (  # noqa: F401 - re-exported as fixt
     user_headers,
 )
 from sandloom.core.testing.infra import DB_FEATURE_MARKER_LINE
-from sandloom.core.testing.redis_urls import redis_client_installed
 from sandloom.core.testing.slots import (
     SLOT_LOST_MESSAGE,
     SlotsExhausted,
@@ -75,7 +74,7 @@ def pytest_configure(config: pytest.Config) -> None:
     # A Redis client with no registered harness family would let parallel
     # workers share one Redis silently: refuse it in every suite that loads
     # this plugin, not only in the framework's own conftest.
-    require_for_installed({"redis": redis_client_installed()})
+    require_for_installed({"redis": client_installed("redis")})
     # A test composition: the kernel test authority vouches for the claims
     # of the test kit's tokens (ADR-0014; never in a running application).
     _claims_view.enable_test_authority()

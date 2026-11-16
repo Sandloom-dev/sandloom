@@ -45,7 +45,6 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`ContractConformanceError`](#contractconformanceerror) | exception | The local and the RPC path disagreed for at least one case. |
 | [`email_of`](#email_of) | function | The deterministic `email` claim minted for a test user. |
 | [`FakeClock`](#fakeclock) | class | The runtime's injectable clock (naive UTC). |
-| [`flush_owned_redis`](#flush_owned_redis) | async function | `FLUSHDB` a test Redis database this run owns, keeping its marker. |
 | [`get_db`](#get_db) | function | Request-scoped DB session governed by a UnitOfWork (the canonical path). |
 | [`has_optimized_reads`](#has_optimized_reads) | function | Whether the planner's optimized executor can run on the database behind `bind` (an engine, sync or async): its DBAPI adapter runs raw sta... |
 | [`Headers`](#headers) | callable | dict() -> new empty dictionary dict(mapping) -> new dictionary initialized from a mapping object's     (key, value) pairs dict(iterable)... |
@@ -486,17 +485,6 @@ def advance(self, delta: timedelta) -> datetime
 ```python
 def advance_to(self, when: datetime) -> datetime
 ```
-
-### `flush_owned_redis`
-
-```python
-async def flush_owned_redis(client: Any, *, owner: str | None = None) -> None
-```
-
-`FLUSHDB` a test Redis database this run owns, keeping its marker.
-
-`client` is an asyncio Redis client (bytes or decoded responses).
-Raises `TestResourceOwnershipError` when another run marked it.
 
 ### `get_db`
 

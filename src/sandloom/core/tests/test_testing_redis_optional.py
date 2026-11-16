@@ -17,7 +17,7 @@ from types import SimpleNamespace
 sys.modules["redis"] = None  # an `import redis` now raises ImportError
 
 import sandloom.core.testing.plugin  # noqa: F401
-from sandloom.core.testing import resources, session_checks
+from sandloom.core.testing import session_checks
 
 config = SimpleNamespace(
     rootpath=Path(sys.argv[1]),
@@ -28,14 +28,6 @@ config = SimpleNamespace(
 session_checks.check_run_resources(config)
 assert session_checks.cap_auto_workers(config, 1) == 1
 assert session_checks.cap_auto_workers(config, 4) == 4
-
-# Only a Redis operation needs the extra, and it says so.
-try:
-    resources.scan_redis("redis://127.0.0.1:1/0")
-except ImportError:
-    pass
-else:
-    raise SystemExit("scan_redis ran without redis")
 print("ok")
 """
 

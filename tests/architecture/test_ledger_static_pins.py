@@ -119,7 +119,11 @@ def test_raw_environment_reads_only_go_down() -> None:
     for root in (SRC, *sorted((BACKEND / "packages").glob("*/src"))):
         for path in root.rglob("*.py"):
             rel = path.relative_to(root).as_posix()
-            if "/tests/" in rel or rel.startswith("sandloom/core/testing/"):
+            # The test harness reads the process environment (the owner, the
+            # xdist worker, the Redis index map): its variables are not settings.
+            if "/tests/" in rel or rel.startswith(
+                ("sandloom/core/testing/", "sandloom_redis/testing/")
+            ):
                 continue
             n = len(_RAW_ENV.findall(path.read_text(encoding="utf-8")))
             if n:

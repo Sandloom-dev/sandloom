@@ -287,7 +287,8 @@ The harness protects concurrent runs on one machine from each other:
   owner aborts the session before any test runs (exit code 4, nothing
   truncated or flushed), under xdist for every worker's `_gw<N>` copy too.
   `SANDLOOM_TEST_TAKE_OWNERSHIP=1` takes a resource over deliberately. Empty a
-  test Redis database with `flush_owned_redis(client)` (keeps the marker).
+  test Redis database with `sandloom_redis.testing.flush_owned_redis(client)`
+  (keeps the marker).
 - **Self-connection.** A URL with `localhost` and a port from 32768 up is refused (exit
   code 4). A service published on `127.0.0.1` leaves `::1` with no listener, and a
   connection to that dead port can be given the same port as its source, so the socket

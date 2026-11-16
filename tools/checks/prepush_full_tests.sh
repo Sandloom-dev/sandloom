@@ -34,7 +34,7 @@ docker compose -f deploy/compose/test.yml up -d --wait
 # coverage job measures it). Each xdist worker N gets its own database
 # (<db>_gwN) and its own Redis indexes, claimed from the free ones on the
 # shared test Redis before the workers start (SANDLOOM_TEST_REDIS_DB_STRIDE=auto,
-# sandloom.core.testing.resources.allocate_worker_redis: this owner's indexes from
+# sandloom_redis.testing.resources.allocate_worker_redis: this owner's indexes from
 # earlier runs first, then unmarked empty ones). SANDLOOM_PREPUSH_WORKERS=N forces
 # a count (0 = serial); the default `auto` is what the PostgreSQL server's
 # free connections afford (sandloom.core.testing.connections: 13 per worker, 40

@@ -1,11 +1,10 @@
 """Redis parallel-test isolation: one set of Redis database indexes per xdist worker.
 
-The Redis half of the worker isolation of :mod:`sandloom.core.testing.workers`,
-in one module so it can move into a ``sandloom-redis`` pytest plugin with the
-Redis drivers. The harness does not move a URL itself: a driver states what one
-worker's instance uses through ``InfraProvider.test_isolation(options,
-worker_id)`` (the Redis drivers move the database index of their URL options),
-and :func:`rewrite_redis` calls that hook of every configured instance:
+The Redis half of the worker isolation of ``sandloom.core.testing.workers``.
+The harness does not move a URL itself: a driver states what one worker's
+instance uses through ``InfraProvider.test_isolation(options, worker_id)`` (the
+Redis drivers move the database index of their URL options), and
+:func:`rewrite_redis` calls that hook of every configured instance:
 
 * the default cache (``CACHE_URL``);
 * every named instance ``INFRA`` declares with its own ``url``, any capability,
@@ -18,9 +17,9 @@ and :func:`rewrite_redis` calls that hook of every configured instance:
 Nothing here rewrites a URL itself.
 
 The layout is computed here and handed to the drivers
-(:func:`sandloom.core.infra.worker_isolation.set_worker_layout`) before any hook runs,
-so a hook and the harness agree and a driver reads no environment. Two layouts,
-chosen by ``SANDLOOM_TEST_REDIS_DB_STRIDE``:
+(:func:`sandloom.driverkit.testing_isolation.set_worker_layout`) before any hook
+runs, so a hook and the harness agree and a driver reads no environment. Two
+layouts, chosen by ``SANDLOOM_TEST_REDIS_DB_STRIDE``:
 
 * a number (default 16): the index moves by ``stride * (N + 1)`` for worker
   ``gw<N>``;
@@ -30,7 +29,7 @@ chosen by ``SANDLOOM_TEST_REDIS_DB_STRIDE``:
   Redis shared with other runs, whose markers break any fixed layout.
 
 Importing this module imports no Redis client. It is imported only by a process
-that has Redis to isolate (:mod:`sandloom.core.testing.redis_urls` decides).
+that has Redis to isolate (:mod:`sandloom_redis.testing.urls` decides).
 """
 
 from __future__ import annotations
@@ -38,38 +37,25 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-import sandloom.core.infra.worker_isolation as _isolation
-from sandloom.core.drivers.bootstrap import BUILTIN_DRIVER_ROWS
-from sandloom.core.infra.capabilities import BUILTIN_CAPABILITIES
-from sandloom.core.infra.config import InstanceConfig
-from sandloom.core.infra.extra_capabilities import EXTRA_CAPABILITIES
-from sandloom.core.infra.registry import InfraRegistry, load_selected_plugins
-from sandloom.core.testing.redis_urls import (
+from sandloom.driverkit import testing_isolation as _isolation
+from sandloom.driverkit.testing_family import (
     INFRA_VAR,
-    is_redis_url,
+    default_driver,
+    isolated_instance_options,
     parse_infra,
-    redis_client_installed,
 )
-
-if TYPE_CHECKING:
-    from sandloom.core.infra.ports._base import InfraProvider
+from sandloom_redis.testing.urls import is_redis_url, redis_client_installed
 
 REDIS_STRIDE_ENV = "SANDLOOM_TEST_REDIS_DB_STRIDE"
 #: ``SANDLOOM_TEST_REDIS_DB_STRIDE`` value selecting allocated indexes.
 REDIS_STRIDE_AUTO = "auto"
 #: The controller's allocation for ``auto``: ``<base>=<i0>,<i1>,...;...``.
 REDIS_MAP_ENV = "SANDLOOM_TEST_REDIS_WORKER_DBS"
-#: The driver of the default cache instance, and of a named instance that
-#: names no driver of its own and overrides the default one.
+#: The driver of the default cache instance when nothing selects one: this
+#: package's own.
 DEFAULT_CACHE_DRIVER = "redis"
-#: The driver of the default task queue instance (it reads ``BROKER_URL``).
-DEFAULT_TASKQUEUE_DRIVER = "celery"
-#: The driver of the default event bus instance when ``EVENT_BUS_BACKEND`` is
-#: ``auto``: the standard composition's (``sandloom_standard.DEFAULT_INFRA``),
-#: in every environment (the kernel has no default and never selects memory).
-DEFAULT_EVENTBUS_DRIVER = "streams"
 
 
 def redis_stride(environ: Mapping[str, str]) -> int:
@@ -117,57 +103,33 @@ def layout_from_environ(environ: Mapping[str, str]) -> _isolation.WorkerLayout:
     return _isolation.WorkerLayout(mapping=parse_redis_map(raw))
 
 
-def _driver_class(
-    capability: str, name: str, driver: str
-) -> type[InfraProvider] | None:
-    """The provider class of ``capability/driver``, resolved through a registry
-    of the built-in drivers and the installed driver packages, the way the
-    application's own registry resolves it; nothing is built or opened."""
-    registry = InfraRegistry()
-    for spec in (*BUILTIN_CAPABILITIES, *EXTRA_CAPABILITIES):
-        registry.register_capability(spec)
-    for (
-        row_capability,
-        row_driver,
-        target,
-        requires,
-        install,
-        delivered,
-    ) in BUILTIN_DRIVER_ROWS:
-        registry.register_driver(
-            row_capability,
-            row_driver,
-            target,
-            requires=requires,
-            install=install,
-            delivered_by=delivered,
-        )
-    load_selected_plugins(
-        registry,
-        {capability: {name: InstanceConfig(capability, name, driver)}},
-    )
-    return registry.driver_class(capability, driver)
-
-
-def _eventbus_driver(values: Mapping[str, str | None]) -> str:
-    """The default event bus driver ``EVENT_BUS_BACKEND`` selects (``auto``:
-    the standard composition's, :data:`DEFAULT_EVENTBUS_DRIVER`)."""
-    backend = (values.get("EVENT_BUS_BACKEND") or "auto").strip().lower()
-    return DEFAULT_EVENTBUS_DRIVER if backend == "auto" else backend
-
-
-def _isolated_options(
+def _driver_of(
+    infra: Mapping[str, Mapping[str, Mapping[str, Any]]],
     capability: str,
     name: str,
-    driver: str,
-    options: Mapping[str, Any],
-    worker_id: str,
-) -> Mapping[str, Any]:
-    """What the driver says worker ``worker_id``'s instance uses."""
-    provider = _driver_class(capability, name, driver)
-    if provider is None:  # a plain factory: no class to ask
-        return options
-    return provider.test_isolation(options, worker_id)
+    *,
+    chosen: str | None = None,
+    fallback: str | None = None,
+) -> str | None:
+    """The driver of instance ``capability/name``: ``INFRA``'s, else the one
+    the settings choose (``chosen``), else the one the composition root selects,
+    else ``fallback``."""
+    declared = infra.get(capability, {}).get(name, {}).get("driver")
+    if declared:
+        return str(declared)
+    return chosen or default_driver(capability, name) or fallback
+
+
+def _chosen_driver(
+    values: Mapping[str, str | None], capability: str, name: str
+) -> str | None:
+    """The driver of a ``default`` instance the settings name outside ``INFRA``:
+    the bus ``EVENT_BUS_BACKEND`` names (unset leaves it to the composition)."""
+    if (capability, name) == ("eventbus", "default"):
+        backend = (values.get("EVENT_BUS_BACKEND") or "").strip().lower()
+        # The retired spelling ``auto`` still means unset until a release refuses it.
+        return None if backend in ("", "auto") else backend
+    return None
 
 
 def rewrite_redis(
@@ -201,37 +163,42 @@ def rewrite_redis(
     _isolation.set_worker_layout(layout)
     out: dict[str, str] = {}
     if is_redis_url(cache):
-        cache_driver = (
-            infra.get("cache", {}).get("default", {}).get("driver")
-        ) or DEFAULT_CACHE_DRIVER
-        moved = _isolated_options(
+        cache_driver = _driver_of(
+            infra, "cache", "default", fallback=DEFAULT_CACHE_DRIVER
+        )
+        moved = isolated_instance_options(
             "cache", "default", str(cache_driver), {"url": cache}, worker_id
         )
         out["CACHE_URL"] = str(moved.get("url", cache))
     if is_redis_url(broker):
         # The kernel fills the default task queue's ``broker`` from BROKER_URL:
-        # the driver of that instance says where its worker uses it.
-        broker_driver = (
-            infra.get("taskqueue", {}).get("default", {}).get("driver")
-        ) or DEFAULT_TASKQUEUE_DRIVER
-        moved = _isolated_options(
-            "taskqueue", "default", str(broker_driver), {"broker": broker}, worker_id
-        )
-        out["BROKER_URL"] = str(moved.get("broker", broker))
+        # the driver of that instance says where its worker uses it. A
+        # composition that selects no task queue driver has no instance for
+        # the URL, so there is nothing to move.
+        broker_driver = _driver_of(infra, "taskqueue", "default")
+        if broker_driver:
+            moved = isolated_instance_options(
+                "taskqueue", "default", broker_driver, {"broker": broker}, worker_id
+            )
+            out["BROKER_URL"] = str(moved.get("broker", broker))
     if named:
         rewritten: dict[str, Any] = json.loads(infra_raw or "{}")
         for capability, name, spec in named:
-            driver = spec.get("driver") or (
-                DEFAULT_CACHE_DRIVER
+            driver = _driver_of(
+                infra,
+                capability,
+                name,
+                chosen=_chosen_driver(values, capability, name),
+                fallback=DEFAULT_CACHE_DRIVER
                 if (capability, name) == ("cache", "default")
-                else _eventbus_driver(values)
-                if (capability, name) == ("eventbus", "default")
-                else None
+                else None,
             )
             if not driver:
                 continue  # the registry refuses it when the settings load
             options = {k: v for k, v in spec.items() if k != "driver"}
-            moved = _isolated_options(capability, name, str(driver), options, worker_id)
+            moved = isolated_instance_options(
+                capability, name, driver, options, worker_id
+            )
             rewritten[capability][name] = {**spec, **moved}
         out[INFRA_VAR] = json.dumps(rewritten)
     return out

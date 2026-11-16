@@ -137,12 +137,6 @@ sandloom = "sandloom:main"
 postgresql = "sandloom.core.drivers.sql_dialects:POSTGRESQL"
 sqlite = "sandloom.core.drivers.sql_dialects:SQLITE"
 
-# The harness families of the test harness (sandloom.core.testing.families),
-# loaded by the kernel's test harness. The Redis family still lives in the
-# kernel; it moves into sandloom-redis, which then registers it here.
-[project.entry-points."sandloom.testing"]
-redis = "sandloom.core.testing.redis_family:FAMILY"
-
 [build-system]
 requires = [
     "hatchling>=1.27",
