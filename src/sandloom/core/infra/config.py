@@ -127,28 +127,40 @@ _COMPOSITION_DEFAULTS: InfraConfig = {}
 _COMPOSITION_ADOPTED = False
 
 
-def use_default_infra(defaults: DefaultInfra | None) -> None:
+#: Whether the selection was set by ``create_app(default_infra=...)`` (not by a
+#: tool or a test calling :func:`use_default_infra` itself).
+_SELECTION_FROM_APP = False
+
+
+def use_default_infra(defaults: DefaultInfra | None, *, from_app: bool = False) -> None:
     """Set the composition's driver selection for this process (``None``: none).
 
     Shape-checked like ``INFRA`` (:func:`_overlay`); every instance it names is
     a synthesized ``default``: ``INFRA`` overrides it, and nothing opens it
-    unless the kernel or a module's requirement uses it.
+    unless the kernel or a module's requirement uses it. ``from_app`` marks a
+    selection ``create_app`` set, which :func:`forget_app_default_infra` drops.
     """
-    global _COMPOSITION_ADOPTED
+    global _COMPOSITION_ADOPTED, _SELECTION_FROM_APP
     checked: InfraConfig = {}
     _overlay(checked, defaults or {})
     _COMPOSITION_DEFAULTS.clear()
     _COMPOSITION_DEFAULTS.update(checked)
     _COMPOSITION_ADOPTED = True
+    _SELECTION_FROM_APP = from_app
 
 
-def clear_default_infra() -> None:
-    """Forget the selection a previous app of this process set: the next reader
-    adopts the composition root's own (``DEFAULT_INFRA``), as in a fresh
-    process, so an app that passes no selection never inherits another's."""
-    global _COMPOSITION_ADOPTED
+def forget_app_default_infra() -> None:
+    """Drop the selection a previous ``create_app`` of this process set: the
+    next reader adopts the composition root's own (``DEFAULT_INFRA``), as in a
+    fresh process, so an app that passes no selection never inherits another's.
+    A selection set by :func:`use_default_infra` itself (a tool, a test suite)
+    stays."""
+    global _COMPOSITION_ADOPTED, _SELECTION_FROM_APP
+    if not _SELECTION_FROM_APP:
+        return
     _COMPOSITION_DEFAULTS.clear()
     _COMPOSITION_ADOPTED = False
+    _SELECTION_FROM_APP = False
 
 
 def _adopt_root_selection() -> None:

@@ -3,7 +3,8 @@
 The selection lives on the process (``sandloom.core.infra.config``): an app that
 passes none must not inherit the one a previous ``create_app`` of the process
 set. It adopts its composition root's own (``DEFAULT_INFRA``), or none, which
-startup refuses with SANDLOOM-B037.
+startup refuses with SANDLOOM-B037. A selection a tool or a test suite set with
+``use_default_infra`` itself is not an app's, and stays.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ def _isolated_selection(monkeypatch: pytest.MonkeyPatch) -> None:
     the selection is set, so no test boots an app."""
     monkeypatch.setattr(config_module, "_COMPOSITION_DEFAULTS", {})
     monkeypatch.setattr(config_module, "_COMPOSITION_ADOPTED", False)
+    monkeypatch.setattr(config_module, "_SELECTION_FROM_APP", False)
 
     def stop(_settings: object) -> None:
         raise _StopBeforeBoot
@@ -76,3 +78,14 @@ def test_an_explicit_selection_replaces_the_previous_one(
     _boot(default_infra={"cache": {"default": {"driver": "redis"}}})
     _boot(default_infra={"eventbus": {"default": {"driver": "streams"}}})
     assert _selected_drivers() == {"eventbus/default": "streams"}
+
+
+def test_a_selection_set_outside_create_app_survives_an_app_with_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The framework's own suite selects the drivers for its lean root, which
+    passes none: that selection is not an earlier app's."""
+    monkeypatch.setenv("SANDLOOM_COMPOSITION_ROOT", "sandloom.main")
+    config_module.use_default_infra({"cache": {"default": {"driver": "redis"}}})
+    _boot()
+    assert _selected_drivers() == {"cache/default": "redis"}

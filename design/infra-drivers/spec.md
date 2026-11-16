@@ -1379,10 +1379,11 @@ For the orchestrator's review; each departs from or details `design.md`.
       that `sandloom new` writes into `<app>/__init__.py`); `INFRA` overrides it per instance. A
       tool process (`sandloom worker check`) reads the same selection from the root's package
       (`composition.root_default_infra`). Every `create_app` call sets the selection of its own
-      app: one that passes none clears what an earlier call of the process set
-      (`clear_default_infra`) and adopts its root's `DEFAULT_INFRA`, or none (B037), never the
-      previous app's. The suite's root `conftest.py` selects the standard drivers and
-      `.env.test` sets `EVENT_BUS_BACKEND=memory`.
+      app: one that passes none drops what an earlier `create_app` of the process set
+      (`forget_app_default_infra`) and adopts its root's `DEFAULT_INFRA`, or none (B037), never
+      the previous app's. A selection set by `use_default_infra` itself (a tool, the suite's
+      root `conftest.py`, which selects the standard drivers for the lean root) is not an
+      app's and stays. `.env.test` sets `EVENT_BUS_BACKEND=memory`.
     - **Startup refuses what nothing selects.** The kernel's instances (`database`, `cache`,
       `eventbus`, and `atomic_store.security`; `REQUIRED_AT_STARTUP`) with no selected driver, or
       a driver whose package is missing, refuse startup with SANDLOOM-B037 in every environment,

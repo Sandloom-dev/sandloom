@@ -93,7 +93,7 @@ from sandloom.core.idempotency.durable import (
 )
 from sandloom.core.infra.config import (
     DefaultInfra,
-    clear_default_infra,
+    forget_app_default_infra,
     use_default_infra,
 )
 from sandloom.core.infra.registry import InfraRegistry
@@ -176,8 +176,10 @@ def create_app(
     none for the database, the cache, the event bus or the security
     ``atomic_store`` leaves startup to refuse with SANDLOOM-B037, naming what
     to select and install. ``INFRA`` overrides it per instance. Passing none
-    adopts the selection the composition root's package exports
-    (``DEFAULT_INFRA``), whatever an earlier ``create_app`` of the process set.
+    drops the selection an earlier ``create_app`` of the process set, and the
+    app adopts the one the composition root's package exports
+    (``DEFAULT_INFRA``), or none; a selection set by ``use_default_infra``
+    itself (a tool, a test suite) stays.
 
     ``default_modules`` apply only when the deployment configured no
     ``SANDLOOM_MODULES`` (the platform root passes identity/tenancy/billing); with
@@ -219,9 +221,9 @@ def create_app(
     # of its own app: one that passes none adopts its root's, never the
     # selection a previous ``create_app`` of this process left behind.
     if default_infra is not None:
-        use_default_infra(default_infra)
+        use_default_infra(default_infra, from_app=True)
     else:
-        clear_default_infra()
+        forget_app_default_infra()
 
     # Checks the configuration layer cannot run itself (key material, RPC
     # keys / allowlist, the production profile): refuse to boot on any.
