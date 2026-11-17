@@ -22,6 +22,14 @@ secret-named query value is masked first, so a raw ``@`` inside it
 Two shapes stay ambiguous and read as a url list: a password of digits only
 before the ``;`` (``u:123;b://c@h`` reads ``u:123`` as host and port) and a
 password that holds a raw ``@`` before the ``;`` (the first ``@`` ends the url).
+A ``,`` after digits ends a port too, so ``redis://h1:6379,h2:6379;redis://u:pw@h3``
+keeps its first two hosts; a password of digits and a ``,`` before the ``;`` reads
+as a host list likewise.
+
+:func:`split_url_list` joins at most :data:`MAX_CHAINED_SCHEMES` pieces into one
+password or query value; the rest of a longer chain is kept as one part, so the
+whole of it is masked from the last ``@`` (hosts of later urls of the list go too,
+no secret stays), and a search of a growing piece is done at most that many times.
 """
 
 from __future__ import annotations
@@ -39,8 +47,9 @@ _USER_AND_COLON = r"(?!\[)[^/?#@;:\s\[]*:"
 #: A password that is already open before a ``;``: ``user:`` then something that
 #: is not a port. ``h1:6379;redis://h2`` (two hosts of a list) is no password: the
 #: text after the colon is digits up to the end of the piece (a ``/``, ``?``,
-#: ``#``, a space, the ``;`` of the next url or the end).
-_OPEN_USERINFO_START = rf"{_USER_AND_COLON}(?!\d*(?:[/?#\s]|;\s*{SCHEME}|\Z))"
+#: ``#``, a space, a ``,`` that goes on with the next host of
+#: ``redis://h1:6379,h2:6379``, the ``;`` of the next url or the end).
+_OPEN_USERINFO_START = rf"{_USER_AND_COLON}(?!\d*(?:[/?#\s,]|;\s*{SCHEME}|\Z))"
 
 #: The text of a piece of an open password, up to the next ``;`` + scheme: it has
 #: no ``@`` (the first ``@`` ends a url), so a list of urls that each have one is
@@ -73,7 +82,7 @@ _QUERY_SECRET = re.compile(rf"({_QUERY_PARAM_HEAD})[^&#\s]*", re.IGNORECASE)
 #: A piece of a url list that ends inside the value of a secret-named parameter.
 _OPEN_QUERY_SECRET = re.compile(rf"{_QUERY_PARAM_HEAD}[^&#\s]*\Z", re.IGNORECASE)
 #: A piece of a url list whose password is still open: no ``@`` after it.
-_OPEN_PASSWORD = re.compile(rf"{SCHEME}{_USER_AND_COLON}(?!\d*(?:[/?#\s]|\Z))[^@]*\Z")
+_OPEN_PASSWORD = re.compile(rf"{SCHEME}{_USER_AND_COLON}(?!\d*(?:[/?#\s,]|\Z))[^@]*\Z")
 _URL_LIST_SEPARATOR = re.compile(rf";(?=\s*{SCHEME})")
 #: The password of an HTTP token login (``https://<token>:x-oauth-basic@host``):
 #: the user slot holds the secret.
@@ -111,20 +120,42 @@ def mask_url_userinfo(text: str, *, keep_user: bool = True) -> str:
     return _CREDENTIALS.sub(_sub, text)
 
 
+def _is_open(piece: str) -> bool:
+    """Whether ``piece`` ends inside a password or a secret query value.
+
+    An open password has no ``@`` after it, so only the text after the last ``@``
+    is searched: with every ``x://u:p`` start of ``x://u:px://u:p...@`` scanning on
+    to that ``@`` and failing, the search of the whole piece was quadratic."""
+    return bool(
+        _OPEN_PASSWORD.search(piece[piece.rfind("@") + 1 :])
+        or _OPEN_QUERY_SECRET.search(piece)
+    )
+
+
 def split_url_list(url: str) -> list[str]:
     """The urls of a ``;``-separated kombu list. Only a ``;`` that starts another
     ``scheme://`` separates, and not one inside a password that is still open
     (``u:ab;b://c@h``) or inside the value of a secret-named query parameter
     (``?password=ab;b://c``): that ``;`` is part of the secret, and printing the
-    next piece on its own would print the end of it."""
+    next piece on its own would print the end of it.
+
+    At most :data:`MAX_CHAINED_SCHEMES` separators are joined into one piece (the
+    open piece is searched again at each one, so an unbounded chain was quadratic:
+    4 s on 50 000 characters of ``;sig=a;x://``). A longer chain is not split at
+    all from there on: the rest of the url is one part, masked whole."""
     parts: list[str] = []
     start = 0
+    joined = 0
     for separator in _URL_LIST_SEPARATOR.finditer(url):
         piece = url[start : separator.start()]
-        if _OPEN_PASSWORD.search(piece) or _OPEN_QUERY_SECRET.search(piece):
+        if _is_open(piece):
+            joined += 1
+            if joined > MAX_CHAINED_SCHEMES:
+                break
             continue
         parts.append(piece)
         start = separator.end()
+        joined = 0
     parts.append(url[start:])
     return parts
 

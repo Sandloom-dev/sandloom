@@ -287,15 +287,65 @@ def test_a_chain_of_semicolon_schemes_is_not_quadratic(text: str) -> None:
 
 
 def test_a_password_that_chains_the_capped_number_of_schemes_is_masked_whole() -> None:
-    """The documented limit: eight ``;x://`` pieces are one password, a ninth is
-    not (the pieces before the last eight are printed)."""
+    """The documented limit: eight ``;x://`` pieces are one password. With a ninth
+    ``mask_url_credentials`` prints the pieces before the last eight, and
+    ``split_url_list`` stops splitting: the rest of the list is one part, masked
+    whole (``_mask_url`` prints no secret)."""
     pieces = "".join(f";k{i}://pw{i}" for i in range(MAX_CHAINED_SCHEMES))
     url = f"pg://u:s0{pieces}@h/db"
     assert mask_url_credentials(url, keep_user=False) == "pg://***@h/db"
     assert _mask_url(url) == "pg://***@h/db"
     longer = f"pg://u:s0;z://z{pieces}@h/db"
     assert "s0" in mask_url_credentials(longer, keep_user=False)
+    assert split_url_list(longer) == [longer]
     assert _mask_url(longer) == "pg://***@h/db"
+    # a list that follows the long chain is part of the rest, never split off
+    assert split_url_list(longer + ";redis://h2/0") == [longer + ";redis://h2/0"]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param(_repeat(";sig=a;x://"), id="query-secret-chain"),
+        pytest.param(_repeat("?password=;a://"), id="open-query-value-chain"),
+        pytest.param(_repeat("x://u:p;"), id="open-password-chain"),
+        pytest.param(_repeat("x://u:p")[:-8] + "@;x://a", id="at-after-many-starts"),
+    ],
+)
+def test_splitting_a_url_list_is_not_quadratic(url: str) -> None:
+    """The open piece was searched again at every ``;x://`` (4 s on 50 000
+    characters of ``;sig=a;x://``), and a piece of many ``x://u:p`` before one
+    ``@`` was rescanned from every start."""
+    started = time.perf_counter()
+    split_url_list(url)
+    _mask_url(url)
+    assert time.perf_counter() - started < 1.0
+
+
+@pytest.mark.parametrize(
+    ("url", "masked", "masked_with_user"),
+    [
+        (
+            "redis://h1:6379,h2:6379;redis://u:pw@h3",
+            "redis://h1:6379,h2:6379;redis://***@h3",
+            "redis://h1:6379,h2:6379;redis://u:***@h3",
+        ),
+        (
+            "redis://h1:6379,h2:6379/0;redis://u:pw@h3",
+            "redis://h1:6379,h2:6379/0;redis://***@h3",
+            "redis://h1:6379,h2:6379/0;redis://u:***@h3",
+        ),
+    ],
+)
+def test_a_comma_after_a_port_ends_the_port_and_keeps_the_hosts_of_a_list(
+    url: str, masked: str, masked_with_user: str
+) -> None:
+    """``h1:6379,h2:6379`` is a host list, not ``user:password``: the first two
+    hosts stay in the output and the list splits at its ``;``."""
+    assert len(split_url_list(url)) == 2
+    assert _mask_url(url) == masked
+    assert mask_url_credentials(url) == masked_with_user
+    assert mask_url_credentials(url, keep_user=False) == masked
 
 
 @pytest.mark.parametrize(

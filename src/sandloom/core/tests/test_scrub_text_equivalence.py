@@ -344,6 +344,7 @@ _SHARED_URLS = [
     "redis://h1;redis://u:pw@h2",
     "redis://h1:6379;redis://h2:6379/1",
     "redis://h1:6379;redis://u:pw@h2",
+    "redis://h1:6379,h2:6379;redis://u:pw@h3",
     "redis://[::1]:6379;redis://u:pw@h2",
     "amqp://u:p@h1;amqp://u:p@h2",
     "redis://u:ab;cd@h1/0;redis://v:ef;gh@h2/0",
