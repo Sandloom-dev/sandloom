@@ -313,7 +313,9 @@ def test_a_password_that_chains_the_capped_number_of_schemes_is_masked_whole() -
         pytest.param(_repeat("x://u:p")[:-8] + "@;x://a", id="at-after-many-starts"),
         # one piece: every ``?key=`` scanned on to the ``&`` and failed (3 s)
         pytest.param("x://h" + "?key=" * 10_000 + "&;x://h", id="open-secret-then-and"),
-        pytest.param("x://h" + "?key=" * 10_000 + " ;x://h", id="open-secret-then-space"),
+        pytest.param(
+            "x://h" + "?key=" * 10_000 + " ;x://h", id="open-secret-then-space"
+        ),
     ],
 )
 def test_splitting_a_url_list_is_not_quadratic(url: str) -> None:

@@ -17,7 +17,10 @@ another ``scheme://``, except across a ``;`` that follows a password that is
 already open (``u:ab;b://c@h``, see :data:`_OPEN_USERINFO_START`). A text that has a
 later ``@`` on its line (a mail address) is masked too far, never too short. A
 secret-named query value is masked first, so a raw ``@`` inside it
-(``?password=p@ss``) does not make the credentials run through its name.
+(``?password=p@ss``) does not make the credentials run through its name. A ``&``
+or ``;`` inside the userinfo itself (``redis://u:p&auth=1@h``) is part of the
+password, not a query: :func:`mask_query_secrets` skips the run from ``scheme://``
+to an ``@`` that holds no ``/``, ``?``, ``#`` or space.
 
 Two shapes stay ambiguous and read as a url list: a password of digits only
 before the ``;`` (``u:123;b://c@h`` reads ``u:123`` as host and port) and a

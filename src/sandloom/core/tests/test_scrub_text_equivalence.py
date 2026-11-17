@@ -331,7 +331,10 @@ def test_a_url_after_a_secret_named_key_prints_no_tail_of_its_password(
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
-        ("SECRET_DATABASE_URL=postgresql://app:Xy7,kQ@db/app", "SECRET_DATABASE_URL=***"),
+        (
+            "SECRET_DATABASE_URL=postgresql://app:Xy7,kQ@db/app",
+            "SECRET_DATABASE_URL=***",
+        ),
         ("credentials: postgresql://app:pa)ss@db/app", "credentials: ***"),
         ("redis://u:p&auth=1@h", "redis://***@h"),
         ("redis://u:ab;key=xyz@h", "redis://***@h"),

@@ -186,6 +186,11 @@ def _mask_token_userinfo(match: re.Match[str]) -> str:
     return mask_url_userinfo(word, keep_user=False) if "://" in word else word
 
 
+def _mask_url_words(text: str) -> str:
+    """The credentials of every url that is one word of ``text``, masked."""
+    return _NON_SPACE_RUN.sub(_mask_token_userinfo, text) if "://" in text else text
+
+
 def scrub_text(text: str) -> str:
     """Redact secrets embedded in free text (messages, exception strings).
 
@@ -207,8 +212,7 @@ def scrub_text(text: str) -> str:
         out = text
         if "=" in out:
             out = mask_query_secrets(out)
-        if "://" in out:
-            out = _NON_SPACE_RUN.sub(_mask_token_userinfo, out)
+        out = _mask_url_words(out)
         if any(
             prefix in out
             for prefix in ("sk_live_", "sk_test_", "rk_live_", "rk_test_", "whsec_")
