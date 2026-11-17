@@ -37,7 +37,7 @@ layers =
     migrations : orm : sql_alchemy : planner : unit_of_work : tenant
     eventing : runtime
     infra
-    exceptions : error_codes : tenant_context : contract_context : observability : signing_keys : contract_wire : effects : descriptors : contracts : schema : claims : utils : cpu_quota : guarantee_lattice : url_mask
+    exceptions : error_codes : tenant_context : contract_context : observability : signing_keys : contract_wire : effects : descriptors : contracts : schema : claims : utils : cpu_quota : guarantee_lattice : url_split : url_mask
     config
 
 [importlinter:contract:kernel-acyclic]
@@ -331,6 +331,7 @@ source_modules =
     sandloom.core.testing
     sandloom.core.unit_of_work
     sandloom.core.url_mask
+    sandloom.core.url_split
     sandloom.core.utils
     sandloom.core.worker
 forbidden_modules =
@@ -411,6 +412,7 @@ source_modules =
     sandloom.core.testing
     sandloom.core.unit_of_work
     sandloom.core.url_mask
+    sandloom.core.url_split
     sandloom.core.utils
     sandloom.core.worker
 forbidden_modules =

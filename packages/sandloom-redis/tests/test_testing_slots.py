@@ -157,7 +157,7 @@ _HOLDER = textwrap.dedent(
     from sandloom.core.testing import slots
     slot = slots.acquire_test_slot([Path(sys.argv[1])], cwd=Path(sys.argv[1]))
     print(json.dumps({"number": slot.number, "db": slot.database_url,
-                      "owner": slot.owner, "redis": slot.redis_urls}), flush=True)
+                      "owner": slot.owner, "redis": slot.family_urls}), flush=True)
     time.sleep(60)
     """
 )
@@ -194,7 +194,7 @@ def test_a_second_run_in_one_checkout_gets_slot_two(
             # Every Redis index used is distinct across the two runs.
             indexes = {
                 urlsplit(u).path
-                for u in (*first["redis"].values(), *slot.redis_urls.values())
+                for u in (*first["redis"].values(), *slot.family_urls.values())
             }
             assert len(indexes) == 4
         finally:

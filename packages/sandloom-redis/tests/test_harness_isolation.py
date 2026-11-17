@@ -48,9 +48,9 @@ pytestmark = pytest.mark.subprocess_probe
 def _default_layout() -> Iterator[None]:
     """The layout is process state the harness sets: each test starts and ends
     on the default one."""
-    isolation.set_worker_layout()
+    redis_isolation.use_layout()
     yield
-    isolation.set_worker_layout()
+    isolation.set_url_mover(redis_isolation.REDIS_FAMILY, None)
 
 
 REDIS_DRIVERS: tuple[tuple[type[InfraProvider], str], ...] = (
@@ -85,7 +85,7 @@ def test_redis_driver_hook_moves_the_database_index(
     isolated = driver.test_isolation(options, worker)
     number = int(worker[2:])
     assert isolated[key] == (
-        f"redis://cache.internal:6379/{3 + isolation.DEFAULT_STRIDE * (number + 1)}"
+        f"redis://cache.internal:6379/{3 + redis_isolation.DEFAULT_STRIDE * (number + 1)}"
     )
     assert isolated["pool"] == 5
     assert options[key] == "redis://cache.internal:6379/3"  # the input is not mutated
@@ -123,9 +123,70 @@ def test_redis_driver_hook_ignores_a_worker_id_that_is_not_gw_n() -> None:
     assert redis_cache.RedisCacheProvider.test_isolation(options, "master") is options
 
 
+def test_the_layout_keeps_everything_but_the_index() -> None:
+    """Moved from the kernel's ``test_testing_workers.py`` with the URL layout."""
+    stride = redis_isolation.DEFAULT_STRIDE
+    assert (
+        redis_isolation.worker_redis_url("redis://:pw@h:1", 0, stride)
+        == "redis://:pw@h:1/16"
+    )
+    assert (
+        redis_isolation.worker_redis_url("rediss://h:1/3?x=1", 1, stride)
+        == "rediss://h:1/35?x=1"
+    )
+    # a socket path is no plain index: it is left as it is
+    sock = "redis+unix:///var/run/redis.sock"
+    assert redis_isolation.worker_redis_url(sock, 0, stride) == sock
+
+
+def test_replacement_workers_get_the_spares_then_a_shared_slot(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Moved from the kernel's ``test_testing_worker_spares.py``: a worker that
+    replaces a crashed one gets an allocated spare, else a shared slot with a
+    warning, never a conftest import failure."""
+    mapped = redis_isolation.mapped_redis_url
+    mapping = {14: [0, 1, 2, 3, 8, 9]}  # 4 workers + 2 spares
+    assert mapped("redis://r:6379/14", 2, mapping) == "redis://r:6379/2"
+    assert mapped("redis://r:6379/14", 4, mapping) == "redis://r:6379/8"
+    assert mapped("redis://r:6379/14", 5, mapping) == "redis://r:6379/9"
+    assert mapped("redis://r:6379/14", 7, mapping) == "redis://r:6379/1"
+    assert "sharing gw1's index 1" in capsys.readouterr().err
+    with pytest.raises(RuntimeError, match="no Redis index allocated"):
+        mapped("redis://r:6379/15", 0, mapping)
+
+
+def test_the_redis_mover_leaves_the_urls_of_other_backends_alone() -> None:
+    """A task queue's ``broker`` may be another backend's URL: the mover the
+    family installs moves Redis ones only."""
+    options = {"broker": "amqp://h/1", "backend": "redis://h/0"}
+    isolated = isolation.isolated_url_options(
+        options, "gw0", keys=("broker", "backend")
+    )
+    assert isolated == {"broker": "amqp://h/1", "backend": "redis://h/16"}
+
+
+def test_the_redis_mover_is_keyed_by_the_family_name_and_shares_the_hook() -> None:
+    """The Redis mover is the one of the family named ``redis``: another
+    family's mover beside it moves its own URLs and does not replace it."""
+    assert redis_isolation.REDIS_FAMILY == redis_family.FAMILY.name
+    isolation.set_url_mover(
+        "amqp-test", lambda url, number: url.replace("amqp://", "amqp-w://")
+    )
+    try:
+        isolated = isolation.isolated_url_options(
+            {"broker": "amqp://h/1", "backend": "redis://h/0"},
+            "gw0",
+            keys=("broker", "backend"),
+        )
+    finally:
+        isolation.set_url_mover("amqp-test", None)
+    assert isolated == {"broker": "amqp-w://h/1", "backend": "redis://h/16"}
+
+
 def test_hook_keys_name_the_options_holding_a_url() -> None:
     options = {"broker": "redis://h/1", "backend": "redis://h/0", "other": "x"}
-    isolated = isolation.isolated_redis_options(
+    isolated = isolation.isolated_url_options(
         options, "gw1", keys=("broker", "backend")
     )
     assert isolated == {
@@ -138,7 +199,7 @@ def test_hook_keys_name_the_options_holding_a_url() -> None:
 def test_celery_taskqueue_hook_moves_broker_and_backend() -> None:
     options = {"broker": "redis://h:6380/1", "backend": "redis://h:6380/0", "x": 1}
     isolated = CeleryTaskQueueProvider.test_isolation(options, "gw2")
-    stride = isolation.DEFAULT_STRIDE * 3
+    stride = redis_isolation.DEFAULT_STRIDE * 3
     assert isolated == {
         "broker": f"redis://h:6380/{1 + stride}",
         "backend": f"redis://h:6380/{stride}",
@@ -159,7 +220,9 @@ def test_the_harness_moves_the_broker_through_the_celery_hook(worker: str) -> No
     base = "redis://127.0.0.1:6380/1"
     number = int(worker[2:])
     env = {workers.WORKER_ENV: worker}
-    expected = f"redis://127.0.0.1:6380/{1 + isolation.DEFAULT_STRIDE * (number + 1)}"
+    expected = (
+        f"redis://127.0.0.1:6380/{1 + redis_isolation.DEFAULT_STRIDE * (number + 1)}"
+    )
     moved = _harness_url(
         base, env, capability="taskqueue", driver="celery", option="broker"
     )
@@ -632,3 +695,93 @@ def test_an_app_with_no_redis_runs_its_tests_in_parallel(tmp_path: Path) -> None
     out = proc.stdout + proc.stderr
     assert proc.returncode == 0, out[-3000:]
     assert "4 passed" in out, out[-1500:]
+
+
+# A url a person typed can hold a character that NFKC-normalises to ``#``: the
+# stdlib ``urlsplit`` then raises a ValueError that quotes the netloc, password
+# included. No Redis package place that parses such a url puts it in an error.
+_SECRET = "S3CRETpw"
+_HOSTILE = f"redis://user:{_SECRET}@host{chr(0xFF03)}x:6379/1"
+
+
+def _hostile_calls() -> dict[str, Any]:
+    from sandloom_redis import broadcast
+    from sandloom_redis.testing import (
+        family,
+        isolation,
+        resources,
+    )
+
+    return {
+        "broadcast prefix": lambda: broadcast._database_prefix(_HOSTILE),
+        "worker_redis_url": lambda: isolation.worker_redis_url(_HOSTILE, 0, 16),
+        "same_database": lambda: family.FAMILY.same_database(_HOSTILE, _HOSTILE),
+        "server_url": lambda: resources._server_url(_HOSTILE),
+        "display": lambda: resources._display(_HOSTILE, 1),
+        "index_of": lambda: resources._index_of(_HOSTILE),
+    }
+
+
+@pytest.mark.parametrize("name", sorted(_hostile_calls()))
+def test_a_url_urlsplit_refuses_never_puts_its_password_in_the_error(
+    name: str,
+) -> None:
+    with pytest.raises(ValueError, match="cannot be parsed") as caught:
+        _hostile_calls()[name]()
+    assert _SECRET not in str(caught.value)
+    assert caught.value.__cause__ is None and caught.value.__suppress_context__
+
+
+def test_the_ownership_message_does_not_echo_a_url_it_cannot_parse() -> None:
+    from sandloom_redis.testing import ownership
+
+    assert _SECRET not in ownership._redact(_HOSTILE)
+    assert ownership._redact("redis://u:pw@h:6379/1") == "redis://h:6379/1"
+
+
+@pytest.mark.parametrize(
+    "char", [chr(c) for c in (0xFF1A, 0xFF0F, 0xFF20, 0xFF03, 0xFF1F)]
+)
+@pytest.mark.parametrize(
+    "options",
+    [
+        redis_cache.RedisCacheOptions,
+        redis_atomic_store.RedisAtomicStoreOptions,
+        event_bus_driver.EventBusOptions,
+    ],
+)
+def test_an_options_model_refuses_a_url_urlsplit_cannot_read_without_its_password(
+    options: Any, char: str
+) -> None:
+    """Refused where the option is read, with one fixed message: the url never
+    reaches ``urlsplit`` or ``redis.from_url`` later, whose errors quote it."""
+    from pydantic import ValidationError
+
+    url = f"redis://user:{_SECRET}@host{char}x:6379/1"
+    with pytest.raises(ValidationError) as caught:
+        options(url=url)
+    assert _SECRET not in str(caught.value)
+    assert "cannot be parsed" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "char", [chr(c) for c in (0xFF1A, 0xFF0F, 0xFF20, 0xFF03, 0xFF1F)]
+)
+def test_the_lease_and_broadcast_options_refuse_it_too(char: str) -> None:
+    from pydantic import ValidationError
+    from sandloom_redis import broadcast, lease
+
+    url = f"redis://user:{_SECRET}@host{char}x:6379/1"
+    for model in (lease.RedisLeaseOptions, broadcast.RedisBroadcastOptions):
+        with pytest.raises(ValidationError) as caught:
+            model(url=url)
+        assert _SECRET not in str(caught.value)
+        assert "cannot be parsed" in str(caught.value)
+
+
+def test_an_options_model_keeps_a_url_it_can_read() -> None:
+    assert (
+        redis_cache.RedisCacheOptions(url="redis://u:pw@h:6379/1").url
+        == "redis://u:pw@h:6379/1"
+    )
+    assert redis_cache.RedisCacheOptions().url is None

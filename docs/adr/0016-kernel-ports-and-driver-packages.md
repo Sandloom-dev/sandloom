@@ -191,6 +191,12 @@ already works through renderers.
 - Parallel test runs are isolated through a driverkit hook, `test_isolation(options, worker_id)`,
   instead of the kernel rewriting Redis URLs per worker. It takes the options because the
   per-worker options derive from them.
+- The harness holds no Redis either (spec 13 item 50): a harness family says which URLs it owns
+  (`owns_url`), which two name one database (`same_database`) and which environment a parallel
+  run needs (`parallel_env`), and installs its own URL mover (`set_url_mover(family, mover)`: one mover per
+  family, keyed by its name) that `isolated_url_options` applies, every installed mover in turn,
+  each returning a URL it does not own unchanged. The driverkit exports two names for it and no
+  Redis layout.
 
 ### 6. The owner's decisions (2026-11-14)
 

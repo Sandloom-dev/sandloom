@@ -16,6 +16,7 @@ import redis.exceptions as redis_errors
 from _redis_required import cache_url_or_unavailable
 from sandloom_redis import lease
 from sandloom_redis.lease import RedisLeaseProvider
+from sandloom_redis.testing.isolation import REDIS_FAMILY, use_layout
 
 from sandloom.driverkit import InfraError, InvalidArgument, PermissionDenied
 from sandloom.driverkit.lease_limits import (
@@ -23,6 +24,7 @@ from sandloom.driverkit.lease_limits import (
     MIN_LEASE_TTL_SECONDS,
 )
 from sandloom.driverkit.testing import LeaseConformance
+from sandloom.driverkit.testing_isolation import set_url_mover
 
 
 class TestRedisLease(LeaseConformance):
@@ -161,11 +163,17 @@ async def test_the_policy_is_read_again_after_a_connection_failure() -> None:
 
 
 def test_the_redis_lease_runs_each_xdist_worker_on_its_own_database_index() -> None:
-    options = {"url": "redis://127.0.0.1:6379/0", "never_evicts_check": "verify"}
-    moved = RedisLeaseProvider.test_isolation(options, "gw1")
-    assert moved["url"] != options["url"]
-    assert moved["never_evicts_check"] == "verify"
-    assert RedisLeaseProvider.test_isolation(options, "master") == options
+    # The mover is process state the Redis harness family installs; this test
+    # installs it itself, so it passes alone and after any other test.
+    use_layout()
+    try:
+        options = {"url": "redis://127.0.0.1:6379/0", "never_evicts_check": "verify"}
+        moved = RedisLeaseProvider.test_isolation(options, "gw1")
+        assert moved["url"] != options["url"]
+        assert moved["never_evicts_check"] == "verify"
+        assert RedisLeaseProvider.test_isolation(options, "master") == options
+    finally:
+        set_url_mover(REDIS_FAMILY, None)
 
 
 def test_the_redis_lease_shares_the_limits_of_the_port() -> None:

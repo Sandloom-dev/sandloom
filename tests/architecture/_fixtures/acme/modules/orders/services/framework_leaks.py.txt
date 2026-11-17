@@ -23,7 +23,7 @@ def later() -> None:
     import_module("sandloom_tenancy.services")  # VIOLATION module-boundaries
     load("sandloom_" + "billing")  # VIOLATION module-boundaries (constant concat)
     loader = il.import_module
-    loader("sandloom.core.drivers.redis_cache")  # VIOLATION + infra-imports
+    loader("sandloom.core.drivers.memory_cache")  # VIOLATION + infra-imports
     __import__("sandloom.core._internal.db_provider")  # VIOLATION + infra-imports
     load("acme.modules.billing_lite")  # VIOLATION module-boundaries
     il.import_module(".services", "acme.modules.billing_lite")  # boundaries

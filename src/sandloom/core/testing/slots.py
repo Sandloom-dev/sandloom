@@ -1,8 +1,8 @@
 """Test-run slots: two test runs in one checkout never share a database.
 
 ``sandloom dev up`` writes ``.env.test.local`` next to ``.env.test`` with the
-repository's test servers (``SANDLOOM_TEST_DATABASE_URL`` and the Redis URLs).
-Before anything touches a database, the process that starts a run (the
+repository's test servers (``SANDLOOM_TEST_DATABASE_URL`` and the cache and broker
+URLs). Before anything touches a database, the process that starts a run (the
 ``sandloom test`` parent, or the pytest controller of a plain ``pytest``)
 takes a *slot*:
 
@@ -12,7 +12,7 @@ takes a *slot*:
    crashed run releases its slot with its connection);
 2. slot N points the run at its own database (``sandloom_test_<checkout
    hash>`` for slot 1, ``…_<N>`` after), its own owner
-   (``<machine id>:<checkout>#<N>``) and its own Redis base indexes (claimed
+   (``<machine id>:<checkout>#<N>``) and its own backend resources (claimed
    for that owner), through ``SANDLOOM_TEST_*`` in ``os.environ``, so the
    ownership markers, ``assert_disposable_test_database`` and the xdist
    ``_gw<N>`` copies all see this run's names;
@@ -46,7 +46,7 @@ from collections.abc import Iterable, MutableMapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlunsplit
 
 from dotenv import dotenv_values
 
@@ -59,11 +59,12 @@ from sandloom.core.testing.machine import (
     machine_id,
     short_hash,
 )
+from sandloom.core.url_split import split_url
 
 SLOT_HELD_ENV = "SANDLOOM_TEST_SLOT_HELD"
 OWNER_ENV = "SANDLOOM_TEST_OWNER"
 DATABASE_ENV = "SANDLOOM_TEST_DATABASE_URL"
-REDIS_ENVS = ("SANDLOOM_TEST_CACHE_URL", "SANDLOOM_TEST_BROKER_URL")
+URL_ENVS = ("SANDLOOM_TEST_CACHE_URL", "SANDLOOM_TEST_BROKER_URL")
 MAX_SLOTS = 64
 #: ``application_name`` prefix of a slot's connection (names the holder).
 APPLICATION_PREFIX = "sandloom-test-slot"
@@ -80,7 +81,7 @@ class Slot:
     number: int
     database_url: str
     owner: str
-    redis_urls: dict[str, str] = field(default_factory=dict)
+    family_urls: dict[str, str] = field(default_factory=dict)
     #: The URLs the harness families claimed for this slot (handed back on release).
     claimed_urls: tuple[str, ...] = ()
     connection: Any = None
@@ -118,7 +119,7 @@ def slot_database_url(base_url: str, number: int) -> str:
     """``base_url`` for slot ``number``: the name as is for slot 1, else ``_N``."""
     if number <= 1:
         return base_url
-    parts = urlsplit(base_url)
+    parts = split_url(base_url)
     name = parts.path.lstrip("/")
     return urlunsplit(parts._replace(path=f"/{name}_{number}"))
 
@@ -161,7 +162,7 @@ def local_env_file(starts: Iterable[Path]) -> Path | None:
 
 
 def _admin_dsn(url: str) -> str:
-    parts = urlsplit(url)
+    parts = split_url(url)
     return urlunsplit(parts._replace(scheme="postgresql", path="/postgres", query=""))
 
 
@@ -237,18 +238,20 @@ def _point_at(
 ) -> None:
     env[DATABASE_ENV] = slot.database_url
     env[OWNER_ENV] = slot.owner
-    redis = {var: values[var] for var in REDIS_ENVS if values.get(var)}
+    urls = {var: values[var] for var in URL_ENVS if values.get(var)}
     try:
-        claimed = _claim_family_bases(redis, slot.owner, env)
+        claimed = _claim_family_bases(urls, slot.owner, env)
     except families.HarnessFamilyError:
-        raise  # a broken family is not "Redis full": refuse it as what it is
-    except (OSError, RuntimeError) as exc:  # Redis full: the run reports it itself
+        raise  # a broken family is not "backend full": refuse it as what it is
+    except (OSError, RuntimeError) as exc:  # backend full: the run reports it itself
         claimed = {}
         if announce:
-            print(f"sandloom testing: no own Redis indexes ({exc})", file=sys.stderr)
-    slot.redis_urls = {**redis, **claimed}
+            print(
+                f"sandloom testing: no own backend resources ({exc})", file=sys.stderr
+            )
+    slot.family_urls = {**urls, **claimed}
     slot.claimed_urls = tuple(dict.fromkeys(claimed.values()))
-    env.update(slot.redis_urls)
+    env.update(slot.family_urls)
     env[SLOT_HELD_ENV] = str(os.getpid())
 
 
@@ -307,7 +310,7 @@ def acquire_test_slot(
         conn.close()  # frees the advisory lock of a slot this run will not use
         raise
     if announce and number > 1:
-        name = urlsplit(slot.database_url).path.lstrip("/")
+        name = split_url(slot.database_url).path.lstrip("/")
         print(
             f"sandloom testing: another test run holds slot 1 of this checkout; "
             f"this run uses slot {number} (database {name})",
@@ -316,7 +319,7 @@ def acquire_test_slot(
     if environ is None:
         _held = slot
         # `sandloom test` and a plain pytest controller hold the slot until
-        # they exit; then it hands its Redis indexes back (also after a failure).
+        # they exit; then it hands its resources back (also after a failure).
         atexit.register(release_test_slot)
     return slot
 

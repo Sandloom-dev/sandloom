@@ -34,13 +34,14 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlunsplit
 
 from sandloom.core.migrations.pg_sync import psycopg2, sql
 from sandloom.core.testing.ownership import (
     DB_LAST_USED_SETTING,
     DB_MARKER_PREFIX,
 )
+from sandloom.core.url_split import split_url
 
 #: No resource younger than this is ever stale (a run re-stamps on start).
 MIN_AGE_DAYS = 1.0
@@ -95,7 +96,7 @@ def verdict(
 
 
 def _admin_dsn(url: str) -> str:
-    parts = urlsplit(url)
+    parts = split_url(url)
     return urlunsplit(parts._replace(scheme="postgresql", path="/postgres", query=""))
 
 

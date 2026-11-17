@@ -16,6 +16,7 @@ import pytest
 from _redis_required import cache_url_or_unavailable, redis_unavailable
 from sandloom_redis.testing import flush_owned_redis
 from sandloom_redis.testing.ownership import REDIS_OWNER_KEY, claim_redis
+from sandloom_redis.testing.urls import redis_client_installed
 
 from sandloom.core.testing import ownership
 
@@ -82,3 +83,14 @@ def test_claim_redis_refuses_another_owner(
         ownership.TestResourceOwnershipError, match="SANDLOOM_TEST_CACHE"
     ):
         claim_redis(url, owner="run-b")
+
+
+def test_claim_redis_does_not_echo_the_password_of_an_unreadable_url() -> None:
+    """redis-py's own ``ValueError`` quotes the url it cannot read, with the
+    password; the claim refuses with a fixed message before it gets there."""
+    if not redis_client_installed():
+        redis_unavailable("the redis client is not installed")
+    url = f"redis://user:S3cr3tPw{chr(0xFF1A)}x@127.0.0.1:6418/3"
+    with pytest.raises(ValueError, match="cannot be parsed") as caught:
+        claim_redis(url, owner="run-a")
+    assert "S3cr3tPw" not in str(caught.value)

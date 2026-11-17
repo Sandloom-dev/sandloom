@@ -33,9 +33,9 @@ import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Mapping, Sequence
 from typing import Any, ClassVar, NamedTuple, TypeVar
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from sandloom.driverkit import (
     BroadcastMessage,
@@ -47,8 +47,9 @@ from sandloom.driverkit import (
     TooLarge,
     Unavailable,
 )
+from sandloom.driverkit.url_split import split_url
 from sandloom_redis._errors import map_redis_error
-from sandloom_redis._url import require_url
+from sandloom_redis._url import checked_url, require_url
 
 _CAPABILITY = "broadcast"
 _PATTERN_SUFFIX = ".*"
@@ -85,6 +86,11 @@ class RedisBroadcastOptions(BaseModel):
     socket_connect_timeout_seconds: float = Field(default=0.5, gt=0)
     health_check_interval_seconds: int = Field(default=30, ge=0)
 
+    @field_validator("url")
+    @classmethod
+    def _url_parses(cls, value: str | None) -> str | None:
+        return checked_url(value)
+
 
 class _Channels(NamedTuple):
     """A subscription's channels: exact names and the prefixes of its patterns
@@ -99,7 +105,7 @@ def _database_prefix(url: str | None) -> str:
     ``redis://`` URL, ``?db=N`` of any, ``0`` when it names none)."""
     index = 0
     if url:
-        parts = urlsplit(url)
+        parts = split_url(url)
         candidate = parts.path.strip("/") if parts.scheme != "unix" else ""
         for value in (candidate, *parse_qs(parts.query).get("db", [])[:1]):
             if value.isdigit():

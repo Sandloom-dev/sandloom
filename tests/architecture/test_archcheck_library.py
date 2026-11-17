@@ -226,7 +226,7 @@ def test_test_imports_rule_detects_the_fixture() -> None:
         FIXTURES / "broken_module" / "tests" / "conftest.py.txt"
     )
     for shape in (
-        "sandloom.core.drivers.redis_cache",
+        "sandloom.core.drivers.memory_cache",
         "from sandloom.core import database",
         "sandloom.core._internal.db_provider",
         "from sandloom.core.database import Base",
@@ -305,7 +305,7 @@ def test_dynamic_imports_under_every_importlib_alias() -> None:
         "sandloom.core.config.settings",
         "sandloom_tenancy.services",
         "sandloom_billing",
-        "sandloom.core.drivers.redis_cache",
+        "sandloom.core.drivers.memory_cache",
         "sandloom.core._internal.db_provider",
         "acme.modules.billing_lite",
         "acme.modules.billing_lite.services",

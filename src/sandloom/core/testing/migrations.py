@@ -37,7 +37,7 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlunsplit
 
 from alembic import command
 from alembic.config import Config
@@ -54,6 +54,7 @@ from sandloom.core.migrations.pg_sync import psycopg2
 from sandloom.core.migrations.schema_compare import schema_differences
 from sandloom.core.sql_alchemy.base import Base
 from sandloom.core.sql_alchemy.portable import dialect_of_url, schema_from_models
+from sandloom.core.url_split import split_url
 
 
 def runs_no_chains(url: str) -> bool:
@@ -74,7 +75,7 @@ CHAINS_CHECKED_ON_POSTGRESQL = (
 
 
 def _sync(url: str, db: str) -> str:
-    parts = urlsplit(url)
+    parts = split_url(url)
     return urlunsplit(parts._replace(scheme="postgresql", path=f"/{db}", query=""))
 
 

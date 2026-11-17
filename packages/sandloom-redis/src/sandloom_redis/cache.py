@@ -40,7 +40,7 @@ from functools import cache
 from types import MappingProxyType
 from typing import Any, Self, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from sandloom.driverkit import (
     DEFAULT_INSTANCE,
@@ -58,9 +58,9 @@ from sandloom.driverkit.atomic_store import MAX_KEY_BYTES, MAX_TTL_SECONDS
 from sandloom.driverkit.shared_endpoints import redis_endpoint
 from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
-from sandloom.driverkit.testing_isolation import isolated_redis_options
+from sandloom.driverkit.testing_isolation import isolated_url_options
 from sandloom_redis._errors import map_redis_error
-from sandloom_redis._url import require_url
+from sandloom_redis._url import checked_url, require_url
 from sandloom_redis.backup import cache_hint
 
 #: Redis / socket failures of cache operations (a caller's ValueError or
@@ -99,6 +99,11 @@ class RedisCacheOptions(BaseModel):
     max_connections: int = Field(default=64, ge=1)
     pool_timeout_seconds: float = Field(default=1.0, gt=0)
     retry_attempts: int = Field(default=1, ge=0, le=5)
+
+    @field_validator("url")
+    @classmethod
+    def _url_parses(cls, value: str | None) -> str | None:
+        return checked_url(value)
 
 
 logger = logging.getLogger(__name__)
@@ -440,7 +445,7 @@ class RedisCacheProvider(CacheProvider):
         cls, options: Mapping[str, Any], worker_id: str
     ) -> Mapping[str, Any]:
         """Another database index of the configured URL for each xdist worker."""
-        return isolated_redis_options(options, worker_id)
+        return isolated_url_options(options, worker_id)
 
     @classmethod
     def backup_hint(cls, options: Mapping[str, Any]) -> BackupHint | None:

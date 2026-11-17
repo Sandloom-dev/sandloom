@@ -83,7 +83,7 @@ _HOLDER = textwrap.dedent(
     from sandloom.core.testing import slots
     slot = slots.acquire_test_slot([Path(sys.argv[1])], cwd=Path(sys.argv[1]))
     print(json.dumps({"number": slot.number, "db": slot.database_url,
-                      "owner": slot.owner, "redis": slot.redis_urls}), flush=True)
+                      "owner": slot.owner, "redis": slot.family_urls}), flush=True)
     time.sleep(60)
     """
 )

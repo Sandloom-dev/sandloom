@@ -51,9 +51,10 @@ reports overrides; the refusals stay here.
 from __future__ import annotations
 
 import logging
+import posixpath
 from collections.abc import Iterable, Mapping
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote
 
 import sandloom.core.tenant as _tenant
 from sandloom.core import rpc_pair_mac
@@ -61,6 +62,7 @@ from sandloom.core.config import accepted_risks
 from sandloom.core.config.common import strict_profile_active
 from sandloom.core.infra import config as infra_config
 from sandloom.core.infra.registry import InfraRegistry, declared_url_options
+from sandloom.core.url_split import split_url
 
 logger = logging.getLogger("sandloom.production_profile")
 
@@ -74,8 +76,15 @@ def _server(url: object) -> tuple[str, str, int | None] | None:
     port the url leaves out stays ``None``: the kernel knows no driver's default."""
     if not isinstance(url, str) or not url:
         return None
-    parts = urlsplit(url)
-    host = (parts.hostname or "").lower()
+    parts = split_url(url)
+    # ``c.`` is the fully-qualified spelling of ``c``: one host, so one server.
+    if parts.scheme.lower().split("+")[-1] == "unix" and parts.path:
+        # a unix socket (``unix:///run/x.sock``, ``<driver>+unix://...``) names
+        # its server by the socket path, whatever the driver prefix and whatever
+        # host the url states (``unix://localhost/run/x.sock`` is the same
+        # socket as ``unix:///run/x.sock``); the driver reads the path decoded
+        return "unix", f"unix:{posixpath.normpath(unquote(parts.path))}", None
+    host = (parts.hostname or "").lower().rstrip(".")
     if not host:
         return None
     try:
