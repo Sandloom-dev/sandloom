@@ -11,6 +11,11 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join, relative, sep } from 'node:path';
+import { nodeProblem, pinnedNode } from './node-pin.mjs';
+
+// Also run directly after a build: the committed .gz and .br must come from the pinned Node.
+const problem = nodeProblem(process.versions.node, pinnedNode());
+if (problem) throw new Error(problem);
 
 const admin = new URL('..', import.meta.url).pathname;
 const repository = join(admin, '..');

@@ -33,7 +33,8 @@ translated. Dates and numbers use `en-US` formatting. Operator help is under
 
 ## Local development
 
-With a Sandloom backend running, install Node >=22.12 and run:
+With a Sandloom backend running, install Node 22.12 or later (22.21.1 in `admin/.nvmrc` is the one `npm run package`
+needs; other versions only warn) and run:
 
 ```bash
 cd admin
@@ -62,8 +63,16 @@ cd admin
 npm run package
 ```
 
+Run it on Node 22.21.1, the version in `admin/.nvmrc` (`nvm use` reads it). The precompressed
+`.gz` and `.br` files are bytes of the zlib and brotli inside Node. `npm run package` refuses
+any other Node. CI runs it again and fails when the committed copy changes.
+
 Commit the result. A test compares its recorded hash with the source, so a stale copy
 fails `sandloom test`. Python contributors and the release build need no Node.
+
+To bump the Node pin, change `admin/.nvmrc` and `engines.node` in `admin/package.json`
+together. Then run `npm run package` and commit the console if its bytes changed. The dev
+image `admin/Dockerfile` is exempt: its `dist/` is not committed.
 
 To see it end to end, from real wheels through a browser sign-in:
 

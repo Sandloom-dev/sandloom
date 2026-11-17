@@ -4,6 +4,9 @@ COPY package.json package-lock.json ./
 COPY patches ./patches
 COPY scripts/dependency-compat.test.mjs ./scripts/dependency-compat.test.mjs
 COPY scripts/apply-build-tool-patches.mjs ./scripts/apply-build-tool-patches.mjs
+# The install-time test reads the Node pin (dependency-compat.test.mjs imports node-pin.mjs).
+COPY .nvmrc ./.nvmrc
+COPY scripts/node-pin.mjs ./scripts/node-pin.mjs
 RUN npm ci
 COPY . .
 RUN npm run build

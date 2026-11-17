@@ -36,7 +36,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          # The one Node that builds the console (admin/.nvmrc): the packaged .gz / .br bytes
+          # depend on its zlib and brotli.
+          node-version-file: admin/.nvmrc
           cache: npm
           cache-dependency-path: admin/package-lock.json
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -72,6 +74,16 @@ jobs:
           SANDLOOM_TEST_BROKER_URL: redis://127.0.0.1:6380/1
       - run: docker build -t sandloom-admin:local .
       - run: python3 scripts/smoke-container.py
+      # The reproducibility check: the pinned Node packages the console again and the committed
+      # copy (.gz and .br included) must not change. Last, because it rewrites dist/.
+      - name: Packaged console is current and reproducible
+        run: |
+          npm run package
+          test -z "$(git status --porcelain -- ../src/sandloom_admin/console)" || {
+            git status --short -- ../src/sandloom_admin/console
+            echo "::error::npm run package changed src/sandloom_admin/console: run it on Node $(cat .nvmrc) and commit the result"
+            exit 1
+          }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:

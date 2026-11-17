@@ -97,6 +97,7 @@
       "paths": [
         "admin/.dockerignore",
         "admin/.gitignore",
+        "admin/.nvmrc",
         "admin/.prettierignore",
         "admin/.prettierrc.json",
         "admin/.storybook/main.ts",
@@ -138,6 +139,7 @@
         "admin/scripts/dependency-compat.test.mjs",
         "admin/scripts/export_openapi.py",
         "admin/scripts/licenses.mjs",
+        "admin/scripts/node-pin.mjs",
         "admin/scripts/package-console.mjs",
         "admin/scripts/smoke-container.py",
         "admin/scripts/verify-preview.mjs",
