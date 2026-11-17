@@ -12,11 +12,14 @@ import time
 import pytest
 
 from sandloom.core.cli import url_text
+from sandloom.core.migrations import url_mask as old_path
 from sandloom.core.migrations.backup import _postgres_item, _redis_item
 from sandloom.core.migrations.migrations import _mask_dsns, _mask_url
-from sandloom.core.migrations.url_mask import (
+from sandloom.core.url_mask import (
+    MAX_CHAINED_SCHEMES,
     mask_query_secrets,
     mask_url_credentials,
+    mask_url_userinfo,
     split_url_list,
 )
 
@@ -263,8 +266,90 @@ def test_a_long_word_after_a_scheme_is_masked_in_linear_time() -> None:
     assert time.perf_counter() - started < 2.0
 
 
+def _repeat(piece: str, size: int = 50_000) -> str:
+    return (piece * (size // len(piece) + 1))[:size]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(_repeat("y://u:p;"), id="y-scheme-semicolon"),
+        pytest.param(_repeat("a://u:p;"), id="a-scheme-semicolon"),
+        pytest.param(_repeat("x://u:p; "), id="semicolon-space"),
+    ],
+)
+def test_a_chain_of_semicolon_schemes_is_not_quadratic(text: str) -> None:
+    """Unbounded, every ``y://u:p;`` of a line without ``@`` scanned to the end of
+    the line: 12 s on 50 000 characters. The chain is capped."""
+    started = time.perf_counter()
+    mask_url_credentials(text)
+    assert time.perf_counter() - started < 1.0
+
+
+def test_a_password_that_chains_the_capped_number_of_schemes_is_masked_whole() -> None:
+    """The documented limit: eight ``;x://`` pieces are one password, a ninth is
+    not (the pieces before the last eight are printed)."""
+    pieces = "".join(f";k{i}://pw{i}" for i in range(MAX_CHAINED_SCHEMES))
+    url = f"pg://u:s0{pieces}@h/db"
+    assert mask_url_credentials(url, keep_user=False) == "pg://***@h/db"
+    assert _mask_url(url) == "pg://***@h/db"
+    longer = f"pg://u:s0;z://z{pieces}@h/db"
+    assert "s0" in mask_url_credentials(longer, keep_user=False)
+    assert _mask_url(longer) == "pg://***@h/db"
+
+
+@pytest.mark.parametrize(
+    ("raw", "masked"),
+    [
+        # sandloom: secret-fixture — synthetic redaction test values
+        ("redis://h:6379/0?password=p@ss", "redis://h:6379/0?password=***"),
+        (
+            "postgresql://u@h/db?sslpassword=ab@cd",
+            "postgresql://***@h/db?sslpassword=***",
+        ),
+        ("redis://u:p@ss@h/0?token=x@y", "redis://***@h/0?token=***"),
+    ],
+)
+def test_a_raw_at_in_a_query_secret_does_not_move_the_end_of_the_userinfo(
+    raw: str, masked: str
+) -> None:
+    """The query is masked first: the userinfo does not run to the ``@`` inside
+    ``?password=p@ss`` and eat the name of the parameter."""
+    assert _mask_url(raw) == masked
+    assert mask_url_credentials(raw, keep_user=False) == masked
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "password",
+        "passwd",
+        "pass",
+        "pwd",
+        "secret",
+        "token",
+        "key",
+        "sig",
+        "signature",
+        "auth",
+        "credential",
+        "credentials",
+    ],
+)
+def test_every_secret_query_name_is_masked(name: str) -> None:
+    """Each name of the pattern, alone, behind a prefix and in capitals: removing
+    one from ``_QUERY_PARAM_HEAD`` prints its value."""
+    for param in (name, f"ssl_{name}", name.upper()):
+        raw = f"redis://h/0?x=1&{param}=zzTOPSECRETzz"
+        assert mask_query_secrets(raw) == f"redis://h/0?x=1&{param}=***"
+
+
 def test_the_cli_and_the_migration_runner_mask_with_one_masker() -> None:
     """``cli.url_text`` re-exports the leaf the runner imports: one masker, so a
     leak fixed there is fixed in ``sandloom config``, ``doctor`` and the plan."""
     assert url_text.mask_url_credentials is mask_url_credentials
     assert url_text.mask_query_secrets is mask_query_secrets
+    # the old path of the module re-exports the same functions.
+    assert old_path.mask_url_credentials is mask_url_credentials
+    assert old_path.split_url_list is split_url_list
+    assert old_path.mask_url_userinfo is mask_url_userinfo

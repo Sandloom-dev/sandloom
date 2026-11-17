@@ -14,6 +14,8 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, TypeVar, cast
 
+from sandloom.core.url_mask import mask_query_secrets, mask_url_userinfo
+
 # pyright: reportUnknownVariableType=false
 
 logger = logging.getLogger("sandloom.core.observability.guardrails")
@@ -118,31 +120,10 @@ def is_sensitive_key(key: str) -> bool:
 # redaction cannot see inside an f-string, so these patterns catch the common
 # shapes secrets take in prose.
 #
-# The two url patterns are those of ``sandloom.core.migrations.url_mask`` (the
-# masker of ``sandloom config``, ``sandloom doctor`` and the migration logs; see
-# its docstring for the rules): the kernel layers put ``observability`` below
-# ``migrations``, so this module cannot import it, and
-# ``test_scrub_text_equivalence`` runs both on the same urls so that they do not
-# drift apart. Change one, change the other. A scheme is at most 32 characters,
-# which keeps the scan linear on a long word.
-_URL_SCHEME = r"[A-Za-z][A-Za-z0-9+.\-]{0,31}://"
-_URL_USERINFO = rf"(?:(?!{_URL_SCHEME})[^\n])*"
-_USER_AND_COLON = r"(?!\[)[^/?#@;:\s\[]*:"
-_OPEN_USERINFO_START = rf"{_USER_AND_COLON}(?!\d*(?:[/?#\s]|;\s*{_URL_SCHEME}|\Z))"
-_OPEN_PIECE = rf"(?:(?!{_URL_SCHEME})[^\n@])*"
-_DSN_CREDENTIALS = re.compile(
-    rf"(?P<scheme>{_URL_SCHEME})"
-    rf"(?:{_OPEN_USERINFO_START}(?:{_OPEN_PIECE};\s*{_URL_SCHEME})+{_URL_USERINFO}"
-    rf"|{_URL_USERINFO})@"
-)
-#: A query parameter whose NAME ends in a secret word (``password``,
-#: ``sslpassword``, ``access_token``, ``sig``, ...): its value, up to the next
-#: ``&``, ``#`` or space, is masked (a ``;`` in it is part of it).
-_QUERY_SECRET = re.compile(
-    r"(?P<name>[?&;][\w.\-]*?(?:password|passwd|pass|pwd|secret|token|key|sig"
-    r"|signature|auth|credentials?)=)[^&#\s]*",
-    re.IGNORECASE,
-)
+# The url credentials and the secret-named query values are masked by
+# ``sandloom.core.url_mask`` (the masker of ``sandloom config``, ``sandloom
+# doctor`` and the migration logs too; its docstring has the rules): one pattern
+# for all of them. ``scrub_text`` runs it last, after the ``key=value`` pairs.
 _PROVIDER_SECRET = re.compile(
     r"\b(?:sk_(?:live|test)_|rk_(?:live|test)_|whsec_)[A-Za-z0-9_]+"
 )
@@ -199,20 +180,20 @@ def _mask_value(match: re.Match[str]) -> str:
 def scrub_text(text: str) -> str:
     """Redact secrets embedded in free text (messages, exception strings).
 
-    Masks DSN credentials (``scheme://user:pass@`` -> ``scheme://***@``; the
-    userinfo runs to the last ``@`` of the line, so a password with a raw ``@``
-    is hidden whole), the value of a secret-named query parameter
-    (``?password=``, ``&sig=``, ...), SQL bound-parameter blocks, bearer tokens
-    and ``<secret-ish key>=<value>`` pairs. Best-effort and never raises.
+    Masks the value of a secret-named query parameter (``?password=``,
+    ``&sig=``, ...), SQL bound-parameter blocks, bearer tokens,
+    ``<secret-ish key>=<value>`` pairs, then DSN credentials
+    (``scheme://user:pass@`` -> ``scheme://***@``; the userinfo runs to the last
+    ``@`` of the line, so a password with a raw ``@`` is hidden whole, and the
+    secrets in front of it are gone already, so the run does not eat their
+    names). See :mod:`sandloom.core.url_mask`. Best-effort and never raises.
     """
     if not text:
         return text
     try:
         out = text
-        if "://" in out:
-            out = _DSN_CREDENTIALS.sub(r"\g<scheme>***@", out)
         if "=" in out:
-            out = _QUERY_SECRET.sub(r"\g<name>***", out)
+            out = mask_query_secrets(out)
         if any(
             prefix in out
             for prefix in ("sk_live_", "sk_test_", "rk_live_", "rk_test_", "whsec_")
@@ -222,13 +203,16 @@ def scrub_text(text: str) -> str:
             out = _SQL_PARAMETERS.sub("[parameters: ***]", out)
         if not out.isascii():
             out = _BEARER.sub(r"\1 ***", out)
-            return _KEY_VALUE.sub(_mask_value, out)
-        low = out.lower()
-        if "bearer" in low:
-            out = _BEARER.sub(r"\1 ***", out)
-            low = out.lower()
-        if any(marker in low for marker in _KEY_VALUE_MARKERS):
             out = _KEY_VALUE.sub(_mask_value, out)
+        else:
+            low = out.lower()
+            if "bearer" in low:
+                out = _BEARER.sub(r"\1 ***", out)
+                low = out.lower()
+            if any(marker in low for marker in _KEY_VALUE_MARKERS):
+                out = _KEY_VALUE.sub(_mask_value, out)
+        if "://" in out:
+            out = mask_url_userinfo(out, keep_user=False)
         return out
     except Exception:  # pragma: no cover  # noqa: BLE001 - redaction must never break logging
         return text

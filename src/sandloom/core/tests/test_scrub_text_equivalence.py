@@ -16,26 +16,17 @@ import time
 
 import pytest
 
-from sandloom.core.migrations.url_mask import mask_url_credentials
 from sandloom.core.observability.guardrails import scrub_text
+from sandloom.core.url_mask import (
+    mask_query_secrets,
+    mask_url_credentials,
+    mask_url_userinfo,
+)
 
 # ---- reference: independent unconditional security substitutions ---------
-#: Credentials run from ``scheme://`` to the last ``@`` of the line, without
-#: crossing another ``scheme://``; across a ``;`` + scheme only when the password
-#: is open before it (``user:`` + not a port, no ``@``: ``u:a;b://c@h``).
-_REF_SCHEME = r"[A-Za-z][A-Za-z0-9+.\-]{0,31}://"
-_REF_NOT_A_PORT = rf"(?!\d*(?:[/?#\s]|;\s*{_REF_SCHEME}|\Z))"
-_REF_USERINFO = rf"(?:(?!{_REF_SCHEME})[^\n])*"
-_REF_DSN = re.compile(
-    rf"(?P<scheme>{_REF_SCHEME})(?:"
-    rf"(?!\[)[^/?#@;:\s\[]*:{_REF_NOT_A_PORT}"
-    rf"(?:(?:(?!{_REF_SCHEME})[^\n@])*;\s*{_REF_SCHEME})+{_REF_USERINFO}"
-    rf"|{_REF_USERINFO})@"
-)
-_REF_QUERY = re.compile(
-    r"(?i)(?P<name>[?&;][\w.\-]*?(?:password|passwd|pass|pwd|secret|token|key|sig"
-    r"|signature|auth|credentials?)=)[^&#\s]*"
-)
+# The url credentials and the query secrets are the shared masker of
+# ``sandloom.core.url_mask`` (one pattern, no copy here); the reference runs it
+# unconditionally, query first and credentials last, like ``scrub_text``.
 _REF_PROVIDER = re.compile(
     r"\b(?:sk_(?:live|test)_|rk_(?:live|test)_|whsec_)[A-Za-z0-9_]+"
 )
@@ -61,12 +52,12 @@ def _ref_mask(match: re.Match[str]) -> str:
 def reference_scrub(text: str) -> str:
     if not text:
         return text
-    out = _REF_DSN.sub(r"\g<scheme>***@", text)
-    out = _REF_QUERY.sub(r"\g<name>***", out)
+    out = mask_query_secrets(text)
     out = _REF_PROVIDER.sub("***", out)
     out = _REF_SQL.sub("[parameters: ***]", out)
     out = _REF_BEARER.sub(r"\1 ***", out)
-    return _REF_KV.sub(_ref_mask, out)
+    out = _REF_KV.sub(_ref_mask, out)
+    return mask_url_userinfo(out, keep_user=False)
 
 
 # ---- corpus -----------------------------------------------------------------
@@ -278,9 +269,69 @@ def test_url_credentials_are_hidden_whole(raw: str, secret: str) -> None:
     assert out == reference_scrub(raw)
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # sandloom: secret-fixture — synthetic redaction test values
+        # A raw '@' is legal in a query: the userinfo of the url in front of it
+        # must not run to that '@' and eat the name of the parameter.
+        ("redis://h:6379/0?password=p@ss", "redis://h:6379/0?password=***"),
+        (
+            "postgresql://u@h/db?sslpassword=ab@cd",
+            "postgresql://***@h/db?sslpassword=***",
+        ),
+        (
+            "connect url=postgresql://db:5432/app password=hunter@2",
+            "connect url=postgresql://db:5432/app password=***",
+        ),
+        ("redis://u:p@ss@h/0?token=x@y", "redis://***@h/0?token=***"),
+    ],
+)
+def test_a_raw_at_after_a_url_does_not_hide_the_name_of_a_secret(
+    raw: str, expected: str
+) -> None:
+    """The ``key=value`` and query steps run before the credentials: their names
+    are still there when the userinfo runs to the last ``@`` of the line."""
+    assert scrub_text(raw) == expected
+    assert reference_scrub(raw) == expected
+
+
+#: The names the query step masks (``url_mask._QUERY_PARAM_HEAD``), each in
+#: lower and upper case, alone and behind a prefix: removing one from the
+#: pattern prints its value through ``scrub_text``.
+_SECRET_QUERY_NAMES = [
+    "password",
+    "passwd",
+    "pass",
+    "pwd",
+    "secret",
+    "token",
+    "key",
+    "sig",
+    "signature",
+    "auth",
+    "credential",
+    "credentials",
+]
+
+
+@pytest.mark.parametrize("name", _SECRET_QUERY_NAMES)
+@pytest.mark.parametrize("variant", ["plain", "prefixed", "upper"])
+def test_every_secret_query_name_is_masked_by_the_scrubber(
+    name: str, variant: str
+) -> None:
+    param = {"plain": name, "prefixed": f"ssl_{name}", "upper": name.upper()}[variant]
+    for sep in ("?", "&", ";"):
+        # A url without ``@`` and without a ``key=value`` shape the other steps
+        # would mask: only the query step is under test.
+        raw = f"redis://h/0{sep}x=1{sep}{param}=zzTOPSECRETzz"
+        assert scrub_text(raw) == f"redis://h/0{sep}x=1{sep}{param}=***", raw
+        assert mask_query_secrets(raw) == f"redis://h/0{sep}x=1{sep}{param}=***", raw
+
+
 #: Urls on which the scrubber and the masker of ``sandloom config`` / the migration
-#: logs (``url_mask``, which the kernel layers keep out of ``observability``'s
-#: reach) must print the same text: the two patterns are copies and drift here.
+#: logs (``sandloom.core.url_mask``) must print the same text: ``scrub_text`` runs
+#: that masker, and these urls show that its other steps leave them as they are.
 _SHARED_URLS = [
     "postgresql://u:p@ss@h/db",
     "postgresql://u:p/ss@h/db",
@@ -318,6 +369,27 @@ def test_a_long_run_after_a_scheme_is_linear() -> None:
     started = time.perf_counter()
     assert scrub_text(text) == text
     assert time.perf_counter() - started < 2.0
+
+
+def _repeat(piece: str, size: int = 50_000) -> str:
+    return (piece * (size // len(piece) + 1))[:size]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(_repeat("y://u:p;"), id="y-scheme-semicolon"),
+        pytest.param(_repeat("a://u:p;"), id="a-scheme-semicolon"),
+        pytest.param(_repeat("x://u:p; "), id="semicolon-space"),
+    ],
+)
+def test_a_chain_of_semicolon_schemes_is_not_quadratic(text: str) -> None:
+    """The open-password branch chains ``;x://`` pieces; unbounded, every start
+    scanned to the end of a line without ``@``: 12 s on 50 000 characters. The
+    chain is capped (``url_mask.MAX_CHAINED_SCHEMES``)."""
+    started = time.perf_counter()
+    scrub_text(text)
+    assert time.perf_counter() - started < 1.0
 
 
 def test_long_identifier_is_linear() -> None:
