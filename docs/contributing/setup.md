@@ -63,10 +63,10 @@ the contract and route snapshots, migration drift) build `sandloom_standard.main
 process or in `.env`, still wins over that default.
 
 `sandloom migrate` reads only the variable, as the worker and the operator CLIs
-(`sandloom outbox`, `sandloom streams`, `sandloom projection`) do: it migrates the app
-a deployment runs, and a deployment names it in the variable. Without it they get the
-lean root and refuse with `SANDLOOM-B035`. `sandloom test` sets the variable for its
-own migration drift step. Export it for the rest:
+(`sandloom outbox`, `sandloom streams`, `sandloom projection`) do. It migrates the app a
+deployment runs, and a deployment names that app in the variable. Without it they get
+the lean root and refuse with `SANDLOOM-B035`. `sandloom test` sets the variable for
+its own migration drift step. Export it for the rest:
 
 ```bash
 export SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main
