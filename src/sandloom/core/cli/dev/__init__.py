@@ -1,14 +1,18 @@
-"""``sandloom dev``: local Postgres and Redis without collisions.
+"""``sandloom dev``: local Postgres and the stack's keyed server without
+collisions.
 
 One set of containers per **repository** (the main checkout and its git
-worktrees share them), one database and one pair of Redis indexes per
-**checkout**, one test database per **test run**::
+worktrees share them), one database and one pair of keyed-server indexes per
+**checkout**, one test database per **test run**. The keyed server is the one
+the installed driver package describes
+(:mod:`sandloom.core.cli.stack_service`)::
 
     sandloom dev up                   start / check the services, write this
                                       checkout's .env block and .env.test.local
-    sandloom dev up --services external --database-url URL --redis-url URL
-                                      your own PostgreSQL and Redis (Homebrew,
-                                      Postgres.app): no Docker, kept in the state
+    sandloom dev up --services external --database-url URL --kv-url URL
+                                      your own PostgreSQL and keyed server
+                                      (Homebrew, Postgres.app): no Docker, kept
+                                      in the state
     sandloom dev up --services docker back to the compose project
     sandloom dev status [--json]      services, ports, reachability, URLs
     sandloom dev run [--port N|auto]  uvicorn for this checkout (its own port:
@@ -47,7 +51,7 @@ from sandloom.core.cli.dev import identity as _identity
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sandloom dev",
-        description="Local Postgres and Redis for this repository and checkout",
+        description="Local Postgres and keyed server for this repository and checkout",
     )
     sub = parser.add_subparsers(dest="action", required=True)
     up = sub.add_parser("up", help="start the services, write this checkout's .env")
@@ -73,8 +77,9 @@ def _parser() -> argparse.ArgumentParser:
         choices=("docker", "external"),
         default=None,
         help="docker: the compose project (the default); external: PostgreSQL "
-        "and Redis you already run (kept for the next commands)",
+        "and keyed server you already run (kept for the next commands)",
     )
+    # The keyed server is the stack's (Redis, from the sandloom-redis package).
     up.add_argument(
         "--database-url",
         default=None,
@@ -82,9 +87,10 @@ def _parser() -> argparse.ArgumentParser:
         "create databases (default: postgresql://$USER@127.0.0.1:5432/postgres)",
     )
     up.add_argument(
-        "--redis-url",
+        "--kv-url",
         default=None,
-        help="with --services external: your Redis (default: redis://127.0.0.1:6379)",
+        help="with --services external: your keyed server (the one the stack's "
+        "driver package describes; default: its local server on 127.0.0.1)",
     )
     status = sub.add_parser("status", help="services, ports, URLs")
     status.add_argument("--json", action="store_true", help="machine-readable")
@@ -117,7 +123,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("prune", help="drop what removed worktrees and old runs left")
     logs = sub.add_parser("logs", help="the services' logs")
-    logs.add_argument("service", nargs="?", help="db, redis, postgres_test, redis_test")
+    logs.add_argument(
+        "service",
+        nargs="?",
+        help="a service of the compose file (`docker compose config --services`)",
+    )
     logs.add_argument("-f", "--follow", action="store_true")
     return parser
 
@@ -131,7 +141,7 @@ def _dispatch(ctx: _commands.Context, args: argparse.Namespace) -> int:
             pull=not args.no_pull,
             services=args.services,
             database_url=args.database_url,
-            redis_url=args.redis_url,
+            kv_url=args.kv_url,
         )
         return _commands.up(ctx, options)
     if args.action == "status":

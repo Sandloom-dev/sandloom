@@ -238,12 +238,6 @@ def _check_contents(package: str, wheel: Path) -> None:
 #: ``sandloom-celery``. ``asyncpg`` is the kernel's one backend client, and it
 #: stays an extra (``sandloom[postgres]``): imported, never required.
 KERNEL_BANNED_IMPORTS = frozenset({"redis", "aioredis", "celery", "kombu"})
-#: The one kernel module that may name ``redis``: ``sandloom dev`` pings and
-#: inspects the developer's own Redis server through the client when the
-#: ``redis`` extra installed it (``importlib.import_module("redis")`` inside
-#: ``except ImportError``; without it the check stops at a TCP connect). A
-#: guarded import only: the kernel wheel requires no Redis client.
-KERNEL_GUARDED_REDIS = "sandloom.core.cli.dev.services"
 #: Requirements the kernel wheel never declares unconditionally: a base
 #: requirement installs with ``pip install sandloom``.
 KERNEL_BANNED_BASE_REQUIREMENTS = KERNEL_BANNED_IMPORTS | {
@@ -317,38 +311,26 @@ def check_kernel_backends(wheel: Path) -> None:
     """The kernel wheel names no Redis or Celery and requires no database client.
 
     Three rules, read from the built wheel: no ``.py`` file imports ``redis``,
-    ``aioredis``, ``celery`` or ``kombu`` (at any depth), but the one guarded
-    import of :data:`KERNEL_GUARDED_REDIS` (and that module must still have
-    it); no code string is a Redis wire command or a Lua call; and no
+    ``aioredis``, ``celery`` or ``kombu`` (at any depth, guarded or not: the
+    Redis server of ``sandloom dev`` is described by ``sandloom-redis``); no
+    code string is a Redis wire command or a Lua call; and no
     base requirement installs a Redis, Celery or ``asyncpg`` distribution, with
     ``asyncpg`` declared by the ``postgres`` extra (the kernel serves SQLite
     without it)."""
     built = distribution_imports.read_wheel(wheel)
     problems: list[str] = []
-    guarded_seen = False
     for module, source in sorted(built.modules.items()):
         imports = distribution_imports.module_imports(
             source, module, is_package=module in built.packages
         )
-        for found in imports:
-            if found.target.split(".")[0] not in KERNEL_BANNED_IMPORTS:
-                continue
-            if (
-                module == KERNEL_GUARDED_REDIS
-                and found.optional
-                and found.target.split(".")[0] == "redis"
-            ):
-                guarded_seen = True
-            else:
-                problems.append(f"{module}:{found.line} imports {found.target}")
+        problems.extend(
+            f"{module}:{found.line} imports {found.target}"
+            for found in imports
+            if found.target.split(".")[0] in KERNEL_BANNED_IMPORTS
+        )
         problems.extend(
             f"{module} carries Redis protocol code {text[:40]!r}"
             for text in _wire_code_strings(source)
-        )
-    if not guarded_seen:
-        problems.append(
-            f"stale exemption: {KERNEL_GUARDED_REDIS} no longer has a guarded "
-            "redis import; drop KERNEL_GUARDED_REDIS"
         )
     required = built.requires & KERNEL_BANNED_BASE_REQUIREMENTS
     if required:

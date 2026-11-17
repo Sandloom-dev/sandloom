@@ -430,7 +430,7 @@ def kernel_wheel(path: Path, sources: dict[str, str], metadata: str) -> Path:
     return path
 
 
-DEV_SERVICES = {"sandloom/core/cli/dev/services.py": GUARDED_REDIS}
+DEV_SERVICES = {"sandloom/core/cli/dev/services.py": "x = 1\n"}
 KERNEL_CASES = {
     "clean": (DEV_SERVICES, KERNEL_METADATA, ""),
     "docstring and comment name a command": (
@@ -459,25 +459,10 @@ KERNEL_CASES = {
         KERNEL_METADATA,
         "sandloom.core.a:6 imports redis",
     ),
-    "unguarded redis import in the exempt module": (
-        {"sandloom/core/cli/dev/services.py": "import redis\n"},
+    "the dev services module has no exemption left": (
+        {"sandloom/core/cli/dev/services.py": GUARDED_REDIS},
         KERNEL_METADATA,
-        "sandloom.core.cli.dev.services:1 imports redis",
-    ),
-    "guarded celery import in the exempt module": (
-        {
-            "sandloom/core/cli/dev/services.py": GUARDED_REDIS
-            + "\n\ndef broker():\n    try:\n"
-            "        return importlib.import_module('celery')\n"
-            "    except ImportError:\n        return None\n"
-        },
-        KERNEL_METADATA,
-        "sandloom.core.cli.dev.services:13 imports celery",
-    ),
-    "exemption gone stale": (
-        {"sandloom/core/cli/dev/services.py": "x = 1\n"},
-        KERNEL_METADATA,
-        "stale exemption",
+        "sandloom.core.cli.dev.services:6 imports redis",
     ),
     "celery import": (
         {**DEV_SERVICES, "sandloom/core/a.py": "import celery\n"},

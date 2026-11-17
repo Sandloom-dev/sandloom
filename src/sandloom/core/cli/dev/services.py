@@ -1,13 +1,12 @@
-"""Talking to the dev services from the host: reachability, databases,
-Redis indexes, who else is connected. The servers are the compose project's
-(Docker) or the person's own (``--services external``: Homebrew,
-Postgres.app), given as URLs (:meth:`Postgres.from_url`,
-:meth:`RedisServer.from_url`)."""
+"""Talking to the dev services from the host: reachability, databases, who
+else is connected. The servers are the compose project's (Docker) or the
+person's own (``--services external``: Homebrew, Postgres.app), given as URLs
+(:meth:`Postgres.from_url`). The stack's keyed server is the one the driver
+package describes (:class:`~sandloom.core.cli.stack_service.StackService`): its
+checks are not here."""
 
 from __future__ import annotations
 
-import contextlib
-import importlib
 import socket
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -20,26 +19,15 @@ from sandloom.core.url_split import split_url
 #: (user, password) of the generated compose file's local services.
 DEV_CREDENTIALS = ("sandloom", "sandloom")
 TEST_CREDENTIALS = ("test_user", "test_password")
-DEFAULT_PG_PORT, DEFAULT_REDIS_PORT = 5432, 6379
+DEFAULT_PG_PORT = 5432
 
 
-def _redis_module() -> Any:
-    """The redis client (the ``redis`` extra), imported on first use; ``None``
-    without it, and the Redis checks stop at TCP."""
-    try:
-        redis = importlib.import_module("redis")  # the optional extra, by name
-    except ImportError:  # pragma: no cover - lean install
-        return None
-    return redis
-
-
-def service_errors() -> tuple[type[BaseException], ...]:
-    """What a client raises when a dev service is down or refuses us."""
-    found: tuple[type[BaseException], ...] = (psycopg2.Error, OSError)
-    redis = _redis_module()
-    if redis is not None:
-        found += (redis.RedisError,)
-    return found
+def service_errors(
+    extra: tuple[type[BaseException], ...] = (),
+) -> tuple[type[BaseException], ...]:
+    """What a client raises when a dev service is down or refuses us: the
+    PostgreSQL client's and the OS's, with ``extra`` (the keyed server's)."""
+    return (psycopg2.Error, OSError, *extra)
 
 
 @dataclass(frozen=True)
@@ -99,50 +87,6 @@ class Postgres:
         )
         conn.autocommit = True
         return conn
-
-
-@dataclass(frozen=True)
-class RedisServer:
-    host: str
-    port: int
-    password: str = ""
-
-    def url(self, index: int | None = None) -> str:
-        auth = f":{quote(self.password, safe='')}@" if self.password else ""
-        tail = "" if index is None else f"/{index}"
-        return f"redis://{auth}{self.host}:{self.port}{tail}"
-
-    @classmethod
-    def from_url(cls, url: str) -> RedisServer:
-        parts = split_url(url.strip())
-        if parts.scheme == "rediss":
-            # TLS is not carried end to end yet (the URLs written, the checks'
-            # client): refuse rather than send AUTH in cleartext.
-            raise ValueError(
-                f"rediss:// (TLS) is not supported yet: {redact(url)}. Use a local "
-                "Redis without TLS (redis://127.0.0.1:6379), or --services docker"
-            )
-        if parts.scheme != "redis" or not parts.hostname:
-            raise ValueError(
-                f"not a Redis URL: {redact(url)} (for example redis://127.0.0.1:6379)"
-            )
-        if parts.username or parts.query:
-            # Only a password is carried: an ACL user (or `?…` options) would
-            # be dropped silently.
-            raise ValueError(
-                f"a Redis ACL user or URL options are not supported yet: "
-                f"{redact(url)}. Use redis://:password@host:port (the default "
-                "user), or --services docker"
-            )
-        return cls(
-            parts.hostname,
-            parts.port or DEFAULT_REDIS_PORT,
-            unquote(parts.password or ""),
-        )
-
-    @property
-    def address(self) -> str:
-        return f"{self.host}:{self.port}"
 
 
 def redact(url: str) -> str:
@@ -308,106 +252,20 @@ def advisory_holders(pg: Postgres) -> int:
         conn.close()
 
 
-def _redis(host: str, port: int, db: int = 0, password: str | None = None) -> Any:
-    redis = _redis_module()
-    if redis is None:
-        raise ImportError("the redis client is not installed (sandloom[redis])")
-    return redis.Redis(
-        host=host,
-        port=port,
-        db=db,
-        password=password or None,
-        socket_connect_timeout=3,
-        socket_timeout=5,
-    )
-
-
-def redis_ready(host: str, port: int, password: str | None = None) -> str | None:
-    if not tcp_open(host, port):
-        return "connection refused"
-    try:
-        client = _redis(host, port, password=password)
-    except ImportError:
-        return None  # no redis client installed: the TCP check stands
-    try:
-        client.ping()
-    except service_errors() as exc:
-        return str(exc).splitlines()[0] if str(exc) else type(exc).__name__
-    finally:
-        with contextlib.suppress(*service_errors()):
-            client.close()
-    return None
-
-
-def redis_clients(host: str, port: int, indexes: Iterable[int] | None = None) -> int:
-    """Other clients connected to the server (to ``indexes`` when given)."""
-    client = _redis(host, port)
-    try:
-        own = int(client.execute_command("CLIENT", "ID"))
-        wanted = None if indexes is None else set(indexes)
-        count = 0
-        for entry in client.client_list():
-            if int(entry.get("id", -1)) == own:
-                continue
-            if wanted is None or int(entry.get("db", 0)) in wanted:
-                count += 1
-        return count
-    finally:
-        client.close()
-
-
-def empty_indexes(
-    server: RedisServer, candidates: Iterable[int], *, want: int = 2
-) -> list[int]:
-    """The first ``want`` of ``candidates`` (in order) that hold no key on
-    ``server``, below its ``databases`` setting: the person's own Redis may
-    keep data in any index, and ``reset`` / ``prune`` flush the ones given."""
-    found: list[int] = []
-    for index in candidates:
-        client = _redis(server.host, server.port, index, server.password)
-        try:
-            size = int(client.dbsize())
-        except _redis_module().ResponseError:  # past the server's last database
-            break
-        finally:
-            client.close()
-        if size == 0:
-            found.append(index)
-            if len(found) == want:
-                break
-    return found
-
-
-def flush_indexes(
-    host: str, port: int, indexes: Iterable[int], password: str | None = None
-) -> None:
-    for index in indexes:
-        client = _redis(host, port, index, password)
-        try:
-            client.flushdb()
-        finally:
-            client.close()
-
-
 __all__ = [
     "DEV_CREDENTIALS",
     "DEV_MARK",
     "TEST_CREDENTIALS",
     "Postgres",
-    "RedisServer",
     "advisory_holders",
     "database_exists",
     "database_mark",
     "drop_database",
-    "empty_indexes",
     "ensure_database",
-    "flush_indexes",
     "has_tables",
     "mark_database",
     "pg_ready",
     "redact",
-    "redis_clients",
-    "redis_ready",
     "service_errors",
     "sessions",
     "tcp_open",

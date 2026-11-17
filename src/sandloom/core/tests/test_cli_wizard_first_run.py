@@ -408,7 +408,7 @@ def test_the_repeat_command_carries_external_services() -> None:
         agents=["claude"],
         services="external",
         database_url="postgresql://me@127.0.0.1:5432/postgres",
-        redis_url="redis://127.0.0.1:6379",
+        kv_url="redis://127.0.0.1:6379",
         setup=True,
     )
     argv = wizard.repeat_command("1.0.0", plan, cwd=Path("/w"))
@@ -424,7 +424,7 @@ def test_a_database_password_is_not_printed_in_the_repeat_line() -> None:
         agents=["claude"],
         services="external",
         database_url="postgresql://me:s3cret@127.0.0.1:5432/postgres",
-        redis_url="redis://127.0.0.1:6379",
+        kv_url="redis://127.0.0.1:6379",
     )
     line = wizard.repeat_line("1.0.0", plan, cwd=Path("/w"))
     assert "s3cret" not in line and "me:<password>@127.0.0.1" in line
@@ -458,7 +458,7 @@ def test_docker_stopped_defaults_to_the_servers_that_answer(tmp_path: Path) -> N
     assert asked[1] == f"PostgreSQL URL [{found[0]}]: "
     assert asked[2] == f"Redis URL [{found[1]}]: "
     assert answers.services == "external"
-    assert (answers.database_url, answers.redis_url) == found
+    assert (answers.database_url, answers.kv_url) == found
     assert not answers.setup  # the last "n"
 
 

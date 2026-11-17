@@ -221,6 +221,34 @@ An app on the standard stack changes nothing.
 refused with `UnmatchedOverrideError`, where the kernel once accepted any Redis-shaped one.
 Upgrade `sandloom-redis` and `sandloom-celery` with the kernel.
 
+## Upgrading to 0.7.0a15: `sandloom dev` and `sandloom new` ask the driver package for the server
+
+The kernel no longer holds the Redis server of the standard stack. `sandloom dev` (its checks,
+its reset and prune, the disposable test server) and the scaffold of `sandloom new` and
+`sandloom add deploy` (the compose text, the image, the URL forms) ask the object that
+`sandloom-redis` registers in the `sandloom.stack` entry-point group. The wheel of `sandloom`
+imports no Redis client any more, not even a guarded one. An app on the standard stack changes
+nothing but the names below, and every file `sandloom new` writes is byte for byte what it was.
+`sandloom dev` and `sandloom new` need `sandloom-redis` installed (`pip install sandloom[redis]`)
+and say so when it is not.
+
+A name of the command line and of the state is renamed after what it holds, a keyed server. There
+is no alias: the old names are gone. This is for development machines only.
+
+| Before | After |
+| --- | --- |
+| `sandloom dev up --redis-url URL`, `sandloom new --redis-url URL` | `--kv-url URL`, same meaning and default (the local server on `127.0.0.1`). The `--services external` choice keeps the URL in the state. |
+| `external.redis_url` in `<git common dir>/sandloom/dev.json` | `external.kv_url`. A `dev.json` from before names no server: `dev up`, `dev status` and `dev run` stop with one line that says to run `uv run sandloom dev up --services external --kv-url URL` again. |
+| The key `redis_indexes` of `sandloom dev status --json` | `kv_indexes` |
+| `sandloom.core.cli.dev.services.RedisServer`, `redis_ready`, `redis_clients`, `empty_indexes`, `flush_indexes` | `sandloom_redis.stack.RedisServer` and the members of its `STACK_SERVICE` (`problem`, `clients`, `empty_indexes`, `flush`). The module is the CLI's own, not public API; change a script that imported them. |
+| `wizard.Plan.redis_url`, `Given.redis_url`, `Answers.redis_url` | `kv_url` (the wizard's own dataclasses) |
+
+`SANDLOOM_DEV_REDIS_PORT`, `SANDLOOM_DEV_TEST_REDIS_PORT` and the compose services `redis` and
+`redis_test` keep their names: the compose files that `sandloom new` already wrote read them, and
+a repository's `dev up` would stop on every project made before. They are now the standard stack's
+data in `sandloom_redis.stack`, not a name in the kernel. A project made earlier needs no
+regeneration.
+
 ## Upgrading the Celery driver's connection checks
 
 The `celery` taskqueue driver now refuses, at startup, connections it used to accept.

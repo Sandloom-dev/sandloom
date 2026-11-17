@@ -48,6 +48,7 @@ from sandloom.core.composition import composition_root_name
 from sandloom.core.infra.errors import Unavailable
 from sandloom.core.testing import workers
 from sandloom.core.testing.machine import machine_id
+from sandloom.core.tests._fake_stack import FakeStack
 from sandloom.core.tests._root_support import suite_infra_env
 
 # --------------------------------------------------------------------------- #
@@ -890,7 +891,7 @@ def test_the_block_names_each_redis_instance_of_the_composition(
     infra = json.loads(commands.checkout_urls(ctx, state, row)["INFRA"])
     # The in-process bus is selected in .env: no url for it.
     assert set(infra) == {"cache", "atomic_store", "taskqueue"}
-    redis = ctx.redis(state)
+    redis = ctx.keyed(state)
     assert infra["cache"]["default"]["url"] == redis.url(row.cache_index)
     assert infra["atomic_store"]["security"]["url"] == redis.url(row.broker_index)
     assert infra["taskqueue"]["default"]["broker"] == redis.url(row.broker_index)
@@ -1132,14 +1133,15 @@ def test_a_remote_docker_host_is_used_for_the_urls(
 
 
 @pytest.fixture
-def no_services(monkeypatch: pytest.MonkeyPatch) -> None:
+def no_services(monkeypatch: pytest.MonkeyPatch, fake_stack: FakeStack) -> None:
     """No service answers: only the pid files and the state tell who is busy."""
 
     def down(*args: Any, **kwargs: Any) -> Any:
         raise OSError("connection refused")
 
-    for name in ("sessions", "advisory_holders", "redis_clients"):
+    for name in ("sessions", "advisory_holders"):
         monkeypatch.setattr(commands._services, name, down)
+    monkeypatch.setattr(fake_stack, "clients", down)
 
 
 def test_down_refuses_while_other_checkouts_are_active(
@@ -1741,7 +1743,9 @@ def test_debug_brings_the_framework_logs_back() -> None:
 def _reachable(monkeypatch: pytest.MonkeyPatch, up: bool) -> None:
     answer = None if up else "connection refused"
     monkeypatch.setattr(commands._services, "pg_ready", lambda pg: answer)
-    monkeypatch.setattr(commands._services, "redis_ready", lambda *a, **k: answer)
+    stack = commands.stack_service()
+    assert isinstance(stack, FakeStack)
+    monkeypatch.setattr(stack, "down", answer)
 
 
 def test_dev_run_starts_stopped_services_first(

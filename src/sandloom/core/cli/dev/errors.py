@@ -1,4 +1,4 @@
-"""One line instead of a traceback when the CLI cannot reach PostgreSQL / Redis.
+"""One line instead of a traceback when the CLI cannot reach a backing service.
 
 The ``sandloom`` entry point (:func:`sandloom.main`) and ``sandloom migrate``
 hand an uncaught exception to :func:`connection_failure`. Only the outermost

@@ -1,0 +1,13 @@
+### Added
+
+- **`sandloom.stack` entry-point group and `sandloom.driverkit.stack_service`** (redis-out-batch-a2). The backing server of the standard stack is described by the driver package: an object with the members of `StackService` (names and ports of its compose services, `parse`, `problem`, `clients`, `empty_indexes`, `flush`, and the compose text of each generated file). `sandloom-redis` registers it (`sandloom_redis.stack.STACK_SERVICE`); the kernel loads it by driver name and holds no client, image name or URL layout of its own. `sandloom dev` and `sandloom new` / `sandloom add deploy` say which package to install when none registers one.
+
+### Changed
+
+- **`sandloom dev` and the deploy scaffold take the Redis server from `sandloom-redis`** (redis-out-batch-a2). The kernel keeps a generic dev-service engine and PostgreSQL. The Redis pings, `CLIENT LIST`, `FLUSHDB`, the scheme refusals (`rediss://`, an ACL user, URL options) and the compose text (`redis:7-alpine`, the persistence flags, the CI service and the microservices blocks) move to `sandloom_redis.stack`. The wheel of `sandloom` imports no Redis client, guarded or not (`check_package_distributions` no longer exempts `sandloom.core.cli.dev.services`). Every file `sandloom new` writes is byte for byte what it was: `tests/integration/with_batteries/test_scaffold_standard_stack_snapshot.py` pins it. Upgrade steps: the renames below.
+- **Neutral wording in the kernel** (redis-out-batch-a2). Docstrings, help texts and messages that said Redis for a stack-wide server say "keyed server", "the durable event bus" or "a backing service" (the CLI still prints the server's own name where it talks to a person: `Redis answers at ...`).
+
+### Breaking changes
+
+- **`--redis-url` of `sandloom dev up` and `sandloom new` is `--kv-url`; `external.redis_url` of `dev.json` is `external.kv_url`; `redis_indexes` of `sandloom dev status --json` is `kv_indexes`** (redis-out-batch-a2). Development machines only; no alias (ADR-0010). A `dev.json` that names no `kv_url` stops `dev up`, `dev status` and `dev run` with one line that says to run `dev up --services external --kv-url URL` again. `SANDLOOM_DEV_REDIS_PORT`, `SANDLOOM_DEV_TEST_REDIS_PORT` and the compose services `redis` / `redis_test` keep their names: compose files already written read them. See "Upgrading to 0.7.0a15: `sandloom dev` and `sandloom new` ask the driver package for the server" in `docs/operate/upgrade.md`.
+- **`sandloom.core.cli.dev.services.RedisServer`, `redis_ready`, `redis_clients`, `empty_indexes` and `flush_indexes` are removed** (redis-out-batch-a2): the CLI's own module, not public API. The Redis server is `sandloom_redis.stack.RedisServer` and `STACK_SERVICE`.

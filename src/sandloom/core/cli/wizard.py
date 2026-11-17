@@ -2,7 +2,7 @@
 
 At a terminal (:func:`sandloom.core.cli.ui.interactive`) ``sandloom new``
 welcomes the person and asks what its flags did not say: the name, the
-standard modules, the coding agents, how to run PostgreSQL and Redis
+standard modules, the coding agents, how to run PostgreSQL and the keyed server
 (Docker, servers they already run, or later) and whether to set the app up
 now. The setup runs ``uv sync``, ``sandloom generate``, ``dev up`` and the
 migrations in the new app, one line per step. Last, with the console:
@@ -65,10 +65,16 @@ SITE_URL = "https://sandloom.dev"
 DOCS_URL = "https://sandloom.dev/docs/"
 #: The welcome under the caracal (one line at 80 columns).
 WELCOME = "Welcome! This wizard guides you step by step to a new Sandloom application."
-#: How the app's PostgreSQL and Redis run: the compose project, servers the
-#: person already runs, or not decided yet (the files only).
+#: How the app's PostgreSQL and keyed server run: the compose project, servers
+#: the person already runs, or not decided yet (the files only).
 DOCKER, EXTERNAL, LATER = "docker", "external", "none"
 SERVICE_CHOICES = (DOCKER, EXTERNAL, LATER)
+
+
+def _label() -> str:
+    """The keyed server's name in what the wizard says (the stack's driver
+    package supplies it)."""
+    return _dev_commands.stack_service().label
 #: ``Machine.docker()``: Docker answers, is not installed, or is not running.
 DOCKER_READY, DOCKER_MISSING, DOCKER_STOPPED = "ready", "missing", "stopped"
 UV_INSTALL_URL = "https://docs.astral.sh/uv/getting-started/installation/"
@@ -110,7 +116,7 @@ class Given:
     git: bool | None = None
     services: str | None = None
     database_url: str | None = None
-    redis_url: str | None = None
+    kv_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -123,7 +129,7 @@ class Answers:
     git: bool = True
     services: str = LATER
     database_url: str | None = None
-    redis_url: str | None = None
+    kv_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -144,7 +150,7 @@ class Plan:
     #: Only ``external`` shows in the repeat command (Docker is the default).
     services: str = DOCKER
     database_url: str | None = None
-    redis_url: str | None = None
+    kv_url: str | None = None
 
 
 @dataclass
@@ -155,10 +161,10 @@ class Machine:
     uv: str | None = None
     docker: Callable[[], str] = lambda: DOCKER_READY
     git_email: str | None = None
-    #: The local PostgreSQL and Redis URLs that answer (``None``: nothing).
+    #: The local PostgreSQL and keyed-server URLs that answer (``None``: nothing).
     local_services: Callable[[], tuple[str | None, str | None]] = lambda: (None, None)
     #: Why these servers cannot serve the app (one line), or ``None``.
-    check_services: Callable[[str, str], str | None] = lambda db, redis: None
+    check_services: Callable[[str, str], str | None] = lambda db, keyed: None
 
 
 @dataclass
@@ -271,8 +277,8 @@ def parser() -> argparse.ArgumentParser:
         "--services",
         choices=SERVICE_CHOICES,
         default=None,
-        help="how --setup runs PostgreSQL and Redis: docker (the default), "
-        "external (servers you already run: --database-url, --redis-url) or "
+        help="how --setup runs PostgreSQL and the keyed server: docker (the default), "
+        "external (servers you already run: --database-url, --kv-url) or "
         "none (create the files only)",
     )
     p.add_argument(
@@ -282,9 +288,10 @@ def parser() -> argparse.ArgumentParser:
         "create databases (default: postgresql://$USER@127.0.0.1:5432/postgres)",
     )
     p.add_argument(
-        "--redis-url",
+        "--kv-url",
         default=None,
-        help="with --services external: your Redis (default: redis://127.0.0.1:6379)",
+        help="with --services external: your keyed server (the one the stack's "
+        "driver package describes; default: its local server on 127.0.0.1)",
     )
     p.add_argument(
         "--plain",
@@ -320,13 +327,13 @@ def plan_from_args(args: argparse.Namespace, *, cwd: Path) -> Plan:
         git=args.git is not False,
         services=_services_flag(args) or DOCKER,
         database_url=args.database_url,
-        redis_url=args.redis_url,
+        kv_url=args.kv_url,
     )
 
 
 def _services_flag(args: argparse.Namespace) -> str | None:
     """``--services``; the URL flags alone mean ``external``."""
-    if args.services is None and (args.database_url or args.redis_url):
+    if args.services is None and (args.database_url or args.kv_url):
         return EXTERNAL
     return str(args.services) if args.services is not None else None
 
@@ -364,8 +371,8 @@ def _repeat_choices(plan: Plan) -> list[str]:
         argv += ["--services", EXTERNAL]
         if plan.database_url:
             argv += ["--database-url", plan.database_url]
-        if plan.redis_url:
-            argv += ["--redis-url", plan.redis_url]
+        if plan.kv_url:
+            argv += ["--kv-url", plan.kv_url]
     return argv
 
 
@@ -381,7 +388,7 @@ def repeat_line(version: str, plan: Plan, *, cwd: Path) -> str:
     return " ".join(f'"{a}"' if i == 2 else shlex.quote(a) for i, a in enumerate(shown))
 
 
-_URL_FLAGS = frozenset({"--database-url", "--redis-url"})
+_URL_FLAGS = frozenset({"--database-url", "--kv-url"})
 
 
 # --------------------------------------------------------------------------- #
@@ -502,7 +509,8 @@ def _address(url: str) -> str:
 
 
 def ask_services(p: Prompter, machine: Machine) -> tuple[str, str | None, str | None]:
-    """How to run PostgreSQL and Redis: ``(choice, database URL, Redis URL)``.
+    """How to run PostgreSQL and the keyed server: ``(choice, database URL,
+    keyed-server URL)``.
 
     Docker is the default when it answers; otherwise the wizard says so
     plainly and defaults to servers that answer on the usual local ports, or
@@ -510,8 +518,9 @@ def ask_services(p: Prompter, machine: Machine) -> tuple[str, str | None, str | 
     sym = p.style.symbols
     status = machine.docker()
     found: tuple[str | None, str | None] | None = None
+    both = f"PostgreSQL and {_label()}"
     p.say(
-        p.style.bold("PostgreSQL and Redis")
+        p.style.bold(both)
         + p.style.muted(" (the app's database and cache)")
     )
     if status == DOCKER_READY:
@@ -521,7 +530,7 @@ def ask_services(p: Prompter, machine: Machine) -> tuple[str, str | None, str | 
         default = 2 if any(found) else 3
     labels = [
         "Docker " + sym.dash + " Sandloom starts them for you",
-        "I already run PostgreSQL and Redis (for example Homebrew or Postgres.app)",
+        f"I already run {both} (for example Homebrew or Postgres.app)",
         "Later " + sym.dash + " just create the files",
     ]
     for n, label in enumerate(labels, 1):
@@ -564,19 +573,21 @@ def ask_external(
 ) -> tuple[str, str] | None:
     """The URLs of the servers the person runs, checked; ``None``: gave up
     (the files only)."""
-    db, redis = found if found is not None else machine.local_services()
-    for url, what in ((db, "PostgreSQL"), (redis, "Redis")):
+    label = _label()
+    db, keyed = found if found is not None else machine.local_services()
+    for url, what in ((db, "PostgreSQL"), (keyed, label)):
         if url:
             p.say(f"  {p.style.ok(f'{what} answers at {_address(url)}')}")
     while True:
         db = _ask_url(
             p, "PostgreSQL URL", db, "postgresql://you@127.0.0.1:5432/postgres"
         )
-        redis = _ask_url(p, "Redis URL", redis, "redis://127.0.0.1:6379")
-        problem = machine.check_services(db, redis)
+        example = _dev_commands.stack_service().local_url("127.0.0.1")
+        keyed = _ask_url(p, f"{label} URL", keyed, example)
+        problem = machine.check_services(db, keyed)
         if problem is None:
-            p.say(f"  {p.style.ok('PostgreSQL and Redis answer')}")
-            return db, redis
+            p.say(f"  {p.style.ok(f'PostgreSQL and {label} answer')}")
+            return db, keyed
         p.say(_ui.error_lines(p.style, problem))
         if not ask_yes(p, "Try other URLs?"):
             return None
@@ -596,7 +607,7 @@ def setup_question(services: str, *, admin: bool) -> str:
     """Says in plain words what the setup does, and about how long."""
     parts = ["Install the dependencies"]
     if services == DOCKER:
-        parts.append("start PostgreSQL and Redis in Docker")
+        parts.append(f"start PostgreSQL and {_label()} in Docker")
     if admin:
         text = ", ".join([*parts, "create the tables and your administrator"])
     else:
@@ -647,12 +658,12 @@ def ask(
     else:
         preselected = [a.key for a in _skills.CODING_AGENTS if a.key in detected]
         agents = ask_agents(p, detected, preselected or list(_skills.DEFAULT_AGENTS))
-    services, db, redis = given.services, given.database_url, given.redis_url
+    services, db, keyed = given.services, given.database_url, given.kv_url
     if machine.uv is None:
         p.hint(f"uv is not installed, so the setup is yours to run: {UV_INSTALL_URL}")
         services = services or LATER
     elif services is None:
-        services, db, redis = ask_services(p, machine)
+        services, db, keyed = ask_services(p, machine)
     admin = "admin" in batteries
     setup = False
     if machine.uv is not None and services != LATER:
@@ -667,7 +678,7 @@ def ask(
         git=given.git is not False,
         services=services,
         database_url=db,
-        redis_url=redis,
+        kv_url=keyed,
     )
 
 
@@ -1159,8 +1170,8 @@ def _given(run: _Run) -> Given | int:
         if problem is not None:
             return run.fail(problem)
     services = _services_flag(args)
-    if services != EXTERNAL and (args.database_url or args.redis_url):
-        return run.fail("--database-url and --redis-url need --services external", 2)
+    if services != EXTERNAL and (args.database_url or args.kv_url):
+        return run.fail("--database-url and --kv-url need --services external", 2)
     if services == LATER and args.setup:
         return run.fail("--services none creates the files only: leave --setup out", 2)
     return Given(
@@ -1172,29 +1183,32 @@ def _given(run: _Run) -> Given | int:
         git=args.git,
         services=services,
         database_url=args.database_url,
-        redis_url=args.redis_url,
+        kv_url=args.kv_url,
     )
 
 
 def _external_without_questions(run: _Run, given: Given) -> Given | int:
     """``--services external`` with ``--yes``: the URLs given, else the local
     servers that answer; both checked before anything is written."""
-    db, redis = given.database_url, given.redis_url
-    if not db or not redis:
-        found_db, found_redis = _dev_commands.local_servers(run.environ)
-        db, redis = db or found_db, redis or found_redis
-    if not db or not redis:
+    db, keyed = given.database_url, given.kv_url
+    if not db or not keyed:
+        found_db, found_keyed = _dev_commands.local_servers(run.environ)
+        db, keyed = db or found_db, keyed or found_keyed
+    if not db or not keyed:
+        stack = _dev_commands.stack_service()
         missing = (
-            "PostgreSQL on 127.0.0.1:5432" if not db else "Redis on 127.0.0.1:6379"
+            "PostgreSQL on 127.0.0.1:5432"
+            if not db
+            else f"{stack.label} on 127.0.0.1:{stack.local_port}"
         )
         return run.fail(
             f"--services external: no {missing} answers; pass --database-url and "
-            "--redis-url"
+            "--kv-url"
         )
-    problem = _dev_commands.check_external(db, redis)
+    problem = _dev_commands.check_external(db, keyed)
     if problem is not None:
         return run.fail(problem)
-    return dataclasses.replace(given, database_url=db, redis_url=redis)
+    return dataclasses.replace(given, database_url=db, kv_url=keyed)
 
 
 def welcome(
@@ -1234,7 +1248,7 @@ def _answers(run: _Run, given: Given) -> Answers | int:
             git=given.git is not False,
             services=given.services or (DOCKER if setup else LATER),
             database_url=given.database_url,
-            redis_url=given.redis_url,
+            kv_url=given.kv_url,
         )
     welcome(
         run.out,
@@ -1380,7 +1394,7 @@ def configure_external(run: _Run, root: Path, answers: Answers) -> str | None:
     options = _dev_commands.UpOptions(
         services=EXTERNAL,
         database_url=answers.database_url,
-        redis_url=answers.redis_url,
+        kv_url=answers.kv_url,
     )
     try:
         _dev_commands.up_external(ctx, options)
@@ -1455,7 +1469,7 @@ def _summary(
             (
                 "No Docker?",
                 "uv run sandloom dev up --services external  (your own "
-                "PostgreSQL and Redis)",
+                f"PostgreSQL and {_label()})",
             )
         )
     help_rows.append(("Docs", DOCS_URL))
@@ -1511,7 +1525,7 @@ def _own_servers(run: _Run, plan: Plan, root: Path, answers: Answers) -> Answers
         where = "your PostgreSQL"  # the usual local ports, found by `dev up`
         if answers.database_url:
             where = _services.Postgres.from_url(answers.database_url).address
-        done = f"PostgreSQL and Redis: the database {plan.app} on {where}"
+        done = f"PostgreSQL and {_label()}: the database {plan.app} on {where}"
         run.out.write(f"  {run.style.ok(done)}\n")
         return answers
     run.out.write(_ui.error_lines(run.style, problem) + "\n")
@@ -1638,7 +1652,7 @@ def main(
         git=answers.git,
         services=EXTERNAL if answers.services == EXTERNAL else DOCKER,
         database_url=answers.database_url,
-        redis_url=answers.redis_url,
+        kv_url=answers.kv_url,
     )
     created = _generate(run, plan)
     if isinstance(created, int):

@@ -29,6 +29,11 @@ hiredis = ["redis[hiredis]>=5.2.1,<6"]
 [project.entry-points."sandloom.testing"]
 redis = "sandloom_redis.testing.family:FAMILY"
 
+# The Redis server of the standard stack (sandloom.driverkit.stack_service):
+# what `sandloom dev` and the scaffold of `sandloom new` ask of it.
+[project.entry-points."sandloom.stack"]
+redis = "sandloom_redis.stack:STACK_SERVICE"
+
 [build-system]
 requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"

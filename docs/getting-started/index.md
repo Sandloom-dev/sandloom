@@ -101,7 +101,7 @@ was free (`/health`, and `/api/v1/notes/items` with a bearer token). The CI job 
     ```bash
     uv run sandloom dev up --services external \
         --database-url postgresql://$USER@127.0.0.1:5432/postgres \
-        --redis-url redis://127.0.0.1:6379
+        --kv-url redis://127.0.0.1:6379
     ```
 
     Both URLs are optional when the servers answer on these usual local

@@ -531,7 +531,6 @@ def _hostile_calls() -> dict[str, Callable[[], object]]:
         "split_url": lambda: split_url(_HOSTILE),
         "same_server": lambda: production_profile._same_server(_HOSTILE, _HOSTILE),
         "postgres.from_url": lambda: services.Postgres.from_url(_HOSTILE),
-        "redis.from_url": lambda: services.RedisServer.from_url(_HOSTILE),
         "wizard._address": lambda: wizard._address(_HOSTILE),
         "worker_database_url": lambda: workers.worker_database_url(_HOSTILE, "gw0"),
         "sqlite_file": lambda: workers.sqlite_file(_HOSTILE),

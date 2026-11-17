@@ -44,6 +44,7 @@ import secrets
 from collections.abc import Mapping
 from pathlib import Path
 
+from sandloom.core.cli import stack_service as _stack
 from sandloom.core.cli.dev.state import atomic_write
 
 BEGIN = "# >>> sandloom dev (managed by `sandloom dev up`; edits inside are replaced)"
@@ -70,7 +71,7 @@ def empty_block() -> str:
     return (
         f"{BEGIN}\n"
         "# Empty until `uv run sandloom dev up` fills it with this checkout's\n"
-        "# DATABASE_URL and INFRA (the Redis url of each instance).\n"
+        f"# DATABASE_URL and INFRA (the {_stack.load().label} url of each instance).\n"
         f"{END}\n"
     )
 
@@ -100,10 +101,11 @@ def render_block(values: dict[str, str]) -> str:
 InfraMap = dict[str, dict[str, dict[str, object]]]
 
 
-#: Capabilities whose instances may lose their keys (a cache, pub/sub): they
-#: take the cache index. Every other Redis instance holds state that must
-#: survive (revocation marks, the lease, the event streams, the broker's
-#: queues) and takes the persistent index, never the cache's.
+#: Capabilities whose port promises nothing that must survive (a cache may evict,
+#: a broadcast keeps no history: ``design/infra-drivers/design.md``): their
+#: instances take the cache index. Every other keyed-server instance holds state
+#: that must survive (revocation marks, the lease, the event streams, the
+#: broker's queues) and takes the persistent index, never the cache's.
 _CACHE_CAPABILITIES = frozenset({"cache", "broadcast"})
 
 
@@ -115,7 +117,7 @@ def managed_infra(
     persistent_url: str,
     memory_bus: bool,
 ) -> InfraMap:
-    """The Redis url of each instance of ``selection`` (the composition's
+    """The keyed-server url of each instance of ``selection`` (the composition's
     ``DEFAULT_INFRA``) whose driver connects to a server by url, as the managed
     ``INFRA`` of a checkout. ``url_options`` is what the drivers declare
     (``{"<capability>.<driver>": option}``, ``declared_url_options``): an
@@ -339,10 +341,11 @@ def seed_env(root: Path) -> bool:
 
 
 def render_test_local(values: dict[str, str]) -> str:
+    label = _stack.load().label
     lines = [
         "# Written by `uv run sandloom dev up`: this checkout's test servers.",
         "# Not committed. The test harness reads it after .env.test; an exported",
-        "# SANDLOOM_TEST_* wins. Each test run gets its own database and Redis",
+        f"# SANDLOOM_TEST_* wins. Each test run gets its own database and {label}",
         "# indexes on these servers.",
         *(f"{key}={value}" for key, value in values.items()),
     ]
