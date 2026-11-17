@@ -114,6 +114,7 @@ forbidden_modules =
     sandloom.core.tenant_context
     sandloom.core.testing
     sandloom.core.unit_of_work
+    sandloom.core.url_mask
     sandloom.core.utils
     sandloom.core.worker
 
@@ -219,6 +220,7 @@ forbidden_modules =
     sandloom.core.tenant
     sandloom.core.tenant_context
     sandloom.core.unit_of_work
+    sandloom.core.url_mask
     sandloom.core.utils
     sandloom.core.worker
     sandloom.core.cli._operator
@@ -328,6 +330,7 @@ source_modules =
     sandloom.core.tenant_context
     sandloom.core.testing
     sandloom.core.unit_of_work
+    sandloom.core.url_mask
     sandloom.core.utils
     sandloom.core.worker
 forbidden_modules =
@@ -407,6 +410,7 @@ source_modules =
     sandloom.core.tenant_context
     sandloom.core.testing
     sandloom.core.unit_of_work
+    sandloom.core.url_mask
     sandloom.core.utils
     sandloom.core.worker
 forbidden_modules =
