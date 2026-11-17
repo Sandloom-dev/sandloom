@@ -27,7 +27,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
@@ -426,14 +426,32 @@ class VerifyReport:
         }
 
 
+def _split_url(url: str) -> SplitResult:
+    """``urlsplit(url)``, whose ``ValueError`` is replaced by a fixed message.
+
+    A netloc character that NFKC-normalizes to ``:`` ``/`` ``?`` ``#`` or ``@``
+    (U+FF1A, say) makes ``urllib`` raise a ``ValueError`` that carries the whole
+    netloc, ``user:password`` included. The new error names no part of the url
+    and the original is not chained, so no log or traceback prints the secret.
+    """
+    try:
+        return urlsplit(url)
+    except ValueError:
+        raise ValueError(
+            "a database url cannot be parsed: write its host and credentials in "
+            "plain ASCII (no character that stands for ':', '/', '?', '#' or '@' "
+            "under Unicode normalization) and close the brackets of an IPv6 host"
+        ) from None
+
+
 def _with_database(url: str, database: str) -> str:
-    parts = urlsplit(to_sync_url(url))
+    parts = _split_url(to_sync_url(url))
     return urlunsplit(parts._replace(path=f"/{database}"))
 
 
 def _libpq_url(url: str) -> str:
     """``postgresql://`` form for libpq (psycopg2, ``pg_restore``, ``psql``)."""
-    parts = urlsplit(to_sync_url(url))
+    parts = _split_url(to_sync_url(url))
     return urlunsplit(parts._replace(scheme="postgresql"))
 
 
@@ -484,7 +502,7 @@ def command_restorer(
     """
 
     def _restore(dump: Path, target_url: str) -> None:
-        dbname = urlsplit(target_url).path.lstrip("/")
+        dbname = _split_url(target_url).path.lstrip("/")
         url = _libpq_url(
             _with_database(restore_url, dbname) if restore_url else target_url
         )
@@ -709,7 +727,7 @@ def verify_dump(
     restore = restorer or command_restorer()
     with scratch_database(server_url, keep=keep) as url:
         report = VerifyReport(
-            dump=str(path), scratch=urlsplit(url).path.lstrip("/"), kept=keep
+            dump=str(path), scratch=_split_url(url).path.lstrip("/"), kept=keep
         )
         try:
             restore(path, url)

@@ -17,7 +17,7 @@ import argparse
 import os
 import shlex
 import subprocess
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, ClassVar
@@ -38,6 +38,9 @@ from sandloom.core.migrations.backup import (
     CORE_TABLES,
     CORE_VERSION_TABLE,
     LEASE_FENCE_OFFSET,
+    _libpq_url,
+    _postgres_item,
+    _with_database,
     build_backup_plan,
     command_restorer,
     dump_format,
@@ -289,6 +292,43 @@ def test_verify_fails_when_the_restore_fails(tmp_path: Path) -> None:
     )
     assert not report.ok
     assert [c.name for c in report.checks] == ["restore"]
+
+
+#: A password whose ``U+FF1A`` (fullwidth colon) makes ``urllib`` refuse the netloc
+#: with a ``ValueError`` that prints the whole ``user:password``.
+_SECRET = "s3cr3t-pw"
+_UNPARSABLE_URL = f"postgresql://role:{_SECRET}{chr(0xFF1A)}@db.internal:5432/app"
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda tmp: _libpq_url(_UNPARSABLE_URL), id="libpq_url"),
+        pytest.param(lambda tmp: _with_database(_UNPARSABLE_URL, "x"), id="with_db"),
+        pytest.param(
+            lambda tmp: _postgres_item("db", _UNPARSABLE_URL, ()), id="plan_item"
+        ),
+        pytest.param(
+            lambda tmp: command_restorer()(_fake_dump(tmp), _UNPARSABLE_URL),
+            id="restorer",
+        ),
+        pytest.param(
+            lambda tmp: verify_dump(
+                _fake_dump(tmp), server_url=_UNPARSABLE_URL, chains=CHAINS
+            ),
+            id="verify",
+        ),
+    ],
+)
+def test_an_unparsable_database_url_fails_without_printing_its_password(
+    call: Callable[[Path], object], tmp_path: Path
+) -> None:
+    with pytest.raises(ValueError, match="database url cannot be parsed") as raised:
+        call(tmp_path)
+    error = raised.value
+    assert _SECRET not in str(error)
+    assert error.__cause__ is None
+    assert error.__suppress_context__
 
 
 def test_dump_format_detection(tmp_path: Path) -> None:
