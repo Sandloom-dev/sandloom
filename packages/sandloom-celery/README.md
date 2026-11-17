@@ -19,6 +19,12 @@ set in `INFRA`:
 INFRA='{"taskqueue":{"default":{"driver":"celery","worker_pool":"threads"}}}'
 ```
 
+The instance also takes `master_name` and `backend_master_name`, the Redis master of
+a `sentinel://` `broker` and `backend` (required by such a url, refused with any
+other scheme). A `rediss://` url must state `ssl_cert_reqs`, and
+`ssl_check_hostname=true` unless it states `ssl_cert_reqs=none`: it is refused at
+startup otherwise.
+
 **macOS.** The default `prefork` pool spawns its children there, and a spawned
 child never sees the task table the host registered at boot; the host refuses
 to start with `prefork` on macOS. Set `worker_pool` to `solo` or `threads`.

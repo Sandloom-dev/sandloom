@@ -1169,6 +1169,7 @@
         "packages/sandloom-celery/tests/test_taskqueue_kit_host.py",
         "packages/sandloom-celery/tests/test_celery_cli_worker.py",
         "packages/sandloom-celery/tests/test_celery_current_app.py",
+        "packages/sandloom-celery/tests/test_celery_connection_policy.py",
         "packages/sandloom-celery/tests/test_celery_core_facade.py",
         "packages/sandloom-celery/tests/test_celery_known_package.py",
         "packages/sandloom-celery/tests/test_celery_defaults.py",
@@ -1198,6 +1199,7 @@
         "packages/sandloom-celery/README.md",
         "packages/sandloom-celery/pyproject.toml",
         "packages/sandloom-celery/src/sandloom_celery/__init__.py",
+        "packages/sandloom-celery/src/sandloom_celery/connection_policy.py",
         "packages/sandloom-celery/src/sandloom_celery/broker_probe.py",
         "packages/sandloom-celery/src/sandloom_celery/taskqueue.py",
         "packages/sandloom-celery/src/sandloom_celery/worker.py",
@@ -3178,6 +3180,12 @@
         "design/infra-agnostic/research-reliability-mechanisms.md",
         "design/infra-agnostic/review-relational-interface.md",
         "design/infra-agnostic/spec.md"
+      ]
+    },
+    {
+      "reason": "Infrastructure driver design: the audit of the Celery configuration keys that move a connection, one decision per key.",
+      "paths": [
+        "design/infra-drivers/celery-conf-audit.md"
       ]
     },
     {

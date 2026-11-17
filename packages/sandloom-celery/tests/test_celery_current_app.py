@@ -39,7 +39,7 @@ def current(monkeypatch: pytest.MonkeyPatch) -> Iterator[Celery]:
     for name in _CELERY_ENV:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(celery_worker._default, "app", None)
-    monkeypatch.setattr(celery_worker._default, "urls", None)
+    monkeypatch.setattr(celery_worker._default, "connection", None)
     previous = get_current_app()
     sentinel = Celery("sentinel", broker="memory://", set_as_current=False)
     sentinel.set_current()
@@ -66,10 +66,38 @@ def test_a_refused_provider_app_is_not_current(
     assert get_current_app() is current
 
 
-@pytest.mark.parametrize("name", ["default", "aux"])
-def test_an_accepted_provider_app_becomes_current(current: Celery, name: str) -> None:
-    app = create_celery_taskqueue(_instance(name))._app
+def test_an_accepted_default_provider_app_becomes_current(current: Celery) -> None:
+    app = create_celery_taskqueue(_instance("default"))._app
     assert get_current_app() is app is not current
+
+
+def test_an_accepted_named_provider_app_never_becomes_current(
+    current: Celery,
+) -> None:
+    """``celery.current_app`` is what an unbound ``@shared_task.delay()`` publishes
+    through: a named instance's broker must not capture it."""
+    app = create_celery_taskqueue(_instance("aux"))._app
+    assert app is not current
+    assert get_current_app() is current
+
+
+def test_a_default_instance_with_another_broker_never_becomes_current(
+    current: Celery,
+) -> None:
+    """The ``default`` instance whose urls differ from the process-wide app's builds
+    an app of its own, which is not the process-wide one: it stays out of
+    ``celery.current_app`` like a named one."""
+    first = create_celery_taskqueue(_instance("default"))._app
+    other = create_celery_taskqueue(
+        InstanceConfig(
+            capability="taskqueue",
+            name="default",
+            driver="celery",
+            options={"broker": "redis://user:other-secret@127.0.0.1:1/3"},
+        )
+    )._app
+    assert other is not first
+    assert get_current_app() is first
 
 
 def test_a_refused_importable_app_is_not_current(

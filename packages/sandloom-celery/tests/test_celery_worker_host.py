@@ -20,6 +20,7 @@ import pytest
 from celery import Celery, signals
 from celery.app.utils import find_app
 from sandloom_celery import worker as celery_worker
+from sandloom_celery.connection_policy import ConnectionOptions
 from sandloom_celery.taskqueue import (
     CeleryTaskQueueProvider,
     create_celery_taskqueue,
@@ -384,7 +385,7 @@ def _importable_app_infra(
     """The ``INFRA`` the importable app reads through ``Settings`` (no flat
     ``BROKER_URL`` / ``CACHE_URL`` exists: they are removed settings)."""
     monkeypatch.setattr(celery_worker._default, "app", None)
-    monkeypatch.setattr(celery_worker._default, "urls", None)
+    monkeypatch.setattr(celery_worker._default, "connection", None)
     monkeypatch.setattr(
         settings,
         "infra",
@@ -688,7 +689,7 @@ def test_celery_dash_a_finds_no_app_to_use_after_a_foreign_conf_refusal(
     if not provider_first:
         # nothing of the refused app is kept for the next lookup or the provider
         assert celery_worker._default.app is None
-        assert celery_worker._default.urls is None
+        assert celery_worker._default.connection is None
 
 
 def test_celery_dash_a_finds_the_marked_importable_app_when_the_conf_is_infras(
@@ -729,7 +730,7 @@ def test_the_importable_app_refuses_a_foreign_conf_where_the_provider_built_it_f
     through ``get_default_app`` (the provider checks the final conf of the app it
     builds, which loads the config module: one set later would never apply)."""
     _importable_app_infra(monkeypatch, {"driver": "celery", "broker": _INFRA_BROKER})
-    built = celery_worker.get_default_app(_INFRA_BROKER, None)
+    built = celery_worker.get_default_app(ConnectionOptions(_INFRA_BROKER))
     assert built is celery_worker._default.app is not None
     _config_module(
         monkeypatch,

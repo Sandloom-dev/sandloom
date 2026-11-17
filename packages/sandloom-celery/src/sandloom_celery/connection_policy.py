@@ -1,0 +1,442 @@
+"""What a ``celery`` taskqueue instance's connection is made of, and what a Celery
+conf may add to it.
+
+``INFRA.taskqueue.<name>`` states the connection of an instance whole: the
+``broker`` and ``backend`` urls, and for a ``sentinel://`` url the ``master_name``
+and ``backend_master_name`` options. A Celery conf (a config module, ``celery
+--config``, the default loader's ``celeryconfig.py``) reaches kombu, Celery and
+redis-py next to those urls, and several of its keys win over what the url says.
+This module is the policy of that boundary, in one place: the checks of the
+instance's own options (:func:`validate_connection`), the transport options a
+conf may carry for each scheme (:func:`broker_transport_keys`,
+:func:`backend_transport_keys`, :func:`transport_options_are_safe`) and the
+result-backend settings that carry a connection (:data:`FOREIGN_BACKEND_KEYS`).
+``design/infra-drivers/celery-conf-audit.md`` is the audit behind every entry,
+key by key, with the line of the kombu / Celery / redis-py source that reads it.
+
+Messages name the option and never a value: a url carries a password.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass
+from urllib.parse import parse_qs, urlsplit
+
+#: Schemes of the kombu Redis transports (the ``rediss`` one speaks TLS).
+REDIS_SCHEMES = frozenset({"redis", "rediss"})
+SENTINEL_SCHEME = "sentinel"
+#: Schemes of kombu's py-amqp transport (``amqps`` is its TLS variant).
+AMQP_SCHEMES = frozenset({"amqp", "amqps", "pyamqp"})
+SQS_SCHEMES = frozenset({"sqs"})
+
+#: How kombu and Celery's redis backend spell ``ssl_cert_reqs`` in a url query
+#: (``kombu.utils.url.parse_ssl_cert_reqs``, ``celery.backends.redis``).
+_CERT_REQS = frozenset(
+    {"CERT_REQUIRED", "CERT_OPTIONAL", "CERT_NONE", "required", "optional", "none"}
+)
+#: ``ssl_cert_reqs`` values that ask for no certificate check at all.
+_NO_VERIFY = frozenset({"CERT_NONE", "none"})
+#: ``ssl_check_hostname`` values that switch the hostname check on (kombu and
+#: redis-py read anything but ``false`` / ``0`` as true: only these are accepted).
+_TRUE = frozenset({"true", "1", "yes", "on"})
+#: A Redis Sentinel master name: no space or control character, bounded.
+_MASTER_NAME = re.compile(r"[A-Za-z0-9._:-]{1,64}")
+#: An AWS region (``us-east-1``, ``us-gov-west-1``, ``cn-north-1``): kombu's SQS
+#: transport builds the endpoint host from it.
+_AWS_REGION = re.compile(r"[a-z]{2}(-[a-z]+)+-[0-9]{1,2}")
+#: The prefix of SQS queue names (queue names allow letters, digits, ``-``, ``_``).
+_QUEUE_NAME_PREFIX = re.compile(r"[A-Za-z0-9_-]{0,64}")
+
+# Transport options of every scheme: how a connection is retried and polled, which
+# moves nothing. ``visibility_timeout`` is read by every virtual transport (redis,
+# SQS, ...) and ignored by the rest.
+_GENERIC = frozenset(
+    {
+        "visibility_timeout",
+        "polling_interval",
+        "retry_policy",
+        "max_retries",
+        "interval_start",
+        "interval_step",
+        "interval_max",
+    }
+)
+# ``kombu.transport.redis.Channel.from_transport_options`` (and the virtual
+# channel's): socket and pool tuning, key prefixes and the redelivery bookkeeping.
+# None of them names a host, a credential or TLS: those come from the url.
+_REDIS = _GENERIC | {
+    "sep",
+    "global_keyprefix",
+    "priority_steps",
+    "queue_order_strategy",
+    "socket_timeout",
+    "socket_connect_timeout",
+    "socket_keepalive",
+    "socket_keepalive_options",
+    "max_connections",
+    "health_check_interval",
+    "retry_on_timeout",
+    "client_name",
+    "fanout_prefix",
+    "fanout_patterns",
+    "ack_emulation",
+    "unacked_key",
+    "unacked_index_key",
+    "unacked_mutex_key",
+    "unacked_mutex_expire",
+    "unacked_restore_limit",
+}
+# py-amqp's ``Connection`` takes the transport options as keyword arguments laid over
+# ``host`` / ``userid`` / ``password`` / ``ssl`` / ``virtual_host``: only the ones
+# that tune the socket and the channel are allowed.
+_AMQP = _GENERIC | {
+    "confirm_publish",
+    "read_timeout",
+    "write_timeout",
+    "socket_settings",
+    "channel_max",
+    "frame_max",
+}
+# ``kombu.transport.SQS``: the region and the queue map are how an SQS broker is
+# addressed (the url carries the credentials and, optionally, an endpoint host).
+_SQS = _GENERIC | {
+    "wait_time_seconds",
+    "region",
+    "queue_name_prefix",
+    "predefined_queues",
+}
+#: What ``predefined_queues`` of one queue may carry (``kombu.transport.SQS``): the
+#: queue url and the backoff tuning. ``access_key_id``, ``secret_access_key`` and
+#: ``region`` of a queue replace the credentials of the INFRA url and the region of
+#: the transport (``SQS.py:769-781``), so tasks would go to another AWS account.
+_PREDEFINED_QUEUE_KEYS = frozenset({"url", "backoff_policy", "backoff_tasks"})
+#: The url of an SQS queue (``https://sqs.<region>.amazonaws.com/<account>/<name>``,
+#: ``.amazonaws.com.cn`` in China): TLS, an AWS host, nothing else.
+_SQS_QUEUE_URL = re.compile(
+    r"https://sqs\.[a-z0-9-]+\.amazonaws\.com(\.cn)?"
+    r"/[0-9]{12}/[A-Za-z0-9_-]{1,80}(\.fifo)?"
+)
+#: Read from ``result_backend_transport_options`` by Celery's redis backend
+#: (``retry_policy``, ``result_chord_ordered``) and by any backend
+#: (``global_keyprefix``, ``celery.backends.base``).
+_BACKEND_ANY = frozenset({"result_chord_ordered", "global_keyprefix", "retry_policy"})
+#: The sentinel transports read these from the transport options; ``master_name``
+#: comes from ``INFRA`` (:class:`ConnectionOptions`), never from the conf.
+_SENTINEL_ONLY = frozenset({"min_other_sentinels"})
+
+# What the result backends take from the conf where their url omits the part, or
+# lets the conf override it (``celery.backends.*``): redis host, port, database,
+# credentials, TLS options and credential provider; the settings dicts of the
+# MongoDB, Couchbase and ArangoDB backends; Cassandra's servers, port, keyspace
+# and authentication; S3's endpoint, region and credentials; GCS's bucket and
+# project; the cache backend's url; the SQLAlchemy backend's url. INFRA states the
+# whole backend in its url, so none of them may be set at all.
+FOREIGN_BACKEND_KEYS = (
+    "redis_host",
+    "redis_port",
+    "redis_db",
+    "redis_username",
+    "redis_password",
+    "redis_backend_use_ssl",
+    "redis_backend_credential_provider",
+    "database_url",
+    "mongodb_backend_settings",
+    "couchbase_backend_settings",
+    "arangodb_backend_settings",
+    "cassandra_servers",
+    "cassandra_bundle_path",
+    "cassandra_port",
+    "cassandra_keyspace",
+    "cassandra_table",
+    "cassandra_auth_provider",
+    "cassandra_auth_kwargs",
+    "cassandra_options",
+    "s3_endpoint_url",
+    "s3_region",
+    "s3_access_key_id",
+    "s3_secret_access_key",
+    "s3_bucket",
+    "s3_base_path",
+    "gcs_bucket",
+    "gcs_project",
+    "gcs_base_path",
+    "firestore_project",
+    "dynamodb_endpoint_url",
+    "azureblockblob_base_path",
+    "cache_backend",
+    "cache_backend_options",
+)
+
+#: Backend settings that name a container, database or collection and have a
+#: default of their own (``celery.app.defaults``): they pass at their default and
+#: are refused with any other value, which would store results elsewhere.
+FOREIGN_BACKEND_NAMES = {
+    "azureblockblob_container_name": "celery",
+    "cosmosdbsql_database_name": "celerydb",
+    "cosmosdbsql_collection_name": "celerycol",
+}
+
+# Connection parts Celery hands to kombu next to the url, where they win over what
+# the url omits (``broker_transport`` and ``broker_host`` even over what it states):
+# a config module setting one redirects the publish (``broker_transport = "memory"``
+# loses every task into an in-process queue) with the url itself untouched. INFRA
+# states the whole connection in the url, so none of them may be set at all.
+FOREIGN_CONNECTION_KEYS = (
+    "broker_transport",
+    "broker_host",
+    "broker_port",
+    "broker_vhost",
+    "broker_user",
+    "broker_password",
+)
+
+#: The conf options that carry transport options, one per role.
+BROKER_TRANSPORT_OPTIONS = "broker_transport_options"
+BACKEND_TRANSPORT_OPTIONS = "result_backend_transport_options"
+
+#: ``database_engine_options`` has a non-empty default (``pool_pre_ping``,
+#: ``pool_recycle``) and its ``connect_args`` / ``creator`` reach the DBAPI
+#: connect call, which can name another host: only the pool tuning is allowed.
+SAFE_DATABASE_ENGINE_OPTIONS = frozenset(
+    {"pool_pre_ping", "pool_recycle", "pool_size", "max_overflow", "pool_timeout"}
+)
+#: ``broker_failover_strategy`` names how kombu cycles the hosts of the url; a
+#: callable yields urls of its own choosing.
+SAFE_FAILOVER_STRATEGIES = frozenset({"round-robin", "shuffle"})
+
+
+def scheme_of(url: str | None) -> str:
+    """The transport a kombu / Celery url selects: the scheme of its first ``;``
+    chunk, lower-cased, before a ``+`` (``sqla+mysql://`` is ``sqla``); ``""`` for
+    no url."""
+    if not url:
+        return ""
+    return urlsplit(url.split(";")[0].strip()).scheme.lower().split("+")[0]
+
+
+def _chunks(url: str | None) -> list[str]:
+    """The ``;``-separated urls as kombu splits them: raw, never stripped (a blank
+    url is no url: the caller refuses a missing broker by its own message)."""
+    return url.split(";") if url and url.strip() else []
+
+
+def _has_host(url: str | None) -> bool:
+    return any(urlsplit(chunk).hostname for chunk in _chunks(url))
+
+
+@dataclass(frozen=True)
+class ConnectionOptions:
+    """The connection of one instance, as ``INFRA`` states it: what the Celery app
+    is built from and what the conf is compared with."""
+
+    broker: str
+    backend: str | None = None
+    #: The Redis master of a ``sentinel://`` ``broker`` (kombu reads it only from
+    #: the transport options).
+    master_name: str | None = None
+    #: The same, for a ``sentinel://`` ``backend``.
+    backend_master_name: str | None = None
+
+    def broker_stated_options(self) -> Mapping[str, object]:
+        """The ``broker_transport_options`` that ``INFRA`` states: the sentinel
+        master, and TLS for an ``sqs://`` url with a host (kombu builds the
+        endpoint ``http://host`` unless ``is_secure`` is true, ``SQS.py:923-934``).
+        A conf may repeat them, never change them."""
+        stated: dict[str, object] = {}
+        if self.master_name is not None:
+            stated["master_name"] = self.master_name
+        if scheme_of(self.broker) in SQS_SCHEMES and _has_host(self.broker):
+            stated["is_secure"] = True
+        return stated
+
+    def backend_stated_options(self) -> Mapping[str, object]:
+        """The ``result_backend_transport_options`` that ``INFRA`` states."""
+        if self.backend_master_name is None:
+            return {}
+        return {"master_name": self.backend_master_name}
+
+
+def validate_connection(connection: ConnectionOptions) -> None:
+    """Refuse (``ValueError``, naming the option, never a value) an instance whose
+    urls or masters cannot be connected safely.
+
+    * a ``rediss://`` url without ``ssl_cert_reqs`` (or with a value kombu does not
+      know): kombu then connects with ``CERT_NONE`` and only logs a warning, and
+      Celery's result backend refuses the same url, so both refuse it here; and
+      one that verifies the certificate without ``ssl_check_hostname=true``
+      (redis-py checks no name by default, so any certificate of the CA passes);
+    * ``;``-separated urls of different schemes, or with an empty or space-padded
+      chunk (kombu splits on ``;`` without stripping and a padded chunk fails
+      with the password in the error): kombu switches the transport with the url,
+      and the transport options are allowed per scheme;
+    * a ``sentinel://`` url without its master, or a master without a sentinel url.
+    """
+    for option, url, master_option, master in (
+        ("broker", connection.broker, "master_name", connection.master_name),
+        (
+            "backend",
+            connection.backend,
+            "backend_master_name",
+            connection.backend_master_name,
+        ),
+    ):
+        chunks = _chunks(url)
+        if any(not chunk or chunk != chunk.strip() for chunk in chunks):
+            raise ValueError(
+                f"the {option} url has an empty chunk or a space around a ';' or "
+                "an end: remove it"
+            )
+        schemes = {scheme_of(chunk) for chunk in chunks}
+        if len(schemes) > 1:
+            raise ValueError(f"the {option} url mixes schemes: use one scheme")
+        for chunk in chunks:
+            _check_tls(option, chunk)
+        sentinel = schemes == {SENTINEL_SCHEME}
+        if sentinel and master is None:
+            raise ValueError(
+                f"the {option} url is a sentinel:// url: set the option "
+                f"{master_option} (the name of the Redis master)"
+            )
+        if not sentinel and master is not None:
+            raise ValueError(
+                f"the option {master_option} is for a sentinel:// {option} url"
+            )
+        if master is not None and not _MASTER_NAME.fullmatch(master):
+            raise ValueError(
+                f"the option {master_option} is 1 to 64 letters, digits, "
+                "'.', '_', ':' or '-'"
+            )
+
+
+def _check_tls(option: str, chunk: str) -> None:
+    if scheme_of(chunk) != "rediss":
+        return
+    query = parse_qs(urlsplit(chunk).query)
+    reqs = query.get("ssl_cert_reqs", [])
+    if not reqs or reqs[-1] not in _CERT_REQS:
+        raise ValueError(
+            f"the {option} url is a rediss:// url with no valid ssl_cert_reqs: add "
+            "?ssl_cert_reqs=required&ssl_check_hostname=true to verify the server's "
+            "certificate and its hostname (without ssl_cert_reqs kombu connects "
+            "with no check; none states that none is wanted)"
+        )
+    if reqs[-1] in _NO_VERIFY:
+        return
+    hostname = query.get("ssl_check_hostname", [])
+    if not hostname or hostname[-1].lower() not in _TRUE:
+        raise ValueError(
+            f"the {option} url is a rediss:// url that checks the certificate but "
+            "not the hostname of the server: add &ssl_check_hostname=true (redis-py "
+            "does not check the name by default, so any certificate of the CA passes)"
+        )
+
+
+def broker_transport_keys(url: str | None) -> frozenset[str]:
+    """The ``broker_transport_options`` keys a conf may carry for ``url``'s scheme
+    (the sentinel master excepted: see :func:`transport_options_are_safe`)."""
+    scheme = scheme_of(url)
+    if scheme == SENTINEL_SCHEME:
+        return _REDIS | _SENTINEL_ONLY
+    if scheme in REDIS_SCHEMES:
+        return _REDIS
+    if scheme in AMQP_SCHEMES:
+        return _AMQP
+    if scheme in SQS_SCHEMES:
+        return _SQS
+    return _GENERIC
+
+
+def backend_transport_keys(url: str | None) -> frozenset[str]:
+    """The ``result_backend_transport_options`` keys a conf may carry for the
+    backend ``url``'s scheme: the redis backend's own, and the broker's redis
+    tuning keys that it ignores (accepted since they move nothing)."""
+    scheme = scheme_of(url)
+    if scheme == SENTINEL_SCHEME:
+        return _REDIS | _SENTINEL_ONLY | _BACKEND_ANY
+    if scheme in REDIS_SCHEMES:
+        return _REDIS | _BACKEND_ANY
+    return _GENERIC | _BACKEND_ANY
+
+
+def transport_options_are_safe(
+    options: object, allowed: frozenset[str], stated: Mapping[str, object]
+) -> bool:
+    """Whether a ``*_transport_options`` value is a mapping of ``allowed`` keys.
+
+    The keys of ``stated`` (:meth:`ConnectionOptions.broker_stated_options`) are the
+    ones whose value ``INFRA`` states: each is accepted only with that value, so a
+    conf cannot name another master or turn TLS off. ``region``,
+    ``queue_name_prefix`` and ``predefined_queues`` (SQS) are checked for their
+    shape.
+    """
+    if not isinstance(options, Mapping):
+        return False
+    for key, value in options.items():
+        if key in stated:
+            safe = value == stated[key]
+        else:
+            safe = key in allowed and _value_is_safe(key, value)
+        if not safe:
+            return False
+    return True
+
+
+def _value_is_safe(key: str, value: object) -> bool:
+    """The shape of the values that name an AWS region, a queue or a queue map."""
+    if key == "region":
+        return _is_region(value)
+    if key == "queue_name_prefix":
+        return _is_queue_prefix(value)
+    if key == "predefined_queues":
+        return _predefined_queues_are_safe(value)
+    return True
+
+
+def _is_region(value: object) -> bool:
+    return isinstance(value, str) and _AWS_REGION.fullmatch(value) is not None
+
+
+def _is_queue_prefix(value: object) -> bool:
+    return isinstance(value, str) and _QUEUE_NAME_PREFIX.fullmatch(value) is not None
+
+
+def _predefined_queues_are_safe(value: object) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    for queue in value.values():
+        if not isinstance(queue, Mapping) or not set(queue) <= _PREDEFINED_QUEUE_KEYS:
+            return False
+        url = queue.get("url")
+        if not isinstance(url, str) or _SQS_QUEUE_URL.fullmatch(url) is None:
+            return False
+        policy = queue.get("backoff_policy")
+        if policy is not None and not isinstance(policy, Mapping):
+            return False
+        tasks = queue.get("backoff_tasks")
+        if tasks is not None and not (
+            isinstance(tasks, list | tuple) and all(isinstance(t, str) for t in tasks)
+        ):
+            return False
+    return True
+
+
+def infra_transport_options(
+    existing: object, stated: Mapping[str, object]
+) -> Mapping[str, object] | None:
+    """``existing`` (a conf's transport options) with the options ``INFRA`` states
+    laid under it: a conf that names another value stays visible to the check
+    (and is refused), never silently replaced. ``None`` when nothing is to add or
+    ``existing`` is not a mapping (the check refuses that)."""
+    if not stated or not isinstance(existing, Mapping | type(None)):
+        return None
+    return {**stated, **(existing or {})}
+
+
+def backend_name_is_foreign(option: str, value: object) -> bool:
+    """Whether a result-backend setting of :data:`FOREIGN_BACKEND_NAMES` is set to
+    anything but its default (or left unset)."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return False
+    return value != FOREIGN_BACKEND_NAMES[option]
