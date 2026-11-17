@@ -102,7 +102,7 @@ Public API 1.0 (spec §2.2, Appendix C).
 | [`stop_revocation_listener`](#stop_revocation_listener) | async function | Drop every per-process copy of a subject's state (test teardown). |
 | [`tables_created_by`](#tables_created_by) | function | Tables a chain's revisions create (`op.create_table(<name>, ...)`). |
 | [`temporary_database`](#temporary_database) | function | Create an empty database on the test server; yield its sync URL. |
-| [`TestResourceOwnershipError`](#testresourceownershiperror) | exception | The test database / Redis index belongs to another run. |
+| [`TestResourceOwnershipError`](#testresourceownershiperror) | exception | The test database / keyed index belongs to another run. |
 | [`UNIQUE`](#unique) | constant |  |
 | [`upgrade_core_chain`](#upgrade_core_chain) | function | Apply the core chain (outbox / audit / inbox / command log) to `url`. |
 | [`use_security_store`](#use_security_store) | function | Resolve the kernel's revocation / block state to `store`. |
@@ -1862,7 +1862,7 @@ database is dropped (`WITH (FORCE)`) when the block exits.
 class TestResourceOwnershipError(RuntimeError)
 ```
 
-The test database / Redis index belongs to another run.
+The test database / keyed index belongs to another run.
 
 ### `UNIQUE`
 
