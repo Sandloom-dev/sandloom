@@ -492,7 +492,7 @@ CHECKED_WORKFLOWS = ("ci.yml", "docs.yml", "architecture-check.yml")
 FINGERPRINTS: dict[str, str] = {
     "ci.yml:workflow-policy": "bd6288e4afd2fbf4",
     "ci.yml:changes": "3cdff8546e19f580",
-    "ci.yml:backend-static": "86b33a6c328440d1",
+    "ci.yml:backend-static": "6ebf740bb2f4890f",
     "ci.yml:supply-chain": "f97313a67b7eacd0",
     "ci.yml:backend-tests": "180a89247d8c71ee",
     "ci.yml:backend-tests-isolation": "611e931a41f4b5cd",

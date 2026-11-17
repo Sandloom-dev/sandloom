@@ -1,0 +1,3 @@
+### Security
+
+- **A broker or backend url that `urllib` cannot parse no longer carries its password into the error** (idk-low9). A netloc character that Unicode-normalizes to `:` `/` `?` `#` or `@` (U+FF1A, say) makes `urlsplit` raise a `ValueError` whose message holds the whole netloc, `user:password` included, and the validation error of the instance's options copied it. `connection_policy.scheme_of`, the SQS host reads and the TLS check now raise one fixed message that names no part of the url; the original exception is not chained. Such a url was refused before and is refused now: only the message changes.

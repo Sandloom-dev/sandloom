@@ -316,8 +316,9 @@ def _make_lifespan_body(
 ) -> Callable[[FastAPI], Any]:
     # Excluded from coverage as a whole, though the aborted start (the ``except``
     # branch) is driven by test_startup_abort_closes_infra.py and a clean boot by
-    # test_quiet_boot.py: the relay start, the shutdown budget and a refused token
-    # role are reached by subprocess suites that no coverage run measures.
+    # test_quiet_boot.py, and a refused token role by test_ops_review_regressions.py:
+    # the relay start and the shutdown budget are reached by subprocess suites that
+    # no coverage run measures.
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:  # pragma: no cover
         try:

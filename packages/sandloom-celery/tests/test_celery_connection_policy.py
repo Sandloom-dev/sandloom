@@ -552,3 +552,121 @@ def test_the_importable_app_refuses_a_non_string_sqs_account(
     _infra(monkeypatch, broker=_HOSTLESS, sqs_account_id=7)
     with pytest.raises(ConfigSchemaError, match="sqs_account_id"):
         celery_worker.app  # noqa: B018
+
+
+#: A netloc character that NFKC-normalizes to a url delimiter makes ``urlsplit``
+#: raise a ``ValueError`` that carries the whole netloc, password included.
+#: The fullwidth forms of ``:`` ``@`` ``/`` ``?`` ``#``.
+_COLON, _AT, _SLASH, _QUESTION, _HASH = (
+    chr(c) for c in (0xFF1A, 0xFF20, 0xFF0F, 0xFF1F, 0xFF03)
+)
+_UNPARSABLE = [
+    f"redis://u:pw-secret{_COLON}x@127.0.0.1:6379/0",
+    f"redis://u:pw-secret{_AT}x@127.0.0.1:6379/0",
+    f"rediss://:pw-secret{_SLASH}x@127.0.0.1:6380/0?ssl_cert_reqs=none",
+    f"sqs://AKIA:pw-secret{_QUESTION}x@sqs.us-east-1.amazonaws.com/",
+    f"amqp://guest:pw-secret{_HASH}x@127.0.0.1//",
+    f"redis://127.0.0.1/0;redis://u:pw-secret{_COLON}x@127.0.0.2/0",
+]
+
+
+def _assert_fixed_message(refused: ValueError) -> None:
+    assert "pw-secret" not in str(refused)
+    assert _COLON not in str(refused)
+    assert "cannot be parsed" in str(refused)
+    assert refused.__cause__ is None
+    assert refused.__suppress_context__
+
+
+@pytest.mark.parametrize("url", _UNPARSABLE[:5])
+def test_the_scheme_of_an_unparsable_url_raises_a_fixed_message(url: str) -> None:
+    with pytest.raises(ValueError) as refused:
+        scheme_of(url)
+    _assert_fixed_message(refused.value)
+    with pytest.raises(ValueError) as refused:
+        broker_transport_keys(url)
+    _assert_fixed_message(refused.value)
+
+
+@pytest.mark.parametrize("url", _UNPARSABLE)
+def test_validate_connection_refuses_an_unparsable_url_with_a_fixed_message(
+    url: str,
+) -> None:
+    for connection in (
+        ConnectionOptions(url),
+        ConnectionOptions(_HOSTLESS, url),
+    ):
+        with pytest.raises(ValueError) as refused:
+            validate_connection(connection)
+        _assert_fixed_message(refused.value)
+
+
+_BAD_SQS = f"sqs://AKIA:pw-secret{_COLON}x@sqs.us-east-1.amazonaws.com/"
+
+
+@pytest.mark.parametrize(
+    "broker",
+    [_BAD_SQS, f"sqs:///;{_BAD_SQS}", f"sqs://sqs.us-east-1.amazonaws.com/;{_BAD_SQS}"],
+    ids=["first", "hostless-first", "second"],
+)
+def test_the_sqs_host_reads_of_an_unparsable_url_raise_a_fixed_message(
+    broker: str,
+) -> None:
+    for call in (
+        lambda: ConnectionOptions(broker).queue_pin(),
+        lambda: validate_connection(ConnectionOptions(broker)),
+    ):
+        with pytest.raises(ValueError) as refused:
+            call()
+        _assert_fixed_message(refused.value)
+
+
+def test_the_stated_options_of_an_unparsable_sqs_url_raise_a_fixed_message() -> None:
+    with pytest.raises(ValueError) as refused:
+        ConnectionOptions(f"sqs:///;{_BAD_SQS}").broker_stated_options()
+    _assert_fixed_message(refused.value)
+
+
+@pytest.mark.parametrize("url", _UNPARSABLE)
+def test_an_unparsable_url_never_reaches_a_validation_error(url: str) -> None:
+    with pytest.raises(ValidationError) as refused:
+        create_celery_taskqueue(
+            InstanceConfig(
+                capability="taskqueue",
+                name="aux",
+                driver="celery",
+                options={"broker": url},
+            )
+        )
+    assert "pw-secret" not in str(refused.value)
+    assert "cannot be parsed" in str(refused.value)
+
+
+def test_an_unparsable_backend_never_reaches_a_validation_error() -> None:
+    url = f"redis://u:pw-secret{_COLON}x@127.0.0.1:6379/1"
+    with pytest.raises(ValidationError) as refused:
+        create_celery_taskqueue(
+            InstanceConfig(
+                capability="taskqueue",
+                name="aux",
+                driver="celery",
+                options={"broker": "redis://127.0.0.1:6379/0", "backend": url},
+            )
+        )
+    assert "pw-secret" not in str(refused.value)
+    assert "cannot be parsed" in str(refused.value)
+
+
+def test_the_importable_app_never_echoes_an_unparsable_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _infra(monkeypatch, broker=_UNPARSABLE[0])
+    with pytest.raises(Exception) as refused:
+        celery_worker.app  # noqa: B018
+    assert "pw-secret" not in str(refused.value)
+    assert "cannot be parsed" in str(refused.value)
+
+
+def test_a_plain_ipv6_broker_still_parses() -> None:
+    validate_connection(ConnectionOptions("redis://[::1]:6379/0"))
+    assert scheme_of("redis://[::1]:6379/0") == "redis"
