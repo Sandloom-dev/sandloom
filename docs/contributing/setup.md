@@ -52,10 +52,21 @@ cp .env.example .env
 `DATABASE_URL` and `JWT_SECRET` are mandatory, and so is `INFRA`: it gives each Redis <!-- prose-ok: P6 a list of settings and commands -->
 instance and the Celery broker its own url. The example sets `SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main`, the
 root that `sandloom migrate`, `sandloom generate`, the worker and the other `sandloom`
-commands build; keep it. A checkout or worktree without a `.env` gets the lean root.
-Every command that builds the app then refuses with `SANDLOOM-B035`, `sandloom test`
-included. Its gates build the app, and the root `conftest.py` picks the standard root for
-the pytest suites. Export the variable there:
+commands build; keep it.
+
+A checkout or worktree without a `.env` needs no variable for the commands you run from <!-- prose-ok: P6 a list of commands and steps -->
+the repository root. `sandloom generate`, `sandloom admin export`, `sandloom check --boot`
+and the steps of `sandloom test` that build the app (generated files, schema & deploy,
+the contract and route snapshots, migration drift) build `sandloom_standard.main`.
+`pyproject.toml` names it under `[tool.sandloom] composition-root`. The root
+`conftest.py` picks the standard root for the pytest suites. The variable, in the
+process or in `.env`, still wins over that default.
+
+`sandloom migrate` reads only the variable, as the worker and the operator CLIs
+(`sandloom outbox`, `sandloom streams`, `sandloom projection`) do. It migrates the app a
+deployment runs, and a deployment names that app in the variable. Without it they get
+the lean root and refuse with `SANDLOOM-B035`. `sandloom test` sets the variable for
+its own migration drift step. Export it for the rest:
 
 ```bash
 export SANDLOOM_COMPOSITION_ROOT=sandloom_standard.main

@@ -208,6 +208,13 @@ module = [
 ]
 ignore_missing_imports = true
 
+[tool.sandloom]
+# The application this checkout's authoring commands build when nothing names
+# one (SANDLOOM_COMPOSITION_ROOT in the process env or .env): `sandloom generate`
+# and the static steps of `sandloom test`. The kernel selects no driver, the
+# standard composition does. The pytest suites do not read it (conftest.py).
+composition-root = "sandloom_standard.main"
+
 [tool.pytest.ini_options]
 # Importable for its own tests, but not installed: an installed module package joins
 # sandloom.main, and the framework's composition is the three standard modules.

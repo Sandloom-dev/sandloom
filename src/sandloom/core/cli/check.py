@@ -170,7 +170,7 @@ def main(argv: list[str] | None = None, *, record: Path | None = None) -> int:
         _record(record, args.rules, violations)
 
     gate = settings_gate_diagnostics(rules) if only is None else []
-    boot = boot_diagnostics() if args.boot else []
+    boot = boot_diagnostics(project_root=rules.root) if args.boot else []
     return _report(rules, violations, boot, boot_requested=bool(args.boot), gate=gate)
 
 
@@ -298,16 +298,20 @@ def _print_boot(diagnostics: list[str]) -> None:
         print(text + "\n")
 
 
-def boot_diagnostics(root: str | None = None) -> list[str]:
+def boot_diagnostics(
+    root: str | None = None, *, project_root: Path | None = None
+) -> list[str]:
     """Build the app through ``create_app``; render every startup problem.
 
     No server and no I/O: module loading, route validation and the boot
-    checks run, the lifespan does not.
+    checks run, the lifespan does not. ``root`` is the composition root name;
+    ``project_root`` lets the project's ``[tool.sandloom] composition-root``
+    default apply when nothing else names one.
     """
     from sandloom.core.composition import load_composition_app  # noqa: PLC0415 - cold: --boot builds the app; plain `sandloom check` stays static
 
     try:
-        app = load_composition_app(root)
+        app = load_composition_app(root, project_root=project_root)
     except _BOOT_REFUSALS as exc:
         message = str(exc) or type(exc).__name__
         code = error_codes.code_for_exception(exc)

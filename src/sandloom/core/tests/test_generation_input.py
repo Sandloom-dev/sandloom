@@ -154,7 +154,7 @@ def test_admin_export_renders_the_declared_file_and_checks_drift(
 
     _resources(monkeypatch)
     app = _app(_module("demo.console", **{"console.json": lambda s: "{}\n"}))
-    monkeypatch.setattr(composition, "load_composition_app", lambda: app)
+    monkeypatch.setattr(composition, "load_composition_app", lambda **_: app)
     output = tmp_path / "admin.json"  # the only declared file, under any name
     assert main(["export", "--output", str(output)]) == 0
     assert output.read_text() == "{}\n"
@@ -171,7 +171,9 @@ def test_admin_export_without_a_declaring_module_says_what_to_compose(
 
     _resources(monkeypatch)
     monkeypatch.setattr(
-        composition, "load_composition_app", lambda: _app(_module("demo.catalog"))
+        composition,
+        "load_composition_app",
+        lambda **_: _app(_module("demo.catalog")),
     )
     assert main(["export", "--output", str(tmp_path / "m.json")]) == 1
     assert "compose the console module" in capsys.readouterr().err

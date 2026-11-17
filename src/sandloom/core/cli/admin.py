@@ -806,7 +806,9 @@ def _export(args: argparse.Namespace) -> int:
     from sandloom.core.composition import load_composition_app  # noqa: PLC0415 - cold: static command - only the export builds the app and settings; --help works unconfigured
 
     try:
-        payload = _exported(load_composition_app(), args.output.name)
+        payload = _exported(
+            load_composition_app(project_root=Path.cwd()), args.output.name
+        )
         if args.check:
             if not args.output.exists() or args.output.read_text() != payload:
                 raise ValueError("admin manifest is stale; run sandloom admin export")

@@ -35,7 +35,7 @@ from sandloom.core.descriptors.module_names import module_name as _module_name
 
 
 def _build_app() -> Any:
-    return _composition.load_composition_app()
+    return _composition.load_composition_app(project_root=Path.cwd())
 
 
 def _select(docs: dict[str, Any], only: list[str]) -> dict[str, Any]:

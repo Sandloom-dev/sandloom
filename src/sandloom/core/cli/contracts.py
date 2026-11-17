@@ -51,7 +51,7 @@ from sandloom.core.rpc.wire import _NONCE_HEADER, _unpack
 
 
 def _build_core() -> Any:
-    app = _composition.load_composition_app()
+    app = _composition.load_composition_app(project_root=Path.cwd())
     return app.state.core
 
 

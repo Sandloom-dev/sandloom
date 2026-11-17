@@ -68,6 +68,9 @@ Each gate below fails with a code; `uv run sandloom explain <code>` gives the wh
   process flags, read only through `sandloom.core.cli.dev.errors.environment()`: `SANDLOOM_DEBUG`,
   `CI`, `DOCKER_HOST`, `UV`, `NO_COLOR`, `FORCE_COLOR`, `CLICOLOR_FORCE`, `TERM`, `COLORTERM`
   and the agent markers in `sandloom.core.cli.ui.AGENT_MARKERS`. A new flag joins this list.
+  `sandloom.core.composition` also reads `[tool.sandloom] composition-root` from the
+  project's `pyproject.toml`, only for an authoring command that passes `project_root`
+  (behind the variable and `.env`; never the runtime, `sandloom migrate` or the pytest suites).
 
 ## Infrastructure layer
 
