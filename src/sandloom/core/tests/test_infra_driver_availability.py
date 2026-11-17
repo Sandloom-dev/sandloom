@@ -415,32 +415,55 @@ async def test_an_unused_synthesized_instance_is_not_opened_or_probed() -> None:
     assert "status" not in described["cache"]["default"]
 
 
+def _class_driver(capability: str, **attributes: Any) -> type[_Provider]:
+    """A provider class (so the registry reads its declarations) for ``capability``."""
+    return type(
+        f"_{capability}_class_driver",
+        (_Provider,),
+        {"capability": capability, "contract_version": 1, **attributes},
+    )
+
+
 @pytest.mark.asyncio
-async def test_the_cache_opens_before_any_other_capability_whatever_the_infra_order() -> (
-    None
-):
+async def test_a_driver_that_opens_after_a_capability_opens_after_it() -> None:
     """A url-less event bus runs on the default cache client the cache instance
-    configures when it is built: INFRA listing the bus first must not open it
-    first (the bus was refused for a url the cache had)."""
-    registry, spies = _registry(
+    configures when it is built: its driver says ``opens_after = ("cache",)``,
+    and INFRA listing the bus first must not open it first (the bus was refused
+    for a url the cache had). A driver that declares nothing keeps INFRA's
+    order: the task queue, listed before the cache, still opens before it."""
+    registry, _ = _registry(
         _instance("eventbus", "bus"),
         _instance("taskqueue", "jobs"),
         _instance("cache", "kv"),
     )
-    for capability, driver in (
-        ("eventbus", "bus"),
-        ("taskqueue", "jobs"),
-        ("cache", "kv"),
-    ):
-        registry.register_driver(capability, driver, spies[capability])
+    registry.register_driver(
+        "eventbus", "bus", _class_driver("eventbus", opens_after=("cache",))
+    )
+    registry.register_driver("taskqueue", "jobs", _class_driver("taskqueue"))
+    registry.register_driver("cache", "kv", _class_driver("cache"))
 
     await registry.aopen_all(strict=True)
 
     assert _Provider.opened == [
+        "taskqueue/default",
         "cache/default",
         "eventbus/default",
-        "taskqueue/default",
     ]
+
+
+@pytest.mark.asyncio
+async def test_drivers_that_open_after_each_other_are_refused_at_startup() -> None:
+    registry, _ = _registry(_instance("eventbus", "bus"), _instance("cache", "kv"))
+    registry.register_driver(
+        "eventbus", "bus", _class_driver("eventbus", opens_after=("cache",))
+    )
+    registry.register_driver(
+        "cache", "kv", _class_driver("cache", opens_after=("eventbus",))
+    )
+
+    with pytest.raises(InfraStartupError, match="wait for each other"):
+        await registry.aopen_all(strict=True)
+    assert _Provider.opened == []
 
 
 @pytest.mark.asyncio

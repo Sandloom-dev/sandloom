@@ -27,7 +27,9 @@ synthesized instance that shares the default cache's Redis is a WARNING there
 too (``InfraProvider.implicit`` is never true in production).
 
 An instance unregisters when it closes (:func:`unregister`); a test harness
-starts clean with :func:`reset`.
+starts clean with :func:`reset`. The registrations belong to the process, not to
+one app: two apps built in one process (a test suite) see each other's
+endpoints until :func:`reset`.
 """
 
 from __future__ import annotations

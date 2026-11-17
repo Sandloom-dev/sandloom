@@ -702,13 +702,59 @@ class InfraRegistry:
         factory, a class declaring none, and a driver whose packages are not
         installed: its class is not imported, and the refusal of an instance
         that cannot run is :meth:`validate`'s (SANDLOOM-B037), not the fill's."""
+        provider_class = self._installed_class(capability, driver)
+        return provider_class.settings_fill if provider_class is not None else None
+
+    def _installed_class(
+        self, capability: str, driver: str
+    ) -> type[InfraProvider] | None:
+        """The class of a registered driver whose packages are installed, else
+        ``None`` (a lazy target is imported only when it can run)."""
         registration = self._drivers.get((capability, driver))
         if registration is None or any(
             not self._is_installed(name) for name in registration.requires
         ):
             return None
-        provider_class = self.driver_class(capability, driver)
-        return provider_class.settings_fill if provider_class is not None else None
+        return self.driver_class(capability, driver)
+
+    def _open_order(self) -> list[tuple[str, str]]:
+        """Every configured instance in the order :meth:`aopen_all` opens
+        them: ``INFRA``'s order, except that an instance whose driver declares
+        ``opens_after`` waits until no instance of those capabilities is left
+        to open. Rounds keep the listed order inside each one."""
+        pending = [(c, n) for c, instances in self._config.items() for n in instances]
+        needs: dict[tuple[str, str], tuple[str, ...]] = {}
+        for capability, name in pending:
+            needs[(capability, name)] = ()
+            if self._unused(capability, name):
+                continue
+            try:
+                provider_class = self._installed_class(
+                    capability, self._config[capability][name].driver
+                )
+            except DriverLoadError:
+                # Nothing to order by: opening the instance reports the same
+                # failure (SANDLOOM-B022) in its place, as it always did.
+                continue
+            if provider_class is not None:
+                needs[(capability, name)] = provider_class.opens_after
+        ordered: list[tuple[str, str]] = []
+        while pending:
+            waiting = {capability for capability, _ in pending}
+            ready = [
+                key
+                for key in pending
+                if not any(c in waiting and c != key[0] for c in needs[key])
+            ]
+            if not ready:
+                raise InfraStartupError(
+                    "Infrastructure drivers wait for each other to open: "
+                    + ", ".join(f"{c}/{n}" for c, n in pending),
+                    fix="remove the cycle in the drivers' opens_after",
+                )
+            ordered.extend(ready)
+            pending = [key for key in pending if key not in ready]
+        return ordered
 
     def has_driver(self, capability: str, driver: str) -> bool:
         return (capability, driver) in self._drivers
@@ -1609,24 +1655,23 @@ class InfraRegistry:
         failures: list[str] = []
         unavailable = False
         await self._close_retired()
-        # ``cache`` opens first whatever order INFRA lists the capabilities in:
-        # a url-less event bus runs on the default cache client, which the
-        # ``cache.default`` instance configures when it is built, so a bus
-        # opened before it would be refused for a url that is there.
-        for capability in sorted(self._config, key=lambda c: c != "cache"):
-            for name in self._config[capability]:
-                if self._unused(capability, name):
-                    logger.debug(
-                        "[infra] %s/%s is a synthesized default nothing requires: "
-                        "not opened",
-                        capability,
-                        name,
-                    )
-                    continue
-                failure = await self._open_one(capability, name, strict=strict)
-                if failure is not None:
-                    failures.append(failure[0])
-                    unavailable = unavailable or failure[1]
+        # The order is INFRA's, except that a driver declaring ``opens_after``
+        # (a url-less durable bus runs on the default cache client, which the
+        # cache instance configures when it is built) opens after those
+        # capabilities, whatever order INFRA lists them in.
+        for capability, name in self._open_order():
+            if self._unused(capability, name):
+                logger.debug(
+                    "[infra] %s/%s is a synthesized default nothing requires: "
+                    "not opened",
+                    capability,
+                    name,
+                )
+                continue
+            failure = await self._open_one(capability, name, strict=strict)
+            if failure is not None:
+                failures.append(failure[0])
+                unavailable = unavailable or failure[1]
         if failures:
             raise InfraStartupError(
                 "Infrastructure failed to open at startup: " + "; ".join(failures),
