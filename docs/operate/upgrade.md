@@ -189,6 +189,18 @@ The old name has no alias. Startup refuses an `eventbus` instance that still wri
 The error names the new spelling and prints no option, so it shows no url. Other
 capabilities keep their `redis` driver.
 
+## Upgrading to 0.7.0a15: the volatile event bus names say `broadcast`
+
+Three public names of the volatile `broadcast` event bus said `redis`, though the bus runs
+on whichever `broadcast` driver the app selects. They are renamed after the bus. There is no
+alias: the old names are gone.
+
+| Before | After |
+| --- | --- |
+| `EVENT_BUS_REDIS_SEMAPHORE_LIMIT` (default `100`) | `EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT`, same meaning and default. Startup fails while the old name is set, in any letter case, and the error names the new one. The setting now refuses a value below `1` at startup (`0` used to block every callback). |
+| The key `redis_reconnect_attempts` of the event bus counters in `/diagnostics` | `broadcast_reconnect_attempts` |
+| The Prometheus counter `sandloom_redis_reconnect_attempts_total` | `sandloom_broadcast_reconnect_attempts_total`, which now counts each lost subscription (the old counter stayed at zero). Change an alert or dashboard that queries the old name; the bundled Grafana dashboard (`deploy/observability`) already does. |
+
 ## Upgrading the Celery driver's connection checks
 
 The `celery` taskqueue driver now refuses, at startup, connections it used to accept.

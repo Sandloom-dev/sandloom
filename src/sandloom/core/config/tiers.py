@@ -588,6 +588,14 @@ REMOVED: tuple[RemovedSetting, ...] = (
         "SANDLOOM_MODULES (import path or `sandloom.modules` entry-point name) "
         "or set MODULE_LOAD_ENTRYPOINTS=true to load every installed module",
     ),
+    RemovedSetting(
+        "EVENT_BUS_REDIS_SEMAPHORE_LIMIT",
+        "0.7.0a15",
+        "the limit of concurrent callbacks of the volatile `broadcast` event "
+        "bus is named after that bus, not after Redis: set "
+        "EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT (same meaning, same default of 100)",
+        inert=None,
+    ),
 )
 
 _TRUE = frozenset({"1", "true", "yes", "on"})
@@ -766,7 +774,7 @@ OPS: frozenset[str] = frozenset(
         "EVENT_CALLBACK_TIME_BUDGET_SECONDS",
         "EVENT_PAYLOAD_MAX_BYTES",
         "EVENT_SHUTDOWN_DRAIN_SECONDS",
-        "EVENT_BUS_REDIS_SEMAPHORE_LIMIT",
+        "EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT",
         "SCHEMA_REGISTRY_PATH",
         "SANDLOOM_JSONSCHEMA_BACKEND",
     ]

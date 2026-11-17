@@ -108,7 +108,7 @@ _CATEGORIES: dict[str, str] = {
     "EVENT_CALLBACK_TIME_BUDGET_SECONDS": "Eventing & Outbox",
     "EVENT_PAYLOAD_MAX_BYTES": "Eventing & Outbox",
     "EVENT_SHUTDOWN_DRAIN_SECONDS": "Eventing & Outbox",
-    "EVENT_BUS_REDIS_SEMAPHORE_LIMIT": "Eventing & Outbox",
+    "EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT": "Eventing & Outbox",
     "SCHEMA_REGISTRY_PATH": "Eventing & Outbox",
     # Service registry / RPC
     "SERVICE_BINDINGS": "Service Registry & RPC",

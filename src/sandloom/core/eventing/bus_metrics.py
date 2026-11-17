@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover
 _event_bus_metrics: dict[str, int] = {
     "events_published": 0,
     "events_publish_failures": 0,
-    "redis_reconnect_attempts": 0,
+    "broadcast_reconnect_attempts": 0,
     "callbacks_success": 0,
     "callbacks_failure": 0,
     "schema_validation_success": 0,

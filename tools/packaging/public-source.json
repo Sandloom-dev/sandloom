@@ -3134,6 +3134,7 @@
         "changelog.d/idk-low6-kernel.md",
         "changelog.d/idk-low6-product.md",
         "changelog.d/idk-test-composition-default.md",
+        "changelog.d/redis-out-names.md",
         "changelog.d/redis-out-runtime.md",
         "changelog.d/redis-tag-release.md",
         "changelog.d/eventbus-broadcast-driver.md",
