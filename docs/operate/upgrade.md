@@ -210,11 +210,11 @@ Check each of these before the first start:
    url's AWS host, or of the conf `region`. With the `INFRA` option `sqs_account_id` it
    must be in that account too. VPC endpoint and FIPS hosts are accepted. A conf
    `region` (in `broker_transport_options`) that differs from the region of the `INFRA`
-   host is refused. The AWS hosts of one `INFRA` url must name one region. A FIPS or
-   VPC endpoint queue `url` does not move traffic on its own: with a botocore whose
-   SQS model uses the JSON protocol, the `INFRA` host picks the endpoint. With an older
-   botocore on the query protocol, kombu sends its receive calls to the queue `url`'s
-   host, so give the queue urls the endpoint you want. An `INFRA` broker host that names no readable
+   host is refused. The AWS hosts of one `INFRA` url must name one region. Which host
+   carries the traffic depends on botocore. On the JSON protocol of its SQS model, the
+   `INFRA` host does. On the older query protocol, kombu sends receive calls to the
+   host of the queue `url`. Give the queue urls the endpoint you want. An `INFRA`
+   broker host that names no readable
    region is refused, because it would leave the queue-url pin off. Three kinds of
    host are refused. One is a trailing dot on any host
    (`sqs.eu-west-1.amazonaws.com.`). Another is a percent escape or a non-ASCII

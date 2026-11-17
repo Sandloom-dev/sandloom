@@ -309,10 +309,10 @@ pins nothing. A queue `url` on an AWS host is then refused, so the check fails c
 The AWS hosts of one `INFRA` url must name one region. A url with hosts of two
 regions is refused.
 
-With a botocore whose SQS model uses the JSON protocol, a queue `url` only names a
-queue, and the `INFRA` host picks the endpoint that carries the traffic. With an older
-botocore on the query protocol, kombu sends its receive calls to the host of the queue
-`url`. Give the queue urls the endpoint you want the traffic on.
+Which host carries the traffic depends on botocore. On the JSON protocol of its SQS
+model, a queue `url` only names a queue and the `INFRA` host carries the traffic. On the
+older query protocol, kombu sends receive calls to the host of the queue `url`. Give the
+queue urls the endpoint you want the traffic on.
 
 The `INFRA` option `sqs_account_id` pins the account. It has 12 digits and any other
 scheme refuses it. A queue url of another account is then refused. Left out, any account
