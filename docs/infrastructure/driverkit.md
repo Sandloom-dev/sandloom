@@ -152,7 +152,7 @@ settings snapshot.
 
 | Name | What it is |
 | --- | --- |
-| `HarnessFamily` | The hooks of a family: `name`, `rewrite_worker`, `claim`, `slot_bases`, `release_slot_bases`, `allocate_workers`, `cap_workers` and `flush_owned`. |
+| `HarnessFamily` | The hooks of a family: `name`, `rewrite_worker`, `claim`, `slot_bases`, `release_slot_bases`, `allocate_workers`, `cap_workers`, `flush_owned`, `owns_url`, `same_database` and `parallel_env`. A family missing one is refused. The family also installs its URL mover with `testing_isolation.set_url_mover(name, mover)`, one per family, which `isolated_url_options` applies in turn. |
 | `check_holder`, `current_owner`, `already_claimed`, `record_claim`, `TestResourceOwnershipError` | Ownership of a backend's resources: refuse (or, under `SANDLOOM_TEST_TAKE_OWNERSHIP=1`, take over) a resource another run marked, and skip one this process verified. |
 | `OWNER_ENV`, `TAKEOVER_ENV` | The settings that name the run's owner and the deliberate takeover. |
 | `INFRA_VAR`, `parse_infra` | The setting that names the backends, the JSON `INFRA`, parsed into `{capability: {instance: spec}}`. |

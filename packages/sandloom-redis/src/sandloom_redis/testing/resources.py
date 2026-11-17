@@ -127,6 +127,7 @@ def _connect_redis(url: str) -> Any:
         raise ImportError(
             "Redis test resources need the redis client: pip install redis"
         )
+    split_url(url)  # unreadable: a fixed message, never redis-py's (it quotes the url)
     client = redis.Redis.from_url(
         _server_url(url),
         socket_connect_timeout=5,

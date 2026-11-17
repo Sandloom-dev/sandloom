@@ -54,6 +54,9 @@ from sandloom_redis.testing.urls import (
     redis_client_installed,
 )
 
+#: The name of this harness family (``RedisFamily.name``): the key of its URL
+#: mover.
+REDIS_FAMILY = "redis"
 #: Database indexes between two workers' instances, by default.
 DEFAULT_STRIDE = 16
 
@@ -142,9 +145,12 @@ def moved_redis_url(url: str, number: int, layout: WorkerLayout) -> str:
 
 
 def use_layout(layout: WorkerLayout | None = None) -> None:
-    """Make ``layout`` (the default one when omitted) this process's URL mover."""
+    """Make ``layout`` (the default one when omitted) the mover of the ``redis``
+    family in this process; the movers of other families stay."""
     chosen = layout or WorkerLayout()
-    _isolation.set_url_mover(lambda url, number: moved_redis_url(url, number, chosen))
+    _isolation.set_url_mover(
+        REDIS_FAMILY, lambda url, number: moved_redis_url(url, number, chosen)
+    )
 
 
 def redis_stride(environ: Mapping[str, str]) -> int:

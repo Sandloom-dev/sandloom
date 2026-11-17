@@ -259,6 +259,29 @@ def test_an_override_that_matches_no_declared_instance_refuses(
         )
 
 
+@pytest.mark.parametrize(
+    "override",
+    [
+        "unix:///tmp/r.sock",
+        "memcached://h",
+        "memcached://user:S3cr3tPw@h:11211/0",
+        "not a url",
+    ],
+)
+def test_an_override_that_is_no_url_of_an_installed_backend_refuses_without_its_text(
+    override: str,
+) -> None:
+    """The declared base URL is a backend's; the override value must be one too,
+    or the run would put its own URL into ``INFRA`` and fail later, away from the
+    cause. The refusal never quotes the value (it may hold a password)."""
+    infra = '{"cache": {"default": {"driver": "redis", "url": "redis://h:6379/0"}}}'
+    with pytest.raises(
+        workers.UnmatchedOverrideError, match="SANDLOOM_TEST_CACHE_URL is no URL"
+    ) as caught:
+        workers.infra_with_overrides(infra, {"CACHE_URL": override})
+    assert override not in str(caught.value) and "S3cr3tPw" not in str(caught.value)
+
+
 def test_without_a_family_no_url_is_one_the_override_can_replace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

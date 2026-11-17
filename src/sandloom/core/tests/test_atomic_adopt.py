@@ -450,6 +450,11 @@ def test_strict_profile_warns_when_sharing_the_security_redis() -> None:
         ("unix:///run/cache.sock", "unix:///run/cache.sock", True),
         ("redis+unix:///run/cache.sock?db=1", "unix:///run/cache.sock", True),
         ("unix:///run/cache.sock", "unix:///run//./cache.sock", True),
+        # whatever host the url states, and the path as the driver reads it
+        ("unix://localhost/run/r.sock", "unix:///run/r.sock", True),
+        ("redis+unix://other-host/run/r.sock", "unix:///run/r.sock", True),
+        ("unix:///run/r%2Esock", "unix:///run/r.sock", True),
+        ("unix://localhost/run/r.sock", "unix://localhost/run/other.sock", False),
         ("unix:///run/cache.sock", "unix:///run/other.sock", False),
         ("unix:///run/cache.sock", "redis://host:6379/4", False),
         ("unix:///run/cache.sock", "postgresql://host/app", False),

@@ -310,6 +310,20 @@ group when the first hook runs and calls every family:
 | `allocate_workers(values, count)` | the controller, before the workers start: claim resources for the `count` workers |
 | `cap_workers(values, count)` | `-n auto`: workers capped to what the backend has room for |
 | `flush_owned(provider)` | empty the test database behind a cache provider, when it is this family's and this run owns it |
+| `owns_url(url)` | a `SANDLOOM_TEST_CACHE_URL` / `SANDLOOM_TEST_BROKER_URL` override is merged into `INFRA`: only a URL some family owns is a target (the override value and the `INFRA` URL it replaces); none owning it is `UnmatchedOverrideError` |
+| `same_database(stated, base)` | the same merge, for every other declared instance: it takes the override too when its URL and the replaced one, both owned by this family, name one server and database (a URL that leaves the database out names the backend's default) |
+| `parallel_env()` | `sandloom test` starts an xdist step: the environment this family needs of a parallel run, set unless the caller already set the names; `{}` when it needs none |
+
+A family missing any hook is refused when the harness loads it.
+
+**URL mover.** What a URL becomes for worker `gw<N>` is the family's, not the
+driver's. The family installs a *mover*, `(url, worker number) -> url`, with
+`sandloom.driverkit.testing_isolation.set_url_mover(family_name, mover)`; a
+mover returns a URL it does not own unchanged. Movers are keyed by the family's
+name: each family has one (installing again replaces it, `None` removes it) and
+`isolated_url_options(options, worker_id, keys)`, which a driver's
+`test_isolation` hook calls, applies every installed mover in turn. With none
+installed the options come back unchanged.
 
 Every hook is a no-op for a process that cannot reach the backend: no client
 installed, no URL set. A family package imports the kernel's side of the

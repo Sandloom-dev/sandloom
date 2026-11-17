@@ -259,6 +259,14 @@ def infra_with_overrides(
                 f"{OVERRIDE_PREFIX}{var} (an app that selects no {capability} has "
                 "nothing to override)"
             )
+        if not _owned(url):
+            # Never the value: it is a URL a person set and may hold a password.
+            raise UnmatchedOverrideError(
+                f"{OVERRIDE_PREFIX}{var} is no URL of an installed backend: it "
+                f"replaces the URL INFRA declares on {capability}.default, so it "
+                "must name a server of that backend (install the package of that "
+                f"backend), or unset {OVERRIDE_PREFIX}{var}"
+            )
         _replace_on_database(parsed, base, url)
     return json.dumps(parsed)
 

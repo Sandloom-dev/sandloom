@@ -1172,6 +1172,7 @@
         "packages/sandloom-celery/tests/test_taskqueue_kit.py",
         "packages/sandloom-celery/tests/test_taskqueue_kit_host.py",
         "packages/sandloom-celery/tests/test_celery_cli_worker.py",
+        "packages/sandloom-celery/tests/test_celery_isolation_identity.py",
         "packages/sandloom-celery/tests/test_celery_current_app.py",
         "packages/sandloom-celery/tests/test_celery_connection_policy.py",
         "packages/sandloom-celery/tests/test_celery_core_facade.py",

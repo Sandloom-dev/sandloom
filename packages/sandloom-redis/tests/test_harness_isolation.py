@@ -50,7 +50,7 @@ def _default_layout() -> Iterator[None]:
     on the default one."""
     redis_isolation.use_layout()
     yield
-    isolation.set_url_mover(None)
+    isolation.set_url_mover(redis_isolation.REDIS_FAMILY, None)
 
 
 REDIS_DRIVERS: tuple[tuple[type[InfraProvider], str], ...] = (
@@ -164,6 +164,22 @@ def test_the_redis_mover_leaves_the_urls_of_other_backends_alone() -> None:
         options, "gw0", keys=("broker", "backend")
     )
     assert isolated == {"broker": "amqp://h/1", "backend": "redis://h/16"}
+
+
+def test_the_redis_mover_is_keyed_by_the_family_name_and_shares_the_hook() -> None:
+    """The Redis mover is the one of the family named ``redis``: another
+    family's mover beside it moves its own URLs and does not replace it."""
+    assert redis_isolation.REDIS_FAMILY == redis_family.FAMILY.name
+    isolation.set_url_mover("amqp-test", lambda url, number: url.replace("amqp://", "amqp-w://"))
+    try:
+        isolated = isolation.isolated_url_options(
+            {"broker": "amqp://h/1", "backend": "redis://h/0"},
+            "gw0",
+            keys=("broker", "backend"),
+        )
+    finally:
+        isolation.set_url_mover("amqp-test", None)
+    assert isolated == {"broker": "amqp-w://h/1", "backend": "redis://h/16"}
 
 
 def test_hook_keys_name_the_options_holding_a_url() -> None:

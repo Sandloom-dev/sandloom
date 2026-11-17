@@ -30,7 +30,6 @@ from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any, Self, TypeVar
-from urllib.parse import urlsplit
 
 import orjson
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -50,6 +49,7 @@ from sandloom.driverkit.shared_endpoints import redis_endpoint
 from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
 from sandloom.driverkit.testing_isolation import isolated_url_options
+from sandloom.driverkit.url_split import split_url
 from sandloom_celery.backup import broker_hint
 from sandloom_celery.broker_probe import BrokerUnreachableError, probe_broker
 from sandloom_celery.connection_policy import ConnectionOptions, validate_connection
@@ -388,7 +388,7 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
         broker = self.options.get("broker")
         if not isinstance(broker, str) or not broker:
             return None
-        where = urlsplit(broker)
+        where = split_url(broker)
         port = f":{where.port}" if where.port else ""
         host = where.hostname or ""
         return f"{self.driver}:{where.scheme}://{host}{port}{where.path}"

@@ -64,6 +64,7 @@ def claim_redis(
     """Verify (or claim) that this run owns the Redis database ``url``."""
     if not is_redis_url(url) or not redis_client_installed():
         return  # no Redis URL, or no client: this process reaches no Redis
+    split_url(url)  # unreadable: a fixed message, never redis-py's (it quotes the url)
     owner = owner or current_owner(environ)
     if already_claimed("redis", url, owner):
         return

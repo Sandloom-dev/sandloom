@@ -1,3 +1,4 @@
 ### Changed
 
 - **The Celery task queue isolates `broker` and `backend` through `isolated_url_options`** (redis-out-harness). It replaces `isolated_redis_options`, which the kernel no longer exports, so the package needs the kernel that has `sandloom.driverkit.testing_isolation.isolated_url_options`. Upgrade the package with the kernel. Behaviour is the same: a worker's broker and backend urls move to its own database index when the Redis harness family is installed.
+- **The task queue's `isolation_identity` reads the broker through `split_url`** (redis-out-harness). A `broker` url that `urlsplit` cannot read raises a `ValueError` with a fixed message, not one that quotes the netloc and its password. The connection policy (`connection_policy.py`) has the same gap and is fixed by PR #317, not here.
