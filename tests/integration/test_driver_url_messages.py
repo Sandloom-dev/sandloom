@@ -168,6 +168,7 @@ async def test_a_driver_with_a_url_passes_the_url_check_and_fails_on_the_server(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("_clean_shared_endpoints")
 async def test_a_url_less_streams_bus_runs_on_the_default_cache_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

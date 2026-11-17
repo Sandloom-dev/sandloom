@@ -151,9 +151,15 @@ def test_a_composition_selecting_redis_is_refused(from_app: bool) -> None:
 def test_event_bus_backend_redis_is_refused_by_name_not_as_a_bare_value() -> None:
     with pytest.raises(ValidationError) as refused:
         EventingConfig.model_validate({"EVENT_BUS_BACKEND": "redis"})
-    assert "EVENT_BUS_BACKEND" in str(refused.value)
-    assert "removed in 0.7.0a15" in str(refused.value)
-    assert "broadcast" in str(refused.value)
+    text = str(refused.value)
+    assert (
+        "EVENT_BUS_BACKEND=redis: the 'redis' event bus driver was removed in "
+        "0.7.0a15 and is now named 'broadcast'; set EVENT_BUS_BACKEND=broadcast, "
+        'or in INFRA write {"eventbus": {"default": {"driver": "broadcast"}}}'
+    ) in text
+    # The surrounding spaces of the value are not part of the name.
+    with pytest.raises(ValidationError, match="EVENT_BUS_BACKEND=redis: the 'redis'"):
+        EventingConfig.model_validate({"EVENT_BUS_BACKEND": " redis "})
     # The other names still validate; an unknown one is still a bare refusal.
     for name in ("memory", "broadcast", "streams"):
         assert EventingConfig.model_validate({"EVENT_BUS_BACKEND": name})

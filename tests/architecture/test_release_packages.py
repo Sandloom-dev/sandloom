@@ -565,6 +565,26 @@ KERNEL_CASES = {
         KERNEL_METADATA,
         "carries Redis protocol code 'SCRIPT FAILED: see log'",
     ),
+    "known limit: a prose sentence with a digit-led word after a command name": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "MSG = 'XADD is 10x slower'\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'XADD is 10x slower'",
+    ),
+    "known limit: a prose sentence that ends with a number": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "MSG = 'XLEN is 0'\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'XLEN is 0'",
+    ),
+    "known limit: a command whose arguments are plain lower-case words": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "MSG = 'XACK stream group id'\n"},
+        KERNEL_METADATA,
+        "",
+    ),
+    "a command with an id argument that starts with a digit": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "MSG = 'XACK s g 1-0'\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'XACK s g 1-0'",
+    ),
     "ordinary words and a sentence that starts with a command name": (
         {
             **DEV_SERVICES,
