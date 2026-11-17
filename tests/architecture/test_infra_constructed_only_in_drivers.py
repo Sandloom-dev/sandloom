@@ -55,7 +55,6 @@ resolves those names to the SDK, so ``psycopg2.connect`` through it counts.
 from __future__ import annotations
 
 import ast
-import re
 from pathlib import Path
 
 import pytest

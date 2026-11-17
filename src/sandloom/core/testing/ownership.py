@@ -53,11 +53,12 @@ import warnings
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlunsplit
 
 from sandloom.core.migrations.pg_sync import errors, psycopg2, sql
 from sandloom.core.testing import families
 from sandloom.core.testing.machine import checkout_root, machine_id
+from sandloom.core.url_split import split_url
 
 OWNER_ENV = "SANDLOOM_TEST_OWNER"
 TAKEOVER_ENV = "SANDLOOM_TEST_TAKE_OWNERSHIP"
@@ -129,7 +130,7 @@ _SQLITE_HINT = (
 
 
 def _plain_dsn(url: str, database: str | None = None) -> tuple[str, str]:
-    parts = urlsplit(url)
+    parts = split_url(url)
     name = parts.path.lstrip("/")
     path = f"/{database if database is not None else name}"
     plain = parts._replace(scheme="postgresql", path=path, query="")
@@ -252,7 +253,7 @@ def _sqlite_path(url: str) -> Path | None:
     """The file of a SQLite URL (``None``: in memory); as
     :func:`sandloom.core.testing.workers.sqlite_file`, which imports this
     module."""
-    parts = urlsplit(url)
+    parts = split_url(url)
     path = parts.path[1:] if parts.path.startswith("/") else parts.path
     if not path or path == ":memory:" or "mode=memory" in parts.query:
         return None

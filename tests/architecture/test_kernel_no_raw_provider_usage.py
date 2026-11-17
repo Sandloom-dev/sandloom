@@ -34,7 +34,6 @@ and states why the site stays.
 from __future__ import annotations
 
 import ast
-import re
 from collections import Counter
 from pathlib import Path
 

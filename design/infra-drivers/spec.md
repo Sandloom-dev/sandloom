@@ -1551,6 +1551,30 @@ For the orchestrator's review; each departs from or details `design.md`.
     - **The unreachable line names the capability** (`the cache backend`, `the event bus`,
       `the task queue`), read from the mapped error's `capability`.
 
+50. **The test harness holds no Redis (redis-out-harness).** The kernel's harness
+    (`core/testing/workers.py`, `slots.py`, `fixtures.py`, `cli/run_tests.py`) tests no url scheme,
+    no database index and no Redis variable; the knowledge moves to the harness family.
+    - **`HarnessFamily` gains `owns_url(url)`, `same_database(stated, base)` and
+      `parallel_env()`.** The harness asks the installed families which one owns a
+      `SANDLOOM_TEST_*_URL` override (none: `UnmatchedOverrideError`), whether an override
+      names the instance's own database, and which environment an xdist step needs.
+    - **One URL mover per family replaces the Redis layout in `driverkit`.** `testing_isolation` exports
+      two names: `set_url_mover(family, mover)` (a family installs `(url, worker number) -> url`
+      under its name; the hook applies every installed mover in turn) and
+      `isolated_url_options(options, worker_id, keys)` (a driver's `test_isolation` calls it).
+      `WorkerLayout`, `DEFAULT_STRIDE`, `isolated_redis_options`, `set_worker_layout` and
+      `worker_layout` are removed (no alias, ADR-0010); the layout is
+      `sandloom_redis.testing.isolation`. The Celery driver shares the hook without importing
+      `sandloom_redis`.
+    - **Names:** `workers.URL_VARS` (was `REDIS_VARS`) and `Slot.family_urls` (was
+      `Slot.redis_urls`). `SANDLOOM_TEST_REDIS_DB_STRIDE` stays: it is the Redis family's variable.
+    - **Fixtures take the cache driver from the app or `INFRA`**, not the name `redis`.
+    - **`sandloom.driverkit.url_split.split_url`** is `urlsplit` for a url a person typed: a url
+      it refuses raises one fixed `ValueError` (no chained error), because the stdlib message
+      quotes the netloc with its password. The kernel's implementation is
+      `sandloom.core.url_split`; a driver package imports the driverkit name. A
+      redaction helper answers `<unparseable url>` instead of raising.
+
 ## 14. Open for the owner
 
 None. O1 (the instance settings) is decided as item 31.

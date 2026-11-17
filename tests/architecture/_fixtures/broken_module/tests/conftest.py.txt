@@ -4,7 +4,7 @@ Every import below is a `test-imports` violation — module tests must use
 sandloom.core.testing (plugin fixtures, make_user_headers, bind_test_uow) instead.
 """
 
-import sandloom.core.drivers.redis_cache as _redis_cache
+import sandloom.core.drivers.memory_cache as _memory_cache
 from sandloom.core import database
 from sandloom.core._internal.db_provider import get_db
 from sandloom.core.database import Base

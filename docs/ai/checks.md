@@ -77,7 +77,7 @@ sandloom test: FAILED (ruff check, ruff format, sandloom check)
 ```
 
 <!-- prose-ok: P6 the option list and the failure kinds are real lists, not rhythm -->
-`ruff check` runs first: what it fixes is in the tree the generated-files check and the tests see. Then the module you name, the fast suite and the other static checks. A failing framework step points at `sandloom explain`; a ruff, mypy or test failure prints its own message above the summary. `sandloom test` never writes a generated file: when one is stale, it fails and says to run `uv run sandloom generate`. [Run the suites](../modules/testing.md#run-the-suites) covers `--full`, `--no-gates` and `--plan`.
+The generated files are checked first, then the module you name, the fast suite and the static checks, `ruff check` among them. `ruff check` runs with `--no-fix` whatever `fix` your configuration sets: `sandloom test` writes nothing, so a violation fails and `uv run ruff check --fix` is yours to run. A failing framework step points at `sandloom explain`; a ruff, mypy or test failure prints its own message above the summary. `sandloom test` never writes a generated file: when one is stale, it fails and says to run `uv run sandloom generate`. [Run the suites](../modules/testing.md#run-the-suites) covers `--full`, `--no-gates` and `--plan`.
 
 ## Run sandloom check alone
 

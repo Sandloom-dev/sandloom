@@ -100,6 +100,44 @@ def test_the_slot_claims_own_indexes_and_asks_for_auto_stride(
     assert through_slot["SANDLOOM_TEST_CACHE_URL"] == "redis://h/7"
 
 
+@pytest.mark.parametrize(
+    ("url", "owned"),
+    [
+        ("redis://h/1", True),
+        ("rediss://h:6380/1", True),
+        ("amqp://h/1", False),
+        ("memory://", False),
+        ("", False),
+    ],
+)
+def test_the_family_owns_the_redis_urls_only(url: str, owned: bool) -> None:
+    assert redis_family.FAMILY.owns_url(url) is owned
+
+
+@pytest.mark.parametrize(
+    ("stated", "base", "same"),
+    [
+        ("redis://h:6380/0", "redis://h:6380", True),  # no path is database 0
+        ("redis://h:6380/0/", "redis://h:6380/", True),
+        ("redis://h:6380/1", "redis://h:6380/2", False),
+        ("redis://h:6380/1", "redis://other:6380/1", False),
+        ("redis://h:6380/1", "rediss://h:6380/1", False),
+        ("redis://h:6380/1?x=1", "redis://h:6380/1", False),
+    ],
+)
+def test_the_family_names_the_same_database(stated: str, base: str, same: bool) -> None:
+    assert redis_family.FAMILY.same_database(stated, base) is same
+
+
+def test_a_parallel_run_asks_for_allocated_indexes_when_it_can_reach_a_redis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(redis_family, "redis_client_installed", lambda: True)
+    assert redis_family.FAMILY.parallel_env() == {REDIS_STRIDE_ENV: "auto"}
+    monkeypatch.setattr(redis_family, "redis_client_installed", lambda: False)
+    assert redis_family.FAMILY.parallel_env() == {}
+
+
 def test_an_explicit_stride_is_not_replaced_by_auto(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

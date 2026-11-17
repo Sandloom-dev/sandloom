@@ -22,7 +22,7 @@ import os
 import sys
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import parse_qs, urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlunsplit
 
 import pytest
 
@@ -31,6 +31,7 @@ from sandloom.core.testing import connections, families, ownership, workers
 from sandloom.core.testing.env import dev_up_hint
 from sandloom.core.testing.families import INFRA_VAR, INSTANCE_URL_OPTIONS
 from sandloom.core.testing.fixtures import env_starts, find_env_file
+from sandloom.core.url_split import split_url
 
 #: Where Linux's default ephemeral range starts; macOS and Windows start higher.
 EPHEMERAL_PORTS_START = 32768
@@ -93,7 +94,7 @@ def self_connecting_urls(values: Mapping[str, str]) -> list[str]:
     """
     found = []
     for var, url in _run_urls(values):
-        parts = urlsplit(url)
+        parts = split_url(url)
         hosts = parse_qs(parts.query).get("host", [])
         if hosts and all(host.startswith("/") for host in hosts):
             continue  # a Unix socket: the authority is unused
@@ -167,7 +168,7 @@ def check_run_resources(config: pytest.Config) -> None:
 def _server_reachable(database_url: str) -> bool:
     """Whether the PostgreSQL server of ``database_url`` accepts a connection
     to its ``postgres`` database (a refused login counts as reachable)."""
-    parts = urlsplit(database_url)
+    parts = split_url(database_url)
     dsn = urlunsplit(parts._replace(scheme="postgresql", path="/postgres", query=""))
     try:
         psycopg2.connect(dsn, connect_timeout=5).close()
@@ -188,7 +189,7 @@ def _warn_unreachable(config: pytest.Config, database: str) -> None:
         return
     if _server_reachable(database):
         return
-    parts = urlsplit(database)
+    parts = split_url(database)
     print(
         f"sandloom testing: the test database server {parts.hostname}:"
         f"{parts.port or 5432} is not reachable; {hint}",

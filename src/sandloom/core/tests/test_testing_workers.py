@@ -1,25 +1,27 @@
 """pytest-xdist isolation helpers (sandloom.core.testing.workers).
 
-The database half, with no harness family loaded: what a worker gets when no
-package contributes a backend. The Redis indexes of a worker are the
-``sandloom-redis`` family's and are tested in
+The database half, with a stand-in family that only owns URLs: what a worker gets
+when no package contributes a backend, and how the ``SANDLOOM_TEST_*`` URL
+overrides ask the families. The Redis indexes of a worker (and the layout of a
+URL) are the ``sandloom-redis`` family's and are tested in
 ``packages/sandloom-redis/tests/test_testing_workers.py``.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from sandloom.core.infra.worker_isolation import worker_redis_url
 from sandloom.core.testing import families, session_checks, workers
 from sandloom.core.tests._root_support import redis_free_infra_env
+from sandloom.core.tests.test_testing_families import UrlFamily
 
 _REAL_ENSURE_DATABASE = workers.ensure_database
 BASE = {
@@ -36,9 +38,10 @@ def _fresh_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
     saved = dict(os.environ)
     for var in workers.OVERRIDABLE_VARS:  # the run's own overrides stay out
         monkeypatch.delenv(workers.OVERRIDE_PREFIX + var, raising=False)
-    # No harness family: the worker rewrite is the database's alone, whatever
-    # packages are installed (a Redis family would also rewrite the fake indexes).
-    monkeypatch.setattr(families, "_loaded", ())
+    # One stand-in family that owns URLs and rewrites nothing: the worker rewrite
+    # is the database's alone, whatever packages are installed (a real family
+    # would also rewrite the fake indexes).
+    monkeypatch.setattr(families, "_loaded", (UrlFamily(),))
     monkeypatch.setattr(workers, "_applied", {})
     monkeypatch.setattr(workers, "ensure_database", created.append)
     yield created
@@ -124,8 +127,6 @@ def test_url_helpers_keep_everything_but_the_name_or_index() -> None:
     assert workers.worker_database_url(
         workers.worker_database_url(url, "gw3"), "gw3"
     ) == workers.worker_database_url(url, "gw3")
-    assert worker_redis_url("redis://:pw@h:1", 0, 16) == "redis://:pw@h:1/16"
-    assert worker_redis_url("rediss://h:1/3?x=1", 1, 16) == ("rediss://h:1/35?x=1")
 
 
 def test_reload_test_env_reapplies_the_worker_rewrite(
@@ -256,6 +257,68 @@ def test_an_override_that_matches_no_declared_instance_refuses(
             {f"SANDLOOM_TEST_{var}": MINE_CACHE},
             current={} if infra is None else {"INFRA": infra},
         )
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        "unix:///tmp/r.sock",
+        "memcached://h",
+        "memcached://user:S3cr3tPw@h:11211/0",
+        "not a url",
+    ],
+)
+def test_an_override_that_is_no_url_of_an_installed_backend_refuses_without_its_text(
+    override: str,
+) -> None:
+    """The declared base URL is a backend's; the override value must be one too,
+    or the run would put its own URL into ``INFRA`` and fail later, away from the
+    cause. The refusal never quotes the value (it may hold a password)."""
+    infra = '{"cache": {"default": {"driver": "redis", "url": "redis://h:6379/0"}}}'
+    with pytest.raises(
+        workers.UnmatchedOverrideError, match="SANDLOOM_TEST_CACHE_URL is no URL"
+    ) as caught:
+        workers.infra_with_overrides(infra, {"CACHE_URL": override})
+    assert override not in str(caught.value) and "S3cr3tPw" not in str(caught.value)
+
+
+def test_without_a_family_no_url_is_one_the_override_can_replace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The kernel knows no URL form: a URL no installed family owns is no target,
+    so the override refuses (never silently keeps the shared server)."""
+    monkeypatch.setattr(families, "_loaded", ())
+    infra = '{"cache": {"default": {"driver": "x", "url": "redis://h:6379/0"}}}'
+    with pytest.raises(workers.UnmatchedOverrideError, match="installed backend"):
+        workers.infra_with_overrides(infra, {"CACHE_URL": MINE_CACHE})
+    assert workers.overrides_infra_can_take(infra) == ()
+
+
+def test_the_family_decides_which_urls_sit_on_the_same_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Literal(UrlFamily):
+        """Two URLs name one database only when they are the same string."""
+
+        def same_database(self, stated: str, base: str) -> bool:
+            return stated == base
+
+    infra = json.dumps(
+        {
+            "cache": {"default": {"driver": "x", "url": "redis://h:6379/0"}},
+            "lease": {"beat": {"driver": "x", "url": "redis://h:6379"}},
+        }
+    )
+    together = json.loads(
+        workers.infra_with_overrides(infra, {"CACHE_URL": MINE_CACHE}) or ""
+    )
+    assert together["lease"]["beat"]["url"] == MINE_CACHE
+    monkeypatch.setattr(families, "_loaded", (Literal(),))
+    apart = json.loads(
+        workers.infra_with_overrides(infra, {"CACHE_URL": MINE_CACHE}) or ""
+    )
+    assert apart["cache"]["default"]["url"] == MINE_CACHE
+    assert apart["lease"]["beat"]["url"] == "redis://h:6379"
 
 
 def test_a_malformed_infra_or_no_override_leaves_infra_as_it_is() -> None:
@@ -466,3 +529,56 @@ def test_generate_opens_no_database_on_a_worker_either() -> None:
 
 def _refuse_a_connection(_url: str) -> None:
     raise AssertionError("no database may be opened")
+
+
+# A url a person typed can hold a character that NFKC-normalises to ``#``: the
+# stdlib ``urlsplit`` then raises a ValueError that quotes the netloc, password
+# included. Every kernel place that parses such a url raises without it.
+_SECRET = "S3CRETpw"
+_HOSTILE = f"postgresql://user:{_SECRET}@host{chr(0xFF03)}x:5432/db"
+
+
+def _hostile_calls() -> dict[str, Callable[[], object]]:
+    from sandloom.core import production_profile
+    from sandloom.core.cli import wizard
+    from sandloom.core.cli.dev import services
+    from sandloom.core.consumers import runtime as consumers_runtime
+    from sandloom.core.testing import (
+        connections,
+        ownership,
+        slots,
+    )
+    from sandloom.core.url_split import split_url
+
+    return {
+        "split_url": lambda: split_url(_HOSTILE),
+        "same_server": lambda: production_profile._same_server(_HOSTILE, _HOSTILE),
+        "postgres.from_url": lambda: services.Postgres.from_url(_HOSTILE),
+        "redis.from_url": lambda: services.RedisServer.from_url(_HOSTILE),
+        "wizard._address": lambda: wizard._address(_HOSTILE),
+        "worker_database_url": lambda: workers.worker_database_url(_HOSTILE, "gw0"),
+        "sqlite_file": lambda: workers.sqlite_file(_HOSTILE),
+        "slot_database_url": lambda: slots.slot_database_url(_HOSTILE, 2),
+        "headroom": lambda: connections.server_headroom(_HOSTILE),
+        "plain_dsn": lambda: ownership._plain_dsn(_HOSTILE),
+        "normalize_database_url": lambda: consumers_runtime.normalize_database_url(
+            _HOSTILE
+        ),
+    }
+
+
+@pytest.mark.parametrize("name", sorted(_hostile_calls()))
+def test_a_url_urlsplit_refuses_never_puts_its_password_in_the_error(
+    name: str,
+) -> None:
+    with pytest.raises(ValueError, match="cannot be parsed") as caught:
+        _hostile_calls()[name]()
+    assert _SECRET not in str(caught.value)
+    assert caught.value.__cause__ is None and caught.value.__suppress_context__
+
+
+def test_redact_does_not_echo_a_url_it_cannot_parse() -> None:
+    from sandloom.core.cli.dev import services
+
+    assert _SECRET not in services.redact(_HOSTILE)
+    assert services.redact("redis://u:pw@h:6379/0") == "redis://u:<password>@h:6379/0"

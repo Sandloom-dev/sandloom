@@ -21,11 +21,11 @@ def test_the_plan_of_the_framework_tree() -> None:
     root = Path(__file__).resolve().parents[3]  # backend/
     steps = run_tests.plan(root, "billing", full=False, gates=True, workers="auto")
     assert _names(steps) == [
-        "ruff check",
         "generated files",
         "schema & deploy",
         "billing",
         "suite (not slow)",
+        "ruff check",
         "ruff format",
         "mypy",
         "sandloom check",
@@ -36,10 +36,10 @@ def test_the_plan_of_the_framework_tree() -> None:
         "migration drift",
         "public API baseline",
     ]
-    suite = steps[4]
+    suite = steps[3]
     assert suite.argv[-6:] == ["-n", "auto", "--dist", "loadfile", "-m", "not slow"]
     assert suite.env["SANDLOOM_TEST_REDIS_DB_STRIDE"]
-    assert steps[3].argv[-1].endswith("sandloom_billing/tests")
+    assert steps[2].argv[-1].endswith("sandloom_billing/tests")
     full = run_tests.plan(root, None, full=True, gates=True, workers="auto")
     assert _names(full)[-1] == "typing tests"
 

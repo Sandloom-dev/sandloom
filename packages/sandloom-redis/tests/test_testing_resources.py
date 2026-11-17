@@ -20,6 +20,7 @@ import pytest
 from _redis_required import cache_url_or_unavailable, redis_unavailable
 from sandloom_redis.testing import resources
 from sandloom_redis.testing.ownership import REDIS_LAST_USED_KEY, REDIS_OWNER_KEY
+from sandloom_redis.testing.urls import redis_client_installed
 
 from sandloom.core.testing import ownership, session_checks
 from sandloom.core.testing.resources import Resource, verdict
@@ -289,3 +290,12 @@ def test_auto_workers_fall_back_when_redis_indexes_are_short(
     assert session_checks.cap_auto_workers(config, 6) == expected
     if room < 6:
         assert "Redis database indexes are free" in capsys.readouterr().err
+
+
+def test_the_scanner_does_not_echo_the_password_of_an_unreadable_url() -> None:
+    if not redis_client_installed():
+        redis_unavailable("the redis client is not installed")
+    url = f"redis://user:S3cr3tPw{chr(0xFF1A)}x@127.0.0.1:6418/3"
+    with pytest.raises(ValueError, match="cannot be parsed") as caught:
+        resources._connect_redis(url)
+    assert "S3cr3tPw" not in str(caught.value)
