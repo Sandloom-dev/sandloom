@@ -525,11 +525,51 @@ KERNEL_CASES = {
         KERNEL_METADATA,
         "carries Redis protocol code 'ZADD'",
     ),
+    "XREAD, not only XREADGROUP": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "c.execute_command('XREAD', k)\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'XREAD'",
+    ),
+    "XDEL": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "c.execute_command('XDEL', k, i)\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'XDEL'",
+    ),
+    "XSETID": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "c.execute_command('XSETID', k, i)\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'XSETID'",
+    ),
+    "EVAL_RO": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "c.execute_command('EVAL_RO', s, 0)\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'EVAL_RO'",
+    ),
+    "a sorted-set command other than ZADD": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "c.execute_command('ZRANGE', k, 0)\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'ZRANGE'",
+    ),
+    "a whole-line command with a lower-case key": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "c.send('XLEN mystream')\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'XLEN mystream'",
+    ),
+    "a whole-line command with a star id and lower-case fields": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "c.send('XADD orders * a b')\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'XADD orders * a b'",
+    ),
+    "known limit: an all-caps sentence that starts with SCRIPT": (
+        {**DEV_SERVICES, "sandloom/core/a.py": "MSG = 'SCRIPT FAILED: see log'\n"},
+        KERNEL_METADATA,
+        "carries Redis protocol code 'SCRIPT FAILED: see log'",
+    ),
     "ordinary words and a sentence that starts with a command name": (
         {
             **DEV_SERVICES,
             "sandloom/core/a.py": (
-                "KINDS = ('script', 'eval', 'zadd', 'Script')\n"
+                "KINDS = ('script', 'eval', 'zadd', 'Script', 'zrange', 'zcard')\n"
                 "MSG = 'XADD is slow'\n"
                 "TEXT = 'script failed: see the log'\n"
             ),
