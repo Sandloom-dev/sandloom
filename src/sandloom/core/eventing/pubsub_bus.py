@@ -238,6 +238,7 @@ class BroadcastEventBus(BaseEventBus):
                     reconnect_delay,
                 )
                 _event_bus_metrics["broadcast_reconnect_attempts"] += 1
+                safe_inc("broadcast_reconnect_attempts_total")
                 if self._stopped:
                     break  # type: ignore[unreachable]
                 await asyncio.sleep(reconnect_delay)

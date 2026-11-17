@@ -480,6 +480,16 @@ def test_removed_setting_fails_unless_inert(
     monkeypatch.setenv(removed.name, active)
     with pytest.raises(ValueError, match=removed.name):
         _settings()
+    # Settings names are case-insensitive: the lower-case spelling in the
+    # process environment is refused the same way, not ignored.
+    monkeypatch.delenv(removed.name)
+    monkeypatch.setenv(removed.name.lower(), active)
+    with pytest.raises(ValueError, match=removed.name):
+        _settings()
+    # Both spellings absent again: nothing is refused (the check is not a
+    # blanket failure).
+    monkeypatch.delenv(removed.name.lower())
+    _settings()
 
 
 @pytest.mark.parametrize(
@@ -569,6 +579,22 @@ def test_the_renamed_semaphore_limit_is_a_setting_and_the_old_name_is_refused() 
         _settings(EVENT_BUS_REDIS_SEMAPHORE_LIMIT="7")
     assert "EVENT_BUS_REDIS_SEMAPHORE_LIMIT was removed" in str(caught.value)
     assert "EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT" in str(caught.value)
+
+
+def test_the_old_semaphore_name_in_lower_case_env_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("event_bus_redis_semaphore_limit", "5")
+    with pytest.raises(ValueError, match="EVENT_BUS_REDIS_SEMAPHORE_LIMIT was removed"):
+        _settings()
+
+
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_the_semaphore_limit_below_one_is_refused_at_settings_load(value: str) -> None:
+    # 0 would block every broadcast callback forever; a negative value only
+    # failed when the bus was built.
+    with pytest.raises(ValueError, match="EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT"):
+        _settings(EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT=value)
 
 
 def test_doctor_lists_overrides() -> None:

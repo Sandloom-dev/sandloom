@@ -197,12 +197,9 @@ alias: the old names are gone.
 
 | Before | After |
 | --- | --- |
-| `EVENT_BUS_REDIS_SEMAPHORE_LIMIT` (default `100`) | `EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT`, same meaning and default. Startup fails while the old name is set, and the error names the new one. |
+| `EVENT_BUS_REDIS_SEMAPHORE_LIMIT` (default `100`) | `EVENT_BUS_BROADCAST_SEMAPHORE_LIMIT`, same meaning and default. Startup fails while the old name is set, in any letter case, and the error names the new one. The setting now refuses a value below `1` at startup (`0` used to block every callback). |
 | The key `redis_reconnect_attempts` of the event bus counters in `/diagnostics` | `broadcast_reconnect_attempts` |
-| The Prometheus counter `sandloom_redis_reconnect_attempts_total` | `sandloom_broadcast_reconnect_attempts_total`. Change an alert or dashboard that queries the old name; the bundled Grafana dashboard (`deploy/observability`) already does. |
-
-The text of error `SANDLOOM-R014` now says a command cannot reach a backing service, where
-it named PostgreSQL or Redis. The fix is the same: start the dev services.
+| The Prometheus counter `sandloom_redis_reconnect_attempts_total` | `sandloom_broadcast_reconnect_attempts_total`, which now counts each lost subscription (the old counter stayed at zero). Change an alert or dashboard that queries the old name; the bundled Grafana dashboard (`deploy/observability`) already does. |
 
 ## Upgrading the Celery driver's connection checks
 
