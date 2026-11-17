@@ -91,6 +91,8 @@ class CeleryTaskQueueOptions(BaseModel):
     ``master_name`` / ``backend_master_name`` name the Redis master of a
     ``sentinel://`` ``broker`` / ``backend`` (kombu and Celery read it only from
     the transport options, which a conf may not set).
+    ``sqs_account_id`` is the AWS account of an ``sqs://`` ``broker``'s queues: a
+    ``predefined_queues`` url of a config module must belong to it.
     ``extra="forbid"`` rejects a typo'd key at startup.
     """
 
@@ -103,6 +105,10 @@ class CeleryTaskQueueOptions(BaseModel):
     master_name: str | None = None
     #: The same, for a ``sentinel://`` ``backend``.
     backend_master_name: str | None = None
+    #: The AWS account (12 digits) of the queues of an ``sqs://`` ``broker``: a
+    #: ``predefined_queues`` url of a conf must belong to it. Refused with any other
+    #: scheme; left out, the account is not pinned.
+    sqs_account_id: str | None = None
     #: The kernel's record TTL (``RECORD_TTL_SECONDS``, one day), written out:
     #: the driver imports no kernel module (test_celery_replay_limits keeps them equal).
     dedupe_ttl_seconds: int = Field(default=24 * 60 * 60, ge=1, le=604800)
@@ -128,6 +134,7 @@ class CeleryTaskQueueOptions(BaseModel):
                 self.backend,
                 self.master_name,
                 self.backend_master_name,
+                self.sqs_account_id,
             )
         )
         return self
@@ -439,6 +446,7 @@ def _build_celery_taskqueue(cls: type[_Q], cfg: InstanceConfig) -> _Q:
         options.backend,
         options.master_name,
         options.backend_master_name,
+        options.sqs_account_id,
     )
     is_default = cfg.name == DEFAULT_INSTANCE
 

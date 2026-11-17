@@ -449,6 +449,35 @@ _TRANSPORT_REPROS = {
         "{'backoff_tasks': ['t']}}}\n",
         "broker_transport_options",
     ),
+    # a queue in the INFRA host's region only, and in the INFRA account when it
+    # states one: a conf shipped from another account or region cannot publish there
+    "sqs predefined_queues other region than the infra host": (
+        _SQS_HOST,
+        {},
+        "broker_transport_options = {'predefined_queues': {'q': "
+        "{'url': 'https://sqs.us-east-1.amazonaws.com/123456789012/q'}}}\n",
+        "broker_transport_options",
+    ),
+    "sqs predefined_queues other region than the conf region": (
+        _SQS,
+        {},
+        "broker_transport_options = {'region': 'eu-west-1', 'predefined_queues': "
+        "{'q': {'url': 'https://sqs.us-east-1.amazonaws.com/123456789012/q'}}}\n",
+        "broker_transport_options",
+    ),
+    "sqs predefined_queues other account": (
+        _SQS_HOST,
+        {"sqs_account_id": "123456789012"},
+        "broker_transport_options = {'predefined_queues': {'q': "
+        "{'url': 'https://sqs.eu-west-1.amazonaws.com/999999999999/q'}}}\n",
+        "broker_transport_options",
+    ),
+    "sqs conf region other than the infra host": (
+        _SQS_HOST,
+        {},
+        "broker_transport_options = {'region': 'us-east-1'}\n",
+        "broker_transport_options",
+    ),
     # an sqs:// url with a host is https only through ``is_secure``, which INFRA
     # states: the conf may not turn it off
     "sqs host is_secure off": (
@@ -521,6 +550,15 @@ _HARMLESS_TRANSPORT_OPTIONS = {
         "'app-', 'wait_time_seconds': 20, 'visibility_timeout': 60, "
         f"'predefined_queues': {{'q': {{'url': '{_QUEUE_URL}', "
         "'backoff_policy': {1: 10}, 'backoff_tasks': ['t']}}}\n",
+    ),
+    # queue urls of the INFRA account and region, on the FIPS and VPC endpoint hosts
+    "sqs host queues": (
+        _SQS_HOST,
+        {"sqs_account_id": "123456789012"},
+        "broker_transport_options = {'predefined_queues': {"
+        "'a': {'url': 'https://sqs-fips.eu-west-1.amazonaws.com/123456789012/a'}, "
+        "'b': {'url': 'https://vpce-0a1b-abcd1234.sqs.eu-west-1.vpce.amazonaws.com"
+        "/123456789012/b'}}}\n",
     ),
     # an sqs:// url with a host: INFRA states ``is_secure``, the conf may repeat it
     "sqs host": (

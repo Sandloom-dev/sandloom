@@ -206,7 +206,9 @@ Check each of these before the first start:
    HTTPS, so an endpoint that speaks only HTTP, such as a local emulator, is
    unreachable. A `predefined_queues` entry of a config module may carry only its
    queue `url` and the backoff keys. Its credentials and region come from the `INFRA`
-   url and the `region` option.
+   url and the `region` option. The queue `url` must be in the region of the `INFRA`
+   url's AWS host, or of the conf `region`. With the `INFRA` option `sqs_account_id` it
+   must be in that account too. VPC endpoint and FIPS hosts are accepted.
 4. **A `;`-separated url.** A space or an empty chunk around a `;` is refused, and so
    are urls of different schemes.
 5. **A config module that sets a result backend's endpoint, project or path.** For

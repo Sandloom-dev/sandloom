@@ -9,7 +9,9 @@ from pydantic import ValidationError
 from sandloom_celery import worker as celery_worker
 from sandloom_celery.connection_policy import (
     ConnectionOptions,
+    broker_transport_keys,
     scheme_of,
+    transport_options_are_safe,
     validate_connection,
 )
 from sandloom_celery.taskqueue import CeleryTaskQueueOptions, create_celery_taskqueue
@@ -176,6 +178,163 @@ def test_infra_states_tls_for_an_sqs_url_with_a_host(
     assert ConnectionOptions(broker).broker_stated_options() == stated
 
 
+_HOSTLESS = "sqs://KEY:SECRET@"
+_ACCOUNT = "123456789012"
+
+
+def _queues_are_safe(
+    url: str,
+    broker: str = _HOSTLESS,
+    account: str | None = None,
+    **options: object,
+) -> bool:
+    """The conf check of an SQS broker (what ``worker`` runs) for a conf whose
+    ``predefined_queues`` holds one queue at ``url``."""
+    connection = ConnectionOptions(broker, sqs_account_id=account)
+    return transport_options_are_safe(
+        {"predefined_queues": {"q": {"url": url}}, **options},
+        broker_transport_keys(connection.broker),
+        connection.broker_stated_options(),
+        connection.queue_pin(),
+    )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        f"https://sqs.eu-west-1.amazonaws.com/{_ACCOUNT}/q",
+        f"https://sqs.eu-west-1.amazonaws.com/{_ACCOUNT}/q.fifo",
+        f"https://sqs.cn-north-1.amazonaws.com.cn/{_ACCOUNT}/q",
+        f"https://sqs.us-gov-west-1.amazonaws.com/{_ACCOUNT}/q",
+        # FIPS (botocore ``endpoints.json``: ``sqs-fips.<region>.amazonaws.com``)
+        f"https://sqs-fips.us-east-1.amazonaws.com/{_ACCOUNT}/q",
+        # VPC interface endpoint, regional and zonal DNS names (AWS PrivateLink guide)
+        f"https://vpce-0a1b2c3d4e5f67890-abcd1234.sqs.eu-west-1.vpce.amazonaws.com/{_ACCOUNT}/q",
+        f"https://vpce-0a1b2c3d4e5f67890-abcd1234-eu-west-1a.sqs.eu-west-1.vpce.amazonaws.com/{_ACCOUNT}/q",
+    ],
+)
+def test_an_aws_sqs_queue_url_is_accepted(url: str) -> None:
+    assert _queues_are_safe(url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        f"http://sqs.eu-west-1.amazonaws.com/{_ACCOUNT}/q",
+        f"https://sqs.eu-west-1.amazonaws.com.stray.example/{_ACCOUNT}/q",
+        f"https://stray.example/sqs.eu-west-1.amazonaws.com/{_ACCOUNT}/q",
+        f"https://sqs.eu-west-1.amazonaws.com:8443/{_ACCOUNT}/q",
+        f"https://u:p@sqs.eu-west-1.amazonaws.com/{_ACCOUNT}/q",
+        f"https://sqs.eu-west-1.amazonaws.com/{_ACCOUNT}/q\n",
+        f"https://stray.sqs.eu-west-1.amazonaws.com/{_ACCOUNT}/q",
+        f"https://sqs-fips.eu-west-1.amazonaws.com.stray.example/{_ACCOUNT}/q",
+        # a VPC endpoint of another service, another suffix, or a dot in its label
+        f"https://vpce-0a1b2c3d-abcd1234.s3.eu-west-1.vpce.amazonaws.com/{_ACCOUNT}/q",
+        f"https://vpce-0a1b2c3d-abcd1234.sqs.eu-west-1.vpce.stray.example/{_ACCOUNT}/q",
+        f"https://vpce-0a1b2c3d.stray.example.sqs.eu-west-1.vpce.amazonaws.com/{_ACCOUNT}/q",
+        "https://sqs.eu-west-1.amazonaws.com/1/q",
+    ],
+)
+def test_a_queue_url_that_is_not_an_aws_https_sqs_url_is_refused(url: str) -> None:
+    assert not _queues_are_safe(url)
+
+
+@pytest.mark.parametrize(
+    ("broker", "regions"),
+    [
+        ("sqs://K:S@sqs.eu-west-1.amazonaws.com", {"eu-west-1"}),
+        ("sqs://K:S@sqs-fips.us-east-1.amazonaws.com", {"us-east-1"}),
+        ("sqs://K:S@sqs.cn-north-1.amazonaws.com.cn", {"cn-north-1"}),
+        (
+            "sqs://K:S@vpce-0a1b2c3d-abcd1234-eu-west-1a.sqs.eu-west-1.vpce.amazonaws.com",
+            {"eu-west-1"},
+        ),
+        (
+            "sqs://K:S@sqs.eu-west-1.amazonaws.com;sqs://K:S@sqs.us-east-1.amazonaws.com",
+            {"eu-west-1", "us-east-1"},
+        ),
+        # an emulator or a proxy names no region, and neither does a url without a host
+        ("sqs://K:S@localhost:4566", set()),
+        ("sqs://K:S@", set()),
+        ("sqs://K:S@sqs.eu-west-1.amazonaws.com.stray.example", set()),
+        ("redis://sqs.eu-west-1.amazonaws.com", set()),
+    ],
+)
+def test_the_regions_infra_states_come_from_the_aws_hosts_of_an_sqs_url(
+    broker: str, regions: set[str]
+) -> None:
+    assert ConnectionOptions(broker).queue_pin().regions == regions
+
+
+def test_a_queue_url_is_pinned_to_the_region_of_the_infra_host() -> None:
+    host = "sqs://K:S@sqs.eu-west-1.amazonaws.com"
+    assert _queues_are_safe(f"https://sqs.eu-west-1.amazonaws.com/{_ACCOUNT}/q", host)
+    # a queue of the same account in another region
+    assert not _queues_are_safe(
+        f"https://sqs.us-east-1.amazonaws.com/{_ACCOUNT}/q", host
+    )
+    # FIPS and VPC endpoint urls of the INFRA region pass, of another one do not
+    for form in (
+        "sqs-fips.eu-west-1.amazonaws.com",
+        "vpce-0a1b-abcd1234.sqs.eu-west-1.vpce.amazonaws.com",
+    ):
+        assert _queues_are_safe(f"https://{form}/{_ACCOUNT}/q", host)
+        assert not _queues_are_safe(
+            f"https://{form.replace('eu-west-1', 'us-east-1')}/{_ACCOUNT}/q", host
+        )
+
+
+def test_a_queue_url_follows_the_conf_region_when_infra_names_none() -> None:
+    url = f"https://sqs.eu-west-1.amazonaws.com/{_ACCOUNT}/q"
+    assert _queues_are_safe(url, region="eu-west-1")
+    assert not _queues_are_safe(url, region="us-east-1")
+    # no region anywhere: kombu takes it from the environment, which is not read
+    assert _queues_are_safe(url)
+
+
+def test_the_conf_region_must_be_the_region_of_the_infra_host() -> None:
+    url = f"https://sqs.eu-west-1.amazonaws.com/{_ACCOUNT}/q"
+    host = "sqs://K:S@sqs.eu-west-1.amazonaws.com"
+    assert _queues_are_safe(url, host, region="eu-west-1")
+    assert not _queues_are_safe(url, host, region="us-east-1")
+
+
+def test_a_queue_url_is_pinned_to_the_account_infra_states() -> None:
+    mine = f"https://sqs.eu-west-1.amazonaws.com/{_ACCOUNT}/q"
+    other = "https://sqs.eu-west-1.amazonaws.com/999999999999/q"
+    assert _queues_are_safe(mine, account=_ACCOUNT)
+    assert not _queues_are_safe(other, account=_ACCOUNT)
+    # not stated: any account passes
+    assert _queues_are_safe(other)
+    vpce = f"https://vpce-0a1b-abcd1234.sqs.eu-west-1.vpce.amazonaws.com/{_ACCOUNT}/q"
+    assert _queues_are_safe(vpce, account=_ACCOUNT)
+    assert not _queues_are_safe(vpce, account="999999999999")
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"broker": "redis://127.0.0.1/0", "sqs_account_id": _ACCOUNT},
+        {"broker": _HOSTLESS, "sqs_account_id": "12345"},
+        {"broker": _HOSTLESS, "sqs_account_id": f"{_ACCOUNT}\n"},
+        {"broker": _HOSTLESS, "sqs_account_id": "stray-account"},
+    ],
+)
+def test_the_sqs_account_is_twelve_digits_and_belongs_to_an_sqs_broker(
+    options: dict[str, str],
+) -> None:
+    with pytest.raises(ValidationError, match="sqs_account_id") as refused:
+        CeleryTaskQueueOptions.model_validate(options)
+    assert "KEY:SECRET" not in str(refused.value)
+
+
+def test_an_sqs_broker_takes_the_account_of_infra() -> None:
+    options = CeleryTaskQueueOptions.model_validate(
+        {"broker": _HOSTLESS, "sqs_account_id": _ACCOUNT}
+    )
+    assert options.sqs_account_id == _ACCOUNT
+
+
 @pytest.mark.parametrize("role", ["broker", "backend"])
 def test_a_sentinel_url_needs_its_master(role: str) -> None:
     url = "sentinel://:infra-secret@127.0.0.1:26379/0"
@@ -266,4 +425,22 @@ def test_the_importable_app_refuses_a_non_string_master(
 ) -> None:
     _infra(monkeypatch, broker="sentinel://127.0.0.1:26379/0", master_name=7)
     with pytest.raises(ConfigSchemaError, match="master_name"):
+        celery_worker.app  # noqa: B018
+
+
+def test_the_importable_app_takes_the_sqs_account_from_infra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _infra(monkeypatch, broker=_HOSTLESS, sqs_account_id=_ACCOUNT)
+    assert celery_worker.app is not None
+    assert celery_worker._default.connection == ConnectionOptions(
+        _HOSTLESS, None, None, None, _ACCOUNT
+    )
+
+
+def test_the_importable_app_refuses_a_non_string_sqs_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _infra(monkeypatch, broker=_HOSTLESS, sqs_account_id=7)
+    with pytest.raises(ConfigSchemaError, match="sqs_account_id"):
         celery_worker.app  # noqa: B018
