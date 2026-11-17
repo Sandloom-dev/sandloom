@@ -30,6 +30,7 @@
       "name": "sandloom-redis",
       "kind": "driver",
       "standard": true,
+      "tag_release": true,
       "drivers": {
         "atomic_store.redis": {
           "target": "sandloom_redis.atomic_store:RedisAtomicStoreProvider",

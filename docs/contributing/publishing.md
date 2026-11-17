@@ -35,8 +35,8 @@ The GitHub `pypi` environment requires approval by `Maryarty`, including runs
 started by the owner. Administrator bypass is disabled. The owner may approve
 their own run because there is only one maintainer. Allowed deployment refs are
 `main` and the tag patterns of the packages that release by tag:
-`sandloom-v*`, `sandloom-identity-v*`, `sandloom-tenancy-v*` and
-`sandloom-billing-v*`.
+`sandloom-v*`, `sandloom-identity-v*`, `sandloom-tenancy-v*`,
+`sandloom-billing-v*` and `sandloom-redis-v*`.
 
 The workflow starts on `sandloom*-v*`. Its plan step checks the tag against
 `tools/packaging/packages.json`: the package must exist and have `tag_release`
@@ -45,10 +45,10 @@ refused there and the run ends. Validation and packaging never start for a tag
 the environment would reject, and the run holds the `pypi-release` concurrency
 group for seconds.
 
-Configure a pending Trusted Publisher for the first release of `sandloom-s3`,
-`sandloom-redis` and `sandloom-celery` (the last two first ship in the
-coordinated release, run by hand). Use a manual release from `main` and include
-the compatible framework wheel in the same run or publish the framework first.
+A package's first release needs a pending Trusted Publisher on PyPI.
+`sandloom-redis` and `sandloom-celery` first shipped in the coordinated
+0.7.0a14 release, run by hand. A first release is a manual run from `main`. It
+includes the compatible framework wheel, or the framework is published first.
 
 The plan step also refuses publication from a feature branch or a tag whose
 commit is not reachable from `origin/main`. A tag must exactly match the selected
@@ -168,17 +168,20 @@ git tag sandloom-v0.7.0a14
 git push origin sandloom-v0.7.0a14
 ```
 
-The other tag prefixes are `sandloom-identity-v`, `sandloom-tenancy-v` and
-`sandloom-billing-v`. Every other package, such as `sandloom-standard`,
-releases through a manual run. No tag pattern of the environment allows its
-tag. Its `tag_release` is false in `packages.json`, so the plan step refuses
-that tag.
+The other tag prefixes are `sandloom-identity-v`, `sandloom-tenancy-v`,
+`sandloom-billing-v` and `sandloom-redis-v`. A driver package's tag releases
+that package alone, once the kernel version it requires is on PyPI (ADR-0016).
+The kernel's `redis` extra requires `sandloom-redis`, and `sandloom-redis`
+requires the kernel. The plan step refuses either tag while PyPI has neither at
+the new version. So a version bump of the two goes out through a manual run with
+`all`. A tag then releases a package whose sibling is already on PyPI.
+Every other package, such as `sandloom-standard`, releases through a manual
+run. No tag pattern of the environment allows its tag. Its `tag_release` is
+false in `packages.json`, so the plan step refuses that tag.
 
-A new driver package (`sandloom-redis`, `sandloom-celery`) is first released
-with `all`, after the version bump. Set its `tag_release` only after that
-release. The kernel and a driver package require each other. A version bump of
-both therefore goes out with `all`. A tag releases a package only when its
-sibling is already on PyPI at that version.
+A new driver package is first released with `all`, after the version bump. It
+gets its `tag_release` only after that release. `sandloom-redis` has it since
+its first release, 0.7.0a14; `sandloom-celery` has none yet.
 
 Pass `all` or the package name in the `package` input. A manual run can select
 `sandloom-admin` alone, and the owner's approval still gates its upload.

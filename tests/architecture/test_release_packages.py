@@ -223,6 +223,7 @@ def test_a_tag_push_is_refused_for_a_package_the_environment_does_not_allow(
         "sandloom",
         "sandloom-billing",
         "sandloom-identity",
+        "sandloom-redis",
         "sandloom-tenancy",
     ]
     result = run(
