@@ -264,17 +264,20 @@ POSTGRES_EXTRA = "postgres"
 #: an argument that is not a word (``*``, ``0-0``): a sentence that starts with
 #: a command name ("XADD is slow") is prose and passes. A whole-line command
 #: with lower-case arguments ("XLEN mystream", "XADD orders * a b") is still
-#: caught, for the distinctive commands only: one lower-case argument, or a later
-#: token that does not start with a letter (``*``, an id, a number). Limits, all
-#: by design of a spelling-only check, each pinned by a case of
-#: ``tests/architecture/test_release_packages.py``: ``XACK stream group id``
-#: (three plain lower-case words) reads as prose and passes; an all-caps
-#: sentence that starts with a command ("SCRIPT FAILED: see log") is flagged;
-#: and so is a prose sentence with a token that starts with a digit ("XADD is 10x
-#: slower", "XLEN is 0"), because an id or a count looks the same ("XACK s g
-#: 1-0"): a false alarm costs one reword, a miss lets protocol code into the
-#: kernel wheel. Reword the sentence ("XADD is ten times slower") or keep it in a
-#: comment or a docstring.
+#: caught, for the distinctive commands only: the name and exactly one more word
+#: (any), or the name and several words of which at least one starts with a
+#: character that is not a letter (``*``, an id, a digit, a parenthesis, a quote,
+#: a dash). Caught: "XLEN mystream", "XADD orders * a b", "XACK s g 1-0", and
+#: with them prose that has such a word ("XADD is 10x slower", "XLEN is 0", "XLEN
+#: (approximate) is bounded"), because an id or a count looks the same: an
+#: accepted false alarm, which costs one reword ("XADD is ten times slower") or a
+#: move into a comment or a docstring. Not caught: "XACK stream group id" (three
+#: plain lower-case words reads as prose, an accepted miss) and any prose whose
+#: later words all start with a letter ("XADD is slow."). An all-caps sentence that
+#: starts with ``SCRIPT`` or ``EVAL`` ("SCRIPT FAILED: see log") is flagged too. A
+#: false alarm costs one reword, a miss lets protocol code into the kernel wheel;
+#: a spelling-only check cannot do better. Each of these is pinned by a case of
+#: ``tests/architecture/test_release_packages.py``.
 _WIRE_COMMAND = re.compile(
     r"(?:(?i:X(?:ADD|READGROUP|READ|AUTOCLAIM|GROUP|ACK|DEL|TRIM|CLAIM|PENDING"
     r"|INFO|LEN|SETID|REVRANGE|RANGE)|EVALSHA(?:_RO)?)"

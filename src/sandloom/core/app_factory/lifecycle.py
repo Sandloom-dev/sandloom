@@ -299,7 +299,7 @@ def _make_lifespan(
     )
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # pragma: no cover
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Startup, the relay, consumers and shutdown run bound to this app's
         # core; the background tasks they start inherit the binding.
         with use_active_core(core_facade):
@@ -315,6 +315,10 @@ def _make_lifespan_body(
     module_summary: ModuleLoadSummary,
     consumer_runtime: Any,
 ) -> Callable[[FastAPI], Any]:
+    # Excluded from coverage as a whole, though the aborted start (the ``except``
+    # branch) is driven by test_startup_abort_closes_infra.py and a clean boot by
+    # test_quiet_boot.py: the relay start, the shutdown budget and a refused token
+    # role are reached by subprocess suites that no coverage run measures.
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:  # pragma: no cover
         try:
