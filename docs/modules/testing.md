@@ -318,11 +318,11 @@ A family missing any hook is refused when the harness loads it.
 
 **URL mover.** What a URL becomes for worker `gw<N>` is the family's, not the
 driver's. The family installs a *mover*, `(url, worker number) -> url`, with
-`sandloom.driverkit.testing_isolation.set_url_mover(family_name, mover)`; a
+`sandloom.driverkit.testing_isolation.set_url_mover(family_name, mover)`. A
 mover returns a URL it does not own unchanged. Movers are keyed by the family's
-name: each family has one (installing again replaces it, `None` removes it) and
-`isolated_url_options(options, worker_id, keys)`, which a driver's
-`test_isolation` hook calls, applies every installed mover in turn. With none
+name. Each family has one: installing again replaces it, and `None` removes it.
+`isolated_url_options(options, worker_id, keys)` applies every installed mover
+in turn. A driver's `test_isolation` hook calls it. With none
 installed the options come back unchanged.
 
 Every hook is a no-op for a process that cannot reach the backend: no client

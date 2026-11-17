@@ -218,9 +218,9 @@ An app on the standard stack changes nothing.
 
 `SANDLOOM_TEST_REDIS_DB_STRIDE` keeps its name: it is the Redis family's own variable. A
 `SANDLOOM_TEST_CACHE_URL` or `SANDLOOM_TEST_BROKER_URL` that no installed family owns is
-refused with `UnmatchedOverrideError`, where the kernel once accepted any Redis-shaped one;
-the same goes for an override value that is no URL of an installed backend (`unix:///tmp/r.sock`
-or `memcached://h` next to a Redis default), refused with a message that does not quote it.
+refused with `UnmatchedOverrideError`, where the kernel once accepted any Redis-shaped one.
+So is an override value that is no URL of an installed backend (`unix:///tmp/r.sock` or
+`memcached://h` next to a Redis default). The message does not quote it.
 Upgrade `sandloom-redis` and `sandloom-celery` with the kernel.
 
 ## Upgrading the Celery driver's connection checks

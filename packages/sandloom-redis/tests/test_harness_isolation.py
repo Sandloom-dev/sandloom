@@ -170,7 +170,9 @@ def test_the_redis_mover_is_keyed_by_the_family_name_and_shares_the_hook() -> No
     """The Redis mover is the one of the family named ``redis``: another
     family's mover beside it moves its own URLs and does not replace it."""
     assert redis_isolation.REDIS_FAMILY == redis_family.FAMILY.name
-    isolation.set_url_mover("amqp-test", lambda url, number: url.replace("amqp://", "amqp-w://"))
+    isolation.set_url_mover(
+        "amqp-test", lambda url, number: url.replace("amqp://", "amqp-w://")
+    )
     try:
         isolated = isolation.isolated_url_options(
             {"broker": "amqp://h/1", "backend": "redis://h/0"},
