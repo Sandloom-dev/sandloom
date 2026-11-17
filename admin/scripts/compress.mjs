@@ -15,6 +15,8 @@ if (problem) console.warn(`warning: ${problem}`);
 const dir = 'dist/assets';
 const TEXT = /\.(js|css|svg)$/;
 const MIN_BYTES = 1024;
+const GZIP_OS_BYTE = 9;
+const GZIP_OS_UNKNOWN = 255;
 let before = 0;
 let after = 0;
 for (const name of readdirSync(dir).filter((name) => TEXT.test(name))) {
@@ -28,6 +30,9 @@ for (const name of readdirSync(dir).filter((name) => TEXT.test(name))) {
     },
   });
   const gz = gzipSync(source, { level: 9 });
+  // The gzip header's OS byte (RFC 1952, offset 9) is the only byte the build OS changes: Node's
+  // zlib writes 19 on macOS and 3 on Linux. 255 ("unknown") makes the file the same everywhere.
+  gz[GZIP_OS_BYTE] = GZIP_OS_UNKNOWN;
   if (gz.length > source.length * 0.9) continue;
   writeFileSync(`${path}.br`, br);
   writeFileSync(`${path}.gz`, gz);
