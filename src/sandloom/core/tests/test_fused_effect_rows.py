@@ -365,7 +365,11 @@ async def test_a_uow_leaves_no_cyclic_garbage(
     # Count only cycles that involve objects these UoWs created: background
     # work left by earlier tests in the same xdist worker (pool disposal,
     # post-commit dispatch tasks) may produce unrelated cyclic garbage in
-    # this window, so a bare `gc.collect() == 0` is order-dependent.
+    # this window, so a bare `gc.collect() == 0` is order-dependent. An
+    # object alive before the window is not one of ours, whatever holds it:
+    # an earlier test's engine dying here takes its ReconnectBackoff (held by
+    # the engine's event listeners, not by an attribute) with it.
+    alive_before = {id(obj) for obj in gc.get_objects()}
     gc.set_debug(gc.DEBUG_SAVEALL)
     gc.disable()
     try:
@@ -382,7 +386,11 @@ async def test_a_uow_leaves_no_cyclic_garbage(
             for value in vars(obj).values()
         }
         ours = [
-            obj for obj in gc.garbage if _uow_owned(obj) and id(obj) not in on_engines
+            obj
+            for obj in gc.garbage
+            if _uow_owned(obj)
+            and id(obj) not in on_engines
+            and id(obj) not in alive_before
         ]
     finally:
         gc.set_debug(0)
