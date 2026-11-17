@@ -2046,6 +2046,7 @@
         "src/sandloom/core/tests/test_sqlite_nested_units.py",
         "src/sandloom/core/tests/test_sqlite_test_harness.py",
         "src/sandloom/core/tests/test_start_page.py",
+        "src/sandloom/core/tests/test_startup_abort_closes_infra.py",
         "src/sandloom/core/tests/test_startup_warm_fatal.py",
         "src/sandloom/core/tests/test_static_checks.py",
         "src/sandloom/core/tests/test_static_cli_no_env.py",

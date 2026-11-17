@@ -104,7 +104,9 @@ def _registry(
     return reg, opened, closed
 
 
-def _core(monkeypatch: pytest.MonkeyPatch, infra: InfraRegistry, *, is_prod: bool) -> CoreFacade:
+def _core(
+    monkeypatch: pytest.MonkeyPatch, infra: InfraRegistry, *, is_prod: bool
+) -> CoreFacade:
     monkeypatch.setattr(
         app_factory.lifecycle,
         "settings",
