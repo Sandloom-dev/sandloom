@@ -32,8 +32,10 @@ Steps, in order (all run; the summary lists each, exit 1 if any failed):
    migration-chain coverage (SANDLOOM-T002), redundant indexes (SANDLOOM-T012) and one
    beat per module with periodic tasks in each deploy profile (SANDLOOM-T010);
 2. ``<module>``: the module's own ``tests/`` (when a module is named);
-3. ``suite``: ``pytest -m "not slow" -n auto --dist loadfile`` with
-   ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto`` (``--full``: without ``-m "not slow"``;
+3. ``suite``: ``pytest -m "not slow" -n auto --dist loadfile`` with the
+   environment each harness family asks for a parallel run
+   (``HarnessFamily.parallel_env``; ``sandloom-redis``:
+   ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto``) (``--full``: without ``-m "not slow"``;
    serially, with a notice, when pytest-xdist is not installed);
 4. static gates: ``ruff check --no-fix`` (``--ci`` only), ``ruff format
    --check``, ``mypy``,
@@ -54,13 +56,13 @@ app. Tests need the project's test services and test env, like ``pytest``.
 Every step sees the SAME test environment, loaded once before the first step
 exactly as the pytest harness loads it (:func:`load_project_test_env`): on a
 checkout ``sandloom dev up`` prepared, the run's test-run slot first
-(:mod:`sandloom.core.testing.slots`: its own database, owner and Redis
-indexes, held until ``sandloom test`` exits), then the nearest ``.env.test``
+(:mod:`sandloom.core.testing.slots`: its own database, owner and backend
+resources, held until ``sandloom test`` exits), then the nearest ``.env.test``
 (override) and its ``.env.test.local``, then the ``SANDLOOM_TEST_*`` variables on top —
 so the in-process snapshot checks work on a checkout without ``.env``. Every
-xdist step (``-n``) gets ``SANDLOOM_TEST_REDIS_DB_STRIDE=auto`` unless the caller
-exported a stride, so parallel steps never collide with other runs' Redis
-indexes.
+xdist step (``-n``) gets each family's parallel-run environment unless the caller
+exported the names, so parallel steps never collide with other runs' backend
+resources.
 
 Not covered, framework tree only: the benchmark security suite
 (``benchmarks/tests``, CI job ``benchmarks-security``). It needs a superuser
@@ -92,6 +94,7 @@ from sandloom.core.composition import COMPOSITION_ROOT_ENV, composition_root_nam
 from sandloom.core.descriptors.module_names import installed_modules
 from sandloom.core.migrations.migrations import MigrationDependencyError
 from sandloom.core.testing.env import find_env_file, load_test_env
+from sandloom.core.testing.families import harness_families
 from sandloom.core.testing.slots import (
     SLOT_LOST_MESSAGE,
     SlotsExhausted,
@@ -149,8 +152,15 @@ def _run_command(step: Step, root: Path) -> int:
     return _tool_process.run_tool(step.argv, cwd=step.cwd or root, env=env).returncode
 
 
-#: Default for every pytest-xdist step (an exported value wins).
-_XDIST_ENV = {"SANDLOOM_TEST_REDIS_DB_STRIDE": "auto"}
+def _parallel_env() -> dict[str, str]:
+    """Defaults for every pytest-xdist step (an exported value wins): what each
+    harness family needs of a parallel run (its ``parallel_env`` hook), so that
+    parallel steps never collide with other runs' backend resources."""
+    env: dict[str, str] = {}
+    for family in harness_families():
+        env.update(family.parallel_env())
+    return env
+
 #: Outside ``--ci`` the tests record the effects each route ran (G-ROUTE-05),
 #: which ``sandloom routes snapshot --write`` attaches as observed_effects.
 _OBSERVE_ENV = {"SANDLOOM_TEST_OBSERVE_EFFECTS": "1"}
@@ -201,14 +211,14 @@ def _xdist_step(
     xdist_args: list[str],
     tail: tuple[str, ...] = (),
 ) -> Step:
-    """A pytest-xdist step: ``argv + xdist_args + tail``, with the stride
-    default (see module doc).
+    """A pytest-xdist step: ``argv + xdist_args + tail``, with the families'
+    parallel-run defaults (see module doc).
 
     Without xdist the step runs serially: ``xdist_args`` (``-n`` /
     ``--dist``) are left out, so pytest does not refuse them (exit 4)."""
     if not xdist:
         return Step(name, [*argv, *tail])
-    return Step(name, [*argv, *xdist_args, *tail], env=dict(_XDIST_ENV))
+    return Step(name, [*argv, *xdist_args, *tail], env=_parallel_env())
 
 
 def _module_tests(root: Path, module: str) -> Path | None:

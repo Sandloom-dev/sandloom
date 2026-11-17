@@ -325,7 +325,7 @@ The Redis family is the one `sandloom-redis` registers. `sandloom.core.testing` 
 Redis half:
 
 - The functions `redis_family`, `redis_isolation` and `redis_urls` are gone from it.
-  `Slot.redis_urls` stays: the urls the held slot claimed.
+  `Slot.redis_urls` is now `Slot.family_urls`: the urls the held slot claimed.
 - The Redis ownership claim (`claim_redis`, `REDIS_OWNER_KEY`, `REDIS_LAST_USED_KEY`) is
   in `sandloom_redis.testing.ownership`.
 - The scan, prune and allocation of Redis indexes (`scan_redis`, `prune_redis`,

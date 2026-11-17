@@ -49,7 +49,7 @@ from sandloom.driverkit import (
 from sandloom.driverkit.shared_endpoints import redis_endpoint
 from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
-from sandloom.driverkit.testing_isolation import isolated_redis_options
+from sandloom.driverkit.testing_isolation import isolated_url_options
 from sandloom_celery.backup import broker_hint
 from sandloom_celery.broker_probe import BrokerUnreachableError, probe_broker
 from sandloom_celery.connection_policy import ConnectionOptions, validate_connection
@@ -193,7 +193,7 @@ class CeleryTaskQueueProvider(TaskQueueProvider):
     ) -> Mapping[str, Any]:
         """Another database index of the Redis ``broker`` and ``backend`` URLs
         for each xdist worker (a ``memory://`` broker needs none)."""
-        return isolated_redis_options(options, worker_id, keys=("broker", "backend"))
+        return isolated_url_options(options, worker_id, keys=("broker", "backend"))
 
     @classmethod
     def backup_hint(cls, options: Mapping[str, Any]) -> BackupHint | None:

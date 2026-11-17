@@ -90,7 +90,7 @@ from sandloom.driverkit.atomic_store import (
 from sandloom.driverkit.shared_endpoints import redis_endpoint
 from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
-from sandloom.driverkit.testing_isolation import isolated_redis_options
+from sandloom.driverkit.testing_isolation import isolated_url_options
 from sandloom_redis._errors import map_redis_error
 from sandloom_redis._eviction_guard import (
     NOEVICTION,
@@ -375,7 +375,7 @@ class RedisAtomicStoreProvider(AtomicStoreProvider):
         """Another database index of the configured URL for each xdist worker
         (the security store lives on the cache's database in a suite: the worker's
         marks and blocks stay apart from every other worker's)."""
-        return isolated_redis_options(options, worker_id)
+        return isolated_url_options(options, worker_id)
 
     @classmethod
     def backup_hint(cls, options: Mapping[str, Any]) -> BackupHint | None:

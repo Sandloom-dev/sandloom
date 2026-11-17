@@ -62,7 +62,7 @@ from sandloom.driverkit.lease_limits import (
 from sandloom.driverkit.shared_endpoints import redis_endpoint
 from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
-from sandloom.driverkit.testing_isolation import isolated_redis_options
+from sandloom.driverkit.testing_isolation import isolated_url_options
 from sandloom_redis._errors import map_redis_error
 from sandloom_redis._eviction_guard import (
     POLICY_SETTING,
@@ -146,7 +146,7 @@ class RedisLeaseProvider(LeaseProvider):
         cls, options: Mapping[str, Any], worker_id: str
     ) -> Mapping[str, Any]:
         """Another database index of the configured URL for each xdist worker."""
-        return isolated_redis_options(options, worker_id)
+        return isolated_url_options(options, worker_id)
 
     def __init__(
         self,

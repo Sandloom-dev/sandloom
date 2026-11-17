@@ -48,9 +48,9 @@ pytestmark = pytest.mark.subprocess_probe
 def _default_layout() -> Iterator[None]:
     """The layout is process state the harness sets: each test starts and ends
     on the default one."""
-    isolation.set_worker_layout()
+    redis_isolation.use_layout()
     yield
-    isolation.set_worker_layout()
+    isolation.set_url_mover(None)
 
 
 REDIS_DRIVERS: tuple[tuple[type[InfraProvider], str], ...] = (
@@ -85,7 +85,7 @@ def test_redis_driver_hook_moves_the_database_index(
     isolated = driver.test_isolation(options, worker)
     number = int(worker[2:])
     assert isolated[key] == (
-        f"redis://cache.internal:6379/{3 + isolation.DEFAULT_STRIDE * (number + 1)}"
+        f"redis://cache.internal:6379/{3 + redis_isolation.DEFAULT_STRIDE * (number + 1)}"
     )
     assert isolated["pool"] == 5
     assert options[key] == "redis://cache.internal:6379/3"  # the input is not mutated
@@ -123,9 +123,52 @@ def test_redis_driver_hook_ignores_a_worker_id_that_is_not_gw_n() -> None:
     assert redis_cache.RedisCacheProvider.test_isolation(options, "master") is options
 
 
+def test_the_layout_keeps_everything_but_the_index() -> None:
+    """Moved from the kernel's ``test_testing_workers.py`` with the URL layout."""
+    stride = redis_isolation.DEFAULT_STRIDE
+    assert (
+        redis_isolation.worker_redis_url("redis://:pw@h:1", 0, stride)
+        == "redis://:pw@h:1/16"
+    )
+    assert (
+        redis_isolation.worker_redis_url("rediss://h:1/3?x=1", 1, stride)
+        == "rediss://h:1/35?x=1"
+    )
+    # a socket path is no plain index: it is left as it is
+    sock = "redis+unix:///var/run/redis.sock"
+    assert redis_isolation.worker_redis_url(sock, 0, stride) == sock
+
+
+def test_replacement_workers_get_the_spares_then_a_shared_slot(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Moved from the kernel's ``test_testing_worker_spares.py``: a worker that
+    replaces a crashed one gets an allocated spare, else a shared slot with a
+    warning, never a conftest import failure."""
+    mapped = redis_isolation.mapped_redis_url
+    mapping = {14: [0, 1, 2, 3, 8, 9]}  # 4 workers + 2 spares
+    assert mapped("redis://r:6379/14", 2, mapping) == "redis://r:6379/2"
+    assert mapped("redis://r:6379/14", 4, mapping) == "redis://r:6379/8"
+    assert mapped("redis://r:6379/14", 5, mapping) == "redis://r:6379/9"
+    assert mapped("redis://r:6379/14", 7, mapping) == "redis://r:6379/1"
+    assert "sharing gw1's index 1" in capsys.readouterr().err
+    with pytest.raises(RuntimeError, match="no Redis index allocated"):
+        mapped("redis://r:6379/15", 0, mapping)
+
+
+def test_the_redis_mover_leaves_the_urls_of_other_backends_alone() -> None:
+    """A task queue's ``broker`` may be another backend's URL: the mover the
+    family installs moves Redis ones only."""
+    options = {"broker": "amqp://h/1", "backend": "redis://h/0"}
+    isolated = isolation.isolated_url_options(
+        options, "gw0", keys=("broker", "backend")
+    )
+    assert isolated == {"broker": "amqp://h/1", "backend": "redis://h/16"}
+
+
 def test_hook_keys_name_the_options_holding_a_url() -> None:
     options = {"broker": "redis://h/1", "backend": "redis://h/0", "other": "x"}
-    isolated = isolation.isolated_redis_options(
+    isolated = isolation.isolated_url_options(
         options, "gw1", keys=("broker", "backend")
     )
     assert isolated == {
@@ -138,7 +181,7 @@ def test_hook_keys_name_the_options_holding_a_url() -> None:
 def test_celery_taskqueue_hook_moves_broker_and_backend() -> None:
     options = {"broker": "redis://h:6380/1", "backend": "redis://h:6380/0", "x": 1}
     isolated = CeleryTaskQueueProvider.test_isolation(options, "gw2")
-    stride = isolation.DEFAULT_STRIDE * 3
+    stride = redis_isolation.DEFAULT_STRIDE * 3
     assert isolated == {
         "broker": f"redis://h:6380/{1 + stride}",
         "backend": f"redis://h:6380/{stride}",
@@ -159,7 +202,7 @@ def test_the_harness_moves_the_broker_through_the_celery_hook(worker: str) -> No
     base = "redis://127.0.0.1:6380/1"
     number = int(worker[2:])
     env = {workers.WORKER_ENV: worker}
-    expected = f"redis://127.0.0.1:6380/{1 + isolation.DEFAULT_STRIDE * (number + 1)}"
+    expected = f"redis://127.0.0.1:6380/{1 + redis_isolation.DEFAULT_STRIDE * (number + 1)}"
     moved = _harness_url(
         base, env, capability="taskqueue", driver="celery", option="broker"
     )

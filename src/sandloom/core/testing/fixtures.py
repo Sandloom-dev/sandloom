@@ -87,7 +87,7 @@ import sandloom.core.testing as _testing
 import sandloom.core.testing.env as _env
 from sandloom.core.testing import isolation
 from sandloom.core.testing.auth import make_user_headers
-from sandloom.core.testing.families import harness_families
+from sandloom.core.testing.families import INFRA_VAR, harness_families, parse_infra
 from sandloom.core.testing.infra import (
     DB_FEATURE_MARKER,
     db_feature_skip_reason,
@@ -305,6 +305,24 @@ def _configured_driver(core: Any, capability: str, fallback: str) -> str:
     return str(getattr(config, "driver", None) or fallback)
 
 
+def _cache_driver(core: Any) -> str:
+    """The driver of the ``default`` cache: the application's, else the one the
+    test environment's ``INFRA`` names next to the cache url (an app imported
+    before ``.env.test`` was loaded has the stale snapshot). Raises when neither
+    names one: no driver is guessed."""
+    config = core.infra.instance_config("cache")
+    declared = (
+        parse_infra(os.environ.get(INFRA_VAR)).get("cache", {}).get("default", {})
+    ).get("driver")
+    driver = (config.driver if config is not None else None) or declared
+    if not driver:
+        raise RuntimeError(
+            "no test cache driver: set INFRA's cache.default.driver in "
+            f"{ENV_FILE} (next to its url), or select one in the composition"
+        )
+    return str(driver)
+
+
 def _required_env(name: str) -> str:
     value = os.getenv(name)
     if not value:
@@ -318,8 +336,10 @@ def sandloom_core(sandloom_app: Any) -> Any:
     return sandloom_app.state.core
 
 
-async def _security_store_on_cache(stack: AsyncExitStack, core: Any, url: str) -> None:
-    """Point the implicit development ``security`` store at the test Redis too.
+async def _security_store_on_cache(
+    stack: AsyncExitStack, core: Any, url: str, cache_driver: str
+) -> None:
+    """Point the implicit development ``security`` store at the test cache too.
 
     The synthesized ``atomic_store.security`` instance (no ``INFRA`` entry)
     carries no url of its own: nothing is inherited from the cache any more. The
@@ -329,10 +349,12 @@ async def _security_store_on_cache(stack: AsyncExitStack, core: Any, url: str) -
     fixture that moves the ``cache`` instance onto the test URL gives the
     synthesized store that same URL, so revocation marks, blocks and idempotency
     keys the app writes land in the database the test reads and flushes. An
-    instance the configuration declares (``INFRA``) is left alone.
+    instance the configuration declares (``INFRA``) is left alone, and so is a
+    synthesized one on another driver than the cache's (the cache url is no URL
+    of that backend).
     """
     config = core.infra.instance_config("atomic_store", "security")
-    if config is None or not config.implicit or config.driver != "redis":
+    if config is None or not config.implicit or config.driver != cache_driver:
         return
     await stack.enter_async_context(
         override_instance(
@@ -359,21 +381,21 @@ async def sandloom_cache(sandloom_core: Any) -> AsyncIterator[Any]:
 
     The url is the ``INFRA`` instance ``cache.default``'s (the harness merges
     ``SANDLOOM_TEST_CACHE_URL`` into it). Yields the ``CacheProvider`` the app
-    itself resolves (``core.cache()``, rate limits). The Redis database is
-    FLUSHDB'd before the test so keys never leak between tests — so that url
-    must name a disposable test database. Also needed where the app was
+    itself resolves (``core.cache()``, rate limits). The cache is emptied
+    before the test (by the harness family that owns its driver) so keys never
+    leak between tests — so that url must name a disposable test database. Also needed where the app was
     imported before ``.env.test`` was loaded (its settings snapshot names
     another cache), as in the framework's own suite. The implicit development
     ``security`` store (revocation marks, blocks, idempotency) follows it onto
     the same database.
     """
-    driver = _configured_driver(sandloom_core, "cache", "redis")
+    driver = _cache_driver(sandloom_core)
     url = resolved_cache_url()
     async with AsyncExitStack() as stack:
         registry = await stack.enter_async_context(
             override_instance(sandloom_core, "cache", driver=driver, url=url)
         )
-        await _security_store_on_cache(stack, sandloom_core, url)
+        await _security_store_on_cache(stack, sandloom_core, url, driver)
         provider = registry.provider("cache")
         await flush_owned_cache(provider)
         yield provider
@@ -406,19 +428,19 @@ async def real_uow_client(
         )
     async with AsyncExitStack() as stack:
         cache_url = resolved_cache_url()
-        for capability, url, fallback in (
-            ("database", _required_env("DATABASE_URL"), "sqlalchemy"),
-            ("cache", cache_url, "redis"),
+        cache_driver = _cache_driver(sandloom_core)
+        for capability, url, driver in (
+            (
+                "database",
+                _required_env("DATABASE_URL"),
+                _configured_driver(sandloom_core, "database", "sqlalchemy"),
+            ),
+            ("cache", cache_url, cache_driver),
         ):
             await stack.enter_async_context(
-                override_instance(
-                    sandloom_core,
-                    capability,
-                    driver=_configured_driver(sandloom_core, capability, fallback),
-                    url=url,
-                )
+                override_instance(sandloom_core, capability, driver=driver, url=url)
             )
-        await _security_store_on_cache(stack, sandloom_core, cache_url)
+        await _security_store_on_cache(stack, sandloom_core, cache_url, cache_driver)
         http = await stack.enter_async_context(
             httpx.AsyncClient(
                 transport=httpx.ASGITransport(

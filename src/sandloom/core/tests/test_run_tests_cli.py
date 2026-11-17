@@ -9,6 +9,8 @@ import pytest
 
 from sandloom.core.archcheck.runner import Violation
 from sandloom.core.cli import check, run_tests
+from sandloom.core.testing import families
+from sandloom.core.tests.test_testing_families import FakeFamily
 
 
 def _names(steps: list[run_tests.Step]) -> list[str]:
@@ -111,6 +113,27 @@ def test_every_step_runs_and_the_summary_names_the_failures(
     text = run_tests.summary(outcomes)
     assert "FAIL (exit 1)" in text and "sandloom explain SANDLOOM-T001" in text
     assert text.rstrip().endswith("sandloom test: FAILED (route snapshots)")
+
+
+def test_the_parallel_steps_get_the_environment_every_family_asks_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The kernel names no backend variable: an xdist step carries what each
+    harness family's ``parallel_env`` says, and a serial one carries none of it."""
+    monkeypatch.setattr(families, "_loaded", (FakeFamily(),))
+    parallel = run_tests.plan(
+        tmp_path, None, full=False, gates=False, workers="2", xdist=True
+    )
+    assert parallel[-1].env["FAKE_PARALLEL"] == "1"
+    serial = run_tests.plan(
+        tmp_path, None, full=False, gates=False, workers="2", xdist=False
+    )
+    assert "FAKE_PARALLEL" not in serial[-1].env
+    monkeypatch.setattr(families, "_loaded", ())
+    bare = run_tests.plan(
+        tmp_path, None, full=False, gates=False, workers="2", xdist=True
+    )
+    assert "FAKE_PARALLEL" not in bare[-1].env
 
 
 def test_an_exported_stride_wins_over_the_step_default(

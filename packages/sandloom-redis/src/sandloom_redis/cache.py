@@ -58,7 +58,7 @@ from sandloom.driverkit.atomic_store import MAX_KEY_BYTES, MAX_TTL_SECONDS
 from sandloom.driverkit.shared_endpoints import redis_endpoint
 from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
-from sandloom.driverkit.testing_isolation import isolated_redis_options
+from sandloom.driverkit.testing_isolation import isolated_url_options
 from sandloom_redis._errors import map_redis_error
 from sandloom_redis._url import require_url
 from sandloom_redis.backup import cache_hint
@@ -440,7 +440,7 @@ class RedisCacheProvider(CacheProvider):
         cls, options: Mapping[str, Any], worker_id: str
     ) -> Mapping[str, Any]:
         """Another database index of the configured URL for each xdist worker."""
-        return isolated_redis_options(options, worker_id)
+        return isolated_url_options(options, worker_id)
 
     @classmethod
     def backup_hint(cls, options: Mapping[str, Any]) -> BackupHint | None:

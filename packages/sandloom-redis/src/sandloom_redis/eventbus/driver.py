@@ -31,7 +31,7 @@ from sandloom.driverkit.eventbus_support import (
 from sandloom.driverkit.shared_endpoints import redis_endpoint
 from sandloom.driverkit.shared_endpoints import register as register_endpoint
 from sandloom.driverkit.shared_endpoints import unregister as unregister_endpoint
-from sandloom.driverkit.testing_isolation import isolated_redis_options
+from sandloom.driverkit.testing_isolation import isolated_url_options
 from sandloom_redis._url import require_url
 from sandloom_redis.backup import streams_hint
 from sandloom_redis.eventbus.streams_transport import RedisStreamsTransport
@@ -242,7 +242,7 @@ class StreamsEventBusProvider(RedisStreamsTransport, EventTransportProvider):
         cls, options: Mapping[str, Any], worker_id: str
     ) -> Mapping[str, Any]:
         """Another database index of the configured URL for each xdist worker."""
-        return isolated_redis_options(options, worker_id)
+        return isolated_url_options(options, worker_id)
 
     async def aopen(self) -> None:
         # An instance with no ``url`` runs on the default cache client (see

@@ -141,6 +141,27 @@ class RedisFamily:
         await flush_owned_redis(await provider.redis_client())
         return True
 
+    def owns_url(self, url: str) -> bool:
+        return is_redis_url(url)
+
+    def same_database(self, stated: str, base: str) -> bool:
+        """Same scheme, authority, query and database index (a URL without a path
+        is database 0)."""
+        a, b = urlsplit(stated), urlsplit(base)
+        return (a.scheme, a.netloc, a.path.strip("/") or "0", a.query) == (
+            b.scheme,
+            b.netloc,
+            b.path.strip("/") or "0",
+            b.query,
+        )
+
+    def parallel_env(self) -> dict[str, str]:
+        if not redis_client_installed():
+            return {}  # this run reaches no Redis: nothing to allocate
+        from sandloom_redis.testing import isolation
+
+        return {isolation.REDIS_STRIDE_ENV: isolation.REDIS_STRIDE_AUTO}
+
     @staticmethod
     def _auto() -> bool:
         """``SANDLOOM_TEST_REDIS_DB_STRIDE=auto`` on a process that can reach a

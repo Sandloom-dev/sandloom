@@ -13,6 +13,7 @@ import types
 from collections.abc import Iterable, Mapping, MutableMapping
 from importlib import metadata
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -72,6 +73,47 @@ class FakeFamily:
     async def flush_owned(self, provider: object) -> bool:
         self.calls.append(("flush_owned", provider))
         return True
+
+    def owns_url(self, url: str) -> bool:
+        return False
+
+    def same_database(self, stated: str, base: str) -> bool:
+        return False
+
+    def parallel_env(self) -> dict[str, str]:
+        return {"FAKE_PARALLEL": "1"}
+
+
+class UrlFamily(FakeFamily):
+    """A stand-in family that owns the URLs of one scheme (default ``redis://``,
+    the shape of the real backend's) and calls two of them the same database
+    when everything but a missing path matches (a missing path is database 0)."""
+
+    def __init__(self, scheme: str = "redis://") -> None:
+        super().__init__("urls")
+        self.scheme = scheme
+
+    def rewrite_worker(
+        self,
+        values: Mapping[str, str | None],
+        environ: Mapping[str, str],
+        worker_id: str,
+        number: int,
+    ) -> dict[str, str]:
+        return {}
+
+    def owns_url(self, url: str) -> bool:
+        return url.startswith(self.scheme)
+
+    def same_database(self, stated: str, base: str) -> bool:
+        def key(url: str) -> tuple[str, str, str, str]:
+            parts = urlsplit(url)
+            return parts.scheme, parts.netloc, parts.path.strip("/") or "0", parts.query
+
+        return key(stated) == key(base)
+
+    def parallel_env(self) -> dict[str, str]:
+        return {}
 
 
 class Incomplete:
@@ -331,7 +373,7 @@ def _slot() -> slots.Slot:
 _CACHE = {"SANDLOOM_TEST_CACHE_URL": "redis://h/1"}
 
 
-def test_a_broken_family_is_not_reported_as_redis_being_full(only: Any) -> None:
+def test_a_broken_family_is_not_reported_as_a_backend_being_full(only: Any) -> None:
     class Broken(FakeFamily):
         def slot_bases(
             self,
@@ -362,9 +404,9 @@ def test_a_full_backend_is_reported_and_the_run_goes_on(
     only(Full())
     slot = _slot()
     slots._point_at(slot, dict(_CACHE), {}, True)
-    assert "no own Redis indexes (full)" in capsys.readouterr().err
+    assert "no own backend resources (full)" in capsys.readouterr().err
     assert slot.claimed_urls == ()
-    assert slot.redis_urls == _CACHE
+    assert slot.family_urls == _CACHE
 
 
 def test_another_failure_of_a_family_still_raises(only: Any) -> None:
