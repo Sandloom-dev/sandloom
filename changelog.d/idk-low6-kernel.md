@@ -1,6 +1,6 @@
 ### Added
 
-- **A driver can declare which capabilities open before it** (idk-low6-kernel). `InfraProvider.opens_after` is a tuple of capability names; startup opens their instances first, whatever order `INFRA` lists them in, and refuses two drivers that wait for each other. A driver that declares nothing keeps the order of `INFRA`. A driver for a url-less bus that runs on the default cache client declares `("cache",)`.
+- **A driver can declare which capabilities open before it** (idk-low6-kernel). `InfraProvider.opens_after` is a tuple of capability names; startup opens their instances first, whatever order `INFRA` lists them in, and refuses two drivers that wait for each other. A driver whose `opens_after` is not a tuple of capability names, or names its own capability, is refused at load (SANDLOOM-B022). A driver that declares nothing keeps the order of `INFRA`. A driver for a url-less bus that runs on the default cache client declares `("cache",)`.
 
 ### Changed
 

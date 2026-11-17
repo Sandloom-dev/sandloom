@@ -732,9 +732,12 @@ class InfraRegistry:
                 provider_class = self._installed_class(
                     capability, self._config[capability][name].driver
                 )
-            except DriverLoadError:
-                # Nothing to order by: opening the instance reports the same
-                # failure (SANDLOOM-B022) in its place, as it always did.
+            except CapabilityError:
+                # A driver class refused at load (SANDLOOM-B022: it does not
+                # import, a feature or a declaration is invalid). Nothing to
+                # order by: opening the instance reports the same failure in
+                # its place, as it always did, and the healthy ones still open
+                # under a non-strict startup.
                 continue
             if provider_class is not None:
                 needs[(capability, name)] = provider_class.opens_after
@@ -742,9 +745,7 @@ class InfraRegistry:
         while pending:
             waiting = {capability for capability, _ in pending}
             ready = [
-                key
-                for key in pending
-                if not any(c in waiting and c != key[0] for c in needs[key])
+                key for key in pending if not any(c in waiting for c in needs[key])
             ]
             if not ready:
                 raise InfraStartupError(
@@ -2005,8 +2006,9 @@ def check_driver_class(
 
 
 def _check_opens_after(key: str, provider_class: type[InfraProvider]) -> None:
-    """``opens_after`` is a tuple of capability names (SANDLOOM-B022): a bare
-    string iterates by character and would order nothing, silently."""
+    """``opens_after`` is a tuple of capability names other than the driver's
+    own (SANDLOOM-B022): a bare string iterates by character and would order
+    nothing, silently, and a capability waiting for itself would be dropped."""
     opens_after = provider_class.opens_after
     if not isinstance(opens_after, tuple) or any(
         not isinstance(name, str) or not name.isidentifier() for name in opens_after
@@ -2015,6 +2017,12 @@ def _check_opens_after(key: str, provider_class: type[InfraProvider]) -> None:
             f"Driver {key!r} declares opens_after {opens_after!r}: it is a tuple "
             "of capability names",
             fix='set opens_after to a tuple such as ("cache",), never a bare string',
+        )
+    if key.partition(".")[0] in opens_after:
+        raise DriverLoadError(
+            f"Driver {key!r} declares opens_after {opens_after!r}, which names its "
+            "own capability: instances of one capability open in INFRA's order",
+            fix="name the other capabilities this driver reads state from",
         )
 
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 import importlib.util
 import socket
 import sys
+import types
 from pathlib import Path
 from typing import Any
 
@@ -488,6 +489,41 @@ def test_opens_after_a_tuple_of_names_is_accepted() -> None:
     driver = registry.driver_class("eventbus", "bus")
     assert driver is not None
     assert driver.opens_after == ("cache", "lease")
+
+
+def test_opens_after_may_not_name_the_drivers_own_capability() -> None:
+    """Instances of one capability open in INFRA's order: a driver waiting for
+    its own capability would be ordered by nothing, so it is refused at load."""
+    registry, _ = _registry(_instance("cache", "kv"))
+    with pytest.raises(DriverLoadError, match="own capability"):
+        registry.register_driver(
+            "cache", "kv", _class_driver("cache", opens_after=("cache",))
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("strict", [False, True])
+async def test_a_lazy_driver_class_refused_at_load_does_not_stop_the_ordering(
+    monkeypatch: pytest.MonkeyPatch, strict: bool
+) -> None:
+    """Ordering reads each driver's class. A class the registry refuses (here a
+    feature the capability does not define, SANDLOOM-B022 family) is left to
+    the open of its own instance, which reports it: under a non-strict startup
+    the healthy instances still open, under a strict one the startup fails."""
+    bad = _class_driver("taskqueue", supported_features=frozenset({"unknown"}))
+    module = types.ModuleType("sandloom_opens_after_lazy_driver")
+    module.BadDriver = bad  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    registry, _ = _registry(_instance("taskqueue", "jobs"), _instance("cache", "kv"))
+    registry.register_driver("taskqueue", "jobs", f"{module.__name__}:BadDriver")
+    registry.register_driver("cache", "kv", _class_driver("cache"))
+
+    if strict:
+        with pytest.raises(InfraStartupError, match="taskqueue/default"):
+            await registry.aopen_all(strict=True)
+    else:
+        await registry.aopen_all(strict=False)
+    assert _Provider.opened == ["cache/default"]
 
 
 @pytest.mark.asyncio
