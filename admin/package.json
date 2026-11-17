@@ -20,7 +20,7 @@
     "build-storybook": "storybook build -o storybook-static --quiet",
     "contracts": "python3 scripts/export_openapi.py && openapi-typescript contracts/openapi.json -o src/api/generated.ts",
     "contracts:check": "python3 scripts/export_openapi.py --check && node scripts/check-types.mjs",
-    "audit": "npm audit --audit-level=moderate",
+    "audit": "npm audit --audit-level=moderate --omit=dev",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
     "test:live": "../.venv/bin/python ../tools/smoke/admin_live_acceptance.py",

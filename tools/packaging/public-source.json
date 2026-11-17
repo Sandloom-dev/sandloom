@@ -3131,6 +3131,7 @@
         "THIRD_PARTY.md",
         "architecture_rules.yml",
         "changelog.d/README.md",
+        "changelog.d/admin-npm-audit-picomatch.md",
         "changelog.d/sandloom-celery/redis-out-batch-a.md",
         "changelog.d/sandloom-celery/redis-out-runtime.md",
         "changelog.d/sandloom-redis/idk-low6-kernel.md",
