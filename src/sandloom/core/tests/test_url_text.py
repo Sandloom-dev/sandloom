@@ -94,6 +94,18 @@ def test_mask_leaves_a_url_without_credentials_alone() -> None:
     assert url_text.mask_url_credentials(text) == text
 
 
+@pytest.mark.parametrize(
+    "prefix",
+    ["\x1b[35m", "foo_", "x", "9"],
+    ids=["ansi-colour", "underscore", "letter", "digit"],
+)
+def test_a_url_glued_to_the_text_before_it_is_still_caught(prefix: str) -> None:
+    """A coloured traceback line (FORCE_COLOR) or a name glued to the scheme."""
+    text = f"{prefix}redis://u:hunter2@h/0"
+    assert "hunter2" not in url_text.mask_url_credentials(text)
+    assert "hunter2" not in url_text.drop_urls(text)
+
+
 def test_the_module_imports_no_settings() -> None:
     """The dev CLI reads no settings; so does this module."""
     code = (

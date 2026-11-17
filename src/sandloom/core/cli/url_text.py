@@ -19,8 +19,8 @@ _SCHEME = r"[A-Za-z][A-Za-z0-9+.\-]*://"
 #: What can stand between ``scheme://`` and the ``@`` that ends the credentials.
 _USERINFO = rf"(?:(?!{_SCHEME})[^\n])*"
 
-_CREDENTIALS = re.compile(rf"(\b{_SCHEME})({_USERINFO})@")
-_WHOLE_URL = re.compile(rf"\b{_SCHEME}(?:{_USERINFO}@)?\S*")
+_CREDENTIALS = re.compile(rf"({_SCHEME})({_USERINFO})@")
+_WHOLE_URL = re.compile(rf"{_SCHEME}(?:{_USERINFO}@)?\S*")
 _QUERY_SECRET = re.compile(
     r"([?&;](?:password|passwd|pwd|secret|token|key|api_key|apikey|access_key"
     r"|auth|credentials?)=)[^&#\s]*",
